@@ -150,7 +150,7 @@ Builds are attached to [GitHub Releases](https://github.com/Cha0s1nc/Cascade-Pro
 
 ## License
 
-[GPL-3.0](LICENSE) © 2025 cha0s
+[GPL-3.0](LICENSE) © 2026 cha0s
 
 ---
 
