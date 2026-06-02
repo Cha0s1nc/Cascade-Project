@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cascade</title>
+  <style>
+    :root {
+      --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      --bg: #111113; --surface: #1c1c1e; --surface2: #2c2c2e; --border: #3a3a3c;
+      --accent: #6e4ff6; --accent-glow: rgba(110,79,246,0.25);
+      --text: #f5f5f7; --text2: #aeaeb2; --text3: #636366;
+      --grad: linear-gradient(160deg, #4ade80 0%, #7c3aed 100%);
+      --green: #32d74b; --red: #ff453a; --yellow: #ffd60a;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; height: 100vh; overflow: hidden; -webkit-font-smoothing: antialiased; }
+    .app { display: flex; flex-direction: column; height: 100vh; }
+
+    /* ── Titlebar ── */
+    .titlebar { height: 38px; flex-shrink: 0; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 16px 0 80px; -webkit-app-region: drag; user-select: none; }
+    .tb-right { display: flex; align-items: center; gap: 8px; -webkit-app-region: no-drag; }
+    .tb-title { font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
+    .ws-pill { display: flex; align-items: center; gap: 5px; background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; padding: 3px 10px 3px 7px; font-size: 11px; color: var(--text2); }
+    .ws-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--red); transition: background 0.3s, box-shadow 0.3s; }
+    .ws-dot.connected { background: var(--green); box-shadow: 0 0 6px var(--green); }
+
+    /* ── Body wrap ── */
+    .body-wrap { flex: 1; display: flex; position: relative; overflow: hidden; }
+
+    /* ── Sidebar ── */
+    .sidenav { position: absolute; left: 0; top: 0; bottom: 0; width: 48px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 8px 0; overflow: hidden; transition: width 0.18s cubic-bezier(0.4,0,0.2,1); z-index: 20; }
+    .sidenav.expanded { width: 220px; box-shadow: 4px 0 20px rgba(0,0,0,0.3); }
+    .nav-item { position: relative; display: flex; align-items: center; margin: 2px 6px; padding: 8px 5px; border-radius: 7px; cursor: pointer; white-space: nowrap; min-height: 36px; overflow: hidden; transition: background 0.12s; color: var(--text3); }
+    .nav-item:hover { background: rgba(255,255,255,0.05); color: var(--text2); }
+    .nav-item.active { background: rgba(255,255,255,0.06); color: var(--text); }
+    .nav-bar { position: absolute; left: -6px; top: 7px; bottom: 7px; width: 3px; border-radius: 0 2px 2px 0; background: var(--grad); opacity: 0; transition: opacity 0.15s; margin-left: 0; }
+    .nav-item.active .nav-bar { opacity: 1; }
+    .nav-icon { font-size: 15px; width: 26px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .nav-info { max-width: 0; overflow: hidden; opacity: 0; transition: max-width 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.15s 0.04s; }
+    .sidenav.expanded .nav-info { max-width: 160px; opacity: 1; margin-left: 10px; }
+    .nav-label { font-size: 13px; font-weight: 500; color: var(--text); white-space: nowrap; }
+    .nav-spacer { flex: 1; }
+
+    /* Backdrop dims main when sidebar is open */
+    .backdrop { position: absolute; left: 48px; top: 0; right: 0; bottom: 0; background: transparent; pointer-events: none; transition: background 0.2s; z-index: 15; }
+    .backdrop.dim { background: rgba(0,0,0,0.52); pointer-events: all; }
+
+    /* ── Main area ── */
+    .main { margin-left: 48px; flex: 1; display: flex; flex-direction: column; overflow: hidden; z-index: 1; }
+    .view { display: none; flex: 1; min-height: 0; overflow-y: auto; padding: 22px 22px 12px; }
+    .view::-webkit-scrollbar { width: 4px; }
+    .view::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    .view.active { display: block; }
+
+    /* ── Home view ── */
+    .greeting { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 20px; }
+    .sect-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; }
+    .sect-title { font-size: 10px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.07em; }
+    .sect-more { font-size: 11px; font-weight: 500; background: var(--grad); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; cursor: pointer; border: none; background-color: transparent; }
+
+    /* Recently played */
+    .rp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 22px; }
+    .rp-item { display: flex; align-items: center; gap: 9px; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; padding: 8px 10px; cursor: pointer; transition: background 0.12s; overflow: hidden; }
+    .rp-item:hover { background: var(--surface2); }
+    .rp-art { width: 36px; height: 36px; border-radius: 5px; flex-shrink: 0; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+    .rp-art img { width: 100%; height: 100%; object-fit: cover; }
+    .rp-name { font-size: 12px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .rp-sub { font-size: 11px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* Album grid */
+    .album-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; margin-bottom: 8px; }
+    .album-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; cursor: pointer; transition: background 0.12s; }
+    .album-card:hover { background: var(--surface2); }
+    .album-art { width: 100%; aspect-ratio: 1; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 36px; }
+    .album-art img { width: 100%; height: 100%; object-fit: cover; }
+    .album-body { padding: 8px 9px 9px; }
+    .album-name { font-size: 12px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; }
+    .album-artist { font-size: 11px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* Albums view */
+    #view-albums .album-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+
+    /* Artists */
+    .artist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+    .artist-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; cursor: pointer; transition: background 0.12s; padding: 12px; text-align: center; }
+    .artist-card:hover { background: var(--surface2); }
+    .artist-avatar { width: 64px; height: 64px; border-radius: 50%; background: var(--surface2); margin: 0 auto 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 28px; }
+    .artist-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .artist-name { font-size: 12px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* Songs / track list */
+    .track-list { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .tl-head { display: grid; grid-template-columns: 28px 32px 1fr 160px 52px; gap: 8px; padding: 7px 12px; border-bottom: 1px solid var(--border); }
+    .tl-head span { font-size: 10px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; }
+    .tl-head span:last-child { text-align: right; }
+    .track-row { display: grid; grid-template-columns: 28px 32px 1fr 160px 52px; gap: 8px; padding: 6px 12px; align-items: center; cursor: pointer; border-bottom: 1px solid var(--border); transition: background 0.1s; }
+    .track-row:last-child { border-bottom: none; }
+    .track-row:hover { background: rgba(255,255,255,0.03); }
+    .track-row.playing { background: rgba(110,79,246,0.1); }
+    .track-num { font-size: 12px; color: var(--text3); text-align: center; }
+    .track-thumb { width: 32px; height: 32px; border-radius: 4px; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .track-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .track-title { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .track-row.playing .track-title { color: #a78bfa; font-weight: 500; }
+    .track-artist { font-size: 11px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .track-album-name { font-size: 12px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .track-dur { font-size: 12px; color: var(--text3); text-align: right; }
+
+    /* ── Playlists view ── */
+    .playlist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 20px; }
+    .playlist-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; cursor: pointer; transition: background 0.12s; }
+    .playlist-card:hover { background: var(--surface2); }
+    .playlist-art { width: 100%; aspect-ratio: 1; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 36px; color: var(--text3); }
+    .playlist-art img { width: 100%; height: 100%; object-fit: cover; }
+    .playlist-body { padding: 8px 9px 10px; }
+    .playlist-name { font-size: 12px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; }
+    .playlist-count { font-size: 11px; color: var(--text3); }
+
+    /* Playlist detail (track list inside a playlist) */
+    #playlist-detail { display: none; }
+    #playlist-detail.active { display: block; }
+    .pl-detail-header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+    .pl-detail-art { width: 80px; height: 80px; border-radius: 8px; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 36px; flex-shrink: 0; }
+    .pl-detail-art img { width: 100%; height: 100%; object-fit: cover; }
+    .pl-detail-name { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 4px; }
+    .pl-detail-meta { font-size: 12px; color: var(--text3); }
+    .pl-back-btn { background: none; border: none; color: var(--text3); cursor: pointer; font-size: 12px; font-family: var(--font); display: flex; align-items: center; gap: 5px; margin-bottom: 14px; transition: color 0.12s; }
+    .pl-back-btn:hover { color: var(--text); }
+
+    /* ── Settings ── */
+    .settings-view { padding: 22px; overflow-y: auto; flex: 1; }
+    .settings-view::-webkit-scrollbar { width: 4px; }
+    .settings-view::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    .settings-group { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 16px; overflow: hidden; }
+    .sg-title { font-size: 11px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+    .setting-row { display: flex; align-items: center; justify-content: space-between; padding: 11px 14px; border-bottom: 1px solid var(--border); gap: 16px; }
+    .setting-row:last-child { border-bottom: none; }
+    .setting-label { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+    .setting-name { font-size: 13px; font-weight: 500; color: var(--text); }
+    .setting-desc { font-size: 11px; color: var(--text3); }
+    .setting-input { font-family: var(--font); font-size: 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 6px 10px; width: 260px; outline: none; transition: border-color 0.15s; }
+    .setting-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+    select.setting-input { cursor: pointer; }
+    .settings-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; align-items: center; }
+    .save-status { font-size: 12px; color: var(--green); opacity: 0; transition: opacity 0.3s; }
+    .save-status.visible { opacity: 1; }
+    .btn { font-family: var(--font); font-size: 13px; font-weight: 500; padding: 6px 16px; border-radius: 7px; border: none; cursor: pointer; transition: all 0.15s; }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-primary:hover { background: #7c5ff7; }
+    .btn-danger { background: rgba(255,69,58,0.15); color: var(--red); border: 1px solid rgba(255,69,58,0.3); }
+    .btn-danger:hover { background: rgba(255,69,58,0.25); }
+
+    /* ── Setup overlay ── */
+    .setup-overlay { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 200; }
+    .setup-overlay.hidden { display: none; }
+    .setup-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 32px 36px; width: 420px; }
+    .setup-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; }
+    .setup-logo-dot { width: 28px; height: 28px; border-radius: 7px; background: var(--grad); }
+    .setup-logo-name { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+    .setup-subtitle { font-size: 13px; color: var(--text2); margin-bottom: 24px; line-height: 1.5; }
+    .setup-field { margin-bottom: 14px; }
+    .setup-field label { display: block; font-size: 11px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+    .setup-field input { width: 100%; font-family: var(--font); font-size: 13px; background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; color: var(--text); padding: 8px 12px; outline: none; transition: border-color 0.15s; }
+    .setup-field input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+    .setup-error { font-size: 12px; color: var(--red); margin-bottom: 12px; min-height: 18px; }
+    .setup-btn { width: 100%; font-family: var(--font); font-size: 14px; font-weight: 600; background: var(--grad); color: white; border: none; border-radius: 8px; padding: 10px; cursor: pointer; transition: opacity 0.15s; margin-top: 4px; }
+    .setup-btn:hover { opacity: 0.88; }
+    .setup-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ── Statusbar player ── */
+    .statusbar { height: 48px; flex-shrink: 0; background: var(--surface); border-top: 1px solid var(--border); display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 0 16px; gap: 16px; }
+    .np { display: flex; align-items: center; gap: 9px; min-width: 0; }
+    .np-art { width: 30px; height: 30px; border-radius: 4px; background: var(--surface2); flex-shrink: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 13px; }
+    .np-art img { width: 100%; height: 100%; object-fit: cover; }
+    .np-title { font-size: 12px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .np-artist { font-size: 11px; color: var(--text3); white-space: nowrap; }
+    .np-sep { color: var(--text3); font-size: 11px; margin: 0 2px; }
+    .np-empty { font-size: 11px; color: var(--text3); }
+    .np-like-btn { background: none; border: none; color: var(--text3); cursor: pointer; padding: 0; margin-left: 8px; display: flex; align-items: center; transition: color 0.15s, transform 0.1s; flex-shrink: 0; }
+    .np-like-btn:hover { color: #ff6b8a; }
+    .np-like-btn.liked { color: #ff6b8a; }
+    .np-like-btn.liked svg { fill: #ff6b8a; stroke: #ff6b8a; }
+    .np-like-btn:active { transform: scale(1.25); }
+    /* Center: all controls + progress in one horizontal row */
+    .player-center { display: flex; align-items: center; gap: 10px; }
+    .player-controls { display: flex; align-items: center; gap: 12px; }
+    .ctrl-btn { background: none; border: none; color: var(--text3); cursor: pointer; padding: 0; transition: color 0.12s; display: flex; align-items: center; }
+    .ctrl-btn:hover { color: var(--text); }
+    .ctrl-btn.active { color: var(--accent); }
+    .play-pause-btn { width: 28px; height: 28px; border-radius: 50%; background: var(--grad); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; color: white; transition: opacity 0.12s; flex-shrink: 0; }
+    .play-pause-btn:hover { opacity: 0.85; }
+    .prog-row { display: flex; align-items: center; gap: 6px; }
+    .prog-time { font-size: 10px; color: var(--text3); font-variant-numeric: tabular-nums; min-width: 26px; }
+    .prog-time.right { text-align: right; }
+    .prog-bar { width: 180px; height: 3px; background: var(--border); border-radius: 2px; position: relative; cursor: pointer; }
+    .prog-fill { height: 100%; background: var(--accent); border-radius: 2px; width: 0%; transition: width 0.5s linear; }
+    .vol-area { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+    .vol-icon { background: none; border: none; color: var(--text3); cursor: pointer; transition: color 0.12s; display: flex; align-items: center; }
+    .vol-icon:hover { color: var(--text); }
+    .vol-bar { width: 80px; height: 14px; display: flex; align-items: center; cursor: pointer; position: relative; }
+    .vol-bar::before { content: ''; position: absolute; left: 0; right: 0; height: 3px; background: var(--border); border-radius: 2px; }
+    .vol-fill { height: 3px; background: var(--text2); border-radius: 2px; width: 75%; position: relative; transition: background 0.12s; }
+    .vol-bar:hover .vol-fill { background: var(--text); }
+
+    /* ── Library checklist ── */
+    .lib-check-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; transition: background 0.12s; }
+    .lib-check-row:hover { background: var(--surface2); }
+    .lib-check-row input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; flex-shrink: 0; }
+    .lib-check-label { font-size: 12px; color: var(--text2); cursor: pointer; user-select: none; }
+
+    /* ── Full-screen now-playing overlay ── */
+    .np-overlay { position: fixed; inset: 0; background: var(--bg); z-index: 300; display: flex; flex-direction: column; transform: translateY(100%); transition: transform 0.38s cubic-bezier(0.4,0,0.2,1); pointer-events: none; }
+    .np-overlay.open { transform: translateY(0); pointer-events: all; }
+    .np-overlay-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px 12px 80px; border-bottom: 1px solid var(--border); flex-shrink: 0; -webkit-app-region: drag; }
+    .np-overlay-title { font-size: 12px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.07em; }
+    .np-overlay-close { -webkit-app-region: no-drag; background: none; border: none; color: var(--text3); cursor: pointer; font-size: 20px; line-height: 1; padding: 0 4px; transition: color 0.12s; }
+    .np-overlay-close:hover { color: var(--text); }
+    .np-overlay-body { flex: 1; display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; }
+    /* Left: big art + info + controls */
+    .np-overlay-left { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 40px; gap: 24px; border-right: 1px solid var(--border); overflow: hidden; }
+    .np-overlay-art { width: min(280px, 40vh); height: min(280px, 40vh); border-radius: 12px; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 72px; flex-shrink: 0; }
+    .np-overlay-art img { width: 100%; height: 100%; object-fit: cover; }
+    .np-overlay-info { text-align: center; width: 100%; }
+    .np-overlay-track { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; color: var(--text); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .np-overlay-artist { font-size: 14px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .np-overlay-controls { display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%; }
+    .np-overlay-btns { display: flex; align-items: center; gap: 20px; }
+    .np-ov-ctrl { background: none; border: none; color: var(--text3); cursor: pointer; padding: 0; display: flex; align-items: center; transition: color 0.12s; }
+    .np-ov-ctrl:hover { color: var(--text); }
+    .np-ov-ctrl.active { color: var(--accent); }
+    .np-ov-play { width: 48px; height: 48px; border-radius: 50%; background: var(--grad); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; color: white; transition: opacity 0.12s; }
+    .np-ov-play:hover { opacity: 0.85; }
+    .np-overlay-prog { display: flex; align-items: center; gap: 10px; width: 100%; }
+    .np-overlay-prog-bar { flex: 1; height: 4px; background: var(--border); border-radius: 2px; cursor: pointer; position: relative; }
+    .np-overlay-prog-fill { height: 100%; background: var(--accent); border-radius: 2px; width: 0%; }
+    .np-overlay-time { font-size: 11px; color: var(--text3); font-variant-numeric: tabular-nums; min-width: 32px; }
+    .np-overlay-time.right { text-align: right; }
+    .np-like-ov { background: none; border: none; color: var(--text3); cursor: pointer; padding: 0; display: flex; align-items: center; transition: color 0.15s; }
+    .np-like-ov:hover { color: #ff6b8a; }
+    .np-like-ov.liked { color: #ff6b8a; }
+    .np-like-ov.liked svg { fill: #ff6b8a; stroke: #ff6b8a; }
+    /* Right: queue / lyrics tabs */
+    .np-overlay-right { display: flex; flex-direction: column; overflow: hidden; }
+    .np-overlay-tabs { display: flex; padding: 0 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .np-ov-tab { font-family: var(--font); font-size: 12px; font-weight: 500; color: var(--text3); background: none; border: none; padding: 12px 14px; cursor: pointer; position: relative; transition: color 0.12s; }
+    .np-ov-tab:hover { color: var(--text2); }
+    .np-ov-tab.active { color: var(--text); }
+    .np-ov-tab.active::after { content: ''; position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; background: var(--grad); border-radius: 2px 2px 0 0; }
+    .np-ov-panel { display: none; flex: 1; overflow-y: auto; }
+    .np-ov-panel::-webkit-scrollbar { width: 4px; }
+    .np-ov-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    .np-ov-panel.active { display: block; }
+    /* Queue panel */
+    .queue-row { display: flex; align-items: center; gap: 10px; padding: 8px 16px; cursor: pointer; transition: background 0.1s; border-bottom: 0.5px solid var(--border); }
+    .queue-row:hover { background: rgba(255,255,255,0.03); }
+    .queue-row.current { background: rgba(110,79,246,0.1); }
+    .queue-row.current .queue-row-title { color: #a78bfa; font-weight: 500; }
+    .queue-row-art { width: 36px; height: 36px; border-radius: 4px; background: var(--surface2); overflow: hidden; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 16px; }
+    .queue-row-art img { width: 100%; height: 100%; object-fit: cover; }
+    .queue-row-title { font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .queue-row-artist { font-size: 11px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .queue-row-dur { font-size: 11px; color: var(--text3); flex-shrink: 0; }
+    .queue-row-drag { color: var(--text3); cursor: grab; padding: 0 4px; opacity: 0; transition: opacity 0.12s; flex-shrink: 0; display: flex; align-items: center; }
+    .queue-row:hover .queue-row-drag { opacity: 1; }
+    .queue-row-remove { background: none; border: none; color: var(--text3); cursor: pointer; padding: 0 2px; opacity: 0; transition: opacity 0.12s, color 0.12s; flex-shrink: 0; display: flex; align-items: center; margin-left: 4px; }
+    .queue-row:hover .queue-row-remove { opacity: 1; }
+    .queue-row-remove:hover { color: var(--red); }
+    .queue-row.dragging { opacity: 0.4; background: rgba(110,79,246,0.08); }
+    .queue-row.drag-over { border-top: 2px solid var(--accent); }
+    /* Overlay lyrics — GPU-accelerated clock-scroll */
+    #ov-panel-lyrics { overflow: hidden; }
+    .ov-lyrics-scroll { display: flex; flex-direction: column; align-items: center; will-change: transform; transition: transform 0.42s cubic-bezier(0.4,0,0.2,1); }
+    .ov-lyric-line { text-align: center; font-size: 20px; font-weight: 600; color: var(--text3); padding: 10px 32px; line-height: 1.4; cursor: default; max-width: 500px; transform: scale(0.72); transform-origin: center center; opacity: 0.18; will-change: transform, opacity; transition: transform 0.42s cubic-bezier(0.4,0,0.2,1), opacity 0.42s cubic-bezier(0.4,0,0.2,1), color 0.42s; }
+    .ov-lyric-line.seekable { cursor: pointer; }
+    .ov-lyric-line.near-2 { transform: scale(0.82); opacity: 0.35; }
+    .ov-lyric-line.near-1 { transform: scale(0.92); opacity: 0.55; color: var(--text2); }
+    .ov-lyric-line.active { transform: scale(1); opacity: 1; color: var(--text); }
+
+    /* ── Context menu ── */
+    .ctx-menu { position: fixed; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 4px; min-width: 200px; z-index: 1000; box-shadow: 0 8px 32px rgba(0,0,0,0.5); display: none; }
+    .ctx-menu.open { display: block; }
+    .ctx-item { display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; color: var(--text2); transition: background 0.1s, color 0.1s; white-space: nowrap; }
+    .ctx-item:hover { background: rgba(255,255,255,0.07); color: var(--text); }
+    .ctx-item.danger { color: var(--red); }
+    .ctx-item.danger:hover { background: rgba(255,69,58,0.12); }
+    .ctx-item svg { flex-shrink: 0; opacity: 0.6; }
+    .ctx-item:hover svg { opacity: 1; }
+    .ctx-sep { height: 1px; background: var(--border); margin: 4px 0; }
+
+    /* ── Lyrics panel ── */
+    .lyrics-panel { position: fixed; top: 38px; right: 0; bottom: 48px; width: 340px; background: var(--surface); border-left: 1px solid var(--border); display: flex; flex-direction: column; transform: translateX(100%); transition: transform 0.22s cubic-bezier(0.4,0,0.2,1); z-index: 50; }
+    .lyrics-panel.open { transform: translateX(0); }
+    .lyrics-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .lyrics-title { font-size: 12px; font-weight: 600; color: var(--text); }
+    .lyrics-header-actions { display: flex; align-items: center; gap: 6px; }
+    .lyrics-close { background: none; border: none; color: var(--text3); cursor: pointer; font-size: 18px; line-height: 1; padding: 0 2px; transition: color 0.12s; }
+    .lyrics-close:hover { color: var(--text); }
+    .lyrics-translate-bar { display: none; align-items: center; gap: 6px; padding: 8px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .lyrics-translate-bar.visible { display: flex; }
+    .lyrics-translate-bar label { font-size: 11px; color: var(--text3); flex-shrink: 0; }
+    .lyrics-lang-select { flex: 1; font-family: var(--font); font-size: 11px; background: var(--surface2); border: 1px solid var(--border); border-radius: 5px; color: var(--text); padding: 4px 6px; outline: none; cursor: pointer; }
+    .lyrics-translate-btn { font-family: var(--font); font-size: 11px; font-weight: 600; background: var(--accent); color: white; border: none; border-radius: 5px; padding: 4px 10px; cursor: pointer; transition: opacity 0.12s; flex-shrink: 0; }
+    .lyrics-translate-btn:hover { opacity: 0.85; }
+    .lyrics-translate-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .lyrics-body { flex: 1; overflow-y: auto; padding: 16px 14px; }
+    .lyrics-body::-webkit-scrollbar { width: 4px; }
+    .lyrics-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    .lyrics-line { font-size: 13px; color: var(--text2); line-height: 1.8; padding: 2px 0; transition: color 0.2s; }
+    .lyrics-line.active { color: var(--text); font-weight: 500; }
+    .lyrics-line.translated { color: var(--text3); font-size: 11px; margin-top: -4px; font-style: italic; }
+    .lyrics-empty { font-size: 12px; color: var(--text3); text-align: center; padding: 40px 0; }
+
+    /* ── Add-to-playlist modal ── */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 500; display: flex; align-items: center; justify-content: center; }
+    .modal-overlay.hidden { display: none; }
+    .modal-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; width: 320px; max-height: 480px; display: flex; flex-direction: column; }
+    .modal-title { font-size: 14px; font-weight: 600; margin-bottom: 14px; color: var(--text); }
+    .modal-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; margin-bottom: 14px; }
+    .modal-list::-webkit-scrollbar { width: 4px; }
+    .modal-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    .modal-pl-item { padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; color: var(--text2); transition: background 0.1s; }
+    .modal-pl-item:hover { background: var(--surface2); color: var(--text); }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    .modal-btn { font-family: var(--font); font-size: 12px; font-weight: 500; padding: 5px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2); color: var(--text2); cursor: pointer; transition: all 0.12s; }
+    .modal-btn:hover { color: var(--text); border-color: var(--accent); }
+
+    /* ── Media info modal ── */
+    .media-info-card { width: 420px; max-height: 540px; }
+    .media-info-grid { display: grid; grid-template-columns: 100px 1fr; gap: 6px 12px; font-size: 12px; overflow-y: auto; max-height: 360px; }
+    .media-info-grid::-webkit-scrollbar { width: 4px; }
+    .media-info-grid::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    .mi-key { color: var(--text3); text-align: right; line-height: 1.6; }
+    .mi-val { color: var(--text2); word-break: break-all; line-height: 1.6; }
+
+    /* ── States ── */
+    .empty-state { display: flex; align-items: center; justify-content: center; color: var(--text3); font-size: 13px; padding: 40px 0; }
+    .loading-state { display: flex; align-items: center; justify-content: center; color: var(--text3); font-size: 12px; padding: 32px 0; }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Titlebar -->
+  <header class="titlebar">
+    <span class="tb-title">Cascade</span>
+    <div class="tb-right">
+      <div class="ws-pill">
+        <div class="ws-dot" id="ws-dot"></div>
+        <span id="ws-label">disconnected</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="body-wrap">
+
+    <!-- Sidebar -->
+    <nav class="sidenav" id="sidenav">
+      <div class="nav-item active" data-view="home">
+        <div class="nav-bar"></div>
+        <div class="nav-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        </div>
+        <div class="nav-info"><span class="nav-label">Home</span></div>
+      </div>
+      <div class="nav-item" data-view="albums">
+        <div class="nav-bar"></div>
+        <div class="nav-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+        </div>
+        <div class="nav-info"><span class="nav-label">Albums</span></div>
+      </div>
+      <div class="nav-item" data-view="artists">
+        <div class="nav-bar"></div>
+        <div class="nav-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        </div>
+        <div class="nav-info"><span class="nav-label">Artists</span></div>
+      </div>
+      <div class="nav-item" data-view="songs">
+        <div class="nav-bar"></div>
+        <div class="nav-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        </div>
+        <div class="nav-info"><span class="nav-label">Songs</span></div>
+      </div>
+      <div class="nav-item" data-view="playlists">
+        <div class="nav-bar"></div>
+        <div class="nav-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+        </div>
+        <div class="nav-info"><span class="nav-label">Playlists</span></div>
+      </div>
+      <div class="nav-spacer"></div>
+      <div class="nav-item" data-view="settings">
+        <div class="nav-bar"></div>
+        <div class="nav-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </div>
+        <div class="nav-info"><span class="nav-label">Settings</span></div>
+      </div>
+    </nav>
+
+    <!-- Backdrop -->
+    <div class="backdrop" id="backdrop"></div>
+
+    <!-- Main -->
+    <main class="main">
+
+      <!-- Home -->
+      <div class="view active" id="view-home">
+        <div class="greeting" id="greeting">Good afternoon, cha0s</div>
+        <div class="sect-header">
+          <span class="sect-title">Recently played</span>
+          <button class="sect-more" onclick="showView('songs')">See all</button>
+        </div>
+        <div class="rp-grid" id="rp-grid">
+          <div class="loading-state" style="grid-column:1/3">Loading…</div>
+        </div>
+        <div class="sect-header">
+          <span class="sect-title">Recently added</span>
+          <button class="sect-more" onclick="showView('albums')">See all</button>
+        </div>
+        <div class="album-grid" id="home-recent-albums">
+          <div class="loading-state" style="grid-column:1/-1">Loading…</div>
+        </div>
+      </div>
+
+      <!-- Albums -->
+      <div class="view" id="view-albums">
+        <div class="sect-header" style="margin-bottom:14px">
+          <span class="sect-title">All Albums</span>
+        </div>
+        <div class="album-grid" id="albums-grid">
+          <div class="loading-state" style="grid-column:1/-1">Loading…</div>
+        </div>
+      </div>
+
+      <!-- Artists -->
+      <div class="view" id="view-artists">
+        <div class="sect-header" style="margin-bottom:14px">
+          <span class="sect-title">All Artists</span>
+        </div>
+        <div class="artist-grid" id="artists-grid">
+          <div class="loading-state" style="grid-column:1/-1">Loading…</div>
+        </div>
+      </div>
+
+      <!-- Songs -->
+      <div class="view" id="view-songs">
+        <div class="sect-header" style="margin-bottom:14px">
+          <span class="sect-title">All Songs</span>
+        </div>
+        <div class="track-list" id="songs-list">
+          <div class="tl-head">
+            <span>#</span><span></span><span>Title</span><span>Album</span><span style="text-align:right">Time</span>
+          </div>
+          <div id="songs-rows">
+            <div class="loading-state">Loading…</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Playlists -->
+      <div class="view" id="view-playlists">
+        <!-- Playlist grid -->
+        <div id="playlist-index">
+          <div class="sect-header" style="margin-bottom:14px">
+            <span class="sect-title">Playlists</span>
+          </div>
+          <div class="playlist-grid" id="playlists-grid">
+            <div class="loading-state" style="grid-column:1/-1">Loading…</div>
+          </div>
+        </div>
+        <!-- Playlist detail (shown when a playlist is opened) -->
+        <div id="playlist-detail">
+          <button class="pl-back-btn" id="pl-back-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            Back to Playlists
+          </button>
+          <div class="pl-detail-header">
+            <div class="pl-detail-art" id="pl-detail-art">♪</div>
+            <div>
+              <div class="pl-detail-name" id="pl-detail-name"></div>
+              <div class="pl-detail-meta" id="pl-detail-meta"></div>
+            </div>
+          </div>
+          <div class="track-list">
+            <div class="tl-head">
+              <span>#</span><span></span><span>Title</span><span>Album</span><span style="text-align:right">Time</span>
+            </div>
+            <div id="pl-detail-rows"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Settings -->
+      <div class="view" id="view-settings">
+        <div class="settings-view">
+          <div class="settings-group">
+            <div class="sg-title">Jellyfin Server</div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="setting-name">Server URL</span>
+                <span class="setting-desc">e.g. http://192.168.1.10:8096</span>
+              </div>
+              <input class="setting-input" id="s-url" type="text" placeholder="http://localhost:8096" />
+            </div>
+            <div class="setting-row">
+              <div class="setting-label"><span class="setting-name">Username</span></div>
+              <input class="setting-input" id="s-user" type="text" placeholder="Username" />
+            </div>
+            <div class="setting-row">
+              <div class="setting-label"><span class="setting-name">Password</span></div>
+              <input class="setting-input" id="s-pass" type="password" placeholder="Password" />
+            </div>
+          </div>
+          <div class="settings-group">
+            <div class="sg-title">Library</div>
+            <div class="setting-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;">
+              <div class="setting-label">
+                <span class="setting-name">Music libraries</span>
+                <span class="setting-desc">Select one or more libraries to merge</span>
+              </div>
+              <div id="s-library-list" style="width:260px;display:flex;flex-direction:column;gap:6px;">
+                <span style="font-size:12px;color:var(--text3);">— connect to load libraries —</span>
+              </div>
+            </div>
+          </div>
+          <div class="settings-actions">
+            <span class="save-status" id="save-status">Saved ✓</span>
+            <button class="btn btn-danger" id="btn-logout">Sign out</button>
+            <button class="btn btn-primary" id="btn-save-settings">Save &amp; reconnect</button>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- Statusbar player -->
+  <footer class="statusbar">
+    <div class="np">
+      <div class="np-art" id="np-art">♪</div>
+      <div id="np-info"><span class="np-empty">Nothing playing</span></div>
+      <button class="np-like-btn" id="btn-like" title="Like">
+        <svg id="like-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+      </button>
+    </div>
+    <div class="player-center">
+      <div class="player-controls">
+        <button class="ctrl-btn" id="btn-shuffle" title="Shuffle">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
+        </button>
+        <button class="ctrl-btn" id="btn-prev" title="Previous">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg>
+        </button>
+        <button class="play-pause-btn" id="btn-play">
+          <svg id="icon-play" width="11" height="11" viewBox="0 0 24 24" fill="white" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <svg id="icon-pause" width="11" height="11" viewBox="0 0 24 24" fill="white" stroke="none" style="display:none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+        </button>
+        <button class="ctrl-btn" id="btn-next" title="Next">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+        </button>
+        <button class="ctrl-btn" id="btn-repeat" title="Repeat">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+        </button>
+      </div>
+      <div class="prog-row">
+        <span class="prog-time" id="prog-cur">0:00</span>
+        <div class="prog-bar" id="prog-bar"><div class="prog-fill" id="prog-fill"></div></div>
+        <span class="prog-time right" id="prog-dur">0:00</span>
+      </div>
+    </div>
+    <div class="vol-area">
+      <button class="vol-icon" id="btn-mute">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+      </button>
+      <div class="vol-bar" id="vol-bar"><div class="vol-fill" id="vol-fill"></div></div>
+      <button class="ctrl-btn" id="btn-lyrics-open" title="Lyrics" style="margin-left:6px;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      </button>
+    </div>
+  </footer>
+
+</div>
+
+<!-- First-run setup overlay -->
+<div class="setup-overlay" id="setup-overlay">
+  <div class="setup-card">
+    <div class="setup-logo">
+      <div class="setup-logo-dot"></div>
+      <span class="setup-logo-name">Cascade</span>
+    </div>
+    <p class="setup-subtitle">Connect your Jellyfin server to get started.</p>
+    <div class="setup-field">
+      <label>Server URL</label>
+      <input type="text" id="setup-url" placeholder="http://192.168.1.10:8096" autocomplete="off" />
+    </div>
+    <div class="setup-field">
+      <label>Username</label>
+      <input type="text" id="setup-username" placeholder="Username" autocomplete="off" />
+    </div>
+    <div class="setup-field">
+      <label>Password</label>
+      <input type="password" id="setup-password" placeholder="Password" />
+    </div>
+    <div class="setup-error" id="setup-error"></div>
+    <button class="setup-btn" id="setup-connect">Connect</button>
+  </div>
+</div>
+
+<!-- Full-screen now-playing overlay -->
+<div class="np-overlay" id="np-overlay">
+  <div class="np-overlay-header">
+    <span class="np-overlay-title">Now Playing</span>
+    <button class="np-overlay-close" id="np-overlay-close">×</button>
+  </div>
+  <div class="np-overlay-body">
+    <!-- Left: art + info + controls -->
+    <div class="np-overlay-left">
+      <div class="np-overlay-art" id="ov-art">♪</div>
+      <div class="np-overlay-info">
+        <div class="np-overlay-track" id="ov-track">Nothing playing</div>
+        <div class="np-overlay-artist" id="ov-artist"></div>
+      </div>
+      <div class="np-overlay-controls">
+        <!-- Secondary: more · shuffle · like · repeat · lyrics -->
+        <div class="np-overlay-btns" style="gap:28px;margin-bottom:4px;">
+          <button class="np-ov-ctrl" id="ov-more-btn" title="More options">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+          </button>
+          <button class="np-ov-ctrl" id="ov-shuffle" title="Shuffle">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
+          </button>
+          <button class="np-like-ov" id="ov-like" title="Like">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+          </button>
+          <button class="np-ov-ctrl" id="ov-repeat" title="Repeat">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+          </button>
+          <button class="np-ov-ctrl" id="ov-lyrics-toggle" title="Lyrics">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </button>
+        </div>
+        <!-- Primary: prev · play · next -->
+        <div class="np-overlay-btns" style="gap:24px;">
+          <button class="np-ov-ctrl" id="ov-prev" title="Previous">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg>
+          </button>
+          <button class="np-ov-play" id="ov-play">
+            <svg id="ov-icon-play" width="20" height="20" viewBox="0 0 24 24" fill="white" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            <svg id="ov-icon-pause" width="20" height="20" viewBox="0 0 24 24" fill="white" stroke="none" style="display:none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+          </button>
+          <button class="np-ov-ctrl" id="ov-next" title="Next">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+          </button>
+        </div>
+        <div class="np-overlay-prog">
+          <span class="np-overlay-time" id="ov-cur">0:00</span>
+          <div class="np-overlay-prog-bar" id="ov-prog-bar">
+            <div class="np-overlay-prog-fill" id="ov-prog-fill"></div>
+          </div>
+          <span class="np-overlay-time right" id="ov-dur">0:00</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+          <div class="np-overlay-prog-bar" id="ov-vol-bar" style="width:140px;">
+            <div class="np-overlay-prog-fill" id="ov-vol-fill" style="width:75%;background:var(--text3);"></div>
+          </div>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+        </div>
+      </div>
+    </div>
+    <!-- Right: queue always visible, lyrics slides over -->
+    <div class="np-overlay-right" style="position:relative;overflow:hidden;">
+      <div style="position:absolute;inset:0;overflow-y:auto;" id="ov-panel-queue">
+        <div style="padding:10px 16px 6px;font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.07em;">Queue</div>
+        <div id="ov-queue-rows"></div>
+      </div>
+      <div id="ov-panel-lyrics" style="position:absolute;inset:0;background:var(--surface);overflow-y:auto;transform:translateX(100%);transition:transform 0.3s cubic-bezier(0.4,0,0.2,1);">
+        <div class="ov-lyrics-scroll" id="ov-lyrics-body"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Context menu -->
+<div class="ctx-menu" id="ctx-menu">
+  <div class="ctx-item" id="ctx-stop">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>Stop playback
+  </div>
+  <div class="ctx-item" id="ctx-clear-queue">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>Clear queue
+  </div>
+  <div class="ctx-item" id="ctx-instant-mix">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>Instant mix
+  </div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" id="ctx-add-playlist">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add to playlist
+  </div>
+  <div class="ctx-item" id="ctx-download">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download
+  </div>
+  <div class="ctx-item" id="ctx-copy-url">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy stream URL
+  </div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" id="ctx-media-info">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>Media info
+  </div>
+  <div class="ctx-item" id="ctx-refresh-meta">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>Refresh metadata
+  </div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" id="ctx-edit-meta">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit metadata
+  </div>
+  <div class="ctx-item" id="ctx-edit-images">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>Edit images
+  </div>
+  <div class="ctx-item" id="ctx-edit-lyrics">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>Edit lyrics
+  </div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" id="ctx-view-album">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>View album
+  </div>
+  <div class="ctx-item" id="ctx-view-artist">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>View album artist
+  </div>
+  <div class="ctx-item" id="ctx-view-lyrics">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>View lyrics
+  </div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item danger" id="ctx-delete">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Delete media
+  </div>
+</div>
+
+<!-- Lyrics panel -->
+<div class="lyrics-panel" id="lyrics-panel">
+  <div class="lyrics-header">
+    <span class="lyrics-title">Lyrics</span>
+    <div class="lyrics-header-actions">
+      <button class="lyrics-close" id="lyrics-close">×</button>
+    </div>
+  </div>
+  <div class="lyrics-translate-bar" id="lyrics-translate-bar">
+    <label>Translate to</label>
+    <select class="lyrics-lang-select" id="lyrics-lang">
+      <option value="en">English</option>
+      <option value="es">Spanish</option>
+      <option value="fr">French</option>
+      <option value="de">German</option>
+      <option value="ja">Japanese</option>
+      <option value="ko">Korean</option>
+      <option value="zh">Chinese</option>
+      <option value="pt">Portuguese</option>
+      <option value="it">Italian</option>
+      <option value="ru">Russian</option>
+      <option value="ar">Arabic</option>
+      <option value="hi">Hindi</option>
+    </select>
+    <button class="lyrics-translate-btn" id="lyrics-translate-btn">Translate</button>
+  </div>
+  <div class="lyrics-body" id="lyrics-body">
+    <div class="lyrics-empty">No lyrics available</div>
+  </div>
+</div>
+
+<!-- Add to playlist modal -->
+<div class="modal-overlay hidden" id="atp-modal">
+  <div class="modal-card">
+    <div class="modal-title">Add to playlist</div>
+    <div class="modal-list" id="atp-list"><div style="font-size:12px;color:var(--text3);text-align:center;padding:20px 0">Loading…</div></div>
+    <div class="modal-actions">
+      <button class="modal-btn" id="atp-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Media info modal -->
+<div class="modal-overlay hidden" id="mi-modal">
+  <div class="modal-card media-info-card">
+    <div class="modal-title">Media info</div>
+    <div class="media-info-grid" id="mi-grid"></div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="modal-btn" id="mi-close">Close</button>
+    </div>
+  </div>
+</div>
+
+<script src="renderer.js"></script>
+</body>
+</html>
