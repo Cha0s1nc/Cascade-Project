@@ -1,0 +1,22 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#4ade80"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1024" height="1024" rx="220" fill="#111113"/>
+  <rect x="0" y="0" width="1024" height="1024" rx="220" fill="none" stroke="url(#grad)" stroke-width="12" opacity="0.7"/>
+
+  <g fill="url(#grad)" opacity="0.9">
+    <rect x="390" y="280" width="60" height="320" rx="10"/>
+    <rect x="390" y="280" width="230" height="60" rx="10"/>
+    <rect x="560" y="280" width="60" height="210" rx="10"/>
+    <ellipse cx="362" cy="600" rx="76" ry="54" transform="rotate(-10 362 600)"/>
+    <ellipse cx="532" cy="490" rx="76" ry="54" transform="rotate(-10 532 490)"/>
+  </g>
+
+  <rect x="112" y="790" width="800" height="72" rx="12" fill="#2c2c2e"/>
+  <text x="512" y="842" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="38" font-weight="600" fill="#636366" letter-spacing="6">PLACEHOLDER</text>
+</svg>

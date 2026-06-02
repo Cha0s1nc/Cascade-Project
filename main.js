@@ -1,10 +1,18 @@
 const { app, BrowserWindow, ipcMain, clipboard, shell, Menu } = require('electron')
 const path = require('path')
+const https = require('https')
+const http  = require('http')
+const fs    = require('fs')
+const os    = require('os')
 const Store = require('electron-store')
+
+const GITHUB_REPO = 'Cha0s1nc/Cascade-Project'
 
 const store = new Store()
 
 let win
+let updaterWindow  = null
+let pendingDownload = null
 
 function createWindow() {
   win = new BrowserWindow({
@@ -25,13 +33,16 @@ function createWindow() {
 
   win.loadFile('index.html')
 
-  win.once('ready-to-show', () => win.show())
+  win.once('ready-to-show', () => {
+    win.show()
+    if (app.isPackaged) setTimeout(checkForUpdates, 5000)
+  })
 }
 
 app.whenReady().then(createWindow)
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
+  app.quit()
 })
 
 app.on('activate', () => {
@@ -52,6 +63,184 @@ ipcMain.handle('shell-open', (_e, url) => shell.openExternal(url))
 // IPC: download — uses Electron's session download API
 ipcMain.handle('download-file', (_e, url, filename) => {
   win.webContents.downloadURL(url)
+})
+
+// ── Version helpers ────────────────────────────────────────────────────────────
+
+function parseVersion(v) {
+  return String(v).replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0)
+}
+function isNewer(latest, current) {
+  const [la, lb, lc] = parseVersion(latest)
+  const [ca, cb, cc] = parseVersion(current)
+  if (la !== ca) return la > ca
+  if (lb !== cb) return lb > cb
+  return lc > cc
+}
+
+// ── Updater window ─────────────────────────────────────────────────────────────
+
+function openUpdaterWindow(updateInfo) {
+  pendingDownload = {
+    version:     updateInfo.version,
+    downloadUrl: updateInfo.downloadUrl || null,
+    assetName:   updateInfo.assetName   || null,
+    releaseUrl:  updateInfo.releaseUrl  || '',
+    destPath:    null,
+  }
+  if (updaterWindow && !updaterWindow.isDestroyed()) { updaterWindow.focus(); return }
+  updaterWindow = new BrowserWindow({
+    width: 560, height: 640, minWidth: 480, minHeight: 500,
+    title: 'Update Available', backgroundColor: '#111113',
+    autoHideMenuBar: true, resizable: true,
+    parent: win || undefined,
+    webPreferences: { nodeIntegration: false, contextIsolation: true, preload: path.join(__dirname, 'updater-preload.js') }
+  })
+  updaterWindow.loadFile('updater.html')
+  updaterWindow.webContents.once('did-finish-load', () => {
+    updaterWindow.webContents.send('updater:init', {
+      currentVersion:    app.getVersion(),
+      newVersion:        updateInfo.version,
+      releaseNotes:      updateInfo.releaseNotes  || '',
+      releaseDate:       updateInfo.releaseDate   || '',
+      releaseUrl:        updateInfo.releaseUrl    || '',
+      hasDirectDownload: !!updateInfo.downloadUrl,
+    })
+  })
+  updaterWindow.on('closed', () => { updaterWindow = null })
+}
+
+// ── GitHub release check ───────────────────────────────────────────────────────
+
+async function checkForUpdates() {
+  try {
+    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+      headers: { 'User-Agent': 'cascade-updater' }
+    })
+    if (!res.ok) throw new Error(`GitHub API ${res.status}`)
+    const release = await res.json()
+    const latestVersion = release.tag_name.replace(/^v/, '')
+    if (!isNewer(latestVersion, app.getVersion())) return
+
+    const platform = process.platform
+    const arch = process.arch
+    let asset
+    if (platform === 'win32') {
+      asset = release.assets.find(a => /\.exe$/i.test(a.name))
+    } else if (platform === 'darwin') {
+      asset = release.assets.find(a => /\.dmg$/i.test(a.name) && a.name.includes(arch))
+           || release.assets.find(a => /\.dmg$/i.test(a.name))
+    } else {
+      asset = null
+    }
+
+    openUpdaterWindow({
+      version:      latestVersion,
+      releaseNotes: release.body         || '',
+      releaseDate:  release.published_at || '',
+      releaseUrl:   release.html_url     || '',
+      downloadUrl:  asset?.browser_download_url || null,
+      assetName:    asset?.name          || null,
+    })
+  } catch (err) {
+    console.error('[updater] Check failed:', err.message)
+  }
+}
+
+// ── File downloader ────────────────────────────────────────────────────────────
+
+function downloadFile(url, destPath, onProgress) {
+  return new Promise((resolve, reject) => {
+    let lastBytes = 0, lastTime = Date.now()
+    function request(url, redirects) {
+      if (redirects > 10) { reject(new Error('Too many redirects')); return }
+      const lib = url.startsWith('https') ? https : http
+      lib.get(url, { headers: { 'User-Agent': 'cascade-updater' } }, (res) => {
+        if ([301, 302, 307, 308].includes(res.statusCode)) { res.resume(); request(res.headers.location, redirects + 1); return }
+        if (res.statusCode !== 200) { res.resume(); reject(new Error(`HTTP ${res.statusCode}`)); return }
+        const total = parseInt(res.headers['content-length'] || '0', 10)
+        let transferred = 0
+        const file = fs.createWriteStream(destPath)
+        res.on('data', chunk => {
+          transferred += chunk.length
+          const now = Date.now(), elapsed = (now - lastTime) / 1000
+          let bps = 0
+          if (elapsed >= 0.5) { bps = (transferred - lastBytes) / elapsed; lastBytes = transferred; lastTime = now }
+          if (onProgress) onProgress({ transferred, total, bytesPerSecond: bps })
+        })
+        res.pipe(file)
+        file.on('finish', () => file.close(resolve))
+        file.on('error', err => { try { fs.unlinkSync(destPath) } catch {} reject(err) })
+        res.on('error', err => { try { fs.unlinkSync(destPath) } catch {} reject(err) })
+      }).on('error', reject)
+    }
+    request(url, 0)
+  })
+}
+
+// ── Updater IPC ────────────────────────────────────────────────────────────────
+
+ipcMain.handle('check-for-updates', () => {
+  if (app.isPackaged) {
+    checkForUpdates()
+  } else {
+    openUpdaterWindow({
+      version: '99.0.0',
+      releaseNotes: '### Dev test\n- Updater UI preview.\n- No actual download.',
+      releaseDate: new Date().toISOString(),
+      releaseUrl: `https://github.com/${GITHUB_REPO}/releases`,
+      downloadUrl: null, assetName: null,
+    })
+  }
+  return { ok: true }
+})
+
+ipcMain.handle('updater:download', async () => {
+  if (!pendingDownload) return { ok: false }
+  if (!pendingDownload.downloadUrl) {
+    if (pendingDownload.releaseUrl) shell.openExternal(pendingDownload.releaseUrl)
+    return { ok: true }
+  }
+  const destPath = path.join(os.tmpdir(), pendingDownload.assetName)
+  try {
+    if (updaterWindow && !updaterWindow.isDestroyed())
+      updaterWindow.webContents.send('updater:log', `Downloading to ${destPath}...`)
+    await downloadFile(pendingDownload.downloadUrl, destPath, (progress) => {
+      if (!updaterWindow || updaterWindow.isDestroyed()) return
+      const percent = progress.total > 0 ? Math.round((progress.transferred / progress.total) * 100) : 0
+      const mbps = (progress.bytesPerSecond / 1024 / 1024).toFixed(2)
+      const transferred = (progress.transferred / 1024 / 1024).toFixed(1)
+      const total = (progress.total / 1024 / 1024).toFixed(1)
+      updaterWindow.webContents.send('updater:progress', {
+        percent, bytesPerSecond: progress.bytesPerSecond,
+        transferred: progress.transferred, total: progress.total,
+        logLine: `${percent}% — ${transferred} / ${total} MB  (${mbps} MB/s)`
+      })
+    })
+    pendingDownload.destPath = destPath
+    if (updaterWindow && !updaterWindow.isDestroyed())
+      updaterWindow.webContents.send('updater:done', { version: pendingDownload.version })
+  } catch (err) {
+    if (updaterWindow && !updaterWindow.isDestroyed())
+      updaterWindow.webContents.send('updater:error', { message: `Download failed: ${err.message}` })
+  }
+  return { ok: true }
+})
+
+ipcMain.handle('updater:install', () => {
+  if (pendingDownload?.destPath) {
+    if (process.platform === 'darwin') {
+      shell.openPath(pendingDownload.destPath)
+    } else {
+      shell.openPath(pendingDownload.destPath).then(() => setTimeout(() => app.quit(), 1500))
+    }
+  } else if (pendingDownload?.releaseUrl) {
+    shell.openExternal(pendingDownload.releaseUrl)
+  }
+})
+
+ipcMain.handle('updater:dismiss', () => {
+  if (updaterWindow && !updaterWindow.isDestroyed()) updaterWindow.close()
 })
 
 // IPC: native context menu for now-playing

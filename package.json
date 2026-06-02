@@ -1,21 +1,93 @@
 {
   "name": "cascade",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "A Jellyfin music client inspired by Cider",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "electron . --inspect"
+    "dev": "electron . --inspect",
+    "build": "electron-builder",
+    "build:mac": "electron-builder --mac",
+    "build:win": "electron-builder --win",
+    "build:linux": "electron-builder --linux",
+    "icons": "node scripts/gen-icons.js"
   },
   "dependencies": {
     "electron-store": "^8.1.0"
   },
   "devDependencies": {
-    "electron": "^29.0.0"
+    "electron": "^29.0.0",
+    "electron-builder": "^24.13.3",
+    "sharp": "^0.33.4"
   },
   "author": "cha0s",
-  "license": "MIT",
+  "license": "GPL-3.0",
   "allowScripts": {
-    "electron@29.4.6": true
+    "electron@29.4.6": true,
+    "sharp@0.33.5": true
+  },
+  "build": {
+    "appId": "xyz.chaosinc.cascade",
+    "productName": "Cascade",
+    "copyright": "Copyright © 2026 cha0s",
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "renderer.js",
+      "updater.html",
+      "updater-preload.js",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "mac": {
+      "category": "public.app-category.music",
+      "icon": "assets/icon.icns",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "darkModeSupport": true,
+      "identity": "Cha0s_1nc_Development"
+    },
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "linux": {
+      "icon": "assets/icon.png",
+      "category": "Audio",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "dmg": {
+      "title": "Cascade ${version}",
+      "backgroundColor": "#111113"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }

@@ -707,6 +707,10 @@ document.getElementById('setup-password').addEventListener('keydown', e => {
 
 // ── Startup ───────────────────────────────────────────────────────────────────
 
+document.getElementById('btn-check-updates').addEventListener('click', () => {
+  window.cascade.checkForUpdates()
+})
+
 async function init() {
   const serverUrl = await window.cascade.store.get('serverUrl')
   const token = await window.cascade.store.get('token')
@@ -765,52 +769,50 @@ document.getElementById('ov-lyrics-toggle').addEventListener('click', () => {
 })
 
 // Overlay controls mirror the main controls
-document.getElementById('ov-more-btn').addEventListener('click', async () => {
-  if (!queue[queueIndex]) return
-  const item = queue[queueIndex]
-  const actions = [
-    { id: 'stop', label: 'Stop playback' },
-    { id: 'clear', label: 'Clear queue' },
-    { id: 'mix', label: 'Instant mix' },
-    { type: 'separator' },
-    { id: 'playlist', label: 'Add to playlist' },
-    { id: 'download', label: 'Download' },
-    { id: 'copy', label: 'Copy stream URL' },
-    { type: 'separator' },
-    { id: 'info', label: 'Media info' },
-    { id: 'refresh', label: 'Refresh metadata' },
-    { type: 'separator' },
-    { id: 'edit-meta', label: 'Edit metadata' },
-    { id: 'edit-img', label: 'Edit images' },
-    { id: 'edit-lyrics', label: 'Edit lyrics' },
-    { type: 'separator' },
-    { id: 'view-album', label: 'View album' },
-    { id: 'view-artist', label: 'View album artist' },
-    { id: 'view-lyrics', label: 'View lyrics' },
-    { type: 'separator' },
-    { id: 'delete', label: 'Delete media' },
-  ]
-  const chosen = await window.cascade.showNpMenu(actions)
-  if (!chosen) return
-  // Re-use the existing ctx handlers by triggering them directly
-  const map = {
-    'stop':        () => document.getElementById('ctx-stop').click(),
-    'clear':       () => document.getElementById('ctx-clear-queue').click(),
-    'mix':         () => document.getElementById('ctx-instant-mix').click(),
-    'playlist':    () => document.getElementById('ctx-add-playlist').click(),
-    'download':    () => document.getElementById('ctx-download').click(),
-    'copy':        () => document.getElementById('ctx-copy-url').click(),
-    'info':        () => document.getElementById('ctx-media-info').click(),
-    'refresh':     () => document.getElementById('ctx-refresh-meta').click(),
-    'edit-meta':   () => document.getElementById('ctx-edit-meta').click(),
-    'edit-img':    () => document.getElementById('ctx-edit-images').click(),
-    'edit-lyrics': () => document.getElementById('ctx-edit-lyrics').click(),
-    'view-album':  () => document.getElementById('ctx-view-album').click(),
-    'view-artist': () => document.getElementById('ctx-view-artist').click(),
-    'view-lyrics': () => document.getElementById('ctx-view-lyrics').click(),
-    'delete':      () => document.getElementById('ctx-delete').click(),
+// Overlay more-options inline dropdown
+const ovDropdown = document.getElementById('ov-dropdown')
+
+document.getElementById('ov-more-btn').addEventListener('click', (e) => {
+  e.stopPropagation()
+  const isOpen = ovDropdown.classList.contains('open')
+  ovDropdown.classList.toggle('open', !isOpen)
+  if (!isOpen) {
+    const btn = e.currentTarget.getBoundingClientRect()
+    // Position above the button, centered
+    ovDropdown.style.left = `${btn.left + btn.width / 2 - ovDropdown.offsetWidth / 2}px`
+    ovDropdown.style.top = `${btn.top - ovDropdown.offsetHeight - 8}px`
+    // Keep on screen
+    const r = ovDropdown.getBoundingClientRect()
+    if (r.left < 8) ovDropdown.style.left = '8px'
+    if (r.top < 8) ovDropdown.style.top = `${btn.bottom + 8}px`
   }
-  map[chosen]?.()
+})
+
+const ctxMap = {
+  'stop':        'ctx-stop',        'clear':       'ctx-clear-queue',
+  'mix':         'ctx-instant-mix', 'playlist':    'ctx-add-playlist',
+  'download':    'ctx-download',    'copy':        'ctx-copy-url',
+  'info':        'ctx-media-info',  'refresh':     'ctx-refresh-meta',
+  'edit-meta':   'ctx-edit-meta',   'edit-img':    'ctx-edit-images',
+  'edit-lyrics': 'ctx-edit-lyrics', 'view-album':  'ctx-view-album',
+  'view-artist': 'ctx-view-artist', 'view-lyrics': 'ctx-view-lyrics',
+  'delete':      'ctx-delete',
+}
+
+ovDropdown.querySelectorAll('.ov-dd-item').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation()
+    ovDropdown.classList.remove('open')
+    const ctxId = ctxMap[btn.dataset.action]
+    if (ctxId) document.getElementById(ctxId).click()
+  })
+})
+
+// Close dropdown when clicking outside
+document.addEventListener('mousedown', (e) => {
+  if (!ovDropdown.contains(e.target) && e.target.id !== 'ov-more-btn') {
+    ovDropdown.classList.remove('open')
+  }
 })
 
 document.getElementById('ov-play').addEventListener('click', () => document.getElementById('btn-play').click())
