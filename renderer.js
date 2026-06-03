@@ -5,8 +5,8 @@ let jf = { url: '', token: '', userId: '' }
 let queue = []
 let queueIndex = -1
 let shuffle = false
-let repeat = false  // 'none' | 'all' | 'one'
 let repeatMode = 'none'
+let _unshuffledQueue = []   // original order saved when shuffle is enabled
 let volume = 0.75
 
 const audio = new Audio()
@@ -469,6 +469,20 @@ function updateNowPlaying(item) {
   // Sync like state from Jellyfin user data
   const liked = item.UserData?.IsFavorite || false
   document.getElementById('btn-like').classList.toggle('liked', liked)
+
+  // Update Touch Bar track label
+  window.cascade.touchbarUpdate({ title: `${item.Name}  —  ${item.AlbumArtist || item.Artists?.[0] || ''}` })
+
+  // Push track info to OS (lock screen, taskbar, Now Playing widget)
+  if ('mediaSession' in navigator) {
+    const artwork = art ? [{ src: art, sizes: '200x200', type: 'image/jpeg' }] : []
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title:  item.Name || '',
+      artist: item.AlbumArtist || item.Artists?.[0] || '',
+      album:  item.Album || '',
+      artwork,
+    })
+  }
 }
 
 function highlightPlayingRow() {
@@ -532,7 +546,6 @@ audio.addEventListener('ended', () => {
   }
 
   let next = queueIndex + 1
-  if (shuffle) next = Math.floor(Math.random() * queue.length)
   if (next >= queue.length) {
     if (repeatMode === 'all') next = 0
     else return
@@ -555,14 +568,35 @@ document.getElementById('btn-prev').addEventListener('click', () => {
 })
 
 document.getElementById('btn-next').addEventListener('click', () => {
-  if (shuffle) queueIndex = Math.floor(Math.random() * queue.length)
-  else queueIndex = Math.min(queue.length - 1, queueIndex + 1)
+  queueIndex = Math.min(queue.length - 1, queueIndex + 1)
   playCurrentTrack()
 })
 
 document.getElementById('btn-shuffle').addEventListener('click', () => {
   shuffle = !shuffle
   document.getElementById('btn-shuffle').classList.toggle('active', shuffle)
+
+  const currentId = queue[queueIndex]?.Id
+
+  if (shuffle) {
+    // Save original order and Fisher-Yates shuffle the queue
+    _unshuffledQueue = [...queue]
+    for (let i = queue.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [queue[i], queue[j]] = [queue[j], queue[i]]
+    }
+    // Move the currently playing track to position 0 so it finishes before moving on
+    const nowIdx = queue.findIndex(t => t.Id === currentId)
+    if (nowIdx > 0) { const [t] = queue.splice(nowIdx, 1); queue.unshift(t) }
+    queueIndex = 0
+  } else {
+    // Restore original order, keeping the same track playing
+    queue = _unshuffledQueue
+    _unshuffledQueue = []
+    queueIndex = Math.max(0, queue.findIndex(t => t.Id === currentId))
+  }
+
+  if (overlayOpen) renderQueuePanel()
 })
 
 document.getElementById('btn-repeat').addEventListener('click', () => {
@@ -617,6 +651,36 @@ likeBtn.addEventListener('click', async () => {
     })
     likeBtn.classList.toggle('liked', !isLiked)
   } catch (e) { console.error('Like failed', e) }
+})
+
+// ── Native media session (OS media keys + lock screen / taskbar integration) ──
+
+if ('mediaSession' in navigator) {
+  navigator.mediaSession.setActionHandler('play',          () => { if (audio.paused) audio.play() })
+  navigator.mediaSession.setActionHandler('pause',         () => { if (!audio.paused) audio.pause() })
+  navigator.mediaSession.setActionHandler('stop',          () => { audio.pause(); audio.currentTime = 0 })
+  navigator.mediaSession.setActionHandler('nexttrack',     () => document.getElementById('btn-next').click())
+  navigator.mediaSession.setActionHandler('previoustrack', () => document.getElementById('btn-prev').click())
+  navigator.mediaSession.setActionHandler('seekto', (details) => {
+    if (audio.duration && details.seekTime != null) audio.currentTime = details.seekTime
+  })
+}
+
+// IPC fallback for Windows globalShortcut (covers cases where mediaSession alone isn't enough)
+window.cascade.onMediaKey((key) => {
+  if (key === 'playpause') document.getElementById('btn-play').click()
+  else if (key === 'next')  document.getElementById('btn-next').click()
+  else if (key === 'prev')  document.getElementById('btn-prev').click()
+})
+
+// Keep OS media session state in sync with playback
+audio.addEventListener('play',  () => {
+  if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
+  window.cascade.touchbarUpdate({ playing: true })
+})
+audio.addEventListener('pause', () => {
+  if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
+  window.cascade.touchbarUpdate({ playing: false })
 })
 
 // ── Settings ──────────────────────────────────────────────────────────────────

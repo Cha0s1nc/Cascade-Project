@@ -15,4 +15,6 @@ contextBridge.exposeInMainWorld('cascade', {
   download: (url, filename) => ipcRenderer.invoke('download-file', url, filename),
   showNpMenu: (actions) => ipcRenderer.invoke('show-np-menu', actions),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  onMediaKey: (cb) => ipcRenderer.on('media-key', (_e, key) => cb(key)),
+  touchbarUpdate: (data) => ipcRenderer.send('touchbar-update', data),
 })

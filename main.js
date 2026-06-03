@@ -1,4 +1,5 @@
-const { app, BrowserWindow, ipcMain, clipboard, shell, Menu } = require('electron')
+const { app, BrowserWindow, ipcMain, clipboard, shell, Menu, globalShortcut, TouchBar } = require('electron')
+const { TouchBarButton, TouchBarSpacer, TouchBarLabel } = TouchBar
 const path = require('path')
 const https = require('https')
 const http  = require('http')
@@ -33,15 +34,49 @@ function createWindow() {
 
   win.loadFile('index.html')
 
+  // ── Touch Bar (macOS only) ────────────────────────────────────────────────
+  if (process.platform === 'darwin') {
+    const send = (key) => { if (win && !win.isDestroyed()) win.webContents.send('media-key', key) }
+
+    const tbTrack = new TouchBarLabel({ label: 'Cascade', textColor: '#ffffff' })
+    const tbPrev  = new TouchBarButton({ label: '⏮', click: () => send('prev') })
+    const tbPlay  = new TouchBarButton({ label: '⏸', click: () => send('playpause') })
+    const tbNext  = new TouchBarButton({ label: '⏭', click: () => send('next') })
+
+    win.setTouchBar(new TouchBar({
+      items: [
+        tbTrack,
+        new TouchBarSpacer({ size: 'flexible' }),
+        tbPrev, tbPlay, tbNext,
+        new TouchBarSpacer({ size: 'small' }),
+      ]
+    }))
+
+    // Keep play/pause icon and track label in sync via IPC
+    ipcMain.on('touchbar-update', (_e, { playing, title }) => {
+      if (title != null) tbTrack.label = title
+      if (playing != null) tbPlay.label = playing ? '⏸' : '▶'
+    })
+  }
+
   win.once('ready-to-show', () => {
     win.show()
     if (app.isPackaged) setTimeout(checkForUpdates, 5000)
+  })
+
+  // Register OS media keys — needed on Windows where the renderer alone can't capture them
+  app.whenReady().then(() => {
+    const send = (key) => { if (win && !win.isDestroyed()) win.webContents.send('media-key', key) }
+    globalShortcut.register('MediaPlayPause',   () => send('playpause'))
+    globalShortcut.register('MediaNextTrack',   () => send('next'))
+    globalShortcut.register('MediaPreviousTrack', () => send('prev'))
   })
 }
 
 app.whenReady().then(createWindow)
 
 app.on('window-all-closed', () => {
+  globalShortcut.unregisterAll()
   app.quit()
 })
 
