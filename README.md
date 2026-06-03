@@ -6,17 +6,23 @@ A Jellyfin music client for desktop with a polished dark interface, full playbac
 
 ## Features
 
-- **Jellyfin playback** — browse and play from your Jellyfin library with direct play and transcoding fallback, shuffle, repeat (none / all / one), and gapless queue
-- **Full-screen now-playing overlay** — click the player bar to expand a full-screen view with large album art, controls, a live queue panel, and synced lyrics
+- **Jellyfin playback** — browse and play from your Jellyfin library with direct play and transcoding fallback, repeat (none / all / one), and gapless queue
+- **Shuffle** — proper pre-shuffled queue (Fisher-Yates) so every song plays exactly once before repeating. Shuffle All buttons in Albums, Artists, and Songs views. Toggling shuffle off restores the original order
+- **Full-screen now-playing overlay** — click the player bar to expand a full-screen view with large album art, controls, a live queue panel, and synced lyrics. Lyrics scale up automatically when the window is maximised or fullscreened
 - **Queue management** — drag to reorder, click to remove. Queue updates live in the full-screen overlay with album art thumbnails and current-track highlighting
 - **Synced lyrics** — timestamp-synced lyrics from Jellyfin with click-to-seek. Opens as a slide-in panel or in the full-screen overlay
 - **Lyrics translation** — auto-detects non-English tracks and shows a translate bar. One click translates to 12 languages via the MyMemory API
+- **Theme picker** — click the gradient dot in the titlebar to customise the accent gradient with a colour picker, eight built-in presets, or dark/light mode. Settings persist across restarts
+- **Album art accent mode** — toggle in the theme picker to automatically match the gradient and full-screen overlay background to the dominant colour of the current album art, updating on every track change
+- **OS media keys** — play/pause, next, and previous work system-wide on both macOS and Windows via `globalShortcut` and the Web Media Session API (also populates the lock screen / taskbar now-playing widget with track info and artwork)
+- **Touch Bar** — macOS Touch Bar shows track name and ⏮ ▶/⏸ ⏭ controls, synced to playback state
 - **Context menu** — right-click now-playing art for instant mix, add to playlist, media info, download, copy stream URL, refresh metadata, edit metadata, delete, and more
 - **Like / favourite** — heart button syncs favourites back to your Jellyfin server
-- **Playlists** — browse and play your Jellyfin playlists. Drill into a playlist to see its track list with album art
+- **Playlists** — browse and play your Jellyfin playlists. Drill into a playlist to see its track list with album art. Adding tracks to playlists works correctly via the Jellyfin API
 - **Multi-library support** — select and merge multiple Jellyfin music libraries. Albums, artists, and songs are deduplicated across all selected libraries
 - **Expandable sidebar** — icon-only rail that slides out to show labels on hover, with backdrop dimming
 - **Album art thumbnails** — song and playlist rows show album art fetched from Jellyfin metadata
+- **Cha0s Stream integration** — exposes a local control server (`127.0.0.1:47847`) so [Cha0s Stream](https://github.com/Cha0s1nc/cha0s-stream) can control playback directly without OS key simulation or Jellyfin session API calls
 - **Auto-updater** — checks for new GitHub releases on startup and presents an update window with release notes, download progress, and one-click install
 - **Settings** — server URL, credentials, and library selection all configurable from inside the app. First-run setup on initial launch
 - **Cross-platform** — Mac (`.dmg`, Intel + Apple Silicon), Windows (`.exe`), Linux (`.AppImage`)
@@ -60,10 +66,12 @@ After connecting, open **Settings** to choose which Jellyfin music libraries Cas
 ## Playback
 
 - **Queue** — clicking an album, artist, or song loads it into the queue and starts playing. Playlist tracks load in playlist order
-- **Shuffle** — randomises the queue order. Toggle with the shuffle button in the player bar or full-screen overlay
+- **Shuffle** — pre-shuffles the queue so each song plays exactly once. Toggle with the shuffle button in the player bar or full-screen overlay. Toggling off restores the original order. Use **Shuffle All** in the Albums, Artists, or Songs view to start a fresh shuffle of your entire library
 - **Repeat** — cycles through none → all → one. The button in the player bar and overlay stay in sync
 - **Progress bar** — click or drag to seek anywhere in the current track
 - **Volume** — click or drag the volume slider. Also available in the full-screen overlay
+- **OS media keys** — play/pause, next, and previous work globally on macOS and Windows
+- **Touch Bar** — macOS Touch Bar shows the current track and playback controls
 
 ---
 
@@ -151,6 +159,19 @@ Builds are attached to [GitHub Releases](https://github.com/Cha0s1nc/Cascade-Pro
 ## License
 
 [GPL-3.0](LICENSE) © 2026 cha0s
+
+---
+
+## Theming
+
+Click the gradient dot in the top-right of the titlebar to open the theme picker:
+
+- **Dark / Light mode** — switches the entire UI between dark and light
+- **Gradient** — pick start and end colours for the accent gradient used throughout the app (active controls, nav bar, buttons)
+- **Presets** — eight built-in gradient presets (Default, Sunset, Ocean, Rose, Gold, Mint, Candy, Fire)
+- **Album art accent** — when enabled, the gradient and full-screen overlay background automatically shift to match the dominant colour of the current album art on every track change. Toggle off to restore your manual gradient
+
+All theme settings are saved and restored on next launch.
 
 ---
 

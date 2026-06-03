@@ -16,5 +16,6 @@ contextBridge.exposeInMainWorld('cascade', {
   showNpMenu: (actions) => ipcRenderer.invoke('show-np-menu', actions),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   onMediaKey: (cb) => ipcRenderer.on('media-key', (_e, key) => cb(key)),
+  platform: process.platform,
   touchbarUpdate: (data) => ipcRenderer.send('touchbar-update', data),
 })

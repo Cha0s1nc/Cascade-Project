@@ -7,6 +7,39 @@ const fs    = require('fs')
 const os    = require('os')
 const Store = require('electron-store')
 
+// ── Cascade Control Server (for Cha0s Stream integration) ─────────────────────
+// Listens on 127.0.0.1:47847 — Cha0s Stream POSTs here instead of using OS media keys
+const controlServer = http.createServer((req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  if (req.method === 'OPTIONS') { res.writeHead(204); return res.end() }
+  if (req.method === 'POST' && req.url === '/cascade/control') {
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', () => {
+      try {
+        const { action } = JSON.parse(body)
+        if (win && !win.isDestroyed()) win.webContents.send('media-key', action)
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ ok: true }))
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ ok: false, error: 'Bad request' }))
+      }
+    })
+  } else if (req.method === 'GET' && req.url === '/cascade/status') {
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ ok: true, app: 'Cascade', version: app.getVersion() }))
+  } else {
+    res.writeHead(404); res.end()
+  }
+})
+controlServer.listen(47847, '127.0.0.1', () => {
+  console.log('[cascade] Control server listening on 127.0.0.1:47847')
+})
+controlServer.on('error', (err) => {
+  console.warn('[cascade] Control server error:', err.message)
+})
+
 const GITHUB_REPO = 'Cha0s1nc/Cascade-Project'
 
 const store = new Store()
@@ -57,18 +90,19 @@ function createWindow() {
       if (title != null) tbTrack.label = title
       if (playing != null) tbPlay.label = playing ? '⏸' : '▶'
     })
+  } else {
+    // No-op handler so the renderer's touchbarUpdate() call doesn't error on Windows/Linux
+    ipcMain.on('touchbar-update', () => {})
   }
 
   win.once('ready-to-show', () => {
     win.show()
     if (app.isPackaged) setTimeout(checkForUpdates, 5000)
-  })
 
-  // Register OS media keys — needed on Windows where the renderer alone can't capture them
-  app.whenReady().then(() => {
+    // Register OS media keys here — app is already ready, window exists
     const send = (key) => { if (win && !win.isDestroyed()) win.webContents.send('media-key', key) }
-    globalShortcut.register('MediaPlayPause',   () => send('playpause'))
-    globalShortcut.register('MediaNextTrack',   () => send('next'))
+    globalShortcut.register('MediaPlayPause',     () => send('playpause'))
+    globalShortcut.register('MediaNextTrack',     () => send('next'))
     globalShortcut.register('MediaPreviousTrack', () => send('prev'))
   })
 }

@@ -5,7 +5,7 @@ let jf = { url: '', token: '', userId: '' }
 let queue = []
 let queueIndex = -1
 let shuffle = false
-let repeatMode = 'none'
+let repeatMode = 'none' // 'none' | 'all' | 'one'
 let _unshuffledQueue = []   // original order saved when shuffle is enabled
 let volume = 0.75
 
@@ -483,6 +483,20 @@ function updateNowPlaying(item) {
       artwork,
     })
   }
+
+  // Album art accent: fetch through our auth header so canvas isn't tainted by CORS
+  if (themeAlbumArt && art) {
+    fetch(art, { headers: { 'X-Emby-Token': jf.token } })
+      .then(r => r.blob())
+      .then(blob => {
+        const objectUrl = URL.createObjectURL(blob)
+        const img = new Image()
+        img.onload = () => { applyAlbumArtTheme(img); URL.revokeObjectURL(objectUrl) }
+        img.onerror = () => URL.revokeObjectURL(objectUrl)
+        img.src = objectUrl
+      })
+      .catch(() => {})
+  }
 }
 
 function highlightPlayingRow() {
@@ -653,6 +667,39 @@ likeBtn.addEventListener('click', async () => {
   } catch (e) { console.error('Like failed', e) }
 })
 
+// ── Shuffle All ───────────────────────────────────────────────────────────────
+
+async function shuffleAllSongs() {
+  // Load songs if not yet fetched
+  if (!allSongs.length) {
+    const params = { SortBy: 'SortName', SortOrder: 'Ascending', IncludeItemTypes: 'Audio', Recursive: true, Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,UserData', Limit: 500 }
+    const data = await jfGetMerged(`/Users/${jf.userId}/Items`, params)
+    allSongs = data.Items || []
+    // If songs view is open, render the rows too
+    if (document.getElementById('songs-rows').dataset.loaded) renderSongRows()
+  }
+  if (!allSongs.length) return
+
+  // Fisher-Yates shuffle a copy
+  const shuffled = [...allSongs]
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+  }
+
+  // Store originals so toggling shuffle off restores order
+  _unshuffledQueue = allSongs
+  shuffle = true
+  document.getElementById('btn-shuffle').classList.add('active')
+  document.getElementById('ov-shuffle').classList.add('active')
+
+  playItems(shuffled, 0)
+}
+
+document.getElementById('btn-shuffle-songs').addEventListener('click', shuffleAllSongs)
+document.getElementById('btn-shuffle-albums').addEventListener('click', shuffleAllSongs)
+document.getElementById('btn-shuffle-artists').addEventListener('click', shuffleAllSongs)
+
 // ── Native media session (OS media keys + lock screen / taskbar integration) ──
 
 if ('mediaSession' in navigator) {
@@ -776,6 +823,11 @@ document.getElementById('btn-check-updates').addEventListener('click', () => {
 })
 
 async function init() {
+  document.documentElement.setAttribute('data-platform', window.cascade.platform)
+
+  await loadTheme()
+  buildPresets()
+
   const serverUrl = await window.cascade.store.get('serverUrl')
   const token = await window.cascade.store.get('token')
   const userId = await window.cascade.store.get('userId')
@@ -845,10 +897,14 @@ document.getElementById('ov-more-btn').addEventListener('click', (e) => {
     // Position above the button, centered
     ovDropdown.style.left = `${btn.left + btn.width / 2 - ovDropdown.offsetWidth / 2}px`
     ovDropdown.style.top = `${btn.top - ovDropdown.offsetHeight - 8}px`
-    // Keep on screen
+    // Clamp all four edges
     const r = ovDropdown.getBoundingClientRect()
     if (r.left < 8) ovDropdown.style.left = '8px'
+    if (r.right > window.innerWidth - 8) ovDropdown.style.left = `${window.innerWidth - ovDropdown.offsetWidth - 8}px`
     if (r.top < 8) ovDropdown.style.top = `${btn.bottom + 8}px`
+    // Clamp bottom — if it still overflows, pin to bottom of screen
+    const r2 = ovDropdown.getBoundingClientRect()
+    if (r2.bottom > window.innerHeight - 8) ovDropdown.style.top = `${window.innerHeight - ovDropdown.offsetHeight - 8}px`
   }
 })
 
@@ -1218,10 +1274,9 @@ document.getElementById('ctx-add-playlist').addEventListener('click', async () =
         const item = queue[queueIndex]
         if (!item) return
         try {
-          await fetch(`${jf.url}/Playlists/${el.dataset.id}/Items`, {
+          await fetch(`${jf.url}/Playlists/${el.dataset.id}/Items?Ids=${encodeURIComponent(item.Id)}&UserId=${jf.userId}`, {
             method: 'POST',
-            headers: { 'X-Emby-Token': jf.token, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ Ids: [item.Id] })
+            headers: { 'X-Emby-Token': jf.token }
           })
         } catch {}
         modal.classList.add('hidden')
@@ -1486,6 +1541,189 @@ updateNowPlaying = function(item) {
   if (document.getElementById('lyrics-panel').classList.contains('open')) fetchLyrics()
   if (overlayOpen && overlayLyricsOpen) renderOverlayLyrics()
 }
+
+// ── Theme system ──────────────────────────────────────────────────────────────
+
+const THEME_PRESETS = [
+  { label: 'Default',   start: '#4ade80', end: '#7c3aed' },
+  { label: 'Sunset',    start: '#f97316', end: '#ec4899' },
+  { label: 'Ocean',     start: '#06b6d4', end: '#3b82f6' },
+  { label: 'Rose',      start: '#fb7185', end: '#e11d48' },
+  { label: 'Gold',      start: '#fbbf24', end: '#f59e0b' },
+  { label: 'Mint',      start: '#34d399', end: '#059669' },
+  { label: 'Candy',     start: '#f472b6', end: '#818cf8' },
+  { label: 'Fire',      start: '#ef4444', end: '#f97316' },
+]
+
+let themeAlbumArt = false
+let _lastAlbumColors = null
+
+function applyGradient(start, end) {
+  const grad = `linear-gradient(160deg, ${start} 0%, ${end} 100%)`
+  document.documentElement.style.setProperty('--grad', grad)
+  document.documentElement.style.setProperty('--accent', end)
+  document.documentElement.style.setProperty('--accent-glow', hexToRgba(end, 0.25))
+  document.getElementById('theme-dot').style.background = grad
+}
+
+function hexToRgba(hex, alpha) {
+  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16)
+  return `rgba(${r},${g},${b},${alpha})`
+}
+
+function setThemeMode(mode) {
+  document.documentElement.setAttribute('data-theme', mode === 'light' ? 'light' : '')
+  document.getElementById('seg-dark').classList.toggle('active', mode !== 'light')
+  document.getElementById('seg-light').classList.toggle('active', mode === 'light')
+}
+
+function buildPresets() {
+  const container = document.getElementById('tp-presets')
+  const saved = { start: document.getElementById('grad-start').value, end: document.getElementById('grad-end').value }
+  container.innerHTML = THEME_PRESETS.map((p, i) =>
+    `<div class="tp-preset" data-i="${i}" title="${p.label}"
+      style="background:linear-gradient(135deg,${p.start},${p.end})"></div>`
+  ).join('')
+  container.querySelectorAll('.tp-preset').forEach(el => {
+    el.addEventListener('click', () => {
+      const p = THEME_PRESETS[parseInt(el.dataset.i)]
+      document.getElementById('grad-start').value = p.start
+      document.getElementById('grad-end').value = p.end
+      applyGradient(p.start, p.end)
+      markActivePreset()
+      saveTheme()
+    })
+  })
+  markActivePreset()
+}
+
+function markActivePreset() {
+  const s = document.getElementById('grad-start').value
+  const e = document.getElementById('grad-end').value
+  document.querySelectorAll('.tp-preset').forEach((el, i) => {
+    const p = THEME_PRESETS[i]
+    el.classList.toggle('active', p.start === s && p.end === e)
+  })
+}
+
+async function saveTheme() {
+  await window.cascade.store.set('theme', JSON.stringify({
+    mode: document.documentElement.getAttribute('data-theme') || 'dark',
+    gradStart: document.getElementById('grad-start').value,
+    gradEnd: document.getElementById('grad-end').value,
+    albumArt: themeAlbumArt,
+  }))
+}
+
+async function loadTheme() {
+  try {
+    const raw = await window.cascade.store.get('theme')
+    if (!raw) return
+    const t = JSON.parse(raw)
+    if (t.mode === 'light') setThemeMode('light')
+    if (t.gradStart && t.gradEnd) {
+      document.getElementById('grad-start').value = t.gradStart
+      document.getElementById('grad-end').value = t.gradEnd
+      applyGradient(t.gradStart, t.gradEnd)
+    }
+    if (t.albumArt) {
+      themeAlbumArt = true
+      document.getElementById('toggle-album-art').checked = true
+    }
+  } catch {}
+  buildPresets()
+}
+
+// Album art dominant color extraction
+function extractVibrantColor(img) {
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = canvas.height = 60
+    const ctx = canvas.getContext('2d')
+    ctx.drawImage(img, 0, 0, 60, 60)
+    const data = ctx.getImageData(0, 0, 60, 60).data
+    let bestR = 110, bestG = 79, bestB = 246, bestScore = 0
+    for (let i = 0; i < data.length; i += 12) {
+      const r = data[i], g = data[i+1], b = data[i+2]
+      const max = Math.max(r, g, b), min = Math.min(r, g, b)
+      const sat = max === 0 ? 0 : (max - min) / max
+      const bri = max / 255
+      const score = sat * bri * bri  // weight toward bright saturated
+      if (score > bestScore) { bestScore = score; bestR = r; bestG = g; bestB = b }
+    }
+    return { r: bestR, g: bestG, b: bestB }
+  } catch { return null }
+}
+
+function rgbToHex(r, g, b) {
+  return '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('')
+}
+
+function applyAlbumArtTheme(imgEl) {
+  if (!themeAlbumArt || !imgEl) return
+  const col = extractVibrantColor(imgEl)
+  if (!col) return
+
+  // Gradient accent (used everywhere else)
+  const startHex = rgbToHex(Math.min(255, col.r + 60), Math.min(255, col.g + 60), Math.min(255, col.b + 60))
+  const endHex   = rgbToHex(Math.max(0,   col.r - 30), Math.max(0,   col.g - 30), Math.max(0,   col.b - 30))
+  _lastAlbumColors = { start: startHex, end: endHex }
+  applyGradient(startHex, endHex)
+
+  // Fullscreen overlay background: rich color at top, fades to near-black
+  const { r, g, b } = col
+  const overlayBg = `linear-gradient(160deg, rgb(${r},${g},${b}) 0%, rgb(${Math.round(r*0.25)},${Math.round(g*0.25)},${Math.round(b*0.25)}) 55%, #0d0d0f 100%)`
+  document.documentElement.style.setProperty('--art-overlay-bg', overlayBg)
+  document.getElementById('np-overlay').classList.add('art-theme')
+}
+
+function clearAlbumArtTheme() {
+  document.getElementById('np-overlay').classList.remove('art-theme')
+  document.documentElement.style.removeProperty('--art-overlay-bg')
+}
+
+// Wire up theme picker UI
+document.getElementById('theme-dot').addEventListener('click', (e) => {
+  e.stopPropagation()
+  document.getElementById('theme-picker').classList.toggle('open')
+})
+document.getElementById('tp-close').addEventListener('click', () => {
+  document.getElementById('theme-picker').classList.remove('open')
+})
+document.addEventListener('mousedown', (e) => {
+  const picker = document.getElementById('theme-picker')
+  if (!picker.contains(e.target) && e.target.id !== 'theme-dot') {
+    picker.classList.remove('open')
+  }
+})
+
+document.getElementById('seg-dark').addEventListener('click', () => { setThemeMode('dark'); saveTheme() })
+document.getElementById('seg-light').addEventListener('click', () => { setThemeMode('light'); saveTheme() })
+
+document.getElementById('grad-start').addEventListener('input', () => {
+  applyGradient(document.getElementById('grad-start').value, document.getElementById('grad-end').value)
+  markActivePreset()
+  saveTheme()
+})
+document.getElementById('grad-end').addEventListener('input', () => {
+  applyGradient(document.getElementById('grad-start').value, document.getElementById('grad-end').value)
+  markActivePreset()
+  saveTheme()
+})
+
+document.getElementById('toggle-album-art').addEventListener('change', (e) => {
+  themeAlbumArt = e.target.checked
+  if (themeAlbumArt) {
+    // Apply immediately from current art
+    const img = document.querySelector('#ov-art img') || document.querySelector('#np-art img')
+    if (img?.complete) applyAlbumArtTheme(img)
+  } else {
+    // Restore manual gradient and clear overlay tint
+    clearAlbumArtTheme()
+    applyGradient(document.getElementById('grad-start').value, document.getElementById('grad-end').value)
+  }
+  saveTheme()
+})
 
 // ── Utility ───────────────────────────────────────────────────────────────────
 
