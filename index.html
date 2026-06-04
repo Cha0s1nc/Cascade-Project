@@ -171,9 +171,10 @@
 
     /* ── Statusbar player ── */
     .statusbar { height: 48px; flex-shrink: 0; background: var(--surface); border-top: 1px solid var(--border); display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 0 16px; gap: 16px; }
-    .np { display: flex; align-items: center; gap: 9px; min-width: 0; }
-    .np-art { width: 30px; height: 30px; border-radius: 4px; background: var(--surface2); flex-shrink: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 13px; }
-    .np-art img { width: 100%; height: 100%; object-fit: cover; }
+    .np { display: flex; align-items: center; gap: 9px; min-width: 0; cursor: pointer; }
+    .np-art { width: 30px; height: 30px; border-radius: 4px; background: var(--surface2); flex-shrink: 0; overflow: visible; display: flex; align-items: center; justify-content: center; font-size: 13px; transition: transform 0.18s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.18s ease; cursor: pointer; }
+    .np-art:hover { transform: scale(1.18); box-shadow: 0 4px 16px rgba(0,0,0,0.5); }
+    .np-art img { width: 100%; height: 100%; object-fit: cover; border-radius: 4px; }
     .np-title { font-size: 12px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .np-artist { font-size: 11px; color: var(--text3); white-space: nowrap; }
     .np-sep { color: var(--text3); font-size: 11px; margin: 0 2px; }
@@ -187,9 +188,12 @@
     .player-center { display: flex; align-items: center; gap: 10px; }
     .player-controls { display: flex; align-items: center; gap: 12px; }
     .ctrl-btn { background: none; border: none; color: var(--text3); cursor: pointer; padding: 0; transition: color 0.12s; display: flex; align-items: center; }
+    button svg, .ctrl-btn svg, .play-pause-btn svg, .vol-icon svg { pointer-events: none; cursor: inherit; }
     .ctrl-btn:hover { color: var(--text); }
     .ctrl-btn.active { color: var(--accent); }
     .play-pause-btn { width: 28px; height: 28px; border-radius: 50%; background: var(--grad); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; color: white; transition: opacity 0.12s; flex-shrink: 0; }
+    .play-pause-btn svg { fill: var(--play-btn-fg, white) !important; }
+    .np-ov-play svg { fill: var(--play-btn-fg, white); }
     .play-pause-btn:hover { opacity: 0.85; }
     .prog-row { display: flex; align-items: center; gap: 6px; }
     .prog-time { font-size: 10px; color: var(--text3); font-variant-numeric: tabular-nums; min-width: 26px; }
@@ -260,6 +264,7 @@
     .np-ov-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
     .np-ov-panel.active { display: block; }
     /* Queue panel */
+    #ov-panel-queue { transition: transform 0.3s cubic-bezier(0.4,0,0.2,1); }
     .queue-row { display: flex; align-items: center; gap: 10px; padding: 8px 16px; cursor: pointer; transition: background 0.1s; border-bottom: 0.5px solid var(--border); }
     .queue-row:hover { background: rgba(255,255,255,0.03); }
     .queue-row.current { background: rgba(110,79,246,0.1); }
@@ -278,8 +283,8 @@
     .queue-row.drag-over { border-top: 2px solid var(--accent); }
     /* Overlay lyrics — GPU-accelerated clock-scroll */
     #ov-panel-lyrics { overflow: hidden; }
-    .ov-lyrics-scroll { display: flex; flex-direction: column; align-items: center; will-change: transform; transition: transform 0.42s cubic-bezier(0.4,0,0.2,1); }
-    .ov-lyric-line { text-align: center; font-size: clamp(18px, 2.2vw, 38px); font-weight: 600; color: var(--text3); padding: 10px 32px; line-height: 1.4; cursor: default; max-width: min(500px, 80%); transform: scale(0.72); transform-origin: center center; opacity: 0.18; will-change: transform, opacity; transition: transform 0.42s cubic-bezier(0.4,0,0.2,1), opacity 0.42s cubic-bezier(0.4,0,0.2,1), color 0.42s; }
+    .ov-lyrics-scroll { display: flex; flex-direction: column; align-items: center; will-change: transform; transition: transform 0.2s cubic-bezier(0.4,0,0.2,1); }
+    .ov-lyric-line { text-align: center; font-size: clamp(18px, 2.2vw, 38px); font-weight: 600; color: var(--text3); padding: 10px 32px; line-height: 1.4; cursor: default; max-width: min(500px, 80%); transform: scale(0.72); transform-origin: center center; opacity: 0.18; will-change: transform, opacity; transition: transform 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.18s cubic-bezier(0.4,0,0.2,1), color 0.18s; }
     .ov-lyric-line.seekable { cursor: pointer; }
     .ov-lyric-line.near-2 { transform: scale(0.82); opacity: 0.35; }
     .ov-lyric-line.near-1 { transform: scale(0.92); opacity: 0.55; color: var(--text2); }
@@ -311,9 +316,7 @@
     .lyrics-translate-btn { font-family: var(--font); font-size: 11px; font-weight: 600; background: var(--accent); color: white; border: none; border-radius: 5px; padding: 4px 10px; cursor: pointer; transition: opacity 0.12s; flex-shrink: 0; }
     .lyrics-translate-btn:hover { opacity: 0.85; }
     .lyrics-translate-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-    .lyrics-body { flex: 1; overflow-y: auto; padding: 16px 14px; }
-    .lyrics-body::-webkit-scrollbar { width: 4px; }
-    .lyrics-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    .lyrics-body { flex: 1; overflow: hidden; padding: 16px 14px; }
     .lyrics-line { font-size: 13px; color: var(--text2); line-height: 1.8; padding: 2px 0; transition: color 0.2s; }
     .lyrics-line.active { color: var(--text); font-weight: 500; }
     .lyrics-line.translated { color: var(--text3); font-size: 11px; margin-top: -4px; font-style: italic; }
@@ -344,19 +347,30 @@
     /* ── Album art fullscreen theme ── */
     .np-overlay.art-theme {
       background: var(--art-overlay-bg, var(--bg));
-      transition: background 0.8s cubic-bezier(0.4,0,0.2,1);
+      transition: transform 0.38s cubic-bezier(0.4,0,0.2,1), background 0.8s cubic-bezier(0.4,0,0.2,1);
     }
     /* Tint the left/right panels so content stays readable */
-    .np-overlay.art-theme .np-overlay-left,
-    .np-overlay.art-theme .np-overlay-right { background: rgba(0,0,0,0.22); }
+    .np-overlay.art-theme .np-overlay-left { background: rgba(0,0,0,0.15); }
+    .np-overlay.art-theme .np-overlay-right { background: transparent; }
     .np-overlay.art-theme .np-overlay-header { background: rgba(0,0,0,0.28); border-bottom-color: rgba(255,255,255,0.1); }
     /* Force all overlay control buttons white + black outline */
     .np-overlay.art-theme .np-ov-ctrl,
+    .np-overlay.art-theme .np-ov-ctrl.active,
     .np-overlay.art-theme .np-overlay-close,
     .np-overlay.art-theme .np-like-ov { color: white !important; filter: drop-shadow(0 1px 3px rgba(0,0,0,0.8)); }
+    /* Force SVG stroke directly so active-state accent can't bleed through */
+    .np-overlay.art-theme .np-ov-ctrl svg,
+    .np-overlay.art-theme .np-ov-ctrl.active svg,
+    .np-overlay.art-theme .np-overlay-close svg { stroke: white !important; }
     .np-overlay.art-theme .np-ov-ctrl:hover,
+    .np-overlay.art-theme .np-ov-ctrl.active:hover,
     .np-overlay.art-theme .np-overlay-close:hover,
     .np-overlay.art-theme .np-like-ov:hover { color: rgba(255,255,255,0.75) !important; }
+    .np-overlay.art-theme .np-ov-ctrl:hover svg,
+    .np-overlay.art-theme .np-ov-ctrl.active:hover svg { stroke: rgba(255,255,255,0.75) !important; }
+    /* Active buttons: white with full opacity, dimmed when inactive */
+    .np-overlay.art-theme .np-ov-ctrl:not(.active) { opacity: 0.55; }
+    .np-overlay.art-theme .np-ov-ctrl.active { opacity: 1; }
     .np-overlay.art-theme .np-like-ov.liked { color: #ff6b8a !important; }
     /* Play/pause button: white pill, black icons */
     .np-overlay.art-theme .np-ov-play { background: white; box-shadow: 0 2px 12px rgba(0,0,0,0.5); }
@@ -370,8 +384,8 @@
     .np-overlay.art-theme .np-overlay-artist { color: rgba(255,255,255,0.7); }
     .np-overlay.art-theme .np-overlay-time { color: rgba(255,255,255,0.6); }
     /* Queue/lyrics panel gets a translucent dark surface */
-    .np-overlay.art-theme #ov-panel-queue,
-    .np-overlay.art-theme #ov-panel-lyrics { background: rgba(0,0,0,0.3); }
+    .np-overlay.art-theme #ov-panel-queue { background: transparent; }
+    .np-overlay.art-theme #ov-panel-lyrics { background: transparent !important; }
     .np-overlay.art-theme .queue-row:hover { background: rgba(255,255,255,0.07); }
     .np-overlay.art-theme .queue-row.current { background: rgba(255,255,255,0.15); }
     .np-overlay.art-theme .queue-row-title { color: rgba(255,255,255,0.9); }
@@ -427,6 +441,27 @@
     .toggle input:checked + .toggle-track { background: var(--accent); border-color: var(--accent); }
     .toggle-track::after { content: ''; position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; background: white; border-radius: 50%; transition: transform 0.2s; }
     .toggle input:checked + .toggle-track::after { transform: translateX(16px); }
+
+    /* ── Search view ── */
+    .search-bar-wrap { position: sticky; top: 0; background: var(--bg); padding: 0 0 16px; z-index: 5; }
+    .search-input-wrap { position: relative; display: flex; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 0 12px; transition: border-color 0.15s, box-shadow 0.15s; }
+    .search-input-wrap:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+    .search-icon-inline { color: var(--text3); flex-shrink: 0; }
+    .search-input-field { flex: 1; background: none; border: none; outline: none; font-family: var(--font); font-size: 14px; color: var(--text); padding: 11px 10px; }
+    .search-input-field::placeholder { color: var(--text3); }
+    .search-clear-btn { background: none; border: none; color: var(--text3); cursor: pointer; padding: 4px; display: flex; align-items: center; border-radius: 4px; transition: color 0.12s; flex-shrink: 0; }
+    .search-clear-btn:hover { color: var(--text); }
+    .search-empty-state { color: var(--text3); font-size: 13px; text-align: center; padding: 60px 0; }
+    .search-section { margin-bottom: 24px; }
+    .search-section-title { font-size: 10px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 8px; }
+    .search-no-results { color: var(--text3); font-size: 13px; text-align: center; padding: 40px 0; }
+
+    /* ── Overlay translate button ── */
+    .ov-translate-btn { position: sticky; bottom: 16px; float: right; margin: -44px 16px 16px 0; width: 38px; height: 38px; border-radius: 50%; background: rgba(255,255,255,0.12); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.2); color: var(--text); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s, transform 0.15s, opacity 0.2s; z-index: 10; box-shadow: 0 2px 12px rgba(0,0,0,0.3); }
+    .ov-translate-btn:hover { background: rgba(255,255,255,0.22); transform: scale(1.1); }
+    .ov-translate-btn.translated { background: var(--accent); border-color: transparent; color: white; }
+    .ov-translate-btn.loading { opacity: 0.6; pointer-events: none; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
 
     /* ── Shuffle all button ── */
     .shuffle-all-btn { display: flex; align-items: center; gap: 5px; font-family: var(--font); font-size: 11px; font-weight: 600; background: none; border: 1px solid var(--border); border-radius: 6px; color: var(--text2); padding: 4px 10px; cursor: pointer; transition: background 0.12s, color 0.12s, border-color 0.12s; }
@@ -530,6 +565,13 @@
         </div>
         <div class="nav-info"><span class="nav-label">Songs</span></div>
       </div>
+      <div class="nav-item" data-view="search">
+        <div class="nav-bar"></div>
+        <div class="nav-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </div>
+        <div class="nav-info"><span class="nav-label">Search</span></div>
+      </div>
       <div class="nav-item" data-view="playlists">
         <div class="nav-bar"></div>
         <div class="nav-icon">
@@ -616,6 +658,22 @@
           <div id="songs-rows">
             <div class="loading-state">Loading…</div>
           </div>
+        </div>
+      </div>
+
+      <!-- Search -->
+      <div class="view" id="view-search">
+        <div class="search-bar-wrap">
+          <div class="search-input-wrap">
+            <svg class="search-icon-inline" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input class="search-input-field" id="search-input" type="text" placeholder="Search songs, albums, artists…" autocomplete="off" />
+            <button class="search-clear-btn" id="search-clear" style="display:none">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+        </div>
+        <div id="search-results">
+          <div class="search-empty-state">Start typing to search your library</div>
         </div>
       </div>
 
@@ -845,6 +903,9 @@
       </div>
       <div id="ov-panel-lyrics" style="position:absolute;inset:0;background:var(--surface);overflow-y:auto;transform:translateX(100%);transition:transform 0.3s cubic-bezier(0.4,0,0.2,1);">
         <div class="ov-lyrics-scroll" id="ov-lyrics-body"></div>
+        <button class="ov-translate-btn" id="ov-translate-btn" title="Translate to English" style="display:none">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        </button>
       </div>
     </div>
   </div>

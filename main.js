@@ -137,7 +137,8 @@ ipcMain.handle('download-file', (_e, url, filename) => {
 // ── Version helpers ────────────────────────────────────────────────────────────
 
 function parseVersion(v) {
-  return String(v).replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0)
+  // Strip pre-release suffix (e.g. 1.0.1b, 1.0.1-beta) before comparing
+  return String(v).replace(/^v/, '').replace(/[-+][a-zA-Z0-9._]*$/, '').split('.').map(n => parseInt(n, 10) || 0)
 }
 function isNewer(latest, current) {
   const [la, lb, lc] = parseVersion(latest)

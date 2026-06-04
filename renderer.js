@@ -155,6 +155,7 @@ function showView(name) {
   if (name === 'songs' && !document.getElementById('songs-rows').dataset.loaded) loadSongs()
   if (name === 'playlists' && !document.getElementById('playlists-grid').dataset.loaded) loadPlaylists()
   if (name === 'settings') loadSettingsFields()
+  if (name === 'search') setTimeout(() => document.getElementById('search-input').focus(), 80)
 }
 
 document.querySelectorAll('.nav-item[data-view]').forEach(el => {
@@ -613,11 +614,28 @@ document.getElementById('btn-shuffle').addEventListener('click', () => {
   if (overlayOpen) renderQueuePanel()
 })
 
+const REPEAT_ICON_ALL = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>`
+const REPEAT_ICON_ONE = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/><path d="M11 10h1v4"/></svg>`
+const REPEAT_ICON_ALL_LG = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>`
+const REPEAT_ICON_ONE_LG = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/><path d="M11 10h1v4"/></svg>`
+
+function updateRepeatButtons() {
+  const isOne = repeatMode === 'one'
+  const active = repeatMode !== 'none'
+  const btnR = document.getElementById('btn-repeat')
+  const ovR  = document.getElementById('ov-repeat')
+  btnR.innerHTML = isOne ? REPEAT_ICON_ONE    : REPEAT_ICON_ALL
+  ovR.innerHTML  = isOne ? REPEAT_ICON_ONE_LG : REPEAT_ICON_ALL_LG
+  btnR.classList.toggle('active', active)
+  ovR.classList.toggle('active', active)
+  btnR.title = isOne ? 'Repeat one' : active ? 'Repeat all' : 'Repeat'
+  ovR.title  = btnR.title
+}
+
 document.getElementById('btn-repeat').addEventListener('click', () => {
   const modes = ['none', 'all', 'one']
   repeatMode = modes[(modes.indexOf(repeatMode) + 1) % modes.length]
-  document.getElementById('btn-repeat').classList.toggle('active', repeatMode !== 'none')
-  document.getElementById('btn-repeat').title = repeatMode === 'one' ? 'Repeat one' : repeatMode === 'all' ? 'Repeat all' : 'Repeat'
+  updateRepeatButtons()
 })
 
 // Progress bar scrubbing
@@ -767,7 +785,13 @@ document.getElementById('btn-save-settings').addEventListener('click', async () 
 
     await connect(url, auth.AccessToken, auth.User.Id)
   } catch (e) {
-    alert(`Could not connect: ${e.message}`)
+    const msg = e.message || ''
+    if (msg.includes('401') || msg.toLowerCase().includes('unauthorized'))
+      alert('Incorrect username or password.')
+    else if (msg.includes('Failed to fetch') || msg.includes('NetworkError'))
+      alert('Could not reach the server. Check your URL.')
+    else
+      alert(`Connection failed: ${msg}`)
   }
 })
 
@@ -805,7 +829,15 @@ document.getElementById('setup-connect').addEventListener('click', async () => {
     document.getElementById('setup-overlay').classList.add('hidden')
     await connect(url, auth.AccessToken, auth.User.Id)
   } catch (e) {
-    err.textContent = `Connection failed: ${e.message}`
+    const msg = e.message || ''
+    if (msg.includes('401') || msg.toLowerCase().includes('unauthorized'))
+      err.textContent = 'Incorrect username or password.'
+    else if (msg.includes('404'))
+      err.textContent = 'Server not found. Check your URL.'
+    else if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('ECONNREFUSED'))
+      err.textContent = 'Could not reach the server. Is it running?'
+    else
+      err.textContent = `Connection failed: ${msg}`
     btn.disabled = false
     btn.textContent = 'Connect'
   }
@@ -865,21 +897,20 @@ function closeOverlay() {
   npOverlay.classList.remove('open')
 }
 
-// Click the statusbar background to open (but not the controls)
+// Only the left NP section (art + info) opens the overlay — everything else is a deadzone
 document.querySelector('.statusbar').addEventListener('click', (e) => {
-  // Ignore clicks on actual control elements
-  if (e.target.closest('button, .vol-bar, .prog-bar, .np-art, #np-art')) return
+  if (!e.target.closest('.np')) return
   overlayOpen ? closeOverlay() : openOverlay()
 })
 
 document.getElementById('np-overlay-close').addEventListener('click', closeOverlay)
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && overlayOpen) closeOverlay() })
 
-// Lyrics toggle button slides the lyrics panel over the queue
+// Lyrics toggle — queue slides left out, lyrics slides right in (and vice versa)
 document.getElementById('ov-lyrics-toggle').addEventListener('click', () => {
   overlayLyricsOpen = !overlayLyricsOpen
-  const lyricsPanel = document.getElementById('ov-panel-lyrics')
-  lyricsPanel.style.transform = overlayLyricsOpen ? 'translateX(0)' : 'translateX(100%)'
+  document.getElementById('ov-panel-lyrics').style.transform = overlayLyricsOpen ? 'translateX(0)' : 'translateX(100%)'
+  document.getElementById('ov-panel-queue').style.transform  = overlayLyricsOpen ? 'translateX(-100%)' : 'translateX(0)'
   document.getElementById('ov-lyrics-toggle').classList.toggle('active', overlayLyricsOpen)
   if (overlayLyricsOpen) renderOverlayLyrics()
 })
@@ -944,7 +975,6 @@ document.getElementById('ov-shuffle').addEventListener('click', () => {
 })
 document.getElementById('ov-repeat').addEventListener('click', () => {
   document.getElementById('btn-repeat').click()
-  document.getElementById('ov-repeat').classList.toggle('active', repeatMode !== 'none')
 })
 document.getElementById('ov-like').addEventListener('click', () => document.getElementById('btn-like').click())
 
@@ -1021,7 +1051,7 @@ function syncOverlayState() {
 
   // Shuffle / repeat state
   document.getElementById('ov-shuffle').classList.toggle('active', shuffle)
-  document.getElementById('ov-repeat').classList.toggle('active', repeatMode !== 'none')
+  updateRepeatButtons()
 }
 
 function renderQueuePanel() {
@@ -1130,32 +1160,96 @@ async function renderOverlayLyrics() {
     return
   }
 
-  body.innerHTML = lyricsData.map((line, i) => {
-    const hasTimestamp = line.Start != null
-    return `<div class="ov-lyric-line${hasTimestamp ? ' seekable' : ''}" data-idx="${i}"${hasTimestamp ? ` data-start="${line.Start}"` : ''}>${esc(line.Text || '')}</div>`
-  }).join('')
+  renderOverlayLyricLines()
 
-  body.querySelectorAll('.ov-lyric-line.seekable').forEach(el => {
-    el.addEventListener('click', () => {
-      const ticks = parseInt(el.dataset.start)
-      if (!isNaN(ticks) && audio.duration) audio.currentTime = ticks / 10000000
-    })
-  })
-
-  // Reset position instantly (no transition) then let updates animate from there
+  // Reset position instantly then animate to current position
   body.style.transition = 'none'
   body.style.transform = 'translateY(0)'
   requestAnimationFrame(() => {
     body.style.transition = ''
-    // Find current active idx and position immediately
-    const nowSec = audio.currentTime
+    const nowSec = audio.currentTime + 0.225
     let activeIdx = 0
     for (let i = 0; i < lyricsData.length; i++) {
       if (lyricsData[i].Start != null && lyricsData[i].Start / 10000000 <= nowSec) activeIdx = i
     }
     updateOverlayLyricsActive(activeIdx)
   })
+
+  // Detect language and show translate button if non-English
+  detectOverlayLyricsLanguage()
 }
+
+let ovLyricsTranslated = false
+
+function renderOverlayLyricLines(translated = false) {
+  const body = document.getElementById('ov-lyrics-body')
+  body.innerHTML = lyricsData.map((line, i) => {
+    const hasTimestamp = line.Start != null
+    const text = translated && lyricsTranslated[i] ? lyricsTranslated[i] : (line.Text || '')
+    return `<div class="ov-lyric-line${hasTimestamp ? ' seekable' : ''}" data-idx="${i}"${hasTimestamp ? ` data-start="${line.Start}"` : ''}>${esc(text)}</div>`
+  }).join('')
+  body.querySelectorAll('.ov-lyric-line.seekable').forEach(el => {
+    el.addEventListener('click', () => {
+      const ticks = parseInt(el.dataset.start)
+      if (!isNaN(ticks) && audio.duration) audio.currentTime = ticks / 10000000
+    })
+  })
+}
+
+async function detectOverlayLyricsLanguage() {
+  const btn = document.getElementById('ov-translate-btn')
+  btn.style.display = 'none'
+  ovLyricsTranslated = false
+  btn.classList.remove('translated')
+  const sample = lyricsData.find(l => l.Text?.trim())?.Text?.trim()
+  if (!sample) return
+  try {
+    const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(sample.slice(0, 100))}&langpair=autodetect|en`)
+    const data = await res.json()
+    const detected = data.responseData?.detectedLanguage || ''
+    if (detected && !detected.toLowerCase().startsWith('en')) btn.style.display = 'flex'
+  } catch {}
+}
+
+document.getElementById('ov-translate-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('ov-translate-btn')
+
+  // Toggle back to original
+  if (ovLyricsTranslated) {
+    ovLyricsTranslated = false
+    btn.classList.remove('translated')
+    btn.title = 'Translate to English'
+    renderOverlayLyricLines(false)
+    return
+  }
+
+  btn.classList.add('loading')
+
+  try {
+    // Reuse existing translation if already fetched by the side panel
+    if (!lyricsTranslated.length || lyricsTranslated.every(t => !t)) {
+      const lines = lyricsData.map(l => l.Text || '')
+      const chunkSize = 10
+      lyricsTranslated = new Array(lines.length).fill('')
+      for (let i = 0; i < lines.length; i += chunkSize) {
+        const chunk = lines.slice(i, i + chunkSize)
+        const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(chunk.join('\n'))}&langpair=autodetect|en`
+        const res = await fetch(url)
+        const data = await res.json()
+        const translated = (data.responseData?.translatedText || chunk.join('\n')).split('\n')
+        translated.forEach((t, j) => { lyricsTranslated[i + j] = t })
+      }
+    }
+    ovLyricsTranslated = true
+    btn.classList.add('translated')
+    btn.title = 'Show original'
+    renderOverlayLyricLines(true)
+  } catch (e) {
+    console.error('Overlay translation failed', e)
+  } finally {
+    btn.classList.remove('loading')
+  }
+})
 
 function updateOverlayLyricsActive(activeIdx) {
   const body = document.getElementById('ov-lyrics-body')
@@ -1184,7 +1278,7 @@ updateNowPlaying = function(item) { _ovLyricsReset(item); lastOverlayLyricsIdx =
 
 audio.addEventListener('timeupdate', () => {
   if (!overlayOpen || !overlayLyricsOpen || !lyricsData.length) return
-  const nowSec = audio.currentTime
+  const nowSec = audio.currentTime + 0.225
   let activeIdx = 0
   for (let i = 0; i < lyricsData.length; i++) {
     if (lyricsData[i].Start != null && lyricsData[i].Start / 10000000 <= nowSec) activeIdx = i
@@ -1446,14 +1540,16 @@ async function detectAndShowTranslateBar() {
 
 function renderLyrics(showTranslation = false) {
   const body = document.getElementById('lyrics-body')
-  body.innerHTML = lyricsData.map((line, i) => {
+  const lines = lyricsData.map((line, i) => {
     const text = esc(line.Text || '')
     const trans = showTranslation && lyricsTranslated[i] ? `<div class="lyrics-line translated">${esc(lyricsTranslated[i])}</div>` : ''
     const hasTimestamp = line.Start != null
     return `<div class="lyrics-line${hasTimestamp ? ' seekable' : ''}" data-idx="${i}"${hasTimestamp ? ` data-start="${line.Start}"` : ''}>${text}</div>${trans}`
   }).join('')
 
-  // Click a seekable lyric line to jump to that position
+  // Wrap in a translateY-driven inner div so fast lyrics don't queue scroll calls
+  body.innerHTML = `<div id="lyrics-inner" style="will-change:transform;transition:transform 0.28s cubic-bezier(0.4,0,0.2,1);padding-bottom:50%">${lines}</div>`
+
   body.querySelectorAll('.lyrics-line.seekable').forEach(el => {
     el.style.cursor = 'pointer'
     el.addEventListener('click', () => {
@@ -1462,7 +1558,7 @@ function renderLyrics(showTranslation = false) {
       lyricsScrollSuppressed = true
       clearTimeout(lyricsScrollTimer)
       lyricsScrollTimer = setTimeout(() => { lyricsScrollSuppressed = false }, 1500)
-      audio.currentTime = ticks / 10000000  // ticks → seconds
+      audio.currentTime = ticks / 10000000
       lastLyricsIdx = -1
     })
   })
@@ -1475,7 +1571,7 @@ let lyricsScrollTimer = null
 
 audio.addEventListener('timeupdate', () => {
   if (!lyricsData.length) return
-  const nowSec = audio.currentTime
+  const nowSec = audio.currentTime + 0.225
   let activeIdx = 0
   for (let i = 0; i < lyricsData.length; i++) {
     if (lyricsData[i].Start != null && lyricsData[i].Start / 10000000 <= nowSec) activeIdx = i
@@ -1483,18 +1579,18 @@ audio.addEventListener('timeupdate', () => {
   if (activeIdx === lastLyricsIdx) return
   lastLyricsIdx = activeIdx
 
-  const container = document.getElementById('lyrics-body')
-  container.querySelectorAll('.lyrics-line[data-idx]').forEach(el => {
+  const body = document.getElementById('lyrics-body')
+  const inner = document.getElementById('lyrics-inner')
+  body.querySelectorAll('.lyrics-line[data-idx]').forEach(el => {
     el.classList.toggle('active', parseInt(el.dataset.idx) === activeIdx)
   })
 
-  if (!lyricsScrollSuppressed) {
-    const active = container.querySelector(`.lyrics-line[data-idx="${activeIdx}"]`)
+  if (!lyricsScrollSuppressed && inner) {
+    const active = inner.querySelector(`.lyrics-line[data-idx="${activeIdx}"]`)
     if (active) {
-      const cRect = container.getBoundingClientRect()
-      const aRect = active.getBoundingClientRect()
-      const offset = aRect.top - cRect.top - cRect.height / 2 + aRect.height / 2
-      container.scrollBy({ top: offset, behavior: 'smooth' })
+      const panelMid = body.clientHeight / 2
+      const activeMid = active.offsetTop + active.offsetHeight / 2
+      inner.style.transform = `translateY(${panelMid - activeMid}px)`
     }
   }
 })
@@ -1538,8 +1634,148 @@ updateNowPlaying = function(item) {
   lyricsData = []
   lyricsTranslated = []
   lastLyricsIdx = -1
+  ovLyricsTranslated = false
+  document.getElementById('ov-translate-btn').style.display = 'none'
+  document.getElementById('ov-translate-btn').classList.remove('translated')
   if (document.getElementById('lyrics-panel').classList.contains('open')) fetchLyrics()
   if (overlayOpen && overlayLyricsOpen) renderOverlayLyrics()
+}
+
+// ── Search ────────────────────────────────────────────────────────────────────
+
+let searchDebounce = null
+
+document.getElementById('search-input').addEventListener('input', (e) => {
+  const q = e.target.value.trim()
+  document.getElementById('search-clear').style.display = q ? '' : 'none'
+  clearTimeout(searchDebounce)
+  if (!q) {
+    document.getElementById('search-results').innerHTML = '<div class="search-empty-state">Start typing to search your library</div>'
+    return
+  }
+  searchDebounce = setTimeout(() => runSearch(q), 300)
+})
+
+document.getElementById('search-clear').addEventListener('click', () => {
+  document.getElementById('search-input').value = ''
+  document.getElementById('search-clear').style.display = 'none'
+  document.getElementById('search-results').innerHTML = '<div class="search-empty-state">Start typing to search your library</div>'
+  document.getElementById('search-input').focus()
+})
+
+// Focus the input whenever the search view is opened
+const _origShowView = showView
+// (hooked below after showView is defined)
+
+async function runSearch(query) {
+  const results = document.getElementById('search-results')
+  results.innerHTML = '<div class="search-empty-state">Searching…</div>'
+  try {
+    const [songsRes, albumsRes, artistsRes] = await Promise.allSettled([
+      jfGet(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 10, IncludeItemTypes: 'Audio', Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag' }),
+      jfGet(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 8,  IncludeItemTypes: 'MusicAlbum', Fields: 'PrimaryImageAspectRatio' }),
+      jfGet(`/Artists`,                  { SearchTerm: query, UserId: jf.userId, Limit: 8 }),
+    ])
+    const songs   = songsRes.status   === 'fulfilled' ? songsRes.value   : { Items: [] }
+    const albums  = albumsRes.status  === 'fulfilled' ? albumsRes.value  : { Items: [] }
+    const artists = artistsRes.status === 'fulfilled' ? artistsRes.value : { Items: [] }
+
+    const hasSongs   = songs.Items?.length
+    const hasAlbums  = albums.Items?.length
+    const hasArtists = artists.Items?.length
+
+    if (!hasSongs && !hasAlbums && !hasArtists) {
+      results.innerHTML = `<div class="search-no-results">No results for "${esc(query)}"</div>`
+      return
+    }
+
+    let html = ''
+
+    if (hasSongs) {
+      html += `<div class="search-section">
+        <div class="search-section-title">Songs</div>
+        <div class="track-list">
+          <div id="search-song-rows">${songs.Items.map((item, i) => {
+            const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
+            const thumb = art ? `<img src="${art}" alt="" onerror="this.style.display='none'">` : ''
+            return `<div class="track-row" data-search-song="${i}">
+              <div class="track-num">${i + 1}</div>
+              <div class="track-thumb">${thumb}</div>
+              <div style="min-width:0">
+                <div class="track-title">${esc(item.Name)}</div>
+                <div class="track-artist">${esc(item.AlbumArtist || item.Artists?.[0] || '')}</div>
+              </div>
+              <div class="track-album-name">${esc(item.Album || '')}</div>
+              <div class="track-dur">${fmtTime((item.RunTimeTicks || 0) / 10000000)}</div>
+            </div>`
+          }).join('')}</div>
+        </div>
+      </div>`
+    }
+
+    if (hasAlbums) {
+      html += `<div class="search-section">
+        <div class="search-section-title">Albums</div>
+        <div class="album-grid">${albums.Items.map((item, i) => {
+          const art = artUrl(item.Id, item.ImageTags?.Primary)
+          const img = art ? `<img src="${art}" alt="" onerror="this.style.display='none'">` : '♪'
+          return `<div class="album-card" data-search-album="${item.Id}">
+            <div class="album-art">${img}</div>
+            <div class="album-body">
+              <div class="album-name">${esc(item.Name)}</div>
+              <div class="album-artist">${esc(item.AlbumArtist || '')}</div>
+            </div>
+          </div>`
+        }).join('')}</div>
+      </div>`
+    }
+
+    if (hasArtists) {
+      html += `<div class="search-section">
+        <div class="search-section-title">Artists</div>
+        <div class="artist-grid">${artists.Items.map(item => {
+          const art = artistArtUrl(item.Id)
+          return `<div class="artist-card" data-search-artist="${item.Id}">
+            <div class="artist-avatar"><img src="${art}" alt="" onerror="this.style.display='none'"></div>
+            <div class="artist-name">${esc(item.Name)}</div>
+          </div>`
+        }).join('')}</div>
+      </div>`
+    }
+
+    results.innerHTML = html
+
+    // Wire up song rows
+    if (hasSongs) {
+      results.querySelectorAll('[data-search-song]').forEach(el => {
+        el.addEventListener('click', () => {
+          const idx = parseInt(el.dataset.searchSong)
+          playItems(songs.Items, idx)
+        })
+      })
+    }
+
+    // Wire up album cards
+    results.querySelectorAll('[data-search-album]').forEach(el => {
+      el.addEventListener('click', () => playAlbum(el.dataset.searchAlbum))
+    })
+
+    // Wire up artist cards — play all songs by artist
+    results.querySelectorAll('[data-search-artist]').forEach(el => {
+      el.addEventListener('click', async () => {
+        const data = await jfGet(`/Users/${jf.userId}/Items`, {
+          ArtistIds: el.dataset.searchArtist,
+          IncludeItemTypes: 'Audio',
+          Recursive: true,
+          SortBy: 'Album,ParentIndexNumber,IndexNumber',
+          Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
+        })
+        if (data.Items?.length) playItems(data.Items, 0)
+      })
+    })
+  } catch (e) {
+    results.innerHTML = `<div class="search-no-results">Search failed: ${esc(e.message)}</div>`
+  }
 }
 
 // ── Theme system ──────────────────────────────────────────────────────────────
@@ -1558,12 +1794,22 @@ const THEME_PRESETS = [
 let themeAlbumArt = false
 let _lastAlbumColors = null
 
+function perceivedLuminance(hex) {
+  const r = parseInt(hex.slice(1,3), 16)
+  const g = parseInt(hex.slice(3,5), 16)
+  const b = parseInt(hex.slice(5,7), 16)
+  return 0.299 * r + 0.587 * g + 0.114 * b
+}
+
 function applyGradient(start, end) {
   const grad = `linear-gradient(160deg, ${start} 0%, ${end} 100%)`
   document.documentElement.style.setProperty('--grad', grad)
   document.documentElement.style.setProperty('--accent', end)
   document.documentElement.style.setProperty('--accent-glow', hexToRgba(end, 0.25))
   document.getElementById('theme-dot').style.background = grad
+  // Switch play/pause icon to black on light gradients so it stays readable
+  const fg = perceivedLuminance(end) > 160 ? '#111111' : 'white'
+  document.documentElement.style.setProperty('--play-btn-fg', fg)
 }
 
 function hexToRgba(hex, alpha) {
