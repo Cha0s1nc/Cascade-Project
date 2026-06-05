@@ -2,6 +2,7 @@
 
 // State
 let jf = { url: '', token: '', userId: '' }
+let appVersion = '1.0.0'
 let queue = []
 let queueIndex = -1
 let shuffle = false
@@ -58,7 +59,7 @@ async function jfAuth(serverUrl, username, password) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Emby-Authorization': 'MediaBrowser Client="Cascade", Device="Cascade", DeviceId="cascade-app", Version="0.1.0"'
+      'X-Emby-Authorization': `MediaBrowser Client="Cascade", Device="Cascade", DeviceId="cascade-app", Version="${appVersion}"`
     },
     body: JSON.stringify({ Username: username, Pw: password })
   })
@@ -564,6 +565,9 @@ function updateNowPlaying(item) {
   // Update Touch Bar track label
   window.cascade.touchbarUpdate({ title: `${item.Name}  —  ${item.AlbumArtist || item.Artists?.[0] || ''}` })
 
+  // Notify Cha0s Stream of the new track
+  window.cascade.nowPlayingUpdate({ title: item.Name || '', artist: item.AlbumArtist || item.Artists?.[0] || '', isPlaying: true })
+
   // Push track info to OS (lock screen, taskbar, Now Playing widget)
   if ('mediaSession' in navigator) {
     const artwork = art ? [{ src: art, sizes: '200x200', type: 'image/jpeg' }] : []
@@ -574,6 +578,10 @@ function updateNowPlaying(item) {
       artwork,
     })
   }
+
+  // Discord RPC
+  rpcTrackStart = Date.now()
+  updateDiscordPresence(item)
 
   // Album art accent: fetch through our auth header so canvas isn't tainted by CORS
   if (themeAlbumArt && art) {
@@ -832,19 +840,59 @@ window.cascade.onMediaKey((key) => {
 audio.addEventListener('play',  () => {
   if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
   window.cascade.touchbarUpdate({ playing: true })
+  window.cascade.nowPlayingUpdate({ isPlaying: true })
 })
 audio.addEventListener('pause', () => {
   if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
   window.cascade.touchbarUpdate({ playing: false })
+  window.cascade.nowPlayingUpdate({ isPlaying: false })
 })
 
 // ── Settings ──────────────────────────────────────────────────────────────────
 
 async function loadSettingsFields() {
-  document.getElementById('s-url').value = await window.cascade.store.get('serverUrl') || ''
+  document.getElementById('s-url').value  = await window.cascade.store.get('serverUrl') || ''
   document.getElementById('s-user').value = await window.cascade.store.get('username') || ''
   document.getElementById('s-pass').value = ''
-  // Library checkboxes are populated by populateLibraryPicker() on connect
+
+  // Discord RPC settings
+  const discordToggle = document.getElementById('discord-rpc-toggle')
+  const discordInput  = document.getElementById('discord-client-id')
+  discordToggle.checked = (await window.cascade.store.get('discordRpcEnabled')) === 'true'
+  discordInput.value    = await window.cascade.store.get('discordClientId') || DEFAULT_DISCORD_CLIENT_ID
+
+  discordToggle.onchange = async () => {
+    await window.cascade.store.set('discordRpcEnabled', String(discordToggle.checked))
+    const clientId = discordInput.value.trim()
+    discordEnabled = discordToggle.checked && !!clientId
+    if (discordEnabled) {
+      window.cascade.discord.connect(clientId)
+    } else {
+      window.cascade.discord.connect(null) // disconnects
+      window.cascade.discord.clear()
+    }
+  }
+
+  discordInput.onchange = async () => {
+    const clientId = discordInput.value.trim()
+    await window.cascade.store.set('discordClientId', clientId)
+    if (discordToggle.checked && clientId) {
+      discordEnabled = true
+      window.cascade.discord.connect(clientId)
+    }
+  }
+
+  window.cascade.discord.onStatus((connected) => {
+    const dot   = document.getElementById('discord-rpc-dot')
+    const label = document.getElementById('discord-rpc-status-label')
+    if (dot) dot.className = 'ws-dot' + (connected ? ' connected' : '')
+    if (label) label.textContent = connected ? 'Connected' : 'Not connected'
+  })
+
+  document.getElementById('discord-dev-link').onclick = (e) => {
+    e.preventDefault()
+    window.cascade.shell.openExternal('https://discord.com/developers/applications')
+  }
 }
 
 document.getElementById('btn-save-settings').addEventListener('click', async () => {
@@ -946,9 +994,15 @@ document.getElementById('btn-check-updates').addEventListener('click', () => {
 
 async function init() {
   document.documentElement.setAttribute('data-platform', window.cascade.platform)
+  await window.cascade.getVersion().then(v => {
+    appVersion = v
+    const el = document.getElementById('app-version')
+    if (el) el.textContent = `v${v}`
+  })
 
   await loadTheme()
   buildPresets()
+  await initDiscordRpc()
 
   const serverUrl = await window.cascade.store.get('serverUrl')
   const token = await window.cascade.store.get('token')
@@ -1415,6 +1469,7 @@ document.getElementById('ctx-stop').addEventListener('click', () => {
   audio.pause()
   audio.src = ''
   queue = []; queueIndex = -1
+  window.cascade.discord.clear()
   document.getElementById('np-art').innerHTML = '♪'
   document.getElementById('np-info').innerHTML = '<span class="np-empty">Nothing playing</span>'
   document.getElementById('prog-fill').style.width = '0%'
@@ -1729,6 +1784,51 @@ updateNowPlaying = function(item) {
   document.getElementById('ov-translate-btn').classList.remove('translated')
   if (document.getElementById('lyrics-panel').classList.contains('open')) fetchLyrics()
   if (overlayOpen && overlayLyricsOpen) renderOverlayLyrics()
+}
+
+// ── Discord RPC ───────────────────────────────────────────────────────────────
+
+let discordEnabled = false
+let rpcTrackStart  = 0
+
+function updateDiscordPresence(item) {
+  if (!discordEnabled || !item) return
+  const activity = {
+    type:           2,
+    details:        item.Name?.slice(0, 128) || 'Unknown Track',
+    state:          `by ${(item.AlbumArtist || item.Artists?.[0] || 'Unknown').slice(0, 128)}`,
+    startTimestamp: rpcTrackStart,
+  }
+
+  if (jf.url.startsWith('https')) {
+    const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
+    if (art) {
+      activity.largeImageKey  = art
+      activity.largeImageText = item.Album?.slice(0, 128) || ''
+    }
+  }
+
+  window.cascade.discord.update(activity)
+}
+
+const DEFAULT_DISCORD_CLIENT_ID = '1512373702522835004'
+
+async function initDiscordRpc() {
+  const enabled  = await window.cascade.store.get('discordRpcEnabled')
+  const clientId = await window.cascade.store.get('discordClientId') || DEFAULT_DISCORD_CLIENT_ID
+  discordEnabled = enabled === 'true'
+  updateDiscordRpcStatus(discordEnabled)
+  if (discordEnabled) window.cascade.discord.connect(clientId)
+
+  window.cascade.discord.onStatus((connected) => {
+    const dot = document.getElementById('discord-rpc-dot')
+    if (dot) dot.className = 'ws-dot' + (connected ? ' connected' : '')
+  })
+}
+
+function updateDiscordRpcStatus(enabled) {
+  const dot = document.getElementById('discord-rpc-dot')
+  if (dot) dot.className = 'ws-dot' + (enabled ? '' : '')
 }
 
 // ── Search ────────────────────────────────────────────────────────────────────

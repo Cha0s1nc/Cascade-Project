@@ -7,9 +7,67 @@ const fs    = require('fs')
 const os    = require('os')
 const Store = require('electron-store')
 
+// ── Discord RPC ────────────────────────────────────────────────────────────────
+let rpcClient  = null
+let rpcReady   = false
+
+async function connectDiscordRpc(clientId) {
+  if (!clientId) return
+  try {
+    const { Client } = require('discord-rpc')
+    rpcClient = new Client({ transport: 'ipc' })
+    rpcClient.on('ready', () => {
+      rpcReady = true
+      // Patch request() to inject type:2 (Listening) into every SET_ACTIVITY call
+      // setActivity() strips the type field, so we add it back at the protocol level
+      const _origRequest = rpcClient.request.bind(rpcClient)
+      rpcClient.request = function(cmd, args, ...rest) {
+        if (cmd === 'SET_ACTIVITY' && args?.activity) args.activity.type = 2
+        return _origRequest(cmd, args, ...rest)
+      }
+      if (win && !win.isDestroyed()) win.webContents.send('discord-rpc-status', true)
+    })
+    rpcClient.on('disconnected', () => {
+      rpcReady = false
+      rpcClient = null
+      if (win && !win.isDestroyed()) win.webContents.send('discord-rpc-status', false)
+    })
+    await rpcClient.login({ clientId })
+  } catch (e) {
+    console.warn('[discord-rpc] connect failed:', e.message)
+    rpcClient = null
+    rpcReady  = false
+  }
+}
+
+function destroyRpc() {
+  if (rpcClient) { try { rpcClient.destroy() } catch {} rpcClient = null; rpcReady = false }
+}
+
+ipcMain.on('discord-rpc-connect', async (_e, clientId) => {
+  destroyRpc()
+  if (clientId) await connectDiscordRpc(clientId)
+})
+
+ipcMain.on('discord-rpc-update', (_e, activity) => {
+  if (!rpcClient || !rpcReady) return
+  try {
+    if (activity) {
+      rpcClient.setActivity(activity)
+    } else {
+      rpcClient.clearActivity()
+    }
+  } catch (e) { console.warn('[discord-rpc] update failed:', e.message) }
+})
+
+ipcMain.on('discord-rpc-clear', () => {
+  if (!rpcClient || !rpcReady) return
+  try { rpcClient.clearActivity() } catch {}
+})
+
 // ── Cascade Control Server (for Cha0s Stream integration) ─────────────────────
 // Listens on 127.0.0.1:47847 — Cha0s Stream POSTs here instead of using OS media keys
-const controlServer = http.createServer((req, res) => {
+const controlServer = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*')
   if (req.method === 'OPTIONS') { res.writeHead(204); return res.end() }
   if (req.method === 'POST' && req.url === '/cascade/control') {
@@ -29,6 +87,24 @@ const controlServer = http.createServer((req, res) => {
   } else if (req.method === 'GET' && req.url === '/cascade/status') {
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ ok: true, app: 'Cascade', version: app.getVersion() }))
+  } else if (req.method === 'GET' && req.url === '/cascade/now-playing') {
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    if (win && !win.isDestroyed()) {
+      try {
+        const result = await win.webContents.executeJavaScript(`
+          JSON.stringify({
+            title:     queue[queueIndex]?.Name    || null,
+            artist:    queue[queueIndex]?.AlbumArtist || (queue[queueIndex]?.Artists?.[0]) || null,
+            isPlaying: typeof audio !== 'undefined' ? !audio.paused : false
+          })
+        `)
+        res.end(result)
+      } catch {
+        res.end(JSON.stringify(cascadeNowPlaying))
+      }
+    } else {
+      res.end(JSON.stringify(cascadeNowPlaying))
+    }
   } else {
     res.writeHead(404); res.end()
   }
@@ -111,12 +187,20 @@ app.whenReady().then(createWindow)
 
 app.on('window-all-closed', () => {
   globalShortcut.unregisterAll()
+  destroyRpc()
   app.quit()
 })
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow()
 })
+
+// Now-playing state — updated by the renderer, exposed via the control server
+let cascadeNowPlaying = { title: null, artist: null, isPlaying: false }
+ipcMain.on('now-playing-update', (_e, data) => { cascadeNowPlaying = { ...cascadeNowPlaying, ...data } })
+
+// IPC: app version
+ipcMain.handle('get-version', () => app.getVersion())
 
 // IPC: store
 ipcMain.handle('store-get', (_e, key) => store.get(key))

@@ -784,6 +784,27 @@
               </div>
             </div>
           </div>
+          <div class="settings-group">
+            <div class="sg-title">Discord</div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="setting-name">Rich Presence</span>
+                <span class="setting-desc">Show current track in Discord. Requires a Discord Application ID.</span>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="discord-rpc-toggle">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div style="display:none">
+              <input id="discord-client-id" type="hidden" />
+              <a id="discord-dev-link" href="#"></a>
+            </div>
+            <div class="setting-row" style="justify-content:flex-start;gap:8px;">
+              <div class="ws-dot" id="discord-rpc-dot"></div>
+              <span style="font-size:11px;color:var(--text3)" id="discord-rpc-status-label">Not connected</span>
+            </div>
+          </div>
           <div class="settings-actions">
             <span class="save-status" id="save-status">Saved ✓</span>
             <button class="btn btn-danger" id="btn-logout">Sign out</button>

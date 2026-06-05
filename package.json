@@ -13,6 +13,7 @@
     "icons": "node scripts/gen-icons.js"
   },
   "dependencies": {
+    "discord-rpc": "^4.0.1",
     "electron-store": "^8.1.0"
   },
   "devDependencies": {
