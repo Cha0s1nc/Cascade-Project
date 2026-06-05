@@ -175,9 +175,16 @@
     .np-art { width: 30px; height: 30px; border-radius: 4px; background: var(--surface2); flex-shrink: 0; overflow: visible; display: flex; align-items: center; justify-content: center; font-size: 13px; transition: transform 0.18s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.18s ease; cursor: pointer; }
     .np-art:hover { transform: scale(1.18); box-shadow: 0 4px 16px rgba(0,0,0,0.5); }
     .np-art img { width: 100%; height: 100%; object-fit: cover; border-radius: 4px; }
-    .np-title { font-size: 12px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .np-artist { font-size: 11px; color: var(--text3); white-space: nowrap; }
+    #np-info { overflow: hidden; min-width: 0; }
+    .np-scroll-inner { display: inline-block; white-space: nowrap; }
+    .np-title { font-size: 12px; font-weight: 500; color: var(--text); }
+    .np-artist { font-size: 11px; color: var(--text3); }
     .np-sep { color: var(--text3); font-size: 11px; margin: 0 2px; }
+    @keyframes np-marquee {
+      0%, 12%   { transform: translateX(0); }
+      45%, 55%  { transform: translateX(var(--marquee-dist, 0px)); }
+      88%, 100% { transform: translateX(0); }
+    }
     .np-empty { font-size: 11px; color: var(--text3); }
     .np-like-btn { background: none; border: none; color: var(--text3); cursor: pointer; padding: 0; margin-left: 8px; display: flex; align-items: center; transition: color 0.15s, transform 0.1s; flex-shrink: 0; }
     .np-like-btn:hover { color: #ff6b8a; }
@@ -630,15 +637,49 @@
 
       <!-- Artists -->
       <div class="view" id="view-artists">
-        <div class="sect-header" style="margin-bottom:14px">
-          <span class="sect-title">All Artists</span>
-          <button class="shuffle-all-btn" id="btn-shuffle-artists">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
-            Shuffle All
-          </button>
+        <!-- Artist index -->
+        <div id="artist-index">
+          <div class="sect-header" style="margin-bottom:14px">
+            <span class="sect-title">All Artists</span>
+            <button class="shuffle-all-btn" id="btn-shuffle-artists">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
+              Shuffle All
+            </button>
+          </div>
+          <div class="artist-grid" id="artists-grid">
+            <div class="loading-state" style="grid-column:1/-1">Loading…</div>
+          </div>
         </div>
-        <div class="artist-grid" id="artists-grid">
-          <div class="loading-state" style="grid-column:1/-1">Loading…</div>
+        <!-- Artist detail -->
+        <div id="artist-detail" style="display:none">
+          <button class="pl-back-btn" id="artist-back-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            Back to Artists
+          </button>
+          <div class="pl-detail-header">
+            <div class="pl-detail-art" id="artist-detail-art">♪</div>
+            <div>
+              <div class="pl-detail-name" id="artist-detail-name"></div>
+              <div class="pl-detail-meta" id="artist-detail-meta"></div>
+            </div>
+          </div>
+          <div id="artist-albums-section" style="margin-bottom:20px">
+            <div class="sect-header" style="margin-bottom:9px">
+              <span class="sect-title">Albums</span>
+              <button class="shuffle-all-btn" id="btn-play-artist-discography">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                Play All
+              </button>
+            </div>
+            <div class="album-grid" id="artist-albums-grid"></div>
+          </div>
+          <div class="sect-title" style="margin-bottom:8px">Songs</div>
+          <div class="track-list">
+            <div class="tl-head">
+              <span>#</span><span></span><span>Title</span><span>Album</span><span style="text-align:right">Time</span>
+            </div>
+            <div id="artist-songs-rows"></div>
+          </div>
         </div>
       </div>
 

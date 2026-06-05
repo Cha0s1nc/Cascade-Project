@@ -296,15 +296,90 @@ async function loadArtists() {
     grid.innerHTML = data.Items.map(item => {
       const art = artistArtUrl(item.Id)
       const img = `<img src="${art}" alt="" onerror="this.style.display='none'">`
-      return `<div class="artist-card" data-id="${item.Id}">
+      return `<div class="artist-card" data-id="${item.Id}" data-name="${esc(item.Name)}">
         <div class="artist-avatar">${img}</div>
         <div class="artist-name">${esc(item.Name)}</div>
       </div>`
     }).join('')
+    grid.querySelectorAll('.artist-card').forEach(el => {
+      el.addEventListener('click', () => openArtist(el.dataset.id, el.dataset.name))
+    })
   } catch (e) {
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Could not load artists</div>`
   }
 }
+
+async function openArtist(artistId, name) {
+  document.getElementById('artist-index').style.display = 'none'
+  const detail = document.getElementById('artist-detail')
+  detail.style.display = ''
+  document.getElementById('artist-detail-name').textContent = name
+  document.getElementById('artist-detail-meta').textContent = 'Loading…'
+  document.getElementById('artist-albums-grid').innerHTML = '<div class="loading-state">Loading…</div>'
+  document.getElementById('artist-songs-rows').innerHTML = ''
+
+  const art = artistArtUrl(artistId)
+  document.getElementById('artist-detail-art').innerHTML = `<img src="${art}" alt="" onerror="this.innerHTML='♪'" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`
+
+  try {
+    const [albumsData, songsData] = await Promise.all([
+      jfGet(`/Users/${jf.userId}/Items`, {
+        ArtistIds: artistId, IncludeItemTypes: 'MusicAlbum', Recursive: true,
+        SortBy: 'ProductionYear,SortName', SortOrder: 'Descending',
+        Fields: 'PrimaryImageAspectRatio'
+      }),
+      jfGet(`/Users/${jf.userId}/Items`, {
+        ArtistIds: artistId, IncludeItemTypes: 'Audio', Recursive: true,
+        SortBy: 'Album,ParentIndexNumber,IndexNumber',
+        Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
+      })
+    ])
+
+    const songs  = songsData.Items  || []
+    const albums = albumsData.Items || []
+
+    document.getElementById('artist-detail-meta').textContent =
+      `${albums.length} album${albums.length !== 1 ? 's' : ''} · ${songs.length} song${songs.length !== 1 ? 's' : ''}`
+
+    // Albums grid
+    document.getElementById('artist-albums-grid').innerHTML = albums.map(item => albumCard(item)).join('')
+    document.getElementById('artist-albums-grid').querySelectorAll('.album-card').forEach((el, i) => {
+      el.addEventListener('click', () => playAlbum(albums[i].Id))
+    })
+
+    // Play all button
+    document.getElementById('btn-play-artist-discography').onclick = () => {
+      if (songs.length) playItems(songs, 0)
+    }
+
+    // Songs list
+    document.getElementById('artist-songs-rows').innerHTML = songs.map((item, i) => {
+      const thumbArt = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
+      const thumb = thumbArt ? `<img src="${thumbArt}" alt="" onerror="this.style.display='none'">` : ''
+      return `<div class="track-row" data-idx="${i}">
+        <div class="track-num">${i + 1}</div>
+        <div class="track-thumb">${thumb}</div>
+        <div style="min-width:0">
+          <div class="track-title">${esc(item.Name)}</div>
+          <div class="track-artist">${esc(item.AlbumArtist || item.Artists?.[0] || '')}</div>
+        </div>
+        <div class="track-album-name">${esc(item.Album || '')}</div>
+        <div class="track-dur">${fmtTime((item.RunTimeTicks || 0) / 10000000)}</div>
+      </div>`
+    }).join('')
+
+    document.getElementById('artist-songs-rows').querySelectorAll('.track-row').forEach(el => {
+      el.addEventListener('click', () => playItems(songs, parseInt(el.dataset.idx)))
+    })
+  } catch (e) {
+    document.getElementById('artist-detail-meta').textContent = 'Could not load artist'
+  }
+}
+
+document.getElementById('artist-back-btn').addEventListener('click', () => {
+  document.getElementById('artist-detail').style.display = 'none'
+  document.getElementById('artist-index').style.display = ''
+})
 
 // ── Songs ─────────────────────────────────────────────────────────────────────
 
@@ -463,10 +538,25 @@ function updateNowPlaying(item) {
     artEl.innerHTML = '♪'
   }
   document.getElementById('np-info').innerHTML = `
-    <span class="np-title">${esc(item.Name)}</span>
-    <span class="np-sep">—</span>
-    <span class="np-artist">${esc(item.AlbumArtist || item.Artists?.[0] || '')}</span>
+    <span class="np-scroll-inner">
+      <span class="np-title">${esc(item.Name)}</span>
+      <span class="np-sep">—</span>
+      <span class="np-artist">${esc(item.AlbumArtist || item.Artists?.[0] || '')}</span>
+    </span>
   `
+  // Measure overflow after paint and apply marquee if needed
+  requestAnimationFrame(() => {
+    const info  = document.getElementById('np-info')
+    const inner = info.querySelector('.np-scroll-inner')
+    if (!inner) return
+    inner.style.animation = 'none'
+    const overflow = inner.scrollWidth - info.clientWidth
+    if (overflow > 4) {
+      const duration = Math.max(5, overflow / 25) // speed ~25px/s
+      inner.style.setProperty('--marquee-dist', `-${overflow + 8}px`)
+      inner.style.animation = `np-marquee ${duration}s ease-in-out infinite`
+    }
+  })
   // Sync like state from Jellyfin user data
   const liked = item.UserData?.IsFavorite || false
   document.getElementById('btn-like').classList.toggle('liked', liked)
@@ -1760,17 +1850,11 @@ async function runSearch(query) {
       el.addEventListener('click', () => playAlbum(el.dataset.searchAlbum))
     })
 
-    // Wire up artist cards — play all songs by artist
+    // Wire up artist cards — open artist detail view
     results.querySelectorAll('[data-search-artist]').forEach(el => {
-      el.addEventListener('click', async () => {
-        const data = await jfGet(`/Users/${jf.userId}/Items`, {
-          ArtistIds: el.dataset.searchArtist,
-          IncludeItemTypes: 'Audio',
-          Recursive: true,
-          SortBy: 'Album,ParentIndexNumber,IndexNumber',
-          Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
-        })
-        if (data.Items?.length) playItems(data.Items, 0)
+      el.addEventListener('click', () => {
+        showView('artists')
+        openArtist(el.dataset.searchArtist, el.querySelector('.artist-name')?.textContent || '')
       })
     })
   } catch (e) {
