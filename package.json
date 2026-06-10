@@ -21,7 +21,10 @@
     "electron-builder": "^24.13.3",
     "sharp": "^0.33.4"
   },
-  "author": "cha0s",
+  "author": {
+    "name": "cha0s_1nc",
+    "email": "contact@chaosinc.xyz"
+  },
   "license": "GPL-3.0",
   "allowScripts": {
     "electron@29.4.6": true,
