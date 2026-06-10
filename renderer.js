@@ -917,16 +917,52 @@ window.cascade.onMediaKey((key) => {
   else if (key === 'prev')  document.getElementById('btn-prev').click()
 })
 
+// ── Remote control (Android app) ──────────────────────────────────────────────
+
+function remoteStatePayload() {
+  const track = queue[queueIndex]
+  return {
+    playing:  !audio.paused,
+    position: audio.currentTime || 0,
+    duration: audio.duration   || 0,
+    volume:   audio.volume,
+    track: track ? {
+      id:     track.Id,
+      name:   track.Name,
+      artist: track.AlbumArtist || (track.Artists && track.Artists[0]) || '',
+      album:  track.Album || '',
+    } : null,
+  }
+}
+
+window.cascade.remote.onGetState(() => {
+  window.cascade.remote.pushState(remoteStatePayload())
+})
+
+window.cascade.remote.onSeek((pos) => {
+  if (audio.duration && pos >= 0) audio.currentTime = pos
+})
+
+window.cascade.remote.onVolume((vol) => {
+  const v = Math.max(0, Math.min(1, vol))
+  audio.volume = v
+  volume = v
+  const slider = document.getElementById('volume-slider')
+  if (slider) slider.value = v
+})
+
 // Keep OS media session state in sync with playback
 audio.addEventListener('play',  () => {
   if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
   window.cascade.touchbarUpdate({ playing: true })
   window.cascade.nowPlayingUpdate({ isPlaying: true })
+  window.cascade.remote.pushState(remoteStatePayload())
 })
 audio.addEventListener('pause', () => {
   if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
   window.cascade.touchbarUpdate({ playing: false })
   window.cascade.nowPlayingUpdate({ isPlaying: false })
+  window.cascade.remote.pushState(remoteStatePayload())
 })
 
 // ── Settings ──────────────────────────────────────────────────────────────────

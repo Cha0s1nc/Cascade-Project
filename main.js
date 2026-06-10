@@ -116,6 +116,113 @@ controlServer.on('error', (err) => {
   console.warn('[cascade] Control server error:', err.message)
 })
 
+// ── Remote Control WebSocket Server (Android app) ─────────────────────────────
+// Listens on all interfaces, port 9876.
+// Enable/disable via store key 'remoteControlEnabled' (default: false).
+// Protocol: JSON messages — see remote_control_service.dart for the schema.
+
+const WebSocket = require('ws')
+let remoteWss    = null
+let remoteEnabled = false
+
+function startRemoteWss(port = 9876) {
+  if (remoteWss) return
+  remoteWss = new WebSocket.Server({ port }, () => {
+    console.log(`[remote] WebSocket server listening on *:${port}`)
+  })
+
+  remoteWss.on('connection', (ws) => {
+    console.log('[remote] Android client connected')
+
+    // Send current state immediately on connect
+    broadcastRemoteState()
+
+    ws.on('message', (raw) => {
+      try {
+        const msg = JSON.parse(raw.toString())
+        handleRemoteCmd(msg)
+      } catch {}
+    })
+
+    ws.on('close', () => console.log('[remote] Android client disconnected'))
+    ws.on('error', (e) => console.warn('[remote] WS error:', e.message))
+  })
+
+  remoteWss.on('error', (e) => {
+    console.warn('[remote] WSS error:', e.message)
+    remoteWss = null
+  })
+}
+
+function stopRemoteWss() {
+  if (!remoteWss) return
+  remoteWss.close(() => console.log('[remote] WebSocket server stopped'))
+  remoteWss = null
+}
+
+function broadcastRemoteState(state) {
+  if (!remoteWss) return
+  // If no state passed, ask the renderer for current state
+  if (!state) {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('remote-get-state')
+    }
+    return
+  }
+  const msg = JSON.stringify({ event: 'stateUpdate', ...state })
+  remoteWss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) client.send(msg)
+  })
+}
+
+function handleRemoteCmd({ cmd, position, volume: vol }) {
+  if (!win || win.isDestroyed()) return
+  switch (cmd) {
+    case 'play':
+    case 'pause':
+    case 'next':
+    case 'prev':
+      win.webContents.send('media-key',
+        cmd === 'play' || cmd === 'pause' ? 'playpause' : cmd)
+      break
+    case 'seek':
+      win.webContents.send('remote-seek', position)
+      break
+    case 'setVolume':
+      win.webContents.send('remote-volume', vol)
+      break
+    case 'getState':
+      broadcastRemoteState()
+      break
+  }
+}
+
+// Renderer → main: state update to broadcast to WS clients
+ipcMain.on('remote-state-update', (_e, state) => broadcastRemoteState(state))
+
+// IPC: enable/disable remote control
+ipcMain.handle('remote-control-enable', (_e, enable) => {
+  remoteEnabled = enable
+  store.set('remoteControlEnabled', enable)
+  if (enable) startRemoteWss()
+  else        stopRemoteWss()
+  return { ok: true }
+})
+
+ipcMain.handle('remote-control-status', () => ({
+  enabled: remoteEnabled,
+  port:    9876,
+  clients: remoteWss ? remoteWss.clients.size : 0,
+}))
+
+// Auto-start if previously enabled
+;(async () => {
+  try {
+    const wasEnabled = store.get('remoteControlEnabled')
+    if (wasEnabled) { remoteEnabled = true; startRemoteWss() }
+  } catch {}
+})()
+
 const GITHUB_REPO = 'Cha0s1nc/Cascade-Project'
 
 const store = new Store()

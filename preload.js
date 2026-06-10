@@ -26,4 +26,16 @@ contextBridge.exposeInMainWorld('cascade', {
     onStatus:  (cb)       => ipcRenderer.on('discord-rpc-status', (_e, connected) => cb(connected)),
   },
   nowPlayingUpdate: (data) => ipcRenderer.send('now-playing-update', data),
+  remote: {
+    // Enable / disable the WebSocket server
+    enable:    (on)  => ipcRenderer.invoke('remote-control-enable', on),
+    status:    ()    => ipcRenderer.invoke('remote-control-status'),
+    // Renderer calls this to push state to connected Android clients
+    pushState: (state) => ipcRenderer.send('remote-state-update', state),
+    // Main asks renderer for state (renderer calls pushState in response)
+    onGetState: (cb) => ipcRenderer.on('remote-get-state', () => cb()),
+    // Main forwards seek / volume commands from Android
+    onSeek:    (cb)  => ipcRenderer.on('remote-seek',   (_e, pos) => cb(pos)),
+    onVolume:  (cb)  => ipcRenderer.on('remote-volume', (_e, vol) => cb(vol)),
+  },
 })
