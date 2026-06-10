@@ -153,5 +153,6 @@ jobs:
           files: artifacts/**
           generate_release_notes: true
           draft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
