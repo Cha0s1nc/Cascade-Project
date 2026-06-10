@@ -23,7 +23,7 @@ async function connectDiscordRpc(clientId) {
       const _origRequest = rpcClient.request.bind(rpcClient)
       rpcClient.request = function(cmd, args, ...rest) {
         if (cmd === 'SET_ACTIVITY' && args?.activity) args.activity.type = 2
-        return _origRequest(cmd, args, ...rest)
+        return _origRequest(cmd, args, ...rest).catch(e => console.warn('[discord-rpc] request failed:', e.message))
       }
       if (win && !win.isDestroyed()) win.webContents.send('discord-rpc-status', true)
     })
@@ -133,6 +133,7 @@ function createWindow() {
     backgroundColor: '#111113',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 12, y: 11 },
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -140,6 +141,7 @@ function createWindow() {
     },
     show: false,
   })
+  Menu.setApplicationMenu(null)
 
   win.loadFile('index.html')
 
@@ -180,6 +182,7 @@ function createWindow() {
     globalShortcut.register('MediaPlayPause',     () => send('playpause'))
     globalShortcut.register('MediaNextTrack',     () => send('next'))
     globalShortcut.register('MediaPreviousTrack', () => send('prev'))
+    globalShortcut.register('F12', () => { if (win && !win.isDestroyed()) win.webContents.toggleDevTools() })
   })
 }
 

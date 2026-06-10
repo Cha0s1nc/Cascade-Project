@@ -42,6 +42,16 @@ function streamUrl(itemId) {
   return `${jf.url}/Audio/${itemId}/universal?UserId=${jf.userId}&api_key=${jf.token}&Container=opus,mp3,aac,flac,wav,ogg&TranscodingContainer=ts&TranscodingProtocol=hls&AudioCodec=aac&MaxStreamingBitrate=140000000`
 }
 
+// ── Toast ─────────────────────────────────────────────────────────────────────
+
+function showToast(msg, duration = 2200) {
+  const t = document.getElementById('toast')
+  t.textContent = msg
+  t.style.opacity = '1'
+  clearTimeout(t._to)
+  t._to = setTimeout(() => { t.style.opacity = '0' }, duration)
+}
+
 // ── Jellyfin API ──────────────────────────────────────────────────────────────
 
 async function jfGet(path, params = {}) {
@@ -458,7 +468,18 @@ async function loadPlaylists() {
   }
 }
 
+document.getElementById('playlists-refresh').addEventListener('click', async () => {
+  const grid = document.getElementById('playlists-grid')
+  delete grid.dataset.loaded
+  await loadPlaylists()
+  document.getElementById('view-playlists').scrollTop = 0
+})
+
+let currentPlaylistId = null
+let currentPlaylistItems = []
+
 async function openPlaylist(playlistId, name) {
+  currentPlaylistId = playlistId
   document.getElementById('playlist-index').style.display = 'none'
   const detail = document.getElementById('playlist-detail')
   detail.classList.add('active')
@@ -467,16 +488,14 @@ async function openPlaylist(playlistId, name) {
   document.getElementById('pl-detail-rows').innerHTML = '<div class="loading-state">Loading…</div>'
 
   try {
-    const data = await jfGet(`/Users/${jf.userId}/Items`, {
-      ParentId: playlistId,
-      Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag',
-      SortBy: 'ListItemOrder'
+    const data = await jfGet(`/Playlists/${playlistId}/Items`, {
+      UserId: jf.userId,
+      Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
     })
     const items = data.Items || []
+    currentPlaylistItems = items
     document.getElementById('pl-detail-meta').textContent = `${items.length} songs`
 
-    // Art from first item
-    // Use the playlist's own image, not the first track's
     const artEl = document.getElementById('pl-detail-art')
     const plArtUrl = `${jf.url}/Items/${playlistId}/Images/Primary?fillHeight=160&fillWidth=160&quality=80&api_key=${jf.token}`
     artEl.innerHTML = `<img src="${plArtUrl}" alt="" onerror="this.innerHTML='♪'">`
@@ -485,7 +504,7 @@ async function openPlaylist(playlistId, name) {
       const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
       const thumb = art ? `<img src="${art}" alt="" onerror="this.style.display='none'">` : ''
       return `
-      <div class="track-row" data-idx="${i}">
+      <div class="track-row" data-idx="${i}" data-id="${item.Id}" data-entry-id="${item.PlaylistItemId || item.Id}">
         <div class="track-num">${i + 1}</div>
         <div class="track-thumb">${thumb}</div>
         <div style="min-width:0">
@@ -497,8 +516,14 @@ async function openPlaylist(playlistId, name) {
       </div>`
     }).join('')
 
-    document.getElementById('pl-detail-rows').querySelectorAll('.track-row').forEach(el => {
+    const rowsEl = document.getElementById('pl-detail-rows')
+    rowsEl.querySelectorAll('.track-row').forEach(el => {
       el.addEventListener('click', () => playItems(items, parseInt(el.dataset.idx)))
+      el.addEventListener('contextmenu', e => {
+        e.preventDefault()
+        plTrackCtxTarget = el
+        showPlTrackCtxMenu(e.clientX, e.clientY)
+      })
     })
   } catch (e) {
     document.getElementById('pl-detail-rows').innerHTML = `<div class="empty-state">Could not load playlist</div>`
@@ -508,6 +533,60 @@ async function openPlaylist(playlistId, name) {
 document.getElementById('pl-back-btn').addEventListener('click', () => {
   document.getElementById('playlist-detail').classList.remove('active')
   document.getElementById('playlist-index').style.display = ''
+})
+
+// ── Playlist track context menu ────────────────────────────────────────────────
+
+const plTrackCtxMenu = document.getElementById('pl-track-ctx-menu')
+let plTrackCtxTarget = null
+
+function showPlTrackCtxMenu(x, y) {
+  plTrackCtxMenu.style.left = `${x}px`
+  plTrackCtxMenu.style.top = `${y}px`
+  plTrackCtxMenu.classList.add('open')
+  const r = plTrackCtxMenu.getBoundingClientRect()
+  if (r.right > window.innerWidth) plTrackCtxMenu.style.left = `${x - r.width}px`
+  if (r.bottom > window.innerHeight) plTrackCtxMenu.style.top = `${y - r.height}px`
+}
+
+document.addEventListener('mousedown', e => {
+  if (!plTrackCtxMenu.contains(e.target)) plTrackCtxMenu.classList.remove('open')
+})
+
+document.getElementById('pl-ctx-play').addEventListener('click', () => {
+  if (!plTrackCtxTarget) return
+  plTrackCtxTarget.click()
+  plTrackCtxMenu.classList.remove('open')
+})
+
+document.getElementById('pl-ctx-add-queue').addEventListener('click', () => {
+  if (!plTrackCtxTarget) return
+  const idx = parseInt(plTrackCtxTarget.dataset.idx)
+  const item = currentPlaylistItems[idx]
+  if (item) { queue.push(item); showToast(`Added "${item.Name}" to queue`) }
+  plTrackCtxMenu.classList.remove('open')
+})
+
+document.getElementById('pl-ctx-remove').addEventListener('click', async () => {
+  if (!plTrackCtxTarget || !currentPlaylistId) return
+  plTrackCtxMenu.classList.remove('open')
+  const entryId = plTrackCtxTarget.dataset.entryId
+  if (!entryId) { showToast('Cannot remove — missing entry ID'); return }
+  try {
+    const res = await fetch(`${jf.url}/Playlists/${currentPlaylistId}/Items?EntryIds=${encodeURIComponent(entryId)}`, {
+      method: 'DELETE',
+      headers: { 'X-Emby-Token': jf.token }
+    })
+    if (!res.ok) throw new Error(res.status)
+    plTrackCtxTarget.remove()
+    // Recount
+    const remaining = document.getElementById('pl-detail-rows').querySelectorAll('.track-row').length
+    document.getElementById('pl-detail-meta').textContent = `${remaining} songs`
+    showToast('Removed from playlist')
+  } catch (e) {
+    console.error('Remove from playlist failed', e)
+    showToast(`Failed to remove (${e.message})`)
+  }
 })
 
 // ── Playback ──────────────────────────────────────────────────────────────────
@@ -641,11 +720,13 @@ audio.addEventListener('timeupdate', () => {
 audio.addEventListener('play', () => {
   document.getElementById('icon-play').style.display = 'none'
   document.getElementById('icon-pause').style.display = ''
+  updateDiscordPresence(queue[queueIndex])
 })
 
 audio.addEventListener('pause', () => {
   document.getElementById('icon-play').style.display = ''
   document.getElementById('icon-pause').style.display = 'none'
+  window.cascade.discord.clear()
 })
 
 audio.addEventListener('ended', () => {
@@ -1496,10 +1577,8 @@ document.getElementById('ctx-instant-mix').addEventListener('click', async () =>
 })
 
 // Add to playlist
-document.getElementById('ctx-add-playlist').addEventListener('click', async () => {
-  const modal = document.getElementById('atp-modal')
+async function atpLoadPlaylists() {
   const list = document.getElementById('atp-list')
-  modal.classList.remove('hidden')
   list.innerHTML = '<div style="font-size:12px;color:var(--text3);text-align:center;padding:20px 0">Loading…</div>'
   try {
     const data = await jfGet(`/Users/${jf.userId}/Items`, {
@@ -1513,17 +1592,76 @@ document.getElementById('ctx-add-playlist').addEventListener('click', async () =
         const item = queue[queueIndex]
         if (!item) return
         try {
-          await fetch(`${jf.url}/Playlists/${el.dataset.id}/Items?Ids=${encodeURIComponent(item.Id)}&UserId=${jf.userId}`, {
+          const res = await fetch(`${jf.url}/Playlists/${el.dataset.id}/Items?Ids=${encodeURIComponent(item.Id)}&UserId=${encodeURIComponent(jf.userId)}`, {
             method: 'POST',
             headers: { 'X-Emby-Token': jf.token }
           })
-        } catch {}
-        modal.classList.add('hidden')
+          if (!res.ok) {
+            const errText = await res.text().catch(() => '')
+            showToast(`Failed to add (${res.status}): ${errText.slice(0, 60)}`)
+          } else {
+            showToast(`Added to "${el.textContent}"`)
+          }
+        } catch (e) {
+          showToast('Failed to add — network error')
+          console.error('Add to playlist failed', e)
+        }
+        document.getElementById('atp-modal').classList.add('hidden')
       })
     })
   } catch { list.innerHTML = '<div style="font-size:12px;color:var(--text3);text-align:center;padding:20px 0">Failed to load</div>' }
+}
+
+document.getElementById('ctx-add-playlist').addEventListener('click', () => {
+  const modal = document.getElementById('atp-modal')
+  const createRow = document.getElementById('atp-create-row')
+  createRow.classList.remove('visible')
+  document.getElementById('atp-new-name').value = ''
+  modal.classList.remove('hidden')
+  atpLoadPlaylists()
 })
+
 document.getElementById('atp-cancel').addEventListener('click', () => document.getElementById('atp-modal').classList.add('hidden'))
+
+// New playlist inline form
+document.getElementById('atp-new-playlist').addEventListener('click', () => {
+  const row = document.getElementById('atp-create-row')
+  row.classList.add('visible')
+  document.getElementById('atp-new-name').focus()
+})
+
+document.getElementById('atp-create-cancel-btn').addEventListener('click', () => {
+  document.getElementById('atp-create-row').classList.remove('visible')
+  document.getElementById('atp-new-name').value = ''
+})
+
+async function atpCreatePlaylist() {
+  const item = queue[queueIndex]
+  const name = document.getElementById('atp-new-name').value.trim()
+  if (!name || !item) return
+  document.getElementById('atp-create-confirm').disabled = true
+  try {
+    const res = await fetch(`${jf.url}/Playlists?Name=${encodeURIComponent(name)}&Ids=${encodeURIComponent(item.Id)}&UserId=${encodeURIComponent(jf.userId)}&MediaType=Audio`, {
+      method: 'POST',
+      headers: { 'X-Emby-Token': jf.token }
+    })
+    if (!res.ok) throw new Error(res.status)
+    showToast(`Playlist "${name}" created`)
+    document.getElementById('atp-modal').classList.add('hidden')
+    document.getElementById('atp-create-row').classList.remove('visible')
+    document.getElementById('atp-new-name').value = ''
+    // Reload playlists tab if it's already been loaded
+    const grid = document.getElementById('playlists-grid')
+    if (grid.dataset.loaded) { delete grid.dataset.loaded; loadPlaylists() }
+  } catch (e) {
+    showToast('Failed to create playlist')
+    console.error('Create playlist failed', e)
+  }
+  document.getElementById('atp-create-confirm').disabled = false
+}
+
+document.getElementById('atp-create-confirm').addEventListener('click', atpCreatePlaylist)
+document.getElementById('atp-new-name').addEventListener('keydown', e => { if (e.key === 'Enter') atpCreatePlaylist() })
 
 // Download
 document.getElementById('ctx-download').addEventListener('click', () => {
@@ -1789,17 +1927,15 @@ updateNowPlaying = function(item) {
 // ── Discord RPC ───────────────────────────────────────────────────────────────
 
 let discordEnabled = false
-let rpcTrackStart  = 0
+let rpcTrackStart = 0
 
 function updateDiscordPresence(item) {
   if (!discordEnabled || !item) return
   const activity = {
-    type:           2,
     details:        item.Name?.slice(0, 128) || 'Unknown Track',
     state:          `by ${(item.AlbumArtist || item.Artists?.[0] || 'Unknown').slice(0, 128)}`,
     startTimestamp: rpcTrackStart,
   }
-
   if (jf.url.startsWith('https')) {
     const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
     if (art) {
@@ -1807,7 +1943,6 @@ function updateDiscordPresence(item) {
       activity.largeImageText = item.Album?.slice(0, 128) || ''
     }
   }
-
   window.cascade.discord.update(activity)
 }
 
