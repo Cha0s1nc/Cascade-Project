@@ -40,7 +40,7 @@ jobs:
         run: npm run build:win
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v4
         with:
           name: dist-windows
           path: dist/*.exe
@@ -92,7 +92,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v4
         with:
           name: dist-mac
           path: dist/*.dmg
@@ -129,14 +129,14 @@ jobs:
         run: npm run build:linux
 
       - name: Upload AppImage
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v4
         with:
           name: dist-linux-appimage
           path: dist/*.AppImage
           retention-days: 7
 
       - name: Upload RPM (Fedora)
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v4
         with:
           name: dist-linux-rpm
           path: dist/*.rpm
@@ -149,13 +149,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4.6.2
+        uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2.3.2
+        uses: softprops/action-gh-release@v2
         with:
           files: artifacts/**
           generate_release_notes: true
