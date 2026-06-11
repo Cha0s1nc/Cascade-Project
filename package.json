@@ -89,7 +89,7 @@
       ]
     },
     "dmg": {
-      "title": "Cascade ${version}",
+      "title": "Cascade",
       "backgroundColor": "#111113"
     },
     "nsis": {
