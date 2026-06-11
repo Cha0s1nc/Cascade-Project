@@ -7,24 +7,27 @@ A Jellyfin music client for desktop with a polished dark interface, full playbac
 ## Features
 
 - **Jellyfin playback** — browse and play from your Jellyfin library with direct play and transcoding fallback, repeat (none / all / one), and gapless queue
+- **Search** — search songs, albums, and artists across your entire library from a dedicated search view. Results are instant and clickable to play
 - **Shuffle** — proper pre-shuffled queue (Fisher-Yates) so every song plays exactly once before repeating. Shuffle All buttons in Albums, Artists, and Songs views. Toggling shuffle off restores the original order
+- **Artist pages** — clicking an artist opens a detail page with their albums and full song list. Play All or drill into individual albums
 - **Full-screen now-playing overlay** — click the player bar to expand a full-screen view with large album art, controls, a live queue panel, and synced lyrics. Lyrics scale up automatically when the window is maximised or fullscreened
 - **Queue management** — drag to reorder, click to remove. Queue updates live in the full-screen overlay with album art thumbnails and current-track highlighting
-- **Synced lyrics** — timestamp-synced lyrics from Jellyfin with click-to-seek. Opens as a slide-in panel or in the full-screen overlay
+- **Synced lyrics** — timestamp-synced lyrics from Jellyfin with click-to-seek. Opens as a slide-in panel or in the full-screen overlay. A globe button in the overlay lyrics panel auto-detects non-English tracks and translates to English with one tap
 - **Lyrics translation** — auto-detects non-English tracks and shows a translate bar. One click translates to 12 languages via the MyMemory API
 - **Theme picker** — click the gradient dot in the titlebar to customise the accent gradient with a colour picker, eight built-in presets, or dark/light mode. Settings persist across restarts
 - **Album art accent mode** — toggle in the theme picker to automatically match the gradient and full-screen overlay background to the dominant colour of the current album art, updating on every track change
+- **Discord Rich Presence** — shows the current track in Discord as "Listening to Cascade". Enable in Settings with one toggle — no setup required
 - **OS media keys** — play/pause, next, and previous work system-wide on both macOS and Windows via `globalShortcut` and the Web Media Session API (also populates the lock screen / taskbar now-playing widget with track info and artwork)
 - **Touch Bar** — macOS Touch Bar shows track name and ⏮ ▶/⏸ ⏭ controls, synced to playback state
 - **Context menu** — right-click now-playing art for instant mix, add to playlist, media info, download, copy stream URL, refresh metadata, edit metadata, delete, and more
 - **Like / favourite** — heart button syncs favourites back to your Jellyfin server
-- **Playlists** — browse and play your Jellyfin playlists. Drill into a playlist to see its track list with album art. Adding tracks to playlists works correctly via the Jellyfin API
+- **Playlists** — browse and play your Jellyfin playlists. Drill into a playlist to see its track list with album art
 - **Multi-library support** — select and merge multiple Jellyfin music libraries. Albums, artists, and songs are deduplicated across all selected libraries
 - **Expandable sidebar** — icon-only rail that slides out to show labels on hover, with backdrop dimming
-- **Album art thumbnails** — song and playlist rows show album art fetched from Jellyfin metadata
+- **Album art thumbnails** — song, playlist, and artist rows show album art fetched from Jellyfin metadata
 - **Cha0s Stream integration** — exposes a local control server (`127.0.0.1:47847`) so [Cha0s Stream](https://github.com/Cha0s1nc/cha0s-stream) can control playback directly without OS key simulation or Jellyfin session API calls
 - **Auto-updater** — checks for new GitHub releases on startup and presents an update window with release notes, download progress, and one-click install
-- **Settings** — server URL, credentials, and library selection all configurable from inside the app. First-run setup on initial launch
+- **Settings** — server URL, credentials, library selection, Discord RPC, and theming all configurable from inside the app. First-run setup on initial launch
 - **Cross-platform** — Mac (`.dmg`, Intel + Apple Silicon), Windows (`.exe`), Linux (`.AppImage`)
 
 ---
@@ -172,6 +175,14 @@ Click the gradient dot in the top-right of the titlebar to open the theme picker
 - **Album art accent** — when enabled, the gradient and full-screen overlay background automatically shift to match the dominant colour of the current album art on every track change. Toggle off to restore your manual gradient
 
 All theme settings are saved and restored on next launch.
+
+---
+
+## Discord Rich Presence
+
+Enable in **Settings → Discord**. Cascade shows "Listening to Cascade" in Discord with the current track name and artist. No Discord application setup is required — a shared application ID is bundled with the app.
+
+Album art appears automatically if your Jellyfin server is accessible over HTTPS (e.g. via a Cloudflare Tunnel or reverse proxy). For local HTTP servers the presence shows text only.
 
 ---
 
