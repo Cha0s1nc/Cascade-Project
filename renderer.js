@@ -592,8 +592,24 @@ document.getElementById('pl-ctx-remove').addEventListener('click', async () => {
 // ── Playback ──────────────────────────────────────────────────────────────────
 
 function playItems(items, startIndex) {
-  queue = [...items]
-  queueIndex = startIndex
+  if (shuffle) {
+    // New queue loaded while shuffle is on — shuffle the new queue immediately
+    _unshuffledQueue = [...items]
+    queue = [...items]
+    const startItem = queue[startIndex]
+    for (let i = queue.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [queue[i], queue[j]] = [queue[j], queue[i]]
+    }
+    // Move the selected track to front
+    const nowIdx = queue.findIndex(t => t.Id === startItem?.Id)
+    if (nowIdx > 0) { const [t] = queue.splice(nowIdx, 1); queue.unshift(t) }
+    queueIndex = 0
+  } else {
+    _unshuffledQueue = []
+    queue = [...items]
+    queueIndex = startIndex
+  }
   playCurrentTrack()
 }
 
