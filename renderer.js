@@ -11,6 +11,7 @@ let _unshuffledQueue = []   // original order saved when shuffle is enabled
 let volume = 1.0
 
 const audio = new Audio()
+audio.crossOrigin = 'anonymous'
 audio.volume = volume
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -403,10 +404,9 @@ async function openArtist(artistId, name) {
     // Songs list
     document.getElementById('artist-songs-rows').innerHTML = songs.map((item, i) => {
       const thumbArt = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
-      const thumb = thumbArt ? `<img src="${thumbArt}" alt="" onerror="this.style.display='none'">` : ''
       return `<div class="track-row" data-idx="${i}">
         <div class="track-num">${i + 1}</div>
-        <div class="track-thumb">${thumb}</div>
+        ${trackThumbHtml(thumbArt)}
         <div style="min-width:0">
           <div class="track-title">${esc(item.Name)}</div>
           <div class="track-artist">${esc(item.AlbumArtist || item.Artists?.[0] || '')}</div>
@@ -417,7 +417,8 @@ async function openArtist(artistId, name) {
     }).join('')
 
     document.getElementById('artist-songs-rows').querySelectorAll('.track-row').forEach(el => {
-      el.addEventListener('click', () => playItems(songs, parseInt(el.dataset.idx)))
+      const idx = parseInt(el.dataset.idx)
+      wireTrackRow(el, songs[idx], songs, idx)
     })
   } catch (e) {
     document.getElementById('artist-detail-meta').textContent = 'Could not load artist'
@@ -428,6 +429,14 @@ document.getElementById('artist-back-btn').addEventListener('click', () => {
   document.getElementById('artist-detail').style.display = 'none'
   document.getElementById('artist-index').style.display = ''
 })
+
+// ── Track row helpers ─────────────────────────────────────────────────────────
+
+// Shared thumb HTML — includes the EQ bars for the now-playing animation
+function trackThumbHtml(art) {
+  const img = art ? `<img src="${art}" alt="" onerror="this.style.display='none'">` : ''
+  return `<div class="track-thumb">${img}<span class="track-eq"><i></i><i></i><i></i></span></div>`
+}
 
 // ── Songs ─────────────────────────────────────────────────────────────────────
 
@@ -450,11 +459,10 @@ function renderSongRows() {
   const rows = document.getElementById('songs-rows')
   rows.innerHTML = allSongs.map((item, i) => {
     const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
-    const thumb = art ? `<img src="${art}" alt="" onerror="this.style.display='none'">` : ''
     return `
     <div class="track-row" data-idx="${i}">
       <div class="track-num">${i + 1}</div>
-      <div class="track-thumb">${thumb}</div>
+      ${trackThumbHtml(art)}
       <div style="min-width:0">
         <div class="track-title">${esc(item.Name)}</div>
         <div class="track-artist">${esc(item.AlbumArtist || item.Artists?.[0] || '')}</div>
@@ -464,10 +472,8 @@ function renderSongRows() {
     </div>`
   }).join('')
   rows.querySelectorAll('.track-row').forEach(el => {
-    el.addEventListener('click', () => {
-      const idx = parseInt(el.dataset.idx)
-      playItems(allSongs, idx)
-    })
+    const idx = parseInt(el.dataset.idx)
+    wireTrackRow(el, allSongs[idx], allSongs, idx)
   })
 }
 
@@ -539,11 +545,10 @@ async function openPlaylist(playlistId, name) {
 
     document.getElementById('pl-detail-rows').innerHTML = items.map((item, i) => {
       const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
-      const thumb = art ? `<img src="${art}" alt="" onerror="this.style.display='none'">` : ''
       return `
       <div class="track-row" data-idx="${i}" data-id="${item.Id}" data-entry-id="${item.PlaylistItemId || item.Id}">
         <div class="track-num">${i + 1}</div>
-        <div class="track-thumb">${thumb}</div>
+        ${trackThumbHtml(art)}
         <div style="min-width:0">
           <div class="track-title">${esc(item.Name)}</div>
           <div class="track-artist">${esc(item.AlbumArtist || item.Artists?.[0] || '')}</div>
@@ -555,12 +560,8 @@ async function openPlaylist(playlistId, name) {
 
     const rowsEl = document.getElementById('pl-detail-rows')
     rowsEl.querySelectorAll('.track-row').forEach(el => {
-      el.addEventListener('click', () => playItems(items, parseInt(el.dataset.idx)))
-      el.addEventListener('contextmenu', e => {
-        e.preventDefault()
-        plTrackCtxTarget = el
-        showPlTrackCtxMenu(e.clientX, e.clientY)
-      })
+      const idx = parseInt(el.dataset.idx)
+      wireTrackRow(el, items[idx], items, idx, { inPlaylist: true })
     })
   } catch (e) {
     document.getElementById('pl-detail-rows').innerHTML = `<div class="empty-state">Could not load playlist</div>`
@@ -572,58 +573,164 @@ document.getElementById('pl-back-btn').addEventListener('click', () => {
   document.getElementById('playlist-index').style.display = ''
 })
 
-// ── Playlist track context menu ────────────────────────────────────────────────
+// ── Universal track context menu ───────────────────────────────────────────────
 
-const plTrackCtxMenu = document.getElementById('pl-track-ctx-menu')
-let plTrackCtxTarget = null
+const trackCtxMenu = document.getElementById('track-ctx-menu')
+let _ctxItem = null   // Jellyfin item object for the right-clicked row
+let _ctxEl   = null   // DOM element of the right-clicked row
+let _ctxInPl = false  // whether we're inside a playlist (shows Remove option)
 
-function showPlTrackCtxMenu(x, y) {
-  plTrackCtxMenu.style.left = `${x}px`
-  plTrackCtxMenu.style.top = `${y}px`
-  plTrackCtxMenu.classList.add('open')
-  const r = plTrackCtxMenu.getBoundingClientRect()
-  if (r.right > window.innerWidth) plTrackCtxMenu.style.left = `${x - r.width}px`
-  if (r.bottom > window.innerHeight) plTrackCtxMenu.style.top = `${y - r.height}px`
+function showTrackCtxMenu(item, el, x, y, inPlaylist = false) {
+  _ctxItem = item; _ctxEl = el; _ctxInPl = inPlaylist
+  // Show/hide playlist-only items
+  trackCtxMenu.querySelectorAll('.tctx-pl-only').forEach(n => n.classList.toggle('hidden', !inPlaylist))
+  trackCtxMenu.style.left = `${x}px`
+  trackCtxMenu.style.top  = `${y}px`
+  trackCtxMenu.classList.add('open')
+  const r = trackCtxMenu.getBoundingClientRect()
+  if (r.right  > window.innerWidth)  trackCtxMenu.style.left = `${x - r.width}px`
+  if (r.bottom > window.innerHeight) trackCtxMenu.style.top  = `${y - r.height}px`
 }
 
+function closeTrackCtxMenu() { trackCtxMenu.classList.remove('open') }
+
 document.addEventListener('mousedown', e => {
-  if (!plTrackCtxMenu.contains(e.target)) plTrackCtxMenu.classList.remove('open')
+  if (!trackCtxMenu.contains(e.target)) closeTrackCtxMenu()
 })
 
-document.getElementById('pl-ctx-play').addEventListener('click', () => {
-  if (!plTrackCtxTarget) return
-  plTrackCtxTarget.click()
-  plTrackCtxMenu.classList.remove('open')
+// Helper: attach click+dblclick+contextmenu to a track row
+function wireTrackRow(el, item, items, idx, opts = {}) {
+  // Click on the thumb (play button overlay) — play immediately
+  const thumb = el.querySelector('.track-thumb')
+  if (thumb) {
+    thumb.addEventListener('click', e => {
+      e.stopPropagation()
+      playItems(items, idx)
+    })
+  }
+  // Single click on rest of row — select
+  el.addEventListener('click', e => {
+    if (e.target.closest('.track-thumb')) return  // handled above
+    document.querySelectorAll('.track-row.selected').forEach(r => r.classList.remove('selected'))
+    el.classList.add('selected')
+  })
+  // Double click anywhere — play
+  el.addEventListener('dblclick', () => playItems(items, idx))
+  // Right click — context menu
+  el.addEventListener('contextmenu', e => {
+    e.preventDefault()
+    showTrackCtxMenu(item, el, e.clientX, e.clientY, opts.inPlaylist || false)
+  })
+}
+
+// ── Context menu actions ────────────────────────────────────────────────────────
+
+document.getElementById('tctx-play').addEventListener('click', () => {
+  if (!_ctxEl) return
+  closeTrackCtxMenu()
+  _ctxEl.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
 })
 
-document.getElementById('pl-ctx-add-queue').addEventListener('click', () => {
-  if (!plTrackCtxTarget) return
-  const idx = parseInt(plTrackCtxTarget.dataset.idx)
-  const item = currentPlaylistItems[idx]
-  if (item) { queue.push(item); showToast(`Added "${item.Name}" to queue`) }
-  plTrackCtxMenu.classList.remove('open')
+document.getElementById('tctx-play-next').addEventListener('click', () => {
+  if (!_ctxItem) return
+  closeTrackCtxMenu()
+  const insertAt = queueIndex + 1
+  queue.splice(insertAt, 0, _ctxItem)
+  showToast(`"${_ctxItem.Name}" plays next`)
 })
 
-document.getElementById('pl-ctx-remove').addEventListener('click', async () => {
-  if (!plTrackCtxTarget || !currentPlaylistId) return
-  plTrackCtxMenu.classList.remove('open')
-  const entryId = plTrackCtxTarget.dataset.entryId
+document.getElementById('tctx-add-queue').addEventListener('click', () => {
+  if (!_ctxItem) return
+  closeTrackCtxMenu()
+  queue.push(_ctxItem)
+  showToast(`Added "${_ctxItem.Name}" to queue`)
+})
+
+document.getElementById('tctx-instant-mix').addEventListener('click', async () => {
+  if (!_ctxItem) return
+  closeTrackCtxMenu()
+  // Reuse the existing instant mix logic via the ctx-instant-mix path
+  try {
+    const data = await jfGet(`/Items/${_ctxItem.Id}/InstantMix`, { UserId: jf.userId, Limit: 50, Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag' })
+    if (!data.Items?.length) { showToast('No instant mix found'); return }
+    playItems(data.Items, 0)
+    showToast(`Instant mix from "${_ctxItem.Name}"`)
+  } catch (e) { showToast('Instant mix failed') }
+})
+
+document.getElementById('tctx-add-playlist').addEventListener('click', () => {
+  if (!_ctxItem) return
+  closeTrackCtxMenu()
+  // Reuse existing add-to-playlist modal — store item for it
+  _atpTargetItem = _ctxItem
+  openAtpModal()
+})
+
+document.getElementById('tctx-download').addEventListener('click', () => {
+  if (!_ctxItem) return
+  closeTrackCtxMenu()
+  const url = `${jf.url}/Items/${_ctxItem.Id}/Download?api_key=${jf.token}`
+  const a = document.createElement('a'); a.href = url; a.download = _ctxItem.Name || 'track'; a.click()
+})
+
+document.getElementById('tctx-copy-url').addEventListener('click', () => {
+  if (!_ctxItem) return
+  closeTrackCtxMenu()
+  const url = `${jf.url}/Audio/${_ctxItem.Id}/universal?UserId=${jf.userId}&api_key=${jf.token}&Container=mp3,aac,ogg,flac`
+  navigator.clipboard.writeText(url).then(() => showToast('Stream URL copied'))
+})
+
+document.getElementById('tctx-view-album').addEventListener('click', () => {
+  if (!_ctxItem?.AlbumId) return
+  closeTrackCtxMenu()
+  showView('albums')
+  openAlbum(_ctxItem.AlbumId)
+})
+
+document.getElementById('tctx-view-artist').addEventListener('click', () => {
+  if (!_ctxItem) return
+  closeTrackCtxMenu()
+  const artistName = _ctxItem.AlbumArtist || _ctxItem.Artists?.[0]
+  if (!artistName) return
+  showView('artists')
+  // Find artist by name in loaded list, or search
+  const artistCard = document.querySelector(`.artist-card[data-name="${CSS.escape(artistName)}"]`)
+  if (artistCard) artistCard.click()
+})
+
+document.getElementById('tctx-refresh-meta').addEventListener('click', async () => {
+  if (!_ctxItem) return
+  closeTrackCtxMenu()
+  try {
+    await fetch(`${jf.url}/Items/${_ctxItem.Id}/Refresh?MetadataRefreshMode=FullRefresh&ImageRefreshMode=FullRefresh&ReplaceAllMetadata=false&ReplaceAllImages=false`, {
+      method: 'POST', headers: { 'X-Emby-Token': jf.token }
+    })
+    showToast('Metadata refresh queued')
+  } catch { showToast('Refresh failed') }
+})
+
+document.getElementById('tctx-edit-meta').addEventListener('click', () => {
+  if (!_ctxItem) return
+  closeTrackCtxMenu()
+  const url = `${jf.url}/web/index.html#!/edititemmetadata.html?id=${_ctxItem.Id}`
+  require('electron').shell.openExternal(url)
+})
+
+document.getElementById('tctx-pl-remove').addEventListener('click', async () => {
+  if (!_ctxEl || !currentPlaylistId) return
+  closeTrackCtxMenu()
+  const entryId = _ctxEl.dataset.entryId
   if (!entryId) { showToast('Cannot remove — missing entry ID'); return }
   try {
     const res = await fetch(`${jf.url}/Playlists/${currentPlaylistId}/Items?EntryIds=${encodeURIComponent(entryId)}`, {
-      method: 'DELETE',
-      headers: { 'X-Emby-Token': jf.token }
+      method: 'DELETE', headers: { 'X-Emby-Token': jf.token }
     })
     if (!res.ok) throw new Error(res.status)
-    plTrackCtxTarget.remove()
-    // Recount
+    _ctxEl.remove()
     const remaining = document.getElementById('pl-detail-rows').querySelectorAll('.track-row').length
     document.getElementById('pl-detail-meta').textContent = `${remaining} songs`
     showToast('Removed from playlist')
-  } catch (e) {
-    console.error('Remove from playlist failed', e)
-    showToast(`Failed to remove (${e.message})`)
-  }
+  } catch (e) { showToast(`Failed to remove (${e.message})`) }
 })
 
 // ── Playback ──────────────────────────────────────────────────────────────────
@@ -654,6 +761,7 @@ async function playCurrentTrack() {
   if (queueIndex < 0 || queueIndex >= queue.length) return
   const item = queue[queueIndex]
 
+  initBeatDetection()  // wire up AudioContext before play to avoid mid-playback glitch
   audio.src = streamUrl(item.Id)
   audio.play()
 
@@ -717,6 +825,7 @@ function updateNowPlaying(item) {
 
   // Album art accent: fetch through our auth header so canvas isn't tainted by CORS
   if (themeAlbumArt && art) {
+    _currentBgArtUrl = art  // store for overlay background
     fetch(art, { headers: { 'X-Emby-Token': jf.token } })
       .then(r => r.blob())
       .then(blob => {
@@ -1214,19 +1323,117 @@ const npOverlay = document.getElementById('np-overlay')
 let overlayOpen = false
 let overlayLyricsOpen = false
 
+// ── Beat-reactive background ───────────────────────────────────────────────
+let _currentBgArtUrl = null  // current track's art URL for overlay background
+let _audioCtx = null
+let _analyser = null
+let _beatRafId = null
+let _blobColors = []  // extracted colors, stored for blob drift animation
+let _driftParams = [] // randomized per-blob drift parameters, set on each color refresh
+
+function randomizeDrift() {
+  const r = () => Math.random()
+  _driftParams = [0, 1, 2].map(() => ({
+    // Two independent sin/cos pairs per axis — gives Lissajous-style organic motion
+    xF1: 0.11 + r() * 0.13,  xP1: r() * Math.PI * 2,  xA1: 10 + r() * 10,
+    xF2: 0.04 + r() * 0.09,  xP2: r() * Math.PI * 2,  xA2: 3  + r() * 6,
+    yF1: 0.10 + r() * 0.13,  yP1: r() * Math.PI * 2,  yA1: 10 + r() * 10,
+    yF2: 0.04 + r() * 0.09,  yP2: r() * Math.PI * 2,  yA2: 3  + r() * 6,
+  }))
+}
+
+function initBeatDetection() {
+  if (_audioCtx) { if (_audioCtx.state === 'suspended') _audioCtx.resume(); return }
+  try {
+    _audioCtx = new AudioContext()
+    _analyser = _audioCtx.createAnalyser()
+    _analyser.fftSize = 512           // more bins = better low-end resolution
+    _analyser.smoothingTimeConstant = 0.4
+    const src = _audioCtx.createMediaElementSource(audio)
+    src.connect(_analyser)
+    _analyser.connect(_audioCtx.destination)
+  } catch(e) { console.warn('Beat detection unavailable:', e) }
+}
+
+function startBeatLoop() {
+  if (_beatRafId) return
+  const overlay = document.getElementById('np-overlay')
+  if (!overlay) return
+
+  function frame() {
+    _beatRafId = requestAnimationFrame(frame)
+
+    // ── Blob drift — organic slow movement using randomized layered sin/cos ──
+    if (_blobColors.length > 0 && themeAlbumArt && _driftParams.length > 0) {
+      const t = Date.now() / 1000
+      // Anchor positions and sizes per slot (blobs stay near screen edges)
+      const slots = [
+        { ox: 78, oy: 16, w: 78, h: 78, a: 0.88 },
+        { ox: 18, oy: 82, w: 78, h: 78, a: 0.80 },
+        { ox: 12, oy: 18, w: 58, h: 58, a: 0.55 },
+      ]
+      const drifted = _blobColors.map((c, i) => {
+        const s = slots[i] || slots[2]
+        const p = _driftParams[i] || _driftParams[0]
+        const x = s.ox + Math.sin(t * p.xF1 + p.xP1) * p.xA1 + Math.sin(t * p.xF2 + p.xP2) * p.xA2
+        const y = s.oy + Math.cos(t * p.yF1 + p.yP1) * p.yA1 + Math.cos(t * p.yF2 + p.yP2) * p.yA2
+        return `radial-gradient(ellipse ${s.w}% ${s.h}% at ${x.toFixed(1)}% ${y.toFixed(1)}%, rgba(${c.r},${c.g},${c.b},${s.a}) 0%, rgba(${c.r},${c.g},${c.b},${s.a}) 42%, transparent 100%)`
+      })
+      overlay.style.backgroundImage = drifted.join(', ')
+    }
+  }
+  frame()
+}
+
+function stopBeatLoop() {
+  if (_beatRafId) { cancelAnimationFrame(_beatRafId); _beatRafId = null }
+}
+
 function openOverlay() {
   overlayOpen = true
   npOverlay.classList.add('open')
   syncOverlayState()
   renderQueuePanel()
   if (overlayLyricsOpen) renderOverlayLyrics()
-  // Sync volume slider to current level
   document.getElementById('ov-vol-fill').style.width = `${audio.volume * 100}%`
+
+  console.log('[art] openOverlay — themeAlbumArt:', themeAlbumArt, '_blobColors:', _blobColors.length, 'item:', queue[queueIndex]?.Name)
+
+  // Apply art theme every time the overlay opens — derive the URL from the
+  // current queue item directly so we never depend on _currentBgArtUrl being set.
+  // If _blobColors is already cached, apply them immediately (no flash), then
+  // re-fetch in the background to refresh if the track changed.
+  if (themeAlbumArt) {
+    if (_blobColors.length > 0) {
+      npOverlay.style.backgroundColor = '#0d0d0f'
+      npOverlay.style.backgroundImage = buildBlobBackground(_blobColors)
+      npOverlay.classList.add('art-theme')
+    }
+    const item = queue[queueIndex]
+    if (item) {
+      const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
+      if (art) {
+        fetch(art, { headers: { 'X-Emby-Token': jf.token } })
+          .then(r => r.blob())
+          .then(blob => {
+            const objectUrl = URL.createObjectURL(blob)
+            const img = new Image()
+            img.onload = () => { applyAlbumArtTheme(img); URL.revokeObjectURL(objectUrl) }
+            img.onerror = () => URL.revokeObjectURL(objectUrl)
+            img.src = objectUrl
+          })
+          .catch(() => {})
+      }
+    }
+  }
+
+  startBeatLoop()
 }
 
 function closeOverlay() {
   overlayOpen = false
   npOverlay.classList.remove('open')
+  stopBeatLoop()
 }
 
 // Only the left NP section (art + info) opens the overlay — everything else is a deadzone
@@ -1589,11 +1796,16 @@ function updateOverlayLyricsActive(activeIdx) {
   const body = document.getElementById('ov-lyrics-body')
   const panel = document.getElementById('ov-panel-lyrics')
   body.querySelectorAll('.ov-lyric-line').forEach(el => {
-    const dist = Math.abs(parseInt(el.dataset.idx) - activeIdx)
-    el.classList.remove('active', 'near-1', 'near-2')
+    const idx = parseInt(el.dataset.idx)
+    const dist = idx - activeIdx  // signed: negative = past, positive = upcoming
+    el.classList.remove('active', 'near-1', 'near-2', 'past', 'near-past')
     if (dist === 0) el.classList.add('active')
     else if (dist === 1) el.classList.add('near-1')
     else if (dist === 2) el.classList.add('near-2')
+    else if (dist < 0) {
+      el.classList.add('past')
+      if (dist === -1) el.classList.add('near-past')
+    }
   })
   // GPU-accelerated: translate the container so active line sits at panel center
   const active = body.querySelector(`.ov-lyric-line[data-idx="${activeIdx}"]`)
@@ -1686,6 +1898,17 @@ document.getElementById('ctx-instant-mix').addEventListener('click', async () =>
 })
 
 // Add to playlist
+let _atpTargetItem = null  // set by context menu; falls back to now-playing
+
+function openAtpModal() {
+  const modal = document.getElementById('atp-modal')
+  const createRow = document.getElementById('atp-create-row')
+  createRow.classList.remove('visible')
+  document.getElementById('atp-new-name').value = ''
+  modal.classList.remove('hidden')
+  atpLoadPlaylists()
+}
+
 async function atpLoadPlaylists() {
   const list = document.getElementById('atp-list')
   list.innerHTML = '<div style="font-size:12px;color:var(--text3);text-align:center;padding:20px 0">Loading…</div>'
@@ -1698,7 +1921,8 @@ async function atpLoadPlaylists() {
     ).join('') || '<div style="font-size:12px;color:var(--text3);text-align:center;padding:20px 0">No playlists</div>'
     list.querySelectorAll('.modal-pl-item').forEach(el => {
       el.addEventListener('click', async () => {
-        const item = queue[queueIndex]
+        const item = _atpTargetItem || queue[queueIndex]
+        _atpTargetItem = null
         if (!item) return
         try {
           const res = await fetch(`${jf.url}/Playlists/${el.dataset.id}/Items?Ids=${encodeURIComponent(item.Id)}&UserId=${encodeURIComponent(jf.userId)}`, {
@@ -1722,15 +1946,11 @@ async function atpLoadPlaylists() {
 }
 
 document.getElementById('ctx-add-playlist').addEventListener('click', () => {
-  const modal = document.getElementById('atp-modal')
-  const createRow = document.getElementById('atp-create-row')
-  createRow.classList.remove('visible')
-  document.getElementById('atp-new-name').value = ''
-  modal.classList.remove('hidden')
-  atpLoadPlaylists()
+  _atpTargetItem = null  // use now-playing
+  openAtpModal()
 })
 
-document.getElementById('atp-cancel').addEventListener('click', () => document.getElementById('atp-modal').classList.add('hidden'))
+document.getElementById('atp-cancel').addEventListener('click', () => { _atpTargetItem = null; document.getElementById('atp-modal').classList.add('hidden') })
 
 // New playlist inline form
 document.getElementById('atp-new-playlist').addEventListener('click', () => {
@@ -2131,10 +2351,9 @@ async function runSearch(query) {
         <div class="track-list">
           <div id="search-song-rows">${songs.Items.map((item, i) => {
             const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
-            const thumb = art ? `<img src="${art}" alt="" onerror="this.style.display='none'">` : ''
             return `<div class="track-row" data-search-song="${i}">
               <div class="track-num">${i + 1}</div>
-              <div class="track-thumb">${thumb}</div>
+              ${trackThumbHtml(art)}
               <div style="min-width:0">
                 <div class="track-title">${esc(item.Name)}</div>
                 <div class="track-artist">${esc(item.AlbumArtist || item.Artists?.[0] || '')}</div>
@@ -2182,10 +2401,8 @@ async function runSearch(query) {
     // Wire up song rows
     if (hasSongs) {
       results.querySelectorAll('[data-search-song]').forEach(el => {
-        el.addEventListener('click', () => {
-          const idx = parseInt(el.dataset.searchSong)
-          playItems(songs.Items, idx)
-        })
+        const idx = parseInt(el.dataset.searchSong)
+        wireTrackRow(el, songs.Items[idx], songs.Items, idx)
       })
     }
 
@@ -2312,20 +2529,62 @@ async function loadTheme() {
 function extractVibrantColor(img) {
   try {
     const canvas = document.createElement('canvas')
-    canvas.width = canvas.height = 60
+    canvas.width = canvas.height = 80
     const ctx = canvas.getContext('2d')
-    ctx.drawImage(img, 0, 0, 60, 60)
-    const data = ctx.getImageData(0, 0, 60, 60).data
-    let bestR = 110, bestG = 79, bestB = 246, bestScore = 0
-    for (let i = 0; i < data.length; i += 12) {
-      const r = data[i], g = data[i+1], b = data[i+2]
+    ctx.drawImage(img, 0, 0, 80, 80)
+    const data = ctx.getImageData(0, 0, 80, 80).data
+
+    // 36 hue buckets of 10° each — track count, rgb sum, and saturation sum
+    const buckets = Array.from({ length: 36 }, () => ({ count: 0, r: 0, g: 0, b: 0, satSum: 0 }))
+
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i] / 255, g = data[i+1] / 255, b = data[i+2] / 255
       const max = Math.max(r, g, b), min = Math.min(r, g, b)
-      const sat = max === 0 ? 0 : (max - min) / max
-      const bri = max / 255
-      const score = sat * bri * bri  // weight toward bright saturated
-      if (score > bestScore) { bestScore = score; bestR = r; bestG = g; bestB = b }
+      const l = (max + min) / 2
+      if (l < 0.05 || l > 0.88) continue  // skip near-black AND near-white (white bg causes warm-tint false positives)
+      const d = max - min
+      const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1))
+      if (s < 0.12) continue              // skip low-saturation pixels (JPEG noise floor)
+
+      let h = 0
+      if (d > 0) {
+        if (max === r)      h = ((g - b) / d + (g < b ? 6 : 0)) / 6
+        else if (max === g) h = ((b - r) / d + 2) / 6
+        else                h = ((r - g) / d + 4) / 6
+      }
+
+      const bkt = buckets[Math.floor(h * 36)]
+      bkt.count++
+      bkt.r += data[i]; bkt.g += data[i+1]; bkt.b += data[i+2]
+      bkt.satSum += s
     }
-    return { r: bestR, g: bestG, b: bestB }
+
+    // Score = avgSat² × √count  — rewards high vibrancy; coverage is a tiebreaker, not the winner
+    let best = null, bestScore = 0
+    for (const bkt of buckets) {
+      if (bkt.count < 3) continue  // ignore singleton noise
+      const avgSat = bkt.satSum / bkt.count
+      const score = avgSat * avgSat * Math.sqrt(bkt.count)
+      if (score > bestScore) { bestScore = score; best = bkt }
+    }
+
+    // Log every bucket that has pixels so we can see what the image actually contains
+    const bucketDebug = buckets.map((bkt, i) => {
+      if (!bkt.count) return null
+      return `h${i*10}°: count=${bkt.count} avgSat=${(bkt.satSum/bkt.count).toFixed(2)}`
+    }).filter(Boolean)
+    console.log('[color] buckets:', bucketDebug.join(' | '))
+    console.log('[color] winner:', best ? `h${Math.round(best.r/best.count)},${Math.round(best.g/best.count)},${Math.round(best.b/best.count)} score=${bestScore.toFixed(3)}` : 'none')
+
+    // Require meaningful saturation — low avgSat means JPEG noise, not a real colour.
+    // B&W albums max out at ~0.23; real colours are ≥0.35; safe cutoff is 0.28.
+    if (!best || (best.satSum / best.count) < 0.28) return null
+
+    return {
+      r: Math.round(best.r / best.count),
+      g: Math.round(best.g / best.count),
+      b: Math.round(best.b / best.count)
+    }
   } catch { return null }
 }
 
@@ -2333,27 +2592,212 @@ function rgbToHex(r, g, b) {
   return '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('')
 }
 
+// Extract top N hue-diverse colors from an image element.
+// Returns an array of {r,g,b} with saturation boosted for vivid blobs.
+function extractTopColors(img, n = 3) {
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = canvas.height = 80
+    const ctx = canvas.getContext('2d')
+    ctx.drawImage(img, 0, 0, 80, 80)
+    const { data } = ctx.getImageData(0, 0, 80, 80)
+
+    const BUCKETS = 36, DEG = 360 / BUCKETS
+    const counts = new Array(BUCKETS).fill(0)
+    const sums = Array.from({ length: BUCKETS }, () => ({ r: 0, g: 0, b: 0 }))
+
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i] / 255, g = data[i+1] / 255, b = data[i+2] / 255, a = data[i+3]
+      if (a < 128) continue
+      const max = Math.max(r, g, b), min = Math.min(r, g, b)
+      const l = (max + min) / 2
+      if (l < 0.04 || l > 0.96) continue       // skip only true-black / true-white
+      const s = max === min ? 0 : (max - min) / (1 - Math.abs(2 * l - 1))
+      if (s < 0.05) continue                    // skip near-gray (looser — catches dark purples etc)
+
+      const d = max - min
+      let h = 0
+      if (max === r)      h = ((g - b) / d + (g < b ? 6 : 0)) / 6
+      else if (max === g) h = ((b - r) / d + 2) / 6
+      else                h = ((r - g) / d + 4) / 6
+      const bi = Math.floor(h * BUCKETS) % BUCKETS
+      counts[bi]++
+      sums[bi].r += data[i]; sums[bi].g += data[i+1]; sums[bi].b += data[i+2]
+    }
+
+    // Rank buckets by count × average saturation — vivid colors beat large dull areas
+    const ranked = counts
+      .map((c, i) => {
+        if (!c) return { score: 0, c, i, hue: i * DEG }
+        const avgR = sums[i].r / c, avgG = sums[i].g / c, avgB = sums[i].b / c
+        const mx = Math.max(avgR, avgG, avgB) / 255, mn = Math.min(avgR, avgG, avgB) / 255
+        const l = (mx + mn) / 2
+        const sat = mx === mn ? 0 : (mx - mn) / (1 - Math.abs(2 * l - 1))
+        return { score: c * sat, c, i, hue: i * DEG }
+      })
+      .filter(x => x.c > 0)
+      .sort((a, b) => b.score - a.score)
+
+    const results = []
+    for (const { c, i, hue } of ranked) {
+      if (results.length >= n) break
+      let r = sums[i].r / c, g = sums[i].g / c, b = sums[i].b / c
+      // Moderate saturation boost: push channels away from mid without clamping hue
+      const mid = (Math.max(r, g, b) + Math.min(r, g, b)) / 2
+      const BOOST = 1.4
+      r = Math.min(255, Math.max(0, mid + (r - mid) * BOOST))
+      g = Math.min(255, Math.max(0, mid + (g - mid) * BOOST))
+      b = Math.min(255, Math.max(0, mid + (b - mid) * BOOST))
+      // Normalize to a vivid, visible blob color:
+      // Convert to HSL, force L ≥ 0.48 and S ≥ 0.65, then back to RGB.
+      // This ensures dark covers (like near-black album art) still produce bright blobs.
+      const nr = r/255, ng = g/255, nb = b/255
+      const cmax = Math.max(nr,ng,nb), cmin = Math.min(nr,ng,nb)
+      const d = cmax - cmin
+      let h2 = 0
+      if (d > 0) {
+        if (cmax === nr)      h2 = ((ng-nb)/d + (ng<nb?6:0))/6
+        else if (cmax === ng) h2 = ((nb-nr)/d + 2)/6
+        else                  h2 = ((nr-ng)/d + 4)/6
+      }
+      const tgtL = 0.50, tgtS = Math.max(0.70, d > 0 ? d/(1-Math.abs(2*((cmax+cmin)/2)-1)) : 0)
+      const c2 = (1 - Math.abs(2*tgtL - 1)) * tgtS
+      const x2 = c2 * (1 - Math.abs((h2*6)%2 - 1))
+      const m2 = tgtL - c2/2
+      const hi = Math.floor(h2*6) % 6
+      const [rr,gg,bb2] = [[c2,x2,0],[x2,c2,0],[0,c2,x2],[0,x2,c2],[x2,0,c2],[c2,0,x2]][hi]
+      results.push({
+        r: Math.round((rr+m2)*255),
+        g: Math.round((gg+m2)*255),
+        b: Math.round((bb2+m2)*255),
+        hue
+      })
+    }
+    return results
+  } catch { return [] }
+}
+
+// Build a Cider-style multi-blob gradient background from an array of colors.
+// Colors are placed at screen edges so the center stays dark and readable.
+function buildBlobBackground(colors) {
+  // Edge placements — main colors at opposite corners, third as accent
+  const slots = [
+    { x: '80%', y: '15%', w: '75%', h: '75%', a: 0.88 },  // top-right
+    { x: '15%', y: '85%', w: '75%', h: '75%', a: 0.80 },  // bottom-left
+    { x: '10%', y: '15%', w: '55%', h: '55%', a: 0.55 },  // top-left accent
+  ]
+  return colors.map((c, i) => {
+    const { x, y, w, h, a } = slots[i] || { x: '50%', y: '50%', w: '60%', h: '60%', a: 0.5 }
+    return `radial-gradient(ellipse ${w} ${h} at ${x} ${y}, rgba(${c.r},${c.g},${c.b},${a}) 0%, transparent 100%)`
+  }).join(', ')
+  // Note: dark base (#0d0d0f) is set as background-color separately — plain hex is invalid in background-image
+}
+
 function applyAlbumArtTheme(imgEl) {
+  console.log('[art] applyAlbumArtTheme — themeAlbumArt:', themeAlbumArt, 'imgEl:', !!imgEl)
   if (!themeAlbumArt || !imgEl) return
   const col = extractVibrantColor(imgEl)
-  if (!col) return
+  console.log('[art] extractVibrantColor:', col)
 
-  // Gradient accent (used everywhere else)
-  const startHex = rgbToHex(Math.min(255, col.r + 60), Math.min(255, col.g + 60), Math.min(255, col.b + 60))
-  const endHex   = rgbToHex(Math.max(0,   col.r - 30), Math.max(0,   col.g - 30), Math.max(0,   col.b - 30))
+  if (!col) {
+    // B&W / neutral art — reset gradient to dark neutral so the previous track's
+    // colour doesn't bleed through, and use gray blobs on the overlay
+    applyGradient('#505050', '#202020')
+    _lastAlbumColors = null
+    _blobColors = [{ r: 90, g: 90, b: 90, hue: 0 }, { r: 40, g: 40, b: 40, hue: 0 }]
+    randomizeDrift()
+    const overlay = document.getElementById('np-overlay')
+    overlay.style.backgroundColor = '#0d0d0f'
+    overlay.style.backgroundImage = buildBlobBackground(_blobColors)
+    overlay.classList.add('art-theme')
+    return
+  }
+
+  // Gradient accent — normalise to a vivid hue so muted album colours still produce
+  // distinct, saturated gradients across the full spectrum.
+  const _nr = col.r/255, _ng = col.g/255, _nb = col.b/255
+  const _mx = Math.max(_nr,_ng,_nb), _mn = Math.min(_nr,_ng,_nb), _d = _mx - _mn
+  let _h = 0
+  if (_d > 0) {
+    if (_mx === _nr)      _h = ((_ng-_nb)/_d + (_ng<_nb?6:0))/6
+    else if (_mx === _ng) _h = ((_nb-_nr)/_d + 2)/6
+    else                  _h = ((_nr-_ng)/_d + 4)/6
+  }
+  const _hsl2rgb = (hue, s, l) => {
+    const c = (1-Math.abs(2*l-1))*s, x = c*(1-Math.abs((hue*6)%2-1)), m = l-c/2
+    const idx = Math.floor(hue*6)%6
+    const [r,g,b] = [[c,x,0],[x,c,0],[0,c,x],[0,x,c],[x,0,c],[c,0,x]][idx]
+    return [Math.round((r+m)*255), Math.round((g+m)*255), Math.round((b+m)*255)]
+  }
+  const [sr,sg,sb] = _hsl2rgb(_h, 0.85, 0.62)   // bright vivid
+  const [er,eg,eb] = _hsl2rgb(_h, 0.90, 0.36)   // dark vivid
+  const startHex = rgbToHex(sr,sg,sb)
+  const endHex   = rgbToHex(er,eg,eb)
   _lastAlbumColors = { start: startHex, end: endHex }
   applyGradient(startHex, endHex)
 
-  // Fullscreen overlay background: rich color at top, fades to near-black
-  const { r, g, b } = col
-  const overlayBg = `linear-gradient(160deg, rgb(${r},${g},${b}) 0%, rgb(${Math.round(r*0.25)},${Math.round(g*0.25)},${Math.round(b*0.25)}) 55%, #0d0d0f 100%)`
-  document.documentElement.style.setProperty('--art-overlay-bg', overlayBg)
-  document.getElementById('np-overlay').classList.add('art-theme')
+  // Fullscreen overlay: extract top 3 colors for the living blob background
+  _blobColors = extractTopColors(imgEl)
+
+  // Fallback: if the cover is too dark/desaturated for bucket extraction,
+  // synthesize a palette from the single dominant color we already have
+  if (_blobColors.length === 0) {
+    // Derive blob palette from the single dominant col — force to L=0.50 S=0.70
+    const nr = col.r/255, ng = col.g/255, nb = col.b/255
+    const cmax = Math.max(nr,ng,nb), cmin = Math.min(nr,ng,nb), d = cmax - cmin
+    // If the image is essentially black & white / neutral, there's no real hue to derive.
+    // d < 0.12 means near-gray — normalizing it would default h2=0 → vivid red, which is wrong.
+    // In this case skip the art theme entirely rather than inventing a fake color.
+    if (d < 0.12) {
+      // B&W / neutral art — use monochrome gray blobs instead of inventing a fake hue
+      const lum = Math.round(((cmax + cmin) / 2) * 255)
+      const gHi = Math.min(255, Math.round(lum * 1.2))
+      const gLo = Math.max(0,   Math.round(lum * 0.6))
+      _blobColors = [
+        { r: gHi, g: gHi, b: gHi, hue: 0 },
+        { r: gLo, g: gLo, b: gLo, hue: 0 },
+      ]
+    } else {
+      let h2 = 0
+      if (d > 0) {
+        if (cmax===nr)      h2 = ((ng-nb)/d+(ng<nb?6:0))/6
+        else if (cmax===ng) h2 = ((nb-nr)/d+2)/6
+        else                h2 = ((nr-ng)/d+4)/6
+      }
+      const tgtL = 0.50, tgtS = 0.72
+      const c2 = (1-Math.abs(2*tgtL-1))*tgtS, x2 = c2*(1-Math.abs((h2*6)%2-1)), m2 = tgtL-c2/2
+      const hIdx = Math.floor(h2*6)%6
+      const [rr,gg,bb2] = [[c2,x2,0],[x2,c2,0],[0,c2,x2],[0,x2,c2],[x2,0,c2],[c2,0,x2]][hIdx]
+      const pr = Math.round((rr+m2)*255), pg = Math.round((gg+m2)*255), pb = Math.round((bb2+m2)*255)
+      _blobColors = [
+        { r: pr, g: pg, b: pb, hue: 0 },
+        { r: Math.round(pr*0.5), g: Math.round(pg*0.5), b: Math.round(pb*0.5), hue: 180 },
+      ]
+    }
+  }
+
+  randomizeDrift()
+  console.log('[art] _blobColors:', _blobColors.length, _blobColors)
+  // Set gradient directly on the overlay — no z-index/clipping issues
+  const overlay = document.getElementById('np-overlay')
+  const bg = buildBlobBackground(_blobColors)
+  console.log('[art] setting overlay background, first 120 chars:', bg.slice(0,120))
+  overlay.style.backgroundColor = '#0d0d0f'
+  overlay.style.backgroundImage = bg
+  overlay.classList.add('art-theme')
+  console.log('[art] art-theme class added')
 }
 
 function clearAlbumArtTheme() {
-  document.getElementById('np-overlay').classList.remove('art-theme')
+  const overlay = document.getElementById('np-overlay')
+  overlay.classList.remove('art-theme')
+  overlay.style.backgroundImage = ''
+  overlay.style.backgroundColor = ''
   document.documentElement.style.removeProperty('--art-overlay-bg')
+  _blobColors = []
+  _driftParams = []
+  const bgEl = document.getElementById('ov-bg-pulse')
+  if (bgEl) { bgEl.style.opacity = '0' }
 }
 
 // Wire up theme picker UI

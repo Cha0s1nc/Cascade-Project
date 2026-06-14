@@ -8,8 +8,10 @@ const os    = require('os')
 const Store = require('electron-store')
 
 // ── Discord RPC ────────────────────────────────────────────────────────────────
-let rpcClient  = null
-let rpcReady   = false
+let rpcClient   = null
+let rpcReady    = false
+let rpcUpdateTimer = null
+let lastRpcActivity = null
 
 async function connectDiscordRpc(clientId) {
   if (!clientId) return
@@ -23,7 +25,7 @@ async function connectDiscordRpc(clientId) {
       const _origRequest = rpcClient.request.bind(rpcClient)
       rpcClient.request = function(cmd, args, ...rest) {
         if (cmd === 'SET_ACTIVITY' && args?.activity) args.activity.type = 2
-        return _origRequest(cmd, args, ...rest).catch(e => console.warn('[discord-rpc] request failed:', e.message))
+        return _origRequest(cmd, args, ...rest).catch(() => { /* Discord rate limit or transient error — suppress */ })
       }
       if (win && !win.isDestroyed()) win.webContents.send('discord-rpc-status', true)
     })
@@ -51,13 +53,16 @@ ipcMain.on('discord-rpc-connect', async (_e, clientId) => {
 
 ipcMain.on('discord-rpc-update', (_e, activity) => {
   if (!rpcClient || !rpcReady) return
-  try {
-    if (activity) {
-      rpcClient.setActivity(activity)
-    } else {
-      rpcClient.clearActivity()
-    }
-  } catch (e) { console.warn('[discord-rpc] update failed:', e.message) }
+  lastRpcActivity = activity
+  if (rpcUpdateTimer) return  // already scheduled
+  rpcUpdateTimer = setTimeout(() => {
+    rpcUpdateTimer = null
+    if (!rpcClient || !rpcReady) return
+    try {
+      if (lastRpcActivity) rpcClient.setActivity(lastRpcActivity)
+      else rpcClient.clearActivity()
+    } catch {}
+  }, 5000)  // max one update per 5 seconds
 })
 
 ipcMain.on('discord-rpc-clear', () => {
