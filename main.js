@@ -378,11 +378,23 @@ function openUpdaterWindow(updateInfo) {
 
 async function checkForUpdates() {
   try {
-    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
-      headers: { 'User-Agent': 'cascade-updater' }
-    })
-    if (!res.ok) throw new Error(`GitHub API ${res.status}`)
-    const release = await res.json()
+    const betaUpdates = store.get('betaUpdates', false)
+    let release
+    if (betaUpdates) {
+      const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=10`, {
+        headers: { 'User-Agent': 'cascade-updater' }
+      })
+      if (!res.ok) throw new Error(`GitHub API ${res.status}`)
+      const releases = await res.json()
+      release = releases.find(r => !r.draft)
+    } else {
+      const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+        headers: { 'User-Agent': 'cascade-updater' }
+      })
+      if (!res.ok) throw new Error(`GitHub API ${res.status}`)
+      release = await res.json()
+    }
+    if (!release) return
     const latestVersion = release.tag_name.replace(/^v/, '')
     if (!isNewer(latestVersion, app.getVersion())) return
 

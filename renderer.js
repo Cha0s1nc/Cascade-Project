@@ -8,7 +8,7 @@ let queueIndex = -1
 let shuffle = false
 let repeatMode = 'none' // 'none' | 'all' | 'one'
 let _unshuffledQueue = []   // original order saved when shuffle is enabled
-let volume = 0.75
+let volume = 1.0
 
 const audio = new Audio()
 audio.volume = volume
@@ -91,6 +91,43 @@ function setConnected(yes) {
 
 async function connect(serverUrl, token, userId) {
   jf = { url: serverUrl.replace(/\/$/, ''), token, userId }
+
+  const loadingEl  = document.getElementById('setup-loading')
+  const loadingTxt = document.getElementById('setup-loading-text')
+  const errorEl    = document.getElementById('setup-error')
+  const connectBtn = document.getElementById('setup-connect')
+
+  const showLoading = (msg) => {
+    if (loadingEl)  loadingEl.classList.add('visible')
+    if (loadingTxt) loadingTxt.textContent = msg
+    if (errorEl)    errorEl.textContent = ''
+    if (connectBtn) connectBtn.style.display = 'none'
+  }
+  const hideLoading = () => {
+    if (loadingEl)  loadingEl.classList.remove('visible')
+    if (connectBtn) connectBtn.style.display = ''
+  }
+
+  // Verify the token is still valid with a lightweight ping, retry up to 3x
+  let verified = false
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    showLoading(attempt === 1 ? 'Connecting…' : `Retrying… (${attempt}/3)`)
+    try {
+      await jfGet(`/Users/${userId}`)
+      verified = true
+      break
+    } catch (e) {
+      if (attempt < 3) await new Promise(r => setTimeout(r, 1500 * attempt))
+    }
+  }
+
+  hideLoading()
+
+  if (!verified) {
+    if (errorEl) errorEl.textContent = 'Connection failed. Check your server URL and try again.'
+    throw new Error('Could not reach Jellyfin server')
+  }
+
   setConnected(true)
   await populateLibraryPicker()
   await loadHome()
@@ -850,7 +887,9 @@ document.getElementById('prog-bar').addEventListener('click', (e) => {
     const rect = bar.getBoundingClientRect()
     const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
     audio.volume = ratio
+    volume = ratio
     fill.style.width = `${ratio * 100}%`
+    window.cascade.store.set('volume', ratio)
   }
 
   bar.addEventListener('mousedown', (e) => { dragging = true; setVol(e); e.preventDefault() })
@@ -987,6 +1026,13 @@ async function loadSettingsFields() {
   document.getElementById('s-url').value  = await window.cascade.store.get('serverUrl') || ''
   document.getElementById('s-user').value = await window.cascade.store.get('username') || ''
   document.getElementById('s-pass').value = ''
+
+  // Beta updates toggle
+  const betaUpdatesToggle = document.getElementById('beta-updates-toggle')
+  betaUpdatesToggle.checked = (await window.cascade.store.get('betaUpdates')) === true
+  betaUpdatesToggle.onchange = async () => {
+    await window.cascade.store.set('betaUpdates', betaUpdatesToggle.checked)
+  }
 
   // Discord RPC settings
   const discordToggle = document.getElementById('discord-rpc-toggle')
@@ -1137,6 +1183,15 @@ async function init() {
   buildPresets()
   await initDiscordRpc()
 
+  // Restore saved volume
+  const savedVol = await window.cascade.store.get('volume')
+  if (savedVol !== undefined && savedVol !== null) {
+    volume = parseFloat(savedVol)
+    audio.volume = volume
+    const fill = document.getElementById('vol-fill')
+    if (fill) fill.style.width = `${volume * 100}%`
+  }
+
   const serverUrl = await window.cascade.store.get('serverUrl')
   const token = await window.cascade.store.get('token')
   const userId = await window.cascade.store.get('userId')
@@ -1282,9 +1337,11 @@ document.getElementById('ov-like').addEventListener('click', () => document.getE
     const rect = bar.getBoundingClientRect()
     const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
     audio.volume = ratio
+    volume = ratio
     fill.style.width = `${ratio * 100}%`
     // Keep main vol bar in sync
     document.getElementById('vol-fill').style.width = `${ratio * 100}%`
+    window.cascade.store.set('volume', ratio)
   }
   bar.addEventListener('mousedown', (e) => { dragging = true; setVol(e); e.preventDefault() })
   document.addEventListener('mousemove', (e) => { if (dragging) setVol(e) })
