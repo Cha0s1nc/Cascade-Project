@@ -404,7 +404,7 @@ async function openArtist(artistId, name) {
     // Songs list
     document.getElementById('artist-songs-rows').innerHTML = songs.map((item, i) => {
       const thumbArt = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
-      return `<div class="track-row" data-idx="${i}">
+      return `<div class="track-row" data-idx="${i}" data-id="${item.Id}">
         <div class="track-num">${i + 1}</div>
         ${trackThumbHtml(thumbArt)}
         <div style="min-width:0">
@@ -460,7 +460,7 @@ function renderSongRows() {
   rows.innerHTML = allSongs.map((item, i) => {
     const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
     return `
-    <div class="track-row" data-idx="${i}">
+    <div class="track-row" data-idx="${i}" data-id="${item.Id}">
       <div class="track-num">${i + 1}</div>
       ${trackThumbHtml(art)}
       <div style="min-width:0">
@@ -840,11 +840,9 @@ function updateNowPlaying(item) {
 }
 
 function highlightPlayingRow() {
-  document.querySelectorAll('.track-row').forEach(r => r.classList.remove('playing'))
-  const current = queue[queueIndex]
+  const currentId = queue[queueIndex]?.Id
   document.querySelectorAll('.track-row').forEach(r => {
-    const idx = parseInt(r.dataset.idx)
-    if (allSongs[idx]?.Id === current?.Id) r.classList.add('playing')
+    r.classList.toggle('playing', !!currentId && r.dataset.id === currentId)
   })
 }
 
@@ -1015,7 +1013,8 @@ document.getElementById('btn-lyrics-open').addEventListener('click', () => showL
 
 // Like / favourite
 const likeBtn = document.getElementById('btn-like')
-likeBtn.addEventListener('click', async () => {
+
+async function toggleLike() {
   const item = queue[queueIndex]
   if (!item) return
   const isLiked = likeBtn.classList.contains('liked')
@@ -1025,8 +1024,11 @@ likeBtn.addEventListener('click', async () => {
       headers: { 'X-Emby-Token': jf.token }
     })
     likeBtn.classList.toggle('liked', !isLiked)
+    document.getElementById('ov-like').classList.toggle('liked', !isLiked)
   } catch (e) { console.error('Like failed', e) }
-})
+}
+
+likeBtn.addEventListener('click', toggleLike)
 
 // ── Shuffle All ───────────────────────────────────────────────────────────────
 
@@ -1515,7 +1517,7 @@ document.getElementById('ov-shuffle').addEventListener('click', () => {
 document.getElementById('ov-repeat').addEventListener('click', () => {
   document.getElementById('btn-repeat').click()
 })
-document.getElementById('ov-like').addEventListener('click', () => document.getElementById('btn-like').click())
+document.getElementById('ov-like').addEventListener('click', toggleLike)
 
 // Overlay progress bar — drag to scrub
 ;(function() {
@@ -2351,7 +2353,7 @@ async function runSearch(query) {
         <div class="track-list">
           <div id="search-song-rows">${songs.Items.map((item, i) => {
             const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
-            return `<div class="track-row" data-search-song="${i}">
+            return `<div class="track-row" data-search-song="${i}" data-id="${item.Id}">
               <div class="track-num">${i + 1}</div>
               ${trackThumbHtml(art)}
               <div style="min-width:0">
