@@ -770,7 +770,29 @@ async function playCurrentTrack() {
   reportPlaybackStart(item.Id)
 }
 
+let _prefetchSession = 0
+
+async function _prefetchUpcoming() {
+  const session = ++_prefetchSession
+  const start = queueIndex + 1
+  const end = Math.min(start + 5, queue.length)
+  for (let i = start; i < end; i++) {
+    if (session !== _prefetchSession) break        // user skipped, abandon
+    const item = queue[i]
+    if (!item?.Id || _lyricsCache.has(item.Id)) continue
+    await fetchLyricsWaterfall(item).catch(() => {})
+    if (session !== _prefetchSession) break
+    await new Promise(r => setTimeout(r, 400))    // brief gap between API calls
+  }
+}
+
 function updateNowPlaying(item) {
+  // Warm the cache for the current song and the next 5 in queue
+  if (item?.Id) {
+    fetchLyricsWaterfall(item).catch(() => {})
+    _prefetchUpcoming()
+  }
+
   const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
   const artEl = document.getElementById('np-art')
   if (art) {
@@ -1182,6 +1204,19 @@ async function loadSettingsFields() {
   document.getElementById('discord-dev-link').onclick = (e) => {
     e.preventDefault()
     window.cascade.shell.openExternal('https://discord.com/developers/applications')
+  }
+
+  // Lyrics source preference
+  const lyricsSourceSel = document.getElementById('s-lyrics-source')
+  lyricsSourceSel.value = (await window.cascade.store.get('lyricsForcedSource')) || 'auto'
+  lyricsSourceSel.onchange = async () => {
+    lyricsForcedSource = lyricsSourceSel.value
+    await window.cascade.store.set('lyricsForcedSource', lyricsForcedSource)
+    updateSourcePills()
+    if (queue[queueIndex]) {
+      _lyricsCache.delete(queue[queueIndex].Id)
+      lyricsData = []; lastLyricsIdx = -1; lastOverlayLyricsIdx = -1; fetchLyrics()
+    }
   }
 }
 
@@ -1687,15 +1722,23 @@ async function renderOverlayLyrics() {
 
   if (!lyricsData.length) {
     body.innerHTML = '<div class="lyrics-empty" style="padding:40px 0;text-align:center">Loading…</div>'
-    try {
-      const res = await fetch(`${jf.url}/Audio/${item.Id}/Lyrics`, { headers: { 'X-Emby-Token': jf.token } })
-      if (!res.ok) throw new Error()
-      const data = await res.json()
-      lyricsData = data.Lyrics || []
-    } catch {
+    const result = await fetchLyricsWaterfall(item)
+    if (result?.instrumental) {
+      body.innerHTML = '<div class="lyrics-empty" style="padding:40px 0;text-align:center">This track is instrumental</div>'
+      return
+    }
+    _showLyricsFetchToast(result)
+    if (!result) {
+      lyricsSource = null
+      updateSourcePills()
       body.innerHTML = '<div class="lyrics-empty" style="padding:40px 0;text-align:center">No lyrics available</div>'
       return
     }
+    lyricsData   = result.lines
+    lyricsSource = result.source
+    updateSourcePills()
+    _stopWordLoop()
+    if (!audio.paused) _startWordLoop()
   }
 
   if (!lyricsData.length) {
@@ -1728,8 +1771,16 @@ function renderOverlayLyricLines(translated = false) {
   const body = document.getElementById('ov-lyrics-body')
   body.innerHTML = lyricsData.map((line, i) => {
     const hasTimestamp = line.Start != null
-    const text = translated && lyricsTranslated[i] ? lyricsTranslated[i] : (line.Text || '')
-    return `<div class="ov-lyric-line${hasTimestamp ? ' seekable' : ''}" data-idx="${i}"${hasTimestamp ? ` data-start="${line.Start}"` : ''}>${esc(text)}</div>`
+    const transText = translated && lyricsTranslated[i]
+    let content
+    if (line.Words && !transText) {
+      content = line.Words.map(w =>
+        `<span class="ov-lyric-word" data-ws="${w.Start}" data-we="${w.End ?? ''}">${esc(w.Text)}</span>`
+      ).join('')
+    } else {
+      content = esc(transText ? lyricsTranslated[i] : (line.Text || ''))
+    }
+    return `<div class="ov-lyric-line${hasTimestamp ? ' seekable' : ''}" data-idx="${i}"${hasTimestamp ? ` data-start="${line.Start}"` : ''}>${content}</div>`
   }).join('')
   body.querySelectorAll('.ov-lyric-line.seekable').forEach(el => {
     el.addEventListener('click', () => {
@@ -1829,7 +1880,7 @@ audio.addEventListener('timeupdate', () => {
   const nowSec = audio.currentTime + 0.225
   let activeIdx = 0
   for (let i = 0; i < lyricsData.length; i++) {
-    if (lyricsData[i].Start != null && lyricsData[i].Start / 10000000 <= nowSec) activeIdx = i
+    if (lyricsData[i].Start != null && lyricsData[i].Start / 10_000_000 <= nowSec) activeIdx = i
   }
   if (activeIdx === lastOverlayLyricsIdx) return
   lastOverlayLyricsIdx = activeIdx
@@ -2094,8 +2145,174 @@ document.getElementById('ctx-delete').addEventListener('click', async () => {
 
 // ── Lyrics panel ──────────────────────────────────────────────────────────────
 
+let lyricsSource        = null   // source that was actually used ('LyricsPlus', 'SyncLRC', …)
+let lyricsForcedSource  = 'auto' // 'auto' | 'LyricsPlus' | 'SyncLRC' | 'LRCLIB' | 'Jellyfin'
+
+// Load persisted preference immediately
+;(async () => {
+  lyricsForcedSource = (await window.cascade.store.get('lyricsForcedSource')) || 'auto'
+})()
+
 let lyricsData = []
 let lyricsTranslated = []
+
+// ── Source pill helpers ───────────────────────────────────────────────────────
+
+function _showLyricsFetchToast(result) {
+  const tried = result?.tried ?? _lastFetchStatus
+  const failed = Object.entries(tried).filter(([, v]) => v === 'fail').map(([k]) => k)
+  if (!failed.length) return
+
+  const succeeded = result?.source
+  if (succeeded) {
+    const msg = failed.length === 1
+      ? `${failed[0]} unavailable · using ${succeeded}`
+      : `${failed.join(', ')} unavailable · using ${succeeded}`
+    showToast(msg, 3500)
+  } else {
+    // All tried sources failed (no result)
+    const tried_names = Object.entries(tried).filter(([, v]) => v === 'fail').map(([k]) => k)
+    if (tried_names.length) showToast(`No lyrics — ${tried_names.join(', ')} all failed`, 3500)
+  }
+}
+
+function updateSourcePills() {
+  const forced   = lyricsForcedSource && lyricsForcedSource !== 'auto'
+  const label    = forced ? lyricsForcedSource : (lyricsSource || 'Auto')
+  document.querySelectorAll('.lyrics-source-pill').forEach(p => {
+    p.textContent = label
+    p.classList.toggle('forced', forced)
+    // re-add the dot pseudo-element needs no JS — it's CSS ::before
+  })
+}
+
+function _openSourceDropdown(nearEl) {
+  const dd   = document.getElementById('lyrics-source-dropdown')
+  const rect = nearEl.getBoundingClientRect()
+  dd.style.left = `${Math.max(8, rect.left)}px`
+  dd.style.top  = `${rect.bottom + 6}px`
+  dd.classList.add('open')
+  requestAnimationFrame(() => {
+    const dr = dd.getBoundingClientRect()
+    if (dr.right  > window.innerWidth  - 8) dd.style.left = `${window.innerWidth  - dr.width - 8}px`
+    if (dr.bottom > window.innerHeight - 8) dd.style.top  = `${rect.top - dr.height - 6}px`
+
+    const cur = lyricsForcedSource || 'auto'
+    dd.querySelectorAll('.lsd-item').forEach(el => {
+      const src    = el.dataset.source
+      el.classList.toggle('active', src === cur)
+
+      // Status badge — remove old one first
+      el.querySelector('.lsd-status')?.remove()
+      const status = _lastFetchStatus[src]  // 'ok'|'fail'|'skip'|null
+      if (status && src !== 'auto') {
+        const badge = document.createElement('span')
+        badge.className = `lsd-status lsd-status-${status}`
+        badge.title = status === 'ok' ? 'Succeeded last fetch'
+                    : status === 'fail' ? 'Failed last fetch'
+                    : 'Skipped (earlier source succeeded)'
+        el.appendChild(badge)
+      }
+    })
+  })
+}
+
+;['sidebar-source-pill', 'ov-source-pill'].forEach(id => {
+  const pill = document.getElementById(id)
+  if (!pill) return
+  pill.addEventListener('click', e => {
+    e.stopPropagation()
+    const dd = document.getElementById('lyrics-source-dropdown')
+    if (dd.classList.contains('open')) { dd.classList.remove('open'); return }
+    _openSourceDropdown(pill)
+  })
+})
+
+document.getElementById('lyrics-source-dropdown').querySelectorAll('.lsd-item').forEach(item => {
+  item.addEventListener('click', async e => {
+    e.stopPropagation()
+    lyricsForcedSource = item.dataset.source
+    await window.cascade.store.set('lyricsForcedSource', lyricsForcedSource)
+    // Sync the settings select if it's rendered
+    const sel = document.getElementById('s-lyrics-source')
+    if (sel) sel.value = lyricsForcedSource
+    document.getElementById('lyrics-source-dropdown').classList.remove('open')
+    updateSourcePills()
+    // Refetch for current track
+    if (queue[queueIndex]) {
+      _lyricsCache.delete(queue[queueIndex].Id)
+      lyricsData = []; lastLyricsIdx = -1; lastOverlayLyricsIdx = -1; fetchLyrics()
+    }
+  })
+})
+
+document.addEventListener('click', () => {
+  document.getElementById('lyrics-source-dropdown').classList.remove('open')
+})
+
+// ── Word-highlight RAF loop ───────────────────────────────────────────────────
+// Runs at 60fps while playing so word spans update smoothly instead of jumping
+// every ~250ms with timeupdate.
+
+let _wordRafId = null
+
+function _wordProgress(w, nowTicks) {
+  const ws = parseInt(w.dataset.ws)
+  const we = w.dataset.we ? parseInt(w.dataset.we) : null
+  if (nowTicks < ws) return 0
+  if (!we || nowTicks >= we) return 100
+  return (nowTicks - ws) / (we - ws) * 100
+}
+
+function _wordHighlightFrame() {
+  _wordRafId = requestAnimationFrame(_wordHighlightFrame)
+  const nowTicks = (audio.currentTime + 0.225) * 10_000_000
+
+  // Side panel — CSS scoping (.lyrics-line.active .lyric-word) handles inactive lines
+  const panelIdx = lastLyricsIdx
+  if (lyricsData[panelIdx]?.Words) {
+    document.getElementById('lyrics-inner')
+      ?.querySelector(`.lyrics-line[data-idx="${panelIdx}"]`)
+      ?.querySelectorAll('.lyric-word').forEach(w => {
+        const p = _wordProgress(w, nowTicks)
+        w.style.setProperty('--p', `${p.toFixed(2)}%`)
+        const ws = parseInt(w.dataset.ws)
+        const we = w.dataset.we ? parseInt(w.dataset.we) : null
+        w.classList.toggle('active', nowTicks >= ws && (!we || nowTicks < we))
+      })
+  }
+
+  // Overlay — same: CSS scoping handles inactive lines automatically
+  if (overlayOpen && overlayLyricsOpen) {
+    const ovIdx = lastOverlayLyricsIdx
+    if (lyricsData[ovIdx]?.Words) {
+      document.getElementById('ov-lyrics-body')
+        ?.querySelector(`.ov-lyric-line[data-idx="${ovIdx}"]`)
+        ?.querySelectorAll('.ov-lyric-word').forEach(w => {
+          const p = _wordProgress(w, nowTicks)
+          w.style.setProperty('--p', `${p.toFixed(2)}%`)
+          const ws = parseInt(w.dataset.ws)
+          const we = w.dataset.we ? parseInt(w.dataset.we) : null
+          w.classList.toggle('active', nowTicks >= ws && (!we || nowTicks < we))
+        })
+    }
+  }
+}
+
+function _startWordLoop() {
+  if (_wordRafId) return
+  if (lyricsData.some(l => l.Words)) _wordHighlightFrame()
+}
+
+function _stopWordLoop() {
+  if (_wordRafId) { cancelAnimationFrame(_wordRafId); _wordRafId = null }
+}
+
+audio.addEventListener('play',  () => _startWordLoop())
+audio.addEventListener('pause', () => _stopWordLoop())
+audio.addEventListener('ended', () => _stopWordLoop())
+
+// ── Lyrics panel ─────────────────────────────────────────────────────────────
 
 function showLyrics() {
   document.getElementById('lyrics-panel').classList.add('open')
@@ -2104,6 +2321,222 @@ function showLyrics() {
 function hideLyrics() { document.getElementById('lyrics-panel').classList.remove('open') }
 
 document.getElementById('lyrics-close').addEventListener('click', hideLyrics)
+
+// ── Lyrics waterfall helpers ──────────────────────────────────────────────────
+
+
+function _lrcTimeToTicks(mm, ss) {
+  return Math.round((parseInt(mm) * 60 + parseFloat(ss)) * 10_000_000)
+}
+
+// Parse standard LRC or Enhanced LRC (karaoke word-level) to internal format
+function parseLRC(text) {
+  const lines = []
+  for (const raw of text.split('\n')) {
+    const m = raw.match(/^\[(\d+):(\d+\.\d+)\](.*)$/)
+    if (!m) continue
+    const startTicks = _lrcTimeToTicks(m[1], m[2])
+    const content = m[3]
+    if (content.includes('<')) {
+      // Enhanced LRC: [mm:ss.xx]<mm:ss.xx>word<mm:ss.xx>word...
+      const words = []
+      const wordRe = /<(\d+):(\d+\.\d+)>([^<\[]*)/g
+      let wm
+      while ((wm = wordRe.exec(content)) !== null) {
+        const wText = wm[3]
+        if (!wText) continue
+        // Symbols/punctuation with no letters or digits — attach to previous word
+        const isSymbol = !/[\p{L}\p{N}]/u.test(wText)
+        if (isSymbol && words.length > 0) {
+          words[words.length - 1].Text = words[words.length - 1].Text.trimEnd() + wText.trimStart()
+        } else {
+          words.push({ Start: _lrcTimeToTicks(wm[1], wm[2]), End: null, Text: wText })
+        }
+      }
+      for (let i = 0; i < words.length - 1; i++) words[i].End = words[i + 1].Start
+      // Last word end will be filled in below (needs next line's start)
+      const fullText = words.map(w => w.Text).join('').trim()
+      if (fullText) lines.push({ Start: startTicks, End: null, Text: fullText, Words: words.length ? words : null })
+    } else {
+      const t2 = content.trim()
+      if (t2) lines.push({ Start: startTicks, End: null, Text: t2, Words: null })
+    }
+  }
+  // Fill in end time for each line's last word using the next line's start
+  for (let i = 0; i < lines.length; i++) {
+    const ws = lines[i].Words
+    if (!ws?.length) continue
+    const last = ws[ws.length - 1]
+    if (last.End == null) {
+      last.End = lines[i + 1]?.Start ?? (last.Start + 20_000_000) // 2s fallback
+    }
+  }
+
+  return lines
+}
+
+
+// Compare two lyric results by word overlap. Returns false if clearly different songs.
+function _lyricsTextMatch(a, b) {
+  if (!a || !b) return true
+  const words = r => new Set(
+    r.lines.map(l => l.Text).join(' ').toLowerCase().match(/[a-z]{3,}/g) || []
+  )
+  const aw = words(a), bw = words(b)
+  // Skip check if either side has too few Latin words (e.g. Japanese songs)
+  if (aw.size < 5 || bw.size < 5) return true
+  const inter = [...aw].filter(w => bw.has(w)).length
+  // At least 25% of the smaller set must appear in the larger
+  return inter / Math.min(aw.size, bw.size) >= 0.25
+}
+
+// Per-source status from the most recent waterfall run.
+// Values: 'ok' | 'fail' | 'skip' | null (never tried this session)
+let _lastFetchStatus = { SyncLRC: null, LRCLIB: null, Jellyfin: null }
+
+// Cache: itemId → result object. Keeps the last 50 tracks so reopening
+// lyrics or the overlay is instant without re-fetching.
+const _lyricsCache = new Map()
+function _cachePut(id, result) {
+  if (_lyricsCache.size >= 50) _lyricsCache.delete(_lyricsCache.keys().next().value)
+  _lyricsCache.set(id, result)
+}
+
+// Main fetch: SyncLRC · LRCLIB · Jellyfin — all fired in parallel,
+// resolved in priority order. Respects lyricsForcedSource.
+// Returns { lines, source, tried } | { instrumental: true } | null.
+const _isAbort = e => e?.name === 'AbortError' || e?.name === 'TimeoutError'
+
+async function fetchLyricsWaterfall(item) {
+  const forced = lyricsForcedSource && lyricsForcedSource !== 'auto' ? lyricsForcedSource : null
+
+  // Bypass cache when a source is forced so the user always gets a fresh fetch
+  if (!forced && _lyricsCache.has(item.Id)) return _lyricsCache.get(item.Id)
+
+  const title    = encodeURIComponent(item.Name || '')
+  const artist   = encodeURIComponent(item.AlbumArtist || item.Artists?.[0] || '')
+  const album    = encodeURIComponent(item.Album || '')
+  const duration = Math.round((item.RunTimeTicks || 0) / 10_000_000)
+  const sig      = { signal: AbortSignal.timeout(8000) }
+
+  // Strip "Track - Artist" metadata lines SyncLRC embeds at the top of karaoke
+  const metaPattern = new RegExp(
+    `^${(item.Name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*-\\s*`,
+    'i'
+  )
+
+  const sources = [
+    ['SyncLRC', async () => {
+      // Request karaoke explicitly — with type=karaoke the API returns { lyrics: "<enhanced LRC>" }
+      const r = await fetch(
+        `https://api.synclrc.dev/lyrics?track=${title}&artist=${artist}&album=${album}&duration=${duration}&type=karaoke`,
+        { ...sig, cache: 'reload', headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' } })
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      const d = await r.json()
+      if (d.instrumental) return { instrumental: true }
+      // d.lyrics should be enhanced LRC (contains word timestamps with <...>)
+      const lrcText = typeof d.lyrics === 'string' && d.lyrics.includes('<') ? d.lyrics : null
+      if (!lrcText) return null
+      const lines = parseLRC(lrcText).filter(l => !metaPattern.test(l.Text))
+      if (!lines.length || !lines.some(l => l.Words)) return null
+      return { lines, source: 'SyncLRC' }
+    }],
+    ['LRCLIB', async () => {
+      const r = await fetch(
+        `https://lrclib.net/api/get?artist_name=${artist}&track_name=${title}&album_name=${album}&duration=${duration}`, sig)
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      const d = await r.json()
+      if (d.instrumental) return { instrumental: true }
+      if (d.syncedLyrics) {
+        const lines = parseLRC(d.syncedLyrics)
+        if (lines.length) return { lines, source: 'LRCLIB' }
+      }
+      if (d.plainLyrics) {
+        const lines = d.plainLyrics.split('\n').map(t => t.trim()).filter(Boolean)
+          .map(t => ({ Start: null, End: null, Text: t, Words: null }))
+        if (lines.length) return { lines, source: 'LRCLIB (plain)' }
+      }
+      return null
+    }],
+    ['Jellyfin', async () => {
+      const r = await fetch(`${jf.url}/Audio/${item.Id}/Lyrics`,
+        { headers: { 'X-Emby-Token': jf.token }, ...sig })
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      const d = await r.json()
+      const lines = (d.Lyrics || [])
+        .map(l => ({ Start: l.Start, End: null, Text: l.Text, Words: null }))
+        .filter(l => l.Text)
+      return lines.length ? { lines, source: 'Jellyfin' } : null
+    }]
+  ]
+
+  const tried = { SyncLRC: null, LRCLIB: null, Jellyfin: null }
+
+  // Forced source: single fetch only, never cache result
+  if (forced) {
+    const entry = sources.find(([name]) => name === forced)
+    if (!entry) return null
+    try {
+      const result = await entry[1]()
+      if (result?.instrumental) { _lastFetchStatus = tried; return { instrumental: true } }
+      tried[forced] = result ? 'ok' : 'fail'
+      _lastFetchStatus = tried
+      return result ? { ...result, tried } : null
+    } catch (err) {
+      if (!_isAbort(err)) console.error(`[Lyrics] ${forced} error:`, err)
+      tried[forced] = 'fail'
+      _lastFetchStatus = tried
+      return null
+    }
+  }
+
+  // Fire all sources simultaneously, then crosscheck SyncLRC against reference sources
+  const [syncProm, lrcProm, jfProm] = sources.map(([name, fn]) =>
+    fn().then(r => ({ name, result: r }))
+      .catch(err => { if (!_isAbort(err)) console.error(`[Lyrics] ${name} error:`, err); return { name, result: null } })
+  )
+
+  const [syncRes, lrcRes, jfRes] = await Promise.all([syncProm, lrcProm, jfProm])
+
+  // Instrumental check (any source can flag it)
+  for (const { result } of [syncRes, lrcRes, jfRes]) {
+    if (result?.instrumental) {
+      _lastFetchStatus = tried
+      _cachePut(item.Id, { instrumental: true })
+      return { instrumental: true }
+    }
+  }
+
+  // Validate SyncLRC against LRCLIB/Jellyfin — reject if clearly a wrong match
+  let syncResult = syncRes.result
+  if (syncResult) {
+    const ref = lrcRes.result || jfRes.result
+    if (ref && !_lyricsTextMatch(syncResult, ref)) {
+      console.warn('[Lyrics] SyncLRC rejected: text mismatch vs reference source')
+      syncResult = null
+      tried['SyncLRC'] = 'fail'
+    } else {
+      tried['SyncLRC'] = 'ok'
+    }
+  } else {
+    tried['SyncLRC'] = 'fail'
+  }
+  tried['LRCLIB']  = lrcRes.result  ? 'ok' : 'fail'
+  tried['Jellyfin'] = jfRes.result  ? 'ok' : 'fail'
+
+  const winner = syncResult || lrcRes.result || jfRes.result
+  if (winner) {
+    _lastFetchStatus = tried
+    const out = { ...winner, tried }
+    _cachePut(item.Id, out)
+    return out
+  }
+
+  _lastFetchStatus = tried
+  return null
+}
+
+// ── Lyrics fetch ──────────────────────────────────────────────────────────────
 
 async function fetchLyrics() {
   const item = queue[queueIndex]
@@ -2117,19 +2550,25 @@ async function fetchLyrics() {
   lyricsTranslated = []
   lastLyricsIdx = -1
 
-  try {
-    const res = await fetch(`${jf.url}/Audio/${item.Id}/Lyrics`, {
-      headers: { 'X-Emby-Token': jf.token }
-    })
-    if (!res.ok) throw new Error('No lyrics')
-    const data = await res.json()
-    lyricsData = data.Lyrics || []
-    if (!lyricsData.length) throw new Error('Empty')
-    renderLyrics()
-    detectAndShowTranslateBar()
-  } catch {
-    body.innerHTML = '<div class="lyrics-empty">No lyrics available for this track</div>'
+  const result = await fetchLyricsWaterfall(item)
+  if (result?.instrumental) {
+    body.innerHTML = '<div class="lyrics-empty">This track is instrumental</div>'
+    return
   }
+  _showLyricsFetchToast(result)
+  if (!result) {
+    lyricsSource = null
+    updateSourcePills()
+    body.innerHTML = '<div class="lyrics-empty">No lyrics available for this track</div>'
+    return
+  }
+  lyricsData   = result.lines
+  lyricsSource = result.source
+  updateSourcePills()
+  renderLyrics()
+  detectAndShowTranslateBar()
+  _stopWordLoop()
+  if (!audio.paused) _startWordLoop()
 }
 
 async function detectAndShowTranslateBar() {
@@ -2155,10 +2594,18 @@ async function detectAndShowTranslateBar() {
 function renderLyrics(showTranslation = false) {
   const body = document.getElementById('lyrics-body')
   const lines = lyricsData.map((line, i) => {
-    const text = esc(line.Text || '')
-    const trans = showTranslation && lyricsTranslated[i] ? `<div class="lyrics-line translated">${esc(lyricsTranslated[i])}</div>` : ''
     const hasTimestamp = line.Start != null
-    return `<div class="lyrics-line${hasTimestamp ? ' seekable' : ''}" data-idx="${i}"${hasTimestamp ? ` data-start="${line.Start}"` : ''}>${text}</div>${trans}`
+    const transText = showTranslation && lyricsTranslated[i]
+    const trans = transText ? `<div class="lyrics-line translated">${esc(lyricsTranslated[i])}</div>` : ''
+    let content
+    if (line.Words && !transText) {
+      content = line.Words.map(w =>
+        `<span class="lyric-word" data-ws="${w.Start}" data-we="${w.End ?? ''}">${esc(w.Text)}</span>`
+      ).join('')
+    } else {
+      content = esc(transText ? lyricsTranslated[i] : (line.Text || ''))
+    }
+    return `<div class="lyrics-line${hasTimestamp ? ' seekable' : ''}" data-idx="${i}"${hasTimestamp ? ` data-start="${line.Start}"` : ''}>${content}</div>${trans}`
   }).join('')
 
   // Wrap in a translateY-driven inner div so fast lyrics don't queue scroll calls
@@ -2188,12 +2635,12 @@ audio.addEventListener('timeupdate', () => {
   const nowSec = audio.currentTime + 0.225
   let activeIdx = 0
   for (let i = 0; i < lyricsData.length; i++) {
-    if (lyricsData[i].Start != null && lyricsData[i].Start / 10000000 <= nowSec) activeIdx = i
+    if (lyricsData[i].Start != null && lyricsData[i].Start / 10_000_000 <= nowSec) activeIdx = i
   }
   if (activeIdx === lastLyricsIdx) return
   lastLyricsIdx = activeIdx
 
-  const body = document.getElementById('lyrics-body')
+  const body  = document.getElementById('lyrics-body')
   const inner = document.getElementById('lyrics-inner')
   body.querySelectorAll('.lyrics-line[data-idx]').forEach(el => {
     el.classList.toggle('active', parseInt(el.dataset.idx) === activeIdx)
@@ -2202,7 +2649,7 @@ audio.addEventListener('timeupdate', () => {
   if (!lyricsScrollSuppressed && inner) {
     const active = inner.querySelector(`.lyrics-line[data-idx="${activeIdx}"]`)
     if (active) {
-      const panelMid = body.clientHeight / 2
+      const panelMid  = body.clientHeight / 2
       const activeMid = active.offsetTop + active.offsetHeight / 2
       inner.style.transform = `translateY(${panelMid - activeMid}px)`
     }

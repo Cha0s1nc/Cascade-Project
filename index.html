@@ -317,13 +317,21 @@
     .queue-row.drag-over { border-top: 2px solid var(--accent); }
     /* Overlay lyrics — GPU-accelerated clock-scroll */
     #ov-panel-lyrics { overflow: hidden; }
-    .ov-lyrics-scroll { display: flex; flex-direction: column; align-items: center; will-change: transform; transition: transform 0.55s cubic-bezier(0.32,0.72,0,1); }
-    .ov-lyric-line { text-align: center; font-size: clamp(18px, 2.2vw, 38px); font-weight: 700; color: var(--text3); padding: 10px 32px; line-height: 1.4; cursor: default; max-width: min(500px, 80%); transform: scale(0.65); transform-origin: center center; opacity: 0; will-change: transform, opacity; transition: transform 0.45s cubic-bezier(0.32,0.72,0,1), opacity 0.45s cubic-bezier(0.32,0.72,0,1), color 0.45s; }
+    .ov-lyrics-scroll { display: flex; flex-direction: column; align-items: center; will-change: transform; transition: transform 0.28s cubic-bezier(0.32,0.72,0,1); }
+    .ov-lyric-line { text-align: center; font-size: clamp(18px, 2.2vw, 38px); font-weight: 700; color: var(--text3); padding: 10px 32px; line-height: 1.4; cursor: default; max-width: min(500px, 80%); transform: scale(0.65); transform-origin: center center; opacity: 0; will-change: transform, opacity; transition: transform 0.28s cubic-bezier(0.32,0.72,0,1), opacity 0.28s cubic-bezier(0.32,0.72,0,1), color 0.28s; }
     .ov-lyric-line.seekable { cursor: pointer; }
     .ov-lyric-line.past { opacity: 0; transform: scale(0.65); pointer-events: none; }
     .ov-lyric-line.near-2 { transform: scale(0.78); opacity: 0.28; }
     .ov-lyric-line.near-1 { transform: scale(0.9); opacity: 0.5; color: var(--text2); }
     .ov-lyric-line.active { transform: scale(1.05); opacity: 1; color: white; filter: drop-shadow(0 0 18px rgba(255,255,255,0.25)); }
+    .ov-lyric-word { -webkit-text-fill-color: rgba(255,255,255,0.22); }
+    .ov-lyric-line.active .ov-lyric-word {
+      --p: 0%;
+      background: linear-gradient(to right, white var(--p), rgba(255,255,255,0.22) var(--p));
+      -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .ov-lyric-line.active .ov-lyric-word.active { filter: drop-shadow(0 0 8px rgba(255,255,255,0.55)); transition: filter 0.07s ease-in; }
+    .ov-lyric-line.active .ov-lyric-word:not(.active) { filter: none; transition: filter 0.4s ease-out; }
     #ov-panel-lyrics:hover .ov-lyric-line.past { opacity: 0.2; transform: scale(0.72); pointer-events: auto; }
     #ov-panel-lyrics:hover .ov-lyric-line.past.near-past { opacity: 0.35; transform: scale(0.82); }
 
@@ -357,10 +365,73 @@
     .lyrics-translate-btn:hover { opacity: 0.85; }
     .lyrics-translate-btn:disabled { opacity: 0.45; cursor: not-allowed; }
     .lyrics-body { flex: 1; overflow: hidden; padding: 16px 14px; }
-    .lyrics-line { font-size: 13px; color: var(--text2); line-height: 1.8; padding: 2px 0; transition: color 0.2s; }
+    .lyrics-line { font-size: 13px; color: var(--text2); line-height: 1.8; padding: 2px 0; transition: color 0.2s, transform 0.18s ease; }
     .lyrics-line.active { color: var(--text); font-weight: 500; }
+    .lyrics-line.active:has(.lyric-word) { transform: translateY(-4px); }
     .lyrics-line.translated { color: var(--text3); font-size: 11px; margin-top: -4px; font-style: italic; }
     .lyrics-empty { font-size: 12px; color: var(--text3); text-align: center; padding: 40px 0; }
+    .lyric-word { -webkit-text-fill-color: rgba(255,255,255,0.32); }
+    .lyrics-line.active .lyric-word {
+      --p: 0%;
+      background: linear-gradient(to right, white var(--p), rgba(255,255,255,0.32) var(--p));
+      -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    }
+
+    /* ── Lyrics source pill ── */
+    .lyrics-source-pill {
+      position: absolute; top: 52px; right: 10px; z-index: 20;
+      background: rgba(255,255,255,0.08); backdrop-filter: blur(14px) saturate(160%);
+      -webkit-backdrop-filter: blur(14px) saturate(160%);
+      border: 1px solid rgba(255,255,255,0.13); border-radius: 20px;
+      font-family: var(--font); font-size: 10.5px; color: rgba(255,255,255,0.7);
+      padding: 4px 10px 4px 8px; cursor: pointer; user-select: none;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.18s, background 0.12s, color 0.12s;
+      white-space: nowrap; display: flex; align-items: center; gap: 5px;
+    }
+    .lyrics-source-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+    .lyrics-source-pill.forced { border-color: rgba(110,79,246,0.5); color: rgba(110,79,246,0.95); background: rgba(110,79,246,0.12); }
+    .lyrics-source-pill.forced::before { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+    .lyrics-panel:hover .lyrics-source-pill,
+    #ov-panel-lyrics:hover .lyrics-source-pill { opacity: 1; pointer-events: auto; }
+    .lyrics-source-pill:hover { background: rgba(255,255,255,0.14); color: white; }
+
+    /* overlay pill has no header to avoid — reset to near top */
+    .ov-source-pill { top: 14px; right: 14px; }
+
+    /* ── Lyrics source dropdown ── */
+    .lyrics-source-dropdown {
+      position: fixed; z-index: 2000; display: none; min-width: 210px;
+      background: rgba(18,18,26,0.88); backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      border: 1px solid rgba(255,255,255,0.1); border-radius: 12px;
+      padding: 5px; box-shadow: 0 12px 40px rgba(0,0,0,0.55);
+      animation: lsd-in 0.12s ease;
+    }
+    @keyframes lsd-in { from { opacity:0; transform: translateY(-4px) scale(0.97); } to { opacity:1; transform: none; } }
+    .lyrics-source-dropdown.open { display: block; }
+    .lsd-sep { height: 1px; background: rgba(255,255,255,0.07); margin: 4px 0; }
+    .lsd-item {
+      display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+      font-size: 12px; color: var(--text2); padding: 8px 10px; border-radius: 7px;
+      cursor: pointer; transition: background 0.1s, color 0.1s; position: relative;
+    }
+    .lsd-item:hover { background: rgba(255,255,255,0.07); color: var(--text); }
+    .lsd-item.active { color: white; font-weight: 500; }
+    .lsd-item.active::after {
+      content: '✓'; position: absolute; right: 10px; font-size: 11px; color: var(--accent);
+    }
+    .lsd-icon { font-size: 11px; opacity: 0.6; flex-shrink: 0; }
+    .lsd-hint {
+      font-size: 10px; color: var(--text3); flex-basis: 100%; padding-left: 18px; margin-top: -3px;
+    }
+    .lsd-status {
+      display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+      margin-left: auto; flex-shrink: 0; position: relative; top: 0;
+    }
+    .lsd-status-ok   { background: #4ade80; box-shadow: 0 0 5px rgba(74,222,128,0.5); }
+    .lsd-status-fail { background: #f87171; box-shadow: 0 0 5px rgba(248,113,113,0.5); }
+    .lsd-status-skip { background: rgba(255,255,255,0.18); }
 
     /* ── Add-to-playlist modal ── */
     .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 500; display: flex; align-items: center; justify-content: center; }
@@ -858,6 +929,21 @@
               <span style="font-size:11px;color:var(--text3)" id="discord-rpc-status-label">Not connected</span>
             </div>
           </div>
+          <div class="settings-group">
+            <div class="sg-title">Lyrics</div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="setting-name">Lyrics Source</span>
+                <span class="setting-desc">Preferred source. Auto tries each in order: SyncLRC → LRCLIB → Jellyfin.</span>
+              </div>
+              <select class="setting-input" id="s-lyrics-source">
+                <option value="auto">Auto (waterfall)</option>
+                <option value="SyncLRC">SyncLRC</option>
+                <option value="LRCLIB">LRCLIB</option>
+                <option value="Jellyfin">Jellyfin</option>
+              </select>
+            </div>
+          </div>
           <div class="settings-actions">
             <span class="save-status" id="save-status">Saved ✓</span>
             <button class="btn btn-danger" id="btn-logout">Sign out</button>
@@ -1028,6 +1114,7 @@
         <div id="ov-queue-rows"></div>
       </div>
       <div id="ov-panel-lyrics" style="position:absolute;inset:0;background:var(--surface);overflow:hidden;transform:translateX(100%);transition:transform 0.3s cubic-bezier(0.4,0,0.2,1);">
+        <button class="lyrics-source-pill ov-source-pill" id="ov-source-pill">Auto</button>
         <div class="ov-lyrics-scroll" id="ov-lyrics-body"></div>
         <button class="ov-translate-btn" id="ov-translate-btn" title="Translate to English" style="display:none">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
@@ -1160,6 +1247,27 @@
   </div>
 </div>
 
+<!-- Lyrics source picker dropdown (fixed-position, shared by sidebar + overlay pills) -->
+<div id="lyrics-source-dropdown" class="lyrics-source-dropdown">
+  <div class="lsd-item" data-source="auto">
+    <span class="lsd-icon">⚡</span>Auto (waterfall)
+    <span class="lsd-hint">SyncLRC → LRCLIB → Jellyfin</span>
+  </div>
+  <div class="lsd-sep"></div>
+  <div class="lsd-item" data-source="SyncLRC">
+    <span class="lsd-icon">✦</span>SyncLRC
+    <span class="lsd-hint">Word-level karaoke</span>
+  </div>
+  <div class="lsd-item" data-source="LRCLIB">
+    <span class="lsd-icon">◎</span>LRCLIB
+    <span class="lsd-hint">Line-synced</span>
+  </div>
+  <div class="lsd-item" data-source="Jellyfin">
+    <span class="lsd-icon">◎</span>Jellyfin
+    <span class="lsd-hint">Server-side</span>
+  </div>
+</div>
+
 <!-- Lyrics panel -->
 <div class="lyrics-panel" id="lyrics-panel">
   <div class="lyrics-header">
@@ -1186,6 +1294,7 @@
     </select>
     <button class="lyrics-translate-btn" id="lyrics-translate-btn">Translate</button>
   </div>
+  <button class="lyrics-source-pill" id="sidebar-source-pill">Auto</button>
   <div class="lyrics-body" id="lyrics-body">
     <div class="lyrics-empty">No lyrics available</div>
   </div>
