@@ -2711,7 +2711,7 @@ function updateDiscordPresence(item) {
   if (!discordEnabled || !item) return
   const activity = {
     details:        item.Name?.slice(0, 128) || 'Unknown Track',
-    state:          `by ${(item.AlbumArtist || item.Artists?.[0] || 'Unknown').slice(0, 128)}`,
+    state:          (item.AlbumArtist || item.Artists?.[0] || 'Unknown Artist').slice(0, 128),
     startTimestamp: rpcTrackStart,
   }
   if (jf.url.startsWith('https')) {

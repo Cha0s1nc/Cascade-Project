@@ -24,7 +24,10 @@ async function connectDiscordRpc(clientId) {
       // setActivity() strips the type field, so we add it back at the protocol level
       const _origRequest = rpcClient.request.bind(rpcClient)
       rpcClient.request = function(cmd, args, ...rest) {
-        if (cmd === 'SET_ACTIVITY' && args?.activity) args.activity.type = 2
+        if (cmd === 'SET_ACTIVITY' && args?.activity) {
+          args.activity.type = 2
+          args.activity.status_display_type = 1  // show state (artist) in member list sidebar
+        }
         return _origRequest(cmd, args, ...rest).catch(() => { /* Discord rate limit or transient error — suppress */ })
       }
       if (win && !win.isDestroyed()) win.webContents.send('discord-rpc-status', true)
