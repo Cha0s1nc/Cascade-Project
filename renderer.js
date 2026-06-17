@@ -1215,7 +1215,7 @@ async function loadSettingsFields() {
     updateSourcePills()
     if (queue[queueIndex]) {
       _lyricsCache.delete(queue[queueIndex].Id)
-      lyricsData = []; lastLyricsIdx = -1; lastOverlayLyricsIdx = -1; fetchLyrics()
+      lyricsData = []; lastLyricsIdx = -1; lastLyricsScrollIdx = -1; lastOverlayLyricsIdx = -1; fetchLyrics()
     }
   }
 }
@@ -2241,7 +2241,7 @@ document.getElementById('lyrics-source-dropdown').querySelectorAll('.lsd-item').
     // Refetch for current track
     if (queue[queueIndex]) {
       _lyricsCache.delete(queue[queueIndex].Id)
-      lyricsData = []; lastLyricsIdx = -1; lastOverlayLyricsIdx = -1; fetchLyrics()
+      lyricsData = []; lastLyricsIdx = -1; lastLyricsScrollIdx = -1; lastOverlayLyricsIdx = -1; fetchLyrics()
     }
   })
 })
@@ -2549,6 +2549,7 @@ async function fetchLyrics() {
   lyricsData = []
   lyricsTranslated = []
   lastLyricsIdx = -1
+  lastLyricsScrollIdx = -1
 
   const result = await fetchLyricsWaterfall(item)
   if (result?.instrumental) {
@@ -2621,12 +2622,14 @@ function renderLyrics(showTranslation = false) {
       lyricsScrollTimer = setTimeout(() => { lyricsScrollSuppressed = false }, 1500)
       audio.currentTime = ticks / 10000000
       lastLyricsIdx = -1
+      lastLyricsScrollIdx = -1
     })
   })
 }
 
 // Sync lyrics highlight to playback position
 let lastLyricsIdx = -1
+let lastLyricsScrollIdx = -1  // separate: scroll advances 0.2s early for karaoke
 let lyricsScrollSuppressed = false
 let lyricsScrollTimer = null
 
@@ -2637,21 +2640,37 @@ audio.addEventListener('timeupdate', () => {
   for (let i = 0; i < lyricsData.length; i++) {
     if (lyricsData[i].Start != null && lyricsData[i].Start / 10_000_000 <= nowSec) activeIdx = i
   }
-  if (activeIdx === lastLyricsIdx) return
-  lastLyricsIdx = activeIdx
 
-  const body  = document.getElementById('lyrics-body')
-  const inner = document.getElementById('lyrics-inner')
-  body.querySelectorAll('.lyrics-line[data-idx]').forEach(el => {
-    el.classList.toggle('active', parseInt(el.dataset.idx) === activeIdx)
-  })
+  // For karaoke lines, scroll to next line 0.2s before it starts
+  let scrollIdx = activeIdx
+  if (lyricsData[activeIdx]?.Words) {
+    const next = lyricsData[activeIdx + 1]
+    if (next?.Start != null && nowSec >= next.Start / 10_000_000 - 0.3) scrollIdx = activeIdx + 1
+  }
 
-  if (!lyricsScrollSuppressed && inner) {
-    const active = inner.querySelector(`.lyrics-line[data-idx="${activeIdx}"]`)
-    if (active) {
-      const panelMid  = body.clientHeight / 2
-      const activeMid = active.offsetTop + active.offsetHeight / 2
-      inner.style.transform = `translateY(${panelMid - activeMid}px)`
+  const idxChanged    = activeIdx !== lastLyricsIdx
+  const scrollChanged = scrollIdx !== lastLyricsScrollIdx
+  if (!idxChanged && !scrollChanged) return
+
+  if (idxChanged) {
+    lastLyricsIdx = activeIdx
+    const body = document.getElementById('lyrics-body')
+    body.querySelectorAll('.lyrics-line[data-idx]').forEach(el => {
+      el.classList.toggle('active', parseInt(el.dataset.idx) === activeIdx)
+    })
+  }
+
+  if (scrollChanged && !lyricsScrollSuppressed) {
+    lastLyricsScrollIdx = scrollIdx
+    const body  = document.getElementById('lyrics-body')
+    const inner = document.getElementById('lyrics-inner')
+    if (inner) {
+      const target = inner.querySelector(`.lyrics-line[data-idx="${scrollIdx}"]`)
+      if (target) {
+        const panelMid  = body.clientHeight / 2
+        const activeMid = target.offsetTop + target.offsetHeight / 2
+        inner.style.transform = `translateY(${panelMid - activeMid}px)`
+      }
     }
   }
 })
@@ -2695,6 +2714,7 @@ updateNowPlaying = function(item) {
   lyricsData = []
   lyricsTranslated = []
   lastLyricsIdx = -1
+  lastLyricsScrollIdx = -1
   ovLyricsTranslated = false
   document.getElementById('ov-translate-btn').style.display = 'none'
   document.getElementById('ov-translate-btn').classList.remove('translated')
