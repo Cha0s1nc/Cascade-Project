@@ -97,11 +97,33 @@
     .tl-head span:last-child { text-align: right; }
     .track-row { display: grid; grid-template-columns: 28px 32px 1fr 160px 52px; gap: 8px; padding: 6px 12px; align-items: center; cursor: pointer; border-bottom: 1px solid var(--border); transition: background 0.1s; }
     .track-row:last-child { border-bottom: none; }
-    .track-row:hover { background: rgba(255,255,255,0.03); }
+    .track-row:hover { background: rgba(255,255,255,0.05); }
     .track-row.playing { background: rgba(110,79,246,0.1); }
     .track-num { font-size: 12px; color: var(--text3); text-align: center; }
-    .track-thumb { width: 32px; height: 32px; border-radius: 4px; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .track-thumb { position: relative; width: 32px; height: 32px; border-radius: 4px; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .track-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    /* Play overlay on hover */
+    .track-thumb::after {
+      content: '';
+      position: absolute; inset: 0;
+      background: rgba(0,0,0,0.45) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='14' height='14'%3E%3Cpolygon points='6 4 20 12 6 20' fill='white'/%3E%3C/svg%3E") center/14px no-repeat;
+      border-radius: 4px;
+      opacity: 0;
+      transition: opacity 0.15s;
+      cursor: pointer;
+    }
+    .track-row:hover .track-thumb::after,
+    .track-row.selected .track-thumb::after { opacity: 1; }
+    /* Hide play icon when this row is already playing — show EQ bars instead */
+    .track-row.playing .track-thumb::after { opacity: 0 !important; }
+    /* EQ bars — now-playing animation */
+    .track-eq { position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: center; gap: 2px; padding: 8px 6px 7px; background: rgba(0,0,0,0.5); border-radius: 4px; opacity: 0; pointer-events: none; transition: opacity 0.15s; }
+    .track-row.playing .track-thumb .track-eq { opacity: 1; }
+    .track-eq i { display: block; width: 3px; height: 14px; border-radius: 1px 1px 0 0; background: white; transform-origin: bottom; animation: eq-bar 0.7s ease-in-out infinite alternate; }
+    .track-eq i:nth-child(1) { animation-duration: 0.55s; animation-delay: 0s; }
+    .track-eq i:nth-child(2) { animation-duration: 0.75s; animation-delay: -0.25s; }
+    .track-eq i:nth-child(3) { animation-duration: 0.6s;  animation-delay: -0.1s; }
+    @keyframes eq-bar { from { transform: scaleY(0.25); } to { transform: scaleY(1); } }
     .track-title { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .track-row.playing .track-title { color: #a78bfa; font-weight: 500; }
     .track-artist { font-size: 11px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -168,6 +190,11 @@
     .setup-btn { width: 100%; font-family: var(--font); font-size: 14px; font-weight: 600; background: var(--grad); color: white; border: none; border-radius: 8px; padding: 10px; cursor: pointer; transition: opacity 0.15s; margin-top: 4px; }
     .setup-btn:hover { opacity: 0.88; }
     .setup-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .setup-loading { display: none; flex-direction: column; align-items: center; gap: 16px; padding: 12px 0 4px; }
+    .setup-loading.visible { display: flex; }
+    .setup-spinner { width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--accent1); border-radius: 50%; animation: spin 0.75s linear infinite; }
+    .setup-loading-text { font-size: 13px; color: var(--text2); }
+    @keyframes spin { to { transform: rotate(360deg); } }
 
     /* ── Statusbar player ── */
     .statusbar { height: 48px; flex-shrink: 0; background: var(--surface); border-top: 1px solid var(--border); display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 0 16px; gap: 16px; }
@@ -222,7 +249,7 @@
     .lib-check-label { font-size: 12px; color: var(--text2); cursor: pointer; user-select: none; }
 
     /* ── Full-screen now-playing overlay ── */
-    .np-overlay { position: fixed; inset: 0; background: var(--bg); z-index: 300; display: flex; flex-direction: column; transform: translateY(100%); transition: transform 0.38s cubic-bezier(0.4,0,0.2,1); pointer-events: none; }
+    .np-overlay { position: fixed; inset: 0; background: var(--bg); z-index: 300; display: flex; flex-direction: column; transform: translateY(100%); transition: transform 0.38s cubic-bezier(0.4,0,0.2,1); pointer-events: none; overflow: hidden; }
     .np-overlay.open { transform: translateY(0); pointer-events: all; }
     .np-overlay-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px 12px 80px; border-bottom: 1px solid var(--border); flex-shrink: 0; -webkit-app-region: drag; }
     .np-overlay-title { font-size: 12px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.07em; }
@@ -290,12 +317,23 @@
     .queue-row.drag-over { border-top: 2px solid var(--accent); }
     /* Overlay lyrics — GPU-accelerated clock-scroll */
     #ov-panel-lyrics { overflow: hidden; }
-    .ov-lyrics-scroll { display: flex; flex-direction: column; align-items: center; will-change: transform; transition: transform 0.2s cubic-bezier(0.4,0,0.2,1); }
-    .ov-lyric-line { text-align: center; font-size: clamp(18px, 2.2vw, 38px); font-weight: 600; color: var(--text3); padding: 10px 32px; line-height: 1.4; cursor: default; max-width: min(500px, 80%); transform: scale(0.72); transform-origin: center center; opacity: 0.18; will-change: transform, opacity; transition: transform 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.18s cubic-bezier(0.4,0,0.2,1), color 0.18s; }
+    .ov-lyrics-scroll { display: flex; flex-direction: column; align-items: center; will-change: transform; transition: transform 0.28s cubic-bezier(0.32,0.72,0,1); }
+    .ov-lyric-line { text-align: center; font-size: clamp(18px, 2.2vw, 38px); font-weight: 700; color: var(--text3); padding: 10px 32px; line-height: 1.4; cursor: default; max-width: min(500px, 80%); transform: scale(0.65); transform-origin: center center; opacity: 0; will-change: transform, opacity; transition: transform 0.28s cubic-bezier(0.32,0.72,0,1), opacity 0.28s cubic-bezier(0.32,0.72,0,1), color 0.28s; }
     .ov-lyric-line.seekable { cursor: pointer; }
-    .ov-lyric-line.near-2 { transform: scale(0.82); opacity: 0.35; }
-    .ov-lyric-line.near-1 { transform: scale(0.92); opacity: 0.55; color: var(--text2); }
-    .ov-lyric-line.active { transform: scale(1); opacity: 1; color: var(--text); }
+    .ov-lyric-line.past { opacity: 0; transform: scale(0.65); pointer-events: none; }
+    .ov-lyric-line.near-2 { transform: scale(0.78); opacity: 0.28; }
+    .ov-lyric-line.near-1 { transform: scale(0.9); opacity: 0.5; color: var(--text2); }
+    .ov-lyric-line.active { transform: scale(1.05); opacity: 1; color: white; filter: drop-shadow(0 0 18px rgba(255,255,255,0.25)); }
+    .ov-lyric-word { -webkit-text-fill-color: rgba(255,255,255,0.22); }
+    .ov-lyric-line.active .ov-lyric-word {
+      --p: 0%;
+      background: linear-gradient(to right, white var(--p), rgba(255,255,255,0.22) var(--p));
+      -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .ov-lyric-line.active .ov-lyric-word.active { filter: drop-shadow(0 0 8px rgba(255,255,255,0.55)); transition: filter 0.07s ease-in; }
+    .ov-lyric-line.active .ov-lyric-word:not(.active) { filter: none; transition: filter 0.4s ease-out; }
+    #ov-panel-lyrics:hover .ov-lyric-line.past { opacity: 0.2; transform: scale(0.72); pointer-events: auto; }
+    #ov-panel-lyrics:hover .ov-lyric-line.past.near-past { opacity: 0.35; transform: scale(0.82); }
 
     /* ── Context menu ── */
     .ctx-menu { position: fixed; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 4px; min-width: 200px; z-index: 1000; box-shadow: 0 8px 32px rgba(0,0,0,0.5); display: none; }
@@ -304,8 +342,11 @@
     .ctx-item:hover { background: rgba(255,255,255,0.07); color: var(--text); }
     .ctx-item.danger { color: var(--red); }
     .ctx-item.danger:hover { background: rgba(255,69,58,0.12); }
+    .ctx-item.hidden { display: none; }
     .ctx-item svg { flex-shrink: 0; opacity: 0.6; }
     .ctx-item:hover svg { opacity: 1; }
+    .track-row { cursor: default; }
+    .track-row.selected { background: rgba(255,255,255,0.05); }
     .ctx-sep { height: 1px; background: var(--border); margin: 4px 0; }
 
     /* ── Lyrics panel ── */
@@ -324,10 +365,73 @@
     .lyrics-translate-btn:hover { opacity: 0.85; }
     .lyrics-translate-btn:disabled { opacity: 0.45; cursor: not-allowed; }
     .lyrics-body { flex: 1; overflow: hidden; padding: 16px 14px; }
-    .lyrics-line { font-size: 13px; color: var(--text2); line-height: 1.8; padding: 2px 0; transition: color 0.2s; }
-    .lyrics-line.active { color: var(--text); font-weight: 500; }
+    .lyrics-line { font-size: 13px; color: var(--text2); line-height: 1.8; padding: 2px 0; transition: color 0.2s, transform 0.18s ease, opacity 0.35s ease; opacity: 0.38; }
+    .lyrics-line.active { color: var(--text); font-weight: 500; opacity: 1; }
+    .lyrics-line.active:has(.lyric-word) { transform: translateY(-4px); }
     .lyrics-line.translated { color: var(--text3); font-size: 11px; margin-top: -4px; font-style: italic; }
     .lyrics-empty { font-size: 12px; color: var(--text3); text-align: center; padding: 40px 0; }
+    .lyric-word { -webkit-text-fill-color: white; }
+    .lyrics-line.active .lyric-word {
+      --p: 0%;
+      background: linear-gradient(to right, white var(--p), rgba(255,255,255,0.28) var(--p));
+      -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    }
+
+    /* ── Lyrics source pill ── */
+    .lyrics-source-pill {
+      position: absolute; top: 52px; right: 10px; z-index: 20;
+      background: rgba(255,255,255,0.08); backdrop-filter: blur(14px) saturate(160%);
+      -webkit-backdrop-filter: blur(14px) saturate(160%);
+      border: 1px solid rgba(255,255,255,0.13); border-radius: 20px;
+      font-family: var(--font); font-size: 10.5px; color: rgba(255,255,255,0.7);
+      padding: 4px 10px 4px 8px; cursor: pointer; user-select: none;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.18s, background 0.12s, color 0.12s;
+      white-space: nowrap; display: flex; align-items: center; gap: 5px;
+    }
+    .lyrics-source-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+    .lyrics-source-pill.forced { border-color: rgba(110,79,246,0.5); color: rgba(110,79,246,0.95); background: rgba(110,79,246,0.12); }
+    .lyrics-source-pill.forced::before { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+    .lyrics-panel:hover .lyrics-source-pill,
+    #ov-panel-lyrics:hover .lyrics-source-pill { opacity: 1; pointer-events: auto; }
+    .lyrics-source-pill:hover { background: rgba(255,255,255,0.14); color: white; }
+
+    /* overlay pill has no header to avoid — reset to near top */
+    .ov-source-pill { top: 14px; right: 14px; }
+
+    /* ── Lyrics source dropdown ── */
+    .lyrics-source-dropdown {
+      position: fixed; z-index: 2000; display: none; min-width: 210px;
+      background: rgba(18,18,26,0.88); backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      border: 1px solid rgba(255,255,255,0.1); border-radius: 12px;
+      padding: 5px; box-shadow: 0 12px 40px rgba(0,0,0,0.55);
+      animation: lsd-in 0.12s ease;
+    }
+    @keyframes lsd-in { from { opacity:0; transform: translateY(-4px) scale(0.97); } to { opacity:1; transform: none; } }
+    .lyrics-source-dropdown.open { display: block; }
+    .lsd-sep { height: 1px; background: rgba(255,255,255,0.07); margin: 4px 0; }
+    .lsd-item {
+      display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+      font-size: 12px; color: var(--text2); padding: 8px 10px; border-radius: 7px;
+      cursor: pointer; transition: background 0.1s, color 0.1s; position: relative;
+    }
+    .lsd-item:hover { background: rgba(255,255,255,0.07); color: var(--text); }
+    .lsd-item.active { color: white; font-weight: 500; }
+    .lsd-item.active::after {
+      content: '✓'; position: absolute; right: 10px; font-size: 11px; color: var(--accent);
+    }
+    .lsd-icon { font-size: 11px; opacity: 0.6; flex-shrink: 0; }
+    .lsd-hint {
+      font-size: 10px; color: var(--text3); flex-basis: 100%; padding-left: 18px; margin-top: -3px;
+    }
+    .lsd-status {
+      display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+      margin-left: auto; flex-shrink: 0; position: relative; top: 0;
+    }
+    .lsd-status-ok   { background: #4ade80; box-shadow: 0 0 5px rgba(74,222,128,0.5); }
+    .lsd-status-fail { background: #f87171; box-shadow: 0 0 5px rgba(248,113,113,0.5); }
+    .lsd-status-skip { background: rgba(255,255,255,0.18); }
 
     /* ── Add-to-playlist modal ── */
     .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 500; display: flex; align-items: center; justify-content: center; }
@@ -359,13 +463,25 @@
     .mi-val { color: var(--text2); word-break: break-all; line-height: 1.6; }
 
     /* ── Album art fullscreen theme ── */
+    /* Background gradient is set directly on the overlay via JS inline style */
     .np-overlay.art-theme {
-      background: var(--art-overlay-bg, var(--bg));
-      transition: transform 0.38s cubic-bezier(0.4,0,0.2,1), background 0.8s cubic-bezier(0.4,0,0.2,1);
+      transition: transform 0.38s cubic-bezier(0.4,0,0.2,1);
     }
-    /* Tint the left/right panels so content stays readable */
-    .np-overlay.art-theme .np-overlay-left { background: rgba(0,0,0,0.15); }
-    .np-overlay.art-theme .np-overlay-right { background: transparent; }
+    /* #ov-bg-pulse is now purely a beat-darkening overlay (black, variable opacity) */
+    #ov-bg-pulse {
+      display: none;
+      position: absolute;
+      inset: 0;
+      background: black;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 1;
+    }
+    .np-overlay.art-theme #ov-bg-pulse { display: block; }
+    .np-overlay.art-theme > *:not(#ov-bg-pulse) { position: relative; z-index: 2; }
+    /* Tint panels so content stays readable over the blob background */
+    .np-overlay.art-theme .np-overlay-left { background: rgba(0,0,0,0.25); }
+    .np-overlay.art-theme .np-overlay-right { background: rgba(0,0,0,0.1); }
     .np-overlay.art-theme .np-overlay-header { background: rgba(0,0,0,0.28); border-bottom-color: rgba(255,255,255,0.1); }
     /* Force all overlay control buttons white + black outline */
     .np-overlay.art-theme .np-ov-ctrl,
@@ -813,6 +929,21 @@
               <span style="font-size:11px;color:var(--text3)" id="discord-rpc-status-label">Not connected</span>
             </div>
           </div>
+          <div class="settings-group">
+            <div class="sg-title">Lyrics</div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="setting-name">Lyrics Source</span>
+                <span class="setting-desc">Preferred source. Auto tries each in order: SyncLRC → LRCLIB → Jellyfin.</span>
+              </div>
+              <select class="setting-input" id="s-lyrics-source">
+                <option value="auto">Auto (waterfall)</option>
+                <option value="SyncLRC">SyncLRC</option>
+                <option value="LRCLIB">LRCLIB</option>
+                <option value="Jellyfin">Jellyfin</option>
+              </select>
+            </div>
+          </div>
           <div class="settings-actions">
             <span class="save-status" id="save-status">Saved ✓</span>
             <button class="btn btn-danger" id="btn-logout">Sign out</button>
@@ -823,7 +954,13 @@
               <div style="font-size:13px;font-weight:500;color:var(--text);">Cascade</div>
               <div style="font-size:11px;color:var(--text3);" id="app-version">v1.0.0</div>
             </div>
-            <button class="btn btn-secondary" id="btn-check-updates" style="font-size:12px;padding:5px 14px;">Check for updates</button>
+            <div style="display:flex;align-items:center;gap:12px;">
+              <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text3);cursor:pointer;">
+                <input type="checkbox" id="beta-updates-toggle">
+                Beta updates
+              </label>
+              <button class="btn btn-secondary" id="btn-check-updates" style="font-size:12px;padding:5px 14px;">Check for updates</button>
+            </div>
           </div>
         </div>
       </div>
@@ -900,11 +1037,16 @@
     </div>
     <div class="setup-error" id="setup-error"></div>
     <button class="setup-btn" id="setup-connect">Connect</button>
+    <div class="setup-loading" id="setup-loading">
+      <div class="setup-spinner"></div>
+      <span class="setup-loading-text" id="setup-loading-text">Connecting…</span>
+    </div>
   </div>
 </div>
 
 <!-- Full-screen now-playing overlay -->
 <div class="np-overlay" id="np-overlay">
+  <div id="ov-bg-pulse"></div>
   <div class="np-overlay-header">
     <span class="np-overlay-title">Now Playing</span>
     <button class="np-overlay-close" id="np-overlay-close">×</button>
@@ -971,7 +1113,8 @@
         <div style="padding:10px 16px 6px;font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.07em;">Queue</div>
         <div id="ov-queue-rows"></div>
       </div>
-      <div id="ov-panel-lyrics" style="position:absolute;inset:0;background:var(--surface);overflow-y:auto;transform:translateX(100%);transition:transform 0.3s cubic-bezier(0.4,0,0.2,1);">
+      <div id="ov-panel-lyrics" style="position:absolute;inset:0;background:var(--surface);overflow:hidden;transform:translateX(100%);transition:transform 0.3s cubic-bezier(0.4,0,0.2,1);">
+        <button class="lyrics-source-pill ov-source-pill" id="ov-source-pill">Auto</button>
         <div class="ov-lyrics-scroll" id="ov-lyrics-body"></div>
         <button class="ov-translate-btn" id="ov-translate-btn" title="Translate to English" style="display:none">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
@@ -1059,17 +1202,69 @@
   </div>
 </div>
 
-<!-- Playlist track context menu -->
-<div class="ctx-menu" id="pl-track-ctx-menu">
-  <div class="ctx-item" id="pl-ctx-play">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>Play
+<!-- Universal track context menu -->
+<div class="ctx-menu" id="track-ctx-menu">
+  <div class="ctx-item" id="tctx-play">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>Play now
   </div>
-  <div class="ctx-item" id="pl-ctx-add-queue">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add to queue
+  <div class="ctx-item" id="tctx-play-next">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>Play next
+  </div>
+  <div class="ctx-item" id="tctx-add-queue">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>Add to queue
   </div>
   <div class="ctx-sep"></div>
-  <div class="ctx-item danger" id="pl-ctx-remove">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>Remove from playlist
+  <div class="ctx-item" id="tctx-instant-mix">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/></svg>Instant mix
+  </div>
+  <div class="ctx-item" id="tctx-add-playlist">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add to playlist
+  </div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" id="tctx-download">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download
+  </div>
+  <div class="ctx-item" id="tctx-copy-url">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy stream URL
+  </div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" id="tctx-view-album">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>View album
+  </div>
+  <div class="ctx-item" id="tctx-view-artist">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>View album artist
+  </div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" id="tctx-refresh-meta">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>Refresh metadata
+  </div>
+  <div class="ctx-item" id="tctx-edit-meta">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit metadata
+  </div>
+  <div class="ctx-sep tctx-pl-only hidden"></div>
+  <div class="ctx-item danger tctx-pl-only hidden" id="tctx-pl-remove">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>Remove from playlist
+  </div>
+</div>
+
+<!-- Lyrics source picker dropdown (fixed-position, shared by sidebar + overlay pills) -->
+<div id="lyrics-source-dropdown" class="lyrics-source-dropdown">
+  <div class="lsd-item" data-source="auto">
+    <span class="lsd-icon">⚡</span>Auto (waterfall)
+    <span class="lsd-hint">SyncLRC → LRCLIB → Jellyfin</span>
+  </div>
+  <div class="lsd-sep"></div>
+  <div class="lsd-item" data-source="SyncLRC">
+    <span class="lsd-icon">✦</span>SyncLRC
+    <span class="lsd-hint">Word-level karaoke</span>
+  </div>
+  <div class="lsd-item" data-source="LRCLIB">
+    <span class="lsd-icon">◎</span>LRCLIB
+    <span class="lsd-hint">Line-synced</span>
+  </div>
+  <div class="lsd-item" data-source="Jellyfin">
+    <span class="lsd-icon">◎</span>Jellyfin
+    <span class="lsd-hint">Server-side</span>
   </div>
 </div>
 
@@ -1099,6 +1294,7 @@
     </select>
     <button class="lyrics-translate-btn" id="lyrics-translate-btn">Translate</button>
   </div>
+  <button class="lyrics-source-pill" id="sidebar-source-pill">Auto</button>
   <div class="lyrics-body" id="lyrics-body">
     <div class="lyrics-empty">No lyrics available</div>
   </div>

@@ -8,8 +8,10 @@ const os    = require('os')
 const Store = require('electron-store')
 
 // ── Discord RPC ────────────────────────────────────────────────────────────────
-let rpcClient  = null
-let rpcReady   = false
+let rpcClient   = null
+let rpcReady    = false
+let rpcUpdateTimer = null
+let lastRpcActivity = null
 
 async function connectDiscordRpc(clientId) {
   if (!clientId) return
@@ -22,8 +24,11 @@ async function connectDiscordRpc(clientId) {
       // setActivity() strips the type field, so we add it back at the protocol level
       const _origRequest = rpcClient.request.bind(rpcClient)
       rpcClient.request = function(cmd, args, ...rest) {
-        if (cmd === 'SET_ACTIVITY' && args?.activity) args.activity.type = 2
-        return _origRequest(cmd, args, ...rest).catch(e => console.warn('[discord-rpc] request failed:', e.message))
+        if (cmd === 'SET_ACTIVITY' && args?.activity) {
+          args.activity.type = 2
+          args.activity.status_display_type = 1  // show state (artist) in member list sidebar
+        }
+        return _origRequest(cmd, args, ...rest).catch(() => { /* Discord rate limit or transient error — suppress */ })
       }
       if (win && !win.isDestroyed()) win.webContents.send('discord-rpc-status', true)
     })
@@ -51,13 +56,16 @@ ipcMain.on('discord-rpc-connect', async (_e, clientId) => {
 
 ipcMain.on('discord-rpc-update', (_e, activity) => {
   if (!rpcClient || !rpcReady) return
-  try {
-    if (activity) {
-      rpcClient.setActivity(activity)
-    } else {
-      rpcClient.clearActivity()
-    }
-  } catch (e) { console.warn('[discord-rpc] update failed:', e.message) }
+  lastRpcActivity = activity
+  if (rpcUpdateTimer) return  // already scheduled
+  rpcUpdateTimer = setTimeout(() => {
+    rpcUpdateTimer = null
+    if (!rpcClient || !rpcReady) return
+    try {
+      if (lastRpcActivity) rpcClient.setActivity(lastRpcActivity)
+      else rpcClient.clearActivity()
+    } catch {}
+  }, 5000)  // max one update per 5 seconds
 })
 
 ipcMain.on('discord-rpc-clear', () => {
@@ -378,11 +386,23 @@ function openUpdaterWindow(updateInfo) {
 
 async function checkForUpdates() {
   try {
-    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
-      headers: { 'User-Agent': 'cascade-updater' }
-    })
-    if (!res.ok) throw new Error(`GitHub API ${res.status}`)
-    const release = await res.json()
+    const betaUpdates = store.get('betaUpdates', false)
+    let release
+    if (betaUpdates) {
+      const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=10`, {
+        headers: { 'User-Agent': 'cascade-updater' }
+      })
+      if (!res.ok) throw new Error(`GitHub API ${res.status}`)
+      const releases = await res.json()
+      release = releases.find(r => !r.draft)
+    } else {
+      const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+        headers: { 'User-Agent': 'cascade-updater' }
+      })
+      if (!res.ok) throw new Error(`GitHub API ${res.status}`)
+      release = await res.json()
+    }
+    if (!release) return
     const latestVersion = release.tag_name.replace(/^v/, '')
     if (!isNewer(latestVersion, app.getVersion())) return
 
