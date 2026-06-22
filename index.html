@@ -377,27 +377,39 @@
       -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
     }
 
-    /* ── Lyrics source pill ── */
-    .lyrics-source-pill {
+    /* ── Lyrics pill group (source pill + edit button) ── */
+    .lyrics-pill-group {
       position: absolute; top: 52px; right: 10px; z-index: 20;
+      display: flex; align-items: center; gap: 5px;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.18s;
+    }
+    .lyrics-panel:hover .lyrics-pill-group,
+    #ov-panel-lyrics:hover .lyrics-pill-group { opacity: 1; pointer-events: auto; }
+    .ov-pill-group { top: 14px; right: 14px; }
+
+    .lyrics-source-pill {
       background: rgba(255,255,255,0.08); backdrop-filter: blur(14px) saturate(160%);
       -webkit-backdrop-filter: blur(14px) saturate(160%);
       border: 1px solid rgba(255,255,255,0.13); border-radius: 20px;
       font-family: var(--font); font-size: 10.5px; color: rgba(255,255,255,0.7);
       padding: 4px 10px 4px 8px; cursor: pointer; user-select: none;
-      opacity: 0; pointer-events: none;
-      transition: opacity 0.18s, background 0.12s, color 0.12s;
+      transition: background 0.12s, color 0.12s;
       white-space: nowrap; display: flex; align-items: center; gap: 5px;
     }
     .lyrics-source-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
     .lyrics-source-pill.forced { border-color: rgba(110,79,246,0.5); color: rgba(110,79,246,0.95); background: rgba(110,79,246,0.12); }
     .lyrics-source-pill.forced::before { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
-    .lyrics-panel:hover .lyrics-source-pill,
-    #ov-panel-lyrics:hover .lyrics-source-pill { opacity: 1; pointer-events: auto; }
     .lyrics-source-pill:hover { background: rgba(255,255,255,0.14); color: white; }
 
-    /* overlay pill has no header to avoid — reset to near top */
-    .ov-source-pill { top: 14px; right: 14px; }
+    .lyrics-edit-btn {
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.12); border-radius: 20px;
+      padding: 4px 8px; cursor: pointer; color: rgba(255,255,255,0.55);
+      display: flex; align-items: center;
+      transition: background 0.12s, color 0.12s;
+    }
+    .lyrics-edit-btn:hover { background: rgba(255,255,255,0.14); color: white; }
 
     /* ── Lyrics source dropdown ── */
     .lyrics-source-dropdown {
@@ -933,14 +945,23 @@
             <div class="sg-title">Lyrics</div>
             <div class="setting-row">
               <div class="setting-label">
+                <span class="setting-name">Server-only Lyrics</span>
+                <span class="setting-desc">Fetch lyrics exclusively from the Cascade Jellyfin plugin. Disables SyncLRC and LRCLIB.</span>
+              </div>
+              <input type="checkbox" id="server-only-lyrics-toggle">
+            </div>
+            <div class="setting-row" id="lyrics-source-row">
+              <div class="setting-label">
                 <span class="setting-name">Lyrics Source</span>
-                <span class="setting-desc">Preferred source. Auto tries each in order: SyncLRC → LRCLIB → Jellyfin.</span>
+                <span class="setting-desc">Preferred source. Auto tries each in order: Cascade → SyncLRC → LRCLIB → Jellyfin.</span>
               </div>
               <select class="setting-input" id="s-lyrics-source">
                 <option value="auto">Auto (waterfall)</option>
-                <option value="SyncLRC">SyncLRC</option>
-                <option value="LRCLIB">LRCLIB</option>
-                <option value="Jellyfin">Jellyfin</option>
+                <option value="SyncLRC" class="lsd-non-server">SyncLRC</option>
+                <option value="LRCLIB" class="lsd-non-server">LRCLIB</option>
+                <option value="Jellyfin" class="lsd-non-server">Jellyfin</option>
+                <option value="cascade-karaoke" class="lsd-server-only" style="display:none">Karaoke Only</option>
+                <option value="cascade-synced" class="lsd-server-only" style="display:none">Synced Only</option>
               </select>
             </div>
           </div>
@@ -1114,7 +1135,12 @@
         <div id="ov-queue-rows"></div>
       </div>
       <div id="ov-panel-lyrics" style="position:absolute;inset:0;background:var(--surface);overflow:hidden;transform:translateX(100%);transition:transform 0.3s cubic-bezier(0.4,0,0.2,1);">
-        <button class="lyrics-source-pill ov-source-pill" id="ov-source-pill">Auto</button>
+        <div class="lyrics-pill-group ov-pill-group" id="ov-pill-group">
+          <button class="lyrics-source-pill ov-source-pill" id="ov-source-pill">Auto</button>
+          <button class="lyrics-edit-btn" id="ov-lyrics-edit-btn" title="Edit lyrics">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          </button>
+        </div>
         <div class="ov-lyrics-scroll" id="ov-lyrics-body"></div>
         <button class="ov-translate-btn" id="ov-translate-btn" title="Translate to English" style="display:none">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
@@ -1250,21 +1276,29 @@
 <!-- Lyrics source picker dropdown (fixed-position, shared by sidebar + overlay pills) -->
 <div id="lyrics-source-dropdown" class="lyrics-source-dropdown">
   <div class="lsd-item" data-source="auto">
-    <span class="lsd-icon">⚡</span>Auto (waterfall)
-    <span class="lsd-hint">SyncLRC → LRCLIB → Jellyfin</span>
+    <span class="lsd-icon">⚡</span>Auto
+    <span class="lsd-hint" id="lsd-auto-hint">Cascade → SyncLRC → LRCLIB → Jellyfin</span>
   </div>
-  <div class="lsd-sep"></div>
-  <div class="lsd-item" data-source="SyncLRC">
+  <div class="lsd-sep lsd-non-server"></div>
+  <div class="lsd-item lsd-non-server" data-source="SyncLRC">
     <span class="lsd-icon">✦</span>SyncLRC
     <span class="lsd-hint">Word-level karaoke</span>
   </div>
-  <div class="lsd-item" data-source="LRCLIB">
+  <div class="lsd-item lsd-non-server" data-source="LRCLIB">
     <span class="lsd-icon">◎</span>LRCLIB
     <span class="lsd-hint">Line-synced</span>
   </div>
-  <div class="lsd-item" data-source="Jellyfin">
+  <div class="lsd-item lsd-non-server" data-source="Jellyfin">
     <span class="lsd-icon">◎</span>Jellyfin
     <span class="lsd-hint">Server-side</span>
+  </div>
+  <div class="lsd-item lsd-server-only" data-source="cascade-karaoke" style="display:none">
+    <span class="lsd-icon">✦</span>Karaoke Only
+    <span class="lsd-hint">Server · word-level</span>
+  </div>
+  <div class="lsd-item lsd-server-only" data-source="cascade-synced" style="display:none">
+    <span class="lsd-icon">◎</span>Synced Only
+    <span class="lsd-hint">Server · line-synced</span>
   </div>
 </div>
 
@@ -1294,7 +1328,12 @@
     </select>
     <button class="lyrics-translate-btn" id="lyrics-translate-btn">Translate</button>
   </div>
-  <button class="lyrics-source-pill" id="sidebar-source-pill">Auto</button>
+  <div class="lyrics-pill-group" id="sidebar-pill-group">
+    <button class="lyrics-source-pill" id="sidebar-source-pill">Auto</button>
+    <button class="lyrics-edit-btn" id="lyrics-edit-btn" title="Edit lyrics">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+    </button>
+  </div>
   <div class="lyrics-body" id="lyrics-body">
     <div class="lyrics-empty">No lyrics available</div>
   </div>

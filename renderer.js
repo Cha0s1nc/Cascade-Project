@@ -1206,9 +1206,35 @@ async function loadSettingsFields() {
     window.cascade.shell.openExternal('https://discord.com/developers/applications')
   }
 
+  // Server-only lyrics toggle
+  const serverOnlyToggle = document.getElementById('server-only-lyrics-toggle')
+  serverOnlyToggle.checked = serverOnlyLyrics
+  serverOnlyToggle.onchange = async () => {
+    serverOnlyLyrics = serverOnlyToggle.checked
+    await window.cascade.store.set('serverOnlyLyrics', serverOnlyLyrics)
+    _applyServerOnlyMode(serverOnlyLyrics)
+    // Reset forced source if it's incompatible with the new mode
+    const isServerSource = ['cascade-karaoke', 'cascade-synced'].includes(lyricsForcedSource)
+    if (serverOnlyLyrics && !isServerSource && lyricsForcedSource !== 'auto') {
+      lyricsForcedSource = 'auto'
+      await window.cascade.store.set('lyricsForcedSource', 'auto')
+    } else if (!serverOnlyLyrics && isServerSource) {
+      lyricsForcedSource = 'auto'
+      await window.cascade.store.set('lyricsForcedSource', 'auto')
+    }
+    const sel = document.getElementById('s-lyrics-source')
+    if (sel) sel.value = lyricsForcedSource
+    updateSourcePills()
+    if (queue[queueIndex]) {
+      _lyricsCache.delete(queue[queueIndex].Id)
+      lyricsData = []; lastLyricsIdx = -1; lastLyricsScrollIdx = -1; lastOverlayLyricsIdx = -1; fetchLyrics()
+    }
+  }
+
   // Lyrics source preference
   const lyricsSourceSel = document.getElementById('s-lyrics-source')
   lyricsSourceSel.value = (await window.cascade.store.get('lyricsForcedSource')) || 'auto'
+  _applyServerOnlyMode(serverOnlyLyrics)  // apply visibility after options exist in DOM
   lyricsSourceSel.onchange = async () => {
     lyricsForcedSource = lyricsSourceSel.value
     await window.cascade.store.set('lyricsForcedSource', lyricsForcedSource)
@@ -1227,10 +1253,12 @@ document.getElementById('btn-save-settings').addEventListener('click', async () 
 
   if (!url || !user) return
 
+  // Persist URL and username immediately so they survive a failed connection attempt
+  await window.cascade.store.set('serverUrl', url)
+  await window.cascade.store.set('username', user)
+
   try {
     const auth = await jfAuth(url, user, pass || await window.cascade.store.get('password') || '')
-    await window.cascade.store.set('serverUrl', url)
-    await window.cascade.store.set('username', user)
     await window.cascade.store.set('token', auth.AccessToken)
     await window.cascade.store.set('userId', auth.User.Id)
     if (pass) await window.cascade.store.set('password', pass)
@@ -2145,13 +2173,32 @@ document.getElementById('ctx-delete').addEventListener('click', async () => {
 
 // ── Lyrics panel ──────────────────────────────────────────────────────────────
 
-let lyricsSource        = null   // source that was actually used ('LyricsPlus', 'SyncLRC', …)
-let lyricsForcedSource  = 'auto' // 'auto' | 'LyricsPlus' | 'SyncLRC' | 'LRCLIB' | 'Jellyfin'
+let lyricsSource        = null   // source that was actually used ('Cascade', 'SyncLRC', …)
+let lyricsForcedSource  = 'auto' // 'auto' | 'SyncLRC' | 'LRCLIB' | 'Jellyfin' | 'cascade-karaoke' | 'cascade-synced'
+let serverOnlyLyrics    = false  // fetch exclusively from Cascade plugin when true
 
-// Load persisted preference immediately
+// Load persisted preferences immediately
 ;(async () => {
   lyricsForcedSource = (await window.cascade.store.get('lyricsForcedSource')) || 'auto'
+  serverOnlyLyrics   = (await window.cascade.store.get('serverOnlyLyrics')) === true
+  _applyServerOnlyMode(serverOnlyLyrics)
 })()
+
+function _applyServerOnlyMode(on) {
+  // Dropdown: hide external sources and sep, show/hide server-only items; Auto always visible
+  document.querySelectorAll('#lyrics-source-dropdown .lsd-non-server')
+    .forEach(el => { el.style.display = on ? 'none' : '' })
+  document.querySelectorAll('#lyrics-source-dropdown .lsd-server-only')
+    .forEach(el => { el.style.display = on ? '' : 'none' })
+  // Update Auto hint to reflect mode
+  const autoHint = document.getElementById('lsd-auto-hint')
+  if (autoHint) autoHint.textContent = on ? 'Server · karaoke preferred' : 'Cascade → SyncLRC → LRCLIB → Jellyfin'
+  // Settings select options (Auto option has no class so is always visible)
+  const sel = document.getElementById('s-lyrics-source')
+  if (!sel) return
+  sel.querySelectorAll('.lsd-non-server').forEach(o => { o.style.display = on ? 'none' : '' })
+  sel.querySelectorAll('.lsd-server-only').forEach(o => { o.style.display = on ? '' : 'none' })
+}
 
 let lyricsData = []
 let lyricsTranslated = []
@@ -2178,11 +2225,14 @@ function _showLyricsFetchToast(result) {
 
 function updateSourcePills() {
   const forced   = lyricsForcedSource && lyricsForcedSource !== 'auto'
-  const label    = forced ? lyricsForcedSource : (lyricsSource || 'Auto')
+  const label    = forced
+    ? (lyricsForcedSource === 'cascade-karaoke' ? 'Karaoke'
+       : lyricsForcedSource === 'cascade-synced' ? 'Synced'
+       : lyricsForcedSource)
+    : (lyricsSource || 'Auto')
   document.querySelectorAll('.lyrics-source-pill').forEach(p => {
     p.textContent = label
     p.classList.toggle('forced', forced)
-    // re-add the dot pseudo-element needs no JS — it's CSS ::before
   })
 }
 
@@ -2216,6 +2266,18 @@ function _openSourceDropdown(nearEl) {
     })
   })
 }
+
+// ── Lyrics edit button ────────────────────────────────────────────────────────
+;['lyrics-edit-btn', 'ov-lyrics-edit-btn'].forEach(id => {
+  const btn = document.getElementById(id)
+  if (!btn) return
+  btn.addEventListener('click', e => {
+    e.stopPropagation()
+    const item = queue[queueIndex]
+    if (!item || !jf) return
+    window.cascade.lyricsEditor.open({ item, jf, lyricsData: lyricsData || [] })
+  })
+})
 
 ;['sidebar-source-pill', 'ov-source-pill'].forEach(id => {
   const pill = document.getElementById(id)
@@ -2425,7 +2487,47 @@ async function fetchLyricsWaterfall(item) {
     'i'
   )
 
+  // ── Server-only mode: exclusively hit the Cascade plugin ─────────────────────
+  if (serverOnlyLyrics) {
+    const wantType = forced === 'cascade-karaoke' ? 'karaoke'
+                   : forced === 'cascade-synced'  ? 'synced'
+                   : null   // auto = accept either (plugin returns karaoke first)
+    const tried = { Cascade: null }
+    try {
+      const r = await fetch(`${jf.url}/Audio/${item.Id}/CascadeLyrics`,
+        { headers: { 'X-Emby-Token': jf.token }, signal: AbortSignal.timeout(8000) })
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      const d = await r.json()
+      if (!d.lrc || (wantType && d.type !== wantType)) {
+        tried.Cascade = 'fail'; _lastFetchStatus = tried; return null
+      }
+      const lines = parseLRC(d.lrc).filter(l => !metaPattern.test(l.Text))
+      if (!lines.length) { tried.Cascade = 'fail'; _lastFetchStatus = tried; return null }
+      tried.Cascade = 'ok'
+      _lastFetchStatus = tried
+      const srcLabel = forced === 'cascade-karaoke' ? 'Karaoke'
+                     : forced === 'cascade-synced'  ? 'Synced'
+                     : 'Cascade'
+      const out = { lines, source: srcLabel, tried }
+      if (!forced) _cachePut(item.Id, out)
+      return out
+    } catch (err) {
+      if (!_isAbort(err)) console.error('[Lyrics] Cascade error:', err)
+      tried.Cascade = 'fail'; _lastFetchStatus = tried; return null
+    }
+  }
+
   const sources = [
+    ['Cascade', async () => {
+      // Cascade Lyrics Jellyfin plugin — highest priority, server-stored karaoke
+      const r = await fetch(`${jf.url}/Audio/${item.Id}/CascadeLyrics`,
+        { headers: { 'X-Emby-Token': jf.token }, ...sig })
+      if (!r.ok) return null
+      const d = await r.json()
+      if (!d.lrc) return null
+      const lines = parseLRC(d.lrc).filter(l => !metaPattern.test(l.Text))
+      return lines.length ? { lines, source: 'Cascade' } : null
+    }],
     ['SyncLRC', async () => {
       // Request karaoke explicitly — with type=karaoke the API returns { lyrics: "<enhanced LRC>" }
       const r = await fetch(
@@ -2470,7 +2572,7 @@ async function fetchLyricsWaterfall(item) {
     }]
   ]
 
-  const tried = { SyncLRC: null, LRCLIB: null, Jellyfin: null }
+  const tried = { Cascade: null, SyncLRC: null, LRCLIB: null, Jellyfin: null }
 
   // Forced source: single fetch only, never cache result
   if (forced) {
@@ -2491,21 +2593,24 @@ async function fetchLyricsWaterfall(item) {
   }
 
   // Fire all sources simultaneously, then crosscheck SyncLRC against reference sources
-  const [syncProm, lrcProm, jfProm] = sources.map(([name, fn]) =>
+  const [cascProm, syncProm, lrcProm, jfProm] = sources.map(([name, fn]) =>
     fn().then(r => ({ name, result: r }))
       .catch(err => { if (!_isAbort(err)) console.error(`[Lyrics] ${name} error:`, err); return { name, result: null } })
   )
 
-  const [syncRes, lrcRes, jfRes] = await Promise.all([syncProm, lrcProm, jfProm])
+  const [cascRes, syncRes, lrcRes, jfRes] = await Promise.all([cascProm, syncProm, lrcProm, jfProm])
 
   // Instrumental check (any source can flag it)
-  for (const { result } of [syncRes, lrcRes, jfRes]) {
+  for (const { result } of [cascRes, syncRes, lrcRes, jfRes]) {
     if (result?.instrumental) {
       _lastFetchStatus = tried
       _cachePut(item.Id, { instrumental: true })
       return { instrumental: true }
     }
   }
+
+  // Cascade plugin result is trusted — no crosscheck needed (user-uploaded)
+  tried['Cascade'] = cascRes.result ? 'ok' : 'fail'
 
   // Validate SyncLRC against LRCLIB/Jellyfin — reject if clearly a wrong match
   let syncResult = syncRes.result
@@ -2521,10 +2626,10 @@ async function fetchLyricsWaterfall(item) {
   } else {
     tried['SyncLRC'] = 'fail'
   }
-  tried['LRCLIB']  = lrcRes.result  ? 'ok' : 'fail'
+  tried['LRCLIB']   = lrcRes.result ? 'ok' : 'fail'
   tried['Jellyfin'] = jfRes.result  ? 'ok' : 'fail'
 
-  const winner = syncResult || lrcRes.result || jfRes.result
+  const winner = cascRes.result || syncResult || lrcRes.result || jfRes.result
   if (winner) {
     _lastFetchStatus = tried
     const out = { ...winner, tried }

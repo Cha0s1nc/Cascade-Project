@@ -236,8 +236,9 @@ const GITHUB_REPO = 'Cha0s1nc/Cascade-Project'
 const store = new Store()
 
 let win
-let updaterWindow  = null
-let pendingDownload = null
+let updaterWindow     = null
+let lyricsEditorWindow = null
+let pendingDownload   = null
 
 function createWindow() {
   win = new BrowserWindow({
@@ -381,6 +382,39 @@ function openUpdaterWindow(updateInfo) {
   })
   updaterWindow.on('closed', () => { updaterWindow = null })
 }
+
+// ── Lyrics editor window ───────────────────────────────────────────────────────
+
+ipcMain.on('open-lyrics-editor', (_e, data) => {
+  if (lyricsEditorWindow && !lyricsEditorWindow.isDestroyed()) {
+    lyricsEditorWindow.focus()
+    lyricsEditorWindow.webContents.send('lyrics-editor-init', data)
+    return
+  }
+  lyricsEditorWindow = new BrowserWindow({
+    width: 900, height: 680, minWidth: 720, minHeight: 520,
+    title: 'Lyrics Editor', backgroundColor: '#111113',
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 12, y: 12 },
+    autoHideMenuBar: true, resizable: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'lyrics-editor-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+    show: false,
+  })
+  lyricsEditorWindow.loadFile('lyrics-editor.html')
+  lyricsEditorWindow.once('ready-to-show', () => {
+    lyricsEditorWindow.show()
+    lyricsEditorWindow.webContents.send('lyrics-editor-init', data)
+  })
+  lyricsEditorWindow.on('closed', () => { lyricsEditorWindow = null })
+})
+
+ipcMain.on('lyrics-editor-close', () => {
+  if (lyricsEditorWindow && !lyricsEditorWindow.isDestroyed()) lyricsEditorWindow.close()
+})
 
 // ── GitHub release check ───────────────────────────────────────────────────────
 

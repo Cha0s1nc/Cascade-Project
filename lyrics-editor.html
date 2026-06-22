@@ -1,0 +1,941 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Lyrics Editor</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #111113;
+  color: #e8e8e9;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-size: 13px;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* ── Titlebar ── */
+.titlebar {
+  -webkit-app-region: drag;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.55);
+  background: #161618;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  letter-spacing: 0.01em;
+}
+
+/* ── Track header ── */
+.track-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: #161618;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  flex-shrink: 0;
+}
+
+.track-art {
+  width: 44px;
+  height: 44px;
+  border-radius: 5px;
+  object-fit: cover;
+  background: #2a2a2c;
+  flex-shrink: 0;
+}
+
+.track-info { flex: 1; min-width: 0; }
+.track-name { font-size: 14px; font-weight: 600; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.track-sub  { font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.header-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+.save-status { font-size: 11px; min-width: 80px; text-align: right; }
+.save-status.ok  { color: #4caf82; }
+.save-status.err { color: #e05a5a; }
+
+/* ── Buttons ── */
+.btn {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.7);
+  border-radius: 6px;
+  padding: 5px 11px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  -webkit-app-region: no-drag;
+  white-space: nowrap;
+}
+.btn:hover { background: rgba(255,255,255,0.12); color: #fff; }
+
+.btn-primary {
+  background: #6e4ff6;
+  border: 1px solid rgba(110,79,246,0.5);
+  color: #fff;
+  border-radius: 6px;
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s;
+  -webkit-app-region: no-drag;
+  white-space: nowrap;
+}
+.btn-primary:hover  { background: #7c61f7; }
+.btn-primary:disabled { opacity: 0.45; cursor: default; }
+
+/* ── Inspector ── */
+.inspector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  background: #18181a;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  flex-shrink: 0;
+  height: 46px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.inspector::-webkit-scrollbar { display: none; }
+
+.insp-hint { color: rgba(255,255,255,0.25); font-size: 12px; }
+
+.insp-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.35);
+  flex-shrink: 0;
+}
+
+.insp-sep { color: rgba(255,255,255,0.18); font-size: 12px; flex-shrink: 0; }
+
+.insp-input {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 5px;
+  color: #e8e8e9;
+  font-size: 12px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  padding: 3px 7px;
+  width: 88px;
+  flex-shrink: 0;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.insp-input:focus { outline: none; border-color: rgba(110,79,246,0.6); }
+.insp-input.wide { width: 150px; }
+
+.btn-stamp {
+  background: rgba(110,79,246,0.12);
+  border: 1px solid rgba(110,79,246,0.3);
+  color: rgba(150,120,255,0.9);
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.btn-stamp:hover { background: rgba(110,79,246,0.25); color: #fff; }
+
+.insp-divider {
+  width: 1px;
+  height: 20px;
+  background: rgba(255,255,255,0.07);
+  flex-shrink: 0;
+  margin: 0 2px;
+}
+
+/* ── Lines area ── */
+.lines-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 0 12px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.08) transparent;
+}
+.lines-area::-webkit-scrollbar { width: 5px; }
+.lines-area::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
+
+.line-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 12px;
+  border-radius: 7px;
+  margin: 1px 8px;
+  transition: background 0.1s;
+  cursor: default;
+}
+.line-row:hover { background: rgba(255,255,255,0.03); }
+.line-row.sel-line { background: rgba(110,79,246,0.07); }
+
+/* Left meta */
+.line-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex-shrink: 0;
+  width: 62px;
+  padding-top: 5px;
+  gap: 1px;
+}
+.line-num {
+  font-size: 10px;
+  color: rgba(255,255,255,0.18);
+  font-variant-numeric: tabular-nums;
+}
+.line-time {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 10px;
+  color: rgba(255,255,255,0.35);
+  cursor: pointer;
+  padding: 1px 4px;
+  border-radius: 3px;
+  transition: background 0.1s, color 0.1s;
+  white-space: nowrap;
+}
+.line-time:hover { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.7); }
+.line-row.sel-line .line-time { color: rgba(130,100,255,0.85); }
+
+/* Content */
+.line-content {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  min-height: 30px;
+  padding: 2px 0;
+}
+
+.line-plain {
+  font-size: 13px;
+  color: rgba(255,255,255,0.65);
+  padding: 3px 6px;
+  border-radius: 4px;
+  min-width: 80px;
+  -webkit-user-select: text;
+  user-select: text;
+  outline: none;
+  line-height: 1.5;
+}
+.line-plain:focus { background: rgba(110,79,246,0.05); outline: 1px solid rgba(110,79,246,0.35); }
+
+/* Word pills */
+.word-pill {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 13px;
+  color: rgba(255,255,255,0.7);
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+.word-pill:hover { background: rgba(255,255,255,0.09); color: #fff; }
+.word-pill.sel-word {
+  background: rgba(110,79,246,0.2);
+  border-color: rgba(110,79,246,0.55);
+  color: #fff;
+}
+
+.btn-add-word {
+  background: none;
+  border: 1px dashed rgba(255,255,255,0.13);
+  color: rgba(255,255,255,0.25);
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.1s, color 0.1s;
+  line-height: 1.4;
+}
+.btn-add-word:hover { border-color: rgba(255,255,255,0.3); color: rgba(255,255,255,0.6); }
+
+/* Row actions */
+.line-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+  padding-top: 4px;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.line-row:hover .line-actions { opacity: 1; }
+
+.btn-icon {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.28);
+  cursor: pointer;
+  padding: 3px 5px;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1;
+  transition: background 0.1s, color 0.1s;
+}
+.btn-icon:hover { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.8); }
+.btn-icon.danger:hover { background: rgba(220,50,50,0.1); color: rgba(220,80,80,0.9); }
+
+/* Add line */
+.btn-add-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 4px 16px;
+  padding: 7px;
+  border-radius: 6px;
+  border: 1px dashed rgba(255,255,255,0.1);
+  background: none;
+  color: rgba(255,255,255,0.25);
+  font-size: 12px;
+  cursor: pointer;
+  width: calc(100% - 32px);
+  transition: border-color 0.12s, color 0.12s;
+}
+.btn-add-line:hover { border-color: rgba(255,255,255,0.28); color: rgba(255,255,255,0.6); }
+
+/* ── Playback bar ── */
+.playback-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px;
+  background: #161618;
+  border-top: 1px solid rgba(255,255,255,0.07);
+  flex-shrink: 0;
+}
+
+.btn-play {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.8);
+  font-size: 15px;
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background 0.12s;
+}
+.btn-play:hover { background: rgba(255,255,255,0.08); color: #fff; }
+
+.scrubber {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 3px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 2px;
+  cursor: pointer;
+  outline: none;
+}
+.scrubber::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 11px;
+  height: 11px;
+  background: rgba(255,255,255,0.9);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+.scrubber:hover::-webkit-slider-thumb { transform: scale(1.2); }
+
+.time-disp {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  color: rgba(255,255,255,0.4);
+  flex-shrink: 0;
+  min-width: 130px;
+  text-align: right;
+}
+</style>
+</head>
+<body>
+
+<div class="titlebar">Lyrics Editor</div>
+
+<div class="track-header">
+  <img class="track-art" id="track-art" src="" alt="">
+  <div class="track-info">
+    <div class="track-name" id="track-name">No track loaded</div>
+    <div class="track-sub"  id="track-sub"></div>
+  </div>
+  <div class="header-actions">
+    <button class="btn" id="btn-import">Import current lyrics</button>
+    <span class="save-status" id="save-status"></span>
+    <button class="btn-primary" id="btn-save" disabled>Save to Jellyfin</button>
+  </div>
+</div>
+
+<div class="inspector" id="inspector">
+  <span class="insp-hint">Select a line or word to edit timestamps</span>
+</div>
+
+<div class="lines-area" id="lines-area"></div>
+
+<div class="playback-bar">
+  <button class="btn-play" id="btn-play">▶</button>
+  <input type="range" class="scrubber" id="scrubber" min="0" max="100" step="0.001" value="0">
+  <div class="time-disp" id="time-disp">0:00.000 / 0:00.000</div>
+</div>
+
+<audio id="audio" preload="none"></audio>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────────
+
+let editorItem  = null   // Jellyfin item object
+let editorJf    = null   // { url, token }
+let initLines   = []     // original lines passed at open (for re-import)
+let editorLines = []     // working copy: [{ start, text, words: [{start,end,text}]|null }]
+let sel         = null   // { type:'line'|'word', li, wi? }
+
+const audio   = document.getElementById('audio')
+const scrubber = document.getElementById('scrubber')
+
+// ── Utilities ──────────────────────────────────────────────────────────────────
+
+function secToDisplay(sec) {
+  if (sec == null || isNaN(sec)) return '—'
+  const m = Math.floor(sec / 60)
+  const s = (sec % 60).toFixed(3)
+  return `${m}:${s.padStart(6, '0')}`
+}
+
+function ticksToSec(ticks) { return ticks != null ? ticks / 10_000_000 : null }
+function secToTicks(sec)   { return sec   != null ? Math.round(sec * 10_000_000) : null }
+
+function dispToSec(str) {
+  if (!str || str === '—') return null
+  str = str.trim()
+  const m = str.match(/^(\d+):(\d+(?:\.\d*)?)$/)
+  if (m) return parseInt(m[1]) * 60 + parseFloat(m[2])
+  const n = parseFloat(str)
+  return isNaN(n) ? null : n
+}
+
+function ticksToLRC(ticks) {
+  const s = (ticks ?? 0) / 10_000_000
+  const m = Math.floor(s / 60)
+  const sec = (s % 60).toFixed(2)
+  return `${String(m).padStart(2,'0')}:${sec.padStart(5,'0')}`
+}
+
+function nowSec() { return audio.currentTime }
+
+function markDirty() {
+  document.getElementById('btn-save').disabled = false
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────────
+
+window.lyricsEditor.onInit(({ item, jf, lyricsData }) => {
+  editorItem = item
+  editorJf   = jf
+
+  document.getElementById('track-name').textContent = item.Name || 'Unknown Track'
+  document.getElementById('track-sub').textContent  = [
+    item.AlbumArtist || (item.Artists && item.Artists[0]) || '',
+    item.Album || '',
+  ].filter(Boolean).join(' — ')
+
+  const art = document.getElementById('track-art')
+  art.src = `${jf.url}/Items/${item.Id}/Images/Primary?api_key=${jf.token}&width=96&quality=90`
+  art.onerror = () => { art.style.visibility = 'hidden' }
+
+  // Audio stream
+  audio.src = `${jf.url}/Audio/${item.Id}/universal?api_key=${jf.token}&MaxStreamingBitrate=140000000`
+  const durSec = (item.RunTimeTicks || 0) / 10_000_000
+  scrubber.max = durSec || 100
+  updateTimeDisp(0, durSec)
+
+  // Load lyrics
+  if (lyricsData && lyricsData.length) {
+    loadLyricsData(lyricsData)
+  } else {
+    editorLines = []
+    initLines   = []
+    renderLines()
+    renderInspector()
+  }
+
+  document.getElementById('btn-save').disabled = lyricsData && lyricsData.length ? false : true
+})
+
+function loadLyricsData(lyricsData) {
+  initLines = lyricsData
+  editorLines = lyricsData.map(l => ({
+    start: l.Start != null ? l.Start / 10_000_000 : null,   // store as seconds internally
+    text:  l.Text || '',
+    words: l.Words ? l.Words.map(w => ({
+      start: w.Start != null ? w.Start / 10_000_000 : null,
+      end:   w.End   != null ? w.End   / 10_000_000 : null,
+      text:  w.Text || '',
+    })) : null,
+  }))
+  sel = null
+  renderLines()
+  renderInspector()
+}
+
+document.getElementById('btn-import').addEventListener('click', () => {
+  if (!initLines.length) return
+  if (editorLines.length && !confirm('Re-import? This will overwrite your edits.')) return
+  loadLyricsData(initLines)
+  markDirty()
+})
+
+// ── Render lines ───────────────────────────────────────────────────────────────
+
+function renderLines() {
+  const area = document.getElementById('lines-area')
+  area.innerHTML = ''
+
+  editorLines.forEach((line, li) => {
+    const row = document.createElement('div')
+    row.className = 'line-row' + (sel?.li === li && sel?.wi == null ? ' sel-line' : '')
+    row.dataset.li = li
+
+    // ── Left meta ──
+    const meta = document.createElement('div')
+    meta.className = 'line-meta'
+
+    const num = document.createElement('div')
+    num.className = 'line-num'
+    num.textContent = li + 1
+
+    const time = document.createElement('div')
+    time.className = 'line-time'
+    time.textContent = line.start != null ? secToDisplay(line.start) : '—'
+    time.title = 'Click to edit line timestamp'
+    time.addEventListener('click', e => { e.stopPropagation(); selectLine(li) })
+
+    meta.append(num, time)
+
+    // ── Content ──
+    const content = document.createElement('div')
+    content.className = 'line-content'
+
+    if (line.words) {
+      line.words.forEach((word, wi) => {
+        content.appendChild(makeWordPill(li, wi, word))
+      })
+      const addW = document.createElement('button')
+      addW.className = 'btn-add-word'
+      addW.textContent = '+'
+      addW.title = 'Add word'
+      addW.addEventListener('click', e => { e.stopPropagation(); addWord(li) })
+      content.appendChild(addW)
+    } else {
+      const plain = document.createElement('div')
+      plain.className = 'line-plain'
+      plain.contentEditable = 'true'
+      plain.spellcheck = false
+      plain.textContent = line.text
+      plain.addEventListener('input', () => { editorLines[li].text = plain.textContent; markDirty() })
+      plain.addEventListener('focus', () => selectLine(li))
+      content.appendChild(plain)
+    }
+
+    // ── Actions ──
+    const acts = document.createElement('div')
+    acts.className = 'line-actions'
+
+    if (li > 0) {
+      const up = makeIconBtn('↑', 'Move up', false, () => moveLine(li, -1))
+      acts.appendChild(up)
+    }
+    if (li < editorLines.length - 1) {
+      const dn = makeIconBtn('↓', 'Move down', false, () => moveLine(li, 1))
+      acts.appendChild(dn)
+    }
+    acts.appendChild(makeIconBtn('×', 'Remove line', true, () => removeLine(li)))
+
+    row.addEventListener('click', () => selectLine(li))
+    row.append(meta, content, acts)
+    area.appendChild(row)
+  })
+
+  // Add line button
+  const addLine = document.createElement('button')
+  addLine.className = 'btn-add-line'
+  addLine.textContent = '+ Add line'
+  addLine.addEventListener('click', () => appendLine())
+  area.appendChild(addLine)
+}
+
+function makeWordPill(li, wi, word) {
+  const pill = document.createElement('div')
+  pill.className = 'word-pill' + (sel?.li === li && sel?.wi === wi ? ' sel-word' : '')
+  pill.dataset.li = li
+  pill.dataset.wi = wi
+  pill.textContent = word.text
+  pill.title = 'Click to select · Double-click to edit text'
+  pill.addEventListener('click',    e => { e.stopPropagation(); selectWord(li, wi) })
+  pill.addEventListener('dblclick', e => { e.stopPropagation(); beginWordEdit(pill, li, wi) })
+  return pill
+}
+
+function makeIconBtn(label, title, danger, onClick) {
+  const b = document.createElement('button')
+  b.className = 'btn-icon' + (danger ? ' danger' : '')
+  b.textContent = label
+  b.title = title
+  b.addEventListener('click', e => { e.stopPropagation(); onClick() })
+  return b
+}
+
+// ── Inspector ──────────────────────────────────────────────────────────────────
+
+function renderInspector() {
+  const insp = document.getElementById('inspector')
+  insp.innerHTML = ''
+
+  if (!sel) {
+    insp.innerHTML = '<span class="insp-hint">Select a line or word to edit timestamps</span>'
+    return
+  }
+
+  const { type, li, wi } = sel
+  const line = editorLines[li]
+  if (!line) return
+
+  if (type === 'line') {
+    // LINE label
+    appendInspLabel(insp, 'LINE')
+    appendInspSep(insp, 'Start')
+
+    const startInp = appendInspInput(insp, line.start != null ? secToDisplay(line.start) : '', 'mm:ss.xxx')
+    startInp.addEventListener('change', () => {
+      const s = dispToSec(startInp.value)
+      if (s != null) { editorLines[li].start = s; startInp.value = secToDisplay(s); markDirty(); refreshLineMeta(li) }
+    })
+
+    appendStampBtn(insp, 'Stamp', () => {
+      editorLines[li].start = nowSec()
+      startInp.value = secToDisplay(editorLines[li].start)
+      markDirty()
+      refreshLineMeta(li)
+    })
+
+  } else if (type === 'word' && line.words) {
+    const word = line.words[wi]
+    if (!word) return
+
+    appendInspLabel(insp, 'WORD')
+
+    const textInp = appendInspInput(insp, word.text, 'word text', true)
+    textInp.addEventListener('input', () => {
+      editorLines[li].words[wi].text = textInp.value
+      markDirty()
+      const pill = document.querySelector(`.word-pill[data-li="${li}"][data-wi="${wi}"]`)
+      if (pill) pill.textContent = textInp.value
+    })
+
+    appendInspDivider(insp)
+    appendInspSep(insp, 'Start')
+
+    const startInp = appendInspInput(insp, word.start != null ? secToDisplay(word.start) : '', 'mm:ss.xxx')
+    startInp.addEventListener('change', () => {
+      const s = dispToSec(startInp.value)
+      if (s != null) { editorLines[li].words[wi].start = s; startInp.value = secToDisplay(s); markDirty() }
+    })
+    appendStampBtn(insp, '⌚ Start', () => {
+      editorLines[li].words[wi].start = nowSec()
+      startInp.value = secToDisplay(editorLines[li].words[wi].start)
+      markDirty()
+    })
+
+    appendInspSep(insp, '→')
+    appendInspSep(insp, 'End')
+
+    const endInp = appendInspInput(insp, word.end != null ? secToDisplay(word.end) : '', 'mm:ss.xxx')
+    endInp.addEventListener('change', () => {
+      const s = dispToSec(endInp.value)
+      if (s != null) { editorLines[li].words[wi].end = s; endInp.value = secToDisplay(s); markDirty() }
+    })
+    appendStampBtn(insp, '⌚ End', () => {
+      editorLines[li].words[wi].end = nowSec()
+      endInp.value = secToDisplay(editorLines[li].words[wi].end)
+      markDirty()
+    })
+
+    appendInspDivider(insp)
+
+    const rmBtn = document.createElement('button')
+    rmBtn.className = 'btn-icon danger'
+    rmBtn.textContent = '× word'
+    rmBtn.style.cssText = 'font-size:11px; padding:3px 7px; border:1px solid rgba(220,50,50,0.2); border-radius:5px'
+    rmBtn.addEventListener('click', () => removeWord(li, wi))
+    insp.appendChild(rmBtn)
+  }
+}
+
+// Inspector helpers
+function appendInspLabel(parent, text) {
+  const el = document.createElement('span')
+  el.className = 'insp-label'
+  el.textContent = text
+  parent.appendChild(el)
+  return el
+}
+function appendInspSep(parent, text) {
+  const el = document.createElement('span')
+  el.className = 'insp-sep'
+  el.textContent = text
+  parent.appendChild(el)
+  return el
+}
+function appendInspDivider(parent) {
+  const el = document.createElement('div')
+  el.className = 'insp-divider'
+  parent.appendChild(el)
+}
+function appendInspInput(parent, value, placeholder, wide = false) {
+  const el = document.createElement('input')
+  el.className = 'insp-input' + (wide ? ' wide' : '')
+  el.type = 'text'
+  el.value = value
+  el.placeholder = placeholder
+  parent.appendChild(el)
+  return el
+}
+function appendStampBtn(parent, label, onClick) {
+  const el = document.createElement('button')
+  el.className = 'btn-stamp'
+  el.textContent = label
+  el.addEventListener('click', onClick)
+  parent.appendChild(el)
+  return el
+}
+
+// ── Selection ──────────────────────────────────────────────────────────────────
+
+function selectLine(li) {
+  sel = { type: 'line', li }
+  document.querySelectorAll('.line-row').forEach(r   => r.classList.toggle('sel-line', parseInt(r.dataset.li) === li))
+  document.querySelectorAll('.word-pill').forEach(p  => p.classList.remove('sel-word'))
+  renderInspector()
+}
+
+function selectWord(li, wi) {
+  sel = { type: 'word', li, wi }
+  document.querySelectorAll('.line-row').forEach(r   => r.classList.remove('sel-line'))
+  document.querySelectorAll('.word-pill').forEach(p  => p.classList.toggle('sel-word', parseInt(p.dataset.li) === li && parseInt(p.dataset.wi) === wi))
+  renderInspector()
+}
+
+// ── Inline word edit ───────────────────────────────────────────────────────────
+
+function beginWordEdit(pillEl, li, wi) {
+  const orig = editorLines[li].words[wi].text
+  pillEl.contentEditable = 'true'
+  pillEl.style.webkitUserSelect = 'text'
+  pillEl.focus()
+  document.execCommand('selectAll')
+
+  const commit = () => {
+    pillEl.contentEditable = 'false'
+    pillEl.style.webkitUserSelect = ''
+    const newText = pillEl.textContent.trim()
+    editorLines[li].words[wi].text = newText || orig
+    pillEl.textContent = editorLines[li].words[wi].text
+    if (newText) markDirty()
+    if (sel?.li === li && sel?.wi === wi) renderInspector()
+  }
+
+  pillEl.addEventListener('blur', commit, { once: true })
+  pillEl.addEventListener('keydown', e => {
+    if (e.key === 'Enter')  { e.preventDefault(); pillEl.blur() }
+    if (e.key === 'Escape') { pillEl.textContent = orig; pillEl.blur() }
+  }, { once: true })
+}
+
+// ── Partial refreshes ──────────────────────────────────────────────────────────
+
+function refreshLineMeta(li) {
+  const timeEl = document.querySelector(`.line-row[data-li="${li}"] .line-time`)
+  if (timeEl) timeEl.textContent = editorLines[li].start != null ? secToDisplay(editorLines[li].start) : '—'
+}
+
+// ── Line/word operations ───────────────────────────────────────────────────────
+
+function appendLine() {
+  editorLines.push({ start: null, text: '', words: null })
+  markDirty()
+  renderLines()
+  selectLine(editorLines.length - 1)
+  // scroll to bottom
+  const area = document.getElementById('lines-area')
+  area.scrollTop = area.scrollHeight
+}
+
+function removeLine(li) {
+  editorLines.splice(li, 1)
+  if (sel?.li === li) sel = null
+  else if (sel?.li > li) sel = { ...sel, li: sel.li - 1 }
+  markDirty()
+  renderLines()
+  renderInspector()
+}
+
+function moveLine(li, dir) {
+  const target = li + dir
+  if (target < 0 || target >= editorLines.length) return
+  ;[editorLines[li], editorLines[target]] = [editorLines[target], editorLines[li]]
+  if (sel?.li === li)     sel = { ...sel, li: target }
+  else if (sel?.li === target) sel = { ...sel, li }
+  markDirty()
+  renderLines()
+  renderInspector()
+}
+
+function addWord(li) {
+  const line = editorLines[li]
+  if (!line.words) line.words = []
+  line.words.push({ start: null, end: null, text: 'word' })
+  markDirty()
+  const wi = line.words.length - 1
+  renderLines()
+  selectWord(li, wi)
+  setTimeout(() => {
+    const pill = document.querySelector(`.word-pill[data-li="${li}"][data-wi="${wi}"]`)
+    if (pill) beginWordEdit(pill, li, wi)
+  }, 40)
+}
+
+function removeWord(li, wi) {
+  editorLines[li].words.splice(wi, 1)
+  if (!editorLines[li].words.length) editorLines[li].words = null
+  if (sel?.li === li && sel?.wi === wi) sel = { type: 'line', li }
+  markDirty()
+  renderLines()
+  renderInspector()
+}
+
+// ── LRC export ─────────────────────────────────────────────────────────────────
+
+function exportLRC() {
+  return editorLines.map(line => {
+    const lt = `[${ticksToLRC(secToTicks(line.start ?? 0))}]`
+    if (line.words && line.words.length) {
+      const ws = line.words.map(w => `<${ticksToLRC(secToTicks(w.start ?? 0))}>${w.text}`).join('')
+      return `${lt}${ws}`
+    }
+    return `${lt}${line.text}`
+  }).join('\n')
+}
+
+// ── Save to Jellyfin ───────────────────────────────────────────────────────────
+
+document.getElementById('btn-save').addEventListener('click', async () => {
+  if (!editorItem || !editorJf) return
+  const btn    = document.getElementById('btn-save')
+  const status = document.getElementById('save-status')
+
+  btn.disabled  = true
+  btn.textContent = 'Saving…'
+  status.className = 'save-status'
+  status.textContent = ''
+
+  try {
+    const lrcText = exportLRC()
+
+    // Save to the Cascade Lyrics Jellyfin plugin — stored server-side as .slrc,
+    // shared across all users on the server.
+    const r = await fetch(`${editorJf.url}/Audio/${editorItem.Id}/CascadeLyrics`, {
+      method: 'POST',
+      headers: {
+        'X-Emby-Token': editorJf.token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ lrc: lrcText }),
+    })
+
+    if (!r.ok) throw new Error(`HTTP ${r.status}`)
+
+    status.className = 'save-status ok'
+    status.textContent = 'Saved ✓'
+    setTimeout(() => { status.textContent = '' }, 3000)
+  } catch (err) {
+    console.error('[LyricsEditor] Save error:', err)
+    status.className = 'save-status err'
+    status.textContent = `Failed: ${err.message}`
+  } finally {
+    btn.disabled  = false
+    btn.textContent = 'Save to Jellyfin'
+    document.getElementById('btn-save').disabled = false
+  }
+})
+
+// ── Playback ───────────────────────────────────────────────────────────────────
+
+const playBtn  = document.getElementById('btn-play')
+const timeDisp = document.getElementById('time-disp')
+
+function updateTimeDisp(cur, dur) {
+  timeDisp.textContent = `${secToDisplay(cur)} / ${secToDisplay(dur ?? (editorItem?.RunTimeTicks ?? 0) / 10_000_000)}`
+}
+
+playBtn.addEventListener('click', () => { audio.paused ? audio.play() : audio.pause() })
+audio.addEventListener('play',  () => { playBtn.textContent = '⏸' })
+audio.addEventListener('pause', () => { playBtn.textContent = '▶' })
+audio.addEventListener('ended', () => { playBtn.textContent = '▶' })
+
+audio.addEventListener('timeupdate', () => {
+  if (!scrubber._drag) scrubber.value = audio.currentTime
+  updateTimeDisp(audio.currentTime)
+})
+
+audio.addEventListener('loadedmetadata', () => {
+  scrubber.max = audio.duration || 100
+})
+
+scrubber.addEventListener('mousedown', () => { scrubber._drag = true })
+scrubber.addEventListener('mouseup',   () => {
+  scrubber._drag = false
+  audio.currentTime = parseFloat(scrubber.value)
+})
+scrubber.addEventListener('input', () => {
+  if (scrubber._drag) updateTimeDisp(parseFloat(scrubber.value))
+})
+
+// Keyboard shortcuts (when not in a text field)
+document.addEventListener('keydown', e => {
+  const tag = document.activeElement?.tagName
+  const editable = document.activeElement?.isContentEditable
+  if (tag === 'INPUT' || editable) return
+
+  if (e.code === 'Space')       { e.preventDefault(); audio.paused ? audio.play() : audio.pause() }
+  if (e.code === 'ArrowLeft')   { e.preventDefault(); audio.currentTime = Math.max(0, audio.currentTime - 5) }
+  if (e.code === 'ArrowRight')  { e.preventDefault(); audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + 5) }
+  if (e.key  === 'j')           audio.currentTime = Math.max(0, audio.currentTime - 1)
+  if (e.key  === 'l')           audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + 1)
+})
+</script>
+</body>
+</html>
