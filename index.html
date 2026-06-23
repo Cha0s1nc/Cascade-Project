@@ -257,12 +257,12 @@
     .np-overlay-close:hover { color: var(--text); }
     .np-overlay-body { flex: 1; display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; }
     /* Left: big art + info + controls */
-    .np-overlay-left { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 40px; gap: 24px; border-right: 1px solid var(--border); }
-    .np-overlay-art { width: min(280px, 40vh); height: min(280px, 40vh); border-radius: 12px; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 72px; flex-shrink: 0; }
+    .np-overlay-left { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: clamp(20px, 3.5vh, 48px) clamp(20px, 4vw, 56px); gap: clamp(14px, 2.5vh, 28px); border-right: 1px solid var(--border); }
+    .np-overlay-art { width: min(clamp(240px, 52vh, 520px), calc(100% - 32px)); aspect-ratio: 1; border-radius: 12px; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 72px; flex-shrink: 0; }
     .np-overlay-art img { width: 100%; height: 100%; object-fit: cover; }
     .np-overlay-info { text-align: center; width: 100%; }
-    .np-overlay-track { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; color: var(--text); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .np-overlay-artist { font-size: 14px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .np-overlay-track { font-size: clamp(17px, 2.4vh, 26px); font-weight: 600; letter-spacing: -0.02em; color: var(--text); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .np-overlay-artist { font-size: clamp(13px, 1.7vh, 17px); color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .np-overlay-controls { display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%; position: relative; }
     .ov-dropdown { position: fixed; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 4px; min-width: 210px; z-index: 400; display: none; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
     .ov-dropdown.open { display: block; }
@@ -942,14 +942,20 @@
             </div>
           </div>
           <div class="settings-group">
-            <div class="sg-title">Lyrics</div>
+            <div class="sg-title">Fetching</div>
             <div class="setting-row">
               <div class="setting-label">
-                <span class="setting-name">Server-only Lyrics</span>
-                <span class="setting-desc">Fetch lyrics exclusively from the Cascade Jellyfin plugin. Disables SyncLRC and LRCLIB.</span>
+                <span class="setting-name">Server-only Mode</span>
+                <span class="setting-desc">Fetch lyrics and album art exclusively from your Jellyfin server. Disables iTunes art, SyncLRC, and LRCLIB.</span>
               </div>
-              <input type="checkbox" id="server-only-lyrics-toggle">
+              <label class="toggle">
+                <input type="checkbox" id="server-only-lyrics-toggle">
+                <span class="toggle-track"></span>
+              </label>
             </div>
+          </div>
+          <div class="settings-group">
+            <div class="sg-title">Lyrics</div>
             <div class="setting-row" id="lyrics-source-row">
               <div class="setting-label">
                 <span class="setting-name">Lyrics Source</span>

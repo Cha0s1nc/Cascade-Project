@@ -8,6 +8,13 @@ let queueIndex = -1
 let shuffle = false
 let repeatMode = 'none' // 'none' | 'all' | 'one'
 let _unshuffledQueue = []   // original order saved when shuffle is enabled
+
+// Queue panel virtualisation
+const QUEUE_WIN      = 20   // rows kept in DOM at once
+const QUEUE_ROW_H    = 53   // approximate px per row (padding 8+8 + art 36 + border 1)
+const QUEUE_BEFORE   = 5    // rows to show before current track when re-centering
+let _queueWinStart   = 0    // index of first rendered row
+let _queueScrollBound = false
 let volume = 1.0
 
 const audio = new Audio()
@@ -32,12 +39,41 @@ function greeting() {
 
 function artUrl(itemId, tag) {
   if (!tag) return null
-  return `${jf.url}/Items/${itemId}/Images/Primary?fillHeight=200&fillWidth=200&quality=80&api_key=${jf.token}`
+  return `${jf.url}/Items/${itemId}/Images/Primary?fillHeight=600&fillWidth=600&quality=90&api_key=${jf.token}`
 }
 
 function artistArtUrl(itemId) {
-  return `${jf.url}/Items/${itemId}/Images/Primary?fillHeight=200&fillWidth=200&quality=80&api_key=${jf.token}`
+  return `${jf.url}/Items/${itemId}/Images/Primary?fillHeight=600&fillWidth=600&quality=90&api_key=${jf.token}`
 }
+
+// ── iTunes album art (high-res, no API key needed) ────────────────────────────
+const _itunesArtCache = new Map()
+
+async function fetchItunesArt(artist, album) {
+  const key = `${artist}|||${album}`.toLowerCase()
+  if (_itunesArtCache.has(key)) return _itunesArtCache.get(key)
+  _itunesArtCache.set(key, null) // mark in-flight to avoid duplicate requests
+  try {
+    const term = encodeURIComponent(`${artist} ${album}`.trim())
+    const r = await fetch(
+      `https://itunes.apple.com/search?term=${term}&entity=album&limit=5&media=music`,
+      { signal: AbortSignal.timeout(7000) }
+    )
+    if (!r.ok) return null
+    const d = await r.json()
+    const result = d.results?.[0]
+    if (!result?.artworkUrl100) return null
+    // Scale from 100px thumbnail to 600px — just replace the size token in the URL
+    const url = result.artworkUrl100.replace(/\d+x\d+bb/, '600x600bb')
+    _itunesArtCache.set(key, url)
+    return url
+  } catch {
+    return null
+  }
+}
+
+// Tracks the best available art URL for the current track (iTunes > Jellyfin)
+let _currentHighResArtUrl = null
 
 function streamUrl(itemId) {
   return `${jf.url}/Audio/${itemId}/universal?UserId=${jf.userId}&api_key=${jf.token}&Container=opus,mp3,aac,flac,wav,ogg&TranscodingContainer=ts&TranscodingProtocol=hls&AudioCodec=aac&MaxStreamingBitrate=140000000`
@@ -793,7 +829,10 @@ function updateNowPlaying(item) {
     _prefetchUpcoming()
   }
 
+  _currentHighResArtUrl = null // reset for new track
+
   const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
+  _currentHighResArtUrl = art  // Jellyfin 600px as immediate baseline
   const artEl = document.getElementById('np-art')
   if (art) {
     artEl.innerHTML = `<img src="${art}" alt="" onerror="this.innerHTML='♪'">`
@@ -845,10 +884,10 @@ function updateNowPlaying(item) {
   rpcTrackStart = Date.now()
   updateDiscordPresence(item)
 
-  // Album art accent: fetch through our auth header so canvas isn't tainted by CORS
+  // Album art accent: fetch for canvas color extraction (api_key is in URL, no extra header needed)
   if (themeAlbumArt && art) {
-    _currentBgArtUrl = art  // store for overlay background
-    fetch(art, { headers: { 'X-Emby-Token': jf.token } })
+    _currentBgArtUrl = art
+    fetch(art)
       .then(r => r.blob())
       .then(blob => {
         const objectUrl = URL.createObjectURL(blob)
@@ -858,6 +897,39 @@ function updateNowPlaying(item) {
         img.src = objectUrl
       })
       .catch(() => {})
+  }
+
+  // Upgrade to iTunes high-res art in normal mode (async — replaces Jellyfin art when resolved)
+  if (!serverOnlyMode) {
+    const artist = item.AlbumArtist || item.Artists?.[0] || ''
+    const album  = item.Album || ''
+    const itemId = item.Id
+    fetchItunesArt(artist, album).then(itunesUrl => {
+      if (!itunesUrl || queue[queueIndex]?.Id !== itemId) return  // track changed or not found
+      _currentHighResArtUrl = itunesUrl
+      _currentBgArtUrl = itunesUrl
+      // Update status bar art
+      document.getElementById('np-art').innerHTML = `<img src="${itunesUrl}" alt="" onerror="this.innerHTML='♪'">`
+      // Update overlay art if open
+      document.getElementById('ov-art').innerHTML = `<img src="${itunesUrl}" alt="" onerror="this.innerHTML='♪'">`
+      // Update OS Now Playing widget
+      if ('mediaSession' in navigator && navigator.mediaSession.metadata) {
+        navigator.mediaSession.metadata.artwork = [{ src: itunesUrl, sizes: '600x600', type: 'image/jpeg' }]
+      }
+      // Re-run color extraction with the higher-quality source
+      if (themeAlbumArt) {
+        fetch(itunesUrl)
+          .then(r => r.blob())
+          .then(blob => {
+            const objectUrl = URL.createObjectURL(blob)
+            const img = new Image()
+            img.onload = () => { applyAlbumArtTheme(img); URL.revokeObjectURL(objectUrl) }
+            img.onerror = () => URL.revokeObjectURL(objectUrl)
+            img.src = objectUrl
+          })
+          .catch(() => {})
+      }
+    })
   }
 }
 
@@ -1208,17 +1280,17 @@ async function loadSettingsFields() {
 
   // Server-only lyrics toggle
   const serverOnlyToggle = document.getElementById('server-only-lyrics-toggle')
-  serverOnlyToggle.checked = serverOnlyLyrics
+  serverOnlyToggle.checked = serverOnlyMode
   serverOnlyToggle.onchange = async () => {
-    serverOnlyLyrics = serverOnlyToggle.checked
-    await window.cascade.store.set('serverOnlyLyrics', serverOnlyLyrics)
-    _applyServerOnlyMode(serverOnlyLyrics)
+    serverOnlyMode = serverOnlyToggle.checked
+    await window.cascade.store.set('serverOnlyMode', serverOnlyMode)
+    _applyServerOnlyMode(serverOnlyMode)
     // Reset forced source if it's incompatible with the new mode
     const isServerSource = ['cascade-karaoke', 'cascade-synced'].includes(lyricsForcedSource)
-    if (serverOnlyLyrics && !isServerSource && lyricsForcedSource !== 'auto') {
+    if (serverOnlyMode && !isServerSource && lyricsForcedSource !== 'auto') {
       lyricsForcedSource = 'auto'
       await window.cascade.store.set('lyricsForcedSource', 'auto')
-    } else if (!serverOnlyLyrics && isServerSource) {
+    } else if (!serverOnlyMode && isServerSource) {
       lyricsForcedSource = 'auto'
       await window.cascade.store.set('lyricsForcedSource', 'auto')
     }
@@ -1234,7 +1306,7 @@ async function loadSettingsFields() {
   // Lyrics source preference
   const lyricsSourceSel = document.getElementById('s-lyrics-source')
   lyricsSourceSel.value = (await window.cascade.store.get('lyricsForcedSource')) || 'auto'
-  _applyServerOnlyMode(serverOnlyLyrics)  // apply visibility after options exist in DOM
+  _applyServerOnlyMode(serverOnlyMode)  // apply visibility after options exist in DOM
   lyricsSourceSel.onchange = async () => {
     lyricsForcedSource = lyricsSourceSel.value
     await window.cascade.store.set('lyricsForcedSource', lyricsForcedSource)
@@ -1476,9 +1548,9 @@ function openOverlay() {
     }
     const item = queue[queueIndex]
     if (item) {
-      const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
+      const art = _currentHighResArtUrl || artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
       if (art) {
-        fetch(art, { headers: { 'X-Emby-Token': jf.token } })
+        fetch(art)
           .then(r => r.blob())
           .then(blob => {
             const objectUrl = URL.createObjectURL(blob)
@@ -1643,8 +1715,8 @@ function syncOverlayState() {
   const item = queue[queueIndex]
   if (!item) return
 
-  // Art
-  const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
+  // Art — prefer high-res (iTunes if available, else Jellyfin 600px)
+  const art = _currentHighResArtUrl || artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
   const artEl = document.getElementById('ov-art')
   artEl.innerHTML = art ? `<img src="${art}" alt="" onerror="this.innerHTML='♪'">` : '♪'
 
@@ -1662,12 +1734,40 @@ function syncOverlayState() {
 
 function renderQueuePanel() {
   const container = document.getElementById('ov-queue-rows')
+  const panel     = document.getElementById('ov-panel-queue')
   if (!queue.length) { container.innerHTML = '<div class="empty-state" style="padding:40px 0">Queue is empty</div>'; return }
 
-  container.innerHTML = queue.map((item, i) => {
-    const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
+  // Bind scroll listener once — shifts the render window as the user scrolls
+  if (!_queueScrollBound) {
+    _queueScrollBound = true
+    panel.addEventListener('scroll', () => {
+      if (!queue.length) return
+      const visStart = Math.floor(panel.scrollTop / QUEUE_ROW_H)
+      const visEnd   = visStart + Math.ceil(panel.clientHeight / QUEUE_ROW_H)
+      const nearTop  = visStart < _queueWinStart + 3
+      const nearBot  = visEnd   > _queueWinStart + QUEUE_WIN - 3
+      if (nearTop || nearBot) {
+        _queueWinStart = Math.max(0, Math.min(visStart - 3, queue.length - QUEUE_WIN))
+        _drawQueueRows(container, false)
+      }
+    }, { passive: true })
+  }
+
+  // Re-centre window on the current track
+  _queueWinStart = Math.max(0, Math.min(queueIndex - QUEUE_BEFORE, queue.length - QUEUE_WIN))
+  _drawQueueRows(container, true)
+}
+
+function _drawQueueRows(container, scrollToCurrent) {
+  const winEnd = Math.min(queue.length, _queueWinStart + QUEUE_WIN)
+  const topH   = _queueWinStart * QUEUE_ROW_H
+  const botH   = (queue.length - winEnd) * QUEUE_ROW_H
+
+  const rows = queue.slice(_queueWinStart, winEnd).map((item, idx) => {
+    const i     = _queueWinStart + idx
+    const art   = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
     const thumb = art ? `<img src="${art}" alt="" onerror="this.style.display='none'">` : '♪'
-    const dur = fmtTime((item.RunTimeTicks || 0) / 10000000)
+    const dur   = fmtTime((item.RunTimeTicks || 0) / 10000000)
     return `<div class="queue-row${i === queueIndex ? ' current' : ''}" data-qi="${i}" draggable="true">
       <div class="queue-row-drag" title="Drag to reorder">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="18" x2="16" y2="18"/></svg>
@@ -1684,12 +1784,17 @@ function renderQueuePanel() {
     </div>`
   }).join('')
 
+  // Spacer divs preserve the panel's total scroll height
+  container.innerHTML =
+    `<div style="height:${topH}px;flex-shrink:0"></div>` +
+    rows +
+    `<div style="height:${botH}px;flex-shrink:0"></div>`
+
   let dragSrc = null
 
   container.querySelectorAll('.queue-row').forEach(el => {
     const qi = parseInt(el.dataset.qi)
 
-    // Play on click (but not on drag handle or remove button)
     el.addEventListener('click', (e) => {
       if (e.target.closest('.queue-row-drag, .queue-row-remove')) return
       queueIndex = qi
@@ -1697,7 +1802,6 @@ function renderQueuePanel() {
       renderQueuePanel()
     })
 
-    // Remove button
     el.querySelector('.queue-row-remove').addEventListener('click', (e) => {
       e.stopPropagation()
       const idx = parseInt(el.dataset.qi)
@@ -1706,7 +1810,6 @@ function renderQueuePanel() {
       renderQueuePanel()
     })
 
-    // Drag to reorder
     el.addEventListener('dragstart', (e) => {
       dragSrc = el
       el.classList.add('dragging')
@@ -1727,10 +1830,9 @@ function renderQueuePanel() {
       e.preventDefault()
       if (!dragSrc || dragSrc === el) return
       const from = parseInt(dragSrc.dataset.qi)
-      const to = parseInt(el.dataset.qi)
+      const to   = parseInt(el.dataset.qi)
       const [moved] = queue.splice(from, 1)
       queue.splice(to, 0, moved)
-      // Keep queueIndex pointing at the same track
       if (queueIndex === from) queueIndex = to
       else if (from < queueIndex && to >= queueIndex) queueIndex--
       else if (from > queueIndex && to <= queueIndex) queueIndex++
@@ -1738,9 +1840,10 @@ function renderQueuePanel() {
     })
   })
 
-  // Scroll current track into view
-  const current = container.querySelector('.queue-row.current')
-  if (current) current.scrollIntoView({ block: 'center' })
+  if (scrollToCurrent) {
+    const current = container.querySelector('.queue-row.current')
+    if (current) current.scrollIntoView({ block: 'nearest' })
+  }
 }
 
 async function renderOverlayLyrics() {
@@ -2175,13 +2278,13 @@ document.getElementById('ctx-delete').addEventListener('click', async () => {
 
 let lyricsSource        = null   // source that was actually used ('Cascade', 'SyncLRC', …)
 let lyricsForcedSource  = 'auto' // 'auto' | 'LRCLIB' | 'Jellyfin' | 'cascade-karaoke' | 'cascade-synced'
-let serverOnlyLyrics    = false  // fetch exclusively from Cascade plugin when true
+let serverOnlyMode    = false  // fetch exclusively from Cascade plugin when true
 
 // Load persisted preferences immediately
 ;(async () => {
   lyricsForcedSource = (await window.cascade.store.get('lyricsForcedSource')) || 'auto'
-  serverOnlyLyrics   = (await window.cascade.store.get('serverOnlyLyrics')) === true
-  _applyServerOnlyMode(serverOnlyLyrics)
+  serverOnlyMode   = (await window.cascade.store.get('serverOnlyMode')) === true
+  _applyServerOnlyMode(serverOnlyMode)
 })()
 
 function _applyServerOnlyMode(on) {
@@ -2488,7 +2591,7 @@ async function fetchLyricsWaterfall(item) {
   )
 
   // ── Server-only mode: exclusively hit the Cascade plugin ─────────────────────
-  if (serverOnlyLyrics) {
+  if (serverOnlyMode) {
     const wantType = forced === 'cascade-karaoke' ? 'karaoke'
                    : forced === 'cascade-synced'  ? 'synced'
                    : null   // auto = accept either (plugin returns karaoke first)

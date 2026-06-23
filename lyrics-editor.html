@@ -480,7 +480,7 @@ body {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 0;
+  gap: 4px;
   overflow: hidden;
 }
 .kp-hint { font-size: 12px; color: rgba(255,255,255,0.18); }
@@ -490,7 +490,7 @@ body {
   color: rgba(255,255,255,0.25);
   transition: color 0.07s, text-shadow 0.07s;
   white-space: nowrap;
-  padding: 0 3px;
+  padding: 0;
 }
 .kp-word.past { color: rgba(255,255,255,0.45); }
 .kp-word.active {
@@ -712,8 +712,10 @@ function parseLRCText(text) {
     const words = []
     while ((wm = wordPattern.exec(rest)) !== null) {
       const wStart = parseLRCTime(wm[1])
-      const wText  = wm[2].trimEnd()
-      if (wStart === null || !wText) continue
+      // Preserve trailing space — it's the word separator in enhanced LRC.
+      // e.g. ">Till <next>" → Text:"Till " so karaoke preview renders with natural spacing.
+      const wText  = wm[2]
+      if (wStart === null || !wText.trim()) continue
       words.push({ Start: ticksFromSec(wStart), End: null, Text: wText })
     }
 
@@ -723,7 +725,8 @@ function parseLRCText(text) {
     }
 
     if (words.length > 0) {
-      lines.push({ Start: ticksFromSec(lineStart), End: null, Text: words.map(w => w.Text).join(' '), Words: words })
+      // Join without extra space (trailing spaces already embedded in each Text)
+      lines.push({ Start: ticksFromSec(lineStart), End: null, Text: words.map(w => w.Text).join('').trim(), Words: words })
     } else {
       // Plain line — strip any leftover word tags
       const plainText = rest.replace(/<[^>]*>/g, '').trim()
@@ -851,7 +854,7 @@ function makeWordPill(li, wi, word) {
     + (isStampNext ? ' stamp-next' : '')
   pill.dataset.li = li
   pill.dataset.wi = wi
-  pill.textContent = word.text
+  pill.textContent = word.text.trimEnd()
   pill.title = 'Click to select · Double-click to edit text'
   pill.addEventListener('click',    e => { e.stopPropagation(); selectWord(li, wi) })
   pill.addEventListener('dblclick', e => { e.stopPropagation(); beginWordEdit(pill, li, wi) })
@@ -906,7 +909,7 @@ function renderInspector() {
 
     appendInspLabel(insp, 'WORD')
 
-    const textInp = appendInspInput(insp, word.text, 'word text', true)
+    const textInp = appendInspInput(insp, word.text.trimEnd(), 'word text', true)
     textInp.addEventListener('input', () => {
       editorLines[li].words[wi].text = textInp.value
       markDirty()
@@ -1263,7 +1266,7 @@ function updateKaraokePreview() {
     // Re-render word spans only when the active line changes
     if (_kpActiveLi !== activeLi) {
       preview.innerHTML = line.words
-        .map((w, wi) => `<span class="kp-word" data-wi="${wi}">${escHtml(w.text)}</span>`)
+        .map((w, wi) => `<span class="kp-word" data-wi="${wi}">${escHtml(w.text.trimEnd())}</span>`)
         .join('')
       _kpActiveLi = activeLi
     }
@@ -1292,7 +1295,17 @@ function exportLRC() {
   return editorLines.map(line => {
     const lt = `[${ticksToLRC(secToTicks(line.start ?? 0))}]`
     if (line.words && line.words.length) {
-      const ws = line.words.map(w => `<${ticksToLRC(secToTicks(w.start ?? 0))}>${w.text}`).join('')
+      const ws = line.words.map((w, wi) => {
+        let text = w.text
+        // Ensure trailing space between words (standard enhanced LRC format).
+        // Words from server/file import already have it; user-edited words may not.
+        if (wi < line.words.length - 1) {
+          if (!text.endsWith(' ')) text = text + ' '
+        } else {
+          text = text.trimEnd()  // no trailing space on last word
+        }
+        return `<${ticksToLRC(secToTicks(w.start ?? 0))}>${text}`
+      }).join('')
       return `${lt}${ws}`
     }
     return `${lt}${line.text}`
