@@ -2174,7 +2174,7 @@ document.getElementById('ctx-delete').addEventListener('click', async () => {
 // ── Lyrics panel ──────────────────────────────────────────────────────────────
 
 let lyricsSource        = null   // source that was actually used ('Cascade', 'SyncLRC', …)
-let lyricsForcedSource  = 'auto' // 'auto' | 'SyncLRC' | 'LRCLIB' | 'Jellyfin' | 'cascade-karaoke' | 'cascade-synced'
+let lyricsForcedSource  = 'auto' // 'auto' | 'LRCLIB' | 'Jellyfin' | 'cascade-karaoke' | 'cascade-synced'
 let serverOnlyLyrics    = false  // fetch exclusively from Cascade plugin when true
 
 // Load persisted preferences immediately
@@ -2192,7 +2192,7 @@ function _applyServerOnlyMode(on) {
     .forEach(el => { el.style.display = on ? '' : 'none' })
   // Update Auto hint to reflect mode
   const autoHint = document.getElementById('lsd-auto-hint')
-  if (autoHint) autoHint.textContent = on ? 'Server · karaoke preferred' : 'Cascade → SyncLRC → LRCLIB → Jellyfin'
+  if (autoHint) autoHint.textContent = on ? 'Server · karaoke preferred' : 'Cascade → LRCLIB → Jellyfin'
   // Settings select options (Auto option has no class so is always visible)
   const sel = document.getElementById('s-lyrics-source')
   if (!sel) return
@@ -2454,7 +2454,7 @@ function _lyricsTextMatch(a, b) {
 
 // Per-source status from the most recent waterfall run.
 // Values: 'ok' | 'fail' | 'skip' | null (never tried this session)
-let _lastFetchStatus = { SyncLRC: null, LRCLIB: null, Jellyfin: null }
+let _lastFetchStatus = { Cascade: null, LRCLIB: null, Jellyfin: null }
 
 // Cache: itemId → result object. Keeps the last 50 tracks so reopening
 // lyrics or the overlay is instant without re-fetching.
@@ -2464,7 +2464,7 @@ function _cachePut(id, result) {
   _lyricsCache.set(id, result)
 }
 
-// Main fetch: SyncLRC · LRCLIB · Jellyfin — all fired in parallel,
+// Main fetch: LRCLIB · Jellyfin — all fired in parallel,
 // resolved in priority order. Respects lyricsForcedSource.
 // Returns { lines, source, tried } | { instrumental: true } | null.
 const _isAbort = e => e?.name === 'AbortError' || e?.name === 'TimeoutError'
@@ -2481,7 +2481,7 @@ async function fetchLyricsWaterfall(item) {
   const duration = Math.round((item.RunTimeTicks || 0) / 10_000_000)
   const sig      = { signal: AbortSignal.timeout(8000) }
 
-  // Strip "Track - Artist" metadata lines SyncLRC embeds at the top of karaoke
+  // Strip "Track - Artist" metadata lines some sources embed at the top
   const metaPattern = new RegExp(
     `^${(item.Name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*-\\s*`,
     'i'
@@ -2528,21 +2528,7 @@ async function fetchLyricsWaterfall(item) {
       const lines = parseLRC(d.lrc).filter(l => !metaPattern.test(l.Text))
       return lines.length ? { lines, source: 'Cascade' } : null
     }],
-    ['SyncLRC', async () => {
-      // Request karaoke explicitly — with type=karaoke the API returns { lyrics: "<enhanced LRC>" }
-      const r = await fetch(
-        `https://api.synclrc.dev/lyrics?track=${title}&artist=${artist}&album=${album}&duration=${duration}&type=karaoke`,
-        { ...sig, cache: 'reload', headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' } })
-      if (!r.ok) throw new Error(`HTTP ${r.status}`)
-      const d = await r.json()
-      if (d.instrumental) return { instrumental: true }
-      // d.lyrics should be enhanced LRC (contains word timestamps with <...>)
-      const lrcText = typeof d.lyrics === 'string' && d.lyrics.includes('<') ? d.lyrics : null
-      if (!lrcText) return null
-      const lines = parseLRC(lrcText).filter(l => !metaPattern.test(l.Text))
-      if (!lines.length || !lines.some(l => l.Words)) return null
-      return { lines, source: 'SyncLRC' }
-    }],
+    // SyncLRC removed — API is behind Cloudflare browser challenge, not programmatically accessible.
     ['LRCLIB', async () => {
       const r = await fetch(
         `https://lrclib.net/api/get?artist_name=${artist}&track_name=${title}&album_name=${album}&duration=${duration}`, sig)
@@ -2572,7 +2558,7 @@ async function fetchLyricsWaterfall(item) {
     }]
   ]
 
-  const tried = { Cascade: null, SyncLRC: null, LRCLIB: null, Jellyfin: null }
+  const tried = { Cascade: null, LRCLIB: null, Jellyfin: null }
 
   // Forced source: single fetch only, never cache result
   if (forced) {
@@ -2592,16 +2578,16 @@ async function fetchLyricsWaterfall(item) {
     }
   }
 
-  // Fire all sources simultaneously, then crosscheck SyncLRC against reference sources
-  const [cascProm, syncProm, lrcProm, jfProm] = sources.map(([name, fn]) =>
+  // Fire all sources simultaneously
+  const [cascProm, lrcProm, jfProm] = sources.map(([name, fn]) =>
     fn().then(r => ({ name, result: r }))
       .catch(err => { if (!_isAbort(err)) console.error(`[Lyrics] ${name} error:`, err); return { name, result: null } })
   )
 
-  const [cascRes, syncRes, lrcRes, jfRes] = await Promise.all([cascProm, syncProm, lrcProm, jfProm])
+  const [cascRes, lrcRes, jfRes] = await Promise.all([cascProm, lrcProm, jfProm])
 
   // Instrumental check (any source can flag it)
-  for (const { result } of [cascRes, syncRes, lrcRes, jfRes]) {
+  for (const { result } of [cascRes, lrcRes, jfRes]) {
     if (result?.instrumental) {
       _lastFetchStatus = tried
       _cachePut(item.Id, { instrumental: true })
@@ -2609,27 +2595,11 @@ async function fetchLyricsWaterfall(item) {
     }
   }
 
-  // Cascade plugin result is trusted — no crosscheck needed (user-uploaded)
   tried['Cascade'] = cascRes.result ? 'ok' : 'fail'
-
-  // Validate SyncLRC against LRCLIB/Jellyfin — reject if clearly a wrong match
-  let syncResult = syncRes.result
-  if (syncResult) {
-    const ref = lrcRes.result || jfRes.result
-    if (ref && !_lyricsTextMatch(syncResult, ref)) {
-      console.warn('[Lyrics] SyncLRC rejected: text mismatch vs reference source')
-      syncResult = null
-      tried['SyncLRC'] = 'fail'
-    } else {
-      tried['SyncLRC'] = 'ok'
-    }
-  } else {
-    tried['SyncLRC'] = 'fail'
-  }
-  tried['LRCLIB']   = lrcRes.result ? 'ok' : 'fail'
+  tried['LRCLIB']  = lrcRes.result  ? 'ok' : 'fail'
   tried['Jellyfin'] = jfRes.result  ? 'ok' : 'fail'
 
-  const winner = cascRes.result || syncResult || lrcRes.result || jfRes.result
+  const winner = cascRes.result || lrcRes.result || jfRes.result
   if (winner) {
     _lastFetchStatus = tried
     const out = { ...winner, tried }

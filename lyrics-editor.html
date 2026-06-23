@@ -364,6 +364,43 @@ body {
 }
 .scrubber:hover::-webkit-slider-thumb { transform: scale(1.2); }
 
+.speed-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.speed-label {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  color: rgba(255,255,255,0.4);
+  min-width: 36px;
+  text-align: right;
+  cursor: pointer;
+  user-select: none;
+}
+.speed-label:hover { color: rgba(255,255,255,0.7); }
+.speed-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 72px;
+  height: 3px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 2px;
+  cursor: pointer;
+  outline: none;
+}
+.speed-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 11px;
+  height: 11px;
+  background: rgba(255,255,255,0.9);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+.speed-slider:hover::-webkit-slider-thumb { transform: scale(1.2); }
+
 .time-disp {
   font-family: 'SF Mono', 'Fira Code', monospace;
   font-size: 11px;
@@ -371,6 +408,99 @@ body {
   flex-shrink: 0;
   min-width: 130px;
   text-align: right;
+}
+
+/* ── Stamp Mode ── */
+.stamp-mode-bar {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 16px;
+  background: rgba(255,160,0,0.07);
+  border-bottom: 1px solid rgba(255,160,0,0.18);
+  flex-shrink: 0;
+  font-size: 12px;
+  color: rgba(255,185,45,0.9);
+}
+.stamp-mode-bar.visible { display: flex; }
+.stamp-mode-bar kbd {
+  background: rgba(255,160,0,0.15);
+  border: 1px solid rgba(255,160,0,0.3);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 11px;
+  font-family: inherit;
+}
+.stamp-mode-bar .stamp-progress {
+  margin-left: auto;
+  font-size: 11px;
+  color: rgba(255,185,45,0.6);
+  font-variant-numeric: tabular-nums;
+}
+
+.word-pill.stamp-next {
+  background: rgba(255,160,0,0.18) !important;
+  border-color: rgba(255,160,0,0.6) !important;
+  color: #fff !important;
+  box-shadow: 0 0 0 2px rgba(255,160,0,0.22);
+}
+.line-time.stamp-next {
+  color: rgba(255,210,60,1);
+  background: rgba(255,160,0,0.15);
+  border-radius: 3px;
+  box-shadow: 0 0 0 2px rgba(255,160,0,0.2);
+}
+
+.btn-stamp-mode {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.7);
+  border-radius: 6px;
+  padding: 5px 11px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  -webkit-app-region: no-drag;
+  white-space: nowrap;
+}
+.btn-stamp-mode:hover { background: rgba(255,255,255,0.12); color: #fff; }
+.btn-stamp-mode.active {
+  background: rgba(255,160,0,0.15);
+  border-color: rgba(255,160,0,0.45);
+  color: rgba(255,210,60,1);
+}
+
+/* ── Karaoke preview ── */
+.karaoke-preview {
+  min-height: 46px;
+  max-height: 46px;
+  padding: 0 16px;
+  background: #13131a;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  overflow: hidden;
+}
+.kp-hint { font-size: 12px; color: rgba(255,255,255,0.18); }
+.kp-word {
+  font-size: 16px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.25);
+  transition: color 0.07s, text-shadow 0.07s;
+  white-space: nowrap;
+  padding: 0 3px;
+}
+.kp-word.past { color: rgba(255,255,255,0.45); }
+.kp-word.active {
+  color: #fff;
+  text-shadow: 0 0 16px rgba(110,79,246,0.8);
+}
+.kp-plain {
+  font-size: 16px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.5);
 }
 </style>
 </head>
@@ -386,6 +516,9 @@ body {
   </div>
   <div class="header-actions">
     <button class="btn" id="btn-import">Import current lyrics</button>
+    <button class="btn" id="btn-file-import">Import .lrc / .slrc</button>
+    <input type="file" id="file-import" accept=".lrc,.slrc" style="display:none">
+    <button class="btn-stamp-mode" id="btn-stamp-mode">⏱ Stamp Mode</button>
     <span class="save-status" id="save-status"></span>
     <button class="btn-primary" id="btn-save" disabled>Save to Jellyfin</button>
   </div>
@@ -395,12 +528,25 @@ body {
   <span class="insp-hint">Select a line or word to edit timestamps</span>
 </div>
 
+<div class="stamp-mode-bar" id="stamp-mode-bar">
+  ⏱ <strong>Stamp Mode</strong> — press <kbd>Space</kbd> to stamp highlighted word · <kbd>Esc</kbd> to exit
+  <span class="stamp-progress" id="stamp-progress"></span>
+</div>
+
+<div class="karaoke-preview" id="karaoke-preview">
+  <span class="kp-hint">Play audio to see karaoke preview</span>
+</div>
+
 <div class="lines-area" id="lines-area"></div>
 
 <div class="playback-bar">
   <button class="btn-play" id="btn-play">▶</button>
   <input type="range" class="scrubber" id="scrubber" min="0" max="100" step="0.001" value="0">
   <div class="time-disp" id="time-disp">0:00.000 / 0:00.000</div>
+  <div class="speed-control">
+    <input type="range" class="speed-slider" id="speed-slider" min="0.25" max="2" step="0.05" value="1">
+    <span class="speed-label" id="speed-label" title="Double-click to reset to 1×">1×</span>
+  </div>
 </div>
 
 <audio id="audio" preload="none"></audio>
@@ -413,6 +559,14 @@ let editorJf    = null   // { url, token }
 let initLines   = []     // original lines passed at open (for re-import)
 let editorLines = []     // working copy: [{ start, text, words: [{start,end,text}]|null }]
 let sel         = null   // { type:'line'|'word', li, wi? }
+
+// ── Stamp Mode state ───────────────────────────────────────────────────────────
+let stampMode  = false
+let stampSeq   = []   // flat array of { type:'word'|'line', li, wi? }
+let stampIdx   = 0
+
+// ── Karaoke preview state ──────────────────────────────────────────────────────
+let _kpActiveLi = -1  // last rendered active line index (avoid redundant re-renders)
 
 const audio   = document.getElementById('audio')
 const scrubber = document.getElementById('scrubber')
@@ -467,8 +621,8 @@ window.lyricsEditor.onInit(({ item, jf, lyricsData }) => {
   art.src = `${jf.url}/Items/${item.Id}/Images/Primary?api_key=${jf.token}&width=96&quality=90`
   art.onerror = () => { art.style.visibility = 'hidden' }
 
-  // Audio stream
-  audio.src = `${jf.url}/Audio/${item.Id}/universal?api_key=${jf.token}&MaxStreamingBitrate=140000000`
+  // Audio stream — same params as streamUrl() in renderer.js
+  audio.src = `${jf.url}/Audio/${item.Id}/universal?UserId=${jf.userId}&api_key=${jf.token}&Container=opus,mp3,aac,flac,wav,ogg&TranscodingContainer=ts&TranscodingProtocol=hls&AudioCodec=aac&MaxStreamingBitrate=140000000`
   const durSec = (item.RunTimeTicks || 0) / 10_000_000
   scrubber.max = durSec || 100
   updateTimeDisp(0, durSec)
@@ -487,6 +641,7 @@ window.lyricsEditor.onInit(({ item, jf, lyricsData }) => {
 })
 
 function loadLyricsData(lyricsData) {
+  if (stampMode) exitStampMode()
   initLines = lyricsData
   editorLines = lyricsData.map(l => ({
     start: l.Start != null ? l.Start / 10_000_000 : null,   // store as seconds internally
@@ -498,15 +653,111 @@ function loadLyricsData(lyricsData) {
     })) : null,
   }))
   sel = null
+  _kpActiveLi = -1
   renderLines()
   renderInspector()
 }
+
+document.getElementById('btn-stamp-mode').addEventListener('click', toggleStampMode)
 
 document.getElementById('btn-import').addEventListener('click', () => {
   if (!initLines.length) return
   if (editorLines.length && !confirm('Re-import? This will overwrite your edits.')) return
   loadLyricsData(initLines)
   markDirty()
+})
+
+// ── .lrc / .slrc file import ───────────────────────────────────────────────────
+
+function parseLRCText(text) {
+  // Parses standard and enhanced (karaoke) LRC into editorLines format.
+  // Enhanced lines:  [mm:ss.xx]<mm:ss.xx>word1 <mm:ss.xx>word2 ...
+  // Plain lines:     [mm:ss.xx]line text
+  // Meta tags ([ar:], [ti:], etc.) and blank lines are skipped.
+
+  const META = /^\[(ar|al|ti|au|by|offset|re|ve):/i
+
+  function parseLRCTime(ts) {
+    // "mm:ss.xx" → seconds (number)
+    const m = ts.match(/^(\d+):(\d+(?:\.\d+)?)$/)
+    if (!m) return null
+    return parseInt(m[1], 10) * 60 + parseFloat(m[2])
+  }
+
+  function ticksFromSec(sec) {
+    // Convert seconds to .NET ticks (100-ns units) used by editorLines
+    return Math.round(sec * 1e7)
+  }
+
+  const lines = []
+
+  for (const raw of text.split('\n')) {
+    const trimmed = raw.trim()
+    if (!trimmed) continue
+    if (META.test(trimmed)) continue
+
+    // A line may have multiple time tags: [mm:ss.xx][mm:ss.xx]text
+    // We only support one tag per line here (standard usage).
+    const lineMatch = trimmed.match(/^\[(\d+:\d+(?:\.\d+)?)\](.*)$/)
+    if (!lineMatch) continue
+
+    const lineStart = parseLRCTime(lineMatch[1])
+    if (lineStart === null) continue
+
+    const rest = lineMatch[2]
+
+    // Check for inline word timestamps: <mm:ss.xx>word
+    const wordPattern = /<(\d+:\d+(?:\.\d+)?)>([^<]*)/g
+    let wm
+    const words = []
+    while ((wm = wordPattern.exec(rest)) !== null) {
+      const wStart = parseLRCTime(wm[1])
+      const wText  = wm[2].trimEnd()
+      if (wStart === null || !wText) continue
+      words.push({ Start: ticksFromSec(wStart), End: null, Text: wText })
+    }
+
+    // Set word End timestamps from the next word's Start (best-effort)
+    for (let i = 0; i < words.length - 1; i++) {
+      words[i].End = words[i + 1].Start
+    }
+
+    if (words.length > 0) {
+      lines.push({ Start: ticksFromSec(lineStart), End: null, Text: words.map(w => w.Text).join(' '), Words: words })
+    } else {
+      // Plain line — strip any leftover word tags
+      const plainText = rest.replace(/<[^>]*>/g, '').trim()
+      if (!plainText) continue
+      lines.push({ Start: ticksFromSec(lineStart), End: null, Text: plainText, Words: null })
+    }
+  }
+
+  return lines
+}
+
+document.getElementById('btn-file-import').addEventListener('click', () => {
+  document.getElementById('file-import').click()
+})
+
+document.getElementById('file-import').addEventListener('change', function () {
+  const file = this.files[0]
+  if (!file) return
+  if (editorLines.length && !confirm(`Import "${file.name}"? This will overwrite your current edits.`)) {
+    this.value = ''
+    return
+  }
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    const parsed = parseLRCText(e.target.result)
+    if (!parsed.length) {
+      alert('No valid LRC lines found in that file.')
+      return
+    }
+    loadLyricsData(parsed)
+    markDirty()
+  }
+  reader.readAsText(file, 'utf-8')
+  this.value = '' // reset so re-importing same file triggers change again
 })
 
 // ── Render lines ───────────────────────────────────────────────────────────────
@@ -529,7 +780,8 @@ function renderLines() {
     num.textContent = li + 1
 
     const time = document.createElement('div')
-    time.className = 'line-time'
+    const isLineStampNext = stampMode && stampSeq[stampIdx]?.type === 'line' && stampSeq[stampIdx]?.li === li
+    time.className = 'line-time' + (isLineStampNext ? ' stamp-next' : '')
     time.textContent = line.start != null ? secToDisplay(line.start) : '—'
     time.title = 'Click to edit line timestamp'
     time.addEventListener('click', e => { e.stopPropagation(); selectLine(li) })
@@ -573,6 +825,9 @@ function renderLines() {
       const dn = makeIconBtn('↓', 'Move down', false, () => moveLine(li, 1))
       acts.appendChild(dn)
     }
+    if (!line.words) {
+      acts.appendChild(makeIconBtn('W', 'Split into word pills', false, () => splitLineToWords(li)))
+    }
     acts.appendChild(makeIconBtn('×', 'Remove line', true, () => removeLine(li)))
 
     row.addEventListener('click', () => selectLine(li))
@@ -590,7 +845,10 @@ function renderLines() {
 
 function makeWordPill(li, wi, word) {
   const pill = document.createElement('div')
-  pill.className = 'word-pill' + (sel?.li === li && sel?.wi === wi ? ' sel-word' : '')
+  const isStampNext = stampMode && stampSeq[stampIdx]?.type === 'word' && stampSeq[stampIdx]?.li === li && stampSeq[stampIdx]?.wi === wi
+  pill.className = 'word-pill'
+    + (sel?.li === li && sel?.wi === wi ? ' sel-word' : '')
+    + (isStampNext ? ' stamp-next' : '')
   pill.dataset.li = li
   pill.dataset.wi = wi
   pill.textContent = word.text
@@ -785,6 +1043,7 @@ function refreshLineMeta(li) {
 // ── Line/word operations ───────────────────────────────────────────────────────
 
 function appendLine() {
+  if (stampMode) exitStampMode()
   editorLines.push({ start: null, text: '', words: null })
   markDirty()
   renderLines()
@@ -795,6 +1054,7 @@ function appendLine() {
 }
 
 function removeLine(li) {
+  if (stampMode) exitStampMode()
   editorLines.splice(li, 1)
   if (sel?.li === li) sel = null
   else if (sel?.li > li) sel = { ...sel, li: sel.li - 1 }
@@ -804,6 +1064,7 @@ function removeLine(li) {
 }
 
 function moveLine(li, dir) {
+  if (stampMode) exitStampMode()
   const target = li + dir
   if (target < 0 || target >= editorLines.length) return
   ;[editorLines[li], editorLines[target]] = [editorLines[target], editorLines[li]]
@@ -835,6 +1096,194 @@ function removeWord(li, wi) {
   markDirty()
   renderLines()
   renderInspector()
+}
+
+// ── Split line into word pills ─────────────────────────────────────────────────
+
+function splitLineToWords(li) {
+  const line = editorLines[li]
+  const words = (line.text || '').trim().split(/\s+/).filter(Boolean)
+  if (!words.length) return
+  if (stampMode) exitStampMode()
+  line.words = words.map(text => ({ start: null, end: null, text }))
+  markDirty()
+  _kpActiveLi = -1
+  renderLines()
+}
+
+// ── Stamp Mode ─────────────────────────────────────────────────────────────────
+
+function buildStampSequence() {
+  const seq = []
+  for (let li = 0; li < editorLines.length; li++) {
+    const line = editorLines[li]
+    if (line.words && line.words.length) {
+      for (let wi = 0; wi < line.words.length; wi++) {
+        seq.push({ type: 'word', li, wi })
+      }
+    } else {
+      seq.push({ type: 'line', li })
+    }
+  }
+  return seq
+}
+
+function enterStampMode() {
+  stampMode = true
+  stampSeq  = buildStampSequence()
+  stampIdx  = 0
+  document.getElementById('btn-stamp-mode').classList.add('active')
+  document.getElementById('stamp-mode-bar').classList.add('visible')
+  updateStampProgress()
+  // Apply initial highlight via re-render (to set classes on existing DOM)
+  applyStampHighlight(0)
+}
+
+function exitStampMode() {
+  // Remove all stamp highlights
+  document.querySelectorAll('.stamp-next').forEach(el => el.classList.remove('stamp-next'))
+  stampMode = false
+  stampSeq  = []
+  stampIdx  = 0
+  document.getElementById('btn-stamp-mode').classList.remove('active')
+  document.getElementById('stamp-mode-bar').classList.remove('visible')
+}
+
+function toggleStampMode() {
+  if (!editorLines.length) return
+  stampMode ? exitStampMode() : enterStampMode()
+}
+
+function stampNext() {
+  if (!stampMode || stampIdx >= stampSeq.length) return
+  const pos = stampSeq[stampIdx]
+  const now = nowSec()
+
+  // Auto-fill end time of the previous word
+  if (stampIdx > 0) {
+    const prev = stampSeq[stampIdx - 1]
+    if (prev.type === 'word' && editorLines[prev.li]?.words?.[prev.wi]) {
+      editorLines[prev.li].words[prev.wi].end = now
+    }
+  }
+
+  // Stamp current position
+  if (pos.type === 'word') {
+    if (editorLines[pos.li]?.words?.[pos.wi]) {
+      editorLines[pos.li].words[pos.wi].start = now
+      if (sel?.li === pos.li && sel?.wi === pos.wi) renderInspector()
+    }
+  } else {
+    editorLines[pos.li].start = now
+    refreshLineMeta(pos.li)
+    if (sel?.li === pos.li && sel?.type === 'line') renderInspector()
+  }
+  markDirty()
+
+  // Shift highlight from current to next
+  removeStampHighlight(pos)
+  stampIdx++
+  updateStampProgress()
+
+  if (stampIdx >= stampSeq.length) {
+    exitStampMode()
+  } else {
+    applyStampHighlight(stampIdx)
+  }
+}
+
+function applyStampHighlight(idx) {
+  if (idx < 0 || idx >= stampSeq.length) return
+  const pos = stampSeq[idx]
+  let el
+  if (pos.type === 'word') {
+    el = document.querySelector(`.word-pill[data-li="${pos.li}"][data-wi="${pos.wi}"]`)
+    if (el) { el.classList.add('stamp-next'); el.scrollIntoView({ block: 'nearest' }) }
+  } else {
+    el = document.querySelector(`.line-row[data-li="${pos.li}"] .line-time`)
+    if (el) {
+      el.classList.add('stamp-next')
+      el.closest('.line-row')?.scrollIntoView({ block: 'nearest' })
+    }
+  }
+}
+
+function removeStampHighlight(pos) {
+  if (!pos) return
+  if (pos.type === 'word') {
+    const el = document.querySelector(`.word-pill[data-li="${pos.li}"][data-wi="${pos.wi}"]`)
+    if (el) el.classList.remove('stamp-next')
+  } else {
+    const el = document.querySelector(`.line-row[data-li="${pos.li}"] .line-time`)
+    if (el) el.classList.remove('stamp-next')
+  }
+}
+
+function updateStampProgress() {
+  const el = document.getElementById('stamp-progress')
+  if (el && stampSeq.length) el.textContent = `${stampIdx + 1} / ${stampSeq.length}`
+}
+
+// ── Karaoke preview ────────────────────────────────────────────────────────────
+
+function escHtml(str) {
+  return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+function updateKaraokePreview() {
+  const preview = document.getElementById('karaoke-preview')
+  if (!preview) return
+
+  if (!editorLines.length) {
+    if (_kpActiveLi !== -99) { preview.innerHTML = '<span class="kp-hint">No lyrics loaded</span>'; _kpActiveLi = -99 }
+    return
+  }
+
+  const t = audio.currentTime
+  let activeLi = -1
+  for (let i = 0; i < editorLines.length; i++) {
+    if (editorLines[i].start != null && editorLines[i].start <= t) activeLi = i
+  }
+
+  if (activeLi < 0) {
+    const hasAnyTimestamp = editorLines.some(l => l.start != null)
+    const msg = hasAnyTimestamp
+      ? 'Waiting for first line…'
+      : 'No timestamps set — use Stamp Mode or click a line time to add them'
+    if (_kpActiveLi !== -2) {
+      preview.innerHTML = `<span class="kp-hint">${msg}</span>`
+      _kpActiveLi = -2
+    }
+    return
+  }
+
+  const line = editorLines[activeLi]
+
+  if (line.words && line.words.length) {
+    // Re-render word spans only when the active line changes
+    if (_kpActiveLi !== activeLi) {
+      preview.innerHTML = line.words
+        .map((w, wi) => `<span class="kp-word" data-wi="${wi}">${escHtml(w.text)}</span>`)
+        .join('')
+      _kpActiveLi = activeLi
+    }
+    // Find the active word (last word whose start <= t)
+    let activeWi = -1
+    for (let wi = 0; wi < line.words.length; wi++) {
+      if (line.words[wi].start != null && line.words[wi].start <= t) activeWi = wi
+    }
+    preview.querySelectorAll('.kp-word').forEach(el => {
+      const wi = parseInt(el.dataset.wi)
+      el.classList.toggle('active', wi === activeWi)
+      el.classList.toggle('past',   wi < activeWi)
+    })
+  } else {
+    // Plain text line — just show the text
+    if (_kpActiveLi !== activeLi) {
+      preview.innerHTML = `<span class="kp-plain">${escHtml(line.text)}</span>`
+      _kpActiveLi = activeLi
+    }
+  }
 }
 
 // ── LRC export ─────────────────────────────────────────────────────────────────
@@ -901,7 +1350,18 @@ function updateTimeDisp(cur, dur) {
   timeDisp.textContent = `${secToDisplay(cur)} / ${secToDisplay(dur ?? (editorItem?.RunTimeTicks ?? 0) / 10_000_000)}`
 }
 
-playBtn.addEventListener('click', () => { audio.paused ? audio.play() : audio.pause() })
+function tryPlay() {
+  const p = audio.play()
+  if (p && typeof p.catch === 'function') {
+    p.catch(err => {
+      console.error('[LyricsEditor] audio.play() failed:', err)
+      const status = document.getElementById('save-status')
+      if (status) { status.className = 'save-status err'; status.textContent = 'Audio error: ' + err.message }
+    })
+  }
+}
+
+playBtn.addEventListener('click', () => { audio.paused ? tryPlay() : audio.pause() })
 audio.addEventListener('play',  () => { playBtn.textContent = '⏸' })
 audio.addEventListener('pause', () => { playBtn.textContent = '▶' })
 audio.addEventListener('ended', () => { playBtn.textContent = '▶' })
@@ -909,6 +1369,7 @@ audio.addEventListener('ended', () => { playBtn.textContent = '▶' })
 audio.addEventListener('timeupdate', () => {
   if (!scrubber._drag) scrubber.value = audio.currentTime
   updateTimeDisp(audio.currentTime)
+  updateKaraokePreview()
 })
 
 audio.addEventListener('loadedmetadata', () => {
@@ -919,10 +1380,28 @@ scrubber.addEventListener('mousedown', () => { scrubber._drag = true })
 scrubber.addEventListener('mouseup',   () => {
   scrubber._drag = false
   audio.currentTime = parseFloat(scrubber.value)
+  _kpActiveLi = -1   // force karaoke preview re-render after seek
 })
 scrubber.addEventListener('input', () => {
   if (scrubber._drag) updateTimeDisp(parseFloat(scrubber.value))
 })
+
+// ── Speed control ──────────────────────────────────────────────────────────────
+
+const speedSlider = document.getElementById('speed-slider')
+const speedLabel  = document.getElementById('speed-label')
+
+function setSpeed(rate) {
+  rate = Math.min(2, Math.max(0.25, rate))
+  audio.playbackRate = rate
+  speedSlider.value  = rate
+  speedLabel.textContent = rate === 1 ? '1×' : rate.toFixed(2).replace(/\.?0+$/, '') + '×'
+}
+
+speedSlider.addEventListener('input', () => setSpeed(parseFloat(speedSlider.value)))
+
+// Double-click label resets to 1×
+speedLabel.addEventListener('dblclick', () => setSpeed(1))
 
 // Keyboard shortcuts (when not in a text field)
 document.addEventListener('keydown', e => {
@@ -930,7 +1409,17 @@ document.addEventListener('keydown', e => {
   const editable = document.activeElement?.isContentEditable
   if (tag === 'INPUT' || editable) return
 
-  if (e.code === 'Space')       { e.preventDefault(); audio.paused ? audio.play() : audio.pause() }
+  if (e.key === 'Escape' && stampMode) { e.preventDefault(); exitStampMode(); return }
+
+  if (stampMode) {
+    // In stamp mode: Space stamps the next word; arrow keys still seek
+    if (e.code === 'Space')      { e.preventDefault(); stampNext(); return }
+    if (e.code === 'ArrowLeft')  { e.preventDefault(); audio.currentTime = Math.max(0, audio.currentTime - 5) }
+    if (e.code === 'ArrowRight') { e.preventDefault(); audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + 5) }
+    return
+  }
+
+  if (e.code === 'Space')       { e.preventDefault(); audio.paused ? tryPlay() : audio.pause() }
   if (e.code === 'ArrowLeft')   { e.preventDefault(); audio.currentTime = Math.max(0, audio.currentTime - 5) }
   if (e.code === 'ArrowRight')  { e.preventDefault(); audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + 5) }
   if (e.key  === 'j')           audio.currentTime = Math.max(0, audio.currentTime - 1)

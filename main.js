@@ -298,11 +298,15 @@ function createWindow() {
     globalShortcut.register('MediaPlayPause',     () => send('playpause'))
     globalShortcut.register('MediaNextTrack',     () => send('next'))
     globalShortcut.register('MediaPreviousTrack', () => send('prev'))
-    globalShortcut.register('F12', () => { if (win && !win.isDestroyed()) win.webContents.toggleDevTools() })
+    win.webContents.on('before-input-event', (_e, input) => {
+      if (input.type === 'keyDown' && input.key === 'F12') win.webContents.toggleDevTools()
+    })
   })
 }
 
-app.whenReady().then(createWindow)
+app.whenReady().then(() => {
+  createWindow()
+})
 
 app.on('window-all-closed', () => {
   globalShortcut.unregisterAll()
@@ -408,6 +412,9 @@ ipcMain.on('open-lyrics-editor', (_e, data) => {
   lyricsEditorWindow.once('ready-to-show', () => {
     lyricsEditorWindow.show()
     lyricsEditorWindow.webContents.send('lyrics-editor-init', data)
+  })
+  lyricsEditorWindow.webContents.on('before-input-event', (_e, input) => {
+    if (input.type === 'keyDown' && input.key === 'F12') lyricsEditorWindow.webContents.toggleDevTools()
   })
   lyricsEditorWindow.on('closed', () => { lyricsEditorWindow = null })
 })
