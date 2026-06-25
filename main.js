@@ -568,6 +568,69 @@ ipcMain.handle('updater:dismiss', () => {
   if (updaterWindow && !updaterWindow.isDestroyed()) updaterWindow.close()
 })
 
+// IPC: Kugou KRC lyrics — word-level, no auth required
+// Search: http://lyrics.kugou.com/search   Download: http://lyrics.kugou.com/download
+// KRC decryption: skip 4-byte 'krc1' header, XOR with fixed 16-byte key, zlib inflate.
+;(function() {
+  const zlib    = require('zlib')
+  const KRC_KEY = Buffer.from([64, 71, 97, 119, 94, 50, 116, 71, 81, 54, 49, 45, 206, 210, 110, 105])
+
+  ipcMain.handle('kugou-lyrics', async (_e, { title, artist, durationMs }) => {
+    try {
+      const keyword   = `${artist} - ${title}`
+      const searchUrl = `http://lyrics.kugou.com/search?ver=1&man=yes&client=pc` +
+                        `&keyword=${encodeURIComponent(keyword)}&duration=${Math.round(durationMs)}`
+      const sRes  = await fetch(searchUrl, { signal: AbortSignal.timeout(8000) })
+      if (!sRes.ok) return null
+      const sData = await sRes.json()
+      const candidates = sData.candidates
+      if (!candidates?.length) return null
+
+      const { id, accesskey } = candidates[0]
+      const dlUrl = `http://lyrics.kugou.com/download?ver=1&client=pc` +
+                    `&id=${id}&accesskey=${accesskey}&fmt=krc&charset=utf8`
+      const dRes  = await fetch(dlUrl, { signal: AbortSignal.timeout(8000) })
+      if (!dRes.ok) return null
+      const dData = await dRes.json()
+      if (!dData.content) return null
+
+      // Decrypt KRC
+      const encrypted = Buffer.from(dData.content, 'base64')
+      const raw       = encrypted.slice(4)       // skip 'krc1' magic
+      const decrypted = Buffer.alloc(raw.length)
+      for (let i = 0; i < raw.length; i++) decrypted[i] = raw[i] ^ KRC_KEY[i % 16]
+      return zlib.inflateSync(decrypted).toString('utf8')
+    } catch (err) {
+      console.error('[Kugou] error:', err.message)
+      return null
+    }
+  })
+})()
+
+// IPC: main-process proxy fetch — bypasses CORS
+ipcMain.handle('proxy-fetch', async (_e, { url, method = 'GET', body, extraHeaders = {} }) => {
+  try {
+    const opts = {
+      method,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Musixmatch/0.19.4 Chrome/58.0.3029.110 Electron/1.7.6 Safari/537.36',
+        ...extraHeaders,
+      },
+      signal: AbortSignal.timeout(9000),
+    }
+    if (body) {
+      opts.body = body
+      opts.headers['Content-Type'] = 'application/x-www-form-urlencoded'
+    }
+    const r = await fetch(url, opts)
+    if (!r.ok) return { ok: false, status: r.status }
+    const text = await r.text()
+    return { ok: true, text }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
 // IPC: native context menu for now-playing
 ipcMain.handle('show-np-menu', (_e, actions) => {
   return new Promise((resolve) => {

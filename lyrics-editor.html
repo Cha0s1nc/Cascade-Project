@@ -271,6 +271,12 @@ body {
 }
 .btn-add-word:hover { border-color: rgba(255,255,255,0.3); color: rgba(255,255,255,0.6); }
 
+/* Word drag-and-drop */
+.word-pill[draggable] { cursor: grab; }
+.word-pill[draggable]:active { cursor: grabbing; }
+.word-pill.dragging { opacity: 0.25; }
+.word-pill.drop-before { box-shadow: -3px 0 0 0 rgba(110,79,246,0.9); }
+
 /* Row actions */
 .line-actions {
   display: flex;
@@ -554,6 +560,7 @@ body {
 <script>
 // ── State ──────────────────────────────────────────────────────────────────────
 
+let _dragWord   = null   // { li, wi } of pill being dragged
 let editorItem  = null   // Jellyfin item object
 let editorJf    = null   // { url, token }
 let initLines   = []     // original lines passed at open (for re-import)
@@ -570,6 +577,12 @@ let _kpActiveLi = -1  // last rendered active line index (avoid redundant re-ren
 
 const audio   = document.getElementById('audio')
 const scrubber = document.getElementById('scrubber')
+
+// Catch-all dragover on the lines area so the browser keeps "move" cursor
+// even when the pointer passes through gaps between pills.
+document.getElementById('lines-area').addEventListener('dragover', e => {
+  if (_dragWord) { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }
+})
 
 // ── Utilities ──────────────────────────────────────────────────────────────────
 
@@ -858,6 +871,38 @@ function makeWordPill(li, wi, word) {
   pill.title = 'Click to select · Double-click to edit text'
   pill.addEventListener('click',    e => { e.stopPropagation(); selectWord(li, wi) })
   pill.addEventListener('dblclick', e => { e.stopPropagation(); beginWordEdit(pill, li, wi) })
+
+  // Drag-to-reorder
+  pill.draggable = true
+  pill.addEventListener('dragstart', e => {
+    _dragWord = { li, wi }
+    requestAnimationFrame(() => pill.classList.add('dragging'))
+    e.dataTransfer.effectAllowed = 'move'
+  })
+  pill.addEventListener('dragend', () => {
+    pill.classList.remove('dragging')
+    document.querySelectorAll('.word-pill.drop-before').forEach(el => el.classList.remove('drop-before'))
+    _dragWord = null
+  })
+  pill.addEventListener('dragover', e => {
+    if (!_dragWord) return
+    if (_dragWord.li === li && _dragWord.wi === wi) return  // same pill
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    document.querySelectorAll('.word-pill.drop-before').forEach(el => el.classList.remove('drop-before'))
+    pill.classList.add('drop-before')
+  })
+  pill.addEventListener('dragleave', e => {
+    if (!pill.contains(e.relatedTarget)) pill.classList.remove('drop-before')
+  })
+  pill.addEventListener('drop', e => {
+    e.preventDefault()
+    pill.classList.remove('drop-before')
+    if (!_dragWord) return
+    if (_dragWord.li === li && _dragWord.wi === wi) return
+    moveWordBefore(_dragWord.li, _dragWord.wi, li, wi)
+  })
+
   return pill
 }
 
@@ -944,6 +989,26 @@ function renderInspector() {
       endInp.value = secToDisplay(editorLines[li].words[wi].end)
       markDirty()
     })
+
+    appendInspDivider(insp)
+
+    // Move word left/right
+    if (wi > 0) {
+      const leftBtn = document.createElement('button')
+      leftBtn.className = 'btn-stamp'
+      leftBtn.textContent = '← word'
+      leftBtn.title = 'Move word left'
+      leftBtn.addEventListener('click', () => moveWord(li, wi, -1))
+      insp.appendChild(leftBtn)
+    }
+    if (wi < line.words.length - 1) {
+      const rightBtn = document.createElement('button')
+      rightBtn.className = 'btn-stamp'
+      rightBtn.textContent = 'word →'
+      rightBtn.title = 'Move word right'
+      rightBtn.addEventListener('click', () => moveWord(li, wi, 1))
+      insp.appendChild(rightBtn)
+    }
 
     appendInspDivider(insp)
 
@@ -1099,6 +1164,38 @@ function removeWord(li, wi) {
   markDirty()
   renderLines()
   renderInspector()
+}
+
+// Swap word at wi with its neighbour in direction dir (-1 left, +1 right)
+function moveWord(li, wi, dir) {
+  const words = editorLines[li].words
+  const target = wi + dir
+  if (target < 0 || target >= words.length) return
+  ;[words[wi], words[target]] = [words[target], words[wi]]
+  if (sel?.li === li && sel?.wi === wi) sel = { ...sel, wi: target }
+  markDirty()
+  renderLines()
+  renderInspector()
+}
+
+// Insert word at (fromLi, fromWi) before the word at (toLi, toWi). Cross-line safe.
+function moveWordBefore(fromLi, fromWi, toLi, toWi) {
+  if (fromLi === toLi && fromWi === toWi) return
+
+  // Remove from source — keep words:[] (not null) so line stays in word mode
+  const [moved] = editorLines[fromLi].words.splice(fromWi, 1)
+
+  // Adjust insertion index if moving forward within the same line (splice shifted indices)
+  let insertAt = (fromLi === toLi && fromWi < toWi) ? toWi - 1 : toWi
+
+  // Ensure target line has a words array
+  if (!editorLines[toLi].words) editorLines[toLi].words = []
+  editorLines[toLi].words.splice(insertAt, 0, moved)
+
+  if (sel?.li === fromLi && sel?.wi === fromWi) sel = { ...sel, li: toLi, wi: insertAt }
+  markDirty()
+  renderLines()
+  if (sel) renderInspector()
 }
 
 // ── Split line into word pills ─────────────────────────────────────────────────

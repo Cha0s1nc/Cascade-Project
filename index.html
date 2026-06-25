@@ -946,7 +946,7 @@
             <div class="setting-row">
               <div class="setting-label">
                 <span class="setting-name">Server-only Mode</span>
-                <span class="setting-desc">Fetch lyrics and album art exclusively from your Jellyfin server. Disables iTunes art, SyncLRC, and LRCLIB.</span>
+                <span class="setting-desc">Use the CascadeSLRC Jellyfin plugin exclusively for lyrics and art. Requires the plugin to be installed on your server.</span>
               </div>
               <label class="toggle">
                 <input type="checkbox" id="server-only-lyrics-toggle">
@@ -959,11 +959,11 @@
             <div class="setting-row" id="lyrics-source-row">
               <div class="setting-label">
                 <span class="setting-name">Lyrics Source</span>
-                <span class="setting-desc">Preferred source. Auto tries each in order: Cascade → SyncLRC → LRCLIB → Jellyfin.</span>
+                <span class="setting-desc">Preferred source. Auto tries each in order: Kugou → LRCLIB → Jellyfin.</span>
               </div>
               <select class="setting-input" id="s-lyrics-source">
                 <option value="auto">Auto (waterfall)</option>
-                <option value="SyncLRC" class="lsd-non-server">SyncLRC</option>
+                <option value="Kugou" class="lsd-non-server">Kugou</option>
                 <option value="LRCLIB" class="lsd-non-server">LRCLIB</option>
                 <option value="Jellyfin" class="lsd-non-server">Jellyfin</option>
                 <option value="cascade-karaoke" class="lsd-server-only" style="display:none">Karaoke Only</option>
@@ -1283,12 +1283,12 @@
 <div id="lyrics-source-dropdown" class="lyrics-source-dropdown">
   <div class="lsd-item" data-source="auto">
     <span class="lsd-icon">⚡</span>Auto
-    <span class="lsd-hint" id="lsd-auto-hint">Cascade → SyncLRC → LRCLIB → Jellyfin</span>
+    <span class="lsd-hint" id="lsd-auto-hint">Kugou → LRCLIB → Jellyfin</span>
   </div>
   <div class="lsd-sep lsd-non-server"></div>
-  <div class="lsd-item lsd-non-server" data-source="SyncLRC">
-    <span class="lsd-icon">✦</span>SyncLRC
-    <span class="lsd-hint">Word-level karaoke</span>
+  <div class="lsd-item lsd-non-server" data-source="Kugou">
+    <span class="lsd-icon">✦</span>Kugou
+    <span class="lsd-hint">Word-level karaoke · no token needed</span>
   </div>
   <div class="lsd-item lsd-non-server" data-source="LRCLIB">
     <span class="lsd-icon">◎</span>LRCLIB
@@ -1362,6 +1362,28 @@
   </div>
 </div>
 <div id="toast"></div>
+
+<!-- CascadeSLRC plugin info modal (shown once) -->
+<div class="modal-overlay hidden" id="cascade-plugin-modal">
+  <div class="modal-card" style="width:380px;max-height:none;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--grad);flex-shrink:0;display:flex;align-items:center;justify-content:center;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+      </div>
+      <div class="modal-title" style="margin:0;">CascadeSLRC Plugin Required</div>
+    </div>
+    <p style="font-size:12px;color:var(--text2);line-height:1.6;margin-bottom:8px;">
+      This feature requires the <strong style="color:var(--text);font-weight:600;">CascadeSLRC plugin</strong> installed on your Jellyfin server.
+    </p>
+    <p style="font-size:12px;color:var(--text3);line-height:1.6;margin-bottom:18px;">
+      The plugin enables server-side karaoke lyric storage, the lyrics editor, and server-only mode. Install it through my Github page (When available, plugin unpolished) onto your server.
+    </p>
+    <div class="modal-actions">
+      <button class="modal-btn" id="cascade-plugin-cancel">Cancel</button>
+      <button class="modal-btn modal-btn-accent" id="cascade-plugin-continue">Continue anyway</button>
+    </div>
+  </div>
+</div>
 
 <!-- Media info modal -->
 <div class="modal-overlay hidden" id="mi-modal">

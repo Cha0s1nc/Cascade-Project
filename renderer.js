@@ -1266,12 +1266,9 @@ async function loadSettingsFields() {
     }
   }
 
-  window.cascade.discord.onStatus((connected) => {
-    const dot   = document.getElementById('discord-rpc-dot')
-    const label = document.getElementById('discord-rpc-status-label')
-    if (dot) dot.className = 'ws-dot' + (connected ? ' connected' : '')
-    if (label) label.textContent = connected ? 'Connected' : 'Not connected'
-  })
+  // Status is updated by the listener in initDiscordRpc(); sync label to current state here
+  const rpcLabel = document.getElementById('discord-rpc-status-label')
+  if (rpcLabel) rpcLabel.textContent = _rpcConnected ? 'Connected' : 'Not connected'
 
   document.getElementById('discord-dev-link').onclick = (e) => {
     e.preventDefault()
@@ -1282,6 +1279,10 @@ async function loadSettingsFields() {
   const serverOnlyToggle = document.getElementById('server-only-lyrics-toggle')
   serverOnlyToggle.checked = serverOnlyMode
   serverOnlyToggle.onchange = async () => {
+    if (serverOnlyToggle.checked) {
+      const proceed = await _ensureCascadePluginNotice()
+      if (!proceed) { serverOnlyToggle.checked = false; return }
+    }
     serverOnlyMode = serverOnlyToggle.checked
     await window.cascade.store.set('serverOnlyMode', serverOnlyMode)
     _applyServerOnlyMode(serverOnlyMode)
@@ -1305,7 +1306,7 @@ async function loadSettingsFields() {
 
   // Lyrics source preference
   const lyricsSourceSel = document.getElementById('s-lyrics-source')
-  lyricsSourceSel.value = (await window.cascade.store.get('lyricsForcedSource')) || 'auto'
+  lyricsSourceSel.value = VALID_LYRICS_SOURCES.has(lyricsForcedSource) ? lyricsForcedSource : 'auto'
   _applyServerOnlyMode(serverOnlyMode)  // apply visibility after options exist in DOM
   lyricsSourceSel.onchange = async () => {
     lyricsForcedSource = lyricsSourceSel.value
@@ -1316,6 +1317,7 @@ async function loadSettingsFields() {
       lyricsData = []; lastLyricsIdx = -1; lastLyricsScrollIdx = -1; lastOverlayLyricsIdx = -1; fetchLyrics()
     }
   }
+
 }
 
 document.getElementById('btn-save-settings').addEventListener('click', async () => {
@@ -1439,19 +1441,35 @@ async function init() {
   }
 
   const serverUrl = await window.cascade.store.get('serverUrl')
-  const token = await window.cascade.store.get('token')
-  const userId = await window.cascade.store.get('userId')
+  const username  = await window.cascade.store.get('username')
+  const password  = await window.cascade.store.get('password')
+  const token     = await window.cascade.store.get('token')
+  const userId    = await window.cascade.store.get('userId')
+
+  // Always pre-fill the setup form so the user never has to retype from scratch
+  if (serverUrl) document.getElementById('setup-url').value      = serverUrl
+  if (username)  document.getElementById('setup-username').value  = username
+  if (password)  document.getElementById('setup-password').value  = password
 
   if (serverUrl && token && userId) {
     document.getElementById('setup-overlay').classList.add('hidden')
     try {
       await connect(serverUrl, token, userId)
     } catch (e) {
-      // Token might be stale — show setup
+      // Token stale — silently re-auth with stored credentials before giving up
+      if (serverUrl && username && password) {
+        try {
+          const auth = await jfAuth(serverUrl, username, password)
+          await window.cascade.store.set('token', auth.AccessToken)
+          await window.cascade.store.set('userId', auth.User.Id)
+          await connect(serverUrl, auth.AccessToken, auth.User.Id)
+          return
+        } catch {}
+      }
       document.getElementById('setup-overlay').classList.remove('hidden')
     }
   }
-  // else setup overlay stays visible
+  // else setup overlay stays visible (fields already pre-filled above)
 }
 
 // ── Full-screen now-playing overlay ──────────────────────────────────────────
@@ -1853,7 +1871,9 @@ async function renderOverlayLyrics() {
 
   if (!lyricsData.length) {
     body.innerHTML = '<div class="lyrics-empty" style="padding:40px 0;text-align:center">Loading…</div>'
+    const gen    = ++_lyricsFetchGen
     const result = await fetchLyricsWaterfall(item)
+    if (gen !== _lyricsFetchGen) return
     if (result?.instrumental) {
       body.innerHTML = '<div class="lyrics-empty" style="padding:40px 0;text-align:center">This track is instrumental</div>'
       return
@@ -2276,13 +2296,23 @@ document.getElementById('ctx-delete').addEventListener('click', async () => {
 
 // ── Lyrics panel ──────────────────────────────────────────────────────────────
 
-let lyricsSource        = null   // source that was actually used ('Cascade', 'SyncLRC', …)
-let lyricsForcedSource  = 'auto' // 'auto' | 'LRCLIB' | 'Jellyfin' | 'cascade-karaoke' | 'cascade-synced'
+let lyricsSource        = null   // source that was actually used: 'Kugou' | 'LRCLIB' | 'LRCLIB (plain)' | 'Jellyfin' | 'Karaoke' | 'Synced'
+let lyricsForcedSource  = 'auto' // 'auto' | 'Kugou' | 'LRCLIB' | 'Jellyfin' | 'cascade-karaoke' | 'cascade-synced'
 let serverOnlyMode    = false  // fetch exclusively from Cascade plugin when true
+
+// Valid lyrics source keys — any stored value not in this set is stale and gets reset
+const VALID_LYRICS_SOURCES = new Set(['auto', 'Kugou', 'LRCLIB', 'Jellyfin', 'cascade-karaoke', 'cascade-synced'])
 
 // Load persisted preferences immediately
 ;(async () => {
-  lyricsForcedSource = (await window.cascade.store.get('lyricsForcedSource')) || 'auto'
+  const stored = (await window.cascade.store.get('lyricsForcedSource')) || 'auto'
+  if (!VALID_LYRICS_SOURCES.has(stored)) {
+    console.warn(`[Lyrics] Stale lyricsForcedSource "${stored}" — resetting to auto`)
+    await window.cascade.store.set('lyricsForcedSource', 'auto')
+    lyricsForcedSource = 'auto'
+  } else {
+    lyricsForcedSource = stored
+  }
   serverOnlyMode   = (await window.cascade.store.get('serverOnlyMode')) === true
   _applyServerOnlyMode(serverOnlyMode)
 })()
@@ -2295,7 +2325,7 @@ function _applyServerOnlyMode(on) {
     .forEach(el => { el.style.display = on ? '' : 'none' })
   // Update Auto hint to reflect mode
   const autoHint = document.getElementById('lsd-auto-hint')
-  if (autoHint) autoHint.textContent = on ? 'Server · karaoke preferred' : 'Cascade → LRCLIB → Jellyfin'
+  if (autoHint) autoHint.textContent = on ? 'Server · karaoke preferred' : 'Kugou → LRCLIB → Jellyfin'
   // Settings select options (Auto option has no class so is always visible)
   const sel = document.getElementById('s-lyrics-source')
   if (!sel) return
@@ -2370,14 +2400,41 @@ function _openSourceDropdown(nearEl) {
   })
 }
 
+// ── CascadeSLRC plugin one-time info modal ────────────────────────────────────
+// Resolves true if user clicks "Continue", false if they click "Cancel".
+// After first "Continue" the modal is never shown again (persisted in store).
+async function _ensureCascadePluginNotice() {
+  const seen = await window.cascade.store.get('cascadePluginNoticeSeen')
+  if (seen) return true
+  return new Promise(resolve => {
+    const modal = document.getElementById('cascade-plugin-modal')
+    modal.classList.remove('hidden')
+    const onCancel = () => {
+      modal.classList.add('hidden')
+      document.getElementById('cascade-plugin-continue').removeEventListener('click', onContinue)
+      resolve(false)
+    }
+    const onContinue = async () => {
+      modal.classList.add('hidden')
+      document.getElementById('cascade-plugin-cancel').removeEventListener('click', onCancel)
+      await window.cascade.store.set('cascadePluginNoticeSeen', true)
+      resolve(true)
+    }
+    document.getElementById('cascade-plugin-cancel').addEventListener('click', onCancel, { once: true })
+    document.getElementById('cascade-plugin-continue').addEventListener('click', onContinue, { once: true })
+  })
+}
+
 // ── Lyrics edit button ────────────────────────────────────────────────────────
 ;['lyrics-edit-btn', 'ov-lyrics-edit-btn'].forEach(id => {
   const btn = document.getElementById(id)
   if (!btn) return
-  btn.addEventListener('click', e => {
+  btn.addEventListener('click', async e => {
     e.stopPropagation()
     const item = queue[queueIndex]
     if (!item || !jf) return
+    const proceed = await _ensureCascadePluginNotice()
+    if (!proceed) return
     window.cascade.lyricsEditor.open({ item, jf, lyricsData: lyricsData || [] })
   })
 })
@@ -2541,6 +2598,50 @@ function parseLRC(text) {
 }
 
 
+// Parse Kugou KRC format (decrypted) to internal format.
+// Line: [{line_start_ms},{line_duration_ms}]<word_offset_ms,word_duration_ms,0>text...
+// Word offsets are relative to the line start.
+function parseKrc(krcText) {
+  const MS   = 10_000        // 1ms = 10,000 ticks (100-nanosecond units)
+  const lines = []
+  for (const rawLine of krcText.split('\n')) {
+    const line = rawLine.trim()
+    const lineMatch = line.match(/^\[(\d+),(\d+)\](.*)$/)
+    if (!lineMatch) continue                       // skip [ti:], [ar:], [offset:] tags
+
+    const lineStartMs = parseInt(lineMatch[1])
+    const lineEndMs   = lineStartMs + parseInt(lineMatch[2])
+    const content     = lineMatch[3]
+
+    const wordRegex = /<(\d+),(\d+),\d+>([^<]*)/g
+    const words = []
+    let fullText = ''
+    let wm
+    while ((wm = wordRegex.exec(content)) !== null) {
+      const wOffMs  = parseInt(wm[1])
+      const wDurMs  = parseInt(wm[2])
+      const wText   = wm[3]
+      if (!wText) continue
+      fullText += wText
+      words.push({
+        Start: (lineStartMs + wOffMs) * MS,
+        End:   (lineStartMs + wOffMs + wDurMs) * MS,
+        Text:  wText,
+      })
+    }
+
+    fullText = fullText.trim()
+    if (!fullText) continue
+    lines.push({
+      Start: lineStartMs * MS,
+      End:   lineEndMs   * MS,
+      Text:  fullText,
+      Words: words.length > 0 ? words : null,
+    })
+  }
+  return lines
+}
+
 // Compare two lyric results by word overlap. Returns false if clearly different songs.
 function _lyricsTextMatch(a, b) {
   if (!a || !b) return true
@@ -2557,7 +2658,7 @@ function _lyricsTextMatch(a, b) {
 
 // Per-source status from the most recent waterfall run.
 // Values: 'ok' | 'fail' | 'skip' | null (never tried this session)
-let _lastFetchStatus = { Cascade: null, LRCLIB: null, Jellyfin: null }
+let _lastFetchStatus = { Cascade: null, Kugou: null, LRCLIB: null, Jellyfin: null }
 
 // Cache: itemId → result object. Keeps the last 50 tracks so reopening
 // lyrics or the overlay is instant without re-fetching.
@@ -2584,13 +2685,17 @@ async function fetchLyricsWaterfall(item) {
   const duration = Math.round((item.RunTimeTicks || 0) / 10_000_000)
   const sig      = { signal: AbortSignal.timeout(8000) }
 
-  // Strip "Track - Artist" metadata lines some sources embed at the top
+  // Strip metadata/credits lines sometimes embedded by lyrics sources
   const metaPattern = new RegExp(
-    `^${(item.Name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*-\\s*`,
+    [
+      // "Song Title - " prefix (was the original filter)
+      `^${(item.Name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*-\\s*`,
+      // Credits: "Composed by:", "Written by:", "Produced by:", etc.
+      '^(composed|written|produced|arranged|performed|lyrics|music|words|publisher|\\u4f5c\\u8bcd|\\u4f5c\\u66f2|\\u7f16\\u66f2|\\u7f16\\u8bcd|\\u5236\\u4f5c\\u4eba)\\s*(by)?\\s*[:\\uff1a]',
+    ].join('|'),
     'i'
   )
-
-  // ── Server-only mode: exclusively hit the Cascade plugin ─────────────────────
+// ── Server-only mode: exclusively hit the Cascade plugin ─────────────────────
   if (serverOnlyMode) {
     const wantType = forced === 'cascade-karaoke' ? 'karaoke'
                    : forced === 'cascade-synced'  ? 'synced'
@@ -2621,17 +2726,21 @@ async function fetchLyricsWaterfall(item) {
   }
 
   const sources = [
-    ['Cascade', async () => {
-      // Cascade Lyrics Jellyfin plugin — highest priority, server-stored karaoke
-      const r = await fetch(`${jf.url}/Audio/${item.Id}/CascadeLyrics`,
-        { headers: { 'X-Emby-Token': jf.token }, ...sig })
-      if (!r.ok) return null
-      const d = await r.json()
-      if (!d.lrc) return null
-      const lines = parseLRC(d.lrc).filter(l => !metaPattern.test(l.Text))
-      return lines.length ? { lines, source: 'Cascade' } : null
+    ['Kugou', async () => {
+      // Kugou KRC — word-level, no auth required. Main process handles decrypt.
+      const rawTitle  = item.Name || ''
+      const rawArtist = item.AlbumArtist || item.Artists?.[0] || ''
+      const krcText   = await window.cascade.kugouGetLyrics({
+        title:      rawTitle,
+        artist:     rawArtist,
+        durationMs: (item.RunTimeTicks || 0) / 10_000,
+      })
+      if (!krcText) return null
+      const lines = parseKrc(krcText).filter(l => !metaPattern.test(l.Text))
+      // Only return if we got actual word-level data (otherwise let LRCLIB handle it)
+      if (!lines.length || !lines.some(l => l.Words?.length > 0)) return null
+      return { lines, source: 'Kugou' }
     }],
-    // SyncLRC removed — API is behind Cloudflare browser challenge, not programmatically accessible.
     ['LRCLIB', async () => {
       const r = await fetch(
         `https://lrclib.net/api/get?artist_name=${artist}&track_name=${title}&album_name=${album}&duration=${duration}`, sig)
@@ -2661,7 +2770,7 @@ async function fetchLyricsWaterfall(item) {
     }]
   ]
 
-  const tried = { Cascade: null, LRCLIB: null, Jellyfin: null }
+  const tried = { Kugou: null, LRCLIB: null, Jellyfin: null }
 
   // Forced source: single fetch only, never cache result
   if (forced) {
@@ -2682,15 +2791,15 @@ async function fetchLyricsWaterfall(item) {
   }
 
   // Fire all sources simultaneously
-  const [cascProm, lrcProm, jfProm] = sources.map(([name, fn]) =>
+  const [kugouProm, lrcProm, jfProm] = sources.map(([name, fn]) =>
     fn().then(r => ({ name, result: r }))
       .catch(err => { if (!_isAbort(err)) console.error(`[Lyrics] ${name} error:`, err); return { name, result: null } })
   )
 
-  const [cascRes, lrcRes, jfRes] = await Promise.all([cascProm, lrcProm, jfProm])
+  const [kugouRes, lrcRes, jfRes] = await Promise.all([kugouProm, lrcProm, jfProm])
 
   // Instrumental check (any source can flag it)
-  for (const { result } of [cascRes, lrcRes, jfRes]) {
+  for (const { result } of [kugouRes, lrcRes, jfRes]) {
     if (result?.instrumental) {
       _lastFetchStatus = tried
       _cachePut(item.Id, { instrumental: true })
@@ -2698,11 +2807,11 @@ async function fetchLyricsWaterfall(item) {
     }
   }
 
-  tried['Cascade'] = cascRes.result ? 'ok' : 'fail'
-  tried['LRCLIB']  = lrcRes.result  ? 'ok' : 'fail'
-  tried['Jellyfin'] = jfRes.result  ? 'ok' : 'fail'
+  tried['Kugou']    = kugouRes.result ? 'ok' : 'fail'
+  tried['LRCLIB']   = lrcRes.result   ? 'ok' : 'fail'
+  tried['Jellyfin'] = jfRes.result    ? 'ok' : 'fail'
 
-  const winner = cascRes.result || lrcRes.result || jfRes.result
+  const winner = kugouRes.result || lrcRes.result || jfRes.result
   if (winner) {
     _lastFetchStatus = tried
     const out = { ...winner, tried }
@@ -2716,7 +2825,10 @@ async function fetchLyricsWaterfall(item) {
 
 // ── Lyrics fetch ──────────────────────────────────────────────────────────────
 
+let _lyricsFetchGen = 0  // incremented on every fetchLyrics() call; stale results are discarded
+
 async function fetchLyrics() {
+  const gen  = ++_lyricsFetchGen
   const item = queue[queueIndex]
   const body = document.getElementById('lyrics-body')
   const translateBar = document.getElementById('lyrics-translate-bar')
@@ -2730,6 +2842,8 @@ async function fetchLyrics() {
   lastLyricsScrollIdx = -1
 
   const result = await fetchLyricsWaterfall(item)
+  if (gen !== _lyricsFetchGen) return  // a newer fetch superseded this one
+
   if (result?.instrumental) {
     body.innerHTML = '<div class="lyrics-empty">This track is instrumental</div>'
     return
@@ -2923,23 +3037,22 @@ function updateDiscordPresence(item) {
 }
 
 const DEFAULT_DISCORD_CLIENT_ID = '1512373702522835004'
+let _rpcConnected = false
 
 async function initDiscordRpc() {
   const enabled  = await window.cascade.store.get('discordRpcEnabled')
   const clientId = await window.cascade.store.get('discordClientId') || DEFAULT_DISCORD_CLIENT_ID
   discordEnabled = enabled === 'true'
-  updateDiscordRpcStatus(discordEnabled)
   if (discordEnabled) window.cascade.discord.connect(clientId)
 
+  // Single listener — updates dot + label; tracks state for when settings view opens later
   window.cascade.discord.onStatus((connected) => {
-    const dot = document.getElementById('discord-rpc-dot')
-    if (dot) dot.className = 'ws-dot' + (connected ? ' connected' : '')
+    _rpcConnected = connected
+    const dot   = document.getElementById('discord-rpc-dot')
+    const label = document.getElementById('discord-rpc-status-label')
+    if (dot)   dot.className   = 'ws-dot' + (connected ? ' connected' : '')
+    if (label) label.textContent = connected ? 'Connected' : 'Not connected'
   })
-}
-
-function updateDiscordRpcStatus(enabled) {
-  const dot = document.getElementById('discord-rpc-dot')
-  if (dot) dot.className = 'ws-dot' + (enabled ? '' : '')
 }
 
 // ── Search ────────────────────────────────────────────────────────────────────

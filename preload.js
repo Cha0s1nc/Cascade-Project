@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld('cascade', {
     onStatus:  (cb)       => ipcRenderer.on('discord-rpc-status', (_e, connected) => cb(connected)),
   },
   nowPlayingUpdate: (data) => ipcRenderer.send('now-playing-update', data),
+  proxyFetch: (url, method, body, extraHeaders) => ipcRenderer.invoke('proxy-fetch', { url, method, body, extraHeaders }),
+  kugouGetLyrics: (opts) => ipcRenderer.invoke('kugou-lyrics', opts),
   lyricsEditor: {
     open: (data) => ipcRenderer.send('open-lyrics-editor', data),
   },
