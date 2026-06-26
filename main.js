@@ -344,15 +344,19 @@ ipcMain.handle('download-file', (_e, url, filename) => {
 // ── Version helpers ────────────────────────────────────────────────────────────
 
 function parseVersion(v) {
-  // Strip pre-release suffix (e.g. 1.0.1b, 1.0.1-beta) before comparing
-  return String(v).replace(/^v/, '').replace(/[-+][a-zA-Z0-9._]*$/, '').split('.').map(n => parseInt(n, 10) || 0)
+  const s = String(v).replace(/^v/, '')
+  const betaMatch = s.match(/-b(\d+)$/i)
+  const betaNum = betaMatch ? parseInt(betaMatch[1], 10) : Infinity
+  const [major, minor, patch] = s.replace(/[-+][a-zA-Z0-9._]*$/, '').split('.').map(n => parseInt(n, 10) || 0)
+  return [major, minor, patch, betaNum]
 }
 function isNewer(latest, current) {
-  const [la, lb, lc] = parseVersion(latest)
-  const [ca, cb, cc] = parseVersion(current)
+  const [la, lb, lc, ld] = parseVersion(latest)
+  const [ca, cb, cc, cd] = parseVersion(current)
   if (la !== ca) return la > ca
   if (lb !== cb) return lb > cb
-  return lc > cc
+  if (lc !== cc) return lc > cc
+  return ld > cd
 }
 
 // ── Updater window ─────────────────────────────────────────────────────────────
