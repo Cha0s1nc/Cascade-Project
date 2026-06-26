@@ -3,10 +3,7 @@ name: Build
 on:
   push:
     tags: ['v*']
-    branches: ['stable']
-  pull_request:
-    branches: ['beta']
-    types: [opened, synchronize, reopened]
+    branches: ['stable', 'beta']
   workflow_dispatch:
     inputs:
       version:
@@ -28,17 +25,21 @@ jobs:
       should_release: ${{ steps.resolve.outputs.should_release }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Resolve version and release type
         id: resolve
         run: |
           PKG=$(node -p "require('./package.json').version")
 
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            # PR to beta — use package.json version, ensure -b suffix, tag with PR number
+          if [[ "${{ github.ref }}" == "refs/heads/beta" ]]; then
+            # Push to beta — auto-increment beta build number
             BASE="${PKG%%-*}"
-            VERSION="${BASE}-b"
-            TAG="v${VERSION}-pr${{ github.event.pull_request.number }}"
+            COUNT=$(git tag -l "v${BASE}-b[0-9]*" | wc -l | tr -d ' ')
+            BETA_NUM=$((COUNT + 1))
+            VERSION="${BASE}-b${BETA_NUM}"
+            TAG="v${VERSION}"
             echo "version=$VERSION"      >> $GITHUB_OUTPUT
             echo "tag=$TAG"             >> $GITHUB_OUTPUT
             echo "prerelease=true"      >> $GITHUB_OUTPUT
@@ -208,7 +209,7 @@ jobs:
           tag_name: ${{ needs.setup.outputs.tag }}
           files: artifacts/**
           generate_release_notes: true
-          draft: true
+          draft: false
           prerelease: ${{ needs.setup.outputs.prerelease }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
