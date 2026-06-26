@@ -8,6 +8,13 @@ let queueIndex = -1
 let shuffle = false
 let repeatMode = 'none' // 'none' | 'all' | 'one'
 let _unshuffledQueue = []   // original order saved when shuffle is enabled
+
+// Queue panel virtualisation
+const QUEUE_WIN      = 20   // rows kept in DOM at once
+const QUEUE_ROW_H    = 53   // approximate px per row (padding 8+8 + art 36 + border 1)
+const QUEUE_BEFORE   = 5    // rows to show before current track when re-centering
+let _queueWinStart   = 0    // index of first rendered row
+let _queueScrollBound = false
 let volume = 1.0
 
 const audio = new Audio()
@@ -32,12 +39,41 @@ function greeting() {
 
 function artUrl(itemId, tag) {
   if (!tag) return null
-  return `${jf.url}/Items/${itemId}/Images/Primary?fillHeight=200&fillWidth=200&quality=80&api_key=${jf.token}`
+  return `${jf.url}/Items/${itemId}/Images/Primary?fillHeight=600&fillWidth=600&quality=90&api_key=${jf.token}`
 }
 
 function artistArtUrl(itemId) {
-  return `${jf.url}/Items/${itemId}/Images/Primary?fillHeight=200&fillWidth=200&quality=80&api_key=${jf.token}`
+  return `${jf.url}/Items/${itemId}/Images/Primary?fillHeight=600&fillWidth=600&quality=90&api_key=${jf.token}`
 }
+
+// ── iTunes album art (high-res, no API key needed) ────────────────────────────
+const _itunesArtCache = new Map()
+
+async function fetchItunesArt(artist, album) {
+  const key = `${artist}|||${album}`.toLowerCase()
+  if (_itunesArtCache.has(key)) return _itunesArtCache.get(key)
+  _itunesArtCache.set(key, null) // mark in-flight to avoid duplicate requests
+  try {
+    const term = encodeURIComponent(`${artist} ${album}`.trim())
+    const r = await fetch(
+      `https://itunes.apple.com/search?term=${term}&entity=album&limit=5&media=music`,
+      { signal: AbortSignal.timeout(7000) }
+    )
+    if (!r.ok) return null
+    const d = await r.json()
+    const result = d.results?.[0]
+    if (!result?.artworkUrl100) return null
+    // Scale from 100px thumbnail to 600px — just replace the size token in the URL
+    const url = result.artworkUrl100.replace(/\d+x\d+bb/, '600x600bb')
+    _itunesArtCache.set(key, url)
+    return url
+  } catch {
+    return null
+  }
+}
+
+// Tracks the best available art URL for the current track (iTunes > Jellyfin)
+let _currentHighResArtUrl = null
 
 function streamUrl(itemId) {
   return `${jf.url}/Audio/${itemId}/universal?UserId=${jf.userId}&api_key=${jf.token}&Container=opus,mp3,aac,flac,wav,ogg&TranscodingContainer=ts&TranscodingProtocol=hls&AudioCodec=aac&MaxStreamingBitrate=140000000`
@@ -793,7 +829,10 @@ function updateNowPlaying(item) {
     _prefetchUpcoming()
   }
 
+  _currentHighResArtUrl = null // reset for new track
+
   const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
+  _currentHighResArtUrl = art  // Jellyfin 600px as immediate baseline
   const artEl = document.getElementById('np-art')
   if (art) {
     artEl.innerHTML = `<img src="${art}" alt="" onerror="this.innerHTML='♪'">`
@@ -845,10 +884,10 @@ function updateNowPlaying(item) {
   rpcTrackStart = Date.now()
   updateDiscordPresence(item)
 
-  // Album art accent: fetch through our auth header so canvas isn't tainted by CORS
+  // Album art accent: fetch for canvas color extraction (api_key is in URL, no extra header needed)
   if (themeAlbumArt && art) {
-    _currentBgArtUrl = art  // store for overlay background
-    fetch(art, { headers: { 'X-Emby-Token': jf.token } })
+    _currentBgArtUrl = art
+    fetch(art)
       .then(r => r.blob())
       .then(blob => {
         const objectUrl = URL.createObjectURL(blob)
@@ -858,6 +897,39 @@ function updateNowPlaying(item) {
         img.src = objectUrl
       })
       .catch(() => {})
+  }
+
+  // Upgrade to iTunes high-res art in normal mode (async — replaces Jellyfin art when resolved)
+  if (!serverOnlyMode) {
+    const artist = item.AlbumArtist || item.Artists?.[0] || ''
+    const album  = item.Album || ''
+    const itemId = item.Id
+    fetchItunesArt(artist, album).then(itunesUrl => {
+      if (!itunesUrl || queue[queueIndex]?.Id !== itemId) return  // track changed or not found
+      _currentHighResArtUrl = itunesUrl
+      _currentBgArtUrl = itunesUrl
+      // Update status bar art
+      document.getElementById('np-art').innerHTML = `<img src="${itunesUrl}" alt="" onerror="this.innerHTML='♪'">`
+      // Update overlay art if open
+      document.getElementById('ov-art').innerHTML = `<img src="${itunesUrl}" alt="" onerror="this.innerHTML='♪'">`
+      // Update OS Now Playing widget
+      if ('mediaSession' in navigator && navigator.mediaSession.metadata) {
+        navigator.mediaSession.metadata.artwork = [{ src: itunesUrl, sizes: '600x600', type: 'image/jpeg' }]
+      }
+      // Re-run color extraction with the higher-quality source
+      if (themeAlbumArt) {
+        fetch(itunesUrl)
+          .then(r => r.blob())
+          .then(blob => {
+            const objectUrl = URL.createObjectURL(blob)
+            const img = new Image()
+            img.onload = () => { applyAlbumArtTheme(img); URL.revokeObjectURL(objectUrl) }
+            img.onerror = () => URL.revokeObjectURL(objectUrl)
+            img.src = objectUrl
+          })
+          .catch(() => {})
+      }
+    })
   }
 }
 
@@ -1194,21 +1266,48 @@ async function loadSettingsFields() {
     }
   }
 
-  window.cascade.discord.onStatus((connected) => {
-    const dot   = document.getElementById('discord-rpc-dot')
-    const label = document.getElementById('discord-rpc-status-label')
-    if (dot) dot.className = 'ws-dot' + (connected ? ' connected' : '')
-    if (label) label.textContent = connected ? 'Connected' : 'Not connected'
-  })
+  // Status is updated by the listener in initDiscordRpc(); sync label to current state here
+  const rpcLabel = document.getElementById('discord-rpc-status-label')
+  if (rpcLabel) rpcLabel.textContent = _rpcConnected ? 'Connected' : 'Not connected'
 
   document.getElementById('discord-dev-link').onclick = (e) => {
     e.preventDefault()
     window.cascade.shell.openExternal('https://discord.com/developers/applications')
   }
 
+  // Server-only lyrics toggle
+  const serverOnlyToggle = document.getElementById('server-only-lyrics-toggle')
+  serverOnlyToggle.checked = serverOnlyMode
+  serverOnlyToggle.onchange = async () => {
+    if (serverOnlyToggle.checked) {
+      const proceed = await _ensureCascadePluginNotice()
+      if (!proceed) { serverOnlyToggle.checked = false; return }
+    }
+    serverOnlyMode = serverOnlyToggle.checked
+    await window.cascade.store.set('serverOnlyMode', serverOnlyMode)
+    _applyServerOnlyMode(serverOnlyMode)
+    // Reset forced source if it's incompatible with the new mode
+    const isServerSource = ['cascade-karaoke', 'cascade-synced'].includes(lyricsForcedSource)
+    if (serverOnlyMode && !isServerSource && lyricsForcedSource !== 'auto') {
+      lyricsForcedSource = 'auto'
+      await window.cascade.store.set('lyricsForcedSource', 'auto')
+    } else if (!serverOnlyMode && isServerSource) {
+      lyricsForcedSource = 'auto'
+      await window.cascade.store.set('lyricsForcedSource', 'auto')
+    }
+    const sel = document.getElementById('s-lyrics-source')
+    if (sel) sel.value = lyricsForcedSource
+    updateSourcePills()
+    if (queue[queueIndex]) {
+      _lyricsCache.delete(queue[queueIndex].Id)
+      lyricsData = []; lastLyricsIdx = -1; lastLyricsScrollIdx = -1; lastOverlayLyricsIdx = -1; fetchLyrics()
+    }
+  }
+
   // Lyrics source preference
   const lyricsSourceSel = document.getElementById('s-lyrics-source')
-  lyricsSourceSel.value = (await window.cascade.store.get('lyricsForcedSource')) || 'auto'
+  lyricsSourceSel.value = VALID_LYRICS_SOURCES.has(lyricsForcedSource) ? lyricsForcedSource : 'auto'
+  _applyServerOnlyMode(serverOnlyMode)  // apply visibility after options exist in DOM
   lyricsSourceSel.onchange = async () => {
     lyricsForcedSource = lyricsSourceSel.value
     await window.cascade.store.set('lyricsForcedSource', lyricsForcedSource)
@@ -1218,6 +1317,7 @@ async function loadSettingsFields() {
       lyricsData = []; lastLyricsIdx = -1; lastLyricsScrollIdx = -1; lastOverlayLyricsIdx = -1; fetchLyrics()
     }
   }
+
 }
 
 document.getElementById('btn-save-settings').addEventListener('click', async () => {
@@ -1227,10 +1327,12 @@ document.getElementById('btn-save-settings').addEventListener('click', async () 
 
   if (!url || !user) return
 
+  // Persist URL and username immediately so they survive a failed connection attempt
+  await window.cascade.store.set('serverUrl', url)
+  await window.cascade.store.set('username', user)
+
   try {
     const auth = await jfAuth(url, user, pass || await window.cascade.store.get('password') || '')
-    await window.cascade.store.set('serverUrl', url)
-    await window.cascade.store.set('username', user)
     await window.cascade.store.set('token', auth.AccessToken)
     await window.cascade.store.set('userId', auth.User.Id)
     if (pass) await window.cascade.store.set('password', pass)
@@ -1339,19 +1441,35 @@ async function init() {
   }
 
   const serverUrl = await window.cascade.store.get('serverUrl')
-  const token = await window.cascade.store.get('token')
-  const userId = await window.cascade.store.get('userId')
+  const username  = await window.cascade.store.get('username')
+  const password  = await window.cascade.store.get('password')
+  const token     = await window.cascade.store.get('token')
+  const userId    = await window.cascade.store.get('userId')
+
+  // Always pre-fill the setup form so the user never has to retype from scratch
+  if (serverUrl) document.getElementById('setup-url').value      = serverUrl
+  if (username)  document.getElementById('setup-username').value  = username
+  if (password)  document.getElementById('setup-password').value  = password
 
   if (serverUrl && token && userId) {
     document.getElementById('setup-overlay').classList.add('hidden')
     try {
       await connect(serverUrl, token, userId)
     } catch (e) {
-      // Token might be stale — show setup
+      // Token stale — silently re-auth with stored credentials before giving up
+      if (serverUrl && username && password) {
+        try {
+          const auth = await jfAuth(serverUrl, username, password)
+          await window.cascade.store.set('token', auth.AccessToken)
+          await window.cascade.store.set('userId', auth.User.Id)
+          await connect(serverUrl, auth.AccessToken, auth.User.Id)
+          return
+        } catch {}
+      }
       document.getElementById('setup-overlay').classList.remove('hidden')
     }
   }
-  // else setup overlay stays visible
+  // else setup overlay stays visible (fields already pre-filled above)
 }
 
 // ── Full-screen now-playing overlay ──────────────────────────────────────────
@@ -1448,9 +1566,9 @@ function openOverlay() {
     }
     const item = queue[queueIndex]
     if (item) {
-      const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
+      const art = _currentHighResArtUrl || artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
       if (art) {
-        fetch(art, { headers: { 'X-Emby-Token': jf.token } })
+        fetch(art)
           .then(r => r.blob())
           .then(blob => {
             const objectUrl = URL.createObjectURL(blob)
@@ -1615,8 +1733,8 @@ function syncOverlayState() {
   const item = queue[queueIndex]
   if (!item) return
 
-  // Art
-  const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
+  // Art — prefer high-res (iTunes if available, else Jellyfin 600px)
+  const art = _currentHighResArtUrl || artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
   const artEl = document.getElementById('ov-art')
   artEl.innerHTML = art ? `<img src="${art}" alt="" onerror="this.innerHTML='♪'">` : '♪'
 
@@ -1634,12 +1752,40 @@ function syncOverlayState() {
 
 function renderQueuePanel() {
   const container = document.getElementById('ov-queue-rows')
+  const panel     = document.getElementById('ov-panel-queue')
   if (!queue.length) { container.innerHTML = '<div class="empty-state" style="padding:40px 0">Queue is empty</div>'; return }
 
-  container.innerHTML = queue.map((item, i) => {
-    const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
+  // Bind scroll listener once — shifts the render window as the user scrolls
+  if (!_queueScrollBound) {
+    _queueScrollBound = true
+    panel.addEventListener('scroll', () => {
+      if (!queue.length) return
+      const visStart = Math.floor(panel.scrollTop / QUEUE_ROW_H)
+      const visEnd   = visStart + Math.ceil(panel.clientHeight / QUEUE_ROW_H)
+      const nearTop  = visStart < _queueWinStart + 3
+      const nearBot  = visEnd   > _queueWinStart + QUEUE_WIN - 3
+      if (nearTop || nearBot) {
+        _queueWinStart = Math.max(0, Math.min(visStart - 3, queue.length - QUEUE_WIN))
+        _drawQueueRows(container, false)
+      }
+    }, { passive: true })
+  }
+
+  // Re-centre window on the current track
+  _queueWinStart = Math.max(0, Math.min(queueIndex - QUEUE_BEFORE, queue.length - QUEUE_WIN))
+  _drawQueueRows(container, true)
+}
+
+function _drawQueueRows(container, scrollToCurrent) {
+  const winEnd = Math.min(queue.length, _queueWinStart + QUEUE_WIN)
+  const topH   = _queueWinStart * QUEUE_ROW_H
+  const botH   = (queue.length - winEnd) * QUEUE_ROW_H
+
+  const rows = queue.slice(_queueWinStart, winEnd).map((item, idx) => {
+    const i     = _queueWinStart + idx
+    const art   = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
     const thumb = art ? `<img src="${art}" alt="" onerror="this.style.display='none'">` : '♪'
-    const dur = fmtTime((item.RunTimeTicks || 0) / 10000000)
+    const dur   = fmtTime((item.RunTimeTicks || 0) / 10000000)
     return `<div class="queue-row${i === queueIndex ? ' current' : ''}" data-qi="${i}" draggable="true">
       <div class="queue-row-drag" title="Drag to reorder">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="18" x2="16" y2="18"/></svg>
@@ -1656,12 +1802,17 @@ function renderQueuePanel() {
     </div>`
   }).join('')
 
+  // Spacer divs preserve the panel's total scroll height
+  container.innerHTML =
+    `<div style="height:${topH}px;flex-shrink:0"></div>` +
+    rows +
+    `<div style="height:${botH}px;flex-shrink:0"></div>`
+
   let dragSrc = null
 
   container.querySelectorAll('.queue-row').forEach(el => {
     const qi = parseInt(el.dataset.qi)
 
-    // Play on click (but not on drag handle or remove button)
     el.addEventListener('click', (e) => {
       if (e.target.closest('.queue-row-drag, .queue-row-remove')) return
       queueIndex = qi
@@ -1669,7 +1820,6 @@ function renderQueuePanel() {
       renderQueuePanel()
     })
 
-    // Remove button
     el.querySelector('.queue-row-remove').addEventListener('click', (e) => {
       e.stopPropagation()
       const idx = parseInt(el.dataset.qi)
@@ -1678,7 +1828,6 @@ function renderQueuePanel() {
       renderQueuePanel()
     })
 
-    // Drag to reorder
     el.addEventListener('dragstart', (e) => {
       dragSrc = el
       el.classList.add('dragging')
@@ -1699,10 +1848,9 @@ function renderQueuePanel() {
       e.preventDefault()
       if (!dragSrc || dragSrc === el) return
       const from = parseInt(dragSrc.dataset.qi)
-      const to = parseInt(el.dataset.qi)
+      const to   = parseInt(el.dataset.qi)
       const [moved] = queue.splice(from, 1)
       queue.splice(to, 0, moved)
-      // Keep queueIndex pointing at the same track
       if (queueIndex === from) queueIndex = to
       else if (from < queueIndex && to >= queueIndex) queueIndex--
       else if (from > queueIndex && to <= queueIndex) queueIndex++
@@ -1710,9 +1858,10 @@ function renderQueuePanel() {
     })
   })
 
-  // Scroll current track into view
-  const current = container.querySelector('.queue-row.current')
-  if (current) current.scrollIntoView({ block: 'center' })
+  if (scrollToCurrent) {
+    const current = container.querySelector('.queue-row.current')
+    if (current) current.scrollIntoView({ block: 'nearest' })
+  }
 }
 
 async function renderOverlayLyrics() {
@@ -1722,7 +1871,9 @@ async function renderOverlayLyrics() {
 
   if (!lyricsData.length) {
     body.innerHTML = '<div class="lyrics-empty" style="padding:40px 0;text-align:center">Loading…</div>'
+    const gen    = ++_lyricsFetchGen
     const result = await fetchLyricsWaterfall(item)
+    if (gen !== _lyricsFetchGen) return
     if (result?.instrumental) {
       body.innerHTML = '<div class="lyrics-empty" style="padding:40px 0;text-align:center">This track is instrumental</div>'
       return
@@ -2145,13 +2296,42 @@ document.getElementById('ctx-delete').addEventListener('click', async () => {
 
 // ── Lyrics panel ──────────────────────────────────────────────────────────────
 
-let lyricsSource        = null   // source that was actually used ('LyricsPlus', 'SyncLRC', …)
-let lyricsForcedSource  = 'auto' // 'auto' | 'LyricsPlus' | 'SyncLRC' | 'LRCLIB' | 'Jellyfin'
+let lyricsSource        = null   // source that was actually used: 'Kugou' | 'LRCLIB' | 'LRCLIB (plain)' | 'Jellyfin' | 'Karaoke' | 'Synced'
+let lyricsForcedSource  = 'auto' // 'auto' | 'Kugou' | 'LRCLIB' | 'Jellyfin' | 'cascade-karaoke' | 'cascade-synced'
+let serverOnlyMode    = false  // fetch exclusively from Cascade plugin when true
 
-// Load persisted preference immediately
+// Valid lyrics source keys — any stored value not in this set is stale and gets reset
+const VALID_LYRICS_SOURCES = new Set(['auto', 'Kugou', 'LRCLIB', 'Jellyfin', 'cascade-karaoke', 'cascade-synced'])
+
+// Load persisted preferences immediately
 ;(async () => {
-  lyricsForcedSource = (await window.cascade.store.get('lyricsForcedSource')) || 'auto'
+  const stored = (await window.cascade.store.get('lyricsForcedSource')) || 'auto'
+  if (!VALID_LYRICS_SOURCES.has(stored)) {
+    console.warn(`[Lyrics] Stale lyricsForcedSource "${stored}" — resetting to auto`)
+    await window.cascade.store.set('lyricsForcedSource', 'auto')
+    lyricsForcedSource = 'auto'
+  } else {
+    lyricsForcedSource = stored
+  }
+  serverOnlyMode   = (await window.cascade.store.get('serverOnlyMode')) === true
+  _applyServerOnlyMode(serverOnlyMode)
 })()
+
+function _applyServerOnlyMode(on) {
+  // Dropdown: hide external sources and sep, show/hide server-only items; Auto always visible
+  document.querySelectorAll('#lyrics-source-dropdown .lsd-non-server')
+    .forEach(el => { el.style.display = on ? 'none' : '' })
+  document.querySelectorAll('#lyrics-source-dropdown .lsd-server-only')
+    .forEach(el => { el.style.display = on ? '' : 'none' })
+  // Update Auto hint to reflect mode
+  const autoHint = document.getElementById('lsd-auto-hint')
+  if (autoHint) autoHint.textContent = on ? 'Server · karaoke preferred' : 'Kugou → LRCLIB → Jellyfin'
+  // Settings select options (Auto option has no class so is always visible)
+  const sel = document.getElementById('s-lyrics-source')
+  if (!sel) return
+  sel.querySelectorAll('.lsd-non-server').forEach(o => { o.style.display = on ? 'none' : '' })
+  sel.querySelectorAll('.lsd-server-only').forEach(o => { o.style.display = on ? '' : 'none' })
+}
 
 let lyricsData = []
 let lyricsTranslated = []
@@ -2178,11 +2358,14 @@ function _showLyricsFetchToast(result) {
 
 function updateSourcePills() {
   const forced   = lyricsForcedSource && lyricsForcedSource !== 'auto'
-  const label    = forced ? lyricsForcedSource : (lyricsSource || 'Auto')
+  const label    = forced
+    ? (lyricsForcedSource === 'cascade-karaoke' ? 'Karaoke'
+       : lyricsForcedSource === 'cascade-synced' ? 'Synced'
+       : lyricsForcedSource)
+    : (lyricsSource || 'Auto')
   document.querySelectorAll('.lyrics-source-pill').forEach(p => {
     p.textContent = label
     p.classList.toggle('forced', forced)
-    // re-add the dot pseudo-element needs no JS — it's CSS ::before
   })
 }
 
@@ -2216,6 +2399,45 @@ function _openSourceDropdown(nearEl) {
     })
   })
 }
+
+// ── CascadeSLRC plugin one-time info modal ────────────────────────────────────
+// Resolves true if user clicks "Continue", false if they click "Cancel".
+// After first "Continue" the modal is never shown again (persisted in store).
+async function _ensureCascadePluginNotice() {
+  const seen = await window.cascade.store.get('cascadePluginNoticeSeen')
+  if (seen) return true
+  return new Promise(resolve => {
+    const modal = document.getElementById('cascade-plugin-modal')
+    modal.classList.remove('hidden')
+    const onCancel = () => {
+      modal.classList.add('hidden')
+      document.getElementById('cascade-plugin-continue').removeEventListener('click', onContinue)
+      resolve(false)
+    }
+    const onContinue = async () => {
+      modal.classList.add('hidden')
+      document.getElementById('cascade-plugin-cancel').removeEventListener('click', onCancel)
+      await window.cascade.store.set('cascadePluginNoticeSeen', true)
+      resolve(true)
+    }
+    document.getElementById('cascade-plugin-cancel').addEventListener('click', onCancel, { once: true })
+    document.getElementById('cascade-plugin-continue').addEventListener('click', onContinue, { once: true })
+  })
+}
+
+// ── Lyrics edit button ────────────────────────────────────────────────────────
+;['lyrics-edit-btn', 'ov-lyrics-edit-btn'].forEach(id => {
+  const btn = document.getElementById(id)
+  if (!btn) return
+  btn.addEventListener('click', async e => {
+    e.stopPropagation()
+    const item = queue[queueIndex]
+    if (!item || !jf) return
+    const proceed = await _ensureCascadePluginNotice()
+    if (!proceed) return
+    window.cascade.lyricsEditor.open({ item, jf, lyricsData: lyricsData || [] })
+  })
+})
 
 ;['sidebar-source-pill', 'ov-source-pill'].forEach(id => {
   const pill = document.getElementById(id)
@@ -2376,6 +2598,50 @@ function parseLRC(text) {
 }
 
 
+// Parse Kugou KRC format (decrypted) to internal format.
+// Line: [{line_start_ms},{line_duration_ms}]<word_offset_ms,word_duration_ms,0>text...
+// Word offsets are relative to the line start.
+function parseKrc(krcText) {
+  const MS   = 10_000        // 1ms = 10,000 ticks (100-nanosecond units)
+  const lines = []
+  for (const rawLine of krcText.split('\n')) {
+    const line = rawLine.trim()
+    const lineMatch = line.match(/^\[(\d+),(\d+)\](.*)$/)
+    if (!lineMatch) continue                       // skip [ti:], [ar:], [offset:] tags
+
+    const lineStartMs = parseInt(lineMatch[1])
+    const lineEndMs   = lineStartMs + parseInt(lineMatch[2])
+    const content     = lineMatch[3]
+
+    const wordRegex = /<(\d+),(\d+),\d+>([^<]*)/g
+    const words = []
+    let fullText = ''
+    let wm
+    while ((wm = wordRegex.exec(content)) !== null) {
+      const wOffMs  = parseInt(wm[1])
+      const wDurMs  = parseInt(wm[2])
+      const wText   = wm[3]
+      if (!wText) continue
+      fullText += wText
+      words.push({
+        Start: (lineStartMs + wOffMs) * MS,
+        End:   (lineStartMs + wOffMs + wDurMs) * MS,
+        Text:  wText,
+      })
+    }
+
+    fullText = fullText.trim()
+    if (!fullText) continue
+    lines.push({
+      Start: lineStartMs * MS,
+      End:   lineEndMs   * MS,
+      Text:  fullText,
+      Words: words.length > 0 ? words : null,
+    })
+  }
+  return lines
+}
+
 // Compare two lyric results by word overlap. Returns false if clearly different songs.
 function _lyricsTextMatch(a, b) {
   if (!a || !b) return true
@@ -2392,7 +2658,7 @@ function _lyricsTextMatch(a, b) {
 
 // Per-source status from the most recent waterfall run.
 // Values: 'ok' | 'fail' | 'skip' | null (never tried this session)
-let _lastFetchStatus = { SyncLRC: null, LRCLIB: null, Jellyfin: null }
+let _lastFetchStatus = { Cascade: null, Kugou: null, LRCLIB: null, Jellyfin: null }
 
 // Cache: itemId → result object. Keeps the last 50 tracks so reopening
 // lyrics or the overlay is instant without re-fetching.
@@ -2402,7 +2668,7 @@ function _cachePut(id, result) {
   _lyricsCache.set(id, result)
 }
 
-// Main fetch: SyncLRC · LRCLIB · Jellyfin — all fired in parallel,
+// Main fetch: LRCLIB · Jellyfin — all fired in parallel,
 // resolved in priority order. Respects lyricsForcedSource.
 // Returns { lines, source, tried } | { instrumental: true } | null.
 const _isAbort = e => e?.name === 'AbortError' || e?.name === 'TimeoutError'
@@ -2419,27 +2685,61 @@ async function fetchLyricsWaterfall(item) {
   const duration = Math.round((item.RunTimeTicks || 0) / 10_000_000)
   const sig      = { signal: AbortSignal.timeout(8000) }
 
-  // Strip "Track - Artist" metadata lines SyncLRC embeds at the top of karaoke
+  // Strip metadata/credits lines sometimes embedded by lyrics sources
   const metaPattern = new RegExp(
-    `^${(item.Name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*-\\s*`,
+    [
+      // "Song Title - " prefix (was the original filter)
+      `^${(item.Name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*-\\s*`,
+      // Credits: "Composed by:", "Written by:", "Produced by:", etc.
+      '^(composed|written|produced|arranged|performed|lyrics|music|words|publisher|\\u4f5c\\u8bcd|\\u4f5c\\u66f2|\\u7f16\\u66f2|\\u7f16\\u8bcd|\\u5236\\u4f5c\\u4eba)\\s*(by)?\\s*[:\\uff1a]',
+    ].join('|'),
     'i'
   )
-
-  const sources = [
-    ['SyncLRC', async () => {
-      // Request karaoke explicitly — with type=karaoke the API returns { lyrics: "<enhanced LRC>" }
-      const r = await fetch(
-        `https://api.synclrc.dev/lyrics?track=${title}&artist=${artist}&album=${album}&duration=${duration}&type=karaoke`,
-        { ...sig, cache: 'reload', headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' } })
+// ── Server-only mode: exclusively hit the Cascade plugin ─────────────────────
+  if (serverOnlyMode) {
+    const wantType = forced === 'cascade-karaoke' ? 'karaoke'
+                   : forced === 'cascade-synced'  ? 'synced'
+                   : null   // auto = accept either (plugin returns karaoke first)
+    const tried = { Cascade: null }
+    try {
+      const r = await fetch(`${jf.url}/Audio/${item.Id}/CascadeLyrics`,
+        { headers: { 'X-Emby-Token': jf.token }, signal: AbortSignal.timeout(8000) })
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       const d = await r.json()
-      if (d.instrumental) return { instrumental: true }
-      // d.lyrics should be enhanced LRC (contains word timestamps with <...>)
-      const lrcText = typeof d.lyrics === 'string' && d.lyrics.includes('<') ? d.lyrics : null
-      if (!lrcText) return null
-      const lines = parseLRC(lrcText).filter(l => !metaPattern.test(l.Text))
-      if (!lines.length || !lines.some(l => l.Words)) return null
-      return { lines, source: 'SyncLRC' }
+      if (!d.lrc || (wantType && d.type !== wantType)) {
+        tried.Cascade = 'fail'; _lastFetchStatus = tried; return null
+      }
+      const lines = parseLRC(d.lrc).filter(l => !metaPattern.test(l.Text))
+      if (!lines.length) { tried.Cascade = 'fail'; _lastFetchStatus = tried; return null }
+      tried.Cascade = 'ok'
+      _lastFetchStatus = tried
+      const srcLabel = forced === 'cascade-karaoke' ? 'Karaoke'
+                     : forced === 'cascade-synced'  ? 'Synced'
+                     : 'Cascade'
+      const out = { lines, source: srcLabel, tried }
+      if (!forced) _cachePut(item.Id, out)
+      return out
+    } catch (err) {
+      if (!_isAbort(err)) console.error('[Lyrics] Cascade error:', err)
+      tried.Cascade = 'fail'; _lastFetchStatus = tried; return null
+    }
+  }
+
+  const sources = [
+    ['Kugou', async () => {
+      // Kugou KRC — word-level, no auth required. Main process handles decrypt.
+      const rawTitle  = item.Name || ''
+      const rawArtist = item.AlbumArtist || item.Artists?.[0] || ''
+      const krcText   = await window.cascade.kugouGetLyrics({
+        title:      rawTitle,
+        artist:     rawArtist,
+        durationMs: (item.RunTimeTicks || 0) / 10_000,
+      })
+      if (!krcText) return null
+      const lines = parseKrc(krcText).filter(l => !metaPattern.test(l.Text))
+      // Only return if we got actual word-level data (otherwise let LRCLIB handle it)
+      if (!lines.length || !lines.some(l => l.Words?.length > 0)) return null
+      return { lines, source: 'Kugou' }
     }],
     ['LRCLIB', async () => {
       const r = await fetch(
@@ -2470,7 +2770,7 @@ async function fetchLyricsWaterfall(item) {
     }]
   ]
 
-  const tried = { SyncLRC: null, LRCLIB: null, Jellyfin: null }
+  const tried = { Kugou: null, LRCLIB: null, Jellyfin: null }
 
   // Forced source: single fetch only, never cache result
   if (forced) {
@@ -2490,16 +2790,16 @@ async function fetchLyricsWaterfall(item) {
     }
   }
 
-  // Fire all sources simultaneously, then crosscheck SyncLRC against reference sources
-  const [syncProm, lrcProm, jfProm] = sources.map(([name, fn]) =>
+  // Fire all sources simultaneously
+  const [kugouProm, lrcProm, jfProm] = sources.map(([name, fn]) =>
     fn().then(r => ({ name, result: r }))
       .catch(err => { if (!_isAbort(err)) console.error(`[Lyrics] ${name} error:`, err); return { name, result: null } })
   )
 
-  const [syncRes, lrcRes, jfRes] = await Promise.all([syncProm, lrcProm, jfProm])
+  const [kugouRes, lrcRes, jfRes] = await Promise.all([kugouProm, lrcProm, jfProm])
 
   // Instrumental check (any source can flag it)
-  for (const { result } of [syncRes, lrcRes, jfRes]) {
+  for (const { result } of [kugouRes, lrcRes, jfRes]) {
     if (result?.instrumental) {
       _lastFetchStatus = tried
       _cachePut(item.Id, { instrumental: true })
@@ -2507,24 +2807,11 @@ async function fetchLyricsWaterfall(item) {
     }
   }
 
-  // Validate SyncLRC against LRCLIB/Jellyfin — reject if clearly a wrong match
-  let syncResult = syncRes.result
-  if (syncResult) {
-    const ref = lrcRes.result || jfRes.result
-    if (ref && !_lyricsTextMatch(syncResult, ref)) {
-      console.warn('[Lyrics] SyncLRC rejected: text mismatch vs reference source')
-      syncResult = null
-      tried['SyncLRC'] = 'fail'
-    } else {
-      tried['SyncLRC'] = 'ok'
-    }
-  } else {
-    tried['SyncLRC'] = 'fail'
-  }
-  tried['LRCLIB']  = lrcRes.result  ? 'ok' : 'fail'
-  tried['Jellyfin'] = jfRes.result  ? 'ok' : 'fail'
+  tried['Kugou']    = kugouRes.result ? 'ok' : 'fail'
+  tried['LRCLIB']   = lrcRes.result   ? 'ok' : 'fail'
+  tried['Jellyfin'] = jfRes.result    ? 'ok' : 'fail'
 
-  const winner = syncResult || lrcRes.result || jfRes.result
+  const winner = kugouRes.result || lrcRes.result || jfRes.result
   if (winner) {
     _lastFetchStatus = tried
     const out = { ...winner, tried }
@@ -2538,7 +2825,10 @@ async function fetchLyricsWaterfall(item) {
 
 // ── Lyrics fetch ──────────────────────────────────────────────────────────────
 
+let _lyricsFetchGen = 0  // incremented on every fetchLyrics() call; stale results are discarded
+
 async function fetchLyrics() {
+  const gen  = ++_lyricsFetchGen
   const item = queue[queueIndex]
   const body = document.getElementById('lyrics-body')
   const translateBar = document.getElementById('lyrics-translate-bar')
@@ -2552,6 +2842,8 @@ async function fetchLyrics() {
   lastLyricsScrollIdx = -1
 
   const result = await fetchLyricsWaterfall(item)
+  if (gen !== _lyricsFetchGen) return  // a newer fetch superseded this one
+
   if (result?.instrumental) {
     body.innerHTML = '<div class="lyrics-empty">This track is instrumental</div>'
     return
@@ -2745,23 +3037,22 @@ function updateDiscordPresence(item) {
 }
 
 const DEFAULT_DISCORD_CLIENT_ID = '1512373702522835004'
+let _rpcConnected = false
 
 async function initDiscordRpc() {
   const enabled  = await window.cascade.store.get('discordRpcEnabled')
   const clientId = await window.cascade.store.get('discordClientId') || DEFAULT_DISCORD_CLIENT_ID
   discordEnabled = enabled === 'true'
-  updateDiscordRpcStatus(discordEnabled)
   if (discordEnabled) window.cascade.discord.connect(clientId)
 
+  // Single listener — updates dot + label; tracks state for when settings view opens later
   window.cascade.discord.onStatus((connected) => {
-    const dot = document.getElementById('discord-rpc-dot')
-    if (dot) dot.className = 'ws-dot' + (connected ? ' connected' : '')
+    _rpcConnected = connected
+    const dot   = document.getElementById('discord-rpc-dot')
+    const label = document.getElementById('discord-rpc-status-label')
+    if (dot)   dot.className   = 'ws-dot' + (connected ? ' connected' : '')
+    if (label) label.textContent = connected ? 'Connected' : 'Not connected'
   })
-}
-
-function updateDiscordRpcStatus(enabled) {
-  const dot = document.getElementById('discord-rpc-dot')
-  if (dot) dot.className = 'ws-dot' + (enabled ? '' : '')
 }
 
 // ── Search ────────────────────────────────────────────────────────────────────

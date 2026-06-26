@@ -257,12 +257,12 @@
     .np-overlay-close:hover { color: var(--text); }
     .np-overlay-body { flex: 1; display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; }
     /* Left: big art + info + controls */
-    .np-overlay-left { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 40px; gap: 24px; border-right: 1px solid var(--border); }
-    .np-overlay-art { width: min(280px, 40vh); height: min(280px, 40vh); border-radius: 12px; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 72px; flex-shrink: 0; }
+    .np-overlay-left { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: clamp(20px, 3.5vh, 48px) clamp(20px, 4vw, 56px); gap: clamp(14px, 2.5vh, 28px); border-right: 1px solid var(--border); }
+    .np-overlay-art { width: min(clamp(240px, 52vh, 520px), calc(100% - 32px)); aspect-ratio: 1; border-radius: 12px; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 72px; flex-shrink: 0; }
     .np-overlay-art img { width: 100%; height: 100%; object-fit: cover; }
     .np-overlay-info { text-align: center; width: 100%; }
-    .np-overlay-track { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; color: var(--text); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .np-overlay-artist { font-size: 14px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .np-overlay-track { font-size: clamp(17px, 2.4vh, 26px); font-weight: 600; letter-spacing: -0.02em; color: var(--text); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .np-overlay-artist { font-size: clamp(13px, 1.7vh, 17px); color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .np-overlay-controls { display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%; position: relative; }
     .ov-dropdown { position: fixed; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 4px; min-width: 210px; z-index: 400; display: none; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
     .ov-dropdown.open { display: block; }
@@ -377,27 +377,39 @@
       -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
     }
 
-    /* ── Lyrics source pill ── */
-    .lyrics-source-pill {
+    /* ── Lyrics pill group (source pill + edit button) ── */
+    .lyrics-pill-group {
       position: absolute; top: 52px; right: 10px; z-index: 20;
+      display: flex; align-items: center; gap: 5px;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.18s;
+    }
+    .lyrics-panel:hover .lyrics-pill-group,
+    #ov-panel-lyrics:hover .lyrics-pill-group { opacity: 1; pointer-events: auto; }
+    .ov-pill-group { top: 14px; right: 14px; }
+
+    .lyrics-source-pill {
       background: rgba(255,255,255,0.08); backdrop-filter: blur(14px) saturate(160%);
       -webkit-backdrop-filter: blur(14px) saturate(160%);
       border: 1px solid rgba(255,255,255,0.13); border-radius: 20px;
       font-family: var(--font); font-size: 10.5px; color: rgba(255,255,255,0.7);
       padding: 4px 10px 4px 8px; cursor: pointer; user-select: none;
-      opacity: 0; pointer-events: none;
-      transition: opacity 0.18s, background 0.12s, color 0.12s;
+      transition: background 0.12s, color 0.12s;
       white-space: nowrap; display: flex; align-items: center; gap: 5px;
     }
     .lyrics-source-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
     .lyrics-source-pill.forced { border-color: rgba(110,79,246,0.5); color: rgba(110,79,246,0.95); background: rgba(110,79,246,0.12); }
     .lyrics-source-pill.forced::before { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
-    .lyrics-panel:hover .lyrics-source-pill,
-    #ov-panel-lyrics:hover .lyrics-source-pill { opacity: 1; pointer-events: auto; }
     .lyrics-source-pill:hover { background: rgba(255,255,255,0.14); color: white; }
 
-    /* overlay pill has no header to avoid — reset to near top */
-    .ov-source-pill { top: 14px; right: 14px; }
+    .lyrics-edit-btn {
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.12); border-radius: 20px;
+      padding: 4px 8px; cursor: pointer; color: rgba(255,255,255,0.55);
+      display: flex; align-items: center;
+      transition: background 0.12s, color 0.12s;
+    }
+    .lyrics-edit-btn:hover { background: rgba(255,255,255,0.14); color: white; }
 
     /* ── Lyrics source dropdown ── */
     .lyrics-source-dropdown {
@@ -930,17 +942,32 @@
             </div>
           </div>
           <div class="settings-group">
-            <div class="sg-title">Lyrics</div>
+            <div class="sg-title">Fetching</div>
             <div class="setting-row">
               <div class="setting-label">
+                <span class="setting-name">Server-only Mode</span>
+                <span class="setting-desc">Use the CascadeSLRC Jellyfin plugin exclusively for lyrics and art. Requires the plugin to be installed on your server.</span>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="server-only-lyrics-toggle">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+          </div>
+          <div class="settings-group">
+            <div class="sg-title">Lyrics</div>
+            <div class="setting-row" id="lyrics-source-row">
+              <div class="setting-label">
                 <span class="setting-name">Lyrics Source</span>
-                <span class="setting-desc">Preferred source. Auto tries each in order: SyncLRC → LRCLIB → Jellyfin.</span>
+                <span class="setting-desc">Preferred source. Auto tries each in order: Kugou → LRCLIB → Jellyfin.</span>
               </div>
               <select class="setting-input" id="s-lyrics-source">
                 <option value="auto">Auto (waterfall)</option>
-                <option value="SyncLRC">SyncLRC</option>
-                <option value="LRCLIB">LRCLIB</option>
-                <option value="Jellyfin">Jellyfin</option>
+                <option value="Kugou" class="lsd-non-server">Kugou</option>
+                <option value="LRCLIB" class="lsd-non-server">LRCLIB</option>
+                <option value="Jellyfin" class="lsd-non-server">Jellyfin</option>
+                <option value="cascade-karaoke" class="lsd-server-only" style="display:none">Karaoke Only</option>
+                <option value="cascade-synced" class="lsd-server-only" style="display:none">Synced Only</option>
               </select>
             </div>
           </div>
@@ -1114,7 +1141,12 @@
         <div id="ov-queue-rows"></div>
       </div>
       <div id="ov-panel-lyrics" style="position:absolute;inset:0;background:var(--surface);overflow:hidden;transform:translateX(100%);transition:transform 0.3s cubic-bezier(0.4,0,0.2,1);">
-        <button class="lyrics-source-pill ov-source-pill" id="ov-source-pill">Auto</button>
+        <div class="lyrics-pill-group ov-pill-group" id="ov-pill-group">
+          <button class="lyrics-source-pill ov-source-pill" id="ov-source-pill">Auto</button>
+          <button class="lyrics-edit-btn" id="ov-lyrics-edit-btn" title="Edit lyrics">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          </button>
+        </div>
         <div class="ov-lyrics-scroll" id="ov-lyrics-body"></div>
         <button class="ov-translate-btn" id="ov-translate-btn" title="Translate to English" style="display:none">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
@@ -1250,21 +1282,29 @@
 <!-- Lyrics source picker dropdown (fixed-position, shared by sidebar + overlay pills) -->
 <div id="lyrics-source-dropdown" class="lyrics-source-dropdown">
   <div class="lsd-item" data-source="auto">
-    <span class="lsd-icon">⚡</span>Auto (waterfall)
-    <span class="lsd-hint">SyncLRC → LRCLIB → Jellyfin</span>
+    <span class="lsd-icon">⚡</span>Auto
+    <span class="lsd-hint" id="lsd-auto-hint">Kugou → LRCLIB → Jellyfin</span>
   </div>
-  <div class="lsd-sep"></div>
-  <div class="lsd-item" data-source="SyncLRC">
-    <span class="lsd-icon">✦</span>SyncLRC
-    <span class="lsd-hint">Word-level karaoke</span>
+  <div class="lsd-sep lsd-non-server"></div>
+  <div class="lsd-item lsd-non-server" data-source="Kugou">
+    <span class="lsd-icon">✦</span>Kugou
+    <span class="lsd-hint">Word-level karaoke · no token needed</span>
   </div>
-  <div class="lsd-item" data-source="LRCLIB">
+  <div class="lsd-item lsd-non-server" data-source="LRCLIB">
     <span class="lsd-icon">◎</span>LRCLIB
     <span class="lsd-hint">Line-synced</span>
   </div>
-  <div class="lsd-item" data-source="Jellyfin">
+  <div class="lsd-item lsd-non-server" data-source="Jellyfin">
     <span class="lsd-icon">◎</span>Jellyfin
     <span class="lsd-hint">Server-side</span>
+  </div>
+  <div class="lsd-item lsd-server-only" data-source="cascade-karaoke" style="display:none">
+    <span class="lsd-icon">✦</span>Karaoke Only
+    <span class="lsd-hint">Server · word-level</span>
+  </div>
+  <div class="lsd-item lsd-server-only" data-source="cascade-synced" style="display:none">
+    <span class="lsd-icon">◎</span>Synced Only
+    <span class="lsd-hint">Server · line-synced</span>
   </div>
 </div>
 
@@ -1294,7 +1334,12 @@
     </select>
     <button class="lyrics-translate-btn" id="lyrics-translate-btn">Translate</button>
   </div>
-  <button class="lyrics-source-pill" id="sidebar-source-pill">Auto</button>
+  <div class="lyrics-pill-group" id="sidebar-pill-group">
+    <button class="lyrics-source-pill" id="sidebar-source-pill">Auto</button>
+    <button class="lyrics-edit-btn" id="lyrics-edit-btn" title="Edit lyrics">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+    </button>
+  </div>
   <div class="lyrics-body" id="lyrics-body">
     <div class="lyrics-empty">No lyrics available</div>
   </div>
@@ -1317,6 +1362,28 @@
   </div>
 </div>
 <div id="toast"></div>
+
+<!-- CascadeSLRC plugin info modal (shown once) -->
+<div class="modal-overlay hidden" id="cascade-plugin-modal">
+  <div class="modal-card" style="width:380px;max-height:none;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--grad);flex-shrink:0;display:flex;align-items:center;justify-content:center;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+      </div>
+      <div class="modal-title" style="margin:0;">CascadeSLRC Plugin Required</div>
+    </div>
+    <p style="font-size:12px;color:var(--text2);line-height:1.6;margin-bottom:8px;">
+      This feature requires the <strong style="color:var(--text);font-weight:600;">CascadeSLRC plugin</strong> installed on your Jellyfin server.
+    </p>
+    <p style="font-size:12px;color:var(--text3);line-height:1.6;margin-bottom:18px;">
+      The plugin enables server-side karaoke lyric storage, the lyrics editor, and server-only mode. Install it through my Github page (When available, plugin unpolished) onto your server.
+    </p>
+    <div class="modal-actions">
+      <button class="modal-btn" id="cascade-plugin-cancel">Cancel</button>
+      <button class="modal-btn modal-btn-accent" id="cascade-plugin-continue">Continue anyway</button>
+    </div>
+  </div>
+</div>
 
 <!-- Media info modal -->
 <div class="modal-overlay hidden" id="mi-modal">

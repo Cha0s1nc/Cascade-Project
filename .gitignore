@@ -3,3 +3,6 @@ node_modules/
 *.log
 dist/
 out/
+*.slrc
+spicylyrics-integration.js
+lyrics_align_test.py
