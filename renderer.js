@@ -332,6 +332,40 @@ async function jfGetMerged(path, params = {}) {
   return { Items: items, TotalRecordCount: items.length }
 }
 
+// Like jfGetMerged, but paginates each library until every matching item is
+// fetched instead of stopping at params.Limit. Pages within a library are
+// fetched in parallel once the first page reveals TotalRecordCount.
+async function jfGetAllPaged(path, params = {}) {
+  const ids = jf.libraryIds?.length ? jf.libraryIds : [null]
+  const pageSize = params.Limit || 500
+
+  const perLibrary = await Promise.all(ids.map(async libId => {
+    const baseParams = libId ? { ...params, ParentId: libId } : params
+    const first = await jfGet(path, { ...baseParams, StartIndex: 0 }).catch(() => ({ Items: [], TotalRecordCount: 0 }))
+    const items = [...(first.Items || [])]
+    const total = first.TotalRecordCount ?? items.length
+
+    if (total > items.length) {
+      const starts = []
+      for (let start = items.length; start < total; start += pageSize) starts.push(start)
+      const pages = await Promise.all(starts.map(start =>
+        jfGet(path, { ...baseParams, StartIndex: start }).catch(() => ({ Items: [] }))
+      ))
+      for (const p of pages) items.push(...(p.Items || []))
+    }
+    return items
+  }))
+
+  const seen = new Set()
+  const items = []
+  for (const libItems of perLibrary) {
+    for (const item of libItems) {
+      if (!seen.has(item.Id)) { seen.add(item.Id); items.push(item) }
+    }
+  }
+  return { Items: items, TotalRecordCount: items.length }
+}
+
 async function loadAlbums() {
   const grid = document.getElementById('albums-grid')
   grid.dataset.loaded = '1'
@@ -1129,8 +1163,12 @@ likeBtn.addEventListener('click', toggleLike)
 async function shuffleAllSongs() {
   // Load songs if not yet fetched
   if (!allSongs.length) {
-    const params = { SortBy: 'SortName', SortOrder: 'Ascending', IncludeItemTypes: 'Audio', Recursive: true, Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,UserData', Limit: 500 }
-    const data = await jfGetMerged(`/Users/${jf.userId}/Items`, params)
+    // No SortBy here — the result is shuffled immediately below, so making the
+    // server sort the whole library first would be wasted work. Paginate with
+    // jfGetAllPaged instead of jfGetMerged so libraries over 500 tracks aren't
+    // silently truncated.
+    const params = { IncludeItemTypes: 'Audio', Recursive: true, Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,UserData', Limit: 500 }
+    const data = await jfGetAllPaged(`/Users/${jf.userId}/Items`, params)
     allSongs = data.Items || []
     // If songs view is open, render the rows too
     if (document.getElementById('songs-rows').dataset.loaded) renderSongRows()
@@ -1300,7 +1338,7 @@ async function loadSettingsFields() {
     updateSourcePills()
     if (queue[queueIndex]) {
       _lyricsCache.delete(queue[queueIndex].Id)
-      lyricsData = []; lastLyricsIdx = -1; lastLyricsScrollIdx = -1; lastOverlayLyricsIdx = -1; fetchLyrics()
+      lyricsData = []; lastLyricsIdx = -1; lastOverlayLyricsIdx = -1; fetchLyrics()
     }
   }
 
@@ -1314,7 +1352,7 @@ async function loadSettingsFields() {
     updateSourcePills()
     if (queue[queueIndex]) {
       _lyricsCache.delete(queue[queueIndex].Id)
-      lyricsData = []; lastLyricsIdx = -1; lastLyricsScrollIdx = -1; lastOverlayLyricsIdx = -1; fetchLyrics()
+      lyricsData = []; lastLyricsIdx = -1; lastOverlayLyricsIdx = -1; fetchLyrics()
     }
   }
 
@@ -1898,19 +1936,18 @@ async function renderOverlayLyrics() {
   }
 
   renderOverlayLyricLines()
+  _resetOverlayManualScroll()
 
-  // Reset position instantly then animate to current position
-  body.style.transition = 'none'
-  body.style.transform = 'translateY(0)'
-  requestAnimationFrame(() => {
-    body.style.transition = ''
-    const nowSec = audio.currentTime + 0.225
-    let activeIdx = 0
-    for (let i = 0; i < lyricsData.length; i++) {
-      if (lyricsData[i].Start != null && lyricsData[i].Start / 10000000 <= nowSec) activeIdx = i
-    }
-    updateOverlayLyricsActive(activeIdx)
-  })
+  // Jump to a neutral position instantly, then let the spring glide in to the
+  // actual current line — no CSS-transition reflow trick needed since jumpTo()
+  // bypasses the animation loop entirely.
+  ovLyricsSpring.jumpTo(0)
+  const nowSec0 = audio.currentTime + 0.225
+  let initialIdx = 0
+  for (let i = 0; i < lyricsData.length; i++) {
+    if (lyricsData[i].Start != null && lyricsData[i].Start / 10000000 <= nowSec0) initialIdx = i
+  }
+  updateOverlayLyricsActive(initialIdx)
 
   // Detect language and show translate button if non-English
   detectOverlayLyricsLanguage()
@@ -1996,46 +2033,177 @@ document.getElementById('ov-translate-btn').addEventListener('click', async () =
   }
 })
 
-function updateOverlayLyricsActive(activeIdx) {
+// Lightweight critically-damped-ish spring for scroll position. Unlike a CSS
+// transition, it carries velocity across target changes — when a new line
+// comes in before the previous move has settled (common in fast verses), it
+// keeps moving from its current speed toward the new target instead of
+// restarting from a standstill, which is what makes back-to-back line changes
+// read as one continuous glide instead of a stutter-restart.
+function createSpring(onUpdate, stiffness = 210, damping = 26) {
+  let pos = 0, vel = 0, target = 0
+  let raf = null
+  let lastTs = null
+
+  function frame(ts) {
+    if (lastTs == null) lastTs = ts
+    const dt = Math.min((ts - lastTs) / 1000, 0.05)  // clamp so a stalled tab doesn't fling on resume
+    lastTs = ts
+
+    const accel = (target - pos) * stiffness - vel * damping
+    vel += accel * dt
+    pos += vel * dt
+
+    const settled = Math.abs(target - pos) < 0.05 && Math.abs(vel) < 0.05
+    if (settled) { pos = target; vel = 0 }
+    onUpdate(pos)
+
+    if (!settled) raf = requestAnimationFrame(frame)
+    else { raf = null; lastTs = null }
+  }
+
+  function ensureRunning() {
+    if (raf == null) { lastTs = null; raf = requestAnimationFrame(frame) }
+  }
+
+  return {
+    setTarget(t) { target = t; ensureRunning() },
+    jumpTo(t) {
+      target = t; pos = t; vel = 0
+      if (raf) { cancelAnimationFrame(raf); raf = null; lastTs = null }
+      onUpdate(pos)
+    },
+    setPos(p) {   // direct 1:1 tracking (manual drag) — no physics involved
+      pos = p; vel = 0; target = p
+      if (raf) { cancelAnimationFrame(raf); raf = null; lastTs = null }
+      onUpdate(pos)
+    },
+  }
+}
+
+const ovLyricsSpring = createSpring(pos => {
+  const el = document.getElementById('ov-lyrics-body')
+  if (el) el.style.transform = `translateY(${pos}px)`
+})
+
+const sideLyricsSpring = createSpring(pos => {
+  const el = document.getElementById('lyrics-inner')
+  if (el) el.style.transform = `translateY(${pos}px)`
+})
+
+function updateOverlayLyricsActive(activeIdx, instant) {
   const body = document.getElementById('ov-lyrics-body')
   const panel = document.getElementById('ov-panel-lyrics')
   body.querySelectorAll('.ov-lyric-line').forEach(el => {
     const idx = parseInt(el.dataset.idx)
     const dist = idx - activeIdx  // signed: negative = past, positive = upcoming
-    el.classList.remove('active', 'near-1', 'near-2', 'past', 'near-past')
+    el.classList.remove('active', 'near-1', 'near-2', 'near-3', 'past', 'near-past')
     if (dist === 0) el.classList.add('active')
     else if (dist === 1) el.classList.add('near-1')
     else if (dist === 2) el.classList.add('near-2')
+    else if (dist === 3) el.classList.add('near-3')
     else if (dist < 0) {
       el.classList.add('past')
       if (dist === -1) el.classList.add('near-past')
     }
+    // Ripple: lines further from the active one settle in slightly later,
+    // so the stack cascades outward instead of moving as one rigid block.
+    el.style.transitionDelay = dist > 0 ? `${Math.min(dist, 3) * 65}ms` : '0ms'
   })
   // GPU-accelerated: translate the container so active line sits at panel center
-  const active = body.querySelector(`.ov-lyric-line[data-idx="${activeIdx}"]`)
-  if (active) {
-    const panelMid = panel.clientHeight / 2
-    const activeMid = active.offsetTop + active.offsetHeight / 2
-    body.style.transform = `translateY(${panelMid - activeMid}px)`
-  }
+  _scrollOverlayLyricsTo(activeIdx, instant)
+}
+
+// Centers the given line in the overlay lyrics panel. `instant` skips the
+// spring animation — used when snap-scrolling right as a karaoke line's last
+// word finishes, so the jump isn't a glide disconnected from the vocal.
+function _scrollOverlayLyricsTo(idx, instant) {
+  const body = document.getElementById('ov-lyrics-body')
+  const panel = document.getElementById('ov-panel-lyrics')
+  const el = body.querySelector(`.ov-lyric-line[data-idx="${idx}"]`)
+  if (!el) return
+  const panelMid = panel.clientHeight / 2
+  const activeMid = el.offsetTop + el.offsetHeight / 2
+  ovLyricsBaseY = panelMid - activeMid
+  // While the user is manually scrolling, leave the spring alone — it gets
+  // redirected (base + their offset) from the wheel handler instead.
+  if (ovLyricsUserScrolling) return
+  if (instant) ovLyricsSpring.jumpTo(ovLyricsBaseY)
+  else ovLyricsSpring.setTarget(ovLyricsBaseY)
+}
+
+// Returns the translateY that would center a given line, independent of the
+// element's current transform (offsetTop is unaffected by CSS transforms).
+function _ovLyricsTranslateYFor(idx) {
+  const body  = document.getElementById('ov-lyrics-body')
+  const panel = document.getElementById('ov-panel-lyrics')
+  const el    = body.querySelector(`.ov-lyric-line[data-idx="${idx}"]`)
+  if (!el) return 0
+  return panel.clientHeight / 2 - (el.offsetTop + el.offsetHeight / 2)
 }
 
 // Sync overlay lyrics highlight
 let lastOverlayLyricsIdx = -1
+let ovLyricsBaseY = 0            // auto-follow position for the current active line
+let ovLyricsManualOffset = 0     // extra offset applied while the user scrolls by hand
+let ovLyricsUserScrolling = false
+let ovLyricsScrollTimer = null
+
+function _resetOverlayManualScroll() {
+  clearTimeout(ovLyricsScrollTimer)
+  ovLyricsUserScrolling  = false
+  ovLyricsManualOffset   = 0
+}
+
 // Reset when track changes
 const _ovLyricsReset = updateNowPlaying
-updateNowPlaying = function(item) { _ovLyricsReset(item); lastOverlayLyricsIdx = -1 }
+updateNowPlaying = function(item) { _ovLyricsReset(item); lastOverlayLyricsIdx = -1; _resetOverlayManualScroll() }
+
+document.getElementById('ov-panel-lyrics').addEventListener('wheel', (e) => {
+  if (!lyricsData.length) return
+  e.preventDefault()
+  const minY = _ovLyricsTranslateYFor(lyricsData.length - 1)
+  const maxY = _ovLyricsTranslateYFor(0)
+  const wantedY = ovLyricsBaseY + ovLyricsManualOffset - e.deltaY
+  const clampedY = Math.min(maxY, Math.max(minY, wantedY))
+  ovLyricsManualOffset = clampedY - ovLyricsBaseY
+  ovLyricsUserScrolling = true
+  ovLyricsSpring.setPos(clampedY)  // 1:1 tracking under the cursor, no physics lag
+
+  clearTimeout(ovLyricsScrollTimer)
+  ovLyricsScrollTimer = setTimeout(() => {
+    ovLyricsUserScrolling = false
+    ovLyricsManualOffset = 0
+    ovLyricsSpring.setTarget(ovLyricsBaseY)  // spring settles back with a bit of momentum
+  }, 2200)
+}, { passive: false })
 
 audio.addEventListener('timeupdate', () => {
   if (!overlayOpen || !overlayLyricsOpen || !lyricsData.length) return
+  // Same lookahead as word-fill (_wordHighlightFrame) so the last word's fill
+  // animation and the line-promotion check complete in lockstep — no gap in
+  // either direction (mid-fill cutoff if promotion is earlier, a visible
+  // "stick" on the finished word if promotion is later).
   const nowSec = audio.currentTime + 0.225
-  let activeIdx = 0
+  let baseIdx = 0
   for (let i = 0; i < lyricsData.length; i++) {
-    if (lyricsData[i].Start != null && lyricsData[i].Start / 10_000_000 <= nowSec) activeIdx = i
+    if (lyricsData[i].Start != null && lyricsData[i].Start / 10_000_000 <= nowSec) baseIdx = i
   }
+
+  // Karaoke lines: promote to the next line (position AND highlight together)
+  // the instant the current line's last word finishes, instead of waiting for
+  // the next line's own start — otherwise the view snaps into place early but
+  // sits dim/inactive for a beat, which reads as stuck.
+  let activeIdx = baseIdx
+  const words = lyricsData[baseIdx]?.Words
+  if (words?.length && lyricsData[baseIdx + 1]) {
+    const lastWordEnd = words[words.length - 1].End
+    if (lastWordEnd != null && nowSec >= lastWordEnd / 10_000_000) activeIdx = baseIdx + 1
+  }
+
   if (activeIdx === lastOverlayLyricsIdx) return
+  const advancedEarly = activeIdx > baseIdx
   lastOverlayLyricsIdx = activeIdx
-  updateOverlayLyricsActive(activeIdx)
+  updateOverlayLyricsActive(activeIdx, advancedEarly)
 })
 
 // Update overlay when track changes
@@ -2463,7 +2631,7 @@ document.getElementById('lyrics-source-dropdown').querySelectorAll('.lsd-item').
     // Refetch for current track
     if (queue[queueIndex]) {
       _lyricsCache.delete(queue[queueIndex].Id)
-      lyricsData = []; lastLyricsIdx = -1; lastLyricsScrollIdx = -1; lastOverlayLyricsIdx = -1; fetchLyrics()
+      lyricsData = []; lastLyricsIdx = -1; lastOverlayLyricsIdx = -1; fetchLyrics()
     }
   })
 })
@@ -2839,7 +3007,6 @@ async function fetchLyrics() {
   lyricsData = []
   lyricsTranslated = []
   lastLyricsIdx = -1
-  lastLyricsScrollIdx = -1
 
   const result = await fetchLyricsWaterfall(item)
   if (gen !== _lyricsFetchGen) return  // a newer fetch superseded this one
@@ -2901,8 +3068,10 @@ function renderLyrics(showTranslation = false) {
     return `<div class="lyrics-line${hasTimestamp ? ' seekable' : ''}" data-idx="${i}"${hasTimestamp ? ` data-start="${line.Start}"` : ''}>${content}</div>${trans}`
   }).join('')
 
-  // Wrap in a translateY-driven inner div so fast lyrics don't queue scroll calls
-  body.innerHTML = `<div id="lyrics-inner" style="will-change:transform;transition:transform 0.28s cubic-bezier(0.4,0,0.2,1);padding-bottom:50%">${lines}</div>`
+  // Wrap in a translateY-driven inner div — position is spring-animated in JS
+  // (see sideLyricsSpring), not CSS transitions, so no transition property here.
+  body.innerHTML = `<div id="lyrics-inner" style="will-change:transform;padding-bottom:50%">${lines}</div>`
+  sideLyricsSpring.jumpTo(0)  // fresh element, don't carry over the previous track's position
 
   body.querySelectorAll('.lyrics-line.seekable').forEach(el => {
     el.style.cursor = 'pointer'
@@ -2914,55 +3083,56 @@ function renderLyrics(showTranslation = false) {
       lyricsScrollTimer = setTimeout(() => { lyricsScrollSuppressed = false }, 1500)
       audio.currentTime = ticks / 10000000
       lastLyricsIdx = -1
-      lastLyricsScrollIdx = -1
     })
   })
 }
 
 // Sync lyrics highlight to playback position
 let lastLyricsIdx = -1
-let lastLyricsScrollIdx = -1  // separate: scroll advances 0.2s early for karaoke
 let lyricsScrollSuppressed = false
 let lyricsScrollTimer = null
 
 audio.addEventListener('timeupdate', () => {
   if (!lyricsData.length) return
+  // Same lookahead as word-fill (_wordHighlightFrame) so the last word's fill
+  // animation and the line-promotion check complete in lockstep — no gap in
+  // either direction (mid-fill cutoff if promotion is earlier, a visible
+  // "stick" on the finished word if promotion is later).
   const nowSec = audio.currentTime + 0.225
-  let activeIdx = 0
+  let baseIdx = 0
   for (let i = 0; i < lyricsData.length; i++) {
-    if (lyricsData[i].Start != null && lyricsData[i].Start / 10_000_000 <= nowSec) activeIdx = i
+    if (lyricsData[i].Start != null && lyricsData[i].Start / 10_000_000 <= nowSec) baseIdx = i
   }
 
-  // For karaoke lines, scroll to next line 0.2s before it starts
-  let scrollIdx = activeIdx
-  if (lyricsData[activeIdx]?.Words) {
-    const next = lyricsData[activeIdx + 1]
-    if (next?.Start != null && nowSec >= next.Start / 10_000_000 - 0.3) scrollIdx = activeIdx + 1
+  // For karaoke lines, promote to the next line (highlight AND scroll together)
+  // the instant its last word finishes, instead of waiting for the next line's
+  // own start — otherwise the view snaps into place early but sits dim/inactive
+  // for a beat, which reads as stuck.
+  let activeIdx = baseIdx
+  const words = lyricsData[baseIdx]?.Words
+  if (words?.length && lyricsData[baseIdx + 1]) {
+    const lastWordEnd = words[words.length - 1].End
+    if (lastWordEnd != null && nowSec >= lastWordEnd / 10_000_000) activeIdx = baseIdx + 1
   }
 
-  const idxChanged    = activeIdx !== lastLyricsIdx
-  const scrollChanged = scrollIdx !== lastLyricsScrollIdx
-  if (!idxChanged && !scrollChanged) return
+  if (activeIdx === lastLyricsIdx) return
+  const instant = activeIdx > baseIdx
+  lastLyricsIdx = activeIdx
 
-  if (idxChanged) {
-    lastLyricsIdx = activeIdx
-    const body = document.getElementById('lyrics-body')
-    body.querySelectorAll('.lyrics-line[data-idx]').forEach(el => {
-      el.classList.toggle('active', parseInt(el.dataset.idx) === activeIdx)
-    })
-  }
+  const body = document.getElementById('lyrics-body')
+  body.querySelectorAll('.lyrics-line[data-idx]').forEach(el => {
+    el.classList.toggle('active', parseInt(el.dataset.idx) === activeIdx)
+  })
 
-  if (scrollChanged && !lyricsScrollSuppressed) {
-    lastLyricsScrollIdx = scrollIdx
-    const body  = document.getElementById('lyrics-body')
+  if (!lyricsScrollSuppressed) {
     const inner = document.getElementById('lyrics-inner')
-    if (inner) {
-      const target = inner.querySelector(`.lyrics-line[data-idx="${scrollIdx}"]`)
-      if (target) {
-        const panelMid  = body.clientHeight / 2
-        const activeMid = target.offsetTop + target.offsetHeight / 2
-        inner.style.transform = `translateY(${panelMid - activeMid}px)`
-      }
+    const target = inner?.querySelector(`.lyrics-line[data-idx="${activeIdx}"]`)
+    if (target) {
+      const panelMid  = body.clientHeight / 2
+      const activeMid = target.offsetTop + target.offsetHeight / 2
+      const y = panelMid - activeMid
+      if (instant) sideLyricsSpring.jumpTo(y)
+      else sideLyricsSpring.setTarget(y)
     }
   }
 })
@@ -3006,7 +3176,6 @@ updateNowPlaying = function(item) {
   lyricsData = []
   lyricsTranslated = []
   lastLyricsIdx = -1
-  lastLyricsScrollIdx = -1
   ovLyricsTranslated = false
   document.getElementById('ov-translate-btn').style.display = 'none'
   document.getElementById('ov-translate-btn').classList.remove('translated')

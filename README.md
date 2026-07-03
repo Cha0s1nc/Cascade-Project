@@ -6,28 +6,17 @@ A Jellyfin music client for desktop with a polished dark interface, full playbac
 
 ## Features
 
-- **Jellyfin playback** — browse and play from your Jellyfin library with direct play and transcoding fallback, repeat (none / all / one), and gapless queue
-- **Search** — search songs, albums, and artists across your entire library from a dedicated search view. Results are instant and clickable to play
-- **Shuffle** — proper pre-shuffled queue (Fisher-Yates) so every song plays exactly once before repeating. Shuffle All buttons in Albums, Artists, and Songs views. Toggling shuffle off restores the original order
-- **Artist pages** — clicking an artist opens a detail page with their albums and full song list. Play All or drill into individual albums
+- **Jellyfin playback** — browse and play from your Jellyfin library with direct play and transcoding fallback
 - **Full-screen now-playing overlay** — click the player bar to expand a full-screen view with large album art, controls, a live queue panel, and synced lyrics. Lyrics scale up automatically when the window is maximised or fullscreened
 - **Queue management** — drag to reorder, click to remove. Queue updates live in the full-screen overlay with album art thumbnails and current-track highlighting
-- **Synced lyrics** — timestamp-synced lyrics from Jellyfin with click-to-seek. Opens as a slide-in panel or in the full-screen overlay. A globe button in the overlay lyrics panel auto-detects non-English tracks and translates to English with one tap
+- **Synced lyrics** — timestamp-synced lyrics from Jellyfin with click-to-seek. Opens as a slide-in panel or in the full-screen overlay. A globe button in the overlay lyrics panel auto-detects non-English tracks and translates to English with one tap (Pulled from a couple sources when online, pulled from sidecar `.slrc` files on "Server Only Mode")
 - **Lyrics translation** — auto-detects non-English tracks and shows a translate bar. One click translates to 12 languages via the MyMemory API
-- **Theme picker** — click the gradient dot in the titlebar to customise the accent gradient with a colour picker, eight built-in presets, or dark/light mode. Settings persist across restarts
 - **Album art accent mode** — toggle in the theme picker to automatically match the gradient and full-screen overlay background to the dominant colour of the current album art, updating on every track change
 - **Discord Rich Presence** — shows the current track in Discord as "Listening to Cascade". Enable in Settings with one toggle — no setup required
-- **OS media keys** — play/pause, next, and previous work system-wide on both macOS and Windows via `globalShortcut` and the Web Media Session API (also populates the lock screen / taskbar now-playing widget with track info and artwork)
-- **Touch Bar** — macOS Touch Bar shows track name and ⏮ ▶/⏸ ⏭ controls, synced to playback state
-- **Context menu** — right-click now-playing art for instant mix, add to playlist, media info, download, copy stream URL, refresh metadata, edit metadata, delete, and more
-- **Like / favourite** — heart button syncs favourites back to your Jellyfin server
-- **Playlists** — browse and play your Jellyfin playlists. Drill into a playlist to see its track list with album art
+- **Touch Bar** — Actually has support for Macbooks with a Touch Bar
 - **Multi-library support** — select and merge multiple Jellyfin music libraries. Albums, artists, and songs are deduplicated across all selected libraries
-- **Expandable sidebar** — icon-only rail that slides out to show labels on hover, with backdrop dimming
-- **Album art thumbnails** — song, playlist, and artist rows show album art fetched from Jellyfin metadata
-- **Cha0s Stream integration** — exposes a local control server (`127.0.0.1:47847`) so [Cha0s Stream](https://github.com/Cha0s1nc/cha0s-stream) can control playback directly without OS key simulation or Jellyfin session API calls
+- **Cha0s Stream integration** — exposes a local control server (`127.0.0.1:47847`) so [Cha0s Stream](https://github.com/Cha0s1nc/cha0s-stream) (my other tool) can control playback directly without OS key simulation or Jellyfin session API calls
 - **Auto-updater** — checks for new GitHub releases on startup and presents an update window with release notes, download progress, and one-click install
-- **Settings** — server URL, credentials, library selection, Discord RPC, and theming all configurable from inside the app. First-run setup on initial launch
 - **Cross-platform** — Mac (`.dmg`, Intel + Apple Silicon), Windows (`.exe`), Linux (`.AppImage`)
 
 ---
@@ -42,7 +31,7 @@ Download the latest release for your platform from the [Releases](https://github
 
 On first launch, enter your Jellyfin server URL, username, and password. Cascade authenticates, saves your credentials, and loads your library automatically.
 
-> **Mac note:** Releases are signed with a local development certificate but not notarized with Apple. You may need to go to **System Settings → Privacy & Security** to allow the app to open after the first launch attempt.
+> **Mac note:** Releases are not signed (something with github workflows breaks my certificate) so you'll have to run xattr -cr /path/to/.app to be able to run the app (WILL BE FIGURED OUT SOON)
 
 ---
 
@@ -63,18 +52,6 @@ Credentials are stored locally using `electron-store`. You can update them any t
 ### Music libraries
 
 After connecting, open **Settings** to choose which Jellyfin music libraries Cascade uses. Multiple libraries can be selected — their contents are merged into a single view. Changing the selection and saving reconnects immediately.
-
----
-
-## Playback
-
-- **Queue** — clicking an album, artist, or song loads it into the queue and starts playing. Playlist tracks load in playlist order
-- **Shuffle** — pre-shuffles the queue so each song plays exactly once. Toggle with the shuffle button in the player bar or full-screen overlay. Toggling off restores the original order. Use **Shuffle All** in the Albums, Artists, or Songs view to start a fresh shuffle of your entire library
-- **Repeat** — cycles through none → all → one. The button in the player bar and overlay stay in sync
-- **Progress bar** — click or drag to seek anywhere in the current track
-- **Volume** — click or drag the volume slider. Also available in the full-screen overlay
-- **OS media keys** — play/pause, next, and previous work globally on macOS and Windows
-- **Touch Bar** — macOS Touch Bar shows the current track and playback controls
 
 ---
 
@@ -188,4 +165,7 @@ Album art appears automatically if your Jellyfin server is accessible over HTTPS
 
 ## Credits
 
-Design inspired by [Cider](https://cider.sh) by the Cider Collective. (Thank you for making an amazing app)
+Design inspired by:
+[Cider](https://cider.sh) by the Cider Collective.
+[Apple Music](https://music.apple.com/) by Apple (obviously dummy)
+My other apps on [Github](https://www.github.com/Cha0s1nc)
