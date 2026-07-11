@@ -46,6 +46,57 @@ function artistArtUrl(itemId) {
   return `${jf.url}/Items/${itemId}/Images/Primary?fillHeight=600&fillWidth=600&quality=90&api_key=${jf.token}`
 }
 
+// ── Skeleton loaders ──────────────────────────────────────────────────────────
+// Placeholder cards/rows shown while a view's data is being fetched.
+const SKELETON_TEMPLATES = {
+  album: `<div class="album-card skel-card">
+    <div class="album-art skel"></div>
+    <div class="album-body">
+      <div class="skel skel-text" style="width:80%"></div>
+      <div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div>
+    </div>
+  </div>`,
+  artist: `<div class="artist-card skel-card">
+    <div class="artist-avatar skel"></div>
+    <div class="skel skel-text" style="width:70%;margin:0 auto"></div>
+  </div>`,
+  playlist: `<div class="playlist-card skel-card">
+    <div class="playlist-art skel"></div>
+    <div class="playlist-body">
+      <div class="skel skel-text" style="width:75%"></div>
+      <div class="skel skel-text" style="width:40%;height:9px;margin-top:6px"></div>
+    </div>
+  </div>`,
+  rp: `<div class="rp-item skel-card">
+    <div class="rp-art skel"></div>
+    <div style="min-width:0;flex:1">
+      <div class="skel skel-text" style="width:85%"></div>
+      <div class="skel skel-text" style="width:55%;height:9px;margin-top:5px"></div>
+    </div>
+  </div>`,
+  track: `<div class="track-row skel-card">
+    <div class="skel skel-text" style="width:14px;height:11px;margin:0 auto"></div>
+    <div class="track-thumb skel"></div>
+    <div style="min-width:0">
+      <div class="skel skel-text" style="width:60%"></div>
+      <div class="skel skel-text" style="width:35%;height:9px;margin-top:5px"></div>
+    </div>
+    <div class="skel skel-text" style="width:70%"></div>
+    <div class="skel skel-text" style="width:34px;height:9px;margin-left:auto"></div>
+  </div>`,
+  line: `<div class="skel skel-text" style="width:100%;height:16px;margin:4px 0"></div>`,
+  lyrics: `<div style="display:flex;flex-direction:column;align-items:center;gap:14px;padding:40px 0">
+    <div class="skel skel-text" style="width:55%;height:16px"></div>
+    <div class="skel skel-text" style="width:70%;height:16px"></div>
+    <div class="skel skel-text" style="width:40%;height:16px"></div>
+    <div class="skel skel-text" style="width:60%;height:16px"></div>
+  </div>`
+}
+
+function skeletonHTML(type, count) {
+  return SKELETON_TEMPLATES[type].repeat(count)
+}
+
 // ── iTunes album art (high-res, no API key needed) ────────────────────────────
 const _itunesArtCache = new Map()
 
@@ -433,9 +484,9 @@ async function openArtist(artistId, name) {
   const detail = document.getElementById('artist-detail')
   detail.style.display = ''
   document.getElementById('artist-detail-name').textContent = name
-  document.getElementById('artist-detail-meta').textContent = 'Loading…'
-  document.getElementById('artist-albums-grid').innerHTML = '<div class="loading-state">Loading…</div>'
-  document.getElementById('artist-songs-rows').innerHTML = ''
+  document.getElementById('artist-detail-meta').innerHTML = '<span class="skel skel-text" style="display:inline-block;width:120px"></span>'
+  document.getElementById('artist-albums-grid').innerHTML = skeletonHTML('album', 6)
+  document.getElementById('artist-songs-rows').innerHTML = skeletonHTML('track', 6)
 
   const art = artistArtUrl(artistId)
   document.getElementById('artist-detail-art').innerHTML = `<img src="${art}" alt="" onerror="this.innerHTML='♪'" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`
@@ -515,22 +566,162 @@ let allSongs = []
 async function loadSongs() {
   const rows = document.getElementById('songs-rows')
   rows.dataset.loaded = '1'
+  await loadSongsSortPrefs()
+  updateSongsSortUI()
   try {
-    const params = { SortBy: 'SortName', SortOrder: 'Ascending', IncludeItemTypes: 'Audio', Recursive: true, Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,UserData', Limit: 500 }
-    const data = await jfGetMerged(`/Users/${jf.userId}/Items`, params)
+    // jfGetAllPaged instead of jfGetMerged so libraries over 500 tracks aren't
+    // silently truncated (same fix as shuffleAllSongs).
+    const params = { SortBy: 'SortName', SortOrder: 'Ascending', IncludeItemTypes: 'Audio', Recursive: true, Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,UserData,DateCreated', Limit: 500 }
+    const data = await jfGetAllPaged(`/Users/${jf.userId}/Items`, params)
     allSongs = data.Items || []
+    sortSongs()
     renderSongRows()
   } catch (e) {
     rows.innerHTML = `<div class="empty-state">Could not load songs</div>`
   }
 }
 
+// ── Songs sort ────────────────────────────────────────────────────────────────
+
+let songsSortField = 'name'   // 'name' | 'artist' | 'album' | 'added' | 'played'
+let songsSortDir   = 'asc'    // 'asc' | 'desc'
+
+const SONG_SORT_LABELS = {
+  name: 'Title', artist: 'Artist', album: 'Album', added: 'Date added', played: 'Date last played'
+}
+
+async function loadSongsSortPrefs() {
+  songsSortField = (await window.cascade.store.get('songsSortField')) || 'name'
+  songsSortDir   = (await window.cascade.store.get('songsSortDir'))   || 'asc'
+}
+
+function songSortValue(item, field) {
+  switch (field) {
+    case 'artist': return (item.AlbumArtist || item.Artists?.[0] || '').toLowerCase()
+    case 'album':  return (item.Album || '').toLowerCase()
+    case 'added':  return item.DateCreated ? Date.parse(item.DateCreated) || 0 : 0
+    case 'played': return item.UserData?.LastPlayedDate ? Date.parse(item.UserData.LastPlayedDate) || 0 : 0
+    default:       return (item.Name || '').toLowerCase()
+  }
+}
+
+function sortSongs() {
+  const dir = songsSortDir === 'desc' ? -1 : 1
+  allSongs.sort((a, b) => {
+    const va = songSortValue(a, songsSortField)
+    const vb = songSortValue(b, songsSortField)
+    if (va < vb) return -1 * dir
+    if (va > vb) return 1 * dir
+    return 0
+  })
+}
+
+function updateSongsSortUI() {
+  document.getElementById('songs-sort-label').textContent = SONG_SORT_LABELS[songsSortField]
+  document.querySelectorAll('#songs-sort-dropdown [data-sort-field]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.sortField === songsSortField)
+  })
+  document.getElementById('songs-sort-dir-label').textContent = songsSortDir === 'desc' ? 'Descending' : 'Ascending'
+  document.getElementById('songs-sort-dir-icon').style.transform = songsSortDir === 'desc' ? 'rotate(180deg)' : ''
+}
+
+function resortSongsAndRerender() {
+  sortSongs()
+  updateSongsSortUI()
+  if (document.getElementById('songs-rows').dataset.loaded) renderSongRows()
+}
+
+const songsSortDropdown = document.getElementById('songs-sort-dropdown')
+
+document.getElementById('btn-sort-songs').addEventListener('click', (e) => {
+  e.stopPropagation()
+  const isOpen = songsSortDropdown.classList.contains('open')
+  songsSortDropdown.classList.toggle('open', !isOpen)
+  if (!isOpen) {
+    const btn = e.currentTarget.getBoundingClientRect()
+    songsSortDropdown.style.left = `${btn.left}px`
+    songsSortDropdown.style.top  = `${btn.bottom + 6}px`
+    const r = songsSortDropdown.getBoundingClientRect()
+    if (r.right > window.innerWidth - 8) songsSortDropdown.style.left = `${window.innerWidth - songsSortDropdown.offsetWidth - 8}px`
+    if (r.bottom > window.innerHeight - 8) songsSortDropdown.style.top = `${btn.top - songsSortDropdown.offsetHeight - 6}px`
+  }
+})
+
+songsSortDropdown.querySelectorAll('[data-sort-field]').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation()
+    songsSortField = btn.dataset.sortField
+    window.cascade.store.set('songsSortField', songsSortField)
+    resortSongsAndRerender()
+  })
+})
+
+document.getElementById('songs-sort-dir-toggle').addEventListener('click', (e) => {
+  e.stopPropagation()
+  songsSortDir = songsSortDir === 'desc' ? 'asc' : 'desc'
+  window.cascade.store.set('songsSortDir', songsSortDir)
+  resortSongsAndRerender()
+})
+
+document.addEventListener('mousedown', (e) => {
+  if (!songsSortDropdown.contains(e.target) && !e.target.closest('#btn-sort-songs')) {
+    songsSortDropdown.classList.remove('open')
+  }
+})
+
+// Songs list virtualisation — with large libraries (1000+ tracks) rendering
+// every row up front means thousands of DOM nodes, event listeners and
+// simultaneous art requests. Only a scrolled window of rows is kept mounted,
+// same approach as the queue panel (_drawQueueRows), except the scrollable
+// element here is the ancestor `.view`, not #songs-rows itself.
+const SONG_ROW_H  = 45   // must match .track-row's CSS height
+const SONG_WIN    = 40   // rows kept in DOM at once
+const SONG_BEFORE = 8    // rows to keep rendered above the visible top
+let _songsWinStart    = 0
+let _songsScrollBound = false
+let _songsRowsOffset  = 0   // distance from top of view's scrollable content to #songs-rows
+
 function renderSongRows() {
   const rows = document.getElementById('songs-rows')
-  rows.innerHTML = allSongs.map((item, i) => {
+  const view = document.getElementById('view-songs')
+
+  if (!allSongs.length) { rows.style.height = ''; rows.innerHTML = '<div class="empty-state">No songs found</div>'; return }
+
+  rows.style.height = `${allSongs.length * SONG_ROW_H}px`
+  // getBoundingClientRect (unlike offsetTop) accounts for the ancestor's current
+  // scroll, so adding view.scrollTop back converts to scroll-independent content space.
+  _songsRowsOffset = rows.getBoundingClientRect().top - view.getBoundingClientRect().top + view.scrollTop
+
+  if (!_songsScrollBound) {
+    _songsScrollBound = true
+    view.addEventListener('scroll', () => {
+      if (!allSongs.length) return
+      const relTop   = view.scrollTop - _songsRowsOffset
+      const visStart = Math.floor(Math.max(0, relTop) / SONG_ROW_H)
+      const visEnd   = visStart + Math.ceil(view.clientHeight / SONG_ROW_H)
+      const nearTop  = visStart < _songsWinStart + 3
+      const nearBot  = visEnd   > _songsWinStart + SONG_WIN - 3
+      if (nearTop || nearBot) {
+        _songsWinStart = Math.max(0, Math.min(visStart - SONG_BEFORE, allSongs.length - SONG_WIN))
+        _drawSongRows(rows)
+      }
+    }, { passive: true })
+  }
+
+  _songsWinStart = 0
+  _drawSongRows(rows)
+}
+
+function _drawSongRows(rows) {
+  const winEnd    = Math.min(allSongs.length, _songsWinStart + SONG_WIN)
+  const currentId = queue[queueIndex]?.Id
+
+  rows.innerHTML = allSongs.slice(_songsWinStart, winEnd).map((item, offset) => {
+    const i   = _songsWinStart + offset
     const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
+    const playingCls = currentId && item.Id === currentId ? ' playing' : ''
     return `
-    <div class="track-row" data-idx="${i}" data-id="${item.Id}">
+    <div class="track-row${playingCls}" data-idx="${i}" data-id="${item.Id}" style="top:${i * SONG_ROW_H}px">
       <div class="track-num">${i + 1}</div>
       ${trackThumbHtml(art)}
       <div style="min-width:0">
@@ -597,8 +788,8 @@ async function openPlaylist(playlistId, name) {
   const detail = document.getElementById('playlist-detail')
   detail.classList.add('active')
   document.getElementById('pl-detail-name').textContent = name
-  document.getElementById('pl-detail-meta').textContent = 'Loading…'
-  document.getElementById('pl-detail-rows').innerHTML = '<div class="loading-state">Loading…</div>'
+  document.getElementById('pl-detail-meta').innerHTML = '<span class="skel skel-text" style="display:inline-block;width:70px"></span>'
+  document.getElementById('pl-detail-rows').innerHTML = skeletonHTML('track', 6)
 
   try {
     const data = await jfGet(`/Playlists/${playlistId}/Items`, {
@@ -712,6 +903,7 @@ document.getElementById('tctx-play-next').addEventListener('click', () => {
 document.getElementById('tctx-add-queue').addEventListener('click', () => {
   if (!_ctxItem) return
   closeTrackCtxMenu()
+  if (wfQueueAdd(_ctxItem)) { showToast(`Added "${_ctxItem.Name}" to the Waterfall`); return }
   queue.push(_ctxItem)
   showToast(`Added "${_ctxItem.Name}" to queue`)
 })
@@ -828,6 +1020,7 @@ function playItems(items, startIndex) {
 }
 
 async function playCurrentTrack() {
+  if (wfIsActive()) return  // in a Waterfall session — playback is driven by sync.js, not the solo queue
   if (queueIndex < 0 || queueIndex >= queue.length) return
   const item = queue[queueIndex]
 
@@ -1018,6 +1211,8 @@ audio.addEventListener('pause', () => {
 })
 
 audio.addEventListener('ended', () => {
+  if (wfHandleEnded()) return  // Waterfall session drove this; solo-queue logic below doesn't apply
+
   const item = queue[queueIndex]
   if (item) reportPlaybackStopped(item.Id, Math.round(audio.duration * 10000000))
 
@@ -1039,8 +1234,8 @@ audio.addEventListener('ended', () => {
 // ── Player controls ───────────────────────────────────────────────────────────
 
 document.getElementById('btn-play').addEventListener('click', () => {
-  if (audio.paused) audio.play()
-  else audio.pause()
+  if (audio.paused) { audio.play(); wfBroadcastPlay() }
+  else { audio.pause(); wfBroadcastPause() }
 })
 
 document.getElementById('btn-prev').addEventListener('click', () => {
@@ -1520,6 +1715,7 @@ let overlayLyricsOpen = false
 let _currentBgArtUrl = null  // current track's art URL for overlay background
 let _audioCtx = null
 let _analyser = null
+let _mediaSrc = null   // shared MediaElementAudioSourceNode — also tapped by sync.js for Waterfall
 let _beatRafId = null
 let _blobColors = []  // extracted colors, stored for blob drift animation
 let _driftParams = [] // randomized per-blob drift parameters, set on each color refresh
@@ -1542,8 +1738,8 @@ function initBeatDetection() {
     _analyser = _audioCtx.createAnalyser()
     _analyser.fftSize = 512           // more bins = better low-end resolution
     _analyser.smoothingTimeConstant = 0.4
-    const src = _audioCtx.createMediaElementSource(audio)
-    src.connect(_analyser)
+    _mediaSrc = _audioCtx.createMediaElementSource(audio)
+    _mediaSrc.connect(_analyser)
     _analyser.connect(_audioCtx.destination)
   } catch(e) { console.warn('Beat detection unavailable:', e) }
 }
@@ -1908,7 +2104,7 @@ async function renderOverlayLyrics() {
   if (!item) { body.innerHTML = '<div class="lyrics-empty" style="padding:40px 0;text-align:center">Nothing playing</div>'; return }
 
   if (!lyricsData.length) {
-    body.innerHTML = '<div class="lyrics-empty" style="padding:40px 0;text-align:center">Loading…</div>'
+    body.innerHTML = skeletonHTML('lyrics', 1)
     const gen    = ++_lyricsFetchGen
     const result = await fetchLyricsWaterfall(item)
     if (gen !== _lyricsFetchGen) return
@@ -2283,7 +2479,7 @@ function openAtpModal() {
 
 async function atpLoadPlaylists() {
   const list = document.getElementById('atp-list')
-  list.innerHTML = '<div style="font-size:12px;color:var(--text3);text-align:center;padding:20px 0">Loading…</div>'
+  list.innerHTML = '<div class="skel skel-text" style="width:100%;height:30px"></div><div class="skel skel-text" style="width:100%;height:30px"></div><div class="skel skel-text" style="width:100%;height:30px"></div>'
   try {
     const data = await jfGet(`/Users/${jf.userId}/Items`, {
       IncludeItemTypes: 'Playlist', Recursive: true, SortBy: 'SortName'
@@ -3002,7 +3198,7 @@ async function fetchLyrics() {
   const translateBar = document.getElementById('lyrics-translate-bar')
   if (!item) { body.innerHTML = '<div class="lyrics-empty">Nothing playing</div>'; return }
 
-  body.innerHTML = '<div class="lyrics-empty">Loading…</div>'
+  body.innerHTML = skeletonHTML('lyrics', 1)
   translateBar.classList.remove('visible')
   lyricsData = []
   lyricsTranslated = []

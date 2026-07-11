@@ -35,11 +35,18 @@
     "appId": "xyz.chaosinc.cascade",
     "productName": "Cascade",
     "copyright": "Copyright © 2026 cha0s",
+    "protocols": [
+      {
+        "name": "Cascade Waterfall Join",
+        "schemes": ["cascade"]
+      }
+    ],
     "files": [
       "main.js",
       "preload.js",
       "index.html",
       "renderer.js",
+      "sync.js",
       "updater.html",
       "updater-preload.js",
       "package.json",

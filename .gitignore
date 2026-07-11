@@ -6,3 +6,8 @@ out/
 *.slrc
 spicylyrics-integration.js
 lyrics_align_test.py
+
+# Cloudflare Worker (signaling/) local state — wrangler's cache/dev-session
+# data and any local secrets, never the source or lockfile.
+signaling/.wrangler/
+signaling/.dev.vars
