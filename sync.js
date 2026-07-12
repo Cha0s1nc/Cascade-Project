@@ -98,7 +98,12 @@ function wfHandleMessage(msg) {
       wfSession.myId = msg.memberId
       wfSession.roster = msg.roster
       wfRenderPanel()
-      if (msg.roster.length > 1) wfSend(null, { kind: 'request-sync' })
+      if (msg.roster.length > 1) {
+        wfSend(null, { kind: 'request-sync' })
+      } else if (queue[queueIndex]) {
+        // I'm the first one here — whatever's already playing solo becomes the shared track
+        wfQueueAdd(queue[queueIndex])
+      }
       break
 
     case 'join-denied':
@@ -106,9 +111,25 @@ function wfHandleMessage(msg) {
       wfTeardown()
       break
 
-    case 'roster':
-      if (wfSession) { wfSession.roster = msg.members; wfRenderPanel() }
+    case 'roster': {
+      if (!wfSession) break
+      const oldIds = new Set(wfSession.roster.map(m => m.id))
+      const newIds = new Set(msg.members.map(m => m.id))
+      const joined = msg.members.filter(m => m.id !== wfSession.myId && !oldIds.has(m.id))
+      const left = [...wfSession.pcs.keys()].filter(id => !newIds.has(id))
+
+      wfSession.roster = msg.members
+      for (const id of left) { wfSession.pcs.get(id)?.close(); wfSession.pcs.delete(id) }
+
+      // A driver's offers only reach whoever was already in the room at the
+      // time playback started — anyone joining afterward needs their own offer.
+      if (wfIsDriver() && joined.length) {
+        const stream = wfOutgoingStream()
+        for (const m of joined) wfOfferTo(m.id, stream)
+      }
+      wfRenderPanel()
       break
+    }
 
     case 'relay':
       wfHandlePayload(msg.from, msg.payload)
@@ -249,6 +270,19 @@ function wfQueueAdd(item) {
 
 function wfBroadcastPlay()  { if (wfSession) wfSend(null, { kind: 'play' }) }
 function wfBroadcastPause() { if (wfSession) wfSend(null, { kind: 'pause' }) }
+
+// Called from the prev/next buttons; returns true if it handled the move
+// (session mode — always true while in a session, even a no-op skip target),
+// false to fall through to solo-queue prev/next.
+function wfSkip(delta) {
+  if (!wfSession) return false
+  const next = wfSession.index + delta
+  if (next >= 0 && next < wfSession.queue.length) {
+    wfSend(null, { kind: 'track-change', index: next })
+    wfEnterIndex(next)
+  }
+  return true
+}
 
 // Called from the existing `ended` listener; returns true if it handled the
 // advance (session mode), false to fall through to solo-queue behavior.

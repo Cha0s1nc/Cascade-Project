@@ -1240,11 +1240,13 @@ document.getElementById('btn-play').addEventListener('click', () => {
 
 document.getElementById('btn-prev').addEventListener('click', () => {
   if (audio.currentTime > 3) { audio.currentTime = 0; return }
+  if (wfSkip(-1)) return
   queueIndex = Math.max(0, queueIndex - 1)
   playCurrentTrack()
 })
 
 document.getElementById('btn-next').addEventListener('click', () => {
+  if (wfSkip(1)) return
   queueIndex = Math.min(queue.length - 1, queueIndex + 1)
   playCurrentTrack()
 })
