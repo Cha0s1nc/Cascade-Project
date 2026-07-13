@@ -75,7 +75,7 @@ ipcMain.on('discord-rpc-clear', () => {
 
 // ── Cascade Control Server (for Cha0s Stream integration) ─────────────────────
 // Listens on 127.0.0.1:47847 — Cha0s Stream POSTs here instead of using OS media keys
-const controlServer = http.createServer(async (req, res) => {
+const controlServer = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*')
   if (req.method === 'OPTIONS') { res.writeHead(204); return res.end() }
   if (req.method === 'POST' && req.url === '/cascade/control') {
@@ -96,23 +96,11 @@ const controlServer = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ ok: true, app: 'Cascade', version: app.getVersion() }))
   } else if (req.method === 'GET' && req.url === '/cascade/now-playing') {
+    // cascadeNowPlaying is kept fresh by the renderer's 'now-playing-update' IPC
+    // messages (sent on track change/play/pause), so just serve the cache instead
+    // of running executeJavaScript in the renderer on every poll.
     res.writeHead(200, { 'Content-Type': 'application/json' })
-    if (win && !win.isDestroyed()) {
-      try {
-        const result = await win.webContents.executeJavaScript(`
-          JSON.stringify({
-            title:     queue[queueIndex]?.Name    || null,
-            artist:    queue[queueIndex]?.AlbumArtist || (queue[queueIndex]?.Artists?.[0]) || null,
-            isPlaying: typeof audio !== 'undefined' ? !audio.paused : false
-          })
-        `)
-        res.end(result)
-      } catch {
-        res.end(JSON.stringify(cascadeNowPlaying))
-      }
-    } else {
-      res.end(JSON.stringify(cascadeNowPlaying))
-    }
+    res.end(JSON.stringify(cascadeNowPlaying))
   } else {
     res.writeHead(404); res.end()
   }
@@ -371,6 +359,9 @@ ipcMain.on('now-playing-update', (_e, data) => { cascadeNowPlaying = { ...cascad
 
 // IPC: app version
 ipcMain.handle('get-version', () => app.getVersion())
+
+// IPC: whether this is a packaged (production) build vs. run from the command line
+ipcMain.handle('is-packaged', () => app.isPackaged)
 
 // IPC: store
 ipcMain.handle('store-get', (_e, key) => store.get(key))

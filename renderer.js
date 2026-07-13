@@ -98,11 +98,21 @@ function skeletonHTML(type, count) {
 }
 
 // ── iTunes album art (high-res, no API key needed) ────────────────────────────
+const _ITUNES_ART_CACHE_MAX = 1000
 const _itunesArtCache = new Map()
 
 async function fetchItunesArt(artist, album) {
   const key = `${artist}|||${album}`.toLowerCase()
-  if (_itunesArtCache.has(key)) return _itunesArtCache.get(key)
+  if (_itunesArtCache.has(key)) {
+    // Re-insert to mark as most-recently-used (Map preserves insertion order)
+    const v = _itunesArtCache.get(key)
+    _itunesArtCache.delete(key)
+    _itunesArtCache.set(key, v)
+    return v
+  }
+  if (_itunesArtCache.size >= _ITUNES_ART_CACHE_MAX) {
+    _itunesArtCache.delete(_itunesArtCache.keys().next().value) // evict least-recently-used
+  }
   _itunesArtCache.set(key, null) // mark in-flight to avoid duplicate requests
   try {
     const term = encodeURIComponent(`${artist} ${album}`.trim())
@@ -131,8 +141,13 @@ function streamUrl(itemId) {
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
+// Toasts are dev-only noise in production builds — only show when running
+// unpackaged (i.e. launched from the command line via `npm start`/`electron .`).
+let _toastsEnabled = false
+window.cascade?.isPackaged?.().then(packaged => { _toastsEnabled = !packaged })
 
 function showToast(msg, duration = 2200) {
+  if (!_toastsEnabled) return
   const t = document.getElementById('toast')
   t.textContent = msg
   t.style.opacity = '1'
@@ -706,6 +721,34 @@ function renderSongRows() {
         _drawSongRows(rows)
       }
     }, { passive: true })
+
+    // Delegated row interactions — bound once on the container instead of
+    // re-attaching 4 listeners per row on every virtualization redraw (which
+    // fires repeatedly while scrolling a large library).
+    rows.addEventListener('click', (e) => {
+      const el = e.target.closest('.track-row')
+      if (!el) return
+      const idx = parseInt(el.dataset.idx)
+      if (e.target.closest('.track-thumb')) {
+        e.stopPropagation()
+        playItems(allSongs, idx)
+        return
+      }
+      document.querySelectorAll('.track-row.selected').forEach(r => r.classList.remove('selected'))
+      el.classList.add('selected')
+    })
+    rows.addEventListener('dblclick', (e) => {
+      const el = e.target.closest('.track-row')
+      if (!el) return
+      playItems(allSongs, parseInt(el.dataset.idx))
+    })
+    rows.addEventListener('contextmenu', (e) => {
+      const el = e.target.closest('.track-row')
+      if (!el) return
+      e.preventDefault()
+      const idx = parseInt(el.dataset.idx)
+      showTrackCtxMenu(allSongs[idx], el, e.clientX, e.clientY, false)
+    })
   }
 
   _songsWinStart = 0
@@ -732,10 +775,6 @@ function _drawSongRows(rows) {
       <div class="track-dur">${fmtTime((item.RunTimeTicks || 0) / 10000000)}</div>
     </div>`
   }).join('')
-  rows.querySelectorAll('.track-row').forEach(el => {
-    const idx = parseInt(el.dataset.idx)
-    wireTrackRow(el, allSongs[idx], allSongs, idx)
-  })
 }
 
 // ── Playlists ─────────────────────────────────────────────────────────────────
@@ -1160,11 +1199,18 @@ function updateNowPlaying(item) {
   }
 }
 
+// Tracks the currently-highlighted row elements so highlightPlayingRow() only
+// ever touches the handful of rows that actually change, instead of scanning
+// every .track-row in the document (which can be 1000s on large libraries).
+let _playingRowEls = []
+
 function highlightPlayingRow() {
   const currentId = queue[queueIndex]?.Id
-  document.querySelectorAll('.track-row').forEach(r => {
-    r.classList.toggle('playing', !!currentId && r.dataset.id === currentId)
-  })
+  _playingRowEls.forEach(r => r.classList.remove('playing'))
+  _playingRowEls = currentId
+    ? Array.from(document.querySelectorAll(`.track-row[data-id="${currentId}"]`))
+    : []
+  _playingRowEls.forEach(r => r.classList.add('playing'))
 }
 
 // Report playback to Jellyfin so history updates
@@ -1324,9 +1370,13 @@ document.getElementById('prog-bar').addEventListener('click', (e) => {
     window.cascade.store.set('volume', ratio)
   }
 
-  bar.addEventListener('mousedown', (e) => { dragging = true; setVol(e); e.preventDefault() })
-  document.addEventListener('mousemove', (e) => { if (dragging) setVol(e) })
-  document.addEventListener('mouseup', () => { dragging = false })
+  function onMove(e) { if (dragging) setVol(e) }
+  function onUp() { dragging = false; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp) }
+  bar.addEventListener('mousedown', (e) => {
+    dragging = true; setVol(e); e.preventDefault()
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  })
 })()
 
 document.getElementById('btn-mute').addEventListener('click', () => {
@@ -1535,7 +1585,7 @@ async function loadSettingsFields() {
     updateSourcePills()
     if (queue[queueIndex]) {
       _lyricsCache.delete(queue[queueIndex].Id)
-      lyricsData = []; lastLyricsIdx = -1; lastOverlayLyricsIdx = -1; fetchLyrics()
+      lyricsData = []; lastLyricsIdx = -1; lastOverlayLyricsIdx = -1; _lyricsScanIdx = 0; _ovLyricsScanIdx = 0; fetchLyrics()
     }
   }
 
@@ -1549,7 +1599,7 @@ async function loadSettingsFields() {
     updateSourcePills()
     if (queue[queueIndex]) {
       _lyricsCache.delete(queue[queueIndex].Id)
-      lyricsData = []; lastLyricsIdx = -1; lastOverlayLyricsIdx = -1; fetchLyrics()
+      lyricsData = []; lastLyricsIdx = -1; lastOverlayLyricsIdx = -1; _lyricsScanIdx = 0; _ovLyricsScanIdx = 0; fetchLyrics()
     }
   }
 
@@ -1751,10 +1801,16 @@ function startBeatLoop() {
   const overlay = document.getElementById('np-overlay')
   if (!overlay) return
 
-  function frame() {
+  let _lastBlobFrameTs = 0
+  function frame(ts) {
     _beatRafId = requestAnimationFrame(frame)
 
     // ── Blob drift — organic slow movement using randomized layered sin/cos ──
+    // The drift is slow (periods of tens of seconds), so rebuilding this gradient
+    // string at the full 60fps is wasted work — throttle to ~15fps, which is
+    // visually indistinguishable for motion this gradual.
+    if (ts - _lastBlobFrameTs < 66) return
+    _lastBlobFrameTs = ts
     if (_blobColors.length > 0 && themeAlbumArt && _driftParams.length > 0) {
       const t = Date.now() / 1000
       // Anchor positions and sizes per slot (blobs stay near screen edges)
@@ -1921,9 +1977,13 @@ document.getElementById('ov-like').addEventListener('click', toggleLike)
       fill.style.width = `${ratio * 100}%`
     }
   }
-  bar.addEventListener('mousedown', (e) => { dragging = true; seek(e); e.preventDefault() })
-  document.addEventListener('mousemove', (e) => { if (dragging) seek(e) })
-  document.addEventListener('mouseup', () => { dragging = false })
+  function onMove(e) { if (dragging) seek(e) }
+  function onUp() { dragging = false; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp) }
+  bar.addEventListener('mousedown', (e) => {
+    dragging = true; seek(e); e.preventDefault()
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  })
 })()
 
 // Overlay volume slider — drag to adjust
@@ -1941,9 +2001,13 @@ document.getElementById('ov-like').addEventListener('click', toggleLike)
     document.getElementById('vol-fill').style.width = `${ratio * 100}%`
     window.cascade.store.set('volume', ratio)
   }
-  bar.addEventListener('mousedown', (e) => { dragging = true; setVol(e); e.preventDefault() })
-  document.addEventListener('mousemove', (e) => { if (dragging) setVol(e) })
-  document.addEventListener('mouseup', () => { dragging = false })
+  function onMove(e) { if (dragging) setVol(e) }
+  function onUp() { dragging = false; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp) }
+  bar.addEventListener('mousedown', (e) => {
+    dragging = true; setVol(e); e.preventDefault()
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  })
 })()
 
 // Keep overlay progress in sync
@@ -2329,6 +2393,22 @@ function _scrollOverlayLyricsTo(idx, instant) {
   else ovLyricsSpring.setTarget(ovLyricsBaseY)
 }
 
+// lyricsData is sorted by Start time, and playback only moves forward except on
+// seeks — so resume scanning from the last known index instead of rescanning
+// from 0 on every timeupdate tick (was O(n) per tick, now amortized O(1)).
+function _scanLyricsBaseIdx(nowSec, fromIdx) {
+  let idx = fromIdx
+  if (idx > 0 && lyricsData[idx].Start / 10_000_000 > nowSec) idx = 0  // seeked backward
+  let baseIdx = idx
+  for (let i = idx; i < lyricsData.length; i++) {
+    const start = lyricsData[i].Start
+    if (start == null) continue
+    if (start / 10_000_000 <= nowSec) baseIdx = i
+    else break
+  }
+  return baseIdx
+}
+
 // Returns the translateY that would center a given line, independent of the
 // element's current transform (offsetTop is unaffected by CSS transforms).
 function _ovLyricsTranslateYFor(idx) {
@@ -2341,6 +2421,7 @@ function _ovLyricsTranslateYFor(idx) {
 
 // Sync overlay lyrics highlight
 let lastOverlayLyricsIdx = -1
+let _ovLyricsScanIdx = 0   // cursor into lyricsData so timeupdate scans forward instead of from 0 each tick
 let ovLyricsBaseY = 0            // auto-follow position for the current active line
 let ovLyricsManualOffset = 0     // extra offset applied while the user scrolls by hand
 let ovLyricsUserScrolling = false
@@ -2354,7 +2435,7 @@ function _resetOverlayManualScroll() {
 
 // Reset when track changes
 const _ovLyricsReset = updateNowPlaying
-updateNowPlaying = function(item) { _ovLyricsReset(item); lastOverlayLyricsIdx = -1; _resetOverlayManualScroll() }
+updateNowPlaying = function(item) { _ovLyricsReset(item); lastOverlayLyricsIdx = -1; _ovLyricsScanIdx = 0; _resetOverlayManualScroll() }
 
 document.getElementById('ov-panel-lyrics').addEventListener('wheel', (e) => {
   if (!lyricsData.length) return
@@ -2382,10 +2463,8 @@ audio.addEventListener('timeupdate', () => {
   // either direction (mid-fill cutoff if promotion is earlier, a visible
   // "stick" on the finished word if promotion is later).
   const nowSec = audio.currentTime + 0.225
-  let baseIdx = 0
-  for (let i = 0; i < lyricsData.length; i++) {
-    if (lyricsData[i].Start != null && lyricsData[i].Start / 10_000_000 <= nowSec) baseIdx = i
-  }
+  const baseIdx = _scanLyricsBaseIdx(nowSec, _ovLyricsScanIdx)
+  _ovLyricsScanIdx = baseIdx
 
   // Karaoke lines: promote to the next line (position AND highlight together)
   // the instant the current line's last word finishes, instead of waiting for
@@ -2829,7 +2908,7 @@ document.getElementById('lyrics-source-dropdown').querySelectorAll('.lsd-item').
     // Refetch for current track
     if (queue[queueIndex]) {
       _lyricsCache.delete(queue[queueIndex].Id)
-      lyricsData = []; lastLyricsIdx = -1; lastOverlayLyricsIdx = -1; fetchLyrics()
+      lyricsData = []; lastLyricsIdx = -1; lastOverlayLyricsIdx = -1; _lyricsScanIdx = 0; _ovLyricsScanIdx = 0; fetchLyrics()
     }
   })
 })
@@ -2856,9 +2935,12 @@ function _wordHighlightFrame() {
   _wordRafId = requestAnimationFrame(_wordHighlightFrame)
   const nowTicks = (audio.currentTime + 0.225) * 10_000_000
 
-  // Side panel — CSS scoping (.lyrics-line.active .lyric-word) handles inactive lines
+  // Side panel — CSS scoping (.lyrics-line.active .lyric-word) handles inactive lines.
+  // Guard on the view actually being visible: the panel stays mounted (just hidden via
+  // CSS) when the user navigates elsewhere, so without this the loop would keep querying
+  // and restyling word spans at 60fps for the entire track even off-screen.
   const panelIdx = lastLyricsIdx
-  if (lyricsData[panelIdx]?.Words) {
+  if (document.getElementById('view-lyrics')?.classList.contains('active') && lyricsData[panelIdx]?.Words) {
     document.getElementById('lyrics-inner')
       ?.querySelector(`.lyrics-line[data-idx="${panelIdx}"]`)
       ?.querySelectorAll('.lyric-word').forEach(w => {
@@ -3205,6 +3287,7 @@ async function fetchLyrics() {
   lyricsData = []
   lyricsTranslated = []
   lastLyricsIdx = -1
+  _lyricsScanIdx = 0
 
   const result = await fetchLyricsWaterfall(item)
   if (gen !== _lyricsFetchGen) return  // a newer fetch superseded this one
@@ -3281,12 +3364,14 @@ function renderLyrics(showTranslation = false) {
       lyricsScrollTimer = setTimeout(() => { lyricsScrollSuppressed = false }, 1500)
       audio.currentTime = ticks / 10000000
       lastLyricsIdx = -1
+      _lyricsScanIdx = 0
     })
   })
 }
 
 // Sync lyrics highlight to playback position
 let lastLyricsIdx = -1
+let _lyricsScanIdx = 0   // cursor into lyricsData so timeupdate scans forward instead of from 0 each tick
 let lyricsScrollSuppressed = false
 let lyricsScrollTimer = null
 
@@ -3297,10 +3382,8 @@ audio.addEventListener('timeupdate', () => {
   // either direction (mid-fill cutoff if promotion is earlier, a visible
   // "stick" on the finished word if promotion is later).
   const nowSec = audio.currentTime + 0.225
-  let baseIdx = 0
-  for (let i = 0; i < lyricsData.length; i++) {
-    if (lyricsData[i].Start != null && lyricsData[i].Start / 10_000_000 <= nowSec) baseIdx = i
-  }
+  const baseIdx = _scanLyricsBaseIdx(nowSec, _lyricsScanIdx)
+  _lyricsScanIdx = baseIdx
 
   // For karaoke lines, promote to the next line (highlight AND scroll together)
   // the instant its last word finishes, instead of waiting for the next line's
@@ -3374,6 +3457,7 @@ updateNowPlaying = function(item) {
   lyricsData = []
   lyricsTranslated = []
   lastLyricsIdx = -1
+  _lyricsScanIdx = 0
   ovLyricsTranslated = false
   document.getElementById('ov-translate-btn').style.display = 'none'
   document.getElementById('ov-translate-btn').classList.remove('translated')

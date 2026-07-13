@@ -236,7 +236,7 @@ function wfOfferTo(memberId, stream) {
   const pc = new RTCPeerConnection({ iceServers: WATERFALL_STUN })
   for (const track of stream.getTracks()) pc.addTrack(track, stream)
   pc.onicecandidate = (e) => { if (e.candidate) wfSend(memberId, { kind: 'webrtc-ice', candidate: e.candidate }) }
-  pc.oniceconnectionstatechange = () => wfRenderPanel()
+  pc.oniceconnectionstatechange = () => wfRenderPanelDebounced()
   wfSession.pcs.set(memberId, pc)
 
   pc.createOffer()
@@ -247,7 +247,7 @@ function wfOfferTo(memberId, stream) {
 function wfHandleOffer(from, sdp) {
   const pc = new RTCPeerConnection({ iceServers: WATERFALL_STUN })
   pc.onicecandidate = (e) => { if (e.candidate) wfSend(from, { kind: 'webrtc-ice', candidate: e.candidate }) }
-  pc.oniceconnectionstatechange = () => wfRenderPanel()
+  pc.oniceconnectionstatechange = () => wfRenderPanelDebounced()
   pc.ontrack = (e) => { audio.src = ''; audio.srcObject = e.streams[0]; audio.play() }
   wfSession.listenerPc = pc
 
@@ -298,6 +298,15 @@ function wfHandleEnded() {
 }
 
 // ── UI: room panel (#waterfall-panel, added in index.html) ──────────────────
+
+// ICE connection state can fire several transitions in quick succession while
+// a peer connection is establishing — coalesce those into a single re-render
+// instead of rebuilding the whole panel's innerHTML on every transition.
+let _wfRenderDebounceTimer = null
+function wfRenderPanelDebounced() {
+  clearTimeout(_wfRenderDebounceTimer)
+  _wfRenderDebounceTimer = setTimeout(wfRenderPanel, 150)
+}
 
 function wfRenderPanel() {
   const panel = document.getElementById('waterfall-panel')
