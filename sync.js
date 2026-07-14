@@ -186,15 +186,41 @@ function wfHandlePayload(from, payload) {
       wfHandleOffer(from, payload.sdp)
       break
 
-    case 'webrtc-answer':
-      wfSession.pcs.get(from)?.setRemoteDescription({ type: 'answer', sdp: payload.sdp })
+    case 'webrtc-answer': {
+      const pc = wfSession.pcs.get(from)
+      if (pc) wfSetRemoteAndFlush(pc, { type: 'answer', sdp: payload.sdp })
       break
+    }
 
     case 'webrtc-ice': {
       const pc = wfSession.pcs.get(from) || (from === wfCurrentDriverId() ? wfSession.listenerPc : null)
-      pc?.addIceCandidate(payload.candidate).catch(() => {})
+      if (pc) wfAddIceCandidate(pc, payload.candidate)
       break
     }
+  }
+}
+
+// ── ICE candidate buffering ──────────────────────────────────────────────────
+// Candidates routinely arrive before setRemoteDescription() has resolved —
+// that's normal over a real network, not just a same-machine test. Queue them
+// and flush once the remote description actually lands, instead of dropping
+// whatever arrives too early.
+
+function wfAddIceCandidate(pc, candidate) {
+  if (pc._wfRemoteSet) {
+    pc.addIceCandidate(candidate).catch((e) => console.warn('[waterfall] addIceCandidate failed', e))
+  } else {
+    (pc._wfPendingIce ||= []).push(candidate)
+  }
+}
+
+async function wfSetRemoteAndFlush(pc, desc) {
+  await pc.setRemoteDescription(desc)
+  pc._wfRemoteSet = true
+  const pending = pc._wfPendingIce || []
+  pc._wfPendingIce = []
+  for (const c of pending) {
+    try { await pc.addIceCandidate(c) } catch (e) { console.warn('[waterfall] queued addIceCandidate failed', e) }
   }
 }
 
@@ -251,7 +277,7 @@ function wfHandleOffer(from, sdp) {
   pc.ontrack = (e) => { audio.src = ''; audio.srcObject = e.streams[0]; audio.play() }
   wfSession.listenerPc = pc
 
-  pc.setRemoteDescription({ type: 'offer', sdp })
+  wfSetRemoteAndFlush(pc, { type: 'offer', sdp })
     .then(() => pc.createAnswer())
     .then((answer) => pc.setLocalDescription(answer))
     .then(() => wfSend(from, { kind: 'webrtc-answer', sdp: pc.localDescription.sdp }))
