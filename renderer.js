@@ -16,7 +16,6 @@ const QUEUE_BEFORE   = 5    // rows to show before current track when re-centeri
 let _queueWinStart   = 0    // index of first rendered row
 let _queueScrollBound = false
 let volume = 1.0
-let muted = false
 
 const audio = new Audio()
 audio.crossOrigin = 'anonymous'
@@ -25,7 +24,7 @@ audio.volume = volume
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtTime(sec) {
-  if (!sec || !isFinite(sec)) return '0:00'
+  if (!sec || isNaN(sec)) return '0:00'
   const m = Math.floor(sec / 60)
   const s = Math.floor(sec % 60)
   return `${m}:${s.toString().padStart(2, '0')}`
@@ -943,7 +942,6 @@ document.getElementById('tctx-play-next').addEventListener('click', () => {
 document.getElementById('tctx-add-queue').addEventListener('click', () => {
   if (!_ctxItem) return
   closeTrackCtxMenu()
-  if (wfQueueAdd(_ctxItem)) { showToast(`Added "${_ctxItem.Name}" to the Waterfall`); return }
   queue.push(_ctxItem)
   showToast(`Added "${_ctxItem.Name}" to queue`)
 })
@@ -1038,7 +1036,6 @@ document.getElementById('tctx-pl-remove').addEventListener('click', async () => 
 // ── Playback ──────────────────────────────────────────────────────────────────
 
 function playItems(items, startIndex) {
-  if (wfIsActive()) { wfQueueAdd(items[startIndex]); return }
   if (shuffle) {
     // New queue loaded while shuffle is on — shuffle the new queue immediately
     _unshuffledQueue = [...items]
@@ -1061,7 +1058,6 @@ function playItems(items, startIndex) {
 }
 
 async function playCurrentTrack() {
-  if (wfIsActive()) return  // in a Waterfall session — playback is driven by sync.js, not the solo queue
   if (queueIndex < 0 || queueIndex >= queue.length) return
   const item = queue[queueIndex]
 
@@ -1259,8 +1255,6 @@ audio.addEventListener('pause', () => {
 })
 
 audio.addEventListener('ended', () => {
-  if (wfHandleEnded()) return  // Waterfall session drove this; solo-queue logic below doesn't apply
-
   const item = queue[queueIndex]
   if (item) reportPlaybackStopped(item.Id, Math.round(audio.duration * 10000000))
 
@@ -1282,19 +1276,17 @@ audio.addEventListener('ended', () => {
 // ── Player controls ───────────────────────────────────────────────────────────
 
 document.getElementById('btn-play').addEventListener('click', () => {
-  if (audio.paused) { audio.play(); wfBroadcastPlay() }
-  else { audio.pause(); wfBroadcastPause() }
+  if (audio.paused) audio.play()
+  else audio.pause()
 })
 
 document.getElementById('btn-prev').addEventListener('click', () => {
   if (audio.currentTime > 3) { audio.currentTime = 0; return }
-  if (wfSkip(-1)) return
   queueIndex = Math.max(0, queueIndex - 1)
   playCurrentTrack()
 })
 
 document.getElementById('btn-next').addEventListener('click', () => {
-  if (wfSkip(1)) return
   queueIndex = Math.min(queue.length - 1, queueIndex + 1)
   playCurrentTrack()
 })
@@ -1366,8 +1358,8 @@ document.getElementById('prog-bar').addEventListener('click', (e) => {
   function setVol(e) {
     const rect = bar.getBoundingClientRect()
     const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+    audio.volume = ratio
     volume = ratio
-    applyVolume()
     fill.style.width = `${ratio * 100}%`
     window.cascade.store.set('volume', ratio)
   }
@@ -1382,8 +1374,7 @@ document.getElementById('prog-bar').addEventListener('click', (e) => {
 })()
 
 document.getElementById('btn-mute').addEventListener('click', () => {
-  muted = !muted
-  applyVolume()
+  audio.muted = !audio.muted
 })
 
 // Lyrics open button
@@ -1473,7 +1464,7 @@ function remoteStatePayload() {
     playing:  !audio.paused,
     position: audio.currentTime || 0,
     duration: audio.duration   || 0,
-    volume:   volume,
+    volume:   audio.volume,
     track: track ? {
       id:     track.Id,
       name:   track.Name,
@@ -1493,8 +1484,8 @@ window.cascade.remote.onSeek((pos) => {
 
 window.cascade.remote.onVolume((vol) => {
   const v = Math.max(0, Math.min(1, vol))
+  audio.volume = v
   volume = v
-  applyVolume()
   const slider = document.getElementById('volume-slider')
   if (slider) slider.value = v
 })
@@ -1723,7 +1714,7 @@ async function init() {
   const savedVol = await window.cascade.store.get('volume')
   if (savedVol !== undefined && savedVol !== null) {
     volume = parseFloat(savedVol)
-    applyVolume()
+    audio.volume = volume
     const fill = document.getElementById('vol-fill')
     if (fill) fill.style.width = `${volume * 100}%`
   }
@@ -1770,8 +1761,6 @@ let overlayLyricsOpen = false
 let _currentBgArtUrl = null  // current track's art URL for overlay background
 let _audioCtx = null
 let _analyser = null
-let _mediaSrc = null   // shared MediaElementAudioSourceNode — also tapped by sync.js for Waterfall
-let _localGain = null  // local-monitoring-only volume/mute — see applyVolume() below
 let _beatRafId = null
 let _blobColors = []  // extracted colors, stored for blob drift animation
 let _driftParams = [] // randomized per-blob drift parameters, set on each color refresh
@@ -1794,41 +1783,10 @@ function initBeatDetection() {
     _analyser = _audioCtx.createAnalyser()
     _analyser.fftSize = 512           // more bins = better low-end resolution
     _analyser.smoothingTimeConstant = 0.4
-    _mediaSrc = _audioCtx.createMediaElementSource(audio)
-
-    // Once an element is routed through Web Audio, .volume/.muted get baked
-    // into the samples _mediaSrc captures — which sync.js also taps for the
-    // Waterfall broadcast. Without this, muting/lowering your own monitoring
-    // volume would mute/lower it for everyone listening to your stream too.
-    // So local volume/mute lives in this gain node instead, and the element
-    // itself stays pinned at "clean" (full, unmuted) — see applyVolume()
-    // below, which every volume/mute control routes through instead of
-    // writing audio.volume/.muted directly. _mediaSrc's output then always
-    // stays the true, unattenuated signal.
-    _localGain = _audioCtx.createGain()
-    _mediaSrc.connect(_localGain)
-    _localGain.connect(_analyser)
+    const src = _audioCtx.createMediaElementSource(audio)
+    src.connect(_analyser)
     _analyser.connect(_audioCtx.destination)
-    applyVolume()
   } catch(e) { console.warn('Beat detection unavailable:', e) }
-}
-
-// Single place that actually writes volume/mute state — reads the `volume`/
-// `muted` variables and applies them to whichever output actually exists.
-// (An earlier version of this tried to detect+undo our own audio.volume
-// writes via the 'volumechange' event, but that event is dispatched
-// asynchronously — by the time the echo from our own reset arrived, it read
-// back audio.volume as already-reset and clobbered the gain node. Routing
-// every write through one function sidesteps that race entirely.)
-function applyVolume() {
-  if (_localGain) {
-    _localGain.gain.value = muted ? 0 : volume
-    audio.volume = 1
-    audio.muted = false
-  } else {
-    audio.volume = volume
-    audio.muted = muted
-  }
 }
 
 function startBeatLoop() {
@@ -1877,7 +1835,7 @@ function openOverlay() {
   syncOverlayState()
   renderQueuePanel()
   if (overlayLyricsOpen) renderOverlayLyrics()
-  document.getElementById('ov-vol-fill').style.width = `${volume * 100}%`
+  document.getElementById('ov-vol-fill').style.width = `${audio.volume * 100}%`
 
   console.log('[art] openOverlay — themeAlbumArt:', themeAlbumArt, '_blobColors:', _blobColors.length, 'item:', queue[queueIndex]?.Name)
 
@@ -2029,8 +1987,8 @@ document.getElementById('ov-like').addEventListener('click', toggleLike)
   function setVol(e) {
     const rect = bar.getBoundingClientRect()
     const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+    audio.volume = ratio
     volume = ratio
-    applyVolume()
     fill.style.width = `${ratio * 100}%`
     // Keep main vol bar in sync
     document.getElementById('vol-fill').style.width = `${ratio * 100}%`
@@ -2085,60 +2043,43 @@ function syncOverlayState() {
   updateRepeatButtons()
 }
 
-// While a Waterfall session is active, the shared session queue is what's
-// actually authoritative for playback (see wfSkip/wfJumpTo in sync.js) — the
-// solo `queue`/`queueIndex` sit there unused/stale. Read through this instead
-// of the bare variables anywhere this panel needs "the queue" so it never
-// shows one queue while skip/next act on another.
-function _activeQueue() {
-  return wfIsActive() ? wfSession.queue : queue
-}
-function _activeQueueIndex() {
-  return wfIsActive() ? wfSession.index : queueIndex
-}
-
 function renderQueuePanel() {
   const container = document.getElementById('ov-queue-rows')
   const panel     = document.getElementById('ov-panel-queue')
-  const srcQueue  = _activeQueue()
-  if (!srcQueue.length) { container.innerHTML = '<div class="empty-state" style="padding:40px 0">Queue is empty</div>'; return }
+  if (!queue.length) { container.innerHTML = '<div class="empty-state" style="padding:40px 0">Queue is empty</div>'; return }
 
   // Bind scroll listener once — shifts the render window as the user scrolls
   if (!_queueScrollBound) {
     _queueScrollBound = true
     panel.addEventListener('scroll', () => {
-      const q = _activeQueue()
-      if (!q.length) return
+      if (!queue.length) return
       const visStart = Math.floor(panel.scrollTop / QUEUE_ROW_H)
       const visEnd   = visStart + Math.ceil(panel.clientHeight / QUEUE_ROW_H)
       const nearTop  = visStart < _queueWinStart + 3
       const nearBot  = visEnd   > _queueWinStart + QUEUE_WIN - 3
       if (nearTop || nearBot) {
-        _queueWinStart = Math.max(0, Math.min(visStart - 3, q.length - QUEUE_WIN))
+        _queueWinStart = Math.max(0, Math.min(visStart - 3, queue.length - QUEUE_WIN))
         _drawQueueRows(container, false)
       }
     }, { passive: true })
   }
 
   // Re-centre window on the current track
-  _queueWinStart = Math.max(0, Math.min(_activeQueueIndex() - QUEUE_BEFORE, srcQueue.length - QUEUE_WIN))
+  _queueWinStart = Math.max(0, Math.min(queueIndex - QUEUE_BEFORE, queue.length - QUEUE_WIN))
   _drawQueueRows(container, true)
 }
 
 function _drawQueueRows(container, scrollToCurrent) {
-  const srcQueue  = _activeQueue()
-  const srcIndex  = _activeQueueIndex()
-  const winEnd = Math.min(srcQueue.length, _queueWinStart + QUEUE_WIN)
+  const winEnd = Math.min(queue.length, _queueWinStart + QUEUE_WIN)
   const topH   = _queueWinStart * QUEUE_ROW_H
-  const botH   = (srcQueue.length - winEnd) * QUEUE_ROW_H
+  const botH   = (queue.length - winEnd) * QUEUE_ROW_H
 
-  const rows = srcQueue.slice(_queueWinStart, winEnd).map((item, idx) => {
+  const rows = queue.slice(_queueWinStart, winEnd).map((item, idx) => {
     const i     = _queueWinStart + idx
     const art   = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
     const thumb = art ? `<img src="${art}" alt="" onerror="this.style.display='none'">` : '♪'
     const dur   = fmtTime((item.RunTimeTicks || 0) / 10000000)
-    const draggable = !wfIsActive() // reordering a shared session queue isn't supported yet
-    return `<div class="queue-row${i === srcIndex ? ' current' : ''}" data-qi="${i}" draggable="${draggable}">
+    return `<div class="queue-row${i === queueIndex ? ' current' : ''}" data-qi="${i}" draggable="true">
       <div class="queue-row-drag" title="Drag to reorder">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="18" x2="16" y2="18"/></svg>
       </div>
@@ -2167,7 +2108,6 @@ function _drawQueueRows(container, scrollToCurrent) {
 
     el.addEventListener('click', (e) => {
       if (e.target.closest('.queue-row-drag, .queue-row-remove')) return
-      if (wfIsActive()) { wfJumpTo(qi); renderQueuePanel(); return }
       queueIndex = qi
       playCurrentTrack()
       renderQueuePanel()
@@ -2175,7 +2115,6 @@ function _drawQueueRows(container, scrollToCurrent) {
 
     el.querySelector('.queue-row-remove').addEventListener('click', (e) => {
       e.stopPropagation()
-      if (wfIsActive()) { showToast("Removing tracks from a shared Waterfall queue isn't supported yet"); return }
       const idx = parseInt(el.dataset.qi)
       queue.splice(idx, 1)
       if (queueIndex >= idx && queueIndex > 0) queueIndex--
@@ -2183,7 +2122,6 @@ function _drawQueueRows(container, scrollToCurrent) {
     })
 
     el.addEventListener('dragstart', (e) => {
-      if (wfIsActive()) { e.preventDefault(); return }
       dragSrc = el
       el.classList.add('dragging')
       e.dataTransfer.effectAllowed = 'move'

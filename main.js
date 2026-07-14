@@ -289,58 +289,11 @@ function createWindow() {
     win.webContents.on('before-input-event', (_e, input) => {
       if (input.type === 'keyDown' && input.key === 'F12') win.webContents.toggleDevTools()
     })
-
-    if (pendingWaterfallCode) { sendWaterfallJoin(pendingWaterfallCode); pendingWaterfallCode = null }
   })
 }
-
-// ── Waterfall deep links (cascade://join/CODE) ────────────────────────────────
-let pendingWaterfallCode = null
-
-function parseWaterfallCode(url) {
-  try {
-    const u = new URL(url)
-    if (u.protocol !== 'cascade:' || u.hostname !== 'join') return null
-    const code = u.pathname.replace(/^\//, '').toUpperCase()
-    return /^[A-Z0-9]{6}$/.test(code) ? code : null
-  } catch { return null }
-}
-
-function sendWaterfallJoin(code) {
-  if (win && !win.isDestroyed()) win.webContents.send('waterfall-join', code)
-  else pendingWaterfallCode = code
-}
-
-if (process.defaultApp) {
-  if (process.argv.length >= 2) app.setAsDefaultProtocolClient('cascade', process.execPath, [path.resolve(process.argv[1])])
-} else {
-  app.setAsDefaultProtocolClient('cascade')
-}
-
-const gotSingleInstanceLock = app.requestSingleInstanceLock()
-if (!gotSingleInstanceLock) {
-  app.quit()
-} else {
-  app.on('second-instance', (_e, argv) => {
-    const url = argv.find(a => a.startsWith('cascade://'))
-    const code = url && parseWaterfallCode(url)
-    if (code) sendWaterfallJoin(code)
-    if (win) { if (win.isMinimized()) win.restore(); win.focus() }
-  })
-}
-
-// macOS delivers the launch URL via 'open-url' instead of argv
-app.on('open-url', (event, url) => {
-  event.preventDefault()
-  const code = parseWaterfallCode(url)
-  if (code) sendWaterfallJoin(code)
-})
 
 app.whenReady().then(() => {
   createWindow()
-  const launchUrl = process.argv.find(a => a.startsWith('cascade://'))
-  const code = launchUrl && parseWaterfallCode(launchUrl)
-  if (code) pendingWaterfallCode = code
 })
 
 app.on('window-all-closed', () => {
