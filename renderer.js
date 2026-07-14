@@ -16,6 +16,7 @@ const QUEUE_BEFORE   = 5    // rows to show before current track when re-centeri
 let _queueWinStart   = 0    // index of first rendered row
 let _queueScrollBound = false
 let volume = 1.0
+let muted = false
 
 const audio = new Audio()
 audio.crossOrigin = 'anonymous'
@@ -1365,8 +1366,8 @@ document.getElementById('prog-bar').addEventListener('click', (e) => {
   function setVol(e) {
     const rect = bar.getBoundingClientRect()
     const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-    audio.volume = ratio
     volume = ratio
+    applyVolume()
     fill.style.width = `${ratio * 100}%`
     window.cascade.store.set('volume', ratio)
   }
@@ -1381,7 +1382,8 @@ document.getElementById('prog-bar').addEventListener('click', (e) => {
 })()
 
 document.getElementById('btn-mute').addEventListener('click', () => {
-  audio.muted = !audio.muted
+  muted = !muted
+  applyVolume()
 })
 
 // Lyrics open button
@@ -1491,8 +1493,8 @@ window.cascade.remote.onSeek((pos) => {
 
 window.cascade.remote.onVolume((vol) => {
   const v = Math.max(0, Math.min(1, vol))
-  audio.volume = v
   volume = v
+  applyVolume()
   const slider = document.getElementById('volume-slider')
   if (slider) slider.value = v
 })
@@ -1721,7 +1723,7 @@ async function init() {
   const savedVol = await window.cascade.store.get('volume')
   if (savedVol !== undefined && savedVol !== null) {
     volume = parseFloat(savedVol)
-    audio.volume = volume
+    applyVolume()
     const fill = document.getElementById('vol-fill')
     if (fill) fill.style.width = `${volume * 100}%`
   }
@@ -1769,8 +1771,7 @@ let _currentBgArtUrl = null  // current track's art URL for overlay background
 let _audioCtx = null
 let _analyser = null
 let _mediaSrc = null   // shared MediaElementAudioSourceNode — also tapped by sync.js for Waterfall
-let _localGain = null  // local-monitoring-only volume/mute — see the volumechange listener below
-let _suppressVolumeEvent = false
+let _localGain = null  // local-monitoring-only volume/mute — see applyVolume() below
 let _beatRafId = null
 let _blobColors = []  // extracted colors, stored for blob drift animation
 let _driftParams = [] // randomized per-blob drift parameters, set on each color refresh
@@ -1799,26 +1800,36 @@ function initBeatDetection() {
     // into the samples _mediaSrc captures — which sync.js also taps for the
     // Waterfall broadcast. Without this, muting/lowering your own monitoring
     // volume would mute/lower it for everyone listening to your stream too.
-    // So: local volume/mute lives in this gain node instead, and the element
-    // itself gets pinned back to "clean" (full, unmuted) after every change —
-    // see the volumechange listener below. _mediaSrc's output then always
+    // So local volume/mute lives in this gain node instead, and the element
+    // itself stays pinned at "clean" (full, unmuted) — see applyVolume()
+    // below, which every volume/mute control routes through instead of
+    // writing audio.volume/.muted directly. _mediaSrc's output then always
     // stays the true, unattenuated signal.
     _localGain = _audioCtx.createGain()
-    _localGain.gain.value = audio.muted ? 0 : audio.volume
     _mediaSrc.connect(_localGain)
     _localGain.connect(_analyser)
     _analyser.connect(_audioCtx.destination)
+    applyVolume()
   } catch(e) { console.warn('Beat detection unavailable:', e) }
 }
 
-audio.addEventListener('volumechange', () => {
-  if (_suppressVolumeEvent || !_localGain) return
-  _localGain.gain.value = audio.muted ? 0 : audio.volume
-  _suppressVolumeEvent = true
-  audio.volume = 1
-  audio.muted = false
-  _suppressVolumeEvent = false
-})
+// Single place that actually writes volume/mute state — reads the `volume`/
+// `muted` variables and applies them to whichever output actually exists.
+// (An earlier version of this tried to detect+undo our own audio.volume
+// writes via the 'volumechange' event, but that event is dispatched
+// asynchronously — by the time the echo from our own reset arrived, it read
+// back audio.volume as already-reset and clobbered the gain node. Routing
+// every write through one function sidesteps that race entirely.)
+function applyVolume() {
+  if (_localGain) {
+    _localGain.gain.value = muted ? 0 : volume
+    audio.volume = 1
+    audio.muted = false
+  } else {
+    audio.volume = volume
+    audio.muted = muted
+  }
+}
 
 function startBeatLoop() {
   if (_beatRafId) return
@@ -2018,8 +2029,8 @@ document.getElementById('ov-like').addEventListener('click', toggleLike)
   function setVol(e) {
     const rect = bar.getBoundingClientRect()
     const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-    audio.volume = ratio
     volume = ratio
+    applyVolume()
     fill.style.width = `${ratio * 100}%`
     // Keep main vol bar in sync
     document.getElementById('vol-fill').style.width = `${ratio * 100}%`
