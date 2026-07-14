@@ -246,9 +246,17 @@ function wfEnterIndex(index) {
 }
 
 function wfBecomeDriver(item) {
-  audio.srcObject = null
-  audio.src = streamUrl(item.Id)
-  audio.play()
+  const url = streamUrl(item.Id)
+  // If this track was already playing solo (e.g. it got seeded into a
+  // session that was just created), keep the existing playback position
+  // instead of reassigning .src and restarting it from 0.
+  if (audio.srcObject || audio.src !== url) {
+    audio.srcObject = null
+    audio.src = url
+    audio.play()
+  } else if (audio.paused) {
+    audio.play()
+  }
   reportPlaybackStart(item.Id)
 
   const stream = wfOutgoingStream()
@@ -306,6 +314,8 @@ function wfSkip(delta) {
   if (next >= 0 && next < wfSession.queue.length) {
     wfSend(null, { kind: 'track-change', index: next })
     wfEnterIndex(next)
+  } else {
+    showToast(delta > 0 ? 'No more tracks in the Waterfall queue' : 'Already at the first track')
   }
   return true
 }

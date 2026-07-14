@@ -24,7 +24,7 @@ audio.volume = volume
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtTime(sec) {
-  if (!sec || isNaN(sec)) return '0:00'
+  if (!sec || !isFinite(sec)) return '0:00'
   const m = Math.floor(sec / 60)
   const s = Math.floor(sec % 60)
   return `${m}:${s.toString().padStart(2, '0')}`
@@ -1471,7 +1471,7 @@ function remoteStatePayload() {
     playing:  !audio.paused,
     position: audio.currentTime || 0,
     duration: audio.duration   || 0,
-    volume:   audio.volume,
+    volume:   volume,
     track: track ? {
       id:     track.Id,
       name:   track.Name,
@@ -1769,6 +1769,8 @@ let _currentBgArtUrl = null  // current track's art URL for overlay background
 let _audioCtx = null
 let _analyser = null
 let _mediaSrc = null   // shared MediaElementAudioSourceNode — also tapped by sync.js for Waterfall
+let _localGain = null  // local-monitoring-only volume/mute — see the volumechange listener below
+let _suppressVolumeEvent = false
 let _beatRafId = null
 let _blobColors = []  // extracted colors, stored for blob drift animation
 let _driftParams = [] // randomized per-blob drift parameters, set on each color refresh
@@ -1792,10 +1794,31 @@ function initBeatDetection() {
     _analyser.fftSize = 512           // more bins = better low-end resolution
     _analyser.smoothingTimeConstant = 0.4
     _mediaSrc = _audioCtx.createMediaElementSource(audio)
-    _mediaSrc.connect(_analyser)
+
+    // Once an element is routed through Web Audio, .volume/.muted get baked
+    // into the samples _mediaSrc captures — which sync.js also taps for the
+    // Waterfall broadcast. Without this, muting/lowering your own monitoring
+    // volume would mute/lower it for everyone listening to your stream too.
+    // So: local volume/mute lives in this gain node instead, and the element
+    // itself gets pinned back to "clean" (full, unmuted) after every change —
+    // see the volumechange listener below. _mediaSrc's output then always
+    // stays the true, unattenuated signal.
+    _localGain = _audioCtx.createGain()
+    _localGain.gain.value = audio.muted ? 0 : audio.volume
+    _mediaSrc.connect(_localGain)
+    _localGain.connect(_analyser)
     _analyser.connect(_audioCtx.destination)
   } catch(e) { console.warn('Beat detection unavailable:', e) }
 }
+
+audio.addEventListener('volumechange', () => {
+  if (_suppressVolumeEvent || !_localGain) return
+  _localGain.gain.value = audio.muted ? 0 : audio.volume
+  _suppressVolumeEvent = true
+  audio.volume = 1
+  audio.muted = false
+  _suppressVolumeEvent = false
+})
 
 function startBeatLoop() {
   if (_beatRafId) return
@@ -1843,7 +1866,7 @@ function openOverlay() {
   syncOverlayState()
   renderQueuePanel()
   if (overlayLyricsOpen) renderOverlayLyrics()
-  document.getElementById('ov-vol-fill').style.width = `${audio.volume * 100}%`
+  document.getElementById('ov-vol-fill').style.width = `${volume * 100}%`
 
   console.log('[art] openOverlay — themeAlbumArt:', themeAlbumArt, '_blobColors:', _blobColors.length, 'item:', queue[queueIndex]?.Name)
 
