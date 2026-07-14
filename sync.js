@@ -161,6 +161,7 @@ function wfHandlePayload(from, payload) {
       wfSession.queue.push({ ...payload.item, owner: payload.owner })
       wfRenderPanel()
       if (wfSession.index === -1) wfEnterIndex(0)
+      else renderQueuePanel()
       break
 
     case 'track-change':
@@ -237,6 +238,7 @@ function wfEnterIndex(index) {
   wfSession.listenerPc = null
 
   updateNowPlaying(item) // safe even cross-server: art <img onerror> already falls back to the note glyph
+  renderQueuePanel() // now-playing overlay's queue list, if open, reads the Waterfall queue once active
 
   if (item.owner === wfSession.myId) {
     wfBecomeDriver(item)
@@ -299,6 +301,7 @@ function wfQueueAdd(item) {
   wfSession.queue.push({ ...item, owner: wfSession.myId })
   wfRenderPanel()
   if (wfSession.index === -1) wfEnterIndex(0)
+  else renderQueuePanel()
   return true
 }
 
@@ -308,13 +311,21 @@ function wfBroadcastPause() { if (wfSession) wfSend(null, { kind: 'pause' }) }
 // Called from the prev/next buttons; returns true if it handled the move
 // (session mode — always true while in a session, even a no-op skip target),
 // false to fall through to solo-queue prev/next.
+// Jumps directly to a queue index (e.g. clicking a row in the queue panel).
+// Returns false if the index is out of range so callers can decide how to
+// react (wfSkip shows a toast; a direct row click just no-ops since the row
+// wouldn't be visible if it weren't in range).
+function wfJumpTo(index) {
+  if (!wfSession) return false
+  if (index < 0 || index >= wfSession.queue.length) return false
+  wfSend(null, { kind: 'track-change', index })
+  wfEnterIndex(index)
+  return true
+}
+
 function wfSkip(delta) {
   if (!wfSession) return false
-  const next = wfSession.index + delta
-  if (next >= 0 && next < wfSession.queue.length) {
-    wfSend(null, { kind: 'track-change', index: next })
-    wfEnterIndex(next)
-  } else {
+  if (!wfJumpTo(wfSession.index + delta)) {
     showToast(delta > 0 ? 'No more tracks in the Waterfall queue' : 'Already at the first track')
   }
   return true

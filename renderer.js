@@ -2085,43 +2085,60 @@ function syncOverlayState() {
   updateRepeatButtons()
 }
 
+// While a Waterfall session is active, the shared session queue is what's
+// actually authoritative for playback (see wfSkip/wfJumpTo in sync.js) — the
+// solo `queue`/`queueIndex` sit there unused/stale. Read through this instead
+// of the bare variables anywhere this panel needs "the queue" so it never
+// shows one queue while skip/next act on another.
+function _activeQueue() {
+  return wfIsActive() ? wfSession.queue : queue
+}
+function _activeQueueIndex() {
+  return wfIsActive() ? wfSession.index : queueIndex
+}
+
 function renderQueuePanel() {
   const container = document.getElementById('ov-queue-rows')
   const panel     = document.getElementById('ov-panel-queue')
-  if (!queue.length) { container.innerHTML = '<div class="empty-state" style="padding:40px 0">Queue is empty</div>'; return }
+  const srcQueue  = _activeQueue()
+  if (!srcQueue.length) { container.innerHTML = '<div class="empty-state" style="padding:40px 0">Queue is empty</div>'; return }
 
   // Bind scroll listener once — shifts the render window as the user scrolls
   if (!_queueScrollBound) {
     _queueScrollBound = true
     panel.addEventListener('scroll', () => {
-      if (!queue.length) return
+      const q = _activeQueue()
+      if (!q.length) return
       const visStart = Math.floor(panel.scrollTop / QUEUE_ROW_H)
       const visEnd   = visStart + Math.ceil(panel.clientHeight / QUEUE_ROW_H)
       const nearTop  = visStart < _queueWinStart + 3
       const nearBot  = visEnd   > _queueWinStart + QUEUE_WIN - 3
       if (nearTop || nearBot) {
-        _queueWinStart = Math.max(0, Math.min(visStart - 3, queue.length - QUEUE_WIN))
+        _queueWinStart = Math.max(0, Math.min(visStart - 3, q.length - QUEUE_WIN))
         _drawQueueRows(container, false)
       }
     }, { passive: true })
   }
 
   // Re-centre window on the current track
-  _queueWinStart = Math.max(0, Math.min(queueIndex - QUEUE_BEFORE, queue.length - QUEUE_WIN))
+  _queueWinStart = Math.max(0, Math.min(_activeQueueIndex() - QUEUE_BEFORE, srcQueue.length - QUEUE_WIN))
   _drawQueueRows(container, true)
 }
 
 function _drawQueueRows(container, scrollToCurrent) {
-  const winEnd = Math.min(queue.length, _queueWinStart + QUEUE_WIN)
+  const srcQueue  = _activeQueue()
+  const srcIndex  = _activeQueueIndex()
+  const winEnd = Math.min(srcQueue.length, _queueWinStart + QUEUE_WIN)
   const topH   = _queueWinStart * QUEUE_ROW_H
-  const botH   = (queue.length - winEnd) * QUEUE_ROW_H
+  const botH   = (srcQueue.length - winEnd) * QUEUE_ROW_H
 
-  const rows = queue.slice(_queueWinStart, winEnd).map((item, idx) => {
+  const rows = srcQueue.slice(_queueWinStart, winEnd).map((item, idx) => {
     const i     = _queueWinStart + idx
     const art   = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
     const thumb = art ? `<img src="${art}" alt="" onerror="this.style.display='none'">` : '♪'
     const dur   = fmtTime((item.RunTimeTicks || 0) / 10000000)
-    return `<div class="queue-row${i === queueIndex ? ' current' : ''}" data-qi="${i}" draggable="true">
+    const draggable = !wfIsActive() // reordering a shared session queue isn't supported yet
+    return `<div class="queue-row${i === srcIndex ? ' current' : ''}" data-qi="${i}" draggable="${draggable}">
       <div class="queue-row-drag" title="Drag to reorder">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="18" x2="16" y2="18"/></svg>
       </div>
@@ -2150,6 +2167,7 @@ function _drawQueueRows(container, scrollToCurrent) {
 
     el.addEventListener('click', (e) => {
       if (e.target.closest('.queue-row-drag, .queue-row-remove')) return
+      if (wfIsActive()) { wfJumpTo(qi); renderQueuePanel(); return }
       queueIndex = qi
       playCurrentTrack()
       renderQueuePanel()
@@ -2157,6 +2175,7 @@ function _drawQueueRows(container, scrollToCurrent) {
 
     el.querySelector('.queue-row-remove').addEventListener('click', (e) => {
       e.stopPropagation()
+      if (wfIsActive()) { showToast("Removing tracks from a shared Waterfall queue isn't supported yet"); return }
       const idx = parseInt(el.dataset.qi)
       queue.splice(idx, 1)
       if (queueIndex >= idx && queueIndex > 0) queueIndex--
@@ -2164,6 +2183,7 @@ function _drawQueueRows(container, scrollToCurrent) {
     })
 
     el.addEventListener('dragstart', (e) => {
+      if (wfIsActive()) { e.preventDefault(); return }
       dragSrc = el
       el.classList.add('dragging')
       e.dataTransfer.effectAllowed = 'move'
