@@ -1037,6 +1037,7 @@ document.getElementById('tctx-pl-remove').addEventListener('click', async () => 
 // ── Playback ──────────────────────────────────────────────────────────────────
 
 function playItems(items, startIndex) {
+  if (wfIsActive()) { wfQueueAdd(items[startIndex]); return }
   if (shuffle) {
     // New queue loaded while shuffle is on — shuffle the new queue immediately
     _unshuffledQueue = [...items]
