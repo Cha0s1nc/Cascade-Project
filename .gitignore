@@ -7,7 +7,7 @@ out/
 spicylyrics-integration.js
 lyrics_align_test.py
 
-# Cloudflare Worker (wip-waterfall/signaling/) local state — wrangler's
+# Cloudflare Worker (wip-waterfall/signaling/) local state - wrangler's
 # cache/dev-session data and any local secrets, never the source or lockfile.
 wip-waterfall/signaling/.wrangler/
 wip-waterfall/signaling/.dev.vars

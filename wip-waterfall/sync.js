@@ -5,12 +5,12 @@
 // streamUrl()/jf for a track they don't own.
 //
 // Loaded as a second <script> tag after renderer.js (no bundler in this
-// project), so it shares renderer.js's top-level scope directly — audio,
+// project), so it shares renderer.js's top-level scope directly - audio,
 // queue, queueIndex, jf, streamUrl, playCurrentTrack, updateNowPlaying,
 // reportPlaybackStart/Stopped, showToast, esc, _audioCtx, _mediaSrc are
 // all already in scope here.
 //
-// Naming note: this deliberately avoids the bare identifier `waterfall` —
+// Naming note: this deliberately avoids the bare identifier `waterfall` -
 // renderer.js already uses that word for the unrelated lyrics-provider
 // fallback chain (fetchLyricsWaterfall). Session state here is `wfSession`.
 
@@ -44,7 +44,7 @@ async function wfDisplayName() {
 
 // ── Outgoing audio tap ───────────────────────────────────────────────────────
 // Branches a second output off the SAME MediaElementAudioSourceNode used for
-// beat detection — createMediaElementSource() may only be called once per
+// beat detection - createMediaElementSource() may only be called once per
 // <audio> element ever, so this reuses _mediaSrc rather than creating a new one.
 function wfOutgoingStream() {
   initBeatDetection() // no-op if already set up; guarantees _audioCtx/_mediaSrc exist
@@ -101,7 +101,7 @@ function wfHandleMessage(msg) {
       if (msg.roster.length > 1) {
         wfSend(null, { kind: 'request-sync' })
       } else if (queue[queueIndex]) {
-        // I'm the first one here — whatever's already playing solo becomes the shared track
+        // I'm the first one here - whatever's already playing solo becomes the shared track
         wfQueueAdd(queue[queueIndex])
       }
       break
@@ -122,7 +122,7 @@ function wfHandleMessage(msg) {
       for (const id of left) { wfSession.pcs.get(id)?.close(); wfSession.pcs.delete(id) }
 
       // A driver's offers only reach whoever was already in the room at the
-      // time playback started — anyone joining afterward needs their own offer.
+      // time playback started - anyone joining afterward needs their own offer.
       if (wfIsDriver() && joined.length) {
         const stream = wfOutgoingStream()
         for (const m of joined) wfOfferTo(m.id, stream)
@@ -202,7 +202,7 @@ function wfHandlePayload(from, payload) {
 }
 
 // ── ICE candidate buffering ──────────────────────────────────────────────────
-// Candidates routinely arrive before setRemoteDescription() has resolved —
+// Candidates routinely arrive before setRemoteDescription() has resolved -
 // that's normal over a real network, not just a same-machine test. Queue them
 // and flush once the remote description actually lands, instead of dropping
 // whatever arrives too early.
@@ -309,7 +309,7 @@ function wfBroadcastPlay()  { if (wfSession) wfSend(null, { kind: 'play' }) }
 function wfBroadcastPause() { if (wfSession) wfSend(null, { kind: 'pause' }) }
 
 // Called from the prev/next buttons; returns true if it handled the move
-// (session mode — always true while in a session, even a no-op skip target),
+// (session mode - always true while in a session, even a no-op skip target),
 // false to fall through to solo-queue prev/next.
 // Jumps directly to a queue index (e.g. clicking a row in the queue panel).
 // Returns false if the index is out of range so callers can decide how to
@@ -338,7 +338,7 @@ function wfHandleEnded() {
   const item = wfSession.queue[wfSession.index]
   if (item) reportPlaybackStopped(item.Id, Math.round((audio.duration || 0) * 10000000))
   const next = wfSession.index + 1
-  if (next >= wfSession.queue.length) return true // end of shared queue — no repeat modes in v1
+  if (next >= wfSession.queue.length) return true // end of shared queue - no repeat modes in v1
   wfSend(null, { kind: 'track-change', index: next })
   wfEnterIndex(next)
   return true
@@ -347,7 +347,7 @@ function wfHandleEnded() {
 // ── UI: room panel (#waterfall-panel, added in index.html) ──────────────────
 
 // ICE connection state can fire several transitions in quick succession while
-// a peer connection is establishing — coalesce those into a single re-render
+// a peer connection is establishing - coalesce those into a single re-render
 // instead of rebuilding the whole panel's innerHTML on every transition.
 let _wfRenderDebounceTimer = null
 function wfRenderPanelDebounced() {

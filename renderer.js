@@ -124,7 +124,7 @@ async function fetchItunesArt(artist, album) {
     const d = await r.json()
     const result = d.results?.[0]
     if (!result?.artworkUrl100) return null
-    // Scale from 100px thumbnail to 600px — just replace the size token in the URL
+    // Scale from 100px thumbnail to 600px - just replace the size token in the URL
     const url = result.artworkUrl100.replace(/\d+x\d+bb/, '600x600bb')
     _itunesArtCache.set(key, url)
     return url
@@ -141,7 +141,7 @@ function streamUrl(itemId) {
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
-// Toasts are dev-only noise in production builds — only show when running
+// Toasts are dev-only noise in production builds - only show when running
 // unpackaged (i.e. launched from the command line via `npm start`/`electron .`).
 let _toastsEnabled = false
 window.cascade?.isPackaged?.().then(packaged => { _toastsEnabled = !packaged })
@@ -346,7 +346,7 @@ async function loadRecentlyPlayed() {
 
 function rpCard(item) {
   const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
-  const img = art ? `<img src="${art}" alt="" onerror="this.style.display='none'">` : '♪'
+  const img = art ? `<img src="${art}" alt="" loading="lazy" onerror="this.style.display='none'">` : '♪'
   return `<div class="rp-item" data-id="${item.Id}">
     <div class="rp-art">${img}</div>
     <div style="min-width:0">
@@ -370,7 +370,7 @@ async function loadRecentlyAdded() {
     if (!data.Items?.length) { grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">No albums yet</div>'; return }
     grid.innerHTML = data.Items.map(item => albumCard(item)).join('')
     grid.querySelectorAll('.album-card').forEach((el, i) => {
-      el.addEventListener('click', () => playAlbum(data.Items[i].Id))
+      el.addEventListener('click', () => { showView('albums'); openAlbum(data.Items[i].Id) })
     })
   } catch (e) {
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Could not load albums</div>`
@@ -440,17 +440,18 @@ async function loadAlbums() {
     const data = await jfGetMerged(`/Users/${jf.userId}/Items`, params)
     grid.innerHTML = data.Items.map(item => albumCard(item)).join('')
     grid.querySelectorAll('.album-card').forEach((el, i) => {
-      el.addEventListener('click', () => playAlbum(data.Items[i].Id))
+      el.addEventListener('click', () => { showView('albums'); openAlbum(data.Items[i].Id) })
     })
   } catch (e) {
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Could not load albums</div>`
   }
 }
 
-function albumCard(item) {
+function albumCard(item, opts = {}) {
   const art = artUrl(item.Id, item.ImageTags?.Primary)
-  const img = art ? `<img src="${art}" alt="" onerror="this.style.display='none'">` : '♪'
-  return `<div class="album-card" data-id="${item.Id}">
+  const img = art ? `<img src="${art}" alt="" loading="lazy" onerror="this.style.display='none'">` : '♪'
+  const idAttr = opts.idAttr || 'data-id'
+  return `<div class="album-card" ${idAttr}="${item.Id}">
     <div class="album-art">${img}</div>
     <div class="album-body">
       <div class="album-name">${esc(item.Name)}</div>
@@ -459,16 +460,67 @@ function albumCard(item) {
   </div>`
 }
 
-async function playAlbum(albumId) {
-  const data = await jfGet(`/Users/${jf.userId}/Items`, {
-    ParentId: albumId,
-    SortBy: 'ParentIndexNumber,IndexNumber,SortName',
-    IncludeItemTypes: 'Audio',
-    Recursive: true,
-    Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
-  })
-  if (data.Items?.length) playItems(data.Items, 0)
+// idAttr lets search results use data-search-artist instead of data-id.
+function artistCardHtml(item, opts = {}) {
+  const art = artistArtUrl(item.Id)
+  const idAttr = opts.idAttr || 'data-id'
+  return `<div class="artist-card" ${idAttr}="${item.Id}" data-name="${esc(item.Name)}">
+    <div class="artist-avatar"><img src="${art}" alt="" loading="lazy" onerror="this.style.display='none'"></div>
+    <div class="artist-name">${esc(item.Name)}</div>
+  </div>`
 }
+
+let currentAlbumTracks = []
+
+async function openAlbum(albumId) {
+  document.getElementById('albums-index').style.display = 'none'
+  const detail = document.getElementById('album-detail')
+  detail.style.display = ''
+  document.getElementById('album-detail-name').textContent = ''
+  document.getElementById('album-detail-meta').innerHTML = '<span class="skel skel-text" style="display:inline-block;width:120px"></span>'
+  document.getElementById('album-detail-rows').innerHTML = skeletonHTML('track', 6)
+  document.getElementById('album-detail-art').innerHTML = '♪'
+
+  try {
+    const [album, tracksData] = await Promise.all([
+      jfGet(`/Users/${jf.userId}/Items/${albumId}`),
+      jfGet(`/Users/${jf.userId}/Items`, {
+        ParentId: albumId,
+        SortBy: 'ParentIndexNumber,IndexNumber,SortName',
+        IncludeItemTypes: 'Audio',
+        Recursive: true,
+        Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
+      })
+    ])
+    const tracks = tracksData.Items || []
+    currentAlbumTracks = tracks
+
+    document.getElementById('album-detail-name').textContent = album.Name || ''
+    const meta = [album.AlbumArtist, album.ProductionYear, `${tracks.length} song${tracks.length !== 1 ? 's' : ''}`].filter(Boolean)
+    document.getElementById('album-detail-meta').textContent = meta.join(' · ')
+
+    const art = artUrl(album.Id, album.ImageTags?.Primary)
+    document.getElementById('album-detail-art').innerHTML = art ? `<img src="${art}" alt="" onerror="this.innerHTML='♪'">` : '♪'
+
+    document.getElementById('album-detail-rows').innerHTML = tracks.map((item, i) => trackRowHtml(item, i)).join('')
+
+    document.getElementById('album-detail-rows').querySelectorAll('.track-row').forEach(el => {
+      const idx = parseInt(el.dataset.idx)
+      wireTrackRow(el, tracks[idx], tracks, idx)
+    })
+  } catch (e) {
+    document.getElementById('album-detail-meta').textContent = 'Could not load album'
+  }
+}
+
+document.getElementById('album-back-btn').addEventListener('click', () => {
+  document.getElementById('album-detail').style.display = 'none'
+  document.getElementById('albums-index').style.display = ''
+})
+
+document.getElementById('btn-play-album').addEventListener('click', () => {
+  if (currentAlbumTracks.length) playItems(currentAlbumTracks, 0)
+})
 
 // ── Artists ───────────────────────────────────────────────────────────────────
 
@@ -478,14 +530,7 @@ async function loadArtists() {
   try {
     const params = { UserId: jf.userId, SortBy: 'SortName', SortOrder: 'Ascending', Limit: 200 }
     const data = await jfGetMerged(`/Artists`, params)
-    grid.innerHTML = data.Items.map(item => {
-      const art = artistArtUrl(item.Id)
-      const img = `<img src="${art}" alt="" onerror="this.style.display='none'">`
-      return `<div class="artist-card" data-id="${item.Id}" data-name="${esc(item.Name)}">
-        <div class="artist-avatar">${img}</div>
-        <div class="artist-name">${esc(item.Name)}</div>
-      </div>`
-    }).join('')
+    grid.innerHTML = data.Items.map(item => artistCardHtml(item)).join('')
     grid.querySelectorAll('.artist-card').forEach(el => {
       el.addEventListener('click', () => openArtist(el.dataset.id, el.dataset.name))
     })
@@ -529,7 +574,7 @@ async function openArtist(artistId, name) {
     // Albums grid
     document.getElementById('artist-albums-grid').innerHTML = albums.map(item => albumCard(item)).join('')
     document.getElementById('artist-albums-grid').querySelectorAll('.album-card').forEach((el, i) => {
-      el.addEventListener('click', () => playAlbum(albums[i].Id))
+      el.addEventListener('click', () => { showView('albums'); openAlbum(albums[i].Id) })
     })
 
     // Play all button
@@ -538,19 +583,7 @@ async function openArtist(artistId, name) {
     }
 
     // Songs list
-    document.getElementById('artist-songs-rows').innerHTML = songs.map((item, i) => {
-      const thumbArt = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
-      return `<div class="track-row" data-idx="${i}" data-id="${item.Id}">
-        <div class="track-num">${i + 1}</div>
-        ${trackThumbHtml(thumbArt)}
-        <div style="min-width:0">
-          <div class="track-title">${esc(item.Name)}</div>
-          <div class="track-artist">${esc(item.AlbumArtist || item.Artists?.[0] || '')}</div>
-        </div>
-        <div class="track-album-name">${esc(item.Album || '')}</div>
-        <div class="track-dur">${fmtTime((item.RunTimeTicks || 0) / 10000000)}</div>
-      </div>`
-    }).join('')
+    document.getElementById('artist-songs-rows').innerHTML = songs.map((item, i) => trackRowHtml(item, i)).join('')
 
     document.getElementById('artist-songs-rows').querySelectorAll('.track-row').forEach(el => {
       const idx = parseInt(el.dataset.idx)
@@ -568,10 +601,29 @@ document.getElementById('artist-back-btn').addEventListener('click', () => {
 
 // ── Track row helpers ─────────────────────────────────────────────────────────
 
-// Shared thumb HTML — includes the EQ bars for the now-playing animation
+// Shared thumb HTML - includes the EQ bars for the now-playing animation
 function trackThumbHtml(art) {
-  const img = art ? `<img src="${art}" alt="" onerror="this.style.display='none'">` : ''
+  const img = art ? `<img src="${art}" alt="" loading="lazy" onerror="this.style.display='none'">` : ''
   return `<div class="track-thumb">${img}<span class="track-eq"><i></i><i></i><i></i></span></div>`
+}
+
+// Shared track-row markup. opts: idxAttr (default 'data-idx'), extraClass, entryId, style.
+function trackRowHtml(item, i, opts = {}) {
+  const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
+  const idxAttr   = opts.idxAttr || 'data-idx'
+  const cls       = 'track-row' + (opts.extraClass || '')
+  const entryAttr = opts.entryId != null ? ` data-entry-id="${opts.entryId}"` : ''
+  const styleAttr = opts.style ? ` style="${opts.style}"` : ''
+  return `<div class="${cls}" ${idxAttr}="${i}" data-id="${item.Id}"${entryAttr}${styleAttr}>
+    <div class="track-num">${i + 1}</div>
+    ${trackThumbHtml(art)}
+    <div style="min-width:0">
+      <div class="track-title">${esc(item.Name)}</div>
+      <div class="track-artist">${esc(item.AlbumArtist || item.Artists?.[0] || '')}</div>
+    </div>
+    <div class="track-album-name">${esc(item.Album || '')}</div>
+    <div class="track-dur">${fmtTime((item.RunTimeTicks || 0) / 10000000)}</div>
+  </div>`
 }
 
 // ── Songs ─────────────────────────────────────────────────────────────────────
@@ -684,7 +736,7 @@ document.addEventListener('mousedown', (e) => {
   }
 })
 
-// Songs list virtualisation — with large libraries (1000+ tracks) rendering
+// Songs list virtualisation - with large libraries (1000+ tracks) rendering
 // every row up front means thousands of DOM nodes, event listeners and
 // simultaneous art requests. Only a scrolled window of rows is kept mounted,
 // same approach as the queue panel (_drawQueueRows), except the scrollable
@@ -722,7 +774,7 @@ function renderSongRows() {
       }
     }, { passive: true })
 
-    // Delegated row interactions — bound once on the container instead of
+    // Delegated row interactions - bound once on the container instead of
     // re-attaching 4 listeners per row on every virtualization redraw (which
     // fires repeatedly while scrolling a large library).
     rows.addEventListener('click', (e) => {
@@ -760,20 +812,9 @@ function _drawSongRows(rows) {
   const currentId = queue[queueIndex]?.Id
 
   rows.innerHTML = allSongs.slice(_songsWinStart, winEnd).map((item, offset) => {
-    const i   = _songsWinStart + offset
-    const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
-    const playingCls = currentId && item.Id === currentId ? ' playing' : ''
-    return `
-    <div class="track-row${playingCls}" data-idx="${i}" data-id="${item.Id}" style="top:${i * SONG_ROW_H}px">
-      <div class="track-num">${i + 1}</div>
-      ${trackThumbHtml(art)}
-      <div style="min-width:0">
-        <div class="track-title">${esc(item.Name)}</div>
-        <div class="track-artist">${esc(item.AlbumArtist || item.Artists?.[0] || '')}</div>
-      </div>
-      <div class="track-album-name">${esc(item.Album || '')}</div>
-      <div class="track-dur">${fmtTime((item.RunTimeTicks || 0) / 10000000)}</div>
-    </div>`
+    const i = _songsWinStart + offset
+    const extraClass = currentId && item.Id === currentId ? ' playing' : ''
+    return trackRowHtml(item, i, { extraClass, style: `top:${i * SONG_ROW_H}px` })
   }).join('')
 }
 
@@ -793,7 +834,7 @@ async function loadPlaylists() {
     if (!data.Items?.length) { grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">No playlists found</div>'; return }
     grid.innerHTML = data.Items.map(item => {
       const art = artUrl(item.Id, item.ImageTags?.Primary)
-      const img = art ? `<img src="${art}" alt="" onerror="this.style.display='none'">` : '♪'
+      const img = art ? `<img src="${art}" alt="" loading="lazy" onerror="this.style.display='none'">` : '♪'
       const count = item.ChildCount != null ? `${item.ChildCount} songs` : ''
       return `<div class="playlist-card" data-id="${item.Id}" data-name="${esc(item.Name)}">
         <div class="playlist-art">${img}</div>
@@ -843,20 +884,9 @@ async function openPlaylist(playlistId, name) {
     const plArtUrl = `${jf.url}/Items/${playlistId}/Images/Primary?fillHeight=160&fillWidth=160&quality=80&api_key=${jf.token}`
     artEl.innerHTML = `<img src="${plArtUrl}" alt="" onerror="this.innerHTML='♪'">`
 
-    document.getElementById('pl-detail-rows').innerHTML = items.map((item, i) => {
-      const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
-      return `
-      <div class="track-row" data-idx="${i}" data-id="${item.Id}" data-entry-id="${item.PlaylistItemId || item.Id}">
-        <div class="track-num">${i + 1}</div>
-        ${trackThumbHtml(art)}
-        <div style="min-width:0">
-          <div class="track-title">${esc(item.Name)}</div>
-          <div class="track-artist">${esc(item.AlbumArtist || item.Artists?.[0] || '')}</div>
-        </div>
-        <div class="track-album-name">${esc(item.Album || '')}</div>
-        <div class="track-dur">${fmtTime((item.RunTimeTicks || 0) / 10000000)}</div>
-      </div>`
-    }).join('')
+    document.getElementById('pl-detail-rows').innerHTML = items.map((item, i) =>
+      trackRowHtml(item, i, { entryId: item.PlaylistItemId || item.Id })
+    ).join('')
 
     const rowsEl = document.getElementById('pl-detail-rows')
     rowsEl.querySelectorAll('.track-row').forEach(el => {
@@ -900,7 +930,7 @@ document.addEventListener('mousedown', e => {
 
 // Helper: attach click+dblclick+contextmenu to a track row
 function wireTrackRow(el, item, items, idx, opts = {}) {
-  // Click on the thumb (play button overlay) — play immediately
+  // Click on the thumb (play button overlay) - play immediately
   const thumb = el.querySelector('.track-thumb')
   if (thumb) {
     thumb.addEventListener('click', e => {
@@ -908,15 +938,15 @@ function wireTrackRow(el, item, items, idx, opts = {}) {
       playItems(items, idx)
     })
   }
-  // Single click on rest of row — select
+  // Single click on rest of row - select
   el.addEventListener('click', e => {
     if (e.target.closest('.track-thumb')) return  // handled above
     document.querySelectorAll('.track-row.selected').forEach(r => r.classList.remove('selected'))
     el.classList.add('selected')
   })
-  // Double click anywhere — play
+  // Double click anywhere - play
   el.addEventListener('dblclick', () => playItems(items, idx))
-  // Right click — context menu
+  // Right click - context menu
   el.addEventListener('contextmenu', e => {
     e.preventDefault()
     showTrackCtxMenu(item, el, e.clientX, e.clientY, opts.inPlaylist || false)
@@ -961,7 +991,7 @@ document.getElementById('tctx-instant-mix').addEventListener('click', async () =
 document.getElementById('tctx-add-playlist').addEventListener('click', () => {
   if (!_ctxItem) return
   closeTrackCtxMenu()
-  // Reuse existing add-to-playlist modal — store item for it
+  // Reuse existing add-to-playlist modal - store item for it
   _atpTargetItem = _ctxItem
   openAtpModal()
 })
@@ -1013,14 +1043,14 @@ document.getElementById('tctx-edit-meta').addEventListener('click', () => {
   if (!_ctxItem) return
   closeTrackCtxMenu()
   const url = `${jf.url}/web/index.html#!/edititemmetadata.html?id=${_ctxItem.Id}`
-  require('electron').shell.openExternal(url)
+  window.cascade.shell.openExternal(url)
 })
 
 document.getElementById('tctx-pl-remove').addEventListener('click', async () => {
   if (!_ctxEl || !currentPlaylistId) return
   closeTrackCtxMenu()
   const entryId = _ctxEl.dataset.entryId
-  if (!entryId) { showToast('Cannot remove — missing entry ID'); return }
+  if (!entryId) { showToast('Cannot remove - missing entry ID'); return }
   try {
     const res = await fetch(`${jf.url}/Playlists/${currentPlaylistId}/Items?EntryIds=${encodeURIComponent(entryId)}`, {
       method: 'DELETE', headers: { 'X-Emby-Token': jf.token }
@@ -1037,7 +1067,7 @@ document.getElementById('tctx-pl-remove').addEventListener('click', async () => 
 
 function playItems(items, startIndex) {
   if (shuffle) {
-    // New queue loaded while shuffle is on — shuffle the new queue immediately
+    // New queue loaded while shuffle is on - shuffle the new queue immediately
     _unshuffledQueue = [...items]
     queue = [...items]
     const startItem = queue[startIndex]
@@ -1106,7 +1136,7 @@ function updateNowPlaying(item) {
   document.getElementById('np-info').innerHTML = `
     <span class="np-scroll-inner">
       <span class="np-title">${esc(item.Name)}</span>
-      <span class="np-sep">—</span>
+      <span class="np-sep">-</span>
       <span class="np-artist">${esc(item.AlbumArtist || item.Artists?.[0] || '')}</span>
     </span>
   `
@@ -1128,7 +1158,7 @@ function updateNowPlaying(item) {
   document.getElementById('btn-like').classList.toggle('liked', liked)
 
   // Update Touch Bar track label
-  window.cascade.touchbarUpdate({ title: `${item.Name}  —  ${item.AlbumArtist || item.Artists?.[0] || ''}` })
+  window.cascade.touchbarUpdate({ title: `${item.Name}  -  ${item.AlbumArtist || item.Artists?.[0] || ''}` })
 
   // Notify Cha0s Stream of the new track
   window.cascade.nowPlayingUpdate({ title: item.Name || '', artist: item.AlbumArtist || item.Artists?.[0] || '', isPlaying: true })
@@ -1163,7 +1193,7 @@ function updateNowPlaying(item) {
       .catch(() => {})
   }
 
-  // Upgrade to iTunes high-res art in normal mode (async — replaces Jellyfin art when resolved)
+  // Upgrade to iTunes high-res art in normal mode (async - replaces Jellyfin art when resolved)
   if (!serverOnlyMode) {
     const artist = item.AlbumArtist || item.Artists?.[0] || ''
     const album  = item.Album || ''
@@ -1349,7 +1379,7 @@ document.getElementById('prog-bar').addEventListener('click', (e) => {
   if (audio.duration) audio.currentTime = ratio * audio.duration
 })
 
-// Volume bar — click and drag
+// Volume bar - click and drag
 ;(function () {
   const bar = document.getElementById('vol-bar')
   const fill = document.getElementById('vol-fill')
@@ -1404,7 +1434,7 @@ likeBtn.addEventListener('click', toggleLike)
 async function shuffleAllSongs() {
   // Load songs if not yet fetched
   if (!allSongs.length) {
-    // No SortBy here — the result is shuffled immediately below, so making the
+    // No SortBy here - the result is shuffled immediately below, so making the
     // server sort the whole library first would be wasted work. Paginate with
     // jfGetAllPaged instead of jfGetMerged so libraries over 500 tracks aren't
     // silently truncated.
@@ -1456,52 +1486,16 @@ window.cascade.onMediaKey((key) => {
   else if (key === 'prev')  document.getElementById('btn-prev').click()
 })
 
-// ── Remote control (Android app) ──────────────────────────────────────────────
-
-function remoteStatePayload() {
-  const track = queue[queueIndex]
-  return {
-    playing:  !audio.paused,
-    position: audio.currentTime || 0,
-    duration: audio.duration   || 0,
-    volume:   audio.volume,
-    track: track ? {
-      id:     track.Id,
-      name:   track.Name,
-      artist: track.AlbumArtist || (track.Artists && track.Artists[0]) || '',
-      album:  track.Album || '',
-    } : null,
-  }
-}
-
-window.cascade.remote.onGetState(() => {
-  window.cascade.remote.pushState(remoteStatePayload())
-})
-
-window.cascade.remote.onSeek((pos) => {
-  if (audio.duration && pos >= 0) audio.currentTime = pos
-})
-
-window.cascade.remote.onVolume((vol) => {
-  const v = Math.max(0, Math.min(1, vol))
-  audio.volume = v
-  volume = v
-  const slider = document.getElementById('volume-slider')
-  if (slider) slider.value = v
-})
-
 // Keep OS media session state in sync with playback
 audio.addEventListener('play',  () => {
   if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
   window.cascade.touchbarUpdate({ playing: true })
   window.cascade.nowPlayingUpdate({ isPlaying: true })
-  window.cascade.remote.pushState(remoteStatePayload())
 })
 audio.addEventListener('pause', () => {
   if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
   window.cascade.touchbarUpdate({ playing: false })
   window.cascade.nowPlayingUpdate({ isPlaying: false })
-  window.cascade.remote.pushState(remoteStatePayload())
 })
 
 // ── Settings ──────────────────────────────────────────────────────────────────
@@ -1735,7 +1729,7 @@ async function init() {
     try {
       await connect(serverUrl, token, userId)
     } catch (e) {
-      // Token stale — silently re-auth with stored credentials before giving up
+      // Token stale - silently re-auth with stored credentials before giving up
       if (serverUrl && username && password) {
         try {
           const auth = await jfAuth(serverUrl, username, password)
@@ -1768,7 +1762,7 @@ let _driftParams = [] // randomized per-blob drift parameters, set on each color
 function randomizeDrift() {
   const r = () => Math.random()
   _driftParams = [0, 1, 2].map(() => ({
-    // Two independent sin/cos pairs per axis — gives Lissajous-style organic motion
+    // Two independent sin/cos pairs per axis - gives Lissajous-style organic motion
     xF1: 0.11 + r() * 0.13,  xP1: r() * Math.PI * 2,  xA1: 10 + r() * 10,
     xF2: 0.04 + r() * 0.09,  xP2: r() * Math.PI * 2,  xA2: 3  + r() * 6,
     yF1: 0.10 + r() * 0.13,  yP1: r() * Math.PI * 2,  yA1: 10 + r() * 10,
@@ -1798,9 +1792,9 @@ function startBeatLoop() {
   function frame(ts) {
     _beatRafId = requestAnimationFrame(frame)
 
-    // ── Blob drift — organic slow movement using randomized layered sin/cos ──
+    // ── Blob drift - organic slow movement using randomized layered sin/cos ──
     // The drift is slow (periods of tens of seconds), so rebuilding this gradient
-    // string at the full 60fps is wasted work — throttle to ~15fps, which is
+    // string at the full 60fps is wasted work - throttle to ~15fps, which is
     // visually indistinguishable for motion this gradual.
     if (ts - _lastBlobFrameTs < 66) return
     _lastBlobFrameTs = ts
@@ -1837,9 +1831,7 @@ function openOverlay() {
   if (overlayLyricsOpen) renderOverlayLyrics()
   document.getElementById('ov-vol-fill').style.width = `${audio.volume * 100}%`
 
-  console.log('[art] openOverlay — themeAlbumArt:', themeAlbumArt, '_blobColors:', _blobColors.length, 'item:', queue[queueIndex]?.Name)
-
-  // Apply art theme every time the overlay opens — derive the URL from the
+  // Apply art theme every time the overlay opens - derive the URL from the
   // current queue item directly so we never depend on _currentBgArtUrl being set.
   // If _blobColors is already cached, apply them immediately (no flash), then
   // re-fetch in the background to refresh if the track changed.
@@ -1876,7 +1868,7 @@ function closeOverlay() {
   stopBeatLoop()
 }
 
-// Only the left NP section (art + info) opens the overlay — everything else is a deadzone
+// Only the left NP section (art + info) opens the overlay - everything else is a deadzone
 document.querySelector('.statusbar').addEventListener('click', (e) => {
   if (!e.target.closest('.np')) return
   overlayOpen ? closeOverlay() : openOverlay()
@@ -1885,7 +1877,7 @@ document.querySelector('.statusbar').addEventListener('click', (e) => {
 document.getElementById('np-overlay-close').addEventListener('click', closeOverlay)
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && overlayOpen) closeOverlay() })
 
-// Lyrics toggle — queue slides left out, lyrics slides right in (and vice versa)
+// Lyrics toggle - queue slides left out, lyrics slides right in (and vice versa)
 document.getElementById('ov-lyrics-toggle').addEventListener('click', () => {
   overlayLyricsOpen = !overlayLyricsOpen
   document.getElementById('ov-panel-lyrics').style.transform = overlayLyricsOpen ? 'translateX(0)' : 'translateX(100%)'
@@ -1912,7 +1904,7 @@ document.getElementById('ov-more-btn').addEventListener('click', (e) => {
     if (r.left < 8) ovDropdown.style.left = '8px'
     if (r.right > window.innerWidth - 8) ovDropdown.style.left = `${window.innerWidth - ovDropdown.offsetWidth - 8}px`
     if (r.top < 8) ovDropdown.style.top = `${btn.bottom + 8}px`
-    // Clamp bottom — if it still overflows, pin to bottom of screen
+    // Clamp bottom - if it still overflows, pin to bottom of screen
     const r2 = ovDropdown.getBoundingClientRect()
     if (r2.bottom > window.innerHeight - 8) ovDropdown.style.top = `${window.innerHeight - ovDropdown.offsetHeight - 8}px`
   }
@@ -1957,7 +1949,7 @@ document.getElementById('ov-repeat').addEventListener('click', () => {
 })
 document.getElementById('ov-like').addEventListener('click', toggleLike)
 
-// Overlay progress bar — drag to scrub
+// Overlay progress bar - drag to scrub
 ;(function() {
   const bar = document.getElementById('ov-prog-bar')
   const fill = document.getElementById('ov-prog-fill')
@@ -1979,7 +1971,7 @@ document.getElementById('ov-like').addEventListener('click', toggleLike)
   })
 })()
 
-// Overlay volume slider — drag to adjust
+// Overlay volume slider - drag to adjust
 ;(function() {
   const bar = document.getElementById('ov-vol-bar')
   const fill = document.getElementById('ov-vol-fill')
@@ -2026,7 +2018,7 @@ function syncOverlayState() {
   const item = queue[queueIndex]
   if (!item) return
 
-  // Art — prefer high-res (iTunes if available, else Jellyfin 600px)
+  // Art - prefer high-res (iTunes if available, else Jellyfin 600px)
   const art = _currentHighResArtUrl || artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
   const artEl = document.getElementById('ov-art')
   artEl.innerHTML = art ? `<img src="${art}" alt="" onerror="this.innerHTML='♪'">` : '♪'
@@ -2048,7 +2040,7 @@ function renderQueuePanel() {
   const panel     = document.getElementById('ov-panel-queue')
   if (!queue.length) { container.innerHTML = '<div class="empty-state" style="padding:40px 0">Queue is empty</div>'; return }
 
-  // Bind scroll listener once — shifts the render window as the user scrolls
+  // Bind scroll listener once - shifts the render window as the user scrolls
   if (!_queueScrollBound) {
     _queueScrollBound = true
     panel.addEventListener('scroll', () => {
@@ -2077,7 +2069,7 @@ function _drawQueueRows(container, scrollToCurrent) {
   const rows = queue.slice(_queueWinStart, winEnd).map((item, idx) => {
     const i     = _queueWinStart + idx
     const art   = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
-    const thumb = art ? `<img src="${art}" alt="" onerror="this.style.display='none'">` : '♪'
+    const thumb = art ? `<img src="${art}" alt="" loading="lazy" onerror="this.style.display='none'">` : '♪'
     const dur   = fmtTime((item.RunTimeTicks || 0) / 10000000)
     return `<div class="queue-row${i === queueIndex ? ' current' : ''}" data-qi="${i}" draggable="true">
       <div class="queue-row-drag" title="Drag to reorder">
@@ -2194,7 +2186,7 @@ async function renderOverlayLyrics() {
   _resetOverlayManualScroll()
 
   // Jump to a neutral position instantly, then let the spring glide in to the
-  // actual current line — no CSS-transition reflow trick needed since jumpTo()
+  // actual current line - no CSS-transition reflow trick needed since jumpTo()
   // bypasses the animation loop entirely.
   ovLyricsSpring.jumpTo(0)
   const nowSec0 = audio.currentTime + 0.225
@@ -2289,7 +2281,7 @@ document.getElementById('ov-translate-btn').addEventListener('click', async () =
 })
 
 // Lightweight critically-damped-ish spring for scroll position. Unlike a CSS
-// transition, it carries velocity across target changes — when a new line
+// transition, it carries velocity across target changes - when a new line
 // comes in before the previous move has settled (common in fast verses), it
 // keeps moving from its current speed toward the new target instead of
 // restarting from a standstill, which is what makes back-to-back line changes
@@ -2327,7 +2319,7 @@ function createSpring(onUpdate, stiffness = 210, damping = 26) {
       if (raf) { cancelAnimationFrame(raf); raf = null; lastTs = null }
       onUpdate(pos)
     },
-    setPos(p) {   // direct 1:1 tracking (manual drag) — no physics involved
+    setPos(p) {   // direct 1:1 tracking (manual drag) - no physics involved
       pos = p; vel = 0; target = p
       if (raf) { cancelAnimationFrame(raf); raf = null; lastTs = null }
       onUpdate(pos)
@@ -2369,7 +2361,7 @@ function updateOverlayLyricsActive(activeIdx, instant) {
 }
 
 // Centers the given line in the overlay lyrics panel. `instant` skips the
-// spring animation — used when snap-scrolling right as a karaoke line's last
+// spring animation - used when snap-scrolling right as a karaoke line's last
 // word finishes, so the jump isn't a glide disconnected from the vocal.
 function _scrollOverlayLyricsTo(idx, instant) {
   const body = document.getElementById('ov-lyrics-body')
@@ -2379,7 +2371,7 @@ function _scrollOverlayLyricsTo(idx, instant) {
   const panelMid = panel.clientHeight / 2
   const activeMid = el.offsetTop + el.offsetHeight / 2
   ovLyricsBaseY = panelMid - activeMid
-  // While the user is manually scrolling, leave the spring alone — it gets
+  // While the user is manually scrolling, leave the spring alone - it gets
   // redirected (base + their offset) from the wheel handler instead.
   if (ovLyricsUserScrolling) return
   if (instant) ovLyricsSpring.jumpTo(ovLyricsBaseY)
@@ -2387,7 +2379,7 @@ function _scrollOverlayLyricsTo(idx, instant) {
 }
 
 // lyricsData is sorted by Start time, and playback only moves forward except on
-// seeks — so resume scanning from the last known index instead of rescanning
+// seeks - so resume scanning from the last known index instead of rescanning
 // from 0 on every timeupdate tick (was O(n) per tick, now amortized O(1)).
 function _scanLyricsBaseIdx(nowSec, fromIdx) {
   let idx = fromIdx
@@ -2452,7 +2444,7 @@ document.getElementById('ov-panel-lyrics').addEventListener('wheel', (e) => {
 audio.addEventListener('timeupdate', () => {
   if (!overlayOpen || !overlayLyricsOpen || !lyricsData.length) return
   // Same lookahead as word-fill (_wordHighlightFrame) so the last word's fill
-  // animation and the line-promotion check complete in lockstep — no gap in
+  // animation and the line-promotion check complete in lockstep - no gap in
   // either direction (mid-fill cutoff if promotion is earlier, a visible
   // "stick" on the finished word if promotion is later).
   const nowSec = audio.currentTime + 0.225
@@ -2461,7 +2453,7 @@ audio.addEventListener('timeupdate', () => {
 
   // Karaoke lines: promote to the next line (position AND highlight together)
   // the instant the current line's last word finishes, instead of waiting for
-  // the next line's own start — otherwise the view snaps into place early but
+  // the next line's own start - otherwise the view snaps into place early but
   // sits dim/inactive for a beat, which reads as stuck.
   let activeIdx = baseIdx
   const words = lyricsData[baseIdx]?.Words
@@ -2496,7 +2488,7 @@ function showCtxMenu(x, y) {
   if (rect.bottom > window.innerHeight) ctxMenu.style.top = `${y - rect.height}px`
 }
 function hideCtxMenu() { ctxMenu.classList.remove('open') }
-// Close when clicking outside the menu — mousedown fires before click so it's reliable
+// Close when clicking outside the menu - mousedown fires before click so it's reliable
 document.addEventListener('mousedown', (e) => {
   if (!ctxMenu.contains(e.target)) hideCtxMenu()
 })
@@ -2578,7 +2570,7 @@ async function atpLoadPlaylists() {
             showToast(`Added to "${el.textContent}"`)
           }
         } catch (e) {
-          showToast('Failed to add — network error')
+          showToast('Failed to add - network error')
           console.error('Add to playlist failed', e)
         }
         document.getElementById('atp-modal').classList.add('hidden')
@@ -2666,13 +2658,13 @@ document.getElementById('ctx-media-info').addEventListener('click', async () => 
       ['Year', d.ProductionYear],
       ['Track', d.IndexNumber],
       ['Duration', fmtTime(ms / 1000)],
-      ['Bitrate', d.MediaStreams?.[0]?.BitRate ? `${Math.round(d.MediaStreams[0].BitRate / 1000)} kbps` : '—'],
-      ['Codec', d.MediaStreams?.[0]?.Codec?.toUpperCase() || '—'],
-      ['Container', d.Container?.toUpperCase() || '—'],
-      ['Sample rate', d.MediaStreams?.[0]?.SampleRate ? `${d.MediaStreams[0].SampleRate} Hz` : '—'],
+      ['Bitrate', d.MediaStreams?.[0]?.BitRate ? `${Math.round(d.MediaStreams[0].BitRate / 1000)} kbps` : '-'],
+      ['Codec', d.MediaStreams?.[0]?.Codec?.toUpperCase() || '-'],
+      ['Container', d.Container?.toUpperCase() || '-'],
+      ['Sample rate', d.MediaStreams?.[0]?.SampleRate ? `${d.MediaStreams[0].SampleRate} Hz` : '-'],
       ['Channels', d.MediaStreams?.[0]?.Channels],
-      ['Size', d.Size ? `${(d.Size / 1048576).toFixed(1)} MB` : '—'],
-      ['Added', d.DateCreated ? new Date(d.DateCreated).toLocaleDateString() : '—'],
+      ['Size', d.Size ? `${(d.Size / 1048576).toFixed(1)} MB` : '-'],
+      ['Added', d.DateCreated ? new Date(d.DateCreated).toLocaleDateString() : '-'],
       ['Played', d.UserData?.PlayCount ? `${d.UserData.PlayCount}×` : 'Never'],
     ]
     grid.innerHTML = rows.filter(([,v]) => v).map(([k,v]) =>
@@ -2693,7 +2685,7 @@ document.getElementById('ctx-refresh-meta').addEventListener('click', async () =
   } catch {}
 })
 
-// Edit metadata / images / lyrics — open Jellyfin web UI
+// Edit metadata / images / lyrics - open Jellyfin web UI
 document.getElementById('ctx-edit-meta').addEventListener('click', () => {
   const item = queue[queueIndex]
   if (item) window.cascade.shell.openExternal(`${jf.url}/web/index.html#!/details?id=${item.Id}&serverId=${item.ServerId || ''}`)
@@ -2707,10 +2699,15 @@ document.getElementById('ctx-edit-lyrics').addEventListener('click', () => {
   if (item) window.cascade.shell.openExternal(`${jf.url}/web/index.html#!/details?id=${item.Id}`)
 })
 
-// View album — navigate to albums view (future: filter by album)
-document.getElementById('ctx-view-album').addEventListener('click', () => showView('albums'))
+// View album - navigate to the album's detail page
+document.getElementById('ctx-view-album').addEventListener('click', () => {
+  const item = queue[queueIndex]
+  if (!item?.AlbumId) return
+  showView('albums')
+  openAlbum(item.AlbumId)
+})
 
-// View album artist — navigate to artists view
+// View album artist - navigate to artists view
 document.getElementById('ctx-view-artist').addEventListener('click', () => showView('artists'))
 
 // View lyrics
@@ -2738,14 +2735,14 @@ let lyricsSource        = null   // source that was actually used: 'Kugou' | 'LR
 let lyricsForcedSource  = 'auto' // 'auto' | 'Kugou' | 'LRCLIB' | 'Jellyfin' | 'cascade-karaoke' | 'cascade-synced'
 let serverOnlyMode    = false  // fetch exclusively from Cascade plugin when true
 
-// Valid lyrics source keys — any stored value not in this set is stale and gets reset
+// Valid lyrics source keys - any stored value not in this set is stale and gets reset
 const VALID_LYRICS_SOURCES = new Set(['auto', 'Kugou', 'LRCLIB', 'Jellyfin', 'cascade-karaoke', 'cascade-synced'])
 
 // Load persisted preferences immediately
 ;(async () => {
   const stored = (await window.cascade.store.get('lyricsForcedSource')) || 'auto'
   if (!VALID_LYRICS_SOURCES.has(stored)) {
-    console.warn(`[Lyrics] Stale lyricsForcedSource "${stored}" — resetting to auto`)
+    console.warn(`[Lyrics] Stale lyricsForcedSource "${stored}" - resetting to auto`)
     await window.cascade.store.set('lyricsForcedSource', 'auto')
     lyricsForcedSource = 'auto'
   } else {
@@ -2790,7 +2787,7 @@ function _showLyricsFetchToast(result) {
   } else {
     // All tried sources failed (no result)
     const tried_names = Object.entries(tried).filter(([, v]) => v === 'fail').map(([k]) => k)
-    if (tried_names.length) showToast(`No lyrics — ${tried_names.join(', ')} all failed`, 3500)
+    if (tried_names.length) showToast(`No lyrics - ${tried_names.join(', ')} all failed`, 3500)
   }
 }
 
@@ -2823,7 +2820,7 @@ function _openSourceDropdown(nearEl) {
       const src    = el.dataset.source
       el.classList.toggle('active', src === cur)
 
-      // Status badge — remove old one first
+      // Status badge - remove old one first
       el.querySelector('.lsd-status')?.remove()
       const status = _lastFetchStatus[src]  // 'ok'|'fail'|'skip'|null
       if (status && src !== 'auto') {
@@ -2928,7 +2925,7 @@ function _wordHighlightFrame() {
   _wordRafId = requestAnimationFrame(_wordHighlightFrame)
   const nowTicks = (audio.currentTime + 0.225) * 10_000_000
 
-  // Side panel — CSS scoping (.lyrics-line.active .lyric-word) handles inactive lines.
+  // Side panel - CSS scoping (.lyrics-line.active .lyric-word) handles inactive lines.
   // Guard on the view actually being visible: the panel stays mounted (just hidden via
   // CSS) when the user navigates elsewhere, so without this the loop would keep querying
   // and restyling word spans at 60fps for the entire track even off-screen.
@@ -2945,7 +2942,7 @@ function _wordHighlightFrame() {
       })
   }
 
-  // Overlay — same: CSS scoping handles inactive lines automatically
+  // Overlay - same: CSS scoping handles inactive lines automatically
   if (overlayOpen && overlayLyricsOpen) {
     const ovIdx = lastOverlayLyricsIdx
     if (lyricsData[ovIdx]?.Words) {
@@ -3008,7 +3005,7 @@ function parseLRC(text) {
       while ((wm = wordRe.exec(content)) !== null) {
         const wText = wm[3]
         if (!wText) continue
-        // Symbols/punctuation with no letters or digits — attach to previous word
+        // Symbols/punctuation with no letters or digits - attach to previous word
         const isSymbol = !/[\p{L}\p{N}]/u.test(wText)
         if (isSymbol && words.length > 0) {
           words[words.length - 1].Text = words[words.length - 1].Text.trimEnd() + wText.trimStart()
@@ -3109,7 +3106,7 @@ function _cachePut(id, result) {
   _lyricsCache.set(id, result)
 }
 
-// Main fetch: LRCLIB · Jellyfin — all fired in parallel,
+// Main fetch: LRCLIB · Jellyfin - all fired in parallel,
 // resolved in priority order. Respects lyricsForcedSource.
 // Returns { lines, source, tried } | { instrumental: true } | null.
 const _isAbort = e => e?.name === 'AbortError' || e?.name === 'TimeoutError'
@@ -3168,7 +3165,7 @@ async function fetchLyricsWaterfall(item) {
 
   const sources = [
     ['Kugou', async () => {
-      // Kugou KRC — word-level, no auth required. Main process handles decrypt.
+      // Kugou KRC - word-level, no auth required. Main process handles decrypt.
       const rawTitle  = item.Name || ''
       const rawArtist = item.AlbumArtist || item.Artists?.[0] || ''
       const krcText   = await window.cascade.kugouGetLyrics({
@@ -3321,7 +3318,7 @@ async function detectAndShowTranslateBar() {
       document.getElementById('lyrics-translate-bar').classList.add('visible')
     }
   } catch {
-    // Detection failed silently — leave bar hidden
+    // Detection failed silently - leave bar hidden
   }
 }
 
@@ -3342,7 +3339,7 @@ function renderLyrics(showTranslation = false) {
     return `<div class="lyrics-line${hasTimestamp ? ' seekable' : ''}" data-idx="${i}"${hasTimestamp ? ` data-start="${line.Start}"` : ''}>${content}</div>${trans}`
   }).join('')
 
-  // Wrap in a translateY-driven inner div — position is spring-animated in JS
+  // Wrap in a translateY-driven inner div - position is spring-animated in JS
   // (see sideLyricsSpring), not CSS transitions, so no transition property here.
   body.innerHTML = `<div id="lyrics-inner" style="will-change:transform;padding-bottom:50%">${lines}</div>`
   sideLyricsSpring.jumpTo(0)  // fresh element, don't carry over the previous track's position
@@ -3371,7 +3368,7 @@ let lyricsScrollTimer = null
 audio.addEventListener('timeupdate', () => {
   if (!lyricsData.length) return
   // Same lookahead as word-fill (_wordHighlightFrame) so the last word's fill
-  // animation and the line-promotion check complete in lockstep — no gap in
+  // animation and the line-promotion check complete in lockstep - no gap in
   // either direction (mid-fill cutoff if promotion is earlier, a visible
   // "stick" on the finished word if promotion is later).
   const nowSec = audio.currentTime + 0.225
@@ -3380,7 +3377,7 @@ audio.addEventListener('timeupdate', () => {
 
   // For karaoke lines, promote to the next line (highlight AND scroll together)
   // the instant its last word finishes, instead of waiting for the next line's
-  // own start — otherwise the view snaps into place early but sits dim/inactive
+  // own start - otherwise the view snaps into place early but sits dim/inactive
   // for a beat, which reads as stuck.
   let activeIdx = baseIdx
   const words = lyricsData[baseIdx]?.Words
@@ -3489,7 +3486,7 @@ async function initDiscordRpc() {
   discordEnabled = enabled === 'true'
   if (discordEnabled) window.cascade.discord.connect(clientId)
 
-  // Single listener — updates dot + label; tracks state for when settings view opens later
+  // Single listener - updates dot + label; tracks state for when settings view opens later
   window.cascade.discord.onStatus((connected) => {
     _rpcConnected = connected
     const dot   = document.getElementById('discord-rpc-dot')
@@ -3553,19 +3550,9 @@ async function runSearch(query) {
       html += `<div class="search-section">
         <div class="search-section-title">Songs</div>
         <div class="track-list">
-          <div id="search-song-rows">${songs.Items.map((item, i) => {
-            const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
-            return `<div class="track-row" data-search-song="${i}" data-id="${item.Id}">
-              <div class="track-num">${i + 1}</div>
-              ${trackThumbHtml(art)}
-              <div style="min-width:0">
-                <div class="track-title">${esc(item.Name)}</div>
-                <div class="track-artist">${esc(item.AlbumArtist || item.Artists?.[0] || '')}</div>
-              </div>
-              <div class="track-album-name">${esc(item.Album || '')}</div>
-              <div class="track-dur">${fmtTime((item.RunTimeTicks || 0) / 10000000)}</div>
-            </div>`
-          }).join('')}</div>
+          <div id="search-song-rows">${songs.Items.map((item, i) =>
+            trackRowHtml(item, i, { idxAttr: 'data-search-song' })
+          ).join('')}</div>
         </div>
       </div>`
     }
@@ -3573,30 +3560,16 @@ async function runSearch(query) {
     if (hasAlbums) {
       html += `<div class="search-section">
         <div class="search-section-title">Albums</div>
-        <div class="album-grid">${albums.Items.map((item, i) => {
-          const art = artUrl(item.Id, item.ImageTags?.Primary)
-          const img = art ? `<img src="${art}" alt="" onerror="this.style.display='none'">` : '♪'
-          return `<div class="album-card" data-search-album="${item.Id}">
-            <div class="album-art">${img}</div>
-            <div class="album-body">
-              <div class="album-name">${esc(item.Name)}</div>
-              <div class="album-artist">${esc(item.AlbumArtist || '')}</div>
-            </div>
-          </div>`
-        }).join('')}</div>
+        <div class="album-grid">${albums.Items.map(item => albumCard(item, { idAttr: 'data-search-album' })).join('')}</div>
       </div>`
     }
 
     if (hasArtists) {
       html += `<div class="search-section">
         <div class="search-section-title">Artists</div>
-        <div class="artist-grid">${artists.Items.map(item => {
-          const art = artistArtUrl(item.Id)
-          return `<div class="artist-card" data-search-artist="${item.Id}">
-            <div class="artist-avatar"><img src="${art}" alt="" onerror="this.style.display='none'"></div>
-            <div class="artist-name">${esc(item.Name)}</div>
-          </div>`
-        }).join('')}</div>
+        <div class="artist-grid">${artists.Items.map(item =>
+          artistCardHtml(item, { idAttr: 'data-search-artist' })
+        ).join('')}</div>
       </div>`
     }
 
@@ -3612,10 +3585,10 @@ async function runSearch(query) {
 
     // Wire up album cards
     results.querySelectorAll('[data-search-album]').forEach(el => {
-      el.addEventListener('click', () => playAlbum(el.dataset.searchAlbum))
+      el.addEventListener('click', () => { showView('albums'); openAlbum(el.dataset.searchAlbum) })
     })
 
-    // Wire up artist cards — open artist detail view
+    // Wire up artist cards - open artist detail view
     results.querySelectorAll('[data-search-artist]').forEach(el => {
       el.addEventListener('click', () => {
         showView('artists')
@@ -3738,7 +3711,7 @@ function extractVibrantColor(img) {
     ctx.drawImage(img, 0, 0, 80, 80)
     const data = ctx.getImageData(0, 0, 80, 80).data
 
-    // 36 hue buckets of 10° each — track count, rgb sum, and saturation sum
+    // 36 hue buckets of 10° each - track count, rgb sum, and saturation sum
     const buckets = Array.from({ length: 36 }, () => ({ count: 0, r: 0, g: 0, b: 0, satSum: 0 }))
 
     for (let i = 0; i < data.length; i += 4) {
@@ -3763,7 +3736,7 @@ function extractVibrantColor(img) {
       bkt.satSum += s
     }
 
-    // Score = avgSat² × √count  — rewards high vibrancy; coverage is a tiebreaker, not the winner
+    // Score = avgSat² × √count  - rewards high vibrancy; coverage is a tiebreaker, not the winner
     let best = null, bestScore = 0
     for (const bkt of buckets) {
       if (bkt.count < 3) continue  // ignore singleton noise
@@ -3772,15 +3745,7 @@ function extractVibrantColor(img) {
       if (score > bestScore) { bestScore = score; best = bkt }
     }
 
-    // Log every bucket that has pixels so we can see what the image actually contains
-    const bucketDebug = buckets.map((bkt, i) => {
-      if (!bkt.count) return null
-      return `h${i*10}°: count=${bkt.count} avgSat=${(bkt.satSum/bkt.count).toFixed(2)}`
-    }).filter(Boolean)
-    console.log('[color] buckets:', bucketDebug.join(' | '))
-    console.log('[color] winner:', best ? `h${Math.round(best.r/best.count)},${Math.round(best.g/best.count)},${Math.round(best.b/best.count)} score=${bestScore.toFixed(3)}` : 'none')
-
-    // Require meaningful saturation — low avgSat means JPEG noise, not a real colour.
+    // Require meaningful saturation - low avgSat means JPEG noise, not a real colour.
     // B&W albums max out at ~0.23; real colours are ≥0.35; safe cutoff is 0.28.
     if (!best || (best.satSum / best.count) < 0.28) return null
 
@@ -3817,7 +3782,7 @@ function extractTopColors(img, n = 3) {
       const l = (max + min) / 2
       if (l < 0.04 || l > 0.96) continue       // skip only true-black / true-white
       const s = max === min ? 0 : (max - min) / (1 - Math.abs(2 * l - 1))
-      if (s < 0.05) continue                    // skip near-gray (looser — catches dark purples etc)
+      if (s < 0.05) continue                    // skip near-gray (looser - catches dark purples etc)
 
       const d = max - min
       let h = 0
@@ -3829,7 +3794,7 @@ function extractTopColors(img, n = 3) {
       sums[bi].r += data[i]; sums[bi].g += data[i+1]; sums[bi].b += data[i+2]
     }
 
-    // Rank buckets by count × average saturation — vivid colors beat large dull areas
+    // Rank buckets by count × average saturation - vivid colors beat large dull areas
     const ranked = counts
       .map((c, i) => {
         if (!c) return { score: 0, c, i, hue: i * DEG }
@@ -3884,7 +3849,7 @@ function extractTopColors(img, n = 3) {
 // Build a Cider-style multi-blob gradient background from an array of colors.
 // Colors are placed at screen edges so the center stays dark and readable.
 function buildBlobBackground(colors) {
-  // Edge placements — main colors at opposite corners, third as accent
+  // Edge placements - main colors at opposite corners, third as accent
   const slots = [
     { x: '80%', y: '15%', w: '75%', h: '75%', a: 0.88 },  // top-right
     { x: '15%', y: '85%', w: '75%', h: '75%', a: 0.80 },  // bottom-left
@@ -3894,17 +3859,15 @@ function buildBlobBackground(colors) {
     const { x, y, w, h, a } = slots[i] || { x: '50%', y: '50%', w: '60%', h: '60%', a: 0.5 }
     return `radial-gradient(ellipse ${w} ${h} at ${x} ${y}, rgba(${c.r},${c.g},${c.b},${a}) 0%, transparent 100%)`
   }).join(', ')
-  // Note: dark base (#0d0d0f) is set as background-color separately — plain hex is invalid in background-image
+  // Note: dark base (#0d0d0f) is set as background-color separately - plain hex is invalid in background-image
 }
 
 function applyAlbumArtTheme(imgEl) {
-  console.log('[art] applyAlbumArtTheme — themeAlbumArt:', themeAlbumArt, 'imgEl:', !!imgEl)
   if (!themeAlbumArt || !imgEl) return
   const col = extractVibrantColor(imgEl)
-  console.log('[art] extractVibrantColor:', col)
 
   if (!col) {
-    // B&W / neutral art — reset gradient to dark neutral so the previous track's
+    // B&W / neutral art - reset gradient to dark neutral so the previous track's
     // colour doesn't bleed through, and use gray blobs on the overlay
     applyGradient('#505050', '#202020')
     _lastAlbumColors = null
@@ -3917,7 +3880,7 @@ function applyAlbumArtTheme(imgEl) {
     return
   }
 
-  // Gradient accent — normalise to a vivid hue so muted album colours still produce
+  // Gradient accent - normalise to a vivid hue so muted album colours still produce
   // distinct, saturated gradients across the full spectrum.
   const _nr = col.r/255, _ng = col.g/255, _nb = col.b/255
   const _mx = Math.max(_nr,_ng,_nb), _mn = Math.min(_nr,_ng,_nb), _d = _mx - _mn
@@ -3946,14 +3909,14 @@ function applyAlbumArtTheme(imgEl) {
   // Fallback: if the cover is too dark/desaturated for bucket extraction,
   // synthesize a palette from the single dominant color we already have
   if (_blobColors.length === 0) {
-    // Derive blob palette from the single dominant col — force to L=0.50 S=0.70
+    // Derive blob palette from the single dominant col - force to L=0.50 S=0.70
     const nr = col.r/255, ng = col.g/255, nb = col.b/255
     const cmax = Math.max(nr,ng,nb), cmin = Math.min(nr,ng,nb), d = cmax - cmin
     // If the image is essentially black & white / neutral, there's no real hue to derive.
-    // d < 0.12 means near-gray — normalizing it would default h2=0 → vivid red, which is wrong.
+    // d < 0.12 means near-gray - normalizing it would default h2=0 → vivid red, which is wrong.
     // In this case skip the art theme entirely rather than inventing a fake color.
     if (d < 0.12) {
-      // B&W / neutral art — use monochrome gray blobs instead of inventing a fake hue
+      // B&W / neutral art - use monochrome gray blobs instead of inventing a fake hue
       const lum = Math.round(((cmax + cmin) / 2) * 255)
       const gHi = Math.min(255, Math.round(lum * 1.2))
       const gLo = Math.max(0,   Math.round(lum * 0.6))
@@ -3981,15 +3944,12 @@ function applyAlbumArtTheme(imgEl) {
   }
 
   randomizeDrift()
-  console.log('[art] _blobColors:', _blobColors.length, _blobColors)
-  // Set gradient directly on the overlay — no z-index/clipping issues
+  // Set gradient directly on the overlay - no z-index/clipping issues
   const overlay = document.getElementById('np-overlay')
   const bg = buildBlobBackground(_blobColors)
-  console.log('[art] setting overlay background, first 120 chars:', bg.slice(0,120))
   overlay.style.backgroundColor = '#0d0d0f'
   overlay.style.backgroundImage = bg
   overlay.classList.add('art-theme')
-  console.log('[art] art-theme class added')
 }
 
 function clearAlbumArtTheme() {

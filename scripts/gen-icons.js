@@ -40,10 +40,10 @@ async function run() {
     fs.rmSync(icnsDir, { recursive: true })
     console.log('  icon.icns')
   } else {
-    console.log('  icon.icns — skipped (run on macOS to generate)')
+    console.log('  icon.icns - skipped (run on macOS to generate)')
   }
 
-  // icon.ico (Windows) — embed multiple sizes using sharp + manual ICO construction
+  // icon.ico (Windows) - embed multiple sizes using sharp + manual ICO construction
   // Simple approach: use the 256px png as a single-image ICO
   // (electron-builder accepts a png renamed .ico for basic builds)
   const png256 = fs.readFileSync(path.join(OUT, 'icon-256.png'))
