@@ -903,6 +903,12 @@ document.getElementById('pl-back-btn').addEventListener('click', () => {
   document.getElementById('playlist-index').style.display = ''
 })
 
+document.getElementById('btn-play-playlist').addEventListener('click', () => {
+  if (currentPlaylistItems.length) playItems(currentPlaylistItems, 0)
+})
+
+document.getElementById('btn-shuffle-playlist').addEventListener('click', () => shuffleAndPlay(currentPlaylistItems))
+
 // ── Universal track context menu ───────────────────────────────────────────────
 
 const trackCtxMenu = document.getElementById('track-ctx-menu')
@@ -1010,22 +1016,45 @@ document.getElementById('tctx-copy-url').addEventListener('click', () => {
   navigator.clipboard.writeText(url).then(() => showToast('Stream URL copied'))
 })
 
+// Shared by every "view album" entry point (track context menus, now-playing title click,
+// the now-playing 3-dot menu). Minimizes the overlay first if it's open, since navigating
+// to a different tab behind an open overlay would otherwise be invisible until closed.
+function openAlbumFromTrack(item) {
+  if (!item?.AlbumId) return
+  if (overlayOpen) closeOverlay()
+  showView('albums')
+  openAlbum(item.AlbumId)
+}
+
 document.getElementById('tctx-view-album').addEventListener('click', () => {
   if (!_ctxItem?.AlbumId) return
   closeTrackCtxMenu()
-  showView('albums')
-  openAlbum(_ctxItem.AlbumId)
+  openAlbumFromTrack(_ctxItem)
 })
+
+// Shared by every "view artist" entry point (track context menus, now-playing artist click,
+// the now-playing 3-dot menu). Minimizes the overlay first if it's open, same reasoning as
+// openAlbumFromTrack above.
+async function openArtistFromTrack(item) {
+  const artistName = item?.AlbumArtist || item?.Artists?.[0]
+  if (!artistName) return
+  if (overlayOpen) closeOverlay()
+  showView('artists')
+  // showView() kicks off loadArtists() but doesn't wait for it - on a first-ever visit
+  // to the Artists tab this session, the grid isn't populated yet, so the card below
+  // wouldn't exist. Load-and-wait ourselves whenever it isn't already there.
+  let artistCard = document.querySelector(`.artist-card[data-name="${CSS.escape(artistName)}"]`)
+  if (!artistCard) {
+    await loadArtists()
+    artistCard = document.querySelector(`.artist-card[data-name="${CSS.escape(artistName)}"]`)
+  }
+  if (artistCard) artistCard.click()
+}
 
 document.getElementById('tctx-view-artist').addEventListener('click', () => {
   if (!_ctxItem) return
   closeTrackCtxMenu()
-  const artistName = _ctxItem.AlbumArtist || _ctxItem.Artists?.[0]
-  if (!artistName) return
-  showView('artists')
-  // Find artist by name in loaded list, or search
-  const artistCard = document.querySelector(`.artist-card[data-name="${CSS.escape(artistName)}"]`)
-  if (artistCard) artistCard.click()
+  openArtistFromTrack(_ctxItem)
 })
 
 document.getElementById('tctx-refresh-meta').addEventListener('click', async () => {
@@ -1431,6 +1460,24 @@ likeBtn.addEventListener('click', toggleLike)
 
 // ── Shuffle All ───────────────────────────────────────────────────────────────
 
+// Fisher-Yates shuffle a copy of items, then play it. Shared by every "Shuffle" button.
+function shuffleAndPlay(items) {
+  if (!items.length) return
+  const shuffled = [...items]
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+  }
+
+  // Store originals so toggling shuffle off restores order
+  _unshuffledQueue = items
+  shuffle = true
+  document.getElementById('btn-shuffle').classList.add('active')
+  document.getElementById('ov-shuffle').classList.add('active')
+
+  playItems(shuffled, 0)
+}
+
 async function shuffleAllSongs() {
   // Load songs if not yet fetched
   if (!allSongs.length) {
@@ -1444,22 +1491,7 @@ async function shuffleAllSongs() {
     // If songs view is open, render the rows too
     if (document.getElementById('songs-rows').dataset.loaded) renderSongRows()
   }
-  if (!allSongs.length) return
-
-  // Fisher-Yates shuffle a copy
-  const shuffled = [...allSongs]
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
-  }
-
-  // Store originals so toggling shuffle off restores order
-  _unshuffledQueue = allSongs
-  shuffle = true
-  document.getElementById('btn-shuffle').classList.add('active')
-  document.getElementById('ov-shuffle').classList.add('active')
-
-  playItems(shuffled, 0)
+  shuffleAndPlay(allSongs)
 }
 
 document.getElementById('btn-shuffle-songs').addEventListener('click', shuffleAllSongs)
@@ -1886,56 +1918,27 @@ document.getElementById('ov-lyrics-toggle').addEventListener('click', () => {
   if (overlayLyricsOpen) renderOverlayLyrics()
 })
 
-// Overlay controls mirror the main controls
-// Overlay more-options inline dropdown
-const ovDropdown = document.getElementById('ov-dropdown')
-
+// Overlay "more options" opens the exact same context menu as right-clicking
+// the album art in the bottom bar, not a separate hand-maintained copy.
 document.getElementById('ov-more-btn').addEventListener('click', (e) => {
   e.stopPropagation()
-  const isOpen = ovDropdown.classList.contains('open')
-  ovDropdown.classList.toggle('open', !isOpen)
-  if (!isOpen) {
-    const btn = e.currentTarget.getBoundingClientRect()
-    // Position above the button, centered
-    ovDropdown.style.left = `${btn.left + btn.width / 2 - ovDropdown.offsetWidth / 2}px`
-    ovDropdown.style.top = `${btn.top - ovDropdown.offsetHeight - 8}px`
-    // Clamp all four edges
-    const r = ovDropdown.getBoundingClientRect()
-    if (r.left < 8) ovDropdown.style.left = '8px'
-    if (r.right > window.innerWidth - 8) ovDropdown.style.left = `${window.innerWidth - ovDropdown.offsetWidth - 8}px`
-    if (r.top < 8) ovDropdown.style.top = `${btn.bottom + 8}px`
-    // Clamp bottom - if it still overflows, pin to bottom of screen
-    const r2 = ovDropdown.getBoundingClientRect()
-    if (r2.bottom > window.innerHeight - 8) ovDropdown.style.top = `${window.innerHeight - ovDropdown.offsetHeight - 8}px`
-  }
+  if (!queue[queueIndex]) return
+  const menu = document.getElementById('ctx-menu')
+  const btn = e.currentTarget.getBoundingClientRect()
+  showCtxMenu(btn.left, btn.top)
+  // showCtxMenu anchors top-left at (x,y) - reposition centered above the button
+  const r = menu.getBoundingClientRect()
+  let left = btn.left + btn.width / 2 - r.width / 2
+  let top = btn.top - r.height - 8
+  left = Math.max(8, Math.min(left, window.innerWidth - r.width - 8))
+  top = Math.max(8, top)
+  menu.style.left = `${left}px`
+  menu.style.top = `${top}px`
 })
 
-const ctxMap = {
-  'stop':        'ctx-stop',        'clear':       'ctx-clear-queue',
-  'mix':         'ctx-instant-mix', 'playlist':    'ctx-add-playlist',
-  'download':    'ctx-download',    'copy':        'ctx-copy-url',
-  'info':        'ctx-media-info',  'refresh':     'ctx-refresh-meta',
-  'edit-meta':   'ctx-edit-meta',   'edit-img':    'ctx-edit-images',
-  'edit-lyrics': 'ctx-edit-lyrics', 'view-album':  'ctx-view-album',
-  'view-artist': 'ctx-view-artist', 'view-lyrics': 'ctx-view-lyrics',
-  'delete':      'ctx-delete',
-}
+document.getElementById('ov-artist').addEventListener('click', () => openArtistFromTrack(queue[queueIndex]))
 
-ovDropdown.querySelectorAll('.ov-dd-item').forEach(btn => {
-  btn.addEventListener('click', (e) => {
-    e.stopPropagation()
-    ovDropdown.classList.remove('open')
-    const ctxId = ctxMap[btn.dataset.action]
-    if (ctxId) document.getElementById(ctxId).click()
-  })
-})
-
-// Close dropdown when clicking outside
-document.addEventListener('mousedown', (e) => {
-  if (!ovDropdown.contains(e.target) && e.target.id !== 'ov-more-btn') {
-    ovDropdown.classList.remove('open')
-  }
-})
+document.getElementById('ov-track').addEventListener('click', () => openAlbumFromTrack(queue[queueIndex]))
 
 document.getElementById('ov-play').addEventListener('click', () => document.getElementById('btn-play').click())
 document.getElementById('ov-prev').addEventListener('click', () => document.getElementById('btn-prev').click())
@@ -2700,15 +2703,10 @@ document.getElementById('ctx-edit-lyrics').addEventListener('click', () => {
 })
 
 // View album - navigate to the album's detail page
-document.getElementById('ctx-view-album').addEventListener('click', () => {
-  const item = queue[queueIndex]
-  if (!item?.AlbumId) return
-  showView('albums')
-  openAlbum(item.AlbumId)
-})
+document.getElementById('ctx-view-album').addEventListener('click', () => openAlbumFromTrack(queue[queueIndex]))
 
-// View album artist - navigate to artists view
-document.getElementById('ctx-view-artist').addEventListener('click', () => showView('artists'))
+// View album artist - navigate to the artist's detail page
+document.getElementById('ctx-view-artist').addEventListener('click', () => openArtistFromTrack(queue[queueIndex]))
 
 // View lyrics
 document.getElementById('ctx-view-lyrics').addEventListener('click', () => showLyrics())
