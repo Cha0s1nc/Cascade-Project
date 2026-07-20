@@ -14,8 +14,7 @@
   },
   "dependencies": {
     "discord-rpc": "^4.0.1",
-    "electron-store": "^8.1.0",
-    "ws": "^8.17.1"
+    "electron-store": "^8.1.0"
   },
   "devDependencies": {
     "electron": "^29.0.0",
@@ -42,6 +41,8 @@
       "renderer.js",
       "updater.html",
       "updater-preload.js",
+      "lyrics-editor.html",
+      "lyrics-editor-preload.js",
       "package.json",
       "node_modules/**/*"
     ],

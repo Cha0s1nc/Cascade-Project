@@ -95,7 +95,9 @@
     .tl-head { display: grid; grid-template-columns: 28px 32px 1fr 160px 52px; gap: 8px; padding: 7px 12px; border-bottom: 1px solid var(--border); }
     .tl-head span { font-size: 10px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; }
     .tl-head span:last-child { text-align: right; }
-    .track-row { display: grid; grid-template-columns: 28px 32px 1fr 160px 52px; gap: 8px; padding: 6px 12px; align-items: center; cursor: pointer; border-bottom: 1px solid var(--border); transition: background 0.1s; }
+    .track-row { display: grid; grid-template-columns: 28px 32px 1fr 160px 52px; gap: 8px; padding: 6px 12px; align-items: center; cursor: pointer; border-bottom: 1px solid var(--border); transition: background 0.1s; height: 45px; box-sizing: border-box; }
+    #songs-rows { position: relative; }
+    #songs-rows .track-row:not(.skel-card) { position: absolute; left: 0; right: 0; }
     .track-row:last-child { border-bottom: none; }
     .track-row:hover { background: rgba(255,255,255,0.05); }
     .track-row.playing { background: rgba(110,79,246,0.1); }
@@ -114,9 +116,9 @@
     }
     .track-row:hover .track-thumb::after,
     .track-row.selected .track-thumb::after { opacity: 1; }
-    /* Hide play icon when this row is already playing — show EQ bars instead */
+    /* Hide play icon when this row is already playing - show EQ bars instead */
     .track-row.playing .track-thumb::after { opacity: 0 !important; }
-    /* EQ bars — now-playing animation */
+    /* EQ bars - now-playing animation */
     .track-eq { position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: center; gap: 2px; padding: 8px 6px 7px; background: rgba(0,0,0,0.5); border-radius: 4px; opacity: 0; pointer-events: none; transition: opacity 0.15s; }
     .track-row.playing .track-thumb .track-eq { opacity: 1; }
     .track-eq i { display: block; width: 3px; height: 14px; border-radius: 1px 1px 0 0; background: white; transform-origin: bottom; animation: eq-bar 0.7s ease-in-out infinite alternate; }
@@ -261,8 +263,10 @@
     .np-overlay-art { width: min(clamp(240px, 52vh, 520px), calc(100% - 32px)); aspect-ratio: 1; border-radius: 12px; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 72px; flex-shrink: 0; }
     .np-overlay-art img { width: 100%; height: 100%; object-fit: cover; }
     .np-overlay-info { text-align: center; width: 100%; }
-    .np-overlay-track { font-size: clamp(17px, 2.4vh, 26px); font-weight: 600; letter-spacing: -0.02em; color: var(--text); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .np-overlay-artist { font-size: clamp(13px, 1.7vh, 17px); color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .np-overlay-track { font-size: clamp(17px, 2.4vh, 26px); font-weight: 600; letter-spacing: -0.02em; color: var(--text); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+    .np-overlay-track:hover { text-decoration: underline; }
+    .np-overlay-artist { font-size: clamp(13px, 1.7vh, 17px); color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+    .np-overlay-artist:hover { color: var(--text); text-decoration: underline; }
     .np-overlay-controls { display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%; position: relative; }
     .ov-dropdown { position: fixed; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 4px; min-width: 210px; z-index: 400; display: none; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
     .ov-dropdown.open { display: block; }
@@ -271,6 +275,9 @@
     .ov-dd-item.danger { color: var(--red); }
     .ov-dd-item.danger:hover { background: rgba(255,69,58,0.12); }
     .ov-dd-sep { height: 1px; background: var(--border); margin: 4px 0; }
+    .ov-dd-item.active { color: var(--text); }
+    .dd-check { display: inline-block; width: 12px; flex-shrink: 0; color: var(--accent1, var(--accent)); }
+    .ov-dd-item.active .dd-check::before { content: '✓'; }
     .np-overlay-btns { display: flex; align-items: center; gap: 20px; }
     .np-ov-ctrl { background: none; border: none; color: var(--text3); cursor: pointer; padding: 0; display: flex; align-items: center; transition: color 0.12s; }
     .np-ov-ctrl:hover { color: var(--text); }
@@ -315,12 +322,13 @@
     .queue-row-remove:hover { color: var(--red); }
     .queue-row.dragging { opacity: 0.4; background: rgba(110,79,246,0.08); }
     .queue-row.drag-over { border-top: 2px solid var(--accent); }
-    /* Overlay lyrics — GPU-accelerated clock-scroll */
+    /* Overlay lyrics - GPU-accelerated clock-scroll */
     #ov-panel-lyrics { overflow: hidden; }
-    .ov-lyrics-scroll { display: flex; flex-direction: column; align-items: center; will-change: transform; transition: transform 0.28s cubic-bezier(0.32,0.72,0,1); }
-    .ov-lyric-line { text-align: center; font-size: clamp(18px, 2.2vw, 38px); font-weight: 700; color: var(--text3); padding: 10px 32px; line-height: 1.4; cursor: default; max-width: min(500px, 80%); transform: scale(0.65); transform-origin: center center; opacity: 0; will-change: transform, opacity; transition: transform 0.28s cubic-bezier(0.32,0.72,0,1), opacity 0.28s cubic-bezier(0.32,0.72,0,1), color 0.28s; }
+    .ov-lyrics-scroll { display: flex; flex-direction: column; align-items: center; will-change: transform; }
+    .ov-lyric-line { text-align: center; font-size: clamp(18px, 2.2vw, 38px); font-weight: 700; color: var(--text3); padding: 10px 32px; line-height: 1.4; cursor: default; max-width: min(500px, 80%); transform: scale(0.65); transform-origin: center center; opacity: 0; will-change: transform, opacity; transition: transform 0.55s cubic-bezier(0.16,1,0.3,1), opacity 0.55s cubic-bezier(0.16,1,0.3,1), color 0.4s; }
     .ov-lyric-line.seekable { cursor: pointer; }
     .ov-lyric-line.past { opacity: 0; transform: scale(0.65); pointer-events: none; }
+    .ov-lyric-line.near-3 { transform: scale(0.7); opacity: 0.14; }
     .ov-lyric-line.near-2 { transform: scale(0.78); opacity: 0.28; }
     .ov-lyric-line.near-1 { transform: scale(0.9); opacity: 0.5; color: var(--text2); }
     .ov-lyric-line.active { transform: scale(1.05); opacity: 1; color: white; filter: drop-shadow(0 0 18px rgba(255,255,255,0.25)); }
@@ -367,7 +375,7 @@
     .lyrics-body { flex: 1; overflow: hidden; padding: 16px 14px; }
     .lyrics-line { font-size: 13px; color: var(--text2); line-height: 1.8; padding: 2px 0; transition: color 0.2s, transform 0.18s ease, opacity 0.35s ease; opacity: 0.38; }
     .lyrics-line.active { color: var(--text); font-weight: 500; opacity: 1; }
-    .lyrics-line.active:has(.lyric-word) { transform: translateY(-4px); }
+    .lyrics-line.active:has(.lyric-word) { transform: translateY(-9px); }
     .lyrics-line.translated { color: var(--text3); font-size: 11px; margin-top: -4px; font-style: italic; }
     .lyrics-empty { font-size: 12px; color: var(--text3); text-align: center; padding: 40px 0; }
     .lyric-word { -webkit-text-fill-color: white; }
@@ -612,7 +620,18 @@
 
     /* ── States ── */
     .empty-state { display: flex; align-items: center; justify-content: center; color: var(--text3); font-size: 13px; padding: 40px 0; }
-    .loading-state { display: flex; align-items: center; justify-content: center; color: var(--text3); font-size: 12px; padding: 32px 0; }
+
+    /* ── Skeleton loaders ── */
+    .skel-card { pointer-events: none; }
+    .skel-card:hover { background: var(--surface) !important; }
+    .skel { position: relative; overflow: hidden; background: var(--surface2) !important; color: transparent !important; }
+    .skel::after {
+      content: ''; position: absolute; inset: 0; transform: translateX(-100%);
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
+      animation: skel-shimmer 1.4s ease-in-out infinite;
+    }
+    .skel-text { height: 10px; border-radius: 4px; background: var(--surface2); }
+    @keyframes skel-shimmer { 100% { transform: translateX(100%); } }
   </style>
 </head>
 <body>
@@ -745,28 +764,68 @@
           <button class="sect-more" onclick="showView('songs')">See all</button>
         </div>
         <div class="rp-grid" id="rp-grid">
-          <div class="loading-state" style="grid-column:1/3">Loading…</div>
+          <div class="rp-item skel-card"><div class="rp-art skel"></div><div style="min-width:0;flex:1"><div class="skel skel-text" style="width:85%"></div><div class="skel skel-text" style="width:55%;height:9px;margin-top:5px"></div></div></div>
+          <div class="rp-item skel-card"><div class="rp-art skel"></div><div style="min-width:0;flex:1"><div class="skel skel-text" style="width:85%"></div><div class="skel skel-text" style="width:55%;height:9px;margin-top:5px"></div></div></div>
+          <div class="rp-item skel-card"><div class="rp-art skel"></div><div style="min-width:0;flex:1"><div class="skel skel-text" style="width:85%"></div><div class="skel skel-text" style="width:55%;height:9px;margin-top:5px"></div></div></div>
+          <div class="rp-item skel-card"><div class="rp-art skel"></div><div style="min-width:0;flex:1"><div class="skel skel-text" style="width:85%"></div><div class="skel skel-text" style="width:55%;height:9px;margin-top:5px"></div></div></div>
         </div>
         <div class="sect-header">
           <span class="sect-title">Recently added</span>
           <button class="sect-more" onclick="showView('albums')">See all</button>
         </div>
         <div class="album-grid" id="home-recent-albums">
-          <div class="loading-state" style="grid-column:1/-1">Loading…</div>
+          <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+          <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+          <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+          <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
         </div>
       </div>
 
       <!-- Albums -->
       <div class="view" id="view-albums">
-        <div class="sect-header" style="margin-bottom:14px">
-          <span class="sect-title">All Albums</span>
-          <button class="shuffle-all-btn" id="btn-shuffle-albums">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
-            Shuffle All
-          </button>
+        <!-- Album grid -->
+        <div id="albums-index">
+          <div class="sect-header" style="margin-bottom:14px">
+            <span class="sect-title">All Albums</span>
+            <button class="shuffle-all-btn" id="btn-shuffle-albums">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
+              Shuffle All
+            </button>
+          </div>
+          <div class="album-grid" id="albums-grid">
+            <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+            <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+            <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+            <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+            <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+            <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+            <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+            <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+          </div>
         </div>
-        <div class="album-grid" id="albums-grid">
-          <div class="loading-state" style="grid-column:1/-1">Loading…</div>
+        <!-- Album detail -->
+        <div id="album-detail" style="display:none">
+          <button class="pl-back-btn" id="album-back-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            Back to Albums
+          </button>
+          <div class="pl-detail-header">
+            <div class="pl-detail-art" id="album-detail-art">♪</div>
+            <div>
+              <div class="pl-detail-name" id="album-detail-name"></div>
+              <div class="pl-detail-meta" id="album-detail-meta"></div>
+            </div>
+            <button class="shuffle-all-btn" id="btn-play-album" style="margin-left:auto">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              Play
+            </button>
+          </div>
+          <div class="track-list">
+            <div class="tl-head">
+              <span>#</span><span></span><span>Title</span><span>Album</span><span style="text-align:right">Time</span>
+            </div>
+            <div id="album-detail-rows"></div>
+          </div>
         </div>
       </div>
 
@@ -782,7 +841,14 @@
             </button>
           </div>
           <div class="artist-grid" id="artists-grid">
-            <div class="loading-state" style="grid-column:1/-1">Loading…</div>
+            <div class="artist-card skel-card"><div class="artist-avatar skel"></div><div class="skel skel-text" style="width:70%;margin:0 auto"></div></div>
+            <div class="artist-card skel-card"><div class="artist-avatar skel"></div><div class="skel skel-text" style="width:70%;margin:0 auto"></div></div>
+            <div class="artist-card skel-card"><div class="artist-avatar skel"></div><div class="skel skel-text" style="width:70%;margin:0 auto"></div></div>
+            <div class="artist-card skel-card"><div class="artist-avatar skel"></div><div class="skel skel-text" style="width:70%;margin:0 auto"></div></div>
+            <div class="artist-card skel-card"><div class="artist-avatar skel"></div><div class="skel skel-text" style="width:70%;margin:0 auto"></div></div>
+            <div class="artist-card skel-card"><div class="artist-avatar skel"></div><div class="skel skel-text" style="width:70%;margin:0 auto"></div></div>
+            <div class="artist-card skel-card"><div class="artist-avatar skel"></div><div class="skel skel-text" style="width:70%;margin:0 auto"></div></div>
+            <div class="artist-card skel-card"><div class="artist-avatar skel"></div><div class="skel skel-text" style="width:70%;margin:0 auto"></div></div>
           </div>
         </div>
         <!-- Artist detail -->
@@ -822,17 +888,30 @@
       <div class="view" id="view-songs">
         <div class="sect-header" style="margin-bottom:14px">
           <span class="sect-title">All Songs</span>
-          <button class="shuffle-all-btn" id="btn-shuffle-songs">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
-            Shuffle All
-          </button>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="shuffle-all-btn" id="btn-sort-songs">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/></svg>
+              <span id="songs-sort-label">Title</span>
+            </button>
+            <button class="shuffle-all-btn" id="btn-shuffle-songs">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
+              Shuffle All
+            </button>
+          </div>
         </div>
         <div class="track-list" id="songs-list">
           <div class="tl-head">
             <span>#</span><span></span><span>Title</span><span>Album</span><span style="text-align:right">Time</span>
           </div>
           <div id="songs-rows">
-            <div class="loading-state">Loading…</div>
+            <div class="track-row skel-card"><div class="skel skel-text" style="width:14px;height:11px;margin:0 auto"></div><div class="track-thumb skel"></div><div style="min-width:0"><div class="skel skel-text" style="width:60%"></div><div class="skel skel-text" style="width:35%;height:9px;margin-top:5px"></div></div><div class="skel skel-text" style="width:70%"></div><div class="skel skel-text" style="width:34px;height:9px;margin-left:auto"></div></div>
+            <div class="track-row skel-card"><div class="skel skel-text" style="width:14px;height:11px;margin:0 auto"></div><div class="track-thumb skel"></div><div style="min-width:0"><div class="skel skel-text" style="width:60%"></div><div class="skel skel-text" style="width:35%;height:9px;margin-top:5px"></div></div><div class="skel skel-text" style="width:70%"></div><div class="skel skel-text" style="width:34px;height:9px;margin-left:auto"></div></div>
+            <div class="track-row skel-card"><div class="skel skel-text" style="width:14px;height:11px;margin:0 auto"></div><div class="track-thumb skel"></div><div style="min-width:0"><div class="skel skel-text" style="width:60%"></div><div class="skel skel-text" style="width:35%;height:9px;margin-top:5px"></div></div><div class="skel skel-text" style="width:70%"></div><div class="skel skel-text" style="width:34px;height:9px;margin-left:auto"></div></div>
+            <div class="track-row skel-card"><div class="skel skel-text" style="width:14px;height:11px;margin:0 auto"></div><div class="track-thumb skel"></div><div style="min-width:0"><div class="skel skel-text" style="width:60%"></div><div class="skel skel-text" style="width:35%;height:9px;margin-top:5px"></div></div><div class="skel skel-text" style="width:70%"></div><div class="skel skel-text" style="width:34px;height:9px;margin-left:auto"></div></div>
+            <div class="track-row skel-card"><div class="skel skel-text" style="width:14px;height:11px;margin:0 auto"></div><div class="track-thumb skel"></div><div style="min-width:0"><div class="skel skel-text" style="width:60%"></div><div class="skel skel-text" style="width:35%;height:9px;margin-top:5px"></div></div><div class="skel skel-text" style="width:70%"></div><div class="skel skel-text" style="width:34px;height:9px;margin-left:auto"></div></div>
+            <div class="track-row skel-card"><div class="skel skel-text" style="width:14px;height:11px;margin:0 auto"></div><div class="track-thumb skel"></div><div style="min-width:0"><div class="skel skel-text" style="width:60%"></div><div class="skel skel-text" style="width:35%;height:9px;margin-top:5px"></div></div><div class="skel skel-text" style="width:70%"></div><div class="skel skel-text" style="width:34px;height:9px;margin-left:auto"></div></div>
+            <div class="track-row skel-card"><div class="skel skel-text" style="width:14px;height:11px;margin:0 auto"></div><div class="track-thumb skel"></div><div style="min-width:0"><div class="skel skel-text" style="width:60%"></div><div class="skel skel-text" style="width:35%;height:9px;margin-top:5px"></div></div><div class="skel skel-text" style="width:70%"></div><div class="skel skel-text" style="width:34px;height:9px;margin-left:auto"></div></div>
+            <div class="track-row skel-card"><div class="skel skel-text" style="width:14px;height:11px;margin:0 auto"></div><div class="track-thumb skel"></div><div style="min-width:0"><div class="skel skel-text" style="width:60%"></div><div class="skel skel-text" style="width:35%;height:9px;margin-top:5px"></div></div><div class="skel skel-text" style="width:70%"></div><div class="skel skel-text" style="width:34px;height:9px;margin-left:auto"></div></div>
           </div>
         </div>
       </div>
@@ -862,7 +941,12 @@
             <button id="playlists-refresh" title="Refresh playlists" style="background:none;border:none;color:var(--text3);cursor:pointer;padding:2px 4px;font-size:14px;line-height:1;border-radius:4px;transition:color 0.15s;" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--text3)'">↻</button>
           </div>
           <div class="playlist-grid" id="playlists-grid">
-            <div class="loading-state" style="grid-column:1/-1">Loading…</div>
+            <div class="playlist-card skel-card"><div class="playlist-art skel"></div><div class="playlist-body"><div class="skel skel-text" style="width:75%"></div><div class="skel skel-text" style="width:40%;height:9px;margin-top:6px"></div></div></div>
+            <div class="playlist-card skel-card"><div class="playlist-art skel"></div><div class="playlist-body"><div class="skel skel-text" style="width:75%"></div><div class="skel skel-text" style="width:40%;height:9px;margin-top:6px"></div></div></div>
+            <div class="playlist-card skel-card"><div class="playlist-art skel"></div><div class="playlist-body"><div class="skel skel-text" style="width:75%"></div><div class="skel skel-text" style="width:40%;height:9px;margin-top:6px"></div></div></div>
+            <div class="playlist-card skel-card"><div class="playlist-art skel"></div><div class="playlist-body"><div class="skel skel-text" style="width:75%"></div><div class="skel skel-text" style="width:40%;height:9px;margin-top:6px"></div></div></div>
+            <div class="playlist-card skel-card"><div class="playlist-art skel"></div><div class="playlist-body"><div class="skel skel-text" style="width:75%"></div><div class="skel skel-text" style="width:40%;height:9px;margin-top:6px"></div></div></div>
+            <div class="playlist-card skel-card"><div class="playlist-art skel"></div><div class="playlist-body"><div class="skel skel-text" style="width:75%"></div><div class="skel skel-text" style="width:40%;height:9px;margin-top:6px"></div></div></div>
           </div>
         </div>
         <!-- Playlist detail (shown when a playlist is opened) -->
@@ -876,6 +960,16 @@
             <div>
               <div class="pl-detail-name" id="pl-detail-name"></div>
               <div class="pl-detail-meta" id="pl-detail-meta"></div>
+            </div>
+            <div style="margin-left:auto;display:flex;gap:8px">
+              <button class="shuffle-all-btn" id="btn-shuffle-playlist">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
+                Shuffle
+              </button>
+              <button class="shuffle-all-btn" id="btn-play-playlist">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                Play
+              </button>
             </div>
           </div>
           <div class="track-list">
@@ -916,7 +1010,7 @@
                 <span class="setting-desc">Select one or more libraries to merge</span>
               </div>
               <div id="s-library-list" style="width:260px;display:flex;flex-direction:column;gap:6px;">
-                <span style="font-size:12px;color:var(--text3);">— connect to load libraries —</span>
+                <span style="font-size:12px;color:var(--text3);">- connect to load libraries -</span>
               </div>
             </div>
           </div>
@@ -1104,6 +1198,9 @@
           <button class="np-ov-ctrl" id="ov-lyrics-toggle" title="Lyrics">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           </button>
+          <button class="np-ov-ctrl" id="ov-sleep-timer" title="Sleep timer">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          </button>
         </div>
         <!-- Primary: prev · play · next -->
         <div class="np-overlay-btns" style="gap:24px;">
@@ -1137,7 +1234,10 @@
     <!-- Right: queue always visible, lyrics slides over -->
     <div class="np-overlay-right" style="position:relative;overflow:hidden;">
       <div style="position:absolute;inset:0;overflow-y:auto;" id="ov-panel-queue">
-        <div style="padding:10px 16px 6px;font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.07em;">Queue</div>
+        <div style="padding:10px 16px 6px;display:flex;align-items:center;justify-content:space-between;">
+          <span style="font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.07em;">Queue</span>
+          <button class="np-ov-ctrl" id="btn-automix" title="Auto-mix similar tracks when the queue ends" style="font-size:17px;font-weight:700;line-height:1;">∞</button>
+        </div>
         <div id="ov-queue-rows"></div>
       </div>
       <div id="ov-panel-lyrics" style="position:absolute;inset:0;background:var(--surface);overflow:hidden;transform:translateX(100%);transition:transform 0.3s cubic-bezier(0.4,0,0.2,1);">
@@ -1156,28 +1256,29 @@
   </div>
 </div>
 
-<!-- Overlay more-options dropdown (fixed-positioned, outside layout tree) -->
-<div class="ov-dropdown" id="ov-dropdown">
-  <button class="ov-dd-item" data-action="stop">Stop playback</button>
-  <button class="ov-dd-item" data-action="clear">Clear queue</button>
-  <button class="ov-dd-item" data-action="mix">Instant mix</button>
+<!-- Songs sort dropdown (fixed-positioned, outside layout tree) -->
+<div class="ov-dropdown" id="songs-sort-dropdown">
+  <button class="ov-dd-item" data-sort-field="name"><span class="dd-check"></span>Title</button>
+  <button class="ov-dd-item" data-sort-field="artist"><span class="dd-check"></span>Artist</button>
+  <button class="ov-dd-item" data-sort-field="album"><span class="dd-check"></span>Album</button>
+  <button class="ov-dd-item" data-sort-field="added"><span class="dd-check"></span>Date added</button>
+  <button class="ov-dd-item" data-sort-field="played"><span class="dd-check"></span>Date last played</button>
   <div class="ov-dd-sep"></div>
-  <button class="ov-dd-item" data-action="playlist">Add to playlist</button>
-  <button class="ov-dd-item" data-action="download">Download</button>
-  <button class="ov-dd-item" data-action="copy">Copy stream URL</button>
+  <button class="ov-dd-item" id="songs-sort-dir-toggle">
+    <svg id="songs-sort-dir-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+    <span id="songs-sort-dir-label">Ascending</span>
+  </button>
+</div>
+
+<!-- Sleep timer dropdown (fixed-positioned, outside layout tree) -->
+<div class="ov-dropdown" id="sleep-timer-dropdown">
+  <button class="ov-dd-item" data-sleep-mins="15">15 minutes</button>
+  <button class="ov-dd-item" data-sleep-mins="30">30 minutes</button>
+  <button class="ov-dd-item" data-sleep-mins="45">45 minutes</button>
+  <button class="ov-dd-item" data-sleep-mins="60">60 minutes</button>
+  <button class="ov-dd-item" data-sleep-mins="end">End of current track</button>
   <div class="ov-dd-sep"></div>
-  <button class="ov-dd-item" data-action="info">Media info</button>
-  <button class="ov-dd-item" data-action="refresh">Refresh metadata</button>
-  <div class="ov-dd-sep"></div>
-  <button class="ov-dd-item" data-action="edit-meta">Edit metadata</button>
-  <button class="ov-dd-item" data-action="edit-img">Edit images</button>
-  <button class="ov-dd-item" data-action="edit-lyrics">Edit lyrics</button>
-  <div class="ov-dd-sep"></div>
-  <button class="ov-dd-item" data-action="view-album">View album</button>
-  <button class="ov-dd-item" data-action="view-artist">View album artist</button>
-  <button class="ov-dd-item" data-action="view-lyrics">View lyrics</button>
-  <div class="ov-dd-sep"></div>
-  <button class="ov-dd-item danger" data-action="delete">Delete media</button>
+  <button class="ov-dd-item" data-sleep-mins="off">Turn off</button>
 </div>
 
 <!-- Context menu -->
@@ -1354,7 +1455,7 @@
       <button class="modal-btn modal-btn-accent" id="atp-create-confirm">Create</button>
       <button class="modal-btn" id="atp-create-cancel-btn" title="Cancel">✕</button>
     </div>
-    <div class="modal-list" id="atp-list"><div style="font-size:12px;color:var(--text3);text-align:center;padding:20px 0">Loading…</div></div>
+    <div class="modal-list" id="atp-list"><div class="skel skel-text" style="width:100%;height:30px"></div><div class="skel skel-text" style="width:100%;height:30px"></div><div class="skel skel-text" style="width:100%;height:30px"></div></div>
     <div class="modal-actions">
       <button class="modal-btn" id="atp-new-playlist">New Playlist</button>
       <button class="modal-btn" id="atp-cancel">Cancel</button>

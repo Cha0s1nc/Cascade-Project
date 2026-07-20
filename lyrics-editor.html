@@ -535,7 +535,7 @@ body {
 </div>
 
 <div class="stamp-mode-bar" id="stamp-mode-bar">
-  ⏱ <strong>Stamp Mode</strong> — press <kbd>Space</kbd> to stamp highlighted word · <kbd>Esc</kbd> to exit
+  ⏱ <strong>Stamp Mode</strong> - press <kbd>Space</kbd> to stamp highlighted word · <kbd>Esc</kbd> to exit
   <span class="stamp-progress" id="stamp-progress"></span>
 </div>
 
@@ -587,7 +587,7 @@ document.getElementById('lines-area').addEventListener('dragover', e => {
 // ── Utilities ──────────────────────────────────────────────────────────────────
 
 function secToDisplay(sec) {
-  if (sec == null || isNaN(sec)) return '—'
+  if (sec == null || isNaN(sec)) return '-'
   const m = Math.floor(sec / 60)
   const s = (sec % 60).toFixed(3)
   return `${m}:${s.padStart(6, '0')}`
@@ -597,7 +597,7 @@ function ticksToSec(ticks) { return ticks != null ? ticks / 10_000_000 : null }
 function secToTicks(sec)   { return sec   != null ? Math.round(sec * 10_000_000) : null }
 
 function dispToSec(str) {
-  if (!str || str === '—') return null
+  if (!str || str === '-') return null
   str = str.trim()
   const m = str.match(/^(\d+):(\d+(?:\.\d*)?)$/)
   if (m) return parseInt(m[1]) * 60 + parseFloat(m[2])
@@ -628,13 +628,13 @@ window.lyricsEditor.onInit(({ item, jf, lyricsData }) => {
   document.getElementById('track-sub').textContent  = [
     item.AlbumArtist || (item.Artists && item.Artists[0]) || '',
     item.Album || '',
-  ].filter(Boolean).join(' — ')
+  ].filter(Boolean).join(' - ')
 
   const art = document.getElementById('track-art')
   art.src = `${jf.url}/Items/${item.Id}/Images/Primary?api_key=${jf.token}&width=96&quality=90`
   art.onerror = () => { art.style.visibility = 'hidden' }
 
-  // Audio stream — same params as streamUrl() in renderer.js
+  // Audio stream - same params as streamUrl() in renderer.js
   audio.src = `${jf.url}/Audio/${item.Id}/universal?UserId=${jf.userId}&api_key=${jf.token}&Container=opus,mp3,aac,flac,wav,ogg&TranscodingContainer=ts&TranscodingProtocol=hls&AudioCodec=aac&MaxStreamingBitrate=140000000`
   const durSec = (item.RunTimeTicks || 0) / 10_000_000
   scrubber.max = durSec || 100
@@ -725,7 +725,7 @@ function parseLRCText(text) {
     const words = []
     while ((wm = wordPattern.exec(rest)) !== null) {
       const wStart = parseLRCTime(wm[1])
-      // Preserve trailing space — it's the word separator in enhanced LRC.
+      // Preserve trailing space - it's the word separator in enhanced LRC.
       // e.g. ">Till <next>" → Text:"Till " so karaoke preview renders with natural spacing.
       const wText  = wm[2]
       if (wStart === null || !wText.trim()) continue
@@ -741,7 +741,7 @@ function parseLRCText(text) {
       // Join without extra space (trailing spaces already embedded in each Text)
       lines.push({ Start: ticksFromSec(lineStart), End: null, Text: words.map(w => w.Text).join('').trim(), Words: words })
     } else {
-      // Plain line — strip any leftover word tags
+      // Plain line - strip any leftover word tags
       const plainText = rest.replace(/<[^>]*>/g, '').trim()
       if (!plainText) continue
       lines.push({ Start: ticksFromSec(lineStart), End: null, Text: plainText, Words: null })
@@ -798,7 +798,7 @@ function renderLines() {
     const time = document.createElement('div')
     const isLineStampNext = stampMode && stampSeq[stampIdx]?.type === 'line' && stampSeq[stampIdx]?.li === li
     time.className = 'line-time' + (isLineStampNext ? ' stamp-next' : '')
-    time.textContent = line.start != null ? secToDisplay(line.start) : '—'
+    time.textContent = line.start != null ? secToDisplay(line.start) : '-'
     time.title = 'Click to edit line timestamp'
     time.addEventListener('click', e => { e.stopPropagation(); selectLine(li) })
 
@@ -1105,7 +1105,7 @@ function beginWordEdit(pillEl, li, wi) {
 
 function refreshLineMeta(li) {
   const timeEl = document.querySelector(`.line-row[data-li="${li}"] .line-time`)
-  if (timeEl) timeEl.textContent = editorLines[li].start != null ? secToDisplay(editorLines[li].start) : '—'
+  if (timeEl) timeEl.textContent = editorLines[li].start != null ? secToDisplay(editorLines[li].start) : '-'
 }
 
 // ── Line/word operations ───────────────────────────────────────────────────────
@@ -1182,7 +1182,7 @@ function moveWord(li, wi, dir) {
 function moveWordBefore(fromLi, fromWi, toLi, toWi) {
   if (fromLi === toLi && fromWi === toWi) return
 
-  // Remove from source — keep words:[] (not null) so line stays in word mode
+  // Remove from source - keep words:[] (not null) so line stays in word mode
   const [moved] = editorLines[fromLi].words.splice(fromWi, 1)
 
   // Adjust insertion index if moving forward within the same line (splice shifted indices)
@@ -1349,7 +1349,7 @@ function updateKaraokePreview() {
     const hasAnyTimestamp = editorLines.some(l => l.start != null)
     const msg = hasAnyTimestamp
       ? 'Waiting for first line…'
-      : 'No timestamps set — use Stamp Mode or click a line time to add them'
+      : 'No timestamps set - use Stamp Mode or click a line time to add them'
     if (_kpActiveLi !== -2) {
       preview.innerHTML = `<span class="kp-hint">${msg}</span>`
       _kpActiveLi = -2
@@ -1378,7 +1378,7 @@ function updateKaraokePreview() {
       el.classList.toggle('past',   wi < activeWi)
     })
   } else {
-    // Plain text line — just show the text
+    // Plain text line - just show the text
     if (_kpActiveLi !== activeLi) {
       preview.innerHTML = `<span class="kp-plain">${escHtml(line.text)}</span>`
       _kpActiveLi = activeLi
@@ -1424,7 +1424,7 @@ document.getElementById('btn-save').addEventListener('click', async () => {
   try {
     const lrcText = exportLRC()
 
-    // Save to the Cascade Lyrics Jellyfin plugin — stored server-side as .slrc,
+    // Save to the Cascade Lyrics Jellyfin plugin - stored server-side as .slrc,
     // shared across all users on the server.
     const r = await fetch(`${editorJf.url}/Audio/${editorItem.Id}/CascadeLyrics`, {
       method: 'POST',

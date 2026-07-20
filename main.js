@@ -5,6 +5,7 @@ const https = require('https')
 const http  = require('http')
 const fs    = require('fs')
 const os    = require('os')
+const crypto = require('crypto')
 const Store = require('electron-store')
 
 // ── Discord RPC ────────────────────────────────────────────────────────────────
@@ -28,7 +29,7 @@ async function connectDiscordRpc(clientId) {
           args.activity.type = 2
           args.activity.status_display_type = 1  // show state (artist) in member list sidebar
         }
-        return _origRequest(cmd, args, ...rest).catch(() => { /* Discord rate limit or transient error — suppress */ })
+        return _origRequest(cmd, args, ...rest).catch(() => { /* Discord rate limit or transient error - suppress */ })
       }
       if (win && !win.isDestroyed()) win.webContents.send('discord-rpc-status', true)
     })
@@ -74,16 +75,36 @@ ipcMain.on('discord-rpc-clear', () => {
 })
 
 // ── Cascade Control Server (for Cha0s Stream integration) ─────────────────────
-// Listens on 127.0.0.1:47847 — Cha0s Stream POSTs here instead of using OS media keys
-const controlServer = http.createServer(async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*')
-  if (req.method === 'OPTIONS') { res.writeHead(204); return res.end() }
+// Listens on 127.0.0.1:47847 - Cha0s Stream POSTs here instead of using OS media keys.
+// Loopback-only, but any webpage open in a browser on this machine can also reach a
+// loopback port - so requests must carry the shared token below. The token lives in
+// a dotfile in the home dir rather than app config, so any local app (Stream included)
+// can find it without a manual pairing step; a browser page has no way to read it.
+const CONTROL_TOKEN_PATH = path.join(os.homedir(), '.cascade-control-token')
+function getOrCreateControlToken() {
+  try {
+    const existing = fs.readFileSync(CONTROL_TOKEN_PATH, 'utf8').trim()
+    if (/^[0-9a-f]{64}$/.test(existing)) return existing
+  } catch {}
+  const token = crypto.randomBytes(32).toString('hex')
+  try { fs.writeFileSync(CONTROL_TOKEN_PATH, token, { mode: 0o600 }) } catch {}
+  return token
+}
+const controlToken = getOrCreateControlToken()
+const CONTROL_ACTIONS = new Set(['playpause', 'next', 'prev'])
+
+const controlServer = http.createServer((req, res) => {
+  if (req.headers['x-cascade-token'] !== controlToken) {
+    res.writeHead(401, { 'Content-Type': 'application/json' })
+    return res.end(JSON.stringify({ ok: false, error: 'Unauthorized' }))
+  }
   if (req.method === 'POST' && req.url === '/cascade/control') {
     let body = ''
     req.on('data', chunk => { body += chunk })
     req.on('end', () => {
       try {
         const { action } = JSON.parse(body)
+        if (!CONTROL_ACTIONS.has(action)) throw new Error('bad action')
         if (win && !win.isDestroyed()) win.webContents.send('media-key', action)
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ ok: true }))
@@ -96,23 +117,11 @@ const controlServer = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ ok: true, app: 'Cascade', version: app.getVersion() }))
   } else if (req.method === 'GET' && req.url === '/cascade/now-playing') {
+    // cascadeNowPlaying is kept fresh by the renderer's 'now-playing-update' IPC
+    // messages (sent on track change/play/pause), so just serve the cache instead
+    // of running executeJavaScript in the renderer on every poll.
     res.writeHead(200, { 'Content-Type': 'application/json' })
-    if (win && !win.isDestroyed()) {
-      try {
-        const result = await win.webContents.executeJavaScript(`
-          JSON.stringify({
-            title:     queue[queueIndex]?.Name    || null,
-            artist:    queue[queueIndex]?.AlbumArtist || (queue[queueIndex]?.Artists?.[0]) || null,
-            isPlaying: typeof audio !== 'undefined' ? !audio.paused : false
-          })
-        `)
-        res.end(result)
-      } catch {
-        res.end(JSON.stringify(cascadeNowPlaying))
-      }
-    } else {
-      res.end(JSON.stringify(cascadeNowPlaying))
-    }
+    res.end(JSON.stringify(cascadeNowPlaying))
   } else {
     res.writeHead(404); res.end()
   }
@@ -123,113 +132,6 @@ controlServer.listen(47847, '127.0.0.1', () => {
 controlServer.on('error', (err) => {
   console.warn('[cascade] Control server error:', err.message)
 })
-
-// ── Remote Control WebSocket Server (Android app) ─────────────────────────────
-// Listens on all interfaces, port 9876.
-// Enable/disable via store key 'remoteControlEnabled' (default: false).
-// Protocol: JSON messages — see remote_control_service.dart for the schema.
-
-const WebSocket = require('ws')
-let remoteWss    = null
-let remoteEnabled = false
-
-function startRemoteWss(port = 9876) {
-  if (remoteWss) return
-  remoteWss = new WebSocket.Server({ port }, () => {
-    console.log(`[remote] WebSocket server listening on *:${port}`)
-  })
-
-  remoteWss.on('connection', (ws) => {
-    console.log('[remote] Android client connected')
-
-    // Send current state immediately on connect
-    broadcastRemoteState()
-
-    ws.on('message', (raw) => {
-      try {
-        const msg = JSON.parse(raw.toString())
-        handleRemoteCmd(msg)
-      } catch {}
-    })
-
-    ws.on('close', () => console.log('[remote] Android client disconnected'))
-    ws.on('error', (e) => console.warn('[remote] WS error:', e.message))
-  })
-
-  remoteWss.on('error', (e) => {
-    console.warn('[remote] WSS error:', e.message)
-    remoteWss = null
-  })
-}
-
-function stopRemoteWss() {
-  if (!remoteWss) return
-  remoteWss.close(() => console.log('[remote] WebSocket server stopped'))
-  remoteWss = null
-}
-
-function broadcastRemoteState(state) {
-  if (!remoteWss) return
-  // If no state passed, ask the renderer for current state
-  if (!state) {
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('remote-get-state')
-    }
-    return
-  }
-  const msg = JSON.stringify({ event: 'stateUpdate', ...state })
-  remoteWss.clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) client.send(msg)
-  })
-}
-
-function handleRemoteCmd({ cmd, position, volume: vol }) {
-  if (!win || win.isDestroyed()) return
-  switch (cmd) {
-    case 'play':
-    case 'pause':
-    case 'next':
-    case 'prev':
-      win.webContents.send('media-key',
-        cmd === 'play' || cmd === 'pause' ? 'playpause' : cmd)
-      break
-    case 'seek':
-      win.webContents.send('remote-seek', position)
-      break
-    case 'setVolume':
-      win.webContents.send('remote-volume', vol)
-      break
-    case 'getState':
-      broadcastRemoteState()
-      break
-  }
-}
-
-// Renderer → main: state update to broadcast to WS clients
-ipcMain.on('remote-state-update', (_e, state) => broadcastRemoteState(state))
-
-// IPC: enable/disable remote control
-ipcMain.handle('remote-control-enable', (_e, enable) => {
-  remoteEnabled = enable
-  store.set('remoteControlEnabled', enable)
-  if (enable) startRemoteWss()
-  else        stopRemoteWss()
-  return { ok: true }
-})
-
-ipcMain.handle('remote-control-status', () => ({
-  enabled: remoteEnabled,
-  port:    9876,
-  clients: remoteWss ? remoteWss.clients.size : 0,
-}))
-
-// Auto-start if previously enabled
-;(async () => {
-  try {
-    const wasEnabled = store.get('remoteControlEnabled')
-    if (wasEnabled) { remoteEnabled = true; startRemoteWss() }
-  } catch {}
-})()
 
 const GITHUB_REPO = 'Cha0s1nc/Cascade-Project'
 
@@ -293,7 +195,7 @@ function createWindow() {
     win.show()
     if (app.isPackaged) setTimeout(checkForUpdates, 5000)
 
-    // Register OS media keys here — app is already ready, window exists
+    // Register OS media keys here - app is already ready, window exists
     const send = (key) => { if (win && !win.isDestroyed()) win.webContents.send('media-key', key) }
     globalShortcut.register('MediaPlayPause',     () => send('playpause'))
     globalShortcut.register('MediaNextTrack',     () => send('next'))
@@ -318,12 +220,15 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow()
 })
 
-// Now-playing state — updated by the renderer, exposed via the control server
+// Now-playing state - updated by the renderer, exposed via the control server
 let cascadeNowPlaying = { title: null, artist: null, isPlaying: false }
 ipcMain.on('now-playing-update', (_e, data) => { cascadeNowPlaying = { ...cascadeNowPlaying, ...data } })
 
 // IPC: app version
 ipcMain.handle('get-version', () => app.getVersion())
+
+// IPC: whether this is a packaged (production) build vs. run from the command line
+ipcMain.handle('is-packaged', () => app.isPackaged)
 
 // IPC: store
 ipcMain.handle('store-get', (_e, key) => store.get(key))
@@ -336,7 +241,7 @@ ipcMain.handle('clipboard-write', (_e, text) => clipboard.writeText(text))
 // IPC: shell
 ipcMain.handle('shell-open', (_e, url) => shell.openExternal(url))
 
-// IPC: download — uses Electron's session download API
+// IPC: download - uses Electron's session download API
 ipcMain.handle('download-file', (_e, url, filename) => {
   win.webContents.downloadURL(url)
 })
@@ -367,6 +272,7 @@ function openUpdaterWindow(updateInfo) {
     downloadUrl: updateInfo.downloadUrl || null,
     assetName:   updateInfo.assetName   || null,
     releaseUrl:  updateInfo.releaseUrl  || '',
+    digest:      updateInfo.digest      || null,
     destPath:    null,
   }
   if (updaterWindow && !updaterWindow.isDestroyed()) { updaterWindow.focus(); return }
@@ -470,6 +376,7 @@ async function checkForUpdates() {
       releaseUrl:   release.html_url     || '',
       downloadUrl:  asset?.browser_download_url || null,
       assetName:    asset?.name          || null,
+      digest:       asset?.digest        || null,
     })
   } catch (err) {
     console.error('[updater] Check failed:', err.message)
@@ -504,6 +411,21 @@ function downloadFile(url, destPath, onProgress) {
       }).on('error', reject)
     }
     request(url, 0)
+  })
+}
+
+// GitHub populates a "sha256:<hex>" digest on release assets - verifying against
+// it catches transit corruption/tampering. It does NOT prove the release itself
+// wasn't malicious (the digest is computed from the same upload), so this is
+// defense-in-depth, not a substitute for code signing.
+function verifyDigest(filePath, digest) {
+  return new Promise((resolve, reject) => {
+    const [algo, expected] = digest.split(':')
+    const hash = crypto.createHash(algo)
+    fs.createReadStream(filePath)
+      .on('data', chunk => hash.update(chunk))
+      .on('end', () => resolve(hash.digest('hex') === expected))
+      .on('error', reject)
   })
 }
 
@@ -543,9 +465,16 @@ ipcMain.handle('updater:download', async () => {
       updaterWindow.webContents.send('updater:progress', {
         percent, bytesPerSecond: progress.bytesPerSecond,
         transferred: progress.transferred, total: progress.total,
-        logLine: `${percent}% — ${transferred} / ${total} MB  (${mbps} MB/s)`
+        logLine: `${percent}% - ${transferred} / ${total} MB  (${mbps} MB/s)`
       })
     })
+    if (pendingDownload.digest) {
+      const verified = await verifyDigest(destPath, pendingDownload.digest)
+      if (!verified) {
+        try { fs.unlinkSync(destPath) } catch {}
+        throw new Error('Downloaded file failed integrity verification - it may have been corrupted or tampered with in transit')
+      }
+    }
     pendingDownload.destPath = destPath
     if (updaterWindow && !updaterWindow.isDestroyed())
       updaterWindow.webContents.send('updater:done', { version: pendingDownload.version })
@@ -572,7 +501,7 @@ ipcMain.handle('updater:dismiss', () => {
   if (updaterWindow && !updaterWindow.isDestroyed()) updaterWindow.close()
 })
 
-// IPC: Kugou KRC lyrics — word-level, no auth required
+// IPC: Kugou KRC lyrics - word-level, no auth required
 // Search: http://lyrics.kugou.com/search   Download: http://lyrics.kugou.com/download
 // KRC decryption: skip 4-byte 'krc1' header, XOR with fixed 16-byte key, zlib inflate.
 ;(function() {
@@ -610,30 +539,6 @@ ipcMain.handle('updater:dismiss', () => {
     }
   })
 })()
-
-// IPC: main-process proxy fetch — bypasses CORS
-ipcMain.handle('proxy-fetch', async (_e, { url, method = 'GET', body, extraHeaders = {} }) => {
-  try {
-    const opts = {
-      method,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Musixmatch/0.19.4 Chrome/58.0.3029.110 Electron/1.7.6 Safari/537.36',
-        ...extraHeaders,
-      },
-      signal: AbortSignal.timeout(9000),
-    }
-    if (body) {
-      opts.body = body
-      opts.headers['Content-Type'] = 'application/x-www-form-urlencoded'
-    }
-    const r = await fetch(url, opts)
-    if (!r.ok) return { ok: false, status: r.status }
-    const text = await r.text()
-    return { ok: true, text }
-  } catch (err) {
-    return { ok: false, error: err.message }
-  }
-})
 
 // IPC: native context menu for now-playing
 ipcMain.handle('show-np-menu', (_e, actions) => {
