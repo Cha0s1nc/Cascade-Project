@@ -1198,6 +1198,9 @@
           <button class="np-ov-ctrl" id="ov-lyrics-toggle" title="Lyrics">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           </button>
+          <button class="np-ov-ctrl" id="ov-sleep-timer" title="Sleep timer">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          </button>
         </div>
         <!-- Primary: prev · play · next -->
         <div class="np-overlay-btns" style="gap:24px;">
@@ -1231,7 +1234,10 @@
     <!-- Right: queue always visible, lyrics slides over -->
     <div class="np-overlay-right" style="position:relative;overflow:hidden;">
       <div style="position:absolute;inset:0;overflow-y:auto;" id="ov-panel-queue">
-        <div style="padding:10px 16px 6px;font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.07em;">Queue</div>
+        <div style="padding:10px 16px 6px;display:flex;align-items:center;justify-content:space-between;">
+          <span style="font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.07em;">Queue</span>
+          <button class="np-ov-ctrl" id="btn-automix" title="Auto-mix similar tracks when the queue ends" style="font-size:17px;font-weight:700;line-height:1;">∞</button>
+        </div>
         <div id="ov-queue-rows"></div>
       </div>
       <div id="ov-panel-lyrics" style="position:absolute;inset:0;background:var(--surface);overflow:hidden;transform:translateX(100%);transition:transform 0.3s cubic-bezier(0.4,0,0.2,1);">
@@ -1262,6 +1268,17 @@
     <svg id="songs-sort-dir-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
     <span id="songs-sort-dir-label">Ascending</span>
   </button>
+</div>
+
+<!-- Sleep timer dropdown (fixed-positioned, outside layout tree) -->
+<div class="ov-dropdown" id="sleep-timer-dropdown">
+  <button class="ov-dd-item" data-sleep-mins="15">15 minutes</button>
+  <button class="ov-dd-item" data-sleep-mins="30">30 minutes</button>
+  <button class="ov-dd-item" data-sleep-mins="45">45 minutes</button>
+  <button class="ov-dd-item" data-sleep-mins="60">60 minutes</button>
+  <button class="ov-dd-item" data-sleep-mins="end">End of current track</button>
+  <div class="ov-dd-sep"></div>
+  <button class="ov-dd-item" data-sleep-mins="off">Turn off</button>
 </div>
 
 <!-- Context menu -->

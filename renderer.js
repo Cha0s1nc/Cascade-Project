@@ -1317,6 +1317,13 @@ audio.addEventListener('ended', () => {
   const item = queue[queueIndex]
   if (item) reportPlaybackStopped(item.Id, Math.round(audio.duration * 10000000))
 
+  if (sleepAtTrackEnd) {
+    sleepAtTrackEnd = false
+    document.getElementById('ov-sleep-timer').classList.remove('active')
+    showToast('Sleep timer: playback paused')
+    return
+  }
+
   if (repeatMode === 'one') {
     audio.currentTime = 0
     audio.play()
@@ -1325,12 +1332,34 @@ audio.addEventListener('ended', () => {
 
   let next = queueIndex + 1
   if (next >= queue.length) {
-    if (repeatMode === 'all') next = 0
-    else return
+    if (repeatMode === 'all') { queueIndex = 0; playCurrentTrack(); return }
+    if (autoMixEnabled && item) continueWithAutoMix(item)
+    return
   }
   queueIndex = next
   playCurrentTrack()
 })
+
+// Fetches similar tracks to the one that just ended and appends them to the queue,
+// continuing playback - only reached when the queue runs out and auto-mix is on.
+async function continueWithAutoMix(lastItem) {
+  try {
+    const data = await jfGet(`/Items/${lastItem.Id}/InstantMix`, {
+      UserId: jf.userId, Limit: 25,
+      Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
+    })
+    const items = (data.Items || []).filter(i => i.Id !== lastItem.Id)
+    if (!items.length) return
+    const startIndex = queue.length
+    queue.push(...items)
+    queueIndex = startIndex
+    playCurrentTrack()
+    renderQueuePanel()
+    showToast('Auto-mix added similar tracks to the queue')
+  } catch (e) {
+    console.error('Auto-mix failed', e)
+  }
+}
 
 // ── Player controls ───────────────────────────────────────────────────────────
 
@@ -1918,6 +1947,69 @@ document.getElementById('ov-lyrics-toggle').addEventListener('click', () => {
   if (overlayLyricsOpen) renderOverlayLyrics()
 })
 
+// ── Sleep timer ──────────────────────────────────────────────────────────────
+
+let sleepTimerId = null      // setTimeout handle for a duration-based timer
+let sleepAtTrackEnd = false  // true when "End of current track" is selected
+
+function clearSleepTimer() {
+  if (sleepTimerId) { clearTimeout(sleepTimerId); sleepTimerId = null }
+  sleepAtTrackEnd = false
+  document.getElementById('ov-sleep-timer').classList.remove('active')
+}
+
+function setSleepTimerMinutes(mins) {
+  clearSleepTimer()
+  sleepTimerId = setTimeout(() => {
+    audio.pause()
+    sleepTimerId = null
+    document.getElementById('ov-sleep-timer').classList.remove('active')
+    showToast('Sleep timer: playback paused')
+  }, mins * 60 * 1000)
+  document.getElementById('ov-sleep-timer').classList.add('active')
+  showToast(`Sleep timer set for ${mins} minutes`)
+}
+
+function setSleepTimerAtTrackEnd() {
+  clearSleepTimer()
+  sleepAtTrackEnd = true
+  document.getElementById('ov-sleep-timer').classList.add('active')
+  showToast('Playback will pause after this track')
+}
+
+const sleepTimerDropdown = document.getElementById('sleep-timer-dropdown')
+
+document.getElementById('ov-sleep-timer').addEventListener('click', (e) => {
+  e.stopPropagation()
+  const isOpen = sleepTimerDropdown.classList.contains('open')
+  sleepTimerDropdown.classList.toggle('open', !isOpen)
+  if (!isOpen) {
+    const btn = e.currentTarget.getBoundingClientRect()
+    sleepTimerDropdown.style.left = `${btn.left}px`
+    sleepTimerDropdown.style.top  = `${btn.bottom + 6}px`
+    const r = sleepTimerDropdown.getBoundingClientRect()
+    if (r.right > window.innerWidth - 8) sleepTimerDropdown.style.left = `${window.innerWidth - sleepTimerDropdown.offsetWidth - 8}px`
+    if (r.bottom > window.innerHeight - 8) sleepTimerDropdown.style.top = `${btn.top - sleepTimerDropdown.offsetHeight - 6}px`
+  }
+})
+
+sleepTimerDropdown.querySelectorAll('[data-sleep-mins]').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation()
+    sleepTimerDropdown.classList.remove('open')
+    const val = btn.dataset.sleepMins
+    if (val === 'off') { clearSleepTimer(); showToast('Sleep timer off') }
+    else if (val === 'end') setSleepTimerAtTrackEnd()
+    else setSleepTimerMinutes(parseInt(val, 10))
+  })
+})
+
+document.addEventListener('mousedown', (e) => {
+  if (!sleepTimerDropdown.contains(e.target) && !e.target.closest('#ov-sleep-timer')) {
+    sleepTimerDropdown.classList.remove('open')
+  }
+})
+
 // Overlay "more options" opens the exact same context menu as right-clicking
 // the album art in the bottom bar, not a separate hand-maintained copy.
 document.getElementById('ov-more-btn').addEventListener('click', (e) => {
@@ -2037,6 +2129,14 @@ function syncOverlayState() {
   document.getElementById('ov-shuffle').classList.toggle('active', shuffle)
   updateRepeatButtons()
 }
+
+// Auto-mix: when the queue runs dry, keep playing with an instant mix off the last track
+let autoMixEnabled = false
+document.getElementById('btn-automix').addEventListener('click', () => {
+  autoMixEnabled = !autoMixEnabled
+  document.getElementById('btn-automix').classList.toggle('active', autoMixEnabled)
+  showToast(autoMixEnabled ? 'Auto-mix on - similar tracks will keep playing after the queue ends' : 'Auto-mix off')
+})
 
 function renderQueuePanel() {
   const container = document.getElementById('ov-queue-rows')
