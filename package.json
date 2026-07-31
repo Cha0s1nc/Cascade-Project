@@ -63,7 +63,7 @@
         }
       ],
       "darkModeSupport": true,
-      "identity": "Cha0s_1nc_Development"
+      "identity": null
     },
     "win": {
       "icon": "assets/icon.ico",
