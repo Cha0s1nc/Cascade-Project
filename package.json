@@ -50,6 +50,7 @@
     "directories": {
       "output": "dist"
     },
+    "afterPack": "scripts/adhoc-sign.js",
     "mac": {
       "category": "public.app-category.music",
       "icon": "assets/icon.icns",
