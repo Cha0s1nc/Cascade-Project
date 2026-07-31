@@ -156,6 +156,10 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      // Chromium suspends requestAnimationFrame while minimized/occluded, so a track
+      // that changes then never gets its marquee measured.
+      // ponytail: costs a little idle CPU; drop it if battery drain shows up.
+      backgroundThrottling: false,
     },
     show: false,
   })
@@ -329,15 +333,64 @@ ipcMain.on('open-lyrics-editor', (_e, data) => {
   lyricsEditorWindow.on('closed', () => { lyricsEditorWindow = null })
 })
 
+// Relay a successful save to the main window - the editor writes straight to the
+// server, so the main window's lyrics cache would otherwise keep serving the old copy.
+ipcMain.on('lyrics-editor-saved', (_e, itemId) => {
+  if (win && !win.isDestroyed()) win.webContents.send('lyrics-saved', itemId)
+})
+
 ipcMain.on('lyrics-editor-close', () => {
   if (lyricsEditorWindow && !lyricsEditorWindow.isDestroyed()) lyricsEditorWindow.close()
 })
 
 // ── GitHub release check ───────────────────────────────────────────────────────
 
+// Which Linux package this install came from, so we hand back an update in the
+// same format. AppImage announces itself through the environment; past that the
+// distro's release file is the best available signal for deb vs rpm.
+function linuxPackageKind() {
+  if (process.env.APPIMAGE) return 'AppImage'
+  // ponytail: a deb installed on an rpm distro (or vice versa) guesses wrong.
+  // Read /opt/Cascade's owning package manager if that ever actually happens.
+  if (fs.existsSync('/etc/debian_version')) return 'deb'
+  if (fs.existsSync('/etc/redhat-release') || fs.existsSync('/etc/fedora-release')) return 'rpm'
+  return null
+}
+
+// Returns the asset matching this exact platform/arch/format, or undefined.
+// Deliberately no "close enough" fallback: handing someone an installer that
+// cannot run on their machine is worse than sending them to the releases page.
+function pickAsset(assets = []) {
+  const byExt = re => assets.filter(a => re.test(a.name))
+
+  if (process.platform === 'win32') return byExt(/\.exe$/i)[0]
+
+  if (process.platform === 'darwin') {
+    // Only the arm64 build carries its arch in the filename; the unsuffixed
+    // .dmg is the x64 one. Matching on process.arch alone silently handed
+    // Intel Macs the arm64 build.
+    const dmgs = byExt(/\.dmg$/i)
+    return process.arch === 'arm64'
+      ? dmgs.find(a => /arm64/i.test(a.name))
+      : dmgs.find(a => !/arm64/i.test(a.name))
+  }
+
+  if (process.platform === 'linux') {
+    const kind = linuxPackageKind()
+    if (kind === 'AppImage') return byExt(/\.AppImage$/i)[0]
+    if (kind === 'deb')      return byExt(/\.deb$/i)[0]
+    if (kind === 'rpm')      return byExt(/\.rpm$/i)[0]
+  }
+
+  return undefined
+}
+
 async function checkForUpdates() {
   try {
-    const betaUpdates = store.get('betaUpdates', false)
+    // Defaults on for a beta build itself (so it keeps finding newer betas), unless
+    // the user has explicitly chosen otherwise, that choice always wins.
+    const isBetaBuild = /-b\d*$/.test(app.getVersion())
+    const betaUpdates = store.get('betaUpdates', isBetaBuild)
     let release
     if (betaUpdates) {
       const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=10`, {
@@ -353,21 +406,11 @@ async function checkForUpdates() {
       if (!res.ok) throw new Error(`GitHub API ${res.status}`)
       release = await res.json()
     }
-    if (!release) return
+    if (!release) return { hasUpdate: false }
     const latestVersion = release.tag_name.replace(/^v/, '')
-    if (!isNewer(latestVersion, app.getVersion())) return
+    if (!isNewer(latestVersion, app.getVersion())) return { hasUpdate: false }
 
-    const platform = process.platform
-    const arch = process.arch
-    let asset
-    if (platform === 'win32') {
-      asset = release.assets.find(a => /\.exe$/i.test(a.name))
-    } else if (platform === 'darwin') {
-      asset = release.assets.find(a => /\.dmg$/i.test(a.name) && a.name.includes(arch))
-           || release.assets.find(a => /\.dmg$/i.test(a.name))
-    } else {
-      asset = null
-    }
+    const asset = pickAsset(release.assets)
 
     openUpdaterWindow({
       version:      latestVersion,
@@ -378,8 +421,10 @@ async function checkForUpdates() {
       assetName:    asset?.name          || null,
       digest:       asset?.digest        || null,
     })
+    return { hasUpdate: true }
   } catch (err) {
     console.error('[updater] Check failed:', err.message)
+    return { hasUpdate: false, error: err.message }
   }
 }
 
@@ -431,9 +476,9 @@ function verifyDigest(filePath, digest) {
 
 // ── Updater IPC ────────────────────────────────────────────────────────────────
 
-ipcMain.handle('check-for-updates', () => {
+ipcMain.handle('check-for-updates', async () => {
   if (app.isPackaged) {
-    checkForUpdates()
+    return await checkForUpdates()
   } else {
     openUpdaterWindow({
       version: '99.0.0',
@@ -442,8 +487,8 @@ ipcMain.handle('check-for-updates', () => {
       releaseUrl: `https://github.com/${GITHUB_REPO}/releases`,
       downloadUrl: null, assetName: null,
     })
+    return { hasUpdate: true }
   }
-  return { ok: true }
 })
 
 ipcMain.handle('updater:download', async () => {

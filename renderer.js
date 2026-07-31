@@ -11,11 +11,13 @@ let _unshuffledQueue = []   // original order saved when shuffle is enabled
 
 // Queue panel virtualisation
 const QUEUE_WIN      = 20   // rows kept in DOM at once
-const QUEUE_ROW_H    = 53   // approximate px per row (padding 8+8 + art 36 + border 1)
+const QUEUE_ROW_H    = 53   // px per row - .queue-row pins this exact height in CSS
 const QUEUE_BEFORE   = 5    // rows to show before current track when re-centering
 let _queueWinStart   = 0    // index of first rendered row
 let _queueScrollBound = false
 let volume = 1.0
+let crossfadeEnabled = false
+let crossfadeSeconds = 6
 
 const audio = new Audio()
 audio.crossOrigin = 'anonymous'
@@ -233,45 +235,123 @@ async function connect(serverUrl, token, userId) {
 
   setConnected(true)
   await populateLibraryPicker()
+  invalidateLibraryViews()
   await loadHome()
 }
+
+// The library selection may have changed - force every lazy view to refetch.
+// allSongs must be cleared too: shuffleAllSongs() short-circuits when it is
+// non-empty and would keep queueing tracks from deselected libraries.
+function invalidateLibraryViews() {
+  allSongs = []
+  for (const id of ['albums-grid', 'artists-grid', 'songs-rows', 'playlists-grid'])
+    delete document.getElementById(id).dataset.loaded
+}
+
+let _musicLibs        = []     // the server's music libraries, cached so a mode flip needn't refetch
+let singleLibraryMode = false  // one library at a time (dropdown) instead of merging several
 
 async function populateLibraryPicker() {
   try {
     const data = await jfGet(`/Users/${jf.userId}/Views`)
-    const musicLibs = (data.Items || []).filter(i =>
+    _musicLibs = (data.Items || []).filter(i =>
       i.CollectionType === 'music' || i.CollectionType === 'musicvideos'
     )
     const savedRaw = await window.cascade.store.get('libraryIds')
     let savedIds = []
     try { savedIds = savedRaw ? JSON.parse(savedRaw) : [] } catch {}
+    singleLibraryMode = (await window.cascade.store.get('singleLibraryMode')) === true
 
-    // Auto-select all music libs on first connect
-    if (!savedIds.length && musicLibs.length) {
-      savedIds = musicLibs.map(l => l.Id)
-      await window.cascade.store.set('libraryIds', JSON.stringify(savedIds))
-    }
+    // First connect selects everything; single mode only ever holds one
+    if (!savedIds.length && _musicLibs.length) savedIds = _musicLibs.map(l => l.Id)
+    savedIds = savedIds.filter(id => _musicLibs.some(l => l.Id === id))  // drop libraries that vanished
+    if (singleLibraryMode) savedIds = savedIds.slice(0, 1)
+    if (!savedIds.length && _musicLibs.length) savedIds = [_musicLibs[0].Id]
 
     jf.libraryIds = savedIds
-
-    const container = document.getElementById('s-library-list')
-    if (!musicLibs.length) {
-      container.innerHTML = '<span style="font-size:12px;color:var(--text3);">No music libraries found</span>'
-      return
-    }
-    container.innerHTML = musicLibs.map(lib => `
-      <label class="lib-check-row">
-        <input type="checkbox" value="${lib.Id}" ${savedIds.includes(lib.Id) ? 'checked' : ''} />
-        <span class="lib-check-label">${esc(lib.Name)}</span>
-      </label>
-    `).join('')
+    await window.cascade.store.set('libraryIds', JSON.stringify(savedIds))
+    renderLibraryPicker()
   } catch {}
 }
 
-function getCheckedLibraryIds() {
-  return [...document.querySelectorAll('#s-library-list input[type=checkbox]:checked')]
-    .map(cb => cb.value)
+function renderLibraryPicker() {
+  const container = document.getElementById('s-library-list')
+  const singleRow = document.getElementById('s-single-lib-row')
+  const libRow    = document.getElementById('s-library-row')
+  const desc      = document.getElementById('s-library-desc')
+  const toggle    = document.getElementById('s-single-lib-toggle')
+  const ids       = jf.libraryIds || []
+
+  if (!_musicLibs.length) {
+    singleRow.style.display = 'none'
+    libRow.style.display = ''
+    container.innerHTML = '<span style="font-size:12px;color:var(--text3);">No music libraries found</span>'
+    return
+  }
+
+  // With one library there is nothing to choose - both rows are pure noise
+  const hasChoice = _musicLibs.length > 1
+  singleRow.style.display = hasChoice ? '' : 'none'
+  libRow.style.display    = hasChoice ? '' : 'none'
+  if (!hasChoice) return
+
+  toggle.checked = singleLibraryMode
+
+  if (singleLibraryMode) {
+    desc.textContent = 'Changes apply immediately.'
+    container.innerHTML = `<select class="setting-input" id="s-library-select" style="width:100%;">${
+      _musicLibs.map(lib =>
+        `<option value="${lib.Id}"${ids[0] === lib.Id ? ' selected' : ''}>${esc(lib.Name)}</option>`
+      ).join('')
+    }</select>`
+    document.getElementById('s-library-select').onchange = e => applyLibrarySelection([e.target.value])
+    return
+  }
+
+  desc.textContent = 'Merged into one view. Changes apply immediately.'
+  // The last one on is locked: an empty selection has no coherent meaning here
+  const lockLast = ids.length === 1
+  container.innerHTML = _musicLibs.map(lib => {
+    const on = ids.includes(lib.Id)
+    return `<div class="lib-check-row${on && lockLast ? ' locked' : ''}">
+      <span class="lib-check-label" title="${esc(lib.Name)}">${esc(lib.Name)}</span>
+      <label class="toggle">
+        <input type="checkbox" value="${lib.Id}"${on ? ' checked' : ''} />
+        <span class="toggle-track"></span>
+      </label>
+    </div>`
+  }).join('')
+  container.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.onchange = () => {
+      const next = [...container.querySelectorAll('input[type=checkbox]:checked')].map(c => c.value)
+      applyLibrarySelection(next)
+    }
+  })
 }
+
+// Persist the selection and rebuild every view against it. No re-auth involved:
+// which libraries you browse has nothing to do with your credentials.
+async function applyLibrarySelection(ids) {
+  // Shouldn't be reachable while the last toggle is locked, but if it is, snap the
+  // UI back to what's actually active rather than leaving it showing nothing on
+  if (!ids.length) { renderLibraryPicker(); return }
+  jf.libraryIds = ids
+  await window.cascade.store.set('libraryIds', JSON.stringify(ids))
+  renderLibraryPicker()
+  invalidateLibraryViews()
+  showToast(ids.length === 1
+    ? `Now playing from ${_musicLibs.find(l => l.Id === ids[0])?.Name || 'library'}`
+    : `Merging ${ids.length} libraries`)
+  await loadHome()
+}
+
+document.getElementById('s-single-lib-toggle').addEventListener('change', async e => {
+  singleLibraryMode = e.target.checked
+  await window.cascade.store.set('singleLibraryMode', singleLibraryMode)
+  // Collapsing to one keeps the first that was already on; expanding keeps it as the seed
+  const ids = jf.libraryIds || []
+  await applyLibrarySelection(singleLibraryMode ? ids.slice(0, 1) : ids)
+})
 
 // ── Sidebar expand/collapse ───────────────────────────────────────────────────
 
@@ -306,7 +386,6 @@ function showView(name) {
   if (name === 'songs' && !document.getElementById('songs-rows').dataset.loaded) loadSongs()
   if (name === 'playlists' && !document.getElementById('playlists-grid').dataset.loaded) loadPlaylists()
   if (name === 'settings') loadSettingsFields()
-  if (name === 'search') setTimeout(() => document.getElementById('search-input').focus(), 80)
 }
 
 document.querySelectorAll('.nav-item[data-view]').forEach(el => {
@@ -325,19 +404,24 @@ async function loadHome() {
 async function loadRecentlyPlayed() {
   const grid = document.getElementById('rp-grid')
   try {
-    const data = await jfGet(`/Users/${jf.userId}/Items`, {
+    const data = await jfGetMerged(`/Users/${jf.userId}/Items`, {
       SortBy: 'DatePlayed',
       SortOrder: 'Descending',
       IncludeItemTypes: 'Audio',
       Filters: 'IsPlayed',
       Limit: 8,
       Recursive: true,
-      Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
+      Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,UserData'
     })
-    if (!data.Items?.length) { grid.innerHTML = '<div class="empty-state" style="grid-column:1/3">No play history yet</div>'; return }
-    grid.innerHTML = data.Items.map(item => rpCard(item)).join('')
+    // jfGetMerged concatenates per-library results, so the server's DatePlayed
+    // ordering only holds within a library - re-sort across the merge.
+    const items = (data.Items || [])
+      .sort((a, b) => new Date(b.UserData?.LastPlayedDate || 0) - new Date(a.UserData?.LastPlayedDate || 0))
+      .slice(0, 8)
+    if (!items.length) { grid.innerHTML = '<div class="empty-state" style="grid-column:1/3">No play history yet</div>'; return }
+    grid.innerHTML = items.map(item => rpCard(item)).join('')
     grid.querySelectorAll('.rp-item').forEach((el, i) => {
-      el.addEventListener('click', () => playItems(data.Items, i))
+      el.addEventListener('click', () => playItems(items, i))
     })
   } catch (e) {
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/3">Could not load history</div>`
@@ -503,6 +587,7 @@ async function openAlbum(albumId) {
     document.getElementById('album-detail-art').innerHTML = art ? `<img src="${art}" alt="" onerror="this.innerHTML='♪'">` : '♪'
 
     document.getElementById('album-detail-rows').innerHTML = tracks.map((item, i) => trackRowHtml(item, i)).join('')
+    highlightPlayingRow()
 
     document.getElementById('album-detail-rows').querySelectorAll('.track-row').forEach(el => {
       const idx = parseInt(el.dataset.idx)
@@ -584,6 +669,7 @@ async function openArtist(artistId, name) {
 
     // Songs list
     document.getElementById('artist-songs-rows').innerHTML = songs.map((item, i) => trackRowHtml(item, i)).join('')
+    highlightPlayingRow()
 
     document.getElementById('artist-songs-rows').querySelectorAll('.track-row').forEach(el => {
       const idx = parseInt(el.dataset.idx)
@@ -614,7 +700,8 @@ function trackRowHtml(item, i, opts = {}) {
   const cls       = 'track-row' + (opts.extraClass || '')
   const entryAttr = opts.entryId != null ? ` data-entry-id="${opts.entryId}"` : ''
   const styleAttr = opts.style ? ` style="${opts.style}"` : ''
-  return `<div class="${cls}" ${idxAttr}="${i}" data-id="${item.Id}"${entryAttr}${styleAttr}>
+  const dragAttr  = opts.draggable ? ' draggable="true"' : ''
+  return `<div class="${cls}" ${idxAttr}="${i}" data-id="${item.Id}"${entryAttr}${styleAttr}${dragAttr}>
     <div class="track-num">${i + 1}</div>
     ${trackThumbHtml(art)}
     <div style="min-width:0">
@@ -823,6 +910,7 @@ function _drawSongRows(rows) {
 async function loadPlaylists() {
   const grid = document.getElementById('playlists-grid')
   grid.dataset.loaded = '1'
+  const smartHtml = smartPlaylistCardHtml('favorites') + smartPlaylistCardHtml('most-played')
   try {
     const data = await jfGet(`/Users/${jf.userId}/Items`, {
       SortBy: 'SortName',
@@ -831,8 +919,7 @@ async function loadPlaylists() {
       Recursive: true,
       Fields: 'PrimaryImageAspectRatio,ChildCount'
     })
-    if (!data.Items?.length) { grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">No playlists found</div>'; return }
-    grid.innerHTML = data.Items.map(item => {
+    grid.innerHTML = smartHtml + (data.Items || []).map(item => {
       const art = artUrl(item.Id, item.ImageTags?.Primary)
       const img = art ? `<img src="${art}" alt="" loading="lazy" onerror="this.style.display='none'">` : '♪'
       const count = item.ChildCount != null ? `${item.ChildCount} songs` : ''
@@ -844,11 +931,17 @@ async function loadPlaylists() {
         </div>
       </div>`
     }).join('')
-    grid.querySelectorAll('.playlist-card').forEach(el => {
+    grid.querySelectorAll('[data-id]').forEach(el => {
       el.addEventListener('click', () => openPlaylist(el.dataset.id, el.dataset.name))
     })
+    grid.querySelectorAll('[data-smart]').forEach(el => {
+      el.addEventListener('click', () => openSmartPlaylist(el.dataset.smart))
+    })
   } catch (e) {
-    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Could not load playlists</div>`
+    grid.innerHTML = smartHtml + `<div class="empty-state" style="grid-column:1/-1">Could not load playlists</div>`
+    grid.querySelectorAll('[data-smart]').forEach(el => {
+      el.addEventListener('click', () => openSmartPlaylist(el.dataset.smart))
+    })
   }
 }
 
@@ -862,39 +955,158 @@ document.getElementById('playlists-refresh').addEventListener('click', async () 
 let currentPlaylistId = null
 let currentPlaylistItems = []
 
-async function openPlaylist(playlistId, name) {
-  currentPlaylistId = playlistId
+function showPlaylistDetailShell(name) {
   document.getElementById('playlist-index').style.display = 'none'
   const detail = document.getElementById('playlist-detail')
   detail.classList.add('active')
   document.getElementById('pl-detail-name').textContent = name
   document.getElementById('pl-detail-meta').innerHTML = '<span class="skel skel-text" style="display:inline-block;width:70px"></span>'
   document.getElementById('pl-detail-rows').innerHTML = skeletonHTML('track', 6)
+}
+
+// Shared by real playlists and smart playlists - populates the track list once
+// items are resolved. entryIds controls whether rows get a real playlist entry ID
+// (needed for "Remove from playlist") - smart playlists aren't real Jellyfin
+// playlists, so there's nothing to remove an entry from.
+function renderPlaylistDetailItems(items, entryIds) {
+  currentPlaylistItems = items
+  document.getElementById('pl-detail-meta').textContent = `${items.length} song${items.length !== 1 ? 's' : ''}`
+  document.getElementById('pl-detail-rows').innerHTML = items.map((item, i) =>
+    trackRowHtml(item, i, entryIds ? { entryId: item.PlaylistItemId || item.Id, draggable: true } : {})
+  ).join('')
+  const rowsEl = document.getElementById('pl-detail-rows')
+  rowsEl.querySelectorAll('.track-row').forEach(el => {
+    const idx = parseInt(el.dataset.idx)
+    wireTrackRow(el, items[idx], items, idx, { inPlaylist: entryIds })
+  })
+  // Smart playlists aren't real Jellyfin playlists - nothing to reorder on the server
+  if (entryIds) wirePlaylistRowDrag(rowsEl, items)
+  highlightPlayingRow()
+}
+
+// Drag-to-reorder for real playlists, mirroring the queue panel's drag pattern.
+// Reorders locally first for snappy feedback, then persists via Jellyfin's
+// playlist-item Move endpoint - a failed save just leaves the client order
+// stale until the playlist is reopened, not destructive either way.
+function wirePlaylistRowDrag(rowsEl, items) {
+  let dragSrc = null
+  rowsEl.querySelectorAll('.track-row').forEach(el => {
+    el.addEventListener('dragstart', (e) => {
+      dragSrc = el
+      el.classList.add('dragging')
+      e.dataTransfer.effectAllowed = 'move'
+      e.dataTransfer.setData('text/plain', el.dataset.idx)
+    })
+    el.addEventListener('dragend', () => {
+      el.classList.remove('dragging')
+      rowsEl.querySelectorAll('.track-row').forEach(r => r.classList.remove('drag-over'))
+    })
+    el.addEventListener('dragover', (e) => {
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+      rowsEl.querySelectorAll('.track-row').forEach(r => r.classList.remove('drag-over'))
+      if (el !== dragSrc) el.classList.add('drag-over')
+    })
+    el.addEventListener('drop', async (e) => {
+      e.preventDefault()
+      if (!dragSrc || dragSrc === el) return
+      const from = parseInt(dragSrc.dataset.idx)
+      const to   = parseInt(el.dataset.idx)
+      const [moved] = items.splice(from, 1)
+      items.splice(to, 0, moved)
+      renderPlaylistDetailItems(items, true)
+      try {
+        const entryId = moved.PlaylistItemId || moved.Id
+        const res = await fetch(`${jf.url}/Playlists/${currentPlaylistId}/Items/${entryId}/Move/${to}`, {
+          method: 'POST', headers: { 'X-Emby-Token': jf.token }
+        })
+        if (!res.ok) throw new Error(res.status)
+      } catch (err) {
+        showToast('Could not save new order')
+      }
+    })
+  })
+}
+
+async function openPlaylist(playlistId, name) {
+  currentPlaylistId = playlistId
+  showPlaylistDetailShell(name)
+  const artEl = document.getElementById('pl-detail-art')
+  artEl.style.background = ''
+  const plArtUrl = `${jf.url}/Items/${playlistId}/Images/Primary?fillHeight=160&fillWidth=160&quality=80&api_key=${jf.token}`
+  artEl.innerHTML = `<img src="${plArtUrl}" alt="" onerror="this.innerHTML='♪'">`
 
   try {
     const data = await jfGet(`/Playlists/${playlistId}/Items`, {
       UserId: jf.userId,
       Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
     })
-    const items = data.Items || []
-    currentPlaylistItems = items
-    document.getElementById('pl-detail-meta').textContent = `${items.length} songs`
-
-    const artEl = document.getElementById('pl-detail-art')
-    const plArtUrl = `${jf.url}/Items/${playlistId}/Images/Primary?fillHeight=160&fillWidth=160&quality=80&api_key=${jf.token}`
-    artEl.innerHTML = `<img src="${plArtUrl}" alt="" onerror="this.innerHTML='♪'">`
-
-    document.getElementById('pl-detail-rows').innerHTML = items.map((item, i) =>
-      trackRowHtml(item, i, { entryId: item.PlaylistItemId || item.Id })
-    ).join('')
-
-    const rowsEl = document.getElementById('pl-detail-rows')
-    rowsEl.querySelectorAll('.track-row').forEach(el => {
-      const idx = parseInt(el.dataset.idx)
-      wireTrackRow(el, items[idx], items, idx, { inPlaylist: true })
-    })
+    renderPlaylistDetailItems(data.Items || [], true)
   } catch (e) {
     document.getElementById('pl-detail-rows').innerHTML = `<div class="empty-state">Could not load playlist</div>`
+  }
+}
+
+// ── Smart playlists ─────────────────────────────────────────────────────────────
+// Auto-updating, synthesized from Jellyfin queries rather than real playlist entities.
+
+const SMART_PLAYLISTS = {
+  favorites: {
+    name: 'Favorites',
+    icon: '<svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>',
+    gradient: 'linear-gradient(135deg,#f472b6,#dc2626)',
+    async fetch() {
+      const data = await jfGetMerged(`/Users/${jf.userId}/Items`, {
+        IncludeItemTypes: 'Audio', Recursive: true, Filters: 'IsFavorite',
+        SortBy: 'SortName', SortOrder: 'Ascending',
+        Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
+      })
+      return data.Items || []
+    }
+  },
+  'most-played': {
+    name: 'Most Played',
+    icon: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>',
+    gradient: 'linear-gradient(135deg,#60a5fa,#059669)',
+    async fetch() {
+      // Ask each library for its own top 200 by play count (server-side sorted),
+      // then merge and re-sort/slice client-side - a per-library cap could otherwise
+      // leave the true top 100 overall incomplete once multiple libraries are merged.
+      const data = await jfGetMerged(`/Users/${jf.userId}/Items`, {
+        IncludeItemTypes: 'Audio', Recursive: true,
+        SortBy: 'PlayCount', SortOrder: 'Descending', Limit: 200,
+        Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
+      })
+      const items = (data.Items || []).filter(i => (i.UserData?.PlayCount || 0) > 0)
+      items.sort((a, b) => (b.UserData?.PlayCount || 0) - (a.UserData?.PlayCount || 0))
+      return items.slice(0, 100)
+    }
+  }
+}
+
+function smartPlaylistCardHtml(kind) {
+  const sp = SMART_PLAYLISTS[kind]
+  return `<div class="playlist-card" data-smart="${kind}">
+    <div class="playlist-art" style="background:${sp.gradient};color:#fff;">${sp.icon}</div>
+    <div class="playlist-body">
+      <div class="playlist-name">${sp.name}</div>
+      <div class="playlist-count">Auto-updating</div>
+    </div>
+  </div>`
+}
+
+async function openSmartPlaylist(kind) {
+  const sp = SMART_PLAYLISTS[kind]
+  if (!sp) return
+  currentPlaylistId = null
+  showPlaylistDetailShell(sp.name)
+  document.getElementById('pl-detail-art').style.background = sp.gradient
+  document.getElementById('pl-detail-art').innerHTML = sp.icon
+
+  try {
+    renderPlaylistDetailItems(await sp.fetch(), false)
+  } catch (e) {
+    document.getElementById('pl-detail-rows').innerHTML = `<div class="empty-state">Could not load</div>`
   }
 }
 
@@ -944,9 +1156,11 @@ function wireTrackRow(el, item, items, idx, opts = {}) {
       playItems(items, idx)
     })
   }
-  // Single click on rest of row - select
+  // Single click on rest of row - select (or play immediately in transient
+  // contexts like the search dropdown, where "select" has nothing to select for)
   el.addEventListener('click', e => {
     if (e.target.closest('.track-thumb')) return  // handled above
+    if (opts.clickToPlay) { playItems(items, idx); return }
     document.querySelectorAll('.track-row.selected').forEach(r => r.classList.remove('selected'))
     el.classList.add('selected')
   })
@@ -1071,8 +1285,7 @@ document.getElementById('tctx-refresh-meta').addEventListener('click', async () 
 document.getElementById('tctx-edit-meta').addEventListener('click', () => {
   if (!_ctxItem) return
   closeTrackCtxMenu()
-  const url = `${jf.url}/web/index.html#!/edititemmetadata.html?id=${_ctxItem.Id}`
-  window.cascade.shell.openExternal(url)
+  openInJellyfinWeb(_ctxItem)
 })
 
 document.getElementById('tctx-pl-remove').addEventListener('click', async () => {
@@ -1095,6 +1308,12 @@ document.getElementById('tctx-pl-remove').addEventListener('click', async () => 
 // ── Playback ──────────────────────────────────────────────────────────────────
 
 function playItems(items, startIndex) {
+  // In a Waterfall room a guest follows the host - starting something locally
+  // would silently fight the session until the next sync pulled it back.
+  if (typeof wfBlocksLocalPlayback === 'function' && wfBlocksLocalPlayback()) {
+    showToast('The host controls playback in this room')
+    return
+  }
   if (shuffle) {
     // New queue loaded while shuffle is on - shuffle the new queue immediately
     _unshuffledQueue = [...items]
@@ -1116,13 +1335,23 @@ function playItems(items, startIndex) {
   playCurrentTrack()
 }
 
-async function playCurrentTrack() {
+// opts.alreadyPlaying: true when a crossfade handoff already has `audio` playing
+// the new track in place - skip the src reset that would otherwise restart it.
+async function playCurrentTrack(opts = {}) {
+  if (typeof wfBlocksLocalPlayback === 'function' && wfBlocksLocalPlayback()) return
   if (queueIndex < 0 || queueIndex >= queue.length) return
   const item = queue[queueIndex]
 
-  initBeatDetection()  // wire up AudioContext before play to avoid mid-playback glitch
-  audio.src = streamUrl(item.Id)
-  audio.play()
+  // Every track change funnels through here, so this is the one place that
+  // needs to know to abandon an in-progress crossfade - covers next/prev,
+  // queue-row jumps, double-click play, instant mix, everything.
+  cancelCrossfade()
+
+  if (!opts.alreadyPlaying) {
+    initBeatDetection()  // wire up AudioContext before play to avoid mid-playback glitch
+    audio.src = streamUrl(item.Id)
+    audio.play()
+  }
 
   updateNowPlaying(item)
   highlightPlayingRow()
@@ -1144,6 +1373,31 @@ async function _prefetchUpcoming() {
     await new Promise(r => setTimeout(r, 400))    // brief gap between API calls
   }
 }
+
+// Marquee: measure a clipping container and scroll its .np-scroll-inner if the text
+// overflows. Used by the statusbar and both fullscreen overlay lines.
+function applyMarquee(el) {
+  const inner = el?.querySelector('.np-scroll-inner')
+  if (!inner) return
+  inner.style.animation = 'none'
+  el.classList.remove('marquee-on')
+  const overflow = inner.scrollWidth - el.clientWidth
+  if (overflow > 4) { // dead-zone absorbs subpixel rounding
+    inner.style.setProperty('--marquee-dist', `-${overflow + 8}px`)
+    inner.style.animation = `np-marquee ${Math.max(5, overflow / 25)}s ease-in-out infinite` // ~25px/s
+    el.classList.add('marquee-on')
+  }
+}
+
+const MARQUEE_IDS = ['np-info', 'ov-track', 'ov-artist']
+
+// A plain resize listener rather than ResizeObserver: the overlay's font sizes are
+// clamp(..., vh, ...), so a height-only resize changes the text width without changing
+// any element's box - an observer would never fire. The rAF also coalesces the burst.
+function refreshMarquees() {
+  requestAnimationFrame(() => MARQUEE_IDS.forEach(id => applyMarquee(document.getElementById(id))))
+}
+window.addEventListener('resize', refreshMarquees)
 
 function updateNowPlaying(item) {
   // Warm the cache for the current song and the next 5 in queue
@@ -1169,19 +1423,7 @@ function updateNowPlaying(item) {
       <span class="np-artist">${esc(item.AlbumArtist || item.Artists?.[0] || '')}</span>
     </span>
   `
-  // Measure overflow after paint and apply marquee if needed
-  requestAnimationFrame(() => {
-    const info  = document.getElementById('np-info')
-    const inner = info.querySelector('.np-scroll-inner')
-    if (!inner) return
-    inner.style.animation = 'none'
-    const overflow = inner.scrollWidth - info.clientWidth
-    if (overflow > 4) {
-      const duration = Math.max(5, overflow / 25) // speed ~25px/s
-      inner.style.setProperty('--marquee-dist', `-${overflow + 8}px`)
-      inner.style.animation = `np-marquee ${duration}s ease-in-out infinite`
-    }
-  })
+  refreshMarquees()
   // Sync like state from Jellyfin user data
   const liked = item.UserData?.IsFavorite || false
   document.getElementById('btn-like').classList.toggle('liked', liked)
@@ -1256,18 +1498,16 @@ function updateNowPlaying(item) {
   }
 }
 
-// Tracks the currently-highlighted row elements so highlightPlayingRow() only
-// ever touches the handful of rows that actually change, instead of scanning
-// every .track-row in the document (which can be 1000s on large libraries).
-let _playingRowEls = []
-
+// Derived from the DOM, never cached: _drawSongRows() replaces rows.innerHTML on every
+// virtualisation redraw, so held element references go stale and their .playing class
+// can never be cleared - which left two rows highlighted at once. Scanning is cheap:
+// .track-row.playing matches off the class index, and the songs list only ever keeps
+// SONG_WIN rows in the DOM.
 function highlightPlayingRow() {
   const currentId = queue[queueIndex]?.Id
-  _playingRowEls.forEach(r => r.classList.remove('playing'))
-  _playingRowEls = currentId
-    ? Array.from(document.querySelectorAll(`.track-row[data-id="${currentId}"]`))
-    : []
-  _playingRowEls.forEach(r => r.classList.add('playing'))
+  document.querySelectorAll('.track-row.playing').forEach(r => r.classList.remove('playing'))
+  if (currentId)
+    document.querySelectorAll(`.track-row[data-id="${currentId}"]`).forEach(r => r.classList.add('playing'))
 }
 
 // Report playback to Jellyfin so history updates
@@ -1311,9 +1551,16 @@ audio.addEventListener('pause', () => {
   document.getElementById('icon-play').style.display = ''
   document.getElementById('icon-pause').style.display = 'none'
   window.cascade.discord.clear()
+  // A manual pause mid-crossfade abandons it rather than trying to keep two
+  // elements' pause state in sync - simplest behavior, least surprising.
+  cancelCrossfade()
 })
 
 audio.addEventListener('ended', () => {
+  // Crossfade already handles this transition on its own timeline (driven by
+  // wall-clock time, not this event) - let it finish rather than double-advance.
+  if (_cfNextAudio) return
+
   const item = queue[queueIndex]
   if (item) reportPlaybackStopped(item.Id, Math.round(audio.duration * 10000000))
 
@@ -1359,6 +1606,93 @@ async function continueWithAutoMix(lastItem) {
   } catch (e) {
     console.error('Auto-mix failed', e)
   }
+}
+
+// ── Crossfade ────────────────────────────────────────────────────────────────
+// Fades the ending track out while a temporary, untapped <audio> element plays
+// and fades the next track in, then hands off by copying its position onto the
+// real `audio` element. Every existing listener (progress bar, lyrics sync,
+// Discord RPC, media session, beat detection) stays bound to that same element
+// the whole time - it never learns a crossfade happened.
+
+let _cfNextAudio = null   // temporary element playing the upcoming track during overlap
+let _cfRafId = null       // requestAnimationFrame handle for the volume ramp
+let _cfArmed = true       // guards against re-triggering mid-ramp; re-set per track
+
+// Mirrors the `ended` handler's "what plays next" logic, but only for the case
+// where the next track is already known - skips the auto-mix case, since that
+// track doesn't exist until the current one actually finishes.
+function _resolveCrossfadeTarget() {
+  if (repeatMode === 'one') return -1
+  const next = queueIndex + 1
+  if (next >= queue.length) return repeatMode === 'all' ? 0 : -1
+  return next
+}
+
+audio.addEventListener('timeupdate', () => {
+  if (!crossfadeEnabled || !_cfArmed || _cfNextAudio) return
+  if (!audio.duration || !isFinite(audio.duration)) return
+  if (sleepAtTrackEnd) return
+  const remaining = audio.duration - audio.currentTime
+  if (remaining > crossfadeSeconds || remaining <= 0) return
+  const nextIndex = _resolveCrossfadeTarget()
+  if (nextIndex < 0) return
+  _cfArmed = false
+  startCrossfade(nextIndex)
+})
+
+function startCrossfade(nextIndex) {
+  const nextItem = queue[nextIndex]
+  if (!nextItem) return
+
+  const next = new Audio()
+  next.crossOrigin = 'anonymous'  // matches the primary element's setup
+  next.src = streamUrl(nextItem.Id)
+  next.volume = 0
+  next.play().catch(() => {})
+  _cfNextAudio = next
+
+  const fadeMs   = crossfadeSeconds * 1000
+  const startVol = audio.volume
+  const targetVol = volume
+  const t0 = performance.now()
+
+  const tick = (now) => {
+    if (_cfNextAudio !== next) return  // cancelled mid-ramp
+    const p = Math.min(1, (now - t0) / fadeMs)
+    audio.volume = startVol * (1 - p)
+    next.volume = targetVol * p
+    if (p < 1) _cfRafId = requestAnimationFrame(tick)
+    else finishCrossfade(nextIndex, next)
+  }
+  _cfRafId = requestAnimationFrame(tick)
+}
+
+function finishCrossfade(nextIndex, next) {
+  const outgoingItem = queue[queueIndex]
+  if (outgoingItem) reportPlaybackStopped(outgoingItem.Id, Math.round(audio.currentTime * 10000000))
+
+  audio.pause()
+  audio.src = next.src
+  audio.currentTime = next.currentTime
+  audio.volume = volume
+  audio.play().catch(() => {})
+
+  next.pause()
+  next.src = ''
+  _cfNextAudio = null
+  _cfRafId = null
+
+  queueIndex = nextIndex
+  playCurrentTrack({ alreadyPlaying: true })
+  renderQueuePanel()
+}
+
+function cancelCrossfade() {
+  if (_cfRafId) { cancelAnimationFrame(_cfRafId); _cfRafId = null }
+  if (_cfNextAudio) { _cfNextAudio.pause(); _cfNextAudio.src = ''; _cfNextAudio = null }
+  audio.volume = volume
+  _cfArmed = true
 }
 
 // ── Player controls ───────────────────────────────────────────────────────────
@@ -1566,11 +1900,47 @@ async function loadSettingsFields() {
   document.getElementById('s-user').value = await window.cascade.store.get('username') || ''
   document.getElementById('s-pass').value = ''
 
-  // Beta updates toggle
+  // Beta updates toggle - defaults on for a beta build itself, same rule main.js
+  // uses for the actual update check, unless the user has explicitly chosen otherwise.
   const betaUpdatesToggle = document.getElementById('beta-updates-toggle')
-  betaUpdatesToggle.checked = (await window.cascade.store.get('betaUpdates')) === true
+  const savedBetaPref = await window.cascade.store.get('betaUpdates')
+  const isBetaBuild = /-b\d*$/.test(appVersion)
+  betaUpdatesToggle.checked = savedBetaPref === undefined ? isBetaBuild : savedBetaPref === true
   betaUpdatesToggle.onchange = async () => {
     await window.cascade.store.set('betaUpdates', betaUpdatesToggle.checked)
+  }
+
+  // Crossfade settings
+  const crossfadeToggle = document.getElementById('crossfade-toggle')
+  const crossfadeDurationRow = document.getElementById('crossfade-duration-row')
+  const crossfadeDurationSelect = document.getElementById('crossfade-duration')
+  crossfadeToggle.checked = crossfadeEnabled
+  crossfadeDurationRow.style.display = crossfadeEnabled ? '' : 'none'
+  crossfadeDurationSelect.value = String(crossfadeSeconds)
+  crossfadeToggle.onchange = async () => {
+    crossfadeEnabled = crossfadeToggle.checked
+    crossfadeDurationRow.style.display = crossfadeEnabled ? '' : 'none'
+    await window.cascade.store.set('crossfadeEnabled', crossfadeEnabled)
+  }
+  crossfadeDurationSelect.onchange = async () => {
+    crossfadeSeconds = parseInt(crossfadeDurationSelect.value, 10)
+    await window.cascade.store.set('crossfadeSeconds', crossfadeSeconds)
+  }
+
+  // Waterfall relay. Blank means the default, so clearing the box is the reset.
+  const wfRelayInput = document.getElementById('s-wf-relay')
+  wfRelayInput.value = (await window.cascade.store.get('waterfallRelay')) || ''
+  wfRelayInput.placeholder = typeof WF_DEFAULT_RELAY === 'string' ? WF_DEFAULT_RELAY : 'Default'
+  wfRelayInput.onchange = async () => {
+    const raw = wfRelayInput.value.trim().replace(/\/+$/, '')
+    if (raw && !/^https?:\/\/[^\s/]+/i.test(raw)) {
+      showToast('Relay must be an http:// or https:// address')
+      wfRelayInput.value = (await window.cascade.store.get('waterfallRelay')) || ''
+      return
+    }
+    await window.cascade.store.set('waterfallRelay', raw)
+    wfRelayInput.value = raw
+    showToast(raw ? 'Waterfall relay updated' : 'Using the default Waterfall relay')
   }
 
   // Discord RPC settings
@@ -1632,10 +2002,7 @@ async function loadSettingsFields() {
     const sel = document.getElementById('s-lyrics-source')
     if (sel) sel.value = lyricsForcedSource
     updateSourcePills()
-    if (queue[queueIndex]) {
-      _lyricsCache.delete(queue[queueIndex].Id)
-      lyricsData = []; lastLyricsIdx = -1; lastOverlayLyricsIdx = -1; _lyricsScanIdx = 0; _ovLyricsScanIdx = 0; fetchLyrics()
-    }
+    _reloadLyricsFor()
   }
 
   // Lyrics source preference
@@ -1646,10 +2013,7 @@ async function loadSettingsFields() {
     lyricsForcedSource = lyricsSourceSel.value
     await window.cascade.store.set('lyricsForcedSource', lyricsForcedSource)
     updateSourcePills()
-    if (queue[queueIndex]) {
-      _lyricsCache.delete(queue[queueIndex].Id)
-      lyricsData = []; lastLyricsIdx = -1; lastOverlayLyricsIdx = -1; _lyricsScanIdx = 0; _ovLyricsScanIdx = 0; fetchLyrics()
-    }
+    _reloadLyricsFor()
   }
 
 }
@@ -1670,13 +2034,6 @@ document.getElementById('btn-save-settings').addEventListener('click', async () 
     await window.cascade.store.set('token', auth.AccessToken)
     await window.cascade.store.set('userId', auth.User.Id)
     if (pass) await window.cascade.store.set('password', pass)
-
-    // Save selected libraries
-    const checkedIds = getCheckedLibraryIds()
-    if (checkedIds.length) {
-      await window.cascade.store.set('libraryIds', JSON.stringify(checkedIds))
-      jf.libraryIds = checkedIds
-    }
 
     const status = document.getElementById('save-status')
     status.classList.add('visible')
@@ -1749,12 +2106,22 @@ document.getElementById('setup-password').addEventListener('keydown', e => {
 
 // ── Startup ───────────────────────────────────────────────────────────────────
 
-document.getElementById('btn-check-updates').addEventListener('click', () => {
-  window.cascade.checkForUpdates()
+document.getElementById('btn-check-updates').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-check-updates')
+  btn.disabled = true
+  try {
+    const result = await window.cascade.checkForUpdates()
+    if (result?.error) showToast('Failed to check for updates')
+    else if (!result?.hasUpdate) showToast("You're up to date")
+    // else: the updater window itself is the feedback
+  } finally {
+    btn.disabled = false
+  }
 })
 
 async function init() {
   document.documentElement.setAttribute('data-platform', window.cascade.platform)
+  searchInput.placeholder = `Search songs, albums, artists… (${window.cascade.platform === 'darwin' ? '⌘K' : 'Ctrl+K'})`
   await window.cascade.getVersion().then(v => {
     appVersion = v
     const el = document.getElementById('app-version')
@@ -1764,6 +2131,9 @@ async function init() {
   await loadTheme()
   buildPresets()
   await initDiscordRpc()
+
+  crossfadeEnabled = (await window.cascade.store.get('crossfadeEnabled')) === true
+  crossfadeSeconds = parseInt(await window.cascade.store.get('crossfadeSeconds'), 10) || 6
 
   // Restore saved volume
   const savedVol = await window.cascade.store.get('volume')
@@ -2118,9 +2488,10 @@ function syncOverlayState() {
   const artEl = document.getElementById('ov-art')
   artEl.innerHTML = art ? `<img src="${art}" alt="" onerror="this.innerHTML='♪'">` : '♪'
 
-  // Info
-  document.getElementById('ov-track').textContent = item.Name || ''
-  document.getElementById('ov-artist').textContent = item.AlbumArtist || item.Artists?.[0] || ''
+  // Info - wrapped so the marquee has an inline-block track to translate
+  document.getElementById('ov-track').innerHTML  = `<span class="np-scroll-inner">${esc(item.Name || '')}</span>`
+  document.getElementById('ov-artist').innerHTML = `<span class="np-scroll-inner">${esc(item.AlbumArtist || item.Artists?.[0] || '')}</span>`
+  refreshMarquees()
 
   // Like state
   document.getElementById('ov-like').classList.toggle('liked', item.UserData?.IsFavorite || false)
@@ -2148,13 +2519,16 @@ function renderQueuePanel() {
     _queueScrollBound = true
     panel.addEventListener('scroll', () => {
       if (!queue.length) return
-      const visStart = Math.floor(panel.scrollTop / QUEUE_ROW_H)
+      // container.offsetTop is the in-panel "Queue" header - scrollTop 0 is not row 0
+      const visStart = Math.max(0, Math.floor((panel.scrollTop - container.offsetTop) / QUEUE_ROW_H))
       const visEnd   = visStart + Math.ceil(panel.clientHeight / QUEUE_ROW_H)
       const nearTop  = visStart < _queueWinStart + 3
       const nearBot  = visEnd   > _queueWinStart + QUEUE_WIN - 3
       if (nearTop || nearBot) {
-        _queueWinStart = Math.max(0, Math.min(visStart - 3, queue.length - QUEUE_WIN))
-        _drawQueueRows(container, false)
+        // Only redraw on a real window change, otherwise the programmatic scroll in
+        // _drawQueueRows re-triggers this and fights it.
+        const next = Math.max(0, Math.min(visStart - 3, queue.length - QUEUE_WIN))
+        if (next !== _queueWinStart) { _queueWinStart = next; _drawQueueRows(container, false) }
       }
     }, { passive: true })
   }
@@ -2212,7 +2586,11 @@ function _drawQueueRows(container, scrollToCurrent) {
       e.stopPropagation()
       const idx = parseInt(el.dataset.qi)
       queue.splice(idx, 1)
-      if (queueIndex >= idx && queueIndex > 0) queueIndex--
+      // Only rows *before* the current one shift it. Removing the current row leaves
+      // queueIndex pointing at whatever took its place - the next track - unless it
+      // was the last row, in which case clamp back inside the queue.
+      if (idx < queueIndex) queueIndex--
+      else if (queueIndex >= queue.length) queueIndex = Math.max(0, queue.length - 1)
       renderQueuePanel()
     })
 
@@ -2247,8 +2625,11 @@ function _drawQueueRows(container, scrollToCurrent) {
   })
 
   if (scrollToCurrent) {
-    const current = container.querySelector('.queue-row.current')
-    if (current) current.scrollIntoView({ block: 'nearest' })
+    // Explicit scrollTop rather than scrollIntoView: 'nearest' moves the minimum
+    // distance, which parks the current row at the *bottom* edge and can never bring
+    // it to the top. container.offsetTop is the in-panel header height.
+    const panel = document.getElementById('ov-panel-queue')
+    panel.scrollTop = container.offsetTop + queueIndex * QUEUE_ROW_H
   }
 }
 
@@ -2788,18 +3169,23 @@ document.getElementById('ctx-refresh-meta').addEventListener('click', async () =
   } catch {}
 })
 
-// Edit metadata / images / lyrics - open Jellyfin web UI
-document.getElementById('ctx-edit-meta').addEventListener('click', () => {
-  const item = queue[queueIndex]
-  if (item) window.cascade.shell.openExternal(`${jf.url}/web/index.html#!/details?id=${item.Id}&serverId=${item.ServerId || ''}`)
+// Edit metadata / images - open the item in the Jellyfin web UI. (Lyrics have their
+// own in-app editor, wired below.)
+// Jellyfin's metadata manager (#/libraries/metadata) is a standalone tree browser with
+// no id parameter, so an item can't be deep-linked to it. #/details is the only
+// item-scoped route left, and its page carries the edit actions - so both land there.
+// Note the scheme is #/ ; the old #!/ prefix and the edititem* routes are long gone.
+function openInJellyfinWeb(item) {
+  if (!item) return
+  window.cascade.shell.openExternal(`${jf.url}/web/index.html#/details?id=${item.Id}`)
+}
+;['ctx-edit-meta', 'ctx-edit-images'].forEach(id => {
+  document.getElementById(id).addEventListener('click', () => openInJellyfinWeb(queue[queueIndex]))
 })
-document.getElementById('ctx-edit-images').addEventListener('click', () => {
-  const item = queue[queueIndex]
-  if (item) window.cascade.shell.openExternal(`${jf.url}/web/index.html#!/edititemimages?id=${item.Id}`)
-})
+
+// Lyrics are the one thing we can edit in-app - no reason to bounce to a browser
 document.getElementById('ctx-edit-lyrics').addEventListener('click', () => {
-  const item = queue[queueIndex]
-  if (item) window.cascade.shell.openExternal(`${jf.url}/web/index.html#!/details?id=${item.Id}`)
+  openLyricsEditorFor(queue[queueIndex])
 })
 
 // View album - navigate to the album's detail page
@@ -2849,6 +3235,20 @@ const VALID_LYRICS_SOURCES = new Set(['auto', 'Kugou', 'LRCLIB', 'Jellyfin', 'ca
   serverOnlyMode   = (await window.cascade.store.get('serverOnlyMode')) === true
   _applyServerOnlyMode(serverOnlyMode)
 })()
+
+// Drop the cached fetch for a track and, if it is the one playing, reload the panel.
+// itemId defaults to the current track.
+function _reloadLyricsFor(itemId) {
+  const cur = queue[queueIndex]
+  _lyricsCache.delete(itemId ?? cur?.Id)
+  if (!cur || (itemId != null && itemId !== cur.Id)) return
+  lyricsData = []; lastLyricsIdx = -1; lastOverlayLyricsIdx = -1; _lyricsScanIdx = 0; _ovLyricsScanIdx = 0
+  fetchLyrics()
+}
+
+// The editor writes straight to the server from its own window, so without this the
+// cache below keeps handing back the copy from before the edit.
+window.cascade.lyricsEditor.onSaved(itemId => _reloadLyricsFor(itemId))
 
 function _applyServerOnlyMode(on) {
   // Dropdown: hide external sources and sep, show/hide server-only items; Auto always visible
@@ -2959,16 +3359,22 @@ async function _ensureCascadePluginNotice() {
 }
 
 // ── Lyrics edit button ────────────────────────────────────────────────────────
+async function openLyricsEditorFor(item) {
+  if (!item || !jf) return
+  const proceed = await _ensureCascadePluginNotice()
+  if (!proceed) return
+  // lyricsData holds the playing track's lines - only seed the editor with it when
+  // that is actually the track being edited, otherwise let the editor fetch its own.
+  const seed = item.Id === queue[queueIndex]?.Id ? (lyricsData || []) : []
+  window.cascade.lyricsEditor.open({ item, jf, lyricsData: seed })
+}
+
 ;['lyrics-edit-btn', 'ov-lyrics-edit-btn'].forEach(id => {
   const btn = document.getElementById(id)
   if (!btn) return
-  btn.addEventListener('click', async e => {
+  btn.addEventListener('click', e => {
     e.stopPropagation()
-    const item = queue[queueIndex]
-    if (!item || !jf) return
-    const proceed = await _ensureCascadePluginNotice()
-    if (!proceed) return
-    window.cascade.lyricsEditor.open({ item, jf, lyricsData: lyricsData || [] })
+    openLyricsEditorFor(queue[queueIndex])
   })
 })
 
@@ -2993,11 +3399,7 @@ document.getElementById('lyrics-source-dropdown').querySelectorAll('.lsd-item').
     if (sel) sel.value = lyricsForcedSource
     document.getElementById('lyrics-source-dropdown').classList.remove('open')
     updateSourcePills()
-    // Refetch for current track
-    if (queue[queueIndex]) {
-      _lyricsCache.delete(queue[queueIndex].Id)
-      lyricsData = []; lastLyricsIdx = -1; lastOverlayLyricsIdx = -1; _lyricsScanIdx = 0; _ovLyricsScanIdx = 0; fetchLyrics()
-    }
+    _reloadLyricsFor()
   })
 })
 
@@ -3100,16 +3502,25 @@ function parseLRC(text) {
       const words = []
       const wordRe = /<(\d+):(\d+\.\d+)>([^<\[]*)/g
       let wm
+      // Per-character sources (Chinese karaoke formats, .slrc) give every space its
+      // own timestamped token. Those read as "symbols" below, and trimStart() would
+      // delete them outright - collapsing the whole line into one run-on string.
+      // Tracked separately so a bundled trailing space (per-word LRC: "<ts>word ")
+      // still gets trimmed before punctuation, which is what trimEnd is there for.
+      let pendingSpace = false
       while ((wm = wordRe.exec(content)) !== null) {
         const wText = wm[3]
         if (!wText) continue
+        if (!wText.trim()) { pendingSpace = words.length > 0; continue }
         // Symbols/punctuation with no letters or digits - attach to previous word
         const isSymbol = !/[\p{L}\p{N}]/u.test(wText)
-        if (isSymbol && words.length > 0) {
+        if (isSymbol && words.length > 0 && !pendingSpace) {
           words[words.length - 1].Text = words[words.length - 1].Text.trimEnd() + wText.trimStart()
         } else {
+          if (pendingSpace) words[words.length - 1].Text += ' '
           words.push({ Start: _lrcTimeToTicks(wm[1], wm[2]), End: null, Text: wText })
         }
+        pendingSpace = false
       }
       for (let i = 0; i < words.length - 1; i++) words[i].End = words[i + 1].Start
       // Last word end will be filled in below (needs next line's start)
@@ -3594,44 +4005,75 @@ async function initDiscordRpc() {
   })
 }
 
-// ── Search ────────────────────────────────────────────────────────────────────
+// ── Search (persistent top bar, live dropdown) ─────────────────────────────────
 
 let searchDebounce = null
+const searchInput    = document.getElementById('search-input')
+const searchDropdown = document.getElementById('search-results')
+
+function closeSearchDropdown() { searchDropdown.classList.remove('open') }
 
 document.getElementById('search-input').addEventListener('input', (e) => {
   const q = e.target.value.trim()
   document.getElementById('search-clear').style.display = q ? '' : 'none'
   clearTimeout(searchDebounce)
-  if (!q) {
-    document.getElementById('search-results').innerHTML = '<div class="search-empty-state">Start typing to search your library</div>'
-    return
-  }
+  if (!q) { closeSearchDropdown(); return }
+  searchDropdown.classList.add('open')
   searchDebounce = setTimeout(() => runSearch(q), 300)
 })
 
 document.getElementById('search-clear').addEventListener('click', () => {
   document.getElementById('search-input').value = ''
   document.getElementById('search-clear').style.display = 'none'
-  document.getElementById('search-results').innerHTML = '<div class="search-empty-state">Start typing to search your library</div>'
+  closeSearchDropdown()
   document.getElementById('search-input').focus()
 })
 
-// Focus the input whenever the search view is opened
-const _origShowView = showView
-// (hooked below after showView is defined)
+// Re-open on refocus if there's already a query with results rendered
+searchInput.addEventListener('focus', () => {
+  if (searchInput.value.trim()) searchDropdown.classList.add('open')
+})
+
+// Dismiss on Escape, on an outside click, or once a result is actually acted on
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && searchDropdown.classList.contains('open')) {
+    closeSearchDropdown()
+    searchInput.blur()
+  }
+})
+document.addEventListener('mousedown', (e) => {
+  if (!e.target.closest('.top-search-bar')) closeSearchDropdown()
+})
+searchDropdown.addEventListener('click', closeSearchDropdown)
+searchDropdown.addEventListener('dblclick', closeSearchDropdown)
+
+// Global jump-to-search shortcut
+document.addEventListener('keydown', (e) => {
+  const mod = window.cascade.platform === 'darwin' ? e.metaKey : e.ctrlKey
+  if (mod && e.key.toLowerCase() === 'k') {
+    e.preventDefault()
+    searchInput.focus()
+    searchInput.select()
+  }
+})
 
 async function runSearch(query) {
   const results = document.getElementById('search-results')
   results.innerHTML = '<div class="search-empty-state">Searching…</div>'
   try {
     const [songsRes, albumsRes, artistsRes] = await Promise.allSettled([
-      jfGet(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 10, IncludeItemTypes: 'Audio', Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag' }),
-      jfGet(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 8,  IncludeItemTypes: 'MusicAlbum', Fields: 'PrimaryImageAspectRatio' }),
-      jfGet(`/Artists`,                  { SearchTerm: query, UserId: jf.userId, Limit: 8 }),
+      jfGetMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 10, IncludeItemTypes: 'Audio', Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag' }),
+      jfGetMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 8,  IncludeItemTypes: 'MusicAlbum', Fields: 'PrimaryImageAspectRatio' }),
+      jfGetMerged(`/Artists`,                  { SearchTerm: query, UserId: jf.userId, Limit: 8 }),
     ])
-    const songs   = songsRes.status   === 'fulfilled' ? songsRes.value   : { Items: [] }
-    const albums  = albumsRes.status  === 'fulfilled' ? albumsRes.value  : { Items: [] }
-    const artists = artistsRes.status === 'fulfilled' ? artistsRes.value : { Items: [] }
+    // jfGetMerged returns up to Limit x libraryCount - trim back to the intended size.
+    // ponytail: concat-then-slice biases toward the first library when a term matches
+    // in several. Interleave per library if that shows up in practice.
+    const take = (res, n) =>
+      ({ Items: (res.status === 'fulfilled' ? res.value.Items || [] : []).slice(0, n) })
+    const songs   = take(songsRes, 10)
+    const albums  = take(albumsRes, 8)
+    const artists = take(artistsRes, 8)
 
     const hasSongs   = songs.Items?.length
     const hasAlbums  = albums.Items?.length
@@ -3672,12 +4114,13 @@ async function runSearch(query) {
     }
 
     results.innerHTML = html
+    highlightPlayingRow()
 
     // Wire up song rows
     if (hasSongs) {
       results.querySelectorAll('[data-search-song]').forEach(el => {
         const idx = parseInt(el.dataset.searchSong)
-        wireTrackRow(el, songs.Items[idx], songs.Items, idx)
+        wireTrackRow(el, songs.Items[idx], songs.Items, idx, { clickToPlay: true })
       })
     }
 

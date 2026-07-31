@@ -245,10 +245,10 @@
     .vol-bar:hover .vol-fill { background: var(--text); }
 
     /* ── Library checklist ── */
-    .lib-check-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; transition: background 0.12s; }
-    .lib-check-row:hover { background: var(--surface2); }
-    .lib-check-row input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; flex-shrink: 0; }
-    .lib-check-label { font-size: 12px; color: var(--text2); cursor: pointer; user-select: none; }
+    .lib-check-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 3px 0; }
+    .lib-check-label { font-size: 12px; color: var(--text2); user-select: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* The last enabled library can't be switched off - there'd be nothing to play */
+    .lib-check-row.locked .toggle { opacity: 0.45; pointer-events: none; }
 
     /* ── Full-screen now-playing overlay ── */
     .np-overlay { position: fixed; inset: 0; background: var(--bg); z-index: 300; display: flex; flex-direction: column; transform: translateY(100%); transition: transform 0.38s cubic-bezier(0.4,0,0.2,1); pointer-events: none; overflow: hidden; }
@@ -267,6 +267,10 @@
     .np-overlay-track:hover { text-decoration: underline; }
     .np-overlay-artist { font-size: clamp(13px, 1.7vh, 17px); color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
     .np-overlay-artist:hover { color: var(--text); text-decoration: underline; }
+    /* Applied by applyMarquee() only while text is actually scrolling. Both of these
+       fight a marquee: centred overflow clips at both ends, and the ellipsis would
+       paint mid-scroll. Must sit after the two rules above - equal specificity. */
+    .marquee-on { text-align: left; text-overflow: clip; }
     .np-overlay-controls { display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%; position: relative; }
     .ov-dropdown { position: fixed; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 4px; min-width: 210px; z-index: 400; display: none; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
     .ov-dropdown.open { display: block; }
@@ -306,7 +310,9 @@
     .np-ov-panel.active { display: block; }
     /* Queue panel */
     #ov-panel-queue { transition: transform 0.3s cubic-bezier(0.4,0,0.2,1); }
-    .queue-row { display: flex; align-items: center; gap: 10px; padding: 8px 16px; cursor: pointer; transition: background 0.1s; border-bottom: 0.5px solid var(--border); }
+    /* Height is pinned so it matches QUEUE_ROW_H exactly - the virtualiser's spacer
+       heights and scroll indices are all computed from that constant. */
+    .queue-row { display: flex; align-items: center; gap: 10px; padding: 8px 16px; cursor: pointer; transition: background 0.1s; border-bottom: 0.5px solid var(--border); height: 53px; box-sizing: border-box; }
     .queue-row:hover { background: rgba(255,255,255,0.03); }
     .queue-row.current { background: rgba(110,79,246,0.1); }
     .queue-row.current .queue-row-title { color: #a78bfa; font-weight: 500; }
@@ -322,6 +328,8 @@
     .queue-row-remove:hover { color: var(--red); }
     .queue-row.dragging { opacity: 0.4; background: rgba(110,79,246,0.08); }
     .queue-row.drag-over { border-top: 2px solid var(--accent); }
+    .track-row[draggable="true"].dragging { opacity: 0.4; background: rgba(110,79,246,0.08); }
+    .track-row[draggable="true"].drag-over { border-top: 2px solid var(--accent); }
     /* Overlay lyrics - GPU-accelerated clock-scroll */
     #ov-panel-lyrics { overflow: hidden; }
     .ov-lyrics-scroll { display: flex; flex-direction: column; align-items: center; will-change: transform; }
@@ -468,6 +476,13 @@
     .modal-btn:hover { color: var(--text); border-color: var(--accent); }
     .modal-btn-accent { background: var(--accent); border-color: var(--accent); color: #fff; }
     .modal-btn-accent:hover { background: var(--accent); border-color: var(--accent); color: #fff; opacity: 0.85; }
+    /* Waterfall (beta) */
+    .wf-beta { font-size: 9px; font-weight: 700; letter-spacing: 0.08em; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 1px 4px; vertical-align: middle; margin-left: 6px; }
+    .wf-note { font-size: 11px; color: var(--text3); line-height: 1.5; }
+    .wf-join-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .wf-room-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 20px; font-weight: 600; letter-spacing: 0.18em; color: var(--text); }
+    .wf-members { margin: 12px 0; display: flex; flex-direction: column; gap: 4px; }
+    .wf-member { font-size: 12px; color: var(--text2); padding: 4px 8px; background: var(--surface2); border-radius: 5px; }
     .modal-input { font-family: var(--font); font-size: 12px; flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; color: var(--text); outline: none; transition: border-color 0.12s; }
     .modal-input:focus { border-color: var(--accent); }
     .modal-create-row { display: none; gap: 6px; margin-bottom: 10px; align-items: center; }
@@ -592,19 +607,22 @@
     .toggle-track::after { content: ''; position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; background: white; border-radius: 50%; transition: transform 0.2s; }
     .toggle input:checked + .toggle-track::after { transform: translateX(16px); }
 
-    /* ── Search view ── */
-    .search-bar-wrap { position: sticky; top: 0; background: var(--bg); padding: 0 0 16px; z-index: 5; }
-    .search-input-wrap { position: relative; display: flex; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 0 12px; transition: border-color 0.15s, box-shadow 0.15s; }
+    /* ── Search bar (persistent, top of main content) ── */
+    .top-search-bar { position: relative; flex-shrink: 0; padding: 10px 22px 0; }
+    .search-input-wrap { position: relative; display: flex; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 0 10px; max-width: 340px; margin: 0 auto; transition: border-color 0.15s, box-shadow 0.15s; }
     .search-input-wrap:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
     .search-icon-inline { color: var(--text3); flex-shrink: 0; }
-    .search-input-field { flex: 1; background: none; border: none; outline: none; font-family: var(--font); font-size: 14px; color: var(--text); padding: 11px 10px; }
+    .search-input-field { flex: 1; background: none; border: none; outline: none; font-family: var(--font); font-size: 13px; color: var(--text); padding: 7px 8px; }
     .search-input-field::placeholder { color: var(--text3); }
     .search-clear-btn { background: none; border: none; color: var(--text3); cursor: pointer; padding: 4px; display: flex; align-items: center; border-radius: 4px; transition: color 0.12s; flex-shrink: 0; }
     .search-clear-btn:hover { color: var(--text); }
-    .search-empty-state { color: var(--text3); font-size: 13px; text-align: center; padding: 60px 0; }
-    .search-section { margin-bottom: 24px; }
+    .search-dropdown { display: none; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); width: 100%; max-width: 340px; max-height: min(70vh, 560px); overflow-y: auto; margin-top: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; box-shadow: 0 12px 32px rgba(0,0,0,0.4); z-index: 400; }
+    .search-dropdown.open { display: block; }
+    .search-empty-state { color: var(--text3); font-size: 13px; text-align: center; padding: 40px 0; }
+    .search-section { margin-bottom: 20px; }
+    .search-section:last-child { margin-bottom: 0; }
     .search-section-title { font-size: 10px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 8px; }
-    .search-no-results { color: var(--text3); font-size: 13px; text-align: center; padding: 40px 0; }
+    .search-no-results { color: var(--text3); font-size: 13px; text-align: center; padding: 30px 0; }
 
     /* ── Overlay translate button ── */
     .ov-translate-btn { position: sticky; bottom: 16px; float: right; margin: -44px 16px 16px 0; width: 38px; height: 38px; border-radius: 50%; background: rgba(255,255,255,0.12); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.2); color: var(--text); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s, transform 0.15s, opacity 0.2s; z-index: 10; box-shadow: 0 2px 12px rgba(0,0,0,0.3); }
@@ -726,13 +744,6 @@
         </div>
         <div class="nav-info"><span class="nav-label">Songs</span></div>
       </div>
-      <div class="nav-item" data-view="search">
-        <div class="nav-bar"></div>
-        <div class="nav-icon">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        </div>
-        <div class="nav-info"><span class="nav-label">Search</span></div>
-      </div>
       <div class="nav-item" data-view="playlists">
         <div class="nav-bar"></div>
         <div class="nav-icon">
@@ -755,6 +766,17 @@
 
     <!-- Main -->
     <main class="main">
+
+      <div class="top-search-bar">
+        <div class="search-input-wrap">
+          <svg class="search-icon-inline" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input class="search-input-field" id="search-input" type="text" placeholder="Search songs, albums, artists…" autocomplete="off" />
+          <button class="search-clear-btn" id="search-clear" style="display:none">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div id="search-results" class="search-dropdown"></div>
+      </div>
 
       <!-- Home -->
       <div class="view active" id="view-home">
@@ -916,22 +938,6 @@
         </div>
       </div>
 
-      <!-- Search -->
-      <div class="view" id="view-search">
-        <div class="search-bar-wrap">
-          <div class="search-input-wrap">
-            <svg class="search-icon-inline" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input class="search-input-field" id="search-input" type="text" placeholder="Search songs, albums, artists…" autocomplete="off" />
-            <button class="search-clear-btn" id="search-clear" style="display:none">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-          </div>
-        </div>
-        <div id="search-results">
-          <div class="search-empty-state">Start typing to search your library</div>
-        </div>
-      </div>
-
       <!-- Playlists -->
       <div class="view" id="view-playlists">
         <!-- Playlist grid -->
@@ -1002,16 +1008,60 @@
               <input class="setting-input" id="s-pass" type="password" placeholder="Password" />
             </div>
           </div>
-          <div class="settings-group">
+          <div class="settings-group" id="s-library-group">
             <div class="sg-title">Library</div>
-            <div class="setting-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;">
+            <div class="setting-row" id="s-single-lib-row" style="display:none;">
+              <div class="setting-label">
+                <span class="setting-name">Single library mode</span>
+                <span class="setting-desc">Play from one library at a time instead of merging several.</span>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="s-single-lib-toggle">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div class="setting-row" id="s-library-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;">
               <div class="setting-label">
                 <span class="setting-name">Music libraries</span>
-                <span class="setting-desc">Select one or more libraries to merge</span>
+                <span class="setting-desc" id="s-library-desc">Changes apply immediately.</span>
               </div>
               <div id="s-library-list" style="width:260px;display:flex;flex-direction:column;gap:6px;">
                 <span style="font-size:12px;color:var(--text3);">- connect to load libraries -</span>
               </div>
+            </div>
+          </div>
+          <div class="settings-group">
+            <div class="sg-title">Playback</div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="setting-name">Crossfade</span>
+                <span class="setting-desc">Fade into the next track instead of a hard cut. Off by default.</span>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="crossfade-toggle">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div class="setting-row" id="crossfade-duration-row" style="display:none">
+              <div class="setting-label">
+                <span class="setting-name">Crossfade length</span>
+              </div>
+              <select class="setting-input" id="crossfade-duration">
+                <option value="3">3 seconds</option>
+                <option value="6">6 seconds</option>
+                <option value="8">8 seconds</option>
+                <option value="12">12 seconds</option>
+              </select>
+            </div>
+          </div>
+          <div class="settings-group">
+            <div class="sg-title">Waterfall <span class="wf-beta">BETA</span></div>
+            <div class="setting-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;">
+              <div class="setting-label">
+                <span class="setting-name">Relay server</span>
+                <span class="setting-desc">Handles room codes and keeps listeners in sync. It only ever carries small control messages, never audio. Leave blank for the default, or point it at your own if you would rather not use someone else's.</span>
+              </div>
+              <input class="setting-input" id="s-wf-relay" type="text" placeholder="Default" spellcheck="false" />
             </div>
           </div>
           <div class="settings-group">
@@ -1076,10 +1126,13 @@
               <div style="font-size:11px;color:var(--text3);" id="app-version">v1.0.0</div>
             </div>
             <div style="display:flex;align-items:center;gap:12px;">
-              <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text3);cursor:pointer;">
-                <input type="checkbox" id="beta-updates-toggle">
-                Beta updates
-              </label>
+              <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text3);">
+                <span>Beta updates</span>
+                <label class="toggle">
+                  <input type="checkbox" id="beta-updates-toggle">
+                  <span class="toggle-track"></span>
+                </label>
+              </div>
               <button class="btn btn-secondary" id="btn-check-updates" style="font-size:12px;padding:5px 14px;">Check for updates</button>
             </div>
           </div>
@@ -1130,6 +1183,9 @@
       <div class="vol-bar" id="vol-bar"><div class="vol-fill" id="vol-fill"></div></div>
       <button class="ctrl-btn" id="btn-lyrics-open" title="Lyrics" style="margin-left:6px;">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      </button>
+      <button class="ctrl-btn" id="btn-waterfall-open" title="Waterfall - listen together (beta)" style="margin-left:6px;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.7s5.5 5.2 5.5 9.3a5.5 5.5 0 0 1-11 0C6.5 7.9 12 2.7 12 2.7z"/></svg>
       </button>
     </div>
   </footer>
@@ -1462,6 +1518,37 @@
     </div>
   </div>
 </div>
+<!-- Waterfall: same-server synced listening (beta) -->
+<div class="modal-overlay hidden" id="wf-modal">
+  <div class="modal-card">
+    <div class="modal-title">Waterfall <span class="wf-beta">BETA</span></div>
+    <div id="wf-idle">
+      <div class="wf-note">Listen together with anyone on this same Jellyfin server. No audio is uploaded anywhere - everyone streams from the server you are all signed in to.</div>
+      <div class="modal-create-row" style="margin-top:12px;">
+        <input class="modal-input" id="wf-code-input" placeholder="Room code" maxlength="6" autocapitalize="characters" />
+        <button class="modal-btn" id="wf-join">Join</button>
+      </div>
+      <div class="modal-actions" style="margin-top:12px;">
+        <button class="modal-btn modal-btn-accent" id="wf-create">Start a room</button>
+      </div>
+    </div>
+    <div id="wf-live" style="display:none;">
+      <div class="wf-join-row">
+        <span class="wf-room-code" id="wf-code"></span>
+        <button class="modal-btn" id="wf-copy" title="Copy room code">Copy</button>
+      </div>
+      <div class="wf-note" id="wf-role"></div>
+      <div class="wf-members" id="wf-members"></div>
+      <div class="modal-actions">
+        <button class="modal-btn" id="wf-leave">Leave room</button>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="modal-btn" id="wf-close">Close</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <!-- CascadeSLRC plugin info modal (shown once) -->
@@ -1498,5 +1585,6 @@
 </div>
 
 <script src="renderer.js"></script>
+<script src="waterfall.js"></script>
 </body>
 </html>
