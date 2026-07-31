@@ -1900,9 +1900,12 @@ async function loadSettingsFields() {
   document.getElementById('s-user').value = await window.cascade.store.get('username') || ''
   document.getElementById('s-pass').value = ''
 
-  // Beta updates toggle
+  // Beta updates toggle - defaults on for a beta build itself, same rule main.js
+  // uses for the actual update check, unless the user has explicitly chosen otherwise.
   const betaUpdatesToggle = document.getElementById('beta-updates-toggle')
-  betaUpdatesToggle.checked = (await window.cascade.store.get('betaUpdates')) === true
+  const savedBetaPref = await window.cascade.store.get('betaUpdates')
+  const isBetaBuild = /-b\d*$/.test(appVersion)
+  betaUpdatesToggle.checked = savedBetaPref === undefined ? isBetaBuild : savedBetaPref === true
   betaUpdatesToggle.onchange = async () => {
     await window.cascade.store.set('betaUpdates', betaUpdatesToggle.checked)
   }

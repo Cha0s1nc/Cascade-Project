@@ -166,7 +166,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y rpm libarchive-tools
+          sudo apt-get install -y rpm libarchive-tools fakeroot dpkg
 
       - name: Set version
         run: npm version ${{ needs.setup.outputs.version }} --no-git-tag-version
@@ -189,6 +189,13 @@ jobs:
         with:
           name: dist-linux-rpm
           path: dist/*.rpm
+          retention-days: 7
+
+      - name: Upload DEB (Debian/Ubuntu)
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-linux-deb
+          path: dist/*.deb
           retention-days: 7
 
   # ── Release ────────────────────────────────────────────────────────────────
