@@ -620,9 +620,13 @@ function markDirty() {
 
 // ── Init ───────────────────────────────────────────────────────────────────────
 
-window.lyricsEditor.onInit(({ item, jf, lyricsData }) => {
+window.lyricsEditor.onInit(({ item, jf, lyricsData, volume }) => {
   editorItem = item
   editorJf   = jf
+
+  // Inherit the main window's level. This element defaults to 1.0, so without
+  // it the editor blasts at full volume no matter how quiet the app was set.
+  if (typeof volume === 'number') audio.volume = Math.min(1, Math.max(0, volume))
 
   document.getElementById('track-name').textContent = item.Name || 'Unknown Track'
   document.getElementById('track-sub').textContent  = [

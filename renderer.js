@@ -3366,7 +3366,9 @@ async function openLyricsEditorFor(item) {
   // lyricsData holds the playing track's lines - only seed the editor with it when
   // that is actually the track being edited, otherwise let the editor fetch its own.
   const seed = item.Id === queue[queueIndex]?.Id ? (lyricsData || []) : []
-  window.cascade.lyricsEditor.open({ item, jf, lyricsData: seed })
+  // Pass `volume`, not audio.volume: mid-crossfade the element is partway
+  // through a fade and would hand the editor whatever that transient value is.
+  window.cascade.lyricsEditor.open({ item, jf, lyricsData: seed, volume })
 }
 
 ;['lyrics-edit-btn', 'ov-lyrics-edit-btn'].forEach(id => {
