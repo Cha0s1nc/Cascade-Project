@@ -156,6 +156,10 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      // Chromium suspends requestAnimationFrame while minimized/occluded, so a track
+      // that changes then never gets its marquee measured.
+      // ponytail: costs a little idle CPU; drop it if battery drain shows up.
+      backgroundThrottling: false,
     },
     show: false,
   })

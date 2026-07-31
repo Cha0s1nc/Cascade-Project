@@ -11,7 +11,7 @@ let _unshuffledQueue = []   // original order saved when shuffle is enabled
 
 // Queue panel virtualisation
 const QUEUE_WIN      = 20   // rows kept in DOM at once
-const QUEUE_ROW_H    = 53   // approximate px per row (padding 8+8 + art 36 + border 1)
+const QUEUE_ROW_H    = 53   // px per row - .queue-row pins this exact height in CSS
 const QUEUE_BEFORE   = 5    // rows to show before current track when re-centering
 let _queueWinStart   = 0    // index of first rendered row
 let _queueScrollBound = false
@@ -504,6 +504,7 @@ async function openAlbum(albumId) {
     document.getElementById('album-detail-art').innerHTML = art ? `<img src="${art}" alt="" onerror="this.innerHTML='♪'">` : '♪'
 
     document.getElementById('album-detail-rows').innerHTML = tracks.map((item, i) => trackRowHtml(item, i)).join('')
+    highlightPlayingRow()
 
     document.getElementById('album-detail-rows').querySelectorAll('.track-row').forEach(el => {
       const idx = parseInt(el.dataset.idx)
@@ -585,6 +586,7 @@ async function openArtist(artistId, name) {
 
     // Songs list
     document.getElementById('artist-songs-rows').innerHTML = songs.map((item, i) => trackRowHtml(item, i)).join('')
+    highlightPlayingRow()
 
     document.getElementById('artist-songs-rows').querySelectorAll('.track-row').forEach(el => {
       const idx = parseInt(el.dataset.idx)
@@ -1281,6 +1283,31 @@ async function _prefetchUpcoming() {
   }
 }
 
+// Marquee: measure a clipping container and scroll its .np-scroll-inner if the text
+// overflows. Used by the statusbar and both fullscreen overlay lines.
+function applyMarquee(el) {
+  const inner = el?.querySelector('.np-scroll-inner')
+  if (!inner) return
+  inner.style.animation = 'none'
+  el.classList.remove('marquee-on')
+  const overflow = inner.scrollWidth - el.clientWidth
+  if (overflow > 4) { // dead-zone absorbs subpixel rounding
+    inner.style.setProperty('--marquee-dist', `-${overflow + 8}px`)
+    inner.style.animation = `np-marquee ${Math.max(5, overflow / 25)}s ease-in-out infinite` // ~25px/s
+    el.classList.add('marquee-on')
+  }
+}
+
+const MARQUEE_IDS = ['np-info', 'ov-track', 'ov-artist']
+
+// A plain resize listener rather than ResizeObserver: the overlay's font sizes are
+// clamp(..., vh, ...), so a height-only resize changes the text width without changing
+// any element's box - an observer would never fire. The rAF also coalesces the burst.
+function refreshMarquees() {
+  requestAnimationFrame(() => MARQUEE_IDS.forEach(id => applyMarquee(document.getElementById(id))))
+}
+window.addEventListener('resize', refreshMarquees)
+
 function updateNowPlaying(item) {
   // Warm the cache for the current song and the next 5 in queue
   if (item?.Id) {
@@ -1305,19 +1332,7 @@ function updateNowPlaying(item) {
       <span class="np-artist">${esc(item.AlbumArtist || item.Artists?.[0] || '')}</span>
     </span>
   `
-  // Measure overflow after paint and apply marquee if needed
-  requestAnimationFrame(() => {
-    const info  = document.getElementById('np-info')
-    const inner = info.querySelector('.np-scroll-inner')
-    if (!inner) return
-    inner.style.animation = 'none'
-    const overflow = inner.scrollWidth - info.clientWidth
-    if (overflow > 4) {
-      const duration = Math.max(5, overflow / 25) // speed ~25px/s
-      inner.style.setProperty('--marquee-dist', `-${overflow + 8}px`)
-      inner.style.animation = `np-marquee ${duration}s ease-in-out infinite`
-    }
-  })
+  refreshMarquees()
   // Sync like state from Jellyfin user data
   const liked = item.UserData?.IsFavorite || false
   document.getElementById('btn-like').classList.toggle('liked', liked)
@@ -1392,18 +1407,16 @@ function updateNowPlaying(item) {
   }
 }
 
-// Tracks the currently-highlighted row elements so highlightPlayingRow() only
-// ever touches the handful of rows that actually change, instead of scanning
-// every .track-row in the document (which can be 1000s on large libraries).
-let _playingRowEls = []
-
+// Derived from the DOM, never cached: _drawSongRows() replaces rows.innerHTML on every
+// virtualisation redraw, so held element references go stale and their .playing class
+// can never be cleared - which left two rows highlighted at once. Scanning is cheap:
+// .track-row.playing matches off the class index, and the songs list only ever keeps
+// SONG_WIN rows in the DOM.
 function highlightPlayingRow() {
   const currentId = queue[queueIndex]?.Id
-  _playingRowEls.forEach(r => r.classList.remove('playing'))
-  _playingRowEls = currentId
-    ? Array.from(document.querySelectorAll(`.track-row[data-id="${currentId}"]`))
-    : []
-  _playingRowEls.forEach(r => r.classList.add('playing'))
+  document.querySelectorAll('.track-row.playing').forEach(r => r.classList.remove('playing'))
+  if (currentId)
+    document.querySelectorAll(`.track-row[data-id="${currentId}"]`).forEach(r => r.classList.add('playing'))
 }
 
 // Report playback to Jellyfin so history updates
@@ -2361,9 +2374,10 @@ function syncOverlayState() {
   const artEl = document.getElementById('ov-art')
   artEl.innerHTML = art ? `<img src="${art}" alt="" onerror="this.innerHTML='♪'">` : '♪'
 
-  // Info
-  document.getElementById('ov-track').textContent = item.Name || ''
-  document.getElementById('ov-artist').textContent = item.AlbumArtist || item.Artists?.[0] || ''
+  // Info - wrapped so the marquee has an inline-block track to translate
+  document.getElementById('ov-track').innerHTML  = `<span class="np-scroll-inner">${esc(item.Name || '')}</span>`
+  document.getElementById('ov-artist').innerHTML = `<span class="np-scroll-inner">${esc(item.AlbumArtist || item.Artists?.[0] || '')}</span>`
+  refreshMarquees()
 
   // Like state
   document.getElementById('ov-like').classList.toggle('liked', item.UserData?.IsFavorite || false)
@@ -2391,13 +2405,16 @@ function renderQueuePanel() {
     _queueScrollBound = true
     panel.addEventListener('scroll', () => {
       if (!queue.length) return
-      const visStart = Math.floor(panel.scrollTop / QUEUE_ROW_H)
+      // container.offsetTop is the in-panel "Queue" header - scrollTop 0 is not row 0
+      const visStart = Math.max(0, Math.floor((panel.scrollTop - container.offsetTop) / QUEUE_ROW_H))
       const visEnd   = visStart + Math.ceil(panel.clientHeight / QUEUE_ROW_H)
       const nearTop  = visStart < _queueWinStart + 3
       const nearBot  = visEnd   > _queueWinStart + QUEUE_WIN - 3
       if (nearTop || nearBot) {
-        _queueWinStart = Math.max(0, Math.min(visStart - 3, queue.length - QUEUE_WIN))
-        _drawQueueRows(container, false)
+        // Only redraw on a real window change, otherwise the programmatic scroll in
+        // _drawQueueRows re-triggers this and fights it.
+        const next = Math.max(0, Math.min(visStart - 3, queue.length - QUEUE_WIN))
+        if (next !== _queueWinStart) { _queueWinStart = next; _drawQueueRows(container, false) }
       }
     }, { passive: true })
   }
@@ -2455,7 +2472,11 @@ function _drawQueueRows(container, scrollToCurrent) {
       e.stopPropagation()
       const idx = parseInt(el.dataset.qi)
       queue.splice(idx, 1)
-      if (queueIndex >= idx && queueIndex > 0) queueIndex--
+      // Only rows *before* the current one shift it. Removing the current row leaves
+      // queueIndex pointing at whatever took its place - the next track - unless it
+      // was the last row, in which case clamp back inside the queue.
+      if (idx < queueIndex) queueIndex--
+      else if (queueIndex >= queue.length) queueIndex = Math.max(0, queue.length - 1)
       renderQueuePanel()
     })
 
@@ -2490,8 +2511,11 @@ function _drawQueueRows(container, scrollToCurrent) {
   })
 
   if (scrollToCurrent) {
-    const current = container.querySelector('.queue-row.current')
-    if (current) current.scrollIntoView({ block: 'nearest' })
+    // Explicit scrollTop rather than scrollIntoView: 'nearest' moves the minimum
+    // distance, which parks the current row at the *bottom* edge and can never bring
+    // it to the top. container.offsetTop is the in-panel header height.
+    const panel = document.getElementById('ov-panel-queue')
+    panel.scrollTop = container.offsetTop + queueIndex * QUEUE_ROW_H
   }
 }
 
@@ -3941,6 +3965,7 @@ async function runSearch(query) {
     }
 
     results.innerHTML = html
+    highlightPlayingRow()
 
     // Wire up song rows
     if (hasSongs) {
