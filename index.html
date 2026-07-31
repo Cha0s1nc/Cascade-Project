@@ -1524,8 +1524,10 @@
     <div class="modal-title">Waterfall <span class="wf-beta">BETA</span></div>
     <div id="wf-idle">
       <div class="wf-note">Listen together with anyone on this same Jellyfin server. No audio is uploaded anywhere - everyone streams from the server you are all signed in to.</div>
-      <div class="modal-create-row" style="margin-top:12px;">
-        <input class="modal-input" id="wf-code-input" placeholder="Room code" maxlength="6" autocapitalize="characters" />
+      <!-- Not .modal-create-row: that class is display:none by default and is
+           toggled open by the add-to-playlist flow. Same layout, always shown. -->
+      <div class="wf-join-row" style="margin-top:12px;">
+        <input class="modal-input" id="wf-code-input" placeholder="Room code" maxlength="6" autocapitalize="characters" style="flex:1;min-width:0;" />
         <button class="modal-btn" id="wf-join">Join</button>
       </div>
       <div class="modal-actions" style="margin-top:12px;">
