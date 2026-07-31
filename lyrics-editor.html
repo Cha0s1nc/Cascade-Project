@@ -1437,6 +1437,9 @@ document.getElementById('btn-save').addEventListener('click', async () => {
 
     if (!r.ok) throw new Error(`HTTP ${r.status}`)
 
+    // Drop the main window's cached copy, otherwise it keeps serving pre-edit lyrics
+    window.lyricsEditor.saved(editorItem.Id)
+
     status.className = 'save-status ok'
     status.textContent = 'Saved ✓'
     setTimeout(() => { status.textContent = '' }, 3000)

@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('cascade', {
   nowPlayingUpdate: (data) => ipcRenderer.send('now-playing-update', data),
   kugouGetLyrics: (opts) => ipcRenderer.invoke('kugou-lyrics', opts),
   lyricsEditor: {
-    open: (data) => ipcRenderer.send('open-lyrics-editor', data),
+    open:    (data) => ipcRenderer.send('open-lyrics-editor', data),
+    onSaved: (cb)   => ipcRenderer.on('lyrics-saved', (_e, itemId) => cb(itemId)),
   },
 })

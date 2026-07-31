@@ -333,6 +333,12 @@ ipcMain.on('open-lyrics-editor', (_e, data) => {
   lyricsEditorWindow.on('closed', () => { lyricsEditorWindow = null })
 })
 
+// Relay a successful save to the main window - the editor writes straight to the
+// server, so the main window's lyrics cache would otherwise keep serving the old copy.
+ipcMain.on('lyrics-editor-saved', (_e, itemId) => {
+  if (win && !win.isDestroyed()) win.webContents.send('lyrics-saved', itemId)
+})
+
 ipcMain.on('lyrics-editor-close', () => {
   if (lyricsEditorWindow && !lyricsEditorWindow.isDestroyed()) lyricsEditorWindow.close()
 })

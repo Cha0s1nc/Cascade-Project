@@ -1285,8 +1285,7 @@ document.getElementById('tctx-refresh-meta').addEventListener('click', async () 
 document.getElementById('tctx-edit-meta').addEventListener('click', () => {
   if (!_ctxItem) return
   closeTrackCtxMenu()
-  const url = `${jf.url}/web/index.html#!/edititemmetadata.html?id=${_ctxItem.Id}`
-  window.cascade.shell.openExternal(url)
+  openInJellyfinWeb(_ctxItem)
 })
 
 document.getElementById('tctx-pl-remove').addEventListener('click', async () => {
@@ -1958,10 +1957,7 @@ async function loadSettingsFields() {
     const sel = document.getElementById('s-lyrics-source')
     if (sel) sel.value = lyricsForcedSource
     updateSourcePills()
-    if (queue[queueIndex]) {
-      _lyricsCache.delete(queue[queueIndex].Id)
-      lyricsData = []; lastLyricsIdx = -1; lastOverlayLyricsIdx = -1; _lyricsScanIdx = 0; _ovLyricsScanIdx = 0; fetchLyrics()
-    }
+    _reloadLyricsFor()
   }
 
   // Lyrics source preference
@@ -1972,10 +1968,7 @@ async function loadSettingsFields() {
     lyricsForcedSource = lyricsSourceSel.value
     await window.cascade.store.set('lyricsForcedSource', lyricsForcedSource)
     updateSourcePills()
-    if (queue[queueIndex]) {
-      _lyricsCache.delete(queue[queueIndex].Id)
-      lyricsData = []; lastLyricsIdx = -1; lastOverlayLyricsIdx = -1; _lyricsScanIdx = 0; _ovLyricsScanIdx = 0; fetchLyrics()
-    }
+    _reloadLyricsFor()
   }
 
 }
@@ -3131,18 +3124,23 @@ document.getElementById('ctx-refresh-meta').addEventListener('click', async () =
   } catch {}
 })
 
-// Edit metadata / images / lyrics - open Jellyfin web UI
-document.getElementById('ctx-edit-meta').addEventListener('click', () => {
-  const item = queue[queueIndex]
-  if (item) window.cascade.shell.openExternal(`${jf.url}/web/index.html#!/details?id=${item.Id}&serverId=${item.ServerId || ''}`)
+// Edit metadata / images - open the item in the Jellyfin web UI. (Lyrics have their
+// own in-app editor, wired below.)
+// Jellyfin's metadata manager (#/libraries/metadata) is a standalone tree browser with
+// no id parameter, so an item can't be deep-linked to it. #/details is the only
+// item-scoped route left, and its page carries the edit actions - so both land there.
+// Note the scheme is #/ ; the old #!/ prefix and the edititem* routes are long gone.
+function openInJellyfinWeb(item) {
+  if (!item) return
+  window.cascade.shell.openExternal(`${jf.url}/web/index.html#/details?id=${item.Id}`)
+}
+;['ctx-edit-meta', 'ctx-edit-images'].forEach(id => {
+  document.getElementById(id).addEventListener('click', () => openInJellyfinWeb(queue[queueIndex]))
 })
-document.getElementById('ctx-edit-images').addEventListener('click', () => {
-  const item = queue[queueIndex]
-  if (item) window.cascade.shell.openExternal(`${jf.url}/web/index.html#!/edititemimages?id=${item.Id}`)
-})
+
+// Lyrics are the one thing we can edit in-app - no reason to bounce to a browser
 document.getElementById('ctx-edit-lyrics').addEventListener('click', () => {
-  const item = queue[queueIndex]
-  if (item) window.cascade.shell.openExternal(`${jf.url}/web/index.html#!/details?id=${item.Id}`)
+  openLyricsEditorFor(queue[queueIndex])
 })
 
 // View album - navigate to the album's detail page
@@ -3192,6 +3190,20 @@ const VALID_LYRICS_SOURCES = new Set(['auto', 'Kugou', 'LRCLIB', 'Jellyfin', 'ca
   serverOnlyMode   = (await window.cascade.store.get('serverOnlyMode')) === true
   _applyServerOnlyMode(serverOnlyMode)
 })()
+
+// Drop the cached fetch for a track and, if it is the one playing, reload the panel.
+// itemId defaults to the current track.
+function _reloadLyricsFor(itemId) {
+  const cur = queue[queueIndex]
+  _lyricsCache.delete(itemId ?? cur?.Id)
+  if (!cur || (itemId != null && itemId !== cur.Id)) return
+  lyricsData = []; lastLyricsIdx = -1; lastOverlayLyricsIdx = -1; _lyricsScanIdx = 0; _ovLyricsScanIdx = 0
+  fetchLyrics()
+}
+
+// The editor writes straight to the server from its own window, so without this the
+// cache below keeps handing back the copy from before the edit.
+window.cascade.lyricsEditor.onSaved(itemId => _reloadLyricsFor(itemId))
 
 function _applyServerOnlyMode(on) {
   // Dropdown: hide external sources and sep, show/hide server-only items; Auto always visible
@@ -3302,16 +3314,22 @@ async function _ensureCascadePluginNotice() {
 }
 
 // ── Lyrics edit button ────────────────────────────────────────────────────────
+async function openLyricsEditorFor(item) {
+  if (!item || !jf) return
+  const proceed = await _ensureCascadePluginNotice()
+  if (!proceed) return
+  // lyricsData holds the playing track's lines - only seed the editor with it when
+  // that is actually the track being edited, otherwise let the editor fetch its own.
+  const seed = item.Id === queue[queueIndex]?.Id ? (lyricsData || []) : []
+  window.cascade.lyricsEditor.open({ item, jf, lyricsData: seed })
+}
+
 ;['lyrics-edit-btn', 'ov-lyrics-edit-btn'].forEach(id => {
   const btn = document.getElementById(id)
   if (!btn) return
-  btn.addEventListener('click', async e => {
+  btn.addEventListener('click', e => {
     e.stopPropagation()
-    const item = queue[queueIndex]
-    if (!item || !jf) return
-    const proceed = await _ensureCascadePluginNotice()
-    if (!proceed) return
-    window.cascade.lyricsEditor.open({ item, jf, lyricsData: lyricsData || [] })
+    openLyricsEditorFor(queue[queueIndex])
   })
 })
 
@@ -3336,11 +3354,7 @@ document.getElementById('lyrics-source-dropdown').querySelectorAll('.lsd-item').
     if (sel) sel.value = lyricsForcedSource
     document.getElementById('lyrics-source-dropdown').classList.remove('open')
     updateSourcePills()
-    // Refetch for current track
-    if (queue[queueIndex]) {
-      _lyricsCache.delete(queue[queueIndex].Id)
-      lyricsData = []; lastLyricsIdx = -1; lastOverlayLyricsIdx = -1; _lyricsScanIdx = 0; _ovLyricsScanIdx = 0; fetchLyrics()
-    }
+    _reloadLyricsFor()
   })
 })
 
@@ -3443,16 +3457,25 @@ function parseLRC(text) {
       const words = []
       const wordRe = /<(\d+):(\d+\.\d+)>([^<\[]*)/g
       let wm
+      // Per-character sources (Chinese karaoke formats, .slrc) give every space its
+      // own timestamped token. Those read as "symbols" below, and trimStart() would
+      // delete them outright - collapsing the whole line into one run-on string.
+      // Tracked separately so a bundled trailing space (per-word LRC: "<ts>word ")
+      // still gets trimmed before punctuation, which is what trimEnd is there for.
+      let pendingSpace = false
       while ((wm = wordRe.exec(content)) !== null) {
         const wText = wm[3]
         if (!wText) continue
+        if (!wText.trim()) { pendingSpace = words.length > 0; continue }
         // Symbols/punctuation with no letters or digits - attach to previous word
         const isSymbol = !/[\p{L}\p{N}]/u.test(wText)
-        if (isSymbol && words.length > 0) {
+        if (isSymbol && words.length > 0 && !pendingSpace) {
           words[words.length - 1].Text = words[words.length - 1].Text.trimEnd() + wText.trimStart()
         } else {
+          if (pendingSpace) words[words.length - 1].Text += ' '
           words.push({ Start: _lrcTimeToTicks(wm[1], wm[2]), End: null, Text: wText })
         }
+        pendingSpace = false
       }
       for (let i = 0; i < words.length - 1; i++) words[i].End = words[i + 1].Start
       // Last word end will be filled in below (needs next line's start)
