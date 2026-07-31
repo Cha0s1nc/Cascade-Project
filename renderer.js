@@ -235,45 +235,123 @@ async function connect(serverUrl, token, userId) {
 
   setConnected(true)
   await populateLibraryPicker()
+  invalidateLibraryViews()
   await loadHome()
 }
+
+// The library selection may have changed - force every lazy view to refetch.
+// allSongs must be cleared too: shuffleAllSongs() short-circuits when it is
+// non-empty and would keep queueing tracks from deselected libraries.
+function invalidateLibraryViews() {
+  allSongs = []
+  for (const id of ['albums-grid', 'artists-grid', 'songs-rows', 'playlists-grid'])
+    delete document.getElementById(id).dataset.loaded
+}
+
+let _musicLibs        = []     // the server's music libraries, cached so a mode flip needn't refetch
+let singleLibraryMode = false  // one library at a time (dropdown) instead of merging several
 
 async function populateLibraryPicker() {
   try {
     const data = await jfGet(`/Users/${jf.userId}/Views`)
-    const musicLibs = (data.Items || []).filter(i =>
+    _musicLibs = (data.Items || []).filter(i =>
       i.CollectionType === 'music' || i.CollectionType === 'musicvideos'
     )
     const savedRaw = await window.cascade.store.get('libraryIds')
     let savedIds = []
     try { savedIds = savedRaw ? JSON.parse(savedRaw) : [] } catch {}
+    singleLibraryMode = (await window.cascade.store.get('singleLibraryMode')) === true
 
-    // Auto-select all music libs on first connect
-    if (!savedIds.length && musicLibs.length) {
-      savedIds = musicLibs.map(l => l.Id)
-      await window.cascade.store.set('libraryIds', JSON.stringify(savedIds))
-    }
+    // First connect selects everything; single mode only ever holds one
+    if (!savedIds.length && _musicLibs.length) savedIds = _musicLibs.map(l => l.Id)
+    savedIds = savedIds.filter(id => _musicLibs.some(l => l.Id === id))  // drop libraries that vanished
+    if (singleLibraryMode) savedIds = savedIds.slice(0, 1)
+    if (!savedIds.length && _musicLibs.length) savedIds = [_musicLibs[0].Id]
 
     jf.libraryIds = savedIds
-
-    const container = document.getElementById('s-library-list')
-    if (!musicLibs.length) {
-      container.innerHTML = '<span style="font-size:12px;color:var(--text3);">No music libraries found</span>'
-      return
-    }
-    container.innerHTML = musicLibs.map(lib => `
-      <label class="lib-check-row">
-        <input type="checkbox" value="${lib.Id}" ${savedIds.includes(lib.Id) ? 'checked' : ''} />
-        <span class="lib-check-label">${esc(lib.Name)}</span>
-      </label>
-    `).join('')
+    await window.cascade.store.set('libraryIds', JSON.stringify(savedIds))
+    renderLibraryPicker()
   } catch {}
 }
 
-function getCheckedLibraryIds() {
-  return [...document.querySelectorAll('#s-library-list input[type=checkbox]:checked')]
-    .map(cb => cb.value)
+function renderLibraryPicker() {
+  const container = document.getElementById('s-library-list')
+  const singleRow = document.getElementById('s-single-lib-row')
+  const libRow    = document.getElementById('s-library-row')
+  const desc      = document.getElementById('s-library-desc')
+  const toggle    = document.getElementById('s-single-lib-toggle')
+  const ids       = jf.libraryIds || []
+
+  if (!_musicLibs.length) {
+    singleRow.style.display = 'none'
+    libRow.style.display = ''
+    container.innerHTML = '<span style="font-size:12px;color:var(--text3);">No music libraries found</span>'
+    return
+  }
+
+  // With one library there is nothing to choose - both rows are pure noise
+  const hasChoice = _musicLibs.length > 1
+  singleRow.style.display = hasChoice ? '' : 'none'
+  libRow.style.display    = hasChoice ? '' : 'none'
+  if (!hasChoice) return
+
+  toggle.checked = singleLibraryMode
+
+  if (singleLibraryMode) {
+    desc.textContent = 'Changes apply immediately.'
+    container.innerHTML = `<select class="setting-input" id="s-library-select" style="width:100%;">${
+      _musicLibs.map(lib =>
+        `<option value="${lib.Id}"${ids[0] === lib.Id ? ' selected' : ''}>${esc(lib.Name)}</option>`
+      ).join('')
+    }</select>`
+    document.getElementById('s-library-select').onchange = e => applyLibrarySelection([e.target.value])
+    return
+  }
+
+  desc.textContent = 'Merged into one view. Changes apply immediately.'
+  // The last one on is locked: an empty selection has no coherent meaning here
+  const lockLast = ids.length === 1
+  container.innerHTML = _musicLibs.map(lib => {
+    const on = ids.includes(lib.Id)
+    return `<div class="lib-check-row${on && lockLast ? ' locked' : ''}">
+      <span class="lib-check-label" title="${esc(lib.Name)}">${esc(lib.Name)}</span>
+      <label class="toggle">
+        <input type="checkbox" value="${lib.Id}"${on ? ' checked' : ''} />
+        <span class="toggle-track"></span>
+      </label>
+    </div>`
+  }).join('')
+  container.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.onchange = () => {
+      const next = [...container.querySelectorAll('input[type=checkbox]:checked')].map(c => c.value)
+      applyLibrarySelection(next)
+    }
+  })
 }
+
+// Persist the selection and rebuild every view against it. No re-auth involved:
+// which libraries you browse has nothing to do with your credentials.
+async function applyLibrarySelection(ids) {
+  // Shouldn't be reachable while the last toggle is locked, but if it is, snap the
+  // UI back to what's actually active rather than leaving it showing nothing on
+  if (!ids.length) { renderLibraryPicker(); return }
+  jf.libraryIds = ids
+  await window.cascade.store.set('libraryIds', JSON.stringify(ids))
+  renderLibraryPicker()
+  invalidateLibraryViews()
+  showToast(ids.length === 1
+    ? `Now playing from ${_musicLibs.find(l => l.Id === ids[0])?.Name || 'library'}`
+    : `Merging ${ids.length} libraries`)
+  await loadHome()
+}
+
+document.getElementById('s-single-lib-toggle').addEventListener('change', async e => {
+  singleLibraryMode = e.target.checked
+  await window.cascade.store.set('singleLibraryMode', singleLibraryMode)
+  // Collapsing to one keeps the first that was already on; expanding keeps it as the seed
+  const ids = jf.libraryIds || []
+  await applyLibrarySelection(singleLibraryMode ? ids.slice(0, 1) : ids)
+})
 
 // ── Sidebar expand/collapse ───────────────────────────────────────────────────
 
@@ -326,19 +404,24 @@ async function loadHome() {
 async function loadRecentlyPlayed() {
   const grid = document.getElementById('rp-grid')
   try {
-    const data = await jfGet(`/Users/${jf.userId}/Items`, {
+    const data = await jfGetMerged(`/Users/${jf.userId}/Items`, {
       SortBy: 'DatePlayed',
       SortOrder: 'Descending',
       IncludeItemTypes: 'Audio',
       Filters: 'IsPlayed',
       Limit: 8,
       Recursive: true,
-      Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
+      Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,UserData'
     })
-    if (!data.Items?.length) { grid.innerHTML = '<div class="empty-state" style="grid-column:1/3">No play history yet</div>'; return }
-    grid.innerHTML = data.Items.map(item => rpCard(item)).join('')
+    // jfGetMerged concatenates per-library results, so the server's DatePlayed
+    // ordering only holds within a library - re-sort across the merge.
+    const items = (data.Items || [])
+      .sort((a, b) => new Date(b.UserData?.LastPlayedDate || 0) - new Date(a.UserData?.LastPlayedDate || 0))
+      .slice(0, 8)
+    if (!items.length) { grid.innerHTML = '<div class="empty-state" style="grid-column:1/3">No play history yet</div>'; return }
+    grid.innerHTML = items.map(item => rpCard(item)).join('')
     grid.querySelectorAll('.rp-item').forEach((el, i) => {
-      el.addEventListener('click', () => playItems(data.Items, i))
+      el.addEventListener('click', () => playItems(items, i))
     })
   } catch (e) {
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/3">Could not load history</div>`
@@ -1913,13 +1996,6 @@ document.getElementById('btn-save-settings').addEventListener('click', async () 
     await window.cascade.store.set('token', auth.AccessToken)
     await window.cascade.store.set('userId', auth.User.Id)
     if (pass) await window.cascade.store.set('password', pass)
-
-    // Save selected libraries
-    const checkedIds = getCheckedLibraryIds()
-    if (checkedIds.length) {
-      await window.cascade.store.set('libraryIds', JSON.stringify(checkedIds))
-      jf.libraryIds = checkedIds
-    }
 
     const status = document.getElementById('save-status')
     status.classList.add('visible')
@@ -3918,13 +3994,18 @@ async function runSearch(query) {
   results.innerHTML = '<div class="search-empty-state">Searching…</div>'
   try {
     const [songsRes, albumsRes, artistsRes] = await Promise.allSettled([
-      jfGet(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 10, IncludeItemTypes: 'Audio', Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag' }),
-      jfGet(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 8,  IncludeItemTypes: 'MusicAlbum', Fields: 'PrimaryImageAspectRatio' }),
-      jfGet(`/Artists`,                  { SearchTerm: query, UserId: jf.userId, Limit: 8 }),
+      jfGetMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 10, IncludeItemTypes: 'Audio', Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag' }),
+      jfGetMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 8,  IncludeItemTypes: 'MusicAlbum', Fields: 'PrimaryImageAspectRatio' }),
+      jfGetMerged(`/Artists`,                  { SearchTerm: query, UserId: jf.userId, Limit: 8 }),
     ])
-    const songs   = songsRes.status   === 'fulfilled' ? songsRes.value   : { Items: [] }
-    const albums  = albumsRes.status  === 'fulfilled' ? albumsRes.value  : { Items: [] }
-    const artists = artistsRes.status === 'fulfilled' ? artistsRes.value : { Items: [] }
+    // jfGetMerged returns up to Limit x libraryCount - trim back to the intended size.
+    // ponytail: concat-then-slice biases toward the first library when a term matches
+    // in several. Interleave per library if that shows up in practice.
+    const take = (res, n) =>
+      ({ Items: (res.status === 'fulfilled' ? res.value.Items || [] : []).slice(0, n) })
+    const songs   = take(songsRes, 10)
+    const albums  = take(albumsRes, 8)
+    const artists = take(artistsRes, 8)
 
     const hasSongs   = songs.Items?.length
     const hasAlbums  = albums.Items?.length

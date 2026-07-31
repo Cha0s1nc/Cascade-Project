@@ -245,10 +245,10 @@
     .vol-bar:hover .vol-fill { background: var(--text); }
 
     /* ── Library checklist ── */
-    .lib-check-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; transition: background 0.12s; }
-    .lib-check-row:hover { background: var(--surface2); }
-    .lib-check-row input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; flex-shrink: 0; }
-    .lib-check-label { font-size: 12px; color: var(--text2); cursor: pointer; user-select: none; }
+    .lib-check-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 3px 0; }
+    .lib-check-label { font-size: 12px; color: var(--text2); user-select: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* The last enabled library can't be switched off - there'd be nothing to play */
+    .lib-check-row.locked .toggle { opacity: 0.45; pointer-events: none; }
 
     /* ── Full-screen now-playing overlay ── */
     .np-overlay { position: fixed; inset: 0; background: var(--bg); z-index: 300; display: flex; flex-direction: column; transform: translateY(100%); transition: transform 0.38s cubic-bezier(0.4,0,0.2,1); pointer-events: none; overflow: hidden; }
@@ -1001,12 +1001,22 @@
               <input class="setting-input" id="s-pass" type="password" placeholder="Password" />
             </div>
           </div>
-          <div class="settings-group">
+          <div class="settings-group" id="s-library-group">
             <div class="sg-title">Library</div>
-            <div class="setting-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;">
+            <div class="setting-row" id="s-single-lib-row" style="display:none;">
+              <div class="setting-label">
+                <span class="setting-name">Single library mode</span>
+                <span class="setting-desc">Play from one library at a time instead of merging several.</span>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="s-single-lib-toggle">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div class="setting-row" id="s-library-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;">
               <div class="setting-label">
                 <span class="setting-name">Music libraries</span>
-                <span class="setting-desc">Select one or more libraries to merge</span>
+                <span class="setting-desc" id="s-library-desc">Changes apply immediately.</span>
               </div>
               <div id="s-library-list" style="width:260px;display:flex;flex-direction:column;gap:6px;">
                 <span style="font-size:12px;color:var(--text3);">- connect to load libraries -</span>
