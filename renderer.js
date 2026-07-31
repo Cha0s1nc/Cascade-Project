@@ -148,6 +148,23 @@ function streamUrl(itemId) {
 let _toastsEnabled = false
 window.cascade?.isPackaged?.().then(packaged => { _toastsEnabled = !packaged })
 
+// Toasts are suppressed in packaged builds (_toastsEnabled above), so anything
+// the user genuinely needs to read has to be a modal they dismiss. Resolves once
+// OK is clicked; returns immediately if a notice is already on screen.
+function showNotice(message, title = 'Heads up') {
+  const modal = document.getElementById('notice-modal')
+  if (!modal || !modal.classList.contains('hidden')) return Promise.resolve()
+  document.getElementById('notice-title').textContent = title
+  document.getElementById('notice-body').textContent  = message
+  modal.classList.remove('hidden')
+  return new Promise(resolve => {
+    document.getElementById('notice-ok').addEventListener('click', () => {
+      modal.classList.add('hidden')
+      resolve()
+    }, { once: true })
+  })
+}
+
 function showToast(msg, duration = 2200) {
   if (!_toastsEnabled) return
   const t = document.getElementById('toast')

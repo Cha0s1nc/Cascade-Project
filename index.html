@@ -1518,6 +1518,18 @@
     </div>
   </div>
 </div>
+<!-- Generic dismissable notice. Toasts are dev-only, so anything the user
+     actually has to read needs a modal they acknowledge. -->
+<div class="modal-overlay hidden" id="notice-modal">
+  <div class="modal-card" style="max-height:none;">
+    <div class="modal-title" id="notice-title">Heads up</div>
+    <div class="wf-note" id="notice-body"></div>
+    <div class="modal-actions" style="margin-top:16px;">
+      <button class="modal-btn modal-btn-accent" id="notice-ok">OK</button>
+    </div>
+  </div>
+</div>
+
 <!-- Waterfall: same-server synced listening (beta) -->
 <div class="modal-overlay hidden" id="wf-modal">
   <div class="modal-card">

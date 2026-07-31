@@ -178,14 +178,15 @@ async function wfApplyState(s) {
   _wfApplying = false
 }
 
-// The host re-announces every few seconds, so a follower who can't reach a
-// track would otherwise get the same toast on repeat. Say it once per track.
+// The host re-announces every few seconds, so without the dedupe a follower who
+// can't reach a track would get this modal reopened at them every 4 seconds.
+// Keyed by track so the next song can still report its own problem.
 let _wfLastWarn = null
 function wfWarnOnce(msg) {
   const key = `${msg}:${queue[queueIndex]?.Id || ''}`
   if (key === _wfLastWarn) return
   _wfLastWarn = key
-  showToast(msg)
+  showNotice(msg, 'Waterfall')
 }
 
 // A follower can pass the metadata lookup and still be refused the stream, if
