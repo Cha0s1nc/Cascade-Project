@@ -154,7 +154,11 @@ async function wfApplyState(s) {
       })
       item = res.Items?.[0]
     } catch {}
-    if (!item) { showToast('That track is not on your server'); return }
+    // The host is demonstrably playing this track, so it exists on the server.
+    // An empty lookup therefore means Jellyfin is hiding it from this account,
+    // not that it's missing. Each member streams with their own credentials, so
+    // per-user library permissions apply independently to everyone in the room.
+    if (!item) { wfWarnOnce('You do not have access to this track on the server'); return }
 
     _wfApplying = true
     queue = [item]; queueIndex = 0
@@ -174,6 +178,35 @@ async function wfApplyState(s) {
   _wfApplying = false
 }
 
+// A follower's transport buttons do nothing, which is baffling with no feedback.
+// But this fires on every click, so a modal each time would be worse than the
+// silence. Explain it once per session, then stay quiet.
+let _wfToldAboutHost = false
+function wfNotifyHostControls() {
+  if (_wfToldAboutHost) return
+  _wfToldAboutHost = true
+  showNotice('The host controls playback in this room. Your play, skip and queue controls stay inactive until you leave.', 'Waterfall')
+}
+
+// The host re-announces every few seconds, so without the dedupe a follower who
+// can't reach a track would get this modal reopened at them every 4 seconds.
+// Keyed by track so the next song can still report its own problem.
+let _wfLastWarn = null
+function wfWarnOnce(msg) {
+  const key = `${msg}:${queue[queueIndex]?.Id || ''}`
+  if (key === _wfLastWarn) return
+  _wfLastWarn = key
+  showNotice(msg, 'Waterfall')
+}
+
+// A follower can pass the metadata lookup and still be refused the stream, if
+// Jellyfin shows them the item but not the file. Nothing in the app listens for
+// audio errors, so that failed silently: track showing, no sound, no reason.
+audio.addEventListener('error', () => {
+  if (!wfActive() || wfIsHost || !audio.src) return
+  wfWarnOnce('Could not play this track - your account may not have access to it')
+})
+
 // Guests' own transport buttons are inert while following. Capture phase so
 // this runs before renderer.js's own click handler on the same element.
 ;['btn-play', 'btn-prev', 'btn-next', 'ov-play', 'ov-prev', 'ov-next'].forEach(id => {
@@ -181,7 +214,7 @@ async function wfApplyState(s) {
     if (!wfActive() || wfIsHost) return
     e.stopImmediatePropagation()
     e.preventDefault()
-    showToast('The host controls playback in this room')
+    wfNotifyHostControls()
   }, true)
 })
 
@@ -201,12 +234,17 @@ async function wfJoin(code) {
   await wfOpenSocket(code.trim().toUpperCase(), false)
 }
 
-function wfTeardown(reason) {
+// unexpected: the room ended without the user asking, so say so in a modal they
+// have to dismiss. Leaving on purpose needs no announcement.
+function wfTeardown(reason, unexpected = true) {
   if (wfHeartbeat) { clearInterval(wfHeartbeat); wfHeartbeat = null }
   if (wfWs) { try { wfWs.onclose = null; wfWs.close() } catch {} }
   wfWs = null; wfIsHost = false; wfCode = null; wfMemberId = null; wfRoster = []
+  _wfLastWarn = null
   wfRenderPanel()
-  if (reason) showToast(reason)
+  if (!reason) return
+  if (unexpected) showNotice(reason, 'Waterfall')
+  else showToast(reason)
 }
 
 // ── Panel ────────────────────────────────────────────────────────────────────
@@ -232,7 +270,7 @@ function wfRenderPanel() {
 }
 
 document.getElementById('btn-waterfall-open')?.addEventListener('click', () => {
-  if (!jf?.url) { showToast('Connect to your server first'); return }
+  if (!jf?.url) { showNotice('Connect to your Jellyfin server before starting or joining a room.', 'Waterfall'); return }
   wfRenderPanel()
   document.getElementById('wf-modal').classList.remove('hidden')
 })
@@ -242,20 +280,20 @@ document.getElementById('wf-close')?.addEventListener('click', () =>
 document.getElementById('wf-create')?.addEventListener('click', async e => {
   e.target.disabled = true
   try { await wfCreate(); wfRenderPanel() }
-  catch (err) { showToast(err.message) }
+  catch (err) { showNotice(err.message, 'Could not start room') }
   finally { e.target.disabled = false }
 })
 
 document.getElementById('wf-join')?.addEventListener('click', async e => {
   const code = document.getElementById('wf-code-input').value
-  if (code.trim().length !== 6) { showToast('Room codes are 6 characters'); return }
+  if (code.trim().length !== 6) { showNotice('Room codes are 6 characters long.', 'Waterfall'); return }
   e.target.disabled = true
   try { await wfJoin(code); wfRenderPanel() }
-  catch (err) { showToast(err.message) }
+  catch (err) { showNotice(err.message, 'Could not join room') }
   finally { e.target.disabled = false }
 })
 
-document.getElementById('wf-leave')?.addEventListener('click', () => wfTeardown('Left the room'))
+document.getElementById('wf-leave')?.addEventListener('click', () => wfTeardown('Left the room', false))
 
 document.getElementById('wf-copy')?.addEventListener('click', () => {
   if (wfCode) { window.cascade.clipboard.write(wfCode); showToast('Room code copied') }
