@@ -154,7 +154,11 @@ async function wfApplyState(s) {
       })
       item = res.Items?.[0]
     } catch {}
-    if (!item) { showToast('That track is not on your server'); return }
+    // The host is demonstrably playing this track, so it exists on the server.
+    // An empty lookup therefore means Jellyfin is hiding it from this account,
+    // not that it's missing. Each member streams with their own credentials, so
+    // per-user library permissions apply independently to everyone in the room.
+    if (!item) { wfWarnOnce('You do not have access to this track on the server'); return }
 
     _wfApplying = true
     queue = [item]; queueIndex = 0
@@ -173,6 +177,24 @@ async function wfApplyState(s) {
   if (!s.paused && audio.paused) await audio.play().catch(() => {})
   _wfApplying = false
 }
+
+// The host re-announces every few seconds, so a follower who can't reach a
+// track would otherwise get the same toast on repeat. Say it once per track.
+let _wfLastWarn = null
+function wfWarnOnce(msg) {
+  const key = `${msg}:${queue[queueIndex]?.Id || ''}`
+  if (key === _wfLastWarn) return
+  _wfLastWarn = key
+  showToast(msg)
+}
+
+// A follower can pass the metadata lookup and still be refused the stream, if
+// Jellyfin shows them the item but not the file. Nothing in the app listens for
+// audio errors, so that failed silently: track showing, no sound, no reason.
+audio.addEventListener('error', () => {
+  if (!wfActive() || wfIsHost || !audio.src) return
+  wfWarnOnce('Could not play this track - your account may not have access to it')
+})
 
 // Guests' own transport buttons are inert while following. Capture phase so
 // this runs before renderer.js's own click handler on the same element.
