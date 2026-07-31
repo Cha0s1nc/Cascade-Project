@@ -16,6 +16,8 @@ const QUEUE_BEFORE   = 5    // rows to show before current track when re-centeri
 let _queueWinStart   = 0    // index of first rendered row
 let _queueScrollBound = false
 let volume = 1.0
+let crossfadeEnabled = false
+let crossfadeSeconds = 6
 
 const audio = new Audio()
 audio.crossOrigin = 'anonymous'
@@ -306,7 +308,6 @@ function showView(name) {
   if (name === 'songs' && !document.getElementById('songs-rows').dataset.loaded) loadSongs()
   if (name === 'playlists' && !document.getElementById('playlists-grid').dataset.loaded) loadPlaylists()
   if (name === 'settings') loadSettingsFields()
-  if (name === 'search') setTimeout(() => document.getElementById('search-input').focus(), 80)
 }
 
 document.querySelectorAll('.nav-item[data-view]').forEach(el => {
@@ -614,7 +615,8 @@ function trackRowHtml(item, i, opts = {}) {
   const cls       = 'track-row' + (opts.extraClass || '')
   const entryAttr = opts.entryId != null ? ` data-entry-id="${opts.entryId}"` : ''
   const styleAttr = opts.style ? ` style="${opts.style}"` : ''
-  return `<div class="${cls}" ${idxAttr}="${i}" data-id="${item.Id}"${entryAttr}${styleAttr}>
+  const dragAttr  = opts.draggable ? ' draggable="true"' : ''
+  return `<div class="${cls}" ${idxAttr}="${i}" data-id="${item.Id}"${entryAttr}${styleAttr}${dragAttr}>
     <div class="track-num">${i + 1}</div>
     ${trackThumbHtml(art)}
     <div style="min-width:0">
@@ -823,6 +825,7 @@ function _drawSongRows(rows) {
 async function loadPlaylists() {
   const grid = document.getElementById('playlists-grid')
   grid.dataset.loaded = '1'
+  const smartHtml = smartPlaylistCardHtml('favorites') + smartPlaylistCardHtml('most-played')
   try {
     const data = await jfGet(`/Users/${jf.userId}/Items`, {
       SortBy: 'SortName',
@@ -831,8 +834,7 @@ async function loadPlaylists() {
       Recursive: true,
       Fields: 'PrimaryImageAspectRatio,ChildCount'
     })
-    if (!data.Items?.length) { grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">No playlists found</div>'; return }
-    grid.innerHTML = data.Items.map(item => {
+    grid.innerHTML = smartHtml + (data.Items || []).map(item => {
       const art = artUrl(item.Id, item.ImageTags?.Primary)
       const img = art ? `<img src="${art}" alt="" loading="lazy" onerror="this.style.display='none'">` : '♪'
       const count = item.ChildCount != null ? `${item.ChildCount} songs` : ''
@@ -844,11 +846,17 @@ async function loadPlaylists() {
         </div>
       </div>`
     }).join('')
-    grid.querySelectorAll('.playlist-card').forEach(el => {
+    grid.querySelectorAll('[data-id]').forEach(el => {
       el.addEventListener('click', () => openPlaylist(el.dataset.id, el.dataset.name))
     })
+    grid.querySelectorAll('[data-smart]').forEach(el => {
+      el.addEventListener('click', () => openSmartPlaylist(el.dataset.smart))
+    })
   } catch (e) {
-    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Could not load playlists</div>`
+    grid.innerHTML = smartHtml + `<div class="empty-state" style="grid-column:1/-1">Could not load playlists</div>`
+    grid.querySelectorAll('[data-smart]').forEach(el => {
+      el.addEventListener('click', () => openSmartPlaylist(el.dataset.smart))
+    })
   }
 }
 
@@ -862,39 +870,158 @@ document.getElementById('playlists-refresh').addEventListener('click', async () 
 let currentPlaylistId = null
 let currentPlaylistItems = []
 
-async function openPlaylist(playlistId, name) {
-  currentPlaylistId = playlistId
+function showPlaylistDetailShell(name) {
   document.getElementById('playlist-index').style.display = 'none'
   const detail = document.getElementById('playlist-detail')
   detail.classList.add('active')
   document.getElementById('pl-detail-name').textContent = name
   document.getElementById('pl-detail-meta').innerHTML = '<span class="skel skel-text" style="display:inline-block;width:70px"></span>'
   document.getElementById('pl-detail-rows').innerHTML = skeletonHTML('track', 6)
+}
+
+// Shared by real playlists and smart playlists - populates the track list once
+// items are resolved. entryIds controls whether rows get a real playlist entry ID
+// (needed for "Remove from playlist") - smart playlists aren't real Jellyfin
+// playlists, so there's nothing to remove an entry from.
+function renderPlaylistDetailItems(items, entryIds) {
+  currentPlaylistItems = items
+  document.getElementById('pl-detail-meta').textContent = `${items.length} song${items.length !== 1 ? 's' : ''}`
+  document.getElementById('pl-detail-rows').innerHTML = items.map((item, i) =>
+    trackRowHtml(item, i, entryIds ? { entryId: item.PlaylistItemId || item.Id, draggable: true } : {})
+  ).join('')
+  const rowsEl = document.getElementById('pl-detail-rows')
+  rowsEl.querySelectorAll('.track-row').forEach(el => {
+    const idx = parseInt(el.dataset.idx)
+    wireTrackRow(el, items[idx], items, idx, { inPlaylist: entryIds })
+  })
+  // Smart playlists aren't real Jellyfin playlists - nothing to reorder on the server
+  if (entryIds) wirePlaylistRowDrag(rowsEl, items)
+  highlightPlayingRow()
+}
+
+// Drag-to-reorder for real playlists, mirroring the queue panel's drag pattern.
+// Reorders locally first for snappy feedback, then persists via Jellyfin's
+// playlist-item Move endpoint - a failed save just leaves the client order
+// stale until the playlist is reopened, not destructive either way.
+function wirePlaylistRowDrag(rowsEl, items) {
+  let dragSrc = null
+  rowsEl.querySelectorAll('.track-row').forEach(el => {
+    el.addEventListener('dragstart', (e) => {
+      dragSrc = el
+      el.classList.add('dragging')
+      e.dataTransfer.effectAllowed = 'move'
+      e.dataTransfer.setData('text/plain', el.dataset.idx)
+    })
+    el.addEventListener('dragend', () => {
+      el.classList.remove('dragging')
+      rowsEl.querySelectorAll('.track-row').forEach(r => r.classList.remove('drag-over'))
+    })
+    el.addEventListener('dragover', (e) => {
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+      rowsEl.querySelectorAll('.track-row').forEach(r => r.classList.remove('drag-over'))
+      if (el !== dragSrc) el.classList.add('drag-over')
+    })
+    el.addEventListener('drop', async (e) => {
+      e.preventDefault()
+      if (!dragSrc || dragSrc === el) return
+      const from = parseInt(dragSrc.dataset.idx)
+      const to   = parseInt(el.dataset.idx)
+      const [moved] = items.splice(from, 1)
+      items.splice(to, 0, moved)
+      renderPlaylistDetailItems(items, true)
+      try {
+        const entryId = moved.PlaylistItemId || moved.Id
+        const res = await fetch(`${jf.url}/Playlists/${currentPlaylistId}/Items/${entryId}/Move/${to}`, {
+          method: 'POST', headers: { 'X-Emby-Token': jf.token }
+        })
+        if (!res.ok) throw new Error(res.status)
+      } catch (err) {
+        showToast('Could not save new order')
+      }
+    })
+  })
+}
+
+async function openPlaylist(playlistId, name) {
+  currentPlaylistId = playlistId
+  showPlaylistDetailShell(name)
+  const artEl = document.getElementById('pl-detail-art')
+  artEl.style.background = ''
+  const plArtUrl = `${jf.url}/Items/${playlistId}/Images/Primary?fillHeight=160&fillWidth=160&quality=80&api_key=${jf.token}`
+  artEl.innerHTML = `<img src="${plArtUrl}" alt="" onerror="this.innerHTML='♪'">`
 
   try {
     const data = await jfGet(`/Playlists/${playlistId}/Items`, {
       UserId: jf.userId,
       Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
     })
-    const items = data.Items || []
-    currentPlaylistItems = items
-    document.getElementById('pl-detail-meta').textContent = `${items.length} songs`
-
-    const artEl = document.getElementById('pl-detail-art')
-    const plArtUrl = `${jf.url}/Items/${playlistId}/Images/Primary?fillHeight=160&fillWidth=160&quality=80&api_key=${jf.token}`
-    artEl.innerHTML = `<img src="${plArtUrl}" alt="" onerror="this.innerHTML='♪'">`
-
-    document.getElementById('pl-detail-rows').innerHTML = items.map((item, i) =>
-      trackRowHtml(item, i, { entryId: item.PlaylistItemId || item.Id })
-    ).join('')
-
-    const rowsEl = document.getElementById('pl-detail-rows')
-    rowsEl.querySelectorAll('.track-row').forEach(el => {
-      const idx = parseInt(el.dataset.idx)
-      wireTrackRow(el, items[idx], items, idx, { inPlaylist: true })
-    })
+    renderPlaylistDetailItems(data.Items || [], true)
   } catch (e) {
     document.getElementById('pl-detail-rows').innerHTML = `<div class="empty-state">Could not load playlist</div>`
+  }
+}
+
+// ── Smart playlists ─────────────────────────────────────────────────────────────
+// Auto-updating, synthesized from Jellyfin queries rather than real playlist entities.
+
+const SMART_PLAYLISTS = {
+  favorites: {
+    name: 'Favorites',
+    icon: '<svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>',
+    gradient: 'linear-gradient(135deg,#f472b6,#dc2626)',
+    async fetch() {
+      const data = await jfGetMerged(`/Users/${jf.userId}/Items`, {
+        IncludeItemTypes: 'Audio', Recursive: true, Filters: 'IsFavorite',
+        SortBy: 'SortName', SortOrder: 'Ascending',
+        Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
+      })
+      return data.Items || []
+    }
+  },
+  'most-played': {
+    name: 'Most Played',
+    icon: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>',
+    gradient: 'linear-gradient(135deg,#60a5fa,#059669)',
+    async fetch() {
+      // Ask each library for its own top 200 by play count (server-side sorted),
+      // then merge and re-sort/slice client-side - a per-library cap could otherwise
+      // leave the true top 100 overall incomplete once multiple libraries are merged.
+      const data = await jfGetMerged(`/Users/${jf.userId}/Items`, {
+        IncludeItemTypes: 'Audio', Recursive: true,
+        SortBy: 'PlayCount', SortOrder: 'Descending', Limit: 200,
+        Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
+      })
+      const items = (data.Items || []).filter(i => (i.UserData?.PlayCount || 0) > 0)
+      items.sort((a, b) => (b.UserData?.PlayCount || 0) - (a.UserData?.PlayCount || 0))
+      return items.slice(0, 100)
+    }
+  }
+}
+
+function smartPlaylistCardHtml(kind) {
+  const sp = SMART_PLAYLISTS[kind]
+  return `<div class="playlist-card" data-smart="${kind}">
+    <div class="playlist-art" style="background:${sp.gradient};color:#fff;">${sp.icon}</div>
+    <div class="playlist-body">
+      <div class="playlist-name">${sp.name}</div>
+      <div class="playlist-count">Auto-updating</div>
+    </div>
+  </div>`
+}
+
+async function openSmartPlaylist(kind) {
+  const sp = SMART_PLAYLISTS[kind]
+  if (!sp) return
+  currentPlaylistId = null
+  showPlaylistDetailShell(sp.name)
+  document.getElementById('pl-detail-art').style.background = sp.gradient
+  document.getElementById('pl-detail-art').innerHTML = sp.icon
+
+  try {
+    renderPlaylistDetailItems(await sp.fetch(), false)
+  } catch (e) {
+    document.getElementById('pl-detail-rows').innerHTML = `<div class="empty-state">Could not load</div>`
   }
 }
 
@@ -944,9 +1071,11 @@ function wireTrackRow(el, item, items, idx, opts = {}) {
       playItems(items, idx)
     })
   }
-  // Single click on rest of row - select
+  // Single click on rest of row - select (or play immediately in transient
+  // contexts like the search dropdown, where "select" has nothing to select for)
   el.addEventListener('click', e => {
     if (e.target.closest('.track-thumb')) return  // handled above
+    if (opts.clickToPlay) { playItems(items, idx); return }
     document.querySelectorAll('.track-row.selected').forEach(r => r.classList.remove('selected'))
     el.classList.add('selected')
   })
@@ -1120,9 +1249,16 @@ async function playCurrentTrack() {
   if (queueIndex < 0 || queueIndex >= queue.length) return
   const item = queue[queueIndex]
 
-  initBeatDetection()  // wire up AudioContext before play to avoid mid-playback glitch
-  audio.src = streamUrl(item.Id)
-  audio.play()
+  // Every track change funnels through here, so this is the one place that
+  // needs to know to abandon an in-progress crossfade - covers next/prev,
+  // queue-row jumps, double-click play, instant mix, everything.
+  cancelCrossfade()
+
+  if (!opts.alreadyPlaying) {
+    initBeatDetection()  // wire up AudioContext before play to avoid mid-playback glitch
+    audio.src = streamUrl(item.Id)
+    audio.play()
+  }
 
   updateNowPlaying(item)
   highlightPlayingRow()
@@ -1311,9 +1447,16 @@ audio.addEventListener('pause', () => {
   document.getElementById('icon-play').style.display = ''
   document.getElementById('icon-pause').style.display = 'none'
   window.cascade.discord.clear()
+  // A manual pause mid-crossfade abandons it rather than trying to keep two
+  // elements' pause state in sync - simplest behavior, least surprising.
+  cancelCrossfade()
 })
 
 audio.addEventListener('ended', () => {
+  // Crossfade already handles this transition on its own timeline (driven by
+  // wall-clock time, not this event) - let it finish rather than double-advance.
+  if (_cfNextAudio) return
+
   const item = queue[queueIndex]
   if (item) reportPlaybackStopped(item.Id, Math.round(audio.duration * 10000000))
 
@@ -1359,6 +1502,93 @@ async function continueWithAutoMix(lastItem) {
   } catch (e) {
     console.error('Auto-mix failed', e)
   }
+}
+
+// ── Crossfade ────────────────────────────────────────────────────────────────
+// Fades the ending track out while a temporary, untapped <audio> element plays
+// and fades the next track in, then hands off by copying its position onto the
+// real `audio` element. Every existing listener (progress bar, lyrics sync,
+// Discord RPC, media session, beat detection) stays bound to that same element
+// the whole time - it never learns a crossfade happened.
+
+let _cfNextAudio = null   // temporary element playing the upcoming track during overlap
+let _cfRafId = null       // requestAnimationFrame handle for the volume ramp
+let _cfArmed = true       // guards against re-triggering mid-ramp; re-set per track
+
+// Mirrors the `ended` handler's "what plays next" logic, but only for the case
+// where the next track is already known - skips the auto-mix case, since that
+// track doesn't exist until the current one actually finishes.
+function _resolveCrossfadeTarget() {
+  if (repeatMode === 'one') return -1
+  const next = queueIndex + 1
+  if (next >= queue.length) return repeatMode === 'all' ? 0 : -1
+  return next
+}
+
+audio.addEventListener('timeupdate', () => {
+  if (!crossfadeEnabled || !_cfArmed || _cfNextAudio) return
+  if (!audio.duration || !isFinite(audio.duration)) return
+  if (sleepAtTrackEnd) return
+  const remaining = audio.duration - audio.currentTime
+  if (remaining > crossfadeSeconds || remaining <= 0) return
+  const nextIndex = _resolveCrossfadeTarget()
+  if (nextIndex < 0) return
+  _cfArmed = false
+  startCrossfade(nextIndex)
+})
+
+function startCrossfade(nextIndex) {
+  const nextItem = queue[nextIndex]
+  if (!nextItem) return
+
+  const next = new Audio()
+  next.crossOrigin = 'anonymous'  // matches the primary element's setup
+  next.src = streamUrl(nextItem.Id)
+  next.volume = 0
+  next.play().catch(() => {})
+  _cfNextAudio = next
+
+  const fadeMs   = crossfadeSeconds * 1000
+  const startVol = audio.volume
+  const targetVol = volume
+  const t0 = performance.now()
+
+  const tick = (now) => {
+    if (_cfNextAudio !== next) return  // cancelled mid-ramp
+    const p = Math.min(1, (now - t0) / fadeMs)
+    audio.volume = startVol * (1 - p)
+    next.volume = targetVol * p
+    if (p < 1) _cfRafId = requestAnimationFrame(tick)
+    else finishCrossfade(nextIndex, next)
+  }
+  _cfRafId = requestAnimationFrame(tick)
+}
+
+function finishCrossfade(nextIndex, next) {
+  const outgoingItem = queue[queueIndex]
+  if (outgoingItem) reportPlaybackStopped(outgoingItem.Id, Math.round(audio.currentTime * 10000000))
+
+  audio.pause()
+  audio.src = next.src
+  audio.currentTime = next.currentTime
+  audio.volume = volume
+  audio.play().catch(() => {})
+
+  next.pause()
+  next.src = ''
+  _cfNextAudio = null
+  _cfRafId = null
+
+  queueIndex = nextIndex
+  playCurrentTrack({ alreadyPlaying: true })
+  renderQueuePanel()
+}
+
+function cancelCrossfade() {
+  if (_cfRafId) { cancelAnimationFrame(_cfRafId); _cfRafId = null }
+  if (_cfNextAudio) { _cfNextAudio.pause(); _cfNextAudio.src = ''; _cfNextAudio = null }
+  audio.volume = volume
+  _cfArmed = true
 }
 
 // ── Player controls ───────────────────────────────────────────────────────────
@@ -1749,12 +1979,22 @@ document.getElementById('setup-password').addEventListener('keydown', e => {
 
 // ── Startup ───────────────────────────────────────────────────────────────────
 
-document.getElementById('btn-check-updates').addEventListener('click', () => {
-  window.cascade.checkForUpdates()
+document.getElementById('btn-check-updates').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-check-updates')
+  btn.disabled = true
+  try {
+    const result = await window.cascade.checkForUpdates()
+    if (result?.error) showToast('Failed to check for updates')
+    else if (!result?.hasUpdate) showToast("You're up to date")
+    // else: the updater window itself is the feedback
+  } finally {
+    btn.disabled = false
+  }
 })
 
 async function init() {
   document.documentElement.setAttribute('data-platform', window.cascade.platform)
+  searchInput.placeholder = `Search songs, albums, artists… (${window.cascade.platform === 'darwin' ? '⌘K' : 'Ctrl+K'})`
   await window.cascade.getVersion().then(v => {
     appVersion = v
     const el = document.getElementById('app-version')
@@ -1764,6 +2004,9 @@ async function init() {
   await loadTheme()
   buildPresets()
   await initDiscordRpc()
+
+  crossfadeEnabled = (await window.cascade.store.get('crossfadeEnabled')) === true
+  crossfadeSeconds = parseInt(await window.cascade.store.get('crossfadeSeconds'), 10) || 6
 
   // Restore saved volume
   const savedVol = await window.cascade.store.get('volume')
@@ -3594,31 +3837,57 @@ async function initDiscordRpc() {
   })
 }
 
-// ── Search ────────────────────────────────────────────────────────────────────
+// ── Search (persistent top bar, live dropdown) ─────────────────────────────────
 
 let searchDebounce = null
+const searchInput    = document.getElementById('search-input')
+const searchDropdown = document.getElementById('search-results')
+
+function closeSearchDropdown() { searchDropdown.classList.remove('open') }
 
 document.getElementById('search-input').addEventListener('input', (e) => {
   const q = e.target.value.trim()
   document.getElementById('search-clear').style.display = q ? '' : 'none'
   clearTimeout(searchDebounce)
-  if (!q) {
-    document.getElementById('search-results').innerHTML = '<div class="search-empty-state">Start typing to search your library</div>'
-    return
-  }
+  if (!q) { closeSearchDropdown(); return }
+  searchDropdown.classList.add('open')
   searchDebounce = setTimeout(() => runSearch(q), 300)
 })
 
 document.getElementById('search-clear').addEventListener('click', () => {
   document.getElementById('search-input').value = ''
   document.getElementById('search-clear').style.display = 'none'
-  document.getElementById('search-results').innerHTML = '<div class="search-empty-state">Start typing to search your library</div>'
+  closeSearchDropdown()
   document.getElementById('search-input').focus()
 })
 
-// Focus the input whenever the search view is opened
-const _origShowView = showView
-// (hooked below after showView is defined)
+// Re-open on refocus if there's already a query with results rendered
+searchInput.addEventListener('focus', () => {
+  if (searchInput.value.trim()) searchDropdown.classList.add('open')
+})
+
+// Dismiss on Escape, on an outside click, or once a result is actually acted on
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && searchDropdown.classList.contains('open')) {
+    closeSearchDropdown()
+    searchInput.blur()
+  }
+})
+document.addEventListener('mousedown', (e) => {
+  if (!e.target.closest('.top-search-bar')) closeSearchDropdown()
+})
+searchDropdown.addEventListener('click', closeSearchDropdown)
+searchDropdown.addEventListener('dblclick', closeSearchDropdown)
+
+// Global jump-to-search shortcut
+document.addEventListener('keydown', (e) => {
+  const mod = window.cascade.platform === 'darwin' ? e.metaKey : e.ctrlKey
+  if (mod && e.key.toLowerCase() === 'k') {
+    e.preventDefault()
+    searchInput.focus()
+    searchInput.select()
+  }
+})
 
 async function runSearch(query) {
   const results = document.getElementById('search-results')
@@ -3677,7 +3946,7 @@ async function runSearch(query) {
     if (hasSongs) {
       results.querySelectorAll('[data-search-song]').forEach(el => {
         const idx = parseInt(el.dataset.searchSong)
-        wireTrackRow(el, songs.Items[idx], songs.Items, idx)
+        wireTrackRow(el, songs.Items[idx], songs.Items, idx, { clickToPlay: true })
       })
     }
 

@@ -378,8 +378,10 @@ async function checkForUpdates() {
       assetName:    asset?.name          || null,
       digest:       asset?.digest        || null,
     })
+    return { hasUpdate: true }
   } catch (err) {
     console.error('[updater] Check failed:', err.message)
+    return { hasUpdate: false, error: err.message }
   }
 }
 
@@ -431,9 +433,9 @@ function verifyDigest(filePath, digest) {
 
 // ── Updater IPC ────────────────────────────────────────────────────────────────
 
-ipcMain.handle('check-for-updates', () => {
+ipcMain.handle('check-for-updates', async () => {
   if (app.isPackaged) {
-    checkForUpdates()
+    return await checkForUpdates()
   } else {
     openUpdaterWindow({
       version: '99.0.0',
@@ -442,8 +444,8 @@ ipcMain.handle('check-for-updates', () => {
       releaseUrl: `https://github.com/${GITHUB_REPO}/releases`,
       downloadUrl: null, assetName: null,
     })
+    return { hasUpdate: true }
   }
-  return { ok: true }
 })
 
 ipcMain.handle('updater:download', async () => {

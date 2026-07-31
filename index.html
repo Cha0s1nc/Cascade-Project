@@ -322,6 +322,8 @@
     .queue-row-remove:hover { color: var(--red); }
     .queue-row.dragging { opacity: 0.4; background: rgba(110,79,246,0.08); }
     .queue-row.drag-over { border-top: 2px solid var(--accent); }
+    .track-row[draggable="true"].dragging { opacity: 0.4; background: rgba(110,79,246,0.08); }
+    .track-row[draggable="true"].drag-over { border-top: 2px solid var(--accent); }
     /* Overlay lyrics - GPU-accelerated clock-scroll */
     #ov-panel-lyrics { overflow: hidden; }
     .ov-lyrics-scroll { display: flex; flex-direction: column; align-items: center; will-change: transform; }
@@ -592,19 +594,22 @@
     .toggle-track::after { content: ''; position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; background: white; border-radius: 50%; transition: transform 0.2s; }
     .toggle input:checked + .toggle-track::after { transform: translateX(16px); }
 
-    /* ── Search view ── */
-    .search-bar-wrap { position: sticky; top: 0; background: var(--bg); padding: 0 0 16px; z-index: 5; }
-    .search-input-wrap { position: relative; display: flex; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 0 12px; transition: border-color 0.15s, box-shadow 0.15s; }
+    /* ── Search bar (persistent, top of main content) ── */
+    .top-search-bar { position: relative; flex-shrink: 0; padding: 10px 22px 0; }
+    .search-input-wrap { position: relative; display: flex; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 0 10px; max-width: 340px; margin: 0 auto; transition: border-color 0.15s, box-shadow 0.15s; }
     .search-input-wrap:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
     .search-icon-inline { color: var(--text3); flex-shrink: 0; }
-    .search-input-field { flex: 1; background: none; border: none; outline: none; font-family: var(--font); font-size: 14px; color: var(--text); padding: 11px 10px; }
+    .search-input-field { flex: 1; background: none; border: none; outline: none; font-family: var(--font); font-size: 13px; color: var(--text); padding: 7px 8px; }
     .search-input-field::placeholder { color: var(--text3); }
     .search-clear-btn { background: none; border: none; color: var(--text3); cursor: pointer; padding: 4px; display: flex; align-items: center; border-radius: 4px; transition: color 0.12s; flex-shrink: 0; }
     .search-clear-btn:hover { color: var(--text); }
-    .search-empty-state { color: var(--text3); font-size: 13px; text-align: center; padding: 60px 0; }
-    .search-section { margin-bottom: 24px; }
+    .search-dropdown { display: none; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); width: 100%; max-width: 340px; max-height: min(70vh, 560px); overflow-y: auto; margin-top: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; box-shadow: 0 12px 32px rgba(0,0,0,0.4); z-index: 400; }
+    .search-dropdown.open { display: block; }
+    .search-empty-state { color: var(--text3); font-size: 13px; text-align: center; padding: 40px 0; }
+    .search-section { margin-bottom: 20px; }
+    .search-section:last-child { margin-bottom: 0; }
     .search-section-title { font-size: 10px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 8px; }
-    .search-no-results { color: var(--text3); font-size: 13px; text-align: center; padding: 40px 0; }
+    .search-no-results { color: var(--text3); font-size: 13px; text-align: center; padding: 30px 0; }
 
     /* ── Overlay translate button ── */
     .ov-translate-btn { position: sticky; bottom: 16px; float: right; margin: -44px 16px 16px 0; width: 38px; height: 38px; border-radius: 50%; background: rgba(255,255,255,0.12); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.2); color: var(--text); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s, transform 0.15s, opacity 0.2s; z-index: 10; box-shadow: 0 2px 12px rgba(0,0,0,0.3); }
@@ -726,13 +731,6 @@
         </div>
         <div class="nav-info"><span class="nav-label">Songs</span></div>
       </div>
-      <div class="nav-item" data-view="search">
-        <div class="nav-bar"></div>
-        <div class="nav-icon">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        </div>
-        <div class="nav-info"><span class="nav-label">Search</span></div>
-      </div>
       <div class="nav-item" data-view="playlists">
         <div class="nav-bar"></div>
         <div class="nav-icon">
@@ -755,6 +753,17 @@
 
     <!-- Main -->
     <main class="main">
+
+      <div class="top-search-bar">
+        <div class="search-input-wrap">
+          <svg class="search-icon-inline" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input class="search-input-field" id="search-input" type="text" placeholder="Search songs, albums, artists…" autocomplete="off" />
+          <button class="search-clear-btn" id="search-clear" style="display:none">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div id="search-results" class="search-dropdown"></div>
+      </div>
 
       <!-- Home -->
       <div class="view active" id="view-home">
@@ -916,22 +925,6 @@
         </div>
       </div>
 
-      <!-- Search -->
-      <div class="view" id="view-search">
-        <div class="search-bar-wrap">
-          <div class="search-input-wrap">
-            <svg class="search-icon-inline" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input class="search-input-field" id="search-input" type="text" placeholder="Search songs, albums, artists…" autocomplete="off" />
-            <button class="search-clear-btn" id="search-clear" style="display:none">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-          </div>
-        </div>
-        <div id="search-results">
-          <div class="search-empty-state">Start typing to search your library</div>
-        </div>
-      </div>
-
       <!-- Playlists -->
       <div class="view" id="view-playlists">
         <!-- Playlist grid -->
@@ -1076,10 +1069,13 @@
               <div style="font-size:11px;color:var(--text3);" id="app-version">v1.0.0</div>
             </div>
             <div style="display:flex;align-items:center;gap:12px;">
-              <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text3);cursor:pointer;">
-                <input type="checkbox" id="beta-updates-toggle">
-                Beta updates
-              </label>
+              <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text3);">
+                <span>Beta updates</span>
+                <label class="toggle">
+                  <input type="checkbox" id="beta-updates-toggle">
+                  <span class="toggle-track"></span>
+                </label>
+              </div>
               <button class="btn btn-secondary" id="btn-check-updates" style="font-size:12px;padding:5px 14px;">Check for updates</button>
             </div>
           </div>
