@@ -96,7 +96,7 @@
       ]
     },
     "dmg": {
-      "title": "Cascade",
+      "title": "Cascade${arch}",
       "backgroundColor": "#111113"
     },
     "nsis": {
