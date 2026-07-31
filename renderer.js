@@ -1308,6 +1308,12 @@ document.getElementById('tctx-pl-remove').addEventListener('click', async () => 
 // ── Playback ──────────────────────────────────────────────────────────────────
 
 function playItems(items, startIndex) {
+  // In a Waterfall room a guest follows the host - starting something locally
+  // would silently fight the session until the next sync pulled it back.
+  if (typeof wfBlocksLocalPlayback === 'function' && wfBlocksLocalPlayback()) {
+    showToast('The host controls playback in this room')
+    return
+  }
   if (shuffle) {
     // New queue loaded while shuffle is on - shuffle the new queue immediately
     _unshuffledQueue = [...items]
@@ -1329,7 +1335,10 @@ function playItems(items, startIndex) {
   playCurrentTrack()
 }
 
-async function playCurrentTrack() {
+// opts.alreadyPlaying: true when a crossfade handoff already has `audio` playing
+// the new track in place - skip the src reset that would otherwise restart it.
+async function playCurrentTrack(opts = {}) {
+  if (typeof wfBlocksLocalPlayback === 'function' && wfBlocksLocalPlayback()) return
   if (queueIndex < 0 || queueIndex >= queue.length) return
   const item = queue[queueIndex]
 
@@ -1896,6 +1905,39 @@ async function loadSettingsFields() {
   betaUpdatesToggle.checked = (await window.cascade.store.get('betaUpdates')) === true
   betaUpdatesToggle.onchange = async () => {
     await window.cascade.store.set('betaUpdates', betaUpdatesToggle.checked)
+  }
+
+  // Crossfade settings
+  const crossfadeToggle = document.getElementById('crossfade-toggle')
+  const crossfadeDurationRow = document.getElementById('crossfade-duration-row')
+  const crossfadeDurationSelect = document.getElementById('crossfade-duration')
+  crossfadeToggle.checked = crossfadeEnabled
+  crossfadeDurationRow.style.display = crossfadeEnabled ? '' : 'none'
+  crossfadeDurationSelect.value = String(crossfadeSeconds)
+  crossfadeToggle.onchange = async () => {
+    crossfadeEnabled = crossfadeToggle.checked
+    crossfadeDurationRow.style.display = crossfadeEnabled ? '' : 'none'
+    await window.cascade.store.set('crossfadeEnabled', crossfadeEnabled)
+  }
+  crossfadeDurationSelect.onchange = async () => {
+    crossfadeSeconds = parseInt(crossfadeDurationSelect.value, 10)
+    await window.cascade.store.set('crossfadeSeconds', crossfadeSeconds)
+  }
+
+  // Waterfall relay. Blank means the default, so clearing the box is the reset.
+  const wfRelayInput = document.getElementById('s-wf-relay')
+  wfRelayInput.value = (await window.cascade.store.get('waterfallRelay')) || ''
+  wfRelayInput.placeholder = typeof WF_DEFAULT_RELAY === 'string' ? WF_DEFAULT_RELAY : 'Default'
+  wfRelayInput.onchange = async () => {
+    const raw = wfRelayInput.value.trim().replace(/\/+$/, '')
+    if (raw && !/^https?:\/\/[^\s/]+/i.test(raw)) {
+      showToast('Relay must be an http:// or https:// address')
+      wfRelayInput.value = (await window.cascade.store.get('waterfallRelay')) || ''
+      return
+    }
+    await window.cascade.store.set('waterfallRelay', raw)
+    wfRelayInput.value = raw
+    showToast(raw ? 'Waterfall relay updated' : 'Using the default Waterfall relay')
   }
 
   // Discord RPC settings

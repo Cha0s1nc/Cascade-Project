@@ -476,6 +476,13 @@
     .modal-btn:hover { color: var(--text); border-color: var(--accent); }
     .modal-btn-accent { background: var(--accent); border-color: var(--accent); color: #fff; }
     .modal-btn-accent:hover { background: var(--accent); border-color: var(--accent); color: #fff; opacity: 0.85; }
+    /* Waterfall (beta) */
+    .wf-beta { font-size: 9px; font-weight: 700; letter-spacing: 0.08em; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 1px 4px; vertical-align: middle; margin-left: 6px; }
+    .wf-note { font-size: 11px; color: var(--text3); line-height: 1.5; }
+    .wf-join-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .wf-room-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 20px; font-weight: 600; letter-spacing: 0.18em; color: var(--text); }
+    .wf-members { margin: 12px 0; display: flex; flex-direction: column; gap: 4px; }
+    .wf-member { font-size: 12px; color: var(--text2); padding: 4px 8px; background: var(--surface2); border-radius: 5px; }
     .modal-input { font-family: var(--font); font-size: 12px; flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; color: var(--text); outline: none; transition: border-color 0.12s; }
     .modal-input:focus { border-color: var(--accent); }
     .modal-create-row { display: none; gap: 6px; margin-bottom: 10px; align-items: center; }
@@ -1024,6 +1031,40 @@
             </div>
           </div>
           <div class="settings-group">
+            <div class="sg-title">Playback</div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="setting-name">Crossfade</span>
+                <span class="setting-desc">Fade into the next track instead of a hard cut. Off by default.</span>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="crossfade-toggle">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div class="setting-row" id="crossfade-duration-row" style="display:none">
+              <div class="setting-label">
+                <span class="setting-name">Crossfade length</span>
+              </div>
+              <select class="setting-input" id="crossfade-duration">
+                <option value="3">3 seconds</option>
+                <option value="6">6 seconds</option>
+                <option value="8">8 seconds</option>
+                <option value="12">12 seconds</option>
+              </select>
+            </div>
+          </div>
+          <div class="settings-group">
+            <div class="sg-title">Waterfall <span class="wf-beta">BETA</span></div>
+            <div class="setting-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;">
+              <div class="setting-label">
+                <span class="setting-name">Relay server</span>
+                <span class="setting-desc">Handles room codes and keeps listeners in sync. It only ever carries small control messages, never audio. Leave blank for the default, or point it at your own if you would rather not use someone else's.</span>
+              </div>
+              <input class="setting-input" id="s-wf-relay" type="text" placeholder="Default" spellcheck="false" />
+            </div>
+          </div>
+          <div class="settings-group">
             <div class="sg-title">Discord</div>
             <div class="setting-row">
               <div class="setting-label">
@@ -1142,6 +1183,9 @@
       <div class="vol-bar" id="vol-bar"><div class="vol-fill" id="vol-fill"></div></div>
       <button class="ctrl-btn" id="btn-lyrics-open" title="Lyrics" style="margin-left:6px;">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      </button>
+      <button class="ctrl-btn" id="btn-waterfall-open" title="Waterfall - listen together (beta)" style="margin-left:6px;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.7s5.5 5.2 5.5 9.3a5.5 5.5 0 0 1-11 0C6.5 7.9 12 2.7 12 2.7z"/></svg>
       </button>
     </div>
   </footer>
@@ -1474,6 +1518,37 @@
     </div>
   </div>
 </div>
+<!-- Waterfall: same-server synced listening (beta) -->
+<div class="modal-overlay hidden" id="wf-modal">
+  <div class="modal-card">
+    <div class="modal-title">Waterfall <span class="wf-beta">BETA</span></div>
+    <div id="wf-idle">
+      <div class="wf-note">Listen together with anyone on this same Jellyfin server. No audio is uploaded anywhere - everyone streams from the server you are all signed in to.</div>
+      <div class="modal-create-row" style="margin-top:12px;">
+        <input class="modal-input" id="wf-code-input" placeholder="Room code" maxlength="6" autocapitalize="characters" />
+        <button class="modal-btn" id="wf-join">Join</button>
+      </div>
+      <div class="modal-actions" style="margin-top:12px;">
+        <button class="modal-btn modal-btn-accent" id="wf-create">Start a room</button>
+      </div>
+    </div>
+    <div id="wf-live" style="display:none;">
+      <div class="wf-join-row">
+        <span class="wf-room-code" id="wf-code"></span>
+        <button class="modal-btn" id="wf-copy" title="Copy room code">Copy</button>
+      </div>
+      <div class="wf-note" id="wf-role"></div>
+      <div class="wf-members" id="wf-members"></div>
+      <div class="modal-actions">
+        <button class="modal-btn" id="wf-leave">Leave room</button>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="modal-btn" id="wf-close">Close</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <!-- CascadeSLRC plugin info modal (shown once) -->
@@ -1510,5 +1585,6 @@
 </div>
 
 <script src="renderer.js"></script>
+<script src="waterfall.js"></script>
 </body>
 </html>

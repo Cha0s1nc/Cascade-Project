@@ -39,6 +39,7 @@
       "preload.js",
       "index.html",
       "renderer.js",
+      "waterfall.js",
       "updater.html",
       "updater-preload.js",
       "lyrics-editor.html",
