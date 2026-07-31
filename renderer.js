@@ -1039,7 +1039,7 @@ function wirePlaylistRowDrag(rowsEl, items) {
         })
         if (!res.ok) throw new Error(res.status)
       } catch (err) {
-        showToast('Could not save new order')
+        showNotice('Could not save the new playlist order. It may still be reordered on this device only.', 'Playlist')
       }
     })
   })
@@ -1219,10 +1219,10 @@ document.getElementById('tctx-instant-mix').addEventListener('click', async () =
   // Reuse the existing instant mix logic via the ctx-instant-mix path
   try {
     const data = await jfGet(`/Items/${_ctxItem.Id}/InstantMix`, { UserId: jf.userId, Limit: 50, Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag' })
-    if (!data.Items?.length) { showToast('No instant mix found'); return }
+    if (!data.Items?.length) { showNotice('Jellyfin did not return an instant mix for this track.', 'Instant mix'); return }
     playItems(data.Items, 0)
     showToast(`Instant mix from "${_ctxItem.Name}"`)
-  } catch (e) { showToast('Instant mix failed') }
+  } catch (e) { showNotice('Could not build an instant mix from this track.', 'Instant mix') }
 })
 
 document.getElementById('tctx-add-playlist').addEventListener('click', () => {
@@ -1296,7 +1296,7 @@ document.getElementById('tctx-refresh-meta').addEventListener('click', async () 
       method: 'POST', headers: { 'X-Emby-Token': jf.token }
     })
     showToast('Metadata refresh queued')
-  } catch { showToast('Refresh failed') }
+  } catch { showNotice('Could not queue a metadata refresh on the server.', 'Refresh failed') }
 })
 
 document.getElementById('tctx-edit-meta').addEventListener('click', () => {
@@ -1309,7 +1309,7 @@ document.getElementById('tctx-pl-remove').addEventListener('click', async () => 
   if (!_ctxEl || !currentPlaylistId) return
   closeTrackCtxMenu()
   const entryId = _ctxEl.dataset.entryId
-  if (!entryId) { showToast('Cannot remove - missing entry ID'); return }
+  if (!entryId) { showNotice('This row is missing its playlist entry ID, so it cannot be removed.', 'Playlist'); return }
   try {
     const res = await fetch(`${jf.url}/Playlists/${currentPlaylistId}/Items?EntryIds=${encodeURIComponent(entryId)}`, {
       method: 'DELETE', headers: { 'X-Emby-Token': jf.token }
@@ -1319,7 +1319,7 @@ document.getElementById('tctx-pl-remove').addEventListener('click', async () => 
     const remaining = document.getElementById('pl-detail-rows').querySelectorAll('.track-row').length
     document.getElementById('pl-detail-meta').textContent = `${remaining} songs`
     showToast('Removed from playlist')
-  } catch (e) { showToast(`Failed to remove (${e.message})`) }
+  } catch (e) { showNotice(`Could not remove this track from the playlist.\n\n${e.message}`, 'Playlist') }
 })
 
 // ── Playback ──────────────────────────────────────────────────────────────────
@@ -1328,7 +1328,7 @@ function playItems(items, startIndex) {
   // In a Waterfall room a guest follows the host - starting something locally
   // would silently fight the session until the next sync pulled it back.
   if (typeof wfBlocksLocalPlayback === 'function' && wfBlocksLocalPlayback()) {
-    showToast('The host controls playback in this room')
+    if (typeof wfNotifyHostControls === 'function') wfNotifyHostControls()
     return
   }
   if (shuffle) {
@@ -1951,7 +1951,7 @@ async function loadSettingsFields() {
   wfRelayInput.onchange = async () => {
     const raw = wfRelayInput.value.trim().replace(/\/+$/, '')
     if (raw && !/^https?:\/\/[^\s/]+/i.test(raw)) {
-      showToast('Relay must be an http:// or https:// address')
+      showNotice('The relay address must start with http:// or https://', 'Waterfall relay')
       wfRelayInput.value = (await window.cascade.store.get('waterfallRelay')) || ''
       return
     }
@@ -2128,8 +2128,8 @@ document.getElementById('btn-check-updates').addEventListener('click', async () 
   btn.disabled = true
   try {
     const result = await window.cascade.checkForUpdates()
-    if (result?.error) showToast('Failed to check for updates')
-    else if (!result?.hasUpdate) showToast("You're up to date")
+    if (result?.error) showNotice('Could not reach GitHub to check for updates.', 'Update check')
+    else if (!result?.hasUpdate) showNotice("You're running the latest version.", 'Update check')
     // else: the updater window itself is the feedback
   } finally {
     btn.disabled = false
@@ -3066,12 +3066,12 @@ async function atpLoadPlaylists() {
           })
           if (!res.ok) {
             const errText = await res.text().catch(() => '')
-            showToast(`Failed to add (${res.status}): ${errText.slice(0, 60)}`)
+            showNotice(`Could not add to that playlist.\n\n${res.status}: ${errText.slice(0, 120)}`, 'Playlist')
           } else {
             showToast(`Added to "${el.textContent}"`)
           }
         } catch (e) {
-          showToast('Failed to add - network error')
+          showNotice('Could not reach the server to add to that playlist.', 'Playlist')
           console.error('Add to playlist failed', e)
         }
         document.getElementById('atp-modal').classList.add('hidden')
@@ -3118,7 +3118,7 @@ async function atpCreatePlaylist() {
     const grid = document.getElementById('playlists-grid')
     if (grid.dataset.loaded) { delete grid.dataset.loaded; loadPlaylists() }
   } catch (e) {
-    showToast('Failed to create playlist')
+    showNotice('Could not create the playlist.', 'Playlist')
     console.error('Create playlist failed', e)
   }
   document.getElementById('atp-create-confirm').disabled = false
