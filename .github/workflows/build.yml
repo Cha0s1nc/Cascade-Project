@@ -2,7 +2,12 @@ name: Build
 
 on:
   push:
-    tags: ['v*']
+    # NOT tags. Releases are created as drafts, and publishing a draft creates
+    # its tag - which pushed a 'v*' tag, retriggered this workflow, and had it
+    # rebuild and overwrite the assets that had just been published. Worse, the
+    # tag lands on whatever target_commitish the release carries, so the rebuild
+    # was of a completely different commit. Use workflow_dispatch for manual
+    # builds instead.
     branches: ['stable', 'beta']
   workflow_dispatch:
     inputs:
@@ -55,7 +60,8 @@ jobs:
             echo "should_release=true"  >> $GITHUB_OUTPUT
 
           elif [[ "${{ github.event_name }}" == "push" ]]; then
-            # Tag push — use the tag
+            # Tag push — use the tag. Unreachable while the trigger above only
+            # lists branches; kept so re-enabling 'tags' still resolves sanely.
             REF="${{ github.ref_name }}"
             VERSION="${REF#v}"
             TAG="$REF"
@@ -219,6 +225,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.setup.outputs.tag }}
+          # Without this the draft carries no commitish, so publishing it creates
+          # the tag on the DEFAULT branch rather than the commit that was built.
+          # That is how v1.2.0-b4 ended up tagged at a three-week-old stable
+          # commit, and how the binaries came from code that had none of the
+          # work they were supposed to contain.
+          target_commitish: ${{ github.sha }}
           files: artifacts/**
           generate_release_notes: true
           draft: true
