@@ -2,6 +2,12 @@
 
 // State
 let jf = { url: '', token: '', userId: '' }
+
+// Unique per install, persisted on first run. Used to be the constant
+// "cascade-app", which made every Cascade look like one device to Jellyfin -
+// so remote control could not target a specific client and two instances
+// collided in the session list. Loaded in init() before anything authenticates.
+let deviceId = 'cascade-app'
 let appVersion = '1.0.0'
 let queue = []
 let queueIndex = -1
@@ -18,10 +24,32 @@ let _queueScrollBound = false
 let volume = 1.0
 let crossfadeEnabled = false
 let crossfadeSeconds = 6
+let maxStreamingBitrate = 140000000   // overridden from settings in loadSettingsFields
 
 const audio = new Audio()
 audio.crossOrigin = 'anonymous'
 audio.volume = volume
+
+// ── Portable core ─────────────────────────────────────────────────────────────
+// src/core/*.ts, bundled to build/core.js and loaded by index.html before this
+// file. Everything here is DOM-free and Electron-free on purpose: it is the part
+// that can be reused by a future webOS/Tizen/React Native client.
+
+// Careful when converting more functions to `const` bindings like these: a
+// top-level `const` lives in the global *lexical* environment (still visible to
+// waterfall.js, which loads after this file) but is NOT a property of
+// globalThis. Inline HTML handlers - index.html uses onclick="showView(...)" -
+// resolve only against globalThis, so anything referenced from markup must stay
+// a `function` declaration.
+const {
+  parseLRC, parseKrc,
+  sortSongs, songSortValue, shuffleInPlace, shuffled,
+  resolveStream, universalStreamUrl, ELECTRON_PROFILE, DEFAULT_MAX_BITRATE,
+} = CascadeCore
+
+// Passed as a getter, not as `jf` itself: connect() replaces the whole object,
+// and a captured reference would keep serving stale credentials.
+const jfClient = new CascadeCore.JellyfinClient(() => jf)
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -39,14 +67,8 @@ function greeting() {
   return 'Good evening'
 }
 
-function artUrl(itemId, tag) {
-  if (!tag) return null
-  return `${jf.url}/Items/${itemId}/Images/Primary?fillHeight=600&fillWidth=600&quality=90&api_key=${jf.token}`
-}
-
-function artistArtUrl(itemId) {
-  return `${jf.url}/Items/${itemId}/Images/Primary?fillHeight=600&fillWidth=600&quality=90&api_key=${jf.token}`
-}
+const artUrl       = (itemId, tag) => jfClient.artUrl(itemId, tag)
+const artistArtUrl = (itemId)      => jfClient.artistArtUrl(itemId)
 
 // ── Skeleton loaders ──────────────────────────────────────────────────────────
 // Placeholder cards/rows shown while a view's data is being fetched.
@@ -138,8 +160,55 @@ async function fetchItunesArt(artist, album) {
 // Tracks the best available art URL for the current track (iTunes > Jellyfin)
 let _currentHighResArtUrl = null
 
-function streamUrl(itemId) {
-  return `${jf.url}/Audio/${itemId}/universal?UserId=${jf.userId}&api_key=${jf.token}&Container=opus,mp3,aac,flac,wav,ogg&TranscodingContainer=ts&TranscodingProtocol=hls&AudioCodec=aac&MaxStreamingBitrate=140000000`
+// Ask the server how to play a track, given what Chromium can decode. Async
+// because it POSTs /Items/{id}/PlaybackInfo - the server picks direct play or
+// transcode. Falls back to the old /universal URL if that call fails, so this
+// never rejects. See src/core/playback.ts.
+const resolveTrackStream = (itemId) =>
+  resolveStream(jfClient, jf, itemId, ELECTRON_PROFILE, maxStreamingBitrate)
+
+// Self-contained URL for "Copy stream URL". Deliberately the /universal form
+// rather than a PlaySessionId-bound one, so the copied link keeps working after
+// this session ends.
+const streamUrl = (itemId) => universalStreamUrl(jf, itemId, maxStreamingBitrate)
+
+// Server-side playback session, from the most recent PlaybackInfo. Reported
+// back so Jellyfin ties progress to the right session instead of guessing.
+let _playSessionId = null
+
+// ── Playback ownership ───────────────────────────────────────────────────────
+// Local user, a Jellyfin cast controller, and a Waterfall host can all issue
+// playback commands. One arbiter decides, rather than each mechanism guessing.
+// Rules live in src/core/ownership.ts; the state lives in waterfall.js.
+
+const NO_WATERFALL = { waterfallActive: false, waterfallIsHost: false, waterfallApplying: false }
+
+function ownershipState() {
+  // waterfall.js is a separate <script> that loads after this one, so during
+  // init none of its bindings exist yet.
+  //
+  // Gate on wfActive specifically: it is a `function` declaration, so `typeof`
+  // is safe even before the script runs. wfIsHost and _wfApplying are `let`s,
+  // and `typeof` on a let in its temporal dead zone THROWS rather than
+  // returning 'undefined' - reading them is only safe once wfActive exists,
+  // which means waterfall.js has finished executing.
+  if (typeof wfActive !== 'function' || !wfActive()) return NO_WATERFALL
+
+  return {
+    waterfallActive:   true,
+    waterfallIsHost:   !!wfIsHost,
+    waterfallApplying: !!_wfApplying,
+  }
+}
+
+/** True when local transport controls should do nothing. */
+function blocksLocalPlayback() {
+  return CascadeCore.blocksLocalPlayback(ownershipState())
+}
+
+/** True when an incoming cast command should be acted on. */
+function playbackIsLocallyOwned() {
+  return CascadeCore.acceptsRemoteCommand(ownershipState())
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
@@ -176,31 +245,14 @@ function showToast(msg, duration = 2200) {
 
 // ── Jellyfin API ──────────────────────────────────────────────────────────────
 
-async function jfGet(path, params = {}) {
-  const url = new URL(`${jf.url}${path}`)
-  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v))
-  const res = await fetch(url, {
-    headers: { 'X-Emby-Token': jf.token }
-  })
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
-  return res.json()
-}
-
-async function jfAuth(serverUrl, username, password) {
-  const res = await fetch(`${serverUrl}/Users/AuthenticateByName`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Emby-Authorization': `MediaBrowser Client="Cascade", Device="Cascade", DeviceId="cascade-app", Version="${appVersion}"`
-    },
-    body: JSON.stringify({ Username: username, Pw: password })
-  })
-  if (!res.ok) {
-    const txt = await res.text()
-    throw new Error(txt || `${res.status}`)
-  }
-  return res.json()
-}
+// Typed loosely on purpose: callers here hit list endpoints, single-item
+// endpoints and /System/Info alike, so the client's JfItemsResponse default is
+// wrong for most of them. src/ code calls jfClient.get directly and does get
+// the strict types.
+/** @type {(path: string, params?: Record<string, any>) => Promise<any>} */
+const jfGet  = (path, params = {}) => jfClient.get(path, params)
+const jfAuth = (serverUrl, username, password) =>
+  CascadeCore.authenticate(serverUrl, username, password, appVersion, deviceId)
 
 // ── Connection ────────────────────────────────────────────────────────────────
 
@@ -212,7 +264,7 @@ function setConnected(yes) {
 }
 
 async function connect(serverUrl, token, userId) {
-  jf = { url: serverUrl.replace(/\/$/, ''), token, userId }
+  jf = { url: serverUrl.replace(/\/$/, ''), token, userId, deviceId }
 
   const loadingEl  = document.getElementById('setup-loading')
   const loadingTxt = document.getElementById('setup-loading-text')
@@ -251,9 +303,65 @@ async function connect(serverUrl, token, userId) {
   }
 
   setConnected(true)
+  startRemoteControl()
   await populateLibraryPicker()
   invalidateLibraryViews()
   await loadHome()
+}
+
+// ── Remote control (cast target) ─────────────────────────────────────────────
+// Registers this client with Jellyfin so the web UI, a phone, or a future TV
+// client can drive it. Protocol lives in src/core/remote-control.ts; only the
+// "actually do it" callbacks are here, because only they touch the DOM.
+
+let _remote = null
+
+function startRemoteControl() {
+  if (_remote) _remote.stop()
+
+  _remote = new CascadeCore.RemoteControl(jfClient, () => jf, {
+    async play(itemIds, startIndex) {
+      if (!itemIds.length) return
+      const res = await jfGet(`/Users/${jf.userId}/Items`, {
+        Ids: itemIds.join(','),
+        Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,UserData',
+      }).catch(() => null)
+      const items = res?.Items || []
+      if (!items.length) return
+      // Jellyfin returns items in its own order, so re-sort to what was sent.
+      const byId = new Map(items.map(i => [i.Id, i]))
+      const ordered = itemIds.map(id => byId.get(id)).filter(Boolean)
+      playItems(ordered.length ? ordered : items, startIndex)
+    },
+    playPause()     { if (audio.paused) audio.play().catch(() => {}); else audio.pause() },
+    pause()         { audio.pause() },
+    unpause()       { audio.play().catch(() => {}) },
+    stop()          { stopPlayback() },
+    nextTrack()     { document.getElementById('btn-next').click() },
+    previousTrack() { document.getElementById('btn-prev').click() },
+    seek(ticks)     { audio.currentTime = ticks / 10_000_000 },
+    setVolume(pct)  { applyRemoteVolume(pct / 100) },
+    volumeUp()      { applyRemoteVolume(volume + 0.1) },
+    volumeDown()    { applyRemoteVolume(volume - 0.1) },
+    toggleMute()    { audio.muted = !audio.muted },
+    setMute(muted)  { audio.muted = muted },
+  }, playbackIsLocallyOwned)
+
+  // Not fatal - playback works fine without it - but it must be visible.
+  // Silently swallowing this hid a malformed capabilities payload that left
+  // Cascade invisible as a cast target with no symptom to chase.
+  _remote.start().catch(err => {
+    console.warn('[cascade] remote control unavailable:', err?.message || err)
+  })
+}
+
+// Mirrors what the volume slider does, so a remote change looks identical.
+function applyRemoteVolume(next) {
+  volume = Math.min(1, Math.max(0, next))
+  audio.volume = volume
+  const fill = document.getElementById('vol-fill')
+  if (fill) fill.style.width = `${volume * 100}%`
+  window.cascade.store.set('volume', volume)
 }
 
 // The library selection may have changed - force every lazy view to refetch.
@@ -480,58 +588,10 @@ async function loadRecentlyAdded() {
 
 // ── Albums ────────────────────────────────────────────────────────────────────
 
-// Fetch items across all selected libraries and merge, deduplicating by Id
-async function jfGetMerged(path, params = {}) {
-  const ids = jf.libraryIds || []
-  if (!ids.length) {
-    return jfGet(path, params)
-  }
-  const results = await Promise.all(ids.map(libId =>
-    jfGet(path, { ...params, ParentId: libId }).catch(() => ({ Items: [], TotalRecordCount: 0 }))
-  ))
-  const seen = new Set()
-  const items = []
-  for (const r of results) {
-    for (const item of (r.Items || [])) {
-      if (!seen.has(item.Id)) { seen.add(item.Id); items.push(item) }
-    }
-  }
-  return { Items: items, TotalRecordCount: items.length }
-}
-
-// Like jfGetMerged, but paginates each library until every matching item is
-// fetched instead of stopping at params.Limit. Pages within a library are
-// fetched in parallel once the first page reveals TotalRecordCount.
-async function jfGetAllPaged(path, params = {}) {
-  const ids = jf.libraryIds?.length ? jf.libraryIds : [null]
-  const pageSize = params.Limit || 500
-
-  const perLibrary = await Promise.all(ids.map(async libId => {
-    const baseParams = libId ? { ...params, ParentId: libId } : params
-    const first = await jfGet(path, { ...baseParams, StartIndex: 0 }).catch(() => ({ Items: [], TotalRecordCount: 0 }))
-    const items = [...(first.Items || [])]
-    const total = first.TotalRecordCount ?? items.length
-
-    if (total > items.length) {
-      const starts = []
-      for (let start = items.length; start < total; start += pageSize) starts.push(start)
-      const pages = await Promise.all(starts.map(start =>
-        jfGet(path, { ...baseParams, StartIndex: start }).catch(() => ({ Items: [] }))
-      ))
-      for (const p of pages) items.push(...(p.Items || []))
-    }
-    return items
-  }))
-
-  const seen = new Set()
-  const items = []
-  for (const libItems of perLibrary) {
-    for (const item of libItems) {
-      if (!seen.has(item.Id)) { seen.add(item.Id); items.push(item) }
-    }
-  }
-  return { Items: items, TotalRecordCount: items.length }
-}
+// Fetch items across all selected libraries and merge, deduplicating by Id.
+// `getAllPaged` is the same thing but keeps paging past params.Limit.
+const jfGetMerged   = (path, params = {}) => jfClient.getMerged(path, params)
+const jfGetAllPaged = (path, params = {}) => jfClient.getAllPaged(path, params)
 
 async function loadAlbums() {
   const grid = document.getElementById('albums-grid')
@@ -745,7 +805,7 @@ async function loadSongs() {
     const params = { SortBy: 'SortName', SortOrder: 'Ascending', IncludeItemTypes: 'Audio', Recursive: true, Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,UserData,DateCreated', Limit: 500 }
     const data = await jfGetAllPaged(`/Users/${jf.userId}/Items`, params)
     allSongs = data.Items || []
-    sortSongs()
+    sortAllSongs()
     renderSongRows()
   } catch (e) {
     rows.innerHTML = `<div class="empty-state">Could not load songs</div>`
@@ -766,26 +826,11 @@ async function loadSongsSortPrefs() {
   songsSortDir   = (await window.cascade.store.get('songsSortDir'))   || 'asc'
 }
 
-function songSortValue(item, field) {
-  switch (field) {
-    case 'artist': return (item.AlbumArtist || item.Artists?.[0] || '').toLowerCase()
-    case 'album':  return (item.Album || '').toLowerCase()
-    case 'added':  return item.DateCreated ? Date.parse(item.DateCreated) || 0 : 0
-    case 'played': return item.UserData?.LastPlayedDate ? Date.parse(item.UserData.LastPlayedDate) || 0 : 0
-    default:       return (item.Name || '').toLowerCase()
-  }
-}
-
-function sortSongs() {
-  const dir = songsSortDir === 'desc' ? -1 : 1
-  allSongs.sort((a, b) => {
-    const va = songSortValue(a, songsSortField)
-    const vb = songSortValue(b, songsSortField)
-    if (va < vb) return -1 * dir
-    if (va > vb) return 1 * dir
-    return 0
-  })
-}
+// sortSongs / songSortValue now come from CascadeCore (src/core/queue.ts).
+// Core takes the field and direction explicitly rather than reading globals, so
+// call sites pass songsSortField/songsSortDir. It still sorts in place, which
+// matters: other code holds a reference to `allSongs`.
+const sortAllSongs = () => sortSongs(allSongs, songsSortField, songsSortDir)
 
 function updateSongsSortUI() {
   document.getElementById('songs-sort-label').textContent = SONG_SORT_LABELS[songsSortField]
@@ -797,7 +842,7 @@ function updateSongsSortUI() {
 }
 
 function resortSongsAndRerender() {
-  sortSongs()
+  sortAllSongs()
   updateSongsSortUI()
   if (document.getElementById('songs-rows').dataset.loaded) renderSongRows()
 }
@@ -1327,7 +1372,7 @@ document.getElementById('tctx-pl-remove').addEventListener('click', async () => 
 function playItems(items, startIndex) {
   // In a Waterfall room a guest follows the host - starting something locally
   // would silently fight the session until the next sync pulled it back.
-  if (typeof wfBlocksLocalPlayback === 'function' && wfBlocksLocalPlayback()) {
+  if (blocksLocalPlayback()) {
     if (typeof wfNotifyHostControls === 'function') wfNotifyHostControls()
     return
   }
@@ -1355,7 +1400,7 @@ function playItems(items, startIndex) {
 // opts.alreadyPlaying: true when a crossfade handoff already has `audio` playing
 // the new track in place - skip the src reset that would otherwise restart it.
 async function playCurrentTrack(opts = {}) {
-  if (typeof wfBlocksLocalPlayback === 'function' && wfBlocksLocalPlayback()) return
+  if (blocksLocalPlayback()) return
   if (queueIndex < 0 || queueIndex >= queue.length) return
   const item = queue[queueIndex]
 
@@ -1366,8 +1411,22 @@ async function playCurrentTrack(opts = {}) {
 
   if (!opts.alreadyPlaying) {
     initBeatDetection()  // wire up AudioContext before play to avoid mid-playback glitch
-    audio.src = streamUrl(item.Id)
-    audio.play()
+
+    // Resolving the stream is now a round-trip, so the user can skip again
+    // before it lands. Re-read the queue afterwards and bail if they did,
+    // otherwise a stale response would start the wrong track.
+    const resolved = await resolveTrackStream(item.Id)
+    if (queue[queueIndex]?.Id !== item.Id) return
+
+    adoptResolvedStream(resolved)
+    audio.src = resolved.url
+    // .catch here because play() is no longer in the same task as the click
+    // that triggered it - an autoplay rejection would otherwise surface as an
+    // unhandled promise rejection. Matches finishCrossfade's handling.
+    audio.play().catch(() => {})
+  } else if (opts.resolved) {
+    // Crossfade already resolved the stream; adopt it rather than re-resolving.
+    adoptResolvedStream(opts.resolved)
   }
 
   updateNowPlaying(item)
@@ -1527,26 +1586,93 @@ function highlightPlayingRow() {
     document.querySelectorAll(`.track-row[data-id="${currentId}"]`).forEach(r => r.classList.add('playing'))
 }
 
-// Report playback to Jellyfin so history updates
-async function reportPlaybackStart(itemId) {
-  try {
-    await fetch(`${jf.url}/Sessions/Playing`, {
-      method: 'POST',
-      headers: { 'X-Emby-Token': jf.token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ItemId: itemId, CanSeek: true, QueueableMediaTypes: ['Audio'] })
-    })
-  } catch {}
+// Report playback to Jellyfin so history updates and remote controllers can
+// render a live transport. Payloads live in src/core/playback-reporting.ts.
+//
+// Progress has to be sent on a timer AND on every state change: without it the
+// server's view freezes at track start, so a controller's scrubber never moves,
+// pause never registers, and its volume slider has nothing to bind to.
+
+let _mediaSourceId = null   // from the last PlaybackInfo; identifies the stream
+/** @type {'DirectPlay' | 'DirectStream' | 'Transcode'} */
+let _playMethod = 'DirectPlay'
+let _progressTimer = null
+
+// Everything a report needs about how the current track is being streamed.
+// Kept together so the crossfade path can hand its already-resolved stream over
+// intact instead of the pieces drifting apart.
+function adoptResolvedStream(resolved) {
+  _playSessionId = resolved.playSessionId
+  _mediaSourceId = resolved.mediaSourceId
+  _playMethod = resolved.direct ? 'DirectPlay' : 'Transcode'
 }
 
-async function reportPlaybackStopped(itemId, positionTicks) {
-  try {
-    await fetch(`${jf.url}/Sessions/Playing/Stopped`, {
-      method: 'POST',
-      headers: { 'X-Emby-Token': jf.token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ItemId: itemId, PositionTicks: positionTicks })
-    })
-  } catch {}
+// Snapshot of local playback in Jellyfin's units (ticks, 0-100 volume).
+function playbackSnapshot(itemId, positionTicks) {
+  const item = queue[queueIndex]
+  return {
+    itemId: itemId ?? item?.Id ?? '',
+    positionTicks: positionTicks ?? Math.round(audio.currentTime * 10_000_000),
+    isPaused: audio.paused,
+    isMuted: audio.muted,
+    volumeLevel: Math.round(volume * 100),
+    playSessionId: _playSessionId,
+    mediaSourceId: _mediaSourceId,
+    playMethod: _playMethod,
+  }
 }
+
+// Guards the window after a stop report. audio.pause() and currentTime = 0 both
+// queue events that fire *after* reportPlaybackStopped() has already run - and
+// their progress reports would re-register the track server-side, leaving a
+// controller showing a stopped song stuck at 0:00.
+let _reportingActive = false
+
+function reportPlaybackStart(itemId) {
+  _reportingActive = true
+  CascadeCore.reportStart(jfClient, playbackSnapshot(itemId))
+  startProgressReporting()
+}
+
+function reportPlaybackStopped(itemId, positionTicks) {
+  _reportingActive = false
+  stopProgressReporting()
+  CascadeCore.reportStopped(jfClient, playbackSnapshot(itemId, positionTicks))
+}
+
+// Fires on the interval and on every play/pause/seek/volume change, so a
+// controller sees state changes immediately rather than up to 10s later.
+function reportPlaybackProgress() {
+  if (!_reportingActive || !jf.url || queueIndex < 0) return
+  const item = queue[queueIndex]
+  if (!item) return
+  CascadeCore.reportProgress(jfClient, playbackSnapshot(item.Id))
+}
+
+// Cascade has no stop control - the transport is play/pause, prev, next, and
+// the track stays loaded. So "stop" from the OS media keys or a remote
+// controller means pause and rewind, and the track deliberately stays in the
+// session: reporting it as stopped would clear the controller's display while
+// this app still shows the track sitting there, which is the worse lie.
+function stopPlayback() {
+  audio.pause()
+  audio.currentTime = 0
+}
+
+function startProgressReporting() {
+  stopProgressReporting()
+  _progressTimer = setInterval(reportPlaybackProgress, CascadeCore.PROGRESS_INTERVAL_MS)
+}
+
+function stopProgressReporting() {
+  if (_progressTimer) { clearInterval(_progressTimer); _progressTimer = null }
+}
+
+// State changes a controller needs to see straight away. `volumechange` covers
+// both the local slider and an incoming remote SetVolume.
+;['play', 'pause', 'seeked', 'volumechange'].forEach(ev =>
+  audio.addEventListener(ev, reportPlaybackProgress)
+)
 
 // ── Audio events ──────────────────────────────────────────────────────────────
 
@@ -1635,6 +1761,8 @@ async function continueWithAutoMix(lastItem) {
 let _cfNextAudio = null   // temporary element playing the upcoming track during overlap
 let _cfRafId = null       // requestAnimationFrame handle for the volume ramp
 let _cfArmed = true       // guards against re-triggering mid-ramp; re-set per track
+let _cfSession = 0        // bumped on cancel, so an in-flight stream resolve knows to stop
+let _cfNextResolved = null   // resolved stream of the incoming track, adopted on finish
 
 // Mirrors the `ended` handler's "what plays next" logic, but only for the case
 // where the next track is already known - skips the auto-mix case, since that
@@ -1658,16 +1786,25 @@ audio.addEventListener('timeupdate', () => {
   startCrossfade(nextIndex)
 })
 
-function startCrossfade(nextIndex) {
+async function startCrossfade(nextIndex) {
   const nextItem = queue[nextIndex]
   if (!nextItem) return
 
+  // Resolving the stream is a round-trip now, and cancelCrossfade() can land
+  // during it (user skips, or the track changes). Take a session ticket and
+  // abandon if anything cancelled while we were waiting - otherwise we'd start
+  // an orphaned audio element that nothing can stop.
+  const session = ++_cfSession
+  const resolved = await resolveTrackStream(nextItem.Id)
+  if (session !== _cfSession) return
+
   const next = new Audio()
   next.crossOrigin = 'anonymous'  // matches the primary element's setup
-  next.src = streamUrl(nextItem.Id)
+  next.src = resolved.url
   next.volume = 0
   next.play().catch(() => {})
   _cfNextAudio = next
+  _cfNextResolved = resolved
 
   const fadeMs   = crossfadeSeconds * 1000
   const startVol = audio.volume
@@ -1701,13 +1838,18 @@ function finishCrossfade(nextIndex, next) {
   _cfRafId = null
 
   queueIndex = nextIndex
-  playCurrentTrack({ alreadyPlaying: true })
+  playCurrentTrack({ alreadyPlaying: true, resolved: _cfNextResolved })
+  _cfNextResolved = null
   renderQueuePanel()
 }
 
 function cancelCrossfade() {
+  // Bump first: this is what tells an in-flight startCrossfade() resolve that
+  // it no longer owns the crossfade.
+  _cfSession++
   if (_cfRafId) { cancelAnimationFrame(_cfRafId); _cfRafId = null }
   if (_cfNextAudio) { _cfNextAudio.pause(); _cfNextAudio.src = ''; _cfNextAudio = null }
+  _cfNextResolved = null
   audio.volume = volume
   _cfArmed = true
 }
@@ -1737,12 +1879,9 @@ document.getElementById('btn-shuffle').addEventListener('click', () => {
   const currentId = queue[queueIndex]?.Id
 
   if (shuffle) {
-    // Save original order and Fisher-Yates shuffle the queue
+    // Save original order, then shuffle the live queue in place
     _unshuffledQueue = [...queue]
-    for (let i = queue.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [queue[i], queue[j]] = [queue[j], queue[i]]
-    }
+    shuffleInPlace(queue)
     // Move the currently playing track to position 0 so it finishes before moving on
     const nowIdx = queue.findIndex(t => t.Id === currentId)
     if (nowIdx > 0) { const [t] = queue.splice(nowIdx, 1); queue.unshift(t) }
@@ -1840,14 +1979,10 @@ likeBtn.addEventListener('click', toggleLike)
 
 // ── Shuffle All ───────────────────────────────────────────────────────────────
 
-// Fisher-Yates shuffle a copy of items, then play it. Shared by every "Shuffle" button.
+// Shuffle a copy of items, then play it. Shared by every "Shuffle" button.
 function shuffleAndPlay(items) {
   if (!items.length) return
-  const shuffled = [...items]
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
-  }
+  const order = shuffled(items)
 
   // Store originals so toggling shuffle off restores order
   _unshuffledQueue = items
@@ -1855,7 +1990,7 @@ function shuffleAndPlay(items) {
   document.getElementById('btn-shuffle').classList.add('active')
   document.getElementById('ov-shuffle').classList.add('active')
 
-  playItems(shuffled, 0)
+  playItems(order, 0)
 }
 
 async function shuffleAllSongs() {
@@ -1883,7 +2018,7 @@ document.getElementById('btn-shuffle-artists').addEventListener('click', shuffle
 if ('mediaSession' in navigator) {
   navigator.mediaSession.setActionHandler('play',          () => { if (audio.paused) audio.play() })
   navigator.mediaSession.setActionHandler('pause',         () => { if (!audio.paused) audio.pause() })
-  navigator.mediaSession.setActionHandler('stop',          () => { audio.pause(); audio.currentTime = 0 })
+  navigator.mediaSession.setActionHandler('stop',          () => stopPlayback())
   navigator.mediaSession.setActionHandler('nexttrack',     () => document.getElementById('btn-next').click())
   navigator.mediaSession.setActionHandler('previoustrack', () => document.getElementById('btn-prev').click())
   navigator.mediaSession.setActionHandler('seekto', (details) => {
@@ -1942,6 +2077,15 @@ async function loadSettingsFields() {
   crossfadeDurationSelect.onchange = async () => {
     crossfadeSeconds = parseInt(crossfadeDurationSelect.value, 10)
     await window.cascade.store.set('crossfadeSeconds', crossfadeSeconds)
+  }
+
+  // Streaming quality. Takes effect on the next track - the current stream URL
+  // was already negotiated at the old bitrate.
+  const maxBitrateSelect = document.getElementById('max-bitrate')
+  maxBitrateSelect.value = String(maxStreamingBitrate)
+  maxBitrateSelect.onchange = async () => {
+    maxStreamingBitrate = parseInt(maxBitrateSelect.value, 10)
+    await window.cascade.store.set('maxStreamingBitrate', maxStreamingBitrate)
   }
 
   // Waterfall relay. Blank means the default, so clearing the box is the reset.
@@ -2137,6 +2281,13 @@ document.getElementById('btn-check-updates').addEventListener('click', async () 
 })
 
 async function init() {
+  // Before anything authenticates: the device id goes into the auth header.
+  deviceId = await window.cascade.store.get('deviceId')
+  if (!deviceId) {
+    deviceId = crypto.randomUUID()
+    await window.cascade.store.set('deviceId', deviceId)
+  }
+
   document.documentElement.setAttribute('data-platform', window.cascade.platform)
   searchInput.placeholder = `Search songs, albums, artists… (${window.cascade.platform === 'darwin' ? '⌘K' : 'Ctrl+K'})`
   await window.cascade.getVersion().then(v => {
@@ -2151,6 +2302,7 @@ async function init() {
 
   crossfadeEnabled = (await window.cascade.store.get('crossfadeEnabled')) === true
   crossfadeSeconds = parseInt(await window.cascade.store.get('crossfadeSeconds'), 10) || 6
+  maxStreamingBitrate = parseInt(await window.cascade.store.get('maxStreamingBitrate'), 10) || DEFAULT_MAX_BITRATE
 
   // Restore saved volume
   const savedVol = await window.cascade.store.get('volume')
@@ -3504,123 +3656,10 @@ document.getElementById('lyrics-close').addEventListener('click', hideLyrics)
 // ── Lyrics waterfall helpers ──────────────────────────────────────────────────
 
 
-function _lrcTimeToTicks(mm, ss) {
-  return Math.round((parseInt(mm) * 60 + parseFloat(ss)) * 10_000_000)
-}
-
-// Parse standard LRC or Enhanced LRC (karaoke word-level) to internal format
-function parseLRC(text) {
-  const lines = []
-  for (const raw of text.split('\n')) {
-    const m = raw.match(/^\[(\d+):(\d+\.\d+)\](.*)$/)
-    if (!m) continue
-    const startTicks = _lrcTimeToTicks(m[1], m[2])
-    const content = m[3]
-    if (content.includes('<')) {
-      // Enhanced LRC: [mm:ss.xx]<mm:ss.xx>word<mm:ss.xx>word...
-      const words = []
-      const wordRe = /<(\d+):(\d+\.\d+)>([^<\[]*)/g
-      let wm
-      // Per-character sources (Chinese karaoke formats, .slrc) give every space its
-      // own timestamped token. Those read as "symbols" below, and trimStart() would
-      // delete them outright - collapsing the whole line into one run-on string.
-      // Tracked separately so a bundled trailing space (per-word LRC: "<ts>word ")
-      // still gets trimmed before punctuation, which is what trimEnd is there for.
-      let pendingSpace = false
-      while ((wm = wordRe.exec(content)) !== null) {
-        const wText = wm[3]
-        if (!wText) continue
-        if (!wText.trim()) { pendingSpace = words.length > 0; continue }
-        // Symbols/punctuation with no letters or digits - attach to previous word
-        const isSymbol = !/[\p{L}\p{N}]/u.test(wText)
-        if (isSymbol && words.length > 0 && !pendingSpace) {
-          words[words.length - 1].Text = words[words.length - 1].Text.trimEnd() + wText.trimStart()
-        } else {
-          if (pendingSpace) words[words.length - 1].Text += ' '
-          words.push({ Start: _lrcTimeToTicks(wm[1], wm[2]), End: null, Text: wText })
-        }
-        pendingSpace = false
-      }
-      for (let i = 0; i < words.length - 1; i++) words[i].End = words[i + 1].Start
-      // Last word end will be filled in below (needs next line's start)
-      const fullText = words.map(w => w.Text).join('').trim()
-      if (fullText) lines.push({ Start: startTicks, End: null, Text: fullText, Words: words.length ? words : null })
-    } else {
-      const t2 = content.trim()
-      if (t2) lines.push({ Start: startTicks, End: null, Text: t2, Words: null })
-    }
-  }
-  // Fill in end time for each line's last word using the next line's start
-  for (let i = 0; i < lines.length; i++) {
-    const ws = lines[i].Words
-    if (!ws?.length) continue
-    const last = ws[ws.length - 1]
-    if (last.End == null) {
-      last.End = lines[i + 1]?.Start ?? (last.Start + 20_000_000) // 2s fallback
-    }
-  }
-
-  return lines
-}
-
-
-// Parse Kugou KRC format (decrypted) to internal format.
-// Line: [{line_start_ms},{line_duration_ms}]<word_offset_ms,word_duration_ms,0>text...
-// Word offsets are relative to the line start.
-function parseKrc(krcText) {
-  const MS   = 10_000        // 1ms = 10,000 ticks (100-nanosecond units)
-  const lines = []
-  for (const rawLine of krcText.split('\n')) {
-    const line = rawLine.trim()
-    const lineMatch = line.match(/^\[(\d+),(\d+)\](.*)$/)
-    if (!lineMatch) continue                       // skip [ti:], [ar:], [offset:] tags
-
-    const lineStartMs = parseInt(lineMatch[1])
-    const lineEndMs   = lineStartMs + parseInt(lineMatch[2])
-    const content     = lineMatch[3]
-
-    const wordRegex = /<(\d+),(\d+),\d+>([^<]*)/g
-    const words = []
-    let fullText = ''
-    let wm
-    while ((wm = wordRegex.exec(content)) !== null) {
-      const wOffMs  = parseInt(wm[1])
-      const wDurMs  = parseInt(wm[2])
-      const wText   = wm[3]
-      if (!wText) continue
-      fullText += wText
-      words.push({
-        Start: (lineStartMs + wOffMs) * MS,
-        End:   (lineStartMs + wOffMs + wDurMs) * MS,
-        Text:  wText,
-      })
-    }
-
-    fullText = fullText.trim()
-    if (!fullText) continue
-    lines.push({
-      Start: lineStartMs * MS,
-      End:   lineEndMs   * MS,
-      Text:  fullText,
-      Words: words.length > 0 ? words : null,
-    })
-  }
-  return lines
-}
-
-// Compare two lyric results by word overlap. Returns false if clearly different songs.
-function _lyricsTextMatch(a, b) {
-  if (!a || !b) return true
-  const words = r => new Set(
-    r.lines.map(l => l.Text).join(' ').toLowerCase().match(/[a-z]{3,}/g) || []
-  )
-  const aw = words(a), bw = words(b)
-  // Skip check if either side has too few Latin words (e.g. Japanese songs)
-  if (aw.size < 5 || bw.size < 5) return true
-  const inter = [...aw].filter(w => bw.has(w)).length
-  // At least 25% of the smaller set must appear in the larger
-  return inter / Math.min(aw.size, bw.size) >= 0.25
-}
+// Lyric parsing lives in src/core/lyrics.ts; parseLRC/parseKrc are bound at the
+// top of this file with the rest of the core imports. `lyricsTextMatch` is
+// exported from core too, but nothing here calls it - the old local copy was
+// dead code, so it is not re-aliased.
 
 // Per-source status from the most recent waterfall run.
 // Values: 'ok' | 'fail' | 'skip' | null (never tried this session)

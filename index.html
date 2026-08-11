@@ -1053,6 +1053,19 @@
                 <option value="12">12 seconds</option>
               </select>
             </div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="setting-name">Streaming quality</span>
+                <span class="setting-desc">Cap the bitrate and the server transcodes to fit. Original sends the file untouched.</span>
+              </div>
+              <select class="setting-input" id="max-bitrate">
+                <option value="140000000">Original</option>
+                <option value="320000">320 kbps</option>
+                <option value="192000">192 kbps</option>
+                <option value="128000">128 kbps</option>
+                <option value="96000">96 kbps</option>
+              </select>
+            </div>
           </div>
           <div class="settings-group">
             <div class="sg-title">Waterfall <span class="wf-beta">BETA</span></div>
@@ -1598,6 +1611,7 @@
   </div>
 </div>
 
+<script src="build/core.js"></script>
 <script src="renderer.js"></script>
 <script src="waterfall.js"></script>
 </body>

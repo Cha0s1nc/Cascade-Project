@@ -19,8 +19,15 @@
 // else's server can point this at their own in Settings - the Worker source
 // lives in wip-waterfall/signaling/ and deploys with `npx wrangler deploy`.
 const WF_DEFAULT_RELAY = 'https://cascade-waterfall-signaling.cha0s-netw0rks.workers.dev'
-const WF_HEARTBEAT_MS  = 4000   // host re-announces position this often
-const WF_DRIFT_MS      = 1500   // guest re-seeks once it is this far out
+
+// Wire format and sync maths come from src/core/waterfall-protocol.ts, so a
+// future TV client can join the same rooms without reimplementing any of it.
+// Everything left in this file is DOM: the panel, the modal, the transport
+// interception.
+const {
+  WF_HEARTBEAT_MS, WF_DRIFT_MS,
+  buildStateMessage, expectedPositionMs, shouldReseek, isForeignServer, roomSocketUrl,
+} = CascadeCore
 
 // Read at session start rather than cached, so changing it in Settings takes
 // effect on the next room without a restart.
@@ -40,12 +47,11 @@ let _wfApplying = false   // guard: we are applying host state, don't echo it ba
 
 function wfActive() { return !!wfWs && wfWs.readyState === WebSocket.OPEN }
 
-// renderer.js asks this before starting local playback. A guest's transport is
-// the host's to drive; without this, a double-clicked row silently hijacks the
-// shared session until the next heartbeat drags it back.
-function wfBlocksLocalPlayback() {
-  return wfActive() && !wfIsHost && !_wfApplying
-}
+// The "should local playback be blocked" decision now lives in the shared
+// arbiter (renderer.js blocksLocalPlayback -> src/core/ownership.ts), because
+// casting can drive playback too and two independent guards would fight.
+// waterfall.js just publishes its state via the globals the arbiter reads:
+// wfActive(), wfIsHost, _wfApplying.
 
 // ── Signaling ────────────────────────────────────────────────────────────────
 
@@ -65,7 +71,7 @@ async function wfOpenSocket(code, asHost) {
   await wfResolveServerId()
   const base = await wfRelayBase()
   const name = (await window.cascade.store.get('username')) || 'Listener'
-  const url  = `${base.replace(/^http/, 'ws')}/room/${code}?name=${encodeURIComponent(name)}`
+  const url  = roomSocketUrl(base, code, name)
 
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url)
@@ -104,7 +110,7 @@ function wfOnRelay(from, p) {
 
   // Same-server guard. Members on a different Jellyfin server cannot possibly
   // stream the host's tracks, so the room refuses rather than half-working.
-  if (p.serverId && wfServerId && p.serverId !== wfServerId) {
+  if (isForeignServer(p.serverId, wfServerId)) {
     if (wfIsHost) wfSend({ k: 'wrong-server' }, from)
     else wfTeardown('That room is hosted on a different Jellyfin server.')
     return
@@ -121,14 +127,12 @@ function wfBroadcastState(to) {
   if (!wfActive() || !wfIsHost) return
   const item = queue[queueIndex]
   if (!item) return
-  wfSend({
-    k: 'state',
+  wfSend(buildStateMessage({
     serverId:   wfServerId,
     trackId:    item.Id,
     positionMs: Math.round(audio.currentTime * 1000),
     paused:     audio.paused,
-    sentAt:     Date.now(),
-  }, to)
+  }), to)
 }
 
 // Hooking the audio element rather than patching every transport handler keeps
@@ -142,8 +146,7 @@ function wfBroadcastState(to) {
 
 async function wfApplyState(s) {
   if (!s.trackId) return
-  const latency  = Math.max(0, Date.now() - (s.sentAt || Date.now()))
-  const expected = (s.positionMs || 0) + (s.paused ? 0 : latency)
+  const expected = expectedPositionMs(s)
 
   if (queue[queueIndex]?.Id !== s.trackId) {
     let item
@@ -166,10 +169,7 @@ async function wfApplyState(s) {
     _wfApplying = false
   }
 
-  // ponytail: one-way latency is approximated as the full round trip and never
-  // re-estimated. Good to a few hundred ms, which is fine for people in
-  // different rooms. Swap in a proper clock-offset handshake if it ever matters.
-  if (Math.abs(audio.currentTime * 1000 - expected) > WF_DRIFT_MS) {
+  if (shouldReseek(audio.currentTime * 1000, expected)) {
     audio.currentTime = expected / 1000
   }
   _wfApplying = true

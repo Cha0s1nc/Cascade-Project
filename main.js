@@ -153,7 +153,7 @@ function createWindow() {
     trafficLightPosition: { x: 12, y: 11 },
     autoHideMenuBar: true,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'build', 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       // Chromium suspends requestAnimationFrame while minimized/occluded, so a track

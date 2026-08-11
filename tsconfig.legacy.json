@@ -1,0 +1,31 @@
+{
+  // Type-checking for the legacy plain-JS files (renderer.js, waterfall.js,
+  // main.js). Separate from tsconfig.json because TypeScript has no per-file
+  // strictness: src/ is checked strictly, this is checked loosely.
+  //
+  // The goal here is catching typos, wrong argument counts and misspelled
+  // properties - NOT null-safety. renderer.js has 374 getElementById calls;
+  // demanding a null check on each would bury every real finding.
+  //
+  // Run by `npm run typecheck` alongside the strict pass.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+
+    // Deliberately loose - see above.
+    "strict": false,
+    "strictNullChecks": false,
+    "noImplicitAny": false,
+
+    "types": []
+  },
+  "include": ["renderer.js", "waterfall.js", "main.js", "types/**/*.d.ts"]
+}

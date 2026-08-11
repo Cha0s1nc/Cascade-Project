@@ -4,12 +4,19 @@
   "description": "A Jellyfin music client inspired by Cider",
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
-    "dev": "electron . --inspect",
-    "build": "electron-builder",
-    "build:mac": "electron-builder --mac --publish never",
-    "build:win": "electron-builder --win --publish never",
-    "build:linux": "electron-builder --linux --publish never",
+    "build:core": "esbuild src/index.ts --bundle --format=iife --global-name=CascadeCore --outfile=build/core.js --target=chrome122 --sourcemap",
+    "build:preload": "esbuild src/preload.ts --bundle --format=cjs --platform=node --external:electron --outfile=build/preload.js --target=node20 --sourcemap",
+    "build:ts": "npm run build:core && npm run build:preload",
+    "typecheck": "tsc --noEmit",
+    "typecheck:legacy": "tsc -p tsconfig.legacy.json",
+    "test": "node --test \"test/**/*.test.ts\"",
+    "start": "npm run build:ts && electron .",
+    "dev": "npm run build:ts && electron . --inspect",
+    "dev:second": "npm run build:ts && electron . --user-data-dir=/tmp/cascade-second-instance",
+    "build": "npm run build:ts && electron-builder",
+    "build:mac": "npm run build:ts && electron-builder --mac --publish never",
+    "build:win": "npm run build:ts && electron-builder --win --publish never",
+    "build:linux": "npm run build:ts && electron-builder --linux --publish never",
     "icons": "node scripts/gen-icons.js"
   },
   "dependencies": {
@@ -17,9 +24,12 @@
     "electron-store": "^8.1.0"
   },
   "devDependencies": {
+    "@types/node": "^26.2.0",
     "electron": "^29.0.0",
     "electron-builder": "^24.13.3",
-    "sharp": "^0.33.4"
+    "esbuild": "^0.28.2",
+    "sharp": "^0.33.4",
+    "typescript": "^7.0.2"
   },
   "author": {
     "name": "cha0s_1nc",
@@ -36,10 +46,13 @@
     "copyright": "Copyright © 2026 cha0s",
     "files": [
       "main.js",
-      "preload.js",
       "index.html",
       "renderer.js",
       "waterfall.js",
+      "build/core.js",
+      "build/core.js.map",
+      "build/preload.js",
+      "build/preload.js.map",
       "updater.html",
       "updater-preload.js",
       "lyrics-editor.html",
@@ -83,15 +96,21 @@
       "target": [
         {
           "target": "AppImage",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "rpm",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "deb",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     },
