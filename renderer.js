@@ -1649,14 +1649,29 @@ function reportPlaybackProgress() {
   CascadeCore.reportProgress(jfClient, playbackSnapshot(item.Id))
 }
 
-// Cascade has no stop control - the transport is play/pause, prev, next, and
-// the track stays loaded. So "stop" from the OS media keys or a remote
-// controller means pause and rewind, and the track deliberately stays in the
-// session: reporting it as stopped would clear the controller's display while
-// this app still shows the track sitting there, which is the worse lie.
+// Stop: clear the queue and return to the "Nothing playing" state. Distinct
+// from pause, which keeps the track loaded.
+//
+// Reports stopped to Jellyfin as well as clearing locally - otherwise the
+// session keeps its NowPlayingItem and a remote controller shows a track that
+// this app is no longer holding.
 function stopPlayback() {
+  const item = queue[queueIndex]
+  // Read the position before clearing src, which resets currentTime to 0.
+  const positionTicks = Math.round(audio.currentTime * 10_000_000)
+
   audio.pause()
-  audio.currentTime = 0
+  audio.src = ''
+  queue = []; queueIndex = -1
+
+  if (item) reportPlaybackStopped(item.Id, positionTicks)
+
+  window.cascade.discord.clear()
+  document.getElementById('np-art').innerHTML = '♪'
+  document.getElementById('np-info').innerHTML = '<span class="np-empty">Nothing playing</span>'
+  document.getElementById('prog-fill').style.width = '0%'
+  document.getElementById('prog-cur').textContent = '0:00'
+  document.getElementById('prog-dur').textContent = '0:00'
 }
 
 function startProgressReporting() {
@@ -2280,6 +2295,40 @@ document.getElementById('btn-check-updates').addEventListener('click', async () 
   }
 })
 
+// Tokens issued before per-install device ids are bound server-side to the old
+// constant DeviceId "cascade-app", so every Cascade looked like one device to
+// Jellyfin: two machines on one account collided in the session list and remote
+// control could not target a specific client. The device id in the auth header
+// only takes effect on a fresh login, so retiring it means re-authenticating.
+//
+// Runs once, needs a stored password, and only swaps the token on success -
+// a failed re-auth must leave the working token untouched rather than logging
+// the user out. If there is no stored password the flag is not set, so this
+// retries on a later launch once there is one.
+// Returns the credentials to connect with - the refreshed pair on success, the
+// existing ones otherwise - so the new identity applies on this launch rather
+// than the next one.
+async function migrateDeviceId(serverUrl, username, password, token, userId) {
+  const unchanged = { token, userId }
+
+  if (await window.cascade.store.get('deviceIdMigrated')) return unchanged
+  if (!serverUrl || !token) return unchanged   // not signed in; new logins already use the UUID
+  if (!username || !password) return unchanged // cannot re-auth silently
+
+  try {
+    const auth = await jfAuth(serverUrl, username, password)
+    if (!auth?.AccessToken || !auth?.User?.Id) return unchanged
+    await window.cascade.store.set('token', auth.AccessToken)
+    await window.cascade.store.set('userId', auth.User.Id)
+    await window.cascade.store.set('deviceIdMigrated', true)
+    console.info('[cascade] re-authenticated to retire the shared "cascade-app" device id')
+    return { token: auth.AccessToken, userId: auth.User.Id }
+  } catch (err) {
+    console.warn('[cascade] device id migration deferred:', err?.message || err)
+    return unchanged
+  }
+}
+
 async function init() {
   // Before anything authenticates: the device id goes into the auth header.
   deviceId = await window.cascade.store.get('deviceId')
@@ -2316,13 +2365,15 @@ async function init() {
   const serverUrl = await window.cascade.store.get('serverUrl')
   const username  = await window.cascade.store.get('username')
   const password  = await window.cascade.store.get('password')
-  const token     = await window.cascade.store.get('token')
-  const userId    = await window.cascade.store.get('userId')
+  let token       = await window.cascade.store.get('token')
+  let userId      = await window.cascade.store.get('userId')
 
   // Always pre-fill the setup form so the user never has to retype from scratch
   if (serverUrl) document.getElementById('setup-url').value      = serverUrl
   if (username)  document.getElementById('setup-username').value  = username
   if (password)  document.getElementById('setup-password').value  = password
+
+  ;({ token, userId } = await migrateDeviceId(serverUrl, username, password, token, userId))
 
   if (serverUrl && token && userId) {
     document.getElementById('setup-overlay').classList.add('hidden')
@@ -3153,18 +3204,10 @@ document.getElementById('np-art').addEventListener('contextmenu', (e) => {
 })
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { hideCtxMenu(); hideLyrics() } })
 
-// Stop playback
-document.getElementById('ctx-stop').addEventListener('click', () => {
-  audio.pause()
-  audio.src = ''
-  queue = []; queueIndex = -1
-  window.cascade.discord.clear()
-  document.getElementById('np-art').innerHTML = '♪'
-  document.getElementById('np-info').innerHTML = '<span class="np-empty">Nothing playing</span>'
-  document.getElementById('prog-fill').style.width = '0%'
-  document.getElementById('prog-cur').textContent = '0:00'
-  document.getElementById('prog-dur').textContent = '0:00'
-})
+// Stop playback. Defined next to the other transport handlers but used by three
+// callers - this menu item, the OS media keys, and a remote controller - so
+// they cannot drift into three different meanings of "stop".
+document.getElementById('ctx-stop').addEventListener('click', () => stopPlayback())
 
 // Clear queue
 document.getElementById('ctx-clear-queue').addEventListener('click', () => {

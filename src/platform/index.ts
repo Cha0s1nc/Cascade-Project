@@ -58,16 +58,6 @@ export interface KugouLyricsQuery {
   durationMs: number
 }
 
-/** One entry in the native now-playing context menu. A separator needs only
- *  `type`; everything else needs `id` and `label`. */
-export interface NpMenuAction {
-  id?: string
-  label?: string
-  type?: 'separator'
-  enabled?: boolean
-  role?: string
-}
-
 /**
  * The minimum a host must provide.
  *
@@ -91,9 +81,6 @@ export interface DesktopCapabilities {
   clipboard?: { write(text: string): Promise<void> }
   shell?: { openExternal(url: string): Promise<void> }
   download?(url: string, filename: string): Promise<unknown>
-
-  /** Resolves to the chosen action's `id`, or null if dismissed. */
-  showNpMenu?(actions: NpMenuAction[]): Promise<string | null>
 
   checkForUpdates?(): Promise<UpdateCheckResult>
   isPackaged?(): Promise<boolean>
@@ -128,7 +115,6 @@ export interface ElectronPlatform extends Platform, DesktopCapabilities {
   clipboard: NonNullable<DesktopCapabilities['clipboard']>
   shell: NonNullable<DesktopCapabilities['shell']>
   download: NonNullable<DesktopCapabilities['download']>
-  showNpMenu: NonNullable<DesktopCapabilities['showNpMenu']>
   checkForUpdates: NonNullable<DesktopCapabilities['checkForUpdates']>
   isPackaged: NonNullable<DesktopCapabilities['isPackaged']>
   onMediaKey: NonNullable<DesktopCapabilities['onMediaKey']>

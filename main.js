@@ -585,19 +585,3 @@ ipcMain.handle('updater:dismiss', () => {
   })
 })()
 
-// IPC: native context menu for now-playing
-ipcMain.handle('show-np-menu', (_e, actions) => {
-  return new Promise((resolve) => {
-    const template = actions.map(a => {
-      if (a.type === 'separator') return { type: 'separator' }
-      return {
-        label: a.label,
-        enabled: a.enabled !== false,
-        ...(a.role ? { role: a.role } : {}),
-        click: () => resolve(a.id)
-      }
-    })
-    const menu = Menu.buildFromTemplate(template)
-    menu.popup({ window: win, callback: () => resolve(null) })
-  })
-})

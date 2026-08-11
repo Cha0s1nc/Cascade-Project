@@ -23,7 +23,6 @@ const cascade: ElectronPlatform = {
     openExternal: (url) => ipcRenderer.invoke('shell-open', url),
   },
   download:        (url, filename) => ipcRenderer.invoke('download-file', url, filename),
-  showNpMenu:      (actions) => ipcRenderer.invoke('show-np-menu', actions),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   getVersion:      () => ipcRenderer.invoke('get-version'),
   isPackaged:      () => ipcRenderer.invoke('is-packaged'),
