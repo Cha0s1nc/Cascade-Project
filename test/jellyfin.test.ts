@@ -1,6 +1,10 @@
 import { test, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { JellyfinClient, authenticate, authHeader } from '../src/core/jellyfin.ts'
+import {
+  JellyfinClient, authenticate, authHeader,
+  quickConnectEnabled, quickConnectInitiate, quickConnectApproved, quickConnectAuthenticate,
+  QUICK_CONNECT_POLL_MS, QUICK_CONNECT_TIMEOUT_MS,
+} from '../src/core/jellyfin.ts'
 import type { ServerConfig, JfItemsResponse } from '../src/core/types.ts'
 
 const realFetch = globalThis.fetch
@@ -139,6 +143,74 @@ test('authenticate: posts credentials and returns the auth result', async () => 
   const auth = (calls[0].init?.headers as Record<string, string>)['X-Emby-Authorization']
   assert.ok(auth.includes('Version="1.2.0"'))
   assert.ok(auth.includes('DeviceId="DEV-ABC"'))
+})
+
+test('quickConnectEnabled: true only when the server says so', async () => {
+  stubFetch(() => true)
+  assert.equal(await quickConnectEnabled('https://jf.test'), true)
+  assert.ok(calls[0].url.endsWith('/QuickConnect/Enabled'))
+})
+
+test('quickConnectEnabled: never throws on a server without it', async () => {
+  // A server that 404s this simply does not offer QuickConnect - that is not an
+  // error the sign-in screen should surface.
+  stubFetch(() => undefined)
+  assert.equal(await quickConnectEnabled('https://jf.test'), false)
+
+  globalThis.fetch = (() => Promise.reject(new Error('offline'))) as unknown as typeof fetch
+  assert.equal(await quickConnectEnabled('https://jf.test'), false)
+})
+
+test('quickConnectInitiate: binds the request to this device', async () => {
+  stubFetch(() => ({ Code: '123456', Secret: 'SEKRIT' }))
+  const start = await quickConnectInitiate('https://jf.test', '1.2.0', 'DEV-1')
+
+  assert.deepEqual(start, { Code: '123456', Secret: 'SEKRIT' })
+  assert.equal(calls[0].init?.method, 'POST')
+  const auth = (calls[0].init?.headers as Record<string, string>)['X-Emby-Authorization']
+  assert.ok(auth.includes('DeviceId="DEV-1"'), 'token ends up bound to this device id')
+})
+
+test('quickConnectApproved: false until the user approves', async () => {
+  stubFetch(() => ({ Authenticated: false }))
+  assert.equal(await quickConnectApproved('https://jf.test', 'SEKRIT'), false)
+
+  stubFetch(() => ({ Authenticated: true }))
+  assert.equal(await quickConnectApproved('https://jf.test', 'SEKRIT'), true)
+})
+
+test('quickConnectApproved: an expired request reads as pending, not a crash', async () => {
+  // Jellyfin 404s a request it has forgotten. Throwing here would kill the poll
+  // loop; the caller's timeout is what should end it.
+  stubFetch(() => undefined)
+  assert.equal(await quickConnectApproved('https://jf.test', 'GONE'), false)
+})
+
+test('quickConnectApproved: escapes the secret into the query', async () => {
+  stubFetch(() => ({ Authenticated: false }))
+  await quickConnectApproved('https://jf.test', 'a b&c=d')
+  assert.equal(new URL(calls[0].url).searchParams.get('secret'), 'a b&c=d')
+})
+
+test('quickConnectAuthenticate: trades the secret for a real token', async () => {
+  stubFetch(() => ({ AccessToken: 'TOK', User: { Id: 'U9' } }))
+  const auth = await quickConnectAuthenticate('https://jf.test', 'SEKRIT', '1.2.0', 'DEV-1')
+
+  assert.equal(auth.AccessToken, 'TOK')
+  assert.equal(auth.User.Id, 'U9')
+  assert.deepEqual(JSON.parse(String(calls[0].init?.body)), { Secret: 'SEKRIT' })
+  const hdr = (calls[0].init?.headers as Record<string, string>)['X-Emby-Authorization']
+  assert.ok(hdr.includes('DeviceId="DEV-1"'), 'must match the device that initiated')
+})
+
+test('quickConnectAuthenticate: surfaces a rejection', async () => {
+  stubFetch(() => undefined)
+  await assert.rejects(() => quickConnectAuthenticate('https://jf.test', 'BAD', '1.2.0', 'DEV-1'))
+})
+
+test('quick connect timings are sane', () => {
+  assert.ok(QUICK_CONNECT_POLL_MS >= 1000, 'do not hammer the server')
+  assert.ok(QUICK_CONNECT_TIMEOUT_MS > QUICK_CONNECT_POLL_MS * 10, 'room for a real approval')
 })
 
 test('authHeader: device id is per-install, never the old constant', () => {

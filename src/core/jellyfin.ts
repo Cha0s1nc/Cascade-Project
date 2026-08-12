@@ -46,6 +46,87 @@ export async function authenticate(
   return res.json() as Promise<JfAuthResult>
 }
 
+/** What the server hands back when a QuickConnect request is started. */
+export interface QuickConnectStart {
+  /** Shown to the user; they type it into Jellyfin on an already-signed-in device. */
+  Code: string
+  /** Opaque handle used to poll and then exchange for a token. Never shown. */
+  Secret: string
+}
+
+interface QuickConnectState {
+  Authenticated?: boolean
+}
+
+/** How often to ask the server whether the code has been approved. */
+export const QUICK_CONNECT_POLL_MS = 2000
+
+/** Give up after this long so a forgotten sign-in does not poll forever. */
+export const QUICK_CONNECT_TIMEOUT_MS = 5 * 60 * 1000
+
+/** Whether the server has QuickConnect switched on. Never throws - a server that
+ *  404s this simply does not offer it. */
+export async function quickConnectEnabled(serverUrl: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${serverUrl}/QuickConnect/Enabled`)
+    if (!res.ok) return false
+    return await res.json() === true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Start a QuickConnect request and get the code to show the user.
+ *
+ * The device id matters here: Jellyfin ties the pending request to it, and it is
+ * what the resulting token is bound to.
+ */
+export async function quickConnectInitiate(
+  serverUrl: string,
+  appVersion: string,
+  deviceId: string,
+): Promise<QuickConnectStart> {
+  const res = await fetch(`${serverUrl}/QuickConnect/Initiate`, {
+    method: 'POST',
+    headers: { 'X-Emby-Authorization': authHeader(appVersion, deviceId) },
+  })
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+  return res.json() as Promise<QuickConnectStart>
+}
+
+/** True once the user has approved the code on another device. */
+export async function quickConnectApproved(serverUrl: string, secret: string): Promise<boolean> {
+  const res = await fetch(`${serverUrl}/QuickConnect/Connect?secret=${encodeURIComponent(secret)}`)
+  // 404 means the request expired or was cancelled server-side - treat as
+  // still-pending rather than throwing, and let the timeout end it.
+  if (!res.ok) return false
+  const state = await res.json() as QuickConnectState
+  return state?.Authenticated === true
+}
+
+/** Exchange an approved secret for a real access token. */
+export async function quickConnectAuthenticate(
+  serverUrl: string,
+  secret: string,
+  appVersion: string,
+  deviceId: string,
+): Promise<JfAuthResult> {
+  const res = await fetch(`${serverUrl}/Users/AuthenticateWithQuickConnect`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Emby-Authorization': authHeader(appVersion, deviceId),
+    },
+    body: JSON.stringify({ Secret: secret }),
+  })
+  if (!res.ok) {
+    const txt = await res.text()
+    throw new Error(txt || `${res.status}`)
+  }
+  return res.json() as Promise<JfAuthResult>
+}
+
 export class JellyfinClient {
   // Written out longhand rather than as a constructor parameter property:
   // Node's strip-only TypeScript mode (what `npm test` uses) rejects those,
