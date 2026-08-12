@@ -81,6 +81,29 @@ function withStartTicks(url: string, ticks: number): string {
   return `${base}?${params}`
 }
 
+/**
+ * The parts of a stream request that are not "which item, how big".
+ *
+ * A bag rather than more positional parameters: resolveStream already takes six,
+ * and `resolveStream(c, cfg, id, p, rate, 'Video', 0, 3)` says nothing about
+ * what the 0 and the 3 are.
+ */
+export interface StreamOptions {
+  /** Start the stream this far into the item. Only a transcode can honour it;
+   *  direct play returns the whole file and seeks locally. */
+  startTicks?: number
+  /**
+   * Which audio track to play, as a MediaStreams index. null leaves it to the
+   * server.
+   *
+   * ponytail: this forces a transcode in practice, and that is not a bug to fix
+   * later. HTML5 has no way to select between the audio tracks inside one file -
+   * Chromium exposes no audioTracks - so the only way to hear the commentary is
+   * to have the server mux a file that has it first.
+   */
+  audioStreamIndex?: number | null
+}
+
 export interface ResolvedStream {
   url: string
   /** Needed so playback reporting ties to the right server-side session. */
@@ -164,8 +187,11 @@ export async function resolveStream(
   profile: DeviceProfile,
   maxBitrate: number = DEFAULT_MAX_BITRATE,
   kind: MediaKind = 'Audio',
-  startTicks: number = 0,
+  opts: StreamOptions = {},
 ): Promise<ResolvedStream> {
+  const startTicks = opts.startTicks ?? 0
+  const audioStreamIndex = opts.audioStreamIndex ?? null
+
   try {
     const info = await client.post<PlaybackInfoResponse>(
       `/Items/${itemId}/PlaybackInfo`,
@@ -174,6 +200,10 @@ export async function resolveStream(
         MaxStreamingBitrate: maxBitrate,
         DeviceProfile: { ...profile, MaxStreamingBitrate: maxBitrate },
         AutoOpenLiveStream: true,
+        // Sent rather than omitted-when-default so the server decides whether
+        // the requested track is reachable by direct play. It usually is not,
+        // and that transcode is the point - see StreamOptions.
+        ...(audioStreamIndex != null ? { AudioStreamIndex: audioStreamIndex } : {}),
       },
       { UserId: config.userId },
     )
@@ -186,6 +216,8 @@ export async function resolveStream(
     if (source.TranscodingUrl) {
       return {
         url: withStartTicks(`${config.url}${source.TranscodingUrl}`, startTicks),
+        // TranscodingUrl already carries the audio index the server settled on,
+        // so nothing is appended here.
         playSessionId,
         mediaSourceId: source.Id ?? null,
         direct: false,

@@ -240,3 +240,87 @@ test('subtitle profile offers text formats externally and no image formats', () 
   assert.ok(!formats.includes('dvdsub'))
   assert.ok((ELECTRON_PROFILE.SubtitleProfiles ?? []).every(p => p.Method === 'External'))
 })
+
+// ── Offset streams and track selection ──
+//
+// The whole reason these exist: a progressive transcode only exposes the part
+// the server has already encoded, so seeking is a new stream rather than a
+// currentTime assignment. If startTicks ever stops reaching the URL, scrubbing
+// a film silently goes back to being impossible.
+
+const TEN_MIN = 6_000_000_000
+
+const transcodeReply = () => ({
+  PlaySessionId: 'PS1',
+  MediaSources: [{ Id: 'MS1', Container: 'mkv', TranscodingUrl: '/videos/ITEM1/master.mp4?PlaySessionId=PS1' }],
+})
+
+test('a transcode seek puts StartTimeTicks on the stream URL', async () => {
+  stubFetch(() => transcodeReply())
+  const out = await resolveStream(
+    client, config, 'ITEM1', ELECTRON_PROFILE, DEFAULT_MAX_BITRATE, 'Video',
+    { startTicks: TEN_MIN })
+
+  assert.equal(out.direct, false)
+  assert.equal(out.startTicks, TEN_MIN, 'caller needs the offset back to correct its clock')
+  const url = new URL(out.url)
+  assert.equal(url.searchParams.get('StartTimeTicks'), String(TEN_MIN))
+  // The params the server put on TranscodingUrl must survive being added to.
+  assert.equal(url.searchParams.get('PlaySessionId'), 'PS1')
+})
+
+test('an offset of zero leaves the transcoding URL untouched', async () => {
+  stubFetch(() => transcodeReply())
+  const out = await resolveStream(
+    client, config, 'ITEM1', ELECTRON_PROFILE, DEFAULT_MAX_BITRATE, 'Video', { startTicks: 0 })
+
+  assert.equal(out.startTicks, 0)
+  assert.ok(!out.url.includes('StartTimeTicks'))
+})
+
+test('seeking twice replaces the offset rather than appending a second one', async () => {
+  stubFetch(() => ({
+    PlaySessionId: 'PS1',
+    MediaSources: [{ Id: 'MS1', TranscodingUrl: '/videos/ITEM1/master.mp4?StartTimeTicks=999' }],
+  }))
+  const out = await resolveStream(
+    client, config, 'ITEM1', ELECTRON_PROFILE, DEFAULT_MAX_BITRATE, 'Video',
+    { startTicks: TEN_MIN })
+
+  const url = new URL(out.url)
+  assert.deepEqual(url.searchParams.getAll('StartTimeTicks'), [String(TEN_MIN)])
+})
+
+test('direct play reports no offset, because it seeks on the element instead', async () => {
+  stubFetch(() => ({ PlaySessionId: 'PS1', MediaSources: [{ Id: 'MS1', Container: 'mp4' }] }))
+  const out = await resolveStream(
+    client, config, 'ITEM1', ELECTRON_PROFILE, DEFAULT_MAX_BITRATE, 'Video',
+    { startTicks: TEN_MIN })
+
+  assert.equal(out.direct, true)
+  assert.equal(out.startTicks, 0, 'a whole file needs no offset baked into the URL')
+  assert.ok(!out.url.includes('StartTimeTicks'))
+})
+
+test('a chosen audio track reaches PlaybackInfo, and is absent otherwise', async () => {
+  stubFetch(() => transcodeReply())
+  await resolveStream(client, config, 'ITEM1', ELECTRON_PROFILE, DEFAULT_MAX_BITRATE, 'Video',
+    { audioStreamIndex: 3 })
+  assert.equal(calls[0].body.AudioStreamIndex, 3)
+
+  calls = []
+  await resolveStream(client, config, 'ITEM1', ELECTRON_PROFILE, DEFAULT_MAX_BITRATE, 'Video')
+  assert.ok(!('AudioStreamIndex' in calls[0].body),
+    'omitted rather than null, so the server keeps its own default')
+})
+
+test('the fallback path still reports a usable shape when PlaybackInfo fails', async () => {
+  stubFetch(() => undefined)
+  const out = await resolveStream(
+    client, config, 'ITEM1', ELECTRON_PROFILE, DEFAULT_MAX_BITRATE, 'Video',
+    { startTicks: TEN_MIN })
+
+  assert.equal(out.direct, false)
+  assert.equal(out.startTicks, 0, 'the static fallback cannot start partway in')
+  assert.ok(out.url.includes('/Videos/ITEM1/stream'))
+})

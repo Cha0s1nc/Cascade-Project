@@ -196,9 +196,9 @@ let _currentHighResArtUrl = null
 // `kind` picks the endpoint family: /Audio/{id} vs /Videos/{id}. Passed from
 // the item rather than inferred inside core, because core has no opinion about
 // Jellyfin's Type strings.
-/** @type {(itemId: string, kind?: 'Audio' | 'Video', startTicks?: number) => Promise<any>} */
-const resolveTrackStream = (itemId, kind = 'Audio', startTicks = 0) =>
-  resolveStream(jfClient, jf, itemId, ELECTRON_PROFILE, maxStreamingBitrate, kind, startTicks)
+/** @type {(itemId: string, kind?: 'Audio' | 'Video', opts?: any) => Promise<any>} */
+const resolveTrackStream = (itemId, kind = 'Audio', opts = {}) =>
+  resolveStream(jfClient, jf, itemId, ELECTRON_PROFILE, maxStreamingBitrate, kind, opts)
 
 // Self-contained URL for "Copy stream URL". Deliberately the /universal form
 // rather than a PlaySessionId-bound one, so the copied link keeps working after
@@ -1861,7 +1861,11 @@ function playItems(items, startIndex) {
 // single-column video layout. Purely a class toggle: the CSS in index.html owns
 // what actually shows, so there is one place to change if the layout moves.
 function applyVideoMode(on) {
-  document.getElementById('np-overlay').classList.toggle('video', !!on)
+  const ov = document.getElementById('np-overlay')
+  ov.classList.toggle('video', !!on)
+  // A film opened on its own is a queue of one, so prev and next have nowhere
+  // to go. A season is not - that queue is the whole point of next-episode.
+  ov.classList.toggle('single', !!on && queue.length <= 1)
   // A movie playing behind the library grid with no picture is confusing, so
   // opening the overlay is part of starting video, not a separate step.
   if (on) openOverlay()
@@ -1889,11 +1893,18 @@ function applySubtitles(item, resolved) {
     track.label = s.DisplayTitle || s.Language || `Track ${s.Index}`
     if (s.Language) track.srclang = s.Language
     track.src = `${jf.url}/Videos/${item.Id}/${sourceId}/Subtitles/${s.Index}/Stream.vtt?api_key=${jf.token}`
-    // ponytail: default track only, no picker UI. Add a menu when someone
-    // actually needs to switch language mid-film.
-    if (s.IsDefault || s.IsForced) track.default = true
     audio.appendChild(track)
+    // Mode is set after appending, and explicitly rather than via `default`,
+    // because `default` only decides the *initial* pick - the picker needs a
+    // handle it can keep changing afterwards.
+    track.track.mode = (s.IsDefault || s.IsForced) ? 'showing' : 'disabled'
   }
+}
+
+/** Show one subtitle track by index, or none when `index` is null. */
+function selectSubtitleTrack(index) {
+  const tracks = [...audio.querySelectorAll('track')]
+  tracks.forEach((t, i) => { t.track.mode = i === index ? 'showing' : 'disabled' })
 }
 
 // opts.alreadyPlaying: true when a crossfade handoff already has `audio` playing
@@ -1930,7 +1941,10 @@ async function playCurrentTrack(opts = {}) {
     // encoded from that point, and asking for it after the fact would mean
     // throwing away everything already sent. Direct play ignores it here and
     // seeks locally below instead.
-    const resolved = await resolveTrackStream(item.Id, video ? 'Video' : 'Audio', startTicks)
+    // A track choice belongs to the film you made it on, not to the player.
+    _audioStreamIndex = null
+
+    const resolved = await resolveTrackStream(item.Id, video ? 'Video' : 'Audio', { startTicks })
     if (queue[queueIndex]?.Id !== item.Id) return
 
     adoptResolvedStream(resolved)
@@ -2197,29 +2211,57 @@ async function seekTo(sec) {
   const dur = mediaDuration()
   const target = Math.max(0, Math.min(dur || sec, sec))
 
-  const transcoding = _playMethod === 'Transcode' && isVideoItem(item)
-  if (!transcoding) {
-    audio.currentTime = target
+  if (_playMethod === 'Transcode' && isVideoItem(item)) {
+    await restartStreamAt(target)
     return
   }
+  audio.currentTime = target
+}
 
-  // Re-resolving is a round trip, so the user can skip or seek again before it
-  // lands. Same guard playCurrentTrack uses: re-read the queue and bail if the
-  // item moved out from under us, otherwise a stale response starts the wrong
-  // thing.
+/** Which audio track the user picked, as a MediaStreams index. null = server's
+ *  choice, which is what everything but an explicit switch uses. */
+let _audioStreamIndex = null
+
+/** Guards against an older restart's response overwriting a newer one. */
+let _restartSession = 0
+
+/**
+ * Throw away the current stream and ask for a new one starting at `sec`.
+ *
+ * Both things that cannot be done to a running transcode go through here:
+ * seeking past what has been encoded, and switching audio track. They are the
+ * same operation - a fresh stream at a position - so they share the guard, the
+ * play-state restore and the session counter rather than each growing their own.
+ */
+async function restartStreamAt(sec) {
+  const item = queue[queueIndex]
+  if (!item) return
+
   const wasPlaying = !audio.paused
-  const seekSession = ++_seekSession
-  const resolved = await resolveTrackStream(item.Id, 'Video', Math.round(target * 10_000_000))
-  if (seekSession !== _seekSession || queue[queueIndex]?.Id !== item.Id) return
+  const session = ++_restartSession
+
+  // A round trip, so the user can seek or skip again before it lands. Same
+  // guard playCurrentTrack uses: re-read the queue afterwards and bail if the
+  // item moved, otherwise a stale response starts the wrong thing.
+  const resolved = await resolveTrackStream(item.Id, 'Video', {
+    startTicks: Math.round(sec * 10_000_000),
+    audioStreamIndex: _audioStreamIndex,
+  })
+  if (session !== _restartSession || queue[queueIndex]?.Id !== item.Id) return
 
   adoptResolvedStream(resolved)
   audio.src = resolved.url
+
+  // Direct play ignores startTicks, so the seek still has to happen on the
+  // element - and only once metadata has landed.
+  if (resolved.startTicks === 0 && sec > 0) {
+    audio.addEventListener('loadedmetadata', () => { audio.currentTime = sec }, { once: true })
+  }
+
+  applySubtitles(item, resolved)
   if (wasPlaying) audio.play().catch(() => {})
   syncProgressUI()
 }
-
-/** Guards against an older seek's response overwriting a newer one. */
-let _seekSession = 0
 
 // Snapshot of local playback in Jellyfin's units (ticks, 0-100 volume).
 function playbackSnapshot(itemId, positionTicks) {
@@ -3346,18 +3388,33 @@ function setSleepTimerAtTrackEnd() {
 
 const sleepTimerDropdown = document.getElementById('sleep-timer-dropdown')
 
+/**
+ * Open `dd` under `btn`, nudged back on screen if it would overflow.
+ *
+ * Extracted when the subtitle and audio-track menus arrived: three copies of
+ * the same edge-flip arithmetic is how one of them ends up opening off-screen
+ * on a small window and nobody notices.
+ */
+function openDropdownUnder(dd, btnEl) {
+  const btn = btnEl.getBoundingClientRect()
+  dd.classList.add('open')
+  dd.style.left = `${btn.left}px`
+  dd.style.top  = `${btn.bottom + 6}px`
+  const r = dd.getBoundingClientRect()
+  if (r.right > window.innerWidth - 8) dd.style.left = `${window.innerWidth - dd.offsetWidth - 8}px`
+  if (r.bottom > window.innerHeight - 8) dd.style.top = `${btn.top - dd.offsetHeight - 6}px`
+}
+
+/** Toggle helper: returns true when the menu ended up open. */
+function toggleDropdownUnder(dd, btnEl) {
+  if (dd.classList.contains('open')) { dd.classList.remove('open'); return false }
+  openDropdownUnder(dd, btnEl)
+  return true
+}
+
 document.getElementById('ov-sleep-timer').addEventListener('click', (e) => {
   e.stopPropagation()
-  const isOpen = sleepTimerDropdown.classList.contains('open')
-  sleepTimerDropdown.classList.toggle('open', !isOpen)
-  if (!isOpen) {
-    const btn = e.currentTarget.getBoundingClientRect()
-    sleepTimerDropdown.style.left = `${btn.left}px`
-    sleepTimerDropdown.style.top  = `${btn.bottom + 6}px`
-    const r = sleepTimerDropdown.getBoundingClientRect()
-    if (r.right > window.innerWidth - 8) sleepTimerDropdown.style.left = `${window.innerWidth - sleepTimerDropdown.offsetWidth - 8}px`
-    if (r.bottom > window.innerHeight - 8) sleepTimerDropdown.style.top = `${btn.top - sleepTimerDropdown.offsetHeight - 6}px`
-  }
+  toggleDropdownUnder(sleepTimerDropdown, e.currentTarget)
 })
 
 sleepTimerDropdown.querySelectorAll('[data-sleep-mins]').forEach(btn => {
@@ -3371,9 +3428,21 @@ sleepTimerDropdown.querySelectorAll('[data-sleep-mins]').forEach(btn => {
   })
 })
 
+// One outside-click handler for every overlay dropdown, each paired with the
+// button that opens it. A per-menu copy is how the third one ends up staying
+// open behind the second.
+const OV_DROPDOWNS = [
+  ['sleep-timer-dropdown',  'ov-sleep-timer'],
+  ['subs-dropdown',         'ov-subs'],
+  ['audio-track-dropdown',  'ov-audio-track'],
+]
+
 document.addEventListener('mousedown', (e) => {
-  if (!sleepTimerDropdown.contains(e.target) && !e.target.closest('#ov-sleep-timer')) {
-    sleepTimerDropdown.classList.remove('open')
+  for (const [ddId, btnId] of OV_DROPDOWNS) {
+    const dd = document.getElementById(ddId)
+    if (!dd || !dd.classList.contains('open')) continue
+    if (dd.contains(e.target) || e.target.closest(`#${btnId}`)) continue
+    dd.classList.remove('open')
   }
 })
 
@@ -3446,6 +3515,138 @@ document.getElementById('ov-like').addEventListener('click', toggleLike)
     document.addEventListener('mouseup', onUp)
   })
 })()
+
+// ── Video controls ────────────────────────────────────────────────────────────
+//
+// Everything here is video-only and hidden by CSS while music plays, so none of
+// it needs its own guard against being clicked during a song.
+
+const SKIP_SECONDS = 10
+/** Where a run of skips is heading. null when no run is in flight. */
+let _skipTarget = null
+let _skipTimer = null
+
+/**
+ * Jump by `delta` seconds.
+ *
+ * Direct play moves immediately. A transcode cannot: every skip is a new stream,
+ * so a run of taps is collected and sent once. Without that, tapping forward
+ * five times would fire five encodes and the server would still be starting the
+ * first one. The scrubber follows each tap so the run stays legible.
+ */
+function skipBy(delta) {
+  const dur = mediaDuration()
+  if (!dur) return
+
+  if (!(_playMethod === 'Transcode' && playingVideo())) {
+    seekTo(mediaPosition() + delta)
+    return
+  }
+
+  const base = _skipTarget ?? mediaPosition()
+  _skipTarget = Math.max(0, Math.min(dur, base + delta))
+
+  document.getElementById('ov-prog-fill').style.width = `${(_skipTarget / dur) * 100}%`
+  document.getElementById('ov-cur').textContent = fmtTime(_skipTarget)
+
+  clearTimeout(_skipTimer)
+  _skipTimer = setTimeout(() => {
+    const target = _skipTarget
+    _skipTarget = null
+    if (target != null) seekTo(target)
+  }, 350)
+}
+
+document.getElementById('ov-back10').addEventListener('click', () => skipBy(-SKIP_SECONDS))
+document.getElementById('ov-fwd10').addEventListener('click', () => skipBy(SKIP_SECONDS))
+
+// ── Fullscreen ──
+// The overlay goes fullscreen, not the <video>: the transport controls live in
+// the overlay, and handing the element to the browser would take them away and
+// leave the native ones in their place.
+function toggleVideoFullscreen() {
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
+  else npOverlay.requestFullscreen().catch(() => {})
+}
+
+document.getElementById('ov-fullscreen').addEventListener('click', toggleVideoFullscreen)
+audio.addEventListener('dblclick', () => { if (playingVideo()) toggleVideoFullscreen() })
+
+// Escape is handled by the browser, which exits fullscreen without telling the
+// overlay - so closing on Escape has to wait until it is no longer fullscreen,
+// otherwise one press would both exit fullscreen and close the overlay.
+document.addEventListener('keydown', (e) => {
+  if (!overlayOpen || !playingVideo()) return
+  const t = /** @type {HTMLElement} */ (e.target)
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+
+  if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleVideoFullscreen() }
+  else if (e.key === 'ArrowLeft')     { e.preventDefault(); skipBy(-SKIP_SECONDS) }
+  else if (e.key === 'ArrowRight')    { e.preventDefault(); skipBy(SKIP_SECONDS) }
+  else if (e.key === ' ')             { e.preventDefault(); document.getElementById('btn-play').click() }
+})
+
+// ── Subtitle picker ──
+
+const subsDropdown = document.getElementById('subs-dropdown')
+
+document.getElementById('ov-subs').addEventListener('click', (e) => {
+  e.stopPropagation()
+  const tracks = [...audio.querySelectorAll('track')]
+  const activeIdx = tracks.findIndex(t => t.track.mode === 'showing')
+
+  subsDropdown.innerHTML = tracks.length
+    ? ['<div class="ov-dd-head">Subtitles</div>',
+       `<button class="ov-dd-item${activeIdx === -1 ? ' checked' : ''}" data-sub="off">Off</button>`,
+       ...tracks.map((t, i) =>
+         `<button class="ov-dd-item${i === activeIdx ? ' checked' : ''}" data-sub="${i}">${esc(t.label)}</button>`),
+      ].join('')
+    // Image subtitles never reach here - the server burns those into the
+    // picture - so "none" genuinely means none to choose from.
+    : '<div class="ov-dd-head">Subtitles</div><div class="ov-dd-item" style="opacity:0.6;cursor:default">None available</div>'
+
+  subsDropdown.querySelectorAll('[data-sub]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const v = /** @type {HTMLElement} */ (btn).dataset.sub
+      selectSubtitleTrack(v === 'off' ? null : Number(v))
+      subsDropdown.classList.remove('open')
+    })
+  })
+
+  toggleDropdownUnder(subsDropdown, e.currentTarget)
+})
+
+// ── Audio track picker ──
+
+const audioTrackDropdown = document.getElementById('audio-track-dropdown')
+
+document.getElementById('ov-audio-track').addEventListener('click', (e) => {
+  e.stopPropagation()
+  const item = queue[queueIndex]
+  const streams = (item?.MediaStreams || []).filter(s => s.Type === 'Audio')
+
+  audioTrackDropdown.innerHTML = streams.length > 1
+    ? ['<div class="ov-dd-head">Audio</div>',
+       ...streams.map(s =>
+         `<button class="ov-dd-item${s.Index === _audioStreamIndex ? ' checked' : ''}" data-audio="${s.Index}">${
+           esc(s.DisplayTitle || s.Language || `Track ${s.Index}`)}</button>`),
+      ].join('')
+    : '<div class="ov-dd-head">Audio</div><div class="ov-dd-item" style="opacity:0.6;cursor:default">Only one track</div>'
+
+  audioTrackDropdown.querySelectorAll('[data-audio]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const idx = Number(/** @type {HTMLElement} */ (btn).dataset.audio)
+      audioTrackDropdown.classList.remove('open')
+      if (idx === _audioStreamIndex) return
+      _audioStreamIndex = idx
+      // Switching track means a different file from the server, so playback
+      // restarts where it was rather than from the top.
+      await restartStreamAt(mediaPosition())
+    })
+  })
+
+  toggleDropdownUnder(audioTrackDropdown, e.currentTarget)
+})
 
 // Overlay volume slider - drag to adjust
 ;(function() {

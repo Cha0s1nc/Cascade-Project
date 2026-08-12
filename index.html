@@ -337,6 +337,21 @@
     .np-overlay.video #ov-lyrics-toggle,
     .np-overlay.video #ov-shuffle,
     .np-overlay.video #ov-repeat { display: none; }
+    /* The mirror of the above: video-only controls, hidden while music plays. */
+    .vid-only { display: none; }
+    .np-overlay.video .vid-only { display: flex; }
+    /* A standalone film is a queue of one, so prev and next have nowhere to go.
+       Set by applyVideoMode() rather than by CSS, because it depends on the
+       queue length and not on the media kind. */
+    .np-overlay.video.single #ov-prev,
+    .np-overlay.video.single #ov-next { display: none; }
+    /* Real fullscreen: the titlebar and the app chrome are not part of a film. */
+    .np-overlay:fullscreen { background: #000; }
+    .np-overlay:fullscreen .np-overlay-close { opacity: 0.5; }
+    .ov-dd-item.checked { color: var(--text); font-weight: 600; }
+    .ov-dd-item.checked::before { content: '✓'; margin-right: -2px; }
+    .ov-dd-item:not(.checked)::before { content: ''; width: 10px; }
+    .ov-dd-head { padding: 6px 10px 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text3); }
     .np-overlay.video .np-overlay-track { white-space: normal; }
     .np-overlay.video video::cue { font-size: clamp(16px, 2.4vh, 28px); background: rgba(0,0,0,0.62); }
     .np-overlay-track { font-size: clamp(17px, 2.4vh, 26px); font-weight: 600; letter-spacing: -0.02em; color: var(--text); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
@@ -1458,11 +1473,25 @@
           <button class="np-ov-ctrl" id="ov-sleep-timer" title="Sleep timer">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
           </button>
+          <!-- Video-only. Hidden by the same .np-overlay.video rules that hide
+               shuffle, repeat and lyrics for a film. -->
+          <button class="np-ov-ctrl vid-only" id="ov-subs" title="Subtitles">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="6" y1="14" x2="11" y2="14"/><line x1="14" y1="14" x2="18" y2="14"/></svg>
+          </button>
+          <button class="np-ov-ctrl vid-only" id="ov-audio-track" title="Audio track">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>
+          </button>
+          <button class="np-ov-ctrl vid-only" id="ov-fullscreen" title="Fullscreen (F)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+          </button>
         </div>
         <!-- Primary: prev · play · next -->
         <div class="np-overlay-btns" style="gap:24px;">
           <button class="np-ov-ctrl" id="ov-prev" title="Previous">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg>
+          </button>
+          <button class="np-ov-ctrl vid-only" id="ov-back10" title="Back 10 seconds (←)">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4A8 8 0 1 1 4 12"/><polyline points="4 4 4 9 9 9"/><text x="12" y="16" font-size="8" font-family="inherit" fill="currentColor" stroke="none" text-anchor="middle">10</text></svg>
           </button>
           <button class="np-ov-play" id="ov-play">
             <svg id="ov-icon-play" width="20" height="20" viewBox="0 0 24 24" fill="white" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
@@ -1470,6 +1499,9 @@
           </button>
           <button class="np-ov-ctrl" id="ov-next" title="Next">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+          </button>
+          <button class="np-ov-ctrl vid-only" id="ov-fwd10" title="Forward 10 seconds (→)">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 4a8 8 0 1 0 7 8"/><polyline points="20 4 20 9 15 9"/><text x="12" y="16" font-size="8" font-family="inherit" fill="currentColor" stroke="none" text-anchor="middle">10</text></svg>
           </button>
         </div>
         <div class="np-overlay-prog">
@@ -1537,6 +1569,11 @@
   <div class="ov-dd-sep"></div>
   <button class="ov-dd-item" data-sleep-mins="off">Turn off</button>
 </div>
+
+<!-- Subtitle and audio track pickers. Both filled at play time from the item's
+     MediaStreams, so the markup is just the shell. -->
+<div class="ov-dropdown" id="subs-dropdown"></div>
+<div class="ov-dropdown" id="audio-track-dropdown"></div>
 
 <!-- Context menu -->
 <div class="ctx-menu" id="ctx-menu">
