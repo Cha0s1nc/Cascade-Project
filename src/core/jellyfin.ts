@@ -185,9 +185,13 @@ export class JellyfinClient {
    *
    * Respects params.Limit per library - use `getAllPaged` when you need
    * everything.
+   *
+   * `libraryIds` overrides the configured music libraries. Video browsing
+   * passes its own set that way, so a movie query never fans out across the
+   * music libraries and a music query never touches the movie ones.
    */
-  async getMerged(path: string, params: JfParams = {}): Promise<JfItemsResponse> {
-    const ids = this.config.libraryIds || []
+  async getMerged(path: string, params: JfParams = {}, libraryIds?: string[]): Promise<JfItemsResponse> {
+    const ids = libraryIds ?? this.config.libraryIds ?? []
     if (!ids.length) return this.get<JfItemsResponse>(path, params)
 
     const results = await Promise.all(ids.map(libId =>
@@ -203,8 +207,8 @@ export class JellyfinClient {
    * fetched instead of stopping at params.Limit. Pages within a library are
    * fetched in parallel once the first page reveals TotalRecordCount.
    */
-  async getAllPaged(path: string, params: JfParams = {}): Promise<JfItemsResponse> {
-    const configured = this.config.libraryIds
+  async getAllPaged(path: string, params: JfParams = {}, libraryIds?: string[]): Promise<JfItemsResponse> {
+    const configured = libraryIds ?? this.config.libraryIds
     const ids: (string | null)[] = configured?.length ? configured : [null]
     const pageSize = Number(params.Limit) || DEFAULT_PAGE_SIZE
 

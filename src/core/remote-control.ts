@@ -125,7 +125,7 @@ export class RemoteControl {
    */
   private async registerCapabilities(): Promise<void> {
     await this.client.post('/Sessions/Capabilities/Full', {
-      PlayableMediaTypes: ['Audio'],
+      PlayableMediaTypes: ['Audio', 'Video'],
       SupportedCommands: [...SUPPORTED_COMMANDS],
       SupportsMediaControl: true,
       SupportsPersistentIdentifier: true,

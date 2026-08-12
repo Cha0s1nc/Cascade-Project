@@ -17,7 +17,7 @@ A Jellyfin music client for desktop with a polished dark interface, full playbac
 - **Synced lyrics** - timestamp-synced lyrics from Jellyfin with click-to-seek. Opens as a slide-in panel or in the full-screen overlay. A globe button in the overlay lyrics panel auto-detects non-English tracks and translates to English with one tap (Pulled from a couple sources when online, pulled from sidecar `.slrc` files on "Server Only Mode")
 - **Lyrics translation** - auto-detects non-English tracks and shows a translate bar. One click translates to 12 languages via the MyMemory API
 - **Album art accent mode** - toggle in the theme picker to automatically match the gradient and full-screen overlay background to the dominant colour of the current album art, updating on every track change
-- **Discord Rich Presence** - shows the current track in Discord as "Listening to Cascade". Enable in Settings with one toggle - no setup required
+- **Discord Rich Presence** - shows the current track in Discord as "Listening to Cascade", or "Watching Cascade" for a movie or episode. Enable in Settings with one toggle - no setup required
 - **Touch Bar** - Actually has support for Macbooks with a Touch Bar
 - **Multi-library support** - select and merge multiple Jellyfin music libraries. Albums, artists, and songs are deduplicated across all selected libraries
 - **Cha0s Stream integration** - exposes a local control server (`127.0.0.1:47847`) so [Cha0s Stream](https://github.com/Cha0s1nc/cha0s-stream) (my other tool) can control playback directly without OS key simulation or Jellyfin session API calls
@@ -214,7 +214,7 @@ All theme settings are saved and restored on next launch.
 
 ## Discord Rich Presence
 
-Enable in **Settings → Discord**. Cascade shows "Listening to Cascade" in Discord with the current track name and artist. No Discord application setup is required - a shared application ID is bundled with the app.
+Enable in **Settings → Discord**. Cascade shows "Listening to Cascade" in Discord with the current track name and artist. Playing a movie or episode switches it to "Watching Cascade", with the year or the series and episode number in place of the artist. No Discord application setup is required - a shared application ID is bundled with the app.
 
 Album art appears automatically if your Jellyfin server is accessible over HTTPS (e.g. via a Cloudflare Tunnel or reverse proxy). For local HTTP servers the presence shows text only.
 

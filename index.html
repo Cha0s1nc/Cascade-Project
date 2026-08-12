@@ -79,6 +79,48 @@
     .album-name { font-size: 12px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; }
     .album-artist { font-size: 11px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+    /* ── Video: posters, detail, episodes ──
+       Posters are 2:3 rather than the 1:1 an album cover uses, so they get their
+       own grid rather than a modifier on .album-grid. Everything else reuses the
+       card chrome. */
+    /* Movies/TV nav rows stay hidden until a video library is picked in
+       Settings, which sets .has-video on <body>. */
+    body:not(.has-video) .nav-video { display: none; }
+    .poster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; margin-bottom: 8px; }
+    .poster-card { cursor: pointer; }
+    .poster-art { width: 100%; aspect-ratio: 2/3; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 32px; color: var(--text3); position: relative; transition: border-color 0.12s; }
+    .poster-card:hover .poster-art { border-color: var(--accent); }
+    .poster-art img { width: 100%; height: 100%; object-fit: cover; }
+    .poster-name { font-size: 12px; font-weight: 500; color: var(--text); margin-top: 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .poster-sub { font-size: 11px; color: var(--text3); }
+    /* Resume bar across the bottom of a poster - how far in the user got. */
+    .poster-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(0,0,0,0.5); }
+    .poster-progress > span { display: block; height: 100%; background: var(--accent); }
+
+    .vd-header { display: flex; gap: 22px; margin-bottom: 22px; align-items: flex-start; }
+    .vd-poster { width: 190px; flex-shrink: 0; aspect-ratio: 2/3; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 40px; color: var(--text3); }
+    .vd-poster img { width: 100%; height: 100%; object-fit: cover; }
+    .vd-info { flex: 1; min-width: 0; padding-top: 4px; }
+    .vd-title { font-size: 25px; font-weight: 650; letter-spacing: -0.02em; color: var(--text); margin-bottom: 6px; }
+    .vd-meta { font-size: 12px; color: var(--text3); margin-bottom: 14px; }
+    .vd-overview { font-size: 13px; line-height: 1.6; color: var(--text2); max-width: 62ch; margin-bottom: 18px; }
+    .vd-actions { display: flex; gap: 9px; flex-wrap: wrap; }
+
+    .season-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+    .season-tab { background: var(--surface); border: 1px solid var(--border); color: var(--text3); border-radius: 999px; padding: 5px 13px; font-size: 12px; cursor: pointer; transition: all 0.12s; }
+    .season-tab:hover { color: var(--text); }
+    .season-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+    .ep-row { display: grid; grid-template-columns: 132px 1fr auto; gap: 14px; align-items: start; padding: 10px; border-radius: 8px; cursor: pointer; transition: background 0.12s; }
+    .ep-row:hover { background: var(--surface2); }
+    .ep-row.playing .ep-title { color: var(--accent); }
+    .ep-thumb { width: 132px; aspect-ratio: 16/9; background: var(--surface2); border-radius: 5px; overflow: hidden; position: relative; display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--text3); }
+    .ep-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .ep-title { font-size: 13px; font-weight: 500; color: var(--text); margin-bottom: 3px; }
+    .ep-overview { font-size: 12px; line-height: 1.5; color: var(--text3); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .ep-time { font-size: 11px; color: var(--text3); font-variant-numeric: tabular-nums; padding-top: 2px; }
+    .ep-watched { color: var(--accent); }
+
     /* Albums view */
     #view-albums .album-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
 
@@ -267,6 +309,24 @@
     .np-overlay-art { width: min(clamp(240px, 52vh, 520px), calc(100% - 32px)); aspect-ratio: 1; border-radius: 12px; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 72px; flex-shrink: 0; }
     .np-overlay-art img { width: 100%; height: 100%; object-fit: cover; }
     .np-overlay-info { text-align: center; width: 100%; }
+
+    /* ── Video mode ──
+       Same overlay, one column. The media element is always in the DOM (it is
+       the app's only <audio>/<video>), so audio playback just keeps it hidden
+       rather than swapping elements. */
+    .np-overlay-video { display: none; }
+    .np-overlay.video .np-overlay-video { display: block; width: 100%; height: 100%; min-height: 0; background: #000; border-radius: 8px; object-fit: contain; }
+    .np-overlay.video .np-overlay-body { grid-template-columns: 1fr; }
+    .np-overlay.video .np-overlay-right { display: none; }
+    .np-overlay.video .np-overlay-left { border-right: none; justify-content: stretch; padding: clamp(12px, 2vh, 24px) clamp(12px, 2vw, 32px); }
+    .np-overlay.video .np-overlay-art { display: none; }
+    /* Lyrics, shuffle and repeat are meaningless for a movie. Hiding rather
+       than removing keeps one set of transport controls for both modes. */
+    .np-overlay.video #ov-lyrics-toggle,
+    .np-overlay.video #ov-shuffle,
+    .np-overlay.video #ov-repeat { display: none; }
+    .np-overlay.video .np-overlay-track { white-space: normal; }
+    .np-overlay.video video::cue { font-size: clamp(16px, 2.4vh, 28px); background: rgba(0,0,0,0.62); }
     .np-overlay-track { font-size: clamp(17px, 2.4vh, 26px); font-weight: 600; letter-spacing: -0.02em; color: var(--text); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
     .np-overlay-track:hover { text-decoration: underline; }
     .np-overlay-artist { font-size: clamp(13px, 1.7vh, 17px); color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
@@ -759,6 +819,22 @@
         </div>
         <div class="nav-info"><span class="nav-label">Playlists</span></div>
       </div>
+      <!-- Video. Hidden until a movie or TV library is selected in Settings, so
+           a pure music setup never sees two dead nav rows. -->
+      <div class="nav-item nav-video" data-view="movies">
+        <div class="nav-bar"></div>
+        <div class="nav-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+        </div>
+        <div class="nav-info"><span class="nav-label">Movies</span></div>
+      </div>
+      <div class="nav-item nav-video" data-view="shows">
+        <div class="nav-bar"></div>
+        <div class="nav-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="15" rx="2" ry="2"/><polyline points="17 2 12 7 7 2"/></svg>
+        </div>
+        <div class="nav-info"><span class="nav-label">TV Shows</span></div>
+      </div>
       <div class="nav-spacer"></div>
       <div class="nav-item" data-view="settings">
         <div class="nav-bar"></div>
@@ -856,6 +932,40 @@
             </div>
             <div id="album-detail-rows"></div>
           </div>
+        </div>
+      </div>
+
+      <!-- Movies -->
+      <div class="view" id="view-movies">
+        <div id="movies-index">
+          <div class="sect-header" style="margin-bottom:14px">
+            <span class="sect-title">Movies</span>
+          </div>
+          <div class="poster-grid" id="movies-grid"></div>
+        </div>
+        <div id="movie-detail" style="display:none">
+          <button class="pl-back-btn" id="movie-back-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            Back to Movies
+          </button>
+          <div id="movie-detail-body"></div>
+        </div>
+      </div>
+
+      <!-- TV Shows -->
+      <div class="view" id="view-shows">
+        <div id="shows-index">
+          <div class="sect-header" style="margin-bottom:14px">
+            <span class="sect-title">TV Shows</span>
+          </div>
+          <div class="poster-grid" id="shows-grid"></div>
+        </div>
+        <div id="show-detail" style="display:none">
+          <button class="pl-back-btn" id="show-back-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            Back to Shows
+          </button>
+          <div id="show-detail-body"></div>
         </div>
       </div>
 
@@ -1036,6 +1146,16 @@
               <div id="s-library-list" style="width:260px;display:flex;flex-direction:column;gap:6px;">
                 <span style="font-size:12px;color:var(--text3);">- connect to load libraries -</span>
               </div>
+            </div>
+            <!-- Kept separate from the music picker on purpose: these ids are
+                 never mixed into a music query, so browsing albums does not fan
+                 out across a movie library. -->
+            <div class="setting-row" id="s-video-library-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;display:none;">
+              <div class="setting-label">
+                <span class="setting-name">Movie &amp; TV libraries</span>
+                <span class="setting-desc">Off by default. Turn one on to show Movies and TV Shows in the sidebar.</span>
+              </div>
+              <div id="s-video-library-list" style="width:260px;display:flex;flex-direction:column;gap:6px;"></div>
             </div>
           </div>
           <div class="settings-group">
@@ -1269,6 +1389,22 @@
   </div>
 </div>
 
+<!-- One-time video intro. Shown once, after connecting, only when the server has
+     movie/TV libraries and none are selected yet. Reuses the setup card chrome
+     rather than introducing a second card style. -->
+<div class="setup-overlay hidden" id="video-intro-overlay">
+  <div class="setup-card">
+    <div class="setup-logo">
+      <div class="setup-logo-dot"></div>
+      <span class="setup-logo-name">Cascade</span>
+    </div>
+    <p class="setup-subtitle">Cascade can now play movies and TV from your Jellyfin server. Pick the libraries you want, or skip and turn them on later in Settings.</p>
+    <div id="vi-library-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:18px;"></div>
+    <button class="setup-btn" id="vi-done">Done</button>
+    <button class="setup-btn setup-btn-alt" id="vi-skip">Skip for now</button>
+  </div>
+</div>
+
 <!-- Full-screen now-playing overlay -->
 <div class="np-overlay" id="np-overlay">
   <div id="ov-bg-pulse"></div>
@@ -1279,6 +1415,11 @@
   <div class="np-overlay-body">
     <!-- Left: art + info + controls -->
     <div class="np-overlay-left">
+      <!-- The one media element for the whole app. It is a <video> rather than
+           a <audio> so movies and episodes have somewhere to draw; for music it
+           behaves exactly like the <audio> it replaced (same HTMLMediaElement
+           API) and stays hidden. See `audio` in renderer.js. -->
+      <video class="np-overlay-video" id="media" crossorigin="anonymous" playsinline></video>
       <div class="np-overlay-art" id="ov-art">♪</div>
       <div class="np-overlay-info">
         <div class="np-overlay-track" id="ov-track">Nothing playing</div>

@@ -29,6 +29,9 @@ export interface PlaybackState {
   mediaSourceId?: string | null
   playMethod?: PlayMethod
   canSeek?: boolean
+  /** What kind of thing is playing. Drives QueueableMediaTypes, which is how a
+   *  controller decides whether it may push a movie at this session. */
+  mediaType?: 'Audio' | 'Video'
 }
 
 /**
@@ -46,7 +49,8 @@ export function buildPlaybackReport(s: PlaybackState): Record<string, unknown> {
     VolumeLevel: clampVolume(s.volumeLevel),
     CanSeek: s.canSeek ?? true,
     PlayMethod: s.playMethod ?? 'DirectPlay',
-    QueueableMediaTypes: ['Audio'],
+    MediaType: s.mediaType ?? 'Audio',
+    QueueableMediaTypes: [s.mediaType ?? 'Audio'],
     ...(s.playSessionId ? { PlaySessionId: s.playSessionId } : {}),
     ...(s.mediaSourceId ? { MediaSourceId: s.mediaSourceId } : {}),
   }

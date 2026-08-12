@@ -6,22 +6,37 @@
 // gets a stream it can actually play. See profiles/PLATFORM-NOTES.md.
 
 import type { JellyfinClient } from './jellyfin.ts'
-import type { ServerConfig } from './types.ts'
+import type { JfItem, ServerConfig } from './types.ts'
+
+/** Which family of Jellyfin stream endpoints an item uses. Movies and episodes
+ *  are both 'Video'; everything Cascade played before B2 is 'Audio'. */
+export type MediaKind = 'Audio' | 'Video'
 
 export interface DirectPlayProfile {
-  Type: 'Audio'
+  Type: MediaKind
   /** Comma-separated container list, e.g. "mp3,flac". */
   Container: string
   AudioCodec?: string
+  /** Video only. Comma-separated, e.g. "h264,vp9". */
+  VideoCodec?: string
 }
 
 export interface TranscodingProfile {
-  Type: 'Audio'
+  Type: MediaKind
   Container: string
   AudioCodec: string
   Protocol: string
   Context?: string
   MaxAudioChannels?: string
+  /** Video only. */
+  VideoCodec?: string
+}
+
+export interface SubtitleProfile {
+  Format: string
+  /** 'External' = we fetch and render it ourselves (a native <track>).
+   *  'Encode' = the server must burn it into the video. */
+  Method: 'External' | 'Embed' | 'Encode' | 'Hls'
 }
 
 export interface DeviceProfile {
@@ -31,7 +46,7 @@ export interface DeviceProfile {
   TranscodingProfiles: TranscodingProfile[]
   ContainerProfiles?: unknown[]
   CodecProfiles?: unknown[]
-  SubtitleProfiles?: unknown[]
+  SubtitleProfiles?: SubtitleProfile[]
 }
 
 interface MediaSource {
@@ -61,19 +76,50 @@ export interface ResolvedStream {
 /** Matches the old hardcoded URL, and the Electron profile default. */
 export const DEFAULT_MAX_BITRATE = 140_000_000
 
+/** Past this fraction of the runtime, an item counts as finished rather than
+ *  in-progress. Jellyfin keeps a position on things you watched to the end, and
+ *  resuming 90 seconds before the credits is nobody's intent. */
+export const RESUME_COMPLETE_RATIO = 0.95
+
+/**
+ * Where playback should pick up, in ticks. 0 means "start from the beginning".
+ *
+ * Jellyfin fills UserData.PlaybackPositionTicks from the PositionTicks we
+ * already report, so this needs no extra bookkeeping - only the judgement about
+ * when a stored position is worth honouring.
+ */
+export function resumeTicks(item: JfItem | null | undefined): number {
+  const ticks = item?.UserData?.PlaybackPositionTicks || 0
+  if (ticks <= 0) return 0
+  // Explicitly watched: the position is a leftover, not an intent to resume.
+  if (item?.UserData?.Played) return 0
+  const total = item?.RunTimeTicks || 0
+  if (total && ticks > total * RESUME_COMPLETE_RATIO) return 0
+  return ticks
+}
+
 /**
  * The pre-B1 stream URL, kept as a fallback.
  *
  * If PlaybackInfo fails (older server, network blip, unexpected shape) this
  * still plays audio. `/universal` makes the server guess, which is exactly what
  * Cascade did before - acceptable as a degraded path, not as the default.
+ *
+ * There is no video equivalent of `/universal`: for video the degraded path is
+ * `/Videos/{id}/stream?static=true`, which asks the server for the file as-is.
+ * That direct-plays or fails outright - it never transcodes - which is the
+ * right trade for a fallback nobody should normally hit.
  */
 export function universalStreamUrl(
   config: ServerConfig,
   itemId: string,
   maxBitrate: number = DEFAULT_MAX_BITRATE,
+  kind: MediaKind = 'Audio',
 ): string {
   const { url, userId, token } = config
+  if (kind === 'Video') {
+    return `${url}/Videos/${itemId}/stream?static=true&api_key=${token}`
+  }
   return `${url}/Audio/${itemId}/universal`
     + `?UserId=${userId}&api_key=${token}`
     + `&Container=opus,mp3,aac,flac,wav,ogg`
@@ -93,6 +139,7 @@ export async function resolveStream(
   itemId: string,
   profile: DeviceProfile,
   maxBitrate: number = DEFAULT_MAX_BITRATE,
+  kind: MediaKind = 'Audio',
 ): Promise<ResolvedStream> {
   try {
     const info = await client.post<PlaybackInfoResponse>(
@@ -121,14 +168,14 @@ export async function resolveStream(
     }
 
     return {
-      url: directStreamUrl(config, itemId, source, playSessionId),
+      url: directStreamUrl(config, itemId, source, playSessionId, kind),
       playSessionId,
       mediaSourceId: source.Id ?? null,
       direct: true,
     }
   } catch {
     return {
-      url: universalStreamUrl(config, itemId, maxBitrate),
+      url: universalStreamUrl(config, itemId, maxBitrate, kind),
       playSessionId: null,
       mediaSourceId: null,
       direct: false,
@@ -141,6 +188,7 @@ function directStreamUrl(
   itemId: string,
   source: MediaSource,
   playSessionId: string | null,
+  kind: MediaKind,
 ): string {
   const params = new URLSearchParams({ static: 'true', api_key: config.token })
   if (source.Id) params.set('mediaSourceId', source.Id)
@@ -149,5 +197,9 @@ function directStreamUrl(
   // The container extension matters: without it some servers re-probe the file
   // on every request.
   const ext = source.Container ? `.${source.Container.split(',')[0]}` : ''
-  return `${config.url}/Audio/${itemId}/stream${ext}?${params}`
+
+  // Jellyfin splits its stream endpoints by media kind, and the plural is not a
+  // typo on their side: audio is /Audio/{id}, video is /Videos/{id}.
+  const base = kind === 'Video' ? 'Videos' : 'Audio'
+  return `${config.url}/${base}/${itemId}/stream${ext}?${params}`
 }

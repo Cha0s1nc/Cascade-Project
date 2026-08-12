@@ -35,14 +35,18 @@ export interface TouchBarUpdate {
   playing?: boolean
 }
 
-/** Discord rich presence. main.js injects `type: 2` (Listening) at the protocol
- *  level, so callers never set it. */
+/** Discord rich presence. The numeric activity type is injected by main.js at
+ *  the protocol level, because discord-rpc's setActivity() rebuilds the payload
+ *  from a fixed field list and drops anything else. Callers pick between the two
+ *  types Cascade uses with `watching`, not by setting a number. */
 export interface DiscordActivity {
   details: string
   state: string
   startTimestamp: number
   largeImageKey?: string
   largeImageText?: string
+  /** true renders as "Watching Cascade", false/absent as "Listening to Cascade". */
+  watching?: boolean
 }
 
 /** Result of an update check. `error` is set when GitHub could not be reached;

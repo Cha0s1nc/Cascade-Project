@@ -14,6 +14,14 @@ let rpcReady    = false
 let rpcUpdateTimer = null
 let lastRpcActivity = null
 
+// Discord activity type: 2 = Listening, 3 = Watching. Held here rather than on
+// the activity object because setActivity() rebuilds that object from a fixed
+// field list and drops anything it does not recognise - see the request() patch
+// in connectDiscordRpc().
+const RPC_TYPE_LISTENING = 2
+const RPC_TYPE_WATCHING  = 3
+let rpcActivityType = RPC_TYPE_LISTENING
+
 async function connectDiscordRpc(clientId) {
   if (!clientId) return
   try {
@@ -21,13 +29,15 @@ async function connectDiscordRpc(clientId) {
     rpcClient = new Client({ transport: 'ipc' })
     rpcClient.on('ready', () => {
       rpcReady = true
-      // Patch request() to inject type:2 (Listening) into every SET_ACTIVITY call
-      // setActivity() strips the type field, so we add it back at the protocol level
+      // Patch request() to inject the activity type into every SET_ACTIVITY call.
+      // setActivity() strips the type field, so we add it back at the protocol
+      // level - which is also why the renderer's choice arrives via
+      // rpcActivityType rather than on the activity object itself.
       const _origRequest = rpcClient.request.bind(rpcClient)
       rpcClient.request = function(cmd, args, ...rest) {
         if (cmd === 'SET_ACTIVITY' && args?.activity) {
-          args.activity.type = 2
-          args.activity.status_display_type = 1  // show state (artist) in member list sidebar
+          args.activity.type = rpcActivityType
+          args.activity.status_display_type = 1  // show state (artist/series) in member list sidebar
         }
         return _origRequest(cmd, args, ...rest).catch(() => { /* Discord rate limit or transient error - suppress */ })
       }
@@ -57,6 +67,9 @@ ipcMain.on('discord-rpc-connect', async (_e, clientId) => {
 
 ipcMain.on('discord-rpc-update', (_e, activity) => {
   if (!rpcClient || !rpcReady) return
+  // `watching` rides along on the activity; setActivity() would drop it, so it
+  // is lifted out here and applied by the request() patch instead.
+  rpcActivityType = activity?.watching ? RPC_TYPE_WATCHING : RPC_TYPE_LISTENING
   lastRpcActivity = activity
   if (rpcUpdateTimer) return  // already scheduled
   rpcUpdateTimer = setTimeout(() => {

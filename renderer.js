@@ -26,9 +26,33 @@ let crossfadeEnabled = false
 let crossfadeSeconds = 6
 let maxStreamingBitrate = 140000000   // overridden from settings in loadSettingsFields
 
-const audio = new Audio()
+// The single media element for the whole app.
+//
+// It is the <video id="media"> in index.html, not `new Audio()`, because movies
+// and episodes need somewhere to draw. HTMLVideoElement *is* an
+// HTMLMediaElement, so every .play()/.pause()/.src/.currentTime/.duration/
+// .volume call below works exactly as it did - which is why this stayed one
+// element instead of becoming two with a mode flag.
+//
+// The name is still `audio` on purpose: renaming it would churn 80-odd lines
+// for no behaviour change. It plays music the overwhelming majority of the time.
+const audio = /** @type {HTMLVideoElement} */ (document.getElementById('media'))
 audio.crossOrigin = 'anonymous'
 audio.volume = volume
+
+// ── Media kind ────────────────────────────────────────────────────────────────
+
+// Jellyfin returns one item shape for everything, so Type is what separates a
+// movie from a song. Anything that is not video is treated as audio: an unknown
+// Type falling back to the music path is the safe direction.
+function isVideoItem(item) {
+  return item?.Type === 'Movie' || item?.Type === 'Episode' || item?.MediaType === 'Video'
+}
+
+/** True when the thing currently loaded into the media element is video. */
+function playingVideo() {
+  return isVideoItem(queue[queueIndex])
+}
 
 // ── Portable core ─────────────────────────────────────────────────────────────
 // src/core/*.ts, bundled to build/core.js and loaded by index.html before this
@@ -45,6 +69,7 @@ const {
   parseLRC, parseKrc,
   sortSongs, songSortValue, shuffleInPlace, shuffled,
   resolveStream, universalStreamUrl, ELECTRON_PROFILE, DEFAULT_MAX_BITRATE,
+  resumeTicks,
 } = CascadeCore
 
 // Passed as a getter, not as `jf` itself: connect() replaces the whole object,
@@ -83,6 +108,10 @@ const SKELETON_TEMPLATES = {
   artist: `<div class="artist-card skel-card">
     <div class="artist-avatar skel"></div>
     <div class="skel skel-text" style="width:70%;margin:0 auto"></div>
+  </div>`,
+  poster: `<div class="poster-card skel-card">
+    <div class="poster-art skel"></div>
+    <div class="skel skel-text" style="width:80%;margin-top:7px"></div>
   </div>`,
   playlist: `<div class="playlist-card skel-card">
     <div class="playlist-art skel"></div>
@@ -164,13 +193,18 @@ let _currentHighResArtUrl = null
 // because it POSTs /Items/{id}/PlaybackInfo - the server picks direct play or
 // transcode. Falls back to the old /universal URL if that call fails, so this
 // never rejects. See src/core/playback.ts.
-const resolveTrackStream = (itemId) =>
-  resolveStream(jfClient, jf, itemId, ELECTRON_PROFILE, maxStreamingBitrate)
+// `kind` picks the endpoint family: /Audio/{id} vs /Videos/{id}. Passed from
+// the item rather than inferred inside core, because core has no opinion about
+// Jellyfin's Type strings.
+/** @type {(itemId: string, kind?: 'Audio' | 'Video') => Promise<any>} */
+const resolveTrackStream = (itemId, kind = 'Audio') =>
+  resolveStream(jfClient, jf, itemId, ELECTRON_PROFILE, maxStreamingBitrate, kind)
 
 // Self-contained URL for "Copy stream URL". Deliberately the /universal form
 // rather than a PlaySessionId-bound one, so the copied link keeps working after
 // this session ends.
-const streamUrl = (itemId) => universalStreamUrl(jf, itemId, maxStreamingBitrate)
+/** @type {(itemId: string, kind?: 'Audio' | 'Video') => string} */
+const streamUrl = (itemId, kind = 'Audio') => universalStreamUrl(jf, itemId, maxStreamingBitrate, kind)
 
 // Server-side playback session, from the most recent PlaybackInfo. Reported
 // back so Jellyfin ties progress to the right session instead of guessing.
@@ -358,6 +392,8 @@ async function connect(serverUrl, token, userId) {
   await populateLibraryPicker()
   invalidateLibraryViews()
   await loadHome()
+  // After loadHome so the card sits over a populated app rather than a blank one.
+  await maybeShowVideoIntro()
 }
 
 // ── Remote control (cast target) ─────────────────────────────────────────────
@@ -375,7 +411,10 @@ function startRemoteControl() {
       if (!itemIds.length) return
       const res = await jfGet(`/Users/${jf.userId}/Items`, {
         Ids: itemIds.join(','),
-        Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,UserData',
+        // MediaStreams/MediaSources are what applySubtitles() needs. Without
+        // them a movie pushed from Jellyfin's "Play On" would play with no
+        // subtitles even when the file has them.
+        Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,UserData,MediaStreams,MediaSources',
       }).catch(() => null)
       const items = res?.Items || []
       if (!items.length) return
@@ -424,7 +463,15 @@ function invalidateLibraryViews() {
     delete document.getElementById(id).dataset.loaded
 }
 
+/** Same, for the video grids. Separate because the two selections are separate:
+ *  changing music libraries must not throw away a loaded movie grid. */
+function invalidateVideoViews() {
+  for (const id of ['movies-grid', 'shows-grid'])
+    delete document.getElementById(id).dataset.loaded
+}
+
 let _musicLibs        = []     // the server's music libraries, cached so a mode flip needn't refetch
+let _videoLibs        = []     // movie/tvshows libraries, same caching reason
 let singleLibraryMode = false  // one library at a time (dropdown) instead of merging several
 
 async function populateLibraryPicker() {
@@ -433,6 +480,10 @@ async function populateLibraryPicker() {
     _musicLibs = (data.Items || []).filter(i =>
       i.CollectionType === 'music' || i.CollectionType === 'musicvideos'
     )
+    _videoLibs = (data.Items || []).filter(i =>
+      i.CollectionType === 'movies' || i.CollectionType === 'tvshows'
+    )
+    await loadVideoLibrarySelection()
     const savedRaw = await window.cascade.store.get('libraryIds')
     let savedIds = []
     try { savedIds = savedRaw ? JSON.parse(savedRaw) : [] } catch {}
@@ -521,6 +572,107 @@ async function applyLibrarySelection(ids) {
   await loadHome()
 }
 
+// ── Video libraries ───────────────────────────────────────────────────────────
+//
+// Deliberately a second, independent selection rather than widening the music
+// one. jf.libraryIds narrows *every* getMerged call, so folding movie libraries
+// into it would make every album and artist query fan out across them.
+
+async function loadVideoLibrarySelection() {
+  const raw = await window.cascade.store.get('videoLibraryIds')
+  let ids = []
+  try { ids = raw ? JSON.parse(raw) : [] } catch {}
+  // Drop libraries that have since vanished from the server.
+  jf.videoLibraryIds = ids.filter(id => _videoLibs.some(l => l.Id === id))
+  renderVideoLibraryPicker()
+  applyVideoNavVisibility()
+}
+
+/** Movies and TV Shows only exist in the sidebar once a library is selected.
+ *  A music-only user should never see two nav rows that lead nowhere. */
+function applyVideoNavVisibility() {
+  const on = (jf.videoLibraryIds || []).length > 0
+  // One class on <body>, CSS owns the rest - beats walking the nav rows and
+  // setting inline styles on each.
+  document.body.classList.toggle('has-video', on)
+  // Leaving the user parked on a view whose nav row just disappeared would
+  // strand them with no way back except another nav click.
+  if (!on && ['movies', 'shows'].includes(_currentView)) showView('home')
+}
+
+/** Renders the movie/TV toggles into `list`. Takes a container rather than
+ *  reaching for a fixed id because two places show these: the Settings row and
+ *  the one-time intro card. */
+function renderVideoLibraryRows(list) {
+  if (!list) return
+  const ids = jf.videoLibraryIds || []
+  list.innerHTML = _videoLibs.map(lib => `
+    <div class="lib-check-row">
+      <span class="lib-check-label" title="${esc(lib.Name)}">${esc(lib.Name)}</span>
+      <label class="toggle">
+        <input type="checkbox" value="${lib.Id}"${ids.includes(lib.Id) ? ' checked' : ''} />
+        <span class="toggle-track"></span>
+      </label>
+    </div>`).join('')
+
+  list.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.onchange = () => applyVideoLibrarySelection(
+      [...list.querySelectorAll('input[type=checkbox]:checked')].map(c => c.value))
+  })
+}
+
+function renderVideoLibraryPicker() {
+  const row = document.getElementById('s-video-library-row')
+  if (!row) return
+
+  // No movie or TV libraries on the server: the whole row is noise.
+  row.style.display = _videoLibs.length ? '' : 'none'
+  if (!_videoLibs.length) return
+
+  renderVideoLibraryRows(document.getElementById('s-video-library-list'))
+}
+
+// ── One-time video intro ──────────────────────────────────────────────────────
+//
+// Movies and TV are hidden until a library is picked, so without this the whole
+// feature is invisible to anyone upgrading from a build that did not have it.
+//
+// Keyed on a feature flag, not a version comparison: the version is still moving
+// during beta, and a `>= 1.3` check would simply never fire on 1.2.0. Same shape
+// as `deviceIdMigrated`. To see it again, delete `videoIntroSeen` from the store.
+async function maybeShowVideoIntro() {
+  if (await window.cascade.store.get('videoIntroSeen')) return
+
+  // A music-only Jellyfin has nothing to introduce.
+  if (!_videoLibs.length) return
+
+  // Already turned on - they have found the feature, so burn the flag quietly
+  // rather than explaining something they are already using.
+  if ((jf.videoLibraryIds || []).length) {
+    await window.cascade.store.set('videoIntroSeen', true)
+    return
+  }
+
+  renderVideoLibraryRows(document.getElementById('vi-library-list'))
+  document.getElementById('video-intro-overlay').classList.remove('hidden')
+}
+
+async function dismissVideoIntro() {
+  await window.cascade.store.set('videoIntroSeen', true)
+  document.getElementById('video-intro-overlay').classList.add('hidden')
+}
+
+document.getElementById('vi-done').addEventListener('click', dismissVideoIntro)
+document.getElementById('vi-skip').addEventListener('click', dismissVideoIntro)
+
+async function applyVideoLibrarySelection(ids) {
+  jf.videoLibraryIds = ids
+  await window.cascade.store.set('videoLibraryIds', JSON.stringify(ids))
+  invalidateVideoViews()
+  applyVideoNavVisibility()
+  renderVideoLibraryPicker()
+}
+
 document.getElementById('s-single-lib-toggle').addEventListener('change', async e => {
   singleLibraryMode = e.target.checked
   await window.cascade.store.set('singleLibraryMode', singleLibraryMode)
@@ -549,6 +701,10 @@ backdrop.addEventListener('click', () => {
 
 // ── View routing ──────────────────────────────────────────────────────────────
 
+// Tracked so applyVideoNavVisibility() can tell whether the user is currently
+// standing on a view it is about to hide.
+let _currentView = 'home'
+
 function showView(name) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'))
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'))
@@ -556,11 +712,14 @@ function showView(name) {
   document.querySelector(`[data-view="${name}"]`)?.classList.add('active')
   sidenav.classList.remove('expanded')
   backdrop.classList.remove('dim')
+  _currentView = name
 
   if (name === 'albums' && !document.getElementById('albums-grid').dataset.loaded) loadAlbums()
   if (name === 'artists' && !document.getElementById('artists-grid').dataset.loaded) loadArtists()
   if (name === 'songs' && !document.getElementById('songs-rows').dataset.loaded) loadSongs()
   if (name === 'playlists' && !document.getElementById('playlists-grid').dataset.loaded) loadPlaylists()
+  if (name === 'movies' && !document.getElementById('movies-grid').dataset.loaded) loadMovies()
+  if (name === 'shows' && !document.getElementById('shows-grid').dataset.loaded) loadShows()
   if (name === 'settings') loadSettingsFields()
 }
 
@@ -1420,6 +1579,244 @@ document.getElementById('tctx-pl-remove').addEventListener('click', async () => 
   } catch (e) { showNotice(`Could not remove this track from the playlist.\n\n${e.message}`, 'Playlist') }
 })
 
+// ── Movies & TV ───────────────────────────────────────────────────────────────
+//
+// Browsing only. Playback is the same code path music uses: these views build a
+// queue and hand it to playItems(), which is what makes next-episode autoplay
+// fall out for free rather than needing a second player.
+
+/** Like jfGetMerged, but against the video libraries instead of the music ones. */
+const jfGetVideo = (path, params = {}) =>
+  jfClient.getMerged(path, params, jf.videoLibraryIds || [])
+
+/** Runtime as "1h 47m" / "47m". Distinct from fmtTime, which is for a scrubber. */
+function fmtRuntime(ticks) {
+  if (!ticks) return ''
+  const mins = Math.round(ticks / 600_000_000)
+  const h = Math.floor(mins / 60)
+  return h ? `${h}h ${mins % 60}m` : `${mins}m`
+}
+
+function posterCard(item, sub) {
+  const art = artUrl(item.Id, item.ImageTags?.Primary)
+  const img = art
+    ? `<img src="${art}" alt="" loading="lazy" onerror="this.style.display='none'">`
+    : '🎞'
+  // How far in the user got, if anywhere. Same signal the Resume button uses.
+  const pos = resumeTicks(item)
+  const pct = pos && item.RunTimeTicks ? Math.min(100, (pos / item.RunTimeTicks) * 100) : 0
+  const bar = pct ? `<div class="poster-progress"><span style="width:${pct}%"></span></div>` : ''
+  return `<div class="poster-card" data-id="${item.Id}">
+    <div class="poster-art">${img}${bar}</div>
+    <div class="poster-name" title="${esc(item.Name)}">${esc(item.Name)}</div>
+    <div class="poster-sub">${esc(sub || '')}</div>
+  </div>`
+}
+
+// Both grids are the same shape, so they share one loader. `sub` picks what goes
+// under each title.
+async function loadPosterGrid(gridId, itemType, sub, onPick) {
+  const grid = document.getElementById(gridId)
+  grid.dataset.loaded = '1'
+  grid.innerHTML = skeletonHTML('poster', 8)
+  try {
+    const data = await jfGetVideo(`/Users/${jf.userId}/Items`, {
+      SortBy: 'SortName', SortOrder: 'Ascending',
+      IncludeItemTypes: itemType, Recursive: true,
+      Fields: 'PrimaryImageAspectRatio,UserData,ProductionYear',
+      Limit: 500,
+    })
+    const items = data.Items || []
+    if (!items.length) {
+      grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Nothing here yet</div>`
+      return
+    }
+    grid.innerHTML = items.map(i => posterCard(i, sub(i))).join('')
+    grid.querySelectorAll('.poster-card').forEach((el, i) => {
+      el.addEventListener('click', () => onPick(items[i]))
+    })
+  } catch {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Could not load this library</div>`
+  }
+}
+
+const loadMovies = () => loadPosterGrid(
+  'movies-grid', 'Movie',
+  m => m.ProductionYear || '',
+  m => openMovie(m.Id))
+
+const loadShows = () => loadPosterGrid(
+  'shows-grid', 'Series',
+  s => s.ProductionYear || '',
+  s => openSeries(s.Id))
+
+// ── Movie detail ──
+
+async function openMovie(movieId) {
+  document.getElementById('movies-index').style.display = 'none'
+  const detail = document.getElementById('movie-detail')
+  detail.style.display = ''
+  const body = document.getElementById('movie-detail-body')
+  body.innerHTML = skeletonHTML('track', 3)
+
+  try {
+    // MediaStreams is what applySubtitles() reads, and MediaSources is needed to
+    // build a subtitle URL - neither comes back on the grid query, so the detail
+    // fetch is where the item becomes playable.
+    const movie = await jfGet(`/Users/${jf.userId}/Items/${movieId}`,
+      { Fields: 'Overview,MediaStreams,MediaSources,Genres' })
+
+    const art = artUrl(movie.Id, movie.ImageTags?.Primary)
+    const meta = [movie.ProductionYear, fmtRuntime(movie.RunTimeTicks), (movie.Genres || []).slice(0, 3).join(', ')]
+      .filter(Boolean).join('  ·  ')
+    const resume = resumeTicks(movie)
+
+    body.innerHTML = `
+      <div class="vd-header">
+        <div class="vd-poster">${art ? `<img src="${art}" alt="">` : '🎞'}</div>
+        <div class="vd-info">
+          <div class="vd-title">${esc(movie.Name)}</div>
+          <div class="vd-meta">${esc(meta)}</div>
+          <div class="vd-overview">${esc(movie.Overview || '')}</div>
+          <div class="vd-actions">
+            ${resume ? `<button class="shuffle-all-btn" id="movie-resume">Resume from ${fmtTime(resume / 10_000_000)}</button>` : ''}
+            <button class="shuffle-all-btn" id="movie-play">${resume ? 'Play from start' : 'Play'}</button>
+          </div>
+        </div>
+      </div>`
+
+    // startTicks 0 on "Play from start" is what stops playCurrentTrack falling
+    // back to the stored resume position.
+    document.getElementById('movie-play').onclick = () => playVideo([movie], 0, 0)
+    document.getElementById('movie-resume')?.addEventListener('click',
+      () => playVideo([movie], 0, resume))
+  } catch {
+    body.innerHTML = `<div class="empty-state">Could not load this movie</div>`
+  }
+}
+
+// ── Series detail ──
+
+let _currentSeries = null
+
+async function openSeries(seriesId) {
+  document.getElementById('shows-index').style.display = 'none'
+  const detail = document.getElementById('show-detail')
+  detail.style.display = ''
+  const body = document.getElementById('show-detail-body')
+  body.innerHTML = skeletonHTML('track', 4)
+
+  try {
+    const [series, seasonsData] = await Promise.all([
+      jfGet(`/Users/${jf.userId}/Items/${seriesId}`, { Fields: 'Overview,Genres' }),
+      jfGet(`/Shows/${seriesId}/Seasons`, { UserId: jf.userId, Fields: 'UserData' }),
+    ])
+    _currentSeries = series
+    const seasons = seasonsData.Items || []
+
+    const art = artUrl(series.Id, series.ImageTags?.Primary)
+    const meta = [series.ProductionYear, `${seasons.length} season${seasons.length !== 1 ? 's' : ''}`,
+      (series.Genres || []).slice(0, 3).join(', ')].filter(Boolean).join('  ·  ')
+
+    body.innerHTML = `
+      <div class="vd-header">
+        <div class="vd-poster">${art ? `<img src="${art}" alt="">` : '📺'}</div>
+        <div class="vd-info">
+          <div class="vd-title">${esc(series.Name)}</div>
+          <div class="vd-meta">${esc(meta)}</div>
+          <div class="vd-overview">${esc(series.Overview || '')}</div>
+        </div>
+      </div>
+      <div class="season-tabs" id="season-tabs">${
+        seasons.map((s, i) =>
+          `<button class="season-tab${i === 0 ? ' active' : ''}">${esc(s.Name)}</button>`
+        ).join('')
+      }</div>
+      <div id="episode-list"></div>`
+
+    // Closes over `seasons` by index rather than reading an id back out of a
+    // data attribute - the array is right here.
+    document.querySelectorAll('#season-tabs .season-tab').forEach((tab, i) => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('#season-tabs .season-tab').forEach(t => t.classList.remove('active'))
+        tab.classList.add('active')
+        loadEpisodes(seriesId, seasons[i].Id)
+      })
+    })
+
+    if (seasons.length) loadEpisodes(seriesId, seasons[0].Id)
+    else document.getElementById('episode-list').innerHTML =
+      `<div class="empty-state">No seasons found</div>`
+  } catch {
+    body.innerHTML = `<div class="empty-state">Could not load this show</div>`
+  }
+}
+
+async function loadEpisodes(seriesId, seasonId) {
+  const list = document.getElementById('episode-list')
+  list.innerHTML = skeletonHTML('track', 5)
+  try {
+    const data = await jfGet(`/Shows/${seriesId}/Episodes`, {
+      SeasonId: seasonId, UserId: jf.userId,
+      Fields: 'Overview,MediaStreams,MediaSources,UserData',
+    })
+    const eps = data.Items || []
+    if (!eps.length) { list.innerHTML = `<div class="empty-state">No episodes</div>`; return }
+
+    list.innerHTML = eps.map(ep => {
+      const thumb = artUrl(ep.Id, ep.ImageTags?.Primary)
+      const pos = resumeTicks(ep)
+      const pct = pos && ep.RunTimeTicks ? Math.min(100, (pos / ep.RunTimeTicks) * 100) : 0
+      const num = ep.IndexNumber != null ? `${ep.IndexNumber}. ` : ''
+      return `<div class="ep-row" data-id="${ep.Id}">
+        <div class="ep-thumb">
+          ${thumb ? `<img src="${thumb}" alt="" loading="lazy" onerror="this.style.display='none'">` : '▶'}
+          ${pct ? `<div class="poster-progress"><span style="width:${pct}%"></span></div>` : ''}
+        </div>
+        <div>
+          <div class="ep-title">${esc(num + (ep.Name || ''))}</div>
+          <div class="ep-overview">${esc(ep.Overview || '')}</div>
+        </div>
+        <div class="ep-time">${ep.UserData?.Played ? '<span class="ep-watched">✓</span> ' : ''}${fmtRuntime(ep.RunTimeTicks)}</div>
+      </div>`
+    }).join('')
+
+    // The whole season becomes the queue, so finishing one episode rolls into
+    // the next through the existing `ended` handler. No second queue.
+    list.querySelectorAll('.ep-row').forEach((el, i) => {
+      el.addEventListener('click', () => playVideo(eps, i, resumeTicks(eps[i])))
+    })
+  } catch {
+    list.innerHTML = `<div class="empty-state">Could not load episodes</div>`
+  }
+}
+
+/**
+ * Start video playback. Thin wrapper over the music path: the only thing it adds
+ * is honouring a resume position, which playItems() has no concept of.
+ */
+function playVideo(items, startIndex, startTicks) {
+  if (blocksLocalPlayback()) {
+    if (typeof wfNotifyHostControls === 'function') wfNotifyHostControls()
+    return
+  }
+  // Shuffling a season is never what a click on episode 3 means.
+  _unshuffledQueue = []
+  queue = [...items]
+  queueIndex = startIndex
+  playCurrentTrack({ startTicks: startTicks || 0 })
+}
+
+document.getElementById('movie-back-btn').addEventListener('click', () => {
+  document.getElementById('movie-detail').style.display = 'none'
+  document.getElementById('movies-index').style.display = ''
+})
+
+document.getElementById('show-back-btn').addEventListener('click', () => {
+  document.getElementById('show-detail').style.display = 'none'
+  document.getElementById('shows-index').style.display = ''
+})
+
 // ── Playback ──────────────────────────────────────────────────────────────────
 
 function playItems(items, startIndex) {
@@ -1447,8 +1844,50 @@ function playItems(items, startIndex) {
   playCurrentTrack()
 }
 
+// ── Video mode ────────────────────────────────────────────────────────────────
+
+// Flip the overlay between the music layout (art + lyrics/queue columns) and the
+// single-column video layout. Purely a class toggle: the CSS in index.html owns
+// what actually shows, so there is one place to change if the layout moves.
+function applyVideoMode(on) {
+  document.getElementById('np-overlay').classList.toggle('video', !!on)
+  // A movie playing behind the library grid with no picture is confusing, so
+  // opening the overlay is part of starting video, not a separate step.
+  if (on) openOverlay()
+}
+
+// Attach text subtitles as native <track> elements.
+//
+// Only text subtitles appear here. Bitmap ones (PGS, VOBSUB) cannot be drawn by
+// a <track>, so ELECTRON_PROFILE deliberately omits them and the server burns
+// them into the video instead - which means they arrive as picture and need
+// nothing from this function.
+function applySubtitles(item, resolved) {
+  audio.querySelectorAll('track').forEach(t => t.remove())
+  if (!isVideoItem(item)) return
+
+  const sourceId = resolved?.mediaSourceId
+  if (!sourceId) return
+
+  const subs = (item.MediaStreams || []).filter(s =>
+    s.Type === 'Subtitle' && s.IsTextSubtitleStream)
+
+  for (const s of subs) {
+    const track = document.createElement('track')
+    track.kind = 'subtitles'
+    track.label = s.DisplayTitle || s.Language || `Track ${s.Index}`
+    if (s.Language) track.srclang = s.Language
+    track.src = `${jf.url}/Videos/${item.Id}/${sourceId}/Subtitles/${s.Index}/Stream.vtt?api_key=${jf.token}`
+    // ponytail: default track only, no picker UI. Add a menu when someone
+    // actually needs to switch language mid-film.
+    if (s.IsDefault || s.IsForced) track.default = true
+    audio.appendChild(track)
+  }
+}
+
 // opts.alreadyPlaying: true when a crossfade handoff already has `audio` playing
 // the new track in place - skip the src reset that would otherwise restart it.
+// opts.startTicks: resume position, overriding the item's stored one.
 async function playCurrentTrack(opts = {}) {
   if (blocksLocalPlayback()) return
   if (queueIndex < 0 || queueIndex >= queue.length) return
@@ -1459,17 +1898,36 @@ async function playCurrentTrack(opts = {}) {
   // queue-row jumps, double-click play, instant mix, everything.
   cancelCrossfade()
 
+  const video = isVideoItem(item)
+  applyVideoMode(video)
+
   if (!opts.alreadyPlaying) {
-    initBeatDetection()  // wire up AudioContext before play to avoid mid-playback glitch
+    // Beat detection taps the element through an AudioContext to drive the
+    // album-art blob. Movies have no album art to pulse, and the tap survives
+    // src changes, so wiring it for video would just burn CPU.
+    if (!video) initBeatDetection()
 
     // Resolving the stream is now a round-trip, so the user can skip again
     // before it lands. Re-read the queue afterwards and bail if they did,
     // otherwise a stale response would start the wrong track.
-    const resolved = await resolveTrackStream(item.Id)
+    const resolved = await resolveTrackStream(item.Id, video ? 'Video' : 'Audio')
     if (queue[queueIndex]?.Id !== item.Id) return
 
     adoptResolvedStream(resolved)
     audio.src = resolved.url
+
+    // Resume where the server says the user stopped. Has to wait for metadata:
+    // setting currentTime before the element knows the duration is a no-op.
+    // opts.startTicks lets the Resume button override the stored position.
+    const startTicks = opts.startTicks ?? (video ? resumeTicks(item) : 0)
+    if (startTicks > 0) {
+      audio.addEventListener('loadedmetadata',
+        () => { audio.currentTime = startTicks / 10_000_000 },
+        { once: true })
+    }
+
+    applySubtitles(item, resolved)
+
     // .catch here because play() is no longer in the same task as the click
     // that triggered it - an autoplay rejection would otherwise surface as an
     // unhandled promise rejection. Matches finishCrossfade's handling.
@@ -1525,9 +1983,25 @@ function refreshMarquees() {
 }
 window.addEventListener('resize', refreshMarquees)
 
+// The line under the title. Artist for music; for video the thing that actually
+// locates it - which series and episode, or which year.
+function secondaryLine(item) {
+  if (item?.Type === 'Episode') {
+    const s = item.ParentIndexNumber, e = item.IndexNumber
+    const code = s != null && e != null ? `S${s}:E${e}` : (item.SeasonName || '')
+    return [item.SeriesName, code].filter(Boolean).join(' · ')
+  }
+  if (item?.Type === 'Movie') return item.ProductionYear ? String(item.ProductionYear) : ''
+  return item?.AlbumArtist || item?.Artists?.[0] || ''
+}
+
 function updateNowPlaying(item) {
-  // Warm the cache for the current song and the next 5 in queue
-  if (item?.Id) {
+  const video = isVideoItem(item)
+
+  // Warm the cache for the current song and the next 5 in queue. Movies have no
+  // lyrics, and asking LRCLIB and Kugou about one wastes two round-trips per
+  // title and pollutes the cache with misses.
+  if (item?.Id && !video) {
     fetchLyricsWaterfall(item).catch(() => {})
     _prefetchUpcoming()
   }
@@ -1546,7 +2020,7 @@ function updateNowPlaying(item) {
     <span class="np-scroll-inner">
       <span class="np-title">${esc(item.Name)}</span>
       <span class="np-sep">-</span>
-      <span class="np-artist">${esc(item.AlbumArtist || item.Artists?.[0] || '')}</span>
+      <span class="np-artist">${esc(secondaryLine(item))}</span>
     </span>
   `
   refreshMarquees()
@@ -1565,8 +2039,8 @@ function updateNowPlaying(item) {
     const artwork = art ? [{ src: art, sizes: '200x200', type: 'image/jpeg' }] : []
     navigator.mediaSession.metadata = new MediaMetadata({
       title:  item.Name || '',
-      artist: item.AlbumArtist || item.Artists?.[0] || '',
-      album:  item.Album || '',
+      artist: secondaryLine(item),
+      album:  item.Album || item.SeriesName || '',
       artwork,
     })
   }
@@ -1576,7 +2050,8 @@ function updateNowPlaying(item) {
   updateDiscordPresence(item)
 
   // Album art accent: fetch for canvas color extraction (api_key is in URL, no extra header needed)
-  if (themeAlbumArt && art) {
+  // Skipped for video - the overlay shows the film, not a recoloured backdrop.
+  if (themeAlbumArt && art && !video) {
     _currentBgArtUrl = art
     fetch(art)
       .then(r => r.blob())
@@ -1591,7 +2066,9 @@ function updateNowPlaying(item) {
   }
 
   // Upgrade to iTunes high-res art in normal mode (async - replaces Jellyfin art when resolved)
-  if (!serverOnlyMode) {
+  // The iTunes search is an album/artist lookup, so for a movie it either finds
+  // nothing or finds a soundtrack cover and swaps the poster for it. Skip it.
+  if (!serverOnlyMode && !video) {
     const artist = item.AlbumArtist || item.Artists?.[0] || ''
     const album  = item.Album || ''
     const itemId = item.Id
@@ -1631,9 +2108,10 @@ function updateNowPlaying(item) {
 // SONG_WIN rows in the DOM.
 function highlightPlayingRow() {
   const currentId = queue[queueIndex]?.Id
-  document.querySelectorAll('.track-row.playing').forEach(r => r.classList.remove('playing'))
+  document.querySelectorAll('.track-row.playing, .ep-row.playing').forEach(r => r.classList.remove('playing'))
   if (currentId)
-    document.querySelectorAll(`.track-row[data-id="${currentId}"]`).forEach(r => r.classList.add('playing'))
+    document.querySelectorAll(`.track-row[data-id="${currentId}"], .ep-row[data-id="${currentId}"]`)
+      .forEach(r => r.classList.add('playing'))
 }
 
 // Report playback to Jellyfin so history updates and remote controllers can
@@ -1669,6 +2147,9 @@ function playbackSnapshot(itemId, positionTicks) {
     playSessionId: _playSessionId,
     mediaSourceId: _mediaSourceId,
     playMethod: _playMethod,
+    // Jellyfin renders a video session differently from an audio one, and a
+    // controller uses QueueableMediaTypes to decide what it may push at us.
+    mediaType: /** @type {'Audio' | 'Video'} */ (isVideoItem(item) ? 'Video' : 'Audio'),
   }
 }
 
@@ -1712,7 +2193,11 @@ function stopPlayback() {
 
   audio.pause()
   audio.src = ''
+  audio.querySelectorAll('track').forEach(t => t.remove())
   queue = []; queueIndex = -1
+  // Drop video mode after clearing the queue, so the class toggle sees an empty
+  // queue and does not try to re-open the overlay.
+  applyVideoMode(false)
 
   if (item) reportPlaybackStopped(item.Id, positionTicks)
 
@@ -1788,7 +2273,9 @@ audio.addEventListener('ended', () => {
   let next = queueIndex + 1
   if (next >= queue.length) {
     if (repeatMode === 'all') { queueIndex = 0; playCurrentTrack(); return }
-    if (autoMixEnabled && item) continueWithAutoMix(item)
+    // Instant mix is a music feature. Asking Jellyfin for one "similar to" the
+    // last episode of a season would either fail or queue up something random.
+    if (autoMixEnabled && item && !isVideoItem(item)) continueWithAutoMix(item)
     return
   }
   queueIndex = next
@@ -1841,6 +2328,11 @@ function _resolveCrossfadeTarget() {
 
 audio.addEventListener('timeupdate', () => {
   if (!crossfadeEnabled || !_cfArmed || _cfNextAudio) return
+  // Crossfade hands the primary element's src over to a second, audio-only
+  // element mid-ramp. For video that would drop the picture, and overlapping
+  // the end of one episode with the start of the next is not a thing anyone
+  // wants anyway.
+  if (playingVideo()) return
   if (!audio.duration || !isFinite(audio.duration)) return
   if (sleepAtTrackEnd) return
   const remaining = audio.duration - audio.currentTime
@@ -2668,7 +3160,10 @@ function openOverlay() {
   // current queue item directly so we never depend on _currentBgArtUrl being set.
   // If _blobColors is already cached, apply them immediately (no flash), then
   // re-fetch in the background to refresh if the track changed.
-  if (themeAlbumArt) {
+  // The art theme and the beat-reactive background both exist to make an album
+  // cover move to the music. A movie is already moving - recolouring the frame
+  // around it just fights the picture.
+  if (themeAlbumArt && !playingVideo()) {
     if (_blobColors.length > 0) {
       npOverlay.style.backgroundColor = '#0d0d0f'
       npOverlay.style.backgroundImage = buildBlobBackground(_blobColors)
@@ -2692,7 +3187,8 @@ function openOverlay() {
     }
   }
 
-  startBeatLoop()
+  if (playingVideo()) npOverlay.classList.remove('art-theme')
+  else startBeatLoop()
 }
 
 function closeOverlay() {
@@ -3528,7 +4024,7 @@ document.getElementById('ctx-download').addEventListener('click', () => {
 document.getElementById('ctx-copy-url').addEventListener('click', () => {
   const item = queue[queueIndex]
   if (!item) return
-  window.cascade.clipboard.write(streamUrl(item.Id))
+  window.cascade.clipboard.write(streamUrl(item.Id, isVideoItem(item) ? 'Video' : 'Audio'))
 })
 
 // Media info
@@ -4266,16 +4762,20 @@ let rpcTrackStart = 0
 
 function updateDiscordPresence(item) {
   if (!discordEnabled || !item) return
+  const video = isVideoItem(item)
   const activity = {
     details:        item.Name?.slice(0, 128) || 'Unknown Track',
-    state:          (item.AlbumArtist || item.Artists?.[0] || 'Unknown Artist').slice(0, 128),
+    state:          (secondaryLine(item) || (video ? '' : 'Unknown Artist')).slice(0, 128),
     startTimestamp: rpcTrackStart,
+    // Flips Discord from "Listening to Cascade" to "Watching Cascade". Read and
+    // stripped in main.js - setActivity() would drop it.
+    watching:       video,
   }
   if (jf.url.startsWith('https')) {
     const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
     if (art) {
       activity.largeImageKey  = art
-      activity.largeImageText = item.Album?.slice(0, 128) || ''
+      activity.largeImageText = (item.Album || item.SeriesName || '').slice(0, 128)
     }
   }
   window.cascade.discord.update(activity)
