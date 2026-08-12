@@ -1434,10 +1434,7 @@ function playItems(items, startIndex) {
     _unshuffledQueue = [...items]
     queue = [...items]
     const startItem = queue[startIndex]
-    for (let i = queue.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [queue[i], queue[j]] = [queue[j], queue[i]]
-    }
+    shuffleInPlace(queue)
     // Move the selected track to front
     const nowIdx = queue.findIndex(t => t.Id === startItem?.Id)
     if (nowIdx > 0) { const [t] = queue.splice(nowIdx, 1); queue.unshift(t) }
