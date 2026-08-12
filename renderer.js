@@ -2256,7 +2256,22 @@ document.getElementById('btn-save-settings').addEventListener('click', async () 
   await window.cascade.store.set('username', user)
 
   try {
-    const auth = await jfAuth(url, user, pass || await window.cascade.store.get('password') || '')
+    // An account signed in with a code has no stored password, and sending an
+    // empty one just 401s. If the existing token still works against this URL,
+    // there is nothing to re-authenticate - keep the session and save.
+    const effectivePass = pass || await window.cascade.store.get('password') || ''
+    if (!effectivePass) {
+      const token = await window.cascade.store.get('token')
+      const userId = await window.cascade.store.get('userId')
+      if (!token || !userId) { promptReauth('Sign in again to change these.'); return }
+      await connect(url, token, userId)
+      const okStatus = document.getElementById('save-status')
+      okStatus.classList.add('visible')
+      setTimeout(() => okStatus.classList.remove('visible'), 2500)
+      return
+    }
+
+    const auth = await jfAuth(url, user, effectivePass)
     await window.cascade.store.set('token', auth.AccessToken)
     await window.cascade.store.set('userId', auth.User.Id)
     if (pass) await window.cascade.store.set('password', pass)
@@ -2282,10 +2297,120 @@ document.getElementById('btn-logout').addEventListener('click', async () => {
   await window.cascade.store.delete('userId')
   await window.cascade.store.delete('password')
   setConnected(false)
-  document.getElementById('setup-overlay').classList.remove('hidden')
+  // Via promptReauth so the code option is offered here too, not just on a
+  // stale-token bounce.
+  promptReauth('')
 })
 
 // ── Setup overlay ─────────────────────────────────────────────────────────────
+
+// ── Quick Connect ────────────────────────────────────────────────────────────
+// Sign in by approving a code on a device you're already logged in on, instead
+// of typing a password. Protocol lives in src/core/jellyfin.ts.
+//
+// Worth having beyond convenience: it means Cascade never has to store a
+// password. The device-id migration falls back to the stored one, so an account
+// signed in this way simply keeps its existing token.
+
+let _qcAbort = null   // set while a request is live; calling it stops the poll
+
+/**
+ * Drop back to the sign-in screen because the session is no longer usable.
+ *
+ * Signing in with a code stores no password, so those accounts have nothing to
+ * re-authenticate with silently - without this they would land on a form asking
+ * for a password they never had. probeQuickConnect() re-runs so the code option
+ * is showing by the time they read the message.
+ */
+function promptReauth(message) {
+  document.getElementById('setup-overlay').classList.remove('hidden')
+  document.getElementById('setup-error').textContent = message || ''
+  document.getElementById('setup-password').value = ''
+  probeQuickConnect()
+}
+
+// Only offer it if the server actually has it switched on. Debounced because
+// this fires while the user is still typing the URL.
+let _qcProbeTimer = null
+function probeQuickConnect() {
+  clearTimeout(_qcProbeTimer)
+  _qcProbeTimer = setTimeout(async () => {
+    const url = document.getElementById('setup-url').value.trim().replace(/\/+$/, '')
+    const btn = document.getElementById('setup-quickconnect')
+    if (!url) { btn.style.display = 'none'; return }
+    btn.style.display = (await CascadeCore.quickConnectEnabled(url)) ? '' : 'none'
+  }, 500)
+}
+
+document.getElementById('setup-url').addEventListener('input', probeQuickConnect)
+
+function endQuickConnect() {
+  if (_qcAbort) { _qcAbort(); _qcAbort = null }
+  document.getElementById('setup-qc').style.display = 'none'
+  document.getElementById('setup-connect').style.display = ''
+  probeQuickConnect()
+}
+
+document.getElementById('setup-qc-cancel').addEventListener('click', endQuickConnect)
+
+document.getElementById('setup-quickconnect').addEventListener('click', async () => {
+  const err = document.getElementById('setup-error')
+  const url = document.getElementById('setup-url').value.trim().replace(/\/+$/, '')
+  if (!url) { err.textContent = 'Enter your server URL first.'; return }
+  err.textContent = ''
+
+  let start
+  try {
+    start = await CascadeCore.quickConnectInitiate(url, appVersion, deviceId)
+  } catch {
+    err.textContent = 'Could not start Quick Connect on that server.'
+    return
+  }
+
+  document.getElementById('setup-qc-code').textContent = start.Code
+  document.getElementById('setup-qc').style.display = ''
+  document.getElementById('setup-connect').style.display = 'none'
+  document.getElementById('setup-quickconnect').style.display = 'none'
+
+  let cancelled = false
+  _qcAbort = () => { cancelled = true }
+  const deadline = Date.now() + CascadeCore.QUICK_CONNECT_TIMEOUT_MS
+
+  while (!cancelled) {
+    if (Date.now() > deadline) {
+      err.textContent = 'That code expired. Try again.'
+      endQuickConnect()
+      return
+    }
+    await new Promise(r => setTimeout(r, CascadeCore.QUICK_CONNECT_POLL_MS))
+    if (cancelled) return
+
+    if (!await CascadeCore.quickConnectApproved(url, start.Secret)) continue
+
+    try {
+      const auth = await CascadeCore.quickConnectAuthenticate(url, start.Secret, appVersion, deviceId)
+      await window.cascade.store.set('serverUrl', url)
+      await window.cascade.store.set('token', auth.AccessToken)
+      await window.cascade.store.set('userId', auth.User.Id)
+      if (auth.User.Name) await window.cascade.store.set('username', auth.User.Name)
+      // No password to store, and any previously saved one no longer matches how
+      // this session was obtained - drop it rather than leave a stale secret.
+      await window.cascade.store.delete('password')
+      // This token is already bound to the current device id, so the one-time
+      // re-auth migration has nothing left to do.
+      await window.cascade.store.set('deviceIdMigrated', true)
+
+      _qcAbort = null
+      document.getElementById('setup-qc').style.display = 'none'
+      document.getElementById('setup-overlay').classList.add('hidden')
+      await connect(url, auth.AccessToken, auth.User.Id)
+    } catch {
+      err.textContent = 'Approved, but signing in failed. Try again.'
+      endQuickConnect()
+    }
+    return
+  }
+})
 
 document.getElementById('setup-connect').addEventListener('click', async () => {
   const btn = document.getElementById('setup-connect')
@@ -2422,6 +2547,8 @@ async function init() {
   if (serverUrl) document.getElementById('setup-url').value      = serverUrl
   if (username)  document.getElementById('setup-username').value  = username
   if (password)  document.getElementById('setup-password').value  = password
+  // The probe normally runs as the user types; a pre-filled URL never fires that.
+  if (serverUrl) probeQuickConnect()
 
   ;({ token, userId } = await migrateDeviceId(serverUrl, username, password, token, userId))
 
@@ -2440,7 +2567,12 @@ async function init() {
           return
         } catch {}
       }
-      document.getElementById('setup-overlay').classList.remove('hidden')
+      // Nothing to retry with. An account set up via Quick Connect has no stored
+      // password by design, so say what actually happened rather than presenting
+      // a blank password field.
+      promptReauth(password
+        ? 'Your session expired. Sign in again.'
+        : 'Your session expired. Sign in again with a code, or enter your password.')
     }
   }
   // else setup overlay stays visible (fields already pre-filled above)
