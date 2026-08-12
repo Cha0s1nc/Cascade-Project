@@ -20,7 +20,20 @@ export interface OwnershipState {
   /** Mid-apply of host state: the resulting playback calls are the host's, not
    *  the local user's, so they must not be blocked. */
   waterfallApplying: boolean
+  /** Host's "let guests add to the queue" setting, as last broadcast. Only
+   *  meaningful for a guest; the host is never restricted by its own toggle. */
+  guestAddsAllowed?: boolean
 }
+
+/**
+ * What happens when the local user adds a track to the queue.
+ *
+ * - `local`   - mutate the queue directly (solo, or the host, who then broadcasts)
+ * - `propose` - send an enqueue request to the host and do NOT mutate locally;
+ *               a guest's local mutation would be wiped by the next broadcast
+ * - `blocked` - the host has guest additions turned off
+ */
+export type QueueAdditionMode = 'local' | 'propose' | 'blocked'
 
 /**
  * Precedence: **Waterfall > cast > local**.
@@ -54,4 +67,18 @@ export function blocksLocalPlayback(s: OwnershipState): boolean {
  */
 export function acceptsRemoteCommand(s: OwnershipState): boolean {
   return playbackOwner(s) === 'local'
+}
+
+/**
+ * Adding to the queue is deliberately separate from `blocksLocalPlayback`.
+ *
+ * A guest may never *start* playback - that stays blocked - but appending to the
+ * shared queue is a request the host can honour. Collapsing the two is what
+ * makes a guest's "Add to queue" look like it worked and then vanish on the next
+ * host broadcast.
+ */
+export function queueAdditionMode(s: OwnershipState): QueueAdditionMode {
+  if (!s.waterfallActive) return 'local'
+  if (s.waterfallIsHost) return 'local'
+  return s.guestAddsAllowed === false ? 'blocked' : 'propose'
 }

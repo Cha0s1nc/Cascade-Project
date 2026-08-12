@@ -183,6 +183,56 @@ let _playSessionId = null
 
 const NO_WATERFALL = { waterfallActive: false, waterfallIsHost: false, waterfallApplying: false }
 
+/**
+ * What happens when the local user adds a track to the queue.
+ * 'local' = mutate directly, 'propose' = ask the host, 'blocked' = not allowed.
+ */
+function queueAdditionMode() {
+  return CascadeCore.queueAdditionMode(ownershipState())
+}
+
+/** True when this client mirrors someone else's queue and must not edit it. */
+function isWaterfallFollower() {
+  return typeof wfIsFollower === 'function' && wfIsFollower()
+}
+
+/**
+ * Who added queue entry `i`, or null.
+ *
+ * Gated on wfIsFollower rather than on wfAddedBy itself: that is a `let` in
+ * waterfall.js, and `typeof` on a let in its temporal dead zone throws instead
+ * of returning 'undefined'. wfIsFollower is a function declaration, so testing
+ * it is safe even before that script runs - and if it exists, waterfall.js has
+ * finished executing and its bindings are initialised.
+ */
+function queueAddedBy(i) {
+  if (typeof wfIsFollower !== 'function') return null
+  return wfAddedBy?.[i] ?? null
+}
+
+/**
+ * Add tracks to the queue, routed through the arbiter.
+ *
+ * A guest must not mutate locally - the next host broadcast would wipe it,
+ * which is exactly how "Add to queue" used to look like it worked and then
+ * silently do nothing.
+ */
+function enqueueTracks(items, label) {
+  const mode = queueAdditionMode()
+
+  if (mode === 'blocked') {
+    showToast('The host has turned off guest additions')
+    return
+  }
+  if (mode === 'propose') {
+    if (wfRequestEnqueue(items)) showToast(`Asked the host to add ${label}`)
+    return
+  }
+
+  queue.push(...items)
+  showToast(`Added ${label} to queue`)
+}
+
 function ownershipState() {
   // waterfall.js is a separate <script> that loads after this one, so during
   // init none of its bindings exist yet.
@@ -195,9 +245,10 @@ function ownershipState() {
   if (typeof wfActive !== 'function' || !wfActive()) return NO_WATERFALL
 
   return {
-    waterfallActive:   true,
-    waterfallIsHost:   !!wfIsHost,
-    waterfallApplying: !!_wfApplying,
+    waterfallActive:    true,
+    waterfallIsHost:    !!wfIsHost,
+    waterfallApplying:  !!_wfApplying,
+    guestAddsAllowed:   wfGuestAddsAllowed !== false,
   }
 }
 
@@ -1246,6 +1297,9 @@ document.getElementById('tctx-play').addEventListener('click', () => {
 document.getElementById('tctx-play-next').addEventListener('click', () => {
   if (!_ctxItem) return
   closeTrackCtxMenu()
+  // Guests append only - letting them jump the line would let the last clicker
+  // always win the next slot.
+  if (isWaterfallFollower()) { showToast('Only the host can choose what plays next'); return }
   const insertAt = queueIndex + 1
   queue.splice(insertAt, 0, _ctxItem)
   showToast(`"${_ctxItem.Name}" plays next`)
@@ -1254,8 +1308,7 @@ document.getElementById('tctx-play-next').addEventListener('click', () => {
 document.getElementById('tctx-add-queue').addEventListener('click', () => {
   if (!_ctxItem) return
   closeTrackCtxMenu()
-  queue.push(_ctxItem)
-  showToast(`Added "${_ctxItem.Name}" to queue`)
+  enqueueTracks([_ctxItem], `"${_ctxItem.Name}"`)
 })
 
 document.getElementById('tctx-instant-mix').addEventListener('click', async () => {
@@ -2763,24 +2816,32 @@ function _drawQueueRows(container, scrollToCurrent) {
   const topH   = _queueWinStart * QUEUE_ROW_H
   const botH   = (queue.length - winEnd) * QUEUE_ROW_H
 
+  // A guest mirrors the host's queue. Reordering or removing locally would
+  // desync it immediately, so those controls are not rendered at all.
+  const follower = isWaterfallFollower()
+
   const rows = queue.slice(_queueWinStart, winEnd).map((item, idx) => {
     const i     = _queueWinStart + idx
-    const art   = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
+    const art   = item.__wfUnavailable ? null
+      : artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
     const thumb = art ? `<img src="${art}" alt="" loading="lazy" onerror="this.style.display='none'">` : '♪'
     const dur   = fmtTime((item.RunTimeTicks || 0) / 10000000)
-    return `<div class="queue-row${i === queueIndex ? ' current' : ''}" data-qi="${i}" draggable="true">
-      <div class="queue-row-drag" title="Drag to reorder">
+    const by    = queueAddedBy(i)
+    const sub   = item.__wfUnavailable ? '' : esc(item.AlbumArtist || item.Artists?.[0] || '')
+
+    return `<div class="queue-row${i === queueIndex ? ' current' : ''}${item.__wfUnavailable ? ' unavailable' : ''}" data-qi="${i}"${follower ? '' : ' draggable="true"'}>
+      ${follower ? '' : `<div class="queue-row-drag" title="Drag to reorder">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="18" x2="16" y2="18"/></svg>
-      </div>
+      </div>`}
       <div class="queue-row-art">${thumb}</div>
       <div style="min-width:0;flex:1">
         <div class="queue-row-title">${esc(item.Name)}</div>
-        <div class="queue-row-artist">${esc(item.AlbumArtist || item.Artists?.[0] || '')}</div>
+        <div class="queue-row-artist">${sub}${by ? `<span class="queue-row-by">added by ${esc(by)}</span>` : ''}</div>
       </div>
       <div class="queue-row-dur">${dur}</div>
-      <button class="queue-row-remove" data-qi="${i}" title="Remove from queue">
+      ${follower ? '' : `<button class="queue-row-remove" data-qi="${i}" title="Remove from queue">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-      </button>
+      </button>`}
     </div>`
   }).join('')
 
@@ -2797,12 +2858,16 @@ function _drawQueueRows(container, scrollToCurrent) {
 
     el.addEventListener('click', (e) => {
       if (e.target.closest('.queue-row-drag, .queue-row-remove')) return
+      // A follower jumping tracks would move queueIndex out of alignment with
+      // the host until the next broadcast dragged it back.
+      if (follower) { if (typeof wfNotifyHostControls === 'function') wfNotifyHostControls(); return }
       queueIndex = qi
       playCurrentTrack()
       renderQueuePanel()
     })
 
-    el.querySelector('.queue-row-remove').addEventListener('click', (e) => {
+    // Absent for followers - see the row markup above.
+    el.querySelector('.queue-row-remove')?.addEventListener('click', (e) => {
       e.stopPropagation()
       const idx = parseInt(el.dataset.qi)
       queue.splice(idx, 1)
