@@ -153,7 +153,7 @@ function createWindow() {
     trafficLightPosition: { x: 12, y: 11 },
     autoHideMenuBar: true,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'build', 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       // Chromium suspends requestAnimationFrame while minimized/occluded, so a track
@@ -585,19 +585,3 @@ ipcMain.handle('updater:dismiss', () => {
   })
 })()
 
-// IPC: native context menu for now-playing
-ipcMain.handle('show-np-menu', (_e, actions) => {
-  return new Promise((resolve) => {
-    const template = actions.map(a => {
-      if (a.type === 'separator') return { type: 'separator' }
-      return {
-        label: a.label,
-        enabled: a.enabled !== false,
-        ...(a.role ? { role: a.role } : {}),
-        click: () => resolve(a.id)
-      }
-    })
-    const menu = Menu.buildFromTemplate(template)
-    menu.popup({ window: win, callback: () => resolve(null) })
-  })
-})

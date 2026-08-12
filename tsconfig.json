@@ -1,0 +1,35 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+
+    "strict": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+
+    // esbuild transpiles file-by-file and never does type-directed emit, so the
+    // source has to be unambiguous without cross-file type info.
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+
+    // Imports carry explicit .ts extensions so Node's type stripping can resolve
+    // them directly in `npm test`, with no build step for the test run.
+    "allowImportingTsExtensions": true,
+
+    // tsc is the type-checker here, esbuild is the bundler. Nothing is emitted
+    // by tsc - `npm run typecheck` is the gate, `npm run build:ts` is the build.
+    "noEmit": true,
+    "skipLibCheck": true,
+
+    // Only the tests touch Node builtins (node:test, node:assert). src/ stays
+    // free of them on purpose - it has to run in a browser and on a TV.
+    "types": ["node"],
+    "forceConsistentCasingInFileNames": true
+  },
+  // Tests are included on purpose: node --test only strips types, it never
+  // checks them, so a changed signature would otherwise leave stale call sites
+  // in the tests passing silently.
+  "include": ["src/**/*.ts", "test/**/*.ts", "types/**/*.d.ts"]
+}

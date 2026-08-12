@@ -1,0 +1,126 @@
+// The host-platform contract.
+//
+// Everything Cascade needs that is not plain web API: persistent storage, and a
+// set of desktop integrations that only exist on desktop. Splitting them is the
+// point - a webOS/Tizen/React Native host implements `Platform` (storage plus a
+// version string) and simply omits the rest.
+//
+// This is also the single definition of what `window.cascade` is. src/preload.ts
+// implements it and types/cascade.d.ts declares the global from it, so the
+// bridge and its type surface cannot drift apart.
+
+/** Persistent key-value storage. localStorage on a TV, electron-store here. */
+export interface PlatformStorage {
+  /**
+   * Deliberately `any`: a schemaless JSON KV store. Typing it `unknown` would
+   * force a cast at every call site for no real safety gain. Values are often
+   * stringified booleans ('true').
+   */
+  get(key: string): Promise<any>
+  set(key: string, value: unknown): Promise<void>
+  delete(key: string): Promise<void>
+}
+
+/** What main.js merges into its now-playing state. Partial: call sites push
+ *  updates like `{ isPlaying: false }` on their own. */
+export interface NowPlayingUpdate {
+  title?: string
+  artist?: string
+  isPlaying?: boolean
+}
+
+/** macOS TouchBar state. Partial for the same reason as NowPlayingUpdate. */
+export interface TouchBarUpdate {
+  title?: string
+  playing?: boolean
+}
+
+/** Discord rich presence. main.js injects `type: 2` (Listening) at the protocol
+ *  level, so callers never set it. */
+export interface DiscordActivity {
+  details: string
+  state: string
+  startTimestamp: number
+  largeImageKey?: string
+  largeImageText?: string
+}
+
+/** Result of an update check. `error` is set when GitHub could not be reached;
+ *  the updater window is its own feedback when an update is found. */
+export interface UpdateCheckResult {
+  hasUpdate: boolean
+  error?: string
+}
+
+export interface KugouLyricsQuery {
+  title: string
+  artist: string
+  durationMs: number
+}
+
+/**
+ * The minimum a host must provide.
+ *
+ * Keep this small. Anything added here becomes work for every future platform,
+ * so if a capability can be optional, it belongs below instead.
+ */
+export interface Platform {
+  store: PlatformStorage
+  /** Host identifier, e.g. 'darwin', 'win32', 'webos'. */
+  platform: string
+  getVersion(): Promise<string>
+}
+
+/**
+ * Desktop integrations. All optional: a TV host omits every one of them.
+ *
+ * The property name is the feature test - `if (platform.discord)` rather than a
+ * capability-flags object that could disagree with reality.
+ */
+export interface DesktopCapabilities {
+  clipboard?: { write(text: string): Promise<void> }
+  shell?: { openExternal(url: string): Promise<void> }
+  download?(url: string, filename: string): Promise<unknown>
+
+  checkForUpdates?(): Promise<UpdateCheckResult>
+  isPackaged?(): Promise<boolean>
+
+  onMediaKey?(cb: (key: string) => void): void
+  touchbarUpdate?(data: TouchBarUpdate): void
+  nowPlayingUpdate?(data: NowPlayingUpdate): void
+
+  discord?: {
+    connect(clientId: string): void
+    update(activity: DiscordActivity): void
+    clear(): void
+    onStatus(cb: (connected: boolean) => void): void
+  }
+
+  /** Returns raw KRC text, or null when Kugou has no match. */
+  kugouGetLyrics?(opts: KugouLyricsQuery): Promise<string | null>
+
+  lyricsEditor?: {
+    open(data: unknown): void
+    onSaved(cb: (itemId: string) => void): void
+  }
+}
+
+/**
+ * What Electron actually exposes: every optional capability, present.
+ *
+ * Re-stated as required so renderer.js can keep calling
+ * `window.cascade.discord.connect(...)` without optional chaining.
+ */
+export interface ElectronPlatform extends Platform, DesktopCapabilities {
+  clipboard: NonNullable<DesktopCapabilities['clipboard']>
+  shell: NonNullable<DesktopCapabilities['shell']>
+  download: NonNullable<DesktopCapabilities['download']>
+  checkForUpdates: NonNullable<DesktopCapabilities['checkForUpdates']>
+  isPackaged: NonNullable<DesktopCapabilities['isPackaged']>
+  onMediaKey: NonNullable<DesktopCapabilities['onMediaKey']>
+  touchbarUpdate: NonNullable<DesktopCapabilities['touchbarUpdate']>
+  nowPlayingUpdate: NonNullable<DesktopCapabilities['nowPlayingUpdate']>
+  discord: NonNullable<DesktopCapabilities['discord']>
+  kugouGetLyrics: NonNullable<DesktopCapabilities['kugouGetLyrics']>
+  lyricsEditor: NonNullable<DesktopCapabilities['lyricsEditor']>
+}

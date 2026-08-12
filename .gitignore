@@ -3,6 +3,10 @@ node_modules/
 *.log
 dist/
 out/
+
+# esbuild output (src/ -> build/core.js). Rebuilt by `npm run build:ts`, which
+# every start/build script runs first, so it never needs to be committed.
+build/
 *.slrc
 spicylyrics-integration.js
 lyrics_align_test.py
