@@ -54,10 +54,15 @@ export const ELECTRON_PROFILE: DeviceProfile = {
       MaxAudioChannels: '2',
     },
     // ponytail: progressive http, not hls - Chromium plays an mp4 URL with no
-    // player library, and this app has two runtime deps total. The ceiling is
-    // seeking: a seek mid-transcode makes the server restart the encode, so
-    // scrubbing a transcoded file is slow. Add hls.js if that becomes the
-    // complaint - resolveStream() is the only thing that would need to change.
+    // player library, and this app has two runtime deps total.
+    //
+    // The predicted ceiling arrived: a progressive body only exposes the part
+    // the server has already encoded, so the scrubber could neither show the
+    // real duration nor seek past it. Fixed without hls.js by requesting a new
+    // stream at an offset instead - see withStartTicks() in playback.ts. What
+    // remains is that a seek costs a request, so it lands in about a second
+    // rather than instantly. Revisit hls.js only if that latency is the
+    // complaint.
     {
       Type: 'Video',
       Container: 'mp4',

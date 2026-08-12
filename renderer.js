@@ -196,9 +196,9 @@ let _currentHighResArtUrl = null
 // `kind` picks the endpoint family: /Audio/{id} vs /Videos/{id}. Passed from
 // the item rather than inferred inside core, because core has no opinion about
 // Jellyfin's Type strings.
-/** @type {(itemId: string, kind?: 'Audio' | 'Video') => Promise<any>} */
-const resolveTrackStream = (itemId, kind = 'Audio') =>
-  resolveStream(jfClient, jf, itemId, ELECTRON_PROFILE, maxStreamingBitrate, kind)
+/** @type {(itemId: string, kind?: 'Audio' | 'Video', startTicks?: number) => Promise<any>} */
+const resolveTrackStream = (itemId, kind = 'Audio', startTicks = 0) =>
+  resolveStream(jfClient, jf, itemId, ELECTRON_PROFILE, maxStreamingBitrate, kind, startTicks)
 
 // Self-contained URL for "Copy stream URL". Deliberately the /universal form
 // rather than a PlaySessionId-bound one, so the copied link keeps working after
@@ -429,7 +429,7 @@ function startRemoteControl() {
     stop()          { stopPlayback() },
     nextTrack()     { document.getElementById('btn-next').click() },
     previousTrack() { document.getElementById('btn-prev').click() },
-    seek(ticks)     { audio.currentTime = ticks / 10_000_000 },
+    seek(ticks)     { seekTo(ticks / 10_000_000) },
     setVolume(pct)  { applyRemoteVolume(pct / 100) },
     volumeUp()      { applyRemoteVolume(volume + 0.1) },
     volumeDown()    { applyRemoteVolume(volume - 0.1) },
@@ -498,7 +498,13 @@ async function populateLibraryPicker() {
     jf.libraryIds = savedIds
     await window.cascade.store.set('libraryIds', JSON.stringify(savedIds))
     renderLibraryPicker()
-  } catch {}
+  } catch (e) {
+    // Swallowing this used to take Movies and TV down with it: _videoLibs stays
+    // empty, both nav rows stay hidden, the intro card silently never shows, and
+    // there is nothing anywhere to explain why. Playback still works without a
+    // picker, so this stays non-fatal - but it no longer disappears.
+    console.error('[cascade] could not load libraries from /Views:', e)
+  }
 }
 
 function renderLibraryPicker() {
@@ -643,8 +649,13 @@ function renderVideoLibraryPicker() {
 async function maybeShowVideoIntro() {
   if (await window.cascade.store.get('videoIntroSeen')) return
 
-  // A music-only Jellyfin has nothing to introduce.
-  if (!_videoLibs.length) return
+  // A music-only Jellyfin has nothing to introduce. Logged because an empty
+  // _videoLibs is also what a failed /Views call looks like from here, and the
+  // two are indistinguishable to anyone wondering where Movies went.
+  if (!_videoLibs.length) {
+    console.info('[cascade] no movie or TV libraries on this server - skipping the video intro')
+    return
+  }
 
   // Already turned on - they have found the feature, so burn the flag quietly
   // rather than explaining something they are already using.
@@ -1910,17 +1921,25 @@ async function playCurrentTrack(opts = {}) {
     // Resolving the stream is now a round-trip, so the user can skip again
     // before it lands. Re-read the queue afterwards and bail if they did,
     // otherwise a stale response would start the wrong track.
-    const resolved = await resolveTrackStream(item.Id, video ? 'Video' : 'Audio')
+    // Resume where the server says the user stopped. opts.startTicks lets the
+    // Resume button override the stored position, and a 0 from it means "from
+    // the start" rather than "unset" - hence ?? and not ||.
+    const startTicks = opts.startTicks ?? (video ? resumeTicks(item) : 0)
+
+    // The offset goes to the server, not to the element: a transcode has to be
+    // encoded from that point, and asking for it after the fact would mean
+    // throwing away everything already sent. Direct play ignores it here and
+    // seeks locally below instead.
+    const resolved = await resolveTrackStream(item.Id, video ? 'Video' : 'Audio', startTicks)
     if (queue[queueIndex]?.Id !== item.Id) return
 
     adoptResolvedStream(resolved)
     audio.src = resolved.url
 
-    // Resume where the server says the user stopped. Has to wait for metadata:
-    // setting currentTime before the element knows the duration is a no-op.
-    // opts.startTicks lets the Resume button override the stored position.
-    const startTicks = opts.startTicks ?? (video ? resumeTicks(item) : 0)
-    if (startTicks > 0) {
+    // Direct play got the whole file, so the seek happens on the element. Has
+    // to wait for metadata: setting currentTime before the element knows the
+    // duration is a no-op.
+    if (startTicks > 0 && resolved.startTicks === 0) {
       audio.addEventListener('loadedmetadata',
         () => { audio.currentTime = startTicks / 10_000_000 },
         { once: true })
@@ -2133,14 +2152,81 @@ function adoptResolvedStream(resolved) {
   _playSessionId = resolved.playSessionId
   _mediaSourceId = resolved.mediaSourceId
   _playMethod = resolved.direct ? 'DirectPlay' : 'Transcode'
+  _streamOffsetSec = (resolved.startTicks || 0) / 10_000_000
 }
+
+// ── Position and duration ─────────────────────────────────────────────────────
+//
+// A transcoded video is a stream that begins partway into the item, so the
+// element's currentTime is measured from the start of the *stream*, not the
+// start of the film. Everything user-facing - both scrubbers, both time labels,
+// lyrics, and the position we report to Jellyfin - has to go through these two
+// rather than touching audio.currentTime/duration directly.
+
+/** How far into the current stream the element's clock starts, in seconds. */
+let _streamOffsetSec = 0
+
+/** Position within the item, in seconds. */
+function mediaPosition() {
+  return _streamOffsetSec + audio.currentTime
+}
+
+/**
+ * Length of the item, in seconds.
+ *
+ * audio.duration is the truth for anything direct-played, but for a progressive
+ * transcode it only counts what the server has encoded so far - it grows as you
+ * watch, which is what made the scrubber useless. Jellyfin already told us the
+ * real runtime, so prefer that whenever we are running off an offset stream.
+ */
+function mediaDuration() {
+  const item = queue[queueIndex]
+  if (isVideoItem(item) && item?.RunTimeTicks) return item.RunTimeTicks / 10_000_000
+  return audio.duration || 0
+}
+
+/**
+ * Seek to a position in the item, in seconds.
+ *
+ * Direct play can move the element's own clock. A transcode cannot: the bytes
+ * past the encoded point do not exist yet, so the only way there is to ask the
+ * server for a fresh stream starting at that offset.
+ */
+async function seekTo(sec) {
+  const item = queue[queueIndex]
+  const dur = mediaDuration()
+  const target = Math.max(0, Math.min(dur || sec, sec))
+
+  const transcoding = _playMethod === 'Transcode' && isVideoItem(item)
+  if (!transcoding) {
+    audio.currentTime = target
+    return
+  }
+
+  // Re-resolving is a round trip, so the user can skip or seek again before it
+  // lands. Same guard playCurrentTrack uses: re-read the queue and bail if the
+  // item moved out from under us, otherwise a stale response starts the wrong
+  // thing.
+  const wasPlaying = !audio.paused
+  const seekSession = ++_seekSession
+  const resolved = await resolveTrackStream(item.Id, 'Video', Math.round(target * 10_000_000))
+  if (seekSession !== _seekSession || queue[queueIndex]?.Id !== item.Id) return
+
+  adoptResolvedStream(resolved)
+  audio.src = resolved.url
+  if (wasPlaying) audio.play().catch(() => {})
+  syncProgressUI()
+}
+
+/** Guards against an older seek's response overwriting a newer one. */
+let _seekSession = 0
 
 // Snapshot of local playback in Jellyfin's units (ticks, 0-100 volume).
 function playbackSnapshot(itemId, positionTicks) {
   const item = queue[queueIndex]
   return {
     itemId: itemId ?? item?.Id ?? '',
-    positionTicks: positionTicks ?? Math.round(audio.currentTime * 10_000_000),
+    positionTicks: positionTicks ?? Math.round(mediaPosition() * 10_000_000),
     isPaused: audio.paused,
     isMuted: audio.muted,
     volumeLevel: Math.round(volume * 100),
@@ -2189,7 +2275,7 @@ function reportPlaybackProgress() {
 function stopPlayback() {
   const item = queue[queueIndex]
   // Read the position before clearing src, which resets currentTime to 0.
-  const positionTicks = Math.round(audio.currentTime * 10_000_000)
+  const positionTicks = Math.round(mediaPosition() * 10_000_000)
 
   audio.pause()
   audio.src = ''
@@ -2226,13 +2312,25 @@ function stopProgressReporting() {
 
 // ── Audio events ──────────────────────────────────────────────────────────────
 
-audio.addEventListener('timeupdate', () => {
-  const cur = audio.currentTime
-  const dur = audio.duration || 0
+// Both scrubbers show the same numbers, so they are filled from one place -
+// they used to be two near-identical handlers reading audio.currentTime, and
+// only one of them got fixed the first time the offset mattered.
+function syncProgressUI() {
+  const cur = mediaPosition()
+  const dur = mediaDuration()
+  const pct = dur ? `${Math.min(100, (cur / dur) * 100)}%` : '0%'
+
   document.getElementById('prog-cur').textContent = fmtTime(cur)
   document.getElementById('prog-dur').textContent = fmtTime(dur)
-  document.getElementById('prog-fill').style.width = dur ? `${(cur / dur) * 100}%` : '0%'
-})
+  document.getElementById('prog-fill').style.width = pct
+
+  if (!overlayOpen) return
+  document.getElementById('ov-cur').textContent = fmtTime(cur)
+  document.getElementById('ov-dur').textContent = fmtTime(dur)
+  document.getElementById('ov-prog-fill').style.width = pct
+}
+
+audio.addEventListener('timeupdate', syncProgressUI)
 
 audio.addEventListener('play', () => {
   document.getElementById('icon-play').style.display = 'none'
@@ -2419,7 +2517,7 @@ document.getElementById('btn-play').addEventListener('click', () => {
 })
 
 document.getElementById('btn-prev').addEventListener('click', () => {
-  if (audio.currentTime > 3) { audio.currentTime = 0; return }
+  if (mediaPosition() > 3) { seekTo(0); return }
   queueIndex = Math.max(0, queueIndex - 1)
   playCurrentTrack()
 })
@@ -2481,7 +2579,8 @@ document.getElementById('btn-repeat').addEventListener('click', () => {
 document.getElementById('prog-bar').addEventListener('click', (e) => {
   const rect = e.currentTarget.getBoundingClientRect()
   const ratio = (e.clientX - rect.left) / rect.width
-  if (audio.duration) audio.currentTime = ratio * audio.duration
+  const dur = mediaDuration()
+  if (dur) seekTo(ratio * dur)
 })
 
 // Volume bar - click and drag
@@ -2579,7 +2678,7 @@ if ('mediaSession' in navigator) {
   navigator.mediaSession.setActionHandler('nexttrack',     () => document.getElementById('btn-next').click())
   navigator.mediaSession.setActionHandler('previoustrack', () => document.getElementById('btn-prev').click())
   navigator.mediaSession.setActionHandler('seekto', (details) => {
-    if (audio.duration && details.seekTime != null) audio.currentTime = details.seekTime
+    if (mediaDuration() && details.seekTime != null) seekTo(details.seekTime)
   })
 }
 
@@ -3312,23 +3411,37 @@ document.getElementById('ov-repeat').addEventListener('click', () => {
 })
 document.getElementById('ov-like').addEventListener('click', toggleLike)
 
-// Overlay progress bar - drag to scrub
+// Overlay progress bar - drag to scrub.
+//
+// The seek is committed on release, not on every mousemove. Scrubbing a
+// transcode re-requests the stream, so seeking per pixel would fire a request
+// storm at the server; the fill still tracks the cursor so the drag feels live.
 ;(function() {
   const bar = document.getElementById('ov-prog-bar')
   const fill = document.getElementById('ov-prog-fill')
   let dragging = false
-  function seek(e) {
+
+  const ratioAt = (e) => {
     const rect = bar.getBoundingClientRect()
-    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-    if (audio.duration) {
-      audio.currentTime = ratio * audio.duration
-      fill.style.width = `${ratio * 100}%`
-    }
+    return Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
   }
-  function onMove(e) { if (dragging) seek(e) }
-  function onUp() { dragging = false; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp) }
+  function preview(e) {
+    const ratio = ratioAt(e)
+    fill.style.width = `${ratio * 100}%`
+    const dur = mediaDuration()
+    if (dur) document.getElementById('ov-cur').textContent = fmtTime(ratio * dur)
+  }
+  function onMove(e) { if (dragging) preview(e) }
+  function onUp(e) {
+    if (!dragging) return
+    dragging = false
+    document.removeEventListener('mousemove', onMove)
+    document.removeEventListener('mouseup', onUp)
+    const dur = mediaDuration()
+    if (dur) seekTo(ratioAt(e) * dur)
+  }
   bar.addEventListener('mousedown', (e) => {
-    dragging = true; seek(e); e.preventDefault()
+    dragging = true; preview(e); e.preventDefault()
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup', onUp)
   })
@@ -3358,15 +3471,7 @@ document.getElementById('ov-like').addEventListener('click', toggleLike)
   })
 })()
 
-// Keep overlay progress in sync
-audio.addEventListener('timeupdate', () => {
-  if (!overlayOpen) return
-  const cur = audio.currentTime
-  const dur = audio.duration || 0
-  document.getElementById('ov-cur').textContent = fmtTime(cur)
-  document.getElementById('ov-dur').textContent = fmtTime(dur)
-  document.getElementById('ov-prog-fill').style.width = dur ? `${(cur / dur) * 100}%` : '0%'
-})
+// Overlay progress is filled by syncProgressUI() alongside the status bar.
 
 audio.addEventListener('play', () => {
   document.getElementById('ov-icon-play').style.display = 'none'

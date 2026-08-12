@@ -221,6 +221,18 @@
     /* ── Setup overlay ── */
     .setup-overlay { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 200; }
     .setup-overlay.hidden { display: none; }
+    /* The video intro drops in over a library the user is already looking at,
+       so it fades rather than cutting. The first-run setup card is deliberately
+       left alone: it is up before anything else is painted, and easing in an
+       empty app only delays the first thing you can interact with. */
+    #video-intro-overlay:not(.hidden) { animation: vi-fade 220ms ease-out; }
+    #video-intro-overlay:not(.hidden) .setup-card { animation: vi-rise 260ms cubic-bezier(0.2, 0.7, 0.3, 1); }
+    @keyframes vi-fade { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes vi-rise { from { opacity: 0; transform: translateY(10px) scale(0.985); } to { opacity: 1; transform: none; } }
+    @media (prefers-reduced-motion: reduce) {
+      #video-intro-overlay:not(.hidden),
+      #video-intro-overlay:not(.hidden) .setup-card { animation: none; }
+    }
     .setup-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 32px 36px; width: 420px; }
     .setup-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; }
     .setup-logo-dot { width: 28px; height: 28px; border-radius: 7px; background: var(--grad); }

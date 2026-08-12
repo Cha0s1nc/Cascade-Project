@@ -64,6 +64,23 @@ interface PlaybackInfoResponse {
   PlaySessionId?: string
 }
 
+/**
+ * Put a start offset on a transcoding URL.
+ *
+ * A progressive transcode is a plain HTTP body the server encodes as it sends,
+ * so the element only ever knows about the part that has arrived - seeking past
+ * it is not possible client-side. Jellyfin's answer is to ask for a *new* stream
+ * that begins at the offset, which is why seeking a transcode costs a request
+ * rather than a currentTime assignment.
+ */
+function withStartTicks(url: string, ticks: number): string {
+  if (ticks <= 0) return url
+  const [base, query = ''] = url.split('?')
+  const params = new URLSearchParams(query)
+  params.set('StartTimeTicks', String(Math.round(ticks)))
+  return `${base}?${params}`
+}
+
 export interface ResolvedStream {
   url: string
   /** Needed so playback reporting ties to the right server-side session. */
@@ -71,6 +88,13 @@ export interface ResolvedStream {
   mediaSourceId: string | null
   /** false when the server chose to transcode. */
   direct: boolean
+  /**
+   * Where this stream begins, in ticks. Non-zero only for a transcode that was
+   * asked to start partway in, because that is the one case where the element's
+   * own currentTime is measured from somewhere other than the start of the item.
+   * Add it to currentTime to get a real position.
+   */
+  startTicks: number
 }
 
 /** Matches the old hardcoded URL, and the Electron profile default. */
@@ -140,6 +164,7 @@ export async function resolveStream(
   profile: DeviceProfile,
   maxBitrate: number = DEFAULT_MAX_BITRATE,
   kind: MediaKind = 'Audio',
+  startTicks: number = 0,
 ): Promise<ResolvedStream> {
   try {
     const info = await client.post<PlaybackInfoResponse>(
@@ -160,18 +185,22 @@ export async function resolveStream(
 
     if (source.TranscodingUrl) {
       return {
-        url: `${config.url}${source.TranscodingUrl}`,
+        url: withStartTicks(`${config.url}${source.TranscodingUrl}`, startTicks),
         playSessionId,
         mediaSourceId: source.Id ?? null,
         direct: false,
+        startTicks,
       }
     }
 
+    // Direct play hands over the whole file, so the element can seek inside it
+    // on its own and the offset is never baked into the URL.
     return {
       url: directStreamUrl(config, itemId, source, playSessionId, kind),
       playSessionId,
       mediaSourceId: source.Id ?? null,
       direct: true,
+      startTicks: 0,
     }
   } catch {
     return {
@@ -179,6 +208,7 @@ export async function resolveStream(
       playSessionId: null,
       mediaSourceId: null,
       direct: false,
+      startTicks: 0,
     }
   }
 }
