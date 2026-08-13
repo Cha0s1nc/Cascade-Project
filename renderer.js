@@ -68,7 +68,7 @@ function playingVideo() {
 const {
   parseLRC, parseKrc,
   sortSongs, songSortValue, shuffleInPlace, shuffled,
-  resolveStream, universalStreamUrl, ELECTRON_PROFILE, DEFAULT_MAX_BITRATE,
+  resolveStream, universalStreamUrl, withStartTicks, ELECTRON_PROFILE, DEFAULT_MAX_BITRATE,
   resumeTicks,
 } = CascadeCore
 
@@ -2167,6 +2167,9 @@ function adoptResolvedStream(resolved) {
   _mediaSourceId = resolved.mediaSourceId
   _playMethod = resolved.direct ? 'DirectPlay' : 'Transcode'
   _streamOffsetSec = (resolved.startTicks || 0) / 10_000_000
+  // Only a transcoded video can be re-pointed by swapping the offset. Direct
+  // play seeks on the element, and music never gets here at all.
+  _transcodeUrl = (!resolved.direct && isVideoItem(queue[queueIndex])) ? resolved.url : null
 }
 
 // ── Position and duration ─────────────────────────────────────────────────────
@@ -2233,18 +2236,42 @@ let _restartSession = 0
  * same operation - a fresh stream at a position - so they share the guard, the
  * play-state restore and the session counter rather than each growing their own.
  */
-async function restartStreamAt(sec) {
+/**
+ * The transcoding URL currently in use, or null when direct-playing.
+ *
+ * Kept so a seek can re-point the element without asking the server what to
+ * play again - the answer has not changed, only the offset has.
+ */
+let _transcodeUrl = null
+
+async function restartStreamAt(sec, opts = {}) {
   const item = queue[queueIndex]
   if (!item) return
 
   const wasPlaying = !audio.paused
+  const ticks = Math.round(sec * 10_000_000)
+
+  // Fast path, and the one that matters: a seek reuses the URL we already have.
+  //
+  // Re-negotiating meant a PlaybackInfo POST before the video request even
+  // started, so every scrub paid a full round trip - and opened a new play
+  // session server-side each time. Only an audio track change genuinely needs
+  // the server to decide again, which is what `renegotiate` is for.
+  if (_transcodeUrl && !opts.renegotiate) {
+    _streamOffsetSec = sec
+    audio.src = withStartTicks(_transcodeUrl, ticks)
+    if (wasPlaying) audio.play().catch(() => {})
+    syncProgressUI()
+    return
+  }
+
   const session = ++_restartSession
 
   // A round trip, so the user can seek or skip again before it lands. Same
   // guard playCurrentTrack uses: re-read the queue afterwards and bail if the
   // item moved, otherwise a stale response starts the wrong thing.
   const resolved = await resolveTrackStream(item.Id, 'Video', {
-    startTicks: Math.round(sec * 10_000_000),
+    startTicks: ticks,
     audioStreamIndex: _audioStreamIndex,
   })
   if (session !== _restartSession || queue[queueIndex]?.Id !== item.Id) return
@@ -3584,7 +3611,25 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'ArrowLeft')     { e.preventDefault(); skipBy(-SKIP_SECONDS) }
   else if (e.key === 'ArrowRight')    { e.preventDefault(); skipBy(SKIP_SECONDS) }
   else if (e.key === ' ')             { e.preventDefault(); document.getElementById('btn-play').click() }
+  else if (e.key === 'ArrowUp')       { e.preventDefault(); nudgeVolume(0.05) }
+  else if (e.key === 'ArrowDown')     { e.preventDefault(); nudgeVolume(-0.05) }
+  else if (e.key === 'm' || e.key === 'M') { e.preventDefault(); document.getElementById('btn-mute').click() }
 })
+
+/**
+ * Change volume by `delta`, keeping both sliders and the stored setting in step.
+ *
+ * The two volume bars each had their own copy of this arithmetic; a third for
+ * the keyboard would have been the one that forgets to persist.
+ */
+function nudgeVolume(delta) {
+  const next = Math.max(0, Math.min(1, audio.volume + delta))
+  audio.volume = next
+  volume = next
+  document.getElementById('vol-fill').style.width = `${next * 100}%`
+  document.getElementById('ov-vol-fill').style.width = `${next * 100}%`
+  window.cascade.store.set('volume', next)
+}
 
 // ── Subtitle picker ──
 
@@ -3640,8 +3685,9 @@ document.getElementById('ov-audio-track').addEventListener('click', (e) => {
       if (idx === _audioStreamIndex) return
       _audioStreamIndex = idx
       // Switching track means a different file from the server, so playback
-      // restarts where it was rather than from the top.
-      await restartStreamAt(mediaPosition())
+      // restarts where it was rather than from the top. This is the one case
+      // the cached URL cannot serve - the server has to pick the stream again.
+      await restartStreamAt(mediaPosition(), { renegotiate: true })
     })
   })
 

@@ -72,8 +72,12 @@ interface PlaybackInfoResponse {
  * it is not possible client-side. Jellyfin's answer is to ask for a *new* stream
  * that begins at the offset, which is why seeking a transcode costs a request
  * rather than a currentTime assignment.
+ *
+ * Exported because seeking should not go back through PlaybackInfo: the URL the
+ * first resolve handed over is still valid, and re-negotiating just to change a
+ * number puts a whole extra round trip in front of every scrub.
  */
-function withStartTicks(url: string, ticks: number): string {
+export function withStartTicks(url: string, ticks: number): string {
   if (ticks <= 0) return url
   const [base, query = ''] = url.split('?')
   const params = new URLSearchParams(query)
