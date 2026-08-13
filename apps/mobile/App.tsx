@@ -1,59 +1,117 @@
 /**
- * Wiring proof: @cascade/core parsing a real value, plus a round trip through
- * the platform store. No navigation, no styling - Phase 1 just proves the
- * monorepo/Metro/platform plumbing works end to end.
+ * Auth entry point: restores a verified session on launch, otherwise shows
+ * sign-in. No navigation library - there are exactly two screens, and which
+ * one renders is a function of auth state, not a route.
  *
  * @format
  */
 
 import { useEffect, useState } from 'react';
-import { SafeAreaView, ScrollView, StyleSheet, Text } from 'react-native';
+import { ActivityIndicator, StyleSheet } from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
-import { parseLRC } from '@cascade/core';
+import type { JfAuthResult } from '@cascade/core';
 
 import { platform } from './src/platform';
+import {
+  clearSession,
+  getOrCreateDeviceId,
+  loadStoredSession,
+  saveSession,
+  verifySession,
+  type StoredSession,
+} from './src/auth/session';
+import SignInScreen from './src/screens/SignInScreen';
+import SignedInScreen from './src/screens/SignedInScreen';
 
-const SAMPLE_LRC = '[00:01.00]hello from cascade/core\n[00:04.50]running inside react-native-tvos';
+type AuthState =
+  | { status: 'loading' }
+  | { status: 'signedOut'; serverUrl?: string; username?: string; error?: string }
+  | { status: 'signedIn'; session: StoredSession };
 
 function App() {
-  const [lines, setLines] = useState<string[]>([]);
-  const [storeRoundTrip, setStoreRoundTrip] = useState<string>('pending...');
-  const [version, setVersion] = useState<string>('pending...');
+  const [auth, setAuth] = useState<AuthState>({ status: 'loading' });
+  const [deviceId, setDeviceId] = useState('');
+  const [appVersion, setAppVersion] = useState('');
 
   useEffect(() => {
-    const parsed = parseLRC(SAMPLE_LRC);
-    setLines(parsed.map((l) => `${l.Start}: ${l.Text}`));
+    let cancelled = false;
 
     (async () => {
-      await platform.store.set('wiringProof', { ok: true, ts: Date.now() });
-      const readBack = await platform.store.get('wiringProof');
-      setStoreRoundTrip(JSON.stringify(readBack));
-      setVersion(await platform.getVersion());
+      // Needed before any request - it goes into every Jellyfin auth header -
+      // so this runs ahead of the stored-session check below.
+      const id = await getOrCreateDeviceId(platform.store);
+      const version = await platform.getVersion();
+      if (cancelled) return;
+      setDeviceId(id);
+      setAppVersion(version);
+
+      const stored = await loadStoredSession(platform.store);
+      if (cancelled) return;
+      if (!stored) {
+        setAuth({ status: 'signedOut' });
+        return;
+      }
+
+      // A stored token can have been revoked server-side; only trust it after
+      // a live request succeeds, so a revoked session bounces to sign-in
+      // instead of showing an empty, half-broken app.
+      const ok = await verifySession(stored, id);
+      if (cancelled) return;
+      setAuth(
+        ok
+          ? { status: 'signedIn', session: stored }
+          : {
+              status: 'signedOut',
+              serverUrl: stored.serverUrl,
+              username: stored.username,
+              error: 'Your session expired. Sign in again.',
+            },
+      );
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
+  async function handleSignedIn(result: JfAuthResult, serverUrl: string, password?: string) {
+    const session: StoredSession = {
+      serverUrl,
+      token: result.AccessToken,
+      userId: result.User.Id,
+      username: result.User.Name || '',
+    };
+    await saveSession(platform.store, session, password);
+    setAuth({ status: 'signedIn', session });
+  }
+
+  async function handleSignOut() {
+    if (auth.status !== 'signedIn') return;
+    const { serverUrl, username } = auth.session;
+    await clearSession(platform.store);
+    setAuth({ status: 'signedOut', serverUrl, username });
+  }
+
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentInsetAdjustmentBehavior="automatic">
-        <Text style={styles.heading}>@cascade/core wiring proof</Text>
+    <SafeAreaProvider>
+      <SafeAreaView style={styles.container}>
+        {auth.status === 'loading' && <ActivityIndicator style={styles.loading} size="large" />}
 
-        <Text style={styles.label}>platform.platform:</Text>
-        <Text style={styles.value}>{platform.platform}</Text>
+        {auth.status === 'signedOut' && (
+          <SignInScreen
+            deviceId={deviceId}
+            appVersion={appVersion}
+            initialServerUrl={auth.serverUrl}
+            initialUsername={auth.username}
+            initialError={auth.error}
+            onSignedIn={handleSignedIn}
+          />
+        )}
 
-        <Text style={styles.label}>platform.getVersion():</Text>
-        <Text style={styles.value}>{version}</Text>
-
-        <Text style={styles.label}>platform.store round trip (wiringProof):</Text>
-        <Text style={styles.value}>{storeRoundTrip}</Text>
-
-        <Text style={styles.label}>parseLRC(SAMPLE_LRC) from @cascade/core:</Text>
-        {lines.map((line) => (
-          <Text key={line} style={styles.value}>
-            {line}
-          </Text>
-        ))}
-      </ScrollView>
-    </SafeAreaView>
+        {auth.status === 'signedIn' && <SignedInScreen session={auth.session} onSignOut={handleSignOut} />}
+      </SafeAreaView>
+    </SafeAreaProvider>
   );
 }
 
@@ -61,18 +119,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  heading: {
-    fontSize: 20,
-    fontWeight: '600',
-    margin: 16,
-  },
-  label: {
-    marginHorizontal: 16,
-    marginTop: 12,
-    fontWeight: '600',
-  },
-  value: {
-    marginHorizontal: 16,
+  loading: {
+    flex: 1,
+    justifyContent: 'center',
   },
 });
 
