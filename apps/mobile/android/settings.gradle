@@ -1,6 +1,29 @@
-pluginManagement { includeBuild("../node_modules/@react-native/gradle-plugin") }
+// The scaffold hardcoded ../node_modules/@react-native/gradle-plugin, which does
+// not exist in a workspace: npm hoists shared dependencies to the repo root, so
+// the plugin is two directories further up. Asking node where the package really
+// is works in either layout and does not care how npm chose to hoist.
+//
+// Both includeBuild calls are load-bearing and do different jobs. The one inside
+// pluginManagement supplies the `com.facebook.react.settings` plugin used just
+// below. The one at the bottom supplies the dependency substitutions for the
+// buildscript classpath - build.gradle asks for com.android.tools.build:gradle
+// and com.facebook.react:react-native-gradle-plugin with no version, and this is
+// where those versions come from. Dropping it fails with "Could not find
+// com.android.tools.build:gradle:" and a conspicuously empty version.
+pluginManagement {
+  def reactNativeGradlePlugin = new File(
+    providers.exec {
+      workingDir(rootDir)
+      commandLine("node", "--print",
+        "require.resolve('@react-native/gradle-plugin/package.json', { paths: [require.resolve('react-native/package.json')] })")
+    }.standardOutput.asText.get().trim()
+  ).getParentFile().absolutePath
+  // Stashed so the includeBuild at the bottom does not have to shell out again.
+  gradle.ext.reactNativeGradlePlugin = reactNativeGradlePlugin
+  includeBuild(reactNativeGradlePlugin)
+}
 plugins { id("com.facebook.react.settings") }
 extensions.configure(com.facebook.react.ReactSettingsExtension){ ex -> ex.autolinkLibrariesFromCommand() }
 rootProject.name = 'org.cascade.mobile'
 include ':app'
-includeBuild('../node_modules/@react-native/gradle-plugin')
+includeBuild(gradle.ext.reactNativeGradlePlugin)

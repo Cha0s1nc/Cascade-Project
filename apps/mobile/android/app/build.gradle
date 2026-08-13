@@ -6,16 +6,26 @@ apply plugin: "com.facebook.react"
  * This is the configuration block to customize your React Native Android app.
  * By default you don't need to apply any configuration, just uncomment the lines you need.
  */
+// Ask node where a package actually is, instead of assuming it sits in the app's
+// own node_modules. npm hoists shared dependencies to the workspace root, so
+// every default below points somewhere that does not exist - and the failure,
+// "react-native/ReactAndroid/gradle.properties (No such file or directory)",
+// reads like a corrupt install rather than a wrong path.
+def resolvePackageDir = { String pkg ->
+    file(providers.exec {
+        workingDir(rootDir)
+        commandLine("node", "--print",
+            "require('path').dirname(require.resolve('${pkg}/package.json'))")
+    }.standardOutput.asText.get().trim())
+}
+
 react {
     /* Folders */
     //   The root of your project, i.e. where "package.json" lives. Default is '../..'
-    // root = file("../../")
-    //   The folder where the react-native NPM package is. Default is ../../node_modules/react-native
-    // reactNativeDir = file("../../node_modules/react-native")
-    //   The folder where the react-native Codegen package is. Default is ../../node_modules/@react-native/codegen
-    // codegenDir = file("../../node_modules/@react-native/codegen")
-    //   The cli.js file which is the React Native CLI entrypoint. Default is ../../node_modules/react-native/cli.js
-    // cliFile = file("../../node_modules/react-native/cli.js")
+    root = file("../../")
+    reactNativeDir = resolvePackageDir("react-native")
+    codegenDir = resolvePackageDir("@react-native/codegen")
+    cliFile = new File(resolvePackageDir("react-native"), "cli.js")
 
     /* Variants */
     //   The list of variants to that are debuggable. For those we're going to
