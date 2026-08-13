@@ -160,7 +160,10 @@ function createWindow() {
     width: 1100,
     height: 700,
     minWidth: 800,
-    minHeight: 500,
+    // 560, not 500: the video overlay stacks a picture, a title, two button
+    // rows, a scrubber and a volume slider into one column, and 500 was under
+    // what that needs - the picture was the part that got squeezed out.
+    minHeight: 560,
     backgroundColor: '#111113',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 12, y: 11 },

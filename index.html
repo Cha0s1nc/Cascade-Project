@@ -331,14 +331,34 @@
        height:100% here meant the video claimed the whole column and pushed the
        transport, scrubber and volume off the bottom of the overlay - the
        controls were being rendered, just below the fold. */
-    .np-overlay.video .np-overlay-video { display: block; width: 100%; flex: 1 1 auto; height: auto; min-height: 0; background: #000; border-radius: 8px; object-fit: contain; }
-    .np-overlay.video .np-overlay-controls,
-    .np-overlay.video .np-overlay-info { flex: 0 0 auto; }
-    /* And the rows *inside* the controls must not shrink either. They are the
-       last children of a flex column, so when space got tight they collapsed
-       from the bottom up - which is why the scrubber and the volume slider
-       vanished while the buttons above them stayed. */
+    /* height:100% fills the grid row rather than fighting for it; object-fit
+       letterboxes inside whatever shape that row ends up being. */
+    .np-overlay.video .np-overlay-video { display: block; width: 100%; height: 100%; min-height: 0; background: #000; border-radius: 8px; object-fit: contain; }
+    /* Grid, not flex, and this is the third attempt at it - worth saying why.
+       Flex kept solving one half at the cost of the other: letting children
+       shrink collapsed the scrubber and volume to nothing, and forbidding it
+       collapsed the picture to nothing instead. Both are a negotiation that can
+       reach zero. Grid just states the intent - the picture takes what is left,
+       never below 160px, and the two rows under it take exactly what they need.
+       .np-overlay-art is display:none here so it forms no row. */
+    .np-overlay.video .np-overlay-left {
+      display: grid;
+      grid-template-rows: minmax(160px, 1fr) auto auto;
+      align-content: stretch;
+      /* Required, not tidiness: this is itself a grid item, and a grid item
+         defaults to min-height:auto, which means "never shrink below my
+         content". Without this it grows past its own row instead of being
+         bounded by it, and the picture is what falls off the bottom. */
+      min-height: 0;
+    }
     .np-overlay-controls > * { flex: 0 0 auto; }
+    /* A short window is the case that broke: at 500px tall the controls wanted
+       more than the column had. Tighten them rather than eat the picture. */
+    @media (max-height: 720px) {
+      .np-overlay.video .np-overlay-left { padding: 8px clamp(12px, 2vw, 32px); gap: 8px; }
+      .np-overlay.video .np-overlay-controls { gap: 6px; }
+      .np-overlay.video .np-overlay-btns { gap: 20px !important; margin-bottom: 0 !important; }
+    }
     .np-overlay-vol { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
     /* A film is watched from further away than a track is listened to. */
     .np-overlay.video .np-overlay-vol { margin-top: 8px; }
