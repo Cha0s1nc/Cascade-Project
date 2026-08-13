@@ -5,7 +5,7 @@
 // is why the old hardcoded stream URL worked - but that is a property of THIS
 // platform, not of Cascade. See PLATFORM-NOTES.md before writing a TV profile.
 
-import type { DeviceProfile, DirectPlayProfile } from '../playback.ts'
+import type { CodecProfile, DeviceProfile, DirectPlayProfile } from '../playback.ts'
 
 /** Matches the container list the old hardcoded /universal URL requested, so
  *  switching to PlaybackInfo does not silently change which files direct-play. */
@@ -93,8 +93,41 @@ export function buildElectronProfile(canPlay: CodecProbe): DeviceProfile {
   const ac3  = PROBES.ac3.some(canPlay)
   const eac3 = PROBES.eac3.some(canPlay)
 
-  return { ...ELECTRON_PROFILE, DirectPlayProfiles: directPlayProfiles(hevc, ac3, eac3) }
+  return {
+    ...ELECTRON_PROFILE,
+    DirectPlayProfiles: directPlayProfiles(hevc, ac3, eac3),
+    CodecProfiles: hevc ? HEVC_CODEC_PROFILE : [],
+    // Letting the server *return* HEVC is what lets it copy the video stream
+    // rather than encode a new one. If the only codec it may hand back is h264,
+    // a file whose video was already fine still gets fully re-encoded.
+    TranscodingProfiles: hevc
+      ? ELECTRON_PROFILE.TranscodingProfiles.map(p =>
+          p.Type === 'Video' ? { ...p, VideoCodec: 'h264,hevc' } : p)
+      : ELECTRON_PROFILE.TranscodingProfiles,
+  }
 }
+
+/**
+ * What kind of HEVC, not merely whether HEVC.
+ *
+ * Nearly every HEVC file in a real library is Main 10, and an empty
+ * CodecProfiles list does not read to the server as "no restrictions" - it
+ * assumes the client cannot manage 10-bit and re-encodes to be safe. Saying so
+ * explicitly turns a transcode into a remux: measured on a 10-bit Main 10
+ * episode, ffmpeg went from `-codec:v:0 h264_vaapi` to `-codec:v:0 copy`, and
+ * the session from Transcode to DirectStream.
+ *
+ * IsRequired stays false so a file just outside these bounds is transcoded
+ * rather than refused.
+ */
+const HEVC_CODEC_PROFILE: CodecProfile[] = [{
+  Type: 'Video',
+  Codec: 'hevc',
+  Conditions: [
+    { Condition: 'LessThanEqual', Property: 'VideoBitDepth', Value: '10', IsRequired: false },
+    { Condition: 'EqualsAny', Property: 'VideoProfile', Value: 'main|main 10', IsRequired: false },
+  ],
+}]
 
 /**
  * The direct-play claims, given what the host turned out to support.

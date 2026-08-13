@@ -389,10 +389,39 @@ test('a fully capable host produces a clean codec list', () => {
   assert.ok(video.AudioCodec!.includes('ac3') && video.AudioCodec!.includes('eac3'))
 })
 
-test('widening direct play never touches the transcoding fallback', () => {
+test('a HEVC-capable host lets the server hand HEVC back, so it can copy', () => {
+  // The transcoding profile is what the server may *return*. Offering only
+  // h264 forces a full re-encode of a video that needed nothing done to it;
+  // allowing hevc lets the same request come back as a remux.
   const all = buildElectronProfile(() => true)
-  assert.deepEqual(all.TranscodingProfiles, ELECTRON_PROFILE.TranscodingProfiles)
+  const video = all.TranscodingProfiles.find(p => p.Type === 'Video')!
+  assert.ok(video.VideoCodec!.includes('hevc'))
+  assert.ok(video.VideoCodec!.includes('h264'), 'h264 stays for everything else')
+
+  const audio = all.TranscodingProfiles.find(p => p.Type === 'Audio')!
+  assert.deepEqual(audio, ELECTRON_PROFILE.TranscodingProfiles[0], 'music path untouched')
   assert.deepEqual(all.SubtitleProfiles, ELECTRON_PROFILE.SubtitleProfiles)
+})
+
+test('a host without HEVC gets neither the codec profile nor the hevc fallback', () => {
+  const none = buildElectronProfile(() => false)
+  assert.deepEqual(none.TranscodingProfiles, ELECTRON_PROFILE.TranscodingProfiles)
+  assert.deepEqual(none.CodecProfiles, [], 'nothing to describe')
+})
+
+test('the HEVC codec profile permits 10-bit, and does not hard-fail outside it', () => {
+  // Empty CodecProfiles does not read as "no restrictions" - the server assumes
+  // 10-bit is beyond the client and re-encodes. Nearly every HEVC file is Main
+  // 10, so this condition is the whole difference between copy and encode.
+  const p = buildElectronProfile(() => true).CodecProfiles!
+  assert.equal(p.length, 1)
+  assert.equal(p[0].Codec, 'hevc')
+  const depth = p[0].Conditions.find(c => c.Property === 'VideoBitDepth')!
+  assert.equal(depth.Value, '10')
+  assert.equal(depth.Condition, 'LessThanEqual')
+  // Required conditions make the server refuse the file outright; these should
+  // only steer it toward copying, never block playback.
+  assert.ok(p[0].Conditions.every(c => c.IsRequired === false))
 })
 
 // ── Releasing the encoder ──

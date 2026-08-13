@@ -32,6 +32,29 @@ export interface TranscodingProfile {
   VideoCodec?: string
 }
 
+/** One clause of a CodecProfile, in Jellyfin's condition vocabulary. */
+export interface CodecCondition {
+  Condition: 'Equals' | 'EqualsAny' | 'LessThanEqual' | 'GreaterThanEqual' | 'NotEquals'
+  Property: string
+  Value: string
+  /** false lets the server relax the clause rather than reject the codec outright. */
+  IsRequired?: boolean
+}
+
+/**
+ * Limits on a codec the client otherwise supports.
+ *
+ * This is the difference between "can decode HEVC" and "can decode *this* HEVC",
+ * and leaving it empty is not neutral - without it the server assumes the worst
+ * about anything unusual (10-bit, in practice) and re-encodes a stream it could
+ * have copied.
+ */
+export interface CodecProfile {
+  Type: MediaKind
+  Codec: string
+  Conditions: CodecCondition[]
+}
+
 export interface SubtitleProfile {
   Format: string
   /** 'External' = we fetch and render it ourselves (a native <track>).
@@ -45,7 +68,7 @@ export interface DeviceProfile {
   DirectPlayProfiles: DirectPlayProfile[]
   TranscodingProfiles: TranscodingProfile[]
   ContainerProfiles?: unknown[]
-  CodecProfiles?: unknown[]
+  CodecProfiles?: CodecProfile[]
   SubtitleProfiles?: SubtitleProfile[]
 }
 
