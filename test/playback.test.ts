@@ -1,7 +1,7 @@
 import { test, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { JellyfinClient } from '../src/core/jellyfin.ts'
-import { resolveStream, universalStreamUrl, DEFAULT_MAX_BITRATE, resumeTicks } from '../src/core/playback.ts'
+import { resolveStream, universalStreamUrl, stopActiveEncoding, DEFAULT_MAX_BITRATE, resumeTicks } from '../src/core/playback.ts'
 import { ELECTRON_PROFILE, buildElectronProfile } from '../src/core/profiles/electron.ts'
 import type { ServerConfig } from '../src/core/types.ts'
 
@@ -393,4 +393,43 @@ test('widening direct play never touches the transcoding fallback', () => {
   const all = buildElectronProfile(() => true)
   assert.deepEqual(all.TranscodingProfiles, ELECTRON_PROFILE.TranscodingProfiles)
   assert.deepEqual(all.SubtitleProfiles, ELECTRON_PROFILE.SubtitleProfiles)
+})
+
+// ── Releasing the encoder ──
+//
+// Abandoning a transcode without telling the server leaves ffmpeg encoding a
+// file nobody is watching, at full speed when throttling is off. A few scrubs
+// becomes a few encoders fighting over the same cores, which presents as
+// "transcoding got slow" and is entirely self-inflicted.
+
+test('stopActiveEncoding names the device and the session it is releasing', async () => {
+  stubFetch(() => ({}))
+  const cfg: ServerConfig = { ...config, deviceId: 'DEV1' }
+  await stopActiveEncoding(new JellyfinClient(() => cfg), cfg, 'PS9')
+
+  assert.equal(calls.length, 1)
+  const u = new URL(calls[0].url)
+  assert.equal(u.pathname, '/Videos/ActiveEncodings')
+  assert.equal(u.searchParams.get('deviceId'), 'DEV1')
+  assert.equal(u.searchParams.get('playSessionId'), 'PS9')
+})
+
+test('stopActiveEncoding stays quiet when there is nothing to release', async () => {
+  stubFetch(() => ({}))
+  const cfg: ServerConfig = { ...config, deviceId: 'DEV1' }
+  await stopActiveEncoding(new JellyfinClient(() => cfg), cfg, null)
+  // No deviceId means the server cannot match a session anyway.
+  await stopActiveEncoding(new JellyfinClient(() => config), config, 'PS9')
+  assert.equal(calls.length, 0, 'no request worth making')
+})
+
+test('stopActiveEncoding never throws, whatever the server does', async () => {
+  const cfg: ServerConfig = { ...config, deviceId: 'DEV1' }
+  stubFetch(() => undefined)          // 500
+  await stopActiveEncoding(new JellyfinClient(() => cfg), cfg, 'PS9')
+
+  globalThis.fetch = (async () => { throw new Error('network down') }) as typeof fetch
+  await stopActiveEncoding(new JellyfinClient(() => cfg), cfg, 'PS9')
+  // Reaching here is the assertion: cleanup must not take playback down with it.
+  assert.ok(true)
 })

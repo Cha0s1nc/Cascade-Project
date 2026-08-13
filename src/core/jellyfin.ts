@@ -180,6 +180,29 @@ export class JellyfinClient {
   }
 
   /**
+   * DELETE, for the endpoints that answer with no body.
+   *
+   * Returns nothing on purpose - `post` parses JSON, and the endpoints reached
+   * this way reply 204. Resolves rather than throwing on a failed call, because
+   * every caller so far is cleaning something up and has no better plan than
+   * carrying on.
+   */
+  async del(path: string, params: JfParams = {}): Promise<boolean> {
+    const { url, token } = this.config
+    const target = new URL(`${url}${path}`)
+    for (const [k, v] of Object.entries(params)) {
+      if (v === undefined) continue
+      target.searchParams.set(k, String(v))
+    }
+    try {
+      const res = await fetch(target, { method: 'DELETE', headers: { 'X-Emby-Token': token } })
+      return res.ok
+    } catch {
+      return false
+    }
+  }
+
+  /**
    * Run the query against each selected library and merge, de-duplicating by Id.
    * With no libraries selected this is a plain `get`.
    *

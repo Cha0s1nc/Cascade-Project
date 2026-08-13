@@ -184,6 +184,31 @@ export function universalStreamUrl(
  * Never throws: on any failure it falls back to `universalStreamUrl` so
  * playback degrades rather than dying.
  */
+/**
+ * Tell the server to stop transcoding for a play session.
+ *
+ * Abandoning a transcode is not free and the server will not always notice.
+ * Pointing the element at a new offset leaves the previous ffmpeg running - and
+ * with throttling off it keeps encoding at full speed for a file nobody is
+ * watching. A few scrubs is a few encoders competing for the same cores, which
+ * looks exactly like "transcoding got slow" while being self-inflicted.
+ *
+ * Best effort: a failure here costs CPU on the server, never correctness on the
+ * client, so it never throws and is never awaited on a path the user is waiting
+ * behind.
+ */
+export async function stopActiveEncoding(
+  client: JellyfinClient,
+  config: ServerConfig,
+  playSessionId: string | null,
+): Promise<void> {
+  if (!playSessionId || !config.deviceId) return
+  await client.del('/Videos/ActiveEncodings', {
+    deviceId: config.deviceId,
+    playSessionId,
+  })
+}
+
 export async function resolveStream(
   client: JellyfinClient,
   config: ServerConfig,

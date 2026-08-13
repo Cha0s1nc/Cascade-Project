@@ -68,7 +68,8 @@ function playingVideo() {
 const {
   parseLRC, parseKrc,
   sortSongs, songSortValue, shuffleInPlace, shuffled,
-  resolveStream, universalStreamUrl, withStartTicks, buildElectronProfile, DEFAULT_MAX_BITRATE,
+  resolveStream, universalStreamUrl, withStartTicks, stopActiveEncoding,
+  buildElectronProfile, DEFAULT_MAX_BITRATE,
   resumeTicks,
 } = CascadeCore
 
@@ -1936,6 +1937,9 @@ async function playCurrentTrack(opts = {}) {
   // needs to know to abandon an in-progress crossfade - covers next/prev,
   // queue-row jumps, double-click play, instant mix, everything.
   cancelCrossfade()
+  // Whatever the server was encoding for the outgoing item is now waste. Runs
+  // before _playSessionId is replaced by the new stream's.
+  abandonCurrentEncoding()
 
   const video = isVideoItem(item)
   applyVideoMode(video)
@@ -2254,6 +2258,19 @@ let _restartSession = 0
  * play-state restore and the session counter rather than each growing their own.
  */
 /**
+ * Release the server-side encoder for whatever is playing now.
+ *
+ * Called before anything that repoints the element, while the current
+ * PlaySessionId is still the one the server knows about. Never awaited: it is
+ * cleanup, and blocking on it would add back exactly the latency the cached-URL
+ * seek exists to remove.
+ */
+function abandonCurrentEncoding() {
+  if (_playMethod !== 'Transcode' || !_playSessionId) return
+  stopActiveEncoding(jfClient, jf, _playSessionId)
+}
+
+/**
  * The transcoding URL currently in use, or null when direct-playing.
  *
  * Kept so a seek can re-point the element without asking the server what to
@@ -2275,12 +2292,18 @@ async function restartStreamAt(sec, opts = {}) {
   // session server-side each time. Only an audio track change genuinely needs
   // the server to decide again, which is what `renegotiate` is for.
   if (_transcodeUrl && !opts.renegotiate) {
+    // The encoder feeding the stream we are about to drop keeps running
+    // otherwise. Not awaited - the new stream should start now, and this is
+    // housekeeping the server can do in its own time.
+    abandonCurrentEncoding()
     _streamOffsetSec = sec
     audio.src = withStartTicks(_transcodeUrl, ticks)
     if (wasPlaying) audio.play().catch(() => {})
     syncProgressUI()
     return
   }
+
+  abandonCurrentEncoding()
 
   const session = ++_restartSession
 
@@ -2362,6 +2385,7 @@ function stopPlayback() {
   const item = queue[queueIndex]
   // Read the position before clearing src, which resets currentTime to 0.
   const positionTicks = Math.round(mediaPosition() * 10_000_000)
+  abandonCurrentEncoding()
 
   audio.pause()
   audio.src = ''
