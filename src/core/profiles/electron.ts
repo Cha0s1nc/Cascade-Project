@@ -5,7 +5,7 @@
 // is why the old hardcoded stream URL worked - but that is a property of THIS
 // platform, not of Cascade. See PLATFORM-NOTES.md before writing a TV profile.
 
-import type { DeviceProfile } from '../playback.ts'
+import type { DeviceProfile, DirectPlayProfile } from '../playback.ts'
 
 /** Matches the container list the old hardcoded /universal URL requested, so
  *  switching to PlaybackInfo does not silently change which files direct-play. */
@@ -39,8 +39,8 @@ const DIRECT_PLAY_CONTAINERS = 'opus,mp3,aac,flac,wav,ogg,webm'
 // probed (below), and containers get verified by hand.
 //
 // HEVC and AC3/E-AC3 are absent here because they are conditional, not refused.
-// See buildElectronProfile().
-const VIDEO_CONTAINERS = 'mp4,webm,mkv'
+// See buildElectronProfile(). The container list itself lives in
+// directPlayProfiles(), because mkv and mp4 no longer claim the same codecs.
 const VIDEO_CODECS = 'h264,vp8,vp9,av1'
 const VIDEO_AUDIO_CODECS = 'aac,mp3,opus,flac,vorbis'
 
@@ -93,18 +93,31 @@ export function buildElectronProfile(canPlay: CodecProbe): DeviceProfile {
   const ac3  = PROBES.ac3.some(canPlay)
   const eac3 = PROBES.eac3.some(canPlay)
 
-  return {
-    ...ELECTRON_PROFILE,
-    DirectPlayProfiles: [
-      { Type: 'Audio', Container: DIRECT_PLAY_CONTAINERS },
-      {
-        Type: 'Video',
-        Container: VIDEO_CONTAINERS,
-        VideoCodec: join(VIDEO_CODECS, hevc && 'hevc'),
-        AudioCodec: join(VIDEO_AUDIO_CODECS, ac3 && 'ac3', eac3 && 'eac3'),
-      },
-    ],
-  }
+  return { ...ELECTRON_PROFILE, DirectPlayProfiles: directPlayProfiles(hevc, ac3, eac3) }
+}
+
+/**
+ * The direct-play claims, given what the host turned out to support.
+ *
+ * Shared by the baseline and the built profile so the two cannot drift into
+ * different shapes - "nothing detected" has to be the same thing as "the floor".
+ */
+function directPlayProfiles(hevc: boolean, ac3: boolean, eac3: boolean): DirectPlayProfile[] {
+  const AudioCodec = join(VIDEO_AUDIO_CODECS, ac3 && 'ac3', eac3 && 'eac3')
+  return [
+    { Type: 'Audio', Container: DIRECT_PLAY_CONTAINERS },
+    // Two video entries, because HEVC support is per *container*, not global.
+    //
+    // The probe asks about `video/mp4; codecs="hvc1..."`, and that is exactly
+    // what its answer covers. Chromium decodes HEVC in ISO-BMFF and not in
+    // Matroska, so claiming it for mkv on the strength of an mp4 probe earns a
+    // direct-play URL that never loads - the element sits at readyState 0
+    // indefinitely and never even raises an error, which is worse to diagnose
+    // than a black screen. Measured on a real hevc/mkv episode; the same file
+    // transcodes and plays fine.
+    { Type: 'Video', Container: 'mp4,webm', VideoCodec: join(VIDEO_CODECS, hevc && 'hevc'), AudioCodec },
+    { Type: 'Video', Container: 'mkv',      VideoCodec: VIDEO_CODECS,                       AudioCodec },
+  ]
 }
 
 /**
@@ -118,15 +131,7 @@ export const ELECTRON_PROFILE: DeviceProfile = {
   Name: 'Cascade Desktop',
   MaxStreamingBitrate: 140_000_000,
 
-  DirectPlayProfiles: [
-    { Type: 'Audio', Container: DIRECT_PLAY_CONTAINERS },
-    {
-      Type: 'Video',
-      Container: VIDEO_CONTAINERS,
-      VideoCodec: VIDEO_CODECS,
-      AudioCodec: VIDEO_AUDIO_CODECS,
-    },
-  ],
+  DirectPlayProfiles: directPlayProfiles(false, false, false),
 
   // Fallback when the server decides it must transcode. HLS/AAC matches what
   // the previous URL asked for.

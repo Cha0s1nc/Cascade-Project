@@ -332,15 +332,18 @@ test('the fallback path still reports a usable shape when PlaybackInfo fails', a
 // actually said yes.
 
 test('the baseline profile claims nothing conditional, but does claim mkv', () => {
-  const video = ELECTRON_PROFILE.DirectPlayProfiles.find(p => p.Type === 'Video')!
+  const videos = ELECTRON_PROFILE.DirectPlayProfiles.filter(p => p.Type === 'Video')
+  const containers = videos.map(v => v.Container).join(',')
   // Verified against a real file, not against canPlayType - which returns ''
   // for Matroska even though Chromium's bundled FFmpeg demuxes it. Dropping
   // mkv made every ripped file a server-side remux, and a remux cannot be
   // seeked. See the comment in electron.ts.
-  assert.ok(video.Container.includes('mkv'), 'Chromium plays mkv despite the MIME probe')
-  assert.ok(video.Container.includes('webm'))
-  assert.ok(!video.VideoCodec!.includes('hevc'))
-  assert.ok(!video.AudioCodec!.includes('ac3'))
+  assert.ok(containers.includes('mkv'), 'Chromium plays mkv despite the MIME probe')
+  assert.ok(containers.includes('webm'))
+  for (const v of videos) {
+    assert.ok(!v.VideoCodec!.includes('hevc'), 'nothing conditional in the floor')
+    assert.ok(!v.AudioCodec!.includes('ac3'))
+  }
 })
 
 test('a host that decodes nothing extra gets exactly the baseline', () => {
@@ -349,13 +352,22 @@ test('a host that decodes nothing extra gets exactly the baseline', () => {
 })
 
 test('HEVC is claimed only when the probe says so, under either spelling', () => {
-  const hev1Only = buildElectronProfile(t => t.includes('hev1'))
-  const hvc1Only = buildElectronProfile(t => t.includes('hvc1'))
-  for (const p of [hev1Only, hvc1Only]) {
-    const video = p.DirectPlayProfiles.find(x => x.Type === 'Video')!
-    assert.ok(video.VideoCodec!.includes('hevc'), 'either spelling is enough')
-    assert.ok(video.VideoCodec!.includes('h264'), 'and it is added, not substituted')
+  for (const probe of [(t: string) => t.includes('hev1'), (t: string) => t.includes('hvc1')]) {
+    const mp4 = buildElectronProfile(probe).DirectPlayProfiles
+      .find(x => x.Type === 'Video' && x.Container.includes('mp4'))!
+    assert.ok(mp4.VideoCodec!.includes('hevc'), 'either spelling is enough')
+    assert.ok(mp4.VideoCodec!.includes('h264'), 'and it is added, not substituted')
   }
+})
+
+test('HEVC is never claimed for mkv, whatever the probe says', () => {
+  // The probe asks about mp4 and its answer is only about mp4. Chromium
+  // decodes HEVC in ISO-BMFF but not in Matroska, and the failure is silent:
+  // readyState stays 0 forever with no error event. Measured on a real file.
+  const mkv = buildElectronProfile(() => true).DirectPlayProfiles
+    .find(x => x.Type === 'Video' && x.Container === 'mkv')!
+  assert.ok(!mkv.VideoCodec!.includes('hevc'))
+  assert.ok(mkv.VideoCodec!.includes('h264'), 'mkv still direct-plays what it can')
 })
 
 test('AC3 and E-AC3 are claimed independently of each other', () => {
