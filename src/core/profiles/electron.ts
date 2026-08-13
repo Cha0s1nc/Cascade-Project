@@ -19,15 +19,28 @@ const DIRECT_PLAY_CONTAINERS = 'opus,mp3,aac,flac,wav,ogg,webm'
 //   - MPEG-2, VC-1: no.
 //   - DTS, TrueHD: no.
 //
-// mkv is absent on purpose, and this was a real bug: Chromium cannot demux
-// Matroska. WebM is a Matroska *subset* and is fine, but a .mkv - which is most
-// of a ripped library - is not. Claiming it earned a direct-play URL the player
-// could not open. Dropping it makes Jellyfin remux to mp4 instead, which copies
-// both streams rather than re-encoding, so the cost is close to nothing.
+// mkv stays, and it is the one entry here that canPlayType() disagrees with.
 //
-// HEVC and AC3/E-AC3 are not listed here either, but unlike the above they are
-// not flat refusals - they are detected at runtime. See buildElectronProfile().
-const VIDEO_CONTAINERS = 'mp4,webm'
+// `canPlayType('video/x-matroska')` returns '' in this Electron build, and
+// dropping mkv on the strength of that was a mistake worth recording: Chromium
+// demuxes Matroska through its bundled FFmpeg regardless of what the MIME probe
+// admits to. Measured against a real 1080p mkv on the server - readyState 3,
+// duration 6112.732, 1920x800, no error.
+//
+// Removing it cost a great deal. Every mkv - most of a ripped library - became
+// ContainerNotSupported, so the server remuxed files it had been sending
+// untouched, and a remux is a progressive stream the player cannot seek inside.
+// Direct play is what makes scrubbing instant, so a container claim being
+// wrong in the *cautious* direction still broke a feature.
+//
+// The lesson is not "trust canPlayType" or "ignore it" - it is that a container
+// and a codec fail differently. A codec Chromium cannot decode gives a black
+// screen; a container it does not advertise may still play. So codecs get
+// probed (below), and containers get verified by hand.
+//
+// HEVC and AC3/E-AC3 are absent here because they are conditional, not refused.
+// See buildElectronProfile().
+const VIDEO_CONTAINERS = 'mp4,webm,mkv'
 const VIDEO_CODECS = 'h264,vp8,vp9,av1'
 const VIDEO_AUDIO_CODECS = 'aac,mp3,opus,flac,vorbis'
 

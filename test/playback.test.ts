@@ -331,10 +331,14 @@ test('the fallback path still reports a usable shape when PlaybackInfo fails', a
 // server believes it. These check that a claim only ever appears when the probe
 // actually said yes.
 
-test('the baseline profile claims nothing conditional, and never mkv', () => {
+test('the baseline profile claims nothing conditional, but does claim mkv', () => {
   const video = ELECTRON_PROFILE.DirectPlayProfiles.find(p => p.Type === 'Video')!
-  assert.ok(!video.Container.includes('mkv'), 'Chromium cannot demux Matroska')
-  assert.ok(video.Container.includes('webm'), 'webm is a Matroska subset and is fine')
+  // Verified against a real file, not against canPlayType - which returns ''
+  // for Matroska even though Chromium's bundled FFmpeg demuxes it. Dropping
+  // mkv made every ripped file a server-side remux, and a remux cannot be
+  // seeked. See the comment in electron.ts.
+  assert.ok(video.Container.includes('mkv'), 'Chromium plays mkv despite the MIME probe')
+  assert.ok(video.Container.includes('webm'))
   assert.ok(!video.VideoCodec!.includes('hevc'))
   assert.ok(!video.AudioCodec!.includes('ac3'))
 })
