@@ -30,5 +30,38 @@ target 'CascadeMobile' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+
+    # fmt 11.0.2 (what RN 0.83 vendors) does not compile under Xcode 26's clang:
+    #
+    #   fmt/format-inl.h:59: error: call to consteval function
+    #   'fmt::basic_format_string<...>' is not a constant expression
+    #
+    # Upstream fixed this in fmt 11.1. Until React Native ships that, consteval
+    # has to be switched off for this pod. It cannot be done with a -D flag:
+    # base.h defines FMT_USE_CONSTEVAL unconditionally, with no #ifndef guard,
+    # so an external define is a macro redefinition and dies under -Werror. The
+    # header itself is the only place to change it.
+    #
+    # Cost of disabling it: fmt validates format strings at runtime instead of
+    # compile time. React Native only uses fmt for internal logging, and this
+    # trades a compile-time check we do not rely on for a build that exists.
+    #
+    # Remove this once RN vendors fmt >= 11.1 - the guard below makes it a no-op
+    # rather than a breakage if that happens first.
+    fmt_base = File.join(__dir__, 'Pods', 'fmt', 'include', 'fmt', 'base.h')
+    if File.exist?(fmt_base)
+      contents = File.read(fmt_base)
+      if contents.include?('#  define FMT_USE_CONSTEVAL 1')
+        patched = contents.gsub('#  define FMT_USE_CONSTEVAL 1',
+                                '#  define FMT_USE_CONSTEVAL 0  // patched by Podfile: Xcode 26 clang')
+        # CocoaPods installs vendored sources read-only, so widen the mode for
+        # the write and put it back afterwards.
+        original_mode = File.stat(fmt_base).mode
+        File.chmod(0o644, fmt_base)
+        File.write(fmt_base, patched)
+        File.chmod(original_mode, fmt_base)
+        Pod::UI.puts 'Patched fmt to disable consteval (Xcode 26 clang incompatibility)'.yellow
+      end
+    end
   end
 end
