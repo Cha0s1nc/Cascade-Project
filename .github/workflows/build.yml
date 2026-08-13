@@ -95,19 +95,19 @@ jobs:
           cache: npm
 
       - name: Set version
-        run: npm version ${{ needs.setup.outputs.version }} --no-git-tag-version
+        run: npm version ${{ needs.setup.outputs.version }} --no-git-tag-version --workspaces --include-workspace-root
 
       - name: Install dependencies
         run: npm ci
 
       - name: Build (Windows)
-        run: npm run build:win
+        run: npm run build:win -w @cascade/desktop
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: dist-windows
-          path: dist/*.exe
+          path: apps/desktop/dist/*.exe
           retention-days: 7
 
   # ── macOS ──────────────────────────────────────────────────────────────────
@@ -123,7 +123,7 @@ jobs:
           cache: npm
 
       - name: Set version
-        run: npm version ${{ needs.setup.outputs.version }} --no-git-tag-version
+        run: npm version ${{ needs.setup.outputs.version }} --no-git-tag-version --workspaces --include-workspace-root
 
       - name: Install dependencies
         run: npm ci
@@ -148,7 +148,7 @@ jobs:
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
 
       - name: Build (macOS)
-        run: npm run build:mac
+        run: npm run build:mac -w @cascade/desktop
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -159,7 +159,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dist-mac
-          path: dist/*.dmg
+          path: apps/desktop/dist/*.dmg
           retention-days: 7
 
   # ── Linux (AppImage + RPM) ─────────────────────────────────────────────────
@@ -180,33 +180,33 @@ jobs:
           sudo apt-get install -y rpm libarchive-tools fakeroot dpkg
 
       - name: Set version
-        run: npm version ${{ needs.setup.outputs.version }} --no-git-tag-version
+        run: npm version ${{ needs.setup.outputs.version }} --no-git-tag-version --workspaces --include-workspace-root
 
       - name: Install dependencies
         run: npm ci
 
       - name: Build (Linux)
-        run: npm run build:linux
+        run: npm run build:linux -w @cascade/desktop
 
       - name: Upload AppImage
         uses: actions/upload-artifact@v4
         with:
           name: dist-linux-appimage
-          path: dist/*.AppImage
+          path: apps/desktop/dist/*.AppImage
           retention-days: 7
 
       - name: Upload RPM (Fedora)
         uses: actions/upload-artifact@v4
         with:
           name: dist-linux-rpm
-          path: dist/*.rpm
+          path: apps/desktop/dist/*.rpm
           retention-days: 7
 
       - name: Upload DEB (Debian/Ubuntu)
         uses: actions/upload-artifact@v4
         with:
           name: dist-linux-deb
-          path: dist/*.deb
+          path: apps/desktop/dist/*.deb
           retention-days: 7
 
   # ── Release ────────────────────────────────────────────────────────────────

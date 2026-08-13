@@ -1,0 +1,14 @@
+{
+  "name": "@cascade/core",
+  "version": "1.2.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "scripts": {
+    "test": "node --test \"test/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "typescript": "^7.0.2"
+  }
+}

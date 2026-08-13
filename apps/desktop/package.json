@@ -1,0 +1,118 @@
+{
+  "name": "@cascade/desktop",
+  "version": "1.2.0",
+  "description": "A Jellyfin music client inspired by Cider",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "build:core": "esbuild ../../packages/core/src/index.ts --bundle --format=iife --global-name=CascadeCore --outfile=build/core.js --target=chrome122 --sourcemap",
+    "build:preload": "esbuild ../../packages/core/src/preload.ts --bundle --format=cjs --platform=node --external:electron --outfile=build/preload.js --target=node20 --sourcemap",
+    "build:ts": "npm run build:core && npm run build:preload",
+    "typecheck:legacy": "tsc -p tsconfig.legacy.json",
+    "start": "npm run build:ts && electron .",
+    "dev": "npm run build:ts && electron . --inspect",
+    "dev:second": "npm run build:ts && electron . --user-data-dir=/tmp/cascade-second-instance",
+    "build": "npm run build:ts && electron-builder",
+    "build:mac": "npm run build:ts && electron-builder --mac --publish never",
+    "build:win": "npm run build:ts && electron-builder --win --publish never",
+    "build:linux": "npm run build:ts && electron-builder --linux --publish never",
+    "icons": "node scripts/gen-icons.js"
+  },
+  "dependencies": {
+    "@cascade/core": "*",
+    "discord-rpc": "^4.0.1",
+    "electron-store": "^8.1.0"
+  },
+  "devDependencies": {
+    "electron": "^29.0.0",
+    "electron-builder": "^24.13.3",
+    "esbuild": "^0.28.2",
+    "sharp": "^0.33.4"
+  },
+  "allowScripts": {
+    "electron@29.4.6": true,
+    "sharp@0.33.5": true
+  },
+  "build": {
+    "appId": "xyz.chaosinc.cascade",
+    "productName": "Cascade",
+    "copyright": "Copyright \u00a9 2026 cha0s",
+    "files": [
+      "main.js",
+      "index.html",
+      "renderer.js",
+      "waterfall.js",
+      "build/core.js",
+      "build/core.js.map",
+      "build/preload.js",
+      "build/preload.js.map",
+      "updater.html",
+      "updater-preload.js",
+      "lyrics-editor.html",
+      "lyrics-editor-preload.js",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "afterPack": "scripts/adhoc-sign.js",
+    "mac": {
+      "category": "public.app-category.music",
+      "icon": "assets/icon.icns",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "darkModeSupport": true,
+      "identity": null
+    },
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "linux": {
+      "icon": "assets/icon.png",
+      "category": "Audio",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "rpm",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "dmg": {
+      "title": "Cascade${arch}",
+      "backgroundColor": "#111113"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}
