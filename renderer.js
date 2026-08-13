@@ -68,7 +68,7 @@ function playingVideo() {
 const {
   parseLRC, parseKrc,
   sortSongs, songSortValue, shuffleInPlace, shuffled,
-  resolveStream, universalStreamUrl, withStartTicks, ELECTRON_PROFILE, DEFAULT_MAX_BITRATE,
+  resolveStream, universalStreamUrl, withStartTicks, buildElectronProfile, DEFAULT_MAX_BITRATE,
   resumeTicks,
 } = CascadeCore
 
@@ -196,9 +196,24 @@ let _currentHighResArtUrl = null
 // `kind` picks the endpoint family: /Audio/{id} vs /Videos/{id}. Passed from
 // the item rather than inferred inside core, because core has no opinion about
 // Jellyfin's Type strings.
+// What this build can actually decode, asked once rather than assumed.
+//
+// canPlayType is the right test because playback is a plain `src` on the media
+// element, not MSE. 'probably' only: a 'maybe' means the browser recognises the
+// container but will not commit to the codec, and treating that as yes is how
+// you get a direct-play URL and a black screen - the exact failure
+// PLATFORM-NOTES.md warns about.
+//
+// The big one is HEVC. Chromium decodes it wherever the OS does (VideoToolbox
+// on macOS), and those are precisely the files a server would otherwise burn
+// minutes transcoding.
+const DEVICE_PROFILE = buildElectronProfile(t => {
+  try { return audio.canPlayType(t) === 'probably' } catch { return false }
+})
+
 /** @type {(itemId: string, kind?: 'Audio' | 'Video', opts?: any) => Promise<any>} */
 const resolveTrackStream = (itemId, kind = 'Audio', opts = {}) =>
-  resolveStream(jfClient, jf, itemId, ELECTRON_PROFILE, maxStreamingBitrate, kind, opts)
+  resolveStream(jfClient, jf, itemId, DEVICE_PROFILE, maxStreamingBitrate, kind, opts)
 
 // Self-contained URL for "Copy stream URL". Deliberately the /universal form
 // rather than a PlaySessionId-bound one, so the copied link keeps working after

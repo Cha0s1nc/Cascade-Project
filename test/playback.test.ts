@@ -2,7 +2,7 @@ import { test, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { JellyfinClient } from '../src/core/jellyfin.ts'
 import { resolveStream, universalStreamUrl, DEFAULT_MAX_BITRATE, resumeTicks } from '../src/core/playback.ts'
-import { ELECTRON_PROFILE } from '../src/core/profiles/electron.ts'
+import { ELECTRON_PROFILE, buildElectronProfile } from '../src/core/profiles/electron.ts'
 import type { ServerConfig } from '../src/core/types.ts'
 
 const realFetch = globalThis.fetch
@@ -323,4 +323,58 @@ test('the fallback path still reports a usable shape when PlaybackInfo fails', a
   assert.equal(out.direct, false)
   assert.equal(out.startTicks, 0, 'the static fallback cannot start partway in')
   assert.ok(out.url.includes('/Videos/ITEM1/stream'))
+})
+
+// ── Runtime codec detection ──
+//
+// PLATFORM-NOTES.md: a guessed profile is worse than no profile, because the
+// server believes it. These check that a claim only ever appears when the probe
+// actually said yes.
+
+test('the baseline profile claims nothing conditional, and never mkv', () => {
+  const video = ELECTRON_PROFILE.DirectPlayProfiles.find(p => p.Type === 'Video')!
+  assert.ok(!video.Container.includes('mkv'), 'Chromium cannot demux Matroska')
+  assert.ok(video.Container.includes('webm'), 'webm is a Matroska subset and is fine')
+  assert.ok(!video.VideoCodec!.includes('hevc'))
+  assert.ok(!video.AudioCodec!.includes('ac3'))
+})
+
+test('a host that decodes nothing extra gets exactly the baseline', () => {
+  const built = buildElectronProfile(() => false)
+  assert.deepEqual(built.DirectPlayProfiles, ELECTRON_PROFILE.DirectPlayProfiles)
+})
+
+test('HEVC is claimed only when the probe says so, under either spelling', () => {
+  const hev1Only = buildElectronProfile(t => t.includes('hev1'))
+  const hvc1Only = buildElectronProfile(t => t.includes('hvc1'))
+  for (const p of [hev1Only, hvc1Only]) {
+    const video = p.DirectPlayProfiles.find(x => x.Type === 'Video')!
+    assert.ok(video.VideoCodec!.includes('hevc'), 'either spelling is enough')
+    assert.ok(video.VideoCodec!.includes('h264'), 'and it is added, not substituted')
+  }
+})
+
+test('AC3 and E-AC3 are claimed independently of each other', () => {
+  const ac3Only = buildElectronProfile(t => t.includes('ac-3') && !t.includes('ec-3'))
+  const video = ac3Only.DirectPlayProfiles.find(x => x.Type === 'Video')!
+  assert.ok(video.AudioCodec!.split(',').includes('ac3'))
+  assert.ok(!video.AudioCodec!.split(',').includes('eac3'),
+    'a build with AC3 does not necessarily have E-AC3')
+})
+
+test('a fully capable host produces a clean codec list', () => {
+  const all = buildElectronProfile(() => true)
+  const video = all.DirectPlayProfiles.find(x => x.Type === 'Video')!
+  for (const list of [video.VideoCodec!, video.AudioCodec!]) {
+    assert.ok(!list.includes(',,') && !list.startsWith(',') && !list.endsWith(','),
+      `no stray commas from an unsupported codec: ${list}`)
+  }
+  assert.ok(video.VideoCodec!.includes('hevc'))
+  assert.ok(video.AudioCodec!.includes('ac3') && video.AudioCodec!.includes('eac3'))
+})
+
+test('widening direct play never touches the transcoding fallback', () => {
+  const all = buildElectronProfile(() => true)
+  assert.deepEqual(all.TranscodingProfiles, ELECTRON_PROFILE.TranscodingProfiles)
+  assert.deepEqual(all.SubtitleProfiles, ELECTRON_PROFILE.SubtitleProfiles)
 })

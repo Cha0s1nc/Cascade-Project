@@ -16,15 +16,91 @@ const DIRECT_PLAY_CONTAINERS = 'opus,mp3,aac,flac,wav,ogg,webm'
 // What is deliberately NOT here is the important half - claiming a codec we
 // cannot decode gets us a direct-play URL and a black screen, which is worse
 // than transcoding:
-//   - HEVC/H.265: only with a system decoder, and we cannot detect that from
-//     here. Let the server transcode it.
-//   - AC3 / E-AC3 / DTS / TrueHD: Chromium has no decoder. This is why a file
-//     that "should" direct play still transcodes - it is the audio track.
 //   - MPEG-2, VC-1: no.
-const VIDEO_CONTAINERS = 'mp4,webm,mkv'
+//   - DTS, TrueHD: no.
+//
+// mkv is absent on purpose, and this was a real bug: Chromium cannot demux
+// Matroska. WebM is a Matroska *subset* and is fine, but a .mkv - which is most
+// of a ripped library - is not. Claiming it earned a direct-play URL the player
+// could not open. Dropping it makes Jellyfin remux to mp4 instead, which copies
+// both streams rather than re-encoding, so the cost is close to nothing.
+//
+// HEVC and AC3/E-AC3 are not listed here either, but unlike the above they are
+// not flat refusals - they are detected at runtime. See buildElectronProfile().
+const VIDEO_CONTAINERS = 'mp4,webm'
 const VIDEO_CODECS = 'h264,vp8,vp9,av1'
 const VIDEO_AUDIO_CODECS = 'aac,mp3,opus,flac,vorbis'
 
+/**
+ * Tests whether the host can actually play a MIME/codec string.
+ *
+ * Injected rather than called directly so this module stays free of the DOM -
+ * the host passes its own probe, and the tests pass a fake one.
+ */
+export type CodecProbe = (mimeType: string) => boolean
+
+/**
+ * Codec strings worth asking about, and what claiming them buys.
+ *
+ * Only codecs that are *conditionally* available belong here. Something the
+ * platform either always has or never has should be in the constants above,
+ * where it costs no probe.
+ */
+const PROBES = {
+  // Chromium plays HEVC only where the OS provides a decoder - VideoToolbox on
+  // macOS, and hardware support on Windows. Both are exactly the cases where
+  // direct play is free and a server-side transcode is most wasteful, which is
+  // why guessing was never good enough.
+  hevc: ['video/mp4; codecs="hvc1.1.6.L93.B0"', 'video/mp4; codecs="hev1.1.6.L93.B0"'],
+  // Licensed codecs. Absent from most Chromium builds, present in some. When a
+  // file direct-plays except for its audio track, this is usually why.
+  ac3:  ['audio/mp4; codecs="ac-3"'],
+  eac3: ['audio/mp4; codecs="ec-3"'],
+}
+
+/** Comma-joins the truthy parts, so an unsupported codec leaves no stray comma. */
+const join = (...parts: (string | false | undefined)[]) => parts.filter(Boolean).join(',')
+
+/**
+ * Build the profile for a host whose codec support has been measured.
+ *
+ * PLATFORM-NOTES.md says a guessed profile is worse than no profile, because
+ * the server believes it and hands back a stream the client cannot decode. The
+ * answer to that is not to keep guessing conservatively forever - it is to ask.
+ * `canPlay` is the asking.
+ *
+ * Widening the profile is what stops a transcode happening at all, which beats
+ * making the transcode faster: no encode, no wait, and seeking a direct-played
+ * file is instant rather than a round trip.
+ */
+export function buildElectronProfile(canPlay: CodecProbe): DeviceProfile {
+  // `some`, not `every`: hvc1 and hev1 are two spellings of the same support,
+  // and a build that admits to either can decode the stream.
+  const hevc = PROBES.hevc.some(canPlay)
+  const ac3  = PROBES.ac3.some(canPlay)
+  const eac3 = PROBES.eac3.some(canPlay)
+
+  return {
+    ...ELECTRON_PROFILE,
+    DirectPlayProfiles: [
+      { Type: 'Audio', Container: DIRECT_PLAY_CONTAINERS },
+      {
+        Type: 'Video',
+        Container: VIDEO_CONTAINERS,
+        VideoCodec: join(VIDEO_CODECS, hevc && 'hevc'),
+        AudioCodec: join(VIDEO_AUDIO_CODECS, ac3 && 'ac3', eac3 && 'eac3'),
+      },
+    ],
+  }
+}
+
+/**
+ * The profile for a host that has told us nothing.
+ *
+ * Everything Chromium decodes unconditionally, and not one codec more. This is
+ * the floor buildElectronProfile() widens from, and what ships if the probe is
+ * ever unavailable - degrading to "transcode it" rather than to a black screen.
+ */
 export const ELECTRON_PROFILE: DeviceProfile = {
   Name: 'Cascade Desktop',
   MaxStreamingBitrate: 140_000_000,
