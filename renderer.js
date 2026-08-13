@@ -3612,6 +3612,9 @@ function toggleVideoFullscreen() {
 }
 
 document.getElementById('ov-fullscreen').addEventListener('click', toggleVideoFullscreen)
+// Defers to the status bar's mute button rather than duplicating the state
+// handling - one button owns muted/unmuted, this is a second way to press it.
+document.getElementById('ov-mute').addEventListener('click', () => document.getElementById('btn-mute').click())
 audio.addEventListener('dblclick', () => { if (playingVideo()) toggleVideoFullscreen() })
 
 // Escape is handled by the browser, which exits fullscreen without telling the

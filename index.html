@@ -334,6 +334,15 @@
     .np-overlay.video .np-overlay-video { display: block; width: 100%; flex: 1 1 auto; height: auto; min-height: 0; background: #000; border-radius: 8px; object-fit: contain; }
     .np-overlay.video .np-overlay-controls,
     .np-overlay.video .np-overlay-info { flex: 0 0 auto; }
+    /* And the rows *inside* the controls must not shrink either. They are the
+       last children of a flex column, so when space got tight they collapsed
+       from the bottom up - which is why the scrubber and the volume slider
+       vanished while the buttons above them stayed. */
+    .np-overlay-controls > * { flex: 0 0 auto; }
+    .np-overlay-vol { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+    /* A film is watched from further away than a track is listened to. */
+    .np-overlay.video .np-overlay-vol { margin-top: 8px; }
+    .np-overlay.video #ov-vol-bar { width: 180px; }
     .np-overlay.video .np-overlay-body { grid-template-columns: 1fr; }
     .np-overlay.video .np-overlay-right { display: none; }
     .np-overlay.video .np-overlay-left { border-right: none; justify-content: stretch; padding: clamp(12px, 2vh, 24px) clamp(12px, 2vw, 32px); }
@@ -1503,11 +1512,14 @@
             <svg id="ov-icon-play" width="20" height="20" viewBox="0 0 24 24" fill="white" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
             <svg id="ov-icon-pause" width="20" height="20" viewBox="0 0 24 24" fill="white" stroke="none" style="display:none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
           </button>
-          <button class="np-ov-ctrl" id="ov-next" title="Next">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
-          </button>
+          <!-- Skip sits inside prev/next, not outside it: the pair either side
+               of play is the arrangement every video player uses, and the one
+               the arrow keys imply. -->
           <button class="np-ov-ctrl vid-only" id="ov-fwd10" title="Forward 10 seconds (→)">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 4a8 8 0 1 0 7 8"/><polyline points="20 4 20 9 15 9"/><text x="12" y="16" font-size="8" font-family="inherit" fill="currentColor" stroke="none" text-anchor="middle">10</text></svg>
+          </button>
+          <button class="np-ov-ctrl" id="ov-next" title="Next">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
           </button>
         </div>
         <div class="np-overlay-prog">
@@ -1517,8 +1529,10 @@
           </div>
           <span class="np-overlay-time right" id="ov-dur">0:00</span>
         </div>
-        <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+        <div class="np-overlay-vol">
+          <button class="np-ov-ctrl" id="ov-mute" title="Mute (M)" style="width:auto;height:auto;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+          </button>
           <div class="np-overlay-prog-bar" id="ov-vol-bar" style="width:140px;">
             <div class="np-overlay-prog-fill" id="ov-vol-fill" style="width:75%;background:var(--text3);"></div>
           </div>
