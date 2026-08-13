@@ -1884,6 +1884,8 @@ function applyVideoMode(on) {
   // A movie playing behind the library grid with no picture is confusing, so
   // opening the overlay is part of starting video, not a separate step.
   if (on) openOverlay()
+  // Covers the other direction too: going back to music must stop the sampler.
+  else refreshAmbient()
 }
 
 // Attach text subtitles as native <track> elements.
@@ -3370,14 +3372,18 @@ function openOverlay() {
     }
   }
 
+  // A film supplies its own colour, so the art-derived gradient steps aside and
+  // ambient takes over from the beat loop.
   if (playingVideo()) npOverlay.classList.remove('art-theme')
   else startBeatLoop()
+  refreshAmbient()
 }
 
 function closeOverlay() {
   overlayOpen = false
   npOverlay.classList.remove('open')
   stopBeatLoop()
+  stopAmbient()
 }
 
 // Only the left NP section (art + info) opens the overlay - everything else is a deadzone
@@ -3557,6 +3563,51 @@ document.getElementById('ov-like').addEventListener('click', toggleLike)
     document.addEventListener('mouseup', onUp)
   })
 })()
+
+// ── Ambient mode ──────────────────────────────────────────────────────────────
+//
+// The picture's own colours bled out around the frame, like YouTube's ambient
+// mode. A frame is copied into a 32x18 canvas a few times a second and CSS does
+// the rest - the blur is what makes the resolution irrelevant, so sampling any
+// larger would be work thrown away.
+//
+// Gated on the existing album-art accent toggle rather than a new setting: that
+// switch already means "let what is playing colour the UI", and this is the
+// same idea with frames instead of cover art.
+
+const AMBIENT_MS = 250
+const ambientCanvas = document.getElementById('ov-ambient')
+const ambientCtx = ambientCanvas.getContext('2d')
+let _ambientTimer = null
+
+function ambientShouldRun() {
+  return themeAlbumArt && overlayOpen && playingVideo()
+}
+
+function startAmbient() {
+  if (_ambientTimer) return
+  npOverlay.classList.add('ambient')
+  _ambientTimer = setInterval(() => {
+    // readyState < 2 means there is no current frame to copy - during a seek
+    // or a stream swap, drawing would either throw or smear the last frame.
+    if (audio.readyState < 2) return
+    try {
+      ambientCtx.drawImage(audio, 0, 0, ambientCanvas.width, ambientCanvas.height)
+    } catch { /* frame not decodable yet; the next tick will do */ }
+  }, AMBIENT_MS)
+}
+
+function stopAmbient() {
+  if (_ambientTimer) { clearInterval(_ambientTimer); _ambientTimer = null }
+  npOverlay.classList.remove('ambient')
+  ambientCtx.clearRect(0, 0, ambientCanvas.width, ambientCanvas.height)
+}
+
+/** Single entry point, so every caller stops having to know the conditions. */
+function refreshAmbient() {
+  if (ambientShouldRun()) startAmbient()
+  else stopAmbient()
+}
 
 // ── Video controls ────────────────────────────────────────────────────────────
 //
@@ -5701,6 +5752,8 @@ document.getElementById('grad-end').addEventListener('input', () => {
 
 document.getElementById('toggle-album-art').addEventListener('change', (e) => {
   themeAlbumArt = e.target.checked
+  // The same switch drives ambient mode during a film - see refreshAmbient().
+  refreshAmbient()
   if (themeAlbumArt) {
     // Apply immediately from current art
     const img = document.querySelector('#ov-art img') || document.querySelector('#np-art img')
