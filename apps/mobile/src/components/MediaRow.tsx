@@ -1,6 +1,8 @@
 /**
  * A titled shelf of cards - used for Home's "Recently played" / "Recently
- * added" rows, and shaped for Albums/Artists/Songs to reuse later.
+ * added" rows. MediaCard and ART_SIZE are exported so MediaGrid (Albums/
+ * Artists/Search/Artist detail's grids) reuses the same card instead of a
+ * second implementation.
  *
  * No Platform.isTV branch here: FlatList already gives touch scrolling on
  * phone, and Pressable's focus state (same pattern as SignInScreen's buttons)
@@ -34,10 +36,11 @@ interface MediaRowProps {
 // A horizontal FlatList needs a stable card width up front. Derived from the
 // shared spacing scale (not platform-split) rather than a bare number, with an
 // explicit TV bump - a 10-foot screen needs a bigger target than theme.spacing
-// alone encodes.
-const ART_SIZE = Platform.isTV ? spacing.xxl * 4 : spacing.xxl * 3;
+// alone encodes. Exported: MediaGrid's column-count math needs the same width
+// the card actually renders at.
+export const ART_SIZE = Platform.isTV ? spacing.xxl * 4 : spacing.xxl * 3;
 
-function MediaCard({ item, onPress }: { item: MediaRowItem; onPress?: () => void }) {
+export function MediaCard({ item, onPress }: { item: MediaRowItem; onPress?: () => void }) {
   const [broken, setBroken] = useState(false);
   const showArt = !!item.artUrl && !broken;
 

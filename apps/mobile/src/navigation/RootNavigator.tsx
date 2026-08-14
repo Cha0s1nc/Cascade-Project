@@ -17,13 +17,24 @@ import type { Theme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import type { StoredSession } from '../auth/session';
+import AlbumDetailScreen from '../screens/AlbumDetailScreen';
+import AlbumsScreen from '../screens/AlbumsScreen';
+import ArtistDetailScreen from '../screens/ArtistDetailScreen';
+import ArtistsScreen from '../screens/ArtistsScreen';
 import HomeScreen from '../screens/HomeScreen';
-import StubScreen from '../screens/StubScreen';
+import SearchScreen from '../screens/SearchScreen';
+import SongsScreen from '../screens/SongsScreen';
 import { colors } from '../theme';
 import NavBar, { NAV_ITEMS } from './NavBar';
 import type { NavItemName } from './NavBar';
 
-export type RootStackParamList = Record<(typeof NAV_ITEMS)[number], undefined>;
+// The five nav destinations (no params) plus the two detail screens any card
+// among them can push to. Not part of NAV_ITEMS - the nav bar itself never
+// links to a detail screen directly, only a card does.
+export type RootStackParamList = Record<(typeof NAV_ITEMS)[number], undefined> & {
+  AlbumDetail: { albumId: string };
+  ArtistDetail: { artistId: string; artistName?: string };
+};
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const navigationRef = createNavigationContainerRef<RootStackParamList>();
@@ -71,10 +82,12 @@ function RootNavigator({ session, onSignOut }: RootNavigatorProps) {
         <View style={styles.stackArea}>
           <Stack.Navigator screenOptions={{ headerShown: false }}>
             <Stack.Screen name="Home">{() => <HomeScreen session={session} onSignOut={onSignOut} />}</Stack.Screen>
-            <Stack.Screen name="Albums">{() => <StubScreen title="Albums" />}</Stack.Screen>
-            <Stack.Screen name="Artists">{() => <StubScreen title="Artists" />}</Stack.Screen>
-            <Stack.Screen name="Songs">{() => <StubScreen title="Songs" />}</Stack.Screen>
-            <Stack.Screen name="Search">{() => <StubScreen title="Search" />}</Stack.Screen>
+            <Stack.Screen name="Albums">{() => <AlbumsScreen session={session} />}</Stack.Screen>
+            <Stack.Screen name="Artists">{() => <ArtistsScreen session={session} />}</Stack.Screen>
+            <Stack.Screen name="Songs">{() => <SongsScreen session={session} />}</Stack.Screen>
+            <Stack.Screen name="Search">{() => <SearchScreen session={session} />}</Stack.Screen>
+            <Stack.Screen name="AlbumDetail">{() => <AlbumDetailScreen session={session} />}</Stack.Screen>
+            <Stack.Screen name="ArtistDetail">{() => <ArtistDetailScreen session={session} />}</Stack.Screen>
           </Stack.Navigator>
         </View>
         {!Platform.isTV && navBar}

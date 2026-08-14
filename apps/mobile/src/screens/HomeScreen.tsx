@@ -8,6 +8,8 @@
  */
 import { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import type { JfItem } from '@cascade/core';
 
@@ -15,6 +17,7 @@ import { getJellyfinClient } from '../api/client';
 import { useJellyfin } from '../api/hooks';
 import type { StoredSession } from '../auth/session';
 import MediaRow, { type MediaRowItem } from '../components/MediaRow';
+import type { RootStackParamList } from '../navigation/RootNavigator';
 import { colors, radius, spacing, type as typeScale } from '../theme';
 
 interface HomeScreenProps {
@@ -42,6 +45,7 @@ function sortByLastPlayed(items: JfItem[]): JfItem[] {
 
 function HomeScreen({ session, onSignOut }: HomeScreenProps) {
   const client = getJellyfinClient();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   const recentlyPlayed = useJellyfin<JfItem[]>(async () => {
     const data = await client.getMerged(`/Users/${session.userId}/Items`, {
@@ -120,6 +124,7 @@ function HomeScreen({ session, onSignOut }: HomeScreenProps) {
         error={recentlyAdded.error}
         emptyLabel="No albums yet"
         errorLabel="Could not load albums"
+        onPressItem={item => navigation.navigate('AlbumDetail', { albumId: item.id })}
       />
     </ScrollView>
   );
