@@ -17,6 +17,7 @@ import { useState } from 'react';
 
 import { useJellyfin } from '../api/hooks';
 import type { StoredSession } from '../auth/session';
+import { TrackListSkeleton } from '../components/Skeleton';
 import TrackRow from '../components/TrackRow';
 import { playbackService } from '../playback/PlaybackService';
 import { colors, spacing, type as typeScale } from '../theme';
@@ -77,10 +78,7 @@ function SongsScreen({ session }: SongsScreenProps) {
       contentContainerStyle={styles.content}
       ListEmptyComponent={
         songs.loading ? (
-          <View style={styles.statusBox}>
-            <ActivityIndicator color={colors.accent} size="large" />
-            <Text style={styles.statusText}>Loading songs…</Text>
-          </View>
+          <TrackListSkeleton />
         ) : status ? (
           <Text style={styles.statusText}>{status}</Text>
         ) : null

@@ -13,6 +13,7 @@
 import { useState } from 'react';
 import { ActivityIndicator, FlatList, Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { CardRowSkeleton } from './Skeleton';
 import { colors, radius, spacing, type as typeScale } from '../theme';
 
 export interface MediaRowItem {
@@ -69,11 +70,8 @@ function MediaRow({ title, items, loading, error, emptyLabel, errorLabel, onPres
     <View style={styles.row}>
       <Text style={styles.rowTitle}>{title}</Text>
 
-      {loading && (
-        <View style={styles.statusBox}>
-          <ActivityIndicator color={colors.accent} />
-        </View>
-      )}
+      {/* Placeholder cards rather than a spinner - same reasoning as MediaGrid. */}
+      {loading && <CardRowSkeleton />}
 
       {!loading && error && <Text style={styles.statusText}>{errorLabel}</Text>}
 

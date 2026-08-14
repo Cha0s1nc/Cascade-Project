@@ -12,6 +12,7 @@ import { useMemo } from 'react';
 import { ActivityIndicator, FlatList, Platform, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import type { ReactNode } from 'react';
 
+import { CardGridSkeleton } from './Skeleton';
 import { colors, spacing, type as typeScale } from '../theme';
 import { ART_SIZE, MediaCard, type MediaRowItem } from './MediaRow';
 
@@ -65,9 +66,10 @@ function MediaGrid({ items, loading, error, emptyLabel, errorLabel, onPressItem,
       ListHeaderComponent={header ? <View style={styles.header}>{header}</View> : undefined}
       ListEmptyComponent={
         loading ? (
-          <View style={styles.statusBox}>
-            <ActivityIndicator color={colors.accent} />
-          </View>
+          // A grid of placeholders rather than a spinner: it shows the shape of
+          // what is coming, and on a TV-sized screen a lone spinner is easy to
+          // mistake for a screen that failed to load.
+          <CardGridSkeleton />
         ) : statusLabel ? (
           <Text style={styles.statusText}>{statusLabel}</Text>
         ) : null
