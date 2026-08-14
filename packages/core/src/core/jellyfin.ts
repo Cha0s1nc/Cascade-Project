@@ -229,33 +229,51 @@ export class JellyfinClient {
    * Like `getMerged`, but paginates each library until every matching item is
    * fetched instead of stopping at params.Limit. Pages within a library are
    * fetched in parallel once the first page reveals TotalRecordCount.
+   *
+   * `onPartial` is called with everything fetched so far each time a page lands.
+   * It exists because this is slow on a real library - 1439 tracks is three
+   * pages and about six seconds - and a caller that awaits the whole thing shows
+   * an empty screen for all of it. One page already fills a viewport, so a
+   * caller can render that and let the rest arrive underneath. Callers that do
+   * not pass it are unaffected.
    */
-  async getAllPaged(path: string, params: JfParams = {}, libraryIds?: string[]): Promise<JfItemsResponse> {
+  async getAllPaged(
+    path: string,
+    params: JfParams = {},
+    libraryIds?: string[],
+    onPartial?: (items: JfItem[]) => void,
+  ): Promise<JfItemsResponse> {
     const configured = libraryIds ?? this.config.libraryIds
     const ids: (string | null)[] = configured?.length ? configured : [null]
     const pageSize = Number(params.Limit) || DEFAULT_PAGE_SIZE
 
-    const perLibrary = await Promise.all(ids.map(async libId => {
+    // Held per library rather than returned, so a partial emit can reflect every
+    // library fetched so far instead of just the one that happened to finish.
+    const perLibrary: JfItem[][] = ids.map(() => [])
+    const emit = () => { if (onPartial) onPartial(dedupeById(perLibrary).Items || []) }
+
+    await Promise.all(ids.map(async (libId, libIndex) => {
       const baseParams = libId ? { ...params, ParentId: libId } : params
 
       const first = await this.get<JfItemsResponse>(path, { ...baseParams, StartIndex: 0 })
         .catch(() => EMPTY_RESPONSE)
 
-      const items = [...(first.Items || [])]
+      const items = perLibrary[libIndex] as JfItem[]
+      items.push(...(first.Items || []))
       const total = first.TotalRecordCount ?? items.length
+      emit()
 
       if (total > items.length) {
         const starts: number[] = []
         for (let start = items.length; start < total; start += pageSize) starts.push(start)
 
-        const pages = await Promise.all(starts.map(start =>
-          this.get<JfItemsResponse>(path, { ...baseParams, StartIndex: start })
+        await Promise.all(starts.map(async start => {
+          const page = await this.get<JfItemsResponse>(path, { ...baseParams, StartIndex: start })
             .catch(() => EMPTY_RESPONSE)
-        ))
-        for (const p of pages) items.push(...(p.Items || []))
+          items.push(...(page.Items || []))
+          emit()
+        }))
       }
-
-      return items
     }))
 
     return dedupeById(perLibrary)

@@ -221,3 +221,32 @@ test('authHeader: device id is per-install, never the old constant', () => {
   assert.ok(header.includes('DeviceId="DEV-XYZ"'))
   assert.ok(!header.includes('cascade-app'))
 })
+
+test('getAllPaged reports progress as pages land', async () => {
+  // The reason this exists: a real library is several pages and several
+  // seconds, and a caller that only sees the final result shows an empty
+  // screen for the whole fetch.
+  const page = (start: number, total: number, n: number) => ({
+    TotalRecordCount: total,
+    Items: Array.from({ length: n }, (_, i) => ({ Id: `i${start + i}` })),
+  })
+  stubFetch(url => {
+    const start = Number(new URL(url).searchParams.get('StartIndex') || 0)
+    return start === 0 ? page(0, 5, 3) : page(3, 5, 2)
+  })
+
+  const seen: number[] = []
+  const out = await clientFor(baseConfig).getAllPaged('/Items', { Limit: 3 }, undefined,
+    items => seen.push(items.length))
+
+  assert.equal(out.Items?.length, 5, 'still resolves with everything')
+  assert.ok(seen.length >= 2, 'emitted more than once')
+  assert.equal(seen[0], 3, 'first emit is the first page, not the whole set')
+  assert.equal(seen[seen.length - 1], 5, 'last emit is everything')
+})
+
+test('getAllPaged without a progress callback behaves exactly as before', async () => {
+  stubFetch(() => ({ TotalRecordCount: 2, Items: [{ Id: 'a' }, { Id: 'b' }] }))
+  const out = await clientFor(baseConfig).getAllPaged('/Items', { Limit: 500 })
+  assert.equal(out.Items?.length, 2)
+})
