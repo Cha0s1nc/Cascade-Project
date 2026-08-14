@@ -9,6 +9,7 @@
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -34,6 +35,10 @@ import { colors, radius } from '../theme';
 // Quick Connect is enabled - same debounce renderer.js's probeQuickConnect
 // uses, so typing a URL doesn't fire a request per character.
 const QUICK_CONNECT_PROBE_DEBOUNCE_MS = 500;
+
+// Fixed field height. Bigger on tvOS because it is read from across a room and
+// driven with a remote, not a fingertip.
+const INPUT_HEIGHT = Platform.isTV ? 56 : 44;
 
 type QuickConnectState =
   | { status: 'idle' }
@@ -298,7 +303,10 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: radius.sm,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    // An explicit height rather than vertical padding: tvOS grows a focused
+    // UITextField, and a padding-sized field grows with it, so the fields end
+    // up different heights and everything below them shifts.
+    height: INPUT_HEIGHT,
     backgroundColor: colors.surface2,
     color: colors.text,
   },
