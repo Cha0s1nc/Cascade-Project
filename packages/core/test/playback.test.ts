@@ -1,8 +1,13 @@
 import { test, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { JellyfinClient } from '../src/core/jellyfin.ts'
-import { resolveStream, universalStreamUrl, stopActiveEncoding, DEFAULT_MAX_BITRATE, resumeTicks } from '../src/core/playback.ts'
+import {
+  resolveStream, universalStreamUrl, stopActiveEncoding, DEFAULT_MAX_BITRATE, resumeTicks,
+  audioCodecIsClaimed,
+} from '../src/core/playback.ts'
 import { ELECTRON_PROFILE, buildElectronProfile } from '../src/core/profiles/electron.ts'
+import { APPLE_PROFILE } from '../src/core/profiles/apple.ts'
+import { ANDROID_PROFILE } from '../src/core/profiles/android.ts'
 import type { ServerConfig } from '../src/core/types.ts'
 
 const realFetch = globalThis.fetch
@@ -461,4 +466,140 @@ test('stopActiveEncoding never throws, whatever the server does', async () => {
   await stopActiveEncoding(new JellyfinClient(() => cfg), cfg, 'PS9')
   // Reaching here is the assertion: cleanup must not take playback down with it.
   assert.ok(true)
+})
+
+// ── RN device profiles ──────────────────────────────────────────────────────
+//
+// PLATFORM-NOTES.md: a guessed profile is worse than none. These pin down the
+// specific claims the task called out, so a later edit can't silently widen
+// or narrow them without a test noticing.
+
+test('Apple profile claims FLAC - the real library is 100% FLAC', () => {
+  const audio = APPLE_PROFILE.DirectPlayProfiles.find(p => p.Container.includes('flac'))
+  assert.ok(audio, 'flac must be a claimed container')
+  assert.ok(audio!.AudioCodec?.split(',').includes('flac'), 'and a claimed codec')
+})
+
+test('Apple profile never claims Opus or Vorbis - AVPlayer cannot decode either', () => {
+  for (const p of APPLE_PROFILE.DirectPlayProfiles) {
+    assert.ok(!p.Container.includes('opus'))
+    assert.ok(!p.Container.includes('vorbis'))
+    assert.ok(!p.AudioCodec?.includes('opus'))
+    assert.ok(!p.AudioCodec?.includes('vorbis'))
+  }
+  assert.ok(!APPLE_PROFILE.TranscodingProfiles.some(p => p.AudioCodec === 'opus'))
+})
+
+test('Apple profile transcodes to hls/aac, and bitrate is well under desktop', () => {
+  assert.equal(APPLE_PROFILE.TranscodingProfiles[0].Protocol, 'hls')
+  assert.equal(APPLE_PROFILE.TranscodingProfiles[0].AudioCodec, 'aac')
+  assert.ok((APPLE_PROFILE.MaxStreamingBitrate ?? 0) < DEFAULT_MAX_BITRATE)
+})
+
+test('Android profile claims Opus, Vorbis and FLAC on top of the Apple floor', () => {
+  const audio = ANDROID_PROFILE.DirectPlayProfiles.find(p => p.AudioCodec?.includes('opus'))
+  assert.ok(audio, 'ExoPlayer decodes opus where AVPlayer does not')
+  assert.ok(audio!.AudioCodec?.split(',').includes('vorbis'))
+  assert.ok(audio!.AudioCodec?.split(',').includes('flac'))
+})
+
+test('Android profile does not carry ALAC over from Apple - nothing to cite for ExoPlayer', () => {
+  // ALAC is Apple's codec; ExoPlayer needs a separate FFmpeg extension this
+  // app doesn't ship, so unlike AAC/MP3/Opus/Vorbis/FLAC there is no
+  // documented built-in support to point at. A guessed codec is worse than
+  // none - PLATFORM-NOTES.md - so it stays off the list.
+  for (const p of ANDROID_PROFILE.DirectPlayProfiles) {
+    assert.ok(!p.AudioCodec?.split(',').includes('alac'))
+  }
+})
+
+test('Android profile bitrate is also well under desktop', () => {
+  assert.ok((ANDROID_PROFILE.MaxStreamingBitrate ?? 0) < DEFAULT_MAX_BITRATE)
+})
+
+// ── The Roku post-check: SupportsDirectPlay lies about the audio track ─────
+//
+// cascade-roku's JellyfinClient.brs (~line 176) documents a real incident: the
+// server reported SupportsDirectPlay=true for a source whose audio codec the
+// client never claimed, and the result was perfect video with dead silence.
+// resolveStream must catch that itself rather than trusting the server's flag.
+
+test('audioCodecIsClaimed: an unclaimed audio codec fails the check', () => {
+  const profile = { ...ELECTRON_PROFILE, DirectPlayProfiles: [
+    { Type: 'Video' as const, Container: 'mkv', VideoCodec: 'h264', AudioCodec: 'aac,mp3' },
+  ] }
+  assert.equal(
+    audioCodecIsClaimed(profile, 'Video', 'mkv', [{ Type: 'Audio', Codec: 'eac3' }]),
+    false)
+})
+
+test('audioCodecIsClaimed: a claimed audio codec passes', () => {
+  const profile = { ...ELECTRON_PROFILE, DirectPlayProfiles: [
+    { Type: 'Video' as const, Container: 'mkv', VideoCodec: 'h264', AudioCodec: 'aac,mp3' },
+  ] }
+  assert.equal(
+    audioCodecIsClaimed(profile, 'Video', 'mkv', [{ Type: 'Audio', Codec: 'aac' }]),
+    true)
+})
+
+test('audioCodecIsClaimed fails open with no MediaStreams to check', () => {
+  // An older server, or a request that didn't ask for MediaStreams - there is
+  // nothing to distrust, so this must not block direct play on the strength
+  // of information it doesn't have.
+  assert.equal(audioCodecIsClaimed(ELECTRON_PROFILE, 'Audio', 'flac', undefined), true)
+})
+
+test('audioCodecIsClaimed fails open when the matching profile entry names no AudioCodec', () => {
+  // electron.ts's own audio DirectPlayProfiles have no AudioCodec field -
+  // they trust the container to imply the codec. That must keep working.
+  assert.equal(
+    audioCodecIsClaimed(ELECTRON_PROFILE, 'Audio', 'mp3', [{ Type: 'Audio', Codec: 'mp3' }]),
+    true)
+})
+
+test('resolveStream re-requests with DirectPlayProfiles stripped when the audio codec is unclaimed', async () => {
+  const videoProfile = {
+    ...ELECTRON_PROFILE,
+    DirectPlayProfiles: [{ Type: 'Video' as const, Container: 'mkv', VideoCodec: 'h264', AudioCodec: 'aac' }],
+  }
+  let call = 0
+  stubFetch(() => {
+    call += 1
+    if (call === 1) {
+      // First answer: direct play, but the real track is eac3 - never claimed.
+      return {
+        PlaySessionId: 'PS1',
+        MediaSources: [{ Id: 'MS1', Container: 'mkv', MediaStreams: [{ Type: 'Audio', Codec: 'eac3' }] }],
+      }
+    }
+    // Second call must have gone out with DirectPlayProfiles stripped.
+    assert.deepEqual(calls[1].body.DeviceProfile.DirectPlayProfiles, [])
+    return {
+      PlaySessionId: 'PS2',
+      MediaSources: [{ Id: 'MS2', Container: 'mkv', TranscodingUrl: '/Videos/ITEM1/master.m3u8' }],
+    }
+  })
+
+  const out = await resolveStream(client, config, 'ITEM1', videoProfile, DEFAULT_MAX_BITRATE, 'Video')
+
+  assert.equal(calls.length, 2, 'the unplayable answer costs one extra round trip')
+  assert.equal(out.direct, false)
+  assert.equal(out.playSessionId, 'PS2')
+  assert.equal(out.url, 'https://jf.test/Videos/ITEM1/master.m3u8')
+})
+
+test('resolveStream direct-plays normally when the audio codec is claimed', async () => {
+  const videoProfile = {
+    ...ELECTRON_PROFILE,
+    DirectPlayProfiles: [{ Type: 'Video' as const, Container: 'mkv', VideoCodec: 'h264', AudioCodec: 'aac' }],
+  }
+  stubFetch(() => ({
+    PlaySessionId: 'PS1',
+    MediaSources: [{ Id: 'MS1', Container: 'mkv', MediaStreams: [{ Type: 'Audio', Codec: 'aac' }] }],
+  }))
+
+  const out = await resolveStream(client, config, 'ITEM1', videoProfile, DEFAULT_MAX_BITRATE, 'Video')
+
+  assert.equal(calls.length, 1, 'a claimed codec costs no extra round trip')
+  assert.equal(out.direct, true)
 })

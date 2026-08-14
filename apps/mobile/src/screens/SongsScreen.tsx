@@ -16,6 +16,7 @@ import { getJellyfinClient } from '../api/client';
 import { useJellyfin } from '../api/hooks';
 import type { StoredSession } from '../auth/session';
 import TrackRow from '../components/TrackRow';
+import { playbackService } from '../playback/PlaybackService';
 import { colors, spacing, type as typeScale } from '../theme';
 
 interface SongsScreenProps {
@@ -58,6 +59,7 @@ function SongsScreen({ session }: SongsScreenProps) {
           index={index}
           artUrl={client.artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)}
           showAlbum
+          onPress={() => playbackService.play(items, index)}
         />
       )}
       contentContainerStyle={styles.content}

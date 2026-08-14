@@ -17,6 +17,7 @@ import type { Theme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import type { StoredSession } from '../auth/session';
+import NowPlayingBar from '../components/NowPlayingBar';
 import AlbumDetailScreen from '../screens/AlbumDetailScreen';
 import AlbumsScreen from '../screens/AlbumsScreen';
 import ArtistDetailScreen from '../screens/ArtistDetailScreen';
@@ -90,6 +91,9 @@ function RootNavigator({ session, onSignOut }: RootNavigatorProps) {
             <Stack.Screen name="ArtistDetail">{() => <ArtistDetailScreen session={session} />}</Stack.Screen>
           </Stack.Navigator>
         </View>
+        {/* Sibling of the stack, same reasoning as navBar above - it has to
+            survive every screen push rather than remount as a screen would. */}
+        <NowPlayingBar />
         {!Platform.isTV && navBar}
       </View>
     </NavigationContainer>

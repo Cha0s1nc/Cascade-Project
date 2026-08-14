@@ -20,6 +20,7 @@ import { getJellyfinClient } from '../api/client';
 import { useJellyfin } from '../api/hooks';
 import type { StoredSession } from '../auth/session';
 import TrackRow from '../components/TrackRow';
+import { playbackService } from '../playback/PlaybackService';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import { colors, radius, spacing, type as typeScale } from '../theme';
 
@@ -99,6 +100,7 @@ function AlbumDetailScreen({ session }: AlbumDetailScreenProps) {
           item={item}
           index={index}
           artUrl={client.artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)}
+          onPress={() => playbackService.play(tracks, index)}
         />
       )}
       contentContainerStyle={styles.content}

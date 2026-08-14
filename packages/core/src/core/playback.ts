@@ -6,7 +6,7 @@
 // gets a stream it can actually play. See profiles/PLATFORM-NOTES.md.
 
 import type { JellyfinClient } from './jellyfin.ts'
-import type { JfItem, ServerConfig } from './types.ts'
+import type { JfItem, JfMediaStream, ServerConfig } from './types.ts'
 
 /** Which family of Jellyfin stream endpoints an item uses. Movies and episodes
  *  are both 'Video'; everything Cascade played before B2 is 'Audio'. */
@@ -80,6 +80,9 @@ interface MediaSource {
   SupportsTranscoding?: boolean
   /** Server-relative when present; means "transcode, use this". */
   TranscodingUrl?: string
+  /** Populated whenever the server includes media info, which PlaybackInfo
+   *  does by default. Used only by audioCodecIsClaimed below. */
+  MediaStreams?: JfMediaStream[]
 }
 
 interface PlaybackInfoResponse {
@@ -232,6 +235,81 @@ export async function stopActiveEncoding(
   })
 }
 
+/**
+ * Whether a direct-play source's actual audio codec is one this profile said
+ * it could decode.
+ *
+ * Jellyfin's SupportsDirectPlay only reasons about container/bitrate limits -
+ * it does not check whether the *client* claimed the audio codec actually
+ * inside the file. cascade-roku's Api_CanPlayAudioOf (JellyfinClient.brs,
+ * ~line 176) documents the real incident this guards against: an EAC3 track
+ * in an otherwise-direct-playable container came back SupportsDirectPlay=true,
+ * and the result was perfect video with dead silence - nothing ever throws,
+ * because the container opens fine and only the one track inside it is
+ * undecodable.
+ *
+ * Fails open (true) when there is nothing to check against: no MediaStreams
+ * (older server, or the field wasn't requested), no audio stream in them, or
+ * a matching DirectPlayProfile entry that declares no AudioCodec at all -
+ * which is electron.ts's own audio entries, naming a container and trusting
+ * it to imply the codec (mp3 means mp3, aac means aac). Only a profile that
+ * bothered to be specific about codecs gets to reject one.
+ */
+export function audioCodecIsClaimed(
+  profile: DeviceProfile,
+  kind: MediaKind,
+  container: string | undefined,
+  streams: JfMediaStream[] | undefined,
+): boolean {
+  if (!streams) return true
+  const audio = streams.find(s => (s.Type || '').toLowerCase() === 'audio')
+  const codec = audio?.Codec?.toLowerCase()
+  if (!codec) return true
+
+  const containers = (container || '').split(',').map(c => c.trim().toLowerCase()).filter(Boolean)
+  const matching = profile.DirectPlayProfiles.filter(p => {
+    if (p.Type !== kind) return false
+    if (containers.length === 0) return true
+    const claimedContainers = p.Container.split(',').map(c => c.trim().toLowerCase())
+    return claimedContainers.some(c => containers.includes(c))
+  })
+
+  if (matching.length === 0) return true
+  if (matching.some(p => !p.AudioCodec)) return true
+
+  const claimed = new Set(
+    matching.flatMap(p => (p.AudioCodec || '').split(',').map(c => c.trim().toLowerCase())),
+  )
+  return claimed.has(codec)
+}
+
+/** One PlaybackInfo round trip. Split out so resolveStream can issue a second
+ *  one - with DirectPlayProfiles stripped - when audioCodecIsClaimed rejects
+ *  the server's first answer. */
+async function requestPlaybackInfo(
+  client: JellyfinClient,
+  config: ServerConfig,
+  itemId: string,
+  profile: DeviceProfile,
+  maxBitrate: number,
+  audioStreamIndex: number | null,
+): Promise<PlaybackInfoResponse> {
+  return client.post<PlaybackInfoResponse>(
+    `/Items/${itemId}/PlaybackInfo`,
+    {
+      UserId: config.userId,
+      MaxStreamingBitrate: maxBitrate,
+      DeviceProfile: { ...profile, MaxStreamingBitrate: maxBitrate },
+      AutoOpenLiveStream: true,
+      // Sent rather than omitted-when-default so the server decides whether
+      // the requested track is reachable by direct play. It usually is not,
+      // and that transcode is the point - see StreamOptions.
+      ...(audioStreamIndex != null ? { AudioStreamIndex: audioStreamIndex } : {}),
+    },
+    { UserId: config.userId },
+  )
+}
+
 export async function resolveStream(
   client: JellyfinClient,
   config: ServerConfig,
@@ -245,23 +323,21 @@ export async function resolveStream(
   const audioStreamIndex = opts.audioStreamIndex ?? null
 
   try {
-    const info = await client.post<PlaybackInfoResponse>(
-      `/Items/${itemId}/PlaybackInfo`,
-      {
-        UserId: config.userId,
-        MaxStreamingBitrate: maxBitrate,
-        DeviceProfile: { ...profile, MaxStreamingBitrate: maxBitrate },
-        AutoOpenLiveStream: true,
-        // Sent rather than omitted-when-default so the server decides whether
-        // the requested track is reachable by direct play. It usually is not,
-        // and that transcode is the point - see StreamOptions.
-        ...(audioStreamIndex != null ? { AudioStreamIndex: audioStreamIndex } : {}),
-      },
-      { UserId: config.userId },
-    )
-
-    const source = info.MediaSources?.[0]
+    let info = await requestPlaybackInfo(client, config, itemId, profile, maxBitrate, audioStreamIndex)
+    let source = info.MediaSources?.[0]
     if (!source) throw new Error('PlaybackInfo returned no media source')
+
+    if (!source.TranscodingUrl && !audioCodecIsClaimed(profile, kind, source.Container, source.MediaStreams)) {
+      // The server offered direct play for a codec we never claimed - see
+      // audioCodecIsClaimed above. Ask again with DirectPlayProfiles
+      // stripped, the same forceTranscode approach cascade-roku's
+      // Api_GetPlaybackInfo uses, so the server has no direct-play option
+      // left and must transcode.
+      info = await requestPlaybackInfo(
+        client, config, itemId, { ...profile, DirectPlayProfiles: [] }, maxBitrate, audioStreamIndex)
+      source = info.MediaSources?.[0]
+      if (!source) throw new Error('PlaybackInfo returned no media source on forced transcode')
+    }
 
     const playSessionId = info.PlaySessionId ?? null
 

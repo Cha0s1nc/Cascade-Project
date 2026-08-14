@@ -53,3 +53,14 @@ export function getJellyfinClient(): JellyfinClient {
   if (!client) throw new Error('getJellyfinClient() called before initJellyfinClient()');
   return client;
 }
+
+/**
+ * The ServerConfig backing the shared client - PlaybackService needs it
+ * directly (resolveStream, reportStart/Progress/Stopped and stopActiveEncoding
+ * all take a ServerConfig, not just a client), and JellyfinClient keeps its
+ * own copy private so a stale reference can't be held past a reconnect.
+ */
+export function getServerConfig(): ServerConfig {
+  if (!config) throw new Error('getServerConfig() called before initJellyfinClient()');
+  return config;
+}
