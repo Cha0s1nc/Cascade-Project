@@ -4,10 +4,10 @@
  * Album detail (disc/track order) and Search's song group, same as
  * apps/desktop/renderer.js's trackRowHtml serves all three there.
  *
- * onPress is optional and nothing passes it yet - playback is Phase 4. Kept
- * Pressable (with the same focus-ring pattern as every other card) so a row
- * is D-pad reachable on tvOS even though pressing it does nothing right now,
- * rather than rendering a dead View that swallows focus.
+ * onPress is optional because not every list can act on a press yet. Where it
+ * is passed, the caller hands the whole visible list to the player so the queue
+ * continues past the row that was picked. Pressable regardless, so a row is
+ * D-pad reachable on tvOS rather than a dead View that swallows focus.
  */
 import { useState } from 'react';
 import { Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';

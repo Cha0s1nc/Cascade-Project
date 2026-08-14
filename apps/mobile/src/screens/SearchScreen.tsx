@@ -24,6 +24,7 @@ import { getJellyfinClient } from '../api/client';
 import { useJellyfin } from '../api/hooks';
 import type { StoredSession } from '../auth/session';
 import MediaRow, { type MediaRowItem } from '../components/MediaRow';
+import { playbackService } from '../playback/PlaybackService';
 import TrackRow from '../components/TrackRow';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import { colors, radius, spacing, type as typeScale } from '../theme';
@@ -148,6 +149,9 @@ function SearchScreen({ session }: SearchScreenProps) {
                   index={i}
                   artUrl={client.artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)}
                   showAlbum
+                  // The whole result set becomes the queue, so playing the
+                  // third hit still lets you continue through the rest.
+                  onPress={() => playbackService.play(results.songs, i)}
                 />
               ))}
             </View>
