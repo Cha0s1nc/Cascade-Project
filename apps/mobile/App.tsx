@@ -1,7 +1,8 @@
 /**
  * Auth entry point: restores a verified session on launch, otherwise shows
- * sign-in. No navigation library - there are exactly two screens, and which
- * one renders is a function of auth state, not a route.
+ * sign-in. Signed-out vs signed-in is a function of auth state, not a route -
+ * the navigation library only takes over once RootNavigator mounts, for what
+ * happens inside a signed-in session.
  *
  * @format
  */
@@ -14,6 +15,7 @@ import type { JfAuthResult } from '@cascade/core';
 
 import { colors } from './src/theme';
 import { platform } from './src/platform';
+import { initJellyfinClient } from './src/api/client';
 import {
   clearSession,
   getOrCreateDeviceId,
@@ -23,7 +25,7 @@ import {
   type StoredSession,
 } from './src/auth/session';
 import SignInScreen from './src/screens/SignInScreen';
-import SignedInScreen from './src/screens/SignedInScreen';
+import RootNavigator from './src/navigation/RootNavigator';
 
 type AuthState =
   | { status: 'loading' }
@@ -59,6 +61,12 @@ function App() {
       // instead of showing an empty, half-broken app.
       const ok = await verifySession(stored, id);
       if (cancelled) return;
+      if (ok) {
+        // Built here rather than lazily inside a screen, so every screen after
+        // this point can assume getJellyfinClient() already has a client.
+        await initJellyfinClient(stored, id);
+        if (cancelled) return;
+      }
       setAuth(
         ok
           ? { status: 'signedIn', session: stored }
@@ -84,6 +92,7 @@ function App() {
       username: result.User.Name || '',
     };
     await saveSession(platform.store, session, password);
+    await initJellyfinClient(session, deviceId);
     setAuth({ status: 'signedIn', session });
   }
 
@@ -115,7 +124,7 @@ function App() {
           />
         )}
 
-        {auth.status === 'signedIn' && <SignedInScreen session={auth.session} onSignOut={handleSignOut} />}
+        {auth.status === 'signedIn' && <RootNavigator session={auth.session} onSignOut={handleSignOut} />}
       </SafeAreaView>
     </SafeAreaProvider>
   );
