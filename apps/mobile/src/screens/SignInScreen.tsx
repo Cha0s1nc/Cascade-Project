@@ -29,7 +29,7 @@ import {
 import type { JfAuthResult } from '@cascade/core';
 
 import { normalizeServerUrl } from '../auth/session';
-import { colors, radius } from '../theme';
+import { colors, radius, type as typeScale } from '../theme';
 
 // How long to wait after the last keystroke before asking the server whether
 // Quick Connect is enabled - same debounce renderer.js's probeQuickConnect
@@ -38,7 +38,7 @@ const QUICK_CONNECT_PROBE_DEBOUNCE_MS = 500;
 
 // Fixed field height. Bigger on tvOS because it is read from across a room and
 // driven with a remote, not a fingertip.
-const INPUT_HEIGHT = Platform.isTV ? 56 : 44;
+const INPUT_HEIGHT = Platform.isTV ? 72 : 44;
 
 type QuickConnectState =
   | { status: 'idle' }
@@ -286,13 +286,14 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   heading: {
-    fontSize: 22,
+    fontSize: typeScale.heading,
     fontWeight: '600',
     marginBottom: 24,
     textAlign: 'center',
     color: colors.text,
   },
   label: {
+    fontSize: typeScale.label,
     fontWeight: '600',
     marginTop: 12,
     marginBottom: 4,
@@ -307,13 +308,14 @@ const styles = StyleSheet.create({
     // UITextField, and a padding-sized field grows with it, so the fields end
     // up different heights and everything below them shifts.
     height: INPUT_HEIGHT,
+    fontSize: typeScale.body,
     backgroundColor: colors.surface2,
     color: colors.text,
   },
   button: {
     marginTop: 20,
     borderRadius: radius.sm,
-    paddingVertical: 12,
+    paddingVertical: Platform.isTV ? 18 : 12,
     alignItems: 'center',
     backgroundColor: colors.accent,
   },
@@ -328,6 +330,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   buttonText: {
+    fontSize: typeScale.button,
     color: colors.text,
     fontWeight: '600',
   },
@@ -337,16 +340,18 @@ const styles = StyleSheet.create({
     borderColor: colors.accent,
   },
   secondaryButtonText: {
+    fontSize: typeScale.button,
     color: colors.text,
     fontWeight: '600',
   },
   error: {
+    fontSize: typeScale.body,
     color: colors.red,
     marginTop: 16,
     textAlign: 'center',
   },
   code: {
-    fontSize: 40,
+    fontSize: typeScale.code,
     fontWeight: '700',
     textAlign: 'center',
     letterSpacing: 4,
@@ -354,6 +359,7 @@ const styles = StyleSheet.create({
     color: colors.gradFrom,
   },
   hint: {
+    fontSize: typeScale.hint,
     textAlign: 'center',
     color: colors.text3,
   },

@@ -31,6 +31,21 @@ export const colors = {
   gradTo: '#7c3aed',
 } as const
 
+import { Platform } from 'react-native'
+
+/**
+ * Type scale. The TV column is not a preference - a 10-foot UI is read from
+ * roughly ten times the distance of a phone, and React Native's default sizes
+ * land somewhere near 14pt, which is unreadable on a 3840-wide screen. Apple's
+ * own guidance puts TV body text around 29pt.
+ *
+ * Every screen should take its sizes from here. A screen that hardcodes a
+ * fontSize will be wrong on one of the two platforms, and it will be the TV.
+ */
+export const type = Platform.isTV
+  ? { heading: 38, label: 22, body: 26, button: 26, code: 72, hint: 22 }
+  : { heading: 22, label: 13, body: 16, button: 16, code: 40, hint: 14 }
+
 // tvOS is watched from across a room, so type has to be bigger there than on a
 // phone held at arm's length. Everything else is shared.
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const

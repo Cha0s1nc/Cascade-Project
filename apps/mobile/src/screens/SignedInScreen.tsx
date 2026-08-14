@@ -5,11 +5,11 @@
  * @format
  */
 
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { StoredSession } from '../auth/session';
 
-import { colors, radius } from '../theme';
+import { colors, radius, type as typeScale } from '../theme';
 
 interface SignedInScreenProps {
   session: StoredSession;
@@ -53,25 +53,27 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   heading: {
-    fontSize: 22,
+    fontSize: typeScale.heading,
     fontWeight: '600',
     marginBottom: 24,
     textAlign: 'center',
     color: colors.text,
   },
   label: {
+    fontSize: typeScale.label,
     fontWeight: '600',
     marginTop: 12,
     color: colors.text3,
   },
   value: {
+    fontSize: typeScale.body,
     marginTop: 2,
     color: colors.text,
   },
   button: {
     marginTop: 32,
     borderRadius: radius.sm,
-    paddingVertical: 12,
+    paddingVertical: Platform.isTV ? 18 : 12,
     alignItems: 'center',
     backgroundColor: colors.red,
   },
