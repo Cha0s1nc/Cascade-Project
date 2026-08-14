@@ -7,11 +7,12 @@
  */
 
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet } from 'react-native';
+import { ActivityIndicator, StatusBar, StyleSheet } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import type { JfAuthResult } from '@cascade/core';
 
+import { colors } from './src/theme';
 import { platform } from './src/platform';
 import {
   clearSession,
@@ -95,8 +96,13 @@ function App() {
 
   return (
     <SafeAreaProvider>
+      {/* Light glyphs, because everything behind them is now dark. tvOS has no
+          status bar, so this is a no-op there rather than a special case. */}
+      <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
       <SafeAreaView style={styles.container}>
-        {auth.status === 'loading' && <ActivityIndicator style={styles.loading} size="large" />}
+        {auth.status === 'loading' && (
+          <ActivityIndicator style={styles.loading} size="large" color={colors.accent} />
+        )}
 
         {auth.status === 'signedOut' && (
           <SignInScreen
@@ -118,6 +124,9 @@ function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    // The root surface. Without this the safe-area insets render white and
+    // frame every screen in a pale border on an otherwise dark app.
+    backgroundColor: colors.bg,
   },
   loading: {
     flex: 1,

@@ -9,6 +9,8 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { StoredSession } from '../auth/session';
 
+import { colors, radius } from '../theme';
+
 interface SignedInScreenProps {
   session: StoredSession;
   onSignOut: () => void;
@@ -46,30 +48,36 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     padding: 24,
+    width: '100%',
+    maxWidth: 640,
+    alignSelf: 'center',
   },
   heading: {
     fontSize: 22,
     fontWeight: '600',
     marginBottom: 24,
     textAlign: 'center',
+    color: colors.text,
   },
   label: {
     fontWeight: '600',
     marginTop: 12,
+    color: colors.text3,
   },
   value: {
     marginTop: 2,
+    color: colors.text,
   },
   button: {
     marginTop: 32,
-    borderRadius: 6,
+    borderRadius: radius.sm,
     paddingVertical: 12,
     alignItems: 'center',
-    backgroundColor: '#cc3333',
+    backgroundColor: colors.red,
   },
   buttonFocused: {
-    outlineWidth: 2,
-    outlineColor: '#fff',
+    outlineWidth: 3,
+    outlineColor: colors.text,
     opacity: 0.85,
   },
   buttonText: {

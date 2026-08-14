@@ -28,6 +28,7 @@ import {
 import type { JfAuthResult } from '@cascade/core';
 
 import { normalizeServerUrl } from '../auth/session';
+import { colors, radius } from '../theme';
 
 // How long to wait after the last keystroke before asking the server whether
 // Quick Connect is enabled - same debounce renderer.js's probeQuickConnect
@@ -218,6 +219,7 @@ function SignInScreen({
         value={serverUrlInput}
         onChangeText={setServerUrlInput}
         placeholder="https://jellyfin.example.com"
+        placeholderTextColor={colors.text3}
         autoCapitalize="none"
         autoCorrect={false}
         keyboardType="url"
@@ -283,49 +285,55 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 24,
     textAlign: 'center',
+    color: colors.text,
   },
   label: {
     fontWeight: '600',
     marginTop: 12,
     marginBottom: 4,
+    color: colors.text2,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#888',
-    borderRadius: 6,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
     paddingHorizontal: 12,
     paddingVertical: 8,
+    backgroundColor: colors.surface2,
+    color: colors.text,
   },
   button: {
     marginTop: 20,
-    borderRadius: 6,
+    borderRadius: radius.sm,
     paddingVertical: 12,
     alignItems: 'center',
-    backgroundColor: '#0055cc',
+    backgroundColor: colors.accent,
   },
+  // The only cue on a TV that says which control the D-pad is on, so it has to
+  // be unmissable from across a room rather than a subtle tint.
   buttonFocused: {
-    outlineWidth: 2,
-    outlineColor: '#fff',
-    opacity: 0.85,
+    outlineWidth: 3,
+    outlineColor: colors.text,
+    opacity: 1,
   },
   buttonDisabled: {
     opacity: 0.6,
   },
   buttonText: {
-    color: '#fff',
+    color: colors.text,
     fontWeight: '600',
   },
   secondaryButton: {
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: '#0055cc',
+    borderColor: colors.accent,
   },
   secondaryButtonText: {
-    color: '#0055cc',
+    color: colors.text,
     fontWeight: '600',
   },
   error: {
-    color: '#cc3333',
+    color: colors.red,
     marginTop: 16,
     textAlign: 'center',
   },
@@ -335,10 +343,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     letterSpacing: 4,
     marginVertical: 16,
+    color: colors.gradFrom,
   },
   hint: {
     textAlign: 'center',
-    color: '#888',
+    color: colors.text3,
   },
 });
 
