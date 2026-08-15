@@ -160,7 +160,10 @@ function SignInScreen({
       setError('Server URL and username are required.');
       return;
     }
-    if (!username.trim() || !password) {
+    // Password deliberately not required: Jellyfin allows users with no
+    // password at all, and demanding one here made those accounts impossible to
+    // sign in with - the button just re-showed this message forever.
+    if (!username.trim()) {
       setError('Server URL and username are required.');
       return;
     }
