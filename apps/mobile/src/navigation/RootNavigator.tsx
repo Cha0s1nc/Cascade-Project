@@ -47,7 +47,7 @@ const navTheme: Theme = {
   ...DarkTheme,
   colors: {
     ...DarkTheme.colors,
-    background: colors.bg,
+    background: 'transparent',
     card: colors.surface,
     text: colors.text,
     border: colors.border,
@@ -103,7 +103,6 @@ function RootNavigator({ session, onSignOut }: RootNavigatorProps) {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: colors.bg,
   },
   stackArea: {
     flex: 1,

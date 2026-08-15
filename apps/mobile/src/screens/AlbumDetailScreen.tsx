@@ -118,7 +118,8 @@ function AlbumDetailScreen({ session }: AlbumDetailScreenProps) {
 const styles = StyleSheet.create({
   // No `flex: 1` - see the comment on MediaGrid's `container`.
   container: {
-    backgroundColor: colors.bg,
+    // Transparent so AlbumArtBackground shows through; it paints the base.
+    backgroundColor: 'transparent',
   },
   content: {
     paddingBottom: spacing.xxl,

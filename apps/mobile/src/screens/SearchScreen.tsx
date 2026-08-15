@@ -190,7 +190,8 @@ const styles = StyleSheet.create({
   // No `flex: 1` - see the comment on MediaGrid's `container`. Same as Home:
   // this looked fine but was not actually scrollable.
   container: {
-    backgroundColor: colors.bg,
+    // Transparent so AlbumArtBackground shows through; it paints the base.
+    backgroundColor: 'transparent',
   },
   content: {
     paddingTop: spacing.lg,

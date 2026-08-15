@@ -13,6 +13,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import type { JfAuthResult } from '@cascade/core';
 
+import AlbumArtBackground from './src/components/AlbumArtBackground';
 import { colors } from './src/theme';
 import { platform } from './src/platform';
 import { initJellyfinClient } from './src/api/client';
@@ -115,6 +116,10 @@ function App() {
           which is the same protection applied where it does not shrink the
           scroller. */}
       <SafeAreaView style={styles.container} edges={Platform.isTV ? [] : undefined}>
+        {/* Behind every screen, so it survives navigation the way the desktop's
+            overlay background survives a track change. Screens above it are
+            transparent; it paints its own dark base underneath. */}
+        {auth.status === 'signedIn' && <AlbumArtBackground />}
         {auth.status === 'loading' && (
           <ActivityIndicator style={styles.loading} size="large" color={colors.accent} />
         )}

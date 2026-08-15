@@ -136,7 +136,8 @@ const styles = StyleSheet.create({
   // but it could not actually scroll, so content past the first screenful was
   // unreachable.
   container: {
-    backgroundColor: colors.bg,
+    // Transparent so AlbumArtBackground shows through; it paints the base.
+    backgroundColor: 'transparent',
   },
   content: {
     paddingTop: spacing.lg,

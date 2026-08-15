@@ -3294,14 +3294,7 @@ let _blobColors = []  // extracted colors, stored for blob drift animation
 let _driftParams = [] // randomized per-blob drift parameters, set on each color refresh
 
 function randomizeDrift() {
-  const r = () => Math.random()
-  _driftParams = [0, 1, 2].map(() => ({
-    // Two independent sin/cos pairs per axis - gives Lissajous-style organic motion
-    xF1: 0.11 + r() * 0.13,  xP1: r() * Math.PI * 2,  xA1: 10 + r() * 10,
-    xF2: 0.04 + r() * 0.09,  xP2: r() * Math.PI * 2,  xA2: 3  + r() * 6,
-    yF1: 0.10 + r() * 0.13,  yP1: r() * Math.PI * 2,  yA1: 10 + r() * 10,
-    yF2: 0.04 + r() * 0.09,  yP2: r() * Math.PI * 2,  yA2: 3  + r() * 6,
-  }))
+  _driftParams = CascadeCore.randomizeDrift()
 }
 
 function initBeatDetection() {
@@ -3330,24 +3323,11 @@ function startBeatLoop() {
     // The drift is slow (periods of tens of seconds), so rebuilding this gradient
     // string at the full 60fps is wasted work - throttle to ~15fps, which is
     // visually indistinguishable for motion this gradual.
-    if (ts - _lastBlobFrameTs < 66) return
+    if (ts - _lastBlobFrameTs < CascadeCore.BLOB_FRAME_MS) return
     _lastBlobFrameTs = ts
     if (_blobColors.length > 0 && themeAlbumArt && _driftParams.length > 0) {
-      const t = Date.now() / 1000
-      // Anchor positions and sizes per slot (blobs stay near screen edges)
-      const slots = [
-        { ox: 78, oy: 16, w: 78, h: 78, a: 0.88 },
-        { ox: 18, oy: 82, w: 78, h: 78, a: 0.80 },
-        { ox: 12, oy: 18, w: 58, h: 58, a: 0.55 },
-      ]
-      const drifted = _blobColors.map((c, i) => {
-        const s = slots[i] || slots[2]
-        const p = _driftParams[i] || _driftParams[0]
-        const x = s.ox + Math.sin(t * p.xF1 + p.xP1) * p.xA1 + Math.sin(t * p.xF2 + p.xP2) * p.xA2
-        const y = s.oy + Math.cos(t * p.yF1 + p.yP1) * p.yA1 + Math.cos(t * p.yF2 + p.yP2) * p.yA2
-        return `radial-gradient(ellipse ${s.w}% ${s.h}% at ${x.toFixed(1)}% ${y.toFixed(1)}%, rgba(${c.r},${c.g},${c.b},${s.a}) 0%, rgba(${c.r},${c.g},${c.b},${s.a}) 42%, transparent 100%)`
-      })
-      overlay.style.backgroundImage = drifted.join(', ')
+      const blobs = CascadeCore.driftedBlobs(_blobColors, _driftParams, Date.now() / 1000)
+      overlay.style.backgroundImage = CascadeCore.blobBackgroundCss(blobs)
     }
   }
   frame()
@@ -5544,103 +5524,30 @@ function rgbToHex(r, g, b) {
 
 // Extract top N hue-diverse colors from an image element.
 // Returns an array of {r,g,b} with saturation boosted for vivid blobs.
+// Reading the cover's pixels is the only part of this the browser has to do;
+// the colour maths lives in core so the React Native app produces the same
+// palette from the same cover (it decodes a PNG instead of drawing a canvas).
 function extractTopColors(img, n = 3) {
   try {
     const canvas = document.createElement('canvas')
     canvas.width = canvas.height = 80
-    const ctx = canvas.getContext('2d')
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+    // Nearest-neighbour, not the default smooth scale. Smoothing blends
+    // neighbouring pixels, so red beside blue produces purple that appears
+    // nowhere in the artwork - and with only 6400 samples an invented colour
+    // could win outright. Sampling real pixels can miss a very small detail;
+    // inventing colours misreports the whole cover, which is worse.
+    ctx.imageSmoothingEnabled = false
     ctx.drawImage(img, 0, 0, 80, 80)
-    const { data } = ctx.getImageData(0, 0, 80, 80)
-
-    const BUCKETS = 36, DEG = 360 / BUCKETS
-    const counts = new Array(BUCKETS).fill(0)
-    const sums = Array.from({ length: BUCKETS }, () => ({ r: 0, g: 0, b: 0 }))
-
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i] / 255, g = data[i+1] / 255, b = data[i+2] / 255, a = data[i+3]
-      if (a < 128) continue
-      const max = Math.max(r, g, b), min = Math.min(r, g, b)
-      const l = (max + min) / 2
-      if (l < 0.04 || l > 0.96) continue       // skip only true-black / true-white
-      const s = max === min ? 0 : (max - min) / (1 - Math.abs(2 * l - 1))
-      if (s < 0.05) continue                    // skip near-gray (looser - catches dark purples etc)
-
-      const d = max - min
-      let h = 0
-      if (max === r)      h = ((g - b) / d + (g < b ? 6 : 0)) / 6
-      else if (max === g) h = ((b - r) / d + 2) / 6
-      else                h = ((r - g) / d + 4) / 6
-      const bi = Math.floor(h * BUCKETS) % BUCKETS
-      counts[bi]++
-      sums[bi].r += data[i]; sums[bi].g += data[i+1]; sums[bi].b += data[i+2]
-    }
-
-    // Rank buckets by count × average saturation - vivid colors beat large dull areas
-    const ranked = counts
-      .map((c, i) => {
-        if (!c) return { score: 0, c, i, hue: i * DEG }
-        const avgR = sums[i].r / c, avgG = sums[i].g / c, avgB = sums[i].b / c
-        const mx = Math.max(avgR, avgG, avgB) / 255, mn = Math.min(avgR, avgG, avgB) / 255
-        const l = (mx + mn) / 2
-        const sat = mx === mn ? 0 : (mx - mn) / (1 - Math.abs(2 * l - 1))
-        return { score: c * sat, c, i, hue: i * DEG }
-      })
-      .filter(x => x.c > 0)
-      .sort((a, b) => b.score - a.score)
-
-    const results = []
-    for (const { c, i, hue } of ranked) {
-      if (results.length >= n) break
-      let r = sums[i].r / c, g = sums[i].g / c, b = sums[i].b / c
-      // Moderate saturation boost: push channels away from mid without clamping hue
-      const mid = (Math.max(r, g, b) + Math.min(r, g, b)) / 2
-      const BOOST = 1.4
-      r = Math.min(255, Math.max(0, mid + (r - mid) * BOOST))
-      g = Math.min(255, Math.max(0, mid + (g - mid) * BOOST))
-      b = Math.min(255, Math.max(0, mid + (b - mid) * BOOST))
-      // Normalize to a vivid, visible blob color:
-      // Convert to HSL, force L ≥ 0.48 and S ≥ 0.65, then back to RGB.
-      // This ensures dark covers (like near-black album art) still produce bright blobs.
-      const nr = r/255, ng = g/255, nb = b/255
-      const cmax = Math.max(nr,ng,nb), cmin = Math.min(nr,ng,nb)
-      const d = cmax - cmin
-      let h2 = 0
-      if (d > 0) {
-        if (cmax === nr)      h2 = ((ng-nb)/d + (ng<nb?6:0))/6
-        else if (cmax === ng) h2 = ((nb-nr)/d + 2)/6
-        else                  h2 = ((nr-ng)/d + 4)/6
-      }
-      const tgtL = 0.50, tgtS = Math.max(0.70, d > 0 ? d/(1-Math.abs(2*((cmax+cmin)/2)-1)) : 0)
-      const c2 = (1 - Math.abs(2*tgtL - 1)) * tgtS
-      const x2 = c2 * (1 - Math.abs((h2*6)%2 - 1))
-      const m2 = tgtL - c2/2
-      const hi = Math.floor(h2*6) % 6
-      const [rr,gg,bb2] = [[c2,x2,0],[x2,c2,0],[0,c2,x2],[0,x2,c2],[x2,0,c2],[c2,0,x2]][hi]
-      results.push({
-        r: Math.round((rr+m2)*255),
-        g: Math.round((gg+m2)*255),
-        b: Math.round((bb2+m2)*255),
-        hue
-      })
-    }
-    return results
+    return CascadeCore.extractTopColors(ctx.getImageData(0, 0, 80, 80).data, n)
   } catch { return [] }
 }
 
-// Build a Cider-style multi-blob gradient background from an array of colors.
-// Colors are placed at screen edges so the center stays dark and readable.
+// The static placement, used before the drift loop takes over. Both go through
+// the same core helpers now, so the two no longer disagree about blob size and
+// falloff - which used to show as a visible jump the moment drift started.
 function buildBlobBackground(colors) {
-  // Edge placements - main colors at opposite corners, third as accent
-  const slots = [
-    { x: '80%', y: '15%', w: '75%', h: '75%', a: 0.88 },  // top-right
-    { x: '15%', y: '85%', w: '75%', h: '75%', a: 0.80 },  // bottom-left
-    { x: '10%', y: '15%', w: '55%', h: '55%', a: 0.55 },  // top-left accent
-  ]
-  return colors.map((c, i) => {
-    const { x, y, w, h, a } = slots[i] || { x: '50%', y: '50%', w: '60%', h: '60%', a: 0.5 }
-    return `radial-gradient(ellipse ${w} ${h} at ${x} ${y}, rgba(${c.r},${c.g},${c.b},${a}) 0%, transparent 100%)`
-  }).join(', ')
-  // Note: dark base (#0d0d0f) is set as background-color separately - plain hex is invalid in background-image
+  return CascadeCore.blobBackgroundCss(CascadeCore.driftedBlobs(colors, [], 0))
 }
 
 function applyAlbumArtTheme(imgEl) {
