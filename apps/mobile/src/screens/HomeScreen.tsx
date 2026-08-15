@@ -131,13 +131,17 @@ function HomeScreen({ session, onSignOut }: HomeScreenProps) {
 }
 
 const styles = StyleSheet.create({
+  // No `flex: 1` - see the comment on MediaGrid's `container`. This screen
+  // looked fine with it because a 1pt ScrollView still paints its overflow,
+  // but it could not actually scroll, so content past the first screenful was
+  // unreachable.
   container: {
-    flex: 1,
     backgroundColor: colors.bg,
   },
   content: {
     paddingTop: spacing.lg,
     paddingBottom: spacing.xxl,
+    flexGrow: 1,
   },
   header: {
     flexDirection: 'row',

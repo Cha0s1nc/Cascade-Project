@@ -79,13 +79,29 @@ function MediaGrid({ items, loading, error, emptyLabel, errorLabel, onPressItem,
 }
 
 const styles = StyleSheet.create({
+  // No `flex: 1` here, and that is load-bearing rather than an oversight.
+  //
+  // ScrollView already composes its own baseVertical (flexGrow: 1,
+  // flexShrink: 1, flexBasis: auto) under whatever style you pass, so it
+  // fills its parent on its own. Adding `flex: 1` overrides flexBasis to 0,
+  // and on tvOS that lands the scroll view at a 1pt frame - measured, not
+  // guessed: onLayout reported 1760x1 inside a 1760x901 parent while the
+  // content container measured a correct 1760x3280.
+  //
+  // A ScrollView survives that, because its children overflow a 1pt frame and
+  // still paint - which is why Home and Search looked fine (they were also
+  // silently unscrollable). A FlatList does not: it finds no room for a single
+  // row and renders nothing at all, not even ListEmptyComponent. That is the
+  // whole reason Albums, Artists and Songs were blank, and why it read as
+  // "the data never loaded" when the data was always there.
   container: {
-    flex: 1,
     backgroundColor: colors.bg,
   },
   content: {
     padding: spacing.lg,
     paddingBottom: spacing.xxl,
+    // Keeps the empty/skeleton state filling the viewport now that the list
+    // itself is sized by its content rather than by flex.
     flexGrow: 1,
   },
   header: {

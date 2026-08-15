@@ -187,13 +187,15 @@ function SearchScreen({ session }: SearchScreenProps) {
 }
 
 const styles = StyleSheet.create({
+  // No `flex: 1` - see the comment on MediaGrid's `container`. Same as Home:
+  // this looked fine but was not actually scrollable.
   container: {
-    flex: 1,
     backgroundColor: colors.bg,
   },
   content: {
     paddingTop: spacing.lg,
     paddingBottom: spacing.xxl,
+    flexGrow: 1,
   },
   input: {
     marginHorizontal: spacing.lg,

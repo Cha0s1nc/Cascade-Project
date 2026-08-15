@@ -116,8 +116,8 @@ function AlbumDetailScreen({ session }: AlbumDetailScreenProps) {
 }
 
 const styles = StyleSheet.create({
+  // No `flex: 1` - see the comment on MediaGrid's `container`.
   container: {
-    flex: 1,
     backgroundColor: colors.bg,
   },
   content: {

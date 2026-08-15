@@ -2,26 +2,19 @@
  * @format
  */
 
-import { AppRegistry, Platform } from 'react-native';
-import { enableScreens } from 'react-native-screens';
+import { AppRegistry } from 'react-native';
 import App from './App';
 import { name as appName } from './app.json';
 
-// Native screens route each stack screen to a real UIViewController/Fragment
-// instead of a plain RN view, which is cheaper on deep stacks. That is what
-// react-navigation recommends, and it is correct everywhere except here.
+// This used to call enableScreens(!Platform.isTV), on the theory that
+// react-native-screens handed its children a zero-height container on tvOS and
+// that was why Albums/Artists/Songs rendered blank. Both halves were wrong, and
+// it is recorded here so nobody re-derives it: enableScreens() does not apply to
+// createNativeStackNavigator at all (that always uses native RNSScreen), so the
+// call could not have changed anything either way. The real cause was `flex: 1`
+// on the FlatList styles - see the comment on MediaGrid's `container`.
 //
-// On tvOS it hands its children a zero-height container. A ScrollView survives
-// that - its children just overflow and still paint - so Home and Search looked
-// fine. A FlatList does not: it measures the viewport, finds no room for a
-// single row, and renders nothing at all, not even ListEmptyComponent. That is
-// why Albums, Artists and Songs were completely blank while the two ScrollView
-// screens worked, and why it read as "the data never loaded" when the data was
-// fine all along.
-//
-// Off on tvOS only. This app has seven screens and never stacks deeply, so the
-// optimisation was worth little here and correctness beats it. Phone and
-// Android keep it.
-enableScreens(!Platform.isTV);
+// Nothing to call here now: react-navigation's native-stack enables screens on
+// its own.
 
 AppRegistry.registerComponent(appName, () => App);

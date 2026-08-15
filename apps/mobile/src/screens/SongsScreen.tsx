@@ -88,8 +88,9 @@ function SongsScreen({ session }: SongsScreenProps) {
 }
 
 const styles = StyleSheet.create({
+  // No `flex: 1` - see the comment on MediaGrid's `container`. It collapses a
+  // scroll view to a 1pt frame on tvOS, which is what left this screen blank.
   container: {
-    flex: 1,
     backgroundColor: colors.bg,
   },
   content: {
