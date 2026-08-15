@@ -2,7 +2,7 @@ const path = require('path');
 const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config');
 
 const projectRoot = __dirname;
-// Monorepo root (apps/mobile -> ../..), so Metro watches packages/core too.
+// Monorepo root (apps/tv -> ../..), so Metro watches packages/core too.
 const workspaceRoot = path.resolve(projectRoot, '../..');
 
 /**
@@ -13,7 +13,7 @@ const workspaceRoot = path.resolve(projectRoot, '../..');
  */
 const config = {
   // Watch the whole workspace so edits under packages/core trigger a refresh,
-  // not just files inside apps/mobile.
+  // not just files inside apps/tv.
   watchFolders: [workspaceRoot],
   resolver: {
     // Resolve from this app's own node_modules first, then the hoisted root

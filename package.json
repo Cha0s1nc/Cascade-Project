@@ -12,7 +12,11 @@
     "typecheck": "npm run typecheck -w @cascade/core",
     "desktop": "npm start -w @cascade/desktop",
     "build:ts": "npm run build:ts -w @cascade/desktop",
-    "typecheck:legacy": "npm run typecheck:legacy -w @cascade/desktop"
+    "typecheck:legacy": "npm run typecheck:legacy -w @cascade/desktop",
+    "tv:ios": "npm run ios -w @cascade/tv",
+    "tv:android": "npm run android -w @cascade/tv",
+    "typecheck:tv": "npm run typecheck -w @cascade/tv",
+    "test:tv": "npm test -w @cascade/tv"
   },
   "author": {
     "name": "cha0s_1nc",

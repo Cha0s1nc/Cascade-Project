@@ -1,5 +1,5 @@
 {
-  "name": "@cascade/mobile",
+  "name": "@cascade/tv",
   "version": "0.0.1",
   "private": true,
   "scripts": {
@@ -8,7 +8,8 @@
     "lint": "eslint .",
     "start": "react-native start",
     "test": "jest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "tvos": "react-native run-ios --scheme CascadeMobile"
   },
   "dependencies": {
     "@cascade/core": "*",
@@ -22,7 +23,7 @@
     "react-native-keychain": "^10.0.0",
     "react-native-mmkv": "^3.3.3",
     "react-native-safe-area-context": "^5.5.2",
-    "react-native-screens": "^4.25.0",
+    "react-native-screens": "4.25.0",
     "react-native-video": "^6.19.2",
     "upng-js": "^2.1.0"
   },
