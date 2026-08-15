@@ -113,8 +113,7 @@ const styles = StyleSheet.create({
   // whole reason Albums, Artists and Songs were blank, and why it read as
   // "the data never loaded" when the data was always there.
   container: {
-    // Transparent so AlbumArtBackground shows through; it paints the base.
-    backgroundColor: 'transparent',
+    backgroundColor: colors.bg,
   },
   content: {
     paddingHorizontal: gutter,

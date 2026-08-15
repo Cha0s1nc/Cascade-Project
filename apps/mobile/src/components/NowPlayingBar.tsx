@@ -5,8 +5,12 @@
  * the only place in the app that renders <Video>. Every screen reaches
  * playback through PlaybackService instead.
  *
- * No full-screen player, no queue/shuffle/repeat, no scrubber - that is 4b.
- * This is deliberately just enough to prove sound comes out of the phone.
+ * Tapping it opens NowPlayingScreen, which is the full player.
+ *
+ * `hidden` keeps this mounted while that screen is up instead of unmounting it.
+ * That is not cosmetic: this component owns the app's only <Video>, so removing
+ * it from the tree stops playback outright. Hidden means the chrome goes and the
+ * player stays.
  *
  * @format
  */
@@ -21,7 +25,13 @@ import { colors, gutter, radius, spacing, type as typeScale } from '../theme';
 // see TrackRow's THUMB_SIZE and NavBar's paddingVertical.
 const ART_SIZE = Platform.isTV ? spacing.xxl * 1.5 : spacing.xxl;
 
-function NowPlayingBar() {
+interface NowPlayingBarProps {
+  /** True while NowPlayingScreen is up. Chrome hides; <Video> stays mounted. */
+  hidden?: boolean;
+  onOpen?: () => void;
+}
+
+function NowPlayingBar({ hidden, onOpen }: NowPlayingBarProps) {
   const snapshot = usePlaybackSnapshot();
   const client = getJellyfinClient();
 
@@ -33,12 +43,10 @@ function NowPlayingBar() {
   );
   const artist = snapshot.item.AlbumArtist || snapshot.item.Artists?.[0] || '';
 
-  return (
-    <View style={styles.bar}>
-      {/* Zero-size and non-visual: this is the only <Video> mount in the app,
-          and Phase 4a is audio-only, so there is nothing for it to render. */}
-      {snapshot.source && (
-        <Video
+  // One instance, rendered by both branches below - a second <Video> would be a
+  // second player.
+  const player = snapshot.source && (
+    <Video
           style={styles.hiddenPlayer}
           source={snapshot.source}
           paused={snapshot.isPaused}
@@ -55,32 +63,44 @@ function NowPlayingBar() {
           onEnd={playbackService.handleEnd}
           onError={playbackService.handleError}
           onPlaybackStateChanged={playbackService.handlePlaybackStateChanged}
-        />
-      )}
+    />
+  );
 
-      <View style={styles.art}>
-        {artUrl ? (
-          <Image source={{ uri: artUrl }} style={styles.artImage} />
-        ) : (
-          <Text style={styles.artFallback}>♪</Text>
-        )}
-      </View>
+  if (hidden) return <View style={styles.hiddenPlayer}>{player}</View>;
 
-      <View style={styles.info}>
-        <Text style={styles.title} numberOfLines={1}>
-          {snapshot.item.Name}
-        </Text>
-        <Text style={styles.subtitle} numberOfLines={1}>
-          {snapshot.isLoading ? 'Loading…' : artist}
-        </Text>
-      </View>
+  return (
+    <View style={styles.bar}>
+      {player}
+
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Now playing: ${snapshot.item.Name}. Open player.`}
+        onPress={onOpen}
+        style={({ focused, pressed }) => [styles.open, (focused || pressed) && styles.openFocused]}>
+        <View style={styles.art}>
+          {artUrl ? (
+            <Image source={{ uri: artUrl }} style={styles.artImage} />
+          ) : (
+            <Text style={styles.artFallback}>♪</Text>
+          )}
+        </View>
+
+        <View style={styles.info}>
+          <Text style={styles.title} numberOfLines={1}>
+            {snapshot.item.Name}
+          </Text>
+          <Text style={styles.subtitle} numberOfLines={1}>
+            {snapshot.isLoading ? 'Loading…' : artist}
+          </Text>
+        </View>
+      </Pressable>
 
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={snapshot.isPaused ? 'Play' : 'Pause'}
         onPress={() => (snapshot.isPaused ? playbackService.resume() : playbackService.pause())}
         style={({ focused, pressed }) => [styles.playButton, (focused || pressed) && styles.playButtonFocused]}>
-        <Text style={styles.playIcon}>{snapshot.isPaused ? '▶' : '⏸'}</Text>
+        <Text style={styles.playIcon}>{snapshot.isPaused ? '\u25B6\uFE0E' : '\u23F8\uFE0E'}</Text>
       </Pressable>
     </View>
   );
@@ -100,6 +120,17 @@ const styles = StyleSheet.create({
   hiddenPlayer: {
     width: 0,
     height: 0,
+  },
+  open: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    borderRadius: radius.sm,
+  },
+  openFocused: {
+    outlineWidth: 3,
+    outlineColor: colors.text,
   },
   art: {
     width: ART_SIZE,

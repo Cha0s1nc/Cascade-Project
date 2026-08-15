@@ -14,10 +14,15 @@
  * desktop assigns to style.backgroundImage goes straight into
  * experimental_backgroundImage here.
  *
+ * Mounted by NowPlayingScreen only, matching the desktop, where this lives on
+ * the now-playing overlay and nowhere else. It briefly rendered behind every
+ * screen instead, and a dense album grid over full-strength blobs was exactly as
+ * bad as it sounds.
+ *
  * @format
  */
 import { useEffect, useRef, useState } from 'react';
-import { AppState, StyleSheet, View } from 'react-native';
+import { Animated, AppState, StyleSheet, useAnimatedValue, View } from 'react-native';
 
 import {
   BLOB_BASE_COLOR,
@@ -31,10 +36,15 @@ import type { BlobColor, DriftParams } from '@cascade/core';
 import { paletteFor } from '../art/palette';
 import { playbackService } from '../playback/PlaybackService';
 
+/** Long enough to read as a fade rather than a cut, short enough that the
+ *  screen does not feel slow to open. */
+const FADE_MS = 700;
+
 export default function AlbumArtBackground() {
   const [colors, setColors] = useState<BlobColor[]>([]);
   const [css, setCss] = useState('');
   const drift = useRef<DriftParams[]>([]);
+  const fade = useAnimatedValue(0);
 
   // Re-derive the palette whenever the track changes. Keyed on the art tag as
   // well as the id: two tracks off one album share a cover, and re-running the
@@ -72,6 +82,23 @@ export default function AlbumArtBackground() {
       unsubscribe();
     };
   }, []);
+
+  // Fade in when the screen opens, and again on each new cover. Going straight
+  // to full strength is a jolt: these are large, saturated shapes and they
+  // arrive a moment after the screen does, so the change lands after the eye has
+  // already settled.
+  useEffect(() => {
+    if (colors.length === 0) {
+      fade.setValue(0);
+      return;
+    }
+    fade.setValue(0);
+    Animated.timing(fade, {
+      toValue: 1,
+      duration: FADE_MS,
+      useNativeDriver: true,
+    }).start();
+  }, [colors, fade]);
 
   // Drive the drift. setInterval rather than requestAnimationFrame because the
   // motion has periods measured in tens of seconds - the desktop throttles to
@@ -116,22 +143,13 @@ export default function AlbumArtBackground() {
       pointerEvents="none"
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants">
-      {!!css && <View style={[styles.fill, styles.blobs, { experimental_backgroundImage: css }]} />}
+      {!!css && (
+        <Animated.View style={[styles.fill, { opacity: fade, experimental_backgroundImage: css }]} />
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   fill: StyleSheet.absoluteFillObject,
-  // The desktop paints these blobs at full strength, but only behind its
-  // now-playing overlay - a near-empty surface holding art and a few controls.
-  // Here the same layer sits behind every screen, including a dense album grid,
-  // and at full strength it turned the whole screen one colour and cost enough
-  // contrast to make secondary text hard to read. Held back so it reads as a
-  // tint of the current cover rather than a wash over the content.
-  //
-  // ponytail: one constant, not a setting. When a real now-playing screen
-  // lands it can render this same component at full opacity, and that is the
-  // moment to make it a prop.
-  blobs: { opacity: 0.42 },
 });

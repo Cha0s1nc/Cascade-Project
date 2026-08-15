@@ -91,8 +91,7 @@ const styles = StyleSheet.create({
   // No `flex: 1` - see the comment on MediaGrid's `container`. It collapses a
   // scroll view to a 1pt frame on tvOS, which is what left this screen blank.
   container: {
-    // Transparent so AlbumArtBackground shows through; it paints the base.
-    backgroundColor: 'transparent',
+    backgroundColor: colors.bg,
   },
   content: {
     paddingVertical: spacing.lg,

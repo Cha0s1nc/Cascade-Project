@@ -23,6 +23,7 @@ import AlbumsScreen from '../screens/AlbumsScreen';
 import ArtistDetailScreen from '../screens/ArtistDetailScreen';
 import ArtistsScreen from '../screens/ArtistsScreen';
 import HomeScreen from '../screens/HomeScreen';
+import NowPlayingScreen from '../screens/NowPlayingScreen';
 import SearchScreen from '../screens/SearchScreen';
 import SongsScreen from '../screens/SongsScreen';
 import { colors } from '../theme';
@@ -35,6 +36,7 @@ import type { NavItemName } from './NavBar';
 export type RootStackParamList = Record<(typeof NAV_ITEMS)[number], undefined> & {
   AlbumDetail: { albumId: string };
   ArtistDetail: { artistId: string; artistName?: string };
+  NowPlaying: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -47,7 +49,7 @@ const navTheme: Theme = {
   ...DarkTheme,
   colors: {
     ...DarkTheme.colors,
-    background: 'transparent',
+    background: colors.bg,
     card: colors.surface,
     text: colors.text,
     border: colors.border,
@@ -62,6 +64,7 @@ interface RootNavigatorProps {
 
 function RootNavigator({ session, onSignOut }: RootNavigatorProps) {
   const [routeName, setRouteName] = useState<string>('Home');
+  const onNowPlaying = routeName === 'NowPlaying';
 
   function syncRouteName() {
     setRouteName(navigationRef.getCurrentRoute()?.name ?? 'Home');
@@ -79,7 +82,7 @@ function RootNavigator({ session, onSignOut }: RootNavigatorProps) {
   return (
     <NavigationContainer ref={navigationRef} theme={navTheme} onReady={syncRouteName} onStateChange={syncRouteName}>
       <View style={styles.root}>
-        {Platform.isTV && navBar}
+        {Platform.isTV && !onNowPlaying && navBar}
         <View style={styles.stackArea}>
           <Stack.Navigator screenOptions={{ headerShown: false }}>
             <Stack.Screen name="Home">{() => <HomeScreen session={session} onSignOut={onSignOut} />}</Stack.Screen>
@@ -89,12 +92,23 @@ function RootNavigator({ session, onSignOut }: RootNavigatorProps) {
             <Stack.Screen name="Search">{() => <SearchScreen session={session} />}</Stack.Screen>
             <Stack.Screen name="AlbumDetail">{() => <AlbumDetailScreen session={session} />}</Stack.Screen>
             <Stack.Screen name="ArtistDetail">{() => <ArtistDetailScreen session={session} />}</Stack.Screen>
+            {/* Presented over the stack rather than beside it: it is the
+                desktop's overlay, and the nav bar and the now-playing bar have
+                no business showing through it. */}
+            <Stack.Screen name="NowPlaying" component={NowPlayingScreen} options={{ presentation: 'fullScreenModal' }} />
           </Stack.Navigator>
         </View>
         {/* Sibling of the stack, same reasoning as navBar above - it has to
             survive every screen push rather than remount as a screen would. */}
-        <NowPlayingBar />
-        {!Platform.isTV && navBar}
+        {/* Always mounted - it owns the app's only <Video>. `hidden` drops the
+            chrome while the full player is up without stopping playback. */}
+        <NowPlayingBar
+          hidden={onNowPlaying}
+          onOpen={() => {
+            if (navigationRef.isReady()) navigationRef.navigate('NowPlaying' as never);
+          }}
+        />
+        {!Platform.isTV && !onNowPlaying && navBar}
       </View>
     </NavigationContainer>
   );
@@ -103,6 +117,7 @@ function RootNavigator({ session, onSignOut }: RootNavigatorProps) {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+    backgroundColor: colors.bg,
   },
   stackArea: {
     flex: 1,
