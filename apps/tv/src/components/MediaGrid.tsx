@@ -9,7 +9,7 @@
  * instead of nesting a second scroller inside a ScrollView.
  */
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, Platform, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, FlatList, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import type { ReactNode } from 'react';
 
 import { CardGridSkeleton } from './Skeleton';
@@ -35,7 +35,7 @@ interface MediaGridProps {
 // gutters), and n cards carry only n-1 gaps, not n. The two errors compounded
 // into one column more than actually fits, so the rightmost column of every
 // grid was clipped by the screen edge.
-const MIN_COLUMNS = Platform.isTV ? 4 : 2;
+const MIN_COLUMNS = 4;
 const GAP = spacing.md;
 
 function gridColumns(usableWidth: number): number {

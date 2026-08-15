@@ -39,7 +39,7 @@ interface MediaRowProps {
 // explicit TV bump - a 10-foot screen needs a bigger target than theme.spacing
 // alone encodes. Exported: MediaGrid's column-count math needs the same width
 // the card actually renders at.
-export const ART_SIZE = Platform.isTV ? spacing.xxl * 4 : spacing.xxl * 3;
+export const ART_SIZE = spacing.xxl * 4;
 
 /**
  * `size` overrides the card width. A grid passes the width that divides its row

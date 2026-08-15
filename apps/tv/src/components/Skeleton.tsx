@@ -12,7 +12,7 @@
  * @format
  */
 import { useEffect, useRef } from 'react';
-import { Animated, Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Animated, StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { ART_SIZE } from './MediaRow';
 import { colors, gutter, radius, spacing } from '../theme';
@@ -46,15 +46,15 @@ function Bone({ width, height, style }: { width: number | string; height: number
 
 /** Track row: index, art thumb, title/artist stack, duration. Mirrors TrackRow. */
 export function TrackSkeleton() {
-  const thumb = Platform.isTV ? 56 : 40;
+  const thumb = 56;
   return (
     <View style={styles.trackRow}>
       <Bone width={thumb} height={thumb} />
       <View style={styles.trackText}>
-        <Bone width="55%" height={Platform.isTV ? 18 : 13} />
-        <Bone width="32%" height={Platform.isTV ? 14 : 10} style={{ marginTop: spacing.sm }} />
+        <Bone width="55%" height={18} />
+        <Bone width="32%" height={14} style={{ marginTop: spacing.sm }} />
       </View>
-      <Bone width={Platform.isTV ? 48 : 34} height={Platform.isTV ? 14 : 10} />
+      <Bone width={48} height={14} />
     </View>
   );
 }
@@ -64,8 +64,8 @@ export function CardSkeleton() {
   return (
     <View style={[styles.card, { width: ART_SIZE }]}>
       <Bone width={ART_SIZE} height={ART_SIZE} style={{ borderRadius: radius.md }} />
-      <Bone width="80%" height={Platform.isTV ? 18 : 13} style={{ marginTop: spacing.sm }} />
-      <Bone width="50%" height={Platform.isTV ? 14 : 10} style={{ marginTop: spacing.xs }} />
+      <Bone width="80%" height={18} style={{ marginTop: spacing.sm }} />
+      <Bone width="50%" height={14} style={{ marginTop: spacing.xs }} />
     </View>
   );
 }
@@ -74,7 +74,7 @@ export function CardSkeleton() {
  *  viewport rather than guessing - a TV shows far more rows than a phone. */
 export function TrackListSkeleton() {
   const { height } = useWindowDimensions();
-  const rowHeight = Platform.isTV ? 88 : 64;
+  const rowHeight = 88;
   const count = Math.max(4, Math.ceil(height / rowHeight));
   return (
     <View>

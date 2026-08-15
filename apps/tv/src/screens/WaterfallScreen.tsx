@@ -7,13 +7,13 @@
  * @format
  */
 import { useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 
 import { useWaterfall, waterfallService } from '@cascade/app';
 import { colors, gutter, radius, spacing, type as typeScale } from '../theme';
 
-const INPUT_HEIGHT = Platform.isTV ? 72 : 44;
+const INPUT_HEIGHT = 72;
 
 function Button({
   label,
@@ -175,7 +175,7 @@ const styles = StyleSheet.create({
   button: {
     marginTop: spacing.lg,
     borderRadius: radius.sm,
-    paddingVertical: Platform.isTV ? 18 : 12,
+    paddingVertical: 18,
     alignItems: 'center',
     backgroundColor: colors.accent,
   },

@@ -11,7 +11,7 @@
  * @format
  */
 import { useState } from 'react';
-import { Platform, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { DarkTheme, NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import type { Theme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -76,7 +76,7 @@ function RootNavigator({ session, onSignOut }: RootNavigatorProps) {
   // two <Video> elements and two players.
   const playbackBar = (
     <NowPlayingBar
-      compact={Platform.isTV}
+      compact
       hidden={onNowPlaying}
       onOpen={() => {
         if (navigationRef.isReady()) navigationRef.navigate('NowPlaying' as never);
@@ -96,17 +96,15 @@ function RootNavigator({ session, onSignOut }: RootNavigatorProps) {
   return (
     <NavigationContainer ref={navigationRef} theme={navTheme} onReady={syncRouteName} onStateChange={syncRouteName}>
       <View style={styles.root}>
-        {/* On a TV the now-playing bar rides in the top row beside the nav,
-            because at the bottom it is unreachable: focus moves geometrically,
-            so from a row in a 1400-track list the only way down to it is
-            through the other 1399 rows. Up-then-right always gets here. A
-            phone keeps it at the bottom, where a thumb can just touch it. */}
-        {Platform.isTV && (
-          <View style={styles.topRow}>
-            <View style={styles.topRowNav}>{navBar}</View>
-            {playbackBar}
-          </View>
-        )}
+        {/* The now-playing bar rides in the top row beside the nav, because at
+            the bottom it would be unreachable: focus moves geometrically, so
+            from a row in a 1400-track list the only way down to it is through
+            the other 1399 rows. Up-then-right always gets here. The phone app
+            keeps it at the bottom, where a thumb can just touch it. */}
+        <View style={styles.topRow}>
+          <View style={styles.topRowNav}>{navBar}</View>
+          {playbackBar}
+        </View>
         <View style={styles.stackArea}>
           <Stack.Navigator screenOptions={{ headerShown: false }}>
             <Stack.Screen name="Home">{() => <HomeScreen session={session} onSignOut={onSignOut} />}</Stack.Screen>
@@ -123,10 +121,6 @@ function RootNavigator({ session, onSignOut }: RootNavigatorProps) {
             <Stack.Screen name="Waterfall" component={WaterfallScreen} />
           </Stack.Navigator>
         </View>
-        {/* Sibling of the stack, same reasoning as navBar above - it has to
-            survive every screen push rather than remount as a screen would. */}
-        {!Platform.isTV && playbackBar}
-        {!Platform.isTV && !onNowPlaying && navBar}
       </View>
     </NavigationContainer>
   );

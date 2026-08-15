@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Platform, StatusBar, StyleSheet } from 'react-native';
+import { ActivityIndicator, StatusBar, StyleSheet } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import type { JfAuthResult } from '@cascade/core';
@@ -123,7 +123,7 @@ function App() {
           window. Content keeps clear of the edge via theme's `gutter` instead,
           which is the same protection applied where it does not shrink the
           scroller. */}
-      <SafeAreaView style={styles.container} edges={Platform.isTV ? [] : undefined}>
+      <SafeAreaView style={styles.container} edges={[]}>
         {auth.status === 'loading' && (
           <ActivityIndicator style={styles.loading} size="large" color={colors.accent} />
         )}

@@ -8,7 +8,7 @@
  * @format
  */
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { activeLineIndex, fetchLyricsWaterfall, isInstrumental } from '@cascade/core';
 import type { JfItem, LyricLine, LyricsResult } from '@cascade/core';
@@ -74,7 +74,7 @@ export default function LyricsPanel({ item }: { item: JfItem }) {
     if (y == null || !scroller.current) return;
     scroller.current.scrollTo({
       y: Math.max(0, y - viewport.current / 2),
-      animated: !Platform.isTV,
+      animated: false,
     });
   }, [active]);
 

@@ -9,7 +9,6 @@
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -38,7 +37,7 @@ const QUICK_CONNECT_PROBE_DEBOUNCE_MS = 500;
 
 // Fixed field height. Bigger on tvOS because it is read from across a room and
 // driven with a remote, not a fingertip.
-const INPUT_HEIGHT = Platform.isTV ? 72 : 44;
+const INPUT_HEIGHT = 72;
 
 type QuickConnectState =
   | { status: 'idle' }
@@ -315,7 +314,7 @@ const styles = StyleSheet.create({
   button: {
     marginTop: 20,
     borderRadius: radius.sm,
-    paddingVertical: Platform.isTV ? 18 : 12,
+    paddingVertical: 18,
     alignItems: 'center',
     backgroundColor: colors.accent,
   },

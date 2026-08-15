@@ -17,7 +17,6 @@ import { useEffect, useState } from 'react';
 import {
   FlatList,
   Image,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -295,7 +294,7 @@ function NowPlayingScreen() {
             <Pressable
               // Tap-to-seek is a phone gesture. A TV remote has no pointer, so
               // there the bar is a readout and the skip buttons do the seeking.
-              disabled={Platform.isTV || duration <= 0}
+              disabled
               accessibilityRole="adjustable"
               accessibilityLabel="Seek"
               onLayout={e => setBarWidth(e.nativeEvent.layout.width)}
@@ -340,7 +339,7 @@ function NowPlayingScreen() {
   );
 }
 
-const ART = Platform.isTV ? 320 : 240;
+const ART = 320;
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
@@ -360,8 +359,8 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   close: {
-    width: Platform.isTV ? 56 : 40,
-    height: Platform.isTV ? 56 : 40,
+    width: 56,
+    height: 56,
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
@@ -390,18 +389,18 @@ const styles = StyleSheet.create({
   artist: { fontSize: typeScale.body, color: colors.text2, textAlign: 'center' },
 
   secondaryGuide: { width: '100%', alignItems: 'center' },
-  secondary: { flexDirection: 'row', alignItems: 'center', gap: Platform.isTV ? spacing.xl : spacing.lg },
-  transport: { flexDirection: 'row', alignItems: 'center', gap: Platform.isTV ? spacing.xl : spacing.lg },
+  secondary: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl},
+  transport: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl},
   ctrl: {
-    width: Platform.isTV ? 64 : 48,
-    height: Platform.isTV ? 64 : 48,
+    width: 64,
+    height: 64,
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
   ctrlPrimary: {
-    width: Platform.isTV ? 84 : 64,
-    height: Platform.isTV ? 84 : 64,
+    width: 84,
+    height: 84,
     backgroundColor: colors.accent,
   },
   ctrlFocused: { outlineWidth: 3, outlineColor: colors.text },
@@ -413,8 +412,8 @@ const styles = StyleSheet.create({
   ctrlGlyphActive: { color: colors.text },
   ctrlBadge: {
     position: 'absolute',
-    top: Platform.isTV ? 8 : 4,
-    right: Platform.isTV ? 12 : 8,
+    top: 8,
+    right: 12,
     fontSize: typeScale.hint * 0.8,
     fontWeight: '700',
     color: colors.text,
@@ -429,7 +428,7 @@ const styles = StyleSheet.create({
   },
   volBar: {
     flex: 1,
-    height: Platform.isTV ? 6 : 4,
+    height: 6,
     borderRadius: radius.pill,
     backgroundColor: 'rgba(255,255,255,0.18)',
     overflow: 'hidden',
@@ -445,7 +444,7 @@ const styles = StyleSheet.create({
   timeRight: { textAlign: 'right' },
   progBar: {
     flex: 1,
-    height: Platform.isTV ? 8 : 6,
+    height: 8,
     borderRadius: radius.pill,
     backgroundColor: 'rgba(255,255,255,0.18)',
     overflow: 'hidden',
@@ -477,8 +476,8 @@ const styles = StyleSheet.create({
   qRowActive: { backgroundColor: 'rgba(255,255,255,0.10)' },
   qRowFocused: { outlineWidth: 3, outlineColor: colors.text },
   qArt: {
-    width: Platform.isTV ? 56 : 40,
-    height: Platform.isTV ? 56 : 40,
+    width: 56,
+    height: 56,
     borderRadius: radius.sm,
     backgroundColor: 'rgba(255,255,255,0.06)',
     alignItems: 'center',

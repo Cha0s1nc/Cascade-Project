@@ -10,7 +10,7 @@
  * D-pad reachable on tvOS rather than a dead View that swallows focus.
  */
 import { useState } from 'react';
-import { Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { JfItem } from '@cascade/core';
 
@@ -18,8 +18,8 @@ import { colors, gutter, radius, spacing, type as typeScale } from '../theme';
 
 // Bigger on TV for the same reason MediaRow's ART_SIZE is - a target read
 // from a couch needs to be larger than one held at arm's length.
-const THUMB_SIZE = Platform.isTV ? spacing.xxl * 2 : spacing.xxl;
-const INDEX_WIDTH = Platform.isTV ? spacing.xxl : spacing.xl;
+const THUMB_SIZE = spacing.xxl * 2;
+const INDEX_WIDTH = spacing.xxl;
 
 /** RunTimeTicks is 100ns units; renderer.js's fmtTime takes seconds, so ticks
  *  are converted first. Duplicated here rather than added to core: this is

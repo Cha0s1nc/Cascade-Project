@@ -6,7 +6,7 @@
  *
  * @format
  */
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors, radius, spacing, type as typeScale } from '../theme';
 
@@ -20,7 +20,7 @@ interface NavBarProps {
 
 function NavBar({ current, onNavigate }: NavBarProps) {
   return (
-    <View style={[styles.bar, Platform.isTV ? styles.barTV : styles.barPhone]}>
+    <View style={[styles.bar, styles.barTV]}>
       {NAV_ITEMS.map(item => {
         const active = item === current;
         return (
@@ -58,7 +58,7 @@ const styles = StyleSheet.create({
   item: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: Platform.isTV ? spacing.lg : spacing.sm,
+    paddingVertical: spacing.lg,
     borderRadius: radius.sm,
   },
   itemActive: {

@@ -15,7 +15,7 @@
  * @format
  */
 import Video from 'react-native-video';
-import { Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { getJellyfinClient } from '@cascade/app';
 import { playbackService, usePlaybackSnapshot } from '@cascade/app';
@@ -23,7 +23,7 @@ import { colors, gutter, radius, spacing, type as typeScale } from '../theme';
 
 // Bigger on TV for the same reason every other thumb/target in this app is -
 // see TrackRow's THUMB_SIZE and NavBar's paddingVertical.
-const ART_SIZE = Platform.isTV ? spacing.xxl * 1.5 : spacing.xxl;
+const ART_SIZE = spacing.xxl * 1.5;
 
 interface NowPlayingBarProps {
   /** True while NowPlayingScreen is up. Chrome hides; <Video> stays mounted. */
