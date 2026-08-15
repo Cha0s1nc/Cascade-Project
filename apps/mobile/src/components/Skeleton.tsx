@@ -15,7 +15,7 @@ import { useEffect, useRef } from 'react';
 import { Animated, Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { ART_SIZE } from './MediaRow';
-import { colors, radius, spacing } from '../theme';
+import { colors, gutter, radius, spacing } from '../theme';
 
 /** One shimmering block. Everything below is built out of these. */
 function Bone({ width, height, style }: { width: number | string; height: number; style?: object }) {
@@ -110,11 +110,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: gutter,
     paddingVertical: spacing.md,
   },
   trackText: { flex: 1 },
   card: { marginRight: spacing.md, marginBottom: spacing.lg },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: spacing.lg },
-  row: { flexDirection: 'row', paddingHorizontal: spacing.lg },
+  // No horizontal padding: this renders as MediaGrid's ListEmptyComponent,
+  // inside a content container that already applies the gutter. CardRowSkeleton
+  // below is a plain sibling of MediaRow's list, so it does need its own.
+  grid: { flexDirection: 'row', flexWrap: 'wrap' },
+  row: { flexDirection: 'row', paddingHorizontal: gutter },
 });

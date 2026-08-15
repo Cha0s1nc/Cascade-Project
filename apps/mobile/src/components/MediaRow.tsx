@@ -14,7 +14,7 @@ import { useState } from 'react';
 import { ActivityIndicator, FlatList, Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { CardRowSkeleton } from './Skeleton';
-import { colors, radius, spacing, type as typeScale } from '../theme';
+import { colors, gutter, radius, spacing, type as typeScale } from '../theme';
 
 export interface MediaRowItem {
   id: string;
@@ -41,16 +41,27 @@ interface MediaRowProps {
 // the card actually renders at.
 export const ART_SIZE = Platform.isTV ? spacing.xxl * 4 : spacing.xxl * 3;
 
-export function MediaCard({ item, onPress }: { item: MediaRowItem; onPress?: () => void }) {
+/**
+ * `size` overrides the card width. A grid passes the width that divides its row
+ * exactly, so cards reach both edges instead of leaving a ragged strip on the
+ * right; a shelf omits it and gets ART_SIZE, since a horizontal list has no row
+ * width to divide.
+ */
+export function MediaCard({ item, onPress, size }: { item: MediaRowItem; onPress?: () => void; size?: number }) {
   const [broken, setBroken] = useState(false);
   const showArt = !!item.artUrl && !broken;
+  const box = size == null ? null : { width: size, height: size };
 
   return (
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
-      style={({ focused, pressed }) => [styles.card, (focused || pressed) && styles.cardFocused]}>
-      <View style={styles.art}>
+      style={({ focused, pressed }) => [
+        styles.card,
+        size != null && { width: size },
+        (focused || pressed) && styles.cardFocused,
+      ]}>
+      <View style={[styles.art, box]}>
         {showArt ? (
           <Image source={{ uri: item.artUrl as string }} style={styles.artImage} onError={() => setBroken(true)} />
         ) : (
@@ -100,19 +111,19 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.text2,
     marginBottom: spacing.md,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: gutter,
   },
   statusBox: {
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: gutter,
     alignItems: 'flex-start',
   },
   statusText: {
     fontSize: typeScale.body,
     color: colors.text3,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: gutter,
   },
   rowContent: {
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: gutter,
     gap: spacing.md,
   },
   card: {

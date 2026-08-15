@@ -22,7 +22,7 @@ import type { StoredSession } from '../auth/session';
 import TrackRow from '../components/TrackRow';
 import { playbackService } from '../playback/PlaybackService';
 import type { RootStackParamList } from '../navigation/RootNavigator';
-import { colors, radius, spacing, type as typeScale } from '../theme';
+import { colors, gutter, radius, spacing, type as typeScale } from '../theme';
 
 interface AlbumDetailScreenProps {
   session: StoredSession;
@@ -165,7 +165,7 @@ const styles = StyleSheet.create({
     color: colors.text3,
     textAlign: 'center',
     marginTop: spacing.xl,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: gutter,
   },
 });
 

@@ -27,7 +27,7 @@ import MediaRow, { type MediaRowItem } from '../components/MediaRow';
 import { playbackService } from '../playback/PlaybackService';
 import TrackRow from '../components/TrackRow';
 import type { RootStackParamList } from '../navigation/RootNavigator';
-import { colors, radius, spacing, type as typeScale } from '../theme';
+import { colors, gutter, radius, spacing, type as typeScale } from '../theme';
 
 interface SearchScreenProps {
   session: StoredSession;
@@ -212,16 +212,16 @@ const styles = StyleSheet.create({
   hint: {
     fontSize: typeScale.body,
     color: colors.text3,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: gutter,
   },
   statusBox: {
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: gutter,
     alignItems: 'flex-start',
   },
   statusText: {
     fontSize: typeScale.body,
     color: colors.text3,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: gutter,
   },
   section: {
     marginBottom: spacing.xl,
@@ -231,7 +231,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.text2,
     marginBottom: spacing.md,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: gutter,
   },
 });
 

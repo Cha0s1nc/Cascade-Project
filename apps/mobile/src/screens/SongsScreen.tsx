@@ -20,7 +20,7 @@ import type { StoredSession } from '../auth/session';
 import { TrackListSkeleton } from '../components/Skeleton';
 import TrackRow from '../components/TrackRow';
 import { playbackService } from '../playback/PlaybackService';
-import { colors, spacing, type as typeScale } from '../theme';
+import { colors, gutter, spacing, type as typeScale } from '../theme';
 
 interface SongsScreenProps {
   session: StoredSession;
@@ -98,7 +98,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   statusBox: {
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: gutter,
     paddingVertical: spacing.xxl,
     alignItems: 'center',
     gap: spacing.md,
@@ -106,7 +106,7 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: typeScale.body,
     color: colors.text3,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: gutter,
   },
 });
 

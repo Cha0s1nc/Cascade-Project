@@ -50,4 +50,15 @@ export const type = Platform.isTV
 // phone held at arm's length. Everything else is shared.
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const
 
+/**
+ * Horizontal breathing room for a screen's content.
+ *
+ * The app renders full-bleed on tvOS rather than inside the safe-area insets,
+ * so a grid gets the whole 1920 instead of 1760 and backgrounds reach the edge
+ * of the panel. That trade needs this in return: a real TV can overscan and
+ * clip the outer few percent, so content is inset here instead of at the root.
+ * Apple's title-safe margin at 1080p is 60pt, and 48 lands just inside it.
+ */
+export const gutter = Platform.isTV ? 48 : spacing.lg
+
 export const radius = { sm: 6, md: 10, lg: 14, pill: 999 } as const

@@ -14,7 +14,7 @@ import { Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native
 
 import type { JfItem } from '@cascade/core';
 
-import { colors, radius, spacing, type as typeScale } from '../theme';
+import { colors, gutter, radius, spacing, type as typeScale } from '../theme';
 
 // Bigger on TV for the same reason MediaRow's ART_SIZE is - a target read
 // from a couch needs to be larger than one held at arm's length.
@@ -85,7 +85,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.md,
     paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: gutter,
     borderRadius: radius.sm,
   },
   rowFocused: {

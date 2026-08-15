@@ -15,7 +15,7 @@ import { Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native
 
 import { getJellyfinClient } from '../api/client';
 import { playbackService, usePlaybackSnapshot } from '../playback/PlaybackService';
-import { colors, radius, spacing, type as typeScale } from '../theme';
+import { colors, gutter, radius, spacing, type as typeScale } from '../theme';
 
 // Bigger on TV for the same reason every other thumb/target in this app is -
 // see TrackRow's THUMB_SIZE and NavBar's paddingVertical.
@@ -92,7 +92,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.md,
     paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: gutter,
     backgroundColor: colors.surface,
     borderTopWidth: 1,
     borderTopColor: colors.border,

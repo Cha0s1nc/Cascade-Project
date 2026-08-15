@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, StatusBar, StyleSheet } from 'react-native';
+import { ActivityIndicator, Platform, StatusBar, StyleSheet } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import type { JfAuthResult } from '@cascade/core';
@@ -108,7 +108,13 @@ function App() {
       {/* Light glyphs, because everything behind them is now dark. tvOS has no
           status bar, so this is a no-op there rather than a special case. */}
       <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
-      <SafeAreaView style={styles.container}>
+      {/* Full-bleed on tvOS. The insets exist for notches and home
+          indicators; on a TV they are an overscan guess that cost the app 160
+          points of width, which showed up as a grid floating in a letterboxed
+          window. Content keeps clear of the edge via theme's `gutter` instead,
+          which is the same protection applied where it does not shrink the
+          scroller. */}
+      <SafeAreaView style={styles.container} edges={Platform.isTV ? [] : undefined}>
         {auth.status === 'loading' && (
           <ActivityIndicator style={styles.loading} size="large" color={colors.accent} />
         )}

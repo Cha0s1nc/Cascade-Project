@@ -18,7 +18,7 @@ import { useJellyfin } from '../api/hooks';
 import type { StoredSession } from '../auth/session';
 import MediaRow, { type MediaRowItem } from '../components/MediaRow';
 import type { RootStackParamList } from '../navigation/RootNavigator';
-import { colors, radius, spacing, type as typeScale } from '../theme';
+import { colors, gutter, radius, spacing, type as typeScale } from '../theme';
 
 interface HomeScreenProps {
   session: StoredSession;
@@ -147,7 +147,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: gutter,
     marginBottom: spacing.xl,
   },
   greeting: {

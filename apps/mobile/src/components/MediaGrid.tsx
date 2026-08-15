@@ -8,12 +8,12 @@
  * screen like Artist detail (art + name + album grid) stays one FlatList
  * instead of nesting a second scroller inside a ScrollView.
  */
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Platform, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import type { ReactNode } from 'react';
 
 import { CardGridSkeleton } from './Skeleton';
-import { colors, spacing, type as typeScale } from '../theme';
+import { colors, gutter, spacing, type as typeScale } from '../theme';
 import { ART_SIZE, MediaCard, type MediaRowItem } from './MediaRow';
 
 interface MediaGridProps {
@@ -27,22 +27,39 @@ interface MediaGridProps {
   header?: ReactNode;
 }
 
-// However many ART_SIZE cards (plus their gap) actually fit the current
-// width, floored at a platform minimum so a very narrow phone split-view
-// still gets a real grid rather than one column. This is the "derived from
-// platform and width" the plan asks for: width comes from the window, and
-// platform already shaped ART_SIZE itself (bigger on TV), so a TV's larger
-// absolute width plus its larger card still nets more columns than a phone.
+// However many cards fit, floored at a platform minimum so a very narrow phone
+// split-view still gets a real grid rather than one column.
+//
+// This used to divide the *window* width by the cell size, which was wrong
+// twice: the window is wider than the list (the list sits inside the screen's
+// gutters), and n cards carry only n-1 gaps, not n. The two errors compounded
+// into one column more than actually fits, so the rightmost column of every
+// grid was clipped by the screen edge.
 const MIN_COLUMNS = Platform.isTV ? 4 : 2;
-const CELL = ART_SIZE + spacing.md;
+const GAP = spacing.md;
 
-function useGridColumns(): number {
-  const { width } = useWindowDimensions();
-  return Math.max(MIN_COLUMNS, Math.floor(width / CELL));
+function gridColumns(usableWidth: number): number {
+  // n cards + (n-1) gaps <= usable  =>  n <= (usable + gap) / (card + gap)
+  const fits = Math.floor((usableWidth + GAP) / (ART_SIZE + GAP));
+  return Math.max(MIN_COLUMNS, fits);
+}
+
+/** Card width that divides the usable width exactly, so the grid reaches both
+ *  edges instead of leaving a ragged strip on the right. */
+function cardWidth(usableWidth: number, columns: number): number {
+  return Math.floor((usableWidth - (columns - 1) * GAP) / columns);
 }
 
 function MediaGrid({ items, loading, error, emptyLabel, errorLabel, onPressItem, header }: MediaGridProps) {
-  const columns = useGridColumns();
+  // Measured rather than taken from the window: the list is inset by the
+  // screen's gutters, and on tvOS it is also the thing whose width actually
+  // changed when the app went full-bleed. Seeded from the window so the first
+  // frame is close, then corrected on layout.
+  const { width: windowWidth } = useWindowDimensions();
+  const [listWidth, setListWidth] = useState(windowWidth);
+  const usable = Math.max(1, listWidth - gutter * 2);
+  const columns = gridColumns(usable);
+  const size = cardWidth(usable, columns);
 
   const statusLabel = useMemo(() => {
     if (loading) return null;
@@ -57,10 +74,11 @@ function MediaGrid({ items, loading, error, emptyLabel, errorLabel, onPressItem,
       // change (e.g. a phone rotation) is the documented way around that.
       key={columns}
       style={styles.container}
+      onLayout={e => setListWidth(e.nativeEvent.layout.width)}
       data={items}
       numColumns={columns}
       keyExtractor={i => i.id}
-      renderItem={({ item }) => <MediaCard item={item} onPress={() => onPressItem?.(item)} />}
+      renderItem={({ item }) => <MediaCard item={item} size={size} onPress={() => onPressItem?.(item)} />}
       columnWrapperStyle={styles.row}
       contentContainerStyle={styles.content}
       ListHeaderComponent={header ? <View style={styles.header}>{header}</View> : undefined}
@@ -98,7 +116,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
   },
   content: {
-    padding: spacing.lg,
+    paddingHorizontal: gutter,
+    paddingVertical: spacing.lg,
     paddingBottom: spacing.xxl,
     // Keeps the empty/skeleton state filling the viewport now that the list
     // itself is sized by its content rather than by flex.
