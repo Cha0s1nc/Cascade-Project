@@ -176,7 +176,17 @@ export class JellyfinClient {
       body: JSON.stringify(body),
     })
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
-    return res.json() as Promise<T>
+
+    // Many of the endpoints posted to here answer 204 with no body at all -
+    // /Sessions/Capabilities/Full, /Sessions/Playing and friends. Calling
+    // res.json() on those throws "Unexpected end of input", which is a
+    // *success* being reported as a failure: the server did the thing, and only
+    // the parse failed. That surfaced as remote control looking unavailable
+    // while casting worked perfectly, and as every playback report appearing to
+    // fail into a catch that discarded it.
+    const text = await res.text()
+    if (!text) return undefined as T
+    return JSON.parse(text) as T
   }
 
   /**

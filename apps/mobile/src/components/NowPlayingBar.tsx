@@ -53,6 +53,8 @@ function NowPlayingBar({ hidden, compact, onOpen }: NowPlayingBarProps) {
           style={styles.hiddenPlayer}
           source={snapshot.source}
           paused={snapshot.isPaused}
+          volume={snapshot.volume}
+          muted={snapshot.muted}
           playInBackground
           // Music has to keep playing with the phone's silent switch flipped,
           // the same expectation every music app sets - unlike video, where

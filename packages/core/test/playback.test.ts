@@ -21,7 +21,10 @@ function stubFetch(handler: (url: string) => unknown) {
     if (out === undefined) {
       return { ok: false, status: 500, statusText: 'Server Error', json: async () => ({}), text: async () => '' }
     }
-    return { ok: true, status: 200, statusText: 'OK', json: async () => out, text: async () => '' }
+    // text() has to return the same body json() does: the client reads text
+    // first so it can tolerate an empty 204, and a mock that answers '' there
+    // looks like a bodyless response for every call.
+    return { ok: true, status: 200, statusText: 'OK', json: async () => out, text: async () => JSON.stringify(out) }
   }) as typeof fetch
 }
 

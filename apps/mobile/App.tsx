@@ -16,6 +16,7 @@ import type { JfAuthResult } from '@cascade/core';
 import { colors } from './src/theme';
 import { platform } from './src/platform';
 import { waterfallService } from './src/waterfall/WaterfallService';
+import { startRemoteControl, stopRemoteControl } from './src/remote/remote';
 import { initJellyfinClient } from './src/api/client';
 import {
   clearSession,
@@ -68,6 +69,7 @@ function App() {
         await initJellyfinClient(stored, id);
         if (cancelled) return;
         waterfallService.displayName = stored.username || '';
+        startRemoteControl(stored.userId);
       }
       setAuth(
         ok
@@ -96,12 +98,16 @@ function App() {
     await saveSession(platform.store, session, password);
     await initJellyfinClient(session, deviceId);
     waterfallService.displayName = session.username || '';
+    startRemoteControl(session.userId);
     setAuth({ status: 'signedIn', session });
   }
 
   async function handleSignOut() {
     if (auth.status !== 'signedIn') return;
     const { serverUrl, username } = auth.session;
+    // Stop advertising before the token goes: a socket left open on a cleared
+    // session keeps this device in other clients' "Play On" lists.
+    stopRemoteControl();
     await clearSession(platform.store);
     setAuth({ status: 'signedOut', serverUrl, username });
   }

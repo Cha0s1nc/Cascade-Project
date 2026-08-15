@@ -250,3 +250,33 @@ test('getAllPaged without a progress callback behaves exactly as before', async 
   const out = await clientFor(baseConfig).getAllPaged('/Items', { Limit: 500 })
   assert.equal(out.Items?.length, 2)
 })
+
+test('post tolerates a 204 with no body', async () => {
+  // Jellyfin answers 204 for /Sessions/Capabilities/Full, /Sessions/Playing and
+  // others. Parsing that as JSON throws, which reported a success as a failure.
+  const original = globalThis.fetch
+  globalThis.fetch = (async () =>
+    new Response(null, { status: 204 })) as typeof globalThis.fetch
+  try {
+    const client = new JellyfinClient(() => ({ url: 'http://x', token: 't', userId: 'u', deviceId: 'd' }))
+    assert.equal(await client.post('/Sessions/Capabilities/Full', {}), undefined)
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
+test('post still parses a real JSON body', async () => {
+  const original = globalThis.fetch
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ MediaSources: [{ Id: 'ms1' }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof globalThis.fetch
+  try {
+    const client = new JellyfinClient(() => ({ url: 'http://x', token: 't', userId: 'u', deviceId: 'd' }))
+    const out = await client.post<{ MediaSources: { Id: string }[] }>('/Items/1/PlaybackInfo', {})
+    assert.equal(out.MediaSources[0]?.Id, 'ms1')
+  } finally {
+    globalThis.fetch = original
+  }
+})

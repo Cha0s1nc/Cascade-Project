@@ -71,6 +71,9 @@ export interface PlaybackSnapshot {
   error: string | null;
   repeat: RepeatMode;
   shuffle: boolean;
+  /** 0-1, the scale <Video> takes. Jellyfin talks in 0-100. */
+  volume: number;
+  muted: boolean;
 }
 
 const EMPTY_SNAPSHOT: PlaybackSnapshot = {
@@ -85,6 +88,8 @@ const EMPTY_SNAPSHOT: PlaybackSnapshot = {
   error: null,
   repeat: 'none',
   shuffle: false,
+  volume: 1,
+  muted: false,
 };
 
 type Listener = () => void;
@@ -202,6 +207,19 @@ class PlaybackServiceImpl {
     void this.loadIndex(i);
   };
 
+  /** 0-1, clamped. Persisting it is the host's business, not this service's. */
+  setVolume = (v: number): void => {
+    this.set({ volume: Math.min(1, Math.max(0, v)) });
+  };
+
+  setMuted = (muted: boolean): void => {
+    this.set({ muted });
+  };
+
+  toggleMuted = (): void => {
+    this.set({ muted: !this.snapshot.muted });
+  };
+
   /** Steps the repeat button: none -> all -> one -> none. */
   cycleRepeat = (): void => {
     this.set({ repeat: nextRepeatMode(this.snapshot.repeat) });
@@ -231,7 +249,13 @@ class PlaybackServiceImpl {
     // Repeat and shuffle survive: they are the user's settings, not part of
     // what happens to be playing, and a queue ending should not silently turn
     // them off.
-    this.set({ ...EMPTY_SNAPSHOT, repeat: this.snapshot.repeat, shuffle: this.snapshot.shuffle });
+    this.set({
+      ...EMPTY_SNAPSHOT,
+      repeat: this.snapshot.repeat,
+      shuffle: this.snapshot.shuffle,
+      volume: this.snapshot.volume,
+      muted: this.snapshot.muted,
+    });
   };
 
   // ── react-native-video event handlers, bound once by NowPlayingBar ───────
@@ -354,8 +378,8 @@ class PlaybackServiceImpl {
       itemId: s.item?.Id ?? '',
       positionTicks: positionTicks ?? Math.round(s.positionSec * TICKS_PER_SEC),
       isPaused: s.isPaused,
-      isMuted: false,
-      volumeLevel: 100,
+      isMuted: s.muted,
+      volumeLevel: Math.round(s.volume * 100),
       playSessionId: this.resolved?.playSessionId ?? null,
       mediaSourceId: this.resolved?.mediaSourceId ?? null,
       playMethod: this.playMethod,

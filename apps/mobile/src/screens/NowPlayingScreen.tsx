@@ -9,8 +9,6 @@
  * atmosphere behind a near-empty surface and as noise behind anything else.
  *
  * What the desktop overlay has that this does not, and why:
- *   - volume: PlaybackService has no volume, and on a TV it is the television's
- *     job.
  *   - like / sleep timer / auto-mix: not ported yet.
  *
  * @format
@@ -56,7 +54,17 @@ const GLYPH = {
   shuffle: '\u21C4\uFE0E',
   repeat: '\u21BB\uFE0E',
   lyrics: '\u201C\u201D',
+  volDown: '\u2212',
+  volUp: '+',
+  // A plain letter, not a speaker symbol: the Unicode speakers have no text
+  // presentation, so they render as full-colour emoji next to monochrome
+  // controls. The active pill is what says "muted"; the accessibility label
+  // says it in words.
+  mute: 'M',
 } as const;
+
+/** One VolumeUp/VolumeDown press, matching the desktop and the remote. */
+const VOLUME_STEP = 0.1;
 
 function clock(sec: number): string {
   if (!Number.isFinite(sec) || sec < 0) return '0:00';
@@ -257,6 +265,31 @@ function NowPlayingScreen() {
             <Ctrl label="Next" glyph={GLYPH.next} onPress={playbackService.next} />
           </View>
 
+          {/* The desktop has a slider here. Buttons instead, because the same
+              row has to work under a thumb and under a D-pad, and a slider is
+              only good at one of those. */}
+          <View style={styles.volume}>
+            <Ctrl
+              label={snapshot.muted ? 'Unmute' : 'Mute'}
+              glyph={GLYPH.mute}
+              active={snapshot.muted}
+              onPress={playbackService.toggleMuted}
+            />
+            <Ctrl
+              label="Volume down"
+              glyph={GLYPH.volDown}
+              onPress={() => playbackService.setVolume(snapshot.volume - VOLUME_STEP)}
+            />
+            <View style={styles.volBar}>
+              <View style={[styles.volFill, { width: `${(snapshot.muted ? 0 : snapshot.volume) * 100}%` }]} />
+            </View>
+            <Ctrl
+              label="Volume up"
+              glyph={GLYPH.volUp}
+              onPress={() => playbackService.setVolume(snapshot.volume + VOLUME_STEP)}
+            />
+          </View>
+
           <View style={styles.prog}>
             <Text style={styles.time}>{clock(position)}</Text>
             <Pressable
@@ -387,6 +420,21 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
 
+  volume: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    width: '100%',
+    maxWidth: 420,
+  },
+  volBar: {
+    flex: 1,
+    height: Platform.isTV ? 6 : 4,
+    borderRadius: radius.pill,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    overflow: 'hidden',
+  },
+  volFill: { height: '100%', backgroundColor: colors.text3, borderRadius: radius.pill },
   prog: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, width: '100%', maxWidth: 640 },
   time: {
     fontSize: typeScale.hint,
