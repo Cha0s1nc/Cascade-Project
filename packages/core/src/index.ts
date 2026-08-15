@@ -13,6 +13,7 @@ export type * from './platform/index.ts'
 
 export * from './core/types.ts'
 export * from './core/lyrics.ts'
+export * from './core/lyrics-sources.ts'
 export * from './core/album-colors.ts'
 export * from './core/jellyfin.ts'
 export * from './core/queue.ts'

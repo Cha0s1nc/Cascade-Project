@@ -11,7 +11,6 @@
  * What the desktop overlay has that this does not, and why:
  *   - volume: PlaybackService has no volume, and on a TV it is the television's
  *     job.
- *   - lyrics: Phase 6.
  *   - like / sleep timer / auto-mix: not ported yet.
  *
  * @format
@@ -34,6 +33,7 @@ import type { JfItem } from '@cascade/core';
 
 import { getJellyfinClient } from '../api/client';
 import AlbumArtBackground from '../components/AlbumArtBackground';
+import LyricsPanel from '../components/LyricsPanel';
 import { playbackService, usePlaybackSnapshot } from '../playback/PlaybackService';
 import { colors, gutter, radius, spacing, type as typeScale } from '../theme';
 
@@ -55,6 +55,7 @@ const GLYPH = {
   next: '\u23ED\uFE0E',
   shuffle: '\u21C4\uFE0E',
   repeat: '\u21BB\uFE0E',
+  lyrics: '\u201C\u201D',
 } as const;
 
 function clock(sec: number): string {
@@ -147,6 +148,9 @@ function NowPlayingScreen() {
   // events still arriving from the player.
   const [scrubbing, setScrubbing] = useState<number | null>(null);
   const [barWidth, setBarWidth] = useState(0);
+  // The right column shows one or the other, the way the desktop's lyrics pane
+  // slides over its queue rather than sitting beside it.
+  const [showLyrics, setShowLyrics] = useState(false);
 
   const item = snapshot.item;
   useEffect(() => {
@@ -227,6 +231,12 @@ function NowPlayingScreen() {
               active={snapshot.repeat !== 'none'}
               onPress={playbackService.cycleRepeat}
             />
+            <Ctrl
+              label={showLyrics ? 'Show queue' : 'Show lyrics'}
+              glyph={GLYPH.lyrics}
+              active={showLyrics}
+              onPress={() => setShowLyrics(v => !v)}
+            />
           </View>
           </TVFocusGuideView>
 
@@ -271,6 +281,10 @@ function NowPlayingScreen() {
         </View>
 
         <View style={[styles.right, twoUp && styles.rightTwoUp]}>
+          {showLyrics ? (
+            <LyricsPanel item={item} />
+          ) : (
+            <>
           <Text style={styles.queueLabel}>Queue</Text>
           <FlatList
             style={styles.queue}
@@ -285,6 +299,8 @@ function NowPlayingScreen() {
             )}
             contentContainerStyle={styles.queueContent}
           />
+            </>
+          )}
         </View>
       </View>
     </View>

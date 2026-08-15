@@ -15,6 +15,7 @@ import type { JfAuthResult } from '@cascade/core';
 
 import { colors } from './src/theme';
 import { platform } from './src/platform';
+import { waterfallService } from './src/waterfall/WaterfallService';
 import { initJellyfinClient } from './src/api/client';
 import {
   clearSession,
@@ -66,6 +67,7 @@ function App() {
         // this point can assume getJellyfinClient() already has a client.
         await initJellyfinClient(stored, id);
         if (cancelled) return;
+        waterfallService.displayName = stored.username || '';
       }
       setAuth(
         ok
@@ -93,6 +95,7 @@ function App() {
     };
     await saveSession(platform.store, session, password);
     await initJellyfinClient(session, deviceId);
+    waterfallService.displayName = session.username || '';
     setAuth({ status: 'signedIn', session });
   }
 

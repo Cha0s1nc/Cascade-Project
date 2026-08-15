@@ -13,7 +13,15 @@ export interface LyricWord {
 }
 
 export interface LyricLine {
-  Start: number
+  /**
+   * Ticks, or null for a line with no timestamp at all.
+   *
+   * Null is what an unsynced source produces - LRCLIB's plainLyrics, say. Such
+   * lines still display, they just never highlight and cannot be tapped to
+   * seek. Every consumer already guarded with `Start != null`; the type simply
+   * said otherwise.
+   */
+  Start: number | null
   End: number | null
   Text: string
   /** null for plain LRC lines; populated for karaoke (word-level) formats. */
@@ -21,6 +29,7 @@ export interface LyricLine {
 }
 
 const TICKS_PER_MS = 10_000
+const TICKS_PER_SEC = 10_000_000
 
 /** 2s, used when the last line has no following line to borrow an end time from. */
 const LAST_WORD_FALLBACK_TICKS = 20_000_000
@@ -98,7 +107,11 @@ export function parseLRC(text: string): LyricLine[] {
     if (!ws?.length) continue
     const last = ws[ws.length - 1]
     if (last.End == null) {
-      last.End = lines[i + 1]?.Start ?? (last.Start + LAST_WORD_FALLBACK_TICKS)
+      // A next line with no timestamp has to fall through to the fallback
+      // rather than leave this word unbounded, so null and absent both mean
+      // "no next start".
+      const nextStart = lines[i + 1]?.Start
+      last.End = nextStart != null ? nextStart : last.Start + LAST_WORD_FALLBACK_TICKS
     }
   }
 
@@ -178,4 +191,46 @@ export function lyricsTextMatch(
 
   // At least 25% of the smaller set must appear in the larger.
   return inter / Math.min(aw.size, bw.size) >= 0.25
+}
+
+/**
+ * How far ahead of the clock to look when deciding which line is current.
+ *
+ * Tuned against real audio, not derived: a line highlighted exactly on its
+ * timestamp reads as late, because a listener hears the first syllable slightly
+ * before the timestamp and the eye needs a moment to move. Changing this makes
+ * every synced lyric feel off, so it is one number in one place.
+ */
+export const LYRIC_LOOKAHEAD_SEC = 0.225
+
+/**
+ * Index of the line that should be highlighted at `positionSec`, or -1 before
+ * the first line.
+ *
+ * `fromIdx` is the previous answer. Playback only moves forward except on a
+ * seek, so scanning onward from there is amortised O(1) per tick instead of
+ * O(n); passing 0 is always correct, just slower. A backward seek is detected
+ * and restarts the scan.
+ *
+ * Lines with no timestamp (unsynced sources) are skipped rather than treated as
+ * time zero, which would make every one of them look current.
+ */
+export function activeLineIndex(lines: LyricLine[], positionSec: number, fromIdx = 0): number {
+  if (!lines.length) return -1
+  const now = positionSec + LYRIC_LOOKAHEAD_SEC
+
+  let start = fromIdx > 0 && fromIdx < lines.length ? fromIdx : 0
+  const at = lines[start]?.Start
+  if (start > 0 && at != null && at / TICKS_PER_SEC > now) start = 0
+
+  let best = -1
+  for (let i = start; i < lines.length; i++) {
+    const s = lines[i]?.Start
+    if (s == null) continue
+    if (s / TICKS_PER_SEC <= now) best = i
+    else break
+  }
+  // Scanning from a cursor can only move forward, so a hit before it still
+  // counts - otherwise a seek backward into an untimed run returns -1.
+  return best === -1 && start > 0 ? activeLineIndex(lines, positionSec, 0) : best
 }

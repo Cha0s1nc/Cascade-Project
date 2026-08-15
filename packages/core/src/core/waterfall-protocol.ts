@@ -9,6 +9,15 @@
 // them completely differently.
 
 /** Host re-announces its position this often. */
+/**
+ * The signalling relay every client falls back to.
+ *
+ * Lives here rather than in each host because both apps have to agree: two
+ * clients pointed at different relays cannot see each other's rooms, and the
+ * failure looks like "the code does not work" rather than a misconfiguration.
+ */
+export const WF_DEFAULT_RELAY = 'https://cascade-waterfall-signaling.cha0s-netw0rks.workers.dev'
+
 export const WF_HEARTBEAT_MS = 4000
 
 /** A guest re-seeks once it is at least this far out. */

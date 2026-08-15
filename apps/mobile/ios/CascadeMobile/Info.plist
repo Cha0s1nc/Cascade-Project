@@ -33,6 +33,20 @@
 		<false/>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
+		<!-- Kugou's lyrics API is HTTP-only, so ATS blocks it outright and the
+		     karaoke (word-level) source silently never wins. Scoped to that one
+		     host rather than opening the app up: everything else, including the
+		     Jellyfin server and LRCLIB, still requires TLS. -->
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>lyrics.kugou.com</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+			</dict>
+		</dict>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string></string>

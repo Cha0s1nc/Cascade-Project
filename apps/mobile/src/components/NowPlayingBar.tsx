@@ -59,7 +59,10 @@ function NowPlayingBar({ hidden, compact, onOpen }: NowPlayingBarProps) {
           // that switch is usually meant to be obeyed.
           ignoreSilentSwitch="ignore"
           showNotificationControls
-          progressUpdateInterval={1000}
+          // 250ms, not the 1s a progress bar would need: synced lyrics move
+          // line to line and a 1s clock makes every change land up to a second
+          // late, which is exactly what the lookahead constant exists to avoid.
+          progressUpdateInterval={250}
           ref={playbackService.attachPlayer}
           onLoad={playbackService.handleLoad}
           onProgress={playbackService.handleProgress}

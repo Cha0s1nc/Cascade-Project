@@ -7,7 +7,7 @@
  * @format
  */
 import { useMemo } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TVFocusGuideView, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
@@ -96,10 +96,21 @@ function HomeScreen({ session, onSignOut }: HomeScreenProps) {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {/* Focus guide for the same reason the player's secondary row has one:
+          tvOS moves focus geometrically, and these buttons are right-aligned
+          above a left-aligned grid, so pressing Up from most cards found
+          nothing and focus simply did not move. */}
+      <TVFocusGuideView autoFocus style={styles.headerGuide}>
       <View style={styles.header}>
         <Text style={styles.greeting}>
           {greeting()}, {session.username || 'there'}
         </Text>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => navigation.navigate('Waterfall')}
+          style={({ focused, pressed }) => [styles.signOut, (focused || pressed) && styles.signOutFocused]}>
+          <Text style={styles.signOutText}>Waterfall</Text>
+        </Pressable>
         <Pressable
           accessibilityRole="button"
           onPress={onSignOut}
@@ -107,6 +118,7 @@ function HomeScreen({ session, onSignOut }: HomeScreenProps) {
           <Text style={styles.signOutText}>Sign Out</Text>
         </Pressable>
       </View>
+      </TVFocusGuideView>
 
       <MediaRow
         title="Recently played"
@@ -143,10 +155,12 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xxl,
     flexGrow: 1,
   },
+  headerGuide: { width: '100%' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: spacing.md,
     paddingHorizontal: gutter,
     marginBottom: spacing.xl,
   },

@@ -6,7 +6,8 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseLRC, parseKrc, lyricsTextMatch } from '../src/core/lyrics.ts'
+import { parseLRC, parseKrc, lyricsTextMatch, activeLineIndex } from '../src/core/lyrics.ts'
+import type { LyricLine } from '../src/core/lyrics.ts'
 
 const SEC = 10_000_000   // ticks per second
 const MS = 10_000        // ticks per millisecond
@@ -129,4 +130,45 @@ test('lyricsTextMatch: skips the check when there are too few Latin words', () =
   const a = { lines: [{ Start: 0, End: null, Words: null, Text: '君の名は' }] }
   const b = { lines: [{ Start: 0, End: null, Words: null, Text: 'completely different english words here' }] }
   assert.equal(lyricsTextMatch(a, b), true)
+})
+
+// --- active line ------------------------------------------------------------
+
+test('activeLineIndex applies the lookahead and finds the current line', () => {
+  const lines = parseLRC('[00:00.00]one\n[00:10.00]two\n[00:20.00]three')
+
+  assert.equal(activeLineIndex(lines, 0), 0)
+  assert.equal(activeLineIndex(lines, 5), 0)
+  assert.equal(activeLineIndex(lines, 10), 1)
+  assert.equal(activeLineIndex(lines, 25), 2)
+
+  // The whole point of the lookahead: just before a line's timestamp it is
+  // already current, because the singer has started and the eye needs a moment.
+  assert.equal(activeLineIndex(lines, 9.9), 1, 'line 2 is current 0.1s early')
+  assert.equal(activeLineIndex(lines, 9.7), 0, 'but not 0.3s early')
+})
+
+test('activeLineIndex returns -1 before the first line', () => {
+  const lines = parseLRC('[00:05.00]later')
+  assert.equal(activeLineIndex(lines, 0), -1)
+  assert.equal(activeLineIndex([], 12), -1)
+})
+
+test('activeLineIndex resumes from a cursor and survives a backward seek', () => {
+  const lines = parseLRC('[00:00.00]a\n[00:10.00]b\n[00:20.00]c\n[00:30.00]d')
+
+  // Scanning forward from the previous answer gives the same result as from 0.
+  assert.equal(activeLineIndex(lines, 25, 2), activeLineIndex(lines, 25, 0))
+  // Seeking back must not leave the cursor stranded ahead of the position.
+  assert.equal(activeLineIndex(lines, 5, 3), 0)
+  assert.equal(activeLineIndex(lines, 0, 3), 0)
+})
+
+test('activeLineIndex skips untimed lines instead of treating them as time zero', () => {
+  const lines: LyricLine[] = [
+    { Start: null, End: null, Text: 'plain', Words: null },
+    { Start: 10_000_000, End: null, Text: 'timed', Words: null },
+  ]
+  assert.equal(activeLineIndex(lines, 0), -1, 'the untimed line is never "current"')
+  assert.equal(activeLineIndex(lines, 2), 1)
 })

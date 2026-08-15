@@ -26,6 +26,7 @@ import HomeScreen from '../screens/HomeScreen';
 import NowPlayingScreen from '../screens/NowPlayingScreen';
 import SearchScreen from '../screens/SearchScreen';
 import SongsScreen from '../screens/SongsScreen';
+import WaterfallScreen from '../screens/WaterfallScreen';
 import { colors } from '../theme';
 import NavBar, { NAV_ITEMS } from './NavBar';
 import type { NavItemName } from './NavBar';
@@ -37,6 +38,7 @@ export type RootStackParamList = Record<(typeof NAV_ITEMS)[number], undefined> &
   AlbumDetail: { albumId: string };
   ArtistDetail: { artistId: string; artistName?: string };
   NowPlaying: undefined;
+  Waterfall: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -118,6 +120,7 @@ function RootNavigator({ session, onSignOut }: RootNavigatorProps) {
                 desktop's overlay, and the nav bar and the now-playing bar have
                 no business showing through it. */}
             <Stack.Screen name="NowPlaying" component={NowPlayingScreen} options={{ presentation: 'fullScreenModal' }} />
+            <Stack.Screen name="Waterfall" component={WaterfallScreen} />
           </Stack.Navigator>
         </View>
         {/* Sibling of the stack, same reasoning as navBar above - it has to
