@@ -18,7 +18,6 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import type { StoredSession } from '../auth/session';
 import NowPlayingBar from '../components/NowPlayingBar';
-import { usePlaybackSnapshot } from '../playback/PlaybackService';
 import AlbumDetailScreen from '../screens/AlbumDetailScreen';
 import AlbumsScreen from '../screens/AlbumsScreen';
 import ArtistDetailScreen from '../screens/ArtistDetailScreen';
@@ -66,16 +65,26 @@ interface RootNavigatorProps {
 function RootNavigator({ session, onSignOut }: RootNavigatorProps) {
   const [routeName, setRouteName] = useState<string>('Home');
   const onNowPlaying = routeName === 'NowPlaying';
-  const hasTrack = !!usePlaybackSnapshot().item;
 
   function syncRouteName() {
     setRouteName(navigationRef.getCurrentRoute()?.name ?? 'Home');
   }
 
+  // Rendered once, in a different place per platform. Two instances would mean
+  // two <Video> elements and two players.
+  const playbackBar = (
+    <NowPlayingBar
+      compact={Platform.isTV}
+      hidden={onNowPlaying}
+      onOpen={() => {
+        if (navigationRef.isReady()) navigationRef.navigate('NowPlaying' as never);
+      }}
+    />
+  );
+
   const navBar = (
     <NavBar
       current={routeName}
-      hasTrack={hasTrack}
       onNavigate={(name: NavItemName) => {
         if (navigationRef.isReady()) navigationRef.navigate(name as never);
       }}
@@ -85,7 +94,17 @@ function RootNavigator({ session, onSignOut }: RootNavigatorProps) {
   return (
     <NavigationContainer ref={navigationRef} theme={navTheme} onReady={syncRouteName} onStateChange={syncRouteName}>
       <View style={styles.root}>
-        {Platform.isTV && !onNowPlaying && navBar}
+        {/* On a TV the now-playing bar rides in the top row beside the nav,
+            because at the bottom it is unreachable: focus moves geometrically,
+            so from a row in a 1400-track list the only way down to it is
+            through the other 1399 rows. Up-then-right always gets here. A
+            phone keeps it at the bottom, where a thumb can just touch it. */}
+        {Platform.isTV && (
+          <View style={styles.topRow}>
+            <View style={styles.topRowNav}>{navBar}</View>
+            {playbackBar}
+          </View>
+        )}
         <View style={styles.stackArea}>
           <Stack.Navigator screenOptions={{ headerShown: false }}>
             <Stack.Screen name="Home">{() => <HomeScreen session={session} onSignOut={onSignOut} />}</Stack.Screen>
@@ -103,14 +122,7 @@ function RootNavigator({ session, onSignOut }: RootNavigatorProps) {
         </View>
         {/* Sibling of the stack, same reasoning as navBar above - it has to
             survive every screen push rather than remount as a screen would. */}
-        {/* Always mounted - it owns the app's only <Video>. `hidden` drops the
-            chrome while the full player is up without stopping playback. */}
-        <NowPlayingBar
-          hidden={onNowPlaying}
-          onOpen={() => {
-            if (navigationRef.isReady()) navigationRef.navigate('NowPlaying' as never);
-          }}
-        />
+        {!Platform.isTV && playbackBar}
         {!Platform.isTV && !onNowPlaying && navBar}
       </View>
     </NavigationContainer>
@@ -124,6 +136,14 @@ const styles = StyleSheet.create({
   },
   stackArea: {
     flex: 1,
+  },
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  topRowNav: {
+    flex: 1,
+    minWidth: 0,
   },
 });
 

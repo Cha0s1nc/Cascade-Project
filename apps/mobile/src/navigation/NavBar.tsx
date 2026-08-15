@@ -10,35 +10,18 @@ import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors, radius, spacing, type as typeScale } from '../theme';
 
-export const NAV_ITEMS = ['Home', 'Albums', 'Artists', 'Songs', 'Search', 'NowPlaying'] as const;
+export const NAV_ITEMS = ['Home', 'Albums', 'Artists', 'Songs', 'Search'] as const;
 export type NavItemName = (typeof NAV_ITEMS)[number];
-
-const LABELS: Record<NavItemName, string> = {
-  Home: 'Home',
-  Albums: 'Albums',
-  Artists: 'Artists',
-  Songs: 'Songs',
-  Search: 'Search',
-  NowPlaying: 'Playing',
-};
 
 interface NavBarProps {
   current: string;
   onNavigate: (name: NavItemName) => void;
-  /** Hides the Now Playing entry when there is nothing to show. */
-  hasTrack?: boolean;
 }
 
-function NavBar({ current, onNavigate, hasTrack }: NavBarProps) {
-  // Now Playing is reachable from the now-playing bar on a phone, where a
-  // finger can just touch it. On a TV it is not: focus moves geometrically, and
-  // from a row in a 1400-track list the only way down is through the other 1399
-  // rows. So it earns a nav entry there, and only while something is playing.
-  const items = NAV_ITEMS.filter(i => i !== 'NowPlaying' || (Platform.isTV && hasTrack));
-
+function NavBar({ current, onNavigate }: NavBarProps) {
   return (
     <View style={[styles.bar, Platform.isTV ? styles.barTV : styles.barPhone]}>
-      {items.map(item => {
+      {NAV_ITEMS.map(item => {
         const active = item === current;
         return (
           <Pressable
@@ -51,7 +34,7 @@ function NavBar({ current, onNavigate, hasTrack }: NavBarProps) {
               active && styles.itemActive,
               (focused || pressed) && styles.itemFocused,
             ]}>
-            <Text style={[styles.label, active && styles.labelActive]}>{LABELS[item]}</Text>
+            <Text style={[styles.label, active && styles.labelActive]}>{item}</Text>
           </Pressable>
         );
       })}

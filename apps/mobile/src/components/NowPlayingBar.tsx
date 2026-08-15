@@ -28,10 +28,13 @@ const ART_SIZE = Platform.isTV ? spacing.xxl * 1.5 : spacing.xxl;
 interface NowPlayingBarProps {
   /** True while NowPlayingScreen is up. Chrome hides; <Video> stays mounted. */
   hidden?: boolean;
+  /** Sits in the TV top row beside the nav: narrower, and no separate
+   *  play/pause button, since the whole chip has to stay one focus stop. */
+  compact?: boolean;
   onOpen?: () => void;
 }
 
-function NowPlayingBar({ hidden, onOpen }: NowPlayingBarProps) {
+function NowPlayingBar({ hidden, compact, onOpen }: NowPlayingBarProps) {
   const snapshot = usePlaybackSnapshot();
   const client = getJellyfinClient();
 
@@ -67,6 +70,35 @@ function NowPlayingBar({ hidden, onOpen }: NowPlayingBarProps) {
   );
 
   if (hidden) return <View style={styles.hiddenPlayer}>{player}</View>;
+
+  if (compact) {
+    return (
+      <View style={styles.chipWrap}>
+        {player}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Now playing: ${snapshot.item.Name}. Open player.`}
+          onPress={onOpen}
+          style={({ focused, pressed }) => [styles.chip, (focused || pressed) && styles.openFocused]}>
+          <View style={styles.chipArt}>
+            {artUrl ? (
+              <Image source={{ uri: artUrl }} style={styles.artImage} />
+            ) : (
+              <Text style={styles.artFallback}>♪</Text>
+            )}
+          </View>
+          <View style={styles.info}>
+            <Text style={styles.chipTitle} numberOfLines={1}>
+              {snapshot.item.Name}
+            </Text>
+            <Text style={styles.chipSubtitle} numberOfLines={1}>
+              {snapshot.isLoading ? 'Loading…' : artist}
+            </Text>
+          </View>
+        </Pressable>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.bar}>
@@ -120,6 +152,42 @@ const styles = StyleSheet.create({
   hiddenPlayer: {
     width: 0,
     height: 0,
+  },
+  chipWrap: {
+    // A reserved width, not a max: the nav items beside this are all flex:1 and
+    // will otherwise take every spare point and squeeze the chip to its art.
+    width: 300,
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    paddingRight: gutter,
+    paddingLeft: spacing.md,
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    borderRadius: radius.sm,
+    padding: spacing.xs,
+  },
+  chipArt: {
+    width: spacing.xxl,
+    height: spacing.xxl,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surface2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  chipTitle: {
+    fontSize: typeScale.hint,
+    color: colors.text,
+    fontWeight: '600',
+  },
+  chipSubtitle: {
+    fontSize: typeScale.hint * 0.85,
+    color: colors.text3,
   },
   open: {
     flex: 1,
