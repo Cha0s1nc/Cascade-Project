@@ -14,10 +14,10 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import type { JfAuthResult } from '@cascade/core';
 
 import { colors } from './src/theme';
-import { platform } from './src/platform';
-import { waterfallService } from './src/waterfall/WaterfallService';
-import { startRemoteControl, stopRemoteControl } from './src/remote/remote';
-import { initJellyfinClient } from './src/api/client';
+import { platform } from '@cascade/app';
+import { waterfallService } from '@cascade/app';
+import { startRemoteControl, stopRemoteControl } from '@cascade/app';
+import { initJellyfinClient } from '@cascade/app';
 import {
   clearSession,
   getOrCreateDeviceId,
@@ -25,7 +25,7 @@ import {
   saveSession,
   verifySession,
   type StoredSession,
-} from './src/auth/session';
+} from '@cascade/app';
 import SignInScreen from './src/screens/SignInScreen';
 import RootNavigator from './src/navigation/RootNavigator';
 

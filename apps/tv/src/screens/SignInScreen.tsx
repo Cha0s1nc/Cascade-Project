@@ -28,7 +28,7 @@ import {
 } from '@cascade/core';
 import type { JfAuthResult } from '@cascade/core';
 
-import { normalizeServerUrl } from '../auth/session';
+import { normalizeServerUrl } from '@cascade/app';
 import { colors, radius, type as typeScale } from '../theme';
 
 // How long to wait after the last keystroke before asking the server whether

@@ -16,7 +16,7 @@ import { DarkTheme, NavigationContainer, createNavigationContainerRef } from '@r
 import type { Theme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
-import type { StoredSession } from '../auth/session';
+import type { StoredSession } from '@cascade/app';
 import NowPlayingBar from '../components/NowPlayingBar';
 import AlbumDetailScreen from '../screens/AlbumDetailScreen';
 import AlbumsScreen from '../screens/AlbumsScreen';

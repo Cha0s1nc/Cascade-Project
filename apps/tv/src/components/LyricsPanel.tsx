@@ -13,9 +13,9 @@ import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, V
 import { activeLineIndex, fetchLyricsWaterfall, isInstrumental } from '@cascade/core';
 import type { JfItem, LyricLine, LyricsResult } from '@cascade/core';
 
-import { getServerConfig } from '../api/client';
-import { getKugouKrc } from '../lyrics/kugou';
-import { playbackService, usePlaybackSnapshot } from '../playback/PlaybackService';
+import { getServerConfig } from '@cascade/app';
+import { getKugouKrc } from '@cascade/app';
+import { playbackService, usePlaybackSnapshot } from '@cascade/app';
 import { colors, radius, spacing, type as typeScale } from '../theme';
 
 type State =

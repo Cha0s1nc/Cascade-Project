@@ -33,8 +33,8 @@ import {
 } from '@cascade/core';
 import type { BlobColor, DriftParams } from '@cascade/core';
 
-import { paletteFor } from '../art/palette';
-import { playbackService } from '../playback/PlaybackService';
+import { paletteFor } from '@cascade/app';
+import { playbackService } from '@cascade/app';
 
 /** Long enough to read as a fade rather than a cut, short enough that the
  *  screen does not feel slow to open. */

@@ -29,10 +29,10 @@ import { useNavigation } from '@react-navigation/native';
 
 import type { JfItem } from '@cascade/core';
 
-import { getJellyfinClient } from '../api/client';
+import { getJellyfinClient } from '@cascade/app';
 import AlbumArtBackground from '../components/AlbumArtBackground';
 import LyricsPanel from '../components/LyricsPanel';
-import { playbackService, usePlaybackSnapshot } from '../playback/PlaybackService';
+import { playbackService, usePlaybackSnapshot } from '@cascade/app';
 import { colors, gutter, radius, spacing, type as typeScale } from '../theme';
 
 /** Seconds a skip button moves. Matches the desktop's back10/fwd10. */

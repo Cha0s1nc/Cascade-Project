@@ -10,7 +10,7 @@ import { useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 
-import { useWaterfall, waterfallService } from '../waterfall/WaterfallService';
+import { useWaterfall, waterfallService } from '@cascade/app';
 import { colors, gutter, radius, spacing, type as typeScale } from '../theme';
 
 const INPUT_HEIGHT = Platform.isTV ? 72 : 44;

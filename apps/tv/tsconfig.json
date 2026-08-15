@@ -1,8 +1,16 @@
 {
   "extends": "@react-native/typescript-config",
   "compilerOptions": {
-    "types": ["jest"],
+    "types": ["jest"]
   },
-  "include": ["**/*.ts", "**/*.tsx"],
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    // Ambient declarations that live with the shared package: React Native's
+    // URL/URLSearchParams/fetch shapes, and upng-js which ships no types.
+    // They are `declare module`/`interface` files, so they only apply when they
+    // are part of the program - being imported transitively is not enough.
+    "../../packages/app/src/**/*.d.ts"
+  ],
   "exclude": ["**/node_modules", "**/Pods"]
 }

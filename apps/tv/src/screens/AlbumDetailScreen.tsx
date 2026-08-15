@@ -16,11 +16,11 @@ import type { RouteProp } from '@react-navigation/native';
 
 import type { JfItem } from '@cascade/core';
 
-import { getJellyfinClient } from '../api/client';
-import { useJellyfin } from '../api/hooks';
-import type { StoredSession } from '../auth/session';
+import { getJellyfinClient } from '@cascade/app';
+import { useJellyfin } from '@cascade/app';
+import type { StoredSession } from '@cascade/app';
 import TrackRow from '../components/TrackRow';
-import { playbackService } from '../playback/PlaybackService';
+import { playbackService } from '@cascade/app';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import { colors, gutter, radius, spacing, type as typeScale } from '../theme';
 

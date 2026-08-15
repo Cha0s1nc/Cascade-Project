@@ -17,8 +17,8 @@
 import Video from 'react-native-video';
 import { Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { getJellyfinClient } from '../api/client';
-import { playbackService, usePlaybackSnapshot } from '../playback/PlaybackService';
+import { getJellyfinClient } from '@cascade/app';
+import { playbackService, usePlaybackSnapshot } from '@cascade/app';
 import { colors, gutter, radius, spacing, type as typeScale } from '../theme';
 
 // Bigger on TV for the same reason every other thumb/target in this app is -

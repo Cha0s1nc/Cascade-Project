@@ -1,0 +1,29 @@
+{
+  "name": "@cascade/app",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@cascade/core": "*",
+    "pako": "^1.0.11",
+    "upng-js": "^2.1.0",
+    "react-native-video": "^6.19.2",
+    "react-native-mmkv": "^3.3.3",
+    "react-native-keychain": "^10.0.0",
+    "react-native-device-info": "^15.0.2"
+  },
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  },
+  "scripts": {
+    "test": "jest",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "jest": "^29.6.3",
+    "react-test-renderer": "19.2.0",
+    "@types/jest": "^29.5.13"
+  }
+}

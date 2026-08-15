@@ -11,9 +11,9 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import type { JfItem } from '@cascade/core';
 
-import { getJellyfinClient } from '../api/client';
-import { useJellyfin } from '../api/hooks';
-import type { StoredSession } from '../auth/session';
+import { getJellyfinClient } from '@cascade/app';
+import { useJellyfin } from '@cascade/app';
+import type { StoredSession } from '@cascade/app';
 import MediaGrid from '../components/MediaGrid';
 import type { MediaRowItem } from '../components/MediaRow';
 import type { RootStackParamList } from '../navigation/RootNavigator';
