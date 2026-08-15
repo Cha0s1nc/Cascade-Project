@@ -1,6 +1,16 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { songSortValue, sortSongs, shuffleInPlace, shuffled } from '../src/core/queue.ts'
+import {
+  songSortValue,
+  sortSongs,
+  shuffleInPlace,
+  shuffled,
+  nextRepeatMode,
+  setShuffle,
+  advanceOnEnd,
+  manualNextIndex,
+  manualPreviousIndex,
+} from '../src/core/queue.ts'
 import type { JfItem } from '../src/core/types.ts'
 
 const item = (over: Partial<JfItem> & { Id: string }): JfItem => over
@@ -69,4 +79,73 @@ test('shuffled: actually reorders (not a no-op)', () => {
 test('shuffleInPlace: handles empty and single-element arrays', () => {
   assert.deepEqual(shuffleInPlace([]), [])
   assert.deepEqual(shuffleInPlace([7]), [7])
+})
+
+// --- repeat and shuffle ----------------------------------------------------
+
+const track = (id: string): JfItem => ({ Id: id, Name: id } as JfItem)
+const ids = (items: { Id: string }[]) => items.map(t => t.Id)
+
+test('the repeat button cycles none -> all -> one -> none', () => {
+  assert.equal(nextRepeatMode('none'), 'all')
+  assert.equal(nextRepeatMode('all'), 'one')
+  assert.equal(nextRepeatMode('one'), 'none')
+})
+
+test('turning shuffle on keeps the current track playing, at the front', () => {
+  const items = ['a', 'b', 'c', 'd', 'e'].map(track)
+  const on = setShuffle({ items, index: 2, unshuffled: null }, true)
+
+  assert.equal(on.items[0]?.Id, 'c', 'the playing track moves to the front')
+  assert.equal(on.index, 0)
+  assert.deepEqual(ids(on.items).sort(), ['a', 'b', 'c', 'd', 'e'], 'no track lost or duplicated')
+  assert.deepEqual(ids(on.unshuffled ?? []), ['a', 'b', 'c', 'd', 'e'], 'original order saved')
+})
+
+test('turning shuffle off restores the order and finds the track by id, not index', () => {
+  const items = ['a', 'b', 'c', 'd', 'e'].map(track)
+  const on = setShuffle({ items, index: 3, unshuffled: null }, true)
+  const off = setShuffle(on, false)
+
+  assert.deepEqual(ids(off.items), ['a', 'b', 'c', 'd', 'e'])
+  assert.equal(off.items[off.index]?.Id, 'd', 'still playing the same track')
+  assert.equal(off.unshuffled, null)
+})
+
+test('setShuffle does not mutate what it is given', () => {
+  const items = ['a', 'b', 'c', 'd'].map(track)
+  const before = ids(items)
+  setShuffle({ items, index: 1, unshuffled: null }, true)
+  assert.deepEqual(ids(items), before)
+})
+
+test('turning shuffle on twice does not reshuffle or lose the saved order', () => {
+  const items = ['a', 'b', 'c', 'd'].map(track)
+  const once = setShuffle({ items, index: 0, unshuffled: null }, true)
+  const twice = setShuffle(once, true)
+  assert.equal(twice, once)
+})
+
+test('a track ending advances, wraps on repeat-all, and stops otherwise', () => {
+  assert.deepEqual(advanceOnEnd(3, 0, 'none'), { action: 'play', index: 1 })
+  assert.deepEqual(advanceOnEnd(3, 2, 'none'), { action: 'stop' })
+  assert.deepEqual(advanceOnEnd(3, 2, 'all'), { action: 'play', index: 0 })
+  assert.deepEqual(advanceOnEnd(3, 1, 'one'), { action: 'restart' })
+  assert.deepEqual(advanceOnEnd(0, 0, 'all'), { action: 'stop' }, 'an empty queue has nothing to wrap to')
+})
+
+test('pressing next with repeat-one on still skips', () => {
+  // The distinction that makes advanceOnEnd and manualNextIndex separate
+  // functions: repeat-one replays on end, but a next press must still move.
+  assert.deepEqual(advanceOnEnd(3, 0, 'one'), { action: 'restart' })
+  assert.equal(manualNextIndex(3, 0, 'one'), 1)
+})
+
+test('next and previous wrap only on repeat-all', () => {
+  assert.equal(manualNextIndex(3, 2, 'none'), -1)
+  assert.equal(manualNextIndex(3, 2, 'all'), 0)
+  assert.equal(manualPreviousIndex(3, 0, 'none'), -1)
+  assert.equal(manualPreviousIndex(3, 0, 'all'), 2)
+  assert.equal(manualPreviousIndex(3, 2, 'none'), 1)
+  assert.equal(manualNextIndex(0, 0, 'all'), -1)
 })

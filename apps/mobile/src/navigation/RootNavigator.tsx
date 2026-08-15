@@ -18,6 +18,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import type { StoredSession } from '../auth/session';
 import NowPlayingBar from '../components/NowPlayingBar';
+import { usePlaybackSnapshot } from '../playback/PlaybackService';
 import AlbumDetailScreen from '../screens/AlbumDetailScreen';
 import AlbumsScreen from '../screens/AlbumsScreen';
 import ArtistDetailScreen from '../screens/ArtistDetailScreen';
@@ -65,6 +66,7 @@ interface RootNavigatorProps {
 function RootNavigator({ session, onSignOut }: RootNavigatorProps) {
   const [routeName, setRouteName] = useState<string>('Home');
   const onNowPlaying = routeName === 'NowPlaying';
+  const hasTrack = !!usePlaybackSnapshot().item;
 
   function syncRouteName() {
     setRouteName(navigationRef.getCurrentRoute()?.name ?? 'Home');
@@ -73,6 +75,7 @@ function RootNavigator({ session, onSignOut }: RootNavigatorProps) {
   const navBar = (
     <NavBar
       current={routeName}
+      hasTrack={hasTrack}
       onNavigate={(name: NavItemName) => {
         if (navigationRef.isReady()) navigationRef.navigate(name as never);
       }}

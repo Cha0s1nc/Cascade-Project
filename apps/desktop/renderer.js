@@ -2472,21 +2472,19 @@ audio.addEventListener('ended', () => {
     return
   }
 
-  if (repeatMode === 'one') {
+  const what = CascadeCore.advanceOnEnd(queue.length, queueIndex, repeatMode)
+  if (what.action === 'restart') {
     audio.currentTime = 0
     audio.play()
     return
   }
-
-  let next = queueIndex + 1
-  if (next >= queue.length) {
-    if (repeatMode === 'all') { queueIndex = 0; playCurrentTrack(); return }
+  if (what.action === 'stop') {
     // Instant mix is a music feature. Asking Jellyfin for one "similar to" the
     // last episode of a season would either fail or queue up something random.
     if (autoMixEnabled && item && !isVideoItem(item)) continueWithAutoMix(item)
     return
   }
-  queueIndex = next
+  queueIndex = what.index
   playCurrentTrack()
 })
 
@@ -2528,10 +2526,10 @@ let _cfNextResolved = null   // resolved stream of the incoming track, adopted o
 // where the next track is already known - skips the auto-mix case, since that
 // track doesn't exist until the current one actually finishes.
 function _resolveCrossfadeTarget() {
-  if (repeatMode === 'one') return -1
-  const next = queueIndex + 1
-  if (next >= queue.length) return repeatMode === 'all' ? 0 : -1
-  return next
+  // Crossfade needs the *next* track, and repeat-one has none - it replays the
+  // one already loaded, so there is nothing to fade into.
+  const what = CascadeCore.advanceOnEnd(queue.length, queueIndex, repeatMode)
+  return what.action === 'play' ? what.index : -1
 }
 
 audio.addEventListener('timeupdate', () => {
@@ -2641,22 +2639,16 @@ document.getElementById('btn-shuffle').addEventListener('click', () => {
   shuffle = !shuffle
   document.getElementById('btn-shuffle').classList.toggle('active', shuffle)
 
-  const currentId = queue[queueIndex]?.Id
-
-  if (shuffle) {
-    // Save original order, then shuffle the live queue in place
-    _unshuffledQueue = [...queue]
-    shuffleInPlace(queue)
-    // Move the currently playing track to position 0 so it finishes before moving on
-    const nowIdx = queue.findIndex(t => t.Id === currentId)
-    if (nowIdx > 0) { const [t] = queue.splice(nowIdx, 1); queue.unshift(t) }
-    queueIndex = 0
-  } else {
-    // Restore original order, keeping the same track playing
-    queue = _unshuffledQueue
-    _unshuffledQueue = []
-    queueIndex = Math.max(0, queue.findIndex(t => t.Id === currentId))
-  }
+  // Ordering rules live in core so the React Native app behaves identically -
+  // where shuffle puts the current track, and how turning it off finds that
+  // track again by id rather than by an index that no longer means anything.
+  const next = CascadeCore.setShuffle(
+    { items: queue, index: queueIndex, unshuffled: _unshuffledQueue.length ? _unshuffledQueue : null },
+    shuffle,
+  )
+  queue = next.items
+  queueIndex = Math.max(0, next.index)
+  _unshuffledQueue = next.unshuffled || []
 
   if (overlayOpen) renderQueuePanel()
 })
@@ -2680,8 +2672,7 @@ function updateRepeatButtons() {
 }
 
 document.getElementById('btn-repeat').addEventListener('click', () => {
-  const modes = ['none', 'all', 'one']
-  repeatMode = modes[(modes.indexOf(repeatMode) + 1) % modes.length]
+  repeatMode = CascadeCore.nextRepeatMode(repeatMode)
   updateRepeatButtons()
 })
 

@@ -9,11 +9,8 @@
  * atmosphere behind a near-empty surface and as noise behind anything else.
  *
  * What the desktop overlay has that this does not, and why:
- *   - shuffle / repeat: PlaybackService has no such state yet. The state machine
- *     is renderer.js:2414-2536 and the plan has it moving into core; a button
- *     that does nothing is worse than no button.
- *   - volume: there is no volume in PlaybackService either, and on a TV it is
- *     the television's job.
+ *   - volume: PlaybackService has no volume, and on a TV it is the television's
+ *     job.
  *   - lyrics: Phase 6.
  *   - like / sleep timer / auto-mix: not ported yet.
  *
@@ -27,6 +24,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  TVFocusGuideView,
   View,
   useWindowDimensions,
 } from 'react-native';
@@ -55,6 +53,8 @@ const GLYPH = {
   pause: '\u23F8\uFE0E',
   forward: '\u23E9\uFE0E',
   next: '\u23ED\uFE0E',
+  shuffle: '\u21C4\uFE0E',
+  repeat: '\u21BB\uFE0E',
 } as const;
 
 function clock(sec: number): string {
@@ -70,26 +70,37 @@ function Ctrl({
   glyph,
   onPress,
   primary,
+  active,
+  badge,
   hasTVPreferredFocus,
 }: {
   label: string;
   glyph: string;
   onPress: () => void;
   primary?: boolean;
+  /** A toggle that is currently on - shuffle, or repeat in any mode but none. */
+  active?: boolean;
+  /** Superscript on the glyph. Only repeat-one uses it. */
+  badge?: string;
   hasTVPreferredFocus?: boolean;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityState={{ selected: !!active }}
       onPress={onPress}
       hasTVPreferredFocus={hasTVPreferredFocus}
       style={({ focused, pressed }) => [
         styles.ctrl,
         primary && styles.ctrlPrimary,
+        active && styles.ctrlActive,
         (focused || pressed) && styles.ctrlFocused,
       ]}>
-      <Text style={[styles.ctrlGlyph, primary && styles.ctrlGlyphPrimary]}>{glyph}</Text>
+      <Text style={[styles.ctrlGlyph, primary && styles.ctrlGlyphPrimary, active && styles.ctrlGlyphActive]}>
+        {glyph}
+      </Text>
+      {!!badge && <Text style={styles.ctrlBadge}>{badge}</Text>}
     </Pressable>
   );
 }
@@ -188,6 +199,36 @@ function NowPlayingScreen() {
               {[artist, album].filter(Boolean).join(' · ')}
             </Text>
           </View>
+
+          {/* Secondary row, above the transport - the same placement as the
+              desktop overlay's shuffle/repeat group.
+              
+              Wrapped in a focus guide because tvOS moves focus by geometry:
+              these two buttons sit above the middle of a five-button transport,
+              so pressing Up on Previous or Next found nothing above them and
+              focus simply did not move. The guide spans the full width and
+              autoFocus hands focus to a child, so Up works from anywhere in the
+              row. Renders as a plain View off tvOS. */}
+          <TVFocusGuideView autoFocus style={styles.secondaryGuide}>
+          <View style={styles.secondary}>
+            <Ctrl
+              label="Shuffle"
+              glyph={GLYPH.shuffle}
+              active={snapshot.shuffle}
+              onPress={playbackService.toggleShuffle}
+            />
+            <Ctrl
+              label={snapshot.repeat === 'one' ? 'Repeat one' : snapshot.repeat === 'all' ? 'Repeat all' : 'Repeat'}
+              glyph={GLYPH.repeat}
+              // "one" needs to be distinguishable from "all" at a glance and
+              // from across a room; the desktop swaps in an icon with a 1 in it,
+              // and a superscript reads the same way without a second glyph.
+              badge={snapshot.repeat === 'one' ? '1' : undefined}
+              active={snapshot.repeat !== 'none'}
+              onPress={playbackService.cycleRepeat}
+            />
+          </View>
+          </TVFocusGuideView>
 
           <View style={styles.transport}>
             <Ctrl label="Previous" glyph={GLYPH.prev} onPress={playbackService.previous} />
@@ -299,6 +340,8 @@ const styles = StyleSheet.create({
   track: { fontSize: typeScale.heading, fontWeight: '700', color: colors.text, textAlign: 'center' },
   artist: { fontSize: typeScale.body, color: colors.text2, textAlign: 'center' },
 
+  secondaryGuide: { width: '100%', alignItems: 'center' },
+  secondary: { flexDirection: 'row', alignItems: 'center', gap: Platform.isTV ? spacing.xl : spacing.lg },
   transport: { flexDirection: 'row', alignItems: 'center', gap: Platform.isTV ? spacing.xl : spacing.lg },
   ctrl: {
     width: Platform.isTV ? 64 : 48,
@@ -313,8 +356,20 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accent,
   },
   ctrlFocused: { outlineWidth: 3, outlineColor: colors.text },
-  ctrlGlyph: { fontSize: typeScale.button, color: colors.text },
+  // An "on" toggle has to read as on without focus sitting on it, since on a TV
+  // the focus ring is somewhere else entirely most of the time.
+  ctrlActive: { backgroundColor: 'rgba(255,255,255,0.16)' },
+  ctrlGlyph: { fontSize: typeScale.button, color: colors.text2 },
   ctrlGlyphPrimary: { fontSize: typeScale.button * 1.15, color: '#fff' },
+  ctrlGlyphActive: { color: colors.text },
+  ctrlBadge: {
+    position: 'absolute',
+    top: Platform.isTV ? 8 : 4,
+    right: Platform.isTV ? 12 : 8,
+    fontSize: typeScale.hint * 0.8,
+    fontWeight: '700',
+    color: colors.text,
+  },
 
   prog: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, width: '100%', maxWidth: 640 },
   time: {

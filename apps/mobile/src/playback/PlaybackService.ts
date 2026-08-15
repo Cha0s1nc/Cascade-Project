@@ -29,6 +29,11 @@ import {
   APPLE_PROFILE,
   DEFAULT_MAX_BITRATE,
   PROGRESS_INTERVAL_MS,
+  advanceOnEnd,
+  manualNextIndex,
+  manualPreviousIndex,
+  nextRepeatMode,
+  setShuffle,
   reportProgress,
   reportStart,
   reportStopped,
@@ -36,7 +41,7 @@ import {
   resumeTicks,
   stopActiveEncoding,
 } from '@cascade/core';
-import type { JfItem, PlaybackState, PlayMethod, ResolvedStream } from '@cascade/core';
+import type { JfItem, PlaybackState, PlayMethod, RepeatMode, ResolvedStream } from '@cascade/core';
 
 import { getJellyfinClient, getServerConfig } from '../api/client';
 
@@ -64,6 +69,8 @@ export interface PlaybackSnapshot {
   positionSec: number;
   durationSec: number;
   error: string | null;
+  repeat: RepeatMode;
+  shuffle: boolean;
 }
 
 const EMPTY_SNAPSHOT: PlaybackSnapshot = {
@@ -76,6 +83,8 @@ const EMPTY_SNAPSHOT: PlaybackSnapshot = {
   positionSec: 0,
   durationSec: 0,
   error: null,
+  repeat: 'none',
+  shuffle: false,
 };
 
 type Listener = () => void;
@@ -98,6 +107,11 @@ class PlaybackServiceImpl {
   // it has been superseded and drop its own result - the same guard
   // playCurrentTrack does by re-checking `queue[queueIndex]?.Id` afterwards.
   private loadToken = 0;
+
+  // The pre-shuffle order, held while shuffle is on so turning it off can put
+  // the queue back. Lives here rather than in the snapshot because no view
+  // renders it - it is bookkeeping, not state anyone draws.
+  private unshuffled: JfItem[] | null = null;
 
   getSnapshot = (): PlaybackSnapshot => this.snapshot;
 
@@ -174,8 +188,8 @@ class PlaybackServiceImpl {
   };
 
   next = (): void => {
-    const i = this.snapshot.index + 1;
-    if (i >= this.snapshot.queue.length) {
+    const i = manualNextIndex(this.snapshot.queue.length, this.snapshot.index, this.snapshot.repeat);
+    if (i < 0) {
       this.stop();
       return;
     }
@@ -183,9 +197,27 @@ class PlaybackServiceImpl {
   };
 
   previous = (): void => {
-    const i = this.snapshot.index - 1;
+    const i = manualPreviousIndex(this.snapshot.queue.length, this.snapshot.index, this.snapshot.repeat);
     if (i < 0) return;
     void this.loadIndex(i);
+  };
+
+  /** Steps the repeat button: none -> all -> one -> none. */
+  cycleRepeat = (): void => {
+    this.set({ repeat: nextRepeatMode(this.snapshot.repeat) });
+  };
+
+  /** Reorders the queue around whatever is playing. */
+  toggleShuffle = (): void => {
+    const on = !this.snapshot.shuffle;
+    const next = setShuffle(
+      { items: this.snapshot.queue, index: this.snapshot.index, unshuffled: this.unshuffled },
+      on,
+    );
+    this.unshuffled = next.unshuffled;
+    // Only the ordering changes - the track keeps playing untouched, which is
+    // the whole point of core moving it to the front on shuffle-on.
+    this.set({ queue: next.items, index: next.index, shuffle: on });
   };
 
   stop = (): void => {
@@ -195,7 +227,11 @@ class PlaybackServiceImpl {
     this.resolved = null;
     this.playerRef = null;
     this.loadToken++; // invalidates anything still resolving behind this
-    this.set(EMPTY_SNAPSHOT);
+    this.unshuffled = null;
+    // Repeat and shuffle survive: they are the user's settings, not part of
+    // what happens to be playing, and a queue ending should not silently turn
+    // them off.
+    this.set({ ...EMPTY_SNAPSHOT, repeat: this.snapshot.repeat, shuffle: this.snapshot.shuffle });
   };
 
   // ── react-native-video event handlers, bound once by NowPlayingBar ───────
@@ -218,7 +254,18 @@ class PlaybackServiceImpl {
   };
 
   handleEnd = (): void => {
-    this.next();
+    // Not this.next(): ending a track and pressing next differ under
+    // repeat-one, which replays on end but must still skip on a press.
+    const what = advanceOnEnd(this.snapshot.queue.length, this.snapshot.index, this.snapshot.repeat);
+    if (what.action === 'stop') {
+      this.stop();
+      return;
+    }
+    if (what.action === 'restart') {
+      void this.seek(0);
+      return;
+    }
+    void this.loadIndex(what.index);
   };
 
   handleError = (e: OnVideoErrorData): void => {
