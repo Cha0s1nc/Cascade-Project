@@ -23,6 +23,7 @@ import TrackRow from '../components/TrackRow';
 import { playbackService } from '@cascade/app';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import { colors, gutter, radius, spacing, type as typeScale } from '../theme';
+import { CHROME_INSET } from '../navigation/FloatingChrome';
 
 interface AlbumDetailScreenProps {
   session: StoredSession;
@@ -121,7 +122,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
   },
   content: {
-    paddingBottom: spacing.xxl,
+    paddingBottom: CHROME_INSET,
     flexGrow: 1,
   },
   header: {

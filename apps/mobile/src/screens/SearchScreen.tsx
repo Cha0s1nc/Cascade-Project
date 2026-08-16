@@ -28,6 +28,7 @@ import { playbackService } from '@cascade/app';
 import TrackRow from '../components/TrackRow';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import { colors, gutter, radius, spacing, type as typeScale } from '../theme';
+import { CHROME_INSET } from '../navigation/FloatingChrome';
 
 interface SearchScreenProps {
   session: StoredSession;
@@ -194,7 +195,7 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingTop: spacing.lg,
-    paddingBottom: spacing.xxl,
+    paddingBottom: CHROME_INSET,
     flexGrow: 1,
   },
   input: {

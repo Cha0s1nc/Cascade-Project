@@ -139,7 +139,7 @@ function App() {
           />
         )}
 
-        {auth.status === 'signedIn' && <RootNavigator session={auth.session} onSignOut={handleSignOut} />}
+        {auth.status === 'signedIn' && <RootNavigator session={auth.session} appVersion={appVersion} onSignOut={handleSignOut} />}
       </SafeAreaView>
     </SafeAreaProvider>
   );

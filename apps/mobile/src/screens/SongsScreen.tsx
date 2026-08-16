@@ -21,6 +21,7 @@ import { TrackListSkeleton } from '../components/Skeleton';
 import TrackRow from '../components/TrackRow';
 import { playbackService } from '@cascade/app';
 import { colors, gutter, spacing, type as typeScale } from '../theme';
+import { CHROME_INSET } from '../navigation/FloatingChrome';
 
 interface SongsScreenProps {
   session: StoredSession;
@@ -96,7 +97,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
   },
   content: {
-    paddingVertical: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: CHROME_INSET,
     flexGrow: 1,
   },
   statusBox: {

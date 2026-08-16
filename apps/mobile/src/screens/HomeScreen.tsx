@@ -19,6 +19,7 @@ import type { StoredSession } from '@cascade/app';
 import MediaRow, { type MediaRowItem } from '../components/MediaRow';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import { colors, gutter, radius, spacing, type as typeScale } from '../theme';
+import { CHROME_INSET } from '../navigation/FloatingChrome';
 
 interface HomeScreenProps {
   session: StoredSession;
@@ -100,25 +101,9 @@ function HomeScreen({ session, onSignOut }: HomeScreenProps) {
           tvOS moves focus geometrically, and these buttons are right-aligned
           above a left-aligned grid, so pressing Up from most cards found
           nothing and focus simply did not move. */}
-      <TVFocusGuideView autoFocus style={styles.headerGuide}>
-      <View style={styles.header}>
-        <Text style={styles.greeting}>
-          {greeting()}, {session.username || 'there'}
-        </Text>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => navigation.navigate('Waterfall')}
-          style={({ focused, pressed }) => [styles.signOut, (focused || pressed) && styles.signOutFocused]}>
-          <Text style={styles.signOutText}>Waterfall</Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          onPress={onSignOut}
-          style={({ focused, pressed }) => [styles.signOut, (focused || pressed) && styles.signOutFocused]}>
-          <Text style={styles.signOutText}>Sign Out</Text>
-        </Pressable>
-      </View>
-      </TVFocusGuideView>
+      <Text style={styles.greeting}>
+        {greeting()}, {session.username || 'there'}
+      </Text>
 
       <MediaRow
         title="Recently played"
@@ -152,7 +137,8 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingTop: spacing.lg,
-    paddingBottom: spacing.xxl,
+    // Reserve room for the floating capsule, or the last shelf sits under it.
+    paddingBottom: CHROME_INSET,
     flexGrow: 1,
   },
   headerGuide: { width: '100%' },
@@ -165,6 +151,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xl,
   },
   greeting: {
+    paddingHorizontal: gutter,
+    marginBottom: spacing.xl,
     fontSize: typeScale.heading,
     fontWeight: '600',
     color: colors.text,

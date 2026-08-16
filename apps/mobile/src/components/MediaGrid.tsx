@@ -14,6 +14,7 @@ import type { ReactNode } from 'react';
 
 import { CardGridSkeleton } from './Skeleton';
 import { colors, gutter, spacing, type as typeScale } from '../theme';
+import { CHROME_INSET } from '../navigation/FloatingChrome';
 import { ART_SIZE, MediaCard, type MediaRowItem } from './MediaRow';
 
 interface MediaGridProps {
@@ -118,7 +119,7 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: gutter,
     paddingVertical: spacing.lg,
-    paddingBottom: spacing.xxl,
+    paddingBottom: CHROME_INSET,
     // Keeps the empty/skeleton state filling the viewport now that the list
     // itself is sized by its content rather than by flex.
     flexGrow: 1,

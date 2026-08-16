@@ -17,19 +17,20 @@ import type { Theme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import type { StoredSession } from '@cascade/app';
-import NowPlayingBar from '../components/NowPlayingBar';
+import FloatingChrome from './FloatingChrome';
 import AlbumDetailScreen from '../screens/AlbumDetailScreen';
-import AlbumsScreen from '../screens/AlbumsScreen';
+
 import ArtistDetailScreen from '../screens/ArtistDetailScreen';
-import ArtistsScreen from '../screens/ArtistsScreen';
+
 import HomeScreen from '../screens/HomeScreen';
+import LibraryScreen from '../screens/LibraryScreen';
+import SettingsScreen from '../screens/SettingsScreen';
 import NowPlayingScreen from '../screens/NowPlayingScreen';
 import SearchScreen from '../screens/SearchScreen';
-import SongsScreen from '../screens/SongsScreen';
+
 import WaterfallScreen from '../screens/WaterfallScreen';
 import { colors } from '../theme';
-import NavBar, { NAV_ITEMS } from './NavBar';
-import type { NavItemName } from './NavBar';
+import { NAV_ITEMS } from './NavBar';
 
 // The five nav destinations (no params) plus the two detail screens any card
 // among them can push to. Not part of NAV_ITEMS - the nav bar itself never
@@ -61,10 +62,11 @@ const navTheme: Theme = {
 
 interface RootNavigatorProps {
   session: StoredSession;
+  appVersion: string;
   onSignOut: () => void;
 }
 
-function RootNavigator({ session, onSignOut }: RootNavigatorProps) {
+function RootNavigator({ session, appVersion, onSignOut }: RootNavigatorProps) {
   const [routeName, setRouteName] = useState<string>('Home');
   const onNowPlaying = routeName === 'NowPlaying';
 
@@ -74,35 +76,17 @@ function RootNavigator({ session, onSignOut }: RootNavigatorProps) {
 
   // Rendered once, in a different place per platform. Two instances would mean
   // two <Video> elements and two players.
-  const playbackBar = (
-    <NowPlayingBar
-      
-      hidden={onNowPlaying}
-      onOpen={() => {
-        if (navigationRef.isReady()) navigationRef.navigate('NowPlaying' as never);
-      }}
-    />
-  );
-
-  const navBar = (
-    <NavBar
-      current={routeName}
-      onNavigate={(name: NavItemName) => {
-        if (navigationRef.isReady()) navigationRef.navigate(name as never);
-      }}
-    />
-  );
-
   return (
     <NavigationContainer ref={navigationRef} theme={navTheme} onReady={syncRouteName} onStateChange={syncRouteName}>
       <View style={styles.root}>
         <View style={styles.stackArea}>
           <Stack.Navigator screenOptions={{ headerShown: false }}>
             <Stack.Screen name="Home">{() => <HomeScreen session={session} onSignOut={onSignOut} />}</Stack.Screen>
-            <Stack.Screen name="Albums">{() => <AlbumsScreen session={session} />}</Stack.Screen>
-            <Stack.Screen name="Artists">{() => <ArtistsScreen session={session} />}</Stack.Screen>
-            <Stack.Screen name="Songs">{() => <SongsScreen session={session} />}</Stack.Screen>
+            <Stack.Screen name="Library">{() => <LibraryScreen session={session} />}</Stack.Screen>
             <Stack.Screen name="Search">{() => <SearchScreen session={session} />}</Stack.Screen>
+            <Stack.Screen name="Settings">
+              {() => <SettingsScreen session={session} appVersion={appVersion} onSignOut={onSignOut} />}
+            </Stack.Screen>
             <Stack.Screen name="AlbumDetail">{() => <AlbumDetailScreen session={session} />}</Stack.Screen>
             <Stack.Screen name="ArtistDetail">{() => <ArtistDetailScreen session={session} />}</Stack.Screen>
             {/* Presented over the stack rather than beside it: it is the
@@ -112,11 +96,20 @@ function RootNavigator({ session, onSignOut }: RootNavigatorProps) {
             <Stack.Screen name="Waterfall" component={WaterfallScreen} />
           </Stack.Navigator>
         </View>
-        {/* Siblings of the stack, same reasoning as navBar - they have to
-            survive every screen push rather than remount as a screen would.
-            Bottom of the screen, where a thumb reaches without stretching. */}
-        {playbackBar}
-        {!onNowPlaying && navBar}
+
+        {/* Floats over the stack rather than sitting beside it: that is what
+            gives the glass something to refract, and it is why every scrolling
+            screen reserves CHROME_INSET at the bottom. */}
+        <FloatingChrome
+          current={routeName}
+          hidden={onNowPlaying}
+          onNavigate={name => {
+            if (navigationRef.isReady()) navigationRef.navigate(name as never);
+          }}
+          onOpenPlayer={() => {
+            if (navigationRef.isReady()) navigationRef.navigate('NowPlaying' as never);
+          }}
+        />
       </View>
     </NavigationContainer>
   );
