@@ -7,6 +7,9 @@ const fs    = require('fs')
 const os    = require('os')
 const crypto = require('crypto')
 const Store = require('electron-store')
+// Core, bundled for node (see build:main-core). The renderer gets its own
+// IIFE build; this is the same source, not a second copy.
+const CascadeCoreNode = require('./build/core.node.cjs')
 
 // ── Discord RPC ────────────────────────────────────────────────────────────────
 let rpcClient   = null
@@ -373,32 +376,15 @@ function linuxPackageKind() {
   return null
 }
 
-// Returns the asset matching this exact platform/arch/format, or undefined.
-// Deliberately no "close enough" fallback: handing someone an installer that
-// cannot run on their machine is worse than sending them to the releases page.
+// Which installer to offer. The matching lives in @cascade/core so it can be
+// tested: releases now carry .apk/.aab/.ipa beside the desktop builds, and this
+// is the code standing between a Mac and a download it cannot run.
 function pickAsset(assets = []) {
-  const byExt = re => assets.filter(a => re.test(a.name))
-
-  if (process.platform === 'win32') return byExt(/\.exe$/i)[0]
-
-  if (process.platform === 'darwin') {
-    // Only the arm64 build carries its arch in the filename; the unsuffixed
-    // .dmg is the x64 one. Matching on process.arch alone silently handed
-    // Intel Macs the arm64 build.
-    const dmgs = byExt(/\.dmg$/i)
-    return process.arch === 'arm64'
-      ? dmgs.find(a => /arm64/i.test(a.name))
-      : dmgs.find(a => !/arm64/i.test(a.name))
-  }
-
-  if (process.platform === 'linux') {
-    const kind = linuxPackageKind()
-    if (kind === 'AppImage') return byExt(/\.AppImage$/i)[0]
-    if (kind === 'deb')      return byExt(/\.deb$/i)[0]
-    if (kind === 'rpm')      return byExt(/\.rpm$/i)[0]
-  }
-
-  return undefined
+  return CascadeCoreNode.pickReleaseAsset(assets, {
+    platform: process.platform,
+    arch: process.arch,
+    linuxKind: process.platform === 'linux' ? linuxPackageKind() : null,
+  })
 }
 
 async function checkForUpdates() {

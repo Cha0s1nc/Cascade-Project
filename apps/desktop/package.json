@@ -7,7 +7,7 @@
   "scripts": {
     "build:core": "esbuild ../../packages/core/src/index.ts --bundle --format=iife --global-name=CascadeCore --outfile=build/core.js --target=chrome122 --sourcemap",
     "build:preload": "esbuild ../../packages/core/src/preload.ts --bundle --format=cjs --platform=node --external:electron --outfile=build/preload.js --target=node20 --sourcemap",
-    "build:ts": "npm run build:core && npm run build:preload",
+    "build:ts": "npm run build:core && npm run build:preload && npm run build:main-core",
     "typecheck:legacy": "tsc -p tsconfig.legacy.json",
     "start": "npm run build:ts && electron .",
     "dev": "npm run build:ts && electron . --inspect",
@@ -16,7 +16,8 @@
     "build:mac": "npm run build:ts && electron-builder --mac --publish never",
     "build:win": "npm run build:ts && electron-builder --win --publish never",
     "build:linux": "npm run build:ts && electron-builder --linux --publish never",
-    "icons": "node scripts/gen-icons.js"
+    "icons": "node scripts/gen-icons.js",
+    "build:main-core": "esbuild ../../packages/core/src/index.ts --bundle --format=cjs --platform=node --outfile=build/core.node.cjs --target=node20 --sourcemap"
   },
   "dependencies": {
     "@cascade/core": "*",
