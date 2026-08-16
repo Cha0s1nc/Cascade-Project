@@ -17,7 +17,7 @@
 import Video from 'react-native-video';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { getJellyfinClient } from '@cascade/app';
+import { GlassSurface, getJellyfinClient } from '@cascade/app';
 import { playbackService, usePlaybackSnapshot } from '@cascade/app';
 import { colors, gutter, radius, spacing, type as typeScale } from '../theme';
 
@@ -106,7 +106,7 @@ function NowPlayingBar({ hidden, compact, onOpen }: NowPlayingBarProps) {
   }
 
   return (
-    <View style={styles.bar}>
+    <GlassSurface style={styles.bar} fallbackColor={colors.surface}>
       {player}
 
       <Pressable
@@ -139,7 +139,7 @@ function NowPlayingBar({ hidden, compact, onOpen }: NowPlayingBarProps) {
         style={({ focused, pressed }) => [styles.playButton, (focused || pressed) && styles.playButtonFocused]}>
         <Text style={styles.playIcon}>{snapshot.isPaused ? '\u25B6\uFE0E' : '\u23F8\uFE0E'}</Text>
       </Pressable>
-    </View>
+    </GlassSurface>
   );
 }
 
@@ -150,7 +150,9 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     paddingVertical: spacing.sm,
     paddingHorizontal: gutter,
-    backgroundColor: colors.surface,
+    // No backgroundColor: GlassSurface supplies it, either as real glass or as
+    // the fallback fill. Painting it here would put a solid layer in front of
+    // the glass and defeat the whole effect.
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },

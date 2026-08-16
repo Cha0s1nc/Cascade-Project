@@ -8,6 +8,8 @@
  */
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { GlassSurface } from '@cascade/app';
+
 import { colors, radius, spacing, type as typeScale } from '../theme';
 
 export const NAV_ITEMS = ['Home', 'Albums', 'Artists', 'Songs', 'Search'] as const;
@@ -20,7 +22,7 @@ interface NavBarProps {
 
 function NavBar({ current, onNavigate }: NavBarProps) {
   return (
-    <View style={[styles.bar, styles.barPhone]}>
+    <GlassSurface style={[styles.bar, styles.barPhone]} fallbackColor={colors.surface}>
       {NAV_ITEMS.map(item => {
         const active = item === current;
         return (
@@ -38,14 +40,16 @@ function NavBar({ current, onNavigate }: NavBarProps) {
           </Pressable>
         );
       })}
-    </View>
+    </GlassSurface>
   );
 }
 
 const styles = StyleSheet.create({
   bar: {
     flexDirection: 'row',
-    backgroundColor: colors.surface,
+    // No backgroundColor: GlassSurface supplies it, either as real glass or as
+    // the fallback fill. Painting it here would sit a solid layer in front of
+    // the glass and defeat the effect.
   },
   barPhone: {
     borderTopWidth: 1,

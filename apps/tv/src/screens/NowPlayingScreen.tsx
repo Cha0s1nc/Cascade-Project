@@ -28,7 +28,7 @@ import { useNavigation } from '@react-navigation/native';
 
 import type { JfItem } from '@cascade/core';
 
-import { getJellyfinClient } from '@cascade/app';
+import { GlassSurface, getJellyfinClient } from '@cascade/app';
 import AlbumArtBackground from '../components/AlbumArtBackground';
 import LyricsPanel from '../components/LyricsPanel';
 import { playbackService, usePlaybackSnapshot } from '@cascade/app';
@@ -211,6 +211,16 @@ function NowPlayingScreen() {
             </Text>
           </View>
 
+          {/* Transport, volume and progress ride on one glass card. This is
+              the surface Liquid Glass is actually for: there is real, moving,
+              colourful content behind it (the album-art background), which is
+              what the effect refracts. A glass panel over a flat colour looks
+              like a flat colour. */}
+          <GlassSurface
+            style={styles.controls}
+            fallbackColor="rgba(0,0,0,0.28)"
+            glassStyle="clear"
+            radius={radius.lg}>
           {/* Secondary row, above the transport - the same placement as the
               desktop overlay's shuffle/repeat group.
               
@@ -310,6 +320,7 @@ function NowPlayingScreen() {
             </Pressable>
             <Text style={[styles.time, styles.timeRight]}>{clock(duration)}</Text>
           </View>
+          </GlassSurface>
         </View>
 
         <View style={[styles.right, twoUp && styles.rightTwoUp]}>
@@ -372,6 +383,14 @@ const styles = StyleSheet.create({
   bodyTwoUp: { flexDirection: 'row' },
 
   left: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.lg },
+  controls: {
+    alignItems: 'center',
+    gap: spacing.md,
+    alignSelf: 'stretch',
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    overflow: 'hidden',
+  },
   art: {
     width: ART,
     height: ART,
@@ -437,7 +456,10 @@ const styles = StyleSheet.create({
   prog: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, width: '100%', maxWidth: 640 },
   time: {
     fontSize: typeScale.hint,
-    color: colors.text3,
+    // text2, not text3: these sit on the glass card, and the dim tone that
+    // reads fine on the flat app background disappears against a bright cover
+    // showing through.
+    color: colors.text2,
     minWidth: 48,
     fontVariant: ['tabular-nums'],
   },

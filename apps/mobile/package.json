@@ -10,6 +10,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@callstack/liquid-glass": "^0.8.0",
+    "@cascade/app": "*",
     "@cascade/core": "*",
     "@react-native/new-app-screen": "0.83.0",
     "@react-navigation/native": "^7.3.16",
@@ -23,8 +25,7 @@
     "react-native-safe-area-context": "^5.5.2",
     "react-native-screens": "4.25.0",
     "react-native-video": "^6.19.2",
-    "upng-js": "^2.1.0",
-    "@cascade/app": "*"
+    "upng-js": "^2.1.0"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
