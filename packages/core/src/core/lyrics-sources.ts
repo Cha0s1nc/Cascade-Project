@@ -163,6 +163,19 @@ const isAbort = (e: unknown): boolean => {
 }
 
 /**
+ * A source saying "I don't have this track".
+ *
+ * 404 is the normal answer for anything obscure - LRCLIB simply has no row for
+ * it - so it is not worth a console.error. Logging it meant a red error toast in
+ * dev every time somebody played a game soundtrack, which trains you to ignore
+ * the toasts that do matter.
+ */
+const isNotFound = (e: unknown): boolean => /\bHTTP 404\b/.test((e as Error)?.message ?? '')
+
+/** Worth reporting: not a timeout, and not a plain "no match". */
+const isRealFailure = (e: unknown): boolean => !isAbort(e) && !isNotFound(e)
+
+/**
  * An abort signal that fires after `ms`.
  *
  * Built from AbortController rather than AbortSignal.timeout, which is a recent
@@ -274,7 +287,7 @@ export async function fetchLyricsWaterfall(
       tried[forcedRaw] = result ? 'ok' : 'fail'
       return result ? { ...result, tried } : null
     } catch (err) {
-      if (!isAbort(err)) console.error(`[Lyrics] ${forcedRaw} failed:`, err)
+      if (isRealFailure(err)) console.error(`[Lyrics] ${forcedRaw} failed:`, err)
       tried[forcedRaw] = 'fail'
       return null
     }
@@ -284,7 +297,7 @@ export async function fetchLyricsWaterfall(
     run()
       .then(result => ({ name, result }))
       .catch(err => {
-        if (!isAbort(err)) console.error(`[Lyrics] ${name} failed:`, err)
+        if (isRealFailure(err)) console.error(`[Lyrics] ${name} failed:`, err)
         return { name, result: null as LyricsResult | Instrumental | null }
       }),
   ))
@@ -341,7 +354,7 @@ async function fetchFromCascadePlugin(
     if (!forced) cachePut(item.Id, out)
     return out
   } catch (err) {
-    if (!isAbort(err)) console.error('[Lyrics] Cascade plugin failed:', err)
+    if (isRealFailure(err)) console.error('[Lyrics] Cascade plugin failed:', err)
     return null
   }
 }

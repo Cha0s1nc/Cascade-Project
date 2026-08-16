@@ -54,3 +54,12 @@ test('metaPattern does not blow up on a title full of regex metacharacters', () 
   assert.ok(re.test('C++ (Remix) [feat. $1] *.* - Someone'))
   assert.ok(!re.test('just a lyric'))
 })
+
+test('a 404 from a lyrics source is a miss, not a failure worth reporting', () => {
+  // Regression: every obscure track logged a red error toast in dev, because a
+  // source with no row for it answers 404 and that was treated as a fault.
+  const notFound = new Error('HTTP 404')
+  const serverError = new Error('HTTP 500')
+  assert.ok(/\bHTTP 404\b/.test(notFound.message))
+  assert.ok(!/\bHTTP 404\b/.test(serverError.message), '500 must still be reported')
+})

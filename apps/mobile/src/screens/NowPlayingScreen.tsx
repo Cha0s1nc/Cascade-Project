@@ -25,6 +25,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { JfItem } from '@cascade/core';
 
@@ -145,11 +146,22 @@ function NowPlayingScreen() {
   const snapshot = usePlaybackSnapshot();
   const navigation = useNavigation();
   const client = getJellyfinClient();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
+  // A fullScreenModal is presented over App.tsx's SafeAreaView rather than
+  // inside it, so the notch and home indicator are this screen's problem.
+  // Without this the header sits on top of the status bar clock.
+  const insets = useSafeAreaInsets();
 
   // The desktop overlay is two columns. A phone held upright has no room for
   // that, so it stacks - the same content, one column.
+  // Two columns only where there is genuinely room for them - an iPad in
+  // landscape. A phone stacks.
   const twoUp = width >= 900;
+
+  // The art is whatever is left after the controls, capped so it does not
+  // dominate a large phone. A fixed size overflowed short screens, which is
+  // what pushed the progress bar under the queue.
+  const art = Math.max(140, Math.min(ART_MAX, Math.min(width - gutter * 2, height * 0.34)));
 
   // Local scrub position, so dragging the bar does not fight the 1s progress
   // events still arriving from the player.
@@ -185,7 +197,7 @@ function NowPlayingScreen() {
     <View style={styles.root}>
       <AlbumArtBackground />
 
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
         <Text style={styles.headerTitle}>Now Playing</Text>
         <Pressable
           accessibilityRole="button"
@@ -197,8 +209,8 @@ function NowPlayingScreen() {
       </View>
 
       <View style={[styles.body, twoUp && styles.bodyTwoUp]}>
-        <View style={styles.left}>
-          <View style={styles.art}>
+        <View style={[styles.left, !twoUp && styles.leftStacked]}>
+          <View style={[styles.art, { width: art, height: art }]}>
             {artUrl ? <Image source={{ uri: artUrl }} style={styles.artImage} /> : <Text style={styles.artFallback}>♪</Text>}
           </View>
 
@@ -329,7 +341,7 @@ function NowPlayingScreen() {
                 onPress={() => void playbackService.play(snapshot.queue, index)}
               />
             )}
-            contentContainerStyle={styles.queueContent}
+            contentContainerStyle={[styles.queueContent, { paddingBottom: insets.bottom + spacing.xl }]}
           />
             </>
           )}
@@ -339,7 +351,7 @@ function NowPlayingScreen() {
   );
 }
 
-const ART = 240;
+const ART_MAX = 260;
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
@@ -372,9 +384,12 @@ const styles = StyleSheet.create({
   bodyTwoUp: { flexDirection: 'row' },
 
   left: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.lg },
+  // Stacked, the player takes the height it needs and the queue gets the rest.
+  // Both at flex:1 split the screen evenly, which left the controls ~350pt to
+  // draw ~500pt in - the progress bar and the queue ended up on top of each
+  // other.
+  leftStacked: { flex: 0, gap: spacing.md },
   art: {
-    width: ART,
-    height: ART,
     borderRadius: radius.lg,
     backgroundColor: 'rgba(255,255,255,0.06)',
     alignItems: 'center',
@@ -464,6 +479,7 @@ const styles = StyleSheet.create({
   // No `flex: 1` - see the comment on MediaGrid's `container`.
   queue: { backgroundColor: 'transparent' },
   queueContent: { paddingBottom: spacing.xl },
+  queueContentInset: {},
 
   qRow: {
     flexDirection: 'row',
