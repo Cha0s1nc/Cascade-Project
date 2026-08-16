@@ -71,7 +71,9 @@ function SongsScreen({ session }: SongsScreenProps) {
           item={item}
           index={index}
           artUrl={client.artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)}
-          showAlbum
+          // No album column here, unlike the TV app: four columns on a 390pt
+          // screen truncated both the title and the album to the point where
+          // neither was readable. The album is one tap away on the track.
           onPress={() => playbackService.play(items, index)}
         />
       )}
