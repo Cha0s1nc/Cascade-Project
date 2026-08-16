@@ -10,7 +10,19 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors, radius, spacing, type as typeScale } from '../theme';
 
-export const NAV_ITEMS = ['Home', 'Albums', 'Artists', 'Songs', 'Search'] as const;
+export const NAV_ITEMS = ['Home', 'Library', 'Search', 'Settings'] as const;
+
+/**
+ * Text-presentation glyphs, matching the phone app. U+FE0E where the code point
+ * is emoji-eligible, or Apple renders these as full-colour emoji beside
+ * monochrome text.
+ */
+const ICONS: Record<NavItemName, string> = {
+  Home: '⌂',
+  Library: '♫',
+  Search: '⌕',
+  Settings: '⚙︎',
+};
 export type NavItemName = (typeof NAV_ITEMS)[number];
 
 interface NavBarProps {
@@ -34,6 +46,7 @@ function NavBar({ current, onNavigate }: NavBarProps) {
               active && styles.itemActive,
               (focused || pressed) && styles.itemFocused,
             ]}>
+            <Text style={[styles.icon, active && styles.iconActive]}>{ICONS[item]}</Text>
             <Text style={[styles.label, active && styles.labelActive]}>{item}</Text>
           </Pressable>
         );
@@ -45,19 +58,17 @@ function NavBar({ current, onNavigate }: NavBarProps) {
 const styles = StyleSheet.create({
   bar: {
     flexDirection: 'row',
-    backgroundColor: colors.surface,
+    // No background: the glass pill around this supplies it.
   },
   barPhone: {
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
-  barTV: {
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
+  barTV: {},
   item: {
     flex: 1,
     alignItems: 'center',
+    gap: 2,
     paddingVertical: spacing.lg,
     borderRadius: radius.sm,
   },
@@ -68,6 +79,8 @@ const styles = StyleSheet.create({
     outlineWidth: 3,
     outlineColor: colors.text,
   },
+  icon: { fontSize: 26, lineHeight: 30, color: colors.text3 },
+  iconActive: { color: colors.accent },
   label: {
     fontSize: typeScale.label,
     color: colors.text2,

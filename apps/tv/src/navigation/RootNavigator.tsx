@@ -19,15 +19,15 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import type { StoredSession } from '@cascade/app';
 import NowPlayingBar from '../components/NowPlayingBar';
 import AlbumDetailScreen from '../screens/AlbumDetailScreen';
-import AlbumsScreen from '../screens/AlbumsScreen';
 import ArtistDetailScreen from '../screens/ArtistDetailScreen';
-import ArtistsScreen from '../screens/ArtistsScreen';
 import HomeScreen from '../screens/HomeScreen';
+import LibraryScreen from '../screens/LibraryScreen';
+import SettingsScreen from '../screens/SettingsScreen';
 import NowPlayingScreen from '../screens/NowPlayingScreen';
 import SearchScreen from '../screens/SearchScreen';
-import SongsScreen from '../screens/SongsScreen';
 import WaterfallScreen from '../screens/WaterfallScreen';
-import { colors } from '../theme';
+import { GlassSurface, usePlaybackSnapshot } from '@cascade/app';
+import { colors, gutter, radius, spacing } from '../theme';
 import NavBar, { NAV_ITEMS } from './NavBar';
 import type { NavItemName } from './NavBar';
 
@@ -61,12 +61,16 @@ const navTheme: Theme = {
 
 interface RootNavigatorProps {
   session: StoredSession;
+  appVersion: string;
   onSignOut: () => void;
 }
 
-function RootNavigator({ session, onSignOut }: RootNavigatorProps) {
+function RootNavigator({ session, appVersion, onSignOut }: RootNavigatorProps) {
   const [routeName, setRouteName] = useState<string>('Home');
   const onNowPlaying = routeName === 'NowPlaying';
+  // An empty pill is still a pill: without this the chip's glass and its
+  // reserved width sit there as a blank slab whenever nothing is playing.
+  const hasTrack = !!usePlaybackSnapshot().item;
 
   function syncRouteName() {
     setRouteName(navigationRef.getCurrentRoute()?.name ?? 'Home');
@@ -101,17 +105,32 @@ function RootNavigator({ session, onSignOut }: RootNavigatorProps) {
             from a row in a 1400-track list the only way down to it is through
             the other 1399 rows. Up-then-right always gets here. The phone app
             keeps it at the bottom, where a thumb can just touch it. */}
-        <View style={styles.topRow}>
-          <View style={styles.topRowNav}>{navBar}</View>
-          {playbackBar}
+        <View style={styles.topRow} pointerEvents="box-none">
+          {/* Chip on the left, tabs on the right, each its own glass pill.
+              Both live up here because focus moves geometrically on a TV: from
+              a row in a 1400-track list, up-then-across always reaches them,
+              while anything docked at the bottom sits behind 1399 rows. */}
+          {hasTrack ? (
+            <GlassSurface style={styles.chipPill} fallbackColor={colors.surface} radius={radius.pill}>
+              {playbackBar}
+            </GlassSurface>
+          ) : (
+            // The player itself must stay mounted even with the pill gone - it
+            // owns the app's only <Video>.
+            <View>{playbackBar}</View>
+          )}
+          <GlassSurface style={styles.tabsPill} fallbackColor={colors.surface} radius={radius.pill}>
+            {navBar}
+          </GlassSurface>
         </View>
         <View style={styles.stackArea}>
           <Stack.Navigator screenOptions={{ headerShown: false }}>
             <Stack.Screen name="Home">{() => <HomeScreen session={session} onSignOut={onSignOut} />}</Stack.Screen>
-            <Stack.Screen name="Albums">{() => <AlbumsScreen session={session} />}</Stack.Screen>
-            <Stack.Screen name="Artists">{() => <ArtistsScreen session={session} />}</Stack.Screen>
-            <Stack.Screen name="Songs">{() => <SongsScreen session={session} />}</Stack.Screen>
+            <Stack.Screen name="Library">{() => <LibraryScreen session={session} />}</Stack.Screen>
             <Stack.Screen name="Search">{() => <SearchScreen session={session} />}</Stack.Screen>
+            <Stack.Screen name="Settings">
+              {() => <SettingsScreen session={session} appVersion={appVersion} onSignOut={onSignOut} />}
+            </Stack.Screen>
             <Stack.Screen name="AlbumDetail">{() => <AlbumDetailScreen session={session} />}</Stack.Screen>
             <Stack.Screen name="ArtistDetail">{() => <ArtistDetailScreen session={session} />}</Stack.Screen>
             {/* Presented over the stack rather than beside it: it is the
@@ -136,11 +155,28 @@ const styles = StyleSheet.create({
   },
   topRow: {
     flexDirection: 'row',
-    alignItems: 'stretch',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.lg,
+    paddingHorizontal: gutter,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
   },
-  topRowNav: {
+  chipPill: {
+    overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.14)',
+    // Reserved rather than a max: the tabs pill beside it would otherwise take
+    // every spare point and squeeze the chip down to its album art.
+    width: 380,
+  },
+  tabsPill: {
+    overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.14)',
     flex: 1,
-    minWidth: 0,
+    maxWidth: 900,
+    paddingHorizontal: spacing.sm,
   },
 });
 

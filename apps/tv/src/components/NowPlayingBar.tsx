@@ -159,15 +159,12 @@ const styles = StyleSheet.create({
     height: 0,
   },
   chipWrap: {
-    // A reserved width, not a max: the nav items beside this are all flex:1 and
-    // will otherwise take every spare point and squeeze the chip to its art.
-    width: 300,
+    // No width, background or border here any more: the glass pill in
+    // RootNavigator supplies all three. Painting a surface inside the glass
+    // would sit a solid layer in front of it and defeat the effect.
     justifyContent: 'center',
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    paddingRight: gutter,
-    paddingLeft: spacing.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
   },
   chip: {
     flexDirection: 'row',
