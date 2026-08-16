@@ -108,8 +108,16 @@ function NowPlayingBar({ hidden, onOpen, floating }: NowPlayingBarProps) {
         accessibilityRole="button"
         accessibilityLabel={snapshot.isPaused ? 'Play' : 'Pause'}
         onPress={() => (snapshot.isPaused ? playbackService.resume() : playbackService.pause())}
-        style={({ focused, pressed }) => [styles.playButton, (focused || pressed) && styles.playButtonFocused]}>
+        style={({ focused, pressed }) => [styles.playButton, pressed && styles.playButtonPressed]}>
         <Text style={styles.playIcon}>{snapshot.isPaused ? '\u25B6\uFE0E' : '\u23F8\uFE0E'}</Text>
+      </Pressable>
+
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Next track"
+        onPress={playbackService.next}
+        style={({ pressed }) => [styles.playButton, pressed && styles.playButtonPressed]}>
+        <Text style={styles.playIcon}>{'\u23ED\uFE0E'}</Text>
       </Pressable>
     </>
   );
@@ -193,15 +201,10 @@ const styles = StyleSheet.create({
   playButton: {
     width: ART_SIZE,
     height: ART_SIZE,
-    borderRadius: radius.pill,
-    backgroundColor: colors.surface2,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  playButtonFocused: {
-    outlineWidth: 3,
-    outlineColor: colors.text,
-  },
+  playButtonPressed: { opacity: 0.5 },
   playIcon: {
     fontSize: typeScale.button,
     color: colors.text,

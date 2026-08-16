@@ -1,6 +1,11 @@
 /**
- * The floating capsule at the bottom of the phone: the now-playing bar stacked
- * above the four tabs, all on one piece of glass, over the content.
+ * The floating chrome at the bottom of the phone: a mini player capsule above a
+ * tab bar capsule, both glass, both over the content.
+ *
+ * Two capsules with a gap, not one merged block. That is what Apple Music does,
+ * and the difference is not decorative: separate capsules read as two
+ * independent controls, while one tall block reads as a single slab of chrome
+ * and makes the player look welded to the navigation.
  *
  * Floating is what makes the glass mean anything. Docked at the bottom of a
  * column there is nothing behind it but the flat app background, so the effect
@@ -48,16 +53,21 @@ export default function FloatingChrome({ current, onNavigate, onOpenPlayer, hidd
       // The dock spans the width but only its capsule is real; taps either side
       // must reach the list underneath.
       pointerEvents="box-none">
+      {/* Mini player. Always mounted, even while hidden: it owns the app's only
+          <Video>, so unmounting it stops playback outright. */}
       <GlassSurface
-        style={[styles.capsule, hidden && styles.capsuleHidden]}
+        style={[styles.player, hidden && styles.collapsed]}
         fallbackColor={colors.surface}
         radius={radius.lg}
         pointerEvents={hidden ? 'none' : 'auto'}>
-        {/* Always mounted, even while hidden: this owns the app's only <Video>,
-            so unmounting it stops playback outright. */}
         <NowPlayingBar hidden={hidden} onOpen={onOpenPlayer} floating />
-        {!hidden && <NavBar current={current} onNavigate={onNavigate} />}
       </GlassSurface>
+
+      {!hidden && (
+        <GlassSurface style={styles.tabs} fallbackColor={colors.surface} radius={radius.lg}>
+          <NavBar current={current} onNavigate={onNavigate} />
+        </GlassSurface>
+      )}
     </View>
   );
 }
@@ -69,13 +79,13 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     paddingHorizontal: spacing.md,
+    // The gap between the two capsules. Small enough that they read as a pair,
+    // large enough that they are clearly not one control.
+    gap: spacing.sm,
   },
-  capsule: {
-    overflow: 'hidden',
-    // A hairline edge. Glass has no border of its own, and without one the
-    // capsule dissolves into a light album cover behind it.
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.14)',
-  },
-  capsuleHidden: { opacity: 0, height: 0, borderWidth: 0 },
+  // No border on either. Glass is not an outlined box - the same thing that
+  // made the TV pills look stuck on the screen rather than in it.
+  player: { overflow: 'hidden' },
+  tabs: { overflow: 'hidden' },
+  collapsed: { opacity: 0, height: 0 },
 });

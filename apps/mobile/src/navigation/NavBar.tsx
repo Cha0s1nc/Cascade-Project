@@ -76,7 +76,7 @@ const styles = StyleSheet.create({
   icon: { fontSize: 20, lineHeight: 24, color: colors.text3 },
   iconActive: { color: colors.accent },
   label: { fontSize: typeScale.hint * 0.82, color: colors.text3, fontWeight: '600' },
-  labelActive: { color: colors.text },
+  labelActive: { color: colors.accent },
 });
 
 export default NavBar;
