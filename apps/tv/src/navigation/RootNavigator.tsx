@@ -162,21 +162,22 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     paddingBottom: spacing.sm,
   },
+  // No border on either pill. Glass is not an outlined box - drawing a hairline
+  // around it is what made these read as panels sitting on the screen rather
+  // than as part of it.
   chipPill: {
     overflow: 'hidden',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.14)',
-    // Reserved rather than a max: the tabs pill beside it would otherwise take
-    // every spare point and squeeze the chip down to its album art.
-    width: 380,
+    // A floor and a ceiling, not a fixed width. Without the floor the title
+    // block inside is flex:1 against a content-sized parent, which resolves to
+    // zero and collapses the chip to just its album art. Without the ceiling a
+    // long title pushes the pill across the screen.
+    minWidth: 300,
+    maxWidth: 440,
   },
   tabsPill: {
     overflow: 'hidden',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.14)',
-    flex: 1,
-    maxWidth: 900,
     paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
   },
 });
 

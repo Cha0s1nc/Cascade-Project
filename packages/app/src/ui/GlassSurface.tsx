@@ -48,6 +48,10 @@ export interface GlassSurfaceProps {
    * cover, where the transport icons were very nearly invisible. A dark tint
    * keeps the surface in the range our palette was designed for while still
    * letting the colour through.
+   *
+   * Kept deliberately light. A heavier wash fixes contrast but stops looking
+   * like glass and starts looking like smoked plastic, which is the wrong
+   * trade - contrast belongs to the text colours, not the surface.
    */
   tintColor?: string;
   pointerEvents?: 'auto' | 'none' | 'box-none' | 'box-only';
@@ -59,7 +63,7 @@ export function GlassSurface({
   fallbackColor,
   glassStyle = 'regular',
   radius,
-  tintColor = 'rgba(0,0,0,0.32)',
+  tintColor = 'rgba(0,0,0,0.18)',
   pointerEvents,
 }: GlassSurfaceProps) {
   if (!isLiquidGlassSupported) {

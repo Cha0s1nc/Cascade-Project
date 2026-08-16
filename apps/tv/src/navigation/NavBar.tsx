@@ -58,6 +58,8 @@ function NavBar({ current, onNavigate }: NavBarProps) {
 const styles = StyleSheet.create({
   bar: {
     flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
     // No background: the glass pill around this supplies it.
   },
   barPhone: {
@@ -65,29 +67,39 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
   },
   barTV: {},
+  // Hugs its label instead of flex:1. Stretching four items across a 900pt
+  // slab is what made this read as a toolbar rather than a tab bar; tvOS sizes
+  // a tab bar to its content and lets it sit in the space around it.
   item: {
-    flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
-    paddingVertical: spacing.lg,
-    borderRadius: radius.sm,
+    gap: spacing.sm,
+    // Roomy on purpose. This is read from across a room, and a tab bar sized
+    // like a phone's looks like a mistake on a 1920-wide panel.
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    borderRadius: radius.pill,
   },
   itemActive: {
-    backgroundColor: colors.surface2,
+    backgroundColor: 'rgba(255,255,255,0.10)',
   },
+  // Focus is a filled capsule and a small lift, not a hard ring. The ring was
+  // a rectangle with square corners drawn over a rounded capsule, which is the
+  // single clunkiest thing on this screen - tvOS moves focus by growing and
+  // brightening the thing you are on.
   itemFocused: {
-    outlineWidth: 3,
-    outlineColor: colors.text,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    transform: [{ scale: 1.06 }],
   },
-  icon: { fontSize: 26, lineHeight: 30, color: colors.text3 },
-  iconActive: { color: colors.accent },
+  icon: { fontSize: 28, lineHeight: 32, color: colors.text2 },
+  iconActive: { color: colors.text },
   label: {
-    fontSize: typeScale.label,
+    fontSize: typeScale.body,
     color: colors.text2,
     fontWeight: '600',
   },
   labelActive: {
-    color: colors.accent,
+    color: colors.text,
   },
 });
 
