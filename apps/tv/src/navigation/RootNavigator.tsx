@@ -74,6 +74,10 @@ interface RootNavigatorProps {
 
 function RootNavigator({ session, appVersion, onSignOut }: RootNavigatorProps) {
   const [routeName, setRouteName] = useState<string>('Home');
+  // A callback ref rather than useRef: the guide below needs the actual node as
+  // a destination, and a useRef would still be null on the render that mounts
+  // the guide. Setting state re-renders once the node exists.
+  const [tabsNode, setTabsNode] = useState<View | null>(null);
   const onNowPlaying = routeName === 'NowPlaying';
   // An empty pill is still a pill: without this the chip's glass and its
   // reserved width sit there as a blank slab whenever nothing is playing.
@@ -155,9 +159,23 @@ function RootNavigator({ session, appVersion, onSignOut }: RootNavigatorProps) {
           // owns the app's only <Video>.
           <View>{playbackBar}</View>
         )}
-        <GlassSurface style={styles.tabsPill} fallbackColor={colors.surface} radius={radius.pill}>
-          {navBar(false)}
-        </GlassSurface>
+        {/* An empty guide filling the gap between the two pills, and it is
+            empty on purpose.
+            
+            Pressing Up from a card is the mirror of the Down problem: the tabs
+            pill is right-aligned and the content under it is left-aligned, so
+            Up found nothing above it. The obvious fix - autoFocus on the whole
+            top row - deadlocked focus outright, because autoFocus on a
+            container holding the real targets makes that container fight the
+            stack's guide for every move, and nothing responded at all. A guide
+            with no focusable children of its own does not compete: it only
+            catches focus landing in dead space and forwards it. */}
+        <TVFocusGuideView style={styles.topGap} destinations={tabsNode ? [tabsNode] : []} />
+        <View ref={setTabsNode} collapsable={false}>
+          <GlassSurface style={styles.tabsPill} fallbackColor={colors.surface} radius={radius.pill}>
+            {navBar(false)}
+          </GlassSurface>
+        </View>
       </View>
       <View style={styles.stackArea}>{stack}</View>
     </View>
@@ -248,6 +266,9 @@ const styles = StyleSheet.create({
     // long title pushes the pill across the screen.
     minWidth: 300,
     maxWidth: 440,
+  },
+  topGap: {
+    flex: 1,
   },
   tabsPill: {
     overflow: 'hidden',
