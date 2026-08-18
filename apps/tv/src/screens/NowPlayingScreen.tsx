@@ -197,7 +197,13 @@ function NowPlayingScreen() {
       </View>
 
       <View style={[styles.body, twoUp && styles.bodyTwoUp]}>
-        <View style={styles.left}>
+        {/* Both panels are focus guides for the same reason the nav shell is
+            one: tvOS only moves focus to something directly in the direction
+            you press. The controls card is vertically centred in this column
+            while the queue starts at the top of the next one, so pressing
+            Right off a transport button landed on empty space beside the list
+            and focus did not move - the queue was simply unreachable. */}
+        <TVFocusGuideView autoFocus style={styles.left}>
           <View style={styles.art}>
             {artUrl ? <Image source={{ uri: artUrl }} style={styles.artImage} /> : <Text style={styles.artFallback}>♪</Text>}
           </View>
@@ -321,9 +327,9 @@ function NowPlayingScreen() {
             <Text style={[styles.time, styles.timeRight]}>{clock(duration)}</Text>
           </View>
           </GlassSurface>
-        </View>
+        </TVFocusGuideView>
 
-        <View style={[styles.right, twoUp && styles.rightTwoUp]}>
+        <TVFocusGuideView autoFocus style={[styles.right, twoUp && styles.rightTwoUp]}>
           {showLyrics ? (
             <LyricsPanel item={item} />
           ) : (
@@ -344,7 +350,7 @@ function NowPlayingScreen() {
           />
             </>
           )}
-        </View>
+        </TVFocusGuideView>
       </View>
     </View>
   );

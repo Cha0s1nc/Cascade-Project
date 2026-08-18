@@ -105,7 +105,22 @@ function RootNavigator({ session, appVersion, onSignOut }: RootNavigatorProps) {
     />
   );
 
+  // Wrapped in a focus guide, and this is the fix for the whole class of "the
+  // remote just stops responding" bugs rather than one screen's.
+  //
+  // tvOS moves focus purely by geometry: press Down and it looks for something
+  // focusable directly below what you are on, and if there is nothing there it
+  // does not move at all. The tabs pill sits at the far right of a 1920 screen
+  // while Home's card row starts at the left gutter and does not reach that
+  // far, so Down out of the tab bar found empty space and died. Android TV has
+  // the same engine and the same problem going right from the rail's bottom
+  // chip.
+  //
+  // autoFocus on a guide covering the whole content area means focus entering
+  // that region from any direction gets handed to a child instead of being
+  // dropped. One guide here fixes every screen, which beats a guide per screen.
   const stack = (
+      <TVFocusGuideView autoFocus style={styles.stackFill}>
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           <Stack.Screen name="Home">{() => <HomeScreen session={session} onSignOut={onSignOut} />}</Stack.Screen>
           <Stack.Screen name="Library">{() => <LibraryScreen session={session} />}</Stack.Screen>
@@ -121,6 +136,7 @@ function RootNavigator({ session, appVersion, onSignOut }: RootNavigatorProps) {
           <Stack.Screen name="NowPlaying" component={NowPlayingScreen} options={{ presentation: 'fullScreenModal' }} />
           <Stack.Screen name="Waterfall" component={WaterfallScreen} />
         </Stack.Navigator>
+      </TVFocusGuideView>
   );
 
   const tvOSChrome = (
@@ -182,6 +198,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
   },
   stackArea: {
+    flex: 1,
+  },
+  stackFill: {
     flex: 1,
   },
   // Replaces the inset the tvOS top row used to give every screen. A real
