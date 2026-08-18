@@ -15,7 +15,10 @@
     "typecheck:legacy": "npm run typecheck:legacy -w @cascade/desktop",
     "tv:ios": "npm run ios -w @cascade/tv",
     "tv:android": "npm run android -w @cascade/tv",
+    "mobile:ios": "npm run ios -w @cascade/mobile",
+    "mobile:android": "npm run android -w @cascade/mobile",
     "typecheck:tv": "npm run typecheck -w @cascade/tv",
+    "typecheck:mobile": "npm run typecheck -w @cascade/mobile",
     "test:tv": "npm test -w @cascade/tv"
   },
   "author": {

@@ -14,7 +14,7 @@
  * @format
  */
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TVFocusGuideView, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
@@ -121,6 +121,10 @@ function SearchScreen({ session }: SearchScreenProps) {
         autoCapitalize="none"
         autoCorrect={false}
         returnKeyType="search"
+        // The only thing this screen is for. Without it tvOS picks whatever is
+        // geometrically first, and arriving at Search meant a press or two
+        // before you could type.
+        hasTVPreferredFocus
       />
 
       {!debounced && <Text style={styles.hint}>Search your library</Text>}
@@ -138,7 +142,11 @@ function SearchScreen({ session }: SearchScreenProps) {
       )}
 
       {!!debounced && !search.loading && !search.error && hasAny && (
-        <View>
+        // autoFocus so focus recovers into the results after a retype. Every
+        // keystroke past the debounce replaces this whole subtree, which
+        // unmounts whatever was focused - and tvOS does not re-home focus on
+        // its own, it just stops responding until you press a direction.
+        <TVFocusGuideView autoFocus>
           {results.songs.length > 0 && (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Songs</Text>
@@ -180,7 +188,7 @@ function SearchScreen({ session }: SearchScreenProps) {
               onPressItem={item => navigation.navigate('ArtistDetail', { artistId: item.id, artistName: item.title })}
             />
           )}
-        </View>
+        </TVFocusGuideView>
       )}
     </ScrollView>
   );

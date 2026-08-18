@@ -8,10 +8,17 @@
  * through a navigationRef rather than the usual screen-received `navigation`
  * prop, since it sits outside every screen.
  *
+ * Two chrome layouts, chosen by platform. tvOS floats two glass pills across
+ * the top, which is what tvOS's own apps do. Android TV gets the desktop app's
+ * left sidenav instead: there is no liquid glass on Android, so a floating
+ * pill there is a grey slab with nothing behind it, and Android TV's own
+ * launcher and every Leanback app put navigation down the left edge. Same
+ * NavBar, same navigation, different shell.
+ *
  * @format
  */
 import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, TVFocusGuideView, View } from 'react-native';
 import { DarkTheme, NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import type { Theme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -88,59 +95,78 @@ function RootNavigator({ session, appVersion, onSignOut }: RootNavigatorProps) {
     />
   );
 
-  const navBar = (
+  const navBar = (vertical: boolean) => (
     <NavBar
       current={routeName}
+      vertical={vertical}
       onNavigate={(name: NavItemName) => {
         if (navigationRef.isReady()) navigationRef.navigate(name as never);
       }}
     />
   );
 
+  const stack = (
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="Home">{() => <HomeScreen session={session} onSignOut={onSignOut} />}</Stack.Screen>
+          <Stack.Screen name="Library">{() => <LibraryScreen session={session} />}</Stack.Screen>
+          <Stack.Screen name="Search">{() => <SearchScreen session={session} />}</Stack.Screen>
+          <Stack.Screen name="Settings">
+            {() => <SettingsScreen session={session} appVersion={appVersion} onSignOut={onSignOut} />}
+          </Stack.Screen>
+          <Stack.Screen name="AlbumDetail">{() => <AlbumDetailScreen session={session} />}</Stack.Screen>
+          <Stack.Screen name="ArtistDetail">{() => <ArtistDetailScreen session={session} />}</Stack.Screen>
+          {/* Presented over the stack rather than beside it: it is the
+              desktop's overlay, and the nav bar and the now-playing bar have
+              no business showing through it. */}
+          <Stack.Screen name="NowPlaying" component={NowPlayingScreen} options={{ presentation: 'fullScreenModal' }} />
+          <Stack.Screen name="Waterfall" component={WaterfallScreen} />
+        </Stack.Navigator>
+  );
+
+  const tvOSChrome = (
+    <View style={styles.root}>
+      {/* Chip on the left, tabs on the right, each its own glass pill. Both
+          live up here because focus moves geometrically on a TV: from a row in
+          a 1400-track list, up-then-across always reaches them, while anything
+          docked at the bottom sits behind 1399 rows. */}
+      <View style={styles.topRow} pointerEvents="box-none">
+        {hasTrack ? (
+          <GlassSurface style={styles.chipPill} fallbackColor={colors.surface} radius={radius.pill}>
+            {playbackBar}
+          </GlassSurface>
+        ) : (
+          // The player itself must stay mounted even with the pill gone - it
+          // owns the app's only <Video>.
+          <View>{playbackBar}</View>
+        )}
+        <GlassSurface style={styles.tabsPill} fallbackColor={colors.surface} radius={radius.pill}>
+          {navBar(false)}
+        </GlassSurface>
+      </View>
+      <View style={styles.stackArea}>{stack}</View>
+    </View>
+  );
+
+  const androidChrome = (
+    <View style={styles.rootRow}>
+      {/* autoFocus so a left-press from anywhere in the content lands on the
+          rail rather than falling through to whatever happens to be nearest.
+          Same reason NowPlayingScreen guards its secondary controls. */}
+      <TVFocusGuideView autoFocus style={styles.sidebar}>
+        {navBar(true)}
+        <View style={styles.railSpacer} />
+        {/* Bottom of the rail, where the desktop app's nav-spacer puts it.
+            Reachable by left-then-down from any row, and the player stays
+            mounted with nothing playing for the same reason as above. */}
+        <View style={hasTrack ? styles.railChip : undefined}>{playbackBar}</View>
+      </TVFocusGuideView>
+      <View style={[styles.stackArea, styles.stackAreaRail]}>{stack}</View>
+    </View>
+  );
+
   return (
     <NavigationContainer ref={navigationRef} theme={navTheme} onReady={syncRouteName} onStateChange={syncRouteName}>
-      <View style={styles.root}>
-        {/* The now-playing bar rides in the top row beside the nav, because at
-            the bottom it would be unreachable: focus moves geometrically, so
-            from a row in a 1400-track list the only way down to it is through
-            the other 1399 rows. Up-then-right always gets here. The phone app
-            keeps it at the bottom, where a thumb can just touch it. */}
-        <View style={styles.topRow} pointerEvents="box-none">
-          {/* Chip on the left, tabs on the right, each its own glass pill.
-              Both live up here because focus moves geometrically on a TV: from
-              a row in a 1400-track list, up-then-across always reaches them,
-              while anything docked at the bottom sits behind 1399 rows. */}
-          {hasTrack ? (
-            <GlassSurface style={styles.chipPill} fallbackColor={colors.surface} radius={radius.pill}>
-              {playbackBar}
-            </GlassSurface>
-          ) : (
-            // The player itself must stay mounted even with the pill gone - it
-            // owns the app's only <Video>.
-            <View>{playbackBar}</View>
-          )}
-          <GlassSurface style={styles.tabsPill} fallbackColor={colors.surface} radius={radius.pill}>
-            {navBar}
-          </GlassSurface>
-        </View>
-        <View style={styles.stackArea}>
-          <Stack.Navigator screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="Home">{() => <HomeScreen session={session} onSignOut={onSignOut} />}</Stack.Screen>
-            <Stack.Screen name="Library">{() => <LibraryScreen session={session} />}</Stack.Screen>
-            <Stack.Screen name="Search">{() => <SearchScreen session={session} />}</Stack.Screen>
-            <Stack.Screen name="Settings">
-              {() => <SettingsScreen session={session} appVersion={appVersion} onSignOut={onSignOut} />}
-            </Stack.Screen>
-            <Stack.Screen name="AlbumDetail">{() => <AlbumDetailScreen session={session} />}</Stack.Screen>
-            <Stack.Screen name="ArtistDetail">{() => <ArtistDetailScreen session={session} />}</Stack.Screen>
-            {/* Presented over the stack rather than beside it: it is the
-                desktop's overlay, and the nav bar and the now-playing bar have
-                no business showing through it. */}
-            <Stack.Screen name="NowPlaying" component={NowPlayingScreen} options={{ presentation: 'fullScreenModal' }} />
-            <Stack.Screen name="Waterfall" component={WaterfallScreen} />
-          </Stack.Navigator>
-        </View>
-      </View>
+      {Platform.OS === 'android' ? androidChrome : tvOSChrome}
     </NavigationContainer>
   );
 }
@@ -150,8 +176,38 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.bg,
   },
+  rootRow: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: colors.bg,
+  },
   stackArea: {
     flex: 1,
+  },
+  // Replaces the inset the tvOS top row used to give every screen. A real
+  // panel overscans, so content still must not start at y=0.
+  stackAreaRail: {
+    paddingTop: spacing.xl,
+  },
+  // Wide enough for the longest label at TV type plus the now-playing chip
+  // below it. The desktop rail collapses to 48px and expands on hover; there
+  // is no hover on a remote, and expanding on focus would reflow every grid
+  // beside it every time focus crossed the edge.
+  sidebar: {
+    width: 300,
+    paddingVertical: spacing.xl,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.surface,
+    borderRightWidth: 1,
+    borderRightColor: colors.border,
+  },
+  railSpacer: {
+    flex: 1,
+  },
+  railChip: {
+    borderRadius: radius.md,
+    backgroundColor: colors.surface2,
+    overflow: 'hidden',
   },
   topRow: {
     flexDirection: 'row',
