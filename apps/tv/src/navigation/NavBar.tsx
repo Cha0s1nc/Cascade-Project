@@ -64,9 +64,15 @@ function NavBar({ current, onNavigate, vertical }: NavBarProps) {
                 disappears shifts every label by its width as focus moves. */}
             {vertical && <View style={[styles.accentBar, active && styles.accentBarActive]} />}
             {item === 'Search' ? (
-              <SearchGlyph size={ICON_SIZE} color={active ? colors.text : colors.text2} style={styles.glyph} />
+              <SearchGlyph
+                size={ICON_SIZE}
+                color={active ? colors.text : colors.text2}
+                style={vertical ? styles.glyphVertical : styles.glyph}
+              />
             ) : (
-              <Text style={[styles.icon, active && styles.iconActive]}>{ICONS[item]}</Text>
+              <Text style={[styles.icon, vertical && styles.iconVertical, active && styles.iconActive]}>
+                {ICONS[item]}
+              </Text>
             )}
             <Text style={[styles.label, active && styles.labelActive]}>{item}</Text>
           </Pressable>
@@ -136,10 +142,19 @@ const styles = StyleSheet.create({
     opacity: 1,
   },
   icon: { fontSize: ICON_SIZE, lineHeight: 32, color: colors.text2 },
+  // A fixed column for the icon, the same trick the desktop sidenav uses on
+  // .nav-icon. ⌂, ♫ and ⚙ have very different advance widths, so without it
+  // every label in the rail starts at a different x and the whole column reads
+  // as misaligned. Irrelevant in the horizontal bar, where each item is its
+  // own island.
+  iconVertical: { width: ICON_SIZE + 6, textAlign: 'center' },
   iconActive: { color: colors.text },
   // The drawn glyph is a box, not a line of text, so it needs the baseline
   // nudge the font metrics give the others.
   glyph: { marginVertical: 2 },
+  // Same fixed column, centred inside it - the drawn glyph is already
+  // ICON_SIZE wide, so it only needs the padding the text glyphs get.
+  glyphVertical: { marginVertical: 2, marginHorizontal: 3 },
   label: {
     fontSize: typeScale.body,
     color: colors.text2,
