@@ -16,22 +16,19 @@
  */
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { SearchGlyph } from '@cascade/app';
+import { Icon, type IconName } from '@cascade/app';
 import { colors, radius, spacing, type as typeScale } from '../theme';
 
 export const NAV_ITEMS = ['Home', 'Library', 'Search', 'Settings'] as const;
 
 const ICON_SIZE = 28;
 
-/**
- * Text-presentation glyphs. U+FE0E where the code point is emoji-eligible, or
- * Apple renders these as full-colour emoji beside monochrome text. Search is
- * absent on purpose - see SearchGlyph for why it is drawn instead.
- */
-const ICONS: Record<Exclude<NavItemName, 'Search'>, string> = {
-  Home: '⌂',
-  Library: '♫',
-  Settings: '⚙︎',
+/** The desktop app's own icons - see packages/app's Icon. */
+const ICONS: Record<NavItemName, IconName> = {
+  Home: 'home',
+  Library: 'library',
+  Search: 'search',
+  Settings: 'settings',
 };
 export type NavItemName = (typeof NAV_ITEMS)[number];
 
@@ -63,17 +60,7 @@ function NavBar({ current, onNavigate, vertical }: NavBarProps) {
                 opacity rather than conditionally - a bar that appears and
                 disappears shifts every label by its width as focus moves. */}
             {vertical && <View style={[styles.accentBar, active && styles.accentBarActive]} />}
-            {item === 'Search' ? (
-              <SearchGlyph
-                size={ICON_SIZE}
-                color={active ? colors.text : colors.text2}
-                style={vertical ? styles.glyphVertical : styles.glyph}
-              />
-            ) : (
-              <Text style={[styles.icon, vertical && styles.iconVertical, active && styles.iconActive]}>
-                {ICONS[item]}
-              </Text>
-            )}
+            <Icon name={ICONS[item]} size={ICON_SIZE} color={active ? colors.text : colors.text2} />
             <Text style={[styles.label, active && styles.labelActive]}>{item}</Text>
           </Pressable>
         );
@@ -141,20 +128,10 @@ const styles = StyleSheet.create({
   accentBarActive: {
     opacity: 1,
   },
-  icon: { fontSize: ICON_SIZE, lineHeight: 32, color: colors.text2 },
-  // A fixed column for the icon, the same trick the desktop sidenav uses on
-  // .nav-icon. ⌂, ♫ and ⚙ have very different advance widths, so without it
-  // every label in the rail starts at a different x and the whole column reads
-  // as misaligned. Irrelevant in the horizontal bar, where each item is its
-  // own island.
-  iconVertical: { width: ICON_SIZE + 6, textAlign: 'center' },
-  iconActive: { color: colors.text },
-  // The drawn glyph is a box, not a line of text, so it needs the baseline
-  // nudge the font metrics give the others.
-  glyph: { marginVertical: 2 },
-  // Same fixed column, centred inside it - the drawn glyph is already
-  // ICON_SIZE wide, so it only needs the padding the text glyphs get.
-  glyphVertical: { marginVertical: 2, marginHorizontal: 3 },
+  // No fixed-width icon column any more. That existed because ⌂, ♫ and ⚙ have
+  // very different advance widths, which left every label in the rail starting
+  // at a different x. Every icon is now the same ICON_SIZE box, so the labels
+  // line up on their own.
   label: {
     fontSize: typeScale.body,
     color: colors.text2,

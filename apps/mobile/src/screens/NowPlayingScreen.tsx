@@ -29,7 +29,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { JfItem } from '@cascade/core';
 
-import { GlassSurface, getJellyfinClient } from '@cascade/app';
+import { GlassSurface, Icon, getJellyfinClient } from '@cascade/app';
+import type { IconName } from '@cascade/app';
 import AlbumArtBackground from '../components/AlbumArtBackground';
 import LyricsPanel from '../components/LyricsPanel';
 import { playbackService, usePlaybackSnapshot } from '@cascade/app';
@@ -41,27 +42,9 @@ const SKIP_SEC = 10;
 // Transport glyphs, each with a U+FE0E variation selector.
 //
 // These code points are emoji-presentation-eligible, so without it Apple
-// renders them as full-colour emoji - the controls came out as blue rounded
-// squares instead of the monochrome icons the desktop draws in SVG. FE0E asks
-// for the text presentation.
-const GLYPH = {
-  prev: '\u23EE\uFE0E',
-  back: '\u23EA\uFE0E',
-  play: '\u25B6\uFE0E',
-  pause: '\u23F8\uFE0E',
-  forward: '\u23E9\uFE0E',
-  next: '\u23ED\uFE0E',
-  shuffle: '\u21C4\uFE0E',
-  repeat: '\u21BB\uFE0E',
-  lyrics: '\u201C\u201D',
-  volDown: '\u2212',
-  volUp: '+',
-  // A plain letter, not a speaker symbol: the Unicode speakers have no text
-  // presentation, so they render as full-colour emoji next to monochrome
-  // controls. The active pill is what says "muted"; the accessibility label
-  // says it in words.
-  mute: 'M',
-} as const;
+
+/** Icon box inside a Ctrl button, which is 48pt. */
+const ICON_SIZE = 24;
 
 /** One VolumeUp/VolumeDown press, matching the desktop and the remote. */
 const VOLUME_STEP = 0.1;
@@ -76,7 +59,7 @@ function clock(sec: number): string {
 /** A round transport button. `primary` is the play/pause one in the middle. */
 function Ctrl({
   label,
-  glyph,
+  icon,
   onPress,
   primary,
   active,
@@ -84,12 +67,12 @@ function Ctrl({
   hasTVPreferredFocus,
 }: {
   label: string;
-  glyph: string;
+  icon: IconName;
   onPress: () => void;
   primary?: boolean;
   /** A toggle that is currently on - shuffle, or repeat in any mode but none. */
   active?: boolean;
-  /** Superscript on the glyph. Only repeat-one uses it. */
+  /** Superscript on the icon. Only repeat-one uses it. */
   badge?: string;
   hasTVPreferredFocus?: boolean;
 }) {
@@ -106,9 +89,11 @@ function Ctrl({
         active && styles.ctrlActive,
         (focused || pressed) && styles.ctrlFocused,
       ]}>
-      <Text style={[styles.ctrlGlyph, primary && styles.ctrlGlyphPrimary, active && styles.ctrlGlyphActive]}>
-        {glyph}
-      </Text>
+      <Icon
+        name={icon}
+        size={primary ? ICON_SIZE * 1.15 : ICON_SIZE}
+        color={primary ? '#fff' : active ? colors.text : colors.text2}
+      />
       {!!badge && <Text style={styles.ctrlBadge}>{badge}</Text>}
     </Pressable>
   );
@@ -246,13 +231,13 @@ function NowPlayingScreen() {
           <View style={styles.secondary}>
             <Ctrl
               label="Shuffle"
-              glyph={GLYPH.shuffle}
+              icon="shuffle"
               active={snapshot.shuffle}
               onPress={playbackService.toggleShuffle}
             />
             <Ctrl
               label={snapshot.repeat === 'one' ? 'Repeat one' : snapshot.repeat === 'all' ? 'Repeat all' : 'Repeat'}
-              glyph={GLYPH.repeat}
+              icon="repeat"
               // "one" needs to be distinguishable from "all" at a glance and
               // from across a room; the desktop swaps in an icon with a 1 in it,
               // and a superscript reads the same way without a second glyph.
@@ -262,7 +247,7 @@ function NowPlayingScreen() {
             />
             <Ctrl
               label={showLyrics ? 'Show queue' : 'Show lyrics'}
-              glyph={GLYPH.lyrics}
+              icon="lyrics"
               active={showLyrics}
               onPress={() => setShowLyrics(v => !v)}
             />
@@ -270,20 +255,20 @@ function NowPlayingScreen() {
           </TVFocusGuideView>
 
           <View style={styles.transport}>
-            <Ctrl label="Previous" glyph={GLYPH.prev} onPress={playbackService.previous} />
+            <Ctrl label="Previous" icon="previous" onPress={playbackService.previous} />
             {/* The desktop shows these only for video, where the arrow keys
                 imply them. On a TV remote they are the only way to seek at all,
                 so they are always here. */}
-            <Ctrl label={`Back ${SKIP_SEC} seconds`} glyph={GLYPH.back} onPress={() => seekBy(-SKIP_SEC)} />
+            <Ctrl label={`Back ${SKIP_SEC} seconds`} icon="rewind" onPress={() => seekBy(-SKIP_SEC)} />
             <Ctrl
               label={snapshot.isPaused ? 'Play' : 'Pause'}
-              glyph={snapshot.isPaused ? GLYPH.play : GLYPH.pause}
+              icon={snapshot.isPaused ? 'play' : 'pause'}
               primary
               hasTVPreferredFocus
               onPress={() => (snapshot.isPaused ? playbackService.resume() : playbackService.pause())}
             />
-            <Ctrl label={`Forward ${SKIP_SEC} seconds`} glyph={GLYPH.forward} onPress={() => seekBy(SKIP_SEC)} />
-            <Ctrl label="Next" glyph={GLYPH.next} onPress={playbackService.next} />
+            <Ctrl label={`Forward ${SKIP_SEC} seconds`} icon="fastForward" onPress={() => seekBy(SKIP_SEC)} />
+            <Ctrl label="Next" icon="next" onPress={playbackService.next} />
           </View>
 
           {/* The desktop has a slider here. Buttons instead, because the same
@@ -292,13 +277,13 @@ function NowPlayingScreen() {
           <View style={styles.volume}>
             <Ctrl
               label={snapshot.muted ? 'Unmute' : 'Mute'}
-              glyph={GLYPH.mute}
+              icon={snapshot.muted ? 'volumeOff' : 'volume'}
               active={snapshot.muted}
               onPress={playbackService.toggleMuted}
             />
             <Ctrl
               label="Volume down"
-              glyph={GLYPH.volDown}
+              icon="minus"
               onPress={() => playbackService.setVolume(snapshot.volume - VOLUME_STEP)}
             />
             <View style={styles.volBar}>
@@ -306,7 +291,7 @@ function NowPlayingScreen() {
             </View>
             <Ctrl
               label="Volume up"
-              glyph={GLYPH.volUp}
+              icon="plus"
               onPress={() => playbackService.setVolume(snapshot.volume + VOLUME_STEP)}
             />
           </View>
@@ -441,9 +426,6 @@ const styles = StyleSheet.create({
   // An "on" toggle has to read as on without focus sitting on it, since on a TV
   // the focus ring is somewhere else entirely most of the time.
   ctrlActive: { backgroundColor: 'rgba(255,255,255,0.16)' },
-  ctrlGlyph: { fontSize: typeScale.button, color: colors.text2 },
-  ctrlGlyphPrimary: { fontSize: typeScale.button * 1.15, color: '#fff' },
-  ctrlGlyphActive: { color: colors.text },
   ctrlBadge: {
     position: 'absolute',
     top: 4,

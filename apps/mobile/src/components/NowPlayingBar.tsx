@@ -17,13 +17,14 @@
 import Video from 'react-native-video';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { GlassSurface, getJellyfinClient } from '@cascade/app';
+import { GlassSurface, Icon, getJellyfinClient } from '@cascade/app';
 import { playbackService, usePlaybackSnapshot } from '@cascade/app';
 import { colors, gutter, radius, spacing, type as typeScale } from '../theme';
 
 // Bigger on TV for the same reason every other thumb/target in this app is -
 // see TrackRow's THUMB_SIZE and NavBar's paddingVertical.
 const ART_SIZE = spacing.xxl;
+const ICON_SIZE = 22;
 
 interface NowPlayingBarProps {
   /** Inside FloatingChrome's capsule: no background or border of its own, and
@@ -109,7 +110,7 @@ function NowPlayingBar({ hidden, onOpen, floating }: NowPlayingBarProps) {
         accessibilityLabel={snapshot.isPaused ? 'Play' : 'Pause'}
         onPress={() => (snapshot.isPaused ? playbackService.resume() : playbackService.pause())}
         style={({ focused, pressed }) => [styles.playButton, pressed && styles.playButtonPressed]}>
-        <Text style={styles.playIcon}>{snapshot.isPaused ? '\u25B6\uFE0E' : '\u23F8\uFE0E'}</Text>
+        <Icon name={snapshot.isPaused ? 'play' : 'pause'} size={ICON_SIZE} color={colors.text} />
       </Pressable>
 
       <Pressable
@@ -117,7 +118,7 @@ function NowPlayingBar({ hidden, onOpen, floating }: NowPlayingBarProps) {
         accessibilityLabel="Next track"
         onPress={playbackService.next}
         style={({ pressed }) => [styles.playButton, pressed && styles.playButtonPressed]}>
-        <Text style={styles.playIcon}>{'\u23ED\uFE0E'}</Text>
+        <Icon name="next" size={ICON_SIZE} color={colors.text} />
       </Pressable>
     </>
   );
@@ -205,10 +206,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   playButtonPressed: { opacity: 0.5 },
-  playIcon: {
-    fontSize: typeScale.button,
-    color: colors.text,
-  },
 });
 
 export default NowPlayingBar;

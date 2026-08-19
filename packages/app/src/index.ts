@@ -22,4 +22,4 @@ export * from './remote/remote.ts';
 export * from './lyrics/kugou.ts';
 export * from './art/palette.ts';
 export * from './ui/GlassSurface.tsx';
-export * from './ui/SearchGlyph.tsx';
+export * from './ui/Icon.tsx';

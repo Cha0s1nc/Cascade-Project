@@ -17,13 +17,14 @@
 import Video from 'react-native-video';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { getJellyfinClient } from '@cascade/app';
+import { Icon, getJellyfinClient } from '@cascade/app';
 import { playbackService, usePlaybackSnapshot } from '@cascade/app';
 import { colors, gutter, radius, spacing, type as typeScale } from '../theme';
 
 // Bigger on TV for the same reason every other thumb/target in this app is -
 // see TrackRow's THUMB_SIZE and NavBar's paddingVertical.
 const ART_SIZE = spacing.xxl * 1.5;
+const PLAY_ICON_SIZE = 26;
 
 interface NowPlayingBarProps {
   /** True while NowPlayingScreen is up. Chrome hides; <Video> stays mounted. */
@@ -137,7 +138,7 @@ function NowPlayingBar({ hidden, compact, onOpen }: NowPlayingBarProps) {
         accessibilityLabel={snapshot.isPaused ? 'Play' : 'Pause'}
         onPress={() => (snapshot.isPaused ? playbackService.resume() : playbackService.pause())}
         style={({ focused, pressed }) => [styles.playButton, (focused || pressed) && styles.playButtonFocused]}>
-        <Text style={styles.playIcon}>{snapshot.isPaused ? '\u25B6\uFE0E' : '\u23F8\uFE0E'}</Text>
+        <Icon name={snapshot.isPaused ? 'play' : 'pause'} size={PLAY_ICON_SIZE} color={colors.text} />
       </Pressable>
     </View>
   );
@@ -243,10 +244,6 @@ const styles = StyleSheet.create({
   playButtonFocused: {
     outlineWidth: 3,
     outlineColor: colors.text,
-  },
-  playIcon: {
-    fontSize: typeScale.button,
-    color: colors.text,
   },
 });
 
