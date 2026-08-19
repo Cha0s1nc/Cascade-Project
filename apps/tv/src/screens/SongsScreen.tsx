@@ -91,7 +91,9 @@ const styles = StyleSheet.create({
   // No `flex: 1` - see the comment on MediaGrid's `container`. It collapses a
   // scroll view to a 1pt frame on tvOS, which is what left this screen blank.
   container: {
-    backgroundColor: colors.bg,
+    // Transparent so RootNavigator's album-art wash shows through. tvOS Apple
+    // Music never shows a flat near-black screen; the artwork tints everything.
+    backgroundColor: 'transparent',
   },
   content: {
     paddingVertical: spacing.lg,

@@ -34,7 +34,7 @@ import NowPlayingScreen from '../screens/NowPlayingScreen';
 import SearchScreen from '../screens/SearchScreen';
 import WaterfallScreen from '../screens/WaterfallScreen';
 import { GlassSurface, usePlaybackSnapshot } from '@cascade/app';
-import { colors, gutter, radius, spacing } from '../theme';
+import { bgTint, colors, gutter, radius, spacing } from '../theme';
 import NavBar, { NAV_ITEMS } from './NavBar';
 import type { NavItemName } from './NavBar';
 
@@ -58,7 +58,9 @@ const navTheme: Theme = {
   ...DarkTheme,
   colors: {
     ...DarkTheme.colors,
-    background: colors.bg,
+    // Transparent, not colors.bg: the album-art wash is painted once at the
+    // root and every screen sits on it. A solid colour here would cover it.
+    background: 'transparent',
     card: colors.surface,
     text: colors.text,
     border: colors.border,
@@ -208,12 +210,12 @@ function RootNavigator({ session, appVersion, onSignOut }: RootNavigatorProps) {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: colors.bg,
+    backgroundColor: bgTint,
   },
   rootRow: {
     flex: 1,
     flexDirection: 'row',
-    backgroundColor: colors.bg,
+    backgroundColor: bgTint,
   },
   stackArea: {
     flex: 1,
@@ -260,6 +262,8 @@ const styles = StyleSheet.create({
   // than as part of it.
   chipPill: {
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
     // A floor and a ceiling, not a fixed width. Without the floor the title
     // block inside is flex:1 against a content-sized parent, which resolves to
     // zero and collapses the chip to just its album art. Without the ceiling a
@@ -270,10 +274,16 @@ const styles = StyleSheet.create({
   topGap: {
     flex: 1,
   },
+  // The hairline is back, and this reverses an earlier call of mine. I removed
+  // borders from these pills on the reasoning that glass is not an outlined
+  // box. tvOS Apple Music's own tab bar is exactly that: a thin stroked capsule
+  // holding the tabs, with only the focused one filled. The reference wins.
   tabsPill: {
     overflow: 'hidden',
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
   },
 });
 

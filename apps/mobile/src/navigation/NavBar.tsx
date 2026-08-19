@@ -45,7 +45,7 @@ function NavBar({ current, onNavigate }: NavBarProps) {
             accessibilityState={{ selected: active }}
             accessibilityLabel={item}
             onPress={() => onNavigate(item)}
-            style={({ pressed }) => [styles.item, pressed && styles.itemPressed]}>
+            style={({ pressed }) => [styles.item, active && styles.itemActive, pressed && styles.itemPressed]}>
             <Icon name={ICONS[item]} size={ICON_SIZE} color={active ? colors.accent : colors.text3} />
             <Text style={[styles.label, active && styles.labelActive]}>{item}</Text>
           </Pressable>
@@ -66,8 +66,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 2,
     paddingVertical: spacing.xs,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
   },
+  // Apple Music marks the current tab with a filled pill behind the icon and
+  // label, not with colour alone. On glass that matters more than it does on a
+  // solid bar: whatever is scrolling past underneath keeps changing the
+  // contrast, and a tinted glyph on its own drifts in and out of legibility.
+  itemActive: { backgroundColor: 'rgba(255,255,255,0.12)' },
   itemPressed: { opacity: 0.6 },
   label: { fontSize: typeScale.hint * 0.82, color: colors.text3, fontWeight: '600' },
   labelActive: { color: colors.accent },

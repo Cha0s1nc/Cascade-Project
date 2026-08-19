@@ -34,12 +34,25 @@ interface MediaRowProps {
   onPressItem?: (item: MediaRowItem) => void;
 }
 
-// A horizontal FlatList needs a stable card width up front. Derived from the
-// shared spacing scale (not platform-split) rather than a bare number, with an
-// explicit TV bump - a 10-foot screen needs a bigger target than theme.spacing
-// alone encodes. Exported: MediaGrid's column-count math needs the same width
-// the card actually renders at.
-export const ART_SIZE = spacing.xxl * 4;
+// A horizontal FlatList needs a stable card width up front. Exported because
+// MediaGrid's column-count math needs the same width the card actually renders
+// at.
+//
+// 256pt, which is double what it was. At 128 a 1920 panel fitted eight cards to
+// a row and every single title ellipsed - "24K Mag...", "dat bih g...". That is
+// phone sizing that had simply never been re-judged on a TV. tvOS Apple Music
+// puts four or five across the same width, so the artwork is the thing you
+// read and the title underneath fits.
+export const ART_SIZE = spacing.xxl * 8;
+
+/**
+ * Corner radius for a card at TV size.
+ *
+ * radius.md is 10, which is tuned for a phone; on a 256pt card across a room it
+ * reads as square. Apple's TV artwork sits nearer 7% of the card, and that is
+ * what makes their grid look soft rather than like a wall of tiles.
+ */
+const CARD_RADIUS = 18;
 
 /**
  * `size` overrides the card width. A grid passes the width that divides its row
@@ -104,7 +117,7 @@ function MediaRow({ title, items, loading, error, emptyLabel, errorLabel, onPres
 
 const styles = StyleSheet.create({
   row: {
-    marginBottom: spacing.xl,
+    marginBottom: spacing.xxl,
   },
   rowTitle: {
     fontSize: typeScale.label,
@@ -124,20 +137,28 @@ const styles = StyleSheet.create({
   },
   rowContent: {
     paddingHorizontal: gutter,
-    gap: spacing.md,
+    gap: spacing.xl,
   },
   card: {
     width: ART_SIZE,
-    borderRadius: radius.md,
+    borderRadius: CARD_RADIUS,
   },
+  // Grow and lift, rather than draw a ring. A hard 3pt outline around every
+  // focused tile is the other half of why this looked homemade - tvOS moves
+  // focus by scaling the artwork and floating it off the background, and never
+  // outlines it.
   cardFocused: {
-    outlineWidth: 3,
-    outlineColor: colors.text,
+    transform: [{ scale: 1.06 }],
+    shadowColor: '#000',
+    shadowOpacity: 0.55,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 12,
   },
   art: {
     width: ART_SIZE,
     height: ART_SIZE,
-    borderRadius: radius.md,
+    borderRadius: CARD_RADIUS,
     backgroundColor: colors.surface2,
     alignItems: 'center',
     justifyContent: 'center',
@@ -155,11 +176,14 @@ const styles = StyleSheet.create({
   cardTitle: {
     fontSize: typeScale.body,
     color: colors.text,
-    fontWeight: '600',
+    fontWeight: '700',
+    marginTop: spacing.xs,
   },
+  // text2, not text3: text3 is a mid grey tuned for a phone at arm's length and
+  // it disappears against the tinted background from across a room.
   cardSubtitle: {
     fontSize: typeScale.hint,
-    color: colors.text3,
+    color: colors.text2,
   },
 });
 

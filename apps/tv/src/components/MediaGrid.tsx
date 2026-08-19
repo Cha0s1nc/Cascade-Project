@@ -113,7 +113,9 @@ const styles = StyleSheet.create({
   // whole reason Albums, Artists and Songs were blank, and why it read as
   // "the data never loaded" when the data was always there.
   container: {
-    backgroundColor: colors.bg,
+    // Transparent so RootNavigator's album-art wash shows through. tvOS Apple
+    // Music never shows a flat near-black screen; the artwork tints everything.
+    backgroundColor: 'transparent',
   },
   content: {
     paddingHorizontal: gutter,

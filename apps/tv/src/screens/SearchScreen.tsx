@@ -198,7 +198,9 @@ const styles = StyleSheet.create({
   // No `flex: 1` - see the comment on MediaGrid's `container`. Same as Home:
   // this looked fine but was not actually scrollable.
   container: {
-    backgroundColor: colors.bg,
+    // Transparent so RootNavigator's album-art wash shows through. tvOS Apple
+    // Music never shows a flat near-black screen; the artwork tints everything.
+    backgroundColor: 'transparent',
   },
   content: {
     paddingTop: spacing.lg,

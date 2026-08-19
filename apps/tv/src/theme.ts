@@ -30,3 +30,18 @@ export const type = { heading: 38, label: 22, body: 26, button: 26, code: 72, hi
 export const gutter = 48;
 
 export { spacing as _spacing };
+
+/**
+ * The app-wide background for the 10-foot UI.
+ *
+ * Not colors.bg, which is very nearly black. A flat near-black panel is the
+ * single biggest thing that made this read as homemade next to tvOS Apple
+ * Music, which holds one constant desaturated indigo behind Home, Library,
+ * Radio and Settings alike.
+ *
+ * Deliberately constant rather than derived from the current artwork: the
+ * reference only pulls colour from the cover on the now-playing and lyrics
+ * screens, and AlbumArtBackground still does exactly that there. This is Apple's
+ * indigo pulled toward Cascade's own accent so the app still looks like itself.
+ */
+export const bgTint = '#22203a';

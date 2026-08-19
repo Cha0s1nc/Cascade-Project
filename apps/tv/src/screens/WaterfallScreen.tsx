@@ -137,7 +137,9 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 640,
     alignSelf: 'center',
-    backgroundColor: colors.bg,
+    // Transparent so RootNavigator's album-art wash shows through. tvOS Apple
+    // Music never shows a flat near-black screen; the artwork tints everything.
+    backgroundColor: 'transparent',
   },
   heading: {
     fontSize: typeScale.heading,

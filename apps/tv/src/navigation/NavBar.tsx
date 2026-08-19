@@ -23,6 +23,10 @@ export const NAV_ITEMS = ['Home', 'Library', 'Search', 'Settings'] as const;
 
 const ICON_SIZE = 28;
 
+/** Contents of the solid white focused capsule. Near-black rather than pure,
+ *  matching how tvOS fills a focused control. */
+const FILLED_FG = '#1c1c1e';
+
 /** The desktop app's own icons - see packages/app's Icon. */
 const ICONS: Record<NavItemName, IconName> = {
   Home: 'home',
@@ -53,15 +57,28 @@ function NavBar({ current, onNavigate, vertical }: NavBarProps) {
             style={({ focused, pressed }) => [
               styles.item,
               vertical && styles.itemVertical,
-              active && styles.itemActive,
+              active && (vertical ? styles.itemActiveVertical : styles.itemActive),
               (focused || pressed) && (vertical ? styles.itemFocusedVertical : styles.itemFocused),
             ]}>
-            {/* The desktop sidenav's accent bar, rendered always and hidden by
-                opacity rather than conditionally - a bar that appears and
-                disappears shifts every label by its width as focus moves. */}
-            {vertical && <View style={[styles.accentBar, active && styles.accentBarActive]} />}
-            <Icon name={ICONS[item]} size={ICON_SIZE} color={active ? colors.text : colors.text2} />
-            <Text style={[styles.label, active && styles.labelActive]}>{item}</Text>
+            {({ focused, pressed }) => {
+              // On the horizontal bar the focused tab is a solid white capsule
+              // with dark contents, so its icon and label have to invert. That
+              // needs the focus state down here rather than only in the style
+              // callback, which is what the render-prop child is for.
+              const filled = !vertical && (focused || pressed);
+              const tint = filled ? FILLED_FG : active ? colors.text : colors.text2;
+              return (
+                <>
+                  {/* The desktop sidenav's accent bar, rendered always and
+                      hidden by opacity rather than conditionally - a bar that
+                      appears and disappears shifts every label by its width as
+                      focus moves. */}
+                  {vertical && <View style={[styles.accentBar, active && styles.accentBarActive]} />}
+                  <Icon name={ICONS[item]} size={ICON_SIZE} color={tint} />
+                  <Text style={[styles.label, { color: tint }]}>{item}</Text>
+                </>
+              );
+            }}
           </Pressable>
         );
       })}
@@ -101,16 +118,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     borderRadius: radius.md,
   },
+  // The current tab while focus is somewhere else: present but quiet. It only
+  // has to say "you are here", because the moment focus lands the white
+  // capsule below takes over.
   itemActive: {
+    backgroundColor: 'rgba(255,255,255,0.16)',
+  },
+  itemActiveVertical: {
     backgroundColor: 'rgba(255,255,255,0.10)',
   },
-  // Focus is a filled capsule and a small lift, not a hard ring. The ring was
-  // a rectangle with square corners drawn over a rounded capsule, which is the
-  // single clunkiest thing on this screen - tvOS moves focus by growing and
-  // brightening the thing you are on.
+  // A solid white capsule, which is what tvOS Apple Music actually does - not
+  // the translucent tint with a scale bump that was here before. The scale is
+  // gone with it: Apple fills the tab rather than growing it, and growing a
+  // capsule inside another capsule pushed it against the outline.
   itemFocused: {
-    backgroundColor: 'rgba(255,255,255,0.22)',
-    transform: [{ scale: 1.06 }],
+    backgroundColor: '#fff',
   },
   // No scale in the rail: an item as wide as the rail grows past its edge and
   // clips. Brightness alone carries focus here.
@@ -132,14 +154,13 @@ const styles = StyleSheet.create({
   // very different advance widths, which left every label in the rail starting
   // at a different x. Every icon is now the same ICON_SIZE box, so the labels
   // line up on their own.
+  // No colour here: every caller passes one, because it depends on focus as
+  // well as on which tab is current.
   label: {
     fontSize: typeScale.body,
-    color: colors.text2,
     fontWeight: '600',
   },
-  labelActive: {
-    color: colors.text,
-  },
+
 });
 
 export default NavBar;

@@ -19,6 +19,12 @@
  * screen instead, and a dense album grid over full-strength blobs was exactly as
  * bad as it sounds.
  *
+ * The app-wide tint that landed alongside this is a flat colour, not this: tvOS
+ * Apple Music holds one constant indigo across Home, Library, Radio and
+ * Settings and only derives from artwork on the now-playing and lyrics screens.
+ * Reaching for extraction everywhere would have been this app inventing a
+ * behaviour the reference does not have, and paying a drift loop for it.
+ *
  * @format
  */
 import { useEffect, useRef, useState } from 'react';

@@ -132,7 +132,9 @@ const styles = StyleSheet.create({
   // but it could not actually scroll, so content past the first screenful was
   // unreachable.
   container: {
-    backgroundColor: colors.bg,
+    // Transparent so RootNavigator's album-art wash shows through. tvOS Apple
+    // Music never shows a flat near-black screen; the artwork tints everything.
+    backgroundColor: 'transparent',
   },
   content: {
     paddingTop: spacing.lg,

@@ -91,7 +91,7 @@ function SettingsScreen({ session, appVersion, onSignOut }: SettingsScreenProps)
 }
 
 const styles = StyleSheet.create({
-  root: { backgroundColor: colors.bg },
+  root: { backgroundColor: 'transparent' },
   content: { paddingHorizontal: gutter, paddingTop: spacing.lg, paddingBottom: spacing.xxl, flexGrow: 1 },
   heading: {
     fontSize: typeScale.heading,

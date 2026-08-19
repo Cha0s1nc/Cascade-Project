@@ -59,7 +59,7 @@ function LibraryScreen({ session }: { session: StoredSession }) {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg },
+  root: { flex: 1, backgroundColor: 'transparent' },
   segments: {
     flexDirection: 'row',
     gap: spacing.xs,
