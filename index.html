@@ -532,6 +532,14 @@
     .ov-lyric-line.active .ov-lyric-word:not(.active) { filter: none; transition: filter 0.4s ease-out; }
     #ov-panel-lyrics:hover .ov-lyric-line.past { opacity: 0.2; transform: scale(0.72); pointer-events: auto; }
     #ov-panel-lyrics:hover .ov-lyric-line.past.near-past { opacity: 0.35; transform: scale(0.82); }
+    /* Scrolling by hand means you want to read, and the karaoke fade hides
+       exactly what you are scrolling toward - past lines and anything beyond
+       near-3 sit at opacity 0. Bring the whole lyric up while browsing. The
+       line's existing transition does the fade both ways, so it settles back
+       into the karaoke look on its own when the spring returns to the active
+       line. */
+    #ov-panel-lyrics.browsing .ov-lyric-line { opacity: 0.45; transform: scale(0.88); color: var(--text2); pointer-events: auto; }
+    #ov-panel-lyrics.browsing .ov-lyric-line.active { opacity: 1; transform: scale(1); color: white; }
 
     /* ── Context menu ── */
     .ctx-menu { position: fixed; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 4px; min-width: 200px; z-index: 1000; box-shadow: 0 8px 32px rgba(0,0,0,0.5); display: none; }

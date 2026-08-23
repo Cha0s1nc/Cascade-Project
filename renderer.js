@@ -4123,6 +4123,10 @@ function renderOverlayLyricLines(translated = false) {
     el.addEventListener('click', () => {
       const ticks = parseInt(el.dataset.start)
       if (!isNaN(ticks) && audio.duration) audio.currentTime = ticks / 10000000
+      // Clicking a line is the same intent as the settle timer firing: you are
+      // done browsing and back on the current lyric. Drop the manual offset now
+      // instead of leaving the view parked until the timer catches up.
+      _resetOverlayManualScroll()
     })
   })
 }
@@ -4318,6 +4322,7 @@ function _resetOverlayManualScroll() {
   clearTimeout(ovLyricsScrollTimer)
   ovLyricsUserScrolling  = false
   ovLyricsManualOffset   = 0
+  document.getElementById('ov-panel-lyrics').classList.remove('browsing')
 }
 
 // Reset when track changes
@@ -4334,11 +4339,15 @@ document.getElementById('ov-panel-lyrics').addEventListener('wheel', (e) => {
   ovLyricsManualOffset = clampedY - ovLyricsBaseY
   ovLyricsUserScrolling = true
   ovLyricsSpring.setPos(clampedY)  // 1:1 tracking under the cursor, no physics lag
+  // Reveals the lines the karaoke fade keeps at opacity 0, which is everything
+  // you scroll toward. CSS handles the fade in and back out.
+  e.currentTarget.classList.add('browsing')
 
   clearTimeout(ovLyricsScrollTimer)
   ovLyricsScrollTimer = setTimeout(() => {
     ovLyricsUserScrolling = false
     ovLyricsManualOffset = 0
+    document.getElementById('ov-panel-lyrics').classList.remove('browsing')
     ovLyricsSpring.setTarget(ovLyricsBaseY)  // spring settles back with a bit of momentum
   }, 2200)
 }, { passive: false })
