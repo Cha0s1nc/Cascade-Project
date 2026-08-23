@@ -83,9 +83,11 @@
        Posters are 2:3 rather than the 1:1 an album cover uses, so they get their
        own grid rather than a modifier on .album-grid. Everything else reuses the
        card chrome. */
-    /* Movies/TV nav rows stay hidden until a video library is picked in
-       Settings, which sets .has-video on <body>. */
-    body:not(.has-video) .nav-video { display: none; }
+    /* Movies/TV nav rows are independent: each stays hidden until its own
+       category is in play (a library picked in Settings, or auto-selected
+       because there's only one), which sets .has-movies / .has-shows on <body>. */
+    body:not(.has-movies) .nav-movies { display: none; }
+    body:not(.has-shows) .nav-shows { display: none; }
     .poster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; margin-bottom: 8px; }
     .poster-card { cursor: pointer; }
     .poster-art { width: 100%; aspect-ratio: 2/3; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 32px; color: var(--text3); position: relative; transition: border-color 0.12s; }
@@ -336,6 +338,10 @@
     .lib-check-label { font-size: 12px; color: var(--text2); user-select: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     /* The last enabled library can't be switched off - there'd be nothing to play */
     .lib-check-row.locked .toggle { opacity: 0.45; pointer-events: none; }
+    /* Groups the movie/TV toggles under a heading when both categories have a
+       real choice to make. */
+    .lib-group-title { font-size: 11px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.03em; margin: 10px 0 4px; }
+    .lib-group-title:first-child { margin-top: 0; }
 
     /* ── Full-screen now-playing overlay ── */
     .np-overlay { position: fixed; inset: 0; background: var(--bg); z-index: 300; display: flex; flex-direction: column; transform: translateY(100%); transition: transform 0.38s cubic-bezier(0.4,0,0.2,1); pointer-events: none; overflow: hidden; }
@@ -946,14 +952,14 @@
       </div>
       <!-- Video. Hidden until a movie or TV library is selected in Settings, so
            a pure music setup never sees two dead nav rows. -->
-      <div class="nav-item nav-video" data-view="movies">
+      <div class="nav-item nav-movies" data-view="movies">
         <div class="nav-bar"></div>
         <div class="nav-icon">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
         </div>
         <div class="nav-info"><span class="nav-label">Movies</span></div>
       </div>
-      <div class="nav-item nav-video" data-view="shows">
+      <div class="nav-item nav-shows" data-view="shows">
         <div class="nav-bar"></div>
         <div class="nav-icon">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="15" rx="2" ry="2"/><polyline points="17 2 12 7 7 2"/></svg>

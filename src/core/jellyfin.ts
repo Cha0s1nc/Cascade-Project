@@ -53,6 +53,38 @@ export function authHeader(appVersion: string, deviceId: string): string {
   return `MediaBrowser Client="Cascade", Device="Cascade", DeviceId="${deviceId}", Version="${appVersion}"`
 }
 
+/**
+ * One-time migration: earlier Cascade builds saved movie and TV library
+ * selections together under one flat `videoLibraryIds` key. Split that list
+ * into the two per-category lists it should have always been, by looking up
+ * each id's CollectionType in the library list fetched from /Views. An id
+ * that no longer matches anything (renamed, deleted, wrong category) is
+ * dropped rather than guessed at.
+ */
+export function splitVideoLibraryIds(
+  libs: JfItem[],
+  oldIds: string[],
+): { movieIds: string[], showIds: string[] } {
+  const movieIds = oldIds.filter(id => libs.some(l => l.Id === id && l.CollectionType === 'movies'))
+  const showIds  = oldIds.filter(id => libs.some(l => l.Id === id && l.CollectionType === 'tvshows'))
+  return { movieIds, showIds }
+}
+
+/**
+ * The ids actually in effect for one video category (movies, or TV shows).
+ *
+ * With exactly one library in the category there is nothing to choose, so
+ * that library is always used, regardless of what (if anything) is saved -
+ * this is derived fresh every time rather than persisted, so it keeps working
+ * if the library is later renamed or replaced. Otherwise it is whatever was
+ * saved, minus any id that no longer matches a library on the server (one
+ * that was deleted or moved to a different category since the last launch).
+ */
+export function effectiveLibraryIds(categoryLibs: JfItem[], savedIds: string[]): string[] {
+  if (categoryLibs.length === 1) return [categoryLibs[0].Id]
+  return savedIds.filter(id => categoryLibs.some(l => l.Id === id))
+}
+
 /** Default page size when a caller does not set params.Limit. */
 const DEFAULT_PAGE_SIZE = 500
 

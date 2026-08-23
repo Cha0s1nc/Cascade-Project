@@ -487,7 +487,9 @@ function invalidateVideoViews() {
 }
 
 let _musicLibs        = []     // the server's music libraries, cached so a mode flip needn't refetch
-let _videoLibs        = []     // movie/tvshows libraries, same caching reason
+let _movieLibs        = []     // movies libraries, same caching reason
+let _showLibs         = []     // tvshows libraries, kept apart from _movieLibs so a movie query
+                                // never fans out across TV libraries or vice versa
 let singleLibraryMode = false  // one library at a time (dropdown) instead of merging several
 
 async function populateLibraryPicker() {
@@ -496,9 +498,9 @@ async function populateLibraryPicker() {
     _musicLibs = (data.Items || []).filter(i =>
       i.CollectionType === 'music' || i.CollectionType === 'musicvideos'
     )
-    _videoLibs = (data.Items || []).filter(i =>
-      i.CollectionType === 'movies' || i.CollectionType === 'tvshows'
-    )
+    _movieLibs = (data.Items || []).filter(i => i.CollectionType === 'movies')
+    _showLibs  = (data.Items || []).filter(i => i.CollectionType === 'tvshows')
+    await migrateVideoLibraryIds()
     await loadVideoLibrarySelection()
     const savedRaw = await window.cascade.store.get('libraryIds')
     let savedIds = []
@@ -515,10 +517,10 @@ async function populateLibraryPicker() {
     await window.cascade.store.set('libraryIds', JSON.stringify(savedIds))
     renderLibraryPicker()
   } catch (e) {
-    // Swallowing this used to take Movies and TV down with it: _videoLibs stays
-    // empty, both nav rows stay hidden, the intro card silently never shows, and
-    // there is nothing anywhere to explain why. Playback still works without a
-    // picker, so this stays non-fatal - but it no longer disappears.
+    // Swallowing this used to take Movies and TV down with it: _movieLibs and
+    // _showLibs stay empty, both nav rows stay hidden, the intro card silently
+    // never shows, and there is nothing anywhere to explain why. Playback still
+    // works without a picker, so this stays non-fatal - but it no longer disappears.
     console.error('[cascade] could not load libraries from /Views:', e)
   }
 }
@@ -599,36 +601,69 @@ async function applyLibrarySelection(ids) {
 // Deliberately a second, independent selection rather than widening the music
 // one. jf.libraryIds narrows *every* getMerged call, so folding movie libraries
 // into it would make every album and artist query fan out across them.
+//
+// Movies and TV are themselves kept apart (movieLibraryIds / showLibraryIds)
+// so a movie query never fans out across TV libraries and vice versa. Each
+// category auto-selects its one library when that's all the server has - see
+// CascadeCore.effectiveLibraryIds - so there's nothing to toggle in that case.
+
+// Earlier Cascade builds saved one flat list of movie/TV ids under the single
+// videoLibraryIds key. Split it into the new per-category keys the first time
+// this runs, using each id's CollectionType, then delete the old key so this
+// is a one-shot: once it's gone, a selection made under the new keys is never
+// overwritten by a stale flat list on a later launch.
+async function migrateVideoLibraryIds() {
+  const raw = await window.cascade.store.get('videoLibraryIds')
+  if (!raw) return
+  let oldIds = []
+  try { oldIds = JSON.parse(raw) } catch {}
+  const { movieIds, showIds } = CascadeCore.splitVideoLibraryIds([..._movieLibs, ..._showLibs], oldIds)
+  if (movieIds.length) await window.cascade.store.set('movieLibraryIds', JSON.stringify(movieIds))
+  if (showIds.length)  await window.cascade.store.set('showLibraryIds', JSON.stringify(showIds))
+  await window.cascade.store.delete('videoLibraryIds')
+}
 
 async function loadVideoLibrarySelection() {
-  const raw = await window.cascade.store.get('videoLibraryIds')
-  let ids = []
-  try { ids = raw ? JSON.parse(raw) : [] } catch {}
-  // Drop libraries that have since vanished from the server.
-  jf.videoLibraryIds = ids.filter(id => _videoLibs.some(l => l.Id === id))
+  const movieRaw = await window.cascade.store.get('movieLibraryIds')
+  const showRaw  = await window.cascade.store.get('showLibraryIds')
+  let movieSaved = [], showSaved = []
+  try { movieSaved = movieRaw ? JSON.parse(movieRaw) : [] } catch {}
+  try { showSaved  = showRaw  ? JSON.parse(showRaw)  : [] } catch {}
+
+  // Sole library in a category -> always used, never persisted (so a rename
+  // or replacement keeps working). Otherwise whatever was saved, minus
+  // anything that has since vanished from the server.
+  jf.movieLibraryIds = CascadeCore.effectiveLibraryIds(_movieLibs, movieSaved)
+  jf.showLibraryIds  = CascadeCore.effectiveLibraryIds(_showLibs, showSaved)
+
   renderVideoLibraryPicker()
   applyVideoNavVisibility()
 }
 
-/** Movies and TV Shows only exist in the sidebar once a library is selected.
- *  A music-only user should never see two nav rows that lead nowhere. */
+/** Movies and TV Shows each only exist in the sidebar once that category is in
+ *  play - either a library was selected, or there was only one to begin with.
+ *  A music-only user should never see either nav row lead nowhere. */
 function applyVideoNavVisibility() {
-  const on = (jf.videoLibraryIds || []).length > 0
-  // One class on <body>, CSS owns the rest - beats walking the nav rows and
-  // setting inline styles on each.
-  document.body.classList.toggle('has-video', on)
+  const hasMovies = (jf.movieLibraryIds || []).length > 0
+  const hasShows  = (jf.showLibraryIds  || []).length > 0
+  // One class per category on <body>, CSS owns the rest - beats walking the
+  // nav rows and setting inline styles on each.
+  document.body.classList.toggle('has-movies', hasMovies)
+  document.body.classList.toggle('has-shows', hasShows)
   // Leaving the user parked on a view whose nav row just disappeared would
   // strand them with no way back except another nav click.
-  if (!on && ['movies', 'shows'].includes(_currentView)) showView('home')
+  if (!hasMovies && _currentView === 'movies') showView('home')
+  if (!hasShows  && _currentView === 'shows')  showView('home')
 }
 
-/** Renders the movie/TV toggles into `list`. Takes a container rather than
- *  reaching for a fixed id because two places show these: the Settings row and
- *  the one-time intro card. */
-function renderVideoLibraryRows(list) {
+/** Renders one category's toggles into `list`, given its libraries, its
+ *  currently selected ids, and what to call with the new list on change.
+ *  Takes a container plus explicit data rather than reaching for a fixed id
+ *  or a single global list, because two places show these (the Settings row
+ *  and the one-time intro card) for two independent categories. */
+function renderVideoLibraryRows(list, libs, ids, onChange) {
   if (!list) return
-  const ids = jf.videoLibraryIds || []
-  list.innerHTML = _videoLibs.map(lib => `
+  list.innerHTML = libs.map(lib => `
     <div class="lib-check-row">
       <span class="lib-check-label" title="${esc(lib.Name)}">${esc(lib.Name)}</span>
       <label class="toggle">
@@ -638,20 +673,41 @@ function renderVideoLibraryRows(list) {
     </div>`).join('')
 
   list.querySelectorAll('input[type=checkbox]').forEach(cb => {
-    cb.onchange = () => applyVideoLibrarySelection(
+    cb.onchange = () => onChange(
       [...list.querySelectorAll('input[type=checkbox]:checked')].map(c => c.value))
   })
+}
+
+/** Builds the Movies / TV Shows headings and toggle groups inside `container`.
+ *  A category is only rendered when it genuinely has a choice to make (more
+ *  than one library) - a sole library auto-selects and needs no toggle. Shared
+ *  by the Settings row and the one-time intro card. */
+function renderVideoLibraryGroups(container) {
+  const movieChoice = _movieLibs.length > 1
+  const showChoice  = _showLibs.length > 1
+  container.innerHTML = [
+    movieChoice ? '<div class="lib-group-title">Movies</div><div class="vlib-movies"></div>' : '',
+    showChoice  ? '<div class="lib-group-title">TV Shows</div><div class="vlib-shows"></div>' : '',
+  ].join('')
+
+  if (movieChoice) renderVideoLibraryRows(
+    container.querySelector('.vlib-movies'), _movieLibs, jf.movieLibraryIds || [],
+    ids => applyVideoLibrarySelection('movie', ids))
+  if (showChoice) renderVideoLibraryRows(
+    container.querySelector('.vlib-shows'), _showLibs, jf.showLibraryIds || [],
+    ids => applyVideoLibrarySelection('show', ids))
 }
 
 function renderVideoLibraryPicker() {
   const row = document.getElementById('s-video-library-row')
   if (!row) return
 
-  // No movie or TV libraries on the server: the whole row is noise.
-  row.style.display = _videoLibs.length ? '' : 'none'
-  if (!_videoLibs.length) return
+  // Nothing to choose: either category with 0 or 1 libraries needs no toggle.
+  const anyChoice = _movieLibs.length > 1 || _showLibs.length > 1
+  row.style.display = anyChoice ? '' : 'none'
+  if (!anyChoice) return
 
-  renderVideoLibraryRows(document.getElementById('s-video-library-list'))
+  renderVideoLibraryGroups(document.getElementById('s-video-library-list'))
 }
 
 // ── One-time video intro ──────────────────────────────────────────────────────
@@ -665,22 +721,27 @@ function renderVideoLibraryPicker() {
 async function maybeShowVideoIntro() {
   if (await window.cascade.store.get('videoIntroSeen')) return
 
-  // A music-only Jellyfin has nothing to introduce. Logged because an empty
-  // _videoLibs is also what a failed /Views call looks like from here, and the
-  // two are indistinguishable to anyone wondering where Movies went.
-  if (!_videoLibs.length) {
+  // A music-only Jellyfin has nothing to introduce. Logged because empty
+  // _movieLibs/_showLibs is also what a failed /Views call looks like from
+  // here, and the two are indistinguishable to anyone wondering where Movies went.
+  if (!_movieLibs.length && !_showLibs.length) {
     console.info('[cascade] no movie or TV libraries on this server - skipping the video intro')
     return
   }
 
-  // Already turned on - they have found the feature, so burn the flag quietly
-  // rather than explaining something they are already using.
-  if ((jf.videoLibraryIds || []).length) {
+  // A category only needs the intro when it has a real choice (more than one
+  // library) that has not been made yet. A sole library auto-selects with
+  // nothing to show here; an already-made choice means they have found the
+  // feature already. If neither category needs it, burn the flag quietly
+  // rather than explaining something there's nothing left to configure for.
+  const movieNeedsChoice = _movieLibs.length > 1 && !(jf.movieLibraryIds || []).length
+  const showNeedsChoice  = _showLibs.length  > 1 && !(jf.showLibraryIds  || []).length
+  if (!movieNeedsChoice && !showNeedsChoice) {
     await window.cascade.store.set('videoIntroSeen', true)
     return
   }
 
-  renderVideoLibraryRows(document.getElementById('vi-library-list'))
+  renderVideoLibraryGroups(document.getElementById('vi-library-list'))
   document.getElementById('video-intro-overlay').classList.remove('hidden')
 }
 
@@ -692,9 +753,11 @@ async function dismissVideoIntro() {
 document.getElementById('vi-done').addEventListener('click', dismissVideoIntro)
 document.getElementById('vi-skip').addEventListener('click', dismissVideoIntro)
 
-async function applyVideoLibrarySelection(ids) {
-  jf.videoLibraryIds = ids
-  await window.cascade.store.set('videoLibraryIds', JSON.stringify(ids))
+/** `category` is 'movie' or 'show' - the two hardcoded video categories. */
+async function applyVideoLibrarySelection(category, ids) {
+  const key = category === 'movie' ? 'movieLibraryIds' : 'showLibraryIds'
+  jf[key] = ids
+  await window.cascade.store.set(key, JSON.stringify(ids))
   invalidateVideoViews()
   applyVideoNavVisibility()
   renderVideoLibraryPicker()
@@ -1715,9 +1778,14 @@ document.getElementById('tctx-pl-remove').addEventListener('click', async () => 
 // queue and hand it to playItems(), which is what makes next-episode autoplay
 // fall out for free rather than needing a second player.
 
-/** Like jfGetMerged, but against the video libraries instead of the music ones. */
-const jfGetVideo = (path, params = {}) =>
-  jfClient.getMerged(path, params, jf.videoLibraryIds || [])
+/** Like jfGetMerged, but against the movie libraries only, so browsing movies
+ *  never fans out across TV libraries. */
+const jfGetMovies = (path, params = {}) =>
+  jfClient.getMerged(path, params, jf.movieLibraryIds || [])
+
+/** Same, against the TV libraries only. */
+const jfGetShows = (path, params = {}) =>
+  jfClient.getMerged(path, params, jf.showLibraryIds || [])
 
 /** Runtime as "1h 47m" / "47m". Distinct from fmtTime, which is for a scrubber. */
 function fmtRuntime(ticks) {
@@ -1744,13 +1812,14 @@ function posterCard(item, sub) {
 }
 
 // Both grids are the same shape, so they share one loader. `sub` picks what goes
-// under each title.
-async function loadPosterGrid(gridId, itemType, sub, onPick) {
+// under each title; `getVideo` is jfGetMovies or jfGetShows, so each grid only
+// ever fans out across its own category's libraries.
+async function loadPosterGrid(gridId, itemType, sub, onPick, getVideo) {
   const grid = document.getElementById(gridId)
   grid.dataset.loaded = '1'
   grid.innerHTML = skeletonHTML('poster', 8)
   try {
-    const data = await jfGetVideo(`/Users/${jf.userId}/Items`, {
+    const data = await getVideo(`/Users/${jf.userId}/Items`, {
       SortBy: 'SortName', SortOrder: 'Ascending',
       IncludeItemTypes: itemType, Recursive: true,
       Fields: 'PrimaryImageAspectRatio,UserData,ProductionYear',
@@ -1773,12 +1842,12 @@ async function loadPosterGrid(gridId, itemType, sub, onPick) {
 const loadMovies = () => loadPosterGrid(
   'movies-grid', 'Movie',
   m => m.ProductionYear || '',
-  m => openMovie(m.Id))
+  m => openMovie(m.Id), jfGetMovies)
 
 const loadShows = () => loadPosterGrid(
   'shows-grid', 'Series',
   s => s.ProductionYear || '',
-  s => openSeries(s.Id))
+  s => openSeries(s.Id), jfGetShows)
 
 // ── Movie detail ──
 

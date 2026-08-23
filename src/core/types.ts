@@ -101,9 +101,12 @@ export interface ServerConfig {
   token: string
   userId: string
   libraryIds?: string[]
-  /** Movie/TV libraries, kept separate from `libraryIds` so a music query never
-   *  fans out across them. Passed explicitly to getMerged by the video views. */
-  videoLibraryIds?: string[]
+  /** Movie and TV libraries, kept separate from each other (so a movie query
+   *  never fans out across TV libraries or vice versa) and from `libraryIds`
+   *  (so a music query never touches either). Passed explicitly to getMerged
+   *  by the video views. */
+  movieLibraryIds?: string[]
+  showLibraryIds?: string[]
   /** Unique per install. Jellyfin uses it to tell clients apart, which remote
    *  control depends on. See authHeader() in jellyfin.ts. */
   deviceId?: string

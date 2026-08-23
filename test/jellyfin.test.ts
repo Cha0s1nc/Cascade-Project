@@ -4,8 +4,9 @@ import {
   JellyfinClient, authenticate, authHeader,
   quickConnectEnabled, quickConnectInitiate, quickConnectApproved, quickConnectAuthenticate,
   QUICK_CONNECT_POLL_MS, QUICK_CONNECT_TIMEOUT_MS, readErrorMessage,
+  splitVideoLibraryIds, effectiveLibraryIds,
 } from '../src/core/jellyfin.ts'
-import type { ServerConfig, JfItemsResponse } from '../src/core/types.ts'
+import type { ServerConfig, JfItemsResponse, JfItem } from '../src/core/types.ts'
 
 const realFetch = globalThis.fetch
 let calls: { url: string, init?: RequestInit }[] = []
@@ -288,4 +289,36 @@ test('authenticate: a failed request is routed through readErrorMessage end to e
     () => authenticate('https://jf.test', 'user', 'pw', '1.2.0', 'DEV-1'),
     (e: Error) => { assert.equal(e.message, '502 Bad Gateway'); return true },
   )
+})
+
+const videoLib = (Id: string, CollectionType: string): JfItem => ({ Id, CollectionType })
+
+test('splitVideoLibraryIds: sorts a mixed flat list into movies and TV by CollectionType', () => {
+  const libs = [videoLib('m1', 'movies'), videoLib('m2', 'movies'), videoLib('t1', 'tvshows')]
+  const { movieIds, showIds } = splitVideoLibraryIds(libs, ['m1', 't1', 'm2'])
+  assert.deepEqual(movieIds, ['m1', 'm2'])
+  assert.deepEqual(showIds, ['t1'])
+})
+
+test('splitVideoLibraryIds: an id no longer on the server is dropped, not guessed at', () => {
+  const libs = [videoLib('m1', 'movies')]
+  const { movieIds, showIds } = splitVideoLibraryIds(libs, ['m1', 'gone'])
+  assert.deepEqual(movieIds, ['m1'])
+  assert.deepEqual(showIds, [])
+})
+
+test('effectiveLibraryIds: a sole library in the category is always used, saved ids or not', () => {
+  const libs = [videoLib('m1', 'movies')]
+  assert.deepEqual(effectiveLibraryIds(libs, []), ['m1'])
+  assert.deepEqual(effectiveLibraryIds(libs, ['something-else']), ['m1'])
+})
+
+test('effectiveLibraryIds: with a real choice, saved ids win but vanished ones are dropped', () => {
+  const libs = [videoLib('m1', 'movies'), videoLib('m2', 'movies'), videoLib('m3', 'movies')]
+  assert.deepEqual(effectiveLibraryIds(libs, ['m1', 'm3']), ['m1', 'm3'])
+  assert.deepEqual(effectiveLibraryIds(libs, ['m1', 'gone']), ['m1'])
+})
+
+test('effectiveLibraryIds: no libraries in the category means no ids, regardless of saved state', () => {
+  assert.deepEqual(effectiveLibraryIds([], ['m1']), [])
 })
