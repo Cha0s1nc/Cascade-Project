@@ -62,15 +62,15 @@ re-applied - everything else in the app is back to its pre-Waterfall state:
   existing `.modal-overlay`/`.modal-card` pattern; a few small CSS rules
   (`.wf-join-row`, `.wf-room-code`, `.wf-members`, `.wf-member`).
 - **`renderer.js`**, all small, isolated touches:
-  - `initBeatDetection()` no longer exists. It set up an `AudioContext` and an
-    analyser that nothing ever read, so it was removed along with `_audioCtx`
-    when the album-art colours moved to `src/core/album-colors.ts`. Picking
-    Waterfall back up means rebuilding the context and the
-    `createMediaElementSource` tap from scratch, not just re-exposing a global.
-  - `initBeatDetection()`: promote the local `src` (from
-    `createMediaElementSource`) to a module-level `_mediaSrc` so `sync.js`
-    can branch a second output off the same node - `createMediaElementSource`
-    can only be called once per `<audio>` element, ever.
+  - `initBeatDetection()` still does not exist, but a module-level `_mediaSrc`
+    does again: the now-playing equalizer (`_ensureEqGraph()` /
+    `startEqLoop()` in renderer.js, roughly where `stopBeatLoop()` is defined)
+    builds its own `AudioContext` + `MediaElementAudioSourceNode` +
+    `AnalyserNode` and caches the source node as module-level `_mediaSrc`
+    exactly so a second consumer can branch off it later.
+    Picking Waterfall back up means reusing that `_mediaSrc` rather than
+    rebuilding the tap from scratch - just don't call
+    `createMediaElementSource(audio)` a second time anywhere.
   - Local volume/mute needs its own `GainNode` (`_localGain`), separate from
     `audio.volume`/`.muted`, because once an element is routed through Web
     Audio, `.volume`/`.muted` get baked into what `_mediaSrc` captures -

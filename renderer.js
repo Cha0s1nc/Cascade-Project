@@ -2682,8 +2682,13 @@ async function continueWithAutoMix(lastItem) {
 // Fades the ending track out while a temporary, untapped <audio> element plays
 // and fades the next track in, then hands off by copying its position onto the
 // real `audio` element. Every existing listener (progress bar, lyrics sync,
-// Discord RPC, media session, beat detection) stays bound to that same element
-// the whole time - it never learns a crossfade happened.
+// Discord RPC, media session, the now-playing equalizer) stays bound to that
+// same element the whole time - it never learns a crossfade happened.
+//
+// Known limitation: the temporary element (_cfNextAudio, below) is not wired
+// into the equalizer's Web Audio graph, so the bars keep following the
+// outgoing track as it fades out and then jump once the handoff finishes.
+// Acceptable - not worth a second analyser for a few seconds of overlap.
 
 let _cfNextAudio = null   // temporary element playing the upcoming track during overlap
 let _cfRafId = null       // requestAnimationFrame handle for the volume ramp
@@ -3488,6 +3493,109 @@ function startBeatLoop() {
 function stopBeatLoop() {
   if (_beatRafId) { cancelAnimationFrame(_beatRafId); _beatRafId = null }
 }
+
+// ── Now-playing equalizer ────────────────────────────────────────────────────
+// Drives the three .track-eq bars from real playback via Web Audio instead of
+// leaving them as a pure CSS loop. eqLevels() (src/core/eq.ts) turns one frame
+// of frequency data into three 0..1 heights - everything here is just wiring:
+// build the graph once, run a throttled rAF loop while something plays, and
+// fall back to the plain CSS animation for the rest of the session if the
+// graph ever produces silence for audio that is actually audible.
+
+let _audioCtx = null
+let _mediaSrc = null    // MediaElementAudioSourceNode - createMediaElementSource()
+                         // may only be called once per element, ever, so this is
+                         // cached at module level rather than rebuilt per play.
+let _eqAnalyser = null
+let _eqFreqData = null
+let _eqRafId = null
+let _eqFallback = false    // once true, live mode is done for the session
+let _eqSilentSinceTs = 0   // wall-clock start of the current run of all-zero frames
+
+const EQ_FFT_SIZE = 64
+const EQ_SMOOTHING = 0.75
+const EQ_FRAME_MS = 1000 / 30    // ~30fps is plenty for three bars
+const EQ_SILENCE_MS = 2000       // how long real silence must persist before giving up
+
+// Builds ctx -> source -> analyser -> destination, once, lazily. Only ever
+// called from startEqLoop(), which only runs from the `play` handler below, so
+// ctx.resume() always lands after a user gesture instead of hitting an
+// autoplay block.
+function _ensureEqGraph() {
+  if (_eqFallback || _eqAnalyser) return
+  try {
+    _audioCtx = _audioCtx || new (window.AudioContext || window.webkitAudioContext)()
+    if (_audioCtx.state === 'suspended') _audioCtx.resume()
+    // Once per element, ever - see the comment on _mediaSrc above.
+    _mediaSrc = _mediaSrc || _audioCtx.createMediaElementSource(audio)
+    _eqAnalyser = _audioCtx.createAnalyser()
+    _eqAnalyser.fftSize = EQ_FFT_SIZE
+    _eqAnalyser.smoothingTimeConstant = EQ_SMOOTHING
+    _eqFreqData = new Uint8Array(_eqAnalyser.frequencyBinCount)
+    // Routing the element through Web Audio replaces its normal output path -
+    // without this connection all the way to destination, playback goes silent.
+    _mediaSrc.connect(_eqAnalyser)
+    _eqAnalyser.connect(_audioCtx.destination)
+  } catch (e) {
+    console.error('EQ graph setup failed, falling back to the CSS animation', e)
+    _eqFallback = true
+    // If we got as far as capturing the element, it is already routed away from
+    // its normal output and a half-built graph means silence. Wire it straight
+    // to the destination so playback survives losing the visualiser.
+    if (_mediaSrc) { try { _mediaSrc.disconnect(); _mediaSrc.connect(_audioCtx.destination) } catch {} }
+    _eqAnalyser = null
+  }
+}
+
+function startEqLoop() {
+  if (_eqRafId || _eqFallback) return
+  _ensureEqGraph()
+  if (!_eqAnalyser) return
+
+  let lastFrameTs = 0
+  function frame(ts) {
+    _eqRafId = requestAnimationFrame(frame)
+    if (ts - lastFrameTs < EQ_FRAME_MS) return
+    lastFrameTs = ts
+
+    _eqAnalyser.getByteFrequencyData(_eqFreqData)
+
+    // Silence fallback - only counts against real audio (not a muted/zero-volume
+    // track, which reads as zeros legitimately and is not a graph problem).
+    const audible = !audio.muted && audio.volume > 0 && !audio.paused
+    let allZero = true
+    for (let i = 0; i < _eqFreqData.length; i++) { if (_eqFreqData[i] !== 0) { allZero = false; break } }
+    if (audible && allZero) {
+      if (!_eqSilentSinceTs) _eqSilentSinceTs = ts
+      else if (ts - _eqSilentSinceTs > EQ_SILENCE_MS) {
+        _eqFallback = true
+        stopEqLoop()
+        return
+      }
+    } else {
+      _eqSilentSinceTs = 0
+    }
+
+    const eq = document.querySelector('.track-row.playing .track-eq')
+    if (!eq) return
+    eq.classList.add('live')
+    const levels = CascadeCore.eqLevels(_eqFreqData)
+    eq.querySelectorAll('i').forEach((bar, i) => { bar.style.transform = `scaleY(${levels[i]})` })
+  }
+  frame()
+}
+
+function stopEqLoop() {
+  if (_eqRafId) { cancelAnimationFrame(_eqRafId); _eqRafId = null }
+  // Drop 'live' off whatever currently has it so the CSS animation resumes -
+  // covers both a normal stop and the silence-fallback giving up permanently.
+  document.querySelectorAll('.track-eq.live').forEach(el => el.classList.remove('live'))
+}
+
+audio.addEventListener('play', startEqLoop)
+audio.addEventListener('pause', stopEqLoop)
+audio.addEventListener('ended', stopEqLoop)
+audio.addEventListener('emptied', stopEqLoop)
 
 function openOverlay() {
   overlayOpen = true

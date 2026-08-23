@@ -170,6 +170,10 @@
     .track-eq i:nth-child(2) { animation-duration: 0.75s; animation-delay: -0.25s; }
     .track-eq i:nth-child(3) { animation-duration: 0.6s;  animation-delay: -0.1s; }
     @keyframes eq-bar { from { transform: scaleY(0.25); } to { transform: scaleY(1); } }
+    /* Real audio takes over from the CSS animation - see startEqLoop() in renderer.js.
+       The animation stops so it does not fight the transform written each frame; the
+       short transition keeps ~30fps updates from looking steppy. */
+    .track-eq.live i { animation: none; transition: transform 0.08s linear; }
     .track-title { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .track-row.playing .track-title { color: #a78bfa; font-weight: 500; }
     .track-artist { font-size: 11px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
