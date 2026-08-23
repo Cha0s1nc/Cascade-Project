@@ -62,6 +62,11 @@ re-applied - everything else in the app is back to its pre-Waterfall state:
   existing `.modal-overlay`/`.modal-card` pattern; a few small CSS rules
   (`.wf-join-row`, `.wf-room-code`, `.wf-members`, `.wf-member`).
 - **`renderer.js`**, all small, isolated touches:
+  - `initBeatDetection()` no longer exists. It set up an `AudioContext` and an
+    analyser that nothing ever read, so it was removed along with `_audioCtx`
+    when the album-art colours moved to `src/core/album-colors.ts`. Picking
+    Waterfall back up means rebuilding the context and the
+    `createMediaElementSource` tap from scratch, not just re-exposing a global.
   - `initBeatDetection()`: promote the local `src` (from
     `createMediaElementSource`) to a module-level `_mediaSrc` so `sync.js`
     can branch a second output off the same node - `createMediaElementSource`
