@@ -5,6 +5,42 @@ import type { JfItem, JfItemsResponse, JfAuthResult, JfParams, ServerConfig } fr
 
 const EMPTY_RESPONSE: JfItemsResponse = { Items: [], TotalRecordCount: 0 }
 
+/** Longest a server error body is allowed to become once turned into
+ *  `error.message`. Past this it is truncated rather than shown whole. */
+const MAX_ERROR_MESSAGE_LEN = 300
+
+/**
+ * Turn a failed response into a short, readable error message.
+ *
+ * Jellyfin's own error bodies are short plain text and worth showing as-is.
+ * A reverse proxy sitting in front of a dead server (Cloudflare, nginx, etc)
+ * answers instead with a whole HTML error page - kilobytes of markup that,
+ * dumped into `error.message` and rendered by a caller, becomes a wall of red
+ * text filling the screen. Detect that case by content-type or a leading `<`
+ * and fall back to the status line instead. Whatever text does get kept is
+ * collapsed to one line and capped, since even a "short" text body can in
+ * practice be huge.
+ */
+export async function readErrorMessage(res: Response): Promise<string> {
+  const status = `${res.status} ${res.statusText}`.trim()
+  let body = ''
+  try {
+    body = await res.text()
+  } catch {
+    return status
+  }
+  const trimmed = body.trim()
+  if (!trimmed) return status
+
+  const contentType = res.headers.get('content-type') || ''
+  if (contentType.includes('html') || trimmed.startsWith('<')) return status
+
+  const collapsed = trimmed.replace(/\s+/g, ' ')
+  return collapsed.length > MAX_ERROR_MESSAGE_LEN
+    ? `${collapsed.slice(0, MAX_ERROR_MESSAGE_LEN)}…`
+    : collapsed
+}
+
 /**
  * Identifies this client to Jellyfin.
  *
@@ -39,10 +75,7 @@ export async function authenticate(
     },
     body: JSON.stringify({ Username: username, Pw: password }),
   })
-  if (!res.ok) {
-    const txt = await res.text()
-    throw new Error(txt || `${res.status}`)
-  }
+  if (!res.ok) throw new Error(await readErrorMessage(res))
   return res.json() as Promise<JfAuthResult>
 }
 
@@ -120,10 +153,7 @@ export async function quickConnectAuthenticate(
     },
     body: JSON.stringify({ Secret: secret }),
   })
-  if (!res.ok) {
-    const txt = await res.text()
-    throw new Error(txt || `${res.status}`)
-  }
+  if (!res.ok) throw new Error(await readErrorMessage(res))
   return res.json() as Promise<JfAuthResult>
 }
 

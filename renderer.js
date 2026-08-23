@@ -4458,8 +4458,8 @@ async function atpLoadPlaylists() {
             headers: { 'X-Emby-Token': jf.token }
           })
           if (!res.ok) {
-            const errText = await res.text().catch(() => '')
-            showNotice(`Could not add to that playlist.\n\n${res.status}: ${errText.slice(0, 120)}`, 'Playlist')
+            const errMsg = await CascadeCore.readErrorMessage(res)
+            showNotice(`Could not add to that playlist.\n\n${errMsg}`, 'Playlist')
           } else {
             showToast(`Added to "${el.textContent}"`)
             playlistMutated(el.dataset.id)
