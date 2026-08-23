@@ -772,7 +772,7 @@
     .search-input-field::placeholder { color: var(--text3); }
     .search-clear-btn { background: none; border: none; color: var(--text3); cursor: pointer; padding: 4px; display: flex; align-items: center; border-radius: 4px; transition: color 0.12s; flex-shrink: 0; }
     .search-clear-btn:hover { color: var(--text); }
-    .search-dropdown { display: none; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); width: 100%; max-width: 340px; max-height: min(70vh, 560px); overflow-y: auto; margin-top: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; box-shadow: 0 12px 32px rgba(0,0,0,0.4); z-index: 400; }
+    .search-dropdown { display: none; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); width: 100%; max-height: min(70vh, 560px); overflow-y: auto; margin-top: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; box-shadow: 0 12px 32px rgba(0,0,0,0.4); z-index: 400; }
     .search-dropdown.open { display: block; }
     .search-empty-state { color: var(--text3); font-size: 13px; text-align: center; padding: 40px 0; }
     .search-section { margin-bottom: 20px; }
@@ -1150,7 +1150,6 @@
         <div id="playlist-index">
           <div class="sect-header" style="margin-bottom:14px">
             <span class="sect-title">Playlists</span>
-            <button id="playlists-refresh" title="Refresh playlists" style="background:none;border:none;color:var(--text3);cursor:pointer;padding:2px 4px;font-size:14px;line-height:1;border-radius:4px;transition:color 0.15s;" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--text3)'">↻</button>
           </div>
           <div class="playlist-grid" id="playlists-grid">
             <div class="playlist-card skel-card"><div class="playlist-art skel"></div><div class="playlist-body"><div class="skel skel-text" style="width:75%"></div><div class="skel skel-text" style="width:40%;height:9px;margin-top:6px"></div></div></div>
@@ -1173,6 +1172,7 @@
               <div class="pl-detail-name" id="pl-detail-name"></div>
               <div class="pl-detail-meta" id="pl-detail-meta"></div>
             </div>
+            <button id="pl-detail-refresh" title="Refresh this playlist" style="background:none;border:none;color:var(--text3);cursor:pointer;padding:2px 4px;font-size:14px;line-height:1;border-radius:4px;transition:color 0.15s;" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--text3)'">↻</button>
             <div style="margin-left:auto;display:flex;gap:8px">
               <button class="shuffle-all-btn" id="btn-shuffle-playlist">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>

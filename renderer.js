@@ -1296,15 +1296,51 @@ async function loadPlaylists() {
   }
 }
 
-document.getElementById('playlists-refresh').addEventListener('click', async () => {
-  const grid = document.getElementById('playlists-grid')
-  delete grid.dataset.loaded
-  await loadPlaylists()
-  document.getElementById('view-playlists').scrollTop = 0
-})
-
 let currentPlaylistId = null
 let currentPlaylistItems = []
+let currentSmartKind = null // set while a SMART_PLAYLISTS entry is open, so refresh knows how to re-fetch it
+
+// Single choke point every playlist-mutating action (add/remove a track) routes
+// through, so the common case updates without the user pressing anything.
+// Lazily invalidates the index grid's cache (it re-fetches next time the Playlists
+// tab is shown, same pattern as invalidateLibraryViews) and, if the mutated playlist
+// is the one currently open in detail, refreshes that detail in place.
+function playlistMutated(playlistId) {
+  delete document.getElementById('playlists-grid').dataset.loaded
+  if (playlistId && playlistId === currentPlaylistId) return refreshPlaylistDetail()
+}
+
+// Re-fetches whatever is open in the playlist detail view and re-renders it in place.
+// Shared by playlistMutated() above and the manual refresh button below, so add/remove
+// and the manual escape hatch (server changed underneath us) go through one fetch+render
+// path and both rebind wirePlaylistRowDrag the same way renderPlaylistDetailItems always does.
+async function refreshPlaylistDetail() {
+  if (!currentPlaylistId && !currentSmartKind) return
+  const scrollEl = document.getElementById('view-playlists')
+  const scrollTop = scrollEl.scrollTop
+  try {
+    if (currentSmartKind) {
+      renderPlaylistDetailItems(await SMART_PLAYLISTS[currentSmartKind].fetch(), false)
+    } else {
+      const data = await jfGet(`/Playlists/${currentPlaylistId}/Items`, {
+        UserId: jf.userId,
+        Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
+      })
+      renderPlaylistDetailItems(data.Items || [], true)
+    }
+  } catch (e) {
+    showNotice('Could not refresh this playlist.', 'Playlist')
+  }
+  scrollEl.scrollTop = scrollTop
+}
+
+let _plDetailRefreshing = false
+document.getElementById('pl-detail-refresh').addEventListener('click', async () => {
+  if (_plDetailRefreshing) return
+  _plDetailRefreshing = true
+  await refreshPlaylistDetail()
+  _plDetailRefreshing = false
+})
 
 function showPlaylistDetailShell(name) {
   document.getElementById('playlist-index').style.display = 'none'
@@ -1381,6 +1417,7 @@ function wirePlaylistRowDrag(rowsEl, items) {
 
 async function openPlaylist(playlistId, name) {
   currentPlaylistId = playlistId
+  currentSmartKind = null
   showPlaylistDetailShell(name)
   const artEl = document.getElementById('pl-detail-art')
   artEl.style.background = ''
@@ -1450,6 +1487,7 @@ async function openSmartPlaylist(kind) {
   const sp = SMART_PLAYLISTS[kind]
   if (!sp) return
   currentPlaylistId = null
+  currentSmartKind = kind
   showPlaylistDetailShell(sp.name)
   document.getElementById('pl-detail-art').style.background = sp.gradient
   document.getElementById('pl-detail-art').innerHTML = sp.icon
@@ -1664,10 +1702,10 @@ document.getElementById('tctx-pl-remove').addEventListener('click', async () => 
       method: 'DELETE', headers: { 'X-Emby-Token': jf.token }
     })
     if (!res.ok) throw new Error(res.status)
-    _ctxEl.remove()
-    const remaining = document.getElementById('pl-detail-rows').querySelectorAll('.track-row').length
-    document.getElementById('pl-detail-meta').textContent = `${remaining} songs`
     showToast('Removed from playlist')
+    // Re-fetch rather than patch the DOM in place - a manual patch left currentPlaylistItems
+    // (what Play/Shuffle use) still holding the removed track.
+    await playlistMutated(currentPlaylistId)
   } catch (e) { showNotice(`Could not remove this track from the playlist.\n\n${e.message}`, 'Playlist') }
 })
 
@@ -4424,6 +4462,7 @@ async function atpLoadPlaylists() {
             showNotice(`Could not add to that playlist.\n\n${res.status}: ${errText.slice(0, 120)}`, 'Playlist')
           } else {
             showToast(`Added to "${el.textContent}"`)
+            playlistMutated(el.dataset.id)
           }
         } catch (e) {
           showNotice('Could not reach the server to add to that playlist.', 'Playlist')
@@ -4469,9 +4508,7 @@ async function atpCreatePlaylist() {
     document.getElementById('atp-modal').classList.add('hidden')
     document.getElementById('atp-create-row').classList.remove('visible')
     document.getElementById('atp-new-name').value = ''
-    // Reload playlists tab if it's already been loaded
-    const grid = document.getElementById('playlists-grid')
-    if (grid.dataset.loaded) { delete grid.dataset.loaded; loadPlaylists() }
+    playlistMutated(null) // new playlist, so never the one currently open - just invalidate the index grid
   } catch (e) {
     showNotice('Could not create the playlist.', 'Playlist')
     console.error('Create playlist failed', e)
