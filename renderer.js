@@ -750,8 +750,25 @@ function showView(name) {
   if (name === 'settings') loadSettingsFields()
 }
 
+// Categories with an index/detail split - clicking the sidebar item again while
+// already on that category clicks its own back button, which returns to the
+// index. The back buttons are already idempotent (they just re-set the same
+// display styles), so this is a no-op if you're already on the index.
+const CATEGORY_BACK_BTN = {
+  albums: 'album-back-btn',
+  artists: 'artist-back-btn',
+  playlists: 'pl-back-btn',
+  movies: 'movie-back-btn',
+  shows: 'show-back-btn'
+}
+
 document.querySelectorAll('.nav-item[data-view]').forEach(el => {
-  el.addEventListener('click', () => showView(el.dataset.view))
+  el.addEventListener('click', () => {
+    const name = el.dataset.view
+    const wasActive = name === _currentView
+    showView(name)
+    if (wasActive && CATEGORY_BACK_BTN[name]) document.getElementById(CATEGORY_BACK_BTN[name]).click()
+  })
 })
 
 // ── Home ──────────────────────────────────────────────────────────────────────
@@ -894,8 +911,11 @@ async function openAlbum(albumId) {
     currentAlbumTracks = tracks
 
     document.getElementById('album-detail-name').textContent = album.Name || ''
-    const meta = [album.AlbumArtist, album.ProductionYear, `${tracks.length} song${tracks.length !== 1 ? 's' : ''}`].filter(Boolean)
-    document.getElementById('album-detail-meta').textContent = meta.join(' · ')
+    const artistHtml = album.AlbumArtist
+      ? `<span class="row-link" data-artist-link="${esc(album.AlbumArtist)}" tabindex="0">${esc(album.AlbumArtist)}</span>`
+      : ''
+    const meta = [artistHtml, album.ProductionYear, `${tracks.length} song${tracks.length !== 1 ? 's' : ''}`].filter(Boolean)
+    document.getElementById('album-detail-meta').innerHTML = meta.join(' · ')
 
     const art = artUrl(album.Id, album.ImageTags?.Primary)
     document.getElementById('album-detail-art').innerHTML = art ? `<img src="${art}" alt="" onerror="this.innerHTML='♪'">` : '♪'
@@ -915,6 +935,20 @@ async function openAlbum(albumId) {
 document.getElementById('album-back-btn').addEventListener('click', () => {
   document.getElementById('album-detail').style.display = 'none'
   document.getElementById('albums-index').style.display = ''
+})
+
+// Album detail's artist name - opens the artist page via the same path as the
+// track context menu's "View artist" (openArtistFromTrack matches by name).
+document.getElementById('album-detail-meta').addEventListener('click', e => {
+  const link = e.target.closest('[data-artist-link]')
+  if (!link) return
+  openArtistFromTrack({ AlbumArtist: link.dataset.artistLink })
+})
+document.getElementById('album-detail-meta').addEventListener('keydown', e => {
+  if (e.key !== 'Enter' && e.key !== ' ') return
+  if (!e.target.closest('[data-artist-link]')) return
+  e.preventDefault()
+  e.target.click()
 })
 
 document.getElementById('btn-play-album').addEventListener('click', () => {
@@ -1015,14 +1049,21 @@ function trackRowHtml(item, i, opts = {}) {
   const entryAttr = opts.entryId != null ? ` data-entry-id="${opts.entryId}"` : ''
   const styleAttr = opts.style ? ` style="${opts.style}"` : ''
   const dragAttr  = opts.draggable ? ' draggable="true"' : ''
+  // Artist/album cells are only clickable when there's something to open -
+  // a track with a name but no linked artist/album must not look clickable.
+  const artistName  = item.AlbumArtist || item.Artists?.[0] || ''
+  const artistCls    = artistName ? ' row-link' : ''
+  const artistAttrs  = artistName ? ' data-artist-link tabindex="0"' : ''
+  const albumCls     = item.AlbumId ? ' row-link' : ''
+  const albumAttrs   = item.AlbumId ? ' data-album-link tabindex="0"' : ''
   return `<div class="${cls}" ${idxAttr}="${i}" data-id="${item.Id}"${entryAttr}${styleAttr}${dragAttr}>
     <div class="track-num">${i + 1}</div>
     ${trackThumbHtml(art)}
     <div style="min-width:0">
       <div class="track-title">${esc(item.Name)}</div>
-      <div class="track-artist">${esc(item.AlbumArtist || item.Artists?.[0] || '')}</div>
+      <div class="track-artist${artistCls}"${artistAttrs}>${esc(artistName)}</div>
     </div>
-    <div class="track-album-name">${esc(item.Album || '')}</div>
+    <div class="track-album-name${albumCls}"${albumAttrs}>${esc(item.Album || '')}</div>
     <div class="track-dur">${fmtTime((item.RunTimeTicks || 0) / 10000000)}</div>
   </div>`
 }
@@ -1172,10 +1213,13 @@ function renderSongRows() {
         playItems(allSongs, idx)
         return
       }
+      if (e.target.closest('[data-album-link]')) { e.stopPropagation(); openAlbumFromTrack(allSongs[idx]); return }
+      if (e.target.closest('[data-artist-link]')) { e.stopPropagation(); openArtistFromTrack(allSongs[idx]); return }
       document.querySelectorAll('.track-row.selected').forEach(r => r.classList.remove('selected'))
       el.classList.add('selected')
     })
     rows.addEventListener('dblclick', (e) => {
+      if (e.target.closest('.row-link')) return
       const el = e.target.closest('.track-row')
       if (!el) return
       playItems(allSongs, parseInt(el.dataset.idx))
@@ -1186,6 +1230,14 @@ function renderSongRows() {
       e.preventDefault()
       const idx = parseInt(el.dataset.idx)
       showTrackCtxMenu(allSongs[idx], el, e.clientX, e.clientY, false)
+    })
+    // Keyboard access for the album/artist links (Enter/Space triggers the same click path above)
+    rows.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return
+      const link = e.target.closest('.row-link')
+      if (!link) return
+      e.preventDefault()
+      link.click()
     })
   }
 
@@ -1459,16 +1511,29 @@ function wireTrackRow(el, item, items, idx, opts = {}) {
   // contexts like the search dropdown, where "select" has nothing to select for)
   el.addEventListener('click', e => {
     if (e.target.closest('.track-thumb')) return  // handled above
+    if (e.target.closest('[data-album-link]')) { e.stopPropagation(); openAlbumFromTrack(item); return }
+    if (e.target.closest('[data-artist-link]')) { e.stopPropagation(); openArtistFromTrack(item); return }
     if (opts.clickToPlay) { playItems(items, idx); return }
     document.querySelectorAll('.track-row.selected').forEach(r => r.classList.remove('selected'))
     el.classList.add('selected')
   })
-  // Double click anywhere - play
-  el.addEventListener('dblclick', () => playItems(items, idx))
+  // Double click anywhere - play, except on the album/artist links themselves
+  el.addEventListener('dblclick', e => {
+    if (e.target.closest('.row-link')) return
+    playItems(items, idx)
+  })
   // Right click - context menu
   el.addEventListener('contextmenu', e => {
     e.preventDefault()
     showTrackCtxMenu(item, el, e.clientX, e.clientY, opts.inPlaylist || false)
+  })
+  // Keyboard access for the album/artist links (Enter/Space triggers the same click path above)
+  el.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ' ') return
+    const link = e.target.closest('.row-link')
+    if (!link) return
+    e.preventDefault()
+    link.click()
   })
 }
 
