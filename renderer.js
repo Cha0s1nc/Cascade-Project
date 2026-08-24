@@ -530,6 +530,7 @@ async function populateLibraryPicker() {
     _showLibs  = (data.Items || []).filter(i => i.CollectionType === 'tvshows')
     await migrateVideoLibraryIds()
     await loadVideoLibrarySelection()
+    await loadCollapsedLibs()
     const savedRaw = await window.cascade.store.get('libraryIds')
     let savedIds = []
     try { savedIds = savedRaw ? JSON.parse(savedRaw) : [] } catch {}
@@ -666,6 +667,24 @@ async function loadVideoLibrarySelection() {
 
   renderVideoLibraryPicker()
   applyVideoNavVisibility()
+}
+
+// ── Poster grid grouping (Movies/TV with more than one library) ──────────────
+
+/** Library ids collapsed in a grouped poster grid, persisted across restarts. */
+let _collapsedLibs = new Set()
+
+async function loadCollapsedLibs() {
+  const raw = await window.cascade.store.get('collapsedLibs')
+  let ids = []
+  // The stored value is untrusted - anything but a plain array of strings
+  // is treated as "nothing collapsed" rather than thrown or wedging the view.
+  try { ids = JSON.parse(raw) } catch {}
+  _collapsedLibs = new Set(Array.isArray(ids) ? ids.filter(id => typeof id === 'string') : [])
+}
+
+function saveCollapsedLibs() {
+  window.cascade.store.set('collapsedLibs', JSON.stringify([..._collapsedLibs]))
 }
 
 /** Movies and TV Shows each only exist in the sidebar once that category is in
@@ -1839,29 +1858,97 @@ function posterCard(item, sub) {
   </div>`
 }
 
+/** Wires poster-card clicks by matching each card's data-id back to `items`,
+ *  rather than an index into one flat list - needed once a grid can hold more
+ *  than one group of cards, each with its own item list. */
+function wirePosterCards(container, items, onPick) {
+  const byId = new Map(items.map(i => [i.Id, i]))
+  container.querySelectorAll('.poster-card').forEach(el => {
+    const item = byId.get(el.dataset.id)
+    if (item) el.addEventListener('click', () => onPick(item))
+  })
+}
+
+/** One library's section of a grouped poster grid: a collapsible header
+ *  (name + count) plus its cards. Cards are always rendered, even collapsed -
+ *  the header just hides them via CSS, so expanding never needs a refetch. */
+function posterGroupHTML(libId, name, items, sub) {
+  const collapsed = _collapsedLibs.has(libId)
+  const cards = items.map(i => posterCard(i, sub(i))).join('')
+  return `<div class="lib-group${collapsed ? ' collapsed' : ''}" data-lib-id="${libId}">
+    <div class="sect-header lib-group-header" tabindex="0" role="button" aria-expanded="${!collapsed}">
+      <span class="sect-title"><span class="lib-group-chevron">▾</span>${esc(name)}</span>
+      <span class="lib-group-count">${items.length}</span>
+    </div>
+    <div class="poster-grid">${cards}</div>
+  </div>`
+}
+
+/** Click/keyboard wiring for every group header in a just-rendered grouped
+ *  grid. Toggling just flips a CSS class and persists the id set - the cards
+ *  are already in the DOM either way. */
+function wireLibGroupHeaders(grid) {
+  grid.querySelectorAll('.lib-group-header').forEach(header => {
+    const toggle = () => {
+      const group = header.closest('.lib-group')
+      const collapsed = group.classList.toggle('collapsed')
+      header.setAttribute('aria-expanded', String(!collapsed))
+      const libId = group.dataset.libId
+      if (collapsed) _collapsedLibs.add(libId)
+      else _collapsedLibs.delete(libId)
+      saveCollapsedLibs()
+    }
+    header.addEventListener('click', toggle)
+    header.addEventListener('keydown', e => {
+      if (e.key !== 'Enter' && e.key !== ' ') return
+      e.preventDefault()
+      toggle()
+    })
+  })
+}
+
 // Both grids are the same shape, so they share one loader. `sub` picks what goes
 // under each title; `getVideo` is jfGetMovies or jfGetShows, so each grid only
-// ever fans out across its own category's libraries.
-async function loadPosterGrid(gridId, itemType, sub, onPick, getVideo) {
+// ever fans out across its own category's libraries. `libs`/`ids` are that
+// category's known libraries and its currently selected ids (in fetch order) -
+// with more than one selected, the grid renders one collapsible group per
+// library instead of a single merged pile.
+async function loadPosterGrid(gridId, itemType, sub, onPick, getVideo, libs, ids) {
   const grid = document.getElementById(gridId)
   grid.dataset.loaded = '1'
   grid.innerHTML = skeletonHTML('poster', 8)
+  const path = `/Users/${jf.userId}/Items`
+  const params = {
+    SortBy: 'SortName', SortOrder: 'Ascending',
+    IncludeItemTypes: itemType, Recursive: true,
+    Fields: 'PrimaryImageAspectRatio,UserData,ProductionYear',
+    Limit: 500,
+  }
   try {
-    const data = await getVideo(`/Users/${jf.userId}/Items`, {
-      SortBy: 'SortName', SortOrder: 'Ascending',
-      IncludeItemTypes: itemType, Recursive: true,
-      Fields: 'PrimaryImageAspectRatio,UserData,ProductionYear',
-      Limit: 500,
-    })
-    const items = data.Items || []
-    if (!items.length) {
-      grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Nothing here yet</div>`
-      return
+    if ((ids || []).length > 1) {
+      const groups = await jfClient.getGrouped(path, params, ids)
+      if (!groups.some(g => g.items.length)) {
+        grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Nothing here yet</div>`
+        return
+      }
+      grid.innerHTML = groups.map(g => {
+        const lib = libs.find(l => l.Id === g.libraryId)
+        return posterGroupHTML(g.libraryId, lib ? lib.Name : g.libraryId, g.items, sub)
+      }).join('')
+      grid.querySelectorAll('.lib-group').forEach((section, i) => {
+        wirePosterCards(section, groups[i].items, onPick)
+      })
+      wireLibGroupHeaders(grid)
+    } else {
+      const data = await getVideo(path, params)
+      const items = data.Items || []
+      if (!items.length) {
+        grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Nothing here yet</div>`
+        return
+      }
+      grid.innerHTML = items.map(i => posterCard(i, sub(i))).join('')
+      wirePosterCards(grid, items, onPick)
     }
-    grid.innerHTML = items.map(i => posterCard(i, sub(i))).join('')
-    grid.querySelectorAll('.poster-card').forEach((el, i) => {
-      el.addEventListener('click', () => onPick(items[i]))
-    })
   } catch {
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Could not load this library</div>`
   }
@@ -1870,12 +1957,12 @@ async function loadPosterGrid(gridId, itemType, sub, onPick, getVideo) {
 const loadMovies = () => loadPosterGrid(
   'movies-grid', 'Movie',
   m => m.ProductionYear || '',
-  m => openMovie(m.Id), jfGetMovies)
+  m => openMovie(m.Id), jfGetMovies, _movieLibs, jf.movieLibraryIds || [])
 
 const loadShows = () => loadPosterGrid(
   'shows-grid', 'Series',
   s => s.ProductionYear || '',
-  s => openSeries(s.Id), jfGetShows)
+  s => openSeries(s.Id), jfGetShows, _showLibs, jf.showLibraryIds || [])
 
 // ── Movie detail ──
 

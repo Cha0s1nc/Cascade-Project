@@ -99,6 +99,16 @@
     .poster-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(0,0,0,0.5); }
     .poster-progress > span { display: block; height: 100%; background: var(--accent); }
 
+    /* Poster grid split into one section per library, when a category has more
+       than one - collapsible so a big library doesn't force endless scrolling. */
+    .lib-group + .lib-group { margin-top: 20px; }
+    .lib-group-header { cursor: pointer; user-select: none; }
+    .lib-group-header:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); border-radius: 6px; }
+    .lib-group-chevron { display: inline-block; margin-right: 6px; transition: transform 0.12s; }
+    .lib-group.collapsed .lib-group-chevron { transform: rotate(-90deg); }
+    .lib-group.collapsed .poster-grid { display: none; }
+    .lib-group-count { font-size: 11px; color: var(--text3); }
+
     .vd-header { display: flex; gap: 22px; margin-bottom: 22px; align-items: flex-start; }
     .vd-poster { width: 190px; flex-shrink: 0; aspect-ratio: 2/3; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 40px; color: var(--text3); }
     .vd-poster img { width: 100%; height: 100%; object-fit: cover; }

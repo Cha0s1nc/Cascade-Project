@@ -114,6 +114,37 @@ test('getMerged: one failing library does not sink the others', async () => {
   assert.deepEqual(res.Items?.map(i => i.Id), ['a'])
 })
 
+test('getGrouped: returns one group per library, in the order given', async () => {
+  const cfg = { ...baseConfig, libraryIds: ['L1', 'L2'] }
+  stubFetch(url => new URL(url).searchParams.get('ParentId') === 'L1'
+    ? items('a', 'shared')
+    : items('shared', 'b'))
+
+  const groups = await clientFor(cfg).getGrouped('/Items')
+  assert.deepEqual(groups.map(g => g.libraryId), ['L1', 'L2'])
+  assert.deepEqual(groups[0].items.map(i => i.Id), ['a', 'shared'])
+  assert.deepEqual(groups[1].items.map(i => i.Id), ['shared', 'b'])
+})
+
+test('getGrouped: a failing library yields an empty group, not a rejection', async () => {
+  const cfg = { ...baseConfig, libraryIds: ['L1', 'BAD'] }
+  stubFetch(url => new URL(url).searchParams.get('ParentId') === 'BAD' ? undefined : items('a'))
+
+  const groups = await clientFor(cfg).getGrouped('/Items')
+  assert.deepEqual(groups.map(g => g.libraryId), ['L1', 'BAD'])
+  assert.deepEqual(groups[0].items.map(i => i.Id), ['a'])
+  assert.deepEqual(groups[1].items, [])
+})
+
+test('getGrouped: with no libraries selected it is a plain get, wrapped as one group', async () => {
+  stubFetch(() => items('a', 'b'))
+  const groups = await clientFor(baseConfig).getGrouped('/Items')
+
+  assert.equal(calls.length, 1)
+  assert.equal(groups.length, 1)
+  assert.deepEqual(groups[0].items.map(i => i.Id), ['a', 'b'])
+})
+
 test('getAllPaged: keeps paging past the first page', async () => {
   // 5 total, page size 2 -> StartIndex 0, then 2 and 4 in parallel.
   stubFetch(url => {

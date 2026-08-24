@@ -279,12 +279,32 @@ export class JellyfinClient {
     const ids = libraryIds ?? this.config.libraryIds ?? []
     if (!ids.length) return this.get<JfItemsResponse>(path, params)
 
+    const groups = await this.getGrouped(path, params, ids)
+    return dedupeById(groups.map(g => g.items))
+  }
+
+  /**
+   * Like `getMerged`, but keeps each library's results separate instead of
+   * flattening them, so a caller can render one section per library. Groups
+   * come back in the same order as `libraryIds`. A library that fails yields
+   * an empty group rather than sinking the whole call, same as `getMerged`.
+   *
+   * With no libraries selected, falls back to a plain `get` wrapped as a
+   * single unlabelled group, mirroring `getMerged`'s no-library behaviour.
+   */
+  async getGrouped(path: string, params: JfParams = {}, libraryIds?: string[]): Promise<{ libraryId: string, items: JfItem[] }[]> {
+    const ids = libraryIds ?? this.config.libraryIds ?? []
+    if (!ids.length) {
+      const res = await this.get<JfItemsResponse>(path, params)
+      return [{ libraryId: '', items: res.Items || [] }]
+    }
+
     const results = await Promise.all(ids.map(libId =>
       this.get<JfItemsResponse>(path, { ...params, ParentId: libId })
         .catch(() => EMPTY_RESPONSE)
     ))
 
-    return dedupeById(results.map(r => r.Items || []))
+    return ids.map((libId, i) => ({ libraryId: libId, items: results[i].Items || [] }))
   }
 
   /**
