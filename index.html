@@ -474,7 +474,7 @@
     @media (max-height: 720px) {
       .np-overlay.video .np-overlay-left { padding: 8px clamp(12px, 2vw, 32px); gap: 8px; }
       .np-overlay.video .np-overlay-controls { gap: 6px; }
-      .np-overlay.video .np-overlay-btns { gap: 20px !important; margin-bottom: 0 !important; }
+      .np-overlay.video .np-overlay-btns { gap: 20px !important; margin-top: 0 !important; }
     }
     .np-overlay-vol { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
     /* A film is watched from further away than a track is listened to. */
@@ -1742,40 +1742,21 @@
         <div class="np-overlay-artist" id="ov-artist"></div>
       </div>
       <div class="np-overlay-controls">
-        <!-- Secondary: more · shuffle · like · repeat · lyrics -->
-        <div class="np-overlay-btns" style="gap:28px;margin-bottom:4px;">
-          <button class="np-ov-ctrl" id="ov-more-btn" title="More options">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
-          </button>
+        <!-- Progress first, then transport, the way other players order it.
+             Shuffle and repeat live in the transport row because they are
+             playback modes rather than extras, which leaves the row below the
+             volume for the things that are neither. -->
+        <div class="np-overlay-prog">
+          <span class="np-overlay-time" id="ov-cur">0:00</span>
+          <div class="np-overlay-prog-bar" id="ov-prog-bar" tabindex="0" role="slider" aria-label="Seek" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
+            <div class="np-overlay-prog-fill" id="ov-prog-fill"></div>
+          </div>
+          <span class="np-overlay-time right" id="ov-dur">0:00</span>
+        </div>
+        <div class="np-overlay-btns" style="gap:24px;">
           <button class="np-ov-ctrl" id="ov-shuffle" title="Shuffle">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
           </button>
-          <button class="np-like-ov" id="ov-like" title="Like">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-          </button>
-          <button class="np-ov-ctrl" id="ov-repeat" title="Repeat">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-          </button>
-          <button class="np-ov-ctrl" id="ov-lyrics-toggle" title="Lyrics">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          </button>
-          <button class="np-ov-ctrl" id="ov-sleep-timer" title="Sleep timer">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-          </button>
-          <!-- Video-only. Hidden by the same .np-overlay.video rules that hide
-               shuffle, repeat and lyrics for a film. -->
-          <button class="np-ov-ctrl vid-only" id="ov-subs" title="Subtitles">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="6" y1="14" x2="11" y2="14"/><line x1="14" y1="14" x2="18" y2="14"/></svg>
-          </button>
-          <button class="np-ov-ctrl vid-only" id="ov-audio-track" title="Audio track">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>
-          </button>
-          <button class="np-ov-ctrl vid-only" id="ov-fullscreen" title="Fullscreen (F)">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
-          </button>
-        </div>
-        <!-- Primary: prev · play · next -->
-        <div class="np-overlay-btns" style="gap:24px;">
           <button class="np-ov-ctrl" id="ov-prev" title="Previous">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg>
           </button>
@@ -1795,13 +1776,9 @@
           <button class="np-ov-ctrl" id="ov-next" title="Next">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
           </button>
-        </div>
-        <div class="np-overlay-prog">
-          <span class="np-overlay-time" id="ov-cur">0:00</span>
-          <div class="np-overlay-prog-bar" id="ov-prog-bar" tabindex="0" role="slider" aria-label="Seek" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
-            <div class="np-overlay-prog-fill" id="ov-prog-fill"></div>
-          </div>
-          <span class="np-overlay-time right" id="ov-dur">0:00</span>
+          <button class="np-ov-ctrl" id="ov-repeat" title="Repeat">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+          </button>
         </div>
         <div class="np-overlay-vol">
           <button class="np-ov-ctrl" id="ov-mute" title="Mute (M)" style="width:auto;height:auto;">
@@ -1811,6 +1788,32 @@
             <div class="np-overlay-prog-fill" id="ov-vol-fill" style="width:75%;background:var(--text3);"></div>
           </div>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+        </div>
+        <!-- Neither transport nor a playback mode: like, lyrics, sleep, more. -->
+        <div class="np-overlay-btns" style="gap:28px;margin-top:2px;">
+          <button class="np-ov-ctrl" id="ov-more-btn" title="More options">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+          </button>
+          <button class="np-like-ov" id="ov-like" title="Like">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+          </button>
+          <button class="np-ov-ctrl" id="ov-lyrics-toggle" title="Lyrics">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </button>
+          <button class="np-ov-ctrl" id="ov-sleep-timer" title="Sleep timer">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          </button>
+          <!-- Video-only. Hidden by the same .np-overlay.video rules that hide
+               shuffle, repeat and lyrics for a film. -->
+          <button class="np-ov-ctrl vid-only" id="ov-subs" title="Subtitles">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="6" y1="14" x2="11" y2="14"/><line x1="14" y1="14" x2="18" y2="14"/></svg>
+          </button>
+          <button class="np-ov-ctrl vid-only" id="ov-audio-track" title="Audio track">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>
+          </button>
+          <button class="np-ov-ctrl vid-only" id="ov-fullscreen" title="Fullscreen (F)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+          </button>
         </div>
       </div>
     </div>
