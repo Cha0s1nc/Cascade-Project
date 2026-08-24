@@ -2832,10 +2832,11 @@ function _resolveCrossfadeTarget() {
 
 onDeck('timeupdate', () => {
   if (!crossfadeEnabled || !_cfArmed || _cfActive) return
-  // No Web Audio graph means no GainNode to ramp on - see cancelCrossfade's
-  // sibling comment on _eqFallback below. There is deliberately no second,
-  // element-.volume-based fallback ramp.
-  if (_eqFallback) return
+  // No Web Audio graph means no GainNode to ramp on. There is deliberately no
+  // second, element-.volume-based fallback ramp. Note this is the hard failure
+  // only: an analyser that reads nothing (_eqNoSignal) stands the bars down but
+  // leaves the gains working, and must not take crossfade with it.
+  if (_eqGraphFailed) return
   // Overlapping the end of one episode with the start of the next is not a
   // thing anyone wants, and crossfading video would drop the picture anyway.
   if (playingVideo()) return
@@ -3727,13 +3728,20 @@ let _eqBandNodes = null  // shared array of 5 BiquadFilterNodes, one per EQ_BAND
 let _eqAnalyser = null
 let _eqFreqData = null
 let _eqRafId = null
-let _eqFallback = false    // once true, live mode is done for the session
-let _eqSilentSinceTs = 0   // wall-clock start of the current run of all-zero frames
+// Two different failures, deliberately not one flag. The graph failing to
+// build means there are no gain nodes, so crossfade cannot run either. The
+// analyser reading nothing is cosmetic: the gains still work, and only the
+// bars need to stand down. Conflating them turned a dead visualiser into a
+// dead crossfade.
+let _eqGraphFailed = false   // no Web Audio graph at all - blocks the bars and crossfade
+let _eqNoSignal = false      // graph is up but the tap never produced audio - bars only
+let _eqEverHadSignal = false // a single non-zero sample proves the tap works
+let _eqSilentSinceTs = 0     // wall-clock start of the current run of all-zero frames
 
 const EQ_FFT_SIZE = 64
 const EQ_SMOOTHING = 0.75
 const EQ_FRAME_MS = 1000 / 30    // ~30fps is plenty for three bars
-const EQ_SILENCE_MS = 2000       // how long real silence must persist before giving up
+const EQ_SILENCE_MS = 5000       // how long a never-yet-heard graph gets before we stand down
 const EQ_FILTER_Q = 1.0          // ~1.4 octave wide peaks - narrow enough that 5 bands spanning
                                   // 60Hz-12kHz do not smear into one big tilt
 const EQ_RAMP_SEC = 0.015        // setTargetAtTime time constant - fast but click-free
@@ -3756,7 +3764,7 @@ function _deckGain(deck) {
 // after a user gesture instead of hitting an autoplay block) and defensively
 // from startCrossfade().
 function _ensureEqGraph() {
-  if (_eqFallback || _eqAnalyser) return
+  if (_eqGraphFailed || _eqAnalyser) return
   try {
     _audioCtx = _audioCtx || new (window.AudioContext || window.webkitAudioContext)()
     if (_audioCtx.state === 'suspended') _audioCtx.resume()
@@ -3794,7 +3802,7 @@ function _ensureEqGraph() {
     _applyEqToGraph()
   } catch (e) {
     console.error('EQ graph setup failed, falling back to the CSS animation', e)
-    _eqFallback = true
+    _eqGraphFailed = true
     // Whatever got captured above is already routed away from its normal
     // output, and a half-built graph would leave a deck's gain node - or bare
     // source node, if the failure landed before its gain existed - connected
@@ -3892,7 +3900,7 @@ function _refreshEqUI() {
 }
 
 function startEqLoop() {
-  if (_eqRafId || _eqFallback) return
+  if (_eqRafId || _eqGraphFailed || _eqNoSignal) return
   _ensureEqGraph()
   if (!_eqAnalyser) return
 
@@ -3904,15 +3912,22 @@ function startEqLoop() {
 
     _eqAnalyser.getByteFrequencyData(_eqFreqData)
 
-    // Silence fallback - only counts against real audio (not a muted/zero-volume
-    // track, which reads as zeros legitimately and is not a graph problem).
-    const audible = !audio.muted && audio.volume > 0 && !audio.paused
     let allZero = true
     for (let i = 0; i < _eqFreqData.length; i++) { if (_eqFreqData[i] !== 0) { allZero = false; break } }
-    if (audible && allZero) {
+    if (!allZero) _eqEverHadSignal = true
+
+    // Stand down only for a tap that has produced nothing, ever. One non-zero
+    // sample proves it works, after which a quiet passage is just a quiet
+    // passage. Buffering is excluded too: a stalled stream is not paused, it is
+    // playing nothing, and counting that as a dead graph is what used to take
+    // the bars and crossfade out on a single slow track change. Same for a
+    // seek, which reads as zeros until it lands.
+    const producing = !audio.muted && audio.volume > 0 && !audio.paused &&
+      !audio.seeking && audio.readyState >= 3
+    if (!_eqEverHadSignal && producing && allZero) {
       if (!_eqSilentSinceTs) _eqSilentSinceTs = ts
       else if (ts - _eqSilentSinceTs > EQ_SILENCE_MS) {
-        _eqFallback = true
+        _eqNoSignal = true
         stopEqLoop()
         return
       }
