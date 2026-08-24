@@ -83,6 +83,14 @@ ipcMain.on('discord-rpc-update', (_e, activity) => {
 })
 
 ipcMain.on('discord-rpc-clear', () => {
+  // Drop the pending update as well as the live one. The throttle holds the
+  // last activity to send when its timer fires, so clearing on its own left a
+  // scheduled update to put the presence straight back up to five seconds
+  // later, with nothing to clear it again. That is how a paused track stayed
+  // on your profile indefinitely. Cleared before the connection check so the
+  // state is right even when there is nothing connected to tell.
+  lastRpcActivity = null
+  if (rpcUpdateTimer) { clearTimeout(rpcUpdateTimer); rpcUpdateTimer = null }
   if (!rpcClient || !rpcReady) return
   try { rpcClient.clearActivity() } catch {}
 })

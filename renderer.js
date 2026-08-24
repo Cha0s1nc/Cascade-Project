@@ -468,6 +468,7 @@ async function connect(serverUrl, token, userId) {
 
   setConnected(true)
   startRemoteControl()
+  probeCascadePlugin()  // not awaited - cheap, and nothing here depends on the result yet
   await populateLibraryPicker()
   invalidateLibraryViews()
   await loadHome()
@@ -2738,6 +2739,7 @@ function stopPlayback() {
 
   if (item) reportPlaybackStopped(item.Id, positionTicks)
 
+  _clearRpcPauseTimer()  // nothing left to restore the presence for
   window.cascade.discord.clear()
   document.getElementById('np-art').innerHTML = '♪'
   document.getElementById('np-info').innerHTML = '<span class="np-empty">Nothing playing</span>'
@@ -2789,16 +2791,35 @@ onDeck('timeupdate', syncProgressUI)
 onDeck('play', () => {
   document.getElementById('icon-play').style.display = 'none'
   document.getElementById('icon-pause').style.display = ''
+  if (_rpcPauseTimer) { clearTimeout(_rpcPauseTimer); _rpcPauseTimer = null }
+  if (_rpcClearedByPause) {
+    _rpcClearedByPause = false
+    // The presence was cleared while paused - recompute the start timestamp
+    // from where playback actually is, otherwise Discord's elapsed time
+    // counts straight through the time spent paused.
+    rpcTrackStart = Date.now() - Math.round(mediaPosition() * 1000)
+  }
   updateDiscordPresence(queue[queueIndex])
 })
 
 onDeck('pause', () => {
   document.getElementById('icon-play').style.display = ''
   document.getElementById('icon-pause').style.display = 'none'
-  window.cascade.discord.clear()
   // A manual pause mid-crossfade abandons it rather than trying to keep the
   // two decks' pause state in sync - simplest behavior, least surprising.
   cancelCrossfade()
+
+  // Give the pause a minute before giving up on the presence, rather than
+  // blanking it the instant playback stops. Guarded on a loaded track so the
+  // 'pause' event stopPlayback() itself triggers (via audio.pause(), queued
+  // async - it fires after stopPlayback's own cleanup already ran) cannot
+  // re-arm a timer for a queue that no longer exists.
+  if (_rpcPauseTimer) clearTimeout(_rpcPauseTimer)
+  _rpcPauseTimer = (discordEnabled && queue[queueIndex]) ? setTimeout(() => {
+    _rpcPauseTimer = null
+    _rpcClearedByPause = true
+    window.cascade.discord.clear()
+  }, RPC_PAUSE_CLEAR_MS) : null
 })
 
 onDeck('ended', () => {
@@ -3532,6 +3553,7 @@ async function loadSettingsFields() {
       window.cascade.discord.connect(clientId)
     } else {
       window.cascade.discord.connect(null) // disconnects
+      _clearRpcPauseTimer()
       window.cascade.discord.clear()
     }
   }
@@ -3579,6 +3601,7 @@ async function loadSettingsFields() {
     updateSourcePills()
     _reloadLyricsFor()
   }
+  _applyCascadePluginAvailability()  // re-apply in case the probe resolved before this view existed
 
   // Lyrics source preference
   const lyricsSourceSel = document.getElementById('s-lyrics-source')
@@ -3687,6 +3710,18 @@ document.getElementById('btn-save-settings').addEventListener('click', async () 
 })
 
 document.getElementById('btn-logout').addEventListener('click', async () => {
+  // Tear down everything session/account-scoped before the account itself is
+  // forgotten - a different user signing in next must not inherit this one's
+  // playback, presence, or cached grids. Saved server URL, username, theme, EQ
+  // profiles and volume are untouched: those are things a user keeps regardless
+  // of who is signed in.
+  cancelCrossfade()  // abandon the incoming deck too, not just the current one
+  stopPlayback()      // pauses audio, clears the queue, drops the stream prefetch
+                       // and the current encoding, clears Discord presence
+  invalidateLibraryViews()
+  invalidateVideoViews()
+  showView('home')
+
   await window.cascade.store.delete('token')
   await window.cascade.store.delete('userId')
   await window.cascade.store.delete('password')
@@ -5456,6 +5491,73 @@ let serverOnlyMode    = false  // fetch exclusively from Cascade plugin when tru
 // Valid lyrics source keys - any stored value not in this set is stale and gets reset
 const VALID_LYRICS_SOURCES = new Set(['auto', 'Kugou', 'LRCLIB', 'Jellyfin', 'cascade-karaoke', 'cascade-synced'])
 
+// ── CascadeSLRC plugin detection ────────────────────────────────────────────
+// Whether the connected server has the plugin at all. Probed once per
+// connection (see probeCascadePlugin, called from connect()) and cached here
+// for the session - not worth a round trip per track.
+let _cascadePluginAbsent = false
+
+/**
+ * GET {jf.url}/Audio/not-a-guid/CascadeLyrics with the normal auth header.
+ *
+ * This works because the plugin's controller is declared with NO `:guid`
+ * route constraint: [Route("Audio/{itemId}/CascadeLyrics")], [Authorize]. A
+ * server that has the plugin matches the route, passes auth, then fails to
+ * bind "not-a-guid" to the Guid parameter - [ApiController] turns that into a
+ * 400. A server without the plugin never matches the route at all, so
+ * Jellyfin's own router 404s. See interpretCascadePluginProbe in
+ * src/core/cascade-plugin.ts for the full reasoning - it depends on that
+ * route staying unconstrained, so do not add a `:guid` constraint there.
+ *
+ * A real track id can't be used for this: a plugin-less server and a track
+ * with genuinely no lyrics both return a bare 404.
+ */
+async function probeCascadePlugin() {
+  let status = null
+  try {
+    const r = await fetch(`${jf.url}/Audio/not-a-guid/CascadeLyrics`, {
+      headers: { 'X-Emby-Token': jf.token },
+      signal: AbortSignal.timeout(8000),
+    })
+    status = r.status
+  } catch {
+    // Network failure - status stays null, which reads as 'unknown' below.
+  }
+  const verdict = CascadeCore.interpretCascadePluginProbe(status)
+  // 'unknown' (401, 5xx, network failure) is treated as present: never grey
+  // out a working feature because the network hiccuped.
+  _cascadePluginAbsent = verdict === 'absent'
+  _applyCascadePluginAvailability()
+}
+
+/** Disables what depends on the plugin once probeCascadePlugin() has found it
+ *  missing. Safe to call anytime, including before the probe resolves or
+ *  while the settings view isn't open. */
+function _applyCascadePluginAvailability() {
+  const absent = _cascadePluginAbsent
+
+  const toggle = document.getElementById('server-only-lyrics-toggle')
+  if (toggle) toggle.disabled = absent
+  document.getElementById('server-only-lyrics-row')?.classList.toggle('locked', absent)
+  const note = document.getElementById('server-only-plugin-missing')
+  if (note) note.style.display = absent ? '' : 'none'
+
+  ;['lyrics-edit-btn', 'ov-lyrics-edit-btn'].forEach(id => {
+    const btn = document.getElementById(id)
+    if (btn) btn.disabled = absent
+  })
+
+  // Server-only mode was already on and the plugin turned out to be absent -
+  // a broken state, not just a disabled toggle. Turn it off and say why.
+  if (absent && serverOnlyMode) {
+    serverOnlyMode = false
+    window.cascade.store.set('serverOnlyMode', false)
+    if (toggle) toggle.checked = false
+    _applyServerOnlyMode(false)
+    showToast('Server-only lyrics mode turned off - the CascadeSLRC plugin was not found on this server')
+  }
+}
+
 // Load persisted preferences immediately
 ;(async () => {
   const stored = (await window.cascade.store.get('lyricsForcedSource')) || 'auto'
@@ -5595,6 +5697,13 @@ async function _ensureCascadePluginNotice() {
 // ── Lyrics edit button ────────────────────────────────────────────────────────
 async function openLyricsEditorFor(item) {
   if (!item || !jf) return
+  // Root-cause gate: every entry point (both buttons and the context menu
+  // item) routes through here, so this is the one place that needs to know
+  // the plugin is missing.
+  if (_cascadePluginAbsent) {
+    showToast('The lyrics editor needs the CascadeSLRC plugin, which was not found on this server')
+    return
+  }
   const proceed = await _ensureCascadePluginNotice()
   if (!proceed) return
   // lyricsData holds the playing track's lines - only seed the editor with it when
@@ -6091,6 +6200,21 @@ updateNowPlaying = function(item) {
 
 let discordEnabled = false
 let rpcTrackStart = 0
+
+// How long a paused track keeps its Discord presence before giving up on it.
+const RPC_PAUSE_CLEAR_MS = 60_000
+let _rpcPauseTimer = null      // pending "give up on the paused presence" timeout, or null
+let _rpcClearedByPause = false // true once that timer has actually cleared the presence -
+                                // tells the next play event it needs to restore, not just resume
+
+/** Cancels any pending pause-clear timer and drops the "cleared by pause" flag.
+ *  Called by every deliberate clear (stop, sign-out, turning Discord off) so a
+ *  timer scheduled for a pause that no longer matters cannot fire later and
+ *  clear a presence that has moved on. */
+function _clearRpcPauseTimer() {
+  if (_rpcPauseTimer) { clearTimeout(_rpcPauseTimer); _rpcPauseTimer = null }
+  _rpcClearedByPause = false
+}
 
 // Discord renders large_image by fetching the URL from its own servers, so it
 // has to be reachable from the public internet. A Jellyfin on a LAN, a

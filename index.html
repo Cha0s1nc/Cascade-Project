@@ -369,6 +369,8 @@
     .lib-check-label { font-size: 12px; color: var(--text2); user-select: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     /* The last enabled library can't be switched off - there'd be nothing to play */
     .lib-check-row.locked .toggle { opacity: 0.45; pointer-events: none; }
+    /* A setting-row whose control depends on a plugin that isn't installed. */
+    .setting-row.locked .toggle { opacity: 0.45; pointer-events: none; }
     /* Groups the movie/TV toggles under a heading when both categories have a
        real choice to make. */
     .lib-group-title { font-size: 11px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.03em; margin: 10px 0 4px; }
@@ -685,6 +687,7 @@
       transition: background 0.12s, color 0.12s;
     }
     .lyrics-edit-btn:hover { background: rgba(255,255,255,0.14); color: white; }
+    .lyrics-edit-btn:disabled { opacity: 0.4; cursor: default; pointer-events: none; }
 
     /* ── Lyrics source dropdown ── */
     .lyrics-source-dropdown {
@@ -1533,10 +1536,11 @@
           </div>
           <div class="settings-group">
             <div class="sg-title">Fetching</div>
-            <div class="setting-row">
+            <div class="setting-row" id="server-only-lyrics-row">
               <div class="setting-label">
                 <span class="setting-name">Server-only Mode</span>
                 <span class="setting-desc">Use the CascadeSLRC Jellyfin plugin exclusively for lyrics and art. Requires the plugin to be installed on your server.</span>
+                <span class="setting-desc" id="server-only-plugin-missing" style="display:none">CascadeSLRC plugin not found on this server. Install it through my Github page to use server-only mode and the lyrics editor.</span>
               </div>
               <label class="toggle">
                 <input type="checkbox" id="server-only-lyrics-toggle">
