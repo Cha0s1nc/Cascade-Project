@@ -26,19 +26,42 @@ let crossfadeEnabled = false
 let crossfadeSeconds = 6
 let maxStreamingBitrate = 140000000   // overridden from settings in loadSettingsFields
 
-// The single media element for the whole app.
-//
-// It is the <video id="media"> in index.html, not `new Audio()`, because movies
-// and episodes need somewhere to draw. HTMLVideoElement *is* an
-// HTMLMediaElement, so every .play()/.pause()/.src/.currentTime/.duration/
-// .volume call below works exactly as it did - which is why this stayed one
-// element instead of becoming two with a mode flag.
-//
-// The name is still `audio` on purpose: renaming it would churn 80-odd lines
-// for no behaviour change. It plays music the overwhelming majority of the time.
-const audio = /** @type {HTMLVideoElement} */ (document.getElementById('media'))
-audio.crossOrigin = 'anonymous'
-audio.volume = volume
+// Two permanent "deck" media elements (A/B), so a crossfade is two real
+// elements overlapping instead of one element having its src handed back and
+// forth. Both are the <video id="media">/<video id="media-b"> in index.html,
+// not `new Audio()`, because movies and episodes need somewhere to draw.
+// HTMLVideoElement *is* an HTMLMediaElement, so every .play()/.pause()/.src/
+// .currentTime/.duration/.volume call below works exactly as it did.
+const DECKS = [
+  /** @type {HTMLVideoElement} */ (document.getElementById('media')),
+  /** @type {HTMLVideoElement} */ (document.getElementById('media-b')),
+]
+DECKS.forEach(d => { d.crossOrigin = 'anonymous'; d.volume = volume })
+
+// `audio` points at whichever deck is current. It is a `let` reassigned at
+// the end of a crossfade (see finishCrossfade), and it is still called
+// `audio` on purpose: renaming it would churn 100-odd lines for no behaviour
+// change, since every existing `audio.foo` reference just follows the
+// reassignment. It plays music the overwhelming majority of the time.
+let audio = DECKS[0]
+
+// The 20-odd `audio.addEventListener(...)` calls sprinkled through this file
+// were written when `audio` was a single, permanent element - they captured
+// whichever deck `audio` pointed to at parse time and would go deaf the first
+// time a crossfade reassigned it. onDeck() binds to both decks permanently
+// and filters to whichever one is current *at event time*, so every one of
+// those call sites keeps working across a crossfade without needing to know
+// decks exist.
+function onDeck(type, fn, opts) {
+  DECKS.forEach(d => d.addEventListener(type, e => { if (e.target === audio) fn(e) }, opts))
+}
+
+// Element .volume/.muted must track the user's setting on BOTH decks at all
+// times - the crossfade envelope lives entirely in Web Audio gain nodes (see
+// _ensureEqGraph), never on the element, so whichever deck becomes current
+// next already has the right volume with nothing left to sync.
+function setDeckVolume(v) { DECKS.forEach(d => d.volume = v) }
+function setDeckMuted(m) { DECKS.forEach(d => d.muted = m) }
 
 // ── Media kind ────────────────────────────────────────────────────────────────
 
@@ -449,8 +472,8 @@ function startRemoteControl() {
     setVolume(pct)  { applyRemoteVolume(pct / 100) },
     volumeUp()      { applyRemoteVolume(volume + 0.1) },
     volumeDown()    { applyRemoteVolume(volume - 0.1) },
-    toggleMute()    { audio.muted = !audio.muted },
-    setMute(muted)  { audio.muted = muted },
+    toggleMute()    { setDeckMuted(!audio.muted) },
+    setMute(muted)  { setDeckMuted(muted) },
   }, playbackIsLocallyOwned)
 
   // Not fatal - playback works fine without it - but it must be visible.
@@ -464,7 +487,7 @@ function startRemoteControl() {
 // Mirrors what the volume slider does, so a remote change looks identical.
 function applyRemoteVolume(next) {
   volume = Math.min(1, Math.max(0, next))
-  audio.volume = volume
+  setDeckVolume(volume)
   const fill = document.getElementById('vol-fill')
   if (fill) fill.style.width = `${volume * 100}%`
   window.cascade.store.set('volume', volume)
@@ -2051,6 +2074,8 @@ function playItems(items, startIndex) {
 function applyVideoMode(on) {
   const ov = document.getElementById('np-overlay')
   ov.classList.toggle('video', !!on)
+  // Only the current deck may show a picture - the other is mid-crossfade or idle.
+  DECKS.forEach(d => d.classList.toggle('deck-hidden', d !== audio))
   // A film opened on its own is a queue of one, so prev and next have nowhere
   // to go. A season is not - that queue is the whole point of next-episode.
   ov.classList.toggle('single', !!on && queue.length <= 1)
@@ -2584,7 +2609,7 @@ function stopProgressReporting() {
 // State changes a controller needs to see straight away. `volumechange` covers
 // both the local slider and an incoming remote SetVolume.
 ;['play', 'pause', 'seeked', 'volumechange'].forEach(ev =>
-  audio.addEventListener(ev, reportPlaybackProgress)
+  onDeck(ev, reportPlaybackProgress)
 )
 
 // ── Audio events ──────────────────────────────────────────────────────────────
@@ -2607,27 +2632,27 @@ function syncProgressUI() {
   document.getElementById('ov-prog-fill').style.width = pct
 }
 
-audio.addEventListener('timeupdate', syncProgressUI)
+onDeck('timeupdate', syncProgressUI)
 
-audio.addEventListener('play', () => {
+onDeck('play', () => {
   document.getElementById('icon-play').style.display = 'none'
   document.getElementById('icon-pause').style.display = ''
   updateDiscordPresence(queue[queueIndex])
 })
 
-audio.addEventListener('pause', () => {
+onDeck('pause', () => {
   document.getElementById('icon-play').style.display = ''
   document.getElementById('icon-pause').style.display = 'none'
   window.cascade.discord.clear()
-  // A manual pause mid-crossfade abandons it rather than trying to keep two
-  // elements' pause state in sync - simplest behavior, least surprising.
+  // A manual pause mid-crossfade abandons it rather than trying to keep the
+  // two decks' pause state in sync - simplest behavior, least surprising.
   cancelCrossfade()
 })
 
-audio.addEventListener('ended', () => {
+onDeck('ended', () => {
   // Crossfade already handles this transition on its own timeline (driven by
   // wall-clock time, not this event) - let it finish rather than double-advance.
-  if (_cfNextAudio) return
+  if (_cfActive) return
 
   const item = queue[queueIndex]
   if (item) reportPlaybackStopped(item.Id, Math.round(audio.duration * 10000000))
@@ -2679,21 +2704,23 @@ async function continueWithAutoMix(lastItem) {
 }
 
 // ── Crossfade ────────────────────────────────────────────────────────────────
-// Fades the ending track out while a temporary, untapped <audio> element plays
-// and fades the next track in, then hands off by copying its position onto the
-// real `audio` element. Every existing listener (progress bar, lyrics sync,
-// Discord RPC, media session, the now-playing equalizer) stays bound to that
-// same element the whole time - it never learns a crossfade happened.
+// Fades the ending track out on the current deck while the other, permanent
+// deck loads and fades the next track in, then hands off by pointing `audio`
+// at that deck - no src copying, no seek. Every existing listener (progress
+// bar, lyrics sync, Discord RPC, media session, the now-playing equalizer) is
+// bound through onDeck(), so it keeps reading whichever deck is current
+// without needing to know a crossfade happened.
 //
-// Known limitation: the temporary element (_cfNextAudio, below) is not wired
-// into the equalizer's Web Audio graph, so the bars keep following the
-// outgoing track as it fades out and then jump once the handoff finishes.
-// Acceptable - not worth a second analyser for a few seconds of overlap.
+// The envelope itself lives entirely in the two decks' GainNodes (see
+// _ensureEqGraph/_deckGain), ramped on the audio thread with an equal-power
+// curve - element .volume never moves during a fade, so a user volume change
+// mid-crossfade just works, and there is no rAF loop to stutter on a dropped
+// frame.
 
-let _cfNextAudio = null   // temporary element playing the upcoming track during overlap
-let _cfRafId = null       // requestAnimationFrame handle for the volume ramp
-let _cfArmed = true       // guards against re-triggering mid-ramp; re-set per track
-let _cfSession = 0        // bumped on cancel, so an in-flight stream resolve knows to stop
+let _cfArmed = true        // guards against re-triggering mid-fade; re-set per track
+let _cfSession = 0         // bumped on cancel, so an in-flight stream resolve knows to stop
+let _cfActive = false      // true from the start of a fade until the handoff completes
+let _cfOtherDeck = null    // the deck fading in, while a crossfade is in progress
 let _cfNextResolved = null   // resolved stream of the incoming track, adopted on finish
 
 // Mirrors the `ended` handler's "what plays next" logic, but only for the case
@@ -2706,12 +2733,14 @@ function _resolveCrossfadeTarget() {
   return next
 }
 
-audio.addEventListener('timeupdate', () => {
-  if (!crossfadeEnabled || !_cfArmed || _cfNextAudio) return
-  // Crossfade hands the primary element's src over to a second, audio-only
-  // element mid-ramp. For video that would drop the picture, and overlapping
-  // the end of one episode with the start of the next is not a thing anyone
-  // wants anyway.
+onDeck('timeupdate', () => {
+  if (!crossfadeEnabled || !_cfArmed || _cfActive) return
+  // No Web Audio graph means no GainNode to ramp on - see cancelCrossfade's
+  // sibling comment on _eqFallback below. There is deliberately no second,
+  // element-.volume-based fallback ramp.
+  if (_eqFallback) return
+  // Overlapping the end of one episode with the start of the next is not a
+  // thing anyone wants, and crossfading video would drop the picture anyway.
   if (playingVideo()) return
   if (!audio.duration || !isFinite(audio.duration)) return
   if (sleepAtTrackEnd) return
@@ -2730,51 +2759,70 @@ async function startCrossfade(nextIndex) {
   // Resolving the stream is a round-trip now, and cancelCrossfade() can land
   // during it (user skips, or the track changes). Take a session ticket and
   // abandon if anything cancelled while we were waiting - otherwise we'd start
-  // an orphaned audio element that nothing can stop.
+  // an orphaned deck that nothing can stop.
   const session = ++_cfSession
   const resolved = await resolveTrackStream(nextItem.Id)
   if (session !== _cfSession) return
 
-  const next = new Audio()
-  next.crossOrigin = 'anonymous'  // matches the primary element's setup
-  next.src = resolved.url
-  next.volume = 0
-  next.play().catch(() => {})
-  _cfNextAudio = next
+  const outgoing = audio
+  const incoming = DECKS.find(d => d !== outgoing)
+  incoming.src = resolved.url
+  incoming.volume = volume   // element volume stays at user volume on both decks always
+  incoming.play().catch(() => {})
+  _cfOtherDeck = incoming
   _cfNextResolved = resolved
 
-  const fadeMs   = crossfadeSeconds * 1000
-  const startVol = audio.volume
-  const targetVol = volume
-  const t0 = performance.now()
-
-  const tick = (now) => {
-    if (_cfNextAudio !== next) return  // cancelled mid-ramp
-    const p = Math.min(1, (now - t0) / fadeMs)
-    audio.volume = startVol * (1 - p)
-    next.volume = targetVol * p
-    if (p < 1) _cfRafId = requestAnimationFrame(tick)
-    else finishCrossfade(nextIndex, next)
+  // Idempotent - already built from the first track's `play` event in the
+  // overwhelming majority of cases. Guards against the (never actually
+  // reachable, since timeupdate implies a prior play) edge of arming before
+  // the graph exists.
+  _ensureEqGraph()
+  const outGain = _deckGain(outgoing)
+  const inGain = _deckGain(incoming)
+  if (outGain && inGain && _audioCtx) {
+    const { outCurve, inCurve } = CascadeCore.equalPowerCrossfadeCurves()
+    const now = _audioCtx.currentTime
+    outGain.gain.cancelScheduledValues(now)
+    inGain.gain.cancelScheduledValues(now)
+    outGain.gain.setValueCurveAtTime(outCurve, now, crossfadeSeconds)
+    inGain.gain.setValueCurveAtTime(inCurve, now, crossfadeSeconds)
   }
-  _cfRafId = requestAnimationFrame(tick)
+  _cfActive = true
+
+  // The audio thread owns the actual ramp above; this timer only triggers the
+  // JS-side handoff bookkeeping once it has finished, so a little timer
+  // jitter here does not affect what the fade sounded like.
+  setTimeout(() => {
+    if (_cfOtherDeck !== incoming) return   // cancelled mid-fade
+    finishCrossfade(nextIndex, incoming)
+  }, crossfadeSeconds * 1000)
 }
 
-function finishCrossfade(nextIndex, next) {
+function finishCrossfade(nextIndex, incoming) {
+  const outgoing = audio
   const outgoingItem = queue[queueIndex]
-  if (outgoingItem) reportPlaybackStopped(outgoingItem.Id, Math.round(audio.currentTime * 10000000))
+  if (outgoingItem) reportPlaybackStopped(outgoingItem.Id, Math.round(outgoing.currentTime * 10000000))
 
-  audio.pause()
-  audio.src = next.src
-  audio.currentTime = next.currentTime
-  audio.volume = volume
-  audio.play().catch(() => {})
+  // Swap the current-deck pointer before touching the outgoing element.
+  // onDeck() filters every listener by `e.target === audio`, so doing this
+  // first means the outgoing deck's own pause/emptied events (right below)
+  // read as "the idle deck went quiet", not as this track pausing - a manual
+  // pause fires cancelCrossfade(), which must not happen here.
+  audio = incoming
+  _mediaSrc = _deckSource(incoming)
+  _cfActive = false
+  _cfOtherDeck = null
 
-  next.pause()
-  next.src = ''
-  _cfNextAudio = null
-  _cfRafId = null
+  outgoing.pause()
+  outgoing.src = ''
 
   queueIndex = nextIndex
+  // The incoming deck has been playing throughout the fade, so no fresh
+  // `play` event fires here to restart the EQ loop or the lyrics word loop
+  // for the new track - nudge both explicitly. Both guard themselves, so
+  // this is a no-op if they are already running.
+  startEqLoop()
+  _startWordLoop()
   playCurrentTrack({ alreadyPlaying: true, resolved: _cfNextResolved })
   _cfNextResolved = null
   renderQueuePanel()
@@ -2784,10 +2832,24 @@ function cancelCrossfade() {
   // Bump first: this is what tells an in-flight startCrossfade() resolve that
   // it no longer owns the crossfade.
   _cfSession++
-  if (_cfRafId) { cancelAnimationFrame(_cfRafId); _cfRafId = null }
-  if (_cfNextAudio) { _cfNextAudio.pause(); _cfNextAudio.src = ''; _cfNextAudio = null }
+  if (_cfOtherDeck) {
+    const otherDeck = _cfOtherDeck
+    if (_audioCtx) {
+      const now = _audioCtx.currentTime
+      const outGain = _deckGain(audio)
+      const inGain = _deckGain(otherDeck)
+      // Playback stays on `audio` (the fade never finished), so its gain goes
+      // back to full; the abandoned deck's gain is reset defensively, though
+      // its src is cleared below either way.
+      if (outGain) { outGain.gain.cancelScheduledValues(now); outGain.gain.setValueAtTime(1, now) }
+      if (inGain) { inGain.gain.cancelScheduledValues(now); inGain.gain.setValueAtTime(0, now) }
+    }
+    otherDeck.pause()
+    otherDeck.src = ''
+  }
+  _cfActive = false
+  _cfOtherDeck = null
   _cfNextResolved = null
-  audio.volume = volume
   _cfArmed = true
 }
 
@@ -2874,7 +2936,7 @@ document.getElementById('prog-bar').addEventListener('click', (e) => {
   function setVol(e) {
     const rect = bar.getBoundingClientRect()
     const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-    audio.volume = ratio
+    setDeckVolume(ratio)
     volume = ratio
     fill.style.width = `${ratio * 100}%`
     window.cascade.store.set('volume', ratio)
@@ -2890,7 +2952,7 @@ document.getElementById('prog-bar').addEventListener('click', (e) => {
 })()
 
 document.getElementById('btn-mute').addEventListener('click', () => {
-  audio.muted = !audio.muted
+  setDeckMuted(!audio.muted)
 })
 
 // Lyrics open button
@@ -2972,12 +3034,12 @@ window.cascade.onMediaKey((key) => {
 })
 
 // Keep OS media session state in sync with playback
-audio.addEventListener('play',  () => {
+onDeck('play',  () => {
   if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
   window.cascade.touchbarUpdate({ playing: true })
   window.cascade.nowPlayingUpdate({ isPlaying: true })
 })
-audio.addEventListener('pause', () => {
+onDeck('pause', () => {
   if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
   window.cascade.touchbarUpdate({ playing: false })
   window.cascade.nowPlayingUpdate({ isPlaying: false })
@@ -3405,7 +3467,7 @@ async function init() {
   const savedVol = await window.cascade.store.get('volume')
   if (savedVol !== undefined && savedVol !== null) {
     volume = parseFloat(savedVol)
-    audio.volume = volume
+    setDeckVolume(volume)
     const fill = document.getElementById('vol-fill')
     if (fill) fill.style.width = `${volume * 100}%`
   }
@@ -3501,11 +3563,18 @@ function stopBeatLoop() {
 // build the graph once, run a throttled rAF loop while something plays, and
 // fall back to the plain CSS animation for the rest of the session if the
 // graph ever produces silence for audio that is actually audible.
+//
+// Each deck gets its own permanent source + gain node (see _deckSource/
+// _deckGain), both feeding the one shared analyser, so a crossfade sums
+// cleanly and the bars follow whichever deck(s) are actually sounding instead
+// of just the outgoing one.
 
 let _audioCtx = null
-let _mediaSrc = null    // MediaElementAudioSourceNode - createMediaElementSource()
-                         // may only be called once per element, ever, so this is
-                         // cached at module level rather than rebuilt per play.
+let _mediaSrc = null    // MediaElementAudioSourceNode for the CURRENT deck, kept
+                         // updated at every crossfade handoff - wip-waterfall/
+                         // NOTES.md still names this as the tap point.
+const _deckSourceNodes = new Map()   // deck element -> its permanent MediaElementAudioSourceNode
+const _deckGainNodes = new Map()     // deck element -> its permanent GainNode
 let _eqAnalyser = null
 let _eqFreqData = null
 let _eqRafId = null
@@ -3517,32 +3586,54 @@ const EQ_SMOOTHING = 0.75
 const EQ_FRAME_MS = 1000 / 30    // ~30fps is plenty for three bars
 const EQ_SILENCE_MS = 2000       // how long real silence must persist before giving up
 
-// Builds ctx -> source -> analyser -> destination, once, lazily. Only ever
-// called from startEqLoop(), which only runs from the `play` handler below, so
-// ctx.resume() always lands after a user gesture instead of hitting an
-// autoplay block.
+// createMediaElementSource() may only be called once per element, ever - so
+// each deck's source node is built on first request and cached forever.
+function _deckSource(deck) {
+  if (!_deckSourceNodes.has(deck)) _deckSourceNodes.set(deck, _audioCtx.createMediaElementSource(deck))
+  return _deckSourceNodes.get(deck)
+}
+
+/** The permanent GainNode for a deck, or null if the graph was never built. */
+function _deckGain(deck) {
+  return _deckGainNodes.get(deck) || null
+}
+
+// Builds ctx -> {deckA, deckB source+gain} -> analyser -> destination, once,
+// lazily. Only ever called from startEqLoop() (which only runs from the
+// `play` handler below, so ctx.resume() always lands after a user gesture
+// instead of hitting an autoplay block) and defensively from startCrossfade().
 function _ensureEqGraph() {
   if (_eqFallback || _eqAnalyser) return
   try {
     _audioCtx = _audioCtx || new (window.AudioContext || window.webkitAudioContext)()
     if (_audioCtx.state === 'suspended') _audioCtx.resume()
-    // Once per element, ever - see the comment on _mediaSrc above.
-    _mediaSrc = _mediaSrc || _audioCtx.createMediaElementSource(audio)
     _eqAnalyser = _audioCtx.createAnalyser()
     _eqAnalyser.fftSize = EQ_FFT_SIZE
     _eqAnalyser.smoothingTimeConstant = EQ_SMOOTHING
     _eqFreqData = new Uint8Array(_eqAnalyser.frequencyBinCount)
-    // Routing the element through Web Audio replaces its normal output path -
-    // without this connection all the way to destination, playback goes silent.
-    _mediaSrc.connect(_eqAnalyser)
+    // Routing a deck through Web Audio replaces its normal output path -
+    // without a connection all the way to destination, that deck goes silent.
+    DECKS.forEach(d => {
+      const gain = _audioCtx.createGain()
+      _deckSource(d).connect(gain)
+      gain.connect(_eqAnalyser)
+      _deckGainNodes.set(d, gain)
+    })
     _eqAnalyser.connect(_audioCtx.destination)
+    _mediaSrc = _deckSource(audio)
   } catch (e) {
     console.error('EQ graph setup failed, falling back to the CSS animation', e)
     _eqFallback = true
-    // If we got as far as capturing the element, it is already routed away from
-    // its normal output and a half-built graph means silence. Wire it straight
-    // to the destination so playback survives losing the visualiser.
-    if (_mediaSrc) { try { _mediaSrc.disconnect(); _mediaSrc.connect(_audioCtx.destination) } catch {} }
+    // Whatever got captured above is already routed away from its normal
+    // output, and a half-built graph would leave a deck's gain node - or bare
+    // source node, if the failure landed before its gain existed - connected
+    // nowhere, which is silence. Wire every deck straight to destination so
+    // playback survives losing the visualiser.
+    DECKS.forEach(d => {
+      const gain = _deckGainNodes.get(d)
+      if (gain) { try { gain.disconnect(); gain.connect(_audioCtx.destination) } catch {} }
+      else if (_deckSourceNodes.has(d)) { try { _deckSourceNodes.get(d).connect(_audioCtx.destination) } catch {} }
+    })
     _eqAnalyser = null
   }
 }
@@ -3592,10 +3683,10 @@ function stopEqLoop() {
   document.querySelectorAll('.track-eq.live').forEach(el => el.classList.remove('live'))
 }
 
-audio.addEventListener('play', startEqLoop)
-audio.addEventListener('pause', stopEqLoop)
-audio.addEventListener('ended', stopEqLoop)
-audio.addEventListener('emptied', stopEqLoop)
+onDeck('play', startEqLoop)
+onDeck('pause', stopEqLoop)
+onDeck('ended', stopEqLoop)
+onDeck('emptied', stopEqLoop)
 
 function openOverlay() {
   overlayOpen = true
@@ -3930,7 +4021,7 @@ document.getElementById('ov-fullscreen').addEventListener('click', toggleVideoFu
 // Defers to the status bar's mute button rather than duplicating the state
 // handling - one button owns muted/unmuted, this is a second way to press it.
 document.getElementById('ov-mute').addEventListener('click', () => document.getElementById('btn-mute').click())
-audio.addEventListener('dblclick', () => { if (playingVideo()) toggleVideoFullscreen() })
+onDeck('dblclick', () => { if (playingVideo()) toggleVideoFullscreen() })
 
 // Escape is handled by the browser, which exits fullscreen without telling the
 // overlay - so closing on Escape has to wait until it is no longer fullscreen,
@@ -3957,7 +4048,7 @@ document.addEventListener('keydown', (e) => {
  */
 function nudgeVolume(delta) {
   const next = Math.max(0, Math.min(1, audio.volume + delta))
-  audio.volume = next
+  setDeckVolume(next)
   volume = next
   document.getElementById('vol-fill').style.width = `${next * 100}%`
   document.getElementById('ov-vol-fill').style.width = `${next * 100}%`
@@ -4035,7 +4126,7 @@ document.getElementById('ov-audio-track').addEventListener('click', (e) => {
   function setVol(e) {
     const rect = bar.getBoundingClientRect()
     const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-    audio.volume = ratio
+    setDeckVolume(ratio)
     volume = ratio
     fill.style.width = `${ratio * 100}%`
     // Keep main vol bar in sync
@@ -4053,11 +4144,11 @@ document.getElementById('ov-audio-track').addEventListener('click', (e) => {
 
 // Overlay progress is filled by syncProgressUI() alongside the status bar.
 
-audio.addEventListener('play', () => {
+onDeck('play', () => {
   document.getElementById('ov-icon-play').style.display = 'none'
   document.getElementById('ov-icon-pause').style.display = ''
 })
-audio.addEventListener('pause', () => {
+onDeck('pause', () => {
   document.getElementById('ov-icon-play').style.display = ''
   document.getElementById('ov-icon-pause').style.display = 'none'
 })
@@ -4529,7 +4620,7 @@ document.getElementById('ov-panel-lyrics').addEventListener('wheel', (e) => {
   }, 2200)
 }, { passive: false })
 
-audio.addEventListener('timeupdate', () => {
+onDeck('timeupdate', () => {
   if (!overlayOpen || !overlayLyricsOpen || !lyricsData.length) return
   // Same lookahead as word-fill (_wordHighlightFrame) so the last word's fill
   // animation and the line-promotion check complete in lockstep - no gap in
@@ -5065,9 +5156,9 @@ function _stopWordLoop() {
   if (_wordRafId) { cancelAnimationFrame(_wordRafId); _wordRafId = null }
 }
 
-audio.addEventListener('play',  () => _startWordLoop())
-audio.addEventListener('pause', () => _stopWordLoop())
-audio.addEventListener('ended', () => _stopWordLoop())
+onDeck('play',  () => _startWordLoop())
+onDeck('pause', () => _stopWordLoop())
+onDeck('ended', () => _stopWordLoop())
 
 // ── Lyrics panel ─────────────────────────────────────────────────────────────
 
@@ -5358,7 +5449,7 @@ let _lyricsScanIdx = 0   // cursor into lyricsData so timeupdate scans forward i
 let lyricsScrollSuppressed = false
 let lyricsScrollTimer = null
 
-audio.addEventListener('timeupdate', () => {
+onDeck('timeupdate', () => {
   if (!lyricsData.length) return
   // Same lookahead as word-fill (_wordHighlightFrame) so the last word's fill
   // animation and the line-promotion check complete in lockstep - no gap in
