@@ -179,7 +179,22 @@ function createWindow() {
     },
     show: false,
   })
-  Menu.setApplicationMenu(null)
+  // macOS always renders an app menu, so passing null does not remove it, it
+  // leaves a stub with nothing bound to it - which is why Reload, the zoom
+  // items and Toggle Developer Tools all grey out. It costs the Edit menu too,
+  // and on macOS that menu is what makes Cmd+C/V/X/A work inside a text field
+  // at all, so without it you cannot paste a server URL or a password.
+  // Elsewhere a null menu really does mean no menu bar, which is what we want.
+  if (process.platform === 'darwin') {
+    Menu.setApplicationMenu(Menu.buildFromTemplate([
+      { role: 'appMenu' },
+      { role: 'editMenu' },
+      { role: 'viewMenu' },
+      { role: 'windowMenu' },
+    ]))
+  } else {
+    Menu.setApplicationMenu(null)
+  }
 
   win.loadFile('index.html')
 
