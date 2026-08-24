@@ -5498,24 +5498,19 @@ const VALID_LYRICS_SOURCES = new Set(['auto', 'Kugou', 'LRCLIB', 'Jellyfin', 'ca
 let _cascadePluginAbsent = false
 
 /**
- * GET {jf.url}/Audio/not-a-guid/CascadeLyrics with the normal auth header.
+ * GET {jf.url}/CascadeLyrics/Info with the normal auth header. The plugin
+ * exposes that route for exactly this question, so reaching it is the answer
+ * and the body is not read here.
  *
- * This works because the plugin's controller is declared with NO `:guid`
- * route constraint: [Route("Audio/{itemId}/CascadeLyrics")], [Authorize]. A
- * server that has the plugin matches the route, passes auth, then fails to
- * bind "not-a-guid" to the Guid parameter - [ApiController] turns that into a
- * 400. A server without the plugin never matches the route at all, so
- * Jellyfin's own router 404s. See interpretCascadePluginProbe in
- * src/core/cascade-plugin.ts for the full reasoning - it depends on that
- * route staying unconstrained, so do not add a `:guid` constraint there.
- *
- * A real track id can't be used for this: a plugin-less server and a track
- * with genuinely no lyrics both return a bare 404.
+ * Neither of the obvious alternatives works. Jellyfin's own /Plugins needs
+ * elevation and Cascade signs in as a normal user, and the lyrics route
+ * cannot answer either, since a server without the plugin and a track with
+ * genuinely no lyrics both return a bare 404.
  */
 async function probeCascadePlugin() {
   let status = null
   try {
-    const r = await fetch(`${jf.url}/Audio/not-a-guid/CascadeLyrics`, {
+    const r = await fetch(`${jf.url}/CascadeLyrics/Info`, {
       headers: { 'X-Emby-Token': jf.token },
       signal: AbortSignal.timeout(8000),
     })

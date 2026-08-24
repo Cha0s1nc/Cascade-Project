@@ -8,32 +8,18 @@
 export type CascadePluginProbe = 'present' | 'absent' | 'unknown'
 
 /**
- * Interprets the status from probing
- * GET {server}/Audio/not-a-guid/CascadeLyrics with a normal auth header.
+ * Interprets the status from probing GET {server}/CascadeLyrics/Info with a
+ * normal auth header. That route exists only to answer this question, so
+ * reaching it at all is the answer and the body is not needed here.
  *
- * This relies on the plugin's controller being declared
- *   [ApiController]
- *   [Route("Audio/{itemId}/CascadeLyrics")]
- *   public IActionResult GetLyrics([FromRoute] Guid itemId)
- * with [Authorize] (any signed-in user) and, importantly, NO `:guid` route
- * constraint on itemId.
- *
- * - 400: the route matched and auth passed, then ASP.NET's [ApiController]
- *   rejected "not-a-guid" while binding it to a Guid. Only happens if the
- *   plugin's controller is actually there - present.
- * - 404: no route matched at all, so Jellyfin's own router 404'd before the
- *   plugin ever got a say - absent.
- * - anything else (401, a 5xx, or no status at all because the request
- *   threw) didn't actually answer the question - unknown. Callers should
- *   treat unknown the same as present, so a network hiccup never disables a
- *   feature that actually works.
- *
- * If that route ever gains a `:guid` constraint, "not-a-guid" would 404
- * before reaching [Authorize] or the action, and every server with the
- * plugin installed would read as absent. Do not add one.
+ * - 200: the plugin is there and said so.
+ * - 404: no such route, so no plugin.
+ * - anything else (401, a 5xx, or no status at all because the request threw)
+ *   did not actually answer - unknown. Callers should treat unknown the same
+ *   as present, so a network hiccup never disables a feature that works.
  */
 export function interpretCascadePluginProbe(status: number | null): CascadePluginProbe {
-  if (status === 400) return 'present'
+  if (status === 200) return 'present'
   if (status === 404) return 'absent'
   return 'unknown'
 }
