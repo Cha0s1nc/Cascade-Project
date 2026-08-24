@@ -6044,7 +6044,23 @@ updateNowPlaying = function(item) {
 let discordEnabled = false
 let rpcTrackStart = 0
 
-function updateDiscordPresence(item) {
+// Discord renders large_image by fetching the URL from its own servers, so it
+// has to be reachable from the public internet. A Jellyfin on a LAN, a
+// Tailscale address or any private host never is, and the https check this used
+// to do could not tell the difference.
+//
+// It was also handing over a Jellyfin image URL, and those carry api_key, so
+// the user's server token went to a third party and ended up baked into the
+// proxied image URL that hangs off their presence. iTunes art is public,
+// keyless, needs no reachable server, and the app already fetches it elsewhere
+// through the same cache.
+//
+// A track iTunes has never heard of gets no image rather than a wrong one, and
+// Discord falls back to the app icon. Same for video, which iTunes is not being
+// asked about.
+let _rpcArtToken = 0
+
+async function updateDiscordPresence(item) {
   if (!discordEnabled || !item) return
   const video = isVideoItem(item)
   const activity = {
@@ -6055,13 +6071,24 @@ function updateDiscordPresence(item) {
     // stripped in main.js - setActivity() would drop it.
     watching:       video,
   }
-  if (jf.url.startsWith('https')) {
-    const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
-    if (art) {
-      activity.largeImageKey  = art
-      activity.largeImageText = (item.Album || item.SeriesName || '').slice(0, 128)
-    }
-  }
+
+  // Push what we have first: the art lookup is a network round trip, and a
+  // presence that appears immediately and gains a cover a moment later beats
+  // one that shows up late.
+  const token = ++_rpcArtToken
+  window.cascade.discord.update(activity)
+  if (video) return
+
+  const artist = item.AlbumArtist || item.Artists?.[0] || ''
+  const album  = item.Album || ''
+  if (!artist && !album) return
+
+  const art = await fetchItunesArt(artist, album)
+  // The track can change while that is in flight, and a late answer for the
+  // previous one would overwrite the presence that replaced it.
+  if (!art || token !== _rpcArtToken || !discordEnabled) return
+  activity.largeImageKey  = art
+  activity.largeImageText = album.slice(0, 128)
   window.cascade.discord.update(activity)
 }
 
