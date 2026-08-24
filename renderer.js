@@ -5496,6 +5496,7 @@ const VALID_LYRICS_SOURCES = new Set(['auto', 'Kugou', 'LRCLIB', 'Jellyfin', 'ca
 // connection (see probeCascadePlugin, called from connect()) and cached here
 // for the session - not worth a round trip per track.
 let _cascadePluginAbsent = false
+const NO_PLUGIN_TIP = 'No SLRC Plugin'
 
 /**
  * GET {jf.url}/CascadeLyrics/Info with the normal auth header. The plugin
@@ -5540,6 +5541,17 @@ function _applyCascadePluginAvailability() {
   ;['lyrics-edit-btn', 'ov-lyrics-edit-btn'].forEach(id => {
     const btn = document.getElementById(id)
     if (btn) btn.disabled = absent
+  })
+
+  // A dimmed control does not say why it is dimmed, and the settings row's
+  // explanation is not visible from the lyrics panel. The tip goes on the
+  // hover host rather than the control itself, because a disabled control
+  // does not fire the hover that would show it.
+  ;['server-only-toggle-label', 'lyrics-edit-btn-tip', 'ov-lyrics-edit-btn-tip'].forEach(id => {
+    const host = document.getElementById(id)
+    if (!host) return
+    if (absent) host.setAttribute('data-tip', NO_PLUGIN_TIP)
+    else host.removeAttribute('data-tip')
   })
 
   // Server-only mode was already on and the plugin turned out to be absent -
