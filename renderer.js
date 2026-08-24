@@ -25,6 +25,11 @@ let volume = 1.0
 let crossfadeEnabled = false
 let crossfadeSeconds = 6
 let maxStreamingBitrate = 140000000   // overridden from settings in loadSettingsFields
+let eqEnabled = false
+let eqActiveMode = 'music'   // which saved profile is wired into the live graph right now
+let eqMusicProfile = { preamp: null, bands: [0, 0, 0, 0, 0] }
+let eqVideoProfile = { preamp: null, bands: [0, 0, 0, 0, 0] }   // all overridden from the store in init()
+let _eqEditTarget = 'music'   // which saved profile the settings panel is editing right now
 
 // Two permanent "deck" media elements (A/B), so a crossfade is two real
 // elements overlapping instead of one element having its src handed back and
@@ -2072,6 +2077,11 @@ function playItems(items, startIndex) {
 // single-column video layout. Purely a class toggle: the CSS in index.html owns
 // what actually shows, so there is one place to change if the layout moves.
 function applyVideoMode(on) {
+  // Music and video keep separate saved EQ curves - this is the one place
+  // playback knows which is active, so it is also where the live graph
+  // switches which profile it is wired to.
+  eqActiveMode = on ? 'video' : 'music'
+  _applyEqToGraph()
   const ov = document.getElementById('np-overlay')
   ov.classList.toggle('video', !!on)
   // Only the current deck may show a picture - the other is mid-crossfade or idle.
@@ -3177,6 +3187,51 @@ async function loadSettingsFields() {
     _reloadLyricsFor()
   }
 
+  // Equalizer
+  const eqEnableToggle = document.getElementById('eq-enable-toggle')
+  eqEnableToggle.checked = eqEnabled
+  eqEnableToggle.onchange = async () => {
+    eqEnabled = eqEnableToggle.checked
+    await window.cascade.store.set('eqEnabled', eqEnabled)
+    _applyEqToGraph()
+  }
+
+  document.getElementById('eq-edit-music').onclick = () => { _eqEditTarget = 'music'; _refreshEqUI() }
+  document.getElementById('eq-edit-video').onclick = () => { _eqEditTarget = 'video'; _refreshEqUI() }
+
+  const eqPresetSel = document.getElementById('eq-preset')
+  eqPresetSel.innerHTML = '<option value="">Custom</option>' +
+    Object.keys(CascadeCore.EQ_PRESETS).map(name => `<option value="${name}">${name}</option>`).join('')
+  eqPresetSel.onchange = async () => {
+    if (!eqPresetSel.value) return
+    _eqEditProfile().bands = [...CascadeCore.EQ_PRESETS[eqPresetSel.value]]
+    _refreshEqUI()
+    await _saveEqProfile()
+  }
+
+  document.querySelectorAll('.eq-band-slider').forEach((el, i) => {
+    el.oninput = async () => {
+      _eqEditProfile().bands[i] = parseFloat(el.value)
+      _refreshEqUI()
+      await _saveEqProfile()
+    }
+  })
+
+  document.getElementById('eq-preamp-auto').onchange = async () => {
+    const profile = _eqEditProfile()
+    const isAuto = document.getElementById('eq-preamp-auto').checked
+    // Seed manual mode with the current auto value instead of jumping to 0.
+    profile.preamp = isAuto ? null : CascadeCore.autoPreamp(profile.bands)
+    _refreshEqUI()
+    await _saveEqProfile()
+  }
+  document.getElementById('eq-preamp-slider').oninput = async () => {
+    _eqEditProfile().preamp = parseFloat(document.getElementById('eq-preamp-slider').value)
+    _refreshEqUI()
+    await _saveEqProfile()
+  }
+
+  _refreshEqUI()
 }
 
 document.getElementById('btn-save-settings').addEventListener('click', async () => {
@@ -3463,6 +3518,10 @@ async function init() {
   crossfadeSeconds = parseInt(await window.cascade.store.get('crossfadeSeconds'), 10) || 6
   maxStreamingBitrate = parseInt(await window.cascade.store.get('maxStreamingBitrate'), 10) || DEFAULT_MAX_BITRATE
 
+  eqEnabled = (await window.cascade.store.get('eqEnabled')) === true
+  eqMusicProfile = await _loadEqProfile('eqMusic')
+  eqVideoProfile = await _loadEqProfile('eqVideo')
+
   // Restore saved volume
   const savedVol = await window.cascade.store.get('volume')
   if (savedVol !== undefined && savedVol !== null) {
@@ -3565,16 +3624,19 @@ function stopBeatLoop() {
 // graph ever produces silence for audio that is actually audible.
 //
 // Each deck gets its own permanent source + gain node (see _deckSource/
-// _deckGain), both feeding the one shared analyser, so a crossfade sums
-// cleanly and the bars follow whichever deck(s) are actually sounding instead
-// of just the outgoing one.
+// _deckGain), both feeding the one shared 5-band EQ stage, then the one
+// shared analyser, so a crossfade sums cleanly, both decks come out
+// equalized the same way, and the bars follow whichever deck(s) are actually
+// sounding instead of just the outgoing one.
 
 let _audioCtx = null
 let _mediaSrc = null    // MediaElementAudioSourceNode for the CURRENT deck, kept
                          // updated at every crossfade handoff - wip-waterfall/
                          // NOTES.md still names this as the tap point.
 const _deckSourceNodes = new Map()   // deck element -> its permanent MediaElementAudioSourceNode
-const _deckGainNodes = new Map()     // deck element -> its permanent GainNode
+const _deckGainNodes = new Map()     // deck element -> its permanent GainNode (crossfade envelope only)
+let _eqPreamp = null     // shared GainNode, auto or manual makeup gain for the bands below
+let _eqBandNodes = null  // shared array of 5 BiquadFilterNodes, one per EQ_BANDS entry
 let _eqAnalyser = null
 let _eqFreqData = null
 let _eqRafId = null
@@ -3585,6 +3647,9 @@ const EQ_FFT_SIZE = 64
 const EQ_SMOOTHING = 0.75
 const EQ_FRAME_MS = 1000 / 30    // ~30fps is plenty for three bars
 const EQ_SILENCE_MS = 2000       // how long real silence must persist before giving up
+const EQ_FILTER_Q = 1.0          // ~1.4 octave wide peaks - narrow enough that 5 bands spanning
+                                  // 60Hz-12kHz do not smear into one big tilt
+const EQ_RAMP_SEC = 0.015        // setTargetAtTime time constant - fast but click-free
 
 // createMediaElementSource() may only be called once per element, ever - so
 // each deck's source node is built on first request and cached forever.
@@ -3598,10 +3663,11 @@ function _deckGain(deck) {
   return _deckGainNodes.get(deck) || null
 }
 
-// Builds ctx -> {deckA, deckB source+gain} -> analyser -> destination, once,
-// lazily. Only ever called from startEqLoop() (which only runs from the
-// `play` handler below, so ctx.resume() always lands after a user gesture
-// instead of hitting an autoplay block) and defensively from startCrossfade().
+// Builds ctx -> {deckA, deckB source+gain} -> preamp -> band[0..4] -> analyser
+// -> destination, once, lazily. Only ever called from startEqLoop() (which
+// only runs from the `play` handler below, so ctx.resume() always lands
+// after a user gesture instead of hitting an autoplay block) and defensively
+// from startCrossfade().
 function _ensureEqGraph() {
   if (_eqFallback || _eqAnalyser) return
   try {
@@ -3611,31 +3677,131 @@ function _ensureEqGraph() {
     _eqAnalyser.fftSize = EQ_FFT_SIZE
     _eqAnalyser.smoothingTimeConstant = EQ_SMOOTHING
     _eqFreqData = new Uint8Array(_eqAnalyser.frequencyBinCount)
+
+    // The shared EQ stage: one preamp feeding a chain of 5 peaking filters,
+    // both decks' gains sum into the preamp so the same chain equalizes
+    // whichever deck(s) are actually sounding.
+    _eqPreamp = _audioCtx.createGain()
+    _eqBandNodes = CascadeCore.EQ_BANDS.map(freq => {
+      const band = _audioCtx.createBiquadFilter()
+      band.type = 'peaking'
+      band.frequency.value = freq
+      band.Q.value = EQ_FILTER_Q
+      band.gain.value = 0
+      return band
+    })
+    let node = _eqPreamp
+    _eqBandNodes.forEach(band => { node.connect(band); node = band })
+    node.connect(_eqAnalyser)
+
     // Routing a deck through Web Audio replaces its normal output path -
     // without a connection all the way to destination, that deck goes silent.
     DECKS.forEach(d => {
       const gain = _audioCtx.createGain()
       _deckSource(d).connect(gain)
-      gain.connect(_eqAnalyser)
+      gain.connect(_eqPreamp)
       _deckGainNodes.set(d, gain)
     })
     _eqAnalyser.connect(_audioCtx.destination)
     _mediaSrc = _deckSource(audio)
+    _applyEqToGraph()
   } catch (e) {
     console.error('EQ graph setup failed, falling back to the CSS animation', e)
     _eqFallback = true
     // Whatever got captured above is already routed away from its normal
     // output, and a half-built graph would leave a deck's gain node - or bare
     // source node, if the failure landed before its gain existed - connected
-    // nowhere, which is silence. Wire every deck straight to destination so
-    // playback survives losing the visualiser.
+    // nowhere, which is silence. gain.disconnect() drops every outgoing edge
+    // regardless of whether it pointed at the preamp, a band, or the analyser,
+    // so this still works no matter how far the EQ stage got built. Wire
+    // every deck straight to destination so playback survives losing both
+    // the EQ and the visualiser.
     DECKS.forEach(d => {
       const gain = _deckGainNodes.get(d)
       if (gain) { try { gain.disconnect(); gain.connect(_audioCtx.destination) } catch {} }
       else if (_deckSourceNodes.has(d)) { try { _deckSourceNodes.get(d).connect(_audioCtx.destination) } catch {} }
     })
     _eqAnalyser = null
+    _eqPreamp = null
+    _eqBandNodes = null
   }
+}
+
+// Which saved profile is currently wired into the live graph.
+function _currentEqProfile() {
+  return eqActiveMode === 'video' ? eqVideoProfile : eqMusicProfile
+}
+
+// Pushes eqEnabled + the active profile onto the actual filter nodes. Always
+// ramps with setTargetAtTime rather than a bare assignment, so turning the EQ
+// on/off or switching profiles never clicks. Safe to call before the graph
+// exists (e.g. a settings change before anything has ever played) - it just
+// does nothing until _ensureEqGraph runs.
+function _applyEqToGraph() {
+  if (!_audioCtx || !_eqPreamp || !_eqBandNodes) return
+  const now = _audioCtx.currentTime
+  if (!eqEnabled) {
+    _eqPreamp.gain.setTargetAtTime(1, now, EQ_RAMP_SEC)
+    _eqBandNodes.forEach(band => band.gain.setTargetAtTime(0, now, EQ_RAMP_SEC))
+    return
+  }
+  const profile = _currentEqProfile()
+  const preampDb = profile.preamp === null ? CascadeCore.autoPreamp(profile.bands) : profile.preamp
+  _eqPreamp.gain.setTargetAtTime(CascadeCore.dbToGain(preampDb), now, EQ_RAMP_SEC)
+  _eqBandNodes.forEach((band, i) => band.gain.setTargetAtTime(profile.bands[i], now, EQ_RAMP_SEC))
+}
+
+// Reads one EQ profile out of the store (JSON-stringified) and hands it
+// through normalizeProfile - covers both a corrupt JSON string and a
+// structurally-wrong-but-valid-JSON value.
+async function _loadEqProfile(key) {
+  let raw = null
+  try { raw = JSON.parse(await window.cascade.store.get(key) || 'null') } catch {}
+  return CascadeCore.normalizeProfile(raw)
+}
+
+// The profile the settings panel is currently editing - not necessarily the
+// one wired into the live graph, see eqActiveMode/_currentEqProfile above.
+function _eqEditProfile() {
+  return _eqEditTarget === 'video' ? eqVideoProfile : eqMusicProfile
+}
+
+// Preset name whose gains match a profile's bands exactly, or '' (Custom).
+function _eqMatchingPreset(bands) {
+  for (const name in CascadeCore.EQ_PRESETS) {
+    if (CascadeCore.EQ_PRESETS[name].every((g, i) => g === bands[i])) return name
+  }
+  return ''
+}
+
+async function _saveEqProfile() {
+  const key = _eqEditTarget === 'video' ? 'eqVideo' : 'eqMusic'
+  await window.cascade.store.set(key, JSON.stringify(_eqEditProfile()))
+  // Only ramp the live graph if the profile just edited is the one actually
+  // playing - editing Video while music plays should not be audible yet.
+  if (_eqEditTarget === eqActiveMode) _applyEqToGraph()
+}
+
+// Syncs the settings-panel EQ controls to _eqEditProfile(). Called after
+// every edit so the preset dropdown, the preamp's auto value, and the band
+// labels never drift from the numbers actually in play.
+function _refreshEqUI() {
+  const profile = _eqEditProfile()
+  document.querySelectorAll('.eq-band-slider').forEach((el, i) => {
+    el.value = String(profile.bands[i])
+    document.getElementById(`eq-band-value-${i}`).textContent = `${profile.bands[i].toFixed(1)} dB`
+  })
+  const auto = profile.preamp === null
+  const preampAuto = document.getElementById('eq-preamp-auto')
+  const preampSlider = document.getElementById('eq-preamp-slider')
+  const shownPreamp = auto ? CascadeCore.autoPreamp(profile.bands) : profile.preamp
+  preampAuto.checked = auto
+  preampSlider.disabled = auto
+  preampSlider.value = String(shownPreamp)
+  document.getElementById('eq-preamp-value').textContent = `${shownPreamp.toFixed(1)} dB${auto ? ' (auto)' : ''}`
+  document.getElementById('eq-preset').value = _eqMatchingPreset(profile.bands)
+  document.getElementById('eq-edit-music').classList.toggle('active', _eqEditTarget === 'music')
+  document.getElementById('eq-edit-video').classList.toggle('active', _eqEditTarget === 'video')
 }
 
 function startEqLoop() {

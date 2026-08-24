@@ -814,6 +814,26 @@
     .toggle-track::after { content: ''; position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; background: white; border-radius: 50%; transition: transform 0.2s; }
     .toggle input:checked + .toggle-track::after { transform: translateX(16px); }
 
+    /* ── Equalizer ── */
+    .eq-mode-switch { display: flex; gap: 6px; }
+    .eq-mode-btn { padding: 5px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2); color: var(--text2); font-family: var(--font); font-size: 12px; cursor: pointer; transition: background 0.12s, color 0.12s; }
+    .eq-mode-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .eq-preamp { display: flex; align-items: center; gap: 10px; width: 260px; }
+    .eq-auto-label { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text2); white-space: nowrap; }
+    .eq-preamp input[type="range"] { flex: 1; }
+    .eq-band-value { font-size: 11px; color: var(--text3); min-width: 46px; text-align: right; flex-shrink: 0; }
+    .eq-bands { display: flex; flex-direction: column; gap: 12px; width: 260px; }
+    .eq-band-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--text2); margin-bottom: 4px; }
+    input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 18px; background: none; cursor: pointer; }
+    input[type="range"]::-webkit-slider-runnable-track { height: 3px; background: var(--border); border-radius: 2px; }
+    input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; margin-top: -5.5px; border-radius: 50%; background: var(--text); transition: background 0.12s; }
+    input[type="range"]:hover::-webkit-slider-thumb { background: var(--accent); }
+    input[type="range"]::-moz-range-track { height: 3px; background: var(--border); border-radius: 2px; }
+    input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: none; border-radius: 50%; background: var(--text); }
+    input[type="range"]:focus-visible { outline: none; }
+    input[type="range"]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--accent-glow); }
+    input[type="range"]:disabled { opacity: 0.4; cursor: default; }
+
     /* ── Search bar (persistent, top of main content) ── */
     .top-search-bar { position: relative; flex-shrink: 0; padding: 10px 22px 0; }
     .search-input-wrap { position: relative; display: flex; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 0 10px; max-width: 340px; margin: 0 auto; transition: border-color 0.15s, box-shadow 0.15s; }
@@ -1332,6 +1352,71 @@
                 <option value="128000">128 kbps</option>
                 <option value="96000">96 kbps</option>
               </select>
+            </div>
+          </div>
+          <div class="settings-group">
+            <div class="sg-title">Equalizer</div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="setting-name">Enable equalizer</span>
+                <span class="setting-desc">Off leaves every band at 0 dB, so turning this back on never clicks.</span>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="eq-enable-toggle">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="setting-name">Editing profile</span>
+                <span class="setting-desc">Music and video keep separate curves. This picks which one you are editing below, it does not change what is playing.</span>
+              </div>
+              <div class="eq-mode-switch">
+                <button type="button" class="eq-mode-btn active" id="eq-edit-music">Music</button>
+                <button type="button" class="eq-mode-btn" id="eq-edit-video">Video</button>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-label"><span class="setting-name">Preset</span></div>
+              <select class="setting-input" id="eq-preset"></select>
+            </div>
+            <div class="setting-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;">
+              <div class="setting-label">
+                <span class="setting-name">Preamp</span>
+                <span class="setting-desc">Auto cuts to keep boosted bands from clipping. Uncheck to set it yourself.</span>
+              </div>
+              <div class="eq-preamp">
+                <label class="eq-auto-label"><input type="checkbox" id="eq-preamp-auto"> Auto</label>
+                <input type="range" id="eq-preamp-slider" min="-12" max="12" step="0.5" value="0">
+                <span class="eq-band-value" id="eq-preamp-value">0.0 dB</span>
+              </div>
+            </div>
+            <div class="setting-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;">
+              <div class="setting-label"><span class="setting-name">Bands</span></div>
+              <!-- Labels are hardcoded to match CascadeCore.EQ_BANDS' order (60/250/1000/4000/12000 Hz) -
+                   renderer.js indexes these five sliders positionally against that array. -->
+              <div class="eq-bands">
+                <div class="eq-band">
+                  <div class="eq-band-head"><span>60 Hz</span><span class="eq-band-value" id="eq-band-value-0">0.0 dB</span></div>
+                  <input type="range" class="eq-band-slider" id="eq-band-0" min="-12" max="12" step="0.5" value="0">
+                </div>
+                <div class="eq-band">
+                  <div class="eq-band-head"><span>250 Hz</span><span class="eq-band-value" id="eq-band-value-1">0.0 dB</span></div>
+                  <input type="range" class="eq-band-slider" id="eq-band-1" min="-12" max="12" step="0.5" value="0">
+                </div>
+                <div class="eq-band">
+                  <div class="eq-band-head"><span>1 kHz</span><span class="eq-band-value" id="eq-band-value-2">0.0 dB</span></div>
+                  <input type="range" class="eq-band-slider" id="eq-band-2" min="-12" max="12" step="0.5" value="0">
+                </div>
+                <div class="eq-band">
+                  <div class="eq-band-head"><span>4 kHz</span><span class="eq-band-value" id="eq-band-value-3">0.0 dB</span></div>
+                  <input type="range" class="eq-band-slider" id="eq-band-3" min="-12" max="12" step="0.5" value="0">
+                </div>
+                <div class="eq-band">
+                  <div class="eq-band-head"><span>12 kHz</span><span class="eq-band-value" id="eq-band-value-4">0.0 dB</span></div>
+                  <input type="range" class="eq-band-slider" id="eq-band-4" min="-12" max="12" step="0.5" value="0">
+                </div>
+              </div>
             </div>
           </div>
           <div class="settings-group">
