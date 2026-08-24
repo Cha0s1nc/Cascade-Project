@@ -58,3 +58,18 @@ export function shuffleInPlace<T>(arr: T[]): T[] {
 export function shuffled<T>(items: readonly T[]): T[] {
   return shuffleInPlace([...items])
 }
+
+/**
+ * Index of the track that follows `queueIndex`, honouring repeat mode, or
+ * null when nothing should follow (queue exhausted, repeat off).
+ *
+ * Shared by crossfade scheduling and stream prefetch in renderer.js - both
+ * need "what plays next" without actually playing it. 'one' repeats the
+ * current track forever, so nothing ever follows it.
+ */
+export function nextQueueIndex(queueLength: number, queueIndex: number, repeatMode: string): number | null {
+  if (repeatMode === 'one') return null
+  const next = queueIndex + 1
+  if (next >= queueLength) return repeatMode === 'all' ? 0 : null
+  return next
+}

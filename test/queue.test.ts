@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { songSortValue, sortSongs, shuffleInPlace, shuffled } from '../src/core/queue.ts'
+import { songSortValue, sortSongs, shuffleInPlace, shuffled, nextQueueIndex } from '../src/core/queue.ts'
 import type { JfItem } from '../src/core/types.ts'
 
 const item = (over: Partial<JfItem> & { Id: string }): JfItem => over
@@ -69,4 +69,26 @@ test('shuffled: actually reorders (not a no-op)', () => {
 test('shuffleInPlace: handles empty and single-element arrays', () => {
   assert.deepEqual(shuffleInPlace([]), [])
   assert.deepEqual(shuffleInPlace([7]), [7])
+})
+
+test('nextQueueIndex: plain advance', () => {
+  assert.equal(nextQueueIndex(5, 0, 'none'), 1)
+  assert.equal(nextQueueIndex(5, 3, 'none'), 4)
+})
+
+test('nextQueueIndex: end of queue with no repeat has nothing next', () => {
+  assert.equal(nextQueueIndex(5, 4, 'none'), null)
+})
+
+test('nextQueueIndex: end of queue with repeat-all wraps to the start', () => {
+  assert.equal(nextQueueIndex(5, 4, 'all'), 0)
+})
+
+test('nextQueueIndex: repeat-one never advances, even at the end', () => {
+  assert.equal(nextQueueIndex(5, 2, 'one'), null)
+  assert.equal(nextQueueIndex(5, 4, 'one'), null)
+})
+
+test('nextQueueIndex: empty queue has nothing next', () => {
+  assert.equal(nextQueueIndex(0, -1, 'none'), null)
 })

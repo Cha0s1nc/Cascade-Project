@@ -95,7 +95,7 @@ function playingVideo() {
 // a `function` declaration.
 const {
   parseLRC, parseKrc,
-  sortSongs, songSortValue, shuffleInPlace, shuffled,
+  sortSongs, songSortValue, shuffleInPlace, shuffled, nextQueueIndex,
   resolveStream, universalStreamUrl, withStartTicks, stopActiveEncoding,
   buildElectronProfile, DEFAULT_MAX_BITRATE,
   resumeTicks,
@@ -2236,9 +2236,29 @@ async function playCurrentTrack(opts = {}) {
   abandonCurrentEncoding()
 
   const video = isVideoItem(item)
+
+  // A track already buffered on the idle deck (see _prefetchNext) can be
+  // swapped straight in instead of resolving and loading cold - the same
+  // handoff finishCrossfade does, just with no fade and its own play() since
+  // a prefetched deck is never actually started. Falls through to the normal
+  // path whenever the prefetch is missing, stale, or for the wrong item.
+  let prefetched = null
+  if (!opts.alreadyPlaying && !opts.startTicks && !video && _streamPrefetch?.itemId === item.Id) {
+    prefetched = _streamPrefetch
+    _streamPrefetch = null
+    _swapDeck(prefetched.deck, audio)
+  } else {
+    // Whatever was prefetched is for a different track now, or this is a
+    // crossfade handoff that already consumed it - either way it is stale.
+    _clearStreamPrefetch()
+  }
+
   applyVideoMode(video)
 
-  if (!opts.alreadyPlaying) {
+  if (prefetched) {
+    adoptResolvedStream(prefetched.resolved)
+    audio.play().catch(() => {})
+  } else if (!opts.alreadyPlaying) {
     // Resolving the stream is now a round-trip, so the user can skip again
     // before it lands. Re-read the queue afterwards and bail if they did,
     // otherwise a stale response would start the wrong track.
@@ -2675,6 +2695,7 @@ function stopPlayback() {
   // Read the position before clearing src, which resets currentTime to 0.
   const positionTicks = Math.round(mediaPosition() * 10_000_000)
   abandonCurrentEncoding()
+  _clearStreamPrefetch()
 
   audio.pause()
   audio.src = ''
@@ -2824,10 +2845,8 @@ let _cfNextResolved = null   // resolved stream of the incoming track, adopted o
 // where the next track is already known - skips the auto-mix case, since that
 // track doesn't exist until the current one actually finishes.
 function _resolveCrossfadeTarget() {
-  if (repeatMode === 'one') return -1
-  const next = queueIndex + 1
-  if (next >= queue.length) return repeatMode === 'all' ? 0 : -1
-  return next
+  const next = nextQueueIndex(queue.length, queueIndex, repeatMode)
+  return next === null ? -1 : next
 }
 
 onDeck('timeupdate', () => {
@@ -2854,36 +2873,91 @@ async function startCrossfade(nextIndex) {
   const nextItem = queue[nextIndex]
   if (!nextItem) return
 
-  // Resolving the stream is a round-trip now, and cancelCrossfade() can land
-  // during it (user skips, or the track changes). Take a session ticket and
-  // abandon if anything cancelled while we were waiting - otherwise we'd start
-  // an orphaned deck that nothing can stop.
+  // Bumped up front so cancelCrossfade() landing anywhere below - during a
+  // resolve, or during the buffer wait - is caught before the deck is touched.
   const session = ++_cfSession
-  const resolved = await resolveTrackStream(nextItem.Id)
-  if (session !== _cfSession) return
 
   const outgoing = audio
-  const incoming = DECKS.find(d => d !== outgoing)
-  incoming.src = resolved.url
+  let incoming, resolved
+
+  if (_streamPrefetch && _streamPrefetch.itemId === nextItem.Id && _streamPrefetch.deck !== outgoing) {
+    // Already buffered on the idle deck - skip the round trip and cold load.
+    incoming = _streamPrefetch.deck
+    resolved = _streamPrefetch.resolved
+    _streamPrefetch = null
+  } else {
+    // No usable prefetch (not ready, wrong item, or none). Clear whatever is
+    // there first - a stale or still-in-flight prefetch would otherwise race
+    // the load below for the same idle deck.
+    _clearStreamPrefetch()
+    resolved = await resolveTrackStream(nextItem.Id)
+    if (session !== _cfSession) {
+      if (!resolved.direct) stopActiveEncoding(jfClient, jf, resolved.playSessionId)
+      return
+    }
+    incoming = DECKS.find(d => d !== outgoing)
+    incoming.src = resolved.url
+  }
+
   incoming.volume = volume   // element volume stays at user volume on both decks always
-  incoming.play().catch(() => {})
-  _cfOtherDeck = incoming
-  _cfNextResolved = resolved
 
   // Idempotent - already built from the first track's `play` event in the
   // overwhelming majority of cases. Guards against the (never actually
   // reachable, since timeupdate implies a prior play) edge of arming before
-  // the graph exists.
+  // the graph exists. Built (and the incoming deck silenced) *before* play()
+  // now: with the buffer wait below sitting between play() and the ramp, an
+  // incoming deck would otherwise play out loud at whatever gain it was last
+  // left at for however long buffering takes, instead of staying silent
+  // until the ramp actually starts.
   _ensureEqGraph()
   const outGain = _deckGain(outgoing)
   const inGain = _deckGain(incoming)
+  if (inGain && _audioCtx) {
+    inGain.gain.cancelScheduledValues(_audioCtx.currentTime)
+    inGain.gain.setValueAtTime(0, _audioCtx.currentTime)
+  }
+
+  incoming.play().catch(() => {})
+
+  // Tracked from here, not after the buffer wait below - a cancelCrossfade()
+  // landing during that wait (pause, skip, track change) has to be able to
+  // find and clean up this deck.
+  _cfOtherDeck = incoming
+  _cfNextResolved = resolved
+
+  // Hold the gain ramp off until the incoming deck can actually play through -
+  // starting it the instant play() is called fades into silence on a slow
+  // start. Bounded so a stream that never becomes ready cannot hang the
+  // crossfade forever; on timeout, just let the track change happen normally
+  // when this one ends.
+  const ready = await _waitForPlayable(incoming)
+  if (session !== _cfSession) return   // cancelCrossfade() already cleaned this up
+  if (!ready) {
+    // Abandoned - whether this came from the prefetch or a fresh resolve, the
+    // server should stop encoding for it rather than run an orphaned stream.
+    if (!resolved.direct) stopActiveEncoding(jfClient, jf, resolved.playSessionId)
+    incoming.pause()
+    incoming.src = ''
+    _cfOtherDeck = null
+    _cfNextResolved = null
+    return
+  }
+
+  // The wait above costs real time when nothing was prefetched, and the fade
+  // was scheduled against how much track was left before it. Fading for longer
+  // than remains means the outgoing track hits `ended` partway through, which
+  // hands over abruptly - the exact thing the fade exists to avoid. Fade for
+  // whatever is actually left when the ramp finally starts.
+  const remaining = audio.duration - audio.currentTime
+  const fadeSecs = Math.max(0.1, Math.min(crossfadeSeconds, isFinite(remaining) ? remaining : crossfadeSeconds))
+
   if (outGain && inGain && _audioCtx) {
     const { outCurve, inCurve } = CascadeCore.equalPowerCrossfadeCurves()
     const now = _audioCtx.currentTime
     outGain.gain.cancelScheduledValues(now)
     inGain.gain.cancelScheduledValues(now)
-    outGain.gain.setValueCurveAtTime(outCurve, now, crossfadeSeconds)
-    inGain.gain.setValueCurveAtTime(inCurve, now, crossfadeSeconds)
+    outGain.gain.setValueCurveAtTime(outCurve, now, fadeSecs)
+    inGain.gain.setValueCurveAtTime(inCurve, now, fadeSecs)
   }
   _cfActive = true
 
@@ -2893,7 +2967,35 @@ async function startCrossfade(nextIndex) {
   setTimeout(() => {
     if (_cfOtherDeck !== incoming) return   // cancelled mid-fade
     finishCrossfade(nextIndex, incoming)
-  }, crossfadeSeconds * 1000)
+  }, fadeSecs * 1000)
+}
+
+// Point `audio` at `incoming`, park `outgoing`. Shared by finishCrossfade and
+// playCurrentTrack's prefetched-advance path, so both leave the same things
+// correct: the current-deck pointer, the EQ tap, and which deck goes idle.
+//
+// Swaps the pointer before touching the outgoing element on purpose:
+// onDeck() filters every listener by `e.target === audio`, so doing this
+// first means the outgoing deck's own pause/emptied events (right below)
+// read as "the idle deck went quiet", not as this track pausing - a manual
+// pause fires cancelCrossfade(), which must not happen here.
+function _swapDeck(incoming, outgoing) {
+  audio = incoming
+  // Guarded: finishCrossfade only reaches here when the graph already exists
+  // (crossfade will not start without it), but the prefetched-advance path in
+  // playCurrentTrack is not gated on that, and _deckSource() needs _audioCtx.
+  if (_audioCtx) {
+    _mediaSrc = _deckSource(incoming)
+    // A deck's gain can be left at 0 by an abandoned or cancelled crossfade
+    // (see cancelCrossfade/startCrossfade's buffer-wait timeout) and that
+    // same idle deck is exactly what a later prefetch picks up. Force it back
+    // to full now that this deck is the only one playing - after a completed
+    // crossfade ramp it is already ~1, so this is a no-op snap to exact.
+    const inGain = _deckGain(incoming)
+    if (inGain) { inGain.gain.cancelScheduledValues(_audioCtx.currentTime); inGain.gain.setValueAtTime(1, _audioCtx.currentTime) }
+  }
+  outgoing.pause()
+  outgoing.src = ''
 }
 
 function finishCrossfade(nextIndex, incoming) {
@@ -2901,18 +3003,9 @@ function finishCrossfade(nextIndex, incoming) {
   const outgoingItem = queue[queueIndex]
   if (outgoingItem) reportPlaybackStopped(outgoingItem.Id, Math.round(outgoing.currentTime * 10000000))
 
-  // Swap the current-deck pointer before touching the outgoing element.
-  // onDeck() filters every listener by `e.target === audio`, so doing this
-  // first means the outgoing deck's own pause/emptied events (right below)
-  // read as "the idle deck went quiet", not as this track pausing - a manual
-  // pause fires cancelCrossfade(), which must not happen here.
-  audio = incoming
-  _mediaSrc = _deckSource(incoming)
+  _swapDeck(incoming, outgoing)
   _cfActive = false
   _cfOtherDeck = null
-
-  outgoing.pause()
-  outgoing.src = ''
 
   queueIndex = nextIndex
   // The incoming deck has been playing throughout the fade, so no fresh
@@ -2923,6 +3016,10 @@ function finishCrossfade(nextIndex, incoming) {
   _startWordLoop()
   playCurrentTrack({ alreadyPlaying: true, resolved: _cfNextResolved })
   _cfNextResolved = null
+  // Same "no fresh play event" reasoning applies to prefetch scheduling - and
+  // it has to come after playCurrentTrack(), which clears any stale prefetch
+  // left over from before the handoff.
+  _schedulePrefetch()
   renderQueuePanel()
 }
 
@@ -2944,11 +3041,112 @@ function cancelCrossfade() {
     }
     otherDeck.pause()
     otherDeck.src = ''
+    // The incoming stream was negotiated and, if transcoded, is being encoded
+    // right now for a track we are walking away from. Every other abandon path
+    // tells the server to stop; this one used to just drop it.
+    if (_cfNextResolved && !_cfNextResolved.direct) {
+      stopActiveEncoding(jfClient, jf, _cfNextResolved.playSessionId)
+    }
   }
   _cfActive = false
   _cfOtherDeck = null
   _cfNextResolved = null
   _cfArmed = true
+}
+
+// ── Stream prefetch ──────────────────────────────────────────────────────────
+// Loads the NEXT track into the idle deck once the current one is genuinely
+// playing, so a normal advance (playCurrentTrack) or a crossfade
+// (startCrossfade) can play what is already buffered instead of paying a
+// PlaybackInfo round trip and a cold start. Exactly one track prefetched at a
+// time - what "next" means under repeat/shuffle is nextQueueIndex() (see
+// _resolveCrossfadeTarget), same as crossfade scheduling.
+
+let _streamPrefetch = null   // { itemId, resolved, deck } for the buffered next track, or null
+let _prefetchToken = 0       // bumped to disown an in-flight resolve when invalidated
+let _prefetchTimer = null    // the "give the current track's own buffering room" delay
+
+const PREFETCH_DELAY_MS = 3000
+
+/** Drop whatever is prefetched (or in flight), telling the server to stop encoding it. */
+function _clearStreamPrefetch() {
+  _prefetchToken++
+  if (_prefetchTimer) { clearTimeout(_prefetchTimer); _prefetchTimer = null }
+  if (_streamPrefetch) {
+    const { deck, resolved } = _streamPrefetch
+    if (!resolved.direct) stopActiveEncoding(jfClient, jf, resolved.playSessionId)
+    deck.pause()
+    deck.src = ''
+    _streamPrefetch = null
+  }
+}
+
+/** Wait a bit after the current track starts playing, then prefetch the next one. */
+function _schedulePrefetch() {
+  if (_prefetchTimer) clearTimeout(_prefetchTimer)
+  const token = _prefetchToken
+  _prefetchTimer = setTimeout(() => {
+    _prefetchTimer = null
+    if (token === _prefetchToken) _prefetchNext()
+  }, PREFETCH_DELAY_MS)
+}
+
+/** Resolve and buffer the next track into the idle deck, if there is one worth prefetching. */
+async function _prefetchNext() {
+  // Movies/episodes are large, and crossfade already skips video for the same reason.
+  if (playingVideo()) return
+  const nextIndex = _resolveCrossfadeTarget()
+  const nextItem = nextIndex >= 0 ? queue[nextIndex] : null
+  if (!nextItem || isVideoItem(nextItem)) return
+  if (_streamPrefetch?.itemId === nextItem.Id) return   // already have it
+
+  _clearStreamPrefetch()
+  const token = _prefetchToken
+  const deck = DECKS.find(d => d !== audio)
+  const resolved = await resolveTrackStream(nextItem.Id)
+  // Invalidated (track changed, queue mutated) while the round trip was in
+  // flight - the deck we would have loaded may not even be idle any more.
+  if (token !== _prefetchToken || playingVideo()) {
+    if (!resolved.direct) stopActiveEncoding(jfClient, jf, resolved.playSessionId)
+    return
+  }
+  deck.preload = 'auto'
+  deck.src = resolved.url
+  deck.load()
+  _streamPrefetch = { itemId: nextItem.Id, resolved, deck }
+}
+
+onDeck('playing', _schedulePrefetch)
+
+// For a queue mutation that does not itself change the playing track (shuffle,
+// repeat mode, a reorder, a removal elsewhere in the queue) - the current
+// track is already settled, so re-prefetch immediately rather than waiting
+// for another 'playing' event that will not come.
+function _reprefetch() {
+  _clearStreamPrefetch()
+  _prefetchNext()
+}
+
+/**
+ * Wait until `deck` can play through, or `timeoutMs` elapses - whichever comes
+ * first. Used to hold the crossfade gain ramp off a deck that has not actually
+ * buffered yet, so a slow start fades up instead of fading into silence.
+ */
+function _waitForPlayable(deck, timeoutMs = 4000) {
+  return new Promise(resolve => {
+    if (deck.readyState >= 4) { resolve(true); return }   // HAVE_ENOUGH_DATA already
+    let done = false
+    const onReady = () => finish(true)
+    const timer = setTimeout(() => finish(false), timeoutMs)
+    function finish(ok) {
+      if (done) return
+      done = true
+      deck.removeEventListener('canplaythrough', onReady)
+      clearTimeout(timer)
+      resolve(ok)
+    }
+    deck.addEventListener('canplaythrough', onReady, { once: true })
+  })
 }
 
 // ── Player controls ───────────────────────────────────────────────────────────
@@ -2990,6 +3188,7 @@ document.getElementById('btn-shuffle').addEventListener('click', () => {
     queueIndex = Math.max(0, queue.findIndex(t => t.Id === currentId))
   }
 
+  _reprefetch()   // shuffling changes what "next" means
   if (overlayOpen) renderQueuePanel()
 })
 
@@ -3015,6 +3214,7 @@ document.getElementById('btn-repeat').addEventListener('click', () => {
   const modes = ['none', 'all', 'one']
   repeatMode = modes[(modes.indexOf(repeatMode) + 1) % modes.length]
   updateRepeatButtons()
+  _reprefetch()   // repeat mode changes what "next" means
 })
 
 // Progress bar scrubbing
@@ -4571,6 +4771,7 @@ function _drawQueueRows(container, scrollToCurrent) {
       // was the last row, in which case clamp back inside the queue.
       if (idx < queueIndex) queueIndex--
       else if (queueIndex >= queue.length) queueIndex = Math.max(0, queue.length - 1)
+      _reprefetch()   // the removed row may have been the prefetched track
       renderQueuePanel()
     })
 
@@ -4600,6 +4801,7 @@ function _drawQueueRows(container, scrollToCurrent) {
       if (queueIndex === from) queueIndex = to
       else if (from < queueIndex && to >= queueIndex) queueIndex--
       else if (from > queueIndex && to <= queueIndex) queueIndex++
+      _reprefetch()   // the reorder may have changed what plays next
       renderQueuePanel()
     })
   })
@@ -4981,6 +5183,7 @@ document.getElementById('ctx-stop').addEventListener('click', () => stopPlayback
 // Clear queue
 document.getElementById('ctx-clear-queue').addEventListener('click', () => {
   queue = []; queueIndex = -1
+  _clearStreamPrefetch()   // nothing left to prefetch for
 })
 
 // Instant mix
@@ -5189,7 +5392,10 @@ document.getElementById('ctx-delete').addEventListener('click', async () => {
     audio.pause(); audio.src = ''
     queue.splice(queueIndex, 1)
     queueIndex = Math.min(queueIndex, queue.length - 1)
+    // playCurrentTrack() below re-checks the prefetch for the new current
+    // item; an empty queue has nothing left to play it into.
     if (queue.length) playCurrentTrack()
+    else _clearStreamPrefetch()
   } catch (e) { console.error('Delete failed', e) }
 })
 
