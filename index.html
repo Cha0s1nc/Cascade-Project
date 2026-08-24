@@ -417,6 +417,8 @@
     .np-overlay.video .np-overlay-controls { position: relative; z-index: 1; }
     @media (prefers-reduced-motion: reduce) {
       .np-overlay.video.ambient .np-ambient { transition: none; }
+      .np-overlay-btns, .np-overlay-vol { transition: none; }
+      .np-overlay-prog-fill::after { transition: none; }
     }
     /* A short window is the case that broke: at 500px tall the controls wanted
        more than the column had. Tighten them rather than eat the picture. */
@@ -439,8 +441,12 @@
     .np-overlay.video #ov-shuffle,
     .np-overlay.video #ov-repeat { display: none; }
     /* The mirror of the above: video-only controls, hidden while music plays. */
-    .vid-only { display: none; }
-    .np-overlay.video .vid-only { display: flex; }
+    /* Hide the video-only controls for music. Scoped through .np-overlay so it
+       outranks .np-ov-ctrl's own display:flex, which sits later in this file and
+       used to win on source order, leaving subtitles, audio track and the two
+       seek buttons on screen for every song. Nothing to re-show on the video
+       side: the buttons keep their own display when the overlay is in video. */
+    .np-overlay:not(.video) .vid-only { display: none; }
     /* A standalone film is a queue of one, so prev and next have nowhere to go.
        Set by applyVideoMode() rather than by CSS, because it depends on the
        queue length and not on the media kind. */
@@ -464,6 +470,14 @@
        paint mid-scroll. Must sit after the two rules above - equal specificity. */
     .marquee-on { text-align: left; text-overflow: clip; }
     .np-overlay-controls { display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%; position: relative; }
+    /* Idle fade: after a few still seconds the controls step out of the way of
+       the artwork. The progress row deliberately stays, so you can still see
+       where you are in the track without moving the mouse. :focus-within keeps
+       the whole row up for anyone driving this from the keyboard, who gets no
+       mousemove to bring it back with. */
+    .np-overlay-btns, .np-overlay-vol { transition: opacity 0.4s ease; }
+    .np-overlay.idle:not(:focus-within) .np-overlay-btns,
+    .np-overlay.idle:not(:focus-within) .np-overlay-vol { opacity: 0; pointer-events: none; }
     .ov-dropdown { position: fixed; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 4px; min-width: 210px; z-index: 400; display: none; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
     .ov-dropdown.open { display: block; }
     .ov-dd-item { display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; color: var(--text2); transition: background 0.1s; white-space: nowrap; border: none; background: none; width: 100%; text-align: left; font-family: var(--font); }
@@ -482,7 +496,20 @@
     .np-ov-play:hover { opacity: 0.85; }
     .np-overlay-prog { display: flex; align-items: center; gap: 10px; width: 100%; }
     .np-overlay-prog-bar { flex: 1; height: 4px; background: var(--border); border-radius: 2px; cursor: pointer; position: relative; }
-    .np-overlay-prog-fill { height: 100%; background: var(--accent); border-radius: 2px; width: 0%; }
+    .np-overlay-prog-fill { height: 100%; background: var(--accent); border-radius: 2px; width: 0%; position: relative; }
+    /* Drag handle. Both bars already drag, nothing said so - a bar with no grip
+       reads as a readout you tap, not something you can take hold of. It fades
+       in on hover and stays up for the whole drag, since the pointer leaves the
+       bar constantly while scrubbing. background:inherit picks up whatever the
+       fill is, so the accent, the art-theme white and the volume bar's dimmer
+       fill all get a matching grip without three separate rules. */
+    .np-overlay-prog-fill::after {
+      content: ''; position: absolute; right: 0; top: 50%; margin-right: -6px;
+      width: 12px; height: 12px; border-radius: 50%; background: inherit;
+      transform: translateY(-50%) scale(0); transition: transform 0.15s ease;
+    }
+    .np-overlay-prog-bar:hover .np-overlay-prog-fill::after,
+    .np-overlay-prog-bar.dragging .np-overlay-prog-fill::after { transform: translateY(-50%) scale(1); }
     .np-overlay-time { font-size: 11px; color: var(--text3); font-variant-numeric: tabular-nums; min-width: 32px; }
     .np-overlay-time.right { text-align: right; }
     .np-like-ov { background: none; border: none; color: var(--text3); cursor: pointer; padding: 0; display: flex; align-items: center; transition: color 0.15s; }

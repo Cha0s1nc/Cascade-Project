@@ -3907,6 +3907,29 @@ function closeOverlay() {
   stopAmbient()
 }
 
+// Idle fade for the overlay controls. They get out of the way of the artwork
+// after a few still seconds, and any sign of life brings them straight back.
+// The progress row is deliberately left up, so a glance still tells you where
+// you are in the track without having to touch anything.
+const OV_IDLE_MS = 3000
+let _ovIdleTimer = null
+
+function pokeOverlayControls() {
+  const ov = document.getElementById('np-overlay')
+  ov.classList.remove('idle')
+  clearTimeout(_ovIdleTimer)
+  // Paused is not idle. Hiding the controls of something that is not going
+  // anywhere reads as broken rather than tidy, and pause is exactly when you
+  // are most likely to reach for them next.
+  if (!overlayOpen || audio.paused) return
+  _ovIdleTimer = setTimeout(() => ov.classList.add('idle'), OV_IDLE_MS)
+}
+
+;['pointermove', 'pointerdown', 'wheel', 'keydown'].forEach(type =>
+  document.getElementById('np-overlay').addEventListener(type, pokeOverlayControls, { passive: true }))
+onDeck('play', pokeOverlayControls)
+onDeck('pause', pokeOverlayControls)
+
 // Only the left NP section (art + info) opens the overlay - everything else is a deadzone
 document.querySelector('.statusbar').addEventListener('click', (e) => {
   if (!e.target.closest('.np')) return
@@ -4073,13 +4096,16 @@ document.getElementById('ov-like').addEventListener('click', toggleLike)
   function onUp(e) {
     if (!dragging) return
     dragging = false
+    bar.classList.remove('dragging')
     document.removeEventListener('mousemove', onMove)
     document.removeEventListener('mouseup', onUp)
     const dur = mediaDuration()
     if (dur) seekTo(ratioAt(e) * dur)
   }
   bar.addEventListener('mousedown', (e) => {
-    dragging = true; preview(e); e.preventDefault()
+    // The pointer leaves the bar constantly while scrubbing, so hover alone
+    // would flicker the handle away mid-drag.
+    dragging = true; bar.classList.add('dragging'); preview(e); e.preventDefault()
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup', onUp)
   })
@@ -4300,9 +4326,9 @@ document.getElementById('ov-audio-track').addEventListener('click', (e) => {
     window.cascade.store.set('volume', ratio)
   }
   function onMove(e) { if (dragging) setVol(e) }
-  function onUp() { dragging = false; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp) }
+  function onUp() { dragging = false; bar.classList.remove('dragging'); document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp) }
   bar.addEventListener('mousedown', (e) => {
-    dragging = true; setVol(e); e.preventDefault()
+    dragging = true; bar.classList.add('dragging'); setVol(e); e.preventDefault()
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup', onUp)
   })
