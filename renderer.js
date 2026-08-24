@@ -6528,60 +6528,6 @@ async function loadTheme() {
   buildPresets()
 }
 
-// Album art dominant color extraction
-function extractVibrantColor(img) {
-  try {
-    const canvas = document.createElement('canvas')
-    canvas.width = canvas.height = 80
-    const ctx = canvas.getContext('2d')
-    ctx.drawImage(img, 0, 0, 80, 80)
-    const data = ctx.getImageData(0, 0, 80, 80).data
-
-    // 36 hue buckets of 10° each - track count, rgb sum, and saturation sum
-    const buckets = Array.from({ length: 36 }, () => ({ count: 0, r: 0, g: 0, b: 0, satSum: 0 }))
-
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i] / 255, g = data[i+1] / 255, b = data[i+2] / 255
-      const max = Math.max(r, g, b), min = Math.min(r, g, b)
-      const l = (max + min) / 2
-      if (l < 0.05 || l > 0.88) continue  // skip near-black AND near-white (white bg causes warm-tint false positives)
-      const d = max - min
-      const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1))
-      if (s < 0.12) continue              // skip low-saturation pixels (JPEG noise floor)
-
-      let h = 0
-      if (d > 0) {
-        if (max === r)      h = ((g - b) / d + (g < b ? 6 : 0)) / 6
-        else if (max === g) h = ((b - r) / d + 2) / 6
-        else                h = ((r - g) / d + 4) / 6
-      }
-
-      const bkt = buckets[Math.floor(h * 36)]
-      bkt.count++
-      bkt.r += data[i]; bkt.g += data[i+1]; bkt.b += data[i+2]
-      bkt.satSum += s
-    }
-
-    // Score = avgSat² × √count  - rewards high vibrancy; coverage is a tiebreaker, not the winner
-    let best = null, bestScore = 0
-    for (const bkt of buckets) {
-      if (bkt.count < 3) continue  // ignore singleton noise
-      const avgSat = bkt.satSum / bkt.count
-      const score = avgSat * avgSat * Math.sqrt(bkt.count)
-      if (score > bestScore) { bestScore = score; best = bkt }
-    }
-
-    // Require meaningful saturation - low avgSat means JPEG noise, not a real colour.
-    // B&W albums max out at ~0.23; real colours are ≥0.35; safe cutoff is 0.28.
-    if (!best || (best.satSum / best.count) < 0.28) return null
-
-    return {
-      r: Math.round(best.r / best.count),
-      g: Math.round(best.g / best.count),
-      b: Math.round(best.b / best.count)
-    }
-  } catch { return null }
-}
 
 function rgbToHex(r, g, b) {
   return '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('')
@@ -6614,93 +6560,76 @@ function buildBlobBackground(colors) {
   return CascadeCore.blobBackgroundCss(CascadeCore.driftedBlobs(colors, [], 0))
 }
 
+// Saturation and hue of an RGB triple, HSL style. Only used to judge whether a
+// palette colour is worth deriving an accent from, and which way to push it.
+function _rgbHueSat(r, g, b) {
+  const nr = r/255, ng = g/255, nb = b/255
+  const mx = Math.max(nr,ng,nb), mn = Math.min(nr,ng,nb), d = mx - mn
+  const l = (mx + mn) / 2
+  const s = d === 0 ? 0 : d / (1 - Math.abs(2*l - 1))
+  let h = 0
+  if (d > 0) {
+    if (mx === nr)      h = ((ng-nb)/d + (ng<nb?6:0))/6
+    else if (mx === ng) h = ((nb-nr)/d + 2)/6
+    else                h = ((nr-ng)/d + 4)/6
+  }
+  return { h, s, l }
+}
+
+function _hslToRgb(hue, s, l) {
+  const c = (1-Math.abs(2*l-1))*s, x = c*(1-Math.abs((hue*6)%2-1)), m = l-c/2
+  const idx = Math.floor(hue*6)%6
+  const [r,g,b] = [[c,x,0],[x,c,0],[0,c,x],[0,x,c],[x,0,c],[c,0,x]][idx]
+  return [Math.round((r+m)*255), Math.round((g+m)*255), Math.round((b+m)*255)]
+}
+
+// Below this there is no hue worth trusting: what is left is JPEG noise on
+// essentially monochrome art, and normalising it would invent a colour that
+// appears nowhere on the cover.
+const NEUTRAL_ART_SAT = 0.18
+
 function applyAlbumArtTheme(imgEl) {
   if (!themeAlbumArt || !imgEl) return
-  const col = extractVibrantColor(imgEl)
 
-  if (!col) {
-    // B&W / neutral art - reset gradient to dark neutral so the previous track's
-    // colour doesn't bleed through, and use gray blobs on the overlay
+  // One palette for the whole theme. The accent used to run a second, separate
+  // extraction of its own, scored so heavily on saturation that a small vivid
+  // detail beat the rest of the cover - so the player bar could go hot pink
+  // off a shopfront while the overlay behind it, clustering the same artwork
+  // in Oklab, settled on beige and green. Same cover, two answers. The blobs
+  // decide now, and the accent follows them.
+  _blobColors = extractTopColors(imgEl)
+  const top = _blobColors[0]
+  const { h, s, l } = top ? _rgbHueSat(top.r, top.g, top.b) : { h: 0, s: 0, l: 0 }
+
+  const overlay = document.getElementById('np-overlay')
+
+  if (!top || s < NEUTRAL_ART_SAT) {
+    // Monochrome or near enough. Grey blobs off the art's own lightness where
+    // there is one, so a bright black-and-white cover does not get the same
+    // treatment as a dark one, and a neutral gradient so the previous track's
+    // colour does not bleed through.
+    const lum = top ? Math.round(l * 255) : 70
+    const gHi = Math.min(255, Math.round(lum * 1.2))
+    const gLo = Math.max(0,   Math.round(lum * 0.6))
+    _blobColors = [{ r: gHi, g: gHi, b: gHi, hue: 0 }, { r: gLo, g: gLo, b: gLo, hue: 0 }]
     applyGradient('#505050', '#202020')
     _lastAlbumColors = null
-    _blobColors = [{ r: 90, g: 90, b: 90, hue: 0 }, { r: 40, g: 40, b: 40, hue: 0 }]
-    randomizeDrift()
-    const overlay = document.getElementById('np-overlay')
-    overlay.style.backgroundColor = '#0d0d0f'
-    overlay.style.backgroundImage = buildBlobBackground(_blobColors)
-    overlay.classList.add('art-theme')
-    return
-  }
-
-  // Gradient accent - normalise to a vivid hue so muted album colours still produce
-  // distinct, saturated gradients across the full spectrum.
-  const _nr = col.r/255, _ng = col.g/255, _nb = col.b/255
-  const _mx = Math.max(_nr,_ng,_nb), _mn = Math.min(_nr,_ng,_nb), _d = _mx - _mn
-  let _h = 0
-  if (_d > 0) {
-    if (_mx === _nr)      _h = ((_ng-_nb)/_d + (_ng<_nb?6:0))/6
-    else if (_mx === _ng) _h = ((_nb-_nr)/_d + 2)/6
-    else                  _h = ((_nr-_ng)/_d + 4)/6
-  }
-  const _hsl2rgb = (hue, s, l) => {
-    const c = (1-Math.abs(2*l-1))*s, x = c*(1-Math.abs((hue*6)%2-1)), m = l-c/2
-    const idx = Math.floor(hue*6)%6
-    const [r,g,b] = [[c,x,0],[x,c,0],[0,c,x],[0,x,c],[x,0,c],[c,0,x]][idx]
-    return [Math.round((r+m)*255), Math.round((g+m)*255), Math.round((b+m)*255)]
-  }
-  const [sr,sg,sb] = _hsl2rgb(_h, 0.85, 0.62)   // bright vivid
-  const [er,eg,eb] = _hsl2rgb(_h, 0.90, 0.36)   // dark vivid
-  const startHex = rgbToHex(sr,sg,sb)
-  const endHex   = rgbToHex(er,eg,eb)
-  _lastAlbumColors = { start: startHex, end: endHex }
-  applyGradient(startHex, endHex)
-
-  // Fullscreen overlay: extract top 3 colors for the living blob background
-  _blobColors = extractTopColors(imgEl)
-
-  // Fallback: if the cover is too dark/desaturated for bucket extraction,
-  // synthesize a palette from the single dominant color we already have
-  if (_blobColors.length === 0) {
-    // Derive blob palette from the single dominant col - force to L=0.50 S=0.70
-    const nr = col.r/255, ng = col.g/255, nb = col.b/255
-    const cmax = Math.max(nr,ng,nb), cmin = Math.min(nr,ng,nb), d = cmax - cmin
-    // If the image is essentially black & white / neutral, there's no real hue to derive.
-    // d < 0.12 means near-gray - normalizing it would default h2=0 → vivid red, which is wrong.
-    // In this case skip the art theme entirely rather than inventing a fake color.
-    if (d < 0.12) {
-      // B&W / neutral art - use monochrome gray blobs instead of inventing a fake hue
-      const lum = Math.round(((cmax + cmin) / 2) * 255)
-      const gHi = Math.min(255, Math.round(lum * 1.2))
-      const gLo = Math.max(0,   Math.round(lum * 0.6))
-      _blobColors = [
-        { r: gHi, g: gHi, b: gHi, hue: 0 },
-        { r: gLo, g: gLo, b: gLo, hue: 0 },
-      ]
-    } else {
-      let h2 = 0
-      if (d > 0) {
-        if (cmax===nr)      h2 = ((ng-nb)/d+(ng<nb?6:0))/6
-        else if (cmax===ng) h2 = ((nb-nr)/d+2)/6
-        else                h2 = ((nr-ng)/d+4)/6
-      }
-      const tgtL = 0.50, tgtS = 0.72
-      const c2 = (1-Math.abs(2*tgtL-1))*tgtS, x2 = c2*(1-Math.abs((h2*6)%2-1)), m2 = tgtL-c2/2
-      const hIdx = Math.floor(h2*6)%6
-      const [rr,gg,bb2] = [[c2,x2,0],[x2,c2,0],[0,c2,x2],[0,x2,c2],[x2,0,c2],[c2,0,x2]][hIdx]
-      const pr = Math.round((rr+m2)*255), pg = Math.round((gg+m2)*255), pb = Math.round((bb2+m2)*255)
-      _blobColors = [
-        { r: pr, g: pg, b: pb, hue: 0 },
-        { r: Math.round(pr*0.5), g: Math.round(pg*0.5), b: Math.round(pb*0.5), hue: 180 },
-      ]
-    }
+  } else {
+    // Normalised to a fixed lightness and saturation so muted covers still
+    // produce a gradient you can tell apart from the last one. The hue is the
+    // palette's, so this only changes how loud it is, not which colour it is.
+    const [sr,sg,sb] = _hslToRgb(h, 0.85, 0.62)   // bright vivid
+    const [er,eg,eb] = _hslToRgb(h, 0.90, 0.36)   // dark vivid
+    const startHex = rgbToHex(sr,sg,sb)
+    const endHex   = rgbToHex(er,eg,eb)
+    _lastAlbumColors = { start: startHex, end: endHex }
+    applyGradient(startHex, endHex)
   }
 
   randomizeDrift()
   // Set gradient directly on the overlay - no z-index/clipping issues
-  const overlay = document.getElementById('np-overlay')
-  const bg = buildBlobBackground(_blobColors)
   overlay.style.backgroundColor = '#0d0d0f'
-  overlay.style.backgroundImage = bg
+  overlay.style.backgroundImage = buildBlobBackground(_blobColors)
   overlay.classList.add('art-theme')
 }
 
