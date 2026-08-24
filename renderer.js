@@ -68,6 +68,26 @@ function onDeck(type, fn, opts) {
 function setDeckVolume(v) { DECKS.forEach(d => d.volume = v) }
 function setDeckMuted(m) { DECKS.forEach(d => d.muted = m) }
 
+/**
+ * Sets playback volume to `ratio` (0..1) and keeps everything that depends on it
+ * in step: both decks, both volume bars' fill and aria-valuenow (they mirror each
+ * other), and the persisted setting. Every volume-changing input - drag, keyboard,
+ * the remote-control API, and the saved-value restore on launch - goes through
+ * this so none of them can drift from the others.
+ */
+function setVolumeRatio(ratio) {
+  ratio = Math.max(0, Math.min(1, ratio))
+  volume = ratio
+  setDeckVolume(ratio)
+  const pct = `${ratio * 100}%`
+  document.getElementById('vol-fill').style.width = pct
+  document.getElementById('ov-vol-fill').style.width = pct
+  const now = String(Math.round(ratio * 100))
+  document.getElementById('vol-bar').setAttribute('aria-valuenow', now)
+  document.getElementById('ov-vol-bar').setAttribute('aria-valuenow', now)
+  window.cascade.store.set('volume', ratio)
+}
+
 // ── Media kind ────────────────────────────────────────────────────────────────
 
 // Jellyfin returns one item shape for everything, so Type is what separates a
@@ -506,11 +526,7 @@ function startRemoteControl() {
 
 // Mirrors what the volume slider does, so a remote change looks identical.
 function applyRemoteVolume(next) {
-  volume = Math.min(1, Math.max(0, next))
-  setDeckVolume(volume)
-  const fill = document.getElementById('vol-fill')
-  if (fill) fill.style.width = `${volume * 100}%`
-  window.cascade.store.set('volume', volume)
+  setVolumeRatio(next)
 }
 
 // The library selection may have changed - force every lazy view to refetch.
@@ -2728,6 +2744,7 @@ function stopPlayback() {
   document.getElementById('prog-fill').style.width = '0%'
   document.getElementById('prog-cur').textContent = '0:00'
   document.getElementById('prog-dur').textContent = '0:00'
+  setBarAriaNow(document.getElementById('prog-bar'), 0, 0, '0:00')
 }
 
 function startProgressReporting() {
@@ -2758,11 +2775,13 @@ function syncProgressUI() {
   document.getElementById('prog-cur').textContent = fmtTime(cur)
   document.getElementById('prog-dur').textContent = fmtTime(dur)
   document.getElementById('prog-fill').style.width = pct
+  setBarAriaNow(document.getElementById('prog-bar'), cur, dur, fmtTime(cur))
 
   if (!overlayOpen) return
   document.getElementById('ov-cur').textContent = fmtTime(cur)
   document.getElementById('ov-dur').textContent = fmtTime(dur)
   document.getElementById('ov-prog-fill').style.width = pct
+  setBarAriaNow(document.getElementById('ov-prog-bar'), cur, dur, fmtTime(cur))
 }
 
 onDeck('timeupdate', syncProgressUI)
@@ -3232,37 +3251,119 @@ document.getElementById('btn-repeat').addEventListener('click', () => {
   _reprefetch()   // repeat mode changes what "next" means
 })
 
-// Progress bar scrubbing
-document.getElementById('prog-bar').addEventListener('click', (e) => {
-  const rect = e.currentTarget.getBoundingClientRect()
-  const ratio = (e.clientX - rect.left) / rect.width
-  const dur = mediaDuration()
-  if (dur) seekTo(ratio * dur)
-})
+// ── Scrubber bars ────────────────────────────────────────────────────────────
+//
+// All four bars (statusbar/overlay x progress/volume) go through wireBar() for
+// their drag and keyboard mechanics - only what a ratio *means* differs between
+// them, which is what wireProgressBar()/wireVolumeBar() below supply.
 
-// Volume bar - click and drag
-;(function () {
-  const bar = document.getElementById('vol-bar')
-  const fill = document.getElementById('vol-fill')
-  let dragging = false
-
-  function setVol(e) {
+/**
+ * Wires one bar for click-and-drag, plus focus and arrow-key control as a real
+ * role="slider".
+ *
+ * getRatio() reports where the bar should currently show, 0..1. onChange(ratio)
+ * paints that live, on every drag move and every key step. onCommit(ratio), if
+ * given, fires once the interaction settles - a drag's mouseup, or a short pause
+ * after a run of key presses - for bars where acting on every intermediate step
+ * would be wasteful (a transcoded seek restarts the stream) or wrong (a plain
+ * click mid-drag should not seek per pixel). Volume has no such settle point, so
+ * its onChange does the whole job and it passes no onCommit.
+ */
+function wireBar(bar, { getRatio, onChange, onCommit, step, bigStep }) {
+  const ratioAt = (e) => {
     const rect = bar.getBoundingClientRect()
-    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-    setDeckVolume(ratio)
-    volume = ratio
-    fill.style.width = `${ratio * 100}%`
-    window.cascade.store.set('volume', ratio)
+    return Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
   }
 
-  function onMove(e) { if (dragging) setVol(e) }
-  function onUp() { dragging = false; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp) }
+  let dragging = false
+  function onMove(e) { if (dragging) onChange(ratioAt(e)) }
+  function onUp(e) {
+    if (!dragging) return
+    dragging = false
+    bar.classList.remove('dragging')
+    document.removeEventListener('mousemove', onMove)
+    document.removeEventListener('mouseup', onUp)
+    if (onCommit) onCommit(ratioAt(e))
+  }
   bar.addEventListener('mousedown', (e) => {
-    dragging = true; setVol(e); e.preventDefault()
+    // The pointer leaves the bar constantly while dragging, so hover alone
+    // would flicker the handle away mid-drag - .dragging keeps it up for the
+    // whole thing.
+    dragging = true; bar.classList.add('dragging'); onChange(ratioAt(e)); e.preventDefault()
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup', onUp)
   })
-})()
+
+  // A held or repeated key can fire many keydowns a second - committing on
+  // every one would do to a keyboard seek what per-pixel dragging would do to
+  // a mouse one, so the commit is debounced the same way a drag's is by
+  // waiting for mouseup.
+  let commitTimer = null
+  bar.addEventListener('keydown', (e) => {
+    const cur = getRatio()
+    let next
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') next = Math.max(0, cur - step())
+    else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') next = Math.min(1, cur + step())
+    else if (e.key === 'PageDown') next = Math.max(0, cur - bigStep())
+    else if (e.key === 'PageUp') next = Math.min(1, cur + bigStep())
+    else if (e.key === 'Home') next = 0
+    else if (e.key === 'End') next = 1
+    else return
+    // Stopped here, not left to bubble, so the video overlay's own arrow-key
+    // handler (only live when a video overlay is open) never also acts on the
+    // same press.
+    e.preventDefault()
+    e.stopPropagation()
+    onChange(next)
+    if (onCommit) {
+      clearTimeout(commitTimer)
+      commitTimer = setTimeout(() => onCommit(next), 150)
+    }
+  })
+}
+
+/** Keeps a slider's aria-valuenow (and, for a time-based one, valuemax/valuetext)
+ *  in step with what it currently shows. */
+function setBarAriaNow(bar, now, max, text) {
+  if (max !== undefined) bar.setAttribute('aria-valuemax', String(Math.round(max)))
+  bar.setAttribute('aria-valuenow', String(Math.round(now)))
+  if (text !== undefined) bar.setAttribute('aria-valuetext', text)
+}
+
+/** Wires a progress bar (statusbar or overlay) - drag, click and keyboard all
+ *  land here. Seeking is committed on release/settle, not per move: scrubbing a
+ *  transcode re-requests the stream, so seeking per pixel or per keypress would
+ *  fire a request storm at the server, while the fill and time label still track
+ *  live so the interaction feels immediate. */
+function wireProgressBar(barId, fillId, curId) {
+  const bar = document.getElementById(barId)
+  wireBar(bar, {
+    getRatio: () => { const dur = mediaDuration(); return dur ? mediaPosition() / dur : 0 },
+    step:     () => { const dur = mediaDuration(); return dur ? 5 / dur : 0.05 },
+    bigStep:  () => { const dur = mediaDuration(); return dur ? 30 / dur : 0.1 },
+    onChange: (ratio) => {
+      const dur = mediaDuration()
+      document.getElementById(fillId).style.width = `${ratio * 100}%`
+      if (dur) document.getElementById(curId).textContent = fmtTime(ratio * dur)
+      setBarAriaNow(bar, ratio * dur, dur, fmtTime(ratio * dur))
+    },
+    onCommit: (ratio) => { const dur = mediaDuration(); if (dur) seekTo(ratio * dur) },
+  })
+}
+
+/** Wires a volume bar (statusbar or overlay) through the shared setVolumeRatio(),
+ *  which is what keeps the two mirrored. */
+function wireVolumeBar(barId) {
+  wireBar(document.getElementById(barId), {
+    getRatio: () => audio.volume,
+    step:     () => 0.05,
+    bigStep:  () => 0.2,
+    onChange: (ratio) => setVolumeRatio(ratio),
+  })
+}
+
+wireProgressBar('prog-bar', 'prog-fill', 'prog-cur')
+wireVolumeBar('vol-bar')
 
 document.getElementById('btn-mute').addEventListener('click', () => {
   setDeckMuted(!audio.muted)
@@ -3827,12 +3928,7 @@ async function init() {
 
   // Restore saved volume
   const savedVol = await window.cascade.store.get('volume')
-  if (savedVol !== undefined && savedVol !== null) {
-    volume = parseFloat(savedVol)
-    setDeckVolume(volume)
-    const fill = document.getElementById('vol-fill')
-    if (fill) fill.style.width = `${volume * 100}%`
-  }
+  if (savedVol !== undefined && savedVol !== null) setVolumeRatio(parseFloat(savedVol))
 
   const serverUrl = await window.cascade.store.get('serverUrl')
   const username  = await window.cascade.store.get('username')
@@ -4389,44 +4485,8 @@ document.getElementById('ov-repeat').addEventListener('click', () => {
 })
 document.getElementById('ov-like').addEventListener('click', toggleLike)
 
-// Overlay progress bar - drag to scrub.
-//
-// The seek is committed on release, not on every mousemove. Scrubbing a
-// transcode re-requests the stream, so seeking per pixel would fire a request
-// storm at the server; the fill still tracks the cursor so the drag feels live.
-;(function() {
-  const bar = document.getElementById('ov-prog-bar')
-  const fill = document.getElementById('ov-prog-fill')
-  let dragging = false
-
-  const ratioAt = (e) => {
-    const rect = bar.getBoundingClientRect()
-    return Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-  }
-  function preview(e) {
-    const ratio = ratioAt(e)
-    fill.style.width = `${ratio * 100}%`
-    const dur = mediaDuration()
-    if (dur) document.getElementById('ov-cur').textContent = fmtTime(ratio * dur)
-  }
-  function onMove(e) { if (dragging) preview(e) }
-  function onUp(e) {
-    if (!dragging) return
-    dragging = false
-    bar.classList.remove('dragging')
-    document.removeEventListener('mousemove', onMove)
-    document.removeEventListener('mouseup', onUp)
-    const dur = mediaDuration()
-    if (dur) seekTo(ratioAt(e) * dur)
-  }
-  bar.addEventListener('mousedown', (e) => {
-    // The pointer leaves the bar constantly while scrubbing, so hover alone
-    // would flicker the handle away mid-drag.
-    dragging = true; bar.classList.add('dragging'); preview(e); e.preventDefault()
-    document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup', onUp)
-  })
-})()
+// Overlay progress bar - shares wireProgressBar() with the statusbar one.
+wireProgressBar('ov-prog-bar', 'ov-prog-fill', 'ov-cur')
 
 // ── Ambient mode ──────────────────────────────────────────────────────────────
 //
@@ -4505,6 +4565,7 @@ function skipBy(delta) {
 
   document.getElementById('ov-prog-fill').style.width = `${(_skipTarget / dur) * 100}%`
   document.getElementById('ov-cur').textContent = fmtTime(_skipTarget)
+  setBarAriaNow(document.getElementById('ov-prog-bar'), _skipTarget, dur, fmtTime(_skipTarget))
 
   clearTimeout(_skipTimer)
   _skipTimer = setTimeout(() => {
@@ -4549,19 +4610,11 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'm' || e.key === 'M') { e.preventDefault(); document.getElementById('btn-mute').click() }
 })
 
-/**
- * Change volume by `delta`, keeping both sliders and the stored setting in step.
- *
- * The two volume bars each had their own copy of this arithmetic; a third for
- * the keyboard would have been the one that forgets to persist.
- */
+/** Change volume by `delta`. Thin wrapper for the video overlay's own arrow-key
+ *  handler above - setVolumeRatio() does the actual work of keeping both
+ *  sliders and the stored setting in step. */
 function nudgeVolume(delta) {
-  const next = Math.max(0, Math.min(1, audio.volume + delta))
-  setDeckVolume(next)
-  volume = next
-  document.getElementById('vol-fill').style.width = `${next * 100}%`
-  document.getElementById('ov-vol-fill').style.width = `${next * 100}%`
-  window.cascade.store.set('volume', next)
+  setVolumeRatio(audio.volume + delta)
 }
 
 // ── Subtitle picker ──
@@ -4627,29 +4680,9 @@ document.getElementById('ov-audio-track').addEventListener('click', (e) => {
   toggleDropdownUnder(audioTrackDropdown, e.currentTarget)
 })
 
-// Overlay volume slider - drag to adjust
-;(function() {
-  const bar = document.getElementById('ov-vol-bar')
-  const fill = document.getElementById('ov-vol-fill')
-  let dragging = false
-  function setVol(e) {
-    const rect = bar.getBoundingClientRect()
-    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-    setDeckVolume(ratio)
-    volume = ratio
-    fill.style.width = `${ratio * 100}%`
-    // Keep main vol bar in sync
-    document.getElementById('vol-fill').style.width = `${ratio * 100}%`
-    window.cascade.store.set('volume', ratio)
-  }
-  function onMove(e) { if (dragging) setVol(e) }
-  function onUp() { dragging = false; bar.classList.remove('dragging'); document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp) }
-  bar.addEventListener('mousedown', (e) => {
-    dragging = true; bar.classList.add('dragging'); setVol(e); e.preventDefault()
-    document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup', onUp)
-  })
-})()
+// Overlay volume slider - shares wireVolumeBar() with the statusbar one, both
+// wired through setVolumeRatio() so neither can drift out of sync.
+wireVolumeBar('ov-vol-bar')
 
 // Overlay progress is filled by syncProgressUI() alongside the status bar.
 

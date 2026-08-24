@@ -338,7 +338,7 @@
     .prog-time { font-size: 10px; color: var(--text3); font-variant-numeric: tabular-nums; min-width: 26px; }
     .prog-time.right { text-align: right; }
     .prog-bar { width: 180px; height: 3px; background: var(--border); border-radius: 2px; position: relative; cursor: pointer; }
-    .prog-fill { height: 100%; background: var(--accent); border-radius: 2px; width: 0%; transition: width 0.5s linear; }
+    .prog-fill { height: 100%; background: var(--accent); border-radius: 2px; width: 0%; position: relative; transition: width 0.5s linear; }
     .vol-area { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
     .vol-icon { background: none; border: none; color: var(--text3); cursor: pointer; transition: color 0.12s; display: flex; align-items: center; }
     .vol-icon:hover { color: var(--text); }
@@ -346,6 +346,23 @@
     .vol-bar::before { content: ''; position: absolute; left: 0; right: 0; height: 3px; background: var(--border); border-radius: 2px; }
     .vol-fill { height: 3px; background: var(--text2); border-radius: 2px; width: 75%; position: relative; transition: background 0.12s; }
     .vol-bar:hover .vol-fill { background: var(--text); }
+    /* Same drag handle as the overlay bars (see .np-overlay-prog-fill::after below),
+       sized down for the statusbar's 3px-tall bars - the overlay's 12px would swamp
+       them. Kept as two selectors rather than a shared class since the progress and
+       volume bars here already have their own distinct classnames. */
+    .prog-fill::after, .vol-fill::after {
+      content: ''; position: absolute; right: 0; top: 50%; margin-right: -4px;
+      width: 8px; height: 8px; border-radius: 50%; background: inherit;
+      transform: translateY(-50%) scale(0); transition: transform 0.15s ease;
+    }
+    .prog-bar:hover .prog-fill::after, .prog-bar.dragging .prog-fill::after, .prog-bar:focus-visible .prog-fill::after,
+    .vol-bar:hover .vol-fill::after, .vol-bar.dragging .vol-fill::after, .vol-bar:focus-visible .vol-fill::after {
+      transform: translateY(-50%) scale(1);
+    }
+    /* Keyboard focus ring, matching .lib-group-header:focus-visible elsewhere. */
+    .prog-bar:focus-visible, .vol-bar:focus-visible, .np-overlay-prog-bar:focus-visible {
+      outline: none; box-shadow: 0 0 0 3px var(--accent-glow);
+    }
 
     /* ── Library checklist ── */
     .lib-check-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 3px 0; }
@@ -519,7 +536,8 @@
       transform: translateY(-50%) scale(0); transition: transform 0.15s ease;
     }
     .np-overlay-prog-bar:hover .np-overlay-prog-fill::after,
-    .np-overlay-prog-bar.dragging .np-overlay-prog-fill::after { transform: translateY(-50%) scale(1); }
+    .np-overlay-prog-bar.dragging .np-overlay-prog-fill::after,
+    .np-overlay-prog-bar:focus-visible .np-overlay-prog-fill::after { transform: translateY(-50%) scale(1); }
     .np-overlay-time { font-size: 11px; color: var(--text3); font-variant-numeric: tabular-nums; min-width: 32px; }
     .np-overlay-time.right { text-align: right; }
     .np-like-ov { background: none; border: none; color: var(--text3); cursor: pointer; padding: 0; display: flex; align-items: center; transition: color 0.15s; }
@@ -1600,7 +1618,7 @@
       </div>
       <div class="prog-row">
         <span class="prog-time" id="prog-cur">0:00</span>
-        <div class="prog-bar" id="prog-bar"><div class="prog-fill" id="prog-fill"></div></div>
+        <div class="prog-bar" id="prog-bar" tabindex="0" role="slider" aria-label="Seek" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"><div class="prog-fill" id="prog-fill"></div></div>
         <span class="prog-time right" id="prog-dur">0:00</span>
       </div>
     </div>
@@ -1608,7 +1626,7 @@
       <button class="vol-icon" id="btn-mute">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
       </button>
-      <div class="vol-bar" id="vol-bar"><div class="vol-fill" id="vol-fill"></div></div>
+      <div class="vol-bar" id="vol-bar" tabindex="0" role="slider" aria-label="Volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="75"><div class="vol-fill" id="vol-fill"></div></div>
       <button class="ctrl-btn" id="btn-lyrics-open" title="Lyrics" style="margin-left:6px;">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
       </button>
@@ -1756,7 +1774,7 @@
         </div>
         <div class="np-overlay-prog">
           <span class="np-overlay-time" id="ov-cur">0:00</span>
-          <div class="np-overlay-prog-bar" id="ov-prog-bar">
+          <div class="np-overlay-prog-bar" id="ov-prog-bar" tabindex="0" role="slider" aria-label="Seek" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
             <div class="np-overlay-prog-fill" id="ov-prog-fill"></div>
           </div>
           <span class="np-overlay-time right" id="ov-dur">0:00</span>
@@ -1765,7 +1783,7 @@
           <button class="np-ov-ctrl" id="ov-mute" title="Mute (M)" style="width:auto;height:auto;">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
           </button>
-          <div class="np-overlay-prog-bar" id="ov-vol-bar" style="width:140px;">
+          <div class="np-overlay-prog-bar" id="ov-vol-bar" tabindex="0" role="slider" aria-label="Volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="75" style="width:140px;">
             <div class="np-overlay-prog-fill" id="ov-vol-fill" style="width:75%;background:var(--text3);"></div>
           </div>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
