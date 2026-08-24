@@ -1919,6 +1919,21 @@ function posterGroupHTML(libId, name, items, sub) {
 /** Click/keyboard wiring for every group header in a just-rendered grouped
  *  grid. Toggling just flips a CSS class and persists the id set - the cards
  *  are already in the DOM either way. */
+// A horizontal row and a vertical wheel do not meet on their own, and a plain
+// mouse has nothing else to offer. Bound once rather than per row, since rows
+// are rebuilt on every load. Horizontal input is left alone, so a trackpad
+// swipe still does what it always did, and reaching either end hands scrolling
+// back to the page instead of trapping it there.
+document.addEventListener('wheel', (e) => {
+  const row = e.target.closest?.('.lib-group .poster-grid')
+  if (!row || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return
+  const max = row.scrollWidth - row.clientWidth
+  if (max <= 0) return
+  if ((e.deltaY < 0 && row.scrollLeft <= 0) || (e.deltaY > 0 && row.scrollLeft >= max)) return
+  row.scrollLeft = Math.max(0, Math.min(max, row.scrollLeft + e.deltaY))
+  e.preventDefault()
+}, { passive: false })
+
 function wireLibGroupHeaders(grid) {
   grid.querySelectorAll('.lib-group-header').forEach(header => {
     const toggle = () => {

@@ -107,6 +107,19 @@
     .lib-group-chevron { display: inline-block; margin-right: 6px; transition: transform 0.12s; }
     .lib-group.collapsed .lib-group-chevron { transform: rotate(-90deg); }
     .lib-group.collapsed .poster-grid { display: none; }
+    /* Grouped libraries scroll sideways rather than stacking. Vertically, a
+       large first library buries every one after it, and the whole point of
+       grouping was to see that there is more than one. Only when grouped: a
+       single library has nothing to be pushed below, so it keeps the grid that
+       fills the page. */
+    .lib-group .poster-grid {
+      grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 150px;
+      overflow-x: auto; overflow-y: hidden; padding-bottom: 8px;
+      scroll-snap-type: x proximity; overscroll-behavior-x: contain;
+    }
+    .lib-group .poster-card { scroll-snap-align: start; }
+    .lib-group .poster-grid::-webkit-scrollbar { height: 4px; }
+    .lib-group .poster-grid::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
     .lib-group-count { font-size: 11px; color: var(--text3); }
 
     .vd-header { display: flex; gap: 22px; margin-bottom: 22px; align-items: flex-start; }
