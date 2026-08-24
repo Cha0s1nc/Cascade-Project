@@ -579,7 +579,7 @@
        line's existing transition does the fade both ways, so it settles back
        into the karaoke look on its own when the spring returns to the active
        line. */
-    #ov-panel-lyrics.browsing .ov-lyric-line { opacity: 0.45; transform: scale(0.88); color: var(--text2); pointer-events: auto; }
+    #ov-panel-lyrics.browsing .ov-lyric-line { opacity: 0.8; transform: scale(0.88); color: white; text-shadow: 0 1px 4px rgba(0,0,0,0.55); pointer-events: auto; }
     #ov-panel-lyrics.browsing .ov-lyric-line.active { opacity: 1; transform: scale(1); color: white; }
 
     /* ── Context menu ── */
@@ -785,6 +785,12 @@
     /* Queue/lyrics panel gets a translucent dark surface */
     .np-overlay.art-theme #ov-panel-queue { background: transparent; }
     .np-overlay.art-theme #ov-panel-lyrics { background: transparent !important; }
+    /* Browsing shows the whole lyric, and the art wash behind it can be any
+       colour the cover happens to be - a pale one leaves white text sitting on
+       near-white. A scrim only while scrolling costs nothing the rest of the
+       time, and reads as the panel dimming to be read. */
+    .np-overlay.art-theme #ov-panel-lyrics.browsing { background: rgba(0,0,0,0.3) !important; }
+    #ov-panel-lyrics { transition: background 0.35s ease; }
     .np-overlay.art-theme .queue-row:hover { background: rgba(255,255,255,0.07); }
     .np-overlay.art-theme .queue-row.current { background: rgba(255,255,255,0.15); }
     .np-overlay.art-theme .queue-row-title { color: rgba(255,255,255,0.9); }
