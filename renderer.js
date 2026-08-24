@@ -195,24 +195,39 @@ async function fetchItunesArt(artist, album) {
   if (_itunesArtCache.size >= _ITUNES_ART_CACHE_MAX) {
     _itunesArtCache.delete(_itunesArtCache.keys().next().value) // evict least-recently-used
   }
-  _itunesArtCache.set(key, null) // mark in-flight to avoid duplicate requests
-  try {
-    const term = encodeURIComponent(`${artist} ${album}`.trim())
-    const r = await fetch(
-      `https://itunes.apple.com/search?term=${term}&entity=album&limit=5&media=music`,
-      { signal: AbortSignal.timeout(7000) }
-    )
-    if (!r.ok) return null
-    const d = await r.json()
-    const result = d.results?.[0]
-    if (!result?.artworkUrl100) return null
-    // Scale from 100px thumbnail to 600px - just replace the size token in the URL
-    const url = result.artworkUrl100.replace(/\d+x\d+bb/, '600x600bb')
-    _itunesArtCache.set(key, url)
-    return url
-  } catch {
-    return null
-  }
+  // The entry is the in-flight promise, not a null placeholder. Two callers ask
+  // for the same album on a single track change (the now-playing art upgrade and
+  // the Discord presence), and a placeholder handed the second one `null` as
+  // though the album had no cover, so whichever lost the race got nothing.
+  const inFlight = (async () => {
+    try {
+      const term = encodeURIComponent(`${artist} ${album}`.trim())
+      const r = await fetch(
+        `https://itunes.apple.com/search?term=${term}&entity=album&limit=5&media=music`,
+        { signal: AbortSignal.timeout(7000) }
+      )
+      // Unauthenticated iTunes search allows roughly 20 requests a minute, which
+      // a shuffle through an unfamiliar library will trip. A 403 is not an
+      // answer about the album, so it must not be remembered as one: drop the
+      // entry and let the next play ask again. Same for a timeout or a blip.
+      if (!r.ok) { _itunesArtCache.delete(key); return null }
+      const d = await r.json()
+      const result = d.results?.[0]
+      // Scale from 100px thumbnail to 600px - just replace the size token in the URL
+      const url = result?.artworkUrl100
+        ? result.artworkUrl100.replace(/\d+x\d+bb/, '600x600bb')
+        : null
+      // A real answer, including a real "iTunes has never heard of this", which
+      // is worth remembering so a bootleg is not looked up once per play.
+      _itunesArtCache.set(key, url)
+      return url
+    } catch {
+      _itunesArtCache.delete(key)
+      return null
+    }
+  })()
+  _itunesArtCache.set(key, inFlight)
+  return inFlight
 }
 
 // Tracks the best available art URL for the current track (iTunes > Jellyfin)
