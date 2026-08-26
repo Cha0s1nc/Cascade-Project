@@ -3414,7 +3414,12 @@ async function startCrossfade(nextIndex) {
     incoming = _streamPrefetch.deck
     resolved = _streamPrefetch.resolved
     _streamPrefetch = null
-    _lastPrefetchOutcome = { at: Date.now(), from: 'crossfade', hit: true }
+    // A hit only means the right track is on the idle deck, not that it
+    // buffered: preload='auto' is a hint Chromium is free to ignore, and it
+    // often does with two media elements alive. Record how ready it actually
+    // was, because a hit that still has to cold-fill behaves like a miss and
+    // the two are otherwise indistinguishable after the fact.
+    _lastPrefetchOutcome = { at: Date.now(), from: 'crossfade', hit: true, readyState: incoming.readyState }
   } else {
     // No usable prefetch (not ready, wrong item, or none). Clear whatever is
     // there first - a stale or still-in-flight prefetch would otherwise race
@@ -3480,7 +3485,18 @@ async function startCrossfade(nextIndex) {
   // hands over abruptly - the exact thing the fade exists to avoid. Fade for
   // whatever is actually left when the ramp finally starts.
   const remaining = audio.duration - audio.currentTime
-  const fadeSecs = Math.max(0.1, Math.min(crossfadeSeconds, isFinite(remaining) ? remaining : crossfadeSeconds))
+  const fadeSecs = CascadeCore.fadeDurationSecs(crossfadeSeconds, remaining)
+  if (fadeSecs === null) {
+    // Not enough of the outgoing track left to fade across. The old code
+    // clamped to a 0.1s floor here, which is a hard cut with a smear on it,
+    // landing mid-phrase because the outgoing track is being ended early to
+    // make room for a fade that is not happening. Hand over cleanly instead.
+    const g = _deckGain(incoming)
+    if (g && _audioCtx) { g.gain.cancelScheduledValues(_audioCtx.currentTime); g.gain.setValueAtTime(1, _audioCtx.currentTime) }
+    _cfActive = true
+    finishCrossfade(nextIndex, incoming)
+    return
+  }
 
   if (outGain && inGain && _audioCtx) {
     const { outCurve, inCurve } = CascadeCore.equalPowerCrossfadeCurves()
@@ -3601,7 +3617,7 @@ let _prefetchTimer = null    // the "give the current track's own buffering room
 // consulted by the debug panel - existence of an intermittent crossfade
 // stutter suggests this misses more than it should, and there was no way to
 // see that without instrumenting a debug session by hand.
-let _lastPrefetchOutcome = null   // { at, from, hit }
+let _lastPrefetchOutcome = null   // { at, from, hit, readyState? }
 
 const PREFETCH_DELAY_MS = 3000
 
@@ -7307,8 +7323,12 @@ function debugPanelText() {
     ? item?.MediaStreams?.find(s => s.Index === _audioStreamIndex)
     : item?.MediaStreams?.find(s => s.Type === 'Audio')
   const p = _lastPrefetchOutcome
+  // readyState is only recorded on a crossfade hit, and it is the interesting
+  // part: a HIT at readyState under 4 had the right track but had not buffered
+  // it, which behaves like a miss and is the leading suspect for the
+  // intermittent stutter. 4 = HAVE_ENOUGH_DATA.
   const prefetchLine = p
-    ? `${p.hit ? 'HIT' : 'MISS'} (${p.from}, ${Math.round((Date.now() - p.at) / 1000)}s ago)`
+    ? `${p.hit ? 'HIT' : 'MISS'}${p.readyState !== undefined ? ` rs=${p.readyState}${p.readyState < 4 ? ' COLD' : ''}` : ''} (${p.from}, ${Math.round((Date.now() - p.at) / 1000)}s ago)`
     : 'none yet'
 
   return [

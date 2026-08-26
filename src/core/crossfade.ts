@@ -34,3 +34,32 @@ export function equalPowerCrossfadeCurves(points: number = CROSSFADE_CURVE_POINT
   }
   return { outCurve, inCurve }
 }
+
+/**
+ * Shortest fade worth doing, in seconds. Below this a "fade" is just a hard cut
+ * with a smear on it, and it lands mid-phrase because the outgoing track is
+ * being ended early to make room for it. Handing over cleanly sounds better
+ * than a 100ms crossfade.
+ */
+export const MIN_USEFUL_FADE_SECS = 1.0
+
+/**
+ * How long to actually fade for, given the configured length and how much of
+ * the outgoing track is genuinely left at the moment the ramp is about to
+ * start.
+ *
+ * `remaining` is re-read late on purpose: waiting for the incoming deck to
+ * buffer costs real time, and fading for longer than remains means the
+ * outgoing track hits `ended` partway through the ramp, handing over abruptly.
+ *
+ * Returns null when there is not enough left to be worth fading at all. The
+ * old code clamped to a 0.1s floor instead, so a slow incoming buffer silently
+ * turned a 6 second crossfade into a 100ms cut - audible as a glitch at the
+ * track boundary, and one of the few things here that varies run to run.
+ */
+export function fadeDurationSecs(configuredSecs: number, remaining: number): number | null {
+  if (!isFinite(remaining)) return configuredSecs > 0 ? configuredSecs : null
+  if (remaining < MIN_USEFUL_FADE_SECS) return null
+  const secs = Math.min(configuredSecs, remaining)
+  return secs >= MIN_USEFUL_FADE_SECS ? secs : null
+}

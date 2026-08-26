@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { equalPowerCrossfadeCurves, CROSSFADE_CURVE_POINTS } from '../src/core/crossfade.ts'
+import { equalPowerCrossfadeCurves, CROSSFADE_CURVE_POINTS, fadeDurationSecs } from '../src/core/crossfade.ts'
 
 // Curves are Float32Array (that is what setValueCurveAtTime wants), so the
 // tolerance has to fit float32 precision (~1e-7), not float64.
@@ -51,4 +51,25 @@ test('a tiny or fractional point count still produces a usable curve', () => {
   const { outCurve, inCurve } = equalPowerCrossfadeCurves(2.7)
   assert.equal(outCurve.length, 2)
   assert.equal(inCurve.length, 2)
+})
+
+test('fadeDurationSecs uses the configured length when the track has room', () => {
+  assert.equal(fadeDurationSecs(6, 30), 6)
+})
+
+test('fadeDurationSecs shortens to what is actually left', () => {
+  assert.equal(fadeDurationSecs(6, 3), 3)
+})
+
+test('fadeDurationSecs refuses a fade too short to be worth doing', () => {
+  // The bug this exists for: the old code clamped to 0.1s, turning a slow
+  // incoming buffer into a 100ms cut instead of a clean handoff.
+  assert.equal(fadeDurationSecs(6, 0.4), null)
+  assert.equal(fadeDurationSecs(6, 0), null)
+  assert.equal(fadeDurationSecs(6, -2), null)
+})
+
+test('fadeDurationSecs falls back to the configured length on an unknown duration', () => {
+  assert.equal(fadeDurationSecs(6, NaN), 6)
+  assert.equal(fadeDurationSecs(6, Infinity), 6)
 })
