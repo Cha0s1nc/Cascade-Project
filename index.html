@@ -610,6 +610,7 @@
     @media (prefers-reduced-motion: reduce) {
       .np-overlay.video.ambient .np-ambient { transition: none; }
       .np-overlay-btns, .np-overlay-vol, .np-overlay-art { transition: none; }
+      .np-overlay.video .np-overlay-left, .np-overlay.video .np-overlay-info { transition: none; }
       .np-overlay-prog-fill::after { transition: none; }
     }
     /* A short window is the case that broke: at 500px tall the controls wanted
@@ -679,6 +680,26 @@
     .np-overlay.idle:not(:focus-within) .np-overlay-vol { opacity: 0; max-height: 0; pointer-events: none; }
     /* Same idle gate, grown into the space the rows above just gave up. */
     .np-overlay.idle:not(:focus-within) .np-overlay-art { width: min(clamp(240px, 58vh, 540px), calc(100% - 32px)); }
+
+    /* Video, idle: the picture takes the frame.
+       Music grows its cover into the space the collapsed rows leave, but video
+       has more to give back. The padding around the picture exists to keep an
+       album cover off the edges, a film does not want it, and the title and
+       artist over a film are chrome rather than information - they are already
+       in the file you chose to play. The progress bar stays, exactly as it does
+       in music mode, because it is the one thing worth glancing at without
+       moving the mouse.
+       Collapsed with max-height rather than display:none so it animates, and
+       so the row keeps its place in the grid instead of the picture jumping. */
+    .np-overlay.video .np-overlay-left,
+    .np-overlay.video .np-overlay-info { transition: padding 0.4s ease, gap 0.4s ease, opacity 0.4s ease, max-height 0.4s ease; }
+    .np-overlay.video .np-overlay-info { max-height: 120px; overflow: hidden; }
+    .np-overlay.video.idle:not(:focus-within) .np-overlay-info { opacity: 0; max-height: 0; pointer-events: none; }
+    .np-overlay.video.idle:not(:focus-within) .np-overlay-left { padding: 0; gap: 0; }
+    .np-overlay.video.idle:not(:focus-within) .np-overlay-video { border-radius: 0; }
+    /* The controls row keeps its own inset once the container's padding is
+       gone, or the scrubber ends up flush against the window edge. */
+    .np-overlay.video.idle:not(:focus-within) .np-overlay-controls { padding: 0 clamp(12px, 2vw, 32px) 10px; }
     /* Reversible fade/grow, same 140ms popup easing as the context menu below -
        display stays block always so opacity/transform/visibility can animate;
        visibility keeps a closed dropdown out of hit-testing and the a11y tree. */
