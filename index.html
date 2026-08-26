@@ -914,6 +914,42 @@
     .np-overlay.art-theme .np-ov-tab.active { color: white; }
     .np-overlay.art-theme .np-overlay-title { color: rgba(255,255,255,0.5); }
 
+    /* Light theme's blobs are pale (album-colors.ts' light MIN_L/MAX_L pair),
+       not the black-glow vivid ones above - so the white text and black-tinted
+       panel scrims tuned for that dark background need light equivalents here,
+       or the title/artist/lyrics read as this codebase's other readability bug
+       (dd975bd) in the opposite direction: dark-on-dark became white-on-white
+       instead of white-on-pale. Deliberately narrow: only the text and the
+       panel scrims behind it, not the control rows (buttons/sliders), which
+       stay exactly as they are. */
+    /* Pale blobs added straight (background-blend-mode's default, "normal")
+       wash out fast where two overlap - multiply keeps the overlap readable as
+       a deeper mix of the two colours instead of flattening toward white,
+       which is what a "glow" blend (screen/lighten, the dark theme's implicit
+       behaviour) would do here. */
+    html[data-theme="light"] .np-overlay.art-theme { background-blend-mode: multiply; }
+    html[data-theme="light"] .np-overlay.art-theme .np-overlay-left { background: rgba(255,255,255,0.35); }
+    html[data-theme="light"] .np-overlay.art-theme .np-overlay-right { background: rgba(255,255,255,0.16); }
+    html[data-theme="light"] .np-overlay.art-theme .np-overlay-header { background: rgba(255,255,255,0.4); border-bottom-color: rgba(0,0,0,0.08); }
+    html[data-theme="light"] .np-overlay.art-theme .np-overlay-track { color: #1c1c1e; }
+    html[data-theme="light"] .np-overlay.art-theme .np-overlay-artist { color: rgba(28,28,30,0.7); }
+    html[data-theme="light"] .np-overlay.art-theme .np-overlay-title { color: rgba(28,28,30,0.5); }
+    /* The karaoke active line floats directly on the blobs with no scrim (only
+       .browsing gets one, and that scrim is already dark - see dd975bd - so it
+       needs no light variant). Everything else in .ov-lyric-line/.ov-lyric-word
+       is deliberately left alone: it is already unreadable in light theme with
+       album art off, which is a pre-existing gap this task did not touch. */
+    html[data-theme="light"] .np-overlay.art-theme .ov-lyric-line.active {
+      color: #1c1c1e; filter: drop-shadow(0 0 18px rgba(255,255,255,0.55));
+    }
+    html[data-theme="light"] .np-overlay.art-theme .ov-lyric-line.active .ov-lyric-word {
+      background: linear-gradient(to right, #1c1c1e var(--p), rgba(28,28,30,0.3) var(--p));
+      -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    html[data-theme="light"] .np-overlay.art-theme .ov-lyric-line.active .ov-lyric-word.active {
+      filter: drop-shadow(0 0 8px rgba(255,255,255,0.7));
+    }
+
     /* ── Light theme ── */
     html[data-theme="light"] {
       --bg: #f2f2f7; --surface: #ffffff; --surface2: #e5e5ea; --border: #d1d1d6;

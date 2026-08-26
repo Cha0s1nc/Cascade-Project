@@ -134,6 +134,32 @@ test('drift moves the blobs over time but keeps them on screen', () => {
   }
 })
 
+test('light mode pushes blobs paler than dark mode, same cover', () => {
+  // A deep, saturated red - the kind of colour that would sit near the dark
+  // pair's own MIN_L if left alone, so the light pair has the most work to do.
+  const dark = extractTopColors(cover([400, 140, 20, 30]), 1, false)[0]
+  const light = extractTopColors(cover([400, 140, 20, 30]), 1, true)[0]
+  assert.ok(dark && light)
+  const lum = (c: { r: number; g: number; b: number }) => srgbToOklab(c.r, c.g, c.b).L
+  assert.ok(
+    lum(light!) > lum(dark!),
+    `light-mode blob (L=${lum(light!).toFixed(3)}) should be paler than dark-mode (L=${lum(dark!).toFixed(3)})`,
+  )
+})
+
+test('light mode scales blob opacity down, same layout', () => {
+  const colors = extractTopColors(cover([300, 200, 30, 60], [300, 40, 70, 200]), 2)
+  const drift = randomizeDrift(2, () => 0.5)
+  const dark = driftedBlobs(colors, drift, 5)
+  const light = driftedBlobs(colors, drift, 5, true)
+
+  for (let i = 0; i < dark.length; i++) {
+    assert.ok(light[i]!.alpha < dark[i]!.alpha, 'light-mode blob should be more transparent')
+    assert.equal(light[i]!.x, dark[i]!.x, 'light mode must not change where blobs sit')
+    assert.equal(light[i]!.y, dark[i]!.y)
+  }
+})
+
 test('builds css that both hosts can use verbatim', () => {
   const colors = extractTopColors(cover([300, 200, 30, 60], [300, 40, 70, 200]), 2)
   const css = blobBackgroundCss(driftedBlobs(colors, randomizeDrift(2, () => 0.5), 0))

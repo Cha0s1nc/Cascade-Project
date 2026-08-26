@@ -4130,7 +4130,7 @@ function startBeatLoop() {
     if (ts - _lastBlobFrameTs < CascadeCore.BLOB_FRAME_MS) return
     _lastBlobFrameTs = ts
     if (_blobColors.length > 0 && themeAlbumArt && _driftParams.length > 0) {
-      const blobs = CascadeCore.driftedBlobs(_blobColors, _driftParams, Date.now() / 1000)
+      const blobs = CascadeCore.driftedBlobs(_blobColors, _driftParams, Date.now() / 1000, _isLightTheme())
       overlay.style.backgroundImage = CascadeCore.blobBackgroundCss(blobs)
     }
   }
@@ -4411,8 +4411,8 @@ function openOverlay() {
   // around it just fights the picture.
   if (themeAlbumArt && !playingVideo()) {
     if (_blobColors.length > 0) {
-      npOverlay.style.backgroundColor = '#0d0d0f'
-      npOverlay.style.backgroundImage = buildBlobBackground(_blobColors)
+      npOverlay.style.backgroundColor = _blobBaseColor()
+      npOverlay.style.backgroundImage = buildBlobBackground(_blobColors, _isLightTheme())
       npOverlay.classList.add('art-theme')
     }
     const item = queue[queueIndex]
@@ -6699,7 +6699,7 @@ function rgbToHex(r, g, b) {
 // Reading the cover's pixels is the only part of this the browser has to do;
 // the colour maths lives in core so the React Native app produces the same
 // palette from the same cover (it decodes a PNG instead of drawing a canvas).
-function extractTopColors(img, n = 3) {
+function extractTopColors(img, n = 3, light = false) {
   try {
     const canvas = document.createElement('canvas')
     canvas.width = canvas.height = 80
@@ -6711,15 +6711,29 @@ function extractTopColors(img, n = 3) {
     // inventing colours misreports the whole cover, which is worse.
     ctx.imageSmoothingEnabled = false
     ctx.drawImage(img, 0, 0, 80, 80)
-    return CascadeCore.extractTopColors(ctx.getImageData(0, 0, 80, 80).data, n)
+    return CascadeCore.extractTopColors(ctx.getImageData(0, 0, 80, 80).data, n, light)
   } catch { return [] }
+}
+
+// Whichever base the now-playing overlay's blobs sit on. The light theme
+// swaps the overlay to a near-white background (index.html), and a blob
+// normalised to glow on black reads as a heavy, muddy stain on white instead -
+// see the light-mode pair in album-colors.ts (toBlobColor, driftedBlobs).
+// Both callers below go through this one function so they cannot disagree
+// about which theme is active, the way the accent and the blobs once
+// disagreed about which colour to use (2edb864).
+function _isLightTheme() {
+  return document.documentElement.getAttribute('data-theme') === 'light'
+}
+function _blobBaseColor() {
+  return _isLightTheme() ? CascadeCore.BLOB_BASE_COLOR_LIGHT : CascadeCore.BLOB_BASE_COLOR
 }
 
 // The static placement, used before the drift loop takes over. Both go through
 // the same core helpers now, so the two no longer disagree about blob size and
 // falloff - which used to show as a visible jump the moment drift started.
-function buildBlobBackground(colors) {
-  return CascadeCore.blobBackgroundCss(CascadeCore.driftedBlobs(colors, [], 0))
+function buildBlobBackground(colors, light = false) {
+  return CascadeCore.blobBackgroundCss(CascadeCore.driftedBlobs(colors, [], 0, light))
 }
 
 // Saturation and hue of an RGB triple, HSL style. Only used to judge whether a
@@ -6753,13 +6767,15 @@ const NEUTRAL_ART_SAT = 0.18
 function applyAlbumArtTheme(imgEl) {
   if (!themeAlbumArt || !imgEl) return
 
+  const light = _isLightTheme()
+
   // One palette for the whole theme. The accent used to run a second, separate
   // extraction of its own, scored so heavily on saturation that a small vivid
   // detail beat the rest of the cover - so the player bar could go hot pink
   // off a shopfront while the overlay behind it, clustering the same artwork
   // in Oklab, settled on beige and green. Same cover, two answers. The blobs
   // decide now, and the accent follows them.
-  _blobColors = extractTopColors(imgEl)
+  _blobColors = extractTopColors(imgEl, 3, light)
   const top = _blobColors[0]
   const { h, s, l } = top ? _rgbHueSat(top.r, top.g, top.b) : { h: 0, s: 0, l: 0 }
 
@@ -6790,8 +6806,8 @@ function applyAlbumArtTheme(imgEl) {
 
   randomizeDrift()
   // Set gradient directly on the overlay - no z-index/clipping issues
-  overlay.style.backgroundColor = '#0d0d0f'
-  overlay.style.backgroundImage = buildBlobBackground(_blobColors)
+  overlay.style.backgroundColor = _blobBaseColor()
+  overlay.style.backgroundImage = buildBlobBackground(_blobColors, light)
   overlay.classList.add('art-theme')
 }
 
