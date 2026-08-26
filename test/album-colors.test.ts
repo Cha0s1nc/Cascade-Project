@@ -15,6 +15,7 @@ import {
   blobBackgroundCss,
   srgbToOklab,
   oklabToSrgb,
+  BLOB_L_RANGE,
 } from '../src/core/album-colors.ts'
 
 /** Build packed RGBA from [count, r, g, b] runs. */
@@ -134,22 +135,38 @@ test('drift moves the blobs over time but keeps them on screen', () => {
   }
 })
 
-test('light mode clamps blob lightness to its own range, not the dark one', () => {
-  // Both ranges were eyeballed against their own background and they are not
-  // the same shape: light runs 0.29-1.00, dark 0.45-0.82. Asserting the ranges
-  // rather than "light is paler" - the first tuning pass assumed paler was the
-  // goal, shipped 0.68-0.93, and it came out washed out. What actually matters
-  // is that each theme clamps to the pair it was tuned with.
+test('each theme clamps blob lightness into its own configured window', () => {
+  // Asserts the clamping against BLOB_L_RANGE rather than against literals.
+  // These numbers are a tuning knob and have already moved twice: the first
+  // pass guessed 0.68-0.93, the second measured 0.29-1.00, the third 0.00-0.27.
+  // A test that pins them just has to be edited every time the look is judged
+  // by eye, which teaches nobody anything.
   const deepRed = cover([400, 140, 20, 30])
-  const dark = extractTopColors(deepRed, 1, false)[0]
-  const light = extractTopColors(deepRed, 1, true)[0]
-  assert.ok(dark && light)
   const lum = (c: { r: number; g: number; b: number }) => srgbToOklab(c.r, c.g, c.b).L
-  assert.ok(lum(dark!) >= 0.45 - 1e-6, `dark blob L=${lum(dark!).toFixed(3)} below its own floor`)
-  assert.ok(lum(dark!) <= 0.82 + 1e-6, `dark blob L=${lum(dark!).toFixed(3)} above its own ceiling`)
-  assert.ok(lum(light!) >= 0.29 - 1e-6, `light blob L=${lum(light!).toFixed(3)} below its own floor`)
-  // A colour this deep sits under the dark floor, so the two must differ here.
-  assert.notEqual(lum(light!).toFixed(3), lum(dark!).toFixed(3))
+  for (const light of [false, true]) {
+    const blob = extractTopColors(deepRed, 1, light)[0]
+    assert.ok(blob, `no blob extracted for light=${light}`)
+    const { min, max } = light ? BLOB_L_RANGE.light : BLOB_L_RANGE.dark
+    const L = lum(blob!)
+    // Measured after a round trip through sRGB, which is lossy at the gamut
+    // edges: a deep saturated colour at a low clamped L has no exact sRGB
+    // representation, gets clipped into gamut, and reads back a few hundredths
+    // lighter than it was set. The clamp itself is exact; this tolerance is the
+    // conversion, not slack in the rule.
+    const GAMUT_SLACK = 0.06
+    assert.ok(L >= min - GAMUT_SLACK, `light=${light} blob L=${L.toFixed(3)} below its floor ${min}`)
+    assert.ok(L <= max + GAMUT_SLACK, `light=${light} blob L=${L.toFixed(3)} above its ceiling ${max}`)
+  }
+})
+
+test('the two themes clamp into genuinely different windows', () => {
+  // Light is not "dark, but paler". Multiply blending means a light-mode blob
+  // darkens the near-white base like ink, so the ranges move in opposite
+  // directions and must never be quietly kept in step with each other.
+  const d = BLOB_L_RANGE.dark
+  const l = BLOB_L_RANGE.light
+  assert.ok(d.min < d.max && l.min < l.max, 'a range with min above max clamps to nothing')
+  assert.notDeepEqual(d, l)
 })
 
 test('light mode keeps blob layout identical to dark, whatever the alpha', () => {

@@ -234,13 +234,18 @@ function seedCentroids(samples: Oklab[], k: number): Oklab[] {
 // colour, not a shade) is unaffected by which base is in play.
 const MIN_L = 0.45        // below this a blob is lost against #0d0d0f
 const MAX_L = 0.82        // above this it washes out the content in front of it
-// Tuned by eye on 2026-08-26 with the debug panel's live sliders, replacing a
-// first guess of 0.68/0.93 that came out washed out. The range is far wider
-// than the dark theme's because a light background needs the blob's own
-// contrast to carry it: clamping the dark end up to 0.68 flattened every deep
-// colour to pastel before the scrims had even been applied.
-const MIN_L_LIGHT = 0.29
-const MAX_L_LIGHT = 1.00
+// Tuned by eye on 2026-08-26 with the debug panel's live sliders, and the
+// second pass inverted the first. Light mode does not want pale blobs at all:
+// with multiply blending, a DARK blob over the near-white base behaves like
+// ink on paper, and the darker it is the more colour survives. Pale blobs
+// multiply to almost nothing, which is exactly what the washed-out first
+// attempt was.
+//
+// So the ranges are not two versions of the same idea. Dark theme lightens its
+// blobs so they glow against near-black; light theme darkens them so they stain
+// against near-white. Nothing here should be "kept in step" between the two.
+const MIN_L_LIGHT = 0.00
+const MAX_L_LIGHT = 0.27
 const MIN_C = 0.06        // below this it reads as grey rather than as a colour
 
 // A blob at a dark-theme SLOTS alpha reads as a glow on the dark base, but the
@@ -263,6 +268,15 @@ export const lightTuning = {
   minL: MIN_L_LIGHT,
   maxL: MAX_L_LIGHT,
   alphaScale: LIGHT_ALPHA_SCALE,
+}
+
+/** The lightness window each theme clamps its blobs into. Exported so tests can
+ *  check the clamping without hardcoding tuning values that have already moved
+ *  twice, and so the two ranges are visibly one decision rather than four
+ *  scattered constants. */
+export const BLOB_L_RANGE = {
+  dark:  { min: MIN_L, max: MAX_L },
+  light: { min: MIN_L_LIGHT, max: MAX_L_LIGHT },
 }
 
 /**
