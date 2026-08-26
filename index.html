@@ -20,6 +20,17 @@
     /* ── Titlebar ── */
     .titlebar { height: 38px; flex-shrink: 0; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 16px; -webkit-app-region: drag; user-select: none; }
     html[data-platform="darwin"] .titlebar { padding-left: 80px; }
+    /* Windows/Linux draw real caption buttons into this strip via
+       titleBarOverlay (main.js createWindow()) instead of stacking their own
+       title bar on top of ours. env(titlebar-area-width) is the width of the
+       drag area Chromium left after reserving the overlay, so subtracting it
+       from the viewport gives the overlay's own width - falls back to a fixed
+       138px guess (three ~46px Windows caption buttons) where the env var
+       is not supported. */
+    html[data-platform="win32"] .titlebar,
+    html[data-platform="linux"] .titlebar {
+      padding-right: calc(100vw - env(titlebar-area-width, calc(100vw - 138px)));
+    }
     .tb-right { display: flex; align-items: center; gap: 8px; -webkit-app-region: no-drag; }
     .tb-title { font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
     .ws-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--red); transition: background 0.3s, box-shadow 0.3s; }
@@ -931,6 +942,42 @@
     .np-overlay.art-theme .np-ov-tab { color: rgba(255,255,255,0.45); }
     .np-overlay.art-theme .np-ov-tab.active { color: white; }
     .np-overlay.art-theme .np-overlay-title { color: rgba(255,255,255,0.5); }
+
+    /* Light theme's blobs are pale (album-colors.ts' light MIN_L/MAX_L pair),
+       not the black-glow vivid ones above - so the white text and black-tinted
+       panel scrims tuned for that dark background need light equivalents here,
+       or the title/artist/lyrics read as this codebase's other readability bug
+       (dd975bd) in the opposite direction: dark-on-dark became white-on-white
+       instead of white-on-pale. Deliberately narrow: only the text and the
+       panel scrims behind it, not the control rows (buttons/sliders), which
+       stay exactly as they are. */
+    /* Pale blobs added straight (background-blend-mode's default, "normal")
+       wash out fast where two overlap - multiply keeps the overlap readable as
+       a deeper mix of the two colours instead of flattening toward white,
+       which is what a "glow" blend (screen/lighten, the dark theme's implicit
+       behaviour) would do here. */
+    html[data-theme="light"] .np-overlay.art-theme { background-blend-mode: multiply; }
+    html[data-theme="light"] .np-overlay.art-theme .np-overlay-left { background: rgba(255,255,255,0.35); }
+    html[data-theme="light"] .np-overlay.art-theme .np-overlay-right { background: rgba(255,255,255,0.16); }
+    html[data-theme="light"] .np-overlay.art-theme .np-overlay-header { background: rgba(255,255,255,0.4); border-bottom-color: rgba(0,0,0,0.08); }
+    html[data-theme="light"] .np-overlay.art-theme .np-overlay-track { color: #1c1c1e; }
+    html[data-theme="light"] .np-overlay.art-theme .np-overlay-artist { color: rgba(28,28,30,0.7); }
+    html[data-theme="light"] .np-overlay.art-theme .np-overlay-title { color: rgba(28,28,30,0.5); }
+    /* The karaoke active line floats directly on the blobs with no scrim (only
+       .browsing gets one, and that scrim is already dark - see dd975bd - so it
+       needs no light variant). Everything else in .ov-lyric-line/.ov-lyric-word
+       is deliberately left alone: it is already unreadable in light theme with
+       album art off, which is a pre-existing gap this task did not touch. */
+    html[data-theme="light"] .np-overlay.art-theme .ov-lyric-line.active {
+      color: #1c1c1e; filter: drop-shadow(0 0 18px rgba(255,255,255,0.55));
+    }
+    html[data-theme="light"] .np-overlay.art-theme .ov-lyric-line.active .ov-lyric-word {
+      background: linear-gradient(to right, #1c1c1e var(--p), rgba(28,28,30,0.3) var(--p));
+      -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    html[data-theme="light"] .np-overlay.art-theme .ov-lyric-line.active .ov-lyric-word.active {
+      filter: drop-shadow(0 0 8px rgba(255,255,255,0.7));
+    }
 
     /* ── Light theme ── */
     html[data-theme="light"] {

@@ -26,9 +26,11 @@ const cascade: ElectronPlatform = {
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   getVersion:      () => ipcRenderer.invoke('get-version'),
   isPackaged:      () => ipcRenderer.invoke('is-packaged'),
+  isDebugMode:     () => ipcRenderer.invoke('is-debug-mode'),
   onMediaKey:      (cb) => { ipcRenderer.on('media-key', (_e, key) => cb(key)) },
   platform:        process.platform,
   touchbarUpdate:  (data) => ipcRenderer.send('touchbar-update', data),
+  setTitleBarOverlay: (mode) => ipcRenderer.send('set-titlebar-overlay', { mode }),
   discord: {
     connect:  (clientId) => ipcRenderer.send('discord-rpc-connect', clientId),
     update:   (activity) => ipcRenderer.send('discord-rpc-update', activity),

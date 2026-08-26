@@ -111,7 +111,11 @@ const MIN_SEPARATION = 0.12
  * track change and a cover that produced different colours each play would read
  * as a bug.
  */
-export function extractTopColors(rgba: Uint8Array | Uint8ClampedArray | number[], n = 3): BlobColor[] {
+export function extractTopColors(
+  rgba: Uint8Array | Uint8ClampedArray | number[],
+  n = 3,
+  light = false,
+): BlobColor[] {
   if (rgba.length % 4 !== 0) {
     throw new Error(`extractTopColors: expected packed RGBA, got ${rgba.length} bytes`)
   }
@@ -186,7 +190,7 @@ export function extractTopColors(rgba: Uint8Array | Uint8ClampedArray | number[]
     if (!picked.includes(c)) picked.push(c)
   }
 
-  return picked.map(toBlobColor)
+  return picked.map(c => toBlobColor(c, light))
 }
 
 /**
@@ -222,6 +226,18 @@ function seedCentroids(samples: Oklab[], k: number): Oklab[] {
   return centroids
 }
 
+// Lightness clamp for a blob colour. Two pairs, picked by which base the blob
+// sits on - a colour dark enough to glow on near-black reads as a heavy,
+// muddy stain on near-white, so the light pair pushes the whole range paler
+// rather than reusing the dark one. Eyeballed against #0d0d0f and #f2f2f7
+// respectively; MIN_C (how far a colour must sit from grey to still read as a
+// colour, not a shade) is unaffected by which base is in play.
+const MIN_L = 0.45        // below this a blob is lost against #0d0d0f
+const MAX_L = 0.82        // above this it washes out the content in front of it
+const MIN_L_LIGHT = 0.68  // below this it reads as a dark, heavy stain on #f2f2f7
+const MAX_L_LIGHT = 0.93  // above this it disappears into the background
+const MIN_C = 0.06        // below this it reads as grey rather than as a colour
+
 /**
  * A cluster centre as a paintable blob colour.
  *
@@ -229,16 +245,18 @@ function seedCentroids(samples: Oklab[], k: number): Oklab[] {
  * the single biggest reason its output looked wrong: a pastel cover and a neon
  * one came out identical, because the "correction" discarded precisely the
  * information that distinguished them. Here the colour is left alone unless it
- * would actually be invisible against the dark base, and then only nudged to
- * the edge of the usable range - hue is never touched.
+ * would actually be invisible against the base, and then only nudged to the
+ * edge of the usable range for that base - hue is never touched.
+ *
+ * `light` picks which base the blob is being painted against - true for the
+ * light theme's near-white overlay, false (default) for the dark one.
  */
-function toBlobColor(c: Oklab): BlobColor {
-  const MIN_L = 0.45   // below this a blob is lost against #0d0d0f
-  const MAX_L = 0.82   // above this it washes out the content in front of it
-  const MIN_C = 0.06   // below this it reads as grey rather than as a colour
+function toBlobColor(c: Oklab, light = false): BlobColor {
+  const minL = light ? MIN_L_LIGHT : MIN_L
+  const maxL = light ? MAX_L_LIGHT : MAX_L
 
   let { L, a, b } = c
-  L = Math.min(MAX_L, Math.max(MIN_L, L))
+  L = Math.min(maxL, Math.max(minL, L))
 
   const ch = Math.hypot(a, b)
   if (ch > 0 && ch < MIN_C) {
@@ -298,21 +316,32 @@ const SLOTS = [
   { x: 12, y: 18, w: 58, h: 58, alpha: 0.55 },
 ] as const
 
+// A blob at SLOTS' own alpha reads as a glow on the dark base, but the same
+// opacity on the light base's near-white is a heavy, solid-looking patch -
+// scaled down rather than given its own SLOTS table so the layout (position,
+// size, drift) stays identical between themes and only the weight changes.
+const LIGHT_ALPHA_SCALE = 0.55
+
 /**
  * Where the blobs are at time `t` (seconds). Pure - same inputs, same output -
  * so a host can drive it from a clock, a test can drive it from a constant.
+ *
+ * `light` scales blob opacity down for the light theme's base - see
+ * LIGHT_ALPHA_SCALE.
  */
-export function driftedBlobs(colors: BlobColor[], drift: DriftParams[], t: number): Blob[] {
+export function driftedBlobs(colors: BlobColor[], drift: DriftParams[], t: number, light = false): Blob[] {
+  const alphaScale = light ? LIGHT_ALPHA_SCALE : 1
   return colors.map((color, i) => {
     const s = SLOTS[i] ?? SLOTS[2]
+    const alpha = s.alpha * alphaScale
     const p = drift[i] ?? drift[0]
-    if (!p) return { x: s.x, y: s.y, w: s.w, h: s.h, alpha: s.alpha, color }
+    if (!p) return { x: s.x, y: s.y, w: s.w, h: s.h, alpha, color }
     return {
       x: s.x + Math.sin(t * p.xF1 + p.xP1) * p.xA1 + Math.sin(t * p.xF2 + p.xP2) * p.xA2,
       y: s.y + Math.cos(t * p.yF1 + p.yP1) * p.yA1 + Math.cos(t * p.yF2 + p.yP2) * p.yA2,
       w: s.w,
       h: s.h,
-      alpha: s.alpha,
+      alpha,
       color,
     }
   })
@@ -344,6 +373,12 @@ export function blobBackgroundCss(blobs: Blob[]): string {
 
 /** The base the blobs sit on. Matches the desktop overlay's background-color. */
 export const BLOB_BASE_COLOR = '#0d0d0f'
+
+/** The base for the light theme. Matches index.html's --bg under
+ *  html[data-theme="light"], which is what the light overlay falls back to
+ *  when art theming is off - kept the same colour so turning it on and off
+ *  is not itself a visible flash. */
+export const BLOB_BASE_COLOR_LIGHT = '#f2f2f7'
 
 /**
  * How often to recompute blob positions, in ms.
