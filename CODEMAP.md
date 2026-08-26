@@ -127,9 +127,22 @@ across both files before touching one.
 - The gating function that greys controls - **5622**.
 
 ### Permissions and the setup wizard
-- `_applyAdminGating()` - **591**. `jf.isAdmin` comes free from the `/Users/{id}`
+- `_applyAdminGating()` - **596**. `jf.isAdmin` comes free from the `/Users/{id}`
   ping in `connect()`; do not add a second request for it. Gates the library
-  scan and both "Refresh metadata" context entries.
+  scan, both "Refresh metadata" entries, and both "Edit metadata"/"Edit
+  images" entries (they open the Jellyfin web UI, which itself refuses those
+  edits without admin).
+- `jf.canDelete` - set in `connect()` right after `jf.isAdmin`, same free
+  `/Users/{id}` response, via `CascadeCore.canDeleteMedia(policy)` in
+  `src/core/permissions.ts`. Deletion is its own Jellyfin right
+  (`Policy.EnableContentDeletion` / `EnableContentDeletionFromFolders`), not
+  implied by admin alone - a non-admin can be granted it. `canDeleteMedia`
+  collapses the per-library folder list to one global yes/no (an admin, or
+  `EnableContentDeletion`, or at least one folder in the list); a user granted
+  deletion on only some libraries sees "Delete media" enabled everywhere and a
+  delete outside their granted libraries still gets refused server-side.
+  Gates `ctx-delete` in `_applyAdminGating()`, cleared on sign out next to
+  `jf.isAdmin`.
 - `maybeShowSetupWizard()` - **1001**, `WIZARD_REVISION` - **970**. Runs from
   `connect()` off a stored revision, NOT the app version and NOT a boolean.
   Every step seeds from the current live value, which is the only reason it is
