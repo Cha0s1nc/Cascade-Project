@@ -301,6 +301,24 @@ app.on('activate', () => {
 let cascadeNowPlaying = { title: null, artist: null, isPlaying: false }
 ipcMain.on('now-playing-update', (_e, data) => { cascadeNowPlaying = { ...cascadeNowPlaying, ...data } })
 
+// ── Debug mode ──────────────────────────────────────────────────────────────
+// A sentinel file's mere presence turns on the renderer's debug panel - no
+// settings toggle to accidentally ship on, no keyboard shortcut to fire by
+// accident. Checked once at startup, three candidate locations so it works
+// both packaged (userData) and run from a source checkout (project root, next
+// to the executable).
+const DEBUG_SENTINEL = '.cascade-debug'
+function debugSentinelPresent() {
+  const candidates = [
+    path.join(app.getPath('userData'), DEBUG_SENTINEL),
+    path.join(__dirname, DEBUG_SENTINEL),
+  ]
+  try { candidates.push(path.join(path.dirname(app.getPath('exe')), DEBUG_SENTINEL)) } catch {}
+  return candidates.some(p => { try { return fs.existsSync(p) } catch { return false } })
+}
+const debugMode = debugSentinelPresent()
+ipcMain.handle('is-debug-mode', () => debugMode)
+
 // IPC: app version
 ipcMain.handle('get-version', () => app.getVersion())
 

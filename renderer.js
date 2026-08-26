@@ -2337,7 +2337,8 @@ async function playCurrentTrack(opts = {}) {
   // a prefetched deck is never actually started. Falls through to the normal
   // path whenever the prefetch is missing, stale, or for the wrong item.
   let prefetched = null
-  if (!opts.alreadyPlaying && !opts.startTicks && !video && _streamPrefetch?.itemId === item.Id) {
+  const prefetchEligible = !opts.alreadyPlaying && !opts.startTicks && !video
+  if (prefetchEligible && _streamPrefetch?.itemId === item.Id) {
     prefetched = _streamPrefetch
     _streamPrefetch = null
     _swapDeck(prefetched.deck, audio)
@@ -2346,6 +2347,7 @@ async function playCurrentTrack(opts = {}) {
     // crossfade handoff that already consumed it - either way it is stale.
     _clearStreamPrefetch()
   }
+  if (prefetchEligible) _lastPrefetchOutcome = { at: Date.now(), from: 'advance', hit: !!prefetched }
 
   applyVideoMode(video)
 
@@ -3008,11 +3010,13 @@ async function startCrossfade(nextIndex) {
     incoming = _streamPrefetch.deck
     resolved = _streamPrefetch.resolved
     _streamPrefetch = null
+    _lastPrefetchOutcome = { at: Date.now(), from: 'crossfade', hit: true }
   } else {
     // No usable prefetch (not ready, wrong item, or none). Clear whatever is
     // there first - a stale or still-in-flight prefetch would otherwise race
     // the load below for the same idle deck.
     _clearStreamPrefetch()
+    _lastPrefetchOutcome = { at: Date.now(), from: 'crossfade', hit: false }
     resolved = await resolveTrackStream(nextItem.Id)
     if (session !== _cfSession) {
       if (!resolved.direct) stopActiveEncoding(jfClient, jf, resolved.playSessionId)
@@ -3188,6 +3192,12 @@ function cancelCrossfade() {
 let _streamPrefetch = null   // { itemId, resolved, deck } for the buffered next track, or null
 let _prefetchToken = 0       // bumped to disown an in-flight resolve when invalidated
 let _prefetchTimer = null    // the "give the current track's own buffering room" delay
+
+// Last time a track advance looked for a prefetched deck, hit or miss. Only
+// consulted by the debug panel - existence of an intermittent crossfade
+// stutter suggests this misses more than it should, and there was no way to
+// see that without instrumenting a debug session by hand.
+let _lastPrefetchOutcome = null   // { at, from, hit }
 
 const PREFETCH_DELAY_MS = 3000
 
@@ -6848,5 +6858,86 @@ document.getElementById('toggle-album-art').addEventListener('change', (e) => {
 function esc(str) {
   return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
 }
+
+// ── Debug panel ──────────────────────────────────────────────────────────────
+// Entirely behind window.cascade.isDebugMode() (main.js: a `.cascade-debug`
+// sentinel file's mere presence, checked once at startup). Nothing below runs,
+// no DOM gets built and no interval gets started unless that resolved true -
+// there is no settings toggle for this and no keyboard shortcut, on purpose.
+// Plain monospace text over any real styling: this is a diagnostic, not a
+// feature, and the less of it there is to maintain the better.
+function debugPanelText() {
+  const item = queue[queueIndex] || null
+  const src = item?.MediaSources?.[0] || null
+  const videoStream = item?.MediaStreams?.find(s => s.Type === 'Video')
+  const audioStream = _audioStreamIndex != null
+    ? item?.MediaStreams?.find(s => s.Index === _audioStreamIndex)
+    : item?.MediaStreams?.find(s => s.Type === 'Audio')
+  const p = _lastPrefetchOutcome
+  const prefetchLine = p
+    ? `${p.hit ? 'HIT' : 'MISS'} (${p.from}, ${Math.round((Date.now() - p.at) / 1000)}s ago)`
+    : 'none yet'
+
+  return [
+    `playing: ${!audio.paused}   live deck: ${audio.id}   pos: ${audio.currentTime.toFixed(1)}s / ${mediaDuration().toFixed(1)}s`,
+    `item: ${item ? `${item.Name}  (${item.Id})` : 'none'}`,
+    '',
+    '── stream ──',
+    `playMethod: ${_playMethod}   container: ${src?.Container ?? '?'}`,
+    `video codec: ${videoStream?.Codec ?? '-'}   audio codec: ${audioStream?.Codec ?? '-'}`,
+    `audioStreamIndex: ${_audioStreamIndex ?? '(server default)'}`,
+    `mediaSourceId: ${_mediaSourceId ?? '-'}`,
+    `playSessionId: ${_playSessionId ?? '-'}`,
+    `url: ${audio.currentSrc || audio.src || '-'}`,
+    '',
+    '── crossfade / prefetch ──',
+    `active: ${_cfActive}   armed: ${_cfArmed}   session: ${_cfSession}`,
+    `prefetched next: ${_streamPrefetch ? _streamPrefetch.itemId : 'none'}`,
+    `last prefetch: ${prefetchLine}`,
+    '',
+    '── web audio / eq ──',
+    `graph failed: ${_eqGraphFailed}   no signal: ${_eqNoSignal}   ever had signal: ${_eqEverHadSignal}`,
+    '',
+    `CascadeSLRC plugin absent: ${_cascadePluginAbsent}`,
+  ].join('\n')
+}
+
+function initDebugPanel() {
+  const el = document.createElement('pre')
+  el.id = 'cascade-debug-panel'
+  el.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:9999;'
+    + 'max-width:44vw;max-height:56vh;overflow:auto;margin:0;padding:8px 10px;'
+    + 'border-radius:6px;background:rgba(0,0,0,0.82);color:#7CFC7C;'
+    + 'font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;'
+    + 'word-break:break-all;user-select:text;cursor:pointer;'
+  el.title = 'Cascade debug panel - click to collapse. Force CascadeSLRC absent: Alt-click.'
+
+  let collapsed = false
+  function render() {
+    if (collapsed) { el.textContent = '[cascade debug - click to expand]'; return }
+    el.textContent = debugPanelText()
+  }
+  el.addEventListener('click', (e) => {
+    if (window.getSelection()?.toString()) return   // selecting text to copy, not toggling
+    if (e.altKey) {
+      // The one internal flag worth flipping by hand that has no real Settings
+      // UI of its own - lets a working plugin's greyed-out state be previewed
+      // without a second server to test against. Everything else worth toggling
+      // (crossfade, album art theming, ...) already has a real control in
+      // Settings; duplicating those here would just be two sources of truth.
+      _cascadePluginAbsent = !_cascadePluginAbsent
+      _applyCascadePluginAvailability()
+    } else {
+      collapsed = !collapsed
+    }
+    render()
+  })
+
+  document.body.appendChild(el)
+  render()
+  setInterval(render, 1000)
+}
+
+window.cascade.isDebugMode().then(on => { if (on) initDebugPanel() })
 
 init()
