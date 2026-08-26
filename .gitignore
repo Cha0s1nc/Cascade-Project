@@ -4,6 +4,11 @@ node_modules/
 dist/
 out/
 
+# Agent worktrees only. .claude/agents/ IS tracked - those definitions are
+# part of the project, and ignoring all of .claude/ would silently stop them
+# from being updated.
+.claude/worktrees/
+
 # esbuild output (src/ -> build/core.js). Rebuilt by `npm run build:ts`, which
 # every start/build script runs first, so it never needs to be committed.
 build/
