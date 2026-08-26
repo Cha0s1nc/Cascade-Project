@@ -22,7 +22,6 @@
     html[data-platform="darwin"] .titlebar { padding-left: 80px; }
     .tb-right { display: flex; align-items: center; gap: 8px; -webkit-app-region: no-drag; }
     .tb-title { font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
-    .ws-pill { display: flex; align-items: center; gap: 5px; background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; padding: 3px 10px 3px 7px; font-size: 11px; color: var(--text2); }
     .ws-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--red); transition: background 0.3s, box-shadow 0.3s; }
     .ws-dot.connected { background: var(--green); box-shadow: 0 0 6px var(--green); }
 
@@ -241,6 +240,8 @@
     .setting-input { font-family: var(--font); font-size: 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 6px 10px; width: 260px; outline: none; transition: border-color 0.15s; }
     .setting-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
     select.setting-input { cursor: pointer; }
+    .setting-slider-row { display: flex; align-items: center; gap: 10px; width: 260px; }
+    .setting-slider-row input[type="range"] { flex: 1; }
     .settings-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; align-items: center; }
     .save-status { font-size: 12px; color: var(--green); opacity: 0; transition: opacity 0.3s; }
     .save-status.visible { opacity: 1; }
@@ -910,6 +911,14 @@
     .tp-preset { width: 26px; height: 26px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; transition: transform 0.12s, border-color 0.15s; box-shadow: 0 1px 4px rgba(0,0,0,0.3); }
     .tp-preset:hover { transform: scale(1.18); }
     .tp-preset.active { border-color: var(--text); }
+    /* Album art accent overrides the gradient/presets while it's on, so both
+       are dimmed and inert rather than clickable but pointless. The lock
+       stays off the host itself so it still catches hover for its tooltip -
+       see [data-tip] above, which renders below its host on purpose; there
+       is no clipping panel here so that is not a concern for this tip. */
+    .tp-colors.locked, #tp-presets.locked { opacity: 0.45; }
+    .tp-colors.locked .tp-swatch, #tp-presets.locked .tp-preset { pointer-events: none; }
+    .tp-colors.locked[data-tip], #tp-presets.locked[data-tip] { cursor: not-allowed; }
     .tp-album-row { display: flex; align-items: center; justify-content: space-between; }
     .tp-album-label { display: flex; flex-direction: column; gap: 2px; }
     .tp-album-name { font-size: 12px; font-weight: 500; color: var(--text); }
@@ -993,10 +1002,6 @@
   <header class="titlebar">
     <span class="tb-title">Cascade</span>
     <div class="tb-right">
-      <div class="ws-pill">
-        <div class="ws-dot" id="ws-dot"></div>
-        <span id="ws-label">disconnected</span>
-      </div>
       <button id="theme-dot" title="Customize theme"></button>
     </div>
   </header>
@@ -1382,24 +1387,6 @@
       <!-- Settings -->
       <div class="view" id="view-settings">
         <div class="settings-view">
-          <div class="settings-group">
-            <div class="sg-title">Jellyfin Server</div>
-            <div class="setting-row">
-              <div class="setting-label">
-                <span class="setting-name">Server URL</span>
-                <span class="setting-desc">e.g. http://192.168.1.10:8096</span>
-              </div>
-              <input class="setting-input" id="s-url" type="text" placeholder="http://localhost:8096" />
-            </div>
-            <div class="setting-row">
-              <div class="setting-label"><span class="setting-name">Username</span></div>
-              <input class="setting-input" id="s-user" type="text" placeholder="Username" />
-            </div>
-            <div class="setting-row">
-              <div class="setting-label"><span class="setting-name">Password</span></div>
-              <input class="setting-input" id="s-pass" type="password" placeholder="Password" />
-            </div>
-          </div>
           <div class="settings-group" id="s-library-group">
             <div class="sg-title">Library</div>
             <div class="setting-row" id="s-single-lib-row" style="display:none;">
@@ -1448,25 +1435,20 @@
               <div class="setting-label">
                 <span class="setting-name">Crossfade length</span>
               </div>
-              <select class="setting-input" id="crossfade-duration">
-                <option value="3">3 seconds</option>
-                <option value="6">6 seconds</option>
-                <option value="8">8 seconds</option>
-                <option value="12">12 seconds</option>
-              </select>
+              <div class="setting-slider-row">
+                <input type="range" id="crossfade-duration" min="1" max="15" step="1" value="6">
+                <span class="eq-band-value" id="crossfade-duration-value">6s</span>
+              </div>
             </div>
             <div class="setting-row">
               <div class="setting-label">
                 <span class="setting-name">Streaming quality</span>
                 <span class="setting-desc">Cap the bitrate and the server transcodes to fit. Original sends the file untouched.</span>
               </div>
-              <select class="setting-input" id="max-bitrate">
-                <option value="140000000">Original</option>
-                <option value="320000">320 kbps</option>
-                <option value="192000">192 kbps</option>
-                <option value="128000">128 kbps</option>
-                <option value="96000">96 kbps</option>
-              </select>
+              <div class="setting-slider-row">
+                <input type="range" id="max-bitrate" min="0" max="4" step="1" value="0">
+                <span class="eq-band-value" id="max-bitrate-value">Original</span>
+              </div>
             </div>
           </div>
           <div class="settings-group">
@@ -1614,6 +1596,24 @@
                 <option value="cascade-karaoke" class="lsd-server-only" style="display:none">Karaoke Only</option>
                 <option value="cascade-synced" class="lsd-server-only" style="display:none">Synced Only</option>
               </select>
+            </div>
+          </div>
+          <div class="settings-group">
+            <div class="sg-title">Account</div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="setting-name">Server URL</span>
+                <span class="setting-desc">e.g. http://192.168.1.10:8096</span>
+              </div>
+              <input class="setting-input" id="s-url" type="text" placeholder="http://localhost:8096" />
+            </div>
+            <div class="setting-row">
+              <div class="setting-label"><span class="setting-name">Username</span></div>
+              <input class="setting-input" id="s-user" type="text" placeholder="Username" />
+            </div>
+            <div class="setting-row">
+              <div class="setting-label"><span class="setting-name">Password</span></div>
+              <input class="setting-input" id="s-pass" type="password" placeholder="Password" />
             </div>
           </div>
           <div class="settings-actions">
