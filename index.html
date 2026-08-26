@@ -61,16 +61,26 @@
     .sect-more { font-size: 11px; font-weight: 500; background: var(--grad); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; cursor: pointer; border: none; background-color: transparent; }
 
     /* Recently played */
-    .rp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 22px; }
+    .rp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 4px; margin-bottom: 22px; }
     .rp-item { display: flex; align-items: center; gap: 9px; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; padding: 8px 10px; cursor: pointer; transition: background 0.12s; overflow: hidden; }
     .rp-item:hover { background: var(--surface2); }
     .rp-art { width: 36px; height: 36px; border-radius: 5px; flex-shrink: 0; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 18px; }
     .rp-art img { width: 100%; height: 100%; object-fit: cover; }
     .rp-name { font-size: 12px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .rp-sub { font-size: 11px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* More items are fetched than any row could hold (see loadRecentlyPlayed),
+       so the grid is always exactly full at any window width instead of
+       ragged. grid-auto-rows: 0 collapses every implicit row past the 4
+       explicit ones to nothing; overflow: hidden clips what that leaves
+       hanging outside the container. row-gap: 0 stops the collapsed rows
+       from still contributing a gap - no resize listener needed. */
+    #rp-grid { grid-template-rows: repeat(4, auto); grid-auto-rows: 0; row-gap: 0; overflow: hidden; }
 
     /* Album grid */
     .album-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; margin-bottom: 8px; }
+    /* Same clipping trick as #rp-grid above, but to a single row - "Recently
+       added" reads as one shelf of covers, not a stack. */
+    #home-recent-albums { grid-template-rows: auto; grid-auto-rows: 0; row-gap: 0; overflow: hidden; }
     .album-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; cursor: pointer; transition: background 0.12s; }
     .album-card:hover { background: var(--surface2); }
     .album-art { width: 100%; aspect-ratio: 1; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 36px; }
@@ -89,6 +99,9 @@
     body:not(.has-movies) .nav-movies { display: none; }
     body:not(.has-shows) .nav-shows { display: none; }
     .poster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; margin-bottom: 8px; }
+    /* Same single-row clipping trick as #home-recent-albums, for the Home
+       "Continue watching" shelf. */
+    #home-continue-grid { grid-template-rows: auto; grid-auto-rows: 0; row-gap: 0; overflow: hidden; }
     .poster-card { cursor: pointer; }
     .poster-art { width: 100%; aspect-ratio: 2/3; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 32px; color: var(--text3); position: relative; transition: border-color 0.12s; }
     .poster-card:hover .poster-art { border-color: var(--accent); }
@@ -1137,6 +1150,14 @@
           <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
           <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
           <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+        </div>
+        <!-- Hidden until loadContinueWatching() confirms there's a video library
+             configured and actual play history - music-only users never see this. -->
+        <div id="home-continue-section" style="display:none">
+          <div class="sect-header">
+            <span class="sect-title">Continue watching</span>
+          </div>
+          <div class="poster-grid" id="home-continue-grid"></div>
         </div>
       </div>
 

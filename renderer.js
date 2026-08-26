@@ -847,6 +847,7 @@ async function applyVideoLibrarySelection(category, ids) {
   invalidateVideoViews()
   applyVideoNavVisibility()
   renderVideoLibraryPicker()
+  loadContinueWatching()
 }
 
 document.getElementById('s-single-lib-toggle').addEventListener('change', async e => {
@@ -927,6 +928,7 @@ async function loadHome() {
 
   loadRecentlyPlayed()
   loadRecentlyAdded()
+  loadContinueWatching()
 }
 
 async function loadRecentlyPlayed() {
@@ -937,7 +939,7 @@ async function loadRecentlyPlayed() {
       SortOrder: 'Descending',
       IncludeItemTypes: 'Audio',
       Filters: 'IsPlayed',
-      Limit: 8,
+      Limit: 24,
       Recursive: true,
       Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,UserData'
     })
@@ -945,14 +947,16 @@ async function loadRecentlyPlayed() {
     // ordering only holds within a library - re-sort across the merge.
     const items = (data.Items || [])
       .sort((a, b) => new Date(b.UserData?.LastPlayedDate || 0) - new Date(a.UserData?.LastPlayedDate || 0))
-      .slice(0, 8)
-    if (!items.length) { grid.innerHTML = '<div class="empty-state" style="grid-column:1/3">No play history yet</div>'; return }
+      .slice(0, 24)
+    // Fetched wider than any row could show and clipped by CSS (.rp-grid), so
+    // the row is always full at any window width instead of ragged.
+    if (!items.length) { grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">No play history yet</div>'; return }
     grid.innerHTML = items.map(item => rpCard(item)).join('')
     grid.querySelectorAll('.rp-item').forEach((el, i) => {
       el.addEventListener('click', () => playItems(items, i))
     })
   } catch (e) {
-    grid.innerHTML = `<div class="empty-state" style="grid-column:1/3">Could not load history</div>`
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Could not load history</div>`
   }
 }
 
@@ -975,10 +979,12 @@ async function loadRecentlyAdded() {
       SortBy: 'DateCreated',
       SortOrder: 'Descending',
       IncludeItemTypes: 'MusicAlbum',
-      Limit: 8,
+      Limit: 24,
       Recursive: true,
       Fields: 'PrimaryImageAspectRatio'
     })
+    // Fetched wider than any row could show and clipped by CSS (.album-grid on
+    // #home-recent-albums), so the row is always full at any window width.
     if (!data.Items?.length) { grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">No albums yet</div>'; return }
     grid.innerHTML = data.Items.map(item => albumCard(item)).join('')
     grid.querySelectorAll('.album-card').forEach((el, i) => {
@@ -2002,6 +2008,53 @@ const loadShows = () => loadPosterGrid(
   'shows-grid', 'Series',
   s => s.ProductionYear || '',
   s => openSeries(s.Id), jfGetShows, _showLibs, jf.showLibraryIds || [])
+
+// ── Continue watching (Home) ──
+//
+// Movies and episodes played across both video categories, merged and
+// re-sorted by when they were last watched. Only shown when there's actually
+// a video library configured and some play history - a music-only user (or
+// one who hasn't watched anything yet) never sees the section at all.
+
+function continueWatchingSub(item) {
+  if (item.Type === 'Movie') return item.ProductionYear || ''
+  const ep = (item.ParentIndexNumber != null && item.IndexNumber != null)
+    ? ` · S${item.ParentIndexNumber}E${item.IndexNumber}` : ''
+  return (item.SeriesName || '') + ep
+}
+
+async function loadContinueWatching() {
+  const section = document.getElementById('home-continue-section')
+  const videoLibIds = [...(jf.movieLibraryIds || []), ...(jf.showLibraryIds || [])]
+  if (!videoLibIds.length) { section.style.display = 'none'; return }
+  try {
+    const data = await jfClient.getMerged(`/Users/${jf.userId}/Items`, {
+      SortBy: 'DatePlayed',
+      SortOrder: 'Descending',
+      IncludeItemTypes: 'Movie,Episode',
+      Filters: 'IsPlayed',
+      Recursive: true,
+      Fields: 'PrimaryImageAspectRatio,UserData,ProductionYear',
+      Limit: 24
+    }, videoLibIds)
+    // getMerged concatenates per-library results, so the server's DatePlayed
+    // ordering only holds within a library - re-sort across the merge.
+    const items = (data.Items || [])
+      .sort((a, b) => new Date(b.UserData?.LastPlayedDate || 0) - new Date(a.UserData?.LastPlayedDate || 0))
+    if (!items.length) { section.style.display = 'none'; return }
+    section.style.display = ''
+    const grid = document.getElementById('home-continue-grid')
+    grid.innerHTML = items.map(item => posterCard(item, continueWatchingSub(item))).join('')
+    wirePosterCards(grid, items, item => {
+      // Same detail views Movies/TV browsing already opens - no separate
+      // playback path for a Home entry.
+      if (item.Type === 'Movie') { showView('movies'); openMovie(item.Id) }
+      else { showView('shows'); openSeries(item.SeriesId) }
+    })
+  } catch {
+    section.style.display = 'none'
+  }
+}
 
 // ── Movie detail ──
 
@@ -6359,10 +6412,24 @@ async function runSearch(query) {
   const results = document.getElementById('search-results')
   results.innerHTML = '<div class="search-empty-state">Searching…</div>'
   try {
-    const [songsRes, albumsRes, artistsRes] = await Promise.allSettled([
+    // A music-only user has no movie/show libraries configured, so those
+    // queries are skipped outright rather than fired and thrown away - same
+    // rule Home's Continue Watching section follows.
+    const movieLibIds = jf.movieLibraryIds || []
+    const showLibIds  = jf.showLibraryIds  || []
+    const wantMovies  = movieLibIds.length > 0
+    const wantShows   = showLibIds.length  > 0
+
+    const [songsRes, albumsRes, artistsRes, moviesRes, showsRes] = await Promise.allSettled([
       jfGetMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 10, IncludeItemTypes: 'Audio', Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag' }),
       jfGetMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 8,  IncludeItemTypes: 'MusicAlbum', Fields: 'PrimaryImageAspectRatio' }),
       jfGetMerged(`/Artists`,                  { SearchTerm: query, UserId: jf.userId, Limit: 8 }),
+      wantMovies
+        ? jfClient.getMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 8, IncludeItemTypes: 'Movie', Fields: 'PrimaryImageAspectRatio,ProductionYear' }, movieLibIds)
+        : Promise.resolve({ Items: [] }),
+      wantShows
+        ? jfClient.getMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 8, IncludeItemTypes: 'Series', Fields: 'PrimaryImageAspectRatio,ProductionYear' }, showLibIds)
+        : Promise.resolve({ Items: [] }),
     ])
     // jfGetMerged returns up to Limit x libraryCount - trim back to the intended size.
     // ponytail: concat-then-slice biases toward the first library when a term matches
@@ -6372,12 +6439,16 @@ async function runSearch(query) {
     const songs   = take(songsRes, 10)
     const albums  = take(albumsRes, 8)
     const artists = take(artistsRes, 8)
+    const movies  = take(moviesRes, 8)
+    const shows   = take(showsRes, 8)
 
     const hasSongs   = songs.Items?.length
     const hasAlbums  = albums.Items?.length
     const hasArtists = artists.Items?.length
+    const hasMovies  = movies.Items?.length
+    const hasShows   = shows.Items?.length
 
-    if (!hasSongs && !hasAlbums && !hasArtists) {
+    if (!hasSongs && !hasAlbums && !hasArtists && !hasMovies && !hasShows) {
       results.innerHTML = `<div class="search-no-results">No results for "${esc(query)}"</div>`
       return
     }
@@ -6411,6 +6482,24 @@ async function runSearch(query) {
       </div>`
     }
 
+    if (hasMovies) {
+      html += `<div class="search-section">
+        <div class="search-section-title">Movies</div>
+        <div class="poster-grid" id="search-movie-grid">${movies.Items.map(item =>
+          posterCard(item, item.ProductionYear || '')
+        ).join('')}</div>
+      </div>`
+    }
+
+    if (hasShows) {
+      html += `<div class="search-section">
+        <div class="search-section-title">TV Shows</div>
+        <div class="poster-grid" id="search-show-grid">${shows.Items.map(item =>
+          posterCard(item, item.ProductionYear || '')
+        ).join('')}</div>
+      </div>`
+    }
+
     results.innerHTML = html
     highlightPlayingRow()
 
@@ -6434,6 +6523,12 @@ async function runSearch(query) {
         openArtist(el.dataset.searchArtist, el.querySelector('.artist-name')?.textContent || '')
       })
     })
+
+    // Wire up movie/show cards - same detail views Movies/TV browsing opens
+    if (hasMovies) wirePosterCards(document.getElementById('search-movie-grid'), movies.Items,
+      item => { showView('movies'); openMovie(item.Id) })
+    if (hasShows) wirePosterCards(document.getElementById('search-show-grid'), shows.Items,
+      item => { showView('shows'); openSeries(item.Id) })
   } catch (e) {
     results.innerHTML = `<div class="search-no-results">Search failed: ${esc(e.message)}</div>`
   }
