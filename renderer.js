@@ -308,12 +308,29 @@ const DEVICE_PROFILE = buildElectronProfile(t => {
 // checks a movie's default track against. See its doc comment in playback.ts: direct play
 // hands over every embedded audio stream, and Chromium decodes whichever one the file
 // itself flags as default, not whatever the server decided was "the" compatible one.
-const DECODABLE_VIDEO_AUDIO_CODECS =
-  (DEVICE_PROFILE.DirectPlayProfiles.find(p => p.Type === 'Video')?.AudioCodec || '').split(',')
+// Codecs this build CLAIMED it could decode and then demonstrably could not:
+// the picture played, the clock advanced, and the audio decoder produced zero
+// bytes. Filled in at runtime by _checkAudioActuallyDecoded() and persisted,
+// because the claim is wrong for the machine, not for the file.
+let _undecodableAudioCodecs = new Set()
+
+/** The device profile with any proven-undecodable codec withdrawn. */
+function currentDeviceProfile() {
+  return _undecodableAudioCodecs.size
+    ? CascadeCore.withoutAudioCodecs(DEVICE_PROFILE, [..._undecodableAudioCodecs])
+    : DEVICE_PROFILE
+}
+
+// Audio codecs the profile currently claims for a video container - what
+// neededAudioStreamIndex() checks a movie's default track against.
+function decodableVideoAudioCodecs() {
+  return (currentDeviceProfile().DirectPlayProfiles.find(p => p.Type === 'Video')?.AudioCodec || '')
+    .split(',').filter(Boolean)
+}
 
 /** @type {(itemId: string, kind?: 'Audio' | 'Video', opts?: any) => Promise<any>} */
 const resolveTrackStream = (itemId, kind = 'Audio', opts = {}) =>
-  resolveStream(jfClient, jf, itemId, DEVICE_PROFILE, maxStreamingBitrate, kind, opts)
+  resolveStream(jfClient, jf, itemId, currentDeviceProfile(), maxStreamingBitrate, kind, opts)
 
 // Self-contained URL for "Copy stream URL". Deliberately the /universal form
 // rather than a PlaySessionId-bound one, so the copied link keeps working after
@@ -3074,7 +3091,7 @@ async function playCurrentTrack(opts = {}) {
     // track further down, which direct play would still hand over as-is - see
     // neededAudioStreamIndex()). Then forcing the index is the only way the
     // server transcodes to a track we can actually hear.
-    _audioStreamIndex = video ? neededAudioStreamIndex(item.MediaStreams, DECODABLE_VIDEO_AUDIO_CODECS) : null
+    _audioStreamIndex = video ? neededAudioStreamIndex(item.MediaStreams, decodableVideoAudioCodecs()) : null
 
     const resolved = await resolveTrackStream(item.Id, video ? 'Video' : 'Audio',
       { startTicks, audioStreamIndex: _audioStreamIndex })
@@ -7645,6 +7662,85 @@ function esc(str) {
 // there is no settings toggle for this and no keyboard shortcut, on purpose.
 // Plain monospace text over any real styling: this is a diagnostic, not a
 // feature, and the less of it there is to maintain the better.
+// ── Undecodable audio codec detection ────────────────────────────────────────
+//
+// Answers "the movie plays but has no sound" without guessing. canPlayType is
+// a claim from a codec registry, not from a decoder that has run, and when it
+// is wrong the failure is completely silent: the container demuxes, the
+// picture plays, and the audio decoder produces nothing.
+//
+// webkitAudioDecodedByteCount is the measurement, NOT the analyser's level. A
+// quiet scene, a silent studio logo and a broken decoder all read as zero
+// level, but only a broken decoder has decoded zero BYTES while the clock ran.
+// That distinction is the whole reason this can act automatically instead of
+// asking. Where the property is missing the check simply does not run, because
+// a false positive here would transcode files that were playing perfectly.
+
+const AUDIO_DECODE_GRACE_MS = 6000
+
+let _audioDecodeTimer = null
+
+function _cancelAudioDecodeCheck() {
+  if (_audioDecodeTimer) { clearTimeout(_audioDecodeTimer); _audioDecodeTimer = null }
+}
+
+/** Arm the check for a video that is direct playing. Music is untouched: it is
+ *  single stream and the server picked its codec against this same list. */
+function _armAudioDecodeCheck(item) {
+  _cancelAudioDecodeCheck()
+  if (!item || !isVideoItem(item)) return
+  if (_playMethod && String(_playMethod).toLowerCase().includes('transcode')) return
+  if (audio.webkitAudioDecodedByteCount === undefined) return
+
+  const deck = audio
+  const startedAt = deck.currentTime
+  const itemId = item.Id
+  _audioDecodeTimer = setTimeout(() => {
+    _audioDecodeTimer = null
+    if (deck !== audio || queue[queueIndex]?.Id !== itemId) return
+    if (deck.paused || deck.seeking) return
+    // The clock has to have actually run, or this is a stall rather than a
+    // decode failure - the exact confusion that once latched the visualiser off
+    // for a whole session.
+    if (deck.currentTime - startedAt < 2) return
+    if ((deck.webkitAudioDecodedByteCount || 0) > 0) return
+    _handleUndecodableAudio(item)
+  }, AUDIO_DECODE_GRACE_MS)
+}
+
+async function _handleUndecodableAudio(item) {
+  const track = _audioStreamIndex != null
+    ? item.MediaStreams?.find(s => s.Index === _audioStreamIndex)
+    : item.MediaStreams?.find(s => s.Type === 'Audio')
+  const codec = (track?.Codec || '').toLowerCase()
+  if (!codec || _undecodableAudioCodecs.has(codec)) return
+
+  _undecodableAudioCodecs.add(codec)
+  try {
+    await window.cascade.store.set('undecodableAudioCodecs', JSON.stringify([..._undecodableAudioCodecs]))
+  } catch {}
+  console.warn(`[cascade] ${codec} was claimed decodable but produced no audio - withdrawing the claim and asking the server to transcode it`)
+  showToast(`No audio from ${codec.toUpperCase()} on this machine - switching to a transcode`)
+
+  // Re-negotiate from where they are, not from the top.
+  const at = mediaPosition()
+  playCurrentTrack({ startTicks: Math.round(at * 10_000_000) })
+}
+
+/** Restored at startup so the second launch does not have to rediscover it. */
+async function _loadUndecodableAudioCodecs() {
+  try {
+    const raw = await window.cascade.store.get('undecodableAudioCodecs')
+    const list = raw ? JSON.parse(raw) : []
+    if (Array.isArray(list)) _undecodableAudioCodecs = new Set(list.filter(c => typeof c === 'string'))
+  } catch {}
+}
+_loadUndecodableAudioCodecs()
+
+onDeck('playing', () => _armAudioDecodeCheck(queue[queueIndex]))
+onDeck('pause', _cancelAudioDecodeCheck)
+onDeck('emptied', _cancelAudioDecodeCheck)
+
 /**
  * Peak level the analyser is seeing RIGHT NOW, 0-255, or null if there is no
  * graph to read.
@@ -7674,7 +7770,7 @@ function debugLivePeak() {
 function debugAudioTracks(item) {
   const tracks = (item?.MediaStreams || []).filter(s => s.Type === 'Audio')
   if (!tracks.length) return ['  (none listed - MediaStreams was not fetched for this item)']
-  const decodable = new Set(DECODABLE_VIDEO_AUDIO_CODECS.map(c => c.toLowerCase()))
+  const decodable = new Set(decodableVideoAudioCodecs().map(c => c.toLowerCase()))
   return tracks.map(t => {
     const claimed = decodable.has((t.Codec || '').toLowerCase())
     const marks = [
@@ -7722,7 +7818,9 @@ function debugPanelText() {
     '── audio diagnosis ──',
     `live peak: ${(() => { const pk = debugLivePeak(); return pk === null ? 'no graph' : `${pk}${pk === 0 && !audio.paused ? '  <- DECODER PRODUCED NOTHING' : ''}` })()}`,
     `element volume: ${audio.volume.toFixed(2)}   muted: ${audio.muted}`,
-    `profile claims decodable: ${DECODABLE_VIDEO_AUDIO_CODECS.join(',')}`,
+    `profile claims decodable: ${decodableVideoAudioCodecs().join(',')}`,
+    `withdrawn at runtime: ${[..._undecodableAudioCodecs].join(',') || 'none'}`,
+    `decoded audio bytes: ${audio.webkitAudioDecodedByteCount ?? 'n/a'}`,
     'audio tracks on this item:',
     ...debugAudioTracks(item),
     '',
