@@ -7645,6 +7645,47 @@ function esc(str) {
 // there is no settings toggle for this and no keyboard shortcut, on purpose.
 // Plain monospace text over any real styling: this is a diagnostic, not a
 // feature, and the less of it there is to maintain the better.
+/**
+ * Peak level the analyser is seeing RIGHT NOW, 0-255, or null if there is no
+ * graph to read.
+ *
+ * The decisive measurement for "this file plays but I hear nothing". The tap
+ * sits after the decoder, so a non-zero peak proves the decoder produced
+ * samples and the problem is downstream (routing, gain, the OS). A flat zero
+ * while the clock is advancing proves the opposite: the container demuxed, the
+ * video plays, and the audio decoder handed over nothing at all, which is what
+ * an undecodable codec looks like from here.
+ *
+ * _eqEverHadSignal cannot answer this. It is sticky and session-wide, so a
+ * music track played earlier leaves it true for the rest of the session, silent
+ * movie included.
+ */
+function debugLivePeak() {
+  if (!_eqAnalyser || !_eqFreqData) return null
+  _eqAnalyser.getByteFrequencyData(_eqFreqData)
+  let peak = 0
+  for (let i = 0; i < _eqFreqData.length; i++) if (_eqFreqData[i] > peak) peak = _eqFreqData[i]
+  return peak
+}
+
+/** Every audio track on the item, with whether this build claims to decode it.
+ *  Silence with several tracks listed is a different bug from silence with one
+ *  undecodable track, and the two are indistinguishable without the list. */
+function debugAudioTracks(item) {
+  const tracks = (item?.MediaStreams || []).filter(s => s.Type === 'Audio')
+  if (!tracks.length) return ['  (none listed - MediaStreams was not fetched for this item)']
+  const decodable = new Set(DECODABLE_VIDEO_AUDIO_CODECS.map(c => c.toLowerCase()))
+  return tracks.map(t => {
+    const claimed = decodable.has((t.Codec || '').toLowerCase())
+    const marks = [
+      t.IsDefault ? 'default' : null,
+      t.Index === _audioStreamIndex ? 'SELECTED' : null,
+      claimed ? 'we claim decodable' : 'WE CANNOT DECODE',
+    ].filter(Boolean)
+    return `  [${t.Index}] ${t.Codec || '?'} ${t.Channels || '?'}ch ${t.Language || ''} - ${marks.join(', ')}`
+  })
+}
+
 function debugPanelText() {
   const item = queue[queueIndex] || null
   const src = item?.MediaSources?.[0] || null
@@ -7678,6 +7719,13 @@ function debugPanelText() {
     `prefetched next: ${_streamPrefetch ? _streamPrefetch.itemId : 'none'}`,
     `last prefetch: ${prefetchLine}`,
     '',
+    '── audio diagnosis ──',
+    `live peak: ${(() => { const pk = debugLivePeak(); return pk === null ? 'no graph' : `${pk}${pk === 0 && !audio.paused ? '  <- DECODER PRODUCED NOTHING' : ''}` })()}`,
+    `element volume: ${audio.volume.toFixed(2)}   muted: ${audio.muted}`,
+    `profile claims decodable: ${DECODABLE_VIDEO_AUDIO_CODECS.join(',')}`,
+    'audio tracks on this item:',
+    ...debugAudioTracks(item),
+    '',
     '── web audio / eq ──',
     `graph failed: ${_eqGraphFailed}   no signal: ${_eqNoSignal}   ever had signal: ${_eqEverHadSignal}`,
     '',
@@ -7693,7 +7741,7 @@ function initDebugPanel() {
     + 'border-radius:6px;background:rgba(0,0,0,0.82);color:#7CFC7C;'
     + 'font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;'
     + 'word-break:break-all;user-select:text;cursor:pointer;'
-  el.title = 'Cascade debug panel - click to collapse. Force CascadeSLRC absent: Alt-click.'
+  el.title = 'Cascade debug panel - click to collapse, Shift-click to copy. Force CascadeSLRC absent: Alt-click.'
 
   let collapsed = false
   function render() {
@@ -7702,6 +7750,13 @@ function initDebugPanel() {
   }
   el.addEventListener('click', (e) => {
     if (window.getSelection()?.toString()) return   // selecting text to copy, not toggling
+    if (e.shiftKey) {
+      // Selecting eleven lines of wrapped monospace by hand to report a bug is
+      // miserable, and this text exists to be pasted somewhere.
+      window.cascade.clipboard.write(debugPanelText())
+      showToast('Debug info copied')
+      return
+    }
     if (e.altKey) {
       // The one internal flag worth flipping by hand that has no real Settings
       // UI of its own - lets a working plugin's greyed-out state be previewed
