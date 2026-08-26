@@ -4380,7 +4380,7 @@ onDeck('pause', pokeOverlayControls)
 
 // Only the left NP section (art + info) opens the overlay - everything else is a deadzone
 document.querySelector('.statusbar').addEventListener('click', (e) => {
-  if (!e.target.closest('.np')) return
+  if (!e.target.closest('.np') || e.target.closest('.np button')) return
   overlayOpen ? closeOverlay() : openOverlay()
 })
 
