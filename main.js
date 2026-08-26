@@ -1,4 +1,16 @@
 const { app, BrowserWindow, ipcMain, clipboard, shell, Menu, globalShortcut, TouchBar } = require('electron')
+
+// A main-process throw before the window is shown means no window and, for a
+// rejection, not even a message: Electron shows a dialog for an uncaught
+// exception but stays completely silent on an unhandled rejection. That is how
+// you get "it just does not open, nothing in the terminal". Both are printed
+// here so a startup failure always says something.
+process.on('uncaughtException', err => {
+  console.error('[cascade] uncaught exception in the main process:', err)
+})
+process.on('unhandledRejection', err => {
+  console.error('[cascade] unhandled rejection in the main process:', err)
+})
 const { TouchBarButton, TouchBarSpacer, TouchBarLabel } = TouchBar
 const path = require('path')
 const https = require('https')
@@ -167,6 +179,18 @@ const TITLEBAR_HEIGHT = 38
 // ignores this entirely - its traffic lights are drawn by the OS itself and
 // take their colour from nowhere we control.
 // Matches --surface/--text from index.html's :root and light theme block.
+/** titleBarOverlay options for win32/linux, or nothing at all if building them
+ *  fails. Degrading to no overlay costs the OS caption buttons; throwing here
+ *  costs the entire window. */
+function overlayOptions() {
+  try {
+    return { titleBarOverlay: { ...titleBarOverlayColors(storedThemeMode()), height: TITLEBAR_HEIGHT } }
+  } catch (e) {
+    console.error('[cascade] titleBarOverlay unavailable, falling back to a plain hidden titlebar:', e)
+    return {}
+  }
+}
+
 function titleBarOverlayColors(mode) {
   return mode === 'light'
     ? { color: '#ffffff', symbolColor: '#1c1c1e' }
@@ -208,7 +232,11 @@ function createWindow() {
     titleBarStyle: isDarwin ? 'hiddenInset' : 'hidden',
     ...(isDarwin
       ? { trafficLightPosition: { x: 12, y: 11 } }
-      : { titleBarOverlay: { ...titleBarOverlayColors(storedThemeMode()), height: TITLEBAR_HEIGHT } }),
+      // Built separately and defensively: this is the newest thing in here and
+      // the only part that is macOS-untestable, so if the platform rejects the
+      // overlay the app must still open with a plain hidden titlebar rather
+      // than failing to produce a window at all.
+      : overlayOptions()),
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'build', 'preload.js'),
@@ -268,8 +296,22 @@ function createWindow() {
     ipcMain.on('touchbar-update', () => {})
   }
 
-  win.once('ready-to-show', () => {
+  // ready-to-show is the normal path, but if the renderer never reaches a first
+  // paint it never fires, and with show:false that leaves a running app with no
+  // window and no way to tell. The fallback below means the worst case is a
+  // window that appears late, or blank, instead of one that never appears.
+  let shown = false
+  const showOnce = () => {
+    if (shown || !win || win.isDestroyed()) return
+    shown = true
     win.show()
+  }
+  setTimeout(() => {
+    if (!shown) console.error('[cascade] ready-to-show never fired after 10s, showing the window anyway')
+    showOnce()
+  }, 10000)
+  win.once('ready-to-show', () => {
+    showOnce()
     if (app.isPackaged) setTimeout(checkForUpdates, 5000)
 
     // Register OS media keys here - app is already ready, window exists
@@ -309,15 +351,27 @@ ipcMain.on('now-playing-update', (_e, data) => { cascadeNowPlaying = { ...cascad
 // to the executable).
 const DEBUG_SENTINEL = '.cascade-debug'
 function debugSentinelPresent() {
-  const candidates = [
-    path.join(app.getPath('userData'), DEBUG_SENTINEL),
-    path.join(__dirname, DEBUG_SENTINEL),
-  ]
+  const candidates = [path.join(__dirname, DEBUG_SENTINEL)]
+  try { candidates.push(path.join(app.getPath('userData'), DEBUG_SENTINEL)) } catch {}
   try { candidates.push(path.join(path.dirname(app.getPath('exe')), DEBUG_SENTINEL)) } catch {}
   return candidates.some(p => { try { return fs.existsSync(p) } catch { return false } })
 }
-const debugMode = debugSentinelPresent()
-ipcMain.handle('is-debug-mode', () => debugMode)
+
+// Resolved on first ask, not at module scope. It used to run during require(),
+// which meant app.getPath('userData') was called before the app was ready and
+// outside any try - and anything thrown there takes the whole main process down
+// before a window exists, with nothing on screen to say why. A diagnostic must
+// never be able to stop the app starting.
+let _debugMode = null
+ipcMain.handle('is-debug-mode', () => {
+  if (_debugMode === null) {
+    try { _debugMode = debugSentinelPresent() } catch (e) {
+      console.error('[cascade] debug sentinel check failed, carrying on without it:', e)
+      _debugMode = false
+    }
+  }
+  return _debugMode
+})
 
 // IPC: app version
 ipcMain.handle('get-version', () => app.getVersion())
