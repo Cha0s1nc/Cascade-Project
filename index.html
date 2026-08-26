@@ -527,8 +527,11 @@
     .np-overlay-btns, .np-overlay-vol { transition: opacity 0.4s ease; }
     .np-overlay.idle:not(:focus-within) .np-overlay-btns,
     .np-overlay.idle:not(:focus-within) .np-overlay-vol { opacity: 0; pointer-events: none; }
-    .ov-dropdown { position: fixed; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 4px; min-width: 210px; z-index: 400; display: none; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
-    .ov-dropdown.open { display: block; }
+    /* Reversible fade/grow, same 140ms popup easing as the context menu below -
+       display stays block always so opacity/transform/visibility can animate;
+       visibility keeps a closed dropdown out of hit-testing and the a11y tree. */
+    .ov-dropdown { position: fixed; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 4px; min-width: 210px; z-index: 400; box-shadow: 0 8px 32px rgba(0,0,0,0.5); opacity: 0; visibility: hidden; pointer-events: none; transform: scale(0.98); transform-origin: top left; transition: opacity 140ms cubic-bezier(0.2,0.7,0.3,1), transform 140ms cubic-bezier(0.2,0.7,0.3,1), visibility 140ms; }
+    .ov-dropdown.open { opacity: 1; visibility: visible; pointer-events: auto; transform: none; }
     .ov-dd-item { display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; color: var(--text2); transition: background 0.1s; white-space: nowrap; border: none; background: none; width: 100%; text-align: left; font-family: var(--font); }
     .ov-dd-item:hover { background: rgba(255,255,255,0.07); color: var(--text); }
     .ov-dd-item.danger { color: var(--red); }
@@ -633,8 +636,11 @@
     #ov-panel-lyrics.browsing .ov-lyric-line.active { opacity: 1; transform: scale(1); color: white; }
 
     /* ── Context menu ── */
-    .ctx-menu { position: fixed; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 4px; min-width: 200px; z-index: 1000; box-shadow: 0 8px 32px rgba(0,0,0,0.5); display: none; }
-    .ctx-menu.open { display: block; }
+    /* Same reversible fade/grow as .ov-dropdown. transform-origin defaults to
+       the corner nearest a cursor-anchored menu; the overlay's "more options"
+       button overrides it inline so that menu grows out of the button instead. */
+    .ctx-menu { position: fixed; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 4px; min-width: 200px; z-index: 1000; box-shadow: 0 8px 32px rgba(0,0,0,0.5); opacity: 0; visibility: hidden; pointer-events: none; transform: scale(0.98); transform-origin: top left; transition: opacity 140ms cubic-bezier(0.2,0.7,0.3,1), transform 140ms cubic-bezier(0.2,0.7,0.3,1), visibility 140ms; }
+    .ctx-menu.open { opacity: 1; visibility: visible; pointer-events: auto; transform: none; }
     .ctx-item { display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; color: var(--text2); transition: background 0.1s, color 0.1s; white-space: nowrap; }
     .ctx-item:hover { background: rgba(255,255,255,0.07); color: var(--text); }
     .ctx-item.danger { color: var(--red); }
@@ -710,16 +716,19 @@
     .lyrics-edit-btn:disabled { opacity: 0.4; cursor: default; pointer-events: none; }
 
     /* ── Lyrics source dropdown ── */
+    /* Was a one-shot @keyframes that only played on open, so closing just
+       snapped. A transition on the same values plays both ways. */
     .lyrics-source-dropdown {
-      position: fixed; z-index: 2000; display: none; min-width: 210px;
+      position: fixed; z-index: 2000; min-width: 210px;
       background: rgba(18,18,26,0.88); backdrop-filter: blur(24px) saturate(180%);
       -webkit-backdrop-filter: blur(24px) saturate(180%);
       border: 1px solid rgba(255,255,255,0.1); border-radius: 12px;
       padding: 5px; box-shadow: 0 12px 40px rgba(0,0,0,0.55);
-      animation: lsd-in 0.12s ease;
+      opacity: 0; visibility: hidden; pointer-events: none;
+      transform: translateY(-4px) scale(0.97); transform-origin: top left;
+      transition: opacity 140ms cubic-bezier(0.2,0.7,0.3,1), transform 140ms cubic-bezier(0.2,0.7,0.3,1), visibility 140ms;
     }
-    @keyframes lsd-in { from { opacity:0; transform: translateY(-4px) scale(0.97); } to { opacity:1; transform: none; } }
-    .lyrics-source-dropdown.open { display: block; }
+    .lyrics-source-dropdown.open { opacity: 1; visibility: visible; pointer-events: auto; transform: none; }
     .lsd-sep { height: 1px; background: rgba(255,255,255,0.07); margin: 4px 0; }
     .lsd-item {
       display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
@@ -744,9 +753,14 @@
     .lsd-status-skip { background: rgba(255,255,255,0.18); }
 
     /* ── Add-to-playlist modal ── */
-    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 500; display: flex; align-items: center; justify-content: center; }
-    .modal-overlay.hidden { display: none; }
-    .modal-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; width: 320px; max-height: 480px; display: flex; flex-direction: column; }
+    /* Same reversible fade/rise as #setup-overlay, just quicker since these
+       are lighter popups rather than the first-run flow. Shared by every
+       .modal-overlay instance (add-to-playlist, notice, waterfall, plugin,
+       media info). */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 500; display: flex; align-items: center; justify-content: center; opacity: 1; visibility: visible; transition: opacity 140ms cubic-bezier(0.2,0.7,0.3,1), visibility 140ms; }
+    .modal-overlay.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+    .modal-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; width: 320px; max-height: 480px; display: flex; flex-direction: column; transition: opacity 140ms cubic-bezier(0.2,0.7,0.3,1), transform 140ms cubic-bezier(0.2,0.7,0.3,1); }
+    .modal-overlay.hidden .modal-card { opacity: 0; transform: translateY(8px) scale(0.98); }
     .modal-title { font-size: 14px; font-weight: 600; margin-bottom: 14px; color: var(--text); }
     .modal-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; margin-bottom: 14px; }
     .modal-list::-webkit-scrollbar { width: 4px; }
@@ -864,11 +878,15 @@
     /* ── Theme picker ── */
     #theme-dot { width: 11px; height: 11px; border-radius: 50%; background: var(--grad); cursor: pointer; flex-shrink: 0; transition: transform 0.15s, filter 0.15s; border: none; padding: 0; }
     #theme-dot:hover { transform: scale(1.25); filter: brightness(1.15); }
+    /* display stays flex always (never none) so opacity/transform/visibility
+       can animate reversibly, same trick as #setup-overlay. */
     .theme-picker { position: absolute; top: 46px; right: 16px; z-index: 400; width: 248px;
       background: var(--surface); border: 1px solid var(--border); border-radius: 13px;
       padding: 14px 14px 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.45);
-      display: none; flex-direction: column; gap: 13px; }
-    .theme-picker.open { display: flex; }
+      display: flex; flex-direction: column; gap: 13px;
+      opacity: 0; visibility: hidden; pointer-events: none; transform: scale(0.98); transform-origin: top right;
+      transition: opacity 140ms cubic-bezier(0.2,0.7,0.3,1), transform 140ms cubic-bezier(0.2,0.7,0.3,1), visibility 140ms; }
+    .theme-picker.open { opacity: 1; visibility: visible; pointer-events: auto; transform: none; }
     .tp-row { display: flex; align-items: center; justify-content: space-between; }
     .tp-title { font-size: 12px; font-weight: 600; color: var(--text); }
     .tp-close { background: none; border: none; color: var(--text3); cursor: pointer; font-size: 18px; line-height: 1; padding: 0 2px; transition: color 0.12s; }
@@ -897,6 +915,11 @@
     .toggle input:checked + .toggle-track { background: var(--accent); border-color: var(--accent); }
     .toggle-track::after { content: ''; position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; background: white; border-radius: 50%; transition: transform 0.2s; }
     .toggle input:checked + .toggle-track::after { transform: translateX(16px); }
+
+    @media (prefers-reduced-motion: reduce) {
+      .ctx-menu, .ov-dropdown, .theme-picker, .modal-overlay, .modal-card,
+      .lyrics-source-dropdown { transition: none; }
+    }
 
     /* ── Equalizer ── */
     .eq-mode-switch { display: flex; gap: 6px; }
