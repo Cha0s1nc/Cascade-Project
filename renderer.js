@@ -5203,6 +5203,10 @@ document.querySelector('.statusbar').addEventListener('click', (e) => {
 })
 
 document.getElementById('np-overlay-close').addEventListener('click', closeOverlay)
+// The chevron on the left of the header closes it too. Two targets rather than
+// one small x in the corner, which on Windows and Linux sat under the OS
+// caption buttons and could not be clicked at all.
+document.getElementById('np-overlay-collapse').addEventListener('click', closeOverlay)
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && overlayOpen) closeOverlay() })
 
 // Lyrics toggle - queue slides left out, lyrics slides right in (and vice versa)

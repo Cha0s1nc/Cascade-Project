@@ -516,7 +516,24 @@
     html[data-platform="darwin"] .np-overlay-header { padding-left: 80px; }
     html[data-platform="win32"] .np-overlay-header,
     html[data-platform="linux"] .np-overlay-header { padding-right: var(--caption-reserve); }
-    .np-overlay-title { font-size: 12px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.07em; }
+    /* A real button, not a label: the whole header cannot be the close target
+       because it is also the window's only drag handle while the overlay is up
+       (the overlay covers the titlebar), and -webkit-app-region: drag swallows
+       clicks anyway. This gives a big obvious target on the left - where Spotify
+       and Apple Music put the same control - while the rest of the bar stays
+       draggable. */
+    .np-overlay-title {
+      -webkit-app-region: no-drag; display: flex; align-items: center; gap: 7px;
+      font-family: var(--font); font-size: 12px; font-weight: 600; color: var(--text3);
+      text-transform: uppercase; letter-spacing: 0.07em;
+      background: none; border: none; cursor: pointer; padding: 6px 10px;
+      margin: -6px -10px; border-radius: 7px; transition: background 0.12s, color 0.12s;
+    }
+    .np-overlay-title:hover { background: var(--surface2); color: var(--text); }
+    .np-overlay-title:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); }
+    .np-overlay-title svg { width: 15px; height: 15px; transition: transform 0.12s; }
+    .np-overlay-title:hover svg { transform: translateY(2px); }
+    @media (prefers-reduced-motion: reduce) { .np-overlay-title:hover svg { transform: none; } }
     .np-overlay-close { -webkit-app-region: no-drag; background: none; border: none; color: var(--text3); cursor: pointer; font-size: 20px; line-height: 1; padding: 0 4px; transition: color 0.12s; }
     .np-overlay-close:hover { color: var(--text); }
     .np-overlay-body { flex: 1; display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; }
@@ -2118,7 +2135,10 @@
 <div class="np-overlay" id="np-overlay">
   <div id="ov-bg-pulse"></div>
   <div class="np-overlay-header">
-    <span class="np-overlay-title">Now Playing</span>
+    <button class="np-overlay-title" id="np-overlay-collapse" title="Close now playing (Esc)" aria-label="Close now playing">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      <span>Now Playing</span>
+    </button>
     <button class="np-overlay-close" id="np-overlay-close">×</button>
   </div>
   <div class="np-overlay-body">
