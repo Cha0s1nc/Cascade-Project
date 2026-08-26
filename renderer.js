@@ -458,10 +458,11 @@ async function connect(serverUrl, token, userId) {
 
   // Verify the token is still valid with a lightweight ping, retry up to 3x
   let verified = false
+  let userInfo = null
   for (let attempt = 1; attempt <= 3; attempt++) {
     showLoading(attempt === 1 ? 'Connecting…' : `Retrying… (${attempt}/3)`)
     try {
-      await jfGet(`/Users/${userId}`)
+      userInfo = await jfGet(`/Users/${userId}`)
       verified = true
       break
     } catch (e) {
@@ -475,6 +476,12 @@ async function connect(serverUrl, token, userId) {
     if (errorEl) errorEl.textContent = 'Connection failed. Check your server URL and try again.'
     throw new Error('Could not reach Jellyfin server')
   }
+
+  // Free: userInfo is the same /Users/{id} response the token-verify ping just
+  // fetched, no second request needed. Gates server-only admin actions (see
+  // _applyAdminGating) - always overwritten here so a previous account's
+  // admin status can never survive into this session.
+  jf.isAdmin = !!userInfo?.Policy?.IsAdministrator
 
   startRemoteControl()
   probeCascadePlugin()  // not awaited - cheap, and nothing here depends on the result yet
@@ -3803,6 +3810,7 @@ document.getElementById('btn-logout').addEventListener('click', async () => {
                        // and the current encoding, clears Discord presence
   invalidateLibraryViews()
   invalidateVideoViews()
+  jf.isAdmin = false  // a stale admin flag must not survive into the next account
   showView('home')
 
   await window.cascade.store.delete('token')
