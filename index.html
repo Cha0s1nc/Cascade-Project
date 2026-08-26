@@ -262,25 +262,29 @@
        instead - it needs to fade back out into the loaded app when setup
        completes, not just fade in once. It still appears instantly on cold
        boot (no transition plays from the DOM's own initial, unhidden state),
-       so an empty app is never left waiting on an animation to finish. */
-    #setup-overlay {
+       so an empty app is never left waiting on an animation to finish.
+       #firstrun-overlay (the post-first-sign-in wizard) shares this same
+       reversible fade - it also needs to fade back out into the app it
+       appears over, same as reauth, so it is folded into these selectors
+       rather than getting its own copy of the rules. */
+    #setup-overlay, #firstrun-overlay {
       background: rgba(0,0,0,0.6);
       backdrop-filter: blur(20px);
       opacity: 1;
       visibility: visible;
       transition: opacity 220ms ease-out, visibility 220ms, backdrop-filter 220ms ease-out;
     }
-    #setup-overlay.hidden {
+    #setup-overlay.hidden, #firstrun-overlay.hidden {
       display: flex;
       opacity: 0;
       visibility: hidden;
       pointer-events: none;
       backdrop-filter: blur(0px);
     }
-    #setup-overlay .setup-card {
+    #setup-overlay .setup-card, #firstrun-overlay .setup-card {
       transition: opacity 260ms cubic-bezier(0.2, 0.7, 0.3, 1), transform 260ms cubic-bezier(0.2, 0.7, 0.3, 1);
     }
-    #setup-overlay.hidden .setup-card {
+    #setup-overlay.hidden .setup-card, #firstrun-overlay.hidden .setup-card {
       opacity: 0;
       transform: translateY(10px) scale(0.985);
     }
@@ -291,7 +295,8 @@
     @media (prefers-reduced-motion: reduce) {
       #video-intro-overlay:not(.hidden),
       #video-intro-overlay:not(.hidden) .setup-card { animation: none; }
-      #setup-overlay, #setup-overlay .setup-card { transition: none; }
+      #setup-overlay, #setup-overlay .setup-card,
+      #firstrun-overlay, #firstrun-overlay .setup-card { transition: none; }
     }
     .setup-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 32px 36px; width: 420px; }
     .setup-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; }
@@ -1798,6 +1803,79 @@
     <div id="vi-library-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:18px;"></div>
     <button class="setup-btn" id="vi-done">Done</button>
     <button class="setup-btn setup-btn-alt" id="vi-skip">Skip for now</button>
+  </div>
+</div>
+
+<!-- First-run wizard. Shown once, right after the very first successful
+     interactive sign-in - never on a silent reconnect from a stored token, so
+     upgrading an existing install never shows it, and it never shows again
+     once finished or skipped (see maybeShowFirstRunWizard in renderer.js).
+     Every control here writes through the exact function Settings itself
+     calls (applyLibrarySelection, setCrossfadeEnabled, setThemeMode, etc.) -
+     there is no separate wizard-only code path for any of these settings.
+     Reuses the setup card chrome and its reversible fade rather than a new
+     animation - see #firstrun-overlay in the CSS above. -->
+<div class="setup-overlay hidden" id="firstrun-overlay">
+  <div class="setup-card">
+    <div class="setup-logo">
+      <div class="setup-logo-dot"></div>
+      <span class="setup-logo-name">Cascade</span>
+    </div>
+    <span id="fr-progress" style="font-size:11px;color:var(--text3);display:block;margin-bottom:6px;"></span>
+
+    <div id="fr-step-libraries">
+      <p class="setup-subtitle">Which libraries do you want to see? You can merge several, or pick just one.</p>
+      <div id="fr-music-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;"></div>
+      <div id="fr-video-list" style="display:flex;flex-direction:column;gap:6px;"></div>
+    </div>
+
+    <div id="fr-step-crossfade" style="display:none">
+      <p class="setup-subtitle">Fade into the next track instead of a hard cut?</p>
+      <div class="setting-row" style="padding:11px 0;">
+        <div class="setting-label"><span class="setting-name">Crossfade</span></div>
+        <label class="toggle">
+          <input type="checkbox" id="fr-crossfade-toggle">
+          <span class="toggle-track"></span>
+        </label>
+      </div>
+      <div class="setting-row" id="fr-crossfade-duration-row" style="display:none;padding:11px 0;">
+        <div class="setting-label"><span class="setting-name">Length</span></div>
+        <div class="setting-slider-row">
+          <input type="range" id="fr-crossfade-duration" min="1" max="15" step="1" value="6">
+          <span class="eq-band-value" id="fr-crossfade-duration-value">6s</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="fr-step-quality" style="display:none">
+      <p class="setup-subtitle">Cap the streaming quality? The server transcodes to fit. Original sends the file untouched.</p>
+      <div class="setting-slider-row" style="width:100%;">
+        <input type="range" id="fr-max-bitrate" min="0" max="4" step="1" value="0">
+        <span class="eq-band-value" id="fr-max-bitrate-value">Original</span>
+      </div>
+    </div>
+
+    <div id="fr-step-theme" style="display:none">
+      <p class="setup-subtitle">Dark or light, and how the accent color works.</p>
+      <div class="seg-control" style="margin-bottom:16px;">
+        <button type="button" class="seg-btn active" id="fr-seg-dark">Dark</button>
+        <button type="button" class="seg-btn" id="fr-seg-light">Light</button>
+      </div>
+      <div class="tp-album-row">
+        <div class="tp-album-label">
+          <span class="tp-album-name">Album art accent</span>
+          <span class="tp-album-desc">Matches the accent color to the current album's art. Overrides any gradient you pick in Settings while it's on.</span>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="fr-toggle-album-art">
+          <span class="toggle-track"></span>
+        </label>
+      </div>
+    </div>
+
+    <p class="setup-subtitle" style="font-size:11px;margin:16px 0 0;">You can change all of this later in Settings.</p>
+    <button class="setup-btn" id="fr-next">Next</button>
+    <button class="setup-btn setup-btn-alt" id="fr-skip">Skip</button>
   </div>
 </div>
 
