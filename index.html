@@ -246,6 +246,7 @@
     .save-status { font-size: 12px; color: var(--green); opacity: 0; transition: opacity 0.3s; }
     .save-status.visible { opacity: 1; }
     .btn { font-family: var(--font); font-size: 13px; font-weight: 500; padding: 6px 16px; border-radius: 7px; border: none; cursor: pointer; transition: all 0.15s; }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
     .btn-primary { background: var(--accent); color: white; }
     .btn-primary:hover { background: #7c5ff7; }
     .btn-danger { background: rgba(255,69,58,0.15); color: var(--red); border: 1px solid rgba(255,69,58,0.3); }
@@ -261,25 +262,29 @@
        instead - it needs to fade back out into the loaded app when setup
        completes, not just fade in once. It still appears instantly on cold
        boot (no transition plays from the DOM's own initial, unhidden state),
-       so an empty app is never left waiting on an animation to finish. */
-    #setup-overlay {
+       so an empty app is never left waiting on an animation to finish.
+       #firstrun-overlay (the post-first-sign-in wizard) shares this same
+       reversible fade - it also needs to fade back out into the app it
+       appears over, same as reauth, so it is folded into these selectors
+       rather than getting its own copy of the rules. */
+    #setup-overlay, #firstrun-overlay {
       background: rgba(0,0,0,0.6);
       backdrop-filter: blur(20px);
       opacity: 1;
       visibility: visible;
       transition: opacity 220ms ease-out, visibility 220ms, backdrop-filter 220ms ease-out;
     }
-    #setup-overlay.hidden {
+    #setup-overlay.hidden, #firstrun-overlay.hidden {
       display: flex;
       opacity: 0;
       visibility: hidden;
       pointer-events: none;
       backdrop-filter: blur(0px);
     }
-    #setup-overlay .setup-card {
+    #setup-overlay .setup-card, #firstrun-overlay .setup-card {
       transition: opacity 260ms cubic-bezier(0.2, 0.7, 0.3, 1), transform 260ms cubic-bezier(0.2, 0.7, 0.3, 1);
     }
-    #setup-overlay.hidden .setup-card {
+    #setup-overlay.hidden .setup-card, #firstrun-overlay.hidden .setup-card {
       opacity: 0;
       transform: translateY(10px) scale(0.985);
     }
@@ -290,7 +295,8 @@
     @media (prefers-reduced-motion: reduce) {
       #video-intro-overlay:not(.hidden),
       #video-intro-overlay:not(.hidden) .setup-card { animation: none; }
-      #setup-overlay, #setup-overlay .setup-card { transition: none; }
+      #setup-overlay, #setup-overlay .setup-card,
+      #firstrun-overlay, #firstrun-overlay .setup-card { transition: none; }
     }
     .setup-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 32px 36px; width: 420px; }
     .setup-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; }
@@ -1454,6 +1460,23 @@
               </div>
               <div id="s-video-library-list" style="width:260px;display:flex;flex-direction:column;gap:6px;"></div>
             </div>
+            <!-- Scan talks to the server and only an admin account may call it;
+                 Refresh app is purely local and works for anyone. Kept as two
+                 separate rows so which is which is never ambiguous. -->
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="setting-name">Scan library on server</span>
+                <span class="setting-desc">Looks for files added or removed outside Jellyfin. Runs in the background - results show up once it finishes, not right away.</span>
+              </div>
+              <span class="tip-host" id="s-refresh-server-tip" data-tip="Needs a Jellyfin admin account"><button class="btn btn-secondary" id="s-refresh-server" disabled>Scan server</button></span>
+            </div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="setting-name">Refresh app</span>
+                <span class="setting-desc">Reloads songs, albums, artists, playlists, movies, shows and Home from what the server has now. Works for any account.</span>
+              </div>
+              <button class="btn btn-secondary" id="s-refresh-local">Refresh now</button>
+            </div>
           </div>
           <div class="settings-group">
             <div class="sg-title">Playback</div>
@@ -1486,9 +1509,11 @@
                 <span class="eq-band-value" id="max-bitrate-value">Original</span>
               </div>
             </div>
-          </div>
-          <div class="settings-group">
-            <div class="sg-title">Equalizer</div>
+            <!-- Equalizer lives under Playback rather than its own group - it is
+                 a playback setting, not a separate concern. Same collapsible-
+                 group heading style used for Movies/TV inside the library
+                 pickers, reused rather than inventing a second one. -->
+            <div class="lib-group-title" style="padding:0 14px;">Equalizer</div>
             <div class="setting-row">
               <div class="setting-label">
                 <span class="setting-name">Enable equalizer</span>
@@ -1552,8 +1577,60 @@
               </div>
             </div>
           </div>
+          <!-- Server-only mode decides which lyrics sources are even offered
+               below (see the lsd-server-only / lsd-non-server option classes),
+               so the two live in one group with the setting that gates the
+               other listed first. -->
           <div class="settings-group">
-            <div class="sg-title">Waterfall <span class="wf-beta">BETA</span></div>
+            <div class="sg-title">Lyrics &amp; Metadata</div>
+            <div class="setting-row" id="server-only-lyrics-row">
+              <div class="setting-label">
+                <span class="setting-name">Server-only Mode</span>
+                <span class="setting-desc">Use the CascadeSLRC Jellyfin plugin exclusively for lyrics and art. Requires the plugin to be installed on your server.</span>
+                <span class="setting-desc" id="server-only-plugin-missing" style="display:none">CascadeSLRC plugin not found on this server. Install it through my Github page to use server-only mode and the lyrics editor.</span>
+              </div>
+              <label class="toggle" id="server-only-toggle-label">
+                <input type="checkbox" id="server-only-lyrics-toggle">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div class="setting-row" id="lyrics-source-row">
+              <div class="setting-label">
+                <span class="setting-name">Lyrics Source</span>
+                <span class="setting-desc">Preferred source. Auto tries each in order: Kugou → LRCLIB → Jellyfin.</span>
+              </div>
+              <select class="setting-input" id="s-lyrics-source">
+                <option value="auto">Auto (waterfall)</option>
+                <option value="Kugou" class="lsd-non-server">Kugou</option>
+                <option value="LRCLIB" class="lsd-non-server">LRCLIB</option>
+                <option value="Jellyfin" class="lsd-non-server">Jellyfin</option>
+                <option value="cascade-karaoke" class="lsd-server-only" style="display:none">Karaoke Only</option>
+                <option value="cascade-synced" class="lsd-server-only" style="display:none">Synced Only</option>
+              </select>
+            </div>
+          </div>
+          <div class="settings-group">
+            <div class="sg-title">Integrations</div>
+            <div class="lib-group-title" style="padding:0 14px;">Discord</div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="setting-name">Rich Presence</span>
+                <span class="setting-desc">Show current track in Discord. Requires a Discord Application ID.</span>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="discord-rpc-toggle">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div style="display:none">
+              <input id="discord-client-id" type="hidden" />
+              <a id="discord-dev-link" href="#"></a>
+            </div>
+            <div class="setting-row" style="justify-content:flex-start;gap:8px;">
+              <div class="ws-dot" id="discord-rpc-dot"></div>
+              <span style="font-size:11px;color:var(--text3)" id="discord-rpc-status-label">Not connected</span>
+            </div>
+            <div class="lib-group-title" style="padding:0 14px;">Waterfall <span class="wf-beta">BETA</span></div>
             <div class="setting-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;">
               <div class="setting-label">
                 <span class="setting-name">Relay server</span>
@@ -1580,58 +1657,6 @@
                 <input type="checkbox" id="s-wf-guest-control">
                 <span class="toggle-track"></span>
               </label>
-            </div>
-          </div>
-          <div class="settings-group">
-            <div class="sg-title">Discord</div>
-            <div class="setting-row">
-              <div class="setting-label">
-                <span class="setting-name">Rich Presence</span>
-                <span class="setting-desc">Show current track in Discord. Requires a Discord Application ID.</span>
-              </div>
-              <label class="toggle">
-                <input type="checkbox" id="discord-rpc-toggle">
-                <span class="toggle-track"></span>
-              </label>
-            </div>
-            <div style="display:none">
-              <input id="discord-client-id" type="hidden" />
-              <a id="discord-dev-link" href="#"></a>
-            </div>
-            <div class="setting-row" style="justify-content:flex-start;gap:8px;">
-              <div class="ws-dot" id="discord-rpc-dot"></div>
-              <span style="font-size:11px;color:var(--text3)" id="discord-rpc-status-label">Not connected</span>
-            </div>
-          </div>
-          <div class="settings-group">
-            <div class="sg-title">Fetching</div>
-            <div class="setting-row" id="server-only-lyrics-row">
-              <div class="setting-label">
-                <span class="setting-name">Server-only Mode</span>
-                <span class="setting-desc">Use the CascadeSLRC Jellyfin plugin exclusively for lyrics and art. Requires the plugin to be installed on your server.</span>
-                <span class="setting-desc" id="server-only-plugin-missing" style="display:none">CascadeSLRC plugin not found on this server. Install it through my Github page to use server-only mode and the lyrics editor.</span>
-              </div>
-              <label class="toggle" id="server-only-toggle-label">
-                <input type="checkbox" id="server-only-lyrics-toggle">
-                <span class="toggle-track"></span>
-              </label>
-            </div>
-          </div>
-          <div class="settings-group">
-            <div class="sg-title">Lyrics</div>
-            <div class="setting-row" id="lyrics-source-row">
-              <div class="setting-label">
-                <span class="setting-name">Lyrics Source</span>
-                <span class="setting-desc">Preferred source. Auto tries each in order: Kugou → LRCLIB → Jellyfin.</span>
-              </div>
-              <select class="setting-input" id="s-lyrics-source">
-                <option value="auto">Auto (waterfall)</option>
-                <option value="Kugou" class="lsd-non-server">Kugou</option>
-                <option value="LRCLIB" class="lsd-non-server">LRCLIB</option>
-                <option value="Jellyfin" class="lsd-non-server">Jellyfin</option>
-                <option value="cascade-karaoke" class="lsd-server-only" style="display:none">Karaoke Only</option>
-                <option value="cascade-synced" class="lsd-server-only" style="display:none">Synced Only</option>
-              </select>
             </div>
           </div>
           <div class="settings-group">
@@ -1778,6 +1803,79 @@
     <div id="vi-library-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:18px;"></div>
     <button class="setup-btn" id="vi-done">Done</button>
     <button class="setup-btn setup-btn-alt" id="vi-skip">Skip for now</button>
+  </div>
+</div>
+
+<!-- First-run wizard. Shown once, right after the very first successful
+     interactive sign-in - never on a silent reconnect from a stored token, so
+     upgrading an existing install never shows it, and it never shows again
+     once finished or skipped (see maybeShowFirstRunWizard in renderer.js).
+     Every control here writes through the exact function Settings itself
+     calls (applyLibrarySelection, setCrossfadeEnabled, setThemeMode, etc.) -
+     there is no separate wizard-only code path for any of these settings.
+     Reuses the setup card chrome and its reversible fade rather than a new
+     animation - see #firstrun-overlay in the CSS above. -->
+<div class="setup-overlay hidden" id="firstrun-overlay">
+  <div class="setup-card">
+    <div class="setup-logo">
+      <div class="setup-logo-dot"></div>
+      <span class="setup-logo-name">Cascade</span>
+    </div>
+    <span id="fr-progress" style="font-size:11px;color:var(--text3);display:block;margin-bottom:6px;"></span>
+
+    <div id="fr-step-libraries">
+      <p class="setup-subtitle">Which libraries do you want to see? You can merge several, or pick just one.</p>
+      <div id="fr-music-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;"></div>
+      <div id="fr-video-list" style="display:flex;flex-direction:column;gap:6px;"></div>
+    </div>
+
+    <div id="fr-step-crossfade" style="display:none">
+      <p class="setup-subtitle">Fade into the next track instead of a hard cut?</p>
+      <div class="setting-row" style="padding:11px 0;">
+        <div class="setting-label"><span class="setting-name">Crossfade</span></div>
+        <label class="toggle">
+          <input type="checkbox" id="fr-crossfade-toggle">
+          <span class="toggle-track"></span>
+        </label>
+      </div>
+      <div class="setting-row" id="fr-crossfade-duration-row" style="display:none;padding:11px 0;">
+        <div class="setting-label"><span class="setting-name">Length</span></div>
+        <div class="setting-slider-row">
+          <input type="range" id="fr-crossfade-duration" min="1" max="15" step="1" value="6">
+          <span class="eq-band-value" id="fr-crossfade-duration-value">6s</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="fr-step-quality" style="display:none">
+      <p class="setup-subtitle">Cap the streaming quality? The server transcodes to fit. Original sends the file untouched.</p>
+      <div class="setting-slider-row" style="width:100%;">
+        <input type="range" id="fr-max-bitrate" min="0" max="4" step="1" value="0">
+        <span class="eq-band-value" id="fr-max-bitrate-value">Original</span>
+      </div>
+    </div>
+
+    <div id="fr-step-theme" style="display:none">
+      <p class="setup-subtitle">Dark or light, and how the accent color works.</p>
+      <div class="seg-control" style="margin-bottom:16px;">
+        <button type="button" class="seg-btn active" id="fr-seg-dark">Dark</button>
+        <button type="button" class="seg-btn" id="fr-seg-light">Light</button>
+      </div>
+      <div class="tp-album-row">
+        <div class="tp-album-label">
+          <span class="tp-album-name">Album art accent</span>
+          <span class="tp-album-desc">Matches the accent color to the current album's art. Overrides any gradient you pick in Settings while it's on.</span>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="fr-toggle-album-art">
+          <span class="toggle-track"></span>
+        </label>
+      </div>
+    </div>
+
+    <p class="setup-subtitle" style="font-size:11px;margin:16px 0 0;">You can change all of this later in Settings.</p>
+    <button class="setup-btn" id="fr-next">Next</button>
+    <button class="setup-btn setup-btn-alt" id="fr-skip">Skip</button>
   </div>
 </div>
 

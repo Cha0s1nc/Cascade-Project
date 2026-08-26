@@ -35,6 +35,23 @@ const MAX_BITRATE_STEPS = [
   { value: 128000, label: '128 kbps' },
   { value: 96000, label: '96 kbps' },
 ]
+
+// The one code path each of these settings goes through - Settings and the
+// first-run wizard both call these rather than each persisting the value
+// themselves, so there is nowhere for the two to drift apart.
+async function setCrossfadeEnabled(enabled) {
+  crossfadeEnabled = enabled
+  await window.cascade.store.set('crossfadeEnabled', crossfadeEnabled)
+}
+async function setCrossfadeSeconds(seconds) {
+  crossfadeSeconds = seconds
+  await window.cascade.store.set('crossfadeSeconds', crossfadeSeconds)
+}
+async function setMaxStreamingBitrate(bitrateValue) {
+  maxStreamingBitrate = bitrateValue
+  await window.cascade.store.set('maxStreamingBitrate', maxStreamingBitrate)
+}
+
 let eqEnabled = false
 let eqActiveMode = 'music'   // which saved profile is wired into the live graph right now
 let eqMusicProfile = { preamp: null, bands: [0, 0, 0, 0, 0] }
@@ -458,10 +475,11 @@ async function connect(serverUrl, token, userId) {
 
   // Verify the token is still valid with a lightweight ping, retry up to 3x
   let verified = false
+  let userInfo = null
   for (let attempt = 1; attempt <= 3; attempt++) {
     showLoading(attempt === 1 ? 'Connecting…' : `Retrying… (${attempt}/3)`)
     try {
-      await jfGet(`/Users/${userId}`)
+      userInfo = await jfGet(`/Users/${userId}`)
       verified = true
       break
     } catch (e) {
@@ -475,6 +493,13 @@ async function connect(serverUrl, token, userId) {
     if (errorEl) errorEl.textContent = 'Connection failed. Check your server URL and try again.'
     throw new Error('Could not reach Jellyfin server')
   }
+
+  // Free: userInfo is the same /Users/{id} response the token-verify ping just
+  // fetched, no second request needed. Gates server-only admin actions (see
+  // _applyAdminGating) - always overwritten here so a previous account's
+  // admin status can never survive into this session.
+  jf.isAdmin = !!userInfo?.Policy?.IsAdministrator
+  _applyAdminGating()
 
   startRemoteControl()
   probeCascadePlugin()  // not awaited - cheap, and nothing here depends on the result yet
@@ -554,6 +579,47 @@ function invalidateVideoViews() {
   for (const id of ['movies-grid', 'shows-grid'])
     delete document.getElementById(id).dataset.loaded
 }
+
+/** Greys out the server library scan button when the account is not an admin,
+ *  using the same disabled+data-tip pattern as the CascadeSLRC gating below.
+ *  Safe to call anytime, including before connect() has run (jf.isAdmin is
+ *  then undefined, which reads as "not admin" - the safe default). */
+function _applyAdminGating() {
+  const btn = document.getElementById('s-refresh-server')
+  if (btn) btn.disabled = !jf.isAdmin
+  const host = document.getElementById('s-refresh-server-tip')
+  if (host) {
+    if (!jf.isAdmin) host.setAttribute('data-tip', 'Needs a Jellyfin admin account')
+    else host.removeAttribute('data-tip')
+  }
+}
+
+document.getElementById('s-refresh-server').addEventListener('click', async () => {
+  // The button is disabled for a non-admin, but a disabled button can still
+  // be clicked programmatically - don't trust the DOM state alone against a
+  // server call that would just 403 anyway.
+  if (!jf.isAdmin) return
+  try {
+    const res = await fetch(`${jf.url}/Library/Refresh`, { method: 'POST', headers: { 'X-Emby-Token': jf.token } })
+    if (!res.ok) throw new Error(String(res.status))
+    // Async on the server - it scans in the background and this response says
+    // nothing about when it finishes, so there is nothing to await here.
+    showToast('Library scan started on the server - new items appear once it finishes')
+  } catch {
+    showNotice('Could not start a library scan on the server.', 'Scan failed')
+  }
+})
+
+document.getElementById('s-refresh-local').addEventListener('click', async () => {
+  // Local cache invalidation only - works for any account, and unlike the
+  // server scan above this is immediately useful because it just re-reads
+  // whatever the server already has.
+  invalidateLibraryViews()
+  invalidateVideoViews()
+  showView(_currentView)   // reloads whichever grid is currently on screen, if any
+  await loadHome()         // Home's shelves aren't covered by either invalidate above
+  showToast('Refreshed from what the server has now')
+})
 
 let _musicLibs        = []     // the server's music libraries, cached so a mode flip needn't refetch
 let _movieLibs        = []     // movies libraries, same caching reason
@@ -840,6 +906,135 @@ async function dismissVideoIntro() {
 
 document.getElementById('vi-done').addEventListener('click', dismissVideoIntro)
 document.getElementById('vi-skip').addEventListener('click', dismissVideoIntro)
+
+// ── First-run wizard ─────────────────────────────────────────────────────────
+//
+// Shown once, right after the very first successful *interactive* sign-in -
+// called from the setup-connect and setup-quickconnect handlers below, never
+// from connect() itself, so a silent reconnect from a stored token (every
+// ordinary app launch, and an existing install upgrading to this build) never
+// triggers it. Gated on firstRunWizardSeen, which is set the moment it is
+// finished or skipped, so signing out and back in as the same account goes
+// through the same handlers but the flag is already set by then - same shape
+// as videoIntroSeen above, just checked at a different call site.
+//
+// Every control writes through the exact function Settings itself calls
+// (applyLibrarySelection, applyVideoLibrarySelection via renderVideoLibraryGroups,
+// setCrossfadeEnabled, setCrossfadeSeconds, setMaxStreamingBitrate, setThemeMode,
+// setAlbumArtAccent) - there is nothing here that persists a setting on its own.
+
+const FIRSTRUN_STEPS = ['libraries', 'crossfade', 'quality', 'theme']
+let _firstRunSteps = []
+let _firstRunIdx = 0
+
+/** The library step is only worth a screen when there is an actual choice -
+ *  same rule maybeShowVideoIntro() uses for the categories it covers. */
+function _firstRunNeedsLibraryStep() {
+  return _musicLibs.length > 1 || _movieLibs.length > 1 || _showLibs.length > 1
+}
+
+/** Call before connect() from an interactive sign-in handler, never from a
+ *  silent stored-token reconnect. Returns whether the wizard should run once
+ *  connect() finishes, and pre-empts the older video intro when it does -
+ *  the wizard's own library step already covers the same ground, so showing
+ *  both back to back would just be two library pickers in a row. */
+async function _prepareFirstRun() {
+  const isFirstRun = !(await window.cascade.store.get('firstRunWizardSeen'))
+  if (isFirstRun) await window.cascade.store.set('videoIntroSeen', true)
+  return isFirstRun
+}
+
+async function maybeShowFirstRunWizard() {
+  if (await window.cascade.store.get('firstRunWizardSeen')) return
+
+  _firstRunSteps = FIRSTRUN_STEPS.filter(s => s !== 'libraries' || _firstRunNeedsLibraryStep())
+  _firstRunIdx = 0
+  _renderFirstRunStep()
+  document.getElementById('firstrun-overlay').classList.remove('hidden')
+}
+
+/** applyLibrarySelection(ids) refuses an empty selection by re-rendering
+ *  Settings' own picker (#s-library-list) to snap back to what is actually
+ *  selected - that does nothing for the wizard's own checkboxes, which live
+ *  in a different container. Re-rendering this list after every change keeps
+ *  it reflecting jf.libraryIds either way, including that snap-back. */
+function _frRenderMusicList() {
+  renderVideoLibraryRows(document.getElementById('fr-music-list'), _musicLibs, jf.libraryIds || [], async ids => {
+    await applyLibrarySelection(ids)
+    _frRenderMusicList()
+  })
+}
+
+function _renderFirstRunStep() {
+  const step = _firstRunSteps[_firstRunIdx]
+  FIRSTRUN_STEPS.forEach(s => { document.getElementById(`fr-step-${s}`).style.display = s === step ? '' : 'none' })
+  document.getElementById('fr-progress').textContent = `Step ${_firstRunIdx + 1} of ${_firstRunSteps.length}`
+  document.getElementById('fr-next').textContent = _firstRunIdx === _firstRunSteps.length - 1 ? 'Done' : 'Next'
+
+  if (step === 'libraries') {
+    if (_musicLibs.length > 1) _frRenderMusicList()
+    else document.getElementById('fr-music-list').innerHTML = ''
+    renderVideoLibraryGroups(document.getElementById('fr-video-list'))
+  } else if (step === 'crossfade') {
+    document.getElementById('fr-crossfade-toggle').checked = crossfadeEnabled
+    document.getElementById('fr-crossfade-duration-row').style.display = crossfadeEnabled ? '' : 'none'
+    document.getElementById('fr-crossfade-duration').value = String(crossfadeSeconds)
+    document.getElementById('fr-crossfade-duration-value').textContent = `${crossfadeSeconds}s`
+  } else if (step === 'quality') {
+    const i = Math.max(0, MAX_BITRATE_STEPS.findIndex(s => s.value === maxStreamingBitrate))
+    document.getElementById('fr-max-bitrate').value = String(i)
+    document.getElementById('fr-max-bitrate-value').textContent = MAX_BITRATE_STEPS[i].label
+  } else if (step === 'theme') {
+    const light = document.documentElement.getAttribute('data-theme') === 'light'
+    document.getElementById('fr-seg-dark').classList.toggle('active', !light)
+    document.getElementById('fr-seg-light').classList.toggle('active', light)
+    document.getElementById('fr-toggle-album-art').checked = themeAlbumArt
+  }
+}
+
+async function _finishFirstRunWizard() {
+  await window.cascade.store.set('firstRunWizardSeen', true)
+  document.getElementById('firstrun-overlay').classList.add('hidden')
+}
+
+document.getElementById('fr-next').addEventListener('click', () => {
+  if (_firstRunIdx < _firstRunSteps.length - 1) { _firstRunIdx++; _renderFirstRunStep() }
+  else _finishFirstRunWizard()
+})
+// Skippable at any point, not just from the last step - whatever was already
+// changed on an earlier step already went through its real setter above and
+// stays changed; whatever step was never reached just keeps today's default.
+document.getElementById('fr-skip').addEventListener('click', _finishFirstRunWizard)
+
+document.getElementById('fr-crossfade-toggle').addEventListener('change', async e => {
+  document.getElementById('fr-crossfade-duration-row').style.display = e.target.checked ? '' : 'none'
+  await setCrossfadeEnabled(e.target.checked)
+})
+document.getElementById('fr-crossfade-duration').addEventListener('input', e => {
+  document.getElementById('fr-crossfade-duration-value').textContent = `${e.target.value}s`
+})
+document.getElementById('fr-crossfade-duration').addEventListener('change', async e => {
+  await setCrossfadeSeconds(parseInt(e.target.value, 10))
+})
+
+document.getElementById('fr-max-bitrate').addEventListener('input', e => {
+  document.getElementById('fr-max-bitrate-value').textContent = MAX_BITRATE_STEPS[Number(e.target.value)].label
+})
+document.getElementById('fr-max-bitrate').addEventListener('change', async e => {
+  await setMaxStreamingBitrate(MAX_BITRATE_STEPS[Number(e.target.value)].value)
+})
+
+document.getElementById('fr-seg-dark').addEventListener('click', () => {
+  setThemeMode('dark'); saveTheme()
+  document.getElementById('fr-seg-dark').classList.add('active')
+  document.getElementById('fr-seg-light').classList.remove('active')
+})
+document.getElementById('fr-seg-light').addEventListener('click', () => {
+  setThemeMode('light'); saveTheme()
+  document.getElementById('fr-seg-light').classList.add('active')
+  document.getElementById('fr-seg-dark').classList.remove('active')
+})
+document.getElementById('fr-toggle-album-art').addEventListener('change', e => setAlbumArtAccent(e.target.checked))
 
 /** `category` is 'movie' or 'show' - the two hardcoded video categories. */
 async function applyVideoLibrarySelection(category, ids) {
@@ -3575,16 +3770,14 @@ async function loadSettingsFields() {
   crossfadeDurationSlider.value = String(crossfadeSeconds)
   crossfadeDurationValue.textContent = `${crossfadeDurationSlider.value}s`
   crossfadeToggle.onchange = async () => {
-    crossfadeEnabled = crossfadeToggle.checked
-    crossfadeDurationRow.style.display = crossfadeEnabled ? '' : 'none'
-    await window.cascade.store.set('crossfadeEnabled', crossfadeEnabled)
+    crossfadeDurationRow.style.display = crossfadeToggle.checked ? '' : 'none'
+    await setCrossfadeEnabled(crossfadeToggle.checked)
   }
   crossfadeDurationSlider.oninput = () => {
     crossfadeDurationValue.textContent = `${crossfadeDurationSlider.value}s`
   }
   crossfadeDurationSlider.onchange = async () => {
-    crossfadeSeconds = parseInt(crossfadeDurationSlider.value, 10)
-    await window.cascade.store.set('crossfadeSeconds', crossfadeSeconds)
+    await setCrossfadeSeconds(parseInt(crossfadeDurationSlider.value, 10))
   }
 
   // Streaming quality. Takes effect on the next track - the current stream URL
@@ -3602,8 +3795,7 @@ async function loadSettingsFields() {
     maxBitrateValue.textContent = MAX_BITRATE_STEPS[Number(maxBitrateSlider.value)].label
   }
   maxBitrateSlider.onchange = async () => {
-    maxStreamingBitrate = MAX_BITRATE_STEPS[Number(maxBitrateSlider.value)].value
-    await window.cascade.store.set('maxStreamingBitrate', maxStreamingBitrate)
+    await setMaxStreamingBitrate(MAX_BITRATE_STEPS[Number(maxBitrateSlider.value)].value)
   }
 
   // Waterfall relay. Blank means the default, so clearing the box is the reset.
@@ -3803,6 +3995,8 @@ document.getElementById('btn-logout').addEventListener('click', async () => {
                        // and the current encoding, clears Discord presence
   invalidateLibraryViews()
   invalidateVideoViews()
+  jf.isAdmin = false  // a stale admin flag must not survive into the next account
+  _applyAdminGating()
   showView('home')
 
   await window.cascade.store.delete('token')
@@ -3900,6 +4094,7 @@ document.getElementById('setup-quickconnect').addEventListener('click', async ()
 
     try {
       const auth = await CascadeCore.quickConnectAuthenticate(url, start.Secret, appVersion, deviceId)
+      const isFirstRun = await _prepareFirstRun()
       await window.cascade.store.set('serverUrl', url)
       await window.cascade.store.set('token', auth.AccessToken)
       await window.cascade.store.set('userId', auth.User.Id)
@@ -3915,6 +4110,7 @@ document.getElementById('setup-quickconnect').addEventListener('click', async ()
       document.getElementById('setup-qc').style.display = 'none'
       document.getElementById('setup-overlay').classList.add('hidden')
       await connect(url, auth.AccessToken, auth.User.Id)
+      if (isFirstRun) await maybeShowFirstRunWizard()
     } catch {
       err.textContent = 'Approved, but signing in failed. Try again.'
       endQuickConnect()
@@ -3938,6 +4134,7 @@ document.getElementById('setup-connect').addEventListener('click', async () => {
 
   try {
     const auth = await jfAuth(url, user, pass)
+    const isFirstRun = await _prepareFirstRun()
     await window.cascade.store.set('serverUrl', url)
     await window.cascade.store.set('username', user)
     await window.cascade.store.set('password', pass)
@@ -3946,6 +4143,7 @@ document.getElementById('setup-connect').addEventListener('click', async () => {
 
     document.getElementById('setup-overlay').classList.add('hidden')
     await connect(url, auth.AccessToken, auth.User.Id)
+    if (isFirstRun) await maybeShowFirstRunWizard()
   } catch (e) {
     const msg = e.message || ''
     if (msg.includes('401') || msg.toLowerCase().includes('unauthorized'))
@@ -6823,8 +7021,12 @@ document.getElementById('grad-end').addEventListener('input', () => {
   saveTheme()
 })
 
-document.getElementById('toggle-album-art').addEventListener('change', (e) => {
-  themeAlbumArt = e.target.checked
+/** The one code path for turning album art accent on/off - the theme popover's
+ *  toggle and the first-run wizard both call this instead of duplicating the
+ *  immediate-apply/restore logic. */
+function setAlbumArtAccent(enabled) {
+  themeAlbumArt = enabled
+  document.getElementById('toggle-album-art').checked = enabled
   updateAccentLock()
   // The same switch drives ambient mode during a film - see refreshAmbient().
   refreshAmbient()
@@ -6838,6 +7040,10 @@ document.getElementById('toggle-album-art').addEventListener('change', (e) => {
     applyGradient(document.getElementById('grad-start').value, document.getElementById('grad-end').value)
   }
   saveTheme()
+}
+
+document.getElementById('toggle-album-art').addEventListener('change', (e) => {
+  setAlbumArtAccent(e.target.checked)
 })
 
 // ── Utility ───────────────────────────────────────────────────────────────────
