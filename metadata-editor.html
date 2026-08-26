@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Edit Metadata</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #111113;
+  color: #e8e8e9;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-size: 13px;
+}
+
+.track-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  background: #161618;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  flex-shrink: 0;
+}
+.track-art {
+  width: 44px;
+  height: 44px;
+  border-radius: 5px;
+  object-fit: cover;
+  background: #2a2a2c;
+  flex-shrink: 0;
+}
+.track-info { flex: 1; min-width: 0; }
+.track-name { font-size: 14px; font-weight: 600; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.track-sub  { font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.form-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px;
+}
+
+.field-row { margin-bottom: 16px; }
+.field-row.pair { display: flex; gap: 14px; }
+.field-row.pair > div { flex: 1; }
+
+label {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.4);
+  margin-bottom: 6px;
+}
+label .hint { text-transform: none; font-weight: 400; letter-spacing: 0; color: rgba(255,255,255,0.25); }
+
+input[type="text"], input[type="number"] {
+  width: 100%;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px;
+  color: #e8e8e9;
+  font-size: 13px;
+  font-family: inherit;
+  padding: 8px 10px;
+}
+input:focus { outline: none; border-color: rgba(110,79,246,0.6); }
+
+.load-status, .save-status { font-size: 11px; padding: 0 18px; }
+.load-status { color: rgba(255,255,255,0.4); }
+.save-status.ok  { color: #4caf82; }
+.save-status.err { color: #e05a5a; }
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 18px;
+  background: #161618;
+  border-top: 1px solid rgba(255,255,255,0.07);
+  flex-shrink: 0;
+}
+.save-status { flex: 1; text-align: left; }
+
+.btn {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.7);
+  border-radius: 6px;
+  padding: 7px 14px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.btn:hover { background: rgba(255,255,255,0.12); color: #fff; }
+
+.btn-primary {
+  background: #6e4ff6;
+  border: 1px solid rgba(110,79,246,0.5);
+  color: #fff;
+  border-radius: 6px;
+  padding: 7px 16px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.btn-primary:hover { background: #7c61f7; }
+.btn-primary:disabled { opacity: 0.45; cursor: default; }
+
+.admin-notice {
+  margin: 18px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: rgba(220,50,50,0.08);
+  border: 1px solid rgba(220,50,50,0.2);
+  color: rgba(255,190,190,0.9);
+  font-size: 12px;
+  display: none;
+}
+.admin-notice.visible { display: block; }
+</style>
+</head>
+<body>
+
+<div class="track-header">
+  <img class="track-art" id="track-art" src="" alt="">
+  <div class="track-info">
+    <div class="track-name" id="track-name">Loading…</div>
+    <div class="track-sub" id="track-sub"></div>
+  </div>
+</div>
+
+<div class="admin-notice" id="admin-notice">
+  This Jellyfin account is not an administrator. Metadata edits require
+  <code>POST /Items/{id}</code>, which the server restricts to admins - saving
+  here will be refused.
+</div>
+
+<div class="load-status" id="load-status">Loading item…</div>
+
+<div class="form-area" id="form-area" style="display:none">
+  <div class="field-row">
+    <label for="f-name">Name</label>
+    <input type="text" id="f-name">
+  </div>
+  <div class="field-row pair">
+    <div>
+      <label for="f-album">Album</label>
+      <input type="text" id="f-album">
+    </div>
+    <div>
+      <label for="f-album-artist">Album artist</label>
+      <input type="text" id="f-album-artist">
+    </div>
+  </div>
+  <div class="field-row">
+    <label for="f-artists">Artists <span class="hint">(comma-separated)</span></label>
+    <input type="text" id="f-artists">
+  </div>
+  <div class="field-row">
+    <label for="f-genres">Genres <span class="hint">(comma-separated)</span></label>
+    <input type="text" id="f-genres">
+  </div>
+  <div class="field-row pair">
+    <div>
+      <label for="f-year">Year</label>
+      <input type="number" id="f-year" step="1">
+    </div>
+    <div>
+      <label for="f-track">Track #</label>
+      <input type="number" id="f-track" step="1" min="0">
+    </div>
+    <div>
+      <label for="f-disc">Disc #</label>
+      <input type="number" id="f-disc" step="1" min="0">
+    </div>
+  </div>
+</div>
+
+<div class="actions">
+  <span class="save-status" id="save-status"></span>
+  <button class="btn" id="btn-cancel">Cancel</button>
+  <button class="btn-primary" id="btn-save" disabled>Save to Jellyfin</button>
+</div>
+
+<script>
+// Modeled on lyrics-editor.html: its own window, its own preload, fetch the
+// full item first and send the whole thing back modified - a partial body
+// blanks the fields the form does not show (see CODEMAP's server facts).
+//
+// POST /Items/{id} is RequiresElevation (admin only, verified against the
+// live server). The context menu entry that opens this window is already
+// gated on jf.isAdmin (same .needs-admin treatment as Refresh metadata), and
+// this is the second gate - a disabled-looking menu item can still be
+// clicked programmatically, so the save button (and the handler behind it)
+// checks isAdmin again rather than trusting that the menu was really
+// disabled. The server would refuse the POST either way, but there is no
+// reason to let a non-admin get that far only to hit a 403.
+
+let editorItem = null   // the FULL item fetched from the server
+let editorJf   = null   // { url, token, userId, isAdmin }
+
+function fieldsToArray(str) {
+  return str.split(',').map(s => s.trim()).filter(Boolean)
+}
+
+function markDirty() {
+  if (editorJf && editorJf.isAdmin) document.getElementById('btn-save').disabled = false
+}
+
+window.metadataEditor.onInit(async ({ item, jf }) => {
+  editorJf = jf
+  document.getElementById('admin-notice').classList.toggle('visible', !jf.isAdmin)
+
+  document.getElementById('track-name').textContent = item.Name || 'Unknown item'
+  document.getElementById('track-sub').textContent = [item.AlbumArtist || (item.Artists && item.Artists[0]) || '', item.Album || ''].filter(Boolean).join(' - ')
+  const art = document.getElementById('track-art')
+  art.src = `${jf.url}/Items/${item.Id}/Images/Primary?api_key=${jf.token}&width=88&quality=90`
+  art.onerror = () => { art.style.visibility = 'hidden' }
+
+  const status = document.getElementById('load-status')
+  try {
+    // Fetch the full item - the row/queue object this window was opened with
+    // may be a stripped-down DTO missing fields a partial save would blank.
+    const r = await fetch(`${jf.url}/Items/${item.Id}`, { headers: { 'X-Emby-Token': jf.token } })
+    if (!r.ok) throw new Error(`HTTP ${r.status}`)
+    editorItem = await r.json()
+
+    document.getElementById('f-name').value        = editorItem.Name || ''
+    document.getElementById('f-album').value       = editorItem.Album || ''
+    document.getElementById('f-album-artist').value = editorItem.AlbumArtist || ''
+    document.getElementById('f-artists').value     = (editorItem.Artists || []).join(', ')
+    document.getElementById('f-genres').value      = (editorItem.Genres || []).join(', ')
+    document.getElementById('f-year').value        = editorItem.ProductionYear ?? ''
+    document.getElementById('f-track').value       = editorItem.IndexNumber ?? ''
+    document.getElementById('f-disc').value        = editorItem.ParentIndexNumber ?? ''
+
+    status.style.display = 'none'
+    document.getElementById('form-area').style.display = ''
+    document.querySelectorAll('#form-area input').forEach(el => el.addEventListener('input', markDirty))
+    if (jf.isAdmin) document.getElementById('btn-save').disabled = false
+  } catch (err) {
+    console.error('[MetadataEditor] Load error:', err)
+    status.textContent = `Could not load this item: ${err.message}`
+  }
+})
+
+document.getElementById('btn-cancel').addEventListener('click', () => window.metadataEditor.close())
+
+document.getElementById('btn-save').addEventListener('click', async () => {
+  if (!editorItem || !editorJf) return
+  // Second gate, not the only one - see the note above the script.
+  if (!editorJf.isAdmin) return
+
+  const btn    = document.getElementById('btn-save')
+  const status = document.getElementById('save-status')
+  btn.disabled = true
+  const prevLabel = btn.textContent
+  btn.textContent = 'Saving…'
+  status.className = 'save-status'
+  status.textContent = ''
+
+  // The full fetched item, modified - never a partial body, or every field
+  // this form does not show gets blanked on save.
+  const updated = {
+    ...editorItem,
+    Name:              document.getElementById('f-name').value.trim() || editorItem.Name,
+    Album:             document.getElementById('f-album').value.trim(),
+    AlbumArtist:       document.getElementById('f-album-artist').value.trim(),
+    Artists:           fieldsToArray(document.getElementById('f-artists').value),
+    Genres:            fieldsToArray(document.getElementById('f-genres').value),
+    ProductionYear:    document.getElementById('f-year').value  === '' ? null : parseInt(document.getElementById('f-year').value, 10),
+    IndexNumber:       document.getElementById('f-track').value === '' ? null : parseInt(document.getElementById('f-track').value, 10),
+    ParentIndexNumber: document.getElementById('f-disc').value  === '' ? null : parseInt(document.getElementById('f-disc').value, 10),
+  }
+
+  try {
+    const r = await fetch(`${editorJf.url}/Items/${editorItem.Id}`, {
+      method: 'POST',
+      headers: { 'X-Emby-Token': editorJf.token, 'Content-Type': 'application/json' },
+      body: JSON.stringify(updated),
+    })
+    if (!r.ok) throw new Error(`HTTP ${r.status}`)
+
+    editorItem = updated
+    window.metadataEditor.saved(editorItem.Id)
+
+    status.className = 'save-status ok'
+    status.textContent = 'Saved ✓'
+    setTimeout(() => { status.textContent = '' }, 3000)
+  } catch (err) {
+    console.error('[MetadataEditor] Save error:', err)
+    status.className = 'save-status err'
+    status.textContent = `Failed: ${err.message}`
+  } finally {
+    btn.textContent = prevLabel
+    btn.disabled = false
+  }
+})
+</script>
+</body>
+</html>

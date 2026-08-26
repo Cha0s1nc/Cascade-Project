@@ -113,6 +113,31 @@ export interface DesktopCapabilities {
     open(data: unknown): void
     onSaved(cb: (itemId: string) => void): void
   }
+
+  metadataEditor?: {
+    open(data: unknown): void
+    onSaved(cb: (itemId: string) => void): void
+  }
+
+  /**
+   * The miniplayer is a remote control view, not a second player - it mirrors
+   * playback state over IPC rather than loading its own media element. See
+   * CODEMAP.md on why: the two <video> decks and the Web Audio graph they
+   * feed live only in the main window, and a second BrowserWindow with its
+   * own media element would mean a fresh Jellyfin stream negotiation and
+   * every track restarting.
+   */
+  miniPlayer?: {
+    /** Opens the miniplayer window (creating it if needed) and minimizes the
+     *  main window, mirroring Spotify/Apple Music's compact mode. */
+    open(): void
+    /** Pushes a state snapshot to the miniplayer window, if one is open. */
+    updateState(state: unknown): void
+    /** A control button in the miniplayer window was pressed. Restoring the
+     *  main window on a click there is handled entirely in the main process
+     *  (BrowserWindow.restore()) - nothing for this window to do. */
+    onControl(cb: (action: string) => void): void
+  }
 }
 
 /**
@@ -135,4 +160,6 @@ export interface ElectronPlatform extends Platform, DesktopCapabilities {
   discord: NonNullable<DesktopCapabilities['discord']>
   kugouGetLyrics: NonNullable<DesktopCapabilities['kugouGetLyrics']>
   lyricsEditor: NonNullable<DesktopCapabilities['lyricsEditor']>
+  metadataEditor: NonNullable<DesktopCapabilities['metadataEditor']>
+  miniPlayer: NonNullable<DesktopCapabilities['miniPlayer']>
 }

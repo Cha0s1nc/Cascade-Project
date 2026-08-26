@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Cascade</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #111113;
+  color: #e8e8e9;
+  -webkit-user-select: none;
+  user-select: none;
+  /* The whole window is the restore target, so the whole window drags -
+     buttons opt back out with no-drag below. */
+  -webkit-app-region: drag;
+  cursor: pointer;
+}
+
+.wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 100%;
+  padding: 10px;
+}
+
+.art {
+  width: 64px;
+  height: 64px;
+  border-radius: 6px;
+  background: #2a2a2c;
+  flex-shrink: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  color: rgba(255,255,255,0.25);
+}
+.art img { width: 100%; height: 100%; object-fit: cover; }
+
+.info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.artist {
+  font-size: 11px;
+  color: rgba(255,255,255,0.45);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.prog-bar {
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255,255,255,0.12);
+  overflow: hidden;
+}
+.prog-fill {
+  height: 100%;
+  width: 0%;
+  background: rgba(255,255,255,0.8);
+  border-radius: 2px;
+  transition: width 0.2s linear;
+}
+@media (prefers-reduced-motion: reduce) {
+  .prog-fill { transition: none; }
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+
+.ctrl-btn {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.75);
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s, color 0.12s;
+}
+.ctrl-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+.ctrl-btn.play { width: 32px; height: 32px; }
+
+.empty {
+  font-size: 12px;
+  color: rgba(255,255,255,0.35);
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="art" id="art">♪</div>
+  <div class="info">
+    <div class="title" id="title">Nothing playing</div>
+    <div class="artist" id="artist"></div>
+    <div class="prog-bar"><div class="prog-fill" id="prog-fill"></div></div>
+  </div>
+  <div class="controls">
+    <button class="ctrl-btn" id="btn-prev" title="Previous">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg>
+    </button>
+    <button class="ctrl-btn play" id="btn-playpause" title="Play/Pause">
+      <svg id="icon-play" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      <svg id="icon-pause" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="display:none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+    </button>
+    <button class="ctrl-btn" id="btn-next" title="Next">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+    </button>
+  </div>
+</div>
+
+<script>
+// Every control here forwards to the main window's own existing button
+// handlers over IPC (see onControl in renderer.js) - this window never
+// touches playback itself. See CODEMAP.md: the two <video> decks and the Web
+// Audio graph they feed only exist in the main window.
+
+function fmtSec(s) {
+  s = Math.max(0, Math.floor(s || 0))
+  const m = Math.floor(s / 60)
+  const sec = String(s % 60).padStart(2, '0')
+  return `${m}:${sec}`
+}
+
+window.miniPlayer.onState((state) => {
+  if (!state || !state.itemId) {
+    document.getElementById('title').textContent = 'Nothing playing'
+    document.getElementById('artist').textContent = ''
+    document.getElementById('art').innerHTML = '♪'
+    document.getElementById('prog-fill').style.width = '0%'
+    return
+  }
+
+  document.getElementById('title').textContent = state.title || ''
+  document.getElementById('artist').textContent = state.subtitle || ''
+  document.getElementById('prog-fill').style.width = `${state.progressPct || 0}%`
+
+  const art = document.getElementById('art')
+  if (state.artUrl) {
+    if (art.dataset.src !== state.artUrl) {
+      art.dataset.src = state.artUrl
+      art.innerHTML = `<img src="${state.artUrl}" alt="" onerror="this.parentElement.innerHTML='♪'">`
+    }
+  } else {
+    art.dataset.src = ''
+    art.innerHTML = '♪'
+  }
+
+  document.getElementById('icon-play').style.display  = state.isPlaying ? 'none' : ''
+  document.getElementById('icon-pause').style.display = state.isPlaying ? '' : 'none'
+})
+
+document.getElementById('btn-playpause').addEventListener('click', (e) => {
+  e.stopPropagation()
+  window.miniPlayer.control('playpause')
+})
+document.getElementById('btn-prev').addEventListener('click', (e) => {
+  e.stopPropagation()
+  window.miniPlayer.control('prev')
+})
+document.getElementById('btn-next').addEventListener('click', (e) => {
+  e.stopPropagation()
+  window.miniPlayer.control('next')
+})
+
+// Anywhere else in the window restores the main window, same as clicking a
+// Spotify/Apple Music miniplayer does.
+document.body.addEventListener('click', () => window.miniPlayer.restore())
+</script>
+</body>
+</html>

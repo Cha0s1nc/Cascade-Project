@@ -239,6 +239,8 @@ function storedThemeMode() {
 let win
 let updaterWindow     = null
 let lyricsEditorWindow = null
+let metadataEditorWindow = null
+let miniPlayerWindow  = null
 let pendingDownload   = null
 
 function createWindow() {
@@ -515,6 +517,103 @@ ipcMain.on('lyrics-editor-saved', (_e, itemId) => {
 
 ipcMain.on('lyrics-editor-close', () => {
   if (lyricsEditorWindow && !lyricsEditorWindow.isDestroyed()) lyricsEditorWindow.close()
+})
+
+// ── Metadata editor window ─────────────────────────────────────────────────────
+// Same shape as the lyrics editor above: its own small window, its own preload,
+// its own save-then-tell-the-main-window-to-drop-its-cache handshake. Gating on
+// jf.isAdmin happens in renderer.js before this ever fires - POST /Items/{id}
+// is RequiresElevation on the server, so a non-admin call would just 403, but
+// there is no reason to let it get that far.
+
+ipcMain.on('open-metadata-editor', (_e, data) => {
+  if (metadataEditorWindow && !metadataEditorWindow.isDestroyed()) {
+    metadataEditorWindow.focus()
+    metadataEditorWindow.webContents.send('metadata-editor-init', data)
+    return
+  }
+  // Unlike the lyrics editor, this window keeps the OS's own title bar rather
+  // than drawing a custom one: titleBarStyle:'hiddenInset' is macOS-only and
+  // silently ignored elsewhere, which is how a hand-rolled titlebar strip ends
+  // up stacked under the OS's own default one on Windows/Linux. A plain framed
+  // window sidesteps that entirely - nothing to guard per platform.
+  metadataEditorWindow = new BrowserWindow({
+    width: 640, height: 620, minWidth: 520, minHeight: 480,
+    title: 'Edit Metadata', backgroundColor: '#111113',
+    autoHideMenuBar: true, resizable: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'metadata-editor-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+    show: false,
+  })
+  metadataEditorWindow.loadFile('metadata-editor.html')
+  // Same show:false + ready-to-show pattern as the lyrics editor, for the same
+  // reason - ready-to-show alone can simply never fire on Windows.
+  showWhenReady(metadataEditorWindow, () => {
+    metadataEditorWindow.webContents.send('metadata-editor-init', data)
+  })
+  metadataEditorWindow.webContents.on('before-input-event', (_e, input) => {
+    if (input.type === 'keyDown' && input.key === 'F12') metadataEditorWindow.webContents.toggleDevTools()
+  })
+  metadataEditorWindow.on('closed', () => { metadataEditorWindow = null })
+})
+
+ipcMain.on('metadata-editor-saved', (_e, itemId) => {
+  if (win && !win.isDestroyed()) win.webContents.send('metadata-saved', itemId)
+})
+
+ipcMain.on('metadata-editor-close', () => {
+  if (metadataEditorWindow && !metadataEditorWindow.isDestroyed()) metadataEditorWindow.close()
+})
+
+// ── Miniplayer window ──────────────────────────────────────────────────────────
+// A remote control view, not a second player - see CODEMAP.md. Playback keeps
+// running in the main window's two <video> decks; this window only mirrors a
+// state snapshot and sends back play/pause/prev/next, which the main window
+// applies through its own existing button handlers (see onControl in
+// renderer.js) rather than any new playback code living here.
+
+ipcMain.on('open-miniplayer', () => {
+  if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) {
+    miniPlayerWindow.focus()
+  } else {
+    miniPlayerWindow = new BrowserWindow({
+      width: 300, height: 120, minWidth: 260, minHeight: 100, maxHeight: 200,
+      title: 'Cascade', backgroundColor: '#111113',
+      frame: false, resizable: true, alwaysOnTop: true, skipTaskbar: true,
+      autoHideMenuBar: true,
+      webPreferences: {
+        preload: path.join(__dirname, 'miniplayer-preload.js'),
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
+      show: false,
+    })
+    miniPlayerWindow.loadFile('miniplayer.html')
+    // Same show:false + ready-to-show pattern as every other secondary window -
+    // ready-to-show alone can simply never fire on Windows.
+    showWhenReady(miniPlayerWindow)
+    miniPlayerWindow.on('closed', () => { miniPlayerWindow = null })
+  }
+  // Compact-mode convention (Spotify/Apple Music): the miniplayer stands in for
+  // the main window rather than sitting alongside it. minimize(), not hide() -
+  // this app has no tray icon, so hide() would leave no way back to it.
+  if (win && !win.isDestroyed()) win.minimize()
+})
+
+ipcMain.on('miniplayer-state', (_e, state) => {
+  if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) miniPlayerWindow.webContents.send('miniplayer-state', state)
+})
+
+ipcMain.on('miniplayer-control', (_e, action) => {
+  if (win && !win.isDestroyed()) win.webContents.send('miniplayer-control', action)
+})
+
+ipcMain.on('miniplayer-restore', () => {
+  if (win && !win.isDestroyed()) { win.restore(); win.focus() }
+  if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) miniPlayerWindow.close()
 })
 
 // ── GitHub release check ───────────────────────────────────────────────────────
