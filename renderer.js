@@ -7492,6 +7492,108 @@ function initDebugPanel() {
   setInterval(render, 1000)
 }
 
-window.cascade.isDebugMode().then(on => { if (on) initDebugPanel() })
+// ── Light-mode blob tuning (debug only) ─────────────────────────────────────
+// Live knobs for the now-playing overlay's light-theme blobs and scrims, so
+// tuning "washed out" is a slider drag instead of a rebuild-and-squint loop.
+// Two different plumbing paths, both live with no rebuild:
+//   - blob alpha/lightness: CascadeCore.lightTuning, a mutable runtime copy of
+//     album-colors.ts's LIGHT_ALPHA_SCALE/MIN_L_LIGHT/MAX_L_LIGHT constants.
+//     The alpha scale is read every drift frame, so it updates within a beat.
+//     Lightness only applies at extraction, so its slider forces a reapply.
+//   - scrims and blend mode: CSS custom properties (--np-blend, --np-scrim-*)
+//     that index.html's light-theme rules already read with a fallback equal
+//     to the shipped value - setting them here overrides nothing when this
+//     panel does not exist.
+function _debugReapplyBlobs() {
+  if (!themeAlbumArt) return
+  const img = document.querySelector('#ov-art img') || document.querySelector('#np-art img')
+  if (img?.complete) applyAlbumArtTheme(img)
+}
+
+function initLightTuningPanel() {
+  const root = document.documentElement
+  const cssVar = (name, fallback) =>
+    parseFloat(getComputedStyle(root).getPropertyValue(name)) || fallback
+
+  const defs = [
+    { key: 'alphaScale', label: 'Blob alpha scale', min: 0, max: 1, step: 0.01,
+      get: () => CascadeCore.lightTuning.alphaScale,
+      set: v => { CascadeCore.lightTuning.alphaScale = v } },
+    { key: 'minL', label: 'Blob min lightness', min: 0, max: 1, step: 0.01,
+      get: () => CascadeCore.lightTuning.minL,
+      set: v => { CascadeCore.lightTuning.minL = v; _debugReapplyBlobs() } },
+    { key: 'maxL', label: 'Blob max lightness', min: 0, max: 1, step: 0.01,
+      get: () => CascadeCore.lightTuning.maxL,
+      set: v => { CascadeCore.lightTuning.maxL = v; _debugReapplyBlobs() } },
+    { key: 'scrimLeft', label: 'Left scrim opacity', min: 0, max: 1, step: 0.01,
+      get: () => cssVar('--np-scrim-left', 0.35),
+      set: v => root.style.setProperty('--np-scrim-left', v) },
+    { key: 'scrimRight', label: 'Right scrim opacity', min: 0, max: 1, step: 0.01,
+      get: () => cssVar('--np-scrim-right', 0.16),
+      set: v => root.style.setProperty('--np-scrim-right', v) },
+    { key: 'scrimHeader', label: 'Header scrim opacity', min: 0, max: 1, step: 0.01,
+      get: () => cssVar('--np-scrim-header', 0.4),
+      set: v => root.style.setProperty('--np-scrim-header', v) },
+  ]
+
+  const panel = document.createElement('div')
+  panel.id = 'cascade-debug-light-tuning'
+  panel.style.cssText = 'position:fixed;right:8px;bottom:8px;z-index:9999;'
+    + 'width:270px;padding:8px 10px;border-radius:6px;background:rgba(0,0,0,0.82);'
+    + 'color:#7CFC7C;font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;user-select:text;'
+  panel.innerHTML = '<div style="margin-bottom:6px;opacity:0.7">Light-mode blob tuning (debug)</div>'
+
+  const rows = {}
+  for (const d of defs) {
+    const row = document.createElement('div')
+    row.style.cssText = 'display:flex;align-items:center;gap:6px;margin:4px 0;'
+    const label = document.createElement('span')
+    label.style.cssText = 'flex:1 1 auto;'
+    label.textContent = d.label
+    const input = document.createElement('input')
+    input.type = 'range'
+    input.min = String(d.min); input.max = String(d.max); input.step = String(d.step)
+    input.value = String(d.get())
+    input.style.cssText = 'flex:1 1 auto;width:90px;'
+    const val = document.createElement('span')
+    val.style.cssText = 'width:38px;text-align:right;'
+    val.textContent = Number(input.value).toFixed(2)
+    input.addEventListener('input', () => {
+      const v = parseFloat(input.value)
+      d.set(v)
+      val.textContent = v.toFixed(2)
+    })
+    row.append(label, input, val)
+    panel.appendChild(row)
+    rows[d.key] = input
+  }
+
+  const blendRow = document.createElement('label')
+  blendRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin:6px 0;cursor:pointer;'
+  const blendCheck = document.createElement('input')
+  blendCheck.type = 'checkbox'
+  blendCheck.checked = (getComputedStyle(root).getPropertyValue('--np-blend').trim() || 'multiply') !== 'normal'
+  blendCheck.addEventListener('change', () => {
+    root.style.setProperty('--np-blend', blendCheck.checked ? 'multiply' : 'normal')
+  })
+  blendRow.append(blendCheck, document.createTextNode('multiply blend mode'))
+  panel.appendChild(blendRow)
+
+  const copyBtn = document.createElement('button')
+  copyBtn.textContent = 'Copy current values'
+  copyBtn.style.cssText = 'margin-top:4px;width:100%;padding:4px;border-radius:4px;'
+    + 'border:1px solid #7CFC7C;background:transparent;color:#7CFC7C;cursor:pointer;font:inherit;'
+  copyBtn.addEventListener('click', () => {
+    const lines = defs.map(d => `${d.label} = ${parseFloat(rows[d.key].value).toFixed(2)}`)
+    lines.push(`multiply blend mode = ${blendCheck.checked}`)
+    window.cascade.clipboard.write(lines.join('\n'))
+    showToast('Tuning values copied')
+  })
+  panel.appendChild(copyBtn)
+
+  document.body.appendChild(panel)
+}
+
+window.cascade.isDebugMode().then(on => { if (on) { initDebugPanel(); initLightTuningPanel() } })
 
 init()

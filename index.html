@@ -956,10 +956,14 @@
        a deeper mix of the two colours instead of flattening toward white,
        which is what a "glow" blend (screen/lighten, the dark theme's implicit
        behaviour) would do here. */
-    html[data-theme="light"] .np-overlay.art-theme { background-blend-mode: multiply; }
-    html[data-theme="light"] .np-overlay.art-theme .np-overlay-left { background: rgba(255,255,255,0.35); }
-    html[data-theme="light"] .np-overlay.art-theme .np-overlay-right { background: rgba(255,255,255,0.16); }
-    html[data-theme="light"] .np-overlay.art-theme .np-overlay-header { background: rgba(255,255,255,0.4); border-bottom-color: rgba(0,0,0,0.08); }
+    /* The four custom properties below (--np-blend, --np-scrim-*) exist so the
+       debug panel's light-mode tuning sliders can override them live from JS -
+       see initLightTuningPanel() in renderer.js. Their fallback values are the
+       shipped defaults; nothing outside that debug panel ever sets them. */
+    html[data-theme="light"] .np-overlay.art-theme { background-blend-mode: var(--np-blend, multiply); }
+    html[data-theme="light"] .np-overlay.art-theme .np-overlay-left { background: rgba(255,255,255,var(--np-scrim-left, 0.35)); }
+    html[data-theme="light"] .np-overlay.art-theme .np-overlay-right { background: rgba(255,255,255,var(--np-scrim-right, 0.16)); }
+    html[data-theme="light"] .np-overlay.art-theme .np-overlay-header { background: rgba(255,255,255,var(--np-scrim-header, 0.4)); border-bottom-color: rgba(0,0,0,0.08); }
     html[data-theme="light"] .np-overlay.art-theme .np-overlay-track { color: #1c1c1e; }
     html[data-theme="light"] .np-overlay.art-theme .np-overlay-artist { color: rgba(28,28,30,0.7); }
     html[data-theme="light"] .np-overlay.art-theme .np-overlay-title { color: rgba(28,28,30,0.5); }

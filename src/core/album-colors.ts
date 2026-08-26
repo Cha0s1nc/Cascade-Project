@@ -238,6 +238,25 @@ const MIN_L_LIGHT = 0.68  // below this it reads as a dark, heavy stain on #f2f2
 const MAX_L_LIGHT = 0.93  // above this it disappears into the background
 const MIN_C = 0.06        // below this it reads as grey rather than as a colour
 
+// A blob at a dark-theme SLOTS alpha reads as a glow on the dark base, but the
+// same opacity on the light base's near-white is a heavy, solid-looking patch
+// - scaled down rather than given its own SLOTS table so the layout (position,
+// size, drift) stays identical between themes and only the weight changes.
+const LIGHT_ALPHA_SCALE = 0.55
+
+/**
+ * Runtime-mutable copy of the light-theme knobs above. The constants stay the
+ * shipped defaults; this is what the debug panel's sliders actually turn, so
+ * dragging one changes the next extraction with no rebuild. Nothing outside
+ * the debug panel writes to this - the normal path never mutates it, so it
+ * always equals the defaults it was seeded from.
+ */
+export const lightTuning = {
+  minL: MIN_L_LIGHT,
+  maxL: MAX_L_LIGHT,
+  alphaScale: LIGHT_ALPHA_SCALE,
+}
+
 /**
  * A cluster centre as a paintable blob colour.
  *
@@ -252,8 +271,8 @@ const MIN_C = 0.06        // below this it reads as grey rather than as a colour
  * light theme's near-white overlay, false (default) for the dark one.
  */
 function toBlobColor(c: Oklab, light = false): BlobColor {
-  const minL = light ? MIN_L_LIGHT : MIN_L
-  const maxL = light ? MAX_L_LIGHT : MAX_L
+  const minL = light ? lightTuning.minL : MIN_L
+  const maxL = light ? lightTuning.maxL : MAX_L
 
   let { L, a, b } = c
   L = Math.min(maxL, Math.max(minL, L))
@@ -316,21 +335,16 @@ const SLOTS = [
   { x: 12, y: 18, w: 58, h: 58, alpha: 0.55 },
 ] as const
 
-// A blob at SLOTS' own alpha reads as a glow on the dark base, but the same
-// opacity on the light base's near-white is a heavy, solid-looking patch -
-// scaled down rather than given its own SLOTS table so the layout (position,
-// size, drift) stays identical between themes and only the weight changes.
-const LIGHT_ALPHA_SCALE = 0.55
-
 /**
- * Where the blobs are at time `t` (seconds). Pure - same inputs, same output -
- * so a host can drive it from a clock, a test can drive it from a constant.
+ * Where the blobs are at time `t` (seconds). Pure given the current tuning -
+ * same inputs and same lightTuning, same output - so a host can drive it from
+ * a clock, a test can drive it from a constant.
  *
  * `light` scales blob opacity down for the light theme's base - see
- * LIGHT_ALPHA_SCALE.
+ * lightTuning.alphaScale (defaults to LIGHT_ALPHA_SCALE).
  */
 export function driftedBlobs(colors: BlobColor[], drift: DriftParams[], t: number, light = false): Blob[] {
-  const alphaScale = light ? LIGHT_ALPHA_SCALE : 1
+  const alphaScale = light ? lightTuning.alphaScale : 1
   return colors.map((color, i) => {
     const s = SLOTS[i] ?? SLOTS[2]
     const alpha = s.alpha * alphaScale
