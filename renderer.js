@@ -118,7 +118,7 @@ const {
   sortSongs, songSortValue, shuffleInPlace, shuffled, nextQueueIndex,
   resolveStream, universalStreamUrl, withStartTicks, stopActiveEncoding,
   buildElectronProfile, DEFAULT_MAX_BITRATE,
-  resumeTicks,
+  resumeTicks, neededAudioStreamIndex,
 } = CascadeCore
 
 // Passed as a getter, not as `jf` itself: connect() replaces the whole object,
@@ -274,6 +274,13 @@ let _currentHighResArtUrl = null
 const DEVICE_PROFILE = buildElectronProfile(t => {
   try { return audio.canPlayType(t) === 'probably' } catch { return false }
 })
+
+// Audio codecs this profile claims for a video container - what neededAudioStreamIndex()
+// checks a movie's default track against. See its doc comment in playback.ts: direct play
+// hands over every embedded audio stream, and Chromium decodes whichever one the file
+// itself flags as default, not whatever the server decided was "the" compatible one.
+const DECODABLE_VIDEO_AUDIO_CODECS =
+  (DEVICE_PROFILE.DirectPlayProfiles.find(p => p.Type === 'Video')?.AudioCodec || '').split(',')
 
 /** @type {(itemId: string, kind?: 'Audio' | 'Video', opts?: any) => Promise<any>} */
 const resolveTrackStream = (itemId, kind = 'Audio', opts = {}) =>
@@ -2303,10 +2310,16 @@ async function playCurrentTrack(opts = {}) {
     // encoded from that point, and asking for it after the fact would mean
     // throwing away everything already sent. Direct play ignores it here and
     // seeks locally below instead.
-    // A track choice belongs to the film you made it on, not to the player.
-    _audioStreamIndex = null
+    // A track choice belongs to the film you made it on, not to the player -
+    // EXCEPT when the file's own default audio track is not something this
+    // build can decode (a movie with TrueHD/DTS as track 0 and a compatible
+    // track further down, which direct play would still hand over as-is - see
+    // neededAudioStreamIndex()). Then forcing the index is the only way the
+    // server transcodes to a track we can actually hear.
+    _audioStreamIndex = video ? neededAudioStreamIndex(item.MediaStreams, DECODABLE_VIDEO_AUDIO_CODECS) : null
 
-    const resolved = await resolveTrackStream(item.Id, video ? 'Video' : 'Audio', { startTicks })
+    const resolved = await resolveTrackStream(item.Id, video ? 'Video' : 'Audio',
+      { startTicks, audioStreamIndex: _audioStreamIndex })
     if (queue[queueIndex]?.Id !== item.Id) return
 
     adoptResolvedStream(resolved)
