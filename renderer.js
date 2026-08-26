@@ -2032,7 +2032,10 @@ function renderPlaylistDetailItems(items, entryIds) {
   const extraKind = entryIds ? 'added' : (currentSmartKind === 'most-played' ? 'plays' : null)
   document.getElementById('playlist-detail').classList.toggle('has-extra-col', !!extraKind)
   const headExtra = document.getElementById('pl-head-extra')
-  headExtra.textContent = extraKind === 'plays' ? 'Plays' : extraKind === 'added' ? 'Added to server' : ''
+  // "Added (server)", not "Added": the distinction is the whole point of the
+  // column, since Jellyfin has no per-playlist add date and this one is the
+  // library date. The full explanation stays in the title below.
+  headExtra.textContent = extraKind === 'plays' ? 'Plays' : extraKind === 'added' ? 'Added (server)' : ''
   headExtra.title = extraKind === 'added'
     ? 'When this track was added to the Jellyfin server library, not when it was added to this playlist - Jellyfin does not expose a per-playlist add date.'
     : ''
