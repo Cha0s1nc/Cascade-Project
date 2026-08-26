@@ -2011,6 +2011,10 @@ function showPlaylistDetailShell(name) {
   exitPlEditMode(true) // reset edit-mode UI left over from whatever was open before
   document.getElementById('pl-detail-name').textContent = name
   document.getElementById('pl-detail-meta').innerHTML = '<span class="skel skel-text" style="display:inline-block;width:70px"></span>'
+  // has-extra-col decides the row's grid columns and is only set once the items
+  // resolve, so leaving the previous playlist's value on would lay the skeleton
+  // out for a column this one may not have.
+  detail.classList.remove('has-extra-col')
   document.getElementById('pl-detail-rows').innerHTML = skeletonHTML('track', 6)
 }
 
@@ -2588,6 +2592,10 @@ function wireLibGroupHeaders(grid) {
 async function loadPosterGrid(gridId, itemType, sub, onPick, getVideo, libs, ids) {
   const grid = document.getElementById(gridId)
   grid.dataset.loaded = '1'
+  // Cleared before the skeleton, not after the fetch: left over from a previous
+  // grouped load it makes the container display:block, and eight poster
+  // skeletons stack into a full-width column instead of a grid.
+  grid.classList.remove('lib-grouped')
   grid.innerHTML = skeletonHTML('poster', 8)
   const path = `/Users/${jf.userId}/Items`
   const params = {
