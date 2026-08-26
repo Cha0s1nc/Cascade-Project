@@ -1504,9 +1504,11 @@
                 <span class="eq-band-value" id="max-bitrate-value">Original</span>
               </div>
             </div>
-          </div>
-          <div class="settings-group">
-            <div class="sg-title">Equalizer</div>
+            <!-- Equalizer lives under Playback rather than its own group - it is
+                 a playback setting, not a separate concern. Same collapsible-
+                 group heading style used for Movies/TV inside the library
+                 pickers, reused rather than inventing a second one. -->
+            <div class="lib-group-title" style="padding:0 14px;">Equalizer</div>
             <div class="setting-row">
               <div class="setting-label">
                 <span class="setting-name">Enable equalizer</span>
@@ -1570,8 +1572,60 @@
               </div>
             </div>
           </div>
+          <!-- Server-only mode decides which lyrics sources are even offered
+               below (see the lsd-server-only / lsd-non-server option classes),
+               so the two live in one group with the setting that gates the
+               other listed first. -->
           <div class="settings-group">
-            <div class="sg-title">Waterfall <span class="wf-beta">BETA</span></div>
+            <div class="sg-title">Lyrics &amp; Metadata</div>
+            <div class="setting-row" id="server-only-lyrics-row">
+              <div class="setting-label">
+                <span class="setting-name">Server-only Mode</span>
+                <span class="setting-desc">Use the CascadeSLRC Jellyfin plugin exclusively for lyrics and art. Requires the plugin to be installed on your server.</span>
+                <span class="setting-desc" id="server-only-plugin-missing" style="display:none">CascadeSLRC plugin not found on this server. Install it through my Github page to use server-only mode and the lyrics editor.</span>
+              </div>
+              <label class="toggle" id="server-only-toggle-label">
+                <input type="checkbox" id="server-only-lyrics-toggle">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div class="setting-row" id="lyrics-source-row">
+              <div class="setting-label">
+                <span class="setting-name">Lyrics Source</span>
+                <span class="setting-desc">Preferred source. Auto tries each in order: Kugou → LRCLIB → Jellyfin.</span>
+              </div>
+              <select class="setting-input" id="s-lyrics-source">
+                <option value="auto">Auto (waterfall)</option>
+                <option value="Kugou" class="lsd-non-server">Kugou</option>
+                <option value="LRCLIB" class="lsd-non-server">LRCLIB</option>
+                <option value="Jellyfin" class="lsd-non-server">Jellyfin</option>
+                <option value="cascade-karaoke" class="lsd-server-only" style="display:none">Karaoke Only</option>
+                <option value="cascade-synced" class="lsd-server-only" style="display:none">Synced Only</option>
+              </select>
+            </div>
+          </div>
+          <div class="settings-group">
+            <div class="sg-title">Integrations</div>
+            <div class="lib-group-title" style="padding:0 14px;">Discord</div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="setting-name">Rich Presence</span>
+                <span class="setting-desc">Show current track in Discord. Requires a Discord Application ID.</span>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="discord-rpc-toggle">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div style="display:none">
+              <input id="discord-client-id" type="hidden" />
+              <a id="discord-dev-link" href="#"></a>
+            </div>
+            <div class="setting-row" style="justify-content:flex-start;gap:8px;">
+              <div class="ws-dot" id="discord-rpc-dot"></div>
+              <span style="font-size:11px;color:var(--text3)" id="discord-rpc-status-label">Not connected</span>
+            </div>
+            <div class="lib-group-title" style="padding:0 14px;">Waterfall <span class="wf-beta">BETA</span></div>
             <div class="setting-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;">
               <div class="setting-label">
                 <span class="setting-name">Relay server</span>
@@ -1598,58 +1652,6 @@
                 <input type="checkbox" id="s-wf-guest-control">
                 <span class="toggle-track"></span>
               </label>
-            </div>
-          </div>
-          <div class="settings-group">
-            <div class="sg-title">Discord</div>
-            <div class="setting-row">
-              <div class="setting-label">
-                <span class="setting-name">Rich Presence</span>
-                <span class="setting-desc">Show current track in Discord. Requires a Discord Application ID.</span>
-              </div>
-              <label class="toggle">
-                <input type="checkbox" id="discord-rpc-toggle">
-                <span class="toggle-track"></span>
-              </label>
-            </div>
-            <div style="display:none">
-              <input id="discord-client-id" type="hidden" />
-              <a id="discord-dev-link" href="#"></a>
-            </div>
-            <div class="setting-row" style="justify-content:flex-start;gap:8px;">
-              <div class="ws-dot" id="discord-rpc-dot"></div>
-              <span style="font-size:11px;color:var(--text3)" id="discord-rpc-status-label">Not connected</span>
-            </div>
-          </div>
-          <div class="settings-group">
-            <div class="sg-title">Fetching</div>
-            <div class="setting-row" id="server-only-lyrics-row">
-              <div class="setting-label">
-                <span class="setting-name">Server-only Mode</span>
-                <span class="setting-desc">Use the CascadeSLRC Jellyfin plugin exclusively for lyrics and art. Requires the plugin to be installed on your server.</span>
-                <span class="setting-desc" id="server-only-plugin-missing" style="display:none">CascadeSLRC plugin not found on this server. Install it through my Github page to use server-only mode and the lyrics editor.</span>
-              </div>
-              <label class="toggle" id="server-only-toggle-label">
-                <input type="checkbox" id="server-only-lyrics-toggle">
-                <span class="toggle-track"></span>
-              </label>
-            </div>
-          </div>
-          <div class="settings-group">
-            <div class="sg-title">Lyrics</div>
-            <div class="setting-row" id="lyrics-source-row">
-              <div class="setting-label">
-                <span class="setting-name">Lyrics Source</span>
-                <span class="setting-desc">Preferred source. Auto tries each in order: Kugou → LRCLIB → Jellyfin.</span>
-              </div>
-              <select class="setting-input" id="s-lyrics-source">
-                <option value="auto">Auto (waterfall)</option>
-                <option value="Kugou" class="lsd-non-server">Kugou</option>
-                <option value="LRCLIB" class="lsd-non-server">LRCLIB</option>
-                <option value="Jellyfin" class="lsd-non-server">Jellyfin</option>
-                <option value="cascade-karaoke" class="lsd-server-only" style="display:none">Karaoke Only</option>
-                <option value="cascade-synced" class="lsd-server-only" style="display:none">Synced Only</option>
-              </select>
             </div>
           </div>
           <div class="settings-group">
