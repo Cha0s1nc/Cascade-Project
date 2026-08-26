@@ -147,6 +147,7 @@ const {
   buildElectronProfile, DEFAULT_MAX_BITRATE,
   resumeTicks, neededAudioStreamIndex,
   entryIdOf, removeSelected, moveSelectedToTop, moveSelectedToBottom,
+  groupRecentlyWatched,
 } = CascadeCore
 
 // Passed as a getter, not as `jf` itself: connect() replaces the whole object,
@@ -1129,6 +1130,7 @@ async function applyVideoLibrarySelection(category, ids) {
   applyVideoNavVisibility()
   renderVideoLibraryPicker()
   loadContinueWatching()
+  loadRecentlyWatched()
 }
 
 document.getElementById('s-single-lib-toggle').addEventListener('change', async e => {
@@ -1210,6 +1212,7 @@ async function loadHome() {
   loadRecentlyPlayed()
   loadRecentlyAdded()
   loadContinueWatching()
+  loadRecentlyWatched()
 }
 
 async function loadRecentlyPlayed() {
@@ -2365,20 +2368,83 @@ function fmtRuntime(ticks) {
   return h ? `${h}h ${mins % 60}m` : `${mins}m`
 }
 
-function posterCard(item, sub) {
-  const art = artUrl(item.Id, item.ImageTags?.Primary)
+// `opts` lets a caller show a different item's art/name than the one the card
+// is `data-id`'d and clicked on - used to fold a recently-watched episode into
+// its series' poster and name (see groupRecentlyWatched) without changing
+// which item wirePosterCards resolves the click to.
+function posterCard(item, sub, opts = {}) {
+  const art = artUrl(opts.artId || item.Id, 'artTag' in opts ? opts.artTag : item.ImageTags?.Primary)
   const img = art
     ? `<img src="${art}" alt="" loading="lazy" onerror="this.style.display='none'">`
     : '🎞'
+  const name = opts.title || item.Name
   // How far in the user got, if anywhere. Same signal the Resume button uses.
   const pos = resumeTicks(item)
   const pct = pos && item.RunTimeTicks ? Math.min(100, (pos / item.RunTimeTicks) * 100) : 0
   const bar = pct ? `<div class="poster-progress"><span style="width:${pct}%"></span></div>` : ''
   return `<div class="poster-card" data-id="${item.Id}">
     <div class="poster-art">${img}${bar}</div>
-    <div class="poster-name" title="${esc(item.Name)}">${esc(item.Name)}</div>
+    <div class="poster-name" title="${esc(name)}">${esc(name)}</div>
     <div class="poster-sub">${esc(sub || '')}</div>
   </div>`
+}
+
+// ── Horizontal shelf: a sideways-scrolling row with edge arrows ──
+//
+// One reusable wrapper for any row that should scroll sideways instead of
+// wrapping - Home's "Continue watching" and a grouped library's poster row
+// both call this. `trackHTML` is the row's own markup (cards already
+// rendered); `trackClass` sets what the scrolling element is, so it can also
+// carry `.poster-grid` and pick up that class's card styling. Call
+// wireHShelf() on the rendered container afterwards to make the arrows work -
+// this only builds the markup.
+const HSHELF_CHEVRON_LEFT  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>'
+const HSHELF_CHEVRON_RIGHT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'
+function hshelfHTML(trackHTML, trackClass = 'poster-grid hshelf-track') {
+  return `<div class="hshelf">
+    <button class="hshelf-arrow hshelf-arrow-left" aria-label="Scroll left" tabindex="-1">${HSHELF_CHEVRON_LEFT}</button>
+    <div class="${trackClass}">${trackHTML}</div>
+    <button class="hshelf-arrow hshelf-arrow-right" aria-label="Scroll right" tabindex="-1">${HSHELF_CHEVRON_RIGHT}</button>
+  </div>`
+}
+
+/** Makes every .hshelf inside `root` scroll by its arrows and keeps them
+ *  showing only on the side with real overflow, hiding once scrolled to that
+ *  edge. The track itself is a plain overflow-x:auto row, so a trackpad's
+ *  native horizontal swipe and the page's vertical scroll are untouched -
+ *  this only adds what a horizontal-wheel-less mouse cannot reach otherwise.
+ *  Stores its update function on the track (`_hshelfUpdate`) so a caller that
+ *  changes the track's size for a reason a ResizeObserver cannot see coming
+ *  (e.g. un-collapsing a library group from display:none) can force a
+ *  recompute immediately instead of waiting on it. */
+function wireHShelf(root) {
+  root.querySelectorAll('.hshelf').forEach(shelf => {
+    const track = shelf.querySelector('.hshelf-track')
+    const left  = shelf.querySelector('.hshelf-arrow-left')
+    const right = shelf.querySelector('.hshelf-arrow-right')
+    if (!track || !left || !right) return
+    const EPS = 2 // absorbs subpixel rounding at the scroll edges
+    const update = () => {
+      const overflowing = track.scrollWidth > track.clientWidth + EPS
+      const showLeft  = overflowing && track.scrollLeft > EPS
+      const showRight = overflowing && track.scrollLeft < track.scrollWidth - track.clientWidth - EPS
+      left.classList.toggle('show', showLeft)
+      left.tabIndex = showLeft ? 0 : -1
+      right.classList.toggle('show', showRight)
+      right.tabIndex = showRight ? 0 : -1
+    }
+    track._hshelfUpdate = update
+    // No explicit behavior here on purpose - 'smooth' would force it even
+    // under prefers-reduced-motion, overriding the track's own CSS
+    // scroll-behavior (smooth normally, auto in the reduced-motion block
+    // above). Omitting it lets that CSS property decide.
+    left.addEventListener('click', () => track.scrollBy({ left: -track.clientWidth * 0.85 }))
+    right.addEventListener('click', () => track.scrollBy({ left: track.clientWidth * 0.85 }))
+    track.addEventListener('scroll', update, { passive: true })
+    // Window resizes, and a library group's track going from display:none (0
+    // width) to visible when expanded - both are a track resize either way.
+    new ResizeObserver(update).observe(track)
+  })
 }
 
 /** Wires poster-card clicks by matching each card's data-id back to `items`,
@@ -2398,12 +2464,17 @@ function wirePosterCards(container, items, onPick) {
 function posterGroupHTML(libId, name, items, sub) {
   const collapsed = _collapsedLibs.has(libId)
   const cards = items.map(i => posterCard(i, sub(i))).join('')
+  // A horizontal shelf rather than a wrapping grid: two libraries stacked as
+  // grids used to mean the second one's cards ran off the right edge with no
+  // way for a plain mouse to reach them (reverted in 32db4e3). The row now
+  // scrolls with wireHShelf()'s arrows instead, so overflow is reachable
+  // either way.
   return `<div class="lib-group${collapsed ? ' collapsed' : ''}" data-lib-id="${libId}">
     <div class="sect-header lib-group-header" tabindex="0" role="button" aria-expanded="${!collapsed}">
       <span class="sect-title"><span class="lib-group-chevron">▾</span>${esc(name)}</span>
       <span class="lib-group-count">${items.length}</span>
     </div>
-    <div class="poster-grid">${cards}</div>
+    ${hshelfHTML(cards)}
   </div>`
 }
 
@@ -2420,6 +2491,10 @@ function wireLibGroupHeaders(grid) {
       if (collapsed) _collapsedLibs.add(libId)
       else _collapsedLibs.delete(libId)
       saveCollapsedLibs()
+      // Expanding: the track was display:none a moment ago (0 width), so its
+      // arrows need a forced recompute rather than waiting on the
+      // ResizeObserver's own timing.
+      if (!collapsed) group.querySelector('.hshelf-track')?._hshelfUpdate?.()
     }
     header.addEventListener('click', toggle)
     header.addEventListener('keydown', e => {
@@ -2462,6 +2537,7 @@ async function loadPosterGrid(gridId, itemType, sub, onPick, getVideo, libs, ids
         wirePosterCards(section, groups[i].items, onPick)
       })
       wireLibGroupHeaders(grid)
+      wireHShelf(grid)
     } else {
       const data = await getVideo(path, params)
       const items = data.Items || []
@@ -2487,6 +2563,48 @@ const loadShows = () => loadPosterGrid(
   s => s.ProductionYear || '',
   s => openSeries(s.Id), jfGetShows, _showLibs, jf.showLibraryIds || [])
 
+// ── Continue watching (Home) ──
+//
+// Distinct from Recently watched below it: this is specifically what's
+// partway through (Filters: IsResumable), not play history - a movie or
+// episode watched to the end never appears here even though it does there.
+// Horizontal, matching Jellyfin's own webui, via the shared hshelf component;
+// same hide-when-empty rule as every other video shelf.
+async function loadContinueWatching() {
+  const section = document.getElementById('home-resume-section')
+  const videoLibIds = [...(jf.movieLibraryIds || []), ...(jf.showLibraryIds || [])]
+  if (!videoLibIds.length) { section.style.display = 'none'; return }
+  try {
+    const data = await jfClient.getMerged(`/Users/${jf.userId}/Items`, {
+      SortBy: 'DatePlayed',
+      SortOrder: 'Descending',
+      IncludeItemTypes: 'Movie,Episode',
+      Filters: 'IsResumable',
+      Recursive: true,
+      Fields: 'PrimaryImageAspectRatio,UserData,ProductionYear',
+      Limit: 24
+    }, videoLibIds)
+    // Same reasoning as Recently watched below: getMerged concatenates
+    // per-library results, so the server's DatePlayed order only holds within
+    // one library - re-sort across the merge.
+    const items = (data.Items || [])
+      .sort((a, b) => new Date(b.UserData?.LastPlayedDate || 0) - new Date(a.UserData?.LastPlayedDate || 0))
+    if (!items.length) { section.style.display = 'none'; return }
+    section.style.display = ''
+    const grid = document.getElementById('home-resume-grid')
+    // posterCard's own resumeTicks-driven .poster-progress bar is exactly the
+    // "how far in" signal this shelf is about - nothing extra to build here.
+    grid.innerHTML = hshelfHTML(items.map(item => posterCard(item, recentVideoSub(item))).join(''))
+    wireHShelf(grid)
+    wirePosterCards(grid, items, item => {
+      if (item.Type === 'Movie') { showView('movies'); openMovie(item.Id) }
+      else { showView('shows'); openSeries(item.SeriesId) }
+    })
+  } catch {
+    section.style.display = 'none'
+  }
+}
+
 // ── Recently watched (Home) ──
 //
 // Movies and episodes played across both video categories, merged and
@@ -2501,7 +2619,14 @@ function recentVideoSub(item) {
   return (item.SeriesName || '') + ep
 }
 
-async function loadContinueWatching() {
+/** Just the "S1E4" part, for a card that already shows the series as its
+ *  title - repeating the series name in the subtitle too would be noise. */
+function episodeCode(item) {
+  const s = item.ParentIndexNumber, e = item.IndexNumber
+  return (s != null && e != null) ? `S${s}E${e}` : (item.Name || '')
+}
+
+async function loadRecentlyWatched() {
   const section = document.getElementById('home-continue-section')
   const videoLibIds = [...(jf.movieLibraryIds || []), ...(jf.showLibraryIds || [])]
   if (!videoLibIds.length) { section.style.display = 'none'; return }
@@ -2512,17 +2637,30 @@ async function loadContinueWatching() {
       IncludeItemTypes: 'Movie,Episode',
       Filters: 'IsPlayed',
       Recursive: true,
-      Fields: 'PrimaryImageAspectRatio,UserData,ProductionYear',
+      Fields: 'PrimaryImageAspectRatio,UserData,ProductionYear,SeriesPrimaryImageTag',
       Limit: 24
     }, videoLibIds)
     // getMerged concatenates per-library results, so the server's DatePlayed
-    // ordering only holds within a library - re-sort across the merge.
-    const items = (data.Items || [])
-      .sort((a, b) => new Date(b.UserData?.LastPlayedDate || 0) - new Date(a.UserData?.LastPlayedDate || 0))
+    // ordering only holds within a library - re-sort across the merge. Fold
+    // binged episodes down to one card per series AFTER that re-sort, so the
+    // kept episode is the actually-most-recent one, not an arbitrary one from
+    // whichever library happened to be fetched first.
+    const items = groupRecentlyWatched(
+      (data.Items || [])
+        .sort((a, b) => new Date(b.UserData?.LastPlayedDate || 0) - new Date(a.UserData?.LastPlayedDate || 0))
+    )
     if (!items.length) { section.style.display = 'none'; return }
     section.style.display = ''
     const grid = document.getElementById('home-continue-grid')
-    grid.innerHTML = items.map(item => posterCard(item, recentVideoSub(item))).join('')
+    grid.innerHTML = items.map(item =>
+      // A grouped episode shows the series' own poster and name, with the
+      // episode itself demoted to the subtitle. An episode with no SeriesId
+      // (never grouped - see groupRecentlyWatched) has no series art to show,
+      // so it keeps the plain episode card it always had.
+      item.Type === 'Episode' && item.SeriesId
+        ? posterCard(item, episodeCode(item), { artId: item.SeriesId, artTag: item.SeriesPrimaryImageTag, title: item.SeriesName || item.Name })
+        : posterCard(item, recentVideoSub(item))
+    ).join('')
     wirePosterCards(grid, items, item => {
       // Same detail views Movies/TV browsing already opens - no separate
       // playback path for a Home entry.
