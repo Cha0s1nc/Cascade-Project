@@ -80,6 +80,15 @@ export interface JfItem {
    *  right entry when the same track appears twice. */
   PlaylistItemId?: string
 
+  /** Playlists only. Whether the playlist is visible to other users. */
+  IsPublic?: boolean
+
+  /** Whether the requesting user is allowed to delete this item - the closest
+   *  thing Jellyfin exposes to "do you own this". Used to gate Edit Playlist:
+   *  explicit `false` hides the controls, `true` or absent (older servers)
+   *  offers them and lets the write fail loudly if the server disagrees. */
+  CanDelete?: boolean
+
   UserData?: JfUserData
 }
 

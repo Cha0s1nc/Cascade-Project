@@ -129,6 +129,7 @@ const {
   resolveStream, universalStreamUrl, withStartTicks, stopActiveEncoding,
   buildElectronProfile, DEFAULT_MAX_BITRATE,
   resumeTicks, neededAudioStreamIndex,
+  entryIdOf, removeSelected, moveSelectedToTop, moveSelectedToBottom,
 } = CascadeCore
 
 // Passed as a getter, not as `jf` itself: connect() replaces the whole object,
@@ -1213,7 +1214,14 @@ function trackRowHtml(item, i, opts = {}) {
   const artistAttrs  = artistName ? ' data-artist-link tabindex="0"' : ''
   const albumCls     = item.AlbumId ? ' row-link' : ''
   const albumAttrs   = item.AlbumId ? ' data-album-link tabindex="0"' : ''
+  // Playlist-detail-only (opts.checkbox never set elsewhere), so Songs/Albums/
+  // Artists rows are byte-for-byte unchanged. draggable="false" on the
+  // checkbox cell stops a checkbox click/drag from being swallowed as a
+  // row-reorder drag when the row itself is draggable.
+  const checkHtml = opts.checkbox
+    ? `<div class="tl-check" draggable="false"><input type="checkbox"${opts.checked ? ' checked' : ''}></div>` : ''
   return `<div class="${cls}" ${idxAttr}="${i}" data-id="${item.Id}"${entryAttr}${styleAttr}${dragAttr}>
+    ${checkHtml}
     <div class="track-num">${i + 1}</div>
     ${trackThumbHtml(art)}
     <div style="min-width:0">
@@ -1499,10 +1507,153 @@ document.getElementById('pl-detail-refresh').addEventListener('click', async () 
   _plDetailRefreshing = false
 })
 
+// ── Edit Playlist mode ──────────────────────────────────────────────────────
+// Rename, public/private, bulk remove, bulk move-to-top/bottom. Drag-to-reorder
+// (wirePlaylistRowDrag above) stays live the whole time it's already the fine-
+// grained reorder tool; edit mode only adds the bulk one. Every write here goes
+// through the same playlistMutated() choke point as everything else, so
+// currentPlaylistItems never drifts from what the server has.
+let plEditMode = false
+let plEditSelected = new Set() // entry ids (entryIdOf) of checked rows
+let plCurrentIsPublic = false  // last-known IsPublic, read when edit mode opens
+
+function updatePlEditToolbar() {
+  const n = plEditSelected.size
+  const total = currentPlaylistItems.length
+  document.getElementById('pl-edit-count').textContent = `${n} selected`
+  document.getElementById('pl-edit-top').disabled = !n
+  document.getElementById('pl-edit-bottom').disabled = !n
+  document.getElementById('pl-edit-remove').disabled = !n
+  const selectAll = document.getElementById('pl-select-all')
+  selectAll.checked = n > 0 && n === total
+  selectAll.indeterminate = n > 0 && n < total
+}
+
+function enterPlEditMode() {
+  plEditMode = true
+  plEditSelected.clear()
+  document.getElementById('playlist-detail').classList.add('edit-mode')
+  document.getElementById('pl-edit-toolbar').classList.add('visible')
+  document.getElementById('btn-edit-playlist').textContent = 'Done'
+  renderPlaylistDetailItems(currentPlaylistItems, true)
+  updatePlEditToolbar()
+}
+
+// silent: skip the re-render (used from showPlaylistDetailShell, where the
+// old items are about to be thrown away by a fresh fetch anyway).
+function exitPlEditMode(silent) {
+  const wasActive = plEditMode
+  plEditMode = false
+  plEditSelected.clear()
+  document.getElementById('playlist-detail').classList.remove('edit-mode')
+  document.getElementById('pl-edit-toolbar').classList.remove('visible')
+  document.getElementById('btn-edit-playlist').textContent = 'Edit'
+  if (!silent && wasActive) renderPlaylistDetailItems(currentPlaylistItems, !!currentPlaylistId)
+}
+
+document.getElementById('btn-edit-playlist').addEventListener('click', async () => {
+  if (plEditMode) { exitPlEditMode(); return }
+  if (!currentPlaylistId) return // smart playlists hide this button; nothing to edit
+  // Ownership: Jellyfin has no dedicated "do you own this playlist" field, but
+  // item DTOs carry CanDelete - the same permission Jellyfin itself uses to
+  // gate deleting/managing an item, computed server-side for the current user.
+  // An explicit false is trusted and blocks entry. Anything else (true, or
+  // missing on an older server) offers Edit mode anyway; a write it isn't
+  // allowed to make then fails loudly via the catch blocks below, same as
+  // remove-from-playlist and drag-reorder already do for every playlist today.
+  try {
+    const it = await jfGet(`/Users/${jf.userId}/Items/${currentPlaylistId}`)
+    if (it.CanDelete === false) {
+      showNotice('You do not have permission to edit this playlist.', 'Playlist')
+      return
+    }
+    plCurrentIsPublic = !!it.IsPublic
+  } catch (e) {
+    plCurrentIsPublic = false
+  }
+  enterPlEditMode()
+})
+
+document.getElementById('pl-select-all').addEventListener('change', (e) => {
+  if (e.target.checked) currentPlaylistItems.forEach(i => plEditSelected.add(entryIdOf(i)))
+  else plEditSelected.clear()
+  renderPlaylistDetailItems(currentPlaylistItems, true)
+  updatePlEditToolbar()
+})
+
+// Rewrites Ids wholesale (one atomic request) rather than firing per-row
+// Move/DELETE calls. Built from currentPlaylistItems after applying the change
+// locally, then playlistMutated() re-reads from the server so the view and
+// currentPlaylistItems never disagree with what actually saved.
+async function savePlaylistIds(newItems, successMsg) {
+  try {
+    const res = await fetch(`${jf.url}/Playlists/${currentPlaylistId}`, {
+      method: 'POST',
+      headers: { 'X-Emby-Token': jf.token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ Ids: newItems.map(i => i.Id) })
+    })
+    if (!res.ok) throw new Error(await CascadeCore.readErrorMessage(res))
+    showToast(successMsg)
+    plEditSelected.clear()
+    updatePlEditToolbar()
+    await playlistMutated(currentPlaylistId)
+  } catch (e) {
+    showNotice(`Could not update the playlist.\n\n${e.message}`, 'Playlist')
+  }
+}
+
+document.getElementById('pl-edit-remove').addEventListener('click', () => {
+  if (!plEditSelected.size) return
+  const n = plEditSelected.size
+  savePlaylistIds(removeSelected(currentPlaylistItems, plEditSelected), `Removed ${n} track${n === 1 ? '' : 's'}`)
+})
+document.getElementById('pl-edit-top').addEventListener('click', () => {
+  if (!plEditSelected.size) return
+  savePlaylistIds(moveSelectedToTop(currentPlaylistItems, plEditSelected), 'Moved to top')
+})
+document.getElementById('pl-edit-bottom').addEventListener('click', () => {
+  if (!plEditSelected.size) return
+  savePlaylistIds(moveSelectedToBottom(currentPlaylistItems, plEditSelected), 'Moved to bottom')
+})
+
+// Rename + public/private. One small modal for both since they're the same
+// UpdatePlaylistDto request - reuses .modal-overlay/.modal-card/.modal-input/
+// .modal-btn verbatim (no new modal CSS) and the existing .toggle switch used
+// throughout Settings.
+document.getElementById('pl-edit-props').addEventListener('click', () => {
+  document.getElementById('pl-edit-name').value = document.getElementById('pl-detail-name').textContent
+  document.getElementById('pl-edit-public').checked = plCurrentIsPublic
+  document.getElementById('pl-edit-modal').classList.remove('hidden')
+})
+document.getElementById('pl-edit-cancel').addEventListener('click', () => {
+  document.getElementById('pl-edit-modal').classList.add('hidden')
+})
+document.getElementById('pl-edit-save').addEventListener('click', async () => {
+  const name = document.getElementById('pl-edit-name').value.trim()
+  if (!name) { showNotice('Playlist name cannot be empty.', 'Playlist'); return }
+  const isPublic = document.getElementById('pl-edit-public').checked
+  try {
+    const res = await fetch(`${jf.url}/Playlists/${currentPlaylistId}`, {
+      method: 'POST',
+      headers: { 'X-Emby-Token': jf.token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ Name: name, IsPublic: isPublic })
+    })
+    if (!res.ok) throw new Error(await CascadeCore.readErrorMessage(res))
+    plCurrentIsPublic = isPublic
+    document.getElementById('pl-detail-name').textContent = name
+    document.getElementById('pl-edit-modal').classList.add('hidden')
+    showToast('Playlist updated')
+    await playlistMutated(currentPlaylistId)
+  } catch (e) {
+    showNotice(`Could not update the playlist.\n\n${e.message}`, 'Playlist')
+  }
+})
+
 function showPlaylistDetailShell(name) {
   document.getElementById('playlist-index').style.display = 'none'
   const detail = document.getElementById('playlist-detail')
   detail.classList.add('active')
+  exitPlEditMode(true) // reset edit-mode UI left over from whatever was open before
   document.getElementById('pl-detail-name').textContent = name
   document.getElementById('pl-detail-meta').innerHTML = '<span class="skel skel-text" style="display:inline-block;width:70px"></span>'
   document.getElementById('pl-detail-rows').innerHTML = skeletonHTML('track', 6)
@@ -1515,15 +1666,35 @@ function showPlaylistDetailShell(name) {
 function renderPlaylistDetailItems(items, entryIds) {
   currentPlaylistItems = items
   document.getElementById('pl-detail-meta').textContent = `${items.length} song${items.length !== 1 ? 's' : ''}`
-  document.getElementById('pl-detail-rows').innerHTML = items.map((item, i) =>
-    trackRowHtml(item, i, entryIds ? { entryId: item.PlaylistItemId || item.Id, draggable: true } : {})
-  ).join('')
+  const showCheck = entryIds && plEditMode
+  document.getElementById('pl-detail-rows').innerHTML = items.map((item, i) => {
+    if (!entryIds) return trackRowHtml(item, i, {})
+    const entryId = entryIdOf(item)
+    return trackRowHtml(item, i, {
+      entryId, draggable: true,
+      checkbox: showCheck, checked: plEditSelected.has(entryId)
+    })
+  }).join('')
   const rowsEl = document.getElementById('pl-detail-rows')
   rowsEl.querySelectorAll('.track-row').forEach(el => {
     const idx = parseInt(el.dataset.idx)
     wireTrackRow(el, items[idx], items, idx, { inPlaylist: entryIds })
   })
-  // Smart playlists aren't real Jellyfin playlists - nothing to reorder on the server
+  if (showCheck) {
+    rowsEl.querySelectorAll('.tl-check input[type=checkbox]').forEach(cb => {
+      cb.addEventListener('click', e => e.stopPropagation())
+      cb.addEventListener('change', e => {
+        const entryId = e.target.closest('.track-row').dataset.entryId
+        if (e.target.checked) plEditSelected.add(entryId)
+        else plEditSelected.delete(entryId)
+        updatePlEditToolbar()
+      })
+    })
+  }
+  // Smart playlists aren't real Jellyfin playlists - nothing to reorder on the server.
+  // Left on in edit mode too: bulk move (top/bottom) covers big jumps, this still
+  // covers fine single-row reordering, and building a second reorder path for edit
+  // mode alone isn't worth it when this one already works.
   if (entryIds) wirePlaylistRowDrag(rowsEl, items)
   highlightPlayingRow()
 }
@@ -1576,6 +1747,7 @@ async function openPlaylist(playlistId, name) {
   currentPlaylistId = playlistId
   currentSmartKind = null
   showPlaylistDetailShell(name)
+  document.getElementById('btn-edit-playlist').style.display = ''
   const artEl = document.getElementById('pl-detail-art')
   artEl.style.background = ''
   const plArtUrl = `${jf.url}/Items/${playlistId}/Images/Primary?fillHeight=160&fillWidth=160&quality=80&api_key=${jf.token}`
@@ -1646,6 +1818,8 @@ async function openSmartPlaylist(kind) {
   currentPlaylistId = null
   currentSmartKind = kind
   showPlaylistDetailShell(sp.name)
+  // Not a real Jellyfin playlist - nothing for Edit mode to write to.
+  document.getElementById('btn-edit-playlist').style.display = 'none'
   document.getElementById('pl-detail-art').style.background = sp.gradient
   document.getElementById('pl-detail-art').innerHTML = sp.icon
 
