@@ -1,25 +1,22 @@
 # Cascade
 
-A Jellyfin music client for desktop with a polished dark interface, full playback control, synced lyrics, and a full-screen now-playing experience. Inspired by the Cider Collective.
+---
+
+## What it is
+
+Cascade is a Jellyfin streaming app, originally prioritized for music streaming. Soon however, I will be releasing a new version (sorry about lack of stable releases, I've been biting off more than I can chew lmao) that will have both Video and Music streaming combined into one app (think iTunes).
 
 ---
 
 ## Features
 
-- **Jellyfin playback** - browse and play from your Jellyfin library. Cascade negotiates each stream with the server (`PlaybackInfo` + a device profile) so it direct plays what it can and transcodes what it can't
-- **Streaming quality** - cap the bitrate (Original, 320, 192, 128 or 96 kbps) and the server transcodes to fit
-- **Quick Connect** - sign in by approving a code in Jellyfin on another device instead of typing a password. No password is stored for accounts signed in this way
 - **Waterfall (beta)** - synced listening rooms. Everyone streams the same track from the same Jellyfin server, and the room shares a queue. Guests can add tracks, and optionally control playback. No audio crosses the wire
-- **Remote control target** - Cascade appears in Jellyfin's "Play On" list, so you can drive it from the web UI or your phone
-- **Smart playlists** - Favorites and Most Played, generated from your Jellyfin play data
 - **Full-screen now-playing overlay** - click the player bar to expand a full-screen view with large album art, controls, a live queue panel, and synced lyrics. Lyrics scale up automatically when the window is maximised or fullscreened
-- **Queue management** - drag to reorder, click to remove. Queue updates live in the full-screen overlay with album art thumbnails and current-track highlighting
-- **Synced lyrics** - timestamp-synced lyrics from Jellyfin with click-to-seek. Opens as a slide-in panel or in the full-screen overlay. A globe button in the overlay lyrics panel auto-detects non-English tracks and translates to English with one tap (Pulled from a couple sources when online, pulled from sidecar `.slrc` files on "Server Only Mode")
+- **Synced lyrics** - timestamp-synced lyrics from Jellyfin with click-to-seek. Opens as a slide-in panel or in the full-screen overlay. A globe button in the overlay lyrics panel auto-detects non-English tracks and translates to English with one tap (Pulled from a couple sources when online, pulled from sidecar `.slrc` files on "Server Only Mode" - REQUIRES [CascadeSLRC](placeholder link) PLUGIN FOR JELLYFIN)
 - **Lyrics translation** - auto-detects non-English tracks and shows a translate bar. One click translates to 12 languages via the MyMemory API
 - **Album art accent mode** - toggle in the theme picker to automatically match the gradient and full-screen overlay background to the dominant colour of the current album art, updating on every track change
 - **Discord Rich Presence** - shows the current track in Discord as "Listening to Cascade", or "Watching Cascade" for a movie or episode. Enable in Settings with one toggle - no setup required
 - **Touch Bar** - Actually has support for Macbooks with a Touch Bar
-- **Multi-library support** - select and merge multiple Jellyfin music libraries. Albums, artists, and songs are deduplicated across all selected libraries
 - **Cha0s Stream integration** - exposes a local control server (`127.0.0.1:47847`) so [Cha0s Stream](https://github.com/Cha0s1nc/cha0s-stream) (my other tool) can control playback directly without OS key simulation or Jellyfin session API calls
 - **Auto-updater** - checks for new GitHub releases on startup and presents an update window with release notes, download progress, and one-click install
 - **Cross-platform** - Mac (`.dmg`, Intel + Apple Silicon), Windows (`.exe`), Linux (`.AppImage`, `.deb`, `.rpm`)

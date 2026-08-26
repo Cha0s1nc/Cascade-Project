@@ -909,8 +909,9 @@ async function maybeShowVideoIntro() {
   }
 
   // A category only needs the intro when it has a real choice (more than one
-  // library) that has not been made yet. A sole library auto-selects with
-  // nothing to show here; an already-made choice means they have found the
+  // library) that has not been made yet. A sole library defaults on, so there
+  // is no choice to put in front of anyone here (it can still be turned off
+  // later in Settings); an already-made choice means they have found the
   // feature already. If neither category needs it, burn the flag quietly
   // rather than explaining something there's nothing left to configure for.
   const movieNeedsChoice = _movieLibs.length > 1 && !(jf.movieLibraryIds || []).length
