@@ -62,17 +62,33 @@ re-applied - everything else in the app is back to its pre-Waterfall state:
   existing `.modal-overlay`/`.modal-card` pattern; a few small CSS rules
   (`.wf-join-row`, `.wf-room-code`, `.wf-members`, `.wf-member`).
 - **`renderer.js`**, all small, isolated touches:
-  - `initBeatDetection()`: promote the local `src` (from
-    `createMediaElementSource`) to a module-level `_mediaSrc` so `sync.js`
-    can branch a second output off the same node - `createMediaElementSource`
-    can only be called once per `<audio>` element, ever.
-  - Local volume/mute needs its own `GainNode` (`_localGain`), separate from
+  - `initBeatDetection()` still does not exist, but a module-level `_mediaSrc`
+    does again: the now-playing equalizer (`_ensureEqGraph()` /
+    `startEqLoop()` in renderer.js, roughly where `stopBeatLoop()` is defined)
+    builds two permanent decks (`DECKS`, the crossfade A/B pair added when
+    crossfade was reworked onto real Web Audio gain nodes), each with its own
+    `MediaElementAudioSourceNode` + `GainNode`, both feeding one shared
+    `AnalyserNode`. `_mediaSrc` is still there, but it now just points at
+    whichever deck is current - `_deckSource(deck)`/`_deckGain(deck)` are the
+    per-deck lookups, and `_mediaSrc` gets reassigned to the new deck's source
+    node at every crossfade handoff (`finishCrossfade`).
+    Picking Waterfall back up means reusing `_mediaSrc` (still the tap for
+    "whatever is audible right now") rather than rebuilding it, and reusing
+    `_deckSource`/`_deckGain` if it needs the non-current deck too - just
+    don't call `createMediaElementSource()` a second time on either deck
+    element, ever.
+  - Local volume/mute needs its own `GainNode`, separate from
     `audio.volume`/`.muted`, because once an element is routed through Web
-    Audio, `.volume`/`.muted` get baked into what `_mediaSrc` captures -
-    which is also what gets broadcast. Route every volume/mute control
-    through one `applyVolume()` function rather than writing
-    `audio.volume`/`.muted` directly from multiple places, and centralize
-    state in plain `volume`/`muted` variables. (An event-based
+    Audio, `.volume`/`.muted` get baked into what its source node captures -
+    which is also what gets broadcast. Note the crossfade rework already
+    claims one `GainNode` per deck for the fade envelope (`_deckGain`); a
+    Waterfall-local mix would need a second gain stage per deck, or a single
+    extra gain after the shared analyser, rather than reusing `_deckGain` for
+    two unrelated jobs. Route every volume/mute control through one
+    `applyVolume()` function rather than writing `audio.volume`/`.muted`
+    directly from multiple places (renderer.js now has `setDeckVolume()`/
+    `setDeckMuted()` for the two-deck case - build on those, don't duplicate),
+    and centralize state in plain `volume`/`muted` variables. (An event-based
     detect-and-undo approach was tried first and was actively broken -
     `volumechange` fires asynchronously, so it can't reliably tell "my own
     reset" apart from a real change. Don't repeat that.)

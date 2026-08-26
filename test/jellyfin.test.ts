@@ -3,9 +3,10 @@ import assert from 'node:assert/strict'
 import {
   JellyfinClient, authenticate, authHeader,
   quickConnectEnabled, quickConnectInitiate, quickConnectApproved, quickConnectAuthenticate,
-  QUICK_CONNECT_POLL_MS, QUICK_CONNECT_TIMEOUT_MS,
+  QUICK_CONNECT_POLL_MS, QUICK_CONNECT_TIMEOUT_MS, readErrorMessage,
+  splitVideoLibraryIds, effectiveLibraryIds,
 } from '../src/core/jellyfin.ts'
-import type { ServerConfig, JfItemsResponse } from '../src/core/types.ts'
+import type { ServerConfig, JfItemsResponse, JfItem } from '../src/core/types.ts'
 
 const realFetch = globalThis.fetch
 let calls: { url: string, init?: RequestInit }[] = []
@@ -22,6 +23,17 @@ function stubFetch(handler: (url: string) => unknown) {
     }
     return { ok: true, status: 200, statusText: 'OK', json: async () => body, text: async () => JSON.stringify(body) }
   }) as typeof fetch
+}
+
+/** Minimal fake Response for testing readErrorMessage directly, without going
+ *  through fetch. */
+function fakeResponse(opts: { status?: number, statusText?: string, contentType?: string, body?: string }): Response {
+  return {
+    status: opts.status ?? 500,
+    statusText: opts.statusText ?? 'Server Error',
+    headers: { get: (name: string) => name.toLowerCase() === 'content-type' ? (opts.contentType ?? null) : null },
+    text: async () => opts.body ?? '',
+  } as unknown as Response
 }
 
 beforeEach(() => { calls = [] })
@@ -100,6 +112,37 @@ test('getMerged: one failing library does not sink the others', async () => {
 
   const res = await clientFor(cfg).getMerged('/Items')
   assert.deepEqual(res.Items?.map(i => i.Id), ['a'])
+})
+
+test('getGrouped: returns one group per library, in the order given', async () => {
+  const cfg = { ...baseConfig, libraryIds: ['L1', 'L2'] }
+  stubFetch(url => new URL(url).searchParams.get('ParentId') === 'L1'
+    ? items('a', 'shared')
+    : items('shared', 'b'))
+
+  const groups = await clientFor(cfg).getGrouped('/Items')
+  assert.deepEqual(groups.map(g => g.libraryId), ['L1', 'L2'])
+  assert.deepEqual(groups[0].items.map(i => i.Id), ['a', 'shared'])
+  assert.deepEqual(groups[1].items.map(i => i.Id), ['shared', 'b'])
+})
+
+test('getGrouped: a failing library yields an empty group, not a rejection', async () => {
+  const cfg = { ...baseConfig, libraryIds: ['L1', 'BAD'] }
+  stubFetch(url => new URL(url).searchParams.get('ParentId') === 'BAD' ? undefined : items('a'))
+
+  const groups = await clientFor(cfg).getGrouped('/Items')
+  assert.deepEqual(groups.map(g => g.libraryId), ['L1', 'BAD'])
+  assert.deepEqual(groups[0].items.map(i => i.Id), ['a'])
+  assert.deepEqual(groups[1].items, [])
+})
+
+test('getGrouped: with no libraries selected it is a plain get, wrapped as one group', async () => {
+  stubFetch(() => items('a', 'b'))
+  const groups = await clientFor(baseConfig).getGrouped('/Items')
+
+  assert.equal(calls.length, 1)
+  assert.equal(groups.length, 1)
+  assert.deepEqual(groups[0].items.map(i => i.Id), ['a', 'b'])
 })
 
 test('getAllPaged: keeps paging past the first page', async () => {
@@ -220,4 +263,107 @@ test('authHeader: device id is per-install, never the old constant', () => {
   const header = authHeader('1.2.0', 'DEV-XYZ')
   assert.ok(header.includes('DeviceId="DEV-XYZ"'))
   assert.ok(!header.includes('cascade-app'))
+})
+
+// A dead Jellyfin server behind a reverse proxy (Cloudflare, nginx, etc)
+// answers with a whole HTML error page instead of Jellyfin's own short JSON/
+// text body. Naively turning that page into `error.message` and rendering it
+// dumps kilobytes of markup onto the screen. readErrorMessage is the one place
+// that tames a failed response before it becomes an Error.
+test('readErrorMessage: an HTML error page becomes the status line, not a wall of markup', async () => {
+  const res = fakeResponse({
+    status: 502, statusText: 'Bad Gateway', contentType: 'text/html; charset=utf-8',
+    body: `<html><head><title>502 Bad Gateway</title></head><body>${'cloudflare says no. '.repeat(200)}</body></html>`,
+  })
+  assert.equal(await readErrorMessage(res), '502 Bad Gateway')
+})
+
+test('readErrorMessage: a body starting with "<" is treated as HTML even with no content-type header', async () => {
+  const res = fakeResponse({ status: 503, statusText: 'Service Unavailable', body: '<html>whatever</html>' })
+  assert.equal(await readErrorMessage(res), '503 Service Unavailable')
+})
+
+test('readErrorMessage: a huge non-HTML body is truncated to a single readable line', async () => {
+  const huge = 'server exploded '.repeat(500)
+  const res = fakeResponse({ status: 500, statusText: 'Internal Server Error', contentType: 'text/plain', body: huge })
+  const msg = await readErrorMessage(res)
+  assert.ok(msg.length < huge.length, 'must not dump the whole body')
+  assert.ok(msg.endsWith('…'), 'truncation must be visible, not silent')
+})
+
+test('readErrorMessage: a short Jellyfin error body survives intact and readable', async () => {
+  const res = fakeResponse({ status: 400, statusText: 'Bad Request', contentType: 'text/plain', body: 'Invalid username or password.' })
+  assert.equal(await readErrorMessage(res), 'Invalid username or password.')
+})
+
+test('readErrorMessage: an empty body falls back to the status line', async () => {
+  const res = fakeResponse({ status: 401, statusText: 'Unauthorized', body: '' })
+  assert.equal(await readErrorMessage(res), '401 Unauthorized')
+})
+
+test('readErrorMessage: collapses a multi-line body into one line', async () => {
+  const res = fakeResponse({ status: 400, statusText: 'Bad Request', contentType: 'text/plain', body: 'Line one\n  Line two\t\tLine three' })
+  assert.equal(await readErrorMessage(res), 'Line one Line two Line three')
+})
+
+test('authenticate: a failed request is routed through readErrorMessage end to end', async () => {
+  // Confirms the call site actually uses the helper, not just that the helper
+  // works in isolation.
+  globalThis.fetch = (async () => ({
+    ok: false, status: 502, statusText: 'Bad Gateway',
+    headers: { get: () => 'text/html' },
+    text: async () => '<html><body>cloudflare says no</body></html>',
+    json: async () => ({}),
+  })) as unknown as typeof fetch
+
+  await assert.rejects(
+    () => authenticate('https://jf.test', 'user', 'pw', '1.2.0', 'DEV-1'),
+    (e: Error) => { assert.equal(e.message, '502 Bad Gateway'); return true },
+  )
+})
+
+const videoLib = (Id: string, CollectionType: string): JfItem => ({ Id, CollectionType })
+
+test('splitVideoLibraryIds: sorts a mixed flat list into movies and TV by CollectionType', () => {
+  const libs = [videoLib('m1', 'movies'), videoLib('m2', 'movies'), videoLib('t1', 'tvshows')]
+  const { movieIds, showIds } = splitVideoLibraryIds(libs, ['m1', 't1', 'm2'])
+  assert.deepEqual(movieIds, ['m1', 'm2'])
+  assert.deepEqual(showIds, ['t1'])
+})
+
+test('splitVideoLibraryIds: an id no longer on the server is dropped, not guessed at', () => {
+  const libs = [videoLib('m1', 'movies')]
+  const { movieIds, showIds } = splitVideoLibraryIds(libs, ['m1', 'gone'])
+  assert.deepEqual(movieIds, ['m1'])
+  assert.deepEqual(showIds, [])
+})
+
+test('effectiveLibraryIds: a sole library defaults on when nothing was ever chosen', () => {
+  const libs = [{ Id: 'm1', Name: 'Movies' }] as any
+  assert.deepEqual(effectiveLibraryIds(libs, null), ['m1'])
+  assert.deepEqual(effectiveLibraryIds(libs, undefined), ['m1'])
+})
+
+test('effectiveLibraryIds: a sole library can be turned off and stay off', () => {
+  // The bug: it used to be forced on whatever was saved, so anyone with exactly
+  // one movie or TV library could never disable video at all.
+  const libs = [{ Id: 'm1', Name: 'Movies' }] as any
+  assert.deepEqual(effectiveLibraryIds(libs, []), [])
+  assert.deepEqual(effectiveLibraryIds(libs, ['m1']), ['m1'])
+  assert.deepEqual(effectiveLibraryIds(libs, ['something-else']), [])
+})
+
+test('effectiveLibraryIds: never-chosen with a real choice still selects nothing', () => {
+  const libs = [{ Id: 'm1', Name: 'A' }, { Id: 'm2', Name: 'B' }] as any
+  assert.deepEqual(effectiveLibraryIds(libs, null), [])
+})
+
+test('effectiveLibraryIds: with a real choice, saved ids win but vanished ones are dropped', () => {
+  const libs = [videoLib('m1', 'movies'), videoLib('m2', 'movies'), videoLib('m3', 'movies')]
+  assert.deepEqual(effectiveLibraryIds(libs, ['m1', 'm3']), ['m1', 'm3'])
+  assert.deepEqual(effectiveLibraryIds(libs, ['m1', 'gone']), ['m1'])
+})
+
+test('effectiveLibraryIds: no libraries in the category means no ids, regardless of saved state', () => {
+  assert.deepEqual(effectiveLibraryIds([], ['m1']), [])
 })

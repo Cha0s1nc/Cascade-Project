@@ -35,14 +35,18 @@ export interface TouchBarUpdate {
   playing?: boolean
 }
 
-/** Discord rich presence. main.js injects `type: 2` (Listening) at the protocol
- *  level, so callers never set it. */
+/** Discord rich presence. The numeric activity type is injected by main.js at
+ *  the protocol level, because discord-rpc's setActivity() rebuilds the payload
+ *  from a fixed field list and drops anything else. Callers pick between the two
+ *  types Cascade uses with `watching`, not by setting a number. */
 export interface DiscordActivity {
   details: string
   state: string
   startTimestamp: number
   largeImageKey?: string
   largeImageText?: string
+  /** true renders as "Watching Cascade", false/absent as "Listening to Cascade". */
+  watching?: boolean
 }
 
 /** Result of an update check. `error` is set when GitHub could not be reached;
@@ -84,10 +88,16 @@ export interface DesktopCapabilities {
 
   checkForUpdates?(): Promise<UpdateCheckResult>
   isPackaged?(): Promise<boolean>
+  /** True when the `.cascade-debug` sentinel file was present at startup.
+   *  Gates the renderer's debug panel - see main.js debugSentinelPresent(). */
+  isDebugMode?(): Promise<boolean>
 
   onMediaKey?(cb: (key: string) => void): void
   touchbarUpdate?(data: TouchBarUpdate): void
   nowPlayingUpdate?(data: NowPlayingUpdate): void
+  /** Recolours the OS-drawn Windows/Linux caption buttons to match the active
+   *  theme. No-op on macOS, where the traffic lights are not ours to colour. */
+  setTitleBarOverlay?(mode: 'light' | 'dark'): void
 
   discord?: {
     connect(clientId: string): void
@@ -117,9 +127,11 @@ export interface ElectronPlatform extends Platform, DesktopCapabilities {
   download: NonNullable<DesktopCapabilities['download']>
   checkForUpdates: NonNullable<DesktopCapabilities['checkForUpdates']>
   isPackaged: NonNullable<DesktopCapabilities['isPackaged']>
+  isDebugMode: NonNullable<DesktopCapabilities['isDebugMode']>
   onMediaKey: NonNullable<DesktopCapabilities['onMediaKey']>
   touchbarUpdate: NonNullable<DesktopCapabilities['touchbarUpdate']>
   nowPlayingUpdate: NonNullable<DesktopCapabilities['nowPlayingUpdate']>
+  setTitleBarOverlay: NonNullable<DesktopCapabilities['setTitleBarOverlay']>
   discord: NonNullable<DesktopCapabilities['discord']>
   kugouGetLyrics: NonNullable<DesktopCapabilities['kugouGetLyrics']>
   lyricsEditor: NonNullable<DesktopCapabilities['lyricsEditor']>

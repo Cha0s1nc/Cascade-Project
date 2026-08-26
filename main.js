@@ -14,6 +14,14 @@ let rpcReady    = false
 let rpcUpdateTimer = null
 let lastRpcActivity = null
 
+// Discord activity type: 2 = Listening, 3 = Watching. Held here rather than on
+// the activity object because setActivity() rebuilds that object from a fixed
+// field list and drops anything it does not recognise - see the request() patch
+// in connectDiscordRpc().
+const RPC_TYPE_LISTENING = 2
+const RPC_TYPE_WATCHING  = 3
+let rpcActivityType = RPC_TYPE_LISTENING
+
 async function connectDiscordRpc(clientId) {
   if (!clientId) return
   try {
@@ -21,13 +29,15 @@ async function connectDiscordRpc(clientId) {
     rpcClient = new Client({ transport: 'ipc' })
     rpcClient.on('ready', () => {
       rpcReady = true
-      // Patch request() to inject type:2 (Listening) into every SET_ACTIVITY call
-      // setActivity() strips the type field, so we add it back at the protocol level
+      // Patch request() to inject the activity type into every SET_ACTIVITY call.
+      // setActivity() strips the type field, so we add it back at the protocol
+      // level - which is also why the renderer's choice arrives via
+      // rpcActivityType rather than on the activity object itself.
       const _origRequest = rpcClient.request.bind(rpcClient)
       rpcClient.request = function(cmd, args, ...rest) {
         if (cmd === 'SET_ACTIVITY' && args?.activity) {
-          args.activity.type = 2
-          args.activity.status_display_type = 1  // show state (artist) in member list sidebar
+          args.activity.type = rpcActivityType
+          args.activity.status_display_type = 1  // show state (artist/series) in member list sidebar
         }
         return _origRequest(cmd, args, ...rest).catch(() => { /* Discord rate limit or transient error - suppress */ })
       }
@@ -57,6 +67,9 @@ ipcMain.on('discord-rpc-connect', async (_e, clientId) => {
 
 ipcMain.on('discord-rpc-update', (_e, activity) => {
   if (!rpcClient || !rpcReady) return
+  // `watching` rides along on the activity; setActivity() would drop it, so it
+  // is lifted out here and applied by the request() patch instead.
+  rpcActivityType = activity?.watching ? RPC_TYPE_WATCHING : RPC_TYPE_LISTENING
   lastRpcActivity = activity
   if (rpcUpdateTimer) return  // already scheduled
   rpcUpdateTimer = setTimeout(() => {
@@ -70,6 +83,14 @@ ipcMain.on('discord-rpc-update', (_e, activity) => {
 })
 
 ipcMain.on('discord-rpc-clear', () => {
+  // Drop the pending update as well as the live one. The throttle holds the
+  // last activity to send when its timer fires, so clearing on its own left a
+  // scheduled update to put the presence straight back up to five seconds
+  // later, with nothing to clear it again. That is how a paused track stayed
+  // on your profile indefinitely. Cleared before the connection check so the
+  // state is right even when there is nothing connected to tell.
+  lastRpcActivity = null
+  if (rpcUpdateTimer) { clearTimeout(rpcUpdateTimer); rpcUpdateTimer = null }
   if (!rpcClient || !rpcReady) return
   try { rpcClient.clearActivity() } catch {}
 })
@@ -137,20 +158,57 @@ const GITHUB_REPO = 'Cha0s1nc/Cascade-Project'
 
 const store = new Store()
 
+// The app's own .titlebar strip is 38px (index.html) - the Window Controls
+// Overlay height below must match it or the OS-drawn buttons sit off-centre.
+const TITLEBAR_HEIGHT = 38
+
+// Windows/Linux caption buttons drawn by the OS via titleBarOverlay, coloured
+// to match whichever theme is active so they stay readable in both. macOS
+// ignores this entirely - its traffic lights are drawn by the OS itself and
+// take their colour from nowhere we control.
+// Matches --surface/--text from index.html's :root and light theme block.
+function titleBarOverlayColors(mode) {
+  return mode === 'light'
+    ? { color: '#ffffff', symbolColor: '#1c1c1e' }
+    : { color: '#1c1c1e', symbolColor: '#f5f5f7' }
+}
+
+function storedThemeMode() {
+  try {
+    const raw = store.get('theme')
+    if (raw && JSON.parse(String(raw)).mode === 'light') return 'light'
+  } catch {
+    // Corrupt/missing store value - fall back to dark, same as the renderer does.
+  }
+  return 'dark'
+}
+
 let win
 let updaterWindow     = null
 let lyricsEditorWindow = null
 let pendingDownload   = null
 
 function createWindow() {
+  const isDarwin = process.platform === 'darwin'
   win = new BrowserWindow({
     width: 1100,
     height: 700,
     minWidth: 800,
-    minHeight: 500,
+    // 560, not 500: the video overlay stacks a picture, a title, two button
+    // rows, a scrubber and a volume slider into one column, and 500 was under
+    // what that needs - the picture was the part that got squeezed out.
+    minHeight: 560,
     backgroundColor: '#111113',
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 12, y: 11 },
+    // hiddenInset + trafficLightPosition is macOS-only and is silently ignored
+    // elsewhere, which used to leave Windows/Linux with the OS title bar AND
+    // the app's own 38px .titlebar stacked on top of each other. 'hidden' +
+    // titleBarOverlay (Electron 29, win32/linux) draws real OS caption buttons
+    // inside the app's own titlebar strip instead - index.html reserves space
+    // for them with padding-right.
+    titleBarStyle: isDarwin ? 'hiddenInset' : 'hidden',
+    ...(isDarwin
+      ? { trafficLightPosition: { x: 12, y: 11 } }
+      : { titleBarOverlay: { ...titleBarOverlayColors(storedThemeMode()), height: TITLEBAR_HEIGHT } }),
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'build', 'preload.js'),
@@ -163,7 +221,22 @@ function createWindow() {
     },
     show: false,
   })
-  Menu.setApplicationMenu(null)
+  // macOS always renders an app menu, so passing null does not remove it, it
+  // leaves a stub with nothing bound to it - which is why Reload, the zoom
+  // items and Toggle Developer Tools all grey out. It costs the Edit menu too,
+  // and on macOS that menu is what makes Cmd+C/V/X/A work inside a text field
+  // at all, so without it you cannot paste a server URL or a password.
+  // Elsewhere a null menu really does mean no menu bar, which is what we want.
+  if (process.platform === 'darwin') {
+    Menu.setApplicationMenu(Menu.buildFromTemplate([
+      { role: 'appMenu' },
+      { role: 'editMenu' },
+      { role: 'viewMenu' },
+      { role: 'windowMenu' },
+    ]))
+  } else {
+    Menu.setApplicationMenu(null)
+  }
 
   win.loadFile('index.html')
 
@@ -228,11 +301,38 @@ app.on('activate', () => {
 let cascadeNowPlaying = { title: null, artist: null, isPlaying: false }
 ipcMain.on('now-playing-update', (_e, data) => { cascadeNowPlaying = { ...cascadeNowPlaying, ...data } })
 
+// ── Debug mode ──────────────────────────────────────────────────────────────
+// A sentinel file's mere presence turns on the renderer's debug panel - no
+// settings toggle to accidentally ship on, no keyboard shortcut to fire by
+// accident. Checked once at startup, three candidate locations so it works
+// both packaged (userData) and run from a source checkout (project root, next
+// to the executable).
+const DEBUG_SENTINEL = '.cascade-debug'
+function debugSentinelPresent() {
+  const candidates = [
+    path.join(app.getPath('userData'), DEBUG_SENTINEL),
+    path.join(__dirname, DEBUG_SENTINEL),
+  ]
+  try { candidates.push(path.join(path.dirname(app.getPath('exe')), DEBUG_SENTINEL)) } catch {}
+  return candidates.some(p => { try { return fs.existsSync(p) } catch { return false } })
+}
+const debugMode = debugSentinelPresent()
+ipcMain.handle('is-debug-mode', () => debugMode)
+
 // IPC: app version
 ipcMain.handle('get-version', () => app.getVersion())
 
 // IPC: whether this is a packaged (production) build vs. run from the command line
 ipcMain.handle('is-packaged', () => app.isPackaged)
+
+// IPC: theme switched in the renderer - recolour the OS-drawn caption buttons
+// to match. No-op on macOS: setTitleBarOverlay only applies to a window
+// created with titleBarOverlay set, which createWindow() only does elsewhere.
+ipcMain.on('set-titlebar-overlay', (_e, { mode } = {}) => {
+  if (process.platform === 'darwin') return
+  if (!win || win.isDestroyed()) return
+  try { win.setTitleBarOverlay(titleBarOverlayColors(mode)) } catch {}
+})
 
 // IPC: store
 ipcMain.handle('store-get', (_e, key) => store.get(key))
