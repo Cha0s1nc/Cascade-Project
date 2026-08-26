@@ -702,6 +702,29 @@
     #ov-panel-lyrics.browsing .ov-lyric-line { opacity: 0.8; transform: scale(0.88); color: white; text-shadow: 0 1px 4px rgba(0,0,0,0.55); pointer-events: auto; }
     #ov-panel-lyrics.browsing .ov-lyric-line.active { opacity: 1; transform: scale(1); color: white; }
 
+    /* Light theme: everything above assumes a dark backdrop and hardcodes
+       white/near-white, which is fine under album-art-theme's dark blobs but
+       reads as white-on-white once #ov-panel-lyrics falls back to its own
+       background (var(--surface), i.e. white in light theme) or sits over
+       light theme's pale blobs (see the art-theme note further down - those
+       are pale too, not the dark ones this file was tuned against). Same bug
+       dd975bd already fixed for the active line under album-art-theme, in
+       the opposite direction; this extends that fix to the base word fill
+       (the actual cause of "browsing lines wash out" - word spans override
+       the line's own themed color) and to the active/browsing states here.
+       Deliberately left alone: .near-1/.near-2/.near-3/.past, which fade to
+       near-zero opacity on purpose and are not meant to be read. Selectors
+       are scoped to [data-theme="light"] so dark theme is untouched. */
+    html[data-theme="light"] .ov-lyric-word { -webkit-text-fill-color: rgba(28,28,30,0.32); }
+    html[data-theme="light"] .ov-lyric-line.active { color: #1c1c1e; filter: drop-shadow(0 0 18px rgba(255,255,255,0.55)); }
+    html[data-theme="light"] .ov-lyric-line.active .ov-lyric-word {
+      background: linear-gradient(to right, #1c1c1e var(--p), rgba(28,28,30,0.32) var(--p));
+      -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    html[data-theme="light"] .ov-lyric-line.active .ov-lyric-word.active { filter: drop-shadow(0 0 8px rgba(255,255,255,0.7)); }
+    html[data-theme="light"] #ov-panel-lyrics.browsing .ov-lyric-line { color: #1c1c1e; text-shadow: 0 1px 3px rgba(255,255,255,0.6); }
+    html[data-theme="light"] #ov-panel-lyrics.browsing .ov-lyric-line.active { color: #1c1c1e; }
+
     /* ── Context menu ── */
     /* Same reversible fade/grow as .ov-dropdown. transform-origin defaults to
        the corner nearest a cursor-anchored menu; the overlay's "more options"
@@ -756,6 +779,14 @@
       background: linear-gradient(to right, white var(--p), rgba(255,255,255,0.28) var(--p));
       -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
     }
+    /* Same word-fill bug as the overlay lyrics above, same fix: the sidebar
+       panel's own background is var(--surface), white in light theme, so the
+       hardcoded white fill above needs a light-theme ink equivalent. */
+    html[data-theme="light"] .lyric-word { -webkit-text-fill-color: rgba(28,28,30,0.32); }
+    html[data-theme="light"] .lyrics-line.active .lyric-word {
+      background: linear-gradient(to right, #1c1c1e var(--p), rgba(28,28,30,0.32) var(--p));
+      -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    }
 
     /* ── Lyrics pill group (source pill + edit button) ── */
     .lyrics-pill-group {
@@ -792,6 +823,15 @@
     .lyrics-edit-btn:hover { background: rgba(255,255,255,0.14); color: white; }
     .lyrics-edit-btn:disabled { opacity: 0.4; cursor: default; pointer-events: none; }
 
+    /* Light theme: this is frosted glass tuned for a dark backdrop (white
+       tint, white border, near-white text). On the light panel background it
+       renders as a barely-there white smudge with invisible text. Flip the
+       tint dark instead of introducing a different look. */
+    html[data-theme="light"] .lyrics-source-pill:not(.forced) { background: rgba(0,0,0,0.05); border-color: rgba(0,0,0,0.12); color: rgba(28,28,30,0.65); }
+    html[data-theme="light"] .lyrics-source-pill:hover:not(.forced) { background: rgba(0,0,0,0.1); color: #1c1c1e; }
+    html[data-theme="light"] .lyrics-edit-btn { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.1); color: rgba(28,28,30,0.55); }
+    html[data-theme="light"] .lyrics-edit-btn:hover { background: rgba(0,0,0,0.1); color: #1c1c1e; }
+
     /* ── Lyrics source dropdown ── */
     /* Was a one-shot @keyframes that only played on open, so closing just
        snapped. A transition on the same values plays both ways. */
@@ -814,6 +854,13 @@
     }
     .lsd-item:hover { background: rgba(255,255,255,0.07); color: var(--text); }
     .lsd-item.active { color: white; font-weight: 500; }
+    /* This dropdown keeps its own fixed dark glass background in every
+       theme (rgba(18,18,26,0.88) above), but its text colors are the themed
+       vars - in light theme those resolve to dark ink, which disappears
+       against that dark background. Pin them to what dark theme already
+       renders here instead of introducing new colors. */
+    html[data-theme="light"] .lsd-item:not(.active) { color: #aeaeb2; }
+    html[data-theme="light"] .lsd-item:hover:not(.active) { color: #f5f5f7; }
     .lsd-item.active::after {
       content: '✓'; position: absolute; right: 10px; font-size: 11px; color: var(--accent);
     }
