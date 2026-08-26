@@ -1,6 +1,6 @@
 # Cascade code map
 
-**Describes commit `2fdfb1a`. Line numbers rot fast - if a landmark is not where
+**Describes commit `0577b88`. Line numbers rot fast - if a landmark is not where
 this says, re-grep and fix the line here rather than trusting it.**
 
 Written so an agent can start work without re-reading the whole tree. It is a
@@ -28,7 +28,7 @@ across both files before touching one.
 ## renderer.js landmarks
 
 ### Session and connection
-- `connect(serverUrl, token, userId)` - **440**. Sets the global `jf`.
+- `connect(serverUrl, token, userId)` - **458**. Sets the global `jf`.
   - It pings `jfGet('/Users/${userId}')` up to 3x purely to verify the token and
     **throws the response away**. That response is the full user object and
     contains `Policy.IsAdministrator`. Admin detection is free here; do not add
@@ -42,10 +42,10 @@ across both files before touching one.
   account.
 
 ### View caches
-- `invalidateLibraryViews()` - **545**. Clears `allSongs` and the
+- `invalidateLibraryViews()` - **574**. Clears `allSongs` and the
   `dataset.loaded` flag on `albums-grid`, `artists-grid`, `songs-rows`,
   `playlists-grid`.
-- `invalidateVideoViews()` - **553**. Same for `movies-grid`, `shows-grid`.
+- `invalidateVideoViews()` - **582**. Same for `movies-grid`, `shows-grid`.
   Deliberately separate: changing music libraries must not drop a loaded movie
   grid.
 - `showView(name)` - **~890**. Lazy-loads a grid only when `dataset.loaded` is
@@ -55,14 +55,14 @@ across both files before touching one.
 
 ### Playlists
 - `loadPlaylists()` - **1418** (index grid).
-- `currentPlaylistItems` - **1457**. The in-memory copy the Play/Shuffle buttons
+- `currentPlaylistItems` - **1730**. The in-memory copy the Play/Shuffle buttons
   read. Keeping it in sync with the server is the whole game here.
-- `playlistMutated(playlistId)` - **1465**. **The single choke point every
+- `playlistMutated(playlistId)` - **1738**. **The single choke point every
   mutation must go through.** Commit 8085688 exists because the old code patched
   the DOM by hand and left this array holding removed tracks, so Play could play
   something no longer in the playlist. Do not add a mutation path that bypasses
   it.
-- Playlist detail render - **1504-1575**, `openPlaylist()` at **1575**.
+- Playlist detail render - **1504-1575**, `openPlaylist()` at **2029**.
   Row markup at **1518**, drag rebinding at **1521**.
 - Refresh button handler - **1495**.
 - Smart playlists (Favorites / Most Played) - **~1610-1660**. Most Played
@@ -88,9 +88,9 @@ across both files before touching one.
   Every listener goes through `onDeck` so a crossfade handoff is a pointer move.
 - `playCurrentTrack(opts)` - **~2310**. `opts.alreadyPlaying` means a crossfade
   already has the deck playing.
-- Crossfade - **2947-3180**. `startCrossfade` **2995**, `_swapDeck` **~3100**,
-  `finishCrossfade` **3124**, `cancelCrossfade` **3149**.
-- `_waitForPlayable(deck, timeoutMs)` - **3258**. Already waits for
+- Crossfade - **2947-3180**. `startCrossfade` **2995**, `_swapDeck` **3602**,
+  `finishCrossfade` **3621**, `cancelCrossfade` **3646**.
+- `_waitForPlayable(deck, timeoutMs)` - **3761**. Already waits for
   `canplaythrough` / readyState 4.
 - Prefetch into the idle deck - **~3182-3255**.
 - **Crossfade stutter (open bug): four causes already ruled out by reading.**
@@ -100,9 +100,9 @@ across both files before touching one.
   not re-investigate these four. It needs measurement.
 
 ### Web Audio / EQ
-- `_ensureEqGraph()` - **~4195**. AudioContext -> per-deck source -> per-deck
+- `_ensureEqGraph()` - **4696**. AudioContext -> per-deck source -> per-deck
   GainNode (crossfade envelope) -> preamp -> 5 biquads -> analyser -> out.
-- Three failure flags - **4164-4166**, and the distinction is load-bearing:
+- Three failure flags - **4666-4668**, and the distinction is load-bearing:
   - `_eqGraphFailed` - no graph at all. Blocks bars **and** crossfade.
   - `_eqNoSignal` - graph exists, tap reads zeros. Cosmetic, bars only.
   - `_eqEverHadSignal` - one non-zero sample proves the tap works.
@@ -110,9 +110,9 @@ across both files before touching one.
   session once (bc6af6c). Keep them apart.
 
 ### Theme and album art colour
-- `setThemeMode(mode)` - **6603**. Sets `data-theme="light"` or `''` on `<html>`.
+- `setThemeMode(mode)` - **7107**. Sets `data-theme="light"` or `''` on `<html>`.
 - `applyGradient(start, end)` - **6587**.
-- `applyAlbumArtTheme(imgEl)` - **~6740**. **One** extraction, feeding both the
+- `applyAlbumArtTheme(imgEl)` - **7261**. **One** extraction, feeding both the
   blobs and the accent. Commit 2edb864 removed a second, disagreeing extraction;
   do not reintroduce one.
 - `_blobColors` **4100**, `randomizeDrift()` **4103**, drift loop **~4122**.
@@ -122,9 +122,29 @@ across both files before touching one.
   purpose (smoothing invents colours that appear nowhere on the cover).
 
 ### CascadeSLRC plugin detection
-- `probeCascadePlugin()` - **5604**. `GET {jf.url}/CascadeLyrics/Info`. 200
+- `probeCascadePlugin()` - **6108**. `GET {jf.url}/CascadeLyrics/Info`. 200
   present, 404 absent, network error changes nothing.
 - The gating function that greys controls - **5622**.
+
+### Permissions and the setup wizard
+- `_applyAdminGating()` - **591**. `jf.isAdmin` comes free from the `/Users/{id}`
+  ping in `connect()`; do not add a second request for it. Gates the library
+  scan and both "Refresh metadata" context entries.
+- `maybeShowSetupWizard()` - **1001**, `WIZARD_REVISION` - **970**. Runs from
+  `connect()` off a stored revision, NOT the app version and NOT a boolean.
+  Every step seeds from the current live value, which is the only reason it is
+  safe to re-show on update. Never add a step that writes a default on entry.
+- `renderLibraryPicker()` - **679**, `renderVideoLibraryGroups()` - **859**.
+  Neither hides itself for having one library any more. A sole video library
+  defaults on but can be switched off, so `effectiveLibraryIds()` treats a
+  missing saved value and an empty one as different answers.
+
+### Decks, detaching, and the debug panel
+- `_detachDeck(el)` - **3597**. The ONLY correct way to let go of a deck.
+  Assigning an empty string to `.src` makes the element load the page itself as
+  media; every detach goes through here.
+- `debugPanelText()` - **7387**. Behind a `.cascade-debug` sentinel file, costs
+  nothing when absent. Shows PlayMethod and prefetch hit/miss with readyState.
 
 ## index.html landmarks
 
@@ -145,12 +165,12 @@ across both files before touching one.
 - Tooltips: `[data-tip]::after`. Renders **below** its host on purpose, because
   one parent panel clips overflow. Check clipping wherever you attach it. There
   is exactly one tooltip system - do not add a second.
-- Settings view `#view-settings` **1424**, groups in order:
-  Library **1426**, Playback **1458**, Equalizer **1490**, Waterfall **1555**,
-  Discord **1585**, Fetching **1606**, Lyrics **1620**, Account **1637**,
-  then `.settings-actions` **1655**.
-  Account is already last (a1aa47c). Element ids here are looked up all over
-  `renderer.js` - reorganising headings is fine, **renaming an id is not**.
+- Settings view `#view-settings` **1514**. Five groups since the consolidation:
+  Library **1517**, Playback (Equalizer folded in) **1566**, Lyrics & Metadata
+  (the old Fetching + Lyrics) **1669**, Integrations (Discord + Waterfall)
+  **1697**, Account **1747**. Reorganising headings is fine, **renaming an
+  element id is not**: `renderer.js` looks them up by string literal, and no
+  typecheck catches a rename.
 - Range inputs already have a shared style (from the EQ sliders), so a new
   slider needs no new CSS.
 
