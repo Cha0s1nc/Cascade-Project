@@ -3204,7 +3204,7 @@ function stopPlayback() {
   _clearStreamPrefetch()
 
   audio.pause()
-  audio.src = ''
+  _detachDeck(audio)
   audio.querySelectorAll('track').forEach(t => t.remove())
   queue = []; queueIndex = -1
   // Drop video mode after clearing the queue, so the class toggle sees an empty
@@ -3473,7 +3473,7 @@ async function startCrossfade(nextIndex) {
     // server should stop encoding for it rather than run an orphaned stream.
     if (!resolved.direct) stopActiveEncoding(jfClient, jf, resolved.playSessionId)
     incoming.pause()
-    incoming.src = ''
+    _detachDeck(incoming)
     _cfOtherDeck = null
     _cfNextResolved = null
     return
@@ -3526,6 +3526,23 @@ async function startCrossfade(nextIndex) {
 // first means the outgoing deck's own pause/emptied events (right below)
 // read as "the idle deck went quiet", not as this track pausing - a manual
 // pause fires cancelCrossfade(), which must not happen here.
+// Detach a deck from whatever it was playing.
+//
+// NOT by assigning an empty string to .src, which is what this used to be
+// everywhere. An empty src attribute gets resolved against the document base
+// URL by the resource selection algorithm, so it does not mean "no resource",
+// it means "load the page itself as media". Chromium duly goes and fetches
+// index.html, tries to demux it, fails, and fires an error, all for nothing.
+// In _swapDeck that landed on every single crossfade handoff, and there is no
+// error listener on either deck to notice it happening.
+//
+// removeAttribute + load() runs the same algorithm to its genuine empty case:
+// no fetch, no decode attempt, element back to HAVE_NOTHING.
+function _detachDeck(el) {
+  el.removeAttribute('src')
+  el.load()
+}
+
 function _swapDeck(incoming, outgoing) {
   audio = incoming
   // Guarded: finishCrossfade only reaches here when the graph already exists
@@ -3542,7 +3559,7 @@ function _swapDeck(incoming, outgoing) {
     if (inGain) { inGain.gain.cancelScheduledValues(_audioCtx.currentTime); inGain.gain.setValueAtTime(1, _audioCtx.currentTime) }
   }
   outgoing.pause()
-  outgoing.src = ''
+  _detachDeck(outgoing)
 }
 
 function finishCrossfade(nextIndex, incoming) {
@@ -3587,7 +3604,7 @@ function cancelCrossfade() {
       if (inGain) { inGain.gain.cancelScheduledValues(now); inGain.gain.setValueAtTime(0, now) }
     }
     otherDeck.pause()
-    otherDeck.src = ''
+    _detachDeck(otherDeck)
     // The incoming stream was negotiated and, if transcoded, is being encoded
     // right now for a track we are walking away from. Every other abandon path
     // tells the server to stop; this one used to just drop it.
@@ -3629,7 +3646,7 @@ function _clearStreamPrefetch() {
     const { deck, resolved } = _streamPrefetch
     if (!resolved.direct) stopActiveEncoding(jfClient, jf, resolved.playSessionId)
     deck.pause()
-    deck.src = ''
+    _detachDeck(deck)
     _streamPrefetch = null
   }
 }
@@ -6000,7 +6017,7 @@ document.getElementById('ctx-delete').addEventListener('click', async () => {
     await fetch(`${jf.url}/Items/${item.Id}`, {
       method: 'DELETE', headers: { 'X-Emby-Token': jf.token }
     })
-    audio.pause(); audio.src = ''
+    audio.pause(); _detachDeck(audio)
     queue.splice(queueIndex, 1)
     queueIndex = Math.min(queueIndex, queue.length - 1)
     // playCurrentTrack() below re-checks the prefetch for the new current
