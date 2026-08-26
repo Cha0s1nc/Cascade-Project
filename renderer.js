@@ -2600,6 +2600,9 @@ async function loadPosterGrid(gridId, itemType, sub, onPick, getVideo, libs, ids
         grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Nothing here yet</div>`
         return
       }
+      // The container is itself a .poster-grid, so without this its groups
+      // become grid cells rather than stacked sections. See .lib-grouped.
+      grid.classList.add('lib-grouped')
       grid.innerHTML = groups.map(g => {
         const lib = libs.find(l => l.Id === g.libraryId)
         return posterGroupHTML(g.libraryId, lib ? lib.Name : g.libraryId, g.items, sub)
@@ -2610,6 +2613,8 @@ async function loadPosterGrid(gridId, itemType, sub, onPick, getVideo, libs, ids
       wireLibGroupHeaders(grid)
       wireHShelf(grid)
     } else {
+      // Single library: the container goes back to being a real poster grid.
+      grid.classList.remove('lib-grouped')
       const data = await getVideo(path, params)
       const items = data.Items || []
       if (!items.length) {
