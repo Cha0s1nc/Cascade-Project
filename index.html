@@ -226,6 +226,23 @@
     .pl-back-btn { background: none; border: none; color: var(--text3); cursor: pointer; font-size: 12px; font-family: var(--font); display: flex; align-items: center; gap: 5px; margin-bottom: 14px; transition: color 0.12s; }
     .pl-back-btn:hover { color: var(--text); }
 
+    /* Edit Playlist mode: a checkbox column plus, for a real playlist or Most
+       Played, one extra info column (Added to server / Plays). Edit mode never
+       applies without the extra column also being on (real playlists always
+       carry it), so there's no separate edit-only combo. Scoped to
+       #playlist-detail so the Songs/Album/Artist track lists sharing
+       .tl-head/.track-row are untouched. */
+    #playlist-detail .tl-head, #playlist-detail .track-row { grid-template-columns: 28px 32px 1fr 160px 52px; }
+    #playlist-detail.has-extra-col .tl-head, #playlist-detail.has-extra-col .track-row { grid-template-columns: 28px 32px 1fr 160px 90px 52px; }
+    #playlist-detail.edit-mode.has-extra-col .tl-head, #playlist-detail.edit-mode.has-extra-col .track-row { grid-template-columns: 24px 28px 32px 1fr 160px 90px 52px; }
+    .tl-check { display: none; align-items: center; justify-content: center; }
+    #playlist-detail.edit-mode .tl-check { display: flex; }
+    .tl-extra { display: none; font-size: 12px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #playlist-detail.has-extra-col .tl-extra { display: block; }
+    .pl-edit-toolbar { display: none; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+    .pl-edit-toolbar.visible { display: flex; }
+    .pl-edit-count { font-size: 11px; color: var(--text3); margin-right: auto; }
+
     /* ── Settings ── */
     .settings-view { padding: 22px; overflow-y: auto; flex: 1; }
     .settings-view::-webkit-scrollbar { width: 4px; }
@@ -1025,6 +1042,7 @@
     /* ── Shuffle all button ── */
     .shuffle-all-btn { display: flex; align-items: center; gap: 5px; font-family: var(--font); font-size: 11px; font-weight: 600; background: none; border: 1px solid var(--border); border-radius: 6px; color: var(--text2); padding: 4px 10px; cursor: pointer; transition: background 0.12s, color 0.12s, border-color 0.12s; }
     .shuffle-all-btn:hover { background: var(--surface2); color: var(--text); border-color: var(--accent); }
+    .shuffle-all-btn:disabled { opacity: 0.4; cursor: default; pointer-events: none; }
     .shuffle-all-btn svg { flex-shrink: 0; }
 
     /* ── States ── */
@@ -1413,6 +1431,7 @@
             </div>
             <button id="pl-detail-refresh" title="Refresh this playlist" style="background:none;border:none;color:var(--text3);cursor:pointer;padding:2px 4px;font-size:14px;line-height:1;border-radius:4px;transition:color 0.15s;" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--text3)'">↻</button>
             <div style="margin-left:auto;display:flex;gap:8px">
+              <button class="shuffle-all-btn" id="btn-edit-playlist">Edit</button>
               <button class="shuffle-all-btn" id="btn-shuffle-playlist">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
                 Shuffle
@@ -1423,9 +1442,21 @@
               </button>
             </div>
           </div>
+          <!-- Edit mode toolbar: bulk move/remove act on the checkbox selection,
+               rename/public opens pl-edit-modal. Hidden outside edit mode. -->
+          <div class="pl-edit-toolbar" id="pl-edit-toolbar">
+            <button class="shuffle-all-btn" id="pl-edit-props">Rename / Public…</button>
+            <span class="pl-edit-count" id="pl-edit-count">0 selected</span>
+            <button class="shuffle-all-btn" id="pl-edit-top" disabled>Move to top</button>
+            <button class="shuffle-all-btn" id="pl-edit-bottom" disabled>Move to bottom</button>
+            <button class="shuffle-all-btn" id="pl-edit-remove" disabled>Remove</button>
+          </div>
           <div class="track-list">
             <div class="tl-head">
-              <span>#</span><span></span><span>Title</span><span>Album</span><span style="text-align:right">Time</span>
+              <span class="tl-check"><input type="checkbox" id="pl-select-all" title="Select all"></span>
+              <span>#</span><span></span><span>Title</span><span>Album</span>
+              <span class="tl-extra" id="pl-head-extra"></span>
+              <span style="text-align:right">Time</span>
             </div>
             <div id="pl-detail-rows"></div>
           </div>
@@ -2224,6 +2255,26 @@
     <div class="modal-actions">
       <button class="modal-btn" id="atp-new-playlist">New Playlist</button>
       <button class="modal-btn" id="atp-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+<!-- Edit Playlist properties: rename + public/private, one UpdatePlaylistDto
+     request. Reuses .modal-overlay/.modal-card/.modal-input/.modal-btn verbatim
+     (no modal CSS added here) and the existing .toggle switch from Settings. -->
+<div class="modal-overlay hidden" id="pl-edit-modal">
+  <div class="modal-card" style="max-height:none;">
+    <div class="modal-title">Edit playlist</div>
+    <input class="modal-input" id="pl-edit-name" placeholder="Playlist name…" maxlength="100" style="width:100%;box-sizing:border-box;margin-bottom:14px;" />
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <span style="font-size:12px;color:var(--text2)">Public playlist</span>
+      <label class="toggle">
+        <input type="checkbox" id="pl-edit-public">
+        <span class="toggle-track"></span>
+      </label>
+    </div>
+    <div class="modal-actions">
+      <button class="modal-btn" id="pl-edit-cancel">Cancel</button>
+      <button class="modal-btn modal-btn-accent" id="pl-edit-save">Save</button>
     </div>
   </div>
 </div>
