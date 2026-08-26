@@ -6,7 +6,7 @@
 // gets a stream it can actually play. See profiles/PLATFORM-NOTES.md.
 
 import type { JellyfinClient } from './jellyfin.ts'
-import type { JfItem, ServerConfig } from './types.ts'
+import type { JfItem, JfMediaStream, ServerConfig } from './types.ts'
 
 /** Which family of Jellyfin stream endpoints an item uses. Movies and episodes
  *  are both 'Video'; everything Cascade played before B2 is 'Audio'. */
@@ -230,6 +230,42 @@ export async function stopActiveEncoding(
     deviceId: config.deviceId,
     playSessionId,
   })
+}
+
+/**
+ * Which audio stream to explicitly request, given the item's own tracks and
+ * the codecs this client can actually decode - or null if nothing needs to be
+ * forced.
+ *
+ * Direct play hands over the raw file with every audio stream still inside it;
+ * the server's compatibility check only has to find ONE decodable stream
+ * somewhere in the file to call the whole thing direct-playable, but an HTML5
+ * <video> cannot pick between embedded audio tracks (see StreamOptions.
+ * audioStreamIndex) - it just decodes whichever one the container itself
+ * flags as default. When those two are different streams, the server thinks
+ * direct play is fine, the video plays, and the audio the browser actually
+ * tried to decode is a codec it does not have - silent, no error.
+ *
+ * A single-track item has no such gap: whatever the server picks and whatever
+ * the container flags as default are the same stream. Multi-track items are
+ * mostly a movie thing (a Blu-ray rip's default track is often TrueHD/DTS,
+ * with a compatible commentary or stereo track lower in the list) - episodes
+ * are almost always one track - which is why this shows up as "movies have no
+ * sound, TV is fine" rather than anything codec-profile tuning alone fixes.
+ */
+export function neededAudioStreamIndex(
+  streams: JfMediaStream[] | undefined,
+  decodableCodecs: string[],
+): number | null {
+  const audio = (streams || []).filter(s => s.Type === 'Audio')
+  if (audio.length <= 1) return null
+
+  const decodable = new Set(decodableCodecs.map(c => c.toLowerCase()))
+  const effectiveDefault = audio.find(s => s.IsDefault) ?? audio[0]
+  if (decodable.has((effectiveDefault.Codec || '').toLowerCase())) return null
+
+  const fallback = audio.find(s => decodable.has((s.Codec || '').toLowerCase()))
+  return fallback?.Index ?? null
 }
 
 export async function resolveStream(

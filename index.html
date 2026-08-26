@@ -451,12 +451,22 @@
        it forms no grid row, and behind the video rather than over it. */
     .np-ambient { display: none; }
     .np-overlay.video.ambient .np-ambient {
-      display: block; position: absolute; inset: 0;
-      width: 100%; height: 100%; z-index: 0; pointer-events: none;
-      /* Scaled past its own box so the blur has colour to pull from at the
-         edges instead of fading into the background. */
-      transform: scale(1.15);
-      filter: blur(64px) saturate(1.9);
+      display: block; position: absolute;
+      /* The canvas behind this is only ever 32x18 pixels (see refreshAmbient()
+         in renderer.js), but a CSS filter still has to raster-blur the box at
+         its LAID-OUT size, not the source's - so at width/height:100% the
+         64px kernel was running over the whole video area on every ~4x/sec
+         redraw, and that periodic hitch is what read as choppy. inset:40%
+         shrinks the box to 20% on each axis first (percentages resolve
+         against that axis's own dimension, so this holds regardless of the
+         video's aspect ratio), and scale(5.75) - 5x to refill the box, times
+         the original 1.15 overscan - stretches the already-blurred bitmap
+         back up for free on the compositor. The blur radius is divided by
+         that same 5.75 so the stretched result still reads as ~64px: there is
+         no detail in a 32x18 source to lose either way. */
+      inset: 40%; z-index: 0; pointer-events: none;
+      transform: scale(5.75);
+      filter: blur(11px) saturate(1.9);
       opacity: 0.55;
       transition: opacity 0.6s ease;
     }

@@ -1,9 +1,9 @@
 import { test, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { JellyfinClient } from '../src/core/jellyfin.ts'
-import { resolveStream, universalStreamUrl, stopActiveEncoding, DEFAULT_MAX_BITRATE, resumeTicks } from '../src/core/playback.ts'
+import { resolveStream, universalStreamUrl, stopActiveEncoding, DEFAULT_MAX_BITRATE, resumeTicks, neededAudioStreamIndex } from '../src/core/playback.ts'
 import { ELECTRON_PROFILE, buildElectronProfile } from '../src/core/profiles/electron.ts'
-import type { ServerConfig } from '../src/core/types.ts'
+import type { ServerConfig, JfMediaStream } from '../src/core/types.ts'
 
 const realFetch = globalThis.fetch
 let calls: { url: string, body: any }[] = []
@@ -461,4 +461,56 @@ test('stopActiveEncoding never throws, whatever the server does', async () => {
   await stopActiveEncoding(new JellyfinClient(() => cfg), cfg, 'PS9')
   // Reaching here is the assertion: cleanup must not take playback down with it.
   assert.ok(true)
+})
+
+// ── neededAudioStreamIndex ──
+//
+// Direct play hands the whole file over, embedded tracks and all. The server's
+// eligibility check only needs ONE decodable audio stream to call a file
+// direct-playable, but Chromium decodes whichever track the container itself
+// flags as default - not whichever one the server had in mind. A mismatch
+// there is silent: the video plays, the audio track chosen never was.
+
+const DECODABLE = ['aac', 'mp3', 'opus', 'flac', 'vorbis']
+
+function audioStream(index: number, codec: string, isDefault = false): JfMediaStream {
+  return { Type: 'Audio', Index: index, Codec: codec, IsDefault: isDefault }
+}
+
+test('a single audio track never needs forcing, decodable or not', () => {
+  assert.equal(neededAudioStreamIndex([audioStream(1, 'truehd', true)], DECODABLE), null)
+  assert.equal(neededAudioStreamIndex([audioStream(1, 'aac', true)], DECODABLE), null)
+})
+
+test('multiple tracks with a decodable default need nothing forced', () => {
+  const streams = [audioStream(1, 'aac', true), audioStream(2, 'ac3')]
+  assert.equal(neededAudioStreamIndex(streams, DECODABLE), null)
+})
+
+test('a movie whose default track is undecodable forces the first track that is', () => {
+  // The exact shape of a Blu-ray rip: TrueHD flagged default, AC3 further down
+  // for compatibility. Direct play would still hand over TrueHD as the file's
+  // own default, and Chromium cannot decode it.
+  const streams = [audioStream(1, 'truehd', true), audioStream(2, 'ac3'), audioStream(3, 'aac')]
+  assert.equal(neededAudioStreamIndex(streams, DECODABLE), 3)
+})
+
+test('no IsDefault flag at all falls back to the first audio stream', () => {
+  const streams = [audioStream(1, 'dts'), audioStream(2, 'aac')]
+  assert.equal(neededAudioStreamIndex(streams, DECODABLE), 2)
+})
+
+test('nothing decodable at all leaves it to the server rather than picking blindly', () => {
+  const streams = [audioStream(1, 'truehd', true), audioStream(2, 'dts')]
+  assert.equal(neededAudioStreamIndex(streams, DECODABLE), null)
+})
+
+test('video and subtitle streams in the same list are ignored', () => {
+  const streams: JfMediaStream[] = [
+    { Type: 'Video', Index: 0, Codec: 'hevc' },
+    audioStream(1, 'truehd', true),
+    audioStream(2, 'aac'),
+    { Type: 'Subtitle', Index: 3, Codec: 'subrip' },
+  ]
+  assert.equal(neededAudioStreamIndex(streams, DECODABLE), 2)
 })
