@@ -406,7 +406,7 @@
     .np-overlay-body { flex: 1; display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; }
     /* Left: big art + info + controls */
     .np-overlay-left { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: clamp(20px, 3.5vh, 48px) clamp(20px, 4vw, 56px); gap: clamp(14px, 2.5vh, 28px); border-right: 1px solid var(--border); }
-    .np-overlay-art { width: min(clamp(240px, 52vh, 520px), calc(100% - 32px)); aspect-ratio: 1; border-radius: 12px; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 72px; flex-shrink: 0; }
+    .np-overlay-art { width: min(clamp(240px, 52vh, 520px), calc(100% - 32px)); aspect-ratio: 1; border-radius: 12px; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 72px; flex-shrink: 0; transition: width 0.4s ease; }
     .np-overlay-art img { width: 100%; height: 100%; object-fit: cover; }
     .np-overlay-info { text-align: center; width: 100%; }
 
@@ -466,7 +466,7 @@
     .np-overlay.video .np-overlay-controls { position: relative; z-index: 1; }
     @media (prefers-reduced-motion: reduce) {
       .np-overlay.video.ambient .np-ambient { transition: none; }
-      .np-overlay-btns, .np-overlay-vol { transition: none; }
+      .np-overlay-btns, .np-overlay-vol, .np-overlay-art { transition: none; }
       .np-overlay-prog-fill::after { transition: none; }
     }
     /* A short window is the case that broke: at 500px tall the controls wanted
@@ -523,10 +523,19 @@
        the artwork. The progress row deliberately stays, so you can still see
        where you are in the track without moving the mouse. :focus-within keeps
        the whole row up for anyone driving this from the keyboard, who gets no
-       mousemove to bring it back with. */
-    .np-overlay-btns, .np-overlay-vol { transition: opacity 0.4s ease; }
+       mousemove to bring it back with.
+       Fading these to opacity:0 alone left their layout box behind - a block
+       of dead space where the buttons used to be, with the art no bigger for
+       it. Collapsing max-height too reclaims that space; the art grow rule
+       below (also idle-gated) is what actually grows into it. In video mode
+       .np-overlay-left is a grid with the picture on a 1fr row, so shrinking
+       these auto-sized rows hands the same reclaimed space to the picture for
+       free, no separate rule needed there. */
+    .np-overlay-btns, .np-overlay-vol { max-height: 56px; overflow: hidden; transition: opacity 0.4s ease, max-height 0.4s ease; }
     .np-overlay.idle:not(:focus-within) .np-overlay-btns,
-    .np-overlay.idle:not(:focus-within) .np-overlay-vol { opacity: 0; pointer-events: none; }
+    .np-overlay.idle:not(:focus-within) .np-overlay-vol { opacity: 0; max-height: 0; pointer-events: none; }
+    /* Same idle gate, grown into the space the rows above just gave up. */
+    .np-overlay.idle:not(:focus-within) .np-overlay-art { width: min(clamp(240px, 58vh, 540px), calc(100% - 32px)); }
     /* Reversible fade/grow, same 140ms popup easing as the context menu below -
        display stays block always so opacity/transform/visibility can animate;
        visibility keeps a closed dropdown out of hit-testing and the a11y tree. */
