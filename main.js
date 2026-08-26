@@ -191,6 +191,35 @@ function overlayOptions() {
   }
 }
 
+/**
+ * Show a window created with `show: false`, once.
+ *
+ * ready-to-show alone is not enough. It fires on the renderer's first paint,
+ * and on Windows a hidden window can fail to produce one at all: Chromium sees
+ * no reason to paint something invisible, so the window waits to be shown
+ * before painting and waits for a paint before being shown. Confirmed in
+ * practice - the main window never appeared and the event never fired, while
+ * the page itself was perfectly fine underneath.
+ *
+ * did-finish-load is the escape: it fires when the page has loaded, whether or
+ * not anything has been painted. Whichever arrives first wins, with a timeout
+ * as a last resort so a window can never be invisible forever. The backgroundColor
+ * set on each window is what stops the early case flashing white.
+ */
+function showWhenReady(w, after) {
+  let shown = false
+  const showOnce = (why) => {
+    if (shown || !w || w.isDestroyed()) return
+    shown = true
+    if (why) console.error(`[cascade] ${why}`)
+    w.show()
+    if (after) after()
+  }
+  w.once('ready-to-show', () => showOnce(null))
+  w.webContents.once('did-finish-load', () => showOnce(null))
+  setTimeout(() => showOnce('window never became ready, showing it anyway'), 10000)
+}
+
 function titleBarOverlayColors(mode) {
   return mode === 'light'
     ? { color: '#ffffff', symbolColor: '#1c1c1e' }
@@ -296,25 +325,15 @@ function createWindow() {
     ipcMain.on('touchbar-update', () => {})
   }
 
-  // ready-to-show is the normal path, but if the renderer never reaches a first
-  // paint it never fires, and with show:false that leaves a running app with no
-  // window and no way to tell. The fallback below means the worst case is a
-  // window that appears late, or blank, instead of one that never appears.
-  let shown = false
-  const showOnce = () => {
-    if (shown || !win || win.isDestroyed()) return
-    shown = true
-    win.show()
-  }
-  setTimeout(() => {
-    if (!shown) console.error('[cascade] ready-to-show never fired after 10s, showing the window anyway')
-    showOnce()
-  }, 10000)
-  win.once('ready-to-show', () => {
-    showOnce()
+  showWhenReady(win)
+
+  // Hung off did-finish-load rather than ready-to-show. Same reason as
+  // showWhenReady: ready-to-show can simply never fire on Windows, which
+  // silently cost the media keys, the F12 devtools binding and the update
+  // check there. None of this needs a painted window, only a loaded one.
+  win.webContents.once('did-finish-load', () => {
     if (app.isPackaged) setTimeout(checkForUpdates, 5000)
 
-    // Register OS media keys here - app is already ready, window exists
     const send = (key) => { if (win && !win.isDestroyed()) win.webContents.send('media-key', key) }
     globalShortcut.register('MediaPlayPause',     () => send('playpause'))
     globalShortcut.register('MediaNextTrack',     () => send('next'))
@@ -477,8 +496,9 @@ ipcMain.on('open-lyrics-editor', (_e, data) => {
     show: false,
   })
   lyricsEditorWindow.loadFile('lyrics-editor.html')
-  lyricsEditorWindow.once('ready-to-show', () => {
-    lyricsEditorWindow.show()
+  // Same show:false + ready-to-show pattern the main window was caught by, so
+  // the lyrics editor would never have opened on Windows either.
+  showWhenReady(lyricsEditorWindow, () => {
     lyricsEditorWindow.webContents.send('lyrics-editor-init', data)
   })
   lyricsEditorWindow.webContents.on('before-input-event', (_e, input) => {
