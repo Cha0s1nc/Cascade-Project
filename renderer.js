@@ -592,6 +592,17 @@ function _applyAdminGating() {
     if (!jf.isAdmin) host.setAttribute('data-tip', 'Needs a Jellyfin admin account')
     else host.removeAttribute('data-tip')
   }
+  // Both "Refresh metadata" entries hit POST /Items/{id}/Refresh, which is the
+  // same RequiresElevation endpoint as the library scan, so they take the same
+  // gate. A floating context menu is a bad place for the [data-tip] tooltip (it
+  // renders below its host, and the menu is already positioned against the
+  // viewport edge), so these say why inline instead.
+  for (const id of ['ctx-refresh-meta', 'tctx-refresh-meta']) {
+    const item = document.getElementById(id)
+    if (item) item.classList.toggle('needs-admin', !jf.isAdmin)
+    const note = document.getElementById(id + '-note')
+    if (note) note.hidden = !!jf.isAdmin
+  }
 }
 
 document.getElementById('s-refresh-server').addEventListener('click', async () => {
@@ -2028,12 +2039,15 @@ document.getElementById('tctx-view-artist').addEventListener('click', () => {
 })
 
 document.getElementById('tctx-refresh-meta').addEventListener('click', async () => {
-  if (!_ctxItem) return
+  if (!_ctxItem || !jf.isAdmin) return
   closeTrackCtxMenu()
   try {
-    await fetch(`${jf.url}/Items/${_ctxItem.Id}/Refresh?MetadataRefreshMode=FullRefresh&ImageRefreshMode=FullRefresh&ReplaceAllMetadata=false&ReplaceAllImages=false`, {
+    const res = await fetch(`${jf.url}/Items/${_ctxItem.Id}/Refresh?MetadataRefreshMode=FullRefresh&ImageRefreshMode=FullRefresh&ReplaceAllMetadata=false&ReplaceAllImages=false`, {
       method: 'POST', headers: { 'X-Emby-Token': jf.token }
     })
+    // The response was never read, so a 403 from a non-admin account reported
+    // "queued" for a refresh the server had refused outright.
+    if (!res.ok) throw new Error(String(res.status))
     showToast('Metadata refresh queued')
   } catch { showNotice('Could not queue a metadata refresh on the server.', 'Refresh failed') }
 })
@@ -5718,12 +5732,14 @@ document.getElementById('mi-close').addEventListener('click', () => document.get
 // Refresh metadata
 document.getElementById('ctx-refresh-meta').addEventListener('click', async () => {
   const item = queue[queueIndex]
-  if (!item) return
+  if (!item || !jf.isAdmin) return
   try {
-    await fetch(`${jf.url}/Items/${item.Id}/Refresh?MetadataRefreshMode=FullRefresh&ImageRefreshMode=FullRefresh&ReplaceAllMetadata=false`, {
+    const res = await fetch(`${jf.url}/Items/${item.Id}/Refresh?MetadataRefreshMode=FullRefresh&ImageRefreshMode=FullRefresh&ReplaceAllMetadata=false`, {
       method: 'POST', headers: { 'X-Emby-Token': jf.token }
     })
-  } catch {}
+    if (!res.ok) throw new Error(String(res.status))
+    showToast('Metadata refresh queued')
+  } catch { showNotice('Could not queue a metadata refresh on the server.', 'Refresh failed') }
 })
 
 // Edit metadata / images - open the item in the Jellyfin web UI. (Lyrics have their
