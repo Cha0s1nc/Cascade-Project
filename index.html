@@ -108,6 +108,18 @@
        because there's only one), which sets .has-movies / .has-shows on <body>. */
     body:not(.has-movies) .nav-movies { display: none; }
     body:not(.has-shows) .nav-shows { display: none; }
+    /* Music / Video mode: on top of the has-movies/has-shows gating above, not
+       instead of it. Either rule alone can hide a nav row; nothing here ever
+       needs to un-hide one. */
+    .mode-toggle.hidden { display: none; }
+    body.mode-video .nav-music { display: none; }
+    body.mode-music .nav-movies, body.mode-music .nav-shows { display: none; }
+    /* Home shelves: the music pair (#home-music-shelves) hides outright in
+       Video mode. The video pair already hides itself via inline style when
+       empty (loadContinueWatching/loadRecentlyWatched) - !important is what
+       lets Music mode override that inline style too. */
+    body.mode-video #home-music-shelves { display: none; }
+    body.mode-music #home-resume-section, body.mode-music #home-continue-section { display: none !important; }
     .poster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; margin-bottom: 8px; }
     /* Same single-row clipping trick as #home-recent-albums, for the Home
        "Recently watched" shelf. */
@@ -1200,6 +1212,13 @@
   <header class="titlebar">
     <span class="tb-title">Cascade</span>
     <div class="tb-right">
+      <!-- Hidden until applyVideoNavVisibility() confirms a movie or TV
+           library is actually configured - a music-only user must never see
+           a Video mode that leads to empty views. -->
+      <div class="seg-control mode-toggle hidden" id="mode-toggle" role="group" aria-label="Browse mode">
+        <button class="seg-btn active" id="mode-music-btn" aria-pressed="true">Music</button>
+        <button class="seg-btn" id="mode-video-btn" aria-pressed="false">Video</button>
+      </div>
       <button id="theme-dot" title="Customize theme"></button>
     </div>
   </header>
@@ -1260,28 +1279,28 @@
         </div>
         <div class="nav-info"><span class="nav-label">Home</span></div>
       </div>
-      <div class="nav-item" data-view="albums">
+      <div class="nav-item nav-music" data-view="albums">
         <div class="nav-bar"></div>
         <div class="nav-icon">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
         </div>
         <div class="nav-info"><span class="nav-label">Albums</span></div>
       </div>
-      <div class="nav-item" data-view="artists">
+      <div class="nav-item nav-music" data-view="artists">
         <div class="nav-bar"></div>
         <div class="nav-icon">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
         </div>
         <div class="nav-info"><span class="nav-label">Artists</span></div>
       </div>
-      <div class="nav-item" data-view="songs">
+      <div class="nav-item nav-music" data-view="songs">
         <div class="nav-bar"></div>
         <div class="nav-icon">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
         </div>
         <div class="nav-info"><span class="nav-label">Songs</span></div>
       </div>
-      <div class="nav-item" data-view="playlists">
+      <div class="nav-item nav-music" data-view="playlists">
         <div class="nav-bar"></div>
         <div class="nav-icon">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
@@ -1334,25 +1353,31 @@
       <!-- Home -->
       <div class="view active" id="view-home">
         <div class="greeting" id="greeting">Good afternoon, cha0s</div>
-        <div class="sect-header">
-          <span class="sect-title">Recently played</span>
-          <button class="sect-more" onclick="showView('songs')">See all</button>
-        </div>
-        <div class="rp-grid" id="rp-grid">
-          <div class="rp-item skel-card"><div class="rp-art skel"></div><div style="min-width:0;flex:1"><div class="skel skel-text" style="width:85%"></div><div class="skel skel-text" style="width:55%;height:9px;margin-top:5px"></div></div></div>
-          <div class="rp-item skel-card"><div class="rp-art skel"></div><div style="min-width:0;flex:1"><div class="skel skel-text" style="width:85%"></div><div class="skel skel-text" style="width:55%;height:9px;margin-top:5px"></div></div></div>
-          <div class="rp-item skel-card"><div class="rp-art skel"></div><div style="min-width:0;flex:1"><div class="skel skel-text" style="width:85%"></div><div class="skel skel-text" style="width:55%;height:9px;margin-top:5px"></div></div></div>
-          <div class="rp-item skel-card"><div class="rp-art skel"></div><div style="min-width:0;flex:1"><div class="skel skel-text" style="width:85%"></div><div class="skel skel-text" style="width:55%;height:9px;margin-top:5px"></div></div></div>
-        </div>
-        <div class="sect-header">
-          <span class="sect-title">Recently added</span>
-          <button class="sect-more" onclick="showView('albums')">See all</button>
-        </div>
-        <div class="album-grid" id="home-recent-albums">
-          <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
-          <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
-          <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
-          <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+        <!-- Both shelves below hide together in Video mode (#home-music-shelves,
+             see the mode CSS near .nav-music). Each already sits over its own
+             empty-state text rather than fully hiding itself when the account
+             genuinely has no history - that's unrelated to mode. -->
+        <div id="home-music-shelves">
+          <div class="sect-header">
+            <span class="sect-title">Recently played</span>
+            <button class="sect-more" onclick="showView('songs')">See all</button>
+          </div>
+          <div class="rp-grid" id="rp-grid">
+            <div class="rp-item skel-card"><div class="rp-art skel"></div><div style="min-width:0;flex:1"><div class="skel skel-text" style="width:85%"></div><div class="skel skel-text" style="width:55%;height:9px;margin-top:5px"></div></div></div>
+            <div class="rp-item skel-card"><div class="rp-art skel"></div><div style="min-width:0;flex:1"><div class="skel skel-text" style="width:85%"></div><div class="skel skel-text" style="width:55%;height:9px;margin-top:5px"></div></div></div>
+            <div class="rp-item skel-card"><div class="rp-art skel"></div><div style="min-width:0;flex:1"><div class="skel skel-text" style="width:85%"></div><div class="skel skel-text" style="width:55%;height:9px;margin-top:5px"></div></div></div>
+            <div class="rp-item skel-card"><div class="rp-art skel"></div><div style="min-width:0;flex:1"><div class="skel skel-text" style="width:85%"></div><div class="skel skel-text" style="width:55%;height:9px;margin-top:5px"></div></div></div>
+          </div>
+          <div class="sect-header">
+            <span class="sect-title">Recently added</span>
+            <button class="sect-more" onclick="showView('albums')">See all</button>
+          </div>
+          <div class="album-grid" id="home-recent-albums">
+            <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+            <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+            <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+            <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+          </div>
         </div>
         <!-- Hidden until loadContinueWatching() confirms there's a video library
              configured and something actually partway-through - music-only

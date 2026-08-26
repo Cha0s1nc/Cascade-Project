@@ -863,7 +863,52 @@ function applyVideoNavVisibility() {
   // strand them with no way back except another nav click.
   if (!hasMovies && _currentView === 'movies') showView('home')
   if (!hasShows  && _currentView === 'shows')  showView('home')
+  // Same trigger drives the Music/Video mode toggle's own visibility and
+  // forces Music mode once no video library is left - one mechanism, not two.
+  refreshBrowseMode()
 }
+
+// ── Music / Video mode toggle ─────────────────────────────────────────────
+//
+// A persistent browsing filter, not a "what would you like to do this
+// session" launch prompt - that option was put to the user and rejected in
+// favor of this toggle, so it restores silently on launch instead of asking.
+// Purely a sidebar/Home filter: never touches playback, the queue, or the
+// player bar (see setBrowseMode - it only flips classes and attributes).
+
+let _browseMode = 'music'
+
+/** Applies `mode` to the DOM and, unless `skipSave`, persists it. skipSave is
+ *  for refreshBrowseMode() re-deriving the mode from what's already saved -
+ *  writing it back there would overwrite a saved "video" choice with "music"
+ *  the instant the last video library is removed, losing the choice for good
+ *  even if a video library is added back later. */
+function setBrowseMode(mode, opts = {}) {
+  _browseMode = mode
+  document.body.classList.toggle('mode-video', mode === 'video')
+  document.body.classList.toggle('mode-music', mode === 'music')
+  const musicBtn = document.getElementById('mode-music-btn')
+  const videoBtn = document.getElementById('mode-video-btn')
+  musicBtn?.classList.toggle('active', mode === 'music')
+  videoBtn?.classList.toggle('active', mode === 'video')
+  musicBtn?.setAttribute('aria-pressed', String(mode === 'music'))
+  videoBtn?.setAttribute('aria-pressed', String(mode === 'video'))
+  if (!opts.skipSave) window.cascade.store.set('browseMode', mode)
+}
+
+/** Re-derives the effective mode from what's saved and whether a video
+ *  library actually exists right now, and shows/hides the toggle itself to
+ *  match. Called from applyVideoNavVisibility() so both stay in lockstep
+ *  instead of drifting apart as two separate mechanisms. */
+async function refreshBrowseMode() {
+  const hasVideo = document.body.classList.contains('has-movies') || document.body.classList.contains('has-shows')
+  document.getElementById('mode-toggle')?.classList.toggle('hidden', !hasVideo)
+  const saved = await window.cascade.store.get('browseMode')
+  setBrowseMode(CascadeCore.resolveBrowseMode(saved, hasVideo), { skipSave: true })
+}
+
+document.getElementById('mode-music-btn').addEventListener('click', () => setBrowseMode('music'))
+document.getElementById('mode-video-btn').addEventListener('click', () => setBrowseMode('video'))
 
 /** Renders one category's toggles into `list`, given its libraries, its
  *  currently selected ids, and what to call with the new list on change.
@@ -1184,6 +1229,14 @@ backdrop.addEventListener('click', () => {
 let _currentView = 'home'
 
 function showView(name) {
+  // Deep links (search results, now-playing "view album", a resumed video
+  // from Home) must never land on a view the current mode is hiding - switch
+  // mode instead of leaving them on a view with no way to see it. Every
+  // navigation in the app funnels through showView, so this one check covers
+  // all of them.
+  const targetMode = CascadeCore.sectionMode(name)
+  if (targetMode && targetMode !== _browseMode) setBrowseMode(targetMode)
+
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'))
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'))
   document.getElementById(`view-${name}`).classList.add('active')
