@@ -338,10 +338,24 @@ test('splitVideoLibraryIds: an id no longer on the server is dropped, not guesse
   assert.deepEqual(showIds, [])
 })
 
-test('effectiveLibraryIds: a sole library in the category is always used, saved ids or not', () => {
-  const libs = [videoLib('m1', 'movies')]
-  assert.deepEqual(effectiveLibraryIds(libs, []), ['m1'])
-  assert.deepEqual(effectiveLibraryIds(libs, ['something-else']), ['m1'])
+test('effectiveLibraryIds: a sole library defaults on when nothing was ever chosen', () => {
+  const libs = [{ Id: 'm1', Name: 'Movies' }] as any
+  assert.deepEqual(effectiveLibraryIds(libs, null), ['m1'])
+  assert.deepEqual(effectiveLibraryIds(libs, undefined), ['m1'])
+})
+
+test('effectiveLibraryIds: a sole library can be turned off and stay off', () => {
+  // The bug: it used to be forced on whatever was saved, so anyone with exactly
+  // one movie or TV library could never disable video at all.
+  const libs = [{ Id: 'm1', Name: 'Movies' }] as any
+  assert.deepEqual(effectiveLibraryIds(libs, []), [])
+  assert.deepEqual(effectiveLibraryIds(libs, ['m1']), ['m1'])
+  assert.deepEqual(effectiveLibraryIds(libs, ['something-else']), [])
+})
+
+test('effectiveLibraryIds: never-chosen with a real choice still selects nothing', () => {
+  const libs = [{ Id: 'm1', Name: 'A' }, { Id: 'm2', Name: 'B' }] as any
+  assert.deepEqual(effectiveLibraryIds(libs, null), [])
 })
 
 test('effectiveLibraryIds: with a real choice, saved ids win but vanished ones are dropped', () => {

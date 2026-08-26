@@ -80,8 +80,18 @@ export function splitVideoLibraryIds(
  * saved, minus any id that no longer matches a library on the server (one
  * that was deleted or moved to a different category since the last launch).
  */
-export function effectiveLibraryIds(categoryLibs: JfItem[], savedIds: string[]): string[] {
-  if (categoryLibs.length === 1) return [categoryLibs[0].Id]
+export function effectiveLibraryIds(
+  categoryLibs: JfItem[],
+  savedIds: string[] | null | undefined,
+): string[] {
+  if (!categoryLibs.length) return []
+  // Null means no choice has ever been made, which is different from an empty
+  // array meaning "explicitly none". A sole library used to be forced on
+  // whatever was saved, so turning video off was impossible for anyone with
+  // exactly one movie or TV library: the toggle either did not render or did
+  // nothing. It still defaults on, so nobody loses a library they never chose,
+  // but off is now a state that sticks.
+  if (savedIds == null) return categoryLibs.length === 1 ? [categoryLibs[0].Id] : []
   return savedIds.filter(id => categoryLibs.some(l => l.Id === id))
 }
 

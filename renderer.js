@@ -688,11 +688,15 @@ function renderLibraryPicker() {
     return
   }
 
-  // With one library there is nothing to choose - both rows are pure noise
+  // Merging is meaningless with one library, so that toggle really is noise.
+  // The list itself is not: it is the only place to see which library you are
+  // on, it is where a library added on the server later shows up, and hiding it
+  // left an account with access to a single library unable to see or change
+  // anything here at all. The last enabled entry is locked on regardless (see
+  // lockLast below), so a one-entry list cannot be turned into an empty one.
   const hasChoice = _musicLibs.length > 1
   singleRow.style.display = hasChoice ? '' : 'none'
-  libRow.style.display    = hasChoice ? '' : 'none'
-  if (!hasChoice) return
+  libRow.style.display    = ''
 
   toggle.checked = singleLibraryMode
 
@@ -774,13 +778,14 @@ async function migrateVideoLibraryIds() {
 async function loadVideoLibrarySelection() {
   const movieRaw = await window.cascade.store.get('movieLibraryIds')
   const showRaw  = await window.cascade.store.get('showLibraryIds')
-  let movieSaved = [], showSaved = []
-  try { movieSaved = movieRaw ? JSON.parse(movieRaw) : [] } catch {}
-  try { showSaved  = showRaw  ? JSON.parse(showRaw)  : [] } catch {}
+  // null, not [], when the key is absent: never-chosen and chosen-none are
+  // different answers, and only the first should default a sole library on.
+  let movieSaved = null, showSaved = null
+  try { movieSaved = movieRaw ? JSON.parse(movieRaw) : null } catch {}
+  try { showSaved  = showRaw  ? JSON.parse(showRaw)  : null } catch {}
 
-  // Sole library in a category -> always used, never persisted (so a rename
-  // or replacement keeps working). Otherwise whatever was saved, minus
-  // anything that has since vanished from the server.
+  // Sole library in a category defaults on, but can be turned off and stay off.
+  // Otherwise whatever was saved, minus anything that has since vanished.
   jf.movieLibraryIds = CascadeCore.effectiveLibraryIds(_movieLibs, movieSaved)
   jf.showLibraryIds  = CascadeCore.effectiveLibraryIds(_showLibs, showSaved)
 
@@ -845,22 +850,27 @@ function renderVideoLibraryRows(list, libs, ids, onChange) {
 }
 
 /** Builds the Movies / TV Shows headings and toggle groups inside `container`.
- *  A category is only rendered when it genuinely has a choice to make (more
- *  than one library) - a sole library auto-selects and needs no toggle. Shared
- *  by the Settings row and the one-time intro card. */
+ *  Every category holding at least one library is rendered, a sole one
+ *  included: it defaults on, but turning video off has to be possible and this
+ *  is the only place to do it. Shared by the Settings row and the intro card. */
 function renderVideoLibraryGroups(container) {
-  const movieChoice = _movieLibs.length > 1
-  const showChoice  = _showLibs.length > 1
+  const section = (title, libs, cls) =>
+    libs.length ? `<div class="lib-group-title">${title}</div><div class="${cls}"></div>` : ''
   container.innerHTML = [
-    movieChoice ? '<div class="lib-group-title">Movies</div><div class="vlib-movies"></div>' : '',
-    showChoice  ? '<div class="lib-group-title">TV Shows</div><div class="vlib-shows"></div>' : '',
+    section('Movies', _movieLibs, 'vlib-movies'),
+    section('TV Shows', _showLibs, 'vlib-shows'),
   ].join('')
 
-  if (movieChoice) renderVideoLibraryRows(
-    container.querySelector('.vlib-movies'), _movieLibs, jf.movieLibraryIds || [],
+  // Every category with a library gets real toggles, including a sole one:
+  // turning video off entirely is a legitimate thing to want, and this is the
+  // only place to do it.
+  const fill = (cls, libs, ids, apply) => {
+    const host = container.querySelector('.' + cls)
+    if (host) renderVideoLibraryRows(host, libs, ids, apply)
+  }
+  fill('vlib-movies', _movieLibs, jf.movieLibraryIds || [],
     ids => applyVideoLibrarySelection('movie', ids))
-  if (showChoice) renderVideoLibraryRows(
-    container.querySelector('.vlib-shows'), _showLibs, jf.showLibraryIds || [],
+  fill('vlib-shows', _showLibs, jf.showLibraryIds || [],
     ids => applyVideoLibrarySelection('show', ids))
 }
 
@@ -868,10 +878,13 @@ function renderVideoLibraryPicker() {
   const row = document.getElementById('s-video-library-row')
   if (!row) return
 
-  // Nothing to choose: either category with 0 or 1 libraries needs no toggle.
-  const anyChoice = _movieLibs.length > 1 || _showLibs.length > 1
-  row.style.display = anyChoice ? '' : 'none'
-  if (!anyChoice) return
+  // Shown whenever the server has any video library at all, not only when a
+  // category has a choice to make. Hiding it meant an account with one movie
+  // library and one TV library had nowhere to see what was on, which read as
+  // the section having vanished.
+  const anyVideo = _movieLibs.length > 0 || _showLibs.length > 0
+  row.style.display = anyVideo ? '' : 'none'
+  if (!anyVideo) return
 
   renderVideoLibraryGroups(document.getElementById('s-video-library-list'))
 }
