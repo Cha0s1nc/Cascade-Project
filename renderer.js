@@ -507,8 +507,11 @@ async function connect(serverUrl, token, userId) {
   await populateLibraryPicker()
   invalidateLibraryViews()
   await loadHome()
-  // After loadHome so the card sits over a populated app rather than a blank one.
-  await maybeShowVideoIntro()
+  // Both sit over a populated app rather than a blank one, hence after loadHome.
+  // The wizard runs itself off its stored revision, so an ordinary launch on the
+  // current revision shows nothing - and when it does run it has already marked
+  // the video intro seen, since its library step covers the same ground.
+  if (!await maybeShowSetupWizard()) await maybeShowVideoIntro()
 }
 
 // ── Remote control (cast target) ─────────────────────────────────────────────
@@ -933,21 +936,38 @@ async function dismissVideoIntro() {
 document.getElementById('vi-done').addEventListener('click', dismissVideoIntro)
 document.getElementById('vi-skip').addEventListener('click', dismissVideoIntro)
 
-// ── First-run wizard ─────────────────────────────────────────────────────────
+// ── Setup wizard ─────────────────────────────────────────────────────────────
 //
-// Shown once, right after the very first successful *interactive* sign-in -
-// called from the setup-connect and setup-quickconnect handlers below, never
-// from connect() itself, so a silent reconnect from a stored token (every
-// ordinary app launch, and an existing install upgrading to this build) never
-// triggers it. Gated on firstRunWizardSeen, which is set the moment it is
-// finished or skipped, so signing out and back in as the same account goes
-// through the same handlers but the flag is already set by then - same shape
-// as videoIntroSeen above, just checked at a different call site.
+// Runs on a genuine first run, and again after an update that added settings
+// worth pointing at. Gated on a REVISION, not a boolean and not a version
+// comparison: the app version keeps moving during beta, so a `>= 1.3` check
+// would simply never fire on 1.2.0 - the same reasoning videoIntroSeen above
+// is keyed on a feature flag for.
+//
+// Bump WIZARD_REVISION when the wizard starts covering something existing
+// users have not been shown. Everyone whose stored revision is behind sees it
+// once more, then never again until the next bump.
+//
+// Re-showing it to an existing user is only safe because every step seeds from
+// the CURRENT live value rather than a default (see _renderSetupStep), so
+// clicking straight through changes nothing. Do not add a step that writes a
+// default on entry, or an update would quietly reset people's settings.
+//
+// This is why it can now be called from connect() rather than only from the
+// interactive sign-in handlers: the revision does the "don't nag" work that
+// the interactive-only rule used to do, and an ordinary launch on the current
+// revision shows nothing.
 //
 // Every control writes through the exact function Settings itself calls
 // (applyLibrarySelection, applyVideoLibrarySelection via renderVideoLibraryGroups,
 // setCrossfadeEnabled, setCrossfadeSeconds, setMaxStreamingBitrate, setThemeMode,
 // setAlbumArtAccent) - there is nothing here that persists a setting on its own.
+
+// 1: the original first-run-only wizard (b6).
+// 2: re-shown to everyone upgrading, for video libraries, crossfade, the
+//    streaming cap and album art accent - none of which an existing user had
+//    ever been walked through.
+const WIZARD_REVISION = 2
 
 const FIRSTRUN_STEPS = ['libraries', 'crossfade', 'quality', 'theme']
 let _firstRunSteps = []
@@ -964,19 +984,34 @@ function _firstRunNeedsLibraryStep() {
  *  connect() finishes, and pre-empts the older video intro when it does -
  *  the wizard's own library step already covers the same ground, so showing
  *  both back to back would just be two library pickers in a row. */
-async function _prepareFirstRun() {
-  const isFirstRun = !(await window.cascade.store.get('firstRunWizardSeen'))
-  if (isFirstRun) await window.cascade.store.set('videoIntroSeen', true)
-  return isFirstRun
+/** Which revision this install has already been shown. Absent means either a
+ *  fresh install (0) or one from before revisions existed, which is revision 1
+ *  if it had already completed the wizard. */
+async function _wizardSeenRevision() {
+  const raw = await window.cascade.store.get('wizardSeenRevision')
+  const n = Number(raw)
+  if (Number.isFinite(n) && n > 0) return n
+  return (await window.cascade.store.get('firstRunWizardSeen')) ? 1 : 0
 }
 
-async function maybeShowFirstRunWizard() {
-  if (await window.cascade.store.get('firstRunWizardSeen')) return
+/** True on a genuine first run, as opposed to an update. Only changes the
+ *  wording - an update must not be told "welcome". */
+let _wizardIsFirstRun = true
+
+async function maybeShowSetupWizard() {
+  const seen = await _wizardSeenRevision()
+  if (seen >= WIZARD_REVISION) return false
+  _wizardIsFirstRun = seen === 0
+
+  // The wizard's library step covers the same ground as the older video intro
+  // card, so showing both back to back would be two library pickers in a row.
+  await window.cascade.store.set('videoIntroSeen', true)
 
   _firstRunSteps = FIRSTRUN_STEPS.filter(s => s !== 'libraries' || _firstRunNeedsLibraryStep())
   _firstRunIdx = 0
-  _renderFirstRunStep()
+  _renderSetupStep()
   document.getElementById('firstrun-overlay').classList.remove('hidden')
+  return true
 }
 
 /** applyLibrarySelection(ids) refuses an empty selection by re-rendering
@@ -991,8 +1026,12 @@ function _frRenderMusicList() {
   })
 }
 
-function _renderFirstRunStep() {
+function _renderSetupStep() {
   const step = _firstRunSteps[_firstRunIdx]
+  document.getElementById('fr-heading').textContent =
+    _wizardIsFirstRun ? 'Set up Cascade' : 'New since your last update'
+  document.getElementById('fr-subheading').textContent =
+    'Your current settings are already filled in, so skipping changes nothing. All of it lives in Settings afterwards.'
   FIRSTRUN_STEPS.forEach(s => { document.getElementById(`fr-step-${s}`).style.display = s === step ? '' : 'none' })
   document.getElementById('fr-progress').textContent = `Step ${_firstRunIdx + 1} of ${_firstRunSteps.length}`
   document.getElementById('fr-next').textContent = _firstRunIdx === _firstRunSteps.length - 1 ? 'Done' : 'Next'
@@ -1018,19 +1057,22 @@ function _renderFirstRunStep() {
   }
 }
 
-async function _finishFirstRunWizard() {
+async function _finishSetupWizard() {
+  await window.cascade.store.set('wizardSeenRevision', WIZARD_REVISION)
+  // Kept in step so a downgrade to a build that only knows the boolean does not
+  // greet an existing user with the wizard again.
   await window.cascade.store.set('firstRunWizardSeen', true)
   document.getElementById('firstrun-overlay').classList.add('hidden')
 }
 
 document.getElementById('fr-next').addEventListener('click', () => {
-  if (_firstRunIdx < _firstRunSteps.length - 1) { _firstRunIdx++; _renderFirstRunStep() }
-  else _finishFirstRunWizard()
+  if (_firstRunIdx < _firstRunSteps.length - 1) { _firstRunIdx++; _renderSetupStep() }
+  else _finishSetupWizard()
 })
 // Skippable at any point, not just from the last step - whatever was already
 // changed on an earlier step already went through its real setter above and
 // stays changed; whatever step was never reached just keeps today's default.
-document.getElementById('fr-skip').addEventListener('click', _finishFirstRunWizard)
+document.getElementById('fr-skip').addEventListener('click', _finishSetupWizard)
 
 document.getElementById('fr-crossfade-toggle').addEventListener('change', async e => {
   document.getElementById('fr-crossfade-duration-row').style.display = e.target.checked ? '' : 'none'
@@ -4360,7 +4402,6 @@ document.getElementById('setup-quickconnect').addEventListener('click', async ()
 
     try {
       const auth = await CascadeCore.quickConnectAuthenticate(url, start.Secret, appVersion, deviceId)
-      const isFirstRun = await _prepareFirstRun()
       await window.cascade.store.set('serverUrl', url)
       await window.cascade.store.set('token', auth.AccessToken)
       await window.cascade.store.set('userId', auth.User.Id)
@@ -4376,7 +4417,6 @@ document.getElementById('setup-quickconnect').addEventListener('click', async ()
       document.getElementById('setup-qc').style.display = 'none'
       document.getElementById('setup-overlay').classList.add('hidden')
       await connect(url, auth.AccessToken, auth.User.Id)
-      if (isFirstRun) await maybeShowFirstRunWizard()
     } catch {
       err.textContent = 'Approved, but signing in failed. Try again.'
       endQuickConnect()
@@ -4400,7 +4440,6 @@ document.getElementById('setup-connect').addEventListener('click', async () => {
 
   try {
     const auth = await jfAuth(url, user, pass)
-    const isFirstRun = await _prepareFirstRun()
     await window.cascade.store.set('serverUrl', url)
     await window.cascade.store.set('username', user)
     await window.cascade.store.set('password', pass)
@@ -4409,7 +4448,6 @@ document.getElementById('setup-connect').addEventListener('click', async () => {
 
     document.getElementById('setup-overlay').classList.add('hidden')
     await connect(url, auth.AccessToken, auth.User.Id)
-    if (isFirstRun) await maybeShowFirstRunWizard()
   } catch (e) {
     const msg = e.message || ''
     if (msg.includes('401') || msg.toLowerCase().includes('unauthorized'))
