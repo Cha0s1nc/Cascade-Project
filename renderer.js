@@ -430,13 +430,6 @@ const jfAuth = (serverUrl, username, password) =>
 
 // ── Connection ────────────────────────────────────────────────────────────────
 
-function setConnected(yes) {
-  const dot = document.getElementById('ws-dot')
-  const label = document.getElementById('ws-label')
-  dot.className = 'ws-dot' + (yes ? ' connected' : '')
-  label.textContent = yes ? 'connected' : 'disconnected'
-}
-
 async function connect(serverUrl, token, userId) {
   jf = { url: serverUrl.replace(/\/$/, ''), token, userId, deviceId }
 
@@ -476,7 +469,6 @@ async function connect(serverUrl, token, userId) {
     throw new Error('Could not reach Jellyfin server')
   }
 
-  setConnected(true)
   startRemoteControl()
   probeCascadePlugin()  // not awaited - cheap, and nothing here depends on the result yet
   await populateLibraryPicker()
@@ -3750,7 +3742,6 @@ document.getElementById('btn-logout').addEventListener('click', async () => {
   await window.cascade.store.delete('token')
   await window.cascade.store.delete('userId')
   await window.cascade.store.delete('password')
-  setConnected(false)
   // Via promptReauth so the code option is offered here too, not just on a
   // stale-token bounce.
   promptReauth('')
