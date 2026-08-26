@@ -27,13 +27,16 @@
        from the viewport gives the overlay's own width - falls back to a fixed
        138px guess (three ~46px Windows caption buttons) where the env var
        is not supported. */
-    html[data-platform="win32"] .titlebar,
-    html[data-platform="linux"] .titlebar {
-      /* Plus 14px: reserving exactly the overlay's width leaves the last
-         control touching the minimise button, which reads as a mistake even
-         though nothing overlaps. */
-      padding-right: calc(100vw - env(titlebar-area-width, calc(100vw - 138px)) + 14px);
+    /* Plus 14px: reserving exactly the overlay's width leaves the last control
+       touching the minimise button, which reads as a mistake even though
+       nothing overlaps. Defined once because more than one bar sits under those
+       buttons - see .np-overlay-header, whose close button was rendered
+       underneath them and could not be clicked at all. */
+    html[data-platform="win32"], html[data-platform="linux"] {
+      --caption-reserve: calc(100vw - env(titlebar-area-width, calc(100vw - 138px)) + 14px);
     }
+    html[data-platform="win32"] .titlebar,
+    html[data-platform="linux"] .titlebar { padding-right: var(--caption-reserve); }
     .tb-right { display: flex; align-items: center; gap: 8px; -webkit-app-region: no-drag; }
     .tb-title { font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
     .ws-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--red); transition: background 0.3s, box-shadow 0.3s; }
@@ -507,7 +510,12 @@
     /* ── Full-screen now-playing overlay ── */
     .np-overlay { position: fixed; inset: 0; background: var(--bg); z-index: 300; display: flex; flex-direction: column; transform: translateY(100%); transition: transform 0.38s cubic-bezier(0.4,0,0.2,1); pointer-events: none; overflow: hidden; }
     .np-overlay.open { transform: translateY(0); pointer-events: all; }
-    .np-overlay-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px 12px 80px; border-bottom: 1px solid var(--border); flex-shrink: 0; -webkit-app-region: drag; }
+    .np-overlay-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0; -webkit-app-region: drag; }
+    /* 80px is the macOS traffic lights, which used to be padded for on every
+       platform. */
+    html[data-platform="darwin"] .np-overlay-header { padding-left: 80px; }
+    html[data-platform="win32"] .np-overlay-header,
+    html[data-platform="linux"] .np-overlay-header { padding-right: var(--caption-reserve); }
     .np-overlay-title { font-size: 12px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.07em; }
     .np-overlay-close { -webkit-app-region: no-drag; background: none; border: none; color: var(--text3); cursor: pointer; font-size: 20px; line-height: 1; padding: 0 4px; transition: color 0.12s; }
     .np-overlay-close:hover { color: var(--text); }
