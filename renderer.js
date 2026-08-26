@@ -6604,6 +6604,9 @@ function setThemeMode(mode) {
   document.documentElement.setAttribute('data-theme', mode === 'light' ? 'light' : '')
   document.getElementById('seg-dark').classList.toggle('active', mode !== 'light')
   document.getElementById('seg-light').classList.toggle('active', mode === 'light')
+  // Recolour the OS-drawn Windows/Linux caption buttons to match. No-op on
+  // macOS (main.js checks platform), so this is safe to call unconditionally.
+  window.cascade.setTitleBarOverlay(mode === 'light' ? 'light' : 'dark')
 }
 
 function buildPresets() {

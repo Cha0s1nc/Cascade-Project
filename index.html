@@ -20,6 +20,17 @@
     /* ── Titlebar ── */
     .titlebar { height: 38px; flex-shrink: 0; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 16px; -webkit-app-region: drag; user-select: none; }
     html[data-platform="darwin"] .titlebar { padding-left: 80px; }
+    /* Windows/Linux draw real caption buttons into this strip via
+       titleBarOverlay (main.js createWindow()) instead of stacking their own
+       title bar on top of ours. env(titlebar-area-width) is the width of the
+       drag area Chromium left after reserving the overlay, so subtracting it
+       from the viewport gives the overlay's own width - falls back to a fixed
+       138px guess (three ~46px Windows caption buttons) where the env var
+       is not supported. */
+    html[data-platform="win32"] .titlebar,
+    html[data-platform="linux"] .titlebar {
+      padding-right: calc(100vw - env(titlebar-area-width, calc(100vw - 138px)));
+    }
     .tb-right { display: flex; align-items: center; gap: 8px; -webkit-app-region: no-drag; }
     .tb-title { font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
     .ws-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--red); transition: background 0.3s, box-shadow 0.3s; }

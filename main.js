@@ -158,12 +158,38 @@ const GITHUB_REPO = 'Cha0s1nc/Cascade-Project'
 
 const store = new Store()
 
+// The app's own .titlebar strip is 38px (index.html) - the Window Controls
+// Overlay height below must match it or the OS-drawn buttons sit off-centre.
+const TITLEBAR_HEIGHT = 38
+
+// Windows/Linux caption buttons drawn by the OS via titleBarOverlay, coloured
+// to match whichever theme is active so they stay readable in both. macOS
+// ignores this entirely - its traffic lights are drawn by the OS itself and
+// take their colour from nowhere we control.
+// Matches --surface/--text from index.html's :root and light theme block.
+function titleBarOverlayColors(mode) {
+  return mode === 'light'
+    ? { color: '#ffffff', symbolColor: '#1c1c1e' }
+    : { color: '#1c1c1e', symbolColor: '#f5f5f7' }
+}
+
+function storedThemeMode() {
+  try {
+    const raw = store.get('theme')
+    if (raw && JSON.parse(String(raw)).mode === 'light') return 'light'
+  } catch {
+    // Corrupt/missing store value - fall back to dark, same as the renderer does.
+  }
+  return 'dark'
+}
+
 let win
 let updaterWindow     = null
 let lyricsEditorWindow = null
 let pendingDownload   = null
 
 function createWindow() {
+  const isDarwin = process.platform === 'darwin'
   win = new BrowserWindow({
     width: 1100,
     height: 700,
@@ -173,8 +199,16 @@ function createWindow() {
     // what that needs - the picture was the part that got squeezed out.
     minHeight: 560,
     backgroundColor: '#111113',
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 12, y: 11 },
+    // hiddenInset + trafficLightPosition is macOS-only and is silently ignored
+    // elsewhere, which used to leave Windows/Linux with the OS title bar AND
+    // the app's own 38px .titlebar stacked on top of each other. 'hidden' +
+    // titleBarOverlay (Electron 29, win32/linux) draws real OS caption buttons
+    // inside the app's own titlebar strip instead - index.html reserves space
+    // for them with padding-right.
+    titleBarStyle: isDarwin ? 'hiddenInset' : 'hidden',
+    ...(isDarwin
+      ? { trafficLightPosition: { x: 12, y: 11 } }
+      : { titleBarOverlay: { ...titleBarOverlayColors(storedThemeMode()), height: TITLEBAR_HEIGHT } }),
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'build', 'preload.js'),
@@ -272,6 +306,15 @@ ipcMain.handle('get-version', () => app.getVersion())
 
 // IPC: whether this is a packaged (production) build vs. run from the command line
 ipcMain.handle('is-packaged', () => app.isPackaged)
+
+// IPC: theme switched in the renderer - recolour the OS-drawn caption buttons
+// to match. No-op on macOS: setTitleBarOverlay only applies to a window
+// created with titleBarOverlay set, which createWindow() only does elsewhere.
+ipcMain.on('set-titlebar-overlay', (_e, { mode } = {}) => {
+  if (process.platform === 'darwin') return
+  if (!win || win.isDestroyed()) return
+  try { win.setTitleBarOverlay(titleBarOverlayColors(mode)) } catch {}
+})
 
 // IPC: store
 ipcMain.handle('store-get', (_e, key) => store.get(key))
