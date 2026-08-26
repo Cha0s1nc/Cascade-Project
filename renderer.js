@@ -482,6 +482,7 @@ async function connect(serverUrl, token, userId) {
   // _applyAdminGating) - always overwritten here so a previous account's
   // admin status can never survive into this session.
   jf.isAdmin = !!userInfo?.Policy?.IsAdministrator
+  _applyAdminGating()
 
   startRemoteControl()
   probeCascadePlugin()  // not awaited - cheap, and nothing here depends on the result yet
@@ -561,6 +562,47 @@ function invalidateVideoViews() {
   for (const id of ['movies-grid', 'shows-grid'])
     delete document.getElementById(id).dataset.loaded
 }
+
+/** Greys out the server library scan button when the account is not an admin,
+ *  using the same disabled+data-tip pattern as the CascadeSLRC gating below.
+ *  Safe to call anytime, including before connect() has run (jf.isAdmin is
+ *  then undefined, which reads as "not admin" - the safe default). */
+function _applyAdminGating() {
+  const btn = document.getElementById('s-refresh-server')
+  if (btn) btn.disabled = !jf.isAdmin
+  const host = document.getElementById('s-refresh-server-tip')
+  if (host) {
+    if (!jf.isAdmin) host.setAttribute('data-tip', 'Needs a Jellyfin admin account')
+    else host.removeAttribute('data-tip')
+  }
+}
+
+document.getElementById('s-refresh-server').addEventListener('click', async () => {
+  // The button is disabled for a non-admin, but a disabled button can still
+  // be clicked programmatically - don't trust the DOM state alone against a
+  // server call that would just 403 anyway.
+  if (!jf.isAdmin) return
+  try {
+    const res = await fetch(`${jf.url}/Library/Refresh`, { method: 'POST', headers: { 'X-Emby-Token': jf.token } })
+    if (!res.ok) throw new Error(String(res.status))
+    // Async on the server - it scans in the background and this response says
+    // nothing about when it finishes, so there is nothing to await here.
+    showToast('Library scan started on the server - new items appear once it finishes')
+  } catch {
+    showNotice('Could not start a library scan on the server.', 'Scan failed')
+  }
+})
+
+document.getElementById('s-refresh-local').addEventListener('click', async () => {
+  // Local cache invalidation only - works for any account, and unlike the
+  // server scan above this is immediately useful because it just re-reads
+  // whatever the server already has.
+  invalidateLibraryViews()
+  invalidateVideoViews()
+  showView(_currentView)   // reloads whichever grid is currently on screen, if any
+  await loadHome()         // Home's shelves aren't covered by either invalidate above
+  showToast('Refreshed from what the server has now')
+})
 
 let _musicLibs        = []     // the server's music libraries, cached so a mode flip needn't refetch
 let _movieLibs        = []     // movies libraries, same caching reason
@@ -3811,6 +3853,7 @@ document.getElementById('btn-logout').addEventListener('click', async () => {
   invalidateLibraryViews()
   invalidateVideoViews()
   jf.isAdmin = false  // a stale admin flag must not survive into the next account
+  _applyAdminGating()
   showView('home')
 
   await window.cascade.store.delete('token')
