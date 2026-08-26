@@ -234,15 +234,23 @@ function seedCentroids(samples: Oklab[], k: number): Oklab[] {
 // colour, not a shade) is unaffected by which base is in play.
 const MIN_L = 0.45        // below this a blob is lost against #0d0d0f
 const MAX_L = 0.82        // above this it washes out the content in front of it
-const MIN_L_LIGHT = 0.68  // below this it reads as a dark, heavy stain on #f2f2f7
-const MAX_L_LIGHT = 0.93  // above this it disappears into the background
+// Tuned by eye on 2026-08-26 with the debug panel's live sliders, replacing a
+// first guess of 0.68/0.93 that came out washed out. The range is far wider
+// than the dark theme's because a light background needs the blob's own
+// contrast to carry it: clamping the dark end up to 0.68 flattened every deep
+// colour to pastel before the scrims had even been applied.
+const MIN_L_LIGHT = 0.29
+const MAX_L_LIGHT = 1.00
 const MIN_C = 0.06        // below this it reads as grey rather than as a colour
 
 // A blob at a dark-theme SLOTS alpha reads as a glow on the dark base, but the
 // same opacity on the light base's near-white is a heavy, solid-looking patch
 // - scaled down rather than given its own SLOTS table so the layout (position,
 // size, drift) stays identical between themes and only the weight changes.
-const LIGHT_ALPHA_SCALE = 0.55
+// 1.00, i.e. no scaling: with the lightness range above doing the work, the
+// extra 45% cut was the single biggest cause of the wash-out. Kept as a named
+// constant rather than deleted, so the knob is still there if it is ever wanted.
+const LIGHT_ALPHA_SCALE = 1.00
 
 /**
  * Runtime-mutable copy of the light-theme knobs above. The constants stay the

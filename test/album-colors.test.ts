@@ -134,29 +134,37 @@ test('drift moves the blobs over time but keeps them on screen', () => {
   }
 })
 
-test('light mode pushes blobs paler than dark mode, same cover', () => {
-  // A deep, saturated red - the kind of colour that would sit near the dark
-  // pair's own MIN_L if left alone, so the light pair has the most work to do.
-  const dark = extractTopColors(cover([400, 140, 20, 30]), 1, false)[0]
-  const light = extractTopColors(cover([400, 140, 20, 30]), 1, true)[0]
+test('light mode clamps blob lightness to its own range, not the dark one', () => {
+  // Both ranges were eyeballed against their own background and they are not
+  // the same shape: light runs 0.29-1.00, dark 0.45-0.82. Asserting the ranges
+  // rather than "light is paler" - the first tuning pass assumed paler was the
+  // goal, shipped 0.68-0.93, and it came out washed out. What actually matters
+  // is that each theme clamps to the pair it was tuned with.
+  const deepRed = cover([400, 140, 20, 30])
+  const dark = extractTopColors(deepRed, 1, false)[0]
+  const light = extractTopColors(deepRed, 1, true)[0]
   assert.ok(dark && light)
   const lum = (c: { r: number; g: number; b: number }) => srgbToOklab(c.r, c.g, c.b).L
-  assert.ok(
-    lum(light!) > lum(dark!),
-    `light-mode blob (L=${lum(light!).toFixed(3)}) should be paler than dark-mode (L=${lum(dark!).toFixed(3)})`,
-  )
+  assert.ok(lum(dark!) >= 0.45 - 1e-6, `dark blob L=${lum(dark!).toFixed(3)} below its own floor`)
+  assert.ok(lum(dark!) <= 0.82 + 1e-6, `dark blob L=${lum(dark!).toFixed(3)} above its own ceiling`)
+  assert.ok(lum(light!) >= 0.29 - 1e-6, `light blob L=${lum(light!).toFixed(3)} below its own floor`)
+  // A colour this deep sits under the dark floor, so the two must differ here.
+  assert.notEqual(lum(light!).toFixed(3), lum(dark!).toFixed(3))
 })
 
-test('light mode scales blob opacity down, same layout', () => {
+test('light mode keeps blob layout identical to dark, whatever the alpha', () => {
   const colors = extractTopColors(cover([300, 200, 30, 60], [300, 40, 70, 200]), 2)
   const drift = randomizeDrift(2, () => 0.5)
   const dark = driftedBlobs(colors, drift, 5)
   const light = driftedBlobs(colors, drift, 5, true)
 
   for (let i = 0; i < dark.length; i++) {
-    assert.ok(light[i]!.alpha < dark[i]!.alpha, 'light-mode blob should be more transparent')
+    // Position and size are the invariant. Alpha is a tuning knob that has
+    // already been 0.55 and is now 1.00, so pinning it here would just mean
+    // editing this test every time the look is adjusted.
     assert.equal(light[i]!.x, dark[i]!.x, 'light mode must not change where blobs sit')
     assert.equal(light[i]!.y, dark[i]!.y)
+    assert.equal(light[i]!.r, dark[i]!.r, 'light mode must not change blob size')
   }
 })
 
