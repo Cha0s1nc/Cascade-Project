@@ -129,8 +129,40 @@
     .lib-group-header:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); border-radius: 6px; }
     .lib-group-chevron { display: inline-block; margin-right: 6px; transition: transform 0.12s; }
     .lib-group.collapsed .lib-group-chevron { transform: rotate(-90deg); }
-    .lib-group.collapsed .poster-grid { display: none; }
+    .lib-group.collapsed .hshelf { display: none; }
     .lib-group-count { font-size: 11px; color: var(--text3); }
+
+    /* ── Horizontal shelf: a sideways-scrolling row with edge arrows ──
+       One component, reused for Home's "Continue watching" and for a grouped
+       library's poster row (.lib-group .poster-grid, below). The track itself
+       is a plain overflow-x:auto flex row, so a trackpad's native horizontal
+       swipe and the page's own vertical scroll both keep working untouched -
+       the arrows only exist for a plain vertical-only mouse wheel, which
+       cannot reach that scroll at all otherwise. wireHShelf() (renderer.js)
+       shows/hides each arrow based on real overflow and current scroll
+       position, so a row that already fits never shows a dead arrow. */
+    .hshelf { position: relative; }
+    .hshelf-track {
+      display: flex; gap: 14px; overflow-x: auto; overflow-y: hidden;
+      scroll-behavior: smooth; scrollbar-width: none; -ms-overflow-style: none;
+      padding-bottom: 2px;
+    }
+    .hshelf-track::-webkit-scrollbar { display: none; }
+    .poster-grid.hshelf-track { display: flex; }
+    .poster-grid.hshelf-track .poster-card { flex: 0 0 150px; }
+    .hshelf-arrow {
+      position: absolute; top: 0; bottom: 6px; width: 42px; z-index: 5;
+      display: flex; align-items: center; justify-content: center;
+      border: none; cursor: pointer; color: var(--text); padding: 0;
+      opacity: 0; visibility: hidden; pointer-events: none;
+      transition: opacity 0.15s;
+    }
+    .hshelf-arrow.show { opacity: 1; visibility: visible; pointer-events: auto; }
+    .hshelf-arrow-left { left: 0; background: linear-gradient(to right, var(--bg) 40%, transparent); justify-content: flex-start; }
+    .hshelf-arrow-right { right: 0; background: linear-gradient(to left, var(--bg) 40%, transparent); justify-content: flex-end; }
+    .hshelf-arrow svg { width: 20px; height: 20px; filter: drop-shadow(0 1px 3px rgba(0,0,0,0.35)); transition: transform 0.12s; }
+    .hshelf-arrow:hover svg { transform: scale(1.2); }
+    .hshelf-arrow:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); border-radius: 6px; }
 
     .vd-header { display: flex; gap: 22px; margin-bottom: 22px; align-items: flex-start; }
     .vd-poster { width: 190px; flex-shrink: 0; aspect-ratio: 2/3; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 40px; color: var(--text3); }
@@ -1087,6 +1119,8 @@
     @media (prefers-reduced-motion: reduce) {
       .ctx-menu, .ov-dropdown, .theme-picker, .modal-overlay, .modal-card,
       .lyrics-source-dropdown, .ov-more-scrim { transition: none; }
+      .hshelf-track { scroll-behavior: auto; }
+      .hshelf-arrow, .hshelf-arrow svg { transition: none; }
     }
 
     /* ── Equalizer ── */
@@ -1317,6 +1351,17 @@
           <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
         </div>
         <!-- Hidden until loadContinueWatching() confirms there's a video library
+             configured and something actually partway-through - music-only
+             users, and anyone with nothing paused mid-episode, never see this.
+             Horizontal (matches Jellyfin's own webui), distinct from Recently
+             watched below it: this is Filters:IsResumable, not play history. -->
+        <div id="home-resume-section" style="display:none">
+          <div class="sect-header">
+            <span class="sect-title">Continue watching</span>
+          </div>
+          <div id="home-resume-grid"></div>
+        </div>
+        <!-- Hidden until loadRecentlyWatched() confirms there's a video library
              configured and actual play history - music-only users never see this. -->
         <div id="home-continue-section" style="display:none">
           <div class="sect-header">

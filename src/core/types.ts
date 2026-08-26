@@ -64,6 +64,9 @@ export interface JfItem {
   /** Episodes only: the series and season they belong to. */
   SeriesName?: string
   SeriesId?: string
+  /** The series' own poster tag, present on an episode with Fields=SeriesPrimaryImageTag.
+   *  Used to show the series' art instead of the episode's own thumbnail. */
+  SeriesPrimaryImageTag?: string
   SeasonName?: string
   SeasonId?: string
   /** Season number on an episode; IndexNumber is the episode number. */

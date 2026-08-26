@@ -95,6 +95,34 @@ export function effectiveLibraryIds(
   return savedIds.filter(id => categoryLibs.some(l => l.Id === id))
 }
 
+/**
+ * Fold Home's "recently watched" list so a binged series shows once instead
+ * of once per episode.
+ *
+ * `items` must already be in most-recently-watched-first order - getMerged
+ * concatenates each library's results, so the server's own DatePlayed sort
+ * only holds within one library, and the caller re-sorts across the merge
+ * before this runs. Grouping first would pick an arbitrary episode per
+ * series instead of the actual most recent one.
+ *
+ * Only Episodes are grouped, keyed by SeriesId, keeping the first (most
+ * recent) one seen and dropping the rest. An episode with no SeriesId is
+ * never dropped and never merged with another SeriesId-less episode - each
+ * one is its own entry, same as a Movie. Movies pass through unchanged.
+ */
+export function groupRecentlyWatched(items: JfItem[]): JfItem[] {
+  const seenSeries = new Set<string>()
+  const result: JfItem[] = []
+  for (const item of items) {
+    if (item.Type === 'Episode' && item.SeriesId) {
+      if (seenSeries.has(item.SeriesId)) continue
+      seenSeries.add(item.SeriesId)
+    }
+    result.push(item)
+  }
+  return result
+}
+
 /** Default page size when a caller does not set params.Limit. */
 const DEFAULT_PAGE_SIZE = 500
 
