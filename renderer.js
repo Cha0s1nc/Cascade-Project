@@ -1214,12 +1214,14 @@ function trackRowHtml(item, i, opts = {}) {
   const artistAttrs  = artistName ? ' data-artist-link tabindex="0"' : ''
   const albumCls     = item.AlbumId ? ' row-link' : ''
   const albumAttrs   = item.AlbumId ? ' data-album-link tabindex="0"' : ''
-  // Playlist-detail-only (opts.checkbox never set elsewhere), so Songs/Albums/
-  // Artists rows are byte-for-byte unchanged. draggable="false" on the
-  // checkbox cell stops a checkbox click/drag from being swallowed as a
-  // row-reorder drag when the row itself is draggable.
+  // Both are playlist-detail-only (opts.checkbox / opts.extraVal never set
+  // elsewhere), so Songs/Albums/Artists rows are byte-for-byte unchanged.
+  // draggable="false" on the checkbox cell stops a checkbox click/drag from
+  // being swallowed as a row-reorder drag when the row itself is draggable.
   const checkHtml = opts.checkbox
     ? `<div class="tl-check" draggable="false"><input type="checkbox"${opts.checked ? ' checked' : ''}></div>` : ''
+  const extraHtml = opts.extraVal != null
+    ? `<div class="tl-extra">${esc(opts.extraVal)}</div>` : ''
   return `<div class="${cls}" ${idxAttr}="${i}" data-id="${item.Id}"${entryAttr}${styleAttr}${dragAttr}>
     ${checkHtml}
     <div class="track-num">${i + 1}</div>
@@ -1229,6 +1231,7 @@ function trackRowHtml(item, i, opts = {}) {
       <div class="track-artist${artistCls}"${artistAttrs}>${esc(artistName)}</div>
     </div>
     <div class="track-album-name${albumCls}"${albumAttrs}>${esc(item.Album || '')}</div>
+    ${extraHtml}
     <div class="track-dur">${fmtTime((item.RunTimeTicks || 0) / 10000000)}</div>
   </div>`
 }
@@ -1489,7 +1492,7 @@ async function refreshPlaylistDetail() {
     } else {
       const data = await jfGet(`/Playlists/${currentPlaylistId}/Items`, {
         UserId: jf.userId,
-        Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
+        Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,DateCreated'
       })
       renderPlaylistDetailItems(data.Items || [], true)
     }
@@ -1663,15 +1666,33 @@ function showPlaylistDetailShell(name) {
 // items are resolved. entryIds controls whether rows get a real playlist entry ID
 // (needed for "Remove from playlist") - smart playlists aren't real Jellyfin
 // playlists, so there's nothing to remove an entry from.
+//
+// Also decides the one extra column playlists can show: Most Played gets a
+// Plays count (already in UserData.PlayCount, nothing new to fetch); real
+// playlists get a "date added" column - except Jellyfin's playlist-items
+// endpoint carries no per-entry added-to-playlist date (checked: BaseItemDto
+// there is the plain track DTO plus PlaylistItemId, nothing else). Rather than
+// fake that or quietly pass off DateCreated as the answer, it's shown labelled
+// as what it actually is: when the track was added to the server library.
 function renderPlaylistDetailItems(items, entryIds) {
   currentPlaylistItems = items
   document.getElementById('pl-detail-meta').textContent = `${items.length} song${items.length !== 1 ? 's' : ''}`
+  const extraKind = entryIds ? 'added' : (currentSmartKind === 'most-played' ? 'plays' : null)
+  document.getElementById('playlist-detail').classList.toggle('has-extra-col', !!extraKind)
+  const headExtra = document.getElementById('pl-head-extra')
+  headExtra.textContent = extraKind === 'plays' ? 'Plays' : extraKind === 'added' ? 'Added to server' : ''
+  headExtra.title = extraKind === 'added'
+    ? 'When this track was added to the Jellyfin server library, not when it was added to this playlist - Jellyfin does not expose a per-playlist add date.'
+    : ''
   const showCheck = entryIds && plEditMode
   document.getElementById('pl-detail-rows').innerHTML = items.map((item, i) => {
-    if (!entryIds) return trackRowHtml(item, i, {})
+    const extraVal = extraKind === 'plays' ? String(item.UserData?.PlayCount || 0)
+      : extraKind === 'added' ? (item.DateCreated ? new Date(item.DateCreated).toLocaleDateString() : '—')
+      : null
+    if (!entryIds) return trackRowHtml(item, i, { extraVal })
     const entryId = entryIdOf(item)
     return trackRowHtml(item, i, {
-      entryId, draggable: true,
+      entryId, draggable: true, extraVal,
       checkbox: showCheck, checked: plEditSelected.has(entryId)
     })
   }).join('')
@@ -1756,7 +1777,7 @@ async function openPlaylist(playlistId, name) {
   try {
     const data = await jfGet(`/Playlists/${playlistId}/Items`, {
       UserId: jf.userId,
-      Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
+      Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,DateCreated'
     })
     renderPlaylistDetailItems(data.Items || [], true)
   } catch (e) {

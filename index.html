@@ -226,13 +226,19 @@
     .pl-back-btn { background: none; border: none; color: var(--text3); cursor: pointer; font-size: 12px; font-family: var(--font); display: flex; align-items: center; gap: 5px; margin-bottom: 14px; transition: color 0.12s; }
     .pl-back-btn:hover { color: var(--text); }
 
-    /* Edit Playlist mode: adds a checkbox column. Scoped to #playlist-detail so
-       the Songs/Album/Artist track lists sharing .tl-head/.track-row are
-       untouched. */
+    /* Edit Playlist mode: a checkbox column plus, for a real playlist or Most
+       Played, one extra info column (Added to server / Plays). Edit mode never
+       applies without the extra column also being on (real playlists always
+       carry it), so there's no separate edit-only combo. Scoped to
+       #playlist-detail so the Songs/Album/Artist track lists sharing
+       .tl-head/.track-row are untouched. */
     #playlist-detail .tl-head, #playlist-detail .track-row { grid-template-columns: 28px 32px 1fr 160px 52px; }
-    #playlist-detail.edit-mode .tl-head, #playlist-detail.edit-mode .track-row { grid-template-columns: 24px 28px 32px 1fr 160px 52px; }
+    #playlist-detail.has-extra-col .tl-head, #playlist-detail.has-extra-col .track-row { grid-template-columns: 28px 32px 1fr 160px 90px 52px; }
+    #playlist-detail.edit-mode.has-extra-col .tl-head, #playlist-detail.edit-mode.has-extra-col .track-row { grid-template-columns: 24px 28px 32px 1fr 160px 90px 52px; }
     .tl-check { display: none; align-items: center; justify-content: center; }
     #playlist-detail.edit-mode .tl-check { display: flex; }
+    .tl-extra { display: none; font-size: 12px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #playlist-detail.has-extra-col .tl-extra { display: block; }
     .pl-edit-toolbar { display: none; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
     .pl-edit-toolbar.visible { display: flex; }
     .pl-edit-count { font-size: 11px; color: var(--text3); margin-right: auto; }
@@ -1437,6 +1443,7 @@
             <div class="tl-head">
               <span class="tl-check"><input type="checkbox" id="pl-select-all" title="Select all"></span>
               <span>#</span><span></span><span>Title</span><span>Album</span>
+              <span class="tl-extra" id="pl-head-extra"></span>
               <span style="text-align:right">Time</span>
             </div>
             <div id="pl-detail-rows"></div>
