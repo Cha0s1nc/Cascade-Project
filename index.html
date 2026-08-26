@@ -100,7 +100,7 @@
     body:not(.has-shows) .nav-shows { display: none; }
     .poster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; margin-bottom: 8px; }
     /* Same single-row clipping trick as #home-recent-albums, for the Home
-       "Continue watching" shelf. */
+       "Recently watched" shelf. */
     #home-continue-grid { grid-template-rows: auto; grid-auto-rows: 0; row-gap: 0; overflow: hidden; }
     .poster-card { cursor: pointer; }
     .poster-art { width: 100%; aspect-ratio: 2/3; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 32px; color: var(--text3); position: relative; transition: border-color 0.12s; }
@@ -1155,7 +1155,7 @@
              configured and actual play history - music-only users never see this. -->
         <div id="home-continue-section" style="display:none">
           <div class="sect-header">
-            <span class="sect-title">Continue watching</span>
+            <span class="sect-title">Recently watched</span>
           </div>
           <div class="poster-grid" id="home-continue-grid"></div>
         </div>

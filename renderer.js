@@ -2009,14 +2009,14 @@ const loadShows = () => loadPosterGrid(
   s => s.ProductionYear || '',
   s => openSeries(s.Id), jfGetShows, _showLibs, jf.showLibraryIds || [])
 
-// ── Continue watching (Home) ──
+// ── Recently watched (Home) ──
 //
 // Movies and episodes played across both video categories, merged and
 // re-sorted by when they were last watched. Only shown when there's actually
 // a video library configured and some play history - a music-only user (or
 // one who hasn't watched anything yet) never sees the section at all.
 
-function continueWatchingSub(item) {
+function recentVideoSub(item) {
   if (item.Type === 'Movie') return item.ProductionYear || ''
   const ep = (item.ParentIndexNumber != null && item.IndexNumber != null)
     ? ` · S${item.ParentIndexNumber}E${item.IndexNumber}` : ''
@@ -2044,7 +2044,7 @@ async function loadContinueWatching() {
     if (!items.length) { section.style.display = 'none'; return }
     section.style.display = ''
     const grid = document.getElementById('home-continue-grid')
-    grid.innerHTML = items.map(item => posterCard(item, continueWatchingSub(item))).join('')
+    grid.innerHTML = items.map(item => posterCard(item, recentVideoSub(item))).join('')
     wirePosterCards(grid, items, item => {
       // Same detail views Movies/TV browsing already opens - no separate
       // playback path for a Home entry.
@@ -6414,7 +6414,7 @@ async function runSearch(query) {
   try {
     // A music-only user has no movie/show libraries configured, so those
     // queries are skipped outright rather than fired and thrown away - same
-    // rule Home's Continue Watching section follows.
+    // rule Home's Recently Watched section follows.
     const movieLibIds = jf.movieLibraryIds || []
     const showLibIds  = jf.showLibraryIds  || []
     const wantMovies  = movieLibIds.length > 0
