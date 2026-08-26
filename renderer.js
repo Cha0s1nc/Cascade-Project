@@ -4502,6 +4502,11 @@ document.getElementById('ov-more-btn').addEventListener('click', (e) => {
   top = Math.max(8, top)
   menu.style.left = `${left}px`
   menu.style.top = `${top}px`
+  // Grows up out of the button instead of the cursor-anchored default, and
+  // dims the rest of the overlay so the menu holds focus. hideCtxMenu()
+  // clears both - it runs on every close, right-click menus included.
+  menu.style.transformOrigin = 'bottom center'
+  document.getElementById('ov-more-scrim').classList.add('show')
 })
 
 document.getElementById('ov-artist').addEventListener('click', () => openArtistFromTrack(queue[queueIndex]))
@@ -5245,8 +5250,14 @@ function showCtxMenu(x, y) {
   if (rect.right > window.innerWidth) ctxMenu.style.left = `${x - rect.width}px`
   if (rect.bottom > window.innerHeight) ctxMenu.style.top = `${y - rect.height}px`
 }
-function hideCtxMenu() { ctxMenu.classList.remove('open') }
-// Close when clicking outside the menu - mousedown fires before click so it's reliable
+function hideCtxMenu() {
+  ctxMenu.classList.remove('open')
+  ctxMenu.style.transformOrigin = ''
+  document.getElementById('ov-more-scrim').classList.remove('show')
+}
+// Close when clicking outside the menu - mousedown fires before click so it's reliable.
+// The scrim sits behind the menu and above everything else, so a click meant to
+// dismiss the menu lands on it and hits this same "outside the menu" case.
 document.addEventListener('mousedown', (e) => {
   if (!ctxMenu.contains(e.target)) hideCtxMenu()
 })
