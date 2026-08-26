@@ -500,6 +500,11 @@ async function connect(serverUrl, token, userId) {
   // _applyAdminGating) - always overwritten here so a previous account's
   // admin status can never survive into this session.
   jf.isAdmin = !!userInfo?.Policy?.IsAdministrator
+  // Same free response as isAdmin above - deletion is its own Jellyfin right,
+  // not implied by admin status alone, but an admin always has it too (see
+  // canDeleteMedia). Gates the "Delete media" entry, kept apart from
+  // _applyAdminGating's admin-only entries below.
+  jf.canDelete = CascadeCore.canDeleteMedia(userInfo?.Policy)
   _applyAdminGating()
 
   startRemoteControl()
@@ -596,16 +601,27 @@ function _applyAdminGating() {
     if (!jf.isAdmin) host.setAttribute('data-tip', 'Needs a Jellyfin admin account')
     else host.removeAttribute('data-tip')
   }
-  // Both "Refresh metadata" entries hit POST /Items/{id}/Refresh, which is the
-  // same RequiresElevation endpoint as the library scan, so they take the same
-  // gate. A floating context menu is a bad place for the [data-tip] tooltip (it
-  // renders below its host, and the menu is already positioned against the
-  // viewport edge), so these say why inline instead.
-  for (const id of ['ctx-refresh-meta', 'tctx-refresh-meta']) {
+  // Both "Refresh metadata" entries hit POST /Items/{id}/Refresh, the same
+  // RequiresElevation endpoint as the library scan. "Edit metadata" and "Edit
+  // images" open the item in the Jellyfin web UI, which itself refuses those
+  // edits without admin - so a non-admin gets a browser tab that cannot do
+  // anything. All admin-only. A floating context menu is a bad place for the
+  // [data-tip] tooltip (it renders below its host, and the menu is already
+  // positioned against the viewport edge), so these say why inline instead.
+  for (const id of ['ctx-refresh-meta', 'tctx-refresh-meta', 'ctx-edit-meta', 'ctx-edit-images', 'tctx-edit-meta']) {
     const item = document.getElementById(id)
     if (item) item.classList.toggle('needs-admin', !jf.isAdmin)
     const note = document.getElementById(id + '-note')
     if (note) note.hidden = !!jf.isAdmin
+  }
+  // Delete media is gated on the actual deletion right (see canDeleteMedia),
+  // not admin - an admin always has it, but a non-admin can be granted it too,
+  // and gating on isAdmin would hide the feature from someone who has it.
+  {
+    const item = document.getElementById('ctx-delete')
+    if (item) item.classList.toggle('needs-admin', !jf.canDelete)
+    const note = document.getElementById('ctx-delete-note')
+    if (note) note.hidden = !!jf.canDelete
   }
 }
 
@@ -4303,7 +4319,8 @@ document.getElementById('btn-logout').addEventListener('click', async () => {
                        // and the current encoding, clears Discord presence
   invalidateLibraryViews()
   invalidateVideoViews()
-  jf.isAdmin = false  // a stale admin flag must not survive into the next account
+  jf.isAdmin = false     // a stale admin flag must not survive into the next account
+  jf.canDelete = false   // same for the deletion right - it is per-account, not per-session
   _applyAdminGating()
   showView('home')
 
@@ -6040,6 +6057,10 @@ document.getElementById('ctx-refresh-meta').addEventListener('click', async () =
 // Note the scheme is #/ ; the old #!/ prefix and the edititem* routes are long gone.
 function openInJellyfinWeb(item) {
   if (!item) return
+  // The context items are greyed for a non-admin, but a disabled-looking div
+  // can still be clicked programmatically - and the destination page would
+  // just refuse the edit anyway, so there is no reason to open it.
+  if (!jf.isAdmin) return
   window.cascade.shell.openExternal(`${jf.url}/web/index.html#/details?id=${item.Id}`)
 }
 ;['ctx-edit-meta', 'ctx-edit-images'].forEach(id => {
@@ -6064,11 +6085,19 @@ document.getElementById('ctx-view-lyrics').addEventListener('click', () => showL
 document.getElementById('ctx-delete').addEventListener('click', async () => {
   const item = queue[queueIndex]
   if (!item) return
+  // The entry is greyed for an account without the deletion right, but a
+  // disabled-looking div can still be clicked programmatically - don't trust
+  // the DOM state alone against a server call that would just 403 anyway.
+  if (!jf.canDelete) return
   if (!confirm(`Delete "${item.Name}" from your server? This cannot be undone.`)) return
   try {
-    await fetch(`${jf.url}/Items/${item.Id}`, {
+    const res = await fetch(`${jf.url}/Items/${item.Id}`, {
       method: 'DELETE', headers: { 'X-Emby-Token': jf.token }
     })
+    // The response was never read, so a 403 (e.g. a library outside this
+    // account's granted folders) reported success for a delete the server
+    // had refused outright.
+    if (!res.ok) throw new Error(String(res.status))
     audio.pause(); _detachDeck(audio)
     queue.splice(queueIndex, 1)
     queueIndex = Math.min(queueIndex, queue.length - 1)
@@ -6076,7 +6105,10 @@ document.getElementById('ctx-delete').addEventListener('click', async () => {
     // item; an empty queue has nothing left to play it into.
     if (queue.length) playCurrentTrack()
     else _clearStreamPrefetch()
-  } catch (e) { console.error('Delete failed', e) }
+  } catch (e) {
+    console.error('Delete failed', e)
+    showNotice('Could not delete this item from the server.', 'Delete failed')
+  }
 })
 
 // ── Lyrics panel ──────────────────────────────────────────────────────────────
