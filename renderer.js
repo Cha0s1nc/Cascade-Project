@@ -25,6 +25,16 @@ let volume = 1.0
 let crossfadeEnabled = false
 let crossfadeSeconds = 6
 let maxStreamingBitrate = 140000000   // overridden from settings in loadSettingsFields
+// The server only transcodes to specific bitrates, not a continuum - the
+// streaming quality slider is stepped through this exact list rather than
+// letting the user drag to an arbitrary number.
+const MAX_BITRATE_STEPS = [
+  { value: 140000000, label: 'Original' },
+  { value: 320000, label: '320 kbps' },
+  { value: 192000, label: '192 kbps' },
+  { value: 128000, label: '128 kbps' },
+  { value: 96000, label: '96 kbps' },
+]
 let eqEnabled = false
 let eqActiveMode = 'music'   // which saved profile is wired into the live graph right now
 let eqMusicProfile = { preamp: null, bands: [0, 0, 0, 0, 0] }
@@ -3500,26 +3510,41 @@ async function loadSettingsFields() {
   // Crossfade settings
   const crossfadeToggle = document.getElementById('crossfade-toggle')
   const crossfadeDurationRow = document.getElementById('crossfade-duration-row')
-  const crossfadeDurationSelect = document.getElementById('crossfade-duration')
+  const crossfadeDurationSlider = document.getElementById('crossfade-duration')
+  const crossfadeDurationValue = document.getElementById('crossfade-duration-value')
   crossfadeToggle.checked = crossfadeEnabled
   crossfadeDurationRow.style.display = crossfadeEnabled ? '' : 'none'
-  crossfadeDurationSelect.value = String(crossfadeSeconds)
+  crossfadeDurationSlider.value = String(crossfadeSeconds)
+  crossfadeDurationValue.textContent = `${crossfadeDurationSlider.value}s`
   crossfadeToggle.onchange = async () => {
     crossfadeEnabled = crossfadeToggle.checked
     crossfadeDurationRow.style.display = crossfadeEnabled ? '' : 'none'
     await window.cascade.store.set('crossfadeEnabled', crossfadeEnabled)
   }
-  crossfadeDurationSelect.onchange = async () => {
-    crossfadeSeconds = parseInt(crossfadeDurationSelect.value, 10)
+  crossfadeDurationSlider.oninput = () => {
+    crossfadeDurationValue.textContent = `${crossfadeDurationSlider.value}s`
+  }
+  crossfadeDurationSlider.onchange = async () => {
+    crossfadeSeconds = parseInt(crossfadeDurationSlider.value, 10)
     await window.cascade.store.set('crossfadeSeconds', crossfadeSeconds)
   }
 
   // Streaming quality. Takes effect on the next track - the current stream URL
-  // was already negotiated at the old bitrate.
-  const maxBitrateSelect = document.getElementById('max-bitrate')
-  maxBitrateSelect.value = String(maxStreamingBitrate)
-  maxBitrateSelect.onchange = async () => {
-    maxStreamingBitrate = parseInt(maxBitrateSelect.value, 10)
+  // was already negotiated at the old bitrate. Stepped, not continuous - the
+  // server only transcodes to the exact bitrates in MAX_BITRATE_STEPS.
+  const maxBitrateSlider = document.getElementById('max-bitrate')
+  const maxBitrateValue = document.getElementById('max-bitrate-value')
+  const maxBitrateStepIndex = () => {
+    const i = MAX_BITRATE_STEPS.findIndex(s => s.value === maxStreamingBitrate)
+    return i === -1 ? 0 : i
+  }
+  maxBitrateSlider.value = String(maxBitrateStepIndex())
+  maxBitrateValue.textContent = MAX_BITRATE_STEPS[maxBitrateStepIndex()].label
+  maxBitrateSlider.oninput = () => {
+    maxBitrateValue.textContent = MAX_BITRATE_STEPS[Number(maxBitrateSlider.value)].label
+  }
+  maxBitrateSlider.onchange = async () => {
+    maxStreamingBitrate = MAX_BITRATE_STEPS[Number(maxBitrateSlider.value)].value
     await window.cascade.store.set('maxStreamingBitrate', maxStreamingBitrate)
   }
 

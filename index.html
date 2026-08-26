@@ -228,6 +228,8 @@
     .setting-input { font-family: var(--font); font-size: 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 6px 10px; width: 260px; outline: none; transition: border-color 0.15s; }
     .setting-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
     select.setting-input { cursor: pointer; }
+    .setting-slider-row { display: flex; align-items: center; gap: 10px; width: 260px; }
+    .setting-slider-row input[type="range"] { flex: 1; }
     .settings-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; align-items: center; }
     .save-status { font-size: 12px; color: var(--green); opacity: 0; transition: opacity 0.3s; }
     .save-status.visible { opacity: 1; }
@@ -1417,25 +1419,20 @@
               <div class="setting-label">
                 <span class="setting-name">Crossfade length</span>
               </div>
-              <select class="setting-input" id="crossfade-duration">
-                <option value="3">3 seconds</option>
-                <option value="6">6 seconds</option>
-                <option value="8">8 seconds</option>
-                <option value="12">12 seconds</option>
-              </select>
+              <div class="setting-slider-row">
+                <input type="range" id="crossfade-duration" min="1" max="15" step="1" value="6">
+                <span class="eq-band-value" id="crossfade-duration-value">6s</span>
+              </div>
             </div>
             <div class="setting-row">
               <div class="setting-label">
                 <span class="setting-name">Streaming quality</span>
                 <span class="setting-desc">Cap the bitrate and the server transcodes to fit. Original sends the file untouched.</span>
               </div>
-              <select class="setting-input" id="max-bitrate">
-                <option value="140000000">Original</option>
-                <option value="320000">320 kbps</option>
-                <option value="192000">192 kbps</option>
-                <option value="128000">128 kbps</option>
-                <option value="96000">96 kbps</option>
-              </select>
+              <div class="setting-slider-row">
+                <input type="range" id="max-bitrate" min="0" max="4" step="1" value="0">
+                <span class="eq-band-value" id="max-bitrate-value">Original</span>
+              </div>
             </div>
           </div>
           <div class="settings-group">
