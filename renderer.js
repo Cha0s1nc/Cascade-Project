@@ -475,6 +475,19 @@ async function connect(serverUrl, token, userId) {
     if (connectBtn) connectBtn.style.display = ''
   }
 
+  // Fired alongside the token ping below rather than waiting for it. The two
+  // are independent requests to the same server, and /Views cannot succeed on a
+  // bad token either, so running them in turn just put an extra round trip in
+  // front of everything the user actually sees. The ping is still needed for
+  // its own sake: it carries Policy, which is where isAdmin and canDelete come
+  // from.
+  //
+  // .catch is attached here, not later, so a rejection can never surface as an
+  // unhandled rejection while nothing is awaiting it yet. A null result means
+  // populateLibraryPicker just fetches normally, so the slow path is exactly
+  // what it was before.
+  const viewsPromise = jfGet(`/Users/${userId}/Views`).catch(() => null)
+
   // Verify the token is still valid with a lightweight ping, retry up to 3x
   let verified = false
   let userInfo = null
@@ -510,7 +523,7 @@ async function connect(serverUrl, token, userId) {
 
   startRemoteControl()
   probeCascadePlugin()  // not awaited - cheap, and nothing here depends on the result yet
-  await populateLibraryPicker()
+  await populateLibraryPicker(viewsPromise)
   invalidateLibraryViews()
   await loadHome()
   // Both sit over a populated app rather than a blank one, hence after loadHome.
@@ -659,9 +672,14 @@ let _showLibs         = []     // tvshows libraries, kept apart from _movieLibs 
                                 // never fans out across TV libraries or vice versa
 let singleLibraryMode = false  // one library at a time (dropdown) instead of merging several
 
-async function populateLibraryPicker() {
+/** `prefetched` is the in-flight /Views request connect() started in parallel
+ *  with the token ping. It resolves to null if that request failed, in which
+ *  case this fetches it the old way - a retry is worth more here than saving a
+ *  round trip, because empty _musicLibs is indistinguishable from a music-only
+ *  server and takes Movies and TV down with it. */
+async function populateLibraryPicker(prefetched = null) {
   try {
-    const data = await jfGet(`/Users/${jf.userId}/Views`)
+    const data = (prefetched && await prefetched) || await jfGet(`/Users/${jf.userId}/Views`)
     _musicLibs = (data.Items || []).filter(i =>
       i.CollectionType === 'music' || i.CollectionType === 'musicvideos'
     )
