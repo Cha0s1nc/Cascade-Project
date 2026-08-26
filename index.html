@@ -888,6 +888,14 @@
     .tp-preset { width: 26px; height: 26px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; transition: transform 0.12s, border-color 0.15s; box-shadow: 0 1px 4px rgba(0,0,0,0.3); }
     .tp-preset:hover { transform: scale(1.18); }
     .tp-preset.active { border-color: var(--text); }
+    /* Album art accent overrides the gradient/presets while it's on, so both
+       are dimmed and inert rather than clickable but pointless. The lock
+       stays off the host itself so it still catches hover for its tooltip -
+       see [data-tip] above, which renders below its host on purpose; there
+       is no clipping panel here so that is not a concern for this tip. */
+    .tp-colors.locked, #tp-presets.locked { opacity: 0.45; }
+    .tp-colors.locked .tp-swatch, #tp-presets.locked .tp-preset { pointer-events: none; }
+    .tp-colors.locked[data-tip], #tp-presets.locked[data-tip] { cursor: not-allowed; }
     .tp-album-row { display: flex; align-items: center; justify-content: space-between; }
     .tp-album-label { display: flex; flex-direction: column; gap: 2px; }
     .tp-album-name { font-size: 12px; font-weight: 500; color: var(--text); }

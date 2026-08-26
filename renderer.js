@@ -6542,6 +6542,20 @@ async function loadTheme() {
     }
   } catch {}
   buildPresets()
+  updateAccentLock()
+}
+
+/** Album art accent mode overrides whatever gradient/preset is picked, so
+ *  those controls do nothing while it's on - dim them and say why rather
+ *  than leaving them clickable but inert. */
+function updateAccentLock() {
+  const locked = themeAlbumArt
+  ;[document.querySelector('.tp-colors'), document.getElementById('tp-presets')].forEach(host => {
+    if (!host) return
+    host.classList.toggle('locked', locked)
+    if (locked) host.setAttribute('data-tip', 'Album art accent overrides this')
+    else host.removeAttribute('data-tip')
+  })
 }
 
 
@@ -6692,6 +6706,7 @@ document.getElementById('grad-end').addEventListener('input', () => {
 
 document.getElementById('toggle-album-art').addEventListener('change', (e) => {
   themeAlbumArt = e.target.checked
+  updateAccentLock()
   // The same switch drives ambient mode during a film - see refreshAmbient().
   refreshAmbient()
   if (themeAlbumArt) {
