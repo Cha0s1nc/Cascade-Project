@@ -518,7 +518,7 @@
     /* ── Full-screen now-playing overlay ── */
     .np-overlay { position: fixed; inset: 0; background: var(--bg); z-index: 300; display: flex; flex-direction: column; transform: translateY(100%); transition: transform 0.38s cubic-bezier(0.4,0,0.2,1); pointer-events: none; overflow: hidden; }
     .np-overlay.open { transform: translateY(0); pointer-events: all; }
-    .np-overlay-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0; -webkit-app-region: drag; }
+    .np-overlay-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; flex-shrink: 0; -webkit-app-region: drag; }
     /* 80px is the macOS traffic lights, which used to be padded for on every
        platform. */
     html[data-platform="darwin"] .np-overlay-header { padding-left: 80px; }
@@ -546,7 +546,12 @@
     .np-overlay-close:hover { color: var(--text); }
     .np-overlay-body { flex: 1; display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; }
     /* Left: big art + info + controls */
-    .np-overlay-left { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: clamp(20px, 3.5vh, 48px) clamp(20px, 4vw, 56px); gap: clamp(14px, 2.5vh, 28px); border-right: 1px solid var(--border); }
+    /* No divider between this column and the queue/lyrics panel. A hard 1px
+       line was doing nothing the whitespace and the panel's own background did
+       not already do, and it fought the album-art background, which bleeds
+       across both halves. Video mode had already dropped it for the same
+       reason. */
+    .np-overlay-left { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: clamp(20px, 3.5vh, 48px) clamp(20px, 4vw, 56px); gap: clamp(14px, 2.5vh, 28px); }
     .np-overlay-art { width: min(clamp(240px, 52vh, 520px), calc(100% - 32px)); aspect-ratio: 1; border-radius: 12px; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 72px; flex-shrink: 0; transition: width 0.4s ease; }
     .np-overlay-art img { width: 100%; height: 100%; object-fit: cover; }
     .np-overlay-info { text-align: center; width: 100%; }
@@ -634,7 +639,7 @@
     .np-overlay.video #ov-vol-bar { width: 180px; }
     .np-overlay.video .np-overlay-body { grid-template-columns: 1fr; }
     .np-overlay.video .np-overlay-right { display: none; }
-    .np-overlay.video .np-overlay-left { border-right: none; justify-content: stretch; padding: clamp(12px, 2vh, 24px) clamp(12px, 2vw, 32px); }
+    .np-overlay.video .np-overlay-left { justify-content: stretch; padding: clamp(12px, 2vh, 24px) clamp(12px, 2vw, 32px); }
     .np-overlay.video .np-overlay-art { display: none; }
     /* Lyrics, shuffle and repeat are meaningless for a movie. Hiding rather
        than removing keeps one set of transport controls for both modes. */
@@ -1119,7 +1124,7 @@
     /* Tint panels so content stays readable over the blob background */
     .np-overlay.art-theme .np-overlay-left { background: rgba(0,0,0,0.25); }
     .np-overlay.art-theme .np-overlay-right { background: rgba(0,0,0,0.1); }
-    .np-overlay.art-theme .np-overlay-header { background: rgba(0,0,0,0.28); border-bottom-color: rgba(255,255,255,0.1); }
+    .np-overlay.art-theme .np-overlay-header { background: rgba(0,0,0,0.28); }
     /* Force all overlay control buttons white + black outline */
     .np-overlay.art-theme .np-ov-ctrl,
     .np-overlay.art-theme .np-ov-ctrl.active,
@@ -1189,7 +1194,7 @@
     html[data-theme="light"] .np-overlay.art-theme { background-blend-mode: var(--np-blend, multiply); }
     html[data-theme="light"] .np-overlay.art-theme .np-overlay-left { background: rgba(255,255,255,var(--np-scrim-left, 0.16)); }
     html[data-theme="light"] .np-overlay.art-theme .np-overlay-right { background: rgba(255,255,255,var(--np-scrim-right, 0.16)); }
-    html[data-theme="light"] .np-overlay.art-theme .np-overlay-header { background: rgba(255,255,255,var(--np-scrim-header, 0.16)); border-bottom-color: rgba(0,0,0,0.08); }
+    html[data-theme="light"] .np-overlay.art-theme .np-overlay-header { background: rgba(255,255,255,var(--np-scrim-header, 0.16)); }
     html[data-theme="light"] .np-overlay.art-theme .np-overlay-track { color: #1c1c1e; }
     html[data-theme="light"] .np-overlay.art-theme .np-overlay-artist { color: rgba(28,28,30,0.7); }
     html[data-theme="light"] .np-overlay.art-theme .np-overlay-title { color: rgba(28,28,30,0.5); }
