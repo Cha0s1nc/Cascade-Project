@@ -6831,11 +6831,17 @@ document.getElementById('ictx-view-detail').addEventListener('click', () => {
   if (_ictxItem && _ictxOnDetail) _ictxOnDetail(_ictxItem)
 })
 
-/** POST/DELETE /Users/{userId}/PlayedItems/{id} - the one Jellyfin played-state
- *  endpoint, used identically for a movie, an episode, or a whole series. */
+/** POST/DELETE /UserPlayedItems/{id} - the one Jellyfin played-state endpoint,
+ *  used identically for a movie, an episode, or a whole series.
+ *
+ *  NOT /Users/{userId}/PlayedItems/{id}. That older route is gone in 10.11:
+ *  checked against this server's own OpenAPI spec, where /UserPlayedItems is
+ *  the only played-state path that exists. The old one would have 404'd, and
+ *  since the handler reads res.ok it would at least have said so rather than
+ *  silently doing nothing. */
 async function setItemPlayed(item, played) {
   try {
-    const res = await fetch(`${jf.url}/Users/${jf.userId}/PlayedItems/${item.Id}`, {
+    const res = await fetch(`${jf.url}/UserPlayedItems/${item.Id}?userId=${encodeURIComponent(jf.userId)}`, {
       method: played ? 'POST' : 'DELETE', headers: { 'X-Emby-Token': jf.token }
     })
     if (!res.ok) throw new Error(String(res.status))
