@@ -1274,8 +1274,20 @@
     .eq-auto-label { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text2); white-space: nowrap; }
     .eq-preamp input[type="range"] { flex: 1; }
     .eq-band-value { font-size: 11px; color: var(--text3); min-width: 46px; text-align: right; flex-shrink: 0; }
-    .eq-bands { display: flex; flex-direction: column; gap: 12px; width: 260px; }
-    .eq-band-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--text2); margin-bottom: 4px; }
+    /* Response graph replacing the old five-slider stack. Colours are all
+       existing theme tokens (accent/border/text3/surface) - this draws with
+       the current theme, it does not carry any styling of its own to swap. */
+    .eq-graph-wrap { width: 260px; }
+    .eq-graph { display: block; width: 260px; height: 140px; touch-action: none; }
+    .eq-graph-zero { stroke: var(--border); stroke-width: 1; }
+    .eq-graph-curve { fill: none; stroke: var(--accent); stroke-width: 2; }
+    .eq-graph-point { fill: var(--accent); stroke: var(--surface); stroke-width: 2; cursor: grab; }
+    .eq-graph-point:hover { fill: var(--text); }
+    .eq-graph-point.dragging { cursor: grabbing; }
+    .eq-graph-point:focus-visible { outline: none; stroke: var(--accent-glow); stroke-width: 6; }
+    .eq-graph-labels { display: flex; justify-content: space-between; margin-top: 4px; }
+    .eq-graph-label { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 11px; color: var(--text3); }
+    .eq-graph-label .eq-band-value { min-width: 0; text-align: center; }
     input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 18px; background: none; cursor: pointer; }
     input[type="range"]::-webkit-slider-runnable-track { height: 3px; background: var(--border); border-radius: 2px; }
     input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; margin-top: -5.5px; border-radius: 50%; background: var(--text); transition: background 0.12s; }
@@ -1898,30 +1910,23 @@
               </div>
             </div>
             <div class="setting-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;">
-              <div class="setting-label"><span class="setting-name">Bands</span></div>
-              <!-- Labels are hardcoded to match CascadeCore.EQ_BANDS' order (60/250/1000/4000/12000 Hz) -
-                   renderer.js indexes these five sliders positionally against that array. -->
-              <div class="eq-bands">
-                <div class="eq-band">
-                  <div class="eq-band-head"><span>60 Hz</span><span class="eq-band-value" id="eq-band-value-0">0.0 dB</span></div>
-                  <input type="range" class="eq-band-slider" id="eq-band-0" min="-12" max="12" step="0.5" value="0">
-                </div>
-                <div class="eq-band">
-                  <div class="eq-band-head"><span>250 Hz</span><span class="eq-band-value" id="eq-band-value-1">0.0 dB</span></div>
-                  <input type="range" class="eq-band-slider" id="eq-band-1" min="-12" max="12" step="0.5" value="0">
-                </div>
-                <div class="eq-band">
-                  <div class="eq-band-head"><span>1 kHz</span><span class="eq-band-value" id="eq-band-value-2">0.0 dB</span></div>
-                  <input type="range" class="eq-band-slider" id="eq-band-2" min="-12" max="12" step="0.5" value="0">
-                </div>
-                <div class="eq-band">
-                  <div class="eq-band-head"><span>4 kHz</span><span class="eq-band-value" id="eq-band-value-3">0.0 dB</span></div>
-                  <input type="range" class="eq-band-slider" id="eq-band-3" min="-12" max="12" step="0.5" value="0">
-                </div>
-                <div class="eq-band">
-                  <div class="eq-band-head"><span>12 kHz</span><span class="eq-band-value" id="eq-band-value-4">0.0 dB</span></div>
-                  <input type="range" class="eq-band-slider" id="eq-band-4" min="-12" max="12" step="0.5" value="0">
-                </div>
+              <div class="setting-label">
+                <span class="setting-name">Bands</span>
+                <span class="setting-desc">Drag a point, or tab to one and use the arrow keys.</span>
+              </div>
+              <!-- Points and labels are built in renderer.js from CascadeCore.EQ_BANDS,
+                   not hardcoded here - that used to be a trap: changing a band
+                   frequency meant remembering to edit both this file and eq-profile.ts. -->
+              <div class="eq-graph-wrap">
+                <!-- No role="img" here: that would flatten the five focusable
+                     role="slider" points below out of the accessibility tree.
+                     The curve and zero line are purely decorative. -->
+                <svg class="eq-graph" id="eq-graph" viewBox="0 0 260 140" width="260" height="140">
+                  <line class="eq-graph-zero" x1="0" y1="70" x2="260" y2="70"></line>
+                  <path class="eq-graph-curve" id="eq-graph-curve" d=""></path>
+                  <g id="eq-graph-points"></g>
+                </svg>
+                <div class="eq-graph-labels" id="eq-graph-labels"></div>
               </div>
             </div>
           </div>
