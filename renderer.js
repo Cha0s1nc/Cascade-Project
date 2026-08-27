@@ -587,8 +587,8 @@ function startRemoteControl() {
     setVolume(pct)  { applyRemoteVolume(pct / 100) },
     volumeUp()      { applyRemoteVolume(volume + 0.1) },
     volumeDown()    { applyRemoteVolume(volume - 0.1) },
-    toggleMute()    { setDeckMuted(!audio.muted) },
-    setMute(muted)  { setDeckMuted(muted) },
+    toggleMute()    { applyRemoteMute(!audio.muted) },
+    setMute(muted)  { applyRemoteMute(muted) },
   }, playbackIsLocallyOwned)
 
   // Not fatal - playback works fine without it - but it must be visible.
@@ -599,9 +599,25 @@ function startRemoteControl() {
   })
 }
 
+// Both remote volume entry points funnel through here rather than straight to
+// setVolumeRatio/setDeckMuted, so "personal, per-device, never room-driven" is
+// enforced once, at the layer where a remote command actually reaches the
+// element - not by trusting the RemoteControl gate upstream to always cover
+// it. See CascadeCore.acceptsRemoteVolumeCommand for why this is its own
+// check rather than a reuse of playbackIsLocallyOwned.
+function remoteVolumeAllowed() {
+  return CascadeCore.acceptsRemoteVolumeCommand(ownershipState())
+}
+
 // Mirrors what the volume slider does, so a remote change looks identical.
 function applyRemoteVolume(next) {
+  if (!remoteVolumeAllowed()) return
   setVolumeRatio(next)
+}
+
+function applyRemoteMute(muted) {
+  if (!remoteVolumeAllowed()) return
+  setDeckMuted(muted)
 }
 
 // The library selection may have changed - force every lazy view to refetch.
