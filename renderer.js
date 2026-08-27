@@ -653,9 +653,9 @@ function _applyAdminGating() {
   // RequiresElevation endpoint as the library scan. "Edit metadata" and "Edit
   // images" open the item in the Jellyfin web UI, which itself refuses those
   // edits without admin - so a non-admin gets a browser tab that cannot do
-  // anything. All admin-only. A floating context menu is a bad place for the
-  // [data-tip] tooltip (it renders below its host, and the menu is already
-  // positioned against the viewport edge), so these say why inline instead.
+  // anything. All admin-only. These say why inline rather than with a
+  // [data-tip]: a context menu item is a row in a list, and a tip floating
+  // over the row below it would cover the next thing you were about to read.
   for (const id of ['ctx-refresh-meta', 'tctx-refresh-meta', 'ctx-edit-meta', 'ctx-edit-images', 'tctx-edit-meta']) {
     const item = document.getElementById(id)
     if (item) item.classList.toggle('needs-admin', !jf.isAdmin)
@@ -7908,6 +7908,64 @@ function setAlbumArtAccent(enabled) {
 document.getElementById('toggle-album-art').addEventListener('change', (e) => {
   setAlbumArtAccent(e.target.checked)
 })
+
+// ── Tooltips ─────────────────────────────────────────────────────────────────
+//
+// One element on <body>, moved to whichever [data-tip] is hovered, rather than
+// a ::after on each host. A pseudo-element cannot escape its host's clipping or
+// its stacking context, which is why these kept disappearing behind the player
+// bar and inside Settings - no z-index can lift a child out of a stacking
+// context its ancestor created.
+//
+// Delegated, so anything given a data-tip later (the plugin gating, the admin
+// gating, the theme swatches, the miniplayer button) is covered with no
+// registration step.
+
+const TOOLTIP_GAP = 6
+
+function _positionTooltip(host) {
+  const tip = document.getElementById('tooltip')
+  const text = host.getAttribute('data-tip')
+  if (!tip || !text) return
+  tip.textContent = text
+  tip.classList.add('show')
+  tip.setAttribute('aria-hidden', 'false')
+
+  const h = host.getBoundingClientRect()
+  const t = tip.getBoundingClientRect()
+  // Below by default, matching what these used to do: the lyrics panel's
+  // buttons sit at the top of it and a tip above them would land off-panel.
+  let top = h.bottom + TOOLTIP_GAP
+  if (top + t.height > window.innerHeight - 4) top = h.top - t.height - TOOLTIP_GAP
+  // Clamped so a tip on a control near either edge stays fully on screen
+  // instead of being cut off, which the centred pseudo-element also did.
+  const left = Math.max(4, Math.min(window.innerWidth - t.width - 4, h.left + h.width / 2 - t.width / 2))
+  tip.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`
+}
+
+function _hideTooltip() {
+  const tip = document.getElementById('tooltip')
+  if (!tip) return
+  tip.classList.remove('show')
+  tip.setAttribute('aria-hidden', 'true')
+}
+
+document.addEventListener('mouseover', (e) => {
+  const host = e.target.closest?.('[data-tip]')
+  if (host) _positionTooltip(host)
+})
+document.addEventListener('mouseout', (e) => {
+  if (e.target.closest?.('[data-tip]')) _hideTooltip()
+})
+// Keyboard parity with the old :focus-visible rule.
+document.addEventListener('focusin', (e) => {
+  const host = e.target.closest?.('[data-tip]')
+  if (host && host.matches(':focus-visible')) _positionTooltip(host)
+})
+document.addEventListener('focusout', _hideTooltip)
+// A tip pinned to a rect that has moved is worse than no tip.
+window.addEventListener('scroll', _hideTooltip, true)
+window.addEventListener('resize', _hideTooltip)
 
 // ── Utility ───────────────────────────────────────────────────────────────────
 

@@ -485,16 +485,24 @@
     /* A control that is off needs to say why, and the disabled state alone does
        not. Tips sit below their host on purpose: the lyrics panel clips its own
        overflow, and the buttons that need one are at the top of it. */
-    [data-tip] { position: relative; }
-    [data-tip]::after {
-      content: attr(data-tip);
-      position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+    /* One shared element on <body>, positioned by JS (see wireTooltips in
+       renderer.js), NOT a ::after on the host.
+       A pseudo-element cannot escape its host: it is clipped by any ancestor
+       with overflow hidden, and trapped inside any ancestor that creates a
+       stacking context (a transform, an opacity, a filter), where no z-index
+       can lift it out. That is why tips vanished behind the player bar and
+       inside Settings. Living on <body> it has no ancestor to be trapped by,
+       so one z-index above everything is enough. */
+    #tooltip {
+      position: fixed; z-index: 10000; pointer-events: none;
       background: var(--surface2); color: var(--text); border: 1px solid var(--border);
       border-radius: 6px; padding: 4px 8px; font-size: 11px; font-weight: 500;
-      white-space: nowrap; opacity: 0; pointer-events: none;
-      transition: opacity 0.12s; z-index: 500;
+      white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+      opacity: 0; transition: opacity 0.12s;
+      left: 0; top: 0;
     }
-    [data-tip]:hover::after, [data-tip]:focus-visible::after { opacity: 1; }
+    #tooltip.show { opacity: 1; }
+    @media (prefers-reduced-motion: reduce) { #tooltip { transition: none; } }
     /* Both hosts kill pointer events while disabled, which also kills hover, so
        the tip would never show. Handing them back is safe: the toggle's input
        is disabled (a label does nothing for a disabled control) and the button
@@ -1242,9 +1250,7 @@
     .tp-preset.active { border-color: var(--text); }
     /* Album art accent overrides the gradient/presets while it's on, so both
        are dimmed and inert rather than clickable but pointless. The lock
-       stays off the host itself so it still catches hover for its tooltip -
-       see [data-tip] above, which renders below its host on purpose; there
-       is no clipping panel here so that is not a concern for this tip. */
+       stays off the host itself so it still catches hover for its tooltip. */
     .tp-colors.locked, #tp-presets.locked { opacity: 0.45; }
     .tp-colors.locked .tp-swatch, #tp-presets.locked .tp-preset { pointer-events: none; }
     .tp-colors.locked[data-tip], #tp-presets.locked[data-tip] { cursor: not-allowed; }
@@ -2697,5 +2703,6 @@
 <script src="build/core.js"></script>
 <script src="renderer.js"></script>
 <script src="waterfall.js"></script>
+<div id="tooltip" role="tooltip" aria-hidden="true"></div>
 </body>
 </html>
