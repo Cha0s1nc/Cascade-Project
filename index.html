@@ -742,6 +742,15 @@
       align-items: center; justify-content: center;
     }
     .np-overlay.video.full #ov-full-exit { display: flex; }
+    /* Windows and Linux draw the OS caption buttons OVER the page in that exact
+       corner, so a button at right:16px sits underneath them and cannot be
+       clicked - the same way the overlay's close x was unreachable until
+       a0b996c. Full mode hides the header, so this is the only pointer exit
+       left, and losing it would leave Escape as the only way out. */
+    html[data-platform="win32"] .np-overlay.video.full #ov-full-exit,
+    html[data-platform="linux"] .np-overlay.video.full #ov-full-exit {
+      right: calc(var(--caption-reserve, 138px) + 8px);
+    }
     /* Idle in full mode hides the whole floating cluster, scrubber included -
        there is no docked chrome left underneath it to fall back on, so this is
        the literal VLC/YouTube "just the picture" state rather than the gentler
