@@ -181,7 +181,8 @@ test('light mode keeps blob layout identical to dark, whatever the alpha', () =>
     // editing this test every time the look is adjusted.
     assert.equal(light[i]!.x, dark[i]!.x, 'light mode must not change where blobs sit')
     assert.equal(light[i]!.y, dark[i]!.y)
-    assert.equal(light[i]!.r, dark[i]!.r, 'light mode must not change blob size')
+    assert.equal(light[i]!.w, dark[i]!.w, 'light mode must not change blob size')
+    assert.equal(light[i]!.h, dark[i]!.h)
   }
 })
 
