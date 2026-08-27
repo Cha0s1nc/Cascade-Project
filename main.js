@@ -597,6 +597,23 @@ ipcMain.on('open-miniplayer', () => {
       ? savedHeight : MINI_DEFAULT_HEIGHT
 
     miniPlayerWindow = new BrowserWindow({
+      // Real traffic lights on macOS rather than an in-page button. They give a
+      // close that cannot be broken by page CSS, and they drag the window for
+      // free - which matters here, because the in-page versions of both were
+      // dead until the drag region was cut back to a strip. Windows and Linux
+      // stay frameless and keep the in-page close button; a titleBarOverlay at
+      // this window size would eat most of the top edge.
+      ...(process.platform === 'darwin'
+        ? {
+            titleBarStyle: 'hidden',
+            trafficLightPosition: { x: 10, y: 6 },
+            // A blurred translucent panel rather than a black rectangle. macOS
+            // only: Windows and Linux fall back to the page's own translucent
+            // background over an opaque window, which still reads as a tint.
+            vibrancy: 'under-window',
+            transparent: true,
+          }
+        : {}),
       width: MINI_WIDTH, height,
       minWidth: MINI_WIDTH, maxWidth: MINI_WIDTH,
       minHeight: MINI_MIN_HEIGHT, maxHeight: MINI_MAX_HEIGHT,

@@ -20,7 +20,9 @@ html { container-type: size; }
 body {
   position: relative;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: #111113;
+  /* Translucent rather than flat black: the window is vibrancy-backed (see
+     main.js), so this tints what is behind it instead of covering it. */
+  background: rgba(18, 18, 20, 0.55);
   color: #e8e8e9;
   -webkit-user-select: none;
   user-select: none;
@@ -36,6 +38,20 @@ body {
 
 /* Blurred cover behind everything, the way Apple Music tints its miniplayer.
    Only shown in the taller layout, where there is room to see it. */
+/* The ONLY drag region. It used to be the whole window, which is why nothing
+   worked: a -webkit-app-region: drag surface hands its mouse events straight to
+   the OS, so mousemove never reached the idle timer, clicks never reached the
+   restore handler, and the close button's own hover never fired. A narrow strip
+   along the top drags the window; everything else is a normal page again. */
+.drag-strip {
+  position: absolute; top: 0; left: 0; right: 0; height: 22px; z-index: 2;
+  -webkit-app-region: drag;
+}
+/* macOS draws real traffic lights in that strip (see main.js), so the strip
+   starts clear of them and the in-page close button is not needed there. */
+html[data-platform="darwin"] .drag-strip { left: 76px; }
+html[data-platform="darwin"] .close-btn { display: none; }
+
 .backdrop {
   position: absolute; inset: 0; z-index: 0;
   background-size: cover; background-position: center;
@@ -71,7 +87,6 @@ body {
   position: relative; z-index: 1;
   display: flex; align-items: center; gap: 10px;
   height: 100%; padding: 10px;
-  -webkit-app-region: drag;
 }
 
 .art {
@@ -122,7 +137,6 @@ body {
   .lyrics {
     display: block; flex: 1 1 auto; min-height: 0; overflow: hidden;
     padding: 14px 16px 16px; position: relative; z-index: 1;
-    -webkit-app-region: drag;
   }
   .lyric-line {
     font-size: 13px; line-height: 1.45; margin-bottom: 9px;
@@ -155,6 +169,7 @@ body {
   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="4" y1="4" x2="20" y2="20"/><line x1="20" y1="4" x2="4" y2="20"/></svg>
 </button>
 
+<div class="drag-strip"></div>
 <div class="backdrop" id="backdrop"></div>
 
 <div class="wrap">
@@ -192,6 +207,12 @@ function fmtSec(s) {
   const m = Math.floor(s / 60)
   const sec = String(s % 60).padStart(2, '0')
   return `${m}:${sec}`
+}
+
+// Traffic lights on macOS mean no in-page close button and a shorter drag
+// strip - see the CSS above.
+if (window.miniPlayer.platform) {
+  document.documentElement.setAttribute('data-platform', window.miniPlayer.platform)
 }
 
 window.miniPlayer.onState((state) => {

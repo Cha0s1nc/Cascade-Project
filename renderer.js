@@ -4290,7 +4290,23 @@ document.getElementById('btn-lyrics-open').addEventListener('click', () => showL
 
 // Miniplayer open button - main.js minimizes this window and creates (or
 // focuses) the small always-on-top remote control window.
+// Dev builds only for now. The miniplayer is half-built (no volume, no shuffle
+// or repeat, no queue pane) and its window chrome only really works on macOS,
+// so a packaged build says "coming soon" rather than handing people a window
+// they cannot do much with. Same shape as the toast gating above: keyed on
+// isPackaged, not on a setting anyone can flip by accident.
+let _miniplayerEnabled = true
+window.cascade?.isPackaged?.().then(packaged => {
+  _miniplayerEnabled = !packaged
+  const btn = document.getElementById('btn-miniplayer-open')
+  if (!btn || _miniplayerEnabled) return
+  btn.classList.add('needs-admin')            // the existing dimmed-but-visible treatment
+  btn.setAttribute('data-tip', 'Miniplayer - coming soon')
+  btn.title = 'Miniplayer - coming soon'
+})
+
 document.getElementById('btn-miniplayer-open').addEventListener('click', () => {
+  if (!_miniplayerEnabled) { showToast('Miniplayer is coming soon'); return }
   pushMiniplayerState()
   window.cascade.miniPlayer.open()
 })
