@@ -575,12 +575,31 @@ ipcMain.on('metadata-editor-close', () => {
 // applies through its own existing button handlers (see onControl in
 // renderer.js) rather than any new playback code living here.
 
+// Apple Music-style vertical-only resize: width stays fixed (miniplayer.html's
+// compact-bar/stacked-art container query switches on height, not width), and
+// height ranges from a bare compact bar up to a comfortably art-forward view.
+// None of resizable/minWidth/maxWidth/minHeight/maxHeight below are macOS-only
+// (unlike titleBarStyle/trafficLightPosition above) - all three platforms
+// honour them, so no per-platform guard is needed here.
+const MINI_WIDTH = 300
+const MINI_MIN_HEIGHT = 100
+const MINI_MAX_HEIGHT = 500
+const MINI_DEFAULT_HEIGHT = 120
+
 ipcMain.on('open-miniplayer', () => {
   if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) {
     miniPlayerWindow.focus()
   } else {
+    // Store values are untrusted (CODEMAP) - a stale height from a build with
+    // a different min/max range must not hand the window an out-of-range size.
+    const savedHeight = store.get('miniplayerHeight')
+    const height = (typeof savedHeight === 'number' && savedHeight >= MINI_MIN_HEIGHT && savedHeight <= MINI_MAX_HEIGHT)
+      ? savedHeight : MINI_DEFAULT_HEIGHT
+
     miniPlayerWindow = new BrowserWindow({
-      width: 300, height: 120, minWidth: 260, minHeight: 100, maxHeight: 200,
+      width: MINI_WIDTH, height,
+      minWidth: MINI_WIDTH, maxWidth: MINI_WIDTH,
+      minHeight: MINI_MIN_HEIGHT, maxHeight: MINI_MAX_HEIGHT,
       title: 'Cascade', backgroundColor: '#111113',
       frame: false, resizable: true, alwaysOnTop: true, skipTaskbar: true,
       autoHideMenuBar: true,
@@ -595,7 +614,30 @@ ipcMain.on('open-miniplayer', () => {
     // Same show:false + ready-to-show pattern as every other secondary window -
     // ready-to-show alone can simply never fire on Windows.
     showWhenReady(miniPlayerWindow)
-    miniPlayerWindow.on('closed', () => { miniPlayerWindow = null })
+    // Debounced so a live drag-resize doesn't write the store on every
+    // intermediate frame.
+    let resizeSaveTimer = null
+    miniPlayerWindow.on('resize', () => {
+      clearTimeout(resizeSaveTimer)
+      resizeSaveTimer = setTimeout(() => {
+        if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) {
+          store.set('miniplayerHeight', miniPlayerWindow.getBounds().height)
+        }
+      }, 400)
+    })
+    miniPlayerWindow.on('closed', () => {
+      clearTimeout(resizeSaveTimer)
+      miniPlayerWindow = null
+      // Restoring the main window belongs HERE, not only in the
+      // miniplayer-restore handler below - this fires no matter how the
+      // window closed (the close button, the OS window-menu Close Window
+      // shortcut, Alt+F4, anything). The miniplayer stands in for the main
+      // window (win.minimize(), never hide()), so any path that loses this
+      // window must bring the main one back or the user is left with no
+      // window at all, which is exactly the failure this app already shipped
+      // once.
+      if (win && !win.isDestroyed()) { win.restore(); win.focus() }
+    })
   }
   // Compact-mode convention (Spotify/Apple Music): the miniplayer stands in for
   // the main window rather than sitting alongside it. minimize(), not hide() -
@@ -611,8 +653,10 @@ ipcMain.on('miniplayer-control', (_e, action) => {
   if (win && !win.isDestroyed()) win.webContents.send('miniplayer-control', action)
 })
 
+// Closing (button or click-anywhere) just closes the window - the 'closed'
+// handler above is the single place that restores the main window, so every
+// way this window can go away ends up there instead of duplicating the logic.
 ipcMain.on('miniplayer-restore', () => {
-  if (win && !win.isDestroyed()) { win.restore(); win.focus() }
   if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) miniPlayerWindow.close()
 })
 
