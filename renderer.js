@@ -147,6 +147,7 @@ const {
   buildElectronProfile, DEFAULT_MAX_BITRATE,
   resumeTicks, neededAudioStreamIndex,
   entryIdOf, removeSelected, moveSelectedToTop, moveSelectedToBottom,
+  groupRecentlyWatched,
 } = CascadeCore
 
 // Passed as a getter, not as `jf` itself: connect() replaces the whole object,
@@ -307,12 +308,29 @@ const DEVICE_PROFILE = buildElectronProfile(t => {
 // checks a movie's default track against. See its doc comment in playback.ts: direct play
 // hands over every embedded audio stream, and Chromium decodes whichever one the file
 // itself flags as default, not whatever the server decided was "the" compatible one.
-const DECODABLE_VIDEO_AUDIO_CODECS =
-  (DEVICE_PROFILE.DirectPlayProfiles.find(p => p.Type === 'Video')?.AudioCodec || '').split(',')
+// Codecs this build CLAIMED it could decode and then demonstrably could not:
+// the picture played, the clock advanced, and the audio decoder produced zero
+// bytes. Filled in at runtime by _checkAudioActuallyDecoded() and persisted,
+// because the claim is wrong for the machine, not for the file.
+let _undecodableAudioCodecs = new Set()
+
+/** The device profile with any proven-undecodable codec withdrawn. */
+function currentDeviceProfile() {
+  return _undecodableAudioCodecs.size
+    ? CascadeCore.withoutAudioCodecs(DEVICE_PROFILE, [..._undecodableAudioCodecs])
+    : DEVICE_PROFILE
+}
+
+// Audio codecs the profile currently claims for a video container - what
+// neededAudioStreamIndex() checks a movie's default track against.
+function decodableVideoAudioCodecs() {
+  return (currentDeviceProfile().DirectPlayProfiles.find(p => p.Type === 'Video')?.AudioCodec || '')
+    .split(',').filter(Boolean)
+}
 
 /** @type {(itemId: string, kind?: 'Audio' | 'Video', opts?: any) => Promise<any>} */
 const resolveTrackStream = (itemId, kind = 'Audio', opts = {}) =>
-  resolveStream(jfClient, jf, itemId, DEVICE_PROFILE, maxStreamingBitrate, kind, opts)
+  resolveStream(jfClient, jf, itemId, currentDeviceProfile(), maxStreamingBitrate, kind, opts)
 
 // Self-contained URL for "Copy stream URL". Deliberately the /universal form
 // rather than a PlaySessionId-bound one, so the copied link keeps working after
@@ -359,7 +377,8 @@ function queueAddedBy(i) {
 }
 
 /**
- * Add tracks to the queue, routed through the arbiter.
+ * Add tracks to the end of the queue ("Play last"), routed through the
+ * arbiter.
  *
  * A guest must not mutate locally - the next host broadcast would wipe it,
  * which is exactly how "Add to queue" used to look like it worked and then
@@ -373,12 +392,12 @@ function enqueueTracks(items, label) {
     return
   }
   if (mode === 'propose') {
-    if (wfRequestEnqueue(items)) showToast(`Asked the host to add ${label}`)
+    if (wfRequestEnqueue(items)) showToast(`Asked the host to play ${label} last`)
     return
   }
 
   queue.push(...items)
-  showToast(`Added ${label} to queue`)
+  showToast(`${label} plays last`)
 }
 
 function ownershipState() {
@@ -474,6 +493,19 @@ async function connect(serverUrl, token, userId) {
     if (connectBtn) connectBtn.style.display = ''
   }
 
+  // Fired alongside the token ping below rather than waiting for it. The two
+  // are independent requests to the same server, and /Views cannot succeed on a
+  // bad token either, so running them in turn just put an extra round trip in
+  // front of everything the user actually sees. The ping is still needed for
+  // its own sake: it carries Policy, which is where isAdmin and canDelete come
+  // from.
+  //
+  // .catch is attached here, not later, so a rejection can never surface as an
+  // unhandled rejection while nothing is awaiting it yet. A null result means
+  // populateLibraryPicker just fetches normally, so the slow path is exactly
+  // what it was before.
+  const viewsPromise = jfGet(`/Users/${userId}/Views`).catch(() => null)
+
   // Verify the token is still valid with a lightweight ping, retry up to 3x
   let verified = false
   let userInfo = null
@@ -500,11 +532,16 @@ async function connect(serverUrl, token, userId) {
   // _applyAdminGating) - always overwritten here so a previous account's
   // admin status can never survive into this session.
   jf.isAdmin = !!userInfo?.Policy?.IsAdministrator
+  // Same free response as isAdmin above - deletion is its own Jellyfin right,
+  // not implied by admin status alone, but an admin always has it too (see
+  // canDeleteMedia). Gates the "Delete media" entry, kept apart from
+  // _applyAdminGating's admin-only entries below.
+  jf.canDelete = CascadeCore.canDeleteMedia(userInfo?.Policy)
   _applyAdminGating()
 
   startRemoteControl()
   probeCascadePlugin()  // not awaited - cheap, and nothing here depends on the result yet
-  await populateLibraryPicker()
+  await populateLibraryPicker(viewsPromise)
   invalidateLibraryViews()
   await loadHome()
   // Both sit over a populated app rather than a blank one, hence after loadHome.
@@ -551,8 +588,8 @@ function startRemoteControl() {
     setVolume(pct)  { applyRemoteVolume(pct / 100) },
     volumeUp()      { applyRemoteVolume(volume + 0.1) },
     volumeDown()    { applyRemoteVolume(volume - 0.1) },
-    toggleMute()    { setDeckMuted(!audio.muted) },
-    setMute(muted)  { setDeckMuted(muted) },
+    toggleMute()    { applyRemoteMute(!audio.muted) },
+    setMute(muted)  { applyRemoteMute(muted) },
   }, playbackIsLocallyOwned)
 
   // Not fatal - playback works fine without it - but it must be visible.
@@ -563,9 +600,25 @@ function startRemoteControl() {
   })
 }
 
+// Both remote volume entry points funnel through here rather than straight to
+// setVolumeRatio/setDeckMuted, so "personal, per-device, never room-driven" is
+// enforced once, at the layer where a remote command actually reaches the
+// element - not by trusting the RemoteControl gate upstream to always cover
+// it. See CascadeCore.acceptsRemoteVolumeCommand for why this is its own
+// check rather than a reuse of playbackIsLocallyOwned.
+function remoteVolumeAllowed() {
+  return CascadeCore.acceptsRemoteVolumeCommand(ownershipState())
+}
+
 // Mirrors what the volume slider does, so a remote change looks identical.
 function applyRemoteVolume(next) {
+  if (!remoteVolumeAllowed()) return
   setVolumeRatio(next)
+}
+
+function applyRemoteMute(muted) {
+  if (!remoteVolumeAllowed()) return
+  setDeckMuted(muted)
 }
 
 // The library selection may have changed - force every lazy view to refetch.
@@ -596,16 +649,28 @@ function _applyAdminGating() {
     if (!jf.isAdmin) host.setAttribute('data-tip', 'Needs a Jellyfin admin account')
     else host.removeAttribute('data-tip')
   }
-  // Both "Refresh metadata" entries hit POST /Items/{id}/Refresh, which is the
-  // same RequiresElevation endpoint as the library scan, so they take the same
-  // gate. A floating context menu is a bad place for the [data-tip] tooltip (it
-  // renders below its host, and the menu is already positioned against the
-  // viewport edge), so these say why inline instead.
-  for (const id of ['ctx-refresh-meta', 'tctx-refresh-meta']) {
+  // Both "Refresh metadata" entries hit POST /Items/{id}/Refresh, the same
+  // RequiresElevation endpoint as the library scan. "Edit metadata" and "Edit
+  // images" open the item in the Jellyfin web UI, which itself refuses those
+  // edits without admin - so a non-admin gets a browser tab that cannot do
+  // anything. All admin-only. These say why inline rather than with a
+  // [data-tip]: a context menu item is a row in a list, and a tip floating
+  // over the row below it would cover the next thing you were about to read.
+  for (const id of ['ctx-refresh-meta', 'tctx-refresh-meta', 'ictx-refresh-meta', 'ctx-edit-meta', 'ctx-edit-images', 'tctx-edit-meta', 'ictx-edit-meta']) {
     const item = document.getElementById(id)
     if (item) item.classList.toggle('needs-admin', !jf.isAdmin)
     const note = document.getElementById(id + '-note')
     if (note) note.hidden = !!jf.isAdmin
+  }
+  // Delete media (now-playing) and delete playlist (playlist card menu) are both
+  // gated on the actual deletion right (see canDeleteMedia), not admin - an admin
+  // always has it, but a non-admin can be granted it too, and gating on isAdmin
+  // would hide the feature from someone who has it.
+  for (const id of ['ctx-delete', 'ictx-delete']) {
+    const item = document.getElementById(id)
+    if (item) item.classList.toggle('needs-admin', !jf.canDelete)
+    const note = document.getElementById(id + '-note')
+    if (note) note.hidden = !!jf.canDelete
   }
 }
 
@@ -642,9 +707,14 @@ let _showLibs         = []     // tvshows libraries, kept apart from _movieLibs 
                                 // never fans out across TV libraries or vice versa
 let singleLibraryMode = false  // one library at a time (dropdown) instead of merging several
 
-async function populateLibraryPicker() {
+/** `prefetched` is the in-flight /Views request connect() started in parallel
+ *  with the token ping. It resolves to null if that request failed, in which
+ *  case this fetches it the old way - a retry is worth more here than saving a
+ *  round trip, because empty _musicLibs is indistinguishable from a music-only
+ *  server and takes Movies and TV down with it. */
+async function populateLibraryPicker(prefetched = null) {
   try {
-    const data = await jfGet(`/Users/${jf.userId}/Views`)
+    const data = (prefetched && await prefetched) || await jfGet(`/Users/${jf.userId}/Views`)
     _musicLibs = (data.Items || []).filter(i =>
       i.CollectionType === 'music' || i.CollectionType === 'musicvideos'
     )
@@ -828,7 +898,52 @@ function applyVideoNavVisibility() {
   // strand them with no way back except another nav click.
   if (!hasMovies && _currentView === 'movies') showView('home')
   if (!hasShows  && _currentView === 'shows')  showView('home')
+  // Same trigger drives the Music/Video mode toggle's own visibility and
+  // forces Music mode once no video library is left - one mechanism, not two.
+  refreshBrowseMode()
 }
+
+// ── Music / Video mode toggle ─────────────────────────────────────────────
+//
+// A persistent browsing filter, not a "what would you like to do this
+// session" launch prompt - that option was put to the user and rejected in
+// favor of this toggle, so it restores silently on launch instead of asking.
+// Purely a sidebar/Home filter: never touches playback, the queue, or the
+// player bar (see setBrowseMode - it only flips classes and attributes).
+
+let _browseMode = 'music'
+
+/** Applies `mode` to the DOM and, unless `skipSave`, persists it. skipSave is
+ *  for refreshBrowseMode() re-deriving the mode from what's already saved -
+ *  writing it back there would overwrite a saved "video" choice with "music"
+ *  the instant the last video library is removed, losing the choice for good
+ *  even if a video library is added back later. */
+function setBrowseMode(mode, opts = {}) {
+  _browseMode = mode
+  document.body.classList.toggle('mode-video', mode === 'video')
+  document.body.classList.toggle('mode-music', mode === 'music')
+  const musicBtn = document.getElementById('mode-music-btn')
+  const videoBtn = document.getElementById('mode-video-btn')
+  musicBtn?.classList.toggle('active', mode === 'music')
+  videoBtn?.classList.toggle('active', mode === 'video')
+  musicBtn?.setAttribute('aria-pressed', String(mode === 'music'))
+  videoBtn?.setAttribute('aria-pressed', String(mode === 'video'))
+  if (!opts.skipSave) window.cascade.store.set('browseMode', mode)
+}
+
+/** Re-derives the effective mode from what's saved and whether a video
+ *  library actually exists right now, and shows/hides the toggle itself to
+ *  match. Called from applyVideoNavVisibility() so both stay in lockstep
+ *  instead of drifting apart as two separate mechanisms. */
+async function refreshBrowseMode() {
+  const hasVideo = document.body.classList.contains('has-movies') || document.body.classList.contains('has-shows')
+  document.getElementById('mode-toggle')?.classList.toggle('hidden', !hasVideo)
+  const saved = await window.cascade.store.get('browseMode')
+  setBrowseMode(CascadeCore.resolveBrowseMode(saved, hasVideo), { skipSave: true })
+}
+
+document.getElementById('mode-music-btn').addEventListener('click', () => setBrowseMode('music'))
+document.getElementById('mode-video-btn').addEventListener('click', () => setBrowseMode('video'))
 
 /** Renders one category's toggles into `list`, given its libraries, its
  *  currently selected ids, and what to call with the new list on change.
@@ -1113,6 +1228,7 @@ async function applyVideoLibrarySelection(category, ids) {
   applyVideoNavVisibility()
   renderVideoLibraryPicker()
   loadContinueWatching()
+  loadRecentlyWatched()
 }
 
 document.getElementById('s-single-lib-toggle').addEventListener('change', async e => {
@@ -1148,6 +1264,14 @@ backdrop.addEventListener('click', () => {
 let _currentView = 'home'
 
 function showView(name) {
+  // Deep links (search results, now-playing "view album", a resumed video
+  // from Home) must never land on a view the current mode is hiding - switch
+  // mode instead of leaving them on a view with no way to see it. Every
+  // navigation in the app funnels through showView, so this one check covers
+  // all of them.
+  const targetMode = CascadeCore.sectionMode(name)
+  if (targetMode && targetMode !== _browseMode) setBrowseMode(targetMode)
+
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'))
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'))
   document.getElementById(`view-${name}`).classList.add('active')
@@ -1194,6 +1318,7 @@ async function loadHome() {
   loadRecentlyPlayed()
   loadRecentlyAdded()
   loadContinueWatching()
+  loadRecentlyWatched()
 }
 
 async function loadRecentlyPlayed() {
@@ -1252,9 +1377,7 @@ async function loadRecentlyAdded() {
     // #home-recent-albums), so the row is always full at any window width.
     if (!data.Items?.length) { grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">No albums yet</div>'; return }
     grid.innerHTML = data.Items.map(item => albumCard(item)).join('')
-    grid.querySelectorAll('.album-card').forEach((el, i) => {
-      el.addEventListener('click', () => { showView('albums'); openAlbum(data.Items[i].Id) })
-    })
+    wireAlbumCards(grid, data.Items, item => { showView('albums'); openAlbum(item.Id) })
   } catch (e) {
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Could not load albums</div>`
   }
@@ -1274,9 +1397,7 @@ async function loadAlbums() {
     const params = { SortBy: 'SortName', SortOrder: 'Ascending', IncludeItemTypes: 'MusicAlbum', Recursive: true, Fields: 'PrimaryImageAspectRatio', Limit: 200 }
     const data = await jfGetMerged(`/Users/${jf.userId}/Items`, params)
     grid.innerHTML = data.Items.map(item => albumCard(item)).join('')
-    grid.querySelectorAll('.album-card').forEach((el, i) => {
-      el.addEventListener('click', () => { showView('albums'); openAlbum(data.Items[i].Id) })
-    })
+    wireAlbumCards(grid, data.Items, item => { showView('albums'); openAlbum(item.Id) })
   } catch (e) {
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Could not load albums</div>`
   }
@@ -1305,7 +1426,45 @@ function artistCardHtml(item, opts = {}) {
   </div>`
 }
 
+/** Wires an .album-card grid's click and right-click, matching each card back
+ *  to `items` by id (data-id or, from search, data-search-album) - same
+ *  by-id-map shape as wirePosterCards below, needed since a grid can be
+ *  rebuilt with a different item list between calls. */
+function wireAlbumCards(container, items, onPick) {
+  const byId = new Map(items.map(i => [i.Id, i]))
+  container.querySelectorAll('.album-card').forEach(el => {
+    const item = byId.get(el.dataset.id || el.dataset.searchAlbum)
+    if (!item) return
+    el.addEventListener('click', () => onPick(item))
+    el.addEventListener('contextmenu', e => { e.preventDefault(); showItemCtxMenu('album', item, el, e.clientX, e.clientY) })
+  })
+}
+
+/** Same for .artist-card grids. */
+function wireArtistCards(container, items, onPick) {
+  const byId = new Map(items.map(i => [i.Id, i]))
+  container.querySelectorAll('.artist-card').forEach(el => {
+    const item = byId.get(el.dataset.id || el.dataset.searchArtist)
+    if (!item) return
+    el.addEventListener('click', () => onPick(item))
+    el.addEventListener('contextmenu', e => { e.preventDefault(); showItemCtxMenu('artist', item, el, e.clientX, e.clientY, onPick) })
+  })
+}
+
 let currentAlbumTracks = []
+
+/** Track query shared by the album detail view and the album context menu's
+ *  Play/Play next/Play last/Shuffle/Add to playlist actions. */
+async function fetchAlbumTracks(albumId) {
+  const data = await jfGet(`/Users/${jf.userId}/Items`, {
+    ParentId: albumId,
+    SortBy: 'ParentIndexNumber,IndexNumber,SortName',
+    IncludeItemTypes: 'Audio',
+    Recursive: true,
+    Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
+  })
+  return data.Items || []
+}
 
 async function openAlbum(albumId) {
   document.getElementById('albums-index').style.display = 'none'
@@ -1317,17 +1476,10 @@ async function openAlbum(albumId) {
   document.getElementById('album-detail-art').innerHTML = '♪'
 
   try {
-    const [album, tracksData] = await Promise.all([
+    const [album, tracks] = await Promise.all([
       jfGet(`/Users/${jf.userId}/Items/${albumId}`),
-      jfGet(`/Users/${jf.userId}/Items`, {
-        ParentId: albumId,
-        SortBy: 'ParentIndexNumber,IndexNumber,SortName',
-        IncludeItemTypes: 'Audio',
-        Recursive: true,
-        Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
-      })
+      fetchAlbumTracks(albumId)
     ])
-    const tracks = tracksData.Items || []
     currentAlbumTracks = tracks
 
     document.getElementById('album-detail-name').textContent = album.Name || ''
@@ -1384,12 +1536,21 @@ async function loadArtists() {
     const params = { UserId: jf.userId, SortBy: 'SortName', SortOrder: 'Ascending', Limit: 200 }
     const data = await jfGetMerged(`/Artists`, params)
     grid.innerHTML = data.Items.map(item => artistCardHtml(item)).join('')
-    grid.querySelectorAll('.artist-card').forEach(el => {
-      el.addEventListener('click', () => openArtist(el.dataset.id, el.dataset.name))
-    })
+    wireArtistCards(grid, data.Items, item => openArtist(item.Id, item.Name))
   } catch (e) {
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Could not load artists</div>`
   }
+}
+
+/** Songs query shared by the artist detail view and the artist context menu's
+ *  Play all/Shuffle all actions. */
+async function fetchArtistSongs(artistId) {
+  const data = await jfGet(`/Users/${jf.userId}/Items`, {
+    ArtistIds: artistId, IncludeItemTypes: 'Audio', Recursive: true,
+    SortBy: 'Album,ParentIndexNumber,IndexNumber',
+    Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
+  })
+  return data.Items || []
 }
 
 async function openArtist(artistId, name) {
@@ -1405,20 +1566,15 @@ async function openArtist(artistId, name) {
   document.getElementById('artist-detail-art').innerHTML = `<img src="${art}" alt="" onerror="this.innerHTML='♪'" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`
 
   try {
-    const [albumsData, songsData] = await Promise.all([
+    const [albumsData, songs] = await Promise.all([
       jfGet(`/Users/${jf.userId}/Items`, {
         ArtistIds: artistId, IncludeItemTypes: 'MusicAlbum', Recursive: true,
         SortBy: 'ProductionYear,SortName', SortOrder: 'Descending',
         Fields: 'PrimaryImageAspectRatio'
       }),
-      jfGet(`/Users/${jf.userId}/Items`, {
-        ArtistIds: artistId, IncludeItemTypes: 'Audio', Recursive: true,
-        SortBy: 'Album,ParentIndexNumber,IndexNumber',
-        Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
-      })
+      fetchArtistSongs(artistId)
     ])
 
-    const songs  = songsData.Items  || []
     const albums = albumsData.Items || []
 
     document.getElementById('artist-detail-meta').textContent =
@@ -1426,9 +1582,7 @@ async function openArtist(artistId, name) {
 
     // Albums grid
     document.getElementById('artist-albums-grid').innerHTML = albums.map(item => albumCard(item)).join('')
-    document.getElementById('artist-albums-grid').querySelectorAll('.album-card').forEach((el, i) => {
-      el.addEventListener('click', () => { showView('albums'); openAlbum(albums[i].Id) })
-    })
+    wireAlbumCards(document.getElementById('artist-albums-grid'), albums, item => { showView('albums'); openAlbum(item.Id) })
 
     // Play all button
     document.getElementById('btn-play-artist-discography').onclick = () => {
@@ -1712,18 +1866,35 @@ async function loadPlaylists() {
         </div>
       </div>`
     }).join('')
-    grid.querySelectorAll('[data-id]').forEach(el => {
-      el.addEventListener('click', () => openPlaylist(el.dataset.id, el.dataset.name))
-    })
-    grid.querySelectorAll('[data-smart]').forEach(el => {
-      el.addEventListener('click', () => openSmartPlaylist(el.dataset.smart))
-    })
+    wirePlaylistCards(grid)
+    wireSmartPlaylistCards(grid)
   } catch (e) {
     grid.innerHTML = smartHtml + `<div class="empty-state" style="grid-column:1/-1">Could not load playlists</div>`
-    grid.querySelectorAll('[data-smart]').forEach(el => {
-      el.addEventListener('click', () => openSmartPlaylist(el.dataset.smart))
-    })
+    wireSmartPlaylistCards(grid)
   }
+}
+
+/** Real (non-smart) playlist cards: click opens it, right-click offers
+ *  Play/Shuffle/Rename/Delete via the shared item context menu. */
+function wirePlaylistCards(grid) {
+  grid.querySelectorAll('.playlist-card[data-id]').forEach(el => {
+    const item = { Id: el.dataset.id, Name: el.dataset.name }
+    el.addEventListener('click', () => openPlaylist(item.Id, item.Name))
+    el.addEventListener('contextmenu', e => { e.preventDefault(); showItemCtxMenu('playlist', item, el, e.clientX, e.clientY) })
+  })
+}
+
+/** Favorites/Most Played: click opens it, right-click offers Play/Shuffle only -
+ *  not real Jellyfin playlists, so no rename/delete. */
+function wireSmartPlaylistCards(grid) {
+  grid.querySelectorAll('[data-smart]').forEach(el => {
+    el.addEventListener('click', () => openSmartPlaylist(el.dataset.smart))
+    el.addEventListener('contextmenu', e => {
+      e.preventDefault()
+      const sp = SMART_PLAYLISTS[el.dataset.smart]
+      showItemCtxMenu('smart-playlist', { smartKind: el.dataset.smart, Name: sp.name }, el, e.clientX, e.clientY)
+    })
+  })
 }
 
 let currentPlaylistId = null
@@ -1740,6 +1911,16 @@ function playlistMutated(playlistId) {
   if (playlistId && playlistId === currentPlaylistId) return refreshPlaylistDetail()
 }
 
+/** Items query shared by the playlist detail view, its refresh, and the
+ *  playlist context menu's Play/Shuffle actions. */
+async function fetchPlaylistTracks(playlistId) {
+  const data = await jfGet(`/Playlists/${playlistId}/Items`, {
+    UserId: jf.userId,
+    Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,DateCreated'
+  })
+  return data.Items || []
+}
+
 // Re-fetches whatever is open in the playlist detail view and re-renders it in place.
 // Shared by playlistMutated() above and the manual refresh button below, so add/remove
 // and the manual escape hatch (server changed underneath us) go through one fetch+render
@@ -1752,11 +1933,7 @@ async function refreshPlaylistDetail() {
     if (currentSmartKind) {
       renderPlaylistDetailItems(await SMART_PLAYLISTS[currentSmartKind].fetch(), false)
     } else {
-      const data = await jfGet(`/Playlists/${currentPlaylistId}/Items`, {
-        UserId: jf.userId,
-        Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,DateCreated'
-      })
-      renderPlaylistDetailItems(data.Items || [], true)
+      renderPlaylistDetailItems(await fetchPlaylistTracks(currentPlaylistId), true)
     }
   } catch (e) {
     showNotice('Could not refresh this playlist.', 'Playlist')
@@ -1921,6 +2098,10 @@ function showPlaylistDetailShell(name) {
   exitPlEditMode(true) // reset edit-mode UI left over from whatever was open before
   document.getElementById('pl-detail-name').textContent = name
   document.getElementById('pl-detail-meta').innerHTML = '<span class="skel skel-text" style="display:inline-block;width:70px"></span>'
+  // has-extra-col decides the row's grid columns and is only set once the items
+  // resolve, so leaving the previous playlist's value on would lay the skeleton
+  // out for a column this one may not have.
+  detail.classList.remove('has-extra-col')
   document.getElementById('pl-detail-rows').innerHTML = skeletonHTML('track', 6)
 }
 
@@ -1942,7 +2123,10 @@ function renderPlaylistDetailItems(items, entryIds) {
   const extraKind = entryIds ? 'added' : (currentSmartKind === 'most-played' ? 'plays' : null)
   document.getElementById('playlist-detail').classList.toggle('has-extra-col', !!extraKind)
   const headExtra = document.getElementById('pl-head-extra')
-  headExtra.textContent = extraKind === 'plays' ? 'Plays' : extraKind === 'added' ? 'Added to server' : ''
+  // "Added (server)", not "Added": the distinction is the whole point of the
+  // column, since Jellyfin has no per-playlist add date and this one is the
+  // library date. The full explanation stays in the title below.
+  headExtra.textContent = extraKind === 'plays' ? 'Plays' : extraKind === 'added' ? 'Added (server)' : ''
   headExtra.title = extraKind === 'added'
     ? 'When this track was added to the Jellyfin server library, not when it was added to this playlist - Jellyfin does not expose a per-playlist add date.'
     : ''
@@ -2037,11 +2221,7 @@ async function openPlaylist(playlistId, name) {
   artEl.innerHTML = `<img src="${plArtUrl}" alt="" onerror="this.innerHTML='♪'">`
 
   try {
-    const data = await jfGet(`/Playlists/${playlistId}/Items`, {
-      UserId: jf.userId,
-      Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,DateCreated'
-    })
-    renderPlaylistDetailItems(data.Items || [], true)
+    renderPlaylistDetailItems(await fetchPlaylistTracks(playlistId), true)
   } catch (e) {
     document.getElementById('pl-detail-rows').innerHTML = `<div class="empty-state">Could not load playlist</div>`
   }
@@ -2139,8 +2319,9 @@ function showTrackCtxMenu(item, el, x, y, inPlaylist = false) {
   trackCtxMenu.style.top  = `${y}px`
   trackCtxMenu.classList.add('open')
   const r = trackCtxMenu.getBoundingClientRect()
-  if (r.right  > window.innerWidth)  trackCtxMenu.style.left = `${x - r.width}px`
-  if (r.bottom > window.innerHeight) trackCtxMenu.style.top  = `${y - r.height}px`
+  const { left, top } = CascadeCore.clampMenuPosition(x, y, r.width, r.height, window.innerWidth, window.innerHeight)
+  trackCtxMenu.style.left = `${left}px`
+  trackCtxMenu.style.top  = `${top}px`
 }
 
 function closeTrackCtxMenu() { trackCtxMenu.classList.remove('open') }
@@ -2203,27 +2384,35 @@ document.getElementById('tctx-play-next').addEventListener('click', () => {
   // Guests append only - letting them jump the line would let the last clicker
   // always win the next slot.
   if (isWaterfallFollower()) { showToast('Only the host can choose what plays next'); return }
-  const insertAt = queueIndex + 1
-  queue.splice(insertAt, 0, _ctxItem)
+  queue = CascadeCore.insertAfterCurrent(queue, queueIndex, [_ctxItem])
   showToast(`"${_ctxItem.Name}" plays next`)
 })
 
+// "Play last" - appends to the end, which is what the old single "Add to
+// queue" action already did. Kept as enqueueTracks() rather than duplicating
+// its ownership handling (local/propose/blocked) here.
 document.getElementById('tctx-add-queue').addEventListener('click', () => {
   if (!_ctxItem) return
   closeTrackCtxMenu()
   enqueueTracks([_ctxItem], `"${_ctxItem.Name}"`)
 })
 
-document.getElementById('tctx-instant-mix').addEventListener('click', async () => {
+/** InstantMix seeded from any item that supports it (track, artist, ...) -
+ *  shared by the track context menu and the artist context menu, so a second
+ *  copy of this fetch+play+toast never had to exist. */
+async function instantMixAndPlay(itemId, label) {
+  try {
+    const data = await jfGet(`/Items/${itemId}/InstantMix`, { UserId: jf.userId, Limit: 50, Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag' })
+    if (!data.Items?.length) { showNotice('Jellyfin did not return an instant mix for this.', 'Instant mix'); return }
+    playItems(data.Items, 0)
+    showToast(`Instant mix from "${label}"`)
+  } catch (e) { showNotice('Could not build an instant mix.', 'Instant mix') }
+}
+
+document.getElementById('tctx-instant-mix').addEventListener('click', () => {
   if (!_ctxItem) return
   closeTrackCtxMenu()
-  // Reuse the existing instant mix logic via the ctx-instant-mix path
-  try {
-    const data = await jfGet(`/Items/${_ctxItem.Id}/InstantMix`, { UserId: jf.userId, Limit: 50, Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag' })
-    if (!data.Items?.length) { showNotice('Jellyfin did not return an instant mix for this track.', 'Instant mix'); return }
-    playItems(data.Items, 0)
-    showToast(`Instant mix from "${_ctxItem.Name}"`)
-  } catch (e) { showNotice('Could not build an instant mix from this track.', 'Instant mix') }
+  instantMixAndPlay(_ctxItem.Id, _ctxItem.Name)
 })
 
 document.getElementById('tctx-add-playlist').addEventListener('click', () => {
@@ -2289,24 +2478,32 @@ document.getElementById('tctx-view-artist').addEventListener('click', () => {
   openArtistFromTrack(_ctxItem)
 })
 
-document.getElementById('tctx-refresh-meta').addEventListener('click', async () => {
-  if (!_ctxItem || !jf.isAdmin) return
-  closeTrackCtxMenu()
+/** POST /Items/{id}/Refresh - RequiresElevation, same as the library scan.
+ *  Shared by the track, now-playing and album context menus so a refresh
+ *  request only has one shape to keep in sync. The response was never read
+ *  before this existed, so a 403 from a non-admin account reported "queued"
+ *  for a refresh the server had refused outright - fixed once, here. */
+async function refreshItemMetadata(item) {
+  if (!item || !jf.isAdmin) return
   try {
-    const res = await fetch(`${jf.url}/Items/${_ctxItem.Id}/Refresh?MetadataRefreshMode=FullRefresh&ImageRefreshMode=FullRefresh&ReplaceAllMetadata=false&ReplaceAllImages=false`, {
+    const res = await fetch(`${jf.url}/Items/${item.Id}/Refresh?MetadataRefreshMode=FullRefresh&ImageRefreshMode=FullRefresh&ReplaceAllMetadata=false&ReplaceAllImages=false`, {
       method: 'POST', headers: { 'X-Emby-Token': jf.token }
     })
-    // The response was never read, so a 403 from a non-admin account reported
-    // "queued" for a refresh the server had refused outright.
     if (!res.ok) throw new Error(String(res.status))
     showToast('Metadata refresh queued')
   } catch { showNotice('Could not queue a metadata refresh on the server.', 'Refresh failed') }
+}
+
+document.getElementById('tctx-refresh-meta').addEventListener('click', () => {
+  if (!_ctxItem) return
+  closeTrackCtxMenu()
+  refreshItemMetadata(_ctxItem)
 })
 
 document.getElementById('tctx-edit-meta').addEventListener('click', () => {
   if (!_ctxItem) return
   closeTrackCtxMenu()
-  openInJellyfinWeb(_ctxItem)
+  openMetadataEditorFor(_ctxItem)
 })
 
 document.getElementById('tctx-pl-remove').addEventListener('click', async () => {
@@ -2349,30 +2546,104 @@ function fmtRuntime(ticks) {
   return h ? `${h}h ${mins % 60}m` : `${mins}m`
 }
 
-function posterCard(item, sub) {
-  const art = artUrl(item.Id, item.ImageTags?.Primary)
+// `opts` lets a caller show a different item's art/name than the one the card
+// is `data-id`'d and clicked on - used to fold a recently-watched episode into
+// its series' poster and name (see groupRecentlyWatched) without changing
+// which item wirePosterCards resolves the click to.
+function posterCard(item, sub, opts = {}) {
+  const art = artUrl(opts.artId || item.Id, 'artTag' in opts ? opts.artTag : item.ImageTags?.Primary)
   const img = art
     ? `<img src="${art}" alt="" loading="lazy" onerror="this.style.display='none'">`
     : '🎞'
+  const name = opts.title || item.Name
   // How far in the user got, if anywhere. Same signal the Resume button uses.
   const pos = resumeTicks(item)
   const pct = pos && item.RunTimeTicks ? Math.min(100, (pos / item.RunTimeTicks) * 100) : 0
   const bar = pct ? `<div class="poster-progress"><span style="width:${pct}%"></span></div>` : ''
   return `<div class="poster-card" data-id="${item.Id}">
     <div class="poster-art">${img}${bar}</div>
-    <div class="poster-name" title="${esc(item.Name)}">${esc(item.Name)}</div>
+    <div class="poster-name" title="${esc(name)}">${esc(name)}</div>
     <div class="poster-sub">${esc(sub || '')}</div>
   </div>`
 }
 
+// ── Horizontal shelf: a sideways-scrolling row with edge arrows ──
+//
+// One reusable wrapper for any row that should scroll sideways instead of
+// wrapping - Home's "Continue watching" and a grouped library's poster row
+// both call this. `trackHTML` is the row's own markup (cards already
+// rendered); `trackClass` sets what the scrolling element is, so it can also
+// carry `.poster-grid` and pick up that class's card styling. Call
+// wireHShelf() on the rendered container afterwards to make the arrows work -
+// this only builds the markup.
+const HSHELF_CHEVRON_LEFT  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>'
+const HSHELF_CHEVRON_RIGHT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'
+function hshelfHTML(trackHTML, trackClass = 'poster-grid hshelf-track') {
+  return `<div class="hshelf">
+    <button class="hshelf-arrow hshelf-arrow-left" aria-label="Scroll left" tabindex="-1">${HSHELF_CHEVRON_LEFT}</button>
+    <div class="${trackClass}">${trackHTML}</div>
+    <button class="hshelf-arrow hshelf-arrow-right" aria-label="Scroll right" tabindex="-1">${HSHELF_CHEVRON_RIGHT}</button>
+  </div>`
+}
+
+/** Makes every .hshelf inside `root` scroll by its arrows and keeps them
+ *  showing only on the side with real overflow, hiding once scrolled to that
+ *  edge. The track itself is a plain overflow-x:auto row, so a trackpad's
+ *  native horizontal swipe and the page's vertical scroll are untouched -
+ *  this only adds what a horizontal-wheel-less mouse cannot reach otherwise.
+ *  Stores its update function on the track (`_hshelfUpdate`) so a caller that
+ *  changes the track's size for a reason a ResizeObserver cannot see coming
+ *  (e.g. un-collapsing a library group from display:none) can force a
+ *  recompute immediately instead of waiting on it. */
+function wireHShelf(root) {
+  root.querySelectorAll('.hshelf').forEach(shelf => {
+    const track = shelf.querySelector('.hshelf-track')
+    const left  = shelf.querySelector('.hshelf-arrow-left')
+    const right = shelf.querySelector('.hshelf-arrow-right')
+    if (!track || !left || !right) return
+    const EPS = 2 // absorbs subpixel rounding at the scroll edges
+    const update = () => {
+      const overflowing = track.scrollWidth > track.clientWidth + EPS
+      const showLeft  = overflowing && track.scrollLeft > EPS
+      const showRight = overflowing && track.scrollLeft < track.scrollWidth - track.clientWidth - EPS
+      left.classList.toggle('show', showLeft)
+      left.tabIndex = showLeft ? 0 : -1
+      right.classList.toggle('show', showRight)
+      right.tabIndex = showRight ? 0 : -1
+    }
+    track._hshelfUpdate = update
+    // No explicit behavior here on purpose - 'smooth' would force it even
+    // under prefers-reduced-motion, overriding the track's own CSS
+    // scroll-behavior (smooth normally, auto in the reduced-motion block
+    // above). Omitting it lets that CSS property decide.
+    left.addEventListener('click', () => track.scrollBy({ left: -track.clientWidth * 0.85 }))
+    right.addEventListener('click', () => track.scrollBy({ left: track.clientWidth * 0.85 }))
+    track.addEventListener('scroll', update, { passive: true })
+    // Window resizes, and a library group's track going from display:none (0
+    // width) to visible when expanded - both are a track resize either way.
+    new ResizeObserver(update).observe(track)
+  })
+}
+
 /** Wires poster-card clicks by matching each card's data-id back to `items`,
  *  rather than an index into one flat list - needed once a grid can hold more
- *  than one group of cards, each with its own item list. */
-function wirePosterCards(container, items, onPick) {
+ *  than one group of cards, each with its own item list.
+ *
+ *  `kind` is optional - pass 'video' or 'series' (or a function(item) that
+ *  returns one, for a shelf that mixes movies and episodes) to also wire a
+ *  right-click menu. Its "Go to details" row reuses `onPick` itself, since
+ *  every poster card's click already IS "go to this thing's detail view" -
+ *  there is no second navigation function to write. */
+function wirePosterCards(container, items, onPick, kind) {
   const byId = new Map(items.map(i => [i.Id, i]))
   container.querySelectorAll('.poster-card').forEach(el => {
     const item = byId.get(el.dataset.id)
-    if (item) el.addEventListener('click', () => onPick(item))
+    if (!item) return
+    el.addEventListener('click', () => onPick(item))
+    if (kind) {
+      const k = typeof kind === 'function' ? kind(item) : kind
+      el.addEventListener('contextmenu', e => { e.preventDefault(); showItemCtxMenu(k, item, el, e.clientX, e.clientY, onPick) })
+    }
   })
 }
 
@@ -2382,12 +2653,17 @@ function wirePosterCards(container, items, onPick) {
 function posterGroupHTML(libId, name, items, sub) {
   const collapsed = _collapsedLibs.has(libId)
   const cards = items.map(i => posterCard(i, sub(i))).join('')
+  // A horizontal shelf rather than a wrapping grid: two libraries stacked as
+  // grids used to mean the second one's cards ran off the right edge with no
+  // way for a plain mouse to reach them (reverted in 32db4e3). The row now
+  // scrolls with wireHShelf()'s arrows instead, so overflow is reachable
+  // either way.
   return `<div class="lib-group${collapsed ? ' collapsed' : ''}" data-lib-id="${libId}">
     <div class="sect-header lib-group-header" tabindex="0" role="button" aria-expanded="${!collapsed}">
       <span class="sect-title"><span class="lib-group-chevron">▾</span>${esc(name)}</span>
       <span class="lib-group-count">${items.length}</span>
     </div>
-    <div class="poster-grid">${cards}</div>
+    ${hshelfHTML(cards)}
   </div>`
 }
 
@@ -2404,6 +2680,10 @@ function wireLibGroupHeaders(grid) {
       if (collapsed) _collapsedLibs.add(libId)
       else _collapsedLibs.delete(libId)
       saveCollapsedLibs()
+      // Expanding: the track was display:none a moment ago (0 width), so its
+      // arrows need a forced recompute rather than waiting on the
+      // ResizeObserver's own timing.
+      if (!collapsed) group.querySelector('.hshelf-track')?._hshelfUpdate?.()
     }
     header.addEventListener('click', toggle)
     header.addEventListener('keydown', e => {
@@ -2423,6 +2703,13 @@ function wireLibGroupHeaders(grid) {
 async function loadPosterGrid(gridId, itemType, sub, onPick, getVideo, libs, ids) {
   const grid = document.getElementById(gridId)
   grid.dataset.loaded = '1'
+  // A movie has its own playable media; a series is a container of episodes
+  // and has no direct "Play" - see menuItemsForKind in src/core/context-menu.ts.
+  const kind = itemType === 'Movie' ? 'video' : 'series'
+  // Cleared before the skeleton, not after the fetch: left over from a previous
+  // grouped load it makes the container display:block, and eight poster
+  // skeletons stack into a full-width column instead of a grid.
+  grid.classList.remove('lib-grouped')
   grid.innerHTML = skeletonHTML('poster', 8)
   const path = `/Users/${jf.userId}/Items`
   const params = {
@@ -2438,15 +2725,21 @@ async function loadPosterGrid(gridId, itemType, sub, onPick, getVideo, libs, ids
         grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Nothing here yet</div>`
         return
       }
+      // The container is itself a .poster-grid, so without this its groups
+      // become grid cells rather than stacked sections. See .lib-grouped.
+      grid.classList.add('lib-grouped')
       grid.innerHTML = groups.map(g => {
         const lib = libs.find(l => l.Id === g.libraryId)
         return posterGroupHTML(g.libraryId, lib ? lib.Name : g.libraryId, g.items, sub)
       }).join('')
       grid.querySelectorAll('.lib-group').forEach((section, i) => {
-        wirePosterCards(section, groups[i].items, onPick)
+        wirePosterCards(section, groups[i].items, onPick, kind)
       })
       wireLibGroupHeaders(grid)
+      wireHShelf(grid)
     } else {
+      // Single library: the container goes back to being a real poster grid.
+      grid.classList.remove('lib-grouped')
       const data = await getVideo(path, params)
       const items = data.Items || []
       if (!items.length) {
@@ -2454,7 +2747,7 @@ async function loadPosterGrid(gridId, itemType, sub, onPick, getVideo, libs, ids
         return
       }
       grid.innerHTML = items.map(i => posterCard(i, sub(i))).join('')
-      wirePosterCards(grid, items, onPick)
+      wirePosterCards(grid, items, onPick, kind)
     }
   } catch {
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Could not load this library</div>`
@@ -2471,6 +2764,53 @@ const loadShows = () => loadPosterGrid(
   s => s.ProductionYear || '',
   s => openSeries(s.Id), jfGetShows, _showLibs, jf.showLibraryIds || [])
 
+// ── Continue watching (Home) ──
+//
+// Distinct from Recently watched below it: this is specifically what's
+// partway through (Filters: IsResumable), not play history - a movie or
+// episode watched to the end never appears here even though it does there.
+// Horizontal, matching Jellyfin's own webui, via the shared hshelf component;
+// same hide-when-empty rule as every other video shelf.
+async function loadContinueWatching() {
+  const section = document.getElementById('home-resume-section')
+  const videoLibIds = [...(jf.movieLibraryIds || []), ...(jf.showLibraryIds || [])]
+  if (!videoLibIds.length) { section.style.display = 'none'; return }
+  try {
+    const data = await jfClient.getMerged(`/Users/${jf.userId}/Items`, {
+      SortBy: 'DatePlayed',
+      SortOrder: 'Descending',
+      IncludeItemTypes: 'Movie,Episode',
+      Filters: 'IsResumable',
+      Recursive: true,
+      Fields: 'PrimaryImageAspectRatio,UserData,ProductionYear',
+      Limit: 24
+    }, videoLibIds)
+    // Same reasoning as Recently watched below: getMerged concatenates
+    // per-library results, so the server's DatePlayed order only holds within
+    // one library - re-sort across the merge.
+    const items = (data.Items || [])
+      .sort((a, b) => new Date(b.UserData?.LastPlayedDate || 0) - new Date(a.UserData?.LastPlayedDate || 0))
+    if (!items.length) { section.style.display = 'none'; return }
+    section.style.display = ''
+    const grid = document.getElementById('home-resume-grid')
+    // posterCard's own resumeTicks-driven .poster-progress bar is exactly the
+    // "how far in" signal this shelf is about - nothing extra to build here.
+    grid.innerHTML = hshelfHTML(items.map(item => posterCard(item, recentVideoSub(item))).join(''))
+    wireHShelf(grid)
+    // kind is 'video' either way - a Movie or Episode card here is the real
+    // item (its own UserData/resume position), just like the grids Movies/TV
+    // browsing use. "Go to details" reuses this same onPick, which already
+    // knows to land an episode on its series (there is no per-episode detail
+    // view in this app).
+    wirePosterCards(grid, items, item => {
+      if (item.Type === 'Movie') { showView('movies'); openMovie(item.Id) }
+      else { showView('shows'); openSeries(item.SeriesId) }
+    }, 'video')
+  } catch {
+    section.style.display = 'none'
+  }
+}
+
 // ── Recently watched (Home) ──
 //
 // Movies and episodes played across both video categories, merged and
@@ -2485,7 +2825,14 @@ function recentVideoSub(item) {
   return (item.SeriesName || '') + ep
 }
 
-async function loadContinueWatching() {
+/** Just the "S1E4" part, for a card that already shows the series as its
+ *  title - repeating the series name in the subtitle too would be noise. */
+function episodeCode(item) {
+  const s = item.ParentIndexNumber, e = item.IndexNumber
+  return (s != null && e != null) ? `S${s}E${e}` : (item.Name || '')
+}
+
+async function loadRecentlyWatched() {
   const section = document.getElementById('home-continue-section')
   const videoLibIds = [...(jf.movieLibraryIds || []), ...(jf.showLibraryIds || [])]
   if (!videoLibIds.length) { section.style.display = 'none'; return }
@@ -2496,23 +2843,36 @@ async function loadContinueWatching() {
       IncludeItemTypes: 'Movie,Episode',
       Filters: 'IsPlayed',
       Recursive: true,
-      Fields: 'PrimaryImageAspectRatio,UserData,ProductionYear',
+      Fields: 'PrimaryImageAspectRatio,UserData,ProductionYear,SeriesPrimaryImageTag',
       Limit: 24
     }, videoLibIds)
     // getMerged concatenates per-library results, so the server's DatePlayed
-    // ordering only holds within a library - re-sort across the merge.
-    const items = (data.Items || [])
-      .sort((a, b) => new Date(b.UserData?.LastPlayedDate || 0) - new Date(a.UserData?.LastPlayedDate || 0))
+    // ordering only holds within a library - re-sort across the merge. Fold
+    // binged episodes down to one card per series AFTER that re-sort, so the
+    // kept episode is the actually-most-recent one, not an arbitrary one from
+    // whichever library happened to be fetched first.
+    const items = groupRecentlyWatched(
+      (data.Items || [])
+        .sort((a, b) => new Date(b.UserData?.LastPlayedDate || 0) - new Date(a.UserData?.LastPlayedDate || 0))
+    )
     if (!items.length) { section.style.display = 'none'; return }
     section.style.display = ''
     const grid = document.getElementById('home-continue-grid')
-    grid.innerHTML = items.map(item => posterCard(item, recentVideoSub(item))).join('')
+    grid.innerHTML = items.map(item =>
+      // A grouped episode shows the series' own poster and name, with the
+      // episode itself demoted to the subtitle. An episode with no SeriesId
+      // (never grouped - see groupRecentlyWatched) has no series art to show,
+      // so it keeps the plain episode card it always had.
+      item.Type === 'Episode' && item.SeriesId
+        ? posterCard(item, episodeCode(item), { artId: item.SeriesId, artTag: item.SeriesPrimaryImageTag, title: item.SeriesName || item.Name })
+        : posterCard(item, recentVideoSub(item))
+    ).join('')
     wirePosterCards(grid, items, item => {
       // Same detail views Movies/TV browsing already opens - no separate
       // playback path for a Home entry.
       if (item.Type === 'Movie') { showView('movies'); openMovie(item.Id) }
       else { showView('shows'); openSeries(item.SeriesId) }
-    })
+    }, 'video') // real per-episode item underneath the grouped series card too
   } catch {
     section.style.display = 'none'
   }
@@ -2670,6 +3030,10 @@ function playVideo(items, startIndex, startTicks) {
   }
   // Shuffling a season is never what a click on episode 3 means.
   _unshuffledQueue = []
+  // A fresh Play click is a new session boundary - unlike the queue simply
+  // advancing to the next track, this is where a stale manual audio-track
+  // pick from whatever was playing before should stop applying.
+  _audioStreamIndexIsExplicit = false
   queue = [...items]
   queueIndex = startIndex
   playCurrentTrack({ startTicks: startTicks || 0 })
@@ -2730,6 +3094,11 @@ function applyVideoMode(on) {
   // A film opened on its own is a queue of one, so prev and next have nowhere
   // to go. A season is not - that queue is the whole point of next-episode.
   ov.classList.toggle('single', !!on && queue.length <= 1)
+  // Full mode only ever means anything over a picture - applied here so a
+  // saved preference from the last video takes effect on this one too,
+  // without also being live (and misleading) while music is playing.
+  ov.classList.toggle('full', !!on && videoFullMode)
+  document.getElementById('ov-full-mode')?.classList.toggle('active', !!on && videoFullMode)
   // A movie playing behind the library grid with no picture is confusing, so
   // opening the overlay is part of starting video, not a separate step.
   if (on) openOverlay()
@@ -2833,7 +3202,16 @@ async function playCurrentTrack(opts = {}) {
     // track further down, which direct play would still hand over as-is - see
     // neededAudioStreamIndex()). Then forcing the index is the only way the
     // server transcodes to a track we can actually hear.
-    _audioStreamIndex = video ? neededAudioStreamIndex(item.MediaStreams, DECODABLE_VIDEO_AUDIO_CODECS) : null
+    // Skipped entirely once the user has picked a track by hand - see
+    // _audioStreamIndexIsExplicit above. Without this gate, the next track
+    // (or _handleUndecodableAudio's own re-resolve) silently recomputed and
+    // threw the user's pick away.
+    if (video && !_audioStreamIndexIsExplicit) {
+      _audioStreamIndex = neededAudioStreamIndex(item.MediaStreams, decodableVideoAudioCodecs())
+    } else if (!video) {
+      _audioStreamIndex = null
+      _audioStreamIndexIsExplicit = false
+    }
 
     const resolved = await resolveTrackStream(item.Id, video ? 'Video' : 'Audio',
       { startTicks, audioStreamIndex: _audioStreamIndex })
@@ -3024,6 +3402,25 @@ function updateNowPlaying(item) {
       }
     })
   }
+
+  pushMiniplayerState()
+}
+
+// ── Miniplayer state mirror ───────────────────────────────────────────────────
+// The miniplayer is a remote control view (see CODEMAP.md) - it never touches
+// playback itself, so the only thing that has to cross IPC is this snapshot.
+// Pushed on track change, play/pause and every timeupdate; main.js drops it on
+// the floor when no miniplayer window is open, so there is no need to track
+// that state here too.
+function pushMiniplayerState() {
+  const item = queue[queueIndex]
+  if (!item) { window.cascade.miniPlayer.updateState(null); return }
+  const art = _currentHighResArtUrl || artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
+  const track = { itemId: item.Id, title: item.Name || '', subtitle: secondaryLine(item), artUrl: art }
+  // From the active line onward, so the miniplayer can render top-down with
+  // the current line pinned at the top without any scrolling of its own.
+  const lyricTail = CascadeCore.miniplayerLyricTail(lyricsData, lastLyricsIdx)
+  window.cascade.miniPlayer.updateState(CascadeCore.buildMiniplayerState(track, !audio.paused, mediaPosition(), mediaDuration(), lyricTail))
 }
 
 // Derived from the DOM, never cached: _drawSongRows() replaces rows.innerHTML on every
@@ -3116,6 +3513,14 @@ async function seekTo(sec) {
 /** Which audio track the user picked, as a MediaStreams index. null = server's
  *  choice, which is what everything but an explicit switch uses. */
 let _audioStreamIndex = null
+
+/** True once the user has picked a track by hand via the ov-audio-track
+ *  dropdown. Distinguishes their choice from neededAudioStreamIndex()'s own
+ *  writes to _audioStreamIndex (playCurrentTrack, below) - without this,
+ *  advancing to the next track silently recomputed and overwrote whatever
+ *  the user had picked. Cleared in playVideo(): a fresh "Play" click is a new
+ *  session, but the queue auto-advancing to the next track is not. */
+let _audioStreamIndexIsExplicit = false
 
 /** Guards against an older restart's response overwriting a newer one. */
 let _restartSession = 0
@@ -3308,6 +3713,8 @@ function syncProgressUI() {
   document.getElementById('prog-dur').textContent = fmtTime(dur)
   document.getElementById('prog-fill').style.width = pct
   setBarAriaNow(document.getElementById('prog-bar'), cur, dur, fmtTime(cur))
+
+  pushMiniplayerState()
 
   if (!overlayOpen) return
   document.getElementById('ov-cur').textContent = fmtTime(cur)
@@ -3964,6 +4371,29 @@ document.getElementById('btn-mute').addEventListener('click', () => {
 // Lyrics open button
 document.getElementById('btn-lyrics-open').addEventListener('click', () => showLyrics())
 
+// Miniplayer open button - main.js minimizes this window and creates (or
+// focuses) the small always-on-top remote control window.
+// Dev builds only for now. The miniplayer is half-built (no volume, no shuffle
+// or repeat, no queue pane) and its window chrome only really works on macOS,
+// so a packaged build says "coming soon" rather than handing people a window
+// they cannot do much with. Same shape as the toast gating above: keyed on
+// isPackaged, not on a setting anyone can flip by accident.
+let _miniplayerEnabled = true
+window.cascade?.isPackaged?.().then(packaged => {
+  _miniplayerEnabled = !packaged
+  const btn = document.getElementById('btn-miniplayer-open')
+  if (!btn || _miniplayerEnabled) return
+  btn.classList.add('needs-admin')            // the existing dimmed-but-visible treatment
+  btn.setAttribute('data-tip', 'Miniplayer - coming soon')
+  btn.title = 'Miniplayer - coming soon'
+})
+
+document.getElementById('btn-miniplayer-open').addEventListener('click', () => {
+  if (!_miniplayerEnabled) { showToast('Miniplayer is coming soon'); return }
+  pushMiniplayerState()
+  window.cascade.miniPlayer.open()
+})
+
 // Like / favourite
 const likeBtn = document.getElementById('btn-like')
 
@@ -4044,11 +4474,21 @@ onDeck('play',  () => {
   if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
   window.cascade.touchbarUpdate({ playing: true })
   window.cascade.nowPlayingUpdate({ isPlaying: true })
+  pushMiniplayerState()
 })
 onDeck('pause', () => {
   if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
   window.cascade.touchbarUpdate({ playing: false })
   window.cascade.nowPlayingUpdate({ isPlaying: false })
+  pushMiniplayerState()
+})
+
+// Miniplayer control -> the exact same buttons onMediaKey above already
+// drives, not a second playback path.
+window.cascade.miniPlayer.onControl((action) => {
+  if (action === 'playpause') document.getElementById('btn-play').click()
+  else if (action === 'next')  document.getElementById('btn-next').click()
+  else if (action === 'prev')  document.getElementById('btn-prev').click()
 })
 
 // ── Settings ──────────────────────────────────────────────────────────────────
@@ -4219,13 +4659,7 @@ async function loadSettingsFields() {
     await _saveEqProfile()
   }
 
-  document.querySelectorAll('.eq-band-slider').forEach((el, i) => {
-    el.oninput = async () => {
-      _eqEditProfile().bands[i] = parseFloat(el.value)
-      _refreshEqUI()
-      await _saveEqProfile()
-    }
-  })
+  _buildEqGraphPoints()
 
   document.getElementById('eq-preamp-auto').onchange = async () => {
     const profile = _eqEditProfile()
@@ -4303,7 +4737,8 @@ document.getElementById('btn-logout').addEventListener('click', async () => {
                        // and the current encoding, clears Discord presence
   invalidateLibraryViews()
   invalidateVideoViews()
-  jf.isAdmin = false  // a stale admin flag must not survive into the next account
+  jf.isAdmin = false     // a stale admin flag must not survive into the next account
+  jf.canDelete = false   // same for the deletion right - it is per-account, not per-session
   _applyAdminGating()
   showView('home')
 
@@ -4545,6 +4980,8 @@ async function init() {
   eqMusicProfile = await _loadEqProfile('eqMusic')
   eqVideoProfile = await _loadEqProfile('eqVideo')
 
+  videoFullMode = (await window.cascade.store.get('videoFullMode')) === true
+
   // Restore saved volume
   const savedVol = await window.cascade.store.get('volume')
   if (savedVol !== undefined && savedVol !== null) setVolumeRatio(parseFloat(savedVol))
@@ -4595,6 +5032,9 @@ async function init() {
 const npOverlay = document.getElementById('np-overlay')
 let overlayOpen = false
 let overlayLyricsOpen = false
+// Persisted, video only - see applyVideoMode() for where it gets applied and
+// the .np-overlay.video.full CSS for what it actually changes.
+let videoFullMode = false
 
 // ── Beat-reactive background ───────────────────────────────────────────────
 let _currentBgArtUrl = null  // current track's art URL for overlay background
@@ -4675,6 +5115,13 @@ const EQ_SILENCE_MS = 5000       // how long a never-yet-heard graph gets before
 const EQ_FILTER_Q = 1.0          // ~1.4 octave wide peaks - narrow enough that 5 bands spanning
                                   // 60Hz-12kHz do not smear into one big tilt
 const EQ_RAMP_SEC = 0.015        // setTargetAtTime time constant - fast but click-free
+
+// Response-graph pixel size - must match the SVG's viewBox in index.html.
+// The graph's markup and CSS size it 1:1 with this viewBox on purpose (no
+// scaling), so a pointer's clientY can be turned into a dB straight off
+// getBoundingClientRect() without a transform to invert.
+const EQ_GRAPH_W = 260
+const EQ_GRAPH_H = 140
 
 // createMediaElementSource() may only be called once per element, ever - so
 // each deck's source node is built on first request and cached forever.
@@ -4807,14 +5254,107 @@ async function _saveEqProfile() {
   if (_eqEditTarget === eqActiveMode) _applyEqToGraph()
 }
 
+// Builds the graph's five draggable points and their frequency labels from
+// CascadeCore.EQ_BANDS, once per settings-view load (loadSettingsFields()
+// re-runs every time the view is shown, so this rebuilds from scratch each
+// time rather than trying to detect "already built" - five small elements is
+// nothing to redo, and it sidesteps ever going stale).
+function _buildEqGraphPoints() {
+  const SVG_NS = 'http://www.w3.org/2000/svg'
+  const pointsG = document.getElementById('eq-graph-points')
+  const labelsWrap = document.getElementById('eq-graph-labels')
+  pointsG.innerHTML = ''
+  labelsWrap.innerHTML = ''
+
+  CascadeCore.EQ_BANDS.forEach((hz, i) => {
+    const label = CascadeCore.formatEqBandLabel(hz)
+
+    const circle = document.createElementNS(SVG_NS, 'circle')
+    circle.setAttribute('class', 'eq-graph-point')
+    circle.setAttribute('r', '6')
+    circle.setAttribute('cx', String(CascadeCore.eqBandX(i, CascadeCore.EQ_BANDS.length, EQ_GRAPH_W)))
+    circle.setAttribute('tabindex', '0')
+    circle.setAttribute('role', 'slider')
+    circle.setAttribute('aria-label', `${label} gain`)
+    circle.setAttribute('aria-valuemin', String(-CascadeCore.EQ_GAIN_LIMIT))
+    circle.setAttribute('aria-valuemax', String(CascadeCore.EQ_GAIN_LIMIT))
+    _wireEqPoint(circle, i)
+    pointsG.appendChild(circle)
+
+    const labelEl = document.createElement('div')
+    labelEl.className = 'eq-graph-label'
+    labelEl.innerHTML = `<span>${esc(label)}</span><span class="eq-band-value"></span>`
+    labelsWrap.appendChild(labelEl)
+  })
+}
+
+// Drag and keyboard for one graph point, mirroring wireBar()'s idiom (mouse
+// drag via document-level move/up, arrow keys as a real role="slider") but
+// vertical and in dB rather than horizontal and in a 0..1 ratio - the two
+// don't share enough shape to reuse the same function.
+function _wireEqPoint(circle, i) {
+  const apply = async (db) => {
+    _eqEditProfile().bands[i] = db
+    _refreshEqUI()
+    await _saveEqProfile()
+  }
+  const dbAt = (e) => {
+    const rect = document.getElementById('eq-graph').getBoundingClientRect()
+    return CascadeCore.eqYToDb(e.clientY - rect.top, rect.height)
+  }
+
+  let dragging = false
+  function onMove(e) { if (dragging) apply(dbAt(e)) }
+  function onUp() {
+    if (!dragging) return
+    dragging = false
+    circle.classList.remove('dragging')
+    document.removeEventListener('mousemove', onMove)
+    document.removeEventListener('mouseup', onUp)
+  }
+  circle.addEventListener('mousedown', (e) => {
+    dragging = true
+    circle.classList.add('dragging')
+    circle.focus()
+    apply(dbAt(e))
+    e.preventDefault()
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  })
+
+  circle.addEventListener('keydown', (e) => {
+    const cur = _eqEditProfile().bands[i]
+    let next
+    if (e.key === 'ArrowUp' || e.key === 'ArrowRight') next = cur + 0.5
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') next = cur - 0.5
+    else if (e.key === 'PageUp') next = cur + 3
+    else if (e.key === 'PageDown') next = cur - 3
+    else if (e.key === 'Home') next = -CascadeCore.EQ_GAIN_LIMIT
+    else if (e.key === 'End') next = CascadeCore.EQ_GAIN_LIMIT
+    else return
+    e.preventDefault()
+    e.stopPropagation()
+    // A key step never goes through eqYToDb (there is no pointer position to
+    // read), so it has to clamp itself - this is the same trust boundary
+    // eqYToDb enforces for a drag, just reached a different way.
+    apply(CascadeCore.clampGain(next))
+  })
+}
+
 // Syncs the settings-panel EQ controls to _eqEditProfile(). Called after
-// every edit so the preset dropdown, the preamp's auto value, and the band
-// labels never drift from the numbers actually in play.
+// every edit so the preset dropdown, the preamp's auto value, the curve and
+// the band labels never drift from the numbers actually in play.
 function _refreshEqUI() {
   const profile = _eqEditProfile()
-  document.querySelectorAll('.eq-band-slider').forEach((el, i) => {
-    el.value = String(profile.bands[i])
-    document.getElementById(`eq-band-value-${i}`).textContent = `${profile.bands[i].toFixed(1)} dB`
+  document.getElementById('eq-graph-curve').setAttribute('d', CascadeCore.eqCurvePath(profile.bands, EQ_GRAPH_W, EQ_GRAPH_H))
+  document.querySelectorAll('#eq-graph-points .eq-graph-point').forEach((circle, i) => {
+    const db = profile.bands[i]
+    circle.setAttribute('cy', String(CascadeCore.eqDbToY(db, EQ_GRAPH_H)))
+    circle.setAttribute('aria-valuenow', db.toFixed(1))
+    circle.setAttribute('aria-valuetext', `${db.toFixed(1)} dB`)
+  })
+  document.querySelectorAll('#eq-graph-labels .eq-band-value').forEach((el, i) => {
+    el.textContent = `${profile.bands[i].toFixed(1)} dB`
   })
   const auto = profile.preamp === null
   const preampAuto = document.getElementById('eq-preamp-auto')
@@ -4969,6 +5509,10 @@ document.querySelector('.statusbar').addEventListener('click', (e) => {
 })
 
 document.getElementById('np-overlay-close').addEventListener('click', closeOverlay)
+// The chevron on the left of the header closes it too. Two targets rather than
+// one small x in the corner, which on Windows and Linux sat under the OS
+// caption buttons and could not be clicked at all.
+document.getElementById('np-overlay-collapse').addEventListener('click', closeOverlay)
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && overlayOpen) closeOverlay() })
 
 // Lyrics toggle - queue slides left out, lyrics slides right in (and vice versa)
@@ -5217,6 +5761,37 @@ document.getElementById('ov-fullscreen').addEventListener('click', toggleVideoFu
 document.getElementById('ov-mute').addEventListener('click', () => document.getElementById('btn-mute').click())
 onDeck('dblclick', () => { if (playingVideo()) toggleVideoFullscreen() })
 
+// ── Full mode ──
+// Independent of real OS fullscreen above - full mode is about the overlay's
+// own chrome (header, docked vs floating controls), fullscreen is about
+// whether the OS gives the window the whole screen. Either can be on without
+// the other, same as VLC lets you keep on-screen controls in fullscreen.
+async function setVideoFullMode(on) {
+  videoFullMode = on
+  npOverlay.classList.toggle('full', on && playingVideo())
+  const btn = document.getElementById('ov-full-mode')
+  btn.classList.toggle('active', on)
+  btn.setAttribute('aria-pressed', String(!!on))
+  await window.cascade.store.set('videoFullMode', on)
+}
+
+document.getElementById('ov-full-mode').addEventListener('click', () => setVideoFullMode(!videoFullMode))
+
+// Shift+F, deliberately next to F for real fullscreen: the two are related and
+// easy to confuse, so their shortcuts should look related too. Plain F is the
+// OS giving the window the screen; Shift+F is Cascade hiding its own chrome.
+// Guarded against firing while typing, same as every other single-key shortcut
+// in this file.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'F' || !e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable) return
+  if (!overlayOpen || !playingVideo()) return
+  e.preventDefault()
+  setVideoFullMode(!videoFullMode)
+})
+// Restores the exit the hidden header would otherwise have provided.
+document.getElementById('ov-full-exit').addEventListener('click', closeOverlay)
+
 // Escape is handled by the browser, which exits fullscreen without telling the
 // overlay - so closing on Escape has to wait until it is no longer fullscreen,
 // otherwise one press would both exit fullscreen and close the overlay.
@@ -5294,6 +5869,7 @@ document.getElementById('ov-audio-track').addEventListener('click', (e) => {
       audioTrackDropdown.classList.remove('open')
       if (idx === _audioStreamIndex) return
       _audioStreamIndex = idx
+      _audioStreamIndexIsExplicit = true
       // Switching track means a different file from the server, so playback
       // restarts where it was rather than from the top. This is the one case
       // the cached URL cannot serve - the server has to pick the stream again.
@@ -5831,8 +6407,9 @@ function showCtxMenu(x, y) {
   ctxMenu.style.top = `${y}px`
   ctxMenu.classList.add('open')
   const rect = ctxMenu.getBoundingClientRect()
-  if (rect.right > window.innerWidth) ctxMenu.style.left = `${x - rect.width}px`
-  if (rect.bottom > window.innerHeight) ctxMenu.style.top = `${y - rect.height}px`
+  const { left, top } = CascadeCore.clampMenuPosition(x, y, rect.width, rect.height, window.innerWidth, window.innerHeight)
+  ctxMenu.style.left = `${left}px`
+  ctxMenu.style.top = `${top}px`
 }
 function hideCtxMenu() {
   ctxMenu.classList.remove('open')
@@ -5878,7 +6455,11 @@ document.getElementById('ctx-instant-mix').addEventListener('click', async () =>
 })
 
 // Add to playlist
-let _atpTargetItem = null  // set by context menu; falls back to now-playing
+// Set by a context menu before opening the modal; falls back to now-playing.
+// A single item or an array (the album menu's "Add all to playlist" adds a
+// whole album's tracks in one POST - Jellyfin's Ids param takes a comma-
+// separated list, so this was never a second endpoint, just more ids).
+let _atpTargetItem = null
 
 function openAtpModal() {
   const modal = document.getElementById('atp-modal')
@@ -5901,11 +6482,13 @@ async function atpLoadPlaylists() {
     ).join('') || '<div style="font-size:12px;color:var(--text3);text-align:center;padding:20px 0">No playlists</div>'
     list.querySelectorAll('.modal-pl-item').forEach(el => {
       el.addEventListener('click', async () => {
-        const item = _atpTargetItem || queue[queueIndex]
+        const raw = _atpTargetItem || queue[queueIndex]
         _atpTargetItem = null
-        if (!item) return
+        const items = Array.isArray(raw) ? raw : (raw ? [raw] : [])
+        if (!items.length) return
         try {
-          const res = await fetch(`${jf.url}/Playlists/${el.dataset.id}/Items?Ids=${encodeURIComponent(item.Id)}&UserId=${encodeURIComponent(jf.userId)}`, {
+          const ids = items.map(i => encodeURIComponent(i.Id)).join(',')
+          const res = await fetch(`${jf.url}/Playlists/${el.dataset.id}/Items?Ids=${ids}&UserId=${encodeURIComponent(jf.userId)}`, {
             method: 'POST',
             headers: { 'X-Emby-Token': jf.token }
           })
@@ -5913,7 +6496,7 @@ async function atpLoadPlaylists() {
             const errMsg = await CascadeCore.readErrorMessage(res)
             showNotice(`Could not add to that playlist.\n\n${errMsg}`, 'Playlist')
           } else {
-            showToast(`Added to "${el.textContent}"`)
+            showToast(items.length > 1 ? `Added ${items.length} tracks to "${el.textContent}"` : `Added to "${el.textContent}"`)
             playlistMutated(el.dataset.id)
           }
         } catch (e) {
@@ -6019,32 +6602,30 @@ document.getElementById('ctx-media-info').addEventListener('click', async () => 
 })
 document.getElementById('mi-close').addEventListener('click', () => document.getElementById('mi-modal').classList.add('hidden'))
 
-// Refresh metadata
-document.getElementById('ctx-refresh-meta').addEventListener('click', async () => {
-  const item = queue[queueIndex]
-  if (!item || !jf.isAdmin) return
-  try {
-    const res = await fetch(`${jf.url}/Items/${item.Id}/Refresh?MetadataRefreshMode=FullRefresh&ImageRefreshMode=FullRefresh&ReplaceAllMetadata=false`, {
-      method: 'POST', headers: { 'X-Emby-Token': jf.token }
-    })
-    if (!res.ok) throw new Error(String(res.status))
-    showToast('Metadata refresh queued')
-  } catch { showNotice('Could not queue a metadata refresh on the server.', 'Refresh failed') }
-})
+// Refresh metadata - refreshItemMetadata() defined with the track context
+// menu above, shared by both.
+document.getElementById('ctx-refresh-meta').addEventListener('click', () => refreshItemMetadata(queue[queueIndex]))
 
-// Edit metadata / images - open the item in the Jellyfin web UI. (Lyrics have their
-// own in-app editor, wired below.)
+// Edit images - open the item in the Jellyfin web UI. There is no in-app image
+// uploader here, unlike metadata and lyrics, which both have their own editor
+// (wired below and above respectively).
 // Jellyfin's metadata manager (#/libraries/metadata) is a standalone tree browser with
 // no id parameter, so an item can't be deep-linked to it. #/details is the only
 // item-scoped route left, and its page carries the edit actions - so both land there.
 // Note the scheme is #/ ; the old #!/ prefix and the edititem* routes are long gone.
 function openInJellyfinWeb(item) {
   if (!item) return
+  // The context items are greyed for a non-admin, but a disabled-looking div
+  // can still be clicked programmatically - and the destination page would
+  // just refuse the edit anyway, so there is no reason to open it.
+  if (!jf.isAdmin) return
   window.cascade.shell.openExternal(`${jf.url}/web/index.html#/details?id=${item.Id}`)
 }
-;['ctx-edit-meta', 'ctx-edit-images'].forEach(id => {
-  document.getElementById(id).addEventListener('click', () => openInJellyfinWeb(queue[queueIndex]))
-})
+document.getElementById('ctx-edit-images').addEventListener('click', () => openInJellyfinWeb(queue[queueIndex]))
+
+// Metadata has its own in-app editor, same reasoning as lyrics below - no
+// reason to bounce to a browser for it either.
+document.getElementById('ctx-edit-meta').addEventListener('click', () => openMetadataEditorFor(queue[queueIndex]))
 
 // Lyrics are the one thing we can edit in-app - no reason to bounce to a browser
 document.getElementById('ctx-edit-lyrics').addEventListener('click', () => {
@@ -6060,23 +6641,289 @@ document.getElementById('ctx-view-artist').addEventListener('click', () => openA
 // View lyrics
 document.getElementById('ctx-view-lyrics').addEventListener('click', () => showLyrics())
 
-// Delete media
-document.getElementById('ctx-delete').addEventListener('click', async () => {
-  const item = queue[queueIndex]
+// DELETE /Items/{id} - works on any item type (a track, a whole playlist).
+// Shared by "Delete media" (now-playing) and the playlist card menu's
+// "Delete playlist" so there is one delete call, not one per menu.
+async function deleteItemFromServer(item, { confirmMsg, onDeleted }) {
   if (!item) return
-  if (!confirm(`Delete "${item.Name}" from your server? This cannot be undone.`)) return
+  // The entry is greyed for an account without the deletion right, but a
+  // disabled-looking div can still be clicked programmatically - don't trust
+  // the DOM state alone against a server call that would just 403 anyway.
+  if (!jf.canDelete) return
+  if (!confirm(confirmMsg)) return
   try {
-    await fetch(`${jf.url}/Items/${item.Id}`, {
+    const res = await fetch(`${jf.url}/Items/${item.Id}`, {
       method: 'DELETE', headers: { 'X-Emby-Token': jf.token }
     })
-    audio.pause(); _detachDeck(audio)
-    queue.splice(queueIndex, 1)
-    queueIndex = Math.min(queueIndex, queue.length - 1)
-    // playCurrentTrack() below re-checks the prefetch for the new current
-    // item; an empty queue has nothing left to play it into.
-    if (queue.length) playCurrentTrack()
-    else _clearStreamPrefetch()
-  } catch (e) { console.error('Delete failed', e) }
+    // The response was never read, so a 403 (e.g. a library outside this
+    // account's granted folders) reported success for a delete the server
+    // had refused outright.
+    if (!res.ok) throw new Error(String(res.status))
+    onDeleted()
+  } catch (e) {
+    console.error('Delete failed', e)
+    showNotice('Could not delete this item from the server.', 'Delete failed')
+  }
+}
+
+// Delete media
+document.getElementById('ctx-delete').addEventListener('click', () => {
+  const item = queue[queueIndex]
+  if (!item) return
+  deleteItemFromServer(item, {
+    confirmMsg: `Delete "${item.Name}" from your server? This cannot be undone.`,
+    onDeleted: () => {
+      audio.pause(); _detachDeck(audio)
+      queue.splice(queueIndex, 1)
+      queueIndex = Math.min(queueIndex, queue.length - 1)
+      // playCurrentTrack() below re-checks the prefetch for the new current
+      // item; an empty queue has nothing left to play it into.
+      if (queue.length) playCurrentTrack()
+      else _clearStreamPrefetch()
+    }
+  })
+})
+
+// ── Universal item context menu ─────────────────────────────────────────────
+//
+// Right-click for album/artist/movie/series/playlist cards - previously only
+// track rows and the now-playing art had a menu at all. One more menu
+// element, not one per kind: rows are shown/hidden per kind the same way
+// #track-ctx-menu already does for its playlist-only rows (.tctx-pl-only
+// above), driven by CascadeCore.menuItemsForKind() (src/core/context-menu.ts).
+//
+// Every action below calls a function that already exists for the equivalent
+// click/button elsewhere (playItems, shuffleAndPlay, enqueueTracks, the
+// rename modal, deleteItemFromServer, ...) - this file only adds the fetch
+// helpers (fetchAlbumTracks/fetchArtistSongs/fetchPlaylistTracks, defined
+// with their detail views above) needed to hand those functions a track list
+// from a card that has no tracks loaded yet.
+
+const itemCtxMenu = document.getElementById('item-ctx-menu')
+let _ictxKind     = null   // MenuItemKind
+let _ictxItem     = null   // the Jellyfin item (or a {smartKind,Name} stand-in)
+let _ictxEl       = null   // the right-clicked card
+let _ictxOnDetail = null   // "View detail"/"Go to artist page" handler - the
+                            // same onPick already passed to wire*Cards, since
+                            // every card's click already IS its own detail nav
+
+const ICTX_FLAG_IDS = {
+  play: 'ictx-play', playNext: 'ictx-play-next', playLast: 'ictx-play-last',
+  shuffle: 'ictx-shuffle', instantMix: 'ictx-instant-mix', addPlaylist: 'ictx-add-playlist',
+  markPlayed: 'ictx-mark-played', markUnplayed: 'ictx-mark-unplayed',
+  goArtist: 'ictx-go-artist', viewDetail: 'ictx-view-detail',
+  rename: 'ictx-rename', deleteItem: 'ictx-delete',
+  refreshMeta: 'ictx-refresh-meta', editMeta: 'ictx-edit-meta',
+}
+
+// Hides a .ctx-sep that has no visible item before it (leading, or right
+// after another sep) or none after it (trailing) - needed because which rows
+// are visible changes by kind, and a menu with two blank separators stacked
+// looks broken. Generic over itemCtxMenu's own children; not worth pushing to
+// core, this is DOM layout bookkeeping, not "which items apply to a kind".
+function _reflowItemCtxSeparators() {
+  let sawItem = false
+  let pendingSep = null
+  for (const n of itemCtxMenu.children) {
+    if (n.classList.contains('ctx-sep')) {
+      n.classList.toggle('hidden', !sawItem)
+      pendingSep = n
+      sawItem = false
+    } else if (!n.classList.contains('hidden')) {
+      sawItem = true
+    }
+  }
+  if (pendingSep && !sawItem) pendingSep.classList.add('hidden')
+}
+
+function showItemCtxMenu(kind, item, el, x, y, onDetail) {
+  _ictxKind = kind; _ictxItem = item; _ictxEl = el; _ictxOnDetail = onDetail || null
+
+  // 'video'/'series' UserData carries the real played state already loaded on
+  // the grid DTO; anything else has no such concept, so mark-played/unplayed
+  // stay hidden rather than guessing (see menuItemsForKind's isPlayed handling).
+  const isPlayed = (kind === 'video' || kind === 'series') ? !!item?.UserData?.Played : undefined
+  const vis = CascadeCore.menuItemsForKind(kind, { isPlayed })
+  // An album with no AlbumArtist has nowhere for "Go to artist" to go.
+  if (kind === 'album' && !item?.AlbumArtist) vis.goArtist = false
+
+  for (const [flag, id] of Object.entries(ICTX_FLAG_IDS)) {
+    const node = document.getElementById(id)
+    if (node) node.classList.toggle('hidden', !vis[flag])
+  }
+
+  const playLabel = document.getElementById('ictx-play-label')
+  if (playLabel) playLabel.textContent = kind === 'artist' ? 'Play all' : (kind === 'video' && resumeTicks(item)) ? 'Resume' : 'Play'
+  const shuffleLabel = document.getElementById('ictx-shuffle-label')
+  if (shuffleLabel) shuffleLabel.textContent = kind === 'artist' ? 'Shuffle all' : 'Shuffle'
+  const detailLabel = document.getElementById('ictx-view-detail-label')
+  if (detailLabel) detailLabel.textContent = kind === 'artist' ? 'Go to artist page' : 'Go to details'
+
+  _reflowItemCtxSeparators()
+
+  itemCtxMenu.style.left = `${x}px`
+  itemCtxMenu.style.top  = `${y}px`
+  itemCtxMenu.classList.add('open')
+  const r = itemCtxMenu.getBoundingClientRect()
+  const { left, top } = CascadeCore.clampMenuPosition(x, y, r.width, r.height, window.innerWidth, window.innerHeight)
+  itemCtxMenu.style.left = `${left}px`
+  itemCtxMenu.style.top  = `${top}px`
+}
+
+function hideItemCtxMenu() { itemCtxMenu.classList.remove('open') }
+
+document.addEventListener('mousedown', e => { if (!itemCtxMenu.contains(e.target)) hideItemCtxMenu() })
+document.addEventListener('keydown', e => { if (e.key === 'Escape') hideItemCtxMenu() })
+
+/** Track list for whatever's under the item menu right now - the one thing
+ *  every kind's Play/Shuffle/Play next/Play last/Add-to-playlist action needs
+ *  before it can call the same functions the rest of the app already uses. */
+async function _ictxTracks() {
+  if (!_ictxItem) return []
+  if (_ictxKind === 'album') return fetchAlbumTracks(_ictxItem.Id)
+  if (_ictxKind === 'artist') return fetchArtistSongs(_ictxItem.Id)
+  if (_ictxKind === 'playlist') return fetchPlaylistTracks(_ictxItem.Id)
+  if (_ictxKind === 'smart-playlist') return SMART_PLAYLISTS[_ictxItem.smartKind].fetch()
+  return []
+}
+
+document.getElementById('ictx-play').addEventListener('click', async () => {
+  hideItemCtxMenu()
+  if (!_ictxItem) return
+  if (_ictxKind === 'video') { playVideo([_ictxItem], 0, resumeTicks(_ictxItem) || 0); return }
+  const tracks = await _ictxTracks()
+  if (tracks.length) playItems(tracks, 0)
+})
+
+document.getElementById('ictx-shuffle').addEventListener('click', async () => {
+  hideItemCtxMenu()
+  const tracks = await _ictxTracks()
+  if (tracks.length) shuffleAndPlay(tracks)
+})
+
+// Play next/last are album-only (see menuItemsForKind) - same ownership guard
+// as the track menu's tctx-play-next/tctx-add-queue, not a relaxed copy of it.
+document.getElementById('ictx-play-next').addEventListener('click', async () => {
+  hideItemCtxMenu()
+  if (_ictxKind !== 'album' || !_ictxItem) return
+  if (isWaterfallFollower()) { showToast('Only the host can choose what plays next'); return }
+  const tracks = await fetchAlbumTracks(_ictxItem.Id)
+  if (!tracks.length) return
+  queue = CascadeCore.insertAfterCurrent(queue, queueIndex, tracks)
+  showToast(`"${_ictxItem.Name}" plays next`)
+})
+
+document.getElementById('ictx-play-last').addEventListener('click', async () => {
+  hideItemCtxMenu()
+  if (_ictxKind !== 'album' || !_ictxItem) return
+  const tracks = await fetchAlbumTracks(_ictxItem.Id)
+  if (tracks.length) enqueueTracks(tracks, `"${_ictxItem.Name}"`)
+})
+
+document.getElementById('ictx-instant-mix').addEventListener('click', () => {
+  hideItemCtxMenu()
+  if (_ictxKind !== 'artist' || !_ictxItem) return
+  instantMixAndPlay(_ictxItem.Id, _ictxItem.Name)
+})
+
+document.getElementById('ictx-add-playlist').addEventListener('click', async () => {
+  hideItemCtxMenu()
+  if (_ictxKind !== 'album' || !_ictxItem) return
+  const tracks = await fetchAlbumTracks(_ictxItem.Id)
+  if (!tracks.length) return
+  _atpTargetItem = tracks   // array - atpLoadPlaylists() POSTs every id at once
+  openAtpModal()
+})
+
+document.getElementById('ictx-go-artist').addEventListener('click', () => {
+  hideItemCtxMenu()
+  if (_ictxKind !== 'album' || !_ictxItem?.AlbumArtist) return
+  openArtistFromTrack({ AlbumArtist: _ictxItem.AlbumArtist })
+})
+
+document.getElementById('ictx-view-detail').addEventListener('click', () => {
+  hideItemCtxMenu()
+  if (_ictxItem && _ictxOnDetail) _ictxOnDetail(_ictxItem)
+})
+
+/** POST/DELETE /UserPlayedItems/{id} - the one Jellyfin played-state endpoint,
+ *  used identically for a movie, an episode, or a whole series.
+ *
+ *  NOT /Users/{userId}/PlayedItems/{id}. That older route is gone in 10.11:
+ *  checked against this server's own OpenAPI spec, where /UserPlayedItems is
+ *  the only played-state path that exists. The old one would have 404'd, and
+ *  since the handler reads res.ok it would at least have said so rather than
+ *  silently doing nothing. */
+async function setItemPlayed(item, played) {
+  try {
+    const res = await fetch(`${jf.url}/UserPlayedItems/${item.Id}?userId=${encodeURIComponent(jf.userId)}`, {
+      method: played ? 'POST' : 'DELETE', headers: { 'X-Emby-Token': jf.token }
+    })
+    if (!res.ok) throw new Error(String(res.status))
+    // Keeps a re-opened menu on the same card showing the right toggle for the
+    // rest of this session, without a round trip back to the grid's own fetch.
+    if (item.UserData) item.UserData.Played = played
+    showToast(played ? 'Marked as played' : 'Marked as unplayed')
+  } catch (e) { showNotice('Could not update played status on the server.', 'Mark played') }
+}
+
+document.getElementById('ictx-mark-played').addEventListener('click', () => {
+  hideItemCtxMenu()
+  if (_ictxItem) setItemPlayed(_ictxItem, true)
+})
+document.getElementById('ictx-mark-unplayed').addEventListener('click', () => {
+  hideItemCtxMenu()
+  if (_ictxItem) setItemPlayed(_ictxItem, false)
+})
+
+// Rename reuses the exact same modal/save-handler as the playlist detail
+// view's "Rename / Public…" (pl-edit-props / pl-edit-save below) - it just has
+// to seed currentPlaylistId/plCurrentIsPublic itself first, the same way
+// btn-edit-playlist's handler does, since this card was never opened.
+document.getElementById('ictx-rename').addEventListener('click', async () => {
+  hideItemCtxMenu()
+  if (_ictxKind !== 'playlist' || !_ictxItem) return
+  currentPlaylistId = _ictxItem.Id
+  currentSmartKind = null
+  try {
+    const it = await jfGet(`/Users/${jf.userId}/Items/${_ictxItem.Id}`)
+    plCurrentIsPublic = !!it.IsPublic
+  } catch { plCurrentIsPublic = false }
+  document.getElementById('pl-edit-name').value = _ictxItem.Name
+  document.getElementById('pl-edit-public').checked = plCurrentIsPublic
+  document.getElementById('pl-edit-modal').classList.remove('hidden')
+})
+
+// Delete reuses deleteItemFromServer (defined with "Delete media" above) - a
+// Jellyfin playlist is an Item like any other, so the same DELETE applies.
+document.getElementById('ictx-delete').addEventListener('click', () => {
+  hideItemCtxMenu()
+  if (_ictxKind !== 'playlist' || !_ictxItem) return
+  deleteItemFromServer(_ictxItem, {
+    confirmMsg: `Delete the playlist "${_ictxItem.Name}"? This cannot be undone.`,
+    onDeleted: () => {
+      _ictxEl?.remove()
+      delete document.getElementById('playlists-grid').dataset.loaded
+      if (currentPlaylistId === _ictxItem.Id) {
+        document.getElementById('playlist-detail').classList.remove('active')
+        document.getElementById('playlist-index').style.display = ''
+        currentPlaylistId = null
+      }
+      showToast('Playlist deleted')
+    }
+  })
+})
+
+// Refresh/edit metadata are album-only (see menuItemsForKind) and reuse the
+// exact same functions as the track/now-playing menus - refreshItemMetadata
+// above, openMetadataEditorFor with the metadata editor window.
+document.getElementById('ictx-refresh-meta').addEventListener('click', () => {
+  hideItemCtxMenu()
+  if (_ictxKind === 'album') refreshItemMetadata(_ictxItem)
+})
+document.getElementById('ictx-edit-meta').addEventListener('click', () => {
+  hideItemCtxMenu()
+  if (_ictxKind === 'album') openMetadataEditorFor(_ictxItem)
 })
 
 // ── Lyrics panel ──────────────────────────────────────────────────────────────
@@ -6325,6 +7172,48 @@ async function openLyricsEditorFor(item) {
     e.stopPropagation()
     openLyricsEditorFor(queue[queueIndex])
   })
+})
+
+// ── Metadata editor ───────────────────────────────────────────────────────────
+// POST /Items/{id} is RequiresElevation - admin only, verified against the
+// live server (see CODEMAP). The ctx-edit-meta / tctx-edit-meta entries that
+// call this are already greyed with .needs-admin for a non-admin (same
+// treatment as Refresh metadata), so this check is the second gate: a
+// disabled-looking menu item can still be clicked programmatically, and the
+// window itself checks jf.isAdmin again before its save button does anything.
+function openMetadataEditorFor(item) {
+  if (!item || !jf.isAdmin) return
+  window.cascade.metadataEditor.open({ item, jf })
+}
+
+// Refresh whatever already-loaded views hold the edited item. Same local
+// refresh path as the "Refresh from server" settings button - invalidate the
+// lazy grid caches and reload whatever is on screen and Home - plus a direct
+// patch for the currently playing track, since its title/artist in the status
+// bar and now-playing overlay come from the in-memory queue, not from either
+// of those caches.
+window.cascade.metadataEditor.onSaved(async (itemId) => {
+  invalidateLibraryViews()
+  invalidateVideoViews()
+  showView(_currentView)
+  await loadHome()
+
+  if (queue[queueIndex]?.Id !== itemId) return
+  try {
+    const res = await jfGet(`/Users/${jf.userId}/Items`, {
+      Ids: itemId,
+      Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,UserData',
+    })
+    const fresh = res?.Items?.[0]
+    // The track playing may have moved on while this was in flight.
+    if (!fresh || queue[queueIndex]?.Id !== itemId) return
+    queue[queueIndex] = fresh
+    updateNowPlaying(fresh)
+    if (overlayOpen) syncOverlayState()
+  } catch {
+    // Best-effort - the grid/Home reload above already has the fresh copy for
+    // next time this item is opened from there.
+  }
 })
 
 ;['sidebar-source-pill', 'ov-source-pill'].forEach(id => {
@@ -7042,24 +7931,16 @@ async function runSearch(query) {
       })
     }
 
-    // Wire up album cards
-    results.querySelectorAll('[data-search-album]').forEach(el => {
-      el.addEventListener('click', () => { showView('albums'); openAlbum(el.dataset.searchAlbum) })
-    })
-
-    // Wire up artist cards - open artist detail view
-    results.querySelectorAll('[data-search-artist]').forEach(el => {
-      el.addEventListener('click', () => {
-        showView('artists')
-        openArtist(el.dataset.searchArtist, el.querySelector('.artist-name')?.textContent || '')
-      })
-    })
+    // Wire up album/artist cards - same helpers the Albums/Artists grids use,
+    // so search results get the same right-click menu for free.
+    if (hasAlbums) wireAlbumCards(results, albums.Items, item => { showView('albums'); openAlbum(item.Id) })
+    if (hasArtists) wireArtistCards(results, artists.Items, item => { showView('artists'); openArtist(item.Id, item.Name) })
 
     // Wire up movie/show cards - same detail views Movies/TV browsing opens
     if (hasMovies) wirePosterCards(document.getElementById('search-movie-grid'), movies.Items,
-      item => { showView('movies'); openMovie(item.Id) })
+      item => { showView('movies'); openMovie(item.Id) }, 'video')
     if (hasShows) wirePosterCards(document.getElementById('search-show-grid'), shows.Items,
-      item => { showView('shows'); openSeries(item.Id) })
+      item => { showView('shows'); openSeries(item.Id) }, 'series')
   } catch (e) {
     results.innerHTML = `<div class="search-no-results">Search failed: ${esc(e.message)}</div>`
   }
@@ -7371,6 +8252,64 @@ document.getElementById('toggle-album-art').addEventListener('change', (e) => {
   setAlbumArtAccent(e.target.checked)
 })
 
+// ── Tooltips ─────────────────────────────────────────────────────────────────
+//
+// One element on <body>, moved to whichever [data-tip] is hovered, rather than
+// a ::after on each host. A pseudo-element cannot escape its host's clipping or
+// its stacking context, which is why these kept disappearing behind the player
+// bar and inside Settings - no z-index can lift a child out of a stacking
+// context its ancestor created.
+//
+// Delegated, so anything given a data-tip later (the plugin gating, the admin
+// gating, the theme swatches, the miniplayer button) is covered with no
+// registration step.
+
+const TOOLTIP_GAP = 6
+
+function _positionTooltip(host) {
+  const tip = document.getElementById('tooltip')
+  const text = host.getAttribute('data-tip')
+  if (!tip || !text) return
+  tip.textContent = text
+  tip.classList.add('show')
+  tip.setAttribute('aria-hidden', 'false')
+
+  const h = host.getBoundingClientRect()
+  const t = tip.getBoundingClientRect()
+  // Below by default, matching what these used to do: the lyrics panel's
+  // buttons sit at the top of it and a tip above them would land off-panel.
+  let top = h.bottom + TOOLTIP_GAP
+  if (top + t.height > window.innerHeight - 4) top = h.top - t.height - TOOLTIP_GAP
+  // Clamped so a tip on a control near either edge stays fully on screen
+  // instead of being cut off, which the centred pseudo-element also did.
+  const left = Math.max(4, Math.min(window.innerWidth - t.width - 4, h.left + h.width / 2 - t.width / 2))
+  tip.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`
+}
+
+function _hideTooltip() {
+  const tip = document.getElementById('tooltip')
+  if (!tip) return
+  tip.classList.remove('show')
+  tip.setAttribute('aria-hidden', 'true')
+}
+
+document.addEventListener('mouseover', (e) => {
+  const host = e.target.closest?.('[data-tip]')
+  if (host) _positionTooltip(host)
+})
+document.addEventListener('mouseout', (e) => {
+  if (e.target.closest?.('[data-tip]')) _hideTooltip()
+})
+// Keyboard parity with the old :focus-visible rule.
+document.addEventListener('focusin', (e) => {
+  const host = e.target.closest?.('[data-tip]')
+  if (host && host.matches(':focus-visible')) _positionTooltip(host)
+})
+document.addEventListener('focusout', _hideTooltip)
+// A tip pinned to a rect that has moved is worse than no tip.
+window.addEventListener('scroll', _hideTooltip, true)
+window.addEventListener('resize', _hideTooltip)
+
 // ── Utility ───────────────────────────────────────────────────────────────────
 
 function esc(str) {
@@ -7384,6 +8323,126 @@ function esc(str) {
 // there is no settings toggle for this and no keyboard shortcut, on purpose.
 // Plain monospace text over any real styling: this is a diagnostic, not a
 // feature, and the less of it there is to maintain the better.
+// ── Undecodable audio codec detection ────────────────────────────────────────
+//
+// Answers "the movie plays but has no sound" without guessing. canPlayType is
+// a claim from a codec registry, not from a decoder that has run, and when it
+// is wrong the failure is completely silent: the container demuxes, the
+// picture plays, and the audio decoder produces nothing.
+//
+// webkitAudioDecodedByteCount is the measurement, NOT the analyser's level. A
+// quiet scene, a silent studio logo and a broken decoder all read as zero
+// level, but only a broken decoder has decoded zero BYTES while the clock ran.
+// That distinction is the whole reason this can act automatically instead of
+// asking. Where the property is missing the check simply does not run, because
+// a false positive here would transcode files that were playing perfectly.
+
+const AUDIO_DECODE_GRACE_MS = 6000
+
+let _audioDecodeTimer = null
+
+function _cancelAudioDecodeCheck() {
+  if (_audioDecodeTimer) { clearTimeout(_audioDecodeTimer); _audioDecodeTimer = null }
+}
+
+/** Arm the check for a video that is direct playing. Music is untouched: it is
+ *  single stream and the server picked its codec against this same list. */
+function _armAudioDecodeCheck(item) {
+  _cancelAudioDecodeCheck()
+  if (!item || !isVideoItem(item)) return
+  if (_playMethod && String(_playMethod).toLowerCase().includes('transcode')) return
+  if (audio.webkitAudioDecodedByteCount === undefined) return
+
+  const deck = audio
+  const startedAt = deck.currentTime
+  const itemId = item.Id
+  _audioDecodeTimer = setTimeout(() => {
+    _audioDecodeTimer = null
+    if (deck !== audio || queue[queueIndex]?.Id !== itemId) return
+    if (deck.paused || deck.seeking) return
+    // The clock has to have actually run, or this is a stall rather than a
+    // decode failure - the exact confusion that once latched the visualiser off
+    // for a whole session.
+    if (deck.currentTime - startedAt < 2) return
+    if ((deck.webkitAudioDecodedByteCount || 0) > 0) return
+    _handleUndecodableAudio(item)
+  }, AUDIO_DECODE_GRACE_MS)
+}
+
+async function _handleUndecodableAudio(item) {
+  const track = _audioStreamIndex != null
+    ? item.MediaStreams?.find(s => s.Index === _audioStreamIndex)
+    : item.MediaStreams?.find(s => s.Type === 'Audio')
+  const codec = (track?.Codec || '').toLowerCase()
+  if (!codec || _undecodableAudioCodecs.has(codec)) return
+
+  _undecodableAudioCodecs.add(codec)
+  try {
+    await window.cascade.store.set('undecodableAudioCodecs', JSON.stringify([..._undecodableAudioCodecs]))
+  } catch {}
+  console.warn(`[cascade] ${codec} was claimed decodable but produced no audio - withdrawing the claim and asking the server to transcode it`)
+  showToast(`No audio from ${codec.toUpperCase()} on this machine - switching to a transcode`)
+
+  // Re-negotiate from where they are, not from the top.
+  const at = mediaPosition()
+  playCurrentTrack({ startTicks: Math.round(at * 10_000_000) })
+}
+
+/** Restored at startup so the second launch does not have to rediscover it. */
+async function _loadUndecodableAudioCodecs() {
+  try {
+    const raw = await window.cascade.store.get('undecodableAudioCodecs')
+    const list = raw ? JSON.parse(raw) : []
+    if (Array.isArray(list)) _undecodableAudioCodecs = new Set(list.filter(c => typeof c === 'string'))
+  } catch {}
+}
+_loadUndecodableAudioCodecs()
+
+onDeck('playing', () => _armAudioDecodeCheck(queue[queueIndex]))
+onDeck('pause', _cancelAudioDecodeCheck)
+onDeck('emptied', _cancelAudioDecodeCheck)
+
+/**
+ * Peak level the analyser is seeing RIGHT NOW, 0-255, or null if there is no
+ * graph to read.
+ *
+ * The decisive measurement for "this file plays but I hear nothing". The tap
+ * sits after the decoder, so a non-zero peak proves the decoder produced
+ * samples and the problem is downstream (routing, gain, the OS). A flat zero
+ * while the clock is advancing proves the opposite: the container demuxed, the
+ * video plays, and the audio decoder handed over nothing at all, which is what
+ * an undecodable codec looks like from here.
+ *
+ * _eqEverHadSignal cannot answer this. It is sticky and session-wide, so a
+ * music track played earlier leaves it true for the rest of the session, silent
+ * movie included.
+ */
+function debugLivePeak() {
+  if (!_eqAnalyser || !_eqFreqData) return null
+  _eqAnalyser.getByteFrequencyData(_eqFreqData)
+  let peak = 0
+  for (let i = 0; i < _eqFreqData.length; i++) if (_eqFreqData[i] > peak) peak = _eqFreqData[i]
+  return peak
+}
+
+/** Every audio track on the item, with whether this build claims to decode it.
+ *  Silence with several tracks listed is a different bug from silence with one
+ *  undecodable track, and the two are indistinguishable without the list. */
+function debugAudioTracks(item) {
+  const tracks = (item?.MediaStreams || []).filter(s => s.Type === 'Audio')
+  if (!tracks.length) return ['  (none listed - MediaStreams was not fetched for this item)']
+  const decodable = new Set(decodableVideoAudioCodecs().map(c => c.toLowerCase()))
+  return tracks.map(t => {
+    const claimed = decodable.has((t.Codec || '').toLowerCase())
+    const marks = [
+      t.IsDefault ? 'default' : null,
+      t.Index === _audioStreamIndex ? 'SELECTED' : null,
+      claimed ? 'we claim decodable' : 'WE CANNOT DECODE',
+    ].filter(Boolean)
+    return `  [${t.Index}] ${t.Codec || '?'} ${t.Channels || '?'}ch ${t.Language || ''} - ${marks.join(', ')}`
+  })
+}
+
 function debugPanelText() {
   const item = queue[queueIndex] || null
   const src = item?.MediaSources?.[0] || null
@@ -7417,6 +8476,15 @@ function debugPanelText() {
     `prefetched next: ${_streamPrefetch ? _streamPrefetch.itemId : 'none'}`,
     `last prefetch: ${prefetchLine}`,
     '',
+    '── audio diagnosis ──',
+    `live peak: ${(() => { const pk = debugLivePeak(); return pk === null ? 'no graph' : `${pk}${pk === 0 && !audio.paused ? '  <- DECODER PRODUCED NOTHING' : ''}` })()}`,
+    `element volume: ${audio.volume.toFixed(2)}   muted: ${audio.muted}`,
+    `profile claims decodable: ${decodableVideoAudioCodecs().join(',')}`,
+    `withdrawn at runtime: ${[..._undecodableAudioCodecs].join(',') || 'none'}`,
+    `decoded audio bytes: ${audio.webkitAudioDecodedByteCount ?? 'n/a'}`,
+    'audio tracks on this item:',
+    ...debugAudioTracks(item),
+    '',
     '── web audio / eq ──',
     `graph failed: ${_eqGraphFailed}   no signal: ${_eqNoSignal}   ever had signal: ${_eqEverHadSignal}`,
     '',
@@ -7432,7 +8500,7 @@ function initDebugPanel() {
     + 'border-radius:6px;background:rgba(0,0,0,0.82);color:#7CFC7C;'
     + 'font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;'
     + 'word-break:break-all;user-select:text;cursor:pointer;'
-  el.title = 'Cascade debug panel - click to collapse. Force CascadeSLRC absent: Alt-click.'
+  el.title = 'Cascade debug panel - click to collapse, Shift-click to copy. Force CascadeSLRC absent: Alt-click.'
 
   let collapsed = false
   function render() {
@@ -7441,6 +8509,13 @@ function initDebugPanel() {
   }
   el.addEventListener('click', (e) => {
     if (window.getSelection()?.toString()) return   // selecting text to copy, not toggling
+    if (e.shiftKey) {
+      // Selecting eleven lines of wrapped monospace by hand to report a bug is
+      // miserable, and this text exists to be pasted somewhere.
+      window.cascade.clipboard.write(debugPanelText())
+      showToast('Debug info copied')
+      return
+    }
     if (e.altKey) {
       // The one internal flag worth flipping by hand that has no real Settings
       // UI of its own - lets a working plugin's greyed-out state be previewed
@@ -7460,6 +8535,108 @@ function initDebugPanel() {
   setInterval(render, 1000)
 }
 
-window.cascade.isDebugMode().then(on => { if (on) initDebugPanel() })
+// ── Light-mode blob tuning (debug only) ─────────────────────────────────────
+// Live knobs for the now-playing overlay's light-theme blobs and scrims, so
+// tuning "washed out" is a slider drag instead of a rebuild-and-squint loop.
+// Two different plumbing paths, both live with no rebuild:
+//   - blob alpha/lightness: CascadeCore.lightTuning, a mutable runtime copy of
+//     album-colors.ts's LIGHT_ALPHA_SCALE/MIN_L_LIGHT/MAX_L_LIGHT constants.
+//     The alpha scale is read every drift frame, so it updates within a beat.
+//     Lightness only applies at extraction, so its slider forces a reapply.
+//   - scrims and blend mode: CSS custom properties (--np-blend, --np-scrim-*)
+//     that index.html's light-theme rules already read with a fallback equal
+//     to the shipped value - setting them here overrides nothing when this
+//     panel does not exist.
+function _debugReapplyBlobs() {
+  if (!themeAlbumArt) return
+  const img = document.querySelector('#ov-art img') || document.querySelector('#np-art img')
+  if (img?.complete) applyAlbumArtTheme(img)
+}
+
+function initLightTuningPanel() {
+  const root = document.documentElement
+  const cssVar = (name, fallback) =>
+    parseFloat(getComputedStyle(root).getPropertyValue(name)) || fallback
+
+  const defs = [
+    { key: 'alphaScale', label: 'Blob alpha scale', min: 0, max: 1, step: 0.01,
+      get: () => CascadeCore.lightTuning.alphaScale,
+      set: v => { CascadeCore.lightTuning.alphaScale = v } },
+    { key: 'minL', label: 'Blob min lightness', min: 0, max: 1, step: 0.01,
+      get: () => CascadeCore.lightTuning.minL,
+      set: v => { CascadeCore.lightTuning.minL = v; _debugReapplyBlobs() } },
+    { key: 'maxL', label: 'Blob max lightness', min: 0, max: 1, step: 0.01,
+      get: () => CascadeCore.lightTuning.maxL,
+      set: v => { CascadeCore.lightTuning.maxL = v; _debugReapplyBlobs() } },
+    { key: 'scrimLeft', label: 'Left scrim opacity', min: 0, max: 1, step: 0.01,
+      get: () => cssVar('--np-scrim-left', 0.35),
+      set: v => root.style.setProperty('--np-scrim-left', v) },
+    { key: 'scrimRight', label: 'Right scrim opacity', min: 0, max: 1, step: 0.01,
+      get: () => cssVar('--np-scrim-right', 0.16),
+      set: v => root.style.setProperty('--np-scrim-right', v) },
+    { key: 'scrimHeader', label: 'Header scrim opacity', min: 0, max: 1, step: 0.01,
+      get: () => cssVar('--np-scrim-header', 0.4),
+      set: v => root.style.setProperty('--np-scrim-header', v) },
+  ]
+
+  const panel = document.createElement('div')
+  panel.id = 'cascade-debug-light-tuning'
+  panel.style.cssText = 'position:fixed;right:8px;bottom:8px;z-index:9999;'
+    + 'width:270px;padding:8px 10px;border-radius:6px;background:rgba(0,0,0,0.82);'
+    + 'color:#7CFC7C;font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;user-select:text;'
+  panel.innerHTML = '<div style="margin-bottom:6px;opacity:0.7">Light-mode blob tuning (debug)</div>'
+
+  const rows = {}
+  for (const d of defs) {
+    const row = document.createElement('div')
+    row.style.cssText = 'display:flex;align-items:center;gap:6px;margin:4px 0;'
+    const label = document.createElement('span')
+    label.style.cssText = 'flex:1 1 auto;'
+    label.textContent = d.label
+    const input = document.createElement('input')
+    input.type = 'range'
+    input.min = String(d.min); input.max = String(d.max); input.step = String(d.step)
+    input.value = String(d.get())
+    input.style.cssText = 'flex:1 1 auto;width:90px;'
+    const val = document.createElement('span')
+    val.style.cssText = 'width:38px;text-align:right;'
+    val.textContent = Number(input.value).toFixed(2)
+    input.addEventListener('input', () => {
+      const v = parseFloat(input.value)
+      d.set(v)
+      val.textContent = v.toFixed(2)
+    })
+    row.append(label, input, val)
+    panel.appendChild(row)
+    rows[d.key] = input
+  }
+
+  const blendRow = document.createElement('label')
+  blendRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin:6px 0;cursor:pointer;'
+  const blendCheck = document.createElement('input')
+  blendCheck.type = 'checkbox'
+  blendCheck.checked = (getComputedStyle(root).getPropertyValue('--np-blend').trim() || 'multiply') !== 'normal'
+  blendCheck.addEventListener('change', () => {
+    root.style.setProperty('--np-blend', blendCheck.checked ? 'multiply' : 'normal')
+  })
+  blendRow.append(blendCheck, document.createTextNode('multiply blend mode'))
+  panel.appendChild(blendRow)
+
+  const copyBtn = document.createElement('button')
+  copyBtn.textContent = 'Copy current values'
+  copyBtn.style.cssText = 'margin-top:4px;width:100%;padding:4px;border-radius:4px;'
+    + 'border:1px solid #7CFC7C;background:transparent;color:#7CFC7C;cursor:pointer;font:inherit;'
+  copyBtn.addEventListener('click', () => {
+    const lines = defs.map(d => `${d.label} = ${parseFloat(rows[d.key].value).toFixed(2)}`)
+    lines.push(`multiply blend mode = ${blendCheck.checked}`)
+    window.cascade.clipboard.write(lines.join('\n'))
+    showToast('Tuning values copied')
+  })
+  panel.appendChild(copyBtn)
+
+  document.body.appendChild(panel)
+}
+
+window.cascade.isDebugMode().then(on => { if (on) { initDebugPanel(); initLightTuningPanel() } })
 
 init()

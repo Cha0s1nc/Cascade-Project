@@ -27,10 +27,16 @@
        from the viewport gives the overlay's own width - falls back to a fixed
        138px guess (three ~46px Windows caption buttons) where the env var
        is not supported. */
-    html[data-platform="win32"] .titlebar,
-    html[data-platform="linux"] .titlebar {
-      padding-right: calc(100vw - env(titlebar-area-width, calc(100vw - 138px)));
+    /* Plus 14px: reserving exactly the overlay's width leaves the last control
+       touching the minimise button, which reads as a mistake even though
+       nothing overlaps. Defined once because more than one bar sits under those
+       buttons - see .np-overlay-header, whose close button was rendered
+       underneath them and could not be clicked at all. */
+    html[data-platform="win32"], html[data-platform="linux"] {
+      --caption-reserve: calc(100vw - env(titlebar-area-width, calc(100vw - 138px)) + 14px);
     }
+    html[data-platform="win32"] .titlebar,
+    html[data-platform="linux"] .titlebar { padding-right: var(--caption-reserve); }
     .tb-right { display: flex; align-items: center; gap: 8px; -webkit-app-region: no-drag; }
     .tb-title { font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
     .ws-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--red); transition: background 0.3s, box-shadow 0.3s; }
@@ -108,6 +114,23 @@
        because there's only one), which sets .has-movies / .has-shows on <body>. */
     body:not(.has-movies) .nav-movies { display: none; }
     body:not(.has-shows) .nav-shows { display: none; }
+    /* Music / Video mode: on top of the has-movies/has-shows gating above, not
+       instead of it. Either rule alone can hide a nav row; nothing here ever
+       needs to un-hide one. */
+    .mode-toggle.hidden { display: none; }
+    /* .seg-btn is sized for the full-width Dark/Light row in Settings: flex: 1
+       and no horizontal padding, which in a shrink-to-fit titlebar control puts
+       the content flush against the edges. */
+    .mode-toggle .seg-btn { flex: 0 0 auto; padding: 3px 10px; display: flex; align-items: center; justify-content: center; }
+    .mode-toggle .seg-btn svg { width: 15px; height: 15px; display: block; }
+    body.mode-video .nav-music { display: none; }
+    body.mode-music .nav-movies, body.mode-music .nav-shows { display: none; }
+    /* Home shelves: the music pair (#home-music-shelves) hides outright in
+       Video mode. The video pair already hides itself via inline style when
+       empty (loadContinueWatching/loadRecentlyWatched) - !important is what
+       lets Music mode override that inline style too. */
+    body.mode-video #home-music-shelves { display: none; }
+    body.mode-music #home-resume-section, body.mode-music #home-continue-section { display: none !important; }
     .poster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; margin-bottom: 8px; }
     /* Same single-row clipping trick as #home-recent-albums, for the Home
        "Recently watched" shelf. */
@@ -123,14 +146,54 @@
     .poster-progress > span { display: block; height: 100%; background: var(--accent); }
 
     /* Poster grid split into one section per library, when a category has more
-       than one - collapsible so a big library doesn't force endless scrolling. */
+       than one - collapsible so a big library doesn't force endless scrolling.
+
+       .lib-grouped is what stops the container laying its groups out as grid
+       cells. #movies-grid and #shows-grid carry .poster-grid, which is a
+       150px-column grid, so a .lib-group child became ONE 150px cell: two
+       libraries rendered as two narrow columns side by side, each showing a
+       single clipped poster. The groups stack; only the cards inside them are
+       ever a grid or a shelf. */
+    .poster-grid.lib-grouped { display: block; }
     .lib-group + .lib-group { margin-top: 20px; }
     .lib-group-header { cursor: pointer; user-select: none; }
     .lib-group-header:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); border-radius: 6px; }
     .lib-group-chevron { display: inline-block; margin-right: 6px; transition: transform 0.12s; }
     .lib-group.collapsed .lib-group-chevron { transform: rotate(-90deg); }
-    .lib-group.collapsed .poster-grid { display: none; }
+    .lib-group.collapsed .hshelf { display: none; }
     .lib-group-count { font-size: 11px; color: var(--text3); }
+
+    /* ── Horizontal shelf: a sideways-scrolling row with edge arrows ──
+       One component, reused for Home's "Continue watching" and for a grouped
+       library's poster row (.lib-group .poster-grid, below). The track itself
+       is a plain overflow-x:auto flex row, so a trackpad's native horizontal
+       swipe and the page's own vertical scroll both keep working untouched -
+       the arrows only exist for a plain vertical-only mouse wheel, which
+       cannot reach that scroll at all otherwise. wireHShelf() (renderer.js)
+       shows/hides each arrow based on real overflow and current scroll
+       position, so a row that already fits never shows a dead arrow. */
+    .hshelf { position: relative; }
+    .hshelf-track {
+      display: flex; gap: 14px; overflow-x: auto; overflow-y: hidden;
+      scroll-behavior: smooth; scrollbar-width: none; -ms-overflow-style: none;
+      padding-bottom: 2px;
+    }
+    .hshelf-track::-webkit-scrollbar { display: none; }
+    .poster-grid.hshelf-track { display: flex; }
+    .poster-grid.hshelf-track .poster-card { flex: 0 0 150px; }
+    .hshelf-arrow {
+      position: absolute; top: 0; bottom: 6px; width: 42px; z-index: 5;
+      display: flex; align-items: center; justify-content: center;
+      border: none; cursor: pointer; color: var(--text); padding: 0;
+      opacity: 0; visibility: hidden; pointer-events: none;
+      transition: opacity 0.15s;
+    }
+    .hshelf-arrow.show { opacity: 1; visibility: visible; pointer-events: auto; }
+    .hshelf-arrow-left { left: 0; background: linear-gradient(to right, var(--bg) 40%, transparent); justify-content: flex-start; }
+    .hshelf-arrow-right { right: 0; background: linear-gradient(to left, var(--bg) 40%, transparent); justify-content: flex-end; }
+    .hshelf-arrow svg { width: 20px; height: 20px; filter: drop-shadow(0 1px 3px rgba(0,0,0,0.35)); transition: transform 0.12s; }
+    .hshelf-arrow:hover svg { transform: scale(1.2); }
+    .hshelf-arrow:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); border-radius: 6px; }
 
     .vd-header { display: flex; gap: 22px; margin-bottom: 22px; align-items: flex-start; }
     .vd-poster { width: 190px; flex-shrink: 0; aspect-ratio: 2/3; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 40px; color: var(--text3); }
@@ -244,8 +307,8 @@
        #playlist-detail so the Songs/Album/Artist track lists sharing
        .tl-head/.track-row are untouched. */
     #playlist-detail .tl-head, #playlist-detail .track-row { grid-template-columns: 28px 32px 1fr 160px 52px; }
-    #playlist-detail.has-extra-col .tl-head, #playlist-detail.has-extra-col .track-row { grid-template-columns: 28px 32px 1fr 160px 90px 52px; }
-    #playlist-detail.edit-mode.has-extra-col .tl-head, #playlist-detail.edit-mode.has-extra-col .track-row { grid-template-columns: 24px 28px 32px 1fr 160px 90px 52px; }
+    #playlist-detail.has-extra-col .tl-head, #playlist-detail.has-extra-col .track-row { grid-template-columns: 28px 32px 1fr 160px 112px 52px; }
+    #playlist-detail.edit-mode.has-extra-col .tl-head, #playlist-detail.edit-mode.has-extra-col .track-row { grid-template-columns: 24px 28px 32px 1fr 160px 112px 52px; }
     .tl-check { display: none; align-items: center; justify-content: center; }
     #playlist-detail.edit-mode .tl-check { display: flex; }
     .tl-extra { display: none; font-size: 12px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -422,16 +485,24 @@
     /* A control that is off needs to say why, and the disabled state alone does
        not. Tips sit below their host on purpose: the lyrics panel clips its own
        overflow, and the buttons that need one are at the top of it. */
-    [data-tip] { position: relative; }
-    [data-tip]::after {
-      content: attr(data-tip);
-      position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+    /* One shared element on <body>, positioned by JS (see wireTooltips in
+       renderer.js), NOT a ::after on the host.
+       A pseudo-element cannot escape its host: it is clipped by any ancestor
+       with overflow hidden, and trapped inside any ancestor that creates a
+       stacking context (a transform, an opacity, a filter), where no z-index
+       can lift it out. That is why tips vanished behind the player bar and
+       inside Settings. Living on <body> it has no ancestor to be trapped by,
+       so one z-index above everything is enough. */
+    #tooltip {
+      position: fixed; z-index: 10000; pointer-events: none;
       background: var(--surface2); color: var(--text); border: 1px solid var(--border);
       border-radius: 6px; padding: 4px 8px; font-size: 11px; font-weight: 500;
-      white-space: nowrap; opacity: 0; pointer-events: none;
-      transition: opacity 0.12s; z-index: 500;
+      white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+      opacity: 0; transition: opacity 0.12s;
+      left: 0; top: 0;
     }
-    [data-tip]:hover::after, [data-tip]:focus-visible::after { opacity: 1; }
+    #tooltip.show { opacity: 1; }
+    @media (prefers-reduced-motion: reduce) { #tooltip { transition: none; } }
     /* Both hosts kill pointer events while disabled, which also kills hover, so
        the tip would never show. Handing them back is safe: the toggle's input
        is disabled (a label does nothing for a disabled control) and the button
@@ -447,13 +518,40 @@
     /* ── Full-screen now-playing overlay ── */
     .np-overlay { position: fixed; inset: 0; background: var(--bg); z-index: 300; display: flex; flex-direction: column; transform: translateY(100%); transition: transform 0.38s cubic-bezier(0.4,0,0.2,1); pointer-events: none; overflow: hidden; }
     .np-overlay.open { transform: translateY(0); pointer-events: all; }
-    .np-overlay-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px 12px 80px; border-bottom: 1px solid var(--border); flex-shrink: 0; -webkit-app-region: drag; }
-    .np-overlay-title { font-size: 12px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.07em; }
+    .np-overlay-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; flex-shrink: 0; -webkit-app-region: drag; }
+    /* 80px is the macOS traffic lights, which used to be padded for on every
+       platform. */
+    html[data-platform="darwin"] .np-overlay-header { padding-left: 80px; }
+    html[data-platform="win32"] .np-overlay-header,
+    html[data-platform="linux"] .np-overlay-header { padding-right: var(--caption-reserve); }
+    /* A real button, not a label: the whole header cannot be the close target
+       because it is also the window's only drag handle while the overlay is up
+       (the overlay covers the titlebar), and -webkit-app-region: drag swallows
+       clicks anyway. This gives a big obvious target on the left - where Spotify
+       and Apple Music put the same control - while the rest of the bar stays
+       draggable. */
+    .np-overlay-title {
+      -webkit-app-region: no-drag; display: flex; align-items: center; gap: 7px;
+      font-family: var(--font); font-size: 12px; font-weight: 600; color: var(--text3);
+      text-transform: uppercase; letter-spacing: 0.07em;
+      background: none; border: none; cursor: pointer; padding: 6px 10px;
+      margin: -6px -10px; border-radius: 7px; transition: background 0.12s, color 0.12s;
+    }
+    .np-overlay-title:hover { background: var(--surface2); color: var(--text); }
+    .np-overlay-title:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); }
+    .np-overlay-title svg { width: 15px; height: 15px; transition: transform 0.12s; }
+    .np-overlay-title:hover svg { transform: translateY(2px); }
+    @media (prefers-reduced-motion: reduce) { .np-overlay-title:hover svg { transform: none; } }
     .np-overlay-close { -webkit-app-region: no-drag; background: none; border: none; color: var(--text3); cursor: pointer; font-size: 20px; line-height: 1; padding: 0 4px; transition: color 0.12s; }
     .np-overlay-close:hover { color: var(--text); }
     .np-overlay-body { flex: 1; display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; }
     /* Left: big art + info + controls */
-    .np-overlay-left { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: clamp(20px, 3.5vh, 48px) clamp(20px, 4vw, 56px); gap: clamp(14px, 2.5vh, 28px); border-right: 1px solid var(--border); }
+    /* No divider between this column and the queue/lyrics panel. A hard 1px
+       line was doing nothing the whitespace and the panel's own background did
+       not already do, and it fought the album-art background, which bleeds
+       across both halves. Video mode had already dropped it for the same
+       reason. */
+    .np-overlay-left { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: clamp(20px, 3.5vh, 48px) clamp(20px, 4vw, 56px); gap: clamp(14px, 2.5vh, 28px); }
     .np-overlay-art { width: min(clamp(240px, 52vh, 520px), calc(100% - 32px)); aspect-ratio: 1; border-radius: 12px; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 72px; flex-shrink: 0; transition: width 0.4s ease; }
     .np-overlay-art img { width: 100%; height: 100%; object-fit: cover; }
     .np-overlay-info { text-align: center; width: 100%; }
@@ -525,6 +623,7 @@
     @media (prefers-reduced-motion: reduce) {
       .np-overlay.video.ambient .np-ambient { transition: none; }
       .np-overlay-btns, .np-overlay-vol, .np-overlay-art { transition: none; }
+      .np-overlay.video .np-overlay-left, .np-overlay.video .np-overlay-info { transition: none; }
       .np-overlay-prog-fill::after { transition: none; }
     }
     /* A short window is the case that broke: at 500px tall the controls wanted
@@ -540,7 +639,7 @@
     .np-overlay.video #ov-vol-bar { width: 180px; }
     .np-overlay.video .np-overlay-body { grid-template-columns: 1fr; }
     .np-overlay.video .np-overlay-right { display: none; }
-    .np-overlay.video .np-overlay-left { border-right: none; justify-content: stretch; padding: clamp(12px, 2vh, 24px) clamp(12px, 2vw, 32px); }
+    .np-overlay.video .np-overlay-left { justify-content: stretch; padding: clamp(12px, 2vh, 24px) clamp(12px, 2vw, 32px); }
     .np-overlay.video .np-overlay-art { display: none; }
     /* Lyrics, shuffle and repeat are meaningless for a movie. Hiding rather
        than removing keeps one set of transport controls for both modes. */
@@ -594,6 +693,91 @@
     .np-overlay.idle:not(:focus-within) .np-overlay-vol { opacity: 0; max-height: 0; pointer-events: none; }
     /* Same idle gate, grown into the space the rows above just gave up. */
     .np-overlay.idle:not(:focus-within) .np-overlay-art { width: min(clamp(240px, 58vh, 540px), calc(100% - 32px)); }
+
+    /* Video, idle: the picture takes the frame.
+       Music grows its cover into the space the collapsed rows leave, but video
+       has more to give back. The padding around the picture exists to keep an
+       album cover off the edges, a film does not want it, and the title and
+       artist over a film are chrome rather than information - they are already
+       in the file you chose to play. The progress bar stays, exactly as it does
+       in music mode, because it is the one thing worth glancing at without
+       moving the mouse.
+       Collapsed with max-height rather than display:none so it animates, and
+       so the row keeps its place in the grid instead of the picture jumping. */
+    .np-overlay.video .np-overlay-left,
+    .np-overlay.video .np-overlay-info { transition: padding 0.4s ease, gap 0.4s ease, opacity 0.4s ease, max-height 0.4s ease; }
+    .np-overlay.video .np-overlay-info { max-height: 120px; overflow: hidden; }
+    .np-overlay.video.idle:not(:focus-within) .np-overlay-info { opacity: 0; max-height: 0; pointer-events: none; }
+    .np-overlay.video.idle:not(:focus-within) .np-overlay-left { padding: 0; gap: 0; }
+    .np-overlay.video.idle:not(:focus-within) .np-overlay-video { border-radius: 0; }
+    /* The controls row keeps its own inset once the container's padding is
+       gone, or the scrubber ends up flush against the window edge. */
+    .np-overlay.video.idle:not(:focus-within) .np-overlay-controls { padding: 0 clamp(12px, 2vw, 32px) 10px; }
+
+    /* ── Full mode ──
+       Opt-in (ov-full-mode, persisted), video only. Where the idle rules above
+       fade the chrome down after a still moment, full mode removes it outright
+       and floats what is left - title, transport, scrubber - over the picture
+       the way VLC, YouTube and Netflix do, with a scrim behind them so they
+       stay readable over a bright frame. It reuses the exact same .idle class
+       and pokeOverlayControls() timer as the rest of this section for the
+       reveal-on-mouse-move behaviour - see renderer.js - rather than a second
+       timer, so "paused is never idle" and every other rule already decided
+       there applies here too with no extra code. */
+    .np-overlay.video.full .np-overlay-header { display: none; }
+    .np-overlay.video.full .np-overlay-left { padding: 0; gap: 0; }
+    .np-overlay.video.full .np-overlay-video { border-radius: 0; }
+    .np-overlay.video.full .np-overlay-info,
+    .np-overlay.video.full .np-overlay-controls {
+      position: absolute; left: 0; right: 0; z-index: 2;
+      transition: opacity 0.3s ease;
+    }
+    .np-overlay.video.full .np-overlay-info {
+      bottom: 104px; max-height: none; text-align: left;
+      padding: 0 clamp(20px, 3vw, 48px);
+    }
+    .np-overlay.video.full .np-overlay-track,
+    .np-overlay.video.full .np-overlay-artist { white-space: normal; }
+    .np-overlay.video.full .np-overlay-controls {
+      bottom: 0; padding: 40px clamp(20px, 3vw, 48px) 20px;
+      background: linear-gradient(to top, rgba(0,0,0,0.82), rgba(0,0,0,0.35) 60%, rgba(0,0,0,0) 100%);
+    }
+    /* Hiding the header above costs two of the overlay's three exits - the
+       collapse chevron and the close x. Escape is the third and still works
+       unconditionally; this floating button restores an equivalent to the
+       close x, appearing with the rest of the cluster on reveal rather than
+       sitting permanently on screen. */
+    #ov-full-exit {
+      display: none; position: absolute; top: 16px; right: 16px; z-index: 3;
+      width: 34px; height: 34px; border-radius: 50%;
+      background: rgba(0,0,0,0.45); border: none; color: #fff;
+      font-size: 18px; line-height: 1; cursor: pointer;
+      align-items: center; justify-content: center;
+    }
+    .np-overlay.video.full #ov-full-exit { display: flex; }
+    /* Windows and Linux draw the OS caption buttons OVER the page in that exact
+       corner, so a button at right:16px sits underneath them and cannot be
+       clicked - the same way the overlay's close x was unreachable until
+       a0b996c. Full mode hides the header, so this is the only pointer exit
+       left, and losing it would leave Escape as the only way out. */
+    html[data-platform="win32"] .np-overlay.video.full #ov-full-exit,
+    html[data-platform="linux"] .np-overlay.video.full #ov-full-exit {
+      right: calc(var(--caption-reserve, 138px) + 8px);
+    }
+    /* Idle in full mode hides the whole floating cluster, scrubber included -
+       there is no docked chrome left underneath it to fall back on, so this is
+       the literal VLC/YouTube "just the picture" state rather than the gentler
+       idle fade above, which deliberately leaves the progress row up. */
+    .np-overlay.video.full.idle:not(:focus-within) .np-overlay-info,
+    .np-overlay.video.full.idle:not(:focus-within) .np-overlay-controls,
+    .np-overlay.video.full.idle:not(:focus-within) #ov-full-exit {
+      opacity: 0; pointer-events: none;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .np-overlay.video.full .np-overlay-info,
+      .np-overlay.video.full .np-overlay-controls,
+      #ov-full-exit { transition: none; }
+    }
     /* Reversible fade/grow, same 140ms popup easing as the context menu below -
        display stays block always so opacity/transform/visibility can animate;
        visibility keeps a closed dropdown out of hit-testing and the a11y tree. */
@@ -702,6 +886,29 @@
     #ov-panel-lyrics.browsing .ov-lyric-line { opacity: 0.8; transform: scale(0.88); color: white; text-shadow: 0 1px 4px rgba(0,0,0,0.55); pointer-events: auto; }
     #ov-panel-lyrics.browsing .ov-lyric-line.active { opacity: 1; transform: scale(1); color: white; }
 
+    /* Light theme: everything above assumes a dark backdrop and hardcodes
+       white/near-white, which is fine under album-art-theme's dark blobs but
+       reads as white-on-white once #ov-panel-lyrics falls back to its own
+       background (var(--surface), i.e. white in light theme) or sits over
+       light theme's pale blobs (see the art-theme note further down - those
+       are pale too, not the dark ones this file was tuned against). Same bug
+       dd975bd already fixed for the active line under album-art-theme, in
+       the opposite direction; this extends that fix to the base word fill
+       (the actual cause of "browsing lines wash out" - word spans override
+       the line's own themed color) and to the active/browsing states here.
+       Deliberately left alone: .near-1/.near-2/.near-3/.past, which fade to
+       near-zero opacity on purpose and are not meant to be read. Selectors
+       are scoped to [data-theme="light"] so dark theme is untouched. */
+    html[data-theme="light"] .ov-lyric-word { -webkit-text-fill-color: rgba(28,28,30,0.32); }
+    html[data-theme="light"] .ov-lyric-line.active { color: #1c1c1e; filter: drop-shadow(0 0 18px rgba(255,255,255,0.55)); }
+    html[data-theme="light"] .ov-lyric-line.active .ov-lyric-word {
+      background: linear-gradient(to right, #1c1c1e var(--p), rgba(28,28,30,0.32) var(--p));
+      -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    html[data-theme="light"] .ov-lyric-line.active .ov-lyric-word.active { filter: drop-shadow(0 0 8px rgba(255,255,255,0.7)); }
+    html[data-theme="light"] #ov-panel-lyrics.browsing .ov-lyric-line { color: #1c1c1e; text-shadow: 0 1px 3px rgba(255,255,255,0.6); }
+    html[data-theme="light"] #ov-panel-lyrics.browsing .ov-lyric-line.active { color: #1c1c1e; }
+
     /* ── Context menu ── */
     /* Same reversible fade/grow as .ov-dropdown. transform-origin defaults to
        the corner nearest a cursor-anchored menu; the overlay's "more options"
@@ -728,6 +935,7 @@
     .track-row { cursor: default; }
     .track-row.selected { background: rgba(255,255,255,0.05); }
     .ctx-sep { height: 1px; background: var(--border); margin: 4px 0; }
+    .ctx-sep.hidden { display: none; }
 
     /* ── Lyrics panel ── */
     .lyrics-panel { position: fixed; top: 38px; right: 0; bottom: 48px; width: 340px; background: var(--surface); border-left: 1px solid var(--border); display: flex; flex-direction: column; transform: translateX(100%); transition: transform 0.22s cubic-bezier(0.4,0,0.2,1); z-index: 50; }
@@ -754,6 +962,14 @@
     .lyrics-line.active .lyric-word {
       --p: 0%;
       background: linear-gradient(to right, white var(--p), rgba(255,255,255,0.28) var(--p));
+      -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    /* Same word-fill bug as the overlay lyrics above, same fix: the sidebar
+       panel's own background is var(--surface), white in light theme, so the
+       hardcoded white fill above needs a light-theme ink equivalent. */
+    html[data-theme="light"] .lyric-word { -webkit-text-fill-color: rgba(28,28,30,0.32); }
+    html[data-theme="light"] .lyrics-line.active .lyric-word {
+      background: linear-gradient(to right, #1c1c1e var(--p), rgba(28,28,30,0.32) var(--p));
       -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
     }
 
@@ -792,6 +1008,15 @@
     .lyrics-edit-btn:hover { background: rgba(255,255,255,0.14); color: white; }
     .lyrics-edit-btn:disabled { opacity: 0.4; cursor: default; pointer-events: none; }
 
+    /* Light theme: this is frosted glass tuned for a dark backdrop (white
+       tint, white border, near-white text). On the light panel background it
+       renders as a barely-there white smudge with invisible text. Flip the
+       tint dark instead of introducing a different look. */
+    html[data-theme="light"] .lyrics-source-pill:not(.forced) { background: rgba(0,0,0,0.05); border-color: rgba(0,0,0,0.12); color: rgba(28,28,30,0.65); }
+    html[data-theme="light"] .lyrics-source-pill:hover:not(.forced) { background: rgba(0,0,0,0.1); color: #1c1c1e; }
+    html[data-theme="light"] .lyrics-edit-btn { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.1); color: rgba(28,28,30,0.55); }
+    html[data-theme="light"] .lyrics-edit-btn:hover { background: rgba(0,0,0,0.1); color: #1c1c1e; }
+
     /* ── Lyrics source dropdown ── */
     /* Was a one-shot @keyframes that only played on open, so closing just
        snapped. A transition on the same values plays both ways. */
@@ -814,6 +1039,13 @@
     }
     .lsd-item:hover { background: rgba(255,255,255,0.07); color: var(--text); }
     .lsd-item.active { color: white; font-weight: 500; }
+    /* This dropdown keeps its own fixed dark glass background in every
+       theme (rgba(18,18,26,0.88) above), but its text colors are the themed
+       vars - in light theme those resolve to dark ink, which disappears
+       against that dark background. Pin them to what dark theme already
+       renders here instead of introducing new colors. */
+    html[data-theme="light"] .lsd-item:not(.active) { color: #aeaeb2; }
+    html[data-theme="light"] .lsd-item:hover:not(.active) { color: #f5f5f7; }
     .lsd-item.active::after {
       content: '✓'; position: absolute; right: 10px; font-size: 11px; color: var(--accent);
     }
@@ -893,7 +1125,7 @@
     /* Tint panels so content stays readable over the blob background */
     .np-overlay.art-theme .np-overlay-left { background: rgba(0,0,0,0.25); }
     .np-overlay.art-theme .np-overlay-right { background: rgba(0,0,0,0.1); }
-    .np-overlay.art-theme .np-overlay-header { background: rgba(0,0,0,0.28); border-bottom-color: rgba(255,255,255,0.1); }
+    .np-overlay.art-theme .np-overlay-header { background: rgba(0,0,0,0.28); }
     /* Force all overlay control buttons white + black outline */
     .np-overlay.art-theme .np-ov-ctrl,
     .np-overlay.art-theme .np-ov-ctrl.active,
@@ -956,10 +1188,14 @@
        a deeper mix of the two colours instead of flattening toward white,
        which is what a "glow" blend (screen/lighten, the dark theme's implicit
        behaviour) would do here. */
-    html[data-theme="light"] .np-overlay.art-theme { background-blend-mode: multiply; }
-    html[data-theme="light"] .np-overlay.art-theme .np-overlay-left { background: rgba(255,255,255,0.35); }
-    html[data-theme="light"] .np-overlay.art-theme .np-overlay-right { background: rgba(255,255,255,0.16); }
-    html[data-theme="light"] .np-overlay.art-theme .np-overlay-header { background: rgba(255,255,255,0.4); border-bottom-color: rgba(0,0,0,0.08); }
+    /* The four custom properties below (--np-blend, --np-scrim-*) exist so the
+       debug panel's light-mode tuning sliders can override them live from JS -
+       see initLightTuningPanel() in renderer.js. Their fallback values are the
+       shipped defaults; nothing outside that debug panel ever sets them. */
+    html[data-theme="light"] .np-overlay.art-theme { background-blend-mode: var(--np-blend, multiply); }
+    html[data-theme="light"] .np-overlay.art-theme .np-overlay-left { background: rgba(255,255,255,var(--np-scrim-left, 0.16)); }
+    html[data-theme="light"] .np-overlay.art-theme .np-overlay-right { background: rgba(255,255,255,var(--np-scrim-right, 0.16)); }
+    html[data-theme="light"] .np-overlay.art-theme .np-overlay-header { background: rgba(255,255,255,var(--np-scrim-header, 0.16)); }
     html[data-theme="light"] .np-overlay.art-theme .np-overlay-track { color: #1c1c1e; }
     html[data-theme="light"] .np-overlay.art-theme .np-overlay-artist { color: rgba(28,28,30,0.7); }
     html[data-theme="light"] .np-overlay.art-theme .np-overlay-title { color: rgba(28,28,30,0.5); }
@@ -1020,9 +1256,7 @@
     .tp-preset.active { border-color: var(--text); }
     /* Album art accent overrides the gradient/presets while it's on, so both
        are dimmed and inert rather than clickable but pointless. The lock
-       stays off the host itself so it still catches hover for its tooltip -
-       see [data-tip] above, which renders below its host on purpose; there
-       is no clipping panel here so that is not a concern for this tip. */
+       stays off the host itself so it still catches hover for its tooltip. */
     .tp-colors.locked, #tp-presets.locked { opacity: 0.45; }
     .tp-colors.locked .tp-swatch, #tp-presets.locked .tp-preset { pointer-events: none; }
     .tp-colors.locked[data-tip], #tp-presets.locked[data-tip] { cursor: not-allowed; }
@@ -1040,6 +1274,8 @@
     @media (prefers-reduced-motion: reduce) {
       .ctx-menu, .ov-dropdown, .theme-picker, .modal-overlay, .modal-card,
       .lyrics-source-dropdown, .ov-more-scrim { transition: none; }
+      .hshelf-track { scroll-behavior: auto; }
+      .hshelf-arrow, .hshelf-arrow svg { transition: none; }
     }
 
     /* ── Equalizer ── */
@@ -1050,8 +1286,20 @@
     .eq-auto-label { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text2); white-space: nowrap; }
     .eq-preamp input[type="range"] { flex: 1; }
     .eq-band-value { font-size: 11px; color: var(--text3); min-width: 46px; text-align: right; flex-shrink: 0; }
-    .eq-bands { display: flex; flex-direction: column; gap: 12px; width: 260px; }
-    .eq-band-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--text2); margin-bottom: 4px; }
+    /* Response graph replacing the old five-slider stack. Colours are all
+       existing theme tokens (accent/border/text3/surface) - this draws with
+       the current theme, it does not carry any styling of its own to swap. */
+    .eq-graph-wrap { width: 260px; }
+    .eq-graph { display: block; width: 260px; height: 140px; touch-action: none; }
+    .eq-graph-zero { stroke: var(--border); stroke-width: 1; }
+    .eq-graph-curve { fill: none; stroke: var(--accent); stroke-width: 2; }
+    .eq-graph-point { fill: var(--accent); stroke: var(--surface); stroke-width: 2; cursor: grab; }
+    .eq-graph-point:hover { fill: var(--text); }
+    .eq-graph-point.dragging { cursor: grabbing; }
+    .eq-graph-point:focus-visible { outline: none; stroke: var(--accent-glow); stroke-width: 6; }
+    .eq-graph-labels { display: flex; justify-content: space-between; margin-top: 4px; }
+    .eq-graph-label { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 11px; color: var(--text3); }
+    .eq-graph-label .eq-band-value { min-width: 0; text-align: center; }
     input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 18px; background: none; cursor: pointer; }
     input[type="range"]::-webkit-slider-runnable-track { height: 3px; background: var(--border); border-radius: 2px; }
     input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; margin-top: -5.5px; border-radius: 50%; background: var(--text); transition: background 0.12s; }
@@ -1115,6 +1363,17 @@
   <header class="titlebar">
     <span class="tb-title">Cascade</span>
     <div class="tb-right">
+      <!-- Hidden until applyVideoNavVisibility() confirms a movie or TV
+           library is actually configured - a music-only user must never see
+           a Video mode that leads to empty views. -->
+      <div class="seg-control mode-toggle hidden" id="mode-toggle" role="group" aria-label="Browse mode">
+        <button class="seg-btn active" id="mode-music-btn" aria-pressed="true" aria-label="Music" title="Music">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        </button>
+        <button class="seg-btn" id="mode-video-btn" aria-pressed="false" aria-label="Video" title="Video">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="4"/><polygon points="10.5 9 15.5 12 10.5 15" fill="currentColor" stroke="none"/></svg>
+        </button>
+      </div>
       <button id="theme-dot" title="Customize theme"></button>
     </div>
   </header>
@@ -1175,28 +1434,28 @@
         </div>
         <div class="nav-info"><span class="nav-label">Home</span></div>
       </div>
-      <div class="nav-item" data-view="albums">
+      <div class="nav-item nav-music" data-view="albums">
         <div class="nav-bar"></div>
         <div class="nav-icon">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
         </div>
         <div class="nav-info"><span class="nav-label">Albums</span></div>
       </div>
-      <div class="nav-item" data-view="artists">
+      <div class="nav-item nav-music" data-view="artists">
         <div class="nav-bar"></div>
         <div class="nav-icon">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
         </div>
         <div class="nav-info"><span class="nav-label">Artists</span></div>
       </div>
-      <div class="nav-item" data-view="songs">
+      <div class="nav-item nav-music" data-view="songs">
         <div class="nav-bar"></div>
         <div class="nav-icon">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
         </div>
         <div class="nav-info"><span class="nav-label">Songs</span></div>
       </div>
-      <div class="nav-item" data-view="playlists">
+      <div class="nav-item nav-music" data-view="playlists">
         <div class="nav-bar"></div>
         <div class="nav-icon">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
@@ -1249,27 +1508,56 @@
       <!-- Home -->
       <div class="view active" id="view-home">
         <div class="greeting" id="greeting">Good afternoon, cha0s</div>
-        <div class="sect-header">
-          <span class="sect-title">Recently played</span>
-          <button class="sect-more" onclick="showView('songs')">See all</button>
-        </div>
-        <div class="rp-grid" id="rp-grid">
-          <div class="rp-item skel-card"><div class="rp-art skel"></div><div style="min-width:0;flex:1"><div class="skel skel-text" style="width:85%"></div><div class="skel skel-text" style="width:55%;height:9px;margin-top:5px"></div></div></div>
-          <div class="rp-item skel-card"><div class="rp-art skel"></div><div style="min-width:0;flex:1"><div class="skel skel-text" style="width:85%"></div><div class="skel skel-text" style="width:55%;height:9px;margin-top:5px"></div></div></div>
-          <div class="rp-item skel-card"><div class="rp-art skel"></div><div style="min-width:0;flex:1"><div class="skel skel-text" style="width:85%"></div><div class="skel skel-text" style="width:55%;height:9px;margin-top:5px"></div></div></div>
-          <div class="rp-item skel-card"><div class="rp-art skel"></div><div style="min-width:0;flex:1"><div class="skel skel-text" style="width:85%"></div><div class="skel skel-text" style="width:55%;height:9px;margin-top:5px"></div></div></div>
-        </div>
-        <div class="sect-header">
-          <span class="sect-title">Recently added</span>
-          <button class="sect-more" onclick="showView('albums')">See all</button>
-        </div>
-        <div class="album-grid" id="home-recent-albums">
-          <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
-          <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
-          <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
-          <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+        <!-- Both shelves below hide together in Video mode (#home-music-shelves,
+             see the mode CSS near .nav-music). Each already sits over its own
+             empty-state text rather than fully hiding itself when the account
+             genuinely has no history - that's unrelated to mode. -->
+        <div id="home-music-shelves">
+          <div class="sect-header">
+            <span class="sect-title">Recently played</span>
+            <button class="sect-more" onclick="showView('songs')">See all</button>
+          </div>
+          <div class="rp-grid" id="rp-grid">
+            <div class="rp-item skel-card"><div class="rp-art skel"></div><div style="min-width:0;flex:1"><div class="skel skel-text" style="width:85%"></div><div class="skel skel-text" style="width:55%;height:9px;margin-top:5px"></div></div></div>
+            <div class="rp-item skel-card"><div class="rp-art skel"></div><div style="min-width:0;flex:1"><div class="skel skel-text" style="width:85%"></div><div class="skel skel-text" style="width:55%;height:9px;margin-top:5px"></div></div></div>
+            <div class="rp-item skel-card"><div class="rp-art skel"></div><div style="min-width:0;flex:1"><div class="skel skel-text" style="width:85%"></div><div class="skel skel-text" style="width:55%;height:9px;margin-top:5px"></div></div></div>
+            <div class="rp-item skel-card"><div class="rp-art skel"></div><div style="min-width:0;flex:1"><div class="skel skel-text" style="width:85%"></div><div class="skel skel-text" style="width:55%;height:9px;margin-top:5px"></div></div></div>
+            <div class="rp-item skel-card"><div class="rp-art skel"></div><div style="min-width:0;flex:1"><div class="skel skel-text" style="width:85%"></div><div class="skel skel-text" style="width:55%;height:9px;margin-top:5px"></div></div></div>
+            <div class="rp-item skel-card"><div class="rp-art skel"></div><div style="min-width:0;flex:1"><div class="skel skel-text" style="width:85%"></div><div class="skel skel-text" style="width:55%;height:9px;margin-top:5px"></div></div></div>
+            <div class="rp-item skel-card"><div class="rp-art skel"></div><div style="min-width:0;flex:1"><div class="skel skel-text" style="width:85%"></div><div class="skel skel-text" style="width:55%;height:9px;margin-top:5px"></div></div></div>
+            <div class="rp-item skel-card"><div class="rp-art skel"></div><div style="min-width:0;flex:1"><div class="skel skel-text" style="width:85%"></div><div class="skel skel-text" style="width:55%;height:9px;margin-top:5px"></div></div></div>
+          </div>
+          <div class="sect-header">
+            <span class="sect-title">Recently added</span>
+            <button class="sect-more" onclick="showView('albums')">See all</button>
+          </div>
+          <div class="album-grid" id="home-recent-albums">
+            <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+            <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+            <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+            <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+            <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+            <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+            <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+            <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+            <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+            <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+            <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+            <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
+          </div>
         </div>
         <!-- Hidden until loadContinueWatching() confirms there's a video library
+             configured and something actually partway-through - music-only
+             users, and anyone with nothing paused mid-episode, never see this.
+             Horizontal (matches Jellyfin's own webui), distinct from Recently
+             watched below it: this is Filters:IsResumable, not play history. -->
+        <div id="home-resume-section" style="display:none">
+          <div class="sect-header">
+            <span class="sect-title">Continue watching</span>
+          </div>
+          <div id="home-resume-grid"></div>
+        </div>
+        <!-- Hidden until loadRecentlyWatched() confirms there's a video library
              configured and actual play history - music-only users never see this. -->
         <div id="home-continue-section" style="display:none">
           <div class="sect-header">
@@ -1634,30 +1922,23 @@
               </div>
             </div>
             <div class="setting-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;">
-              <div class="setting-label"><span class="setting-name">Bands</span></div>
-              <!-- Labels are hardcoded to match CascadeCore.EQ_BANDS' order (60/250/1000/4000/12000 Hz) -
-                   renderer.js indexes these five sliders positionally against that array. -->
-              <div class="eq-bands">
-                <div class="eq-band">
-                  <div class="eq-band-head"><span>60 Hz</span><span class="eq-band-value" id="eq-band-value-0">0.0 dB</span></div>
-                  <input type="range" class="eq-band-slider" id="eq-band-0" min="-12" max="12" step="0.5" value="0">
-                </div>
-                <div class="eq-band">
-                  <div class="eq-band-head"><span>250 Hz</span><span class="eq-band-value" id="eq-band-value-1">0.0 dB</span></div>
-                  <input type="range" class="eq-band-slider" id="eq-band-1" min="-12" max="12" step="0.5" value="0">
-                </div>
-                <div class="eq-band">
-                  <div class="eq-band-head"><span>1 kHz</span><span class="eq-band-value" id="eq-band-value-2">0.0 dB</span></div>
-                  <input type="range" class="eq-band-slider" id="eq-band-2" min="-12" max="12" step="0.5" value="0">
-                </div>
-                <div class="eq-band">
-                  <div class="eq-band-head"><span>4 kHz</span><span class="eq-band-value" id="eq-band-value-3">0.0 dB</span></div>
-                  <input type="range" class="eq-band-slider" id="eq-band-3" min="-12" max="12" step="0.5" value="0">
-                </div>
-                <div class="eq-band">
-                  <div class="eq-band-head"><span>12 kHz</span><span class="eq-band-value" id="eq-band-value-4">0.0 dB</span></div>
-                  <input type="range" class="eq-band-slider" id="eq-band-4" min="-12" max="12" step="0.5" value="0">
-                </div>
+              <div class="setting-label">
+                <span class="setting-name">Bands</span>
+                <span class="setting-desc">Drag a point, or tab to one and use the arrow keys.</span>
+              </div>
+              <!-- Points and labels are built in renderer.js from CascadeCore.EQ_BANDS,
+                   not hardcoded here - that used to be a trap: changing a band
+                   frequency meant remembering to edit both this file and eq-profile.ts. -->
+              <div class="eq-graph-wrap">
+                <!-- No role="img" here: that would flatten the five focusable
+                     role="slider" points below out of the accessibility tree.
+                     The curve and zero line are purely decorative. -->
+                <svg class="eq-graph" id="eq-graph" viewBox="0 0 260 140" width="260" height="140">
+                  <line class="eq-graph-zero" x1="0" y1="70" x2="260" y2="70"></line>
+                  <path class="eq-graph-curve" id="eq-graph-curve" d=""></path>
+                  <g id="eq-graph-points"></g>
+                </svg>
+                <div class="eq-graph-labels" id="eq-graph-labels"></div>
               </div>
             </div>
           </div>
@@ -1833,6 +2114,9 @@
       <button class="ctrl-btn" id="btn-waterfall-open" title="Waterfall - listen together (beta)" style="margin-left:6px;">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.7s5.5 5.2 5.5 9.3a5.5 5.5 0 0 1-11 0C6.5 7.9 12 2.7 12 2.7z"/></svg>
       </button>
+      <button class="ctrl-btn" id="btn-miniplayer-open" title="Miniplayer" style="margin-left:6px;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><rect x="11" y="11" width="9" height="7" rx="1" fill="currentColor" stroke="none"/></svg>
+      </button>
     </div>
   </footer>
 
@@ -1969,7 +2253,10 @@
 <div class="np-overlay" id="np-overlay">
   <div id="ov-bg-pulse"></div>
   <div class="np-overlay-header">
-    <span class="np-overlay-title">Now Playing</span>
+    <button class="np-overlay-title" id="np-overlay-collapse" title="Close now playing (Esc)" aria-label="Close now playing">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      <span>Now Playing</span>
+    </button>
     <button class="np-overlay-close" id="np-overlay-close">×</button>
   </div>
   <div class="np-overlay-body">
@@ -1987,6 +2274,11 @@
       <canvas class="np-ambient" id="ov-ambient" width="32" height="18" aria-hidden="true"></canvas>
       <video class="np-overlay-video" id="media" crossorigin="anonymous" playsinline></video>
       <video class="np-overlay-video deck-hidden" id="media-b" crossorigin="anonymous" playsinline></video>
+      <!-- Full mode hides .np-overlay-header, which costs the collapse chevron
+           and the close x - two of the overlay's three exits. This floats in
+           their place, visible only in full mode and faded with the rest of
+           the cluster on idle. Escape (the third exit) works regardless. -->
+      <button class="vid-only" id="ov-full-exit" title="Close now playing (Esc)" aria-label="Close now playing">×</button>
       <div class="np-overlay-art" id="ov-art">♪</div>
       <div class="np-overlay-info">
         <div class="np-overlay-track" id="ov-track">Nothing playing</div>
@@ -2062,8 +2354,15 @@
           <button class="np-ov-ctrl vid-only" id="ov-audio-track" title="Audio track">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>
           </button>
-          <button class="np-ov-ctrl vid-only" id="ov-fullscreen" title="Fullscreen (F)">
+          <button class="np-ov-ctrl vid-only" id="ov-fullscreen" data-tip="Fullscreen (F)" title="Fullscreen (F)">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+          </button>
+          <!-- Full mode: hides the header and floats the transport over the
+               picture, like VLC/YouTube/Netflix (see .np-overlay.video.full
+               in the CSS). Independent of real OS fullscreen (ov-fullscreen
+               above) - either can be on without the other. -->
+          <button class="np-ov-ctrl vid-only" id="ov-full-mode" data-tip="Hide the app chrome (Shift+F)" title="Hide the app chrome (Shift+F)" aria-pressed="false">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V5a1 1 0 0 1 1-1h4"/><path d="M20 9V5a1 1 0 0 0-1-1h-4"/><path d="M4 15v4a1 1 0 0 0 1 1h4"/><path d="M20 15v4a1 1 0 0 1-1 1h-4"/></svg>
           </button>
         </div>
       </div>
@@ -2156,10 +2455,10 @@
   </div>
   <div class="ctx-sep"></div>
   <div class="ctx-item" id="ctx-edit-meta">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit metadata
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit metadata<span class="ctx-item-note" id="ctx-edit-meta-note" hidden>Admin only</span>
   </div>
   <div class="ctx-item" id="ctx-edit-images">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>Edit images
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>Edit images<span class="ctx-item-note" id="ctx-edit-images-note" hidden>Admin only</span>
   </div>
   <div class="ctx-item" id="ctx-edit-lyrics">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>Edit lyrics
@@ -2176,7 +2475,7 @@
   </div>
   <div class="ctx-sep"></div>
   <div class="ctx-item danger" id="ctx-delete">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Delete media
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Delete media<span class="ctx-item-note" id="ctx-delete-note" hidden>Needs delete permission</span>
   </div>
 </div>
 
@@ -2189,7 +2488,7 @@
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>Play next
   </div>
   <div class="ctx-item" id="tctx-add-queue">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>Add to queue
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>Play last
   </div>
   <div class="ctx-sep"></div>
   <div class="ctx-item" id="tctx-instant-mix">
@@ -2217,11 +2516,66 @@
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>Refresh metadata<span class="ctx-item-note" id="tctx-refresh-meta-note" hidden>Admin only</span>
   </div>
   <div class="ctx-item" id="tctx-edit-meta">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit metadata
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit metadata<span class="ctx-item-note" id="tctx-edit-meta-note" hidden>Admin only</span>
   </div>
   <div class="ctx-sep tctx-pl-only hidden"></div>
   <div class="ctx-item danger tctx-pl-only hidden" id="tctx-pl-remove">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>Remove from playlist
+  </div>
+</div>
+
+<!-- Universal card context menu: album, artist, movie/series, playlist. One
+     menu, rows shown/hidden per kind by showItemCtxMenu() (renderer.js) using
+     CascadeCore.menuItemsForKind() - same "one menu, toggle rows" shape as
+     #track-ctx-menu's tctx-pl-only above, not a fourth menu mechanism. -->
+<div class="ctx-menu" id="item-ctx-menu">
+  <div class="ctx-item" id="ictx-play">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg><span id="ictx-play-label">Play</span>
+  </div>
+  <div class="ctx-item" id="ictx-play-next">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>Play next
+  </div>
+  <div class="ctx-item" id="ictx-play-last">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>Play last
+  </div>
+  <div class="ctx-item" id="ictx-shuffle">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg><span id="ictx-shuffle-label">Shuffle</span>
+  </div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" id="ictx-instant-mix">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/></svg>Instant mix
+  </div>
+  <div class="ctx-item" id="ictx-add-playlist">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add to playlist
+  </div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" id="ictx-mark-played">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Mark as played
+  </div>
+  <div class="ctx-item" id="ictx-mark-unplayed">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>Mark as unplayed
+  </div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" id="ictx-go-artist">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Go to artist
+  </div>
+  <div class="ctx-item" id="ictx-view-detail">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg><span id="ictx-view-detail-label">Go to details</span>
+  </div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" id="ictx-rename">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Rename…
+  </div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" id="ictx-refresh-meta">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>Refresh metadata<span class="ctx-item-note" id="ictx-refresh-meta-note" hidden>Admin only</span>
+  </div>
+  <div class="ctx-item" id="ictx-edit-meta">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit metadata<span class="ctx-item-note" id="ictx-edit-meta-note" hidden>Admin only</span>
+  </div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item danger" id="ictx-delete">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Delete playlist<span class="ctx-item-note" id="ictx-delete-note" hidden>Needs delete permission</span>
   </div>
 </div>
 
@@ -2410,5 +2764,6 @@
 <script src="build/core.js"></script>
 <script src="renderer.js"></script>
 <script src="waterfall.js"></script>
+<div id="tooltip" role="tooltip" aria-hidden="true"></div>
 </body>
 </html>

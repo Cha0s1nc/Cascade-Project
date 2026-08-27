@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Cascade</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Lets .wrap below switch layout by the WINDOW's own height (vertical
+   resize, task: drag taller -> art grows, drag short -> compact bar) rather
+   than needing a resize listener in JS. */
+html { container-type: size; }
+
+body {
+  position: relative;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  /* Translucent rather than flat black: the window is vibrancy-backed (see
+     main.js), so this tints what is behind it instead of covering it. */
+  background: rgba(18, 18, 20, 0.55);
+  color: #e8e8e9;
+  -webkit-user-select: none;
+  user-select: none;
+  overflow: hidden;
+  /* NOT a drag region, and no longer a click target. Both were a mistake: a
+     drag region hands its mouse events to the OS, so `body:hover` did not fire
+     reliably and the close button it was revealing stayed at opacity 0. An
+     invisible button is an unclickable one, which is why this still could not
+     be closed after the first fix. Dragging is the art and the text strip now,
+     which is most of the window anyway, and the close button is always
+     visible. */
+}
+
+/* Blurred cover behind everything, the way Apple Music tints its miniplayer.
+   Only shown in the taller layout, where there is room to see it. */
+/* The ONLY drag region. It used to be the whole window, which is why nothing
+   worked: a -webkit-app-region: drag surface hands its mouse events straight to
+   the OS, so mousemove never reached the idle timer, clicks never reached the
+   restore handler, and the close button's own hover never fired. A narrow strip
+   along the top drags the window; everything else is a normal page again. */
+.drag-strip {
+  position: absolute; top: 0; left: 0; right: 0; height: 22px; z-index: 2;
+  -webkit-app-region: drag;
+}
+/* macOS draws real traffic lights in that strip (see main.js), so the strip
+   starts clear of them and the in-page close button is not needed there. */
+html[data-platform="darwin"] .drag-strip { left: 76px; }
+html[data-platform="darwin"] .close-btn { display: none; }
+
+.backdrop {
+  position: absolute; inset: 0; z-index: 0;
+  background-size: cover; background-position: center;
+  filter: blur(28px) saturate(1.4); transform: scale(1.4);
+  opacity: 0; transition: opacity 0.3s ease;
+}
+
+.close-btn {
+  position: absolute; top: 6px; right: 6px; z-index: 3;
+  width: 20px; height: 20px; border-radius: 50%;
+  border: none; background: rgba(0,0,0,0.5); color: rgba(255,255,255,0.85);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; opacity: 0.55;
+  transition: opacity 0.12s, background 0.12s, color 0.12s;
+  -webkit-app-region: no-drag;
+  /* Confirmed against main.js: this window never sets titleBarOverlay, so
+     unlike the main window's top-right corner (see --caption-reserve in
+     index.html) there are no OS caption buttons drawn here to collide with. */
+}
+.close-btn:hover { opacity: 1; background: rgba(0,0,0,0.75); color: #fff; }
+
+/* ── Three states, all keyed off height, because the width never changes ──
+   Pill      (under 180px): a bar. Art thumbnail, text, transport in a row.
+   Square    (180px+):      the cover fills the window at 1:1, and the controls
+                            float OVER it, fading out when idle so nothing is
+                            between you and the art.
+   Lyrics    (taller):      the square stays exactly square and pinned at the
+                            top; every extra pixel of height becomes more lyric
+                            lines underneath. Drag it as tall as you like.
+   The art being a fixed 1:1 anchor is what makes the drag feel predictable -
+   it was stretching before, which is most of why it felt awkward. */
+.wrap {
+  position: relative; z-index: 1;
+  display: flex; align-items: center; gap: 10px;
+  height: 100%; padding: 10px;
+}
+
+.art {
+  width: 64px; height: 64px; border-radius: 6px;
+  background: #2a2a2c; flex-shrink: 0; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 26px; color: rgba(255,255,255,0.25);
+  position: relative;
+}
+.art img { width: 100%; height: 100%; object-fit: cover; }
+
+.stack { display: contents; }
+.info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+
+.lyrics { display: none; }
+
+@container (min-height: 180px) {
+  .backdrop { opacity: 0.5; }
+  .wrap { flex-direction: column; align-items: stretch; padding: 0; gap: 0; }
+
+  /* Square, and never anything else. aspect-ratio with flex:none is what stops
+     it stretching as the window grows. */
+  .art {
+    width: 100%; height: auto; aspect-ratio: 1 / 1;
+    flex: 0 0 auto; border-radius: 0; font-size: 40px;
+  }
+
+  /* The controls sit on top of the cover rather than under it. */
+  .stack {
+    display: block; position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+    padding: 26px 14px 14px;
+    background: linear-gradient(to top, rgba(0,0,0,0.78), rgba(0,0,0,0.45) 55%, rgba(0,0,0,0));
+    opacity: 1; transition: opacity 0.25s ease;
+  }
+  /* Idle: fade the controls away and leave just the cover. Any pointer
+     movement brings them back - see the idle timer in the script below. */
+  body.idle .stack { opacity: 0; pointer-events: none; }
+
+  .info { gap: 8px; margin-bottom: 10px; }
+  .title { font-size: 15px; }
+  .artist { font-size: 12px; }
+  .controls { justify-content: center; gap: 8px; }
+  .ctrl-btn { width: 34px; height: 34px; }
+  .ctrl-btn.play { width: 40px; height: 40px; }
+
+  /* Everything below the square is lyrics. Grows with the window; the current
+     line is simply the first one sent, so no scrolling happens here at all. */
+  .lyrics {
+    display: block; flex: 1 1 auto; min-height: 0; overflow: hidden;
+    padding: 14px 16px 16px; position: relative; z-index: 1;
+  }
+  .lyric-line {
+    font-size: 13px; line-height: 1.45; margin-bottom: 9px;
+    color: rgba(255,255,255,0.45);
+  }
+  .lyric-line.cur { color: #fff; font-weight: 600; font-size: 14px; }
+  .lyric-empty { font-size: 12px; color: rgba(255,255,255,0.3); }
+}
+
+/* Pill idle: fade the transport out and let the title have the room, which is
+   the one thing worth reading at a glance at this size. */
+@container (max-height: 179px) {
+  body.idle .controls { opacity: 0; pointer-events: none; }
+  .controls { transition: opacity 0.25s ease; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stack, .controls { transition: none; }
+}
+
+.empty {
+  font-size: 12px;
+  color: rgba(255,255,255,0.35);
+}
+</style>
+</head>
+<body>
+
+<button class="close-btn" id="btn-close" title="Close">
+  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="4" y1="4" x2="20" y2="20"/><line x1="20" y1="4" x2="4" y2="20"/></svg>
+</button>
+
+<div class="drag-strip"></div>
+<div class="backdrop" id="backdrop"></div>
+
+<div class="wrap">
+  <div class="art" id="art">♪</div>
+  <div class="stack">
+  <div class="info">
+    <div class="title" id="title">Nothing playing</div>
+    <div class="artist" id="artist"></div>
+    <div class="prog-bar"><div class="prog-fill" id="prog-fill"></div></div>
+  </div>
+  <div class="controls">
+    <button class="ctrl-btn" id="btn-prev" title="Previous">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg>
+    </button>
+    <button class="ctrl-btn play" id="btn-playpause" title="Play/Pause">
+      <svg id="icon-play" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      <svg id="icon-pause" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="display:none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+    </button>
+    <button class="ctrl-btn" id="btn-next" title="Next">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+    </button>
+  </div>
+  </div>
+  <div class="lyrics" id="lyrics"></div>
+</div>
+
+<script>
+// Every control here forwards to the main window's own existing button
+// handlers over IPC (see onControl in renderer.js) - this window never
+// touches playback itself. See CODEMAP.md: the two <video> decks and the Web
+// Audio graph they feed only exist in the main window.
+
+function fmtSec(s) {
+  s = Math.max(0, Math.floor(s || 0))
+  const m = Math.floor(s / 60)
+  const sec = String(s % 60).padStart(2, '0')
+  return `${m}:${sec}`
+}
+
+// Traffic lights on macOS mean no in-page close button and a shorter drag
+// strip - see the CSS above.
+if (window.miniPlayer.platform) {
+  document.documentElement.setAttribute('data-platform', window.miniPlayer.platform)
+}
+
+window.miniPlayer.onState((state) => {
+  if (!state || !state.itemId) {
+    document.getElementById('title').textContent = 'Nothing playing'
+    document.getElementById('artist').textContent = ''
+    document.getElementById('art').innerHTML = '♪'
+    document.getElementById('prog-fill').style.width = '0%'
+    document.getElementById('backdrop').style.backgroundImage = ''
+    renderLyrics([])
+    return
+  }
+
+  document.getElementById('title').textContent = state.title || ''
+  document.getElementById('artist').textContent = state.subtitle || ''
+  document.getElementById('prog-fill').style.width = `${state.progressPct || 0}%`
+
+  const art = document.getElementById('art')
+  if (state.artUrl) {
+    if (art.dataset.src !== state.artUrl) {
+      art.dataset.src = state.artUrl
+      art.innerHTML = `<img src="${state.artUrl}" alt="" onerror="this.parentElement.innerHTML='♪'">`
+      document.getElementById('backdrop').style.backgroundImage = `url("${state.artUrl}")`
+    }
+  } else {
+    art.dataset.src = ''
+    art.innerHTML = '♪'
+    document.getElementById('backdrop').style.backgroundImage = ''
+  }
+
+  document.getElementById('icon-play').style.display  = state.isPlaying ? 'none' : ''
+  document.getElementById('icon-pause').style.display = state.isPlaying ? '' : 'none'
+  renderLyrics(state.lyrics || [])
+})
+
+document.getElementById('btn-playpause').addEventListener('click', (e) => {
+  e.stopPropagation()
+  window.miniPlayer.control('playpause')
+})
+document.getElementById('btn-prev').addEventListener('click', (e) => {
+  e.stopPropagation()
+  window.miniPlayer.control('prev')
+})
+document.getElementById('btn-next').addEventListener('click', (e) => {
+  e.stopPropagation()
+  window.miniPlayer.control('next')
+})
+
+// Lyrics are sent already starting at the current line (miniplayerLyricTail),
+// so rendering them top-down puts the current one at the top for free - there
+// is no scrolling, no measuring and no active-index tracking in this window.
+let _lastLyricKey = ''
+function renderLyrics(lines) {
+  const el = document.getElementById('lyrics')
+  const key = lines.join('\u0000')
+  if (key === _lastLyricKey) return   // same lines, nothing to repaint
+  _lastLyricKey = key
+  if (!lines.length) {
+    el.innerHTML = '<div class="lyric-empty">No lyrics for this track</div>'
+    return
+  }
+  el.innerHTML = lines
+    .map((t, i) => `<div class="lyric-line${i === 0 ? ' cur' : ''}">${esc(t)}</div>`)
+    .join('')
+}
+
+function esc(str) {
+  return String(str == null ? '' : str)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+// Idle fade, the same idea the main window's now-playing overlay uses: any
+// pointer movement brings the controls back, then they go after a few still
+// seconds so the cover is unobstructed. Paused deliberately still counts as
+// idle here, unlike the main overlay - a paused miniplayer is usually one
+// somebody is looking at rather than using.
+const IDLE_MS = 2600
+let idleTimer = null
+function pokeIdle() {
+  document.body.classList.remove('idle')
+  clearTimeout(idleTimer)
+  idleTimer = setTimeout(() => document.body.classList.add('idle'), IDLE_MS)
+}
+;['mousemove', 'mousedown', 'wheel', 'keydown'].forEach(ev =>
+  window.addEventListener(ev, pokeIdle, { passive: true }))
+window.addEventListener('mouseleave', () => {
+  clearTimeout(idleTimer)
+  document.body.classList.add('idle')
+})
+pokeIdle()
+
+// Closing the miniplayer and going back to the main window are the same
+// operation here: main.js closes this window and restores the main one from
+// its 'closed' event, so every path converges there whatever triggered it.
+document.getElementById('btn-close').addEventListener('click', (e) => {
+  e.stopPropagation()
+  window.miniPlayer.restore()
+})
+
+// Clicking the art or the text goes back to the main window, the way clicking
+// a Spotify or Apple Music miniplayer does. Bound to those rather than to
+// document.body: the transport buttons sit inside .wrap too, and a body-level
+// handler fires for them as well, so hitting pause also threw you back to the
+// main window.
+document.getElementById('art').addEventListener('click', () => window.miniPlayer.restore())
+document.querySelector('.info').addEventListener('click', () => window.miniPlayer.restore())
+</script>
+</body>
+</html>

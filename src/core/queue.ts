@@ -60,6 +60,24 @@ export function shuffled<T>(items: readonly T[]): T[] {
 }
 
 /**
+ * Insert `items` right after the currently playing track, for "Play next".
+ *
+ * queueIndex points at what's playing right now - inserting before it, or at
+ * it, would change what's playing. queueIndex + 1 is always the right spot,
+ * clamped so an empty/negative queueIndex (nothing playing yet) inserts at
+ * the front instead of going negative.
+ *
+ * Returns a new array rather than mutating `queue` in place: renderer.js's
+ * `queue` is a plain `let`, already reassigned wholesale elsewhere (sign out,
+ * stop playback, un-shuffling), so handing back a fresh array fits the
+ * existing pattern instead of adding a second, mutating convention next to it.
+ */
+export function insertAfterCurrent<T>(queue: readonly T[], queueIndex: number, items: readonly T[]): T[] {
+  const at = Math.max(0, queueIndex + 1)
+  return [...queue.slice(0, at), ...items, ...queue.slice(at)]
+}
+
+/**
  * Index of the track that follows `queueIndex`, honouring repeat mode, or
  * null when nothing should follow (queue exhausted, repeat off).
  *

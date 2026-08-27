@@ -1,6 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { songSortValue, sortSongs, shuffleInPlace, shuffled, nextQueueIndex } from '../src/core/queue.ts'
+import {
+  songSortValue, sortSongs, shuffleInPlace, shuffled, nextQueueIndex, insertAfterCurrent,
+} from '../src/core/queue.ts'
 import type { JfItem } from '../src/core/types.ts'
 
 const item = (over: Partial<JfItem> & { Id: string }): JfItem => over
@@ -91,4 +93,38 @@ test('nextQueueIndex: repeat-one never advances, even at the end', () => {
 
 test('nextQueueIndex: empty queue has nothing next', () => {
   assert.equal(nextQueueIndex(0, -1, 'none'), null)
+})
+
+test('insertAfterCurrent: lands directly after the playing track', () => {
+  const out = insertAfterCurrent(['a', 'b', 'c'], 0, ['x'])
+  assert.deepEqual(out, ['a', 'x', 'b', 'c'])
+})
+
+test('insertAfterCurrent: never lands before or on the playing track', () => {
+  // queueIndex + 1, not queueIndex - inserting at/before it would change
+  // what's currently playing.
+  const out = insertAfterCurrent(['a', 'b', 'c'], 1, ['x'])
+  assert.deepEqual(out, ['a', 'b', 'x', 'c'])
+})
+
+test('insertAfterCurrent: appending after the last track', () => {
+  const out = insertAfterCurrent(['a', 'b'], 1, ['x'])
+  assert.deepEqual(out, ['a', 'b', 'x'])
+})
+
+test('insertAfterCurrent: nothing playing yet inserts at the front, not negative', () => {
+  const out = insertAfterCurrent(['a', 'b'], -1, ['x'])
+  assert.deepEqual(out, ['x', 'a', 'b'])
+})
+
+test('insertAfterCurrent: multiple items keep their given order', () => {
+  const out = insertAfterCurrent(['a', 'b'], 0, ['x', 'y', 'z'])
+  assert.deepEqual(out, ['a', 'x', 'y', 'z', 'b'])
+})
+
+test('insertAfterCurrent: does not mutate the input queue', () => {
+  const original = ['a', 'b', 'c']
+  const copy = [...original]
+  insertAfterCurrent(original, 0, ['x'])
+  assert.deepEqual(original, copy)
 })

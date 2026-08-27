@@ -1,4 +1,16 @@
 const { app, BrowserWindow, ipcMain, clipboard, shell, Menu, globalShortcut, TouchBar } = require('electron')
+
+// A main-process throw before the window is shown means no window and, for a
+// rejection, not even a message: Electron shows a dialog for an uncaught
+// exception but stays completely silent on an unhandled rejection. That is how
+// you get "it just does not open, nothing in the terminal". Both are printed
+// here so a startup failure always says something.
+process.on('uncaughtException', err => {
+  console.error('[cascade] uncaught exception in the main process:', err)
+})
+process.on('unhandledRejection', err => {
+  console.error('[cascade] unhandled rejection in the main process:', err)
+})
 const { TouchBarButton, TouchBarSpacer, TouchBarLabel } = TouchBar
 const path = require('path')
 const https = require('https')
@@ -167,6 +179,47 @@ const TITLEBAR_HEIGHT = 38
 // ignores this entirely - its traffic lights are drawn by the OS itself and
 // take their colour from nowhere we control.
 // Matches --surface/--text from index.html's :root and light theme block.
+/** titleBarOverlay options for win32/linux, or nothing at all if building them
+ *  fails. Degrading to no overlay costs the OS caption buttons; throwing here
+ *  costs the entire window. */
+function overlayOptions() {
+  try {
+    return { titleBarOverlay: { ...titleBarOverlayColors(storedThemeMode()), height: TITLEBAR_HEIGHT } }
+  } catch (e) {
+    console.error('[cascade] titleBarOverlay unavailable, falling back to a plain hidden titlebar:', e)
+    return {}
+  }
+}
+
+/**
+ * Show a window created with `show: false`, once.
+ *
+ * ready-to-show alone is not enough. It fires on the renderer's first paint,
+ * and on Windows a hidden window can fail to produce one at all: Chromium sees
+ * no reason to paint something invisible, so the window waits to be shown
+ * before painting and waits for a paint before being shown. Confirmed in
+ * practice - the main window never appeared and the event never fired, while
+ * the page itself was perfectly fine underneath.
+ *
+ * did-finish-load is the escape: it fires when the page has loaded, whether or
+ * not anything has been painted. Whichever arrives first wins, with a timeout
+ * as a last resort so a window can never be invisible forever. The backgroundColor
+ * set on each window is what stops the early case flashing white.
+ */
+function showWhenReady(w, after) {
+  let shown = false
+  const showOnce = (why) => {
+    if (shown || !w || w.isDestroyed()) return
+    shown = true
+    if (why) console.error(`[cascade] ${why}`)
+    w.show()
+    if (after) after()
+  }
+  w.once('ready-to-show', () => showOnce(null))
+  w.webContents.once('did-finish-load', () => showOnce(null))
+  setTimeout(() => showOnce('window never became ready, showing it anyway'), 10000)
+}
+
 function titleBarOverlayColors(mode) {
   return mode === 'light'
     ? { color: '#ffffff', symbolColor: '#1c1c1e' }
@@ -186,6 +239,8 @@ function storedThemeMode() {
 let win
 let updaterWindow     = null
 let lyricsEditorWindow = null
+let metadataEditorWindow = null
+let miniPlayerWindow  = null
 let pendingDownload   = null
 
 function createWindow() {
@@ -208,7 +263,11 @@ function createWindow() {
     titleBarStyle: isDarwin ? 'hiddenInset' : 'hidden',
     ...(isDarwin
       ? { trafficLightPosition: { x: 12, y: 11 } }
-      : { titleBarOverlay: { ...titleBarOverlayColors(storedThemeMode()), height: TITLEBAR_HEIGHT } }),
+      // Built separately and defensively: this is the newest thing in here and
+      // the only part that is macOS-untestable, so if the platform rejects the
+      // overlay the app must still open with a plain hidden titlebar rather
+      // than failing to produce a window at all.
+      : overlayOptions()),
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'build', 'preload.js'),
@@ -268,11 +327,15 @@ function createWindow() {
     ipcMain.on('touchbar-update', () => {})
   }
 
-  win.once('ready-to-show', () => {
-    win.show()
+  showWhenReady(win)
+
+  // Hung off did-finish-load rather than ready-to-show. Same reason as
+  // showWhenReady: ready-to-show can simply never fire on Windows, which
+  // silently cost the media keys, the F12 devtools binding and the update
+  // check there. None of this needs a painted window, only a loaded one.
+  win.webContents.once('did-finish-load', () => {
     if (app.isPackaged) setTimeout(checkForUpdates, 5000)
 
-    // Register OS media keys here - app is already ready, window exists
     const send = (key) => { if (win && !win.isDestroyed()) win.webContents.send('media-key', key) }
     globalShortcut.register('MediaPlayPause',     () => send('playpause'))
     globalShortcut.register('MediaNextTrack',     () => send('next'))
@@ -309,15 +372,27 @@ ipcMain.on('now-playing-update', (_e, data) => { cascadeNowPlaying = { ...cascad
 // to the executable).
 const DEBUG_SENTINEL = '.cascade-debug'
 function debugSentinelPresent() {
-  const candidates = [
-    path.join(app.getPath('userData'), DEBUG_SENTINEL),
-    path.join(__dirname, DEBUG_SENTINEL),
-  ]
+  const candidates = [path.join(__dirname, DEBUG_SENTINEL)]
+  try { candidates.push(path.join(app.getPath('userData'), DEBUG_SENTINEL)) } catch {}
   try { candidates.push(path.join(path.dirname(app.getPath('exe')), DEBUG_SENTINEL)) } catch {}
   return candidates.some(p => { try { return fs.existsSync(p) } catch { return false } })
 }
-const debugMode = debugSentinelPresent()
-ipcMain.handle('is-debug-mode', () => debugMode)
+
+// Resolved on first ask, not at module scope. It used to run during require(),
+// which meant app.getPath('userData') was called before the app was ready and
+// outside any try - and anything thrown there takes the whole main process down
+// before a window exists, with nothing on screen to say why. A diagnostic must
+// never be able to stop the app starting.
+let _debugMode = null
+ipcMain.handle('is-debug-mode', () => {
+  if (_debugMode === null) {
+    try { _debugMode = debugSentinelPresent() } catch (e) {
+      console.error('[cascade] debug sentinel check failed, carrying on without it:', e)
+      _debugMode = false
+    }
+  }
+  return _debugMode
+})
 
 // IPC: app version
 ipcMain.handle('get-version', () => app.getVersion())
@@ -423,8 +498,9 @@ ipcMain.on('open-lyrics-editor', (_e, data) => {
     show: false,
   })
   lyricsEditorWindow.loadFile('lyrics-editor.html')
-  lyricsEditorWindow.once('ready-to-show', () => {
-    lyricsEditorWindow.show()
+  // Same show:false + ready-to-show pattern the main window was caught by, so
+  // the lyrics editor would never have opened on Windows either.
+  showWhenReady(lyricsEditorWindow, () => {
     lyricsEditorWindow.webContents.send('lyrics-editor-init', data)
   })
   lyricsEditorWindow.webContents.on('before-input-event', (_e, input) => {
@@ -441,6 +517,164 @@ ipcMain.on('lyrics-editor-saved', (_e, itemId) => {
 
 ipcMain.on('lyrics-editor-close', () => {
   if (lyricsEditorWindow && !lyricsEditorWindow.isDestroyed()) lyricsEditorWindow.close()
+})
+
+// ── Metadata editor window ─────────────────────────────────────────────────────
+// Same shape as the lyrics editor above: its own small window, its own preload,
+// its own save-then-tell-the-main-window-to-drop-its-cache handshake. Gating on
+// jf.isAdmin happens in renderer.js before this ever fires - POST /Items/{id}
+// is RequiresElevation on the server, so a non-admin call would just 403, but
+// there is no reason to let it get that far.
+
+ipcMain.on('open-metadata-editor', (_e, data) => {
+  if (metadataEditorWindow && !metadataEditorWindow.isDestroyed()) {
+    metadataEditorWindow.focus()
+    metadataEditorWindow.webContents.send('metadata-editor-init', data)
+    return
+  }
+  // Unlike the lyrics editor, this window keeps the OS's own title bar rather
+  // than drawing a custom one: titleBarStyle:'hiddenInset' is macOS-only and
+  // silently ignored elsewhere, which is how a hand-rolled titlebar strip ends
+  // up stacked under the OS's own default one on Windows/Linux. A plain framed
+  // window sidesteps that entirely - nothing to guard per platform.
+  metadataEditorWindow = new BrowserWindow({
+    width: 640, height: 620, minWidth: 520, minHeight: 480,
+    title: 'Edit Metadata', backgroundColor: '#111113',
+    autoHideMenuBar: true, resizable: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'metadata-editor-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+    show: false,
+  })
+  metadataEditorWindow.loadFile('metadata-editor.html')
+  // Same show:false + ready-to-show pattern as the lyrics editor, for the same
+  // reason - ready-to-show alone can simply never fire on Windows.
+  showWhenReady(metadataEditorWindow, () => {
+    metadataEditorWindow.webContents.send('metadata-editor-init', data)
+  })
+  metadataEditorWindow.webContents.on('before-input-event', (_e, input) => {
+    if (input.type === 'keyDown' && input.key === 'F12') metadataEditorWindow.webContents.toggleDevTools()
+  })
+  metadataEditorWindow.on('closed', () => { metadataEditorWindow = null })
+})
+
+ipcMain.on('metadata-editor-saved', (_e, itemId) => {
+  if (win && !win.isDestroyed()) win.webContents.send('metadata-saved', itemId)
+})
+
+ipcMain.on('metadata-editor-close', () => {
+  if (metadataEditorWindow && !metadataEditorWindow.isDestroyed()) metadataEditorWindow.close()
+})
+
+// ── Miniplayer window ──────────────────────────────────────────────────────────
+// A remote control view, not a second player - see CODEMAP.md. Playback keeps
+// running in the main window's two <video> decks; this window only mirrors a
+// state snapshot and sends back play/pause/prev/next, which the main window
+// applies through its own existing button handlers (see onControl in
+// renderer.js) rather than any new playback code living here.
+
+// Apple Music-style vertical-only resize: width stays fixed (miniplayer.html's
+// compact-bar/stacked-art container query switches on height, not width), and
+// height ranges from a bare compact bar up to a comfortably art-forward view.
+// None of resizable/minWidth/maxWidth/minHeight/maxHeight below are macOS-only
+// (unlike titleBarStyle/trafficLightPosition above) - all three platforms
+// honour them, so no per-platform guard is needed here.
+const MINI_WIDTH = 300
+const MINI_MIN_HEIGHT = 100
+const MINI_MAX_HEIGHT = 900   // Apple Music's own tall state is ~880px
+const MINI_DEFAULT_HEIGHT = 120
+
+ipcMain.on('open-miniplayer', () => {
+  if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) {
+    miniPlayerWindow.focus()
+  } else {
+    // Store values are untrusted (CODEMAP) - a stale height from a build with
+    // a different min/max range must not hand the window an out-of-range size.
+    const savedHeight = store.get('miniplayerHeight')
+    const height = (typeof savedHeight === 'number' && savedHeight >= MINI_MIN_HEIGHT && savedHeight <= MINI_MAX_HEIGHT)
+      ? savedHeight : MINI_DEFAULT_HEIGHT
+
+    miniPlayerWindow = new BrowserWindow({
+      // Real traffic lights on macOS rather than an in-page button. They give a
+      // close that cannot be broken by page CSS, and they drag the window for
+      // free - which matters here, because the in-page versions of both were
+      // dead until the drag region was cut back to a strip. Windows and Linux
+      // stay frameless and keep the in-page close button; a titleBarOverlay at
+      // this window size would eat most of the top edge.
+      ...(process.platform === 'darwin'
+        ? {
+            titleBarStyle: 'hidden',
+            trafficLightPosition: { x: 10, y: 6 },
+            // A blurred translucent panel rather than a black rectangle. macOS
+            // only: Windows and Linux fall back to the page's own translucent
+            // background over an opaque window, which still reads as a tint.
+            vibrancy: 'under-window',
+            transparent: true,
+          }
+        : {}),
+      width: MINI_WIDTH, height,
+      minWidth: MINI_WIDTH, maxWidth: MINI_WIDTH,
+      minHeight: MINI_MIN_HEIGHT, maxHeight: MINI_MAX_HEIGHT,
+      title: 'Cascade', backgroundColor: '#111113',
+      frame: false, resizable: true, alwaysOnTop: true, skipTaskbar: true,
+      autoHideMenuBar: true,
+      webPreferences: {
+        preload: path.join(__dirname, 'miniplayer-preload.js'),
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
+      show: false,
+    })
+    miniPlayerWindow.loadFile('miniplayer.html')
+    // Same show:false + ready-to-show pattern as every other secondary window -
+    // ready-to-show alone can simply never fire on Windows.
+    showWhenReady(miniPlayerWindow)
+    // Debounced so a live drag-resize doesn't write the store on every
+    // intermediate frame.
+    let resizeSaveTimer = null
+    miniPlayerWindow.on('resize', () => {
+      clearTimeout(resizeSaveTimer)
+      resizeSaveTimer = setTimeout(() => {
+        if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) {
+          store.set('miniplayerHeight', miniPlayerWindow.getBounds().height)
+        }
+      }, 400)
+    })
+    miniPlayerWindow.on('closed', () => {
+      clearTimeout(resizeSaveTimer)
+      miniPlayerWindow = null
+      // Restoring the main window belongs HERE, not only in the
+      // miniplayer-restore handler below - this fires no matter how the
+      // window closed (the close button, the OS window-menu Close Window
+      // shortcut, Alt+F4, anything). The miniplayer stands in for the main
+      // window (win.minimize(), never hide()), so any path that loses this
+      // window must bring the main one back or the user is left with no
+      // window at all, which is exactly the failure this app already shipped
+      // once.
+      if (win && !win.isDestroyed()) { win.restore(); win.focus() }
+    })
+  }
+  // Compact-mode convention (Spotify/Apple Music): the miniplayer stands in for
+  // the main window rather than sitting alongside it. minimize(), not hide() -
+  // this app has no tray icon, so hide() would leave no way back to it.
+  if (win && !win.isDestroyed()) win.minimize()
+})
+
+ipcMain.on('miniplayer-state', (_e, state) => {
+  if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) miniPlayerWindow.webContents.send('miniplayer-state', state)
+})
+
+ipcMain.on('miniplayer-control', (_e, action) => {
+  if (win && !win.isDestroyed()) win.webContents.send('miniplayer-control', action)
+})
+
+// Closing (button or click-anywhere) just closes the window - the 'closed'
+// handler above is the single place that restores the main window, so every
+// way this window can go away ends up there instead of duplicating the logic.
+ipcMain.on('miniplayer-restore', () => {
+  if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) miniPlayerWindow.close()
 })
 
 // ── GitHub release check ───────────────────────────────────────────────────────

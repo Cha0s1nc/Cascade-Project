@@ -1,7 +1,8 @@
 import { test, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { JellyfinClient } from '../src/core/jellyfin.ts'
-import { resolveStream, universalStreamUrl, stopActiveEncoding, DEFAULT_MAX_BITRATE, resumeTicks, neededAudioStreamIndex } from '../src/core/playback.ts'
+import { resolveStream, universalStreamUrl, stopActiveEncoding, DEFAULT_MAX_BITRATE, resumeTicks, neededAudioStreamIndex, withoutAudioCodecs
+} from '../src/core/playback.ts'
 import { ELECTRON_PROFILE, buildElectronProfile } from '../src/core/profiles/electron.ts'
 import type { ServerConfig, JfMediaStream } from '../src/core/types.ts'
 
@@ -513,4 +514,25 @@ test('video and subtitle streams in the same list are ignored', () => {
     { Type: 'Subtitle', Index: 3, Codec: 'subrip' },
   ]
   assert.equal(neededAudioStreamIndex(streams, DECODABLE), 2)
+})
+
+test('withoutAudioCodecs drops a codec from video direct play only', () => {
+  const profile = {
+    DirectPlayProfiles: [
+      { Type: 'Video', Container: 'mkv', AudioCodec: 'aac,mp3,ac3,eac3' },
+      { Type: 'Video', Container: 'mp4', AudioCodec: 'aac,ac3' },
+      { Type: 'Audio', Container: 'flac', AudioCodec: 'flac,ac3' },
+    ],
+  } as any
+  const out = withoutAudioCodecs(profile, ['ac3'])
+  assert.equal(out.DirectPlayProfiles[0].AudioCodec, 'aac,mp3,eac3')
+  assert.equal(out.DirectPlayProfiles[1].AudioCodec, 'aac')
+  // The audio entry is untouched: this failure is a video-container problem.
+  assert.equal(out.DirectPlayProfiles[2].AudioCodec, 'flac,ac3')
+})
+
+test('withoutAudioCodecs is case insensitive and returns the original when nothing is dropped', () => {
+  const profile = { DirectPlayProfiles: [{ Type: 'Video', AudioCodec: 'AAC,AC3' }] } as any
+  assert.equal(withoutAudioCodecs(profile, ['ac3']).DirectPlayProfiles[0].AudioCodec, 'AAC')
+  assert.equal(withoutAudioCodecs(profile, []), profile)
 })

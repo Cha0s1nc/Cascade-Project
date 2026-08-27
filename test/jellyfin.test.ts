@@ -4,7 +4,7 @@ import {
   JellyfinClient, authenticate, authHeader,
   quickConnectEnabled, quickConnectInitiate, quickConnectApproved, quickConnectAuthenticate,
   QUICK_CONNECT_POLL_MS, QUICK_CONNECT_TIMEOUT_MS, readErrorMessage,
-  splitVideoLibraryIds, effectiveLibraryIds,
+  splitVideoLibraryIds, effectiveLibraryIds, groupRecentlyWatched,
 } from '../src/core/jellyfin.ts'
 import type { ServerConfig, JfItemsResponse, JfItem } from '../src/core/types.ts'
 
@@ -366,4 +366,34 @@ test('effectiveLibraryIds: with a real choice, saved ids win but vanished ones a
 
 test('effectiveLibraryIds: no libraries in the category means no ids, regardless of saved state', () => {
   assert.deepEqual(effectiveLibraryIds([], ['m1']), [])
+})
+
+const ep = (id: string, seriesId: string | undefined) =>
+  ({ Id: id, Type: 'Episode', SeriesId: seriesId }) as JfItem
+const movie = (id: string) => ({ Id: id, Type: 'Movie' }) as JfItem
+
+test('groupRecentlyWatched: keeps only the most recent episode per series', () => {
+  // Already sorted most-recent-first, same as the caller's re-sort across getMerged.
+  const items = [ep('e4', 's1'), ep('e3', 's1'), ep('e2', 's1'), ep('e1', 's1')]
+  assert.deepEqual(groupRecentlyWatched(items).map(i => i.Id), ['e4'])
+})
+
+test('groupRecentlyWatched: leaves movies alone and does not group them with anything', () => {
+  const items = [movie('m1'), ep('e1', 's1'), movie('m2'), ep('e2', 's1')]
+  assert.deepEqual(groupRecentlyWatched(items).map(i => i.Id), ['m1', 'e1', 'm2'])
+})
+
+test('groupRecentlyWatched: different series are kept separate, most recent first', () => {
+  const items = [ep('a2', 'showA'), ep('b2', 'showB'), ep('a1', 'showA'), ep('b1', 'showB')]
+  assert.deepEqual(groupRecentlyWatched(items).map(i => i.Id), ['a2', 'b2'])
+})
+
+test('groupRecentlyWatched: an episode with no SeriesId is kept, never dropped', () => {
+  const items = [ep('e1', undefined), ep('e2', undefined), ep('e3', 's1')]
+  assert.deepEqual(groupRecentlyWatched(items).map(i => i.Id), ['e1', 'e2', 'e3'])
+})
+
+test('groupRecentlyWatched: several unrelated no-SeriesId episodes never collapse into one', () => {
+  const items = [ep('e1', ''), ep('e2', undefined), ep('e3', '')]
+  assert.deepEqual(groupRecentlyWatched(items).map(i => i.Id), ['e1', 'e2', 'e3'])
 })

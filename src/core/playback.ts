@@ -353,3 +353,31 @@ function directStreamUrl(
   const base = kind === 'Video' ? 'Videos' : 'Audio'
   return `${config.url}/${base}/${itemId}/stream${ext}?${params}`
 }
+
+/**
+ * The same profile with `drop` removed from every video direct-play entry's
+ * audio codec list.
+ *
+ * For a codec the client CLAIMED it could decode and then demonstrably could
+ * not. canPlayType is a promise, not a guarantee: it answers from a codec
+ * registry, not from a decoder that has actually run, and a claim it gets wrong
+ * is silent - the container demuxes, the picture plays, and the audio decoder
+ * produces nothing at all. Withdrawing the claim makes the next negotiation
+ * transcode instead of direct playing into silence.
+ *
+ * Video entries only. The audio path plays single-stream music files whose
+ * codec the server picked against this same list, and it is not where this
+ * failure happens.
+ */
+export function withoutAudioCodecs(profile: DeviceProfile, drop: string[]): DeviceProfile {
+  if (!drop.length) return profile
+  const dropped = new Set(drop.map(c => c.toLowerCase()))
+  return {
+    ...profile,
+    DirectPlayProfiles: profile.DirectPlayProfiles.map(p => {
+      if (p.Type !== 'Video' || !p.AudioCodec) return p
+      const kept = p.AudioCodec.split(',').filter(c => !dropped.has(c.trim().toLowerCase()))
+      return { ...p, AudioCodec: kept.join(',') }
+    }),
+  }
+}

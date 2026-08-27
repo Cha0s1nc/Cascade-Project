@@ -1,190 +1,213 @@
 # Cascade code map
 
-**Describes commit `2fdfb1a`. Line numbers rot fast - if a landmark is not where
-this says, re-grep and fix the line here rather than trusting it.**
+**Describes commit `a3f5f52` on `dev`. Every line number below was re-derived
+at that commit, not carried over. Line numbers rot fast: if a landmark is not
+where this says, re-grep and fix the line here rather than trusting it.**
 
 Written so an agent can start work without re-reading the whole tree. It is a
-map, not documentation: it says where things are and how they are wired, not
-what they should be.
+map, not documentation: it says where things are, how they are wired, and
+**which shapes exist because a specific bug forced them**. That last part is
+the point. Most of what follows is a scar.
 
 ## Shape of the project
 
 | File | Lines | What it is |
 |---|---|---|
-| `renderer.js` | ~6850 | The whole UI. Plain global scope, **no semicolons**, no modules. |
-| `index.html` | ~2210 | All markup AND every CSS rule, in one `<style>` block. |
-| `main.js` | 626 | Electron main process. Uses semicolons. |
-| `src/preload.ts` | 46 | The only bridge to main. Builds `window.cascade`, typed as `ElectronPlatform`. |
-| `src/core/*.ts` | - | Pure logic, bundled by esbuild via `src/index.ts` into global `CascadeCore`. |
-| `test/*.test.ts` | - | `node --test`. 197 passing at this commit. |
+| `renderer.js` | ~8630 | The whole UI. Plain global scope, **no semicolons**, no modules. |
+| `index.html` | ~2770 | All markup AND every CSS rule in one `<style>` block. |
+| `main.js` | ~920 | Electron main process. Uses semicolons. |
+| `src/core/*.ts` | 19 modules | Pure logic, bundled by esbuild via `src/index.ts` into the global `CascadeCore`. |
+| `test/*.test.ts` | - | `node --test`. **275 passing** at this commit. |
+| `miniplayer.html`, `metadata-editor.html`, `lyrics-editor.html`, `updater.html` | - | Secondary windows, each with its own preload. |
 
-Verify everything with `npm run build:ts && npm run typecheck && npm test`.
+Verify with `npm run build:ts && npm run typecheck && npm test`.
 
-**The coupling that matters most and is invisible to any AST:** `index.html`
-defines ids and classes, `renderer.js` reaches them by `getElementById` /
-`querySelector` string literals. Renaming an id is a silent break. Grep the id
-across both files before touching one.
+**Run `npx tsc --noEmit` directly, never piped to `tail`.** Errors print above
+the last line, so `| tail -1` hides them. A broken assertion shipped that way.
+
+**The coupling no AST can see:** `index.html` defines ids and classes,
+`renderer.js` reaches them by `getElementById` / `querySelector` string
+literals. Renaming an id is a silent break that typecheck will not catch.
+
+## Rules this codebase learned the hard way
+
+1. **Read the response of anything that writes.** Five separate write paths
+   were found reporting success on an HTTP 403 because nothing checked
+   `res.ok`, and one removed a track from the queue regardless of what the
+   server said, so a refused delete looked exactly like a successful one.
+2. **Never trust an endpoint's shape from memory.** "Mark as played" was
+   written against `/Users/{id}/PlayedItems/{id}`, which does not exist on
+   Jellyfin 10.11. The server's own OpenAPI spec is the source of truth.
+3. **A layout class must be set or cleared BEFORE a skeleton is drawn**, not
+   after the fetch resolves, or the placeholder is laid out by whatever the
+   previous screen left behind.
+4. **`ready-to-show` can never fire on Windows.** See `showWhenReady()`.
+5. **Windows and Linux draw OS caption buttons OVER the page, top right.**
+   Use `--caption-reserve`. This has bitten three separate controls.
+6. **A `-webkit-app-region: drag` surface hands its mouse events to the OS.**
+   Nothing under it receives hover, click or mousemove.
+7. **A pseudo-element cannot escape its host** - not its clipping, not its
+   stacking context. No z-index fixes it from the inside.
 
 ## renderer.js landmarks
 
-### Session and connection
-- `connect(serverUrl, token, userId)` - **440**. Sets the global `jf`.
-  - It pings `jfGet('/Users/${userId}')` up to 3x purely to verify the token and
-    **throws the response away**. That response is the full user object and
-    contains `Policy.IsAdministrator`. Admin detection is free here; do not add
-    a second request for it.
-  - Then: `startRemoteControl()`, `probeCascadePlugin()` (not awaited),
-    `populateLibraryPicker()`, `invalidateLibraryViews()`, `loadHome()`,
-    `maybeShowVideoIntro()`.
-- `promptReauth(message)` - **3836**. Full-screen reauth path.
-- Sign out - around **3805**. Tears down playback, Discord and caches (b95c8b7).
-  Any new session-scoped flag must be cleared here or it survives into the next
-  account.
+### Session, permissions, setup
+- `connect(serverUrl, token, userId)` - **477**. Sets the global `jf`. Fires
+  `/Users/{id}/Views` in PARALLEL with the token ping rather than after it.
+  The ping's response carries `Policy`, which is where `isAdmin` and
+  `canDelete` come from, so both are free - do not add a request for them.
+- `_applyAdminGating()` - **644**. Gates the library scan, both Refresh
+  metadata entries, Edit metadata/images, and playlist delete. **A new
+  admin-only control must be added to this function's id list or it is not
+  gated at all.** Uses the `.needs-admin` class plus an inline note.
+- `maybeShowSetupWizard()` - **1116**, `WIZARD_REVISION` - **1085**. Runs from
+  `connect()` off a stored revision, NOT the app version and NOT a boolean.
+  Safe to re-show on update only because every step seeds from the current
+  live value. **Never add a step that writes a default on entry.**
+- `setBrowseMode()` - **921**. The Music/Video toggle. A browsing filter only:
+  it never touches playback or the queue.
 
-### View caches
-- `invalidateLibraryViews()` - **545**. Clears `allSongs` and the
-  `dataset.loaded` flag on `albums-grid`, `artists-grid`, `songs-rows`,
-  `playlists-grid`.
-- `invalidateVideoViews()` - **553**. Same for `movies-grid`, `shows-grid`.
-  Deliberately separate: changing music libraries must not drop a loaded movie
-  grid.
-- `showView(name)` - **~890**. Lazy-loads a grid only when `dataset.loaded` is
-  absent. This pair of functions plus that flag IS the cache layer. There is no
-  other one. Home's shelves (`loadRecentlyPlayed`, `loadRecentlyAdded`,
-  `loadRecentlyWatched`) are NOT covered by either and reload on `loadHome()`.
+### Library, views, caches
+- `invalidateLibraryViews()` - **627**, `invalidateVideoViews()` - **635**.
+  Plus the `dataset.loaded` flag `showView()` checks. That pair and that flag
+  ARE the cache layer; there is no other.
+- `renderLibraryPicker()` - **749**, `renderVideoLibraryGroups()` - **974**.
+  Neither hides itself for having only one library. A sole video library
+  defaults on but can be switched off, so `effectiveLibraryIds()` treats a
+  missing saved value and an empty one as different answers.
+- `loadPosterGrid()` - **2703**. Adds `.lib-grouped` to the container when it
+  holds groups (index.html **151**). Without it the container is still a
+  150px-column grid and each whole library group becomes ONE cell, which
+  renders two libraries as two narrow columns.
 
 ### Playlists
-- `loadPlaylists()` - **1418** (index grid).
-- `currentPlaylistItems` - **1457**. The in-memory copy the Play/Shuffle buttons
-  read. Keeping it in sync with the server is the whole game here.
-- `playlistMutated(playlistId)` - **1465**. **The single choke point every
-  mutation must go through.** Commit 8085688 exists because the old code patched
-  the DOM by hand and left this array holding removed tracks, so Play could play
-  something no longer in the playlist. Do not add a mutation path that bypasses
-  it.
-- Playlist detail render - **1504-1575**, `openPlaylist()` at **1575**.
-  Row markup at **1518**, drag rebinding at **1521**.
-- Refresh button handler - **1495**.
-- Smart playlists (Favorites / Most Played) - **~1610-1660**. Most Played
-  already sorts on `UserData.PlayCount` (**1622-1626**), so the count is
-  already in memory; showing it needs no new fetch.
-- Ownership: **`src/core/ownership.ts` is NOT about this.** It is playback
-  ownership (local vs cast vs waterfall). There is no playlist-ownership helper
-  in this codebase yet. Jellyfin exposes `GET /Playlists/{id}/Users` and item
-  DTOs carry `CanDelete`; neither is currently read. Decide and say which you
-  used.
+- `currentPlaylistItems` - **1901**, `playlistMutated()` - **1909**. **The
+  single choke point every mutation must go through.** Bypassing it is what
+  once left the in-memory list holding removed tracks.
+- `openPlaylist()` - **2213**. Clears `has-extra-col` before drawing its
+  skeleton, per rule 3 above.
+- Smart playlists (Favorites, Most Played) hide the Edit button: they are
+  generated, with nothing on the server to rewrite.
 
-### Songs list
-- `loadSongs()` - **1232**. `Limit: 500`.
-- Virtualised: `SONG_WIN = 40` at **1329**, `_drawSongRows()` at **1405**.
-  Row element references go stale on every redraw - **2567** has the comment
-  explaining why nothing caches them.
-- Sorting is `sortSongs` / `songSortValue` in `src/core/`. Any new column
-  follows that, not a new mechanism.
-
-### Playback and decks
-- Two permanent `<video>` decks, `DECKS`, global `audio` pointer, and
-  `onDeck(type, fn)` which binds both and filters to the live one - **~44-80**.
-  Every listener goes through `onDeck` so a crossfade handoff is a pointer move.
-- `playCurrentTrack(opts)` - **~2310**. `opts.alreadyPlaying` means a crossfade
-  already has the deck playing.
-- Crossfade - **2947-3180**. `startCrossfade` **2995**, `_swapDeck` **~3100**,
-  `finishCrossfade` **3124**, `cancelCrossfade` **3149**.
-- `_waitForPlayable(deck, timeoutMs)` - **3258**. Already waits for
-  `canplaythrough` / readyState 4.
-- Prefetch into the idle deck - **~3182-3255**.
-- **Crossfade stutter (open bug): four causes already ruled out by reading.**
-  Ramp resolution is fine (50 points over the fade, interpolated on the audio
-  thread). Readiness bar is already the strong one. Colour extraction at handoff
-  is 6400 pixels. Queue panel and songs list are both already virtualised. Do
-  not re-investigate these four. It needs measurement.
+### Playback, decks, crossfade
+- Two permanent `<video>` decks, `DECKS`, the `audio` pointer, and
+  `onDeck(type, fn)` which binds both and filters to the live one.
+- `_detachDeck(el)` - **4004**. **The only correct way to let go of a deck.**
+  Assigning `''` to `.src` makes the element load the page itself as media.
+- `_swapDeck` **4009**, `finishCrossfade` **4028**, `cancelCrossfade` **4053**,
+  `_waitForPlayable` **4168**.
+- `currentDeviceProfile()` - **318**. The profile minus any codec proven
+  undecodable at runtime.
+- `_armAudioDecodeCheck()` - **8335**. Detects "video plays, no sound" using
+  `webkitAudioDecodedByteCount`, NOT the analyser level: a quiet scene and a
+  broken decoder both read as zero level, but only a broken decoder has
+  decoded zero BYTES while the clock ran. On failure it withdraws the codec
+  claim, persists it, and re-negotiates.
+- **Crossfade stutter is still open**, and six candidates are already ruled
+  out by reading: ramp resolution, the readiness bar, colour extraction at
+  handoff, list virtualisation, EQ parameter ramping, and graph rewiring. It
+  needs a `readyState` reading off the debug panel, not another guess.
 
 ### Web Audio / EQ
-- `_ensureEqGraph()` - **~4195**. AudioContext -> per-deck source -> per-deck
-  GainNode (crossfade envelope) -> preamp -> 5 biquads -> analyser -> out.
-- Three failure flags - **4164-4166**, and the distinction is load-bearing:
-  - `_eqGraphFailed` - no graph at all. Blocks bars **and** crossfade.
-  - `_eqNoSignal` - graph exists, tap reads zeros. Cosmetic, bars only.
-  - `_eqEverHadSignal` - one non-zero sample proves the tap works.
-  Conflating the first two is what silently killed crossfade for a whole
-  session once (bc6af6c). Keep them apart.
+- `_ensureEqGraph()` - **5143**. AudioContext -> per-deck source -> per-deck
+  gain (the crossfade envelope) -> preamp -> 5 biquads -> analyser -> out.
+  Built once, never rewired.
+- Three failure flags at **5106**, and the distinction is load-bearing:
+  `_eqGraphFailed` (no graph at all, blocks bars AND crossfade),
+  `_eqNoSignal` (cosmetic, bars only), `_eqEverHadSignal`. Conflating the
+  first two silently killed crossfade for a whole session once.
 
-### Theme and album art colour
-- `setThemeMode(mode)` - **6603**. Sets `data-theme="light"` or `''` on `<html>`.
-- `applyGradient(start, end)` - **6587**.
-- `applyAlbumArtTheme(imgEl)` - **~6740**. **One** extraction, feeding both the
-  blobs and the accent. Commit 2edb864 removed a second, disagreeing extraction;
-  do not reintroduce one.
-- `_blobColors` **4100**, `randomizeDrift()` **4103**, drift loop **~4122**.
-- `NEUTRAL_ART_SAT` **6738**. Gradient normalises to L 0.62 / S 0.85 - eyeball
-  numbers, tuned against a black background.
-- `extractTopColors(img)` - **~6689**. 80x80 canvas, nearest-neighbour on
-  purpose (smoothing invents colours that appear nowhere on the cover).
+### Theme and album art
+- `setThemeMode()` - **7973**, `applyAlbumArtTheme()` - **8127**. **One**
+  extraction feeding both blobs and accent; a second, disagreeing one was
+  removed.
+- Light mode is NOT "dark but paler". With multiply blending a dark blob
+  stains a near-white base like ink, so the two lightness ranges move in
+  opposite directions on purpose. See `BLOB_L_RANGE` in `album-colors.ts`.
 
-### CascadeSLRC plugin detection
-- `probeCascadePlugin()` - **5604**. `GET {jf.url}/CascadeLyrics/Info`. 200
-  present, 404 absent, network error changes nothing.
-- The gating function that greys controls - **5622**.
+### Tooltips, menus, debug
+- `_positionTooltip()` - **8254**. One shared `#tooltip` element on `<body>`
+  (index.html **496**), delegated from `document`. NOT a `::after`: a
+  pseudo-element cannot escape clipping or a stacking context, which is why
+  tips vanished behind the player bar and inside Settings.
+- Three context menus, all direct children of `<body>`: `#ctx-menu`
+  (**2429**), `#track-ctx-menu` (**2483**), `#item-ctx-menu` (**2531**, albums
+  / artists / video / series / playlists, driven by `menuItemsForKind()` in
+  `src/core/context-menu.ts`). All three clamp position via
+  `CascadeCore.clampMenuPosition()`.
+  - Known gap, deliberately left: `#ctx-menu`'s own item handlers never call
+    `hideCtxMenu()` on click.
+- `setItemPlayed()` - **6842**. `POST`/`DELETE /UserPlayedItems/{id}`.
+- `debugPanelText()` - **8431**. Behind a `.cascade-debug` sentinel file,
+  costs nothing when absent. Shows PlayMethod, every audio track with whether
+  this build claims to decode it, live analyser peak, decoded byte count, and
+  prefetch hit/miss with readyState. Shift-click copies it.
+- `pushMiniplayerState()` - **3415**. Sends lyrics from the CURRENT line
+  onward, so the miniplayer renders top-down with the active line at the top
+  and does no scrolling of its own.
 
 ## index.html landmarks
 
-- Titlebar CSS **21-23**, markup **~1010**. `html[data-platform="darwin"]
-  .titlebar { padding-left: 80px }` reserves the traffic lights.
-  `data-platform` is set in `renderer.js` at **3944** from
-  `window.cascade.platform`.
-- Setup overlay **255-293** (fade + `prefers-reduced-motion`), video intro card
-  **286-292**.
-- Popup animation pattern **793+** and **919+**. Everything keeps `display`
-  fixed and moves `opacity` + `visibility` + `pointer-events` + a transform,
-  140ms, `cubic-bezier(0.2,0.7,0.3,1)`. **Do not go back to toggling
-  `display`** - it cannot be transitioned, and `visibility` is what keeps a
-  closed popup out of hit-testing.
-- Modals: `.modal-overlay` / `.modal-card` / `.modal-list` / `.modal-btn` /
-  `.modal-input`. Reuse these verbatim for any new dialog and it inherits the
-  animation for free.
-- Tooltips: `[data-tip]::after`. Renders **below** its host on purpose, because
-  one parent panel clips overflow. Check clipping wherever you attach it. There
-  is exactly one tooltip system - do not add a second.
-- Settings view `#view-settings` **1424**, groups in order:
-  Library **1426**, Playback **1458**, Equalizer **1490**, Waterfall **1555**,
-  Discord **1585**, Fetching **1606**, Lyrics **1620**, Account **1637**,
-  then `.settings-actions` **1655**.
-  Account is already last (a1aa47c). Element ids here are looked up all over
-  `renderer.js` - reorganising headings is fine, **renaming an id is not**.
-- Range inputs already have a shared style (from the EQ sliders), so a new
-  slider needs no new CSS.
+- Titlebar CSS **21-40**, `--caption-reserve` at **36**. `data-platform` is set
+  on `<html>` from `window.cascade.platform`.
+- `#tooltip` **496**. `.hshelf` **163** (the horizontal shelf with edge arrows,
+  used by Home shelves and grouped library rows). `.lib-grouped` **151**.
+- Now-playing overlay: header **521**, video full mode **727**. The header and
+  the column divider have no borders on purpose - they cut through the album
+  art background, which bleeds across both halves.
+- Settings `#view-settings` **1802**, five groups from **1805**: Library,
+  Playback (Equalizer folded in), Lyrics & Metadata, Integrations, Account.
+  Reorganising headings is fine; **renaming an id is not**.
+- First-run wizard `#firstrun-overlay` **2186**.
+- Popups keep `display` fixed and transition opacity + visibility + transform.
+  **Never go back to toggling `display`**: it cannot be transitioned, and
+  `visibility` is what keeps a closed popup out of hit-testing.
 
 ## main.js landmarks
 
-- `createWindow()` - **166**. `titleBarStyle: 'hiddenInset'` +
-  `trafficLightPosition` (**176-177**) are **macOS only**; on Windows and Linux
-  they are ignored, which is why those platforms get the OS title bar AND the
-  app's own 38px one stacked. `minHeight: 560` at **173** is deliberate, with a
-  comment saying why.
-- macOS app menu **196+**. Passing `null` on macOS leaves a dead stub and costs
-  the Edit menu, which is what makes Cmd+C/V work in a text field.
-- Discord RPC ipc handlers, incl. the `discord-rpc-clear` throttle fix.
-- Electron **29**, so `titleBarOverlay` is available on Windows and Linux.
+- `showWhenReady(w, after)` - **209**. **The only correct way to show a window
+  created with `show: false`.** `ready-to-show` fires on first paint, and a
+  hidden window on Windows may never produce one, which cost this app both its
+  main window and its lyrics editor. Races it against `did-finish-load` with a
+  timeout behind both. Media keys and the update check hang off
+  `did-finish-load` for the same reason.
+- `createWindow()` - **246**. `hiddenInset` + `trafficLightPosition` are macOS
+  only; Windows and Linux get `titleBarOverlay`. `minHeight: 560` is
+  deliberate.
+- `DEBUG_SENTINEL` - **373**. Resolved on first ask, not at module scope: it
+  once called `app.getPath()` during `require()`, before the app was ready.
+- Secondary windows: metadata editor **529**, miniplayer **589**
+  (`MINI_WIDTH` **584**, width locked, height 100-900, persisted).
+  **Every new window must be added to `package.json`'s `build.files`** or it
+  works in dev and is missing from the packaged app.
+- The miniplayer is gated to unpackaged builds; packaged shows "coming soon".
 
-## Server facts (verified against the user's live Jellyfin 10.11.11)
+## Server facts (verified against this user's live Jellyfin 10.11.11)
 
-- Admin flag: `Policy.IsAdministrator` on the `/Users/{id}` response.
-- `POST /Library/Refresh` - **admin only**, async (returns before scanning).
-- `POST /Items/{id}/Refresh` - **admin only**.
-- `POST /Items/{id}/Images/Primary` - **admin only**.
-- `POST /Playlists/{id}` - normal user. Body `UpdatePlaylistDto`:
-  `Name`, `Ids` (full ordered contents, replaces everything), `IsPublic`,
-  `Users`. Null fields are left alone. **No Overview field exists.**
-- `POST /Playlists/{id}/Items/{itemId}/Move/{newIndex}`, `DELETE
-  /Playlists/{id}/Items`.
-- User rating is thumbs only (`POST /UserItems/{id}/Rating?likes=`), a different
-  field from `IsFavorite`. No star ratings exist. Decided not to build on it.
+- Admin: `Policy.IsAdministrator` on `/Users/{id}`.
+- Deletion is its OWN right: `Policy.EnableContentDeletion` plus
+  `EnableContentDeletionFromFolders`. An admin has it implicitly; a non-admin
+  can be granted it. See `canDeleteMedia()` in `src/core/permissions.ts`.
+- `POST /Library/Refresh`, `POST /Items/{id}/Refresh`, `POST /Items/{id}` and
+  `POST /Items/{id}/Images/Primary` are all **RequiresElevation**.
+- `POST /Playlists/{id}` takes Name, Ids (the full ordered contents) and
+  IsPublic under normal auth. **No Overview field exists.**
+- `POST /Playlists/{id}/Items` takes `ids` as a query array, so
+  comma-separated works.
+- Played state is `POST`/`DELETE /UserPlayedItems/{id}` with `userId` as a
+  query parameter. The `/Users/{id}/PlayedItems/{id}` route is gone.
+- There are **no star ratings**. `POST /UserItems/{id}/Rating` is a thumbs
+  boolean, a different field from `IsFavorite`. Decided not to build on it.
+- Jellyfin exposes **no per-playlist add date**. Playlist entries are the plain
+  track DTO plus a `PlaylistItemId`.
 
 ## House style
 
 - `renderer.js`: no semicolons. `main.js`: semicolons. Match the neighbours.
 - **No em dashes anywhere**, code comments and commit messages included.
-- Comments explain WHY, especially where a previous bug drove the shape.
-- Store values are untrusted: a corrupted setting must never reach a filter gain
-  or a bitrate as NaN.
+- Comments explain WHY, especially where a past bug drove the shape.
+- Store values are untrusted: a corrupted setting must never reach a filter
+  gain or a bitrate as NaN.
 - Every animation belongs in the existing `prefers-reduced-motion` block.
+- A disabled control must ALSO be guarded in its handler. A disabled-looking
+  element can still be clicked programmatically.
