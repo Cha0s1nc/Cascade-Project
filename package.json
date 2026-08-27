@@ -57,6 +57,10 @@
       "updater-preload.js",
       "lyrics-editor.html",
       "lyrics-editor-preload.js",
+      "metadata-editor.html",
+      "metadata-editor-preload.js",
+      "miniplayer.html",
+      "miniplayer-preload.js",
       "package.json",
       "node_modules/**/*"
     ],

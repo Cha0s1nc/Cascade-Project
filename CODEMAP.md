@@ -1,24 +1,45 @@
 # Cascade code map
 
-**Describes commit `0577b88`. Line numbers rot fast - if a landmark is not where
-this says, re-grep and fix the line here rather than trusting it.**
+**Describes commit `69b7c4f` on `dev`, as last corrected during the
+feat/miniplayer-metadata-editor work. Line numbers rot fast - if a landmark is
+not where this says, re-grep and fix the line here rather than trusting it.**
+(The previous version of this file described `0577b88` and had drifted
+significantly - renderer.js alone had grown by over 1100 lines. Several
+landmarks below were re-grepped and corrected as part of that work; the ones
+that were not are still worth a grep-first before trusting.)
 
 Written so an agent can start work without re-reading the whole tree. It is a
 map, not documentation: it says where things are and how they are wired, not
 what they should be.
 
+**Note on `main.js`'s "uses semicolons":** it does not, in practice - the file
+has zero trailing semicolons as of this commit. Match the surrounding lines,
+not this table, whichever file you're in.
+
 ## Shape of the project
 
 | File | Lines | What it is |
 |---|---|---|
-| `renderer.js` | ~6850 | The whole UI. Plain global scope, **no semicolons**, no modules. |
-| `index.html` | ~2210 | All markup AND every CSS rule, in one `<style>` block. |
-| `main.js` | 626 | Electron main process. Uses semicolons. |
-| `src/preload.ts` | 46 | The only bridge to main. Builds `window.cascade`, typed as `ElectronPlatform`. |
+| `renderer.js` | ~7981+ | The whole UI. Plain global scope, **no semicolons**, no modules. |
+| `index.html` | ~2400+ | All markup AND every CSS rule, in one `<style>` block. |
+| `main.js` | ~850+ | Electron main process. No semicolons in practice, despite the name. |
+| `src/preload.ts` | - | The only bridge to main. Builds `window.cascade`, typed as `ElectronPlatform`. |
+| `src/platform/index.ts` | - | Defines `ElectronPlatform`/`DesktopCapabilities` - the actual contract `src/preload.ts` and `types/cascade.d.ts` both derive from. |
 | `src/core/*.ts` | - | Pure logic, bundled by esbuild via `src/index.ts` into global `CascadeCore`. |
-| `test/*.test.ts` | - | `node --test`. 197 passing at this commit. |
+| `test/*.test.ts` | - | `node --test` (native TS support, Node 22+). 238 passing at this commit. |
 
 Verify everything with `npm run build:ts && npm run typecheck && npm test`.
+As of this commit `typecheck` has one pre-existing failure unrelated to any of
+this - `test/album-colors.test.ts(184)`, `driftedBlobs()`'s `Blob` has no `.r`
+field (it's `w`/`h`). Not touched here; the assertion silently passes at
+runtime either way (`undefined === undefined`), so `npm test`'s count is
+unaffected.
+
+**Adding a `window.cascade.*` bridge method:** edit `src/platform/index.ts`
+(both `DesktopCapabilities` and, if renderer.js should call it without
+optional chaining, the `ElectronPlatform` required-fields block) and
+`src/preload.ts`. `types/cascade.d.ts` needs no edit - it just declares the
+global from `ElectronPlatform` and cannot drift on its own.
 
 **The coupling that matters most and is invisible to any AST:** `index.html`
 defines ids and classes, `renderer.js` reaches them by `getElementById` /
@@ -28,7 +49,7 @@ across both files before touching one.
 ## renderer.js landmarks
 
 ### Session and connection
-- `connect(serverUrl, token, userId)` - **458**. Sets the global `jf`.
+- `connect(serverUrl, token, userId)` - **476**. Sets the global `jf`.
   - It pings `jfGet('/Users/${userId}')` up to 3x purely to verify the token and
     **throws the response away**. That response is the full user object and
     contains `Policy.IsAdministrator`. Admin detection is free here; do not add
@@ -42,16 +63,21 @@ across both files before touching one.
   account.
 
 ### View caches
-- `invalidateLibraryViews()` - **574**. Clears `allSongs` and the
+- `invalidateLibraryViews()` - **610**. Clears `allSongs` and the
   `dataset.loaded` flag on `albums-grid`, `artists-grid`, `songs-rows`,
   `playlists-grid`.
-- `invalidateVideoViews()` - **582**. Same for `movies-grid`, `shows-grid`.
+- `invalidateVideoViews()` - **618**. Same for `movies-grid`, `shows-grid`.
   Deliberately separate: changing music libraries must not drop a loaded movie
   grid.
-- `showView(name)` - **~890**. Lazy-loads a grid only when `dataset.loaded` is
+- `showView(name)` - **1248**. Lazy-loads a grid only when `dataset.loaded` is
   absent. This pair of functions plus that flag IS the cache layer. There is no
   other one. Home's shelves (`loadRecentlyPlayed`, `loadRecentlyAdded`,
   `loadRecentlyWatched`) are NOT covered by either and reload on `loadHome()`.
+- These two invalidate functions plus `showView(_currentView)` + `loadHome()`
+  are also the established "refresh whatever is on screen right now" idiom -
+  see the `s-refresh-local` settings button, and the metadata editor's
+  `metadata-editor-saved` handler below, which both use exactly this rather
+  than a parallel refresh mechanism.
 
 ### Playlists
 - `loadPlaylists()` - **1418** (index grid).
@@ -84,8 +110,12 @@ across both files before touching one.
 
 ### Playback and decks
 - Two permanent `<video>` decks, `DECKS`, global `audio` pointer, and
-  `onDeck(type, fn)` which binds both and filters to the live one - **~44-80**.
+  `onDeck(type, fn)` which binds both and filters to the live one - **67-89**.
   Every listener goes through `onDeck` so a crossfade handoff is a pointer move.
+  These two decks and the Web Audio graph they feed (see `_ensureEqGraph`
+  below) are the reason the miniplayer (below) is a remote control view rather
+  than a second player - moving playback into a second `BrowserWindow` would
+  mean a new media element and every track restarting.
 - `playCurrentTrack(opts)` - **~2310**. `opts.alreadyPlaying` means a crossfade
   already has the deck playing.
 - Crossfade - **2947-3180**. `startCrossfade` **2995**, `_swapDeck` **3602**,
@@ -100,7 +130,7 @@ across both files before touching one.
   not re-investigate these four. It needs measurement.
 
 ### Web Audio / EQ
-- `_ensureEqGraph()` - **4696**. AudioContext -> per-deck source -> per-deck
+- `_ensureEqGraph()` - **5000**. AudioContext -> per-deck source -> per-deck
   GainNode (crossfade envelope) -> preamp -> 5 biquads -> analyser -> out.
 - Three failure flags - **4666-4668**, and the distinction is load-bearing:
   - `_eqGraphFailed` - no graph at all. Blocks bars **and** crossfade.
@@ -110,9 +140,9 @@ across both files before touching one.
   session once (bc6af6c). Keep them apart.
 
 ### Theme and album art colour
-- `setThemeMode(mode)` - **7107**. Sets `data-theme="light"` or `''` on `<html>`.
-- `applyGradient(start, end)` - **6587**.
-- `applyAlbumArtTheme(imgEl)` - **7261**. **One** extraction, feeding both the
+- `setThemeMode(mode)` - **7491**. Sets `data-theme="light"` or `''` on `<html>`.
+- `applyGradient(start, end)` - **~6587** (not re-verified this pass).
+- `applyAlbumArtTheme(imgEl)` - **7645**. **One** extraction, feeding both the
   blobs and the accent. Commit 2edb864 removed a second, disagreeing extraction;
   do not reintroduce one.
 - `_blobColors` **4100**, `randomizeDrift()` **4103**, drift loop **~4122**.
@@ -122,16 +152,17 @@ across both files before touching one.
   purpose (smoothing invents colours that appear nowhere on the cover).
 
 ### CascadeSLRC plugin detection
-- `probeCascadePlugin()` - **6108**. `GET {jf.url}/CascadeLyrics/Info`. 200
+- `probeCascadePlugin()` - **6450**. `GET {jf.url}/CascadeLyrics/Info`. 200
   present, 404 absent, network error changes nothing.
-- The gating function that greys controls - **5622**.
+- The gating function that greys controls - **~5622** (not re-verified this pass).
 
 ### Permissions and the setup wizard
-- `_applyAdminGating()` - **596**. `jf.isAdmin` comes free from the `/Users/{id}`
+- `_applyAdminGating()` - **627**. `jf.isAdmin` comes free from the `/Users/{id}`
   ping in `connect()`; do not add a second request for it. Gates the library
-  scan, both "Refresh metadata" entries, and both "Edit metadata"/"Edit
-  images" entries (they open the Jellyfin web UI, which itself refuses those
-  edits without admin).
+  scan, both "Refresh metadata" entries, "Edit images", and (as of this PR)
+  "Edit metadata" - the last of these now opens the in-app metadata editor
+  (below) rather than the Jellyfin web UI; only "Edit images" still bounces
+  to a browser.
 - `jf.canDelete` - set in `connect()` right after `jf.isAdmin`, same free
   `/Users/{id}` response, via `CascadeCore.canDeleteMedia(policy)` in
   `src/core/permissions.ts`. Deletion is its own Jellyfin right
@@ -153,11 +184,61 @@ across both files before touching one.
   missing saved value and an empty one as different answers.
 
 ### Decks, detaching, and the debug panel
-- `_detachDeck(el)` - **3597**. The ONLY correct way to let go of a deck.
+- `_detachDeck(el)` - **3878**. The ONLY correct way to let go of a deck.
   Assigning an empty string to `.src` makes the element load the page itself as
   media; every detach goes through here.
-- `debugPanelText()` - **7387**. Behind a `.cascade-debug` sentinel file, costs
+- `debugPanelText()` - **7891**. Behind a `.cascade-debug` sentinel file, costs
   nothing when absent. Shows PlayMethod and prefetch hit/miss with readyState.
+
+### Miniplayer (remote control view, not a second player)
+- `pushMiniplayerState()` - **3300**. Builds a snapshot via
+  `CascadeCore.buildMiniplayerState()` (`src/core/miniplayer.ts`, guards NaN/
+  out-of-range same as the EQ/volume clamps elsewhere) and sends it over IPC.
+  Called from `updateNowPlaying()`, `syncProgressUI()` (timeupdate) and both
+  `onDeck('play'/'pause', ...)` handlers - fire-and-forget; main.js drops it on
+  the floor when no miniplayer window is open, so nothing here tracks that.
+- `window.cascade.miniPlayer.onControl(...)` - wired next to the existing
+  `onMediaKey` handler. Maps `'playpause'|'next'|'prev'` to
+  `document.getElementById('btn-play'/'btn-next'/'btn-prev').click()` - the
+  same buttons `onMediaKey` and `mediaSession` already drive, not a new
+  playback path.
+- `btn-miniplayer-open` (statusbar) calls `window.cascade.miniPlayer.open()`,
+  which main.js turns into minimizing the main window and creating/focusing
+  `miniplayer.html`. Clicking anywhere in that window (or a control button
+  first stopping propagation) sends `miniplayer-restore`, which main.js turns
+  into `win.restore()` + `win.focus()` + closing the miniplayer window.
+
+### Video full mode
+- `setVideoFullMode(on)` - **5533**, persisted to `videoFullMode` store key,
+  applied in `applyVideoMode()` (**2978**) so a saved preference from the last
+  video takes effect on the next one. Independent of real OS fullscreen
+  (`toggleVideoFullscreen()` - **5517**) by design - see `.np-overlay.video.full`
+  in index.html.
+- Reuses `pokeOverlayControls()` / `.np-overlay.idle` (the existing idle-fade
+  timer) rather than a second one - full mode only changes what the CSS does
+  while idle, not how idle is detected.
+- `ov-full-exit` (click -> `closeOverlay()`) restores the exit that hiding
+  `.np-overlay-header` costs; Escape still works unconditionally regardless.
+
+### Metadata editor
+- `openMetadataEditorFor(item)` - **~6679** (search `function
+  openMetadataEditorFor`; line drifts with every edit to this section).
+  Gated on `jf.isAdmin` before ever opening the window - `POST /Items/{id}` is
+  `RequiresElevation` on the live server (verified, see Server facts below).
+  Wired to `ctx-edit-meta` / `tctx-edit-meta`, which used to call
+  `openInJellyfinWeb()`; only `ctx-edit-images` still does.
+- Its own window (`metadata-editor.html` + `metadata-editor-preload.js`),
+  same shape as the lyrics editor. Fetches the full item itself
+  (`GET /Items/{id}`) rather than trusting whatever DTO the row/queue held -
+  the save handler always POSTs that full object back with only the eight
+  form fields overwritten, never a partial body.
+- `metadata-editor-saved` handler (renderer.js, next to
+  `openMetadataEditorFor`) - reuses `invalidateLibraryViews()` +
+  `invalidateVideoViews()` + `showView(_currentView)` + `loadHome()` (the same
+  local-refresh idiom as the `s-refresh-local` settings button), plus a direct
+  re-fetch-and-patch of `queue[queueIndex]` when the edited item is the one
+  currently playing, since its status-bar/overlay text comes from that
+  in-memory object, not from either cache.
 
 ## index.html landmarks
 
@@ -186,18 +267,53 @@ across both files before touching one.
   typecheck catches a rename.
 - Range inputs already have a shared style (from the EQ sliders), so a new
   slider needs no new CSS.
+- Full-screen now-playing overlay CSS **~510+**. `.np-overlay.video.idle` (the
+  idle fade, reused rather than duplicated - see `pokeOverlayControls()` in
+  renderer.js) collapses title/padding but deliberately leaves the progress
+  row up. `.np-overlay.video.full` (**~705+**, added for video full mode) is a
+  separate, stronger state on top of that: header hidden outright, info and
+  transport floated over the picture with a scrim, and its own `.full.idle`
+  rule that - unlike the plain idle fade - hides the progress row too, since
+  there is no docked chrome left for it to sit in. `.np-overlay:fullscreen`
+  (real OS fullscreen) is a third, orthogonal axis - neither state checks the
+  other, by design; either can be on without the other, the same way VLC lets
+  you keep on-screen controls in fullscreen.
 
 ## main.js landmarks
 
-- `createWindow()` - **166**. `titleBarStyle: 'hiddenInset'` +
-  `trafficLightPosition` (**176-177**) are **macOS only**; on Windows and Linux
-  they are ignored, which is why those platforms get the OS title bar AND the
-  app's own 38px one stacked. `minHeight: 560` at **173** is deliberate, with a
-  comment saying why.
-- macOS app menu **196+**. Passing `null` on macOS leaves a dead stub and costs
-  the Edit menu, which is what makes Cmd+C/V work in a text field.
+- `createWindow()` - **246**. `titleBarStyle: 'hiddenInset'` +
+  `trafficLightPosition` are **macOS only**, guarded via `isDarwin ? ... :
+  overlayOptions()` - unguarded, this is how Windows/Linux once got the OS
+  title bar AND the app's own 38px one stacked (fixed here; see `overlayOptions()`
+  and `showWhenReady()`, both above `createWindow()`). `minHeight: 560` is
+  deliberate, with a comment saying why.
+- `showWhenReady(w, after)` - **209**. `ready-to-show` can simply never fire on
+  Windows for a window created with `show:false` - confirmed in practice, and
+  once cost the app its main window AND the lyrics editor. Falls back to
+  `did-finish-load`, with a 10s timeout as a last resort. Every secondary
+  window (updater, lyrics editor, metadata editor, miniplayer) goes through
+  this rather than its own `ready-to-show` listener.
+- macOS app menu **~280+**. Passing `null` on macOS leaves a dead stub and
+  costs the Edit menu, which is what makes Cmd+C/V work in a text field.
 - Discord RPC ipc handlers, incl. the `discord-rpc-clear` throttle fix.
 - Electron **29**, so `titleBarOverlay` is available on Windows and Linux.
+- Secondary windows, each its own `<name>.html` + `<name>-preload.js` +
+  `open-<name>`/`<name>-saved or -state`/`<name>-close` IPC trio:
+  - `openUpdaterWindow()` - **~448**.
+  - `open-lyrics-editor` - **~481**.
+  - `open-metadata-editor` - **~529**. Same shape as the lyrics editor, but
+    deliberately keeps the OS's own title bar rather than a custom
+    `hiddenInset` one - a hand-rolled titlebar strip needs its own per-platform
+    caption-button guarding (see `createWindow()` above) that a plain framed
+    window sidesteps entirely.
+  - `open-miniplayer` - **~578**. Frameless (`frame:false`, cross-platform,
+    not macOS-only like `titleBarStyle`), always-on-top, `skipTaskbar:true`.
+    Minimizes the main window on open (`win.minimize()`, not `hide()` - this
+    app has no tray icon, so `hide()` would leave no way back to it) and
+    restores it (`win.restore()` + `win.focus()`) on `miniplayer-restore`.
+  - Every one of these must be added to `package.json`'s `build.files` - it is
+    an allowlist for the packaged app, not just a manifest; a file left off it
+    is invisible in a built installer despite working fine from source.
 
 ## Server facts (verified against the user's live Jellyfin 10.11.11)
 
@@ -205,6 +321,10 @@ across both files before touching one.
 - `POST /Library/Refresh` - **admin only**, async (returns before scanning).
 - `POST /Items/{id}/Refresh` - **admin only**.
 - `POST /Items/{id}/Images/Primary` - **admin only**.
+- `POST /Items/{id}` (update an item's metadata) - **admin only**
+  (`RequiresElevation`). `GET /Items/{id}` is normal auth. See the metadata
+  editor above - it fetches the full item via the GET and POSTs the whole
+  thing back modified, never a partial body.
 - `POST /Playlists/{id}` - normal user. Body `UpdatePlaylistDto`:
   `Name`, `Ids` (full ordered contents, replaces everything), `IsPublic`,
   `Users`. Null fields are left alone. **No Overview field exists.**
@@ -215,7 +335,9 @@ across both files before touching one.
 
 ## House style
 
-- `renderer.js`: no semicolons. `main.js`: semicolons. Match the neighbours.
+- `renderer.js`: no semicolons. `main.js`: no semicolons in practice either,
+  despite its name suggesting otherwise (see the note near the top of this
+  file) - match the neighbours in whichever file you're editing.
 - **No em dashes anywhere**, code comments and commit messages included.
 - Comments explain WHY, especially where a previous bug drove the shape.
 - Store values are untrusted: a corrupted setting must never reach a filter gain

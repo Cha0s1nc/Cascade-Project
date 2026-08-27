@@ -2420,7 +2420,7 @@ document.getElementById('tctx-refresh-meta').addEventListener('click', async () 
 document.getElementById('tctx-edit-meta').addEventListener('click', () => {
   if (!_ctxItem) return
   closeTrackCtxMenu()
-  openInJellyfinWeb(_ctxItem)
+  openMetadataEditorFor(_ctxItem)
 })
 
 document.getElementById('tctx-pl-remove').addEventListener('click', async () => {
@@ -2988,6 +2988,11 @@ function applyVideoMode(on) {
   // A film opened on its own is a queue of one, so prev and next have nowhere
   // to go. A season is not - that queue is the whole point of next-episode.
   ov.classList.toggle('single', !!on && queue.length <= 1)
+  // Full mode only ever means anything over a picture - applied here so a
+  // saved preference from the last video takes effect on this one too,
+  // without also being live (and misleading) while music is playing.
+  ov.classList.toggle('full', !!on && videoFullMode)
+  document.getElementById('ov-full-mode')?.classList.toggle('active', !!on && videoFullMode)
   // A movie playing behind the library grid with no picture is confusing, so
   // opening the overlay is part of starting video, not a separate step.
   if (on) openOverlay()
@@ -3282,6 +3287,22 @@ function updateNowPlaying(item) {
       }
     })
   }
+
+  pushMiniplayerState()
+}
+
+// ── Miniplayer state mirror ───────────────────────────────────────────────────
+// The miniplayer is a remote control view (see CODEMAP.md) - it never touches
+// playback itself, so the only thing that has to cross IPC is this snapshot.
+// Pushed on track change, play/pause and every timeupdate; main.js drops it on
+// the floor when no miniplayer window is open, so there is no need to track
+// that state here too.
+function pushMiniplayerState() {
+  const item = queue[queueIndex]
+  if (!item) { window.cascade.miniPlayer.updateState(null); return }
+  const art = _currentHighResArtUrl || artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
+  const track = { itemId: item.Id, title: item.Name || '', subtitle: secondaryLine(item), artUrl: art }
+  window.cascade.miniPlayer.updateState(CascadeCore.buildMiniplayerState(track, !audio.paused, mediaPosition(), mediaDuration()))
 }
 
 // Derived from the DOM, never cached: _drawSongRows() replaces rows.innerHTML on every
@@ -3566,6 +3587,8 @@ function syncProgressUI() {
   document.getElementById('prog-dur').textContent = fmtTime(dur)
   document.getElementById('prog-fill').style.width = pct
   setBarAriaNow(document.getElementById('prog-bar'), cur, dur, fmtTime(cur))
+
+  pushMiniplayerState()
 
   if (!overlayOpen) return
   document.getElementById('ov-cur').textContent = fmtTime(cur)
@@ -4222,6 +4245,13 @@ document.getElementById('btn-mute').addEventListener('click', () => {
 // Lyrics open button
 document.getElementById('btn-lyrics-open').addEventListener('click', () => showLyrics())
 
+// Miniplayer open button - main.js minimizes this window and creates (or
+// focuses) the small always-on-top remote control window.
+document.getElementById('btn-miniplayer-open').addEventListener('click', () => {
+  pushMiniplayerState()
+  window.cascade.miniPlayer.open()
+})
+
 // Like / favourite
 const likeBtn = document.getElementById('btn-like')
 
@@ -4302,11 +4332,21 @@ onDeck('play',  () => {
   if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
   window.cascade.touchbarUpdate({ playing: true })
   window.cascade.nowPlayingUpdate({ isPlaying: true })
+  pushMiniplayerState()
 })
 onDeck('pause', () => {
   if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
   window.cascade.touchbarUpdate({ playing: false })
   window.cascade.nowPlayingUpdate({ isPlaying: false })
+  pushMiniplayerState()
+})
+
+// Miniplayer control -> the exact same buttons onMediaKey above already
+// drives, not a second playback path.
+window.cascade.miniPlayer.onControl((action) => {
+  if (action === 'playpause') document.getElementById('btn-play').click()
+  else if (action === 'next')  document.getElementById('btn-next').click()
+  else if (action === 'prev')  document.getElementById('btn-prev').click()
 })
 
 // ── Settings ──────────────────────────────────────────────────────────────────
@@ -4804,6 +4844,8 @@ async function init() {
   eqMusicProfile = await _loadEqProfile('eqMusic')
   eqVideoProfile = await _loadEqProfile('eqVideo')
 
+  videoFullMode = (await window.cascade.store.get('videoFullMode')) === true
+
   // Restore saved volume
   const savedVol = await window.cascade.store.get('volume')
   if (savedVol !== undefined && savedVol !== null) setVolumeRatio(parseFloat(savedVol))
@@ -4854,6 +4896,9 @@ async function init() {
 const npOverlay = document.getElementById('np-overlay')
 let overlayOpen = false
 let overlayLyricsOpen = false
+// Persisted, video only - see applyVideoMode() for where it gets applied and
+// the .np-overlay.video.full CSS for what it actually changes.
+let videoFullMode = false
 
 // ── Beat-reactive background ───────────────────────────────────────────────
 let _currentBgArtUrl = null  // current track's art URL for overlay background
@@ -5479,6 +5524,22 @@ document.getElementById('ov-fullscreen').addEventListener('click', toggleVideoFu
 // handling - one button owns muted/unmuted, this is a second way to press it.
 document.getElementById('ov-mute').addEventListener('click', () => document.getElementById('btn-mute').click())
 onDeck('dblclick', () => { if (playingVideo()) toggleVideoFullscreen() })
+
+// ── Full mode ──
+// Independent of real OS fullscreen above - full mode is about the overlay's
+// own chrome (header, docked vs floating controls), fullscreen is about
+// whether the OS gives the window the whole screen. Either can be on without
+// the other, same as VLC lets you keep on-screen controls in fullscreen.
+async function setVideoFullMode(on) {
+  videoFullMode = on
+  npOverlay.classList.toggle('full', on && playingVideo())
+  document.getElementById('ov-full-mode').classList.toggle('active', on)
+  await window.cascade.store.set('videoFullMode', on)
+}
+
+document.getElementById('ov-full-mode').addEventListener('click', () => setVideoFullMode(!videoFullMode))
+// Restores the exit the hidden header would otherwise have provided.
+document.getElementById('ov-full-exit').addEventListener('click', closeOverlay)
 
 // Escape is handled by the browser, which exits fullscreen without telling the
 // overlay - so closing on Escape has to wait until it is no longer fullscreen,
@@ -6295,8 +6356,9 @@ document.getElementById('ctx-refresh-meta').addEventListener('click', async () =
   } catch { showNotice('Could not queue a metadata refresh on the server.', 'Refresh failed') }
 })
 
-// Edit metadata / images - open the item in the Jellyfin web UI. (Lyrics have their
-// own in-app editor, wired below.)
+// Edit images - open the item in the Jellyfin web UI. There is no in-app image
+// uploader here, unlike metadata and lyrics, which both have their own editor
+// (wired below and above respectively).
 // Jellyfin's metadata manager (#/libraries/metadata) is a standalone tree browser with
 // no id parameter, so an item can't be deep-linked to it. #/details is the only
 // item-scoped route left, and its page carries the edit actions - so both land there.
@@ -6309,9 +6371,11 @@ function openInJellyfinWeb(item) {
   if (!jf.isAdmin) return
   window.cascade.shell.openExternal(`${jf.url}/web/index.html#/details?id=${item.Id}`)
 }
-;['ctx-edit-meta', 'ctx-edit-images'].forEach(id => {
-  document.getElementById(id).addEventListener('click', () => openInJellyfinWeb(queue[queueIndex]))
-})
+document.getElementById('ctx-edit-images').addEventListener('click', () => openInJellyfinWeb(queue[queueIndex]))
+
+// Metadata has its own in-app editor, same reasoning as lyrics below - no
+// reason to bounce to a browser for it either.
+document.getElementById('ctx-edit-meta').addEventListener('click', () => openMetadataEditorFor(queue[queueIndex]))
 
 // Lyrics are the one thing we can edit in-app - no reason to bounce to a browser
 document.getElementById('ctx-edit-lyrics').addEventListener('click', () => {
@@ -6603,6 +6667,48 @@ async function openLyricsEditorFor(item) {
     e.stopPropagation()
     openLyricsEditorFor(queue[queueIndex])
   })
+})
+
+// ── Metadata editor ───────────────────────────────────────────────────────────
+// POST /Items/{id} is RequiresElevation - admin only, verified against the
+// live server (see CODEMAP). The ctx-edit-meta / tctx-edit-meta entries that
+// call this are already greyed with .needs-admin for a non-admin (same
+// treatment as Refresh metadata), so this check is the second gate: a
+// disabled-looking menu item can still be clicked programmatically, and the
+// window itself checks jf.isAdmin again before its save button does anything.
+function openMetadataEditorFor(item) {
+  if (!item || !jf.isAdmin) return
+  window.cascade.metadataEditor.open({ item, jf })
+}
+
+// Refresh whatever already-loaded views hold the edited item. Same local
+// refresh path as the "Refresh from server" settings button - invalidate the
+// lazy grid caches and reload whatever is on screen and Home - plus a direct
+// patch for the currently playing track, since its title/artist in the status
+// bar and now-playing overlay come from the in-memory queue, not from either
+// of those caches.
+window.cascade.metadataEditor.onSaved(async (itemId) => {
+  invalidateLibraryViews()
+  invalidateVideoViews()
+  showView(_currentView)
+  await loadHome()
+
+  if (queue[queueIndex]?.Id !== itemId) return
+  try {
+    const res = await jfGet(`/Users/${jf.userId}/Items`, {
+      Ids: itemId,
+      Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,UserData',
+    })
+    const fresh = res?.Items?.[0]
+    // The track playing may have moved on while this was in flight.
+    if (!fresh || queue[queueIndex]?.Id !== itemId) return
+    queue[queueIndex] = fresh
+    updateNowPlaying(fresh)
+    if (overlayOpen) syncOverlayState()
+  } catch {
+    // Best-effort - the grid/Home reload above already has the fresh copy for
+    // next time this item is opened from there.
+  }
 })
 
 ;['sidebar-source-pill', 'ov-source-pill'].forEach(id => {

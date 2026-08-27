@@ -43,6 +43,15 @@ const cascade: ElectronPlatform = {
     open:    (data) => ipcRenderer.send('open-lyrics-editor', data),
     onSaved: (cb) => { ipcRenderer.on('lyrics-saved', (_e, itemId) => cb(itemId)) },
   },
+  metadataEditor: {
+    open:    (data) => ipcRenderer.send('open-metadata-editor', data),
+    onSaved: (cb) => { ipcRenderer.on('metadata-saved', (_e, itemId) => cb(itemId)) },
+  },
+  miniPlayer: {
+    open:        () => ipcRenderer.send('open-miniplayer'),
+    updateState: (state) => ipcRenderer.send('miniplayer-state', state),
+    onControl:   (cb) => { ipcRenderer.on('miniplayer-control', (_e, action) => cb(action)) },
+  },
 }
 
 contextBridge.exposeInMainWorld('cascade', cascade)

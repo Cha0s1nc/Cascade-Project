@@ -700,6 +700,62 @@
     /* The controls row keeps its own inset once the container's padding is
        gone, or the scrubber ends up flush against the window edge. */
     .np-overlay.video.idle:not(:focus-within) .np-overlay-controls { padding: 0 clamp(12px, 2vw, 32px) 10px; }
+
+    /* ── Full mode ──
+       Opt-in (ov-full-mode, persisted), video only. Where the idle rules above
+       fade the chrome down after a still moment, full mode removes it outright
+       and floats what is left - title, transport, scrubber - over the picture
+       the way VLC, YouTube and Netflix do, with a scrim behind them so they
+       stay readable over a bright frame. It reuses the exact same .idle class
+       and pokeOverlayControls() timer as the rest of this section for the
+       reveal-on-mouse-move behaviour - see renderer.js - rather than a second
+       timer, so "paused is never idle" and every other rule already decided
+       there applies here too with no extra code. */
+    .np-overlay.video.full .np-overlay-header { display: none; }
+    .np-overlay.video.full .np-overlay-left { padding: 0; gap: 0; }
+    .np-overlay.video.full .np-overlay-video { border-radius: 0; }
+    .np-overlay.video.full .np-overlay-info,
+    .np-overlay.video.full .np-overlay-controls {
+      position: absolute; left: 0; right: 0; z-index: 2;
+      transition: opacity 0.3s ease;
+    }
+    .np-overlay.video.full .np-overlay-info {
+      bottom: 104px; max-height: none; text-align: left;
+      padding: 0 clamp(20px, 3vw, 48px);
+    }
+    .np-overlay.video.full .np-overlay-track,
+    .np-overlay.video.full .np-overlay-artist { white-space: normal; }
+    .np-overlay.video.full .np-overlay-controls {
+      bottom: 0; padding: 40px clamp(20px, 3vw, 48px) 20px;
+      background: linear-gradient(to top, rgba(0,0,0,0.82), rgba(0,0,0,0.35) 60%, rgba(0,0,0,0) 100%);
+    }
+    /* Hiding the header above costs two of the overlay's three exits - the
+       collapse chevron and the close x. Escape is the third and still works
+       unconditionally; this floating button restores an equivalent to the
+       close x, appearing with the rest of the cluster on reveal rather than
+       sitting permanently on screen. */
+    #ov-full-exit {
+      display: none; position: absolute; top: 16px; right: 16px; z-index: 3;
+      width: 34px; height: 34px; border-radius: 50%;
+      background: rgba(0,0,0,0.45); border: none; color: #fff;
+      font-size: 18px; line-height: 1; cursor: pointer;
+      align-items: center; justify-content: center;
+    }
+    .np-overlay.video.full #ov-full-exit { display: flex; }
+    /* Idle in full mode hides the whole floating cluster, scrubber included -
+       there is no docked chrome left underneath it to fall back on, so this is
+       the literal VLC/YouTube "just the picture" state rather than the gentler
+       idle fade above, which deliberately leaves the progress row up. */
+    .np-overlay.video.full.idle:not(:focus-within) .np-overlay-info,
+    .np-overlay.video.full.idle:not(:focus-within) .np-overlay-controls,
+    .np-overlay.video.full.idle:not(:focus-within) #ov-full-exit {
+      opacity: 0; pointer-events: none;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .np-overlay.video.full .np-overlay-info,
+      .np-overlay.video.full .np-overlay-controls,
+      #ov-full-exit { transition: none; }
+    }
     /* Reversible fade/grow, same 140ms popup easing as the context menu below -
        display stays block always so opacity/transform/visibility can animate;
        visibility keeps a closed dropdown out of hit-testing and the a11y tree. */
@@ -2032,6 +2088,9 @@
       <button class="ctrl-btn" id="btn-waterfall-open" title="Waterfall - listen together (beta)" style="margin-left:6px;">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.7s5.5 5.2 5.5 9.3a5.5 5.5 0 0 1-11 0C6.5 7.9 12 2.7 12 2.7z"/></svg>
       </button>
+      <button class="ctrl-btn" id="btn-miniplayer-open" title="Miniplayer" style="margin-left:6px;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><rect x="11" y="11" width="9" height="7" rx="1" fill="currentColor" stroke="none"/></svg>
+      </button>
     </div>
   </footer>
 
@@ -2189,6 +2248,11 @@
       <canvas class="np-ambient" id="ov-ambient" width="32" height="18" aria-hidden="true"></canvas>
       <video class="np-overlay-video" id="media" crossorigin="anonymous" playsinline></video>
       <video class="np-overlay-video deck-hidden" id="media-b" crossorigin="anonymous" playsinline></video>
+      <!-- Full mode hides .np-overlay-header, which costs the collapse chevron
+           and the close x - two of the overlay's three exits. This floats in
+           their place, visible only in full mode and faded with the rest of
+           the cluster on idle. Escape (the third exit) works regardless. -->
+      <button class="vid-only" id="ov-full-exit" title="Close now playing (Esc)" aria-label="Close now playing">×</button>
       <div class="np-overlay-art" id="ov-art">♪</div>
       <div class="np-overlay-info">
         <div class="np-overlay-track" id="ov-track">Nothing playing</div>
@@ -2266,6 +2330,13 @@
           </button>
           <button class="np-ov-ctrl vid-only" id="ov-fullscreen" title="Fullscreen (F)">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+          </button>
+          <!-- Full mode: hides the header and floats the transport over the
+               picture, like VLC/YouTube/Netflix (see .np-overlay.video.full
+               in the CSS). Independent of real OS fullscreen (ov-fullscreen
+               above) - either can be on without the other. -->
+          <button class="np-ov-ctrl vid-only" id="ov-full-mode" title="Full mode">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 15h18"/></svg>
           </button>
         </div>
       </div>
