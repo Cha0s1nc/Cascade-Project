@@ -2928,6 +2928,10 @@ function playVideo(items, startIndex, startTicks) {
   }
   // Shuffling a season is never what a click on episode 3 means.
   _unshuffledQueue = []
+  // A fresh Play click is a new session boundary - unlike the queue simply
+  // advancing to the next track, this is where a stale manual audio-track
+  // pick from whatever was playing before should stop applying.
+  _audioStreamIndexIsExplicit = false
   queue = [...items]
   queueIndex = startIndex
   playCurrentTrack({ startTicks: startTicks || 0 })
@@ -3096,7 +3100,16 @@ async function playCurrentTrack(opts = {}) {
     // track further down, which direct play would still hand over as-is - see
     // neededAudioStreamIndex()). Then forcing the index is the only way the
     // server transcodes to a track we can actually hear.
-    _audioStreamIndex = video ? neededAudioStreamIndex(item.MediaStreams, decodableVideoAudioCodecs()) : null
+    // Skipped entirely once the user has picked a track by hand - see
+    // _audioStreamIndexIsExplicit above. Without this gate, the next track
+    // (or _handleUndecodableAudio's own re-resolve) silently recomputed and
+    // threw the user's pick away.
+    if (video && !_audioStreamIndexIsExplicit) {
+      _audioStreamIndex = neededAudioStreamIndex(item.MediaStreams, decodableVideoAudioCodecs())
+    } else if (!video) {
+      _audioStreamIndex = null
+      _audioStreamIndexIsExplicit = false
+    }
 
     const resolved = await resolveTrackStream(item.Id, video ? 'Video' : 'Audio',
       { startTicks, audioStreamIndex: _audioStreamIndex })
@@ -3395,6 +3408,14 @@ async function seekTo(sec) {
 /** Which audio track the user picked, as a MediaStreams index. null = server's
  *  choice, which is what everything but an explicit switch uses. */
 let _audioStreamIndex = null
+
+/** True once the user has picked a track by hand via the ov-audio-track
+ *  dropdown. Distinguishes their choice from neededAudioStreamIndex()'s own
+ *  writes to _audioStreamIndex (playCurrentTrack, below) - without this,
+ *  advancing to the next track silently recomputed and overwrote whatever
+ *  the user had picked. Cleared in playVideo(): a fresh "Play" click is a new
+ *  session, but the queue auto-advancing to the next track is not. */
+let _audioStreamIndexIsExplicit = false
 
 /** Guards against an older restart's response overwriting a newer one. */
 let _restartSession = 0
@@ -5618,6 +5639,7 @@ document.getElementById('ov-audio-track').addEventListener('click', (e) => {
       audioTrackDropdown.classList.remove('open')
       if (idx === _audioStreamIndex) return
       _audioStreamIndex = idx
+      _audioStreamIndexIsExplicit = true
       // Switching track means a different file from the server, so playback
       // restarts where it was rather than from the top. This is the one case
       // the cached URL cannot serve - the server has to pick the stream again.
