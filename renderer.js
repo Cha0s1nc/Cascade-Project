@@ -5769,11 +5769,26 @@ onDeck('dblclick', () => { if (playingVideo()) toggleVideoFullscreen() })
 async function setVideoFullMode(on) {
   videoFullMode = on
   npOverlay.classList.toggle('full', on && playingVideo())
-  document.getElementById('ov-full-mode').classList.toggle('active', on)
+  const btn = document.getElementById('ov-full-mode')
+  btn.classList.toggle('active', on)
+  btn.setAttribute('aria-pressed', String(!!on))
   await window.cascade.store.set('videoFullMode', on)
 }
 
 document.getElementById('ov-full-mode').addEventListener('click', () => setVideoFullMode(!videoFullMode))
+
+// Shift+F, deliberately next to F for real fullscreen: the two are related and
+// easy to confuse, so their shortcuts should look related too. Plain F is the
+// OS giving the window the screen; Shift+F is Cascade hiding its own chrome.
+// Guarded against firing while typing, same as every other single-key shortcut
+// in this file.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'F' || !e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable) return
+  if (!overlayOpen || !playingVideo()) return
+  e.preventDefault()
+  setVideoFullMode(!videoFullMode)
+})
 // Restores the exit the hidden header would otherwise have provided.
 document.getElementById('ov-full-exit').addEventListener('click', closeOverlay)
 
