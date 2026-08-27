@@ -279,6 +279,27 @@ across both files before touching one.
   other, by design; either can be on without the other, the same way VLC lets
   you keep on-screen controls in fullscreen.
 
+### Secondary windows
+Four now, and they all follow one pattern: an html file, a matching preload, an
+`open-*` ipc handler in main.js, and `showWhenReady()` to display them.
+- Updater: `updater.html` / `updater-preload.js`
+- Lyrics editor: `lyrics-editor.html` / `lyrics-editor-preload.js`
+- Metadata editor: `metadata-editor.html` / `metadata-editor-preload.js`. Admin
+  only, `POST /Items/{id}` is RequiresElevation.
+- Miniplayer: `miniplayer.html` / `miniplayer-preload.js`, plus
+  `src/core/miniplayer.ts`. A REMOTE CONTROL VIEW, not a second player: audio
+  keeps running on the main window's decks and only a state snapshot crosses
+  IPC. A second media element would mean a fresh stream negotiation and every
+  track restarting.
+
+**Every new window must be added to `package.json`'s `build.files`** or it is
+missing from the packaged app while working perfectly in dev.
+
+**`showWhenReady(w, after)` is the only correct way to show one.** `ready-to-show`
+fires on first paint, and a hidden window on Windows may never produce one, so
+that event alone cost this app both its main window and its lyrics editor. The
+helper races it against `did-finish-load` with a timeout behind both.
+
 ## main.js landmarks
 
 - `createWindow()` - **246**. `titleBarStyle: 'hiddenInset'` +
