@@ -377,7 +377,8 @@ function queueAddedBy(i) {
 }
 
 /**
- * Add tracks to the queue, routed through the arbiter.
+ * Add tracks to the end of the queue ("Play last"), routed through the
+ * arbiter.
  *
  * A guest must not mutate locally - the next host broadcast would wipe it,
  * which is exactly how "Add to queue" used to look like it worked and then
@@ -391,12 +392,12 @@ function enqueueTracks(items, label) {
     return
   }
   if (mode === 'propose') {
-    if (wfRequestEnqueue(items)) showToast(`Asked the host to add ${label}`)
+    if (wfRequestEnqueue(items)) showToast(`Asked the host to play ${label} last`)
     return
   }
 
   queue.push(...items)
-  showToast(`Added ${label} to queue`)
+  showToast(`${label} plays last`)
 }
 
 function ownershipState() {
@@ -2333,11 +2334,13 @@ document.getElementById('tctx-play-next').addEventListener('click', () => {
   // Guests append only - letting them jump the line would let the last clicker
   // always win the next slot.
   if (isWaterfallFollower()) { showToast('Only the host can choose what plays next'); return }
-  const insertAt = queueIndex + 1
-  queue.splice(insertAt, 0, _ctxItem)
+  queue = CascadeCore.insertAfterCurrent(queue, queueIndex, [_ctxItem])
   showToast(`"${_ctxItem.Name}" plays next`)
 })
 
+// "Play last" - appends to the end, which is what the old single "Add to
+// queue" action already did. Kept as enqueueTracks() rather than duplicating
+// its ownership handling (local/propose/blocked) here.
 document.getElementById('tctx-add-queue').addEventListener('click', () => {
   if (!_ctxItem) return
   closeTrackCtxMenu()
