@@ -3334,7 +3334,10 @@ function pushMiniplayerState() {
   if (!item) { window.cascade.miniPlayer.updateState(null); return }
   const art = _currentHighResArtUrl || artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
   const track = { itemId: item.Id, title: item.Name || '', subtitle: secondaryLine(item), artUrl: art }
-  window.cascade.miniPlayer.updateState(CascadeCore.buildMiniplayerState(track, !audio.paused, mediaPosition(), mediaDuration()))
+  // From the active line onward, so the miniplayer can render top-down with
+  // the current line pinned at the top without any scrolling of its own.
+  const lyricTail = CascadeCore.miniplayerLyricTail(lyricsData, lastLyricsIdx)
+  window.cascade.miniPlayer.updateState(CascadeCore.buildMiniplayerState(track, !audio.paused, mediaPosition(), mediaDuration(), lyricTail))
 }
 
 // Derived from the DOM, never cached: _drawSongRows() replaces rows.innerHTML on every

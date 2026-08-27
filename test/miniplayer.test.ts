@@ -1,6 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildMiniplayerState, miniplayerProgressPct, isMiniplayerAction } from '../src/core/miniplayer.ts'
+import { buildMiniplayerState, miniplayerProgressPct, isMiniplayerAction,
+  miniplayerLyricTail,
+  MINIPLAYER_LYRIC_LINES,
+} from '../src/core/miniplayer.ts'
 
 test('miniplayerProgressPct is 0 with no duration yet', () => {
   assert.equal(miniplayerProgressPct(0, 0), 0)
@@ -47,4 +50,30 @@ test('isMiniplayerAction accepts only the closed set of control actions', () => 
   assert.ok(!isMiniplayerAction(''))
   assert.ok(!isMiniplayerAction(null))
   assert.ok(!isMiniplayerAction(42))
+})
+
+test('miniplayerLyricTail starts at the active line', () => {
+  const lines = [{ Text: 'one' }, { Text: 'two' }, { Text: 'three' }]
+  assert.deepEqual(miniplayerLyricTail(lines, 1), ['two', 'three'])
+  assert.deepEqual(miniplayerLyricTail(lines, 0), ['one', 'two', 'three'])
+})
+
+test('miniplayerLyricTail keeps interior blanks but trims trailing ones', () => {
+  // An instrumental gap is real spacing; collapsing it would make the next
+  // line arrive early against the music.
+  const lines = [{ Text: 'a' }, { Text: '' }, { Text: 'b' }, { Text: '' }, { Text: '  ' }]
+  assert.deepEqual(miniplayerLyricTail(lines, 0), ['a', '', 'b'])
+})
+
+test('miniplayerLyricTail survives junk input and out of range indexes', () => {
+  assert.deepEqual(miniplayerLyricTail(null, 0), [])
+  assert.deepEqual(miniplayerLyricTail([], 5), [])
+  assert.deepEqual(miniplayerLyricTail([{ Text: 'x' }], 99), ['x'])
+  assert.deepEqual(miniplayerLyricTail([{ Text: 'x' }], -3), ['x'])
+  assert.deepEqual(miniplayerLyricTail([{ Text: null }], 0), [])
+})
+
+test('miniplayerLyricTail caps the payload', () => {
+  const many = Array.from({ length: 200 }, (_, i) => ({ Text: `line ${i}` }))
+  assert.equal(miniplayerLyricTail(many, 0).length, MINIPLAYER_LYRIC_LINES)
 })

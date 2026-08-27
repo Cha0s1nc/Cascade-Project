@@ -57,7 +57,16 @@ body {
 }
 .close-btn:hover { opacity: 1; background: rgba(0,0,0,0.75); color: #fff; }
 
-/* ── Compact bar (default, under 180px tall) ── */
+/* ── Three states, all keyed off height, because the width never changes ──
+   Pill      (under 180px): a bar. Art thumbnail, text, transport in a row.
+   Square    (180px+):      the cover fills the window at 1:1, and the controls
+                            float OVER it, fading out when idle so nothing is
+                            between you and the art.
+   Lyrics    (taller):      the square stays exactly square and pinned at the
+                            top; every extra pixel of height becomes more lyric
+                            lines underneath. Drag it as tall as you like.
+   The art being a fixed 1:1 anchor is what makes the drag feel predictable -
+   it was stretching before, which is most of why it felt awkward. */
 .wrap {
   position: relative; z-index: 1;
   display: flex; align-items: center; gap: 10px;
@@ -70,34 +79,68 @@ body {
   background: #2a2a2c; flex-shrink: 0; overflow: hidden;
   display: flex; align-items: center; justify-content: center;
   font-size: 26px; color: rgba(255,255,255,0.25);
+  position: relative;
 }
 .art img { width: 100%; height: 100%; object-fit: cover; }
 
 .stack { display: contents; }
 .info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 
-/* ── Art-forward (180px and taller) ──
-   Full-bleed art with the text and transport stacked beneath it over the
-   blurred backdrop. This is what the compact bar grows into, and the reason
-   the window resizes vertically at all. */
+.lyrics { display: none; }
+
 @container (min-height: 180px) {
   .backdrop { opacity: 0.5; }
   .wrap { flex-direction: column; align-items: stretch; padding: 0; gap: 0; }
+
+  /* Square, and never anything else. aspect-ratio with flex:none is what stops
+     it stretching as the window grows. */
   .art {
-    width: 100%; height: auto; flex: 1 1 auto; min-height: 0;
-    border-radius: 0; font-size: 40px;
+    width: 100%; height: auto; aspect-ratio: 1 / 1;
+    flex: 0 0 auto; border-radius: 0; font-size: 40px;
   }
+
+  /* The controls sit on top of the cover rather than under it. */
   .stack {
-    display: block; flex: 0 0 auto; padding: 12px 14px 14px;
-    background: linear-gradient(to top, rgba(0,0,0,0.6), rgba(0,0,0,0.25));
-    -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+    display: block; position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+    padding: 26px 14px 14px;
+    background: linear-gradient(to top, rgba(0,0,0,0.78), rgba(0,0,0,0.45) 55%, rgba(0,0,0,0));
+    opacity: 1; transition: opacity 0.25s ease;
   }
+  /* Idle: fade the controls away and leave just the cover. Any pointer
+     movement brings them back - see the idle timer in the script below. */
+  body.idle .stack { opacity: 0; pointer-events: none; }
+
   .info { gap: 8px; margin-bottom: 10px; }
   .title { font-size: 15px; }
   .artist { font-size: 12px; }
   .controls { justify-content: center; gap: 8px; }
   .ctrl-btn { width: 34px; height: 34px; }
   .ctrl-btn.play { width: 40px; height: 40px; }
+
+  /* Everything below the square is lyrics. Grows with the window; the current
+     line is simply the first one sent, so no scrolling happens here at all. */
+  .lyrics {
+    display: block; flex: 1 1 auto; min-height: 0; overflow: hidden;
+    padding: 14px 16px 16px; position: relative; z-index: 1;
+    -webkit-app-region: drag;
+  }
+  .lyric-line {
+    font-size: 13px; line-height: 1.45; margin-bottom: 9px;
+    color: rgba(255,255,255,0.45);
+  }
+  .lyric-line.cur { color: #fff; font-weight: 600; font-size: 14px; }
+  .lyric-empty { font-size: 12px; color: rgba(255,255,255,0.3); }
+}
+
+/* Pill idle: fade the transport out and let the title have the room, which is
+   the one thing worth reading at a glance at this size. */
+@container (max-height: 179px) {
+  body.idle .controls { opacity: 0; pointer-events: none; }
+  .controls { transition: opacity 0.25s ease; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stack, .controls { transition: none; }
 }
 
 .empty {
@@ -135,6 +178,7 @@ body {
     </button>
   </div>
   </div>
+  <div class="lyrics" id="lyrics"></div>
 </div>
 
 <script>
@@ -156,6 +200,8 @@ window.miniPlayer.onState((state) => {
     document.getElementById('artist').textContent = ''
     document.getElementById('art').innerHTML = '♪'
     document.getElementById('prog-fill').style.width = '0%'
+    document.getElementById('backdrop').style.backgroundImage = ''
+    renderLyrics([])
     return
   }
 
@@ -178,6 +224,7 @@ window.miniPlayer.onState((state) => {
 
   document.getElementById('icon-play').style.display  = state.isPlaying ? 'none' : ''
   document.getElementById('icon-pause').style.display = state.isPlaying ? '' : 'none'
+  renderLyrics(state.lyrics || [])
 })
 
 document.getElementById('btn-playpause').addEventListener('click', (e) => {
@@ -192,6 +239,49 @@ document.getElementById('btn-next').addEventListener('click', (e) => {
   e.stopPropagation()
   window.miniPlayer.control('next')
 })
+
+// Lyrics are sent already starting at the current line (miniplayerLyricTail),
+// so rendering them top-down puts the current one at the top for free - there
+// is no scrolling, no measuring and no active-index tracking in this window.
+let _lastLyricKey = ''
+function renderLyrics(lines) {
+  const el = document.getElementById('lyrics')
+  const key = lines.join('\u0000')
+  if (key === _lastLyricKey) return   // same lines, nothing to repaint
+  _lastLyricKey = key
+  if (!lines.length) {
+    el.innerHTML = '<div class="lyric-empty">No lyrics for this track</div>'
+    return
+  }
+  el.innerHTML = lines
+    .map((t, i) => `<div class="lyric-line${i === 0 ? ' cur' : ''}">${esc(t)}</div>`)
+    .join('')
+}
+
+function esc(str) {
+  return String(str == null ? '' : str)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+// Idle fade, the same idea the main window's now-playing overlay uses: any
+// pointer movement brings the controls back, then they go after a few still
+// seconds so the cover is unobstructed. Paused deliberately still counts as
+// idle here, unlike the main overlay - a paused miniplayer is usually one
+// somebody is looking at rather than using.
+const IDLE_MS = 2600
+let idleTimer = null
+function pokeIdle() {
+  document.body.classList.remove('idle')
+  clearTimeout(idleTimer)
+  idleTimer = setTimeout(() => document.body.classList.add('idle'), IDLE_MS)
+}
+;['mousemove', 'mousedown', 'wheel', 'keydown'].forEach(ev =>
+  window.addEventListener(ev, pokeIdle, { passive: true }))
+window.addEventListener('mouseleave', () => {
+  clearTimeout(idleTimer)
+  document.body.classList.add('idle')
+})
+pokeIdle()
 
 // Closing the miniplayer and going back to the main window are the same
 // operation here: main.js closes this window and restores the main one from
