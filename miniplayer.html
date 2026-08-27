@@ -24,136 +24,81 @@ body {
   color: #e8e8e9;
   -webkit-user-select: none;
   user-select: none;
-  /* The whole window is the restore target, so the whole window drags -
-     buttons opt back out with no-drag below. */
-  -webkit-app-region: drag;
-  cursor: pointer;
-}
-
-.wrap {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: 100%;
-  padding: 10px;
-}
-
-.art {
-  width: 64px;
-  height: 64px;
-  border-radius: 6px;
-  background: #2a2a2c;
-  flex-shrink: 0;
   overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 26px;
-  color: rgba(255,255,255,0.25);
-}
-.art img { width: 100%; height: 100%; object-fit: cover; }
-
-.info {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  /* NOT a drag region, and no longer a click target. Both were a mistake: a
+     drag region hands its mouse events to the OS, so `body:hover` did not fire
+     reliably and the close button it was revealing stayed at opacity 0. An
+     invisible button is an unclickable one, which is why this still could not
+     be closed after the first fix. Dragging is the art and the text strip now,
+     which is most of the window anyway, and the close button is always
+     visible. */
 }
 
-/* Taller than a compact bar: stack art above the transport and let it grow
-   with the window, the same way Apple Music's miniplayer does. */
-@container (min-height: 180px) {
-  .wrap { flex-direction: column; padding: 16px; gap: 12px; }
-  .art { width: min(100%, 70cqh); height: min(100%, 70cqh); font-size: 40px; }
-  .info { flex: 0 0 auto; width: 100%; align-items: center; text-align: center; }
-  .title, .artist { max-width: 100%; }
+/* Blurred cover behind everything, the way Apple Music tints its miniplayer.
+   Only shown in the taller layout, where there is room to see it. */
+.backdrop {
+  position: absolute; inset: 0; z-index: 0;
+  background-size: cover; background-position: center;
+  filter: blur(28px) saturate(1.4); transform: scale(1.4);
+  opacity: 0; transition: opacity 0.3s ease;
 }
 
 .close-btn {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  border: none;
-  background: rgba(0,0,0,0.45);
-  color: rgba(255,255,255,0.8);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  opacity: 0;
+  position: absolute; top: 6px; right: 6px; z-index: 3;
+  width: 20px; height: 20px; border-radius: 50%;
+  border: none; background: rgba(0,0,0,0.5); color: rgba(255,255,255,0.85);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; opacity: 0.55;
   transition: opacity 0.12s, background 0.12s, color 0.12s;
   -webkit-app-region: no-drag;
   /* Confirmed against main.js: this window never sets titleBarOverlay, so
      unlike the main window's top-right corner (see --caption-reserve in
-     index.html) there are no OS caption buttons drawn here on any platform
-     to collide with. */
+     index.html) there are no OS caption buttons drawn here to collide with. */
 }
-.close-btn:hover { background: rgba(0,0,0,0.7); color: #fff; }
-body:hover .close-btn { opacity: 1; }
-@media (prefers-reduced-motion: reduce) {
-  .close-btn { transition: none; }
+.close-btn:hover { opacity: 1; background: rgba(0,0,0,0.75); color: #fff; }
+
+/* ── Compact bar (default, under 180px tall) ── */
+.wrap {
+  position: relative; z-index: 1;
+  display: flex; align-items: center; gap: 10px;
+  height: 100%; padding: 10px;
+  -webkit-app-region: drag;
 }
 
-.title {
-  font-size: 13px;
-  font-weight: 600;
-  color: #fff;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.art {
+  width: 64px; height: 64px; border-radius: 6px;
+  background: #2a2a2c; flex-shrink: 0; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 26px; color: rgba(255,255,255,0.25);
 }
-.artist {
-  font-size: 11px;
-  color: rgba(255,255,255,0.45);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+.art img { width: 100%; height: 100%; object-fit: cover; }
 
-.prog-bar {
-  height: 3px;
-  border-radius: 2px;
-  background: rgba(255,255,255,0.12);
-  overflow: hidden;
-}
-.prog-fill {
-  height: 100%;
-  width: 0%;
-  background: rgba(255,255,255,0.8);
-  border-radius: 2px;
-  transition: width 0.2s linear;
-}
-@media (prefers-reduced-motion: reduce) {
-  .prog-fill { transition: none; }
-}
+.stack { display: contents; }
+.info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 
-.controls {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex-shrink: 0;
-  -webkit-app-region: no-drag;
+/* ── Art-forward (180px and taller) ──
+   Full-bleed art with the text and transport stacked beneath it over the
+   blurred backdrop. This is what the compact bar grows into, and the reason
+   the window resizes vertically at all. */
+@container (min-height: 180px) {
+  .backdrop { opacity: 0.5; }
+  .wrap { flex-direction: column; align-items: stretch; padding: 0; gap: 0; }
+  .art {
+    width: 100%; height: auto; flex: 1 1 auto; min-height: 0;
+    border-radius: 0; font-size: 40px;
+  }
+  .stack {
+    display: block; flex: 0 0 auto; padding: 12px 14px 14px;
+    background: linear-gradient(to top, rgba(0,0,0,0.6), rgba(0,0,0,0.25));
+    -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  }
+  .info { gap: 8px; margin-bottom: 10px; }
+  .title { font-size: 15px; }
+  .artist { font-size: 12px; }
+  .controls { justify-content: center; gap: 8px; }
+  .ctrl-btn { width: 34px; height: 34px; }
+  .ctrl-btn.play { width: 40px; height: 40px; }
 }
-
-.ctrl-btn {
-  background: none;
-  border: none;
-  color: rgba(255,255,255,0.75);
-  cursor: pointer;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.12s, color 0.12s;
-}
-.ctrl-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
-.ctrl-btn.play { width: 32px; height: 32px; }
 
 .empty {
   font-size: 12px;
@@ -167,8 +112,11 @@ body:hover .close-btn { opacity: 1; }
   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="4" y1="4" x2="20" y2="20"/><line x1="20" y1="4" x2="4" y2="20"/></svg>
 </button>
 
+<div class="backdrop" id="backdrop"></div>
+
 <div class="wrap">
   <div class="art" id="art">♪</div>
+  <div class="stack">
   <div class="info">
     <div class="title" id="title">Nothing playing</div>
     <div class="artist" id="artist"></div>
@@ -185,6 +133,7 @@ body:hover .close-btn { opacity: 1; }
     <button class="ctrl-btn" id="btn-next" title="Next">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
     </button>
+  </div>
   </div>
 </div>
 
@@ -219,10 +168,12 @@ window.miniPlayer.onState((state) => {
     if (art.dataset.src !== state.artUrl) {
       art.dataset.src = state.artUrl
       art.innerHTML = `<img src="${state.artUrl}" alt="" onerror="this.parentElement.innerHTML='♪'">`
+      document.getElementById('backdrop').style.backgroundImage = `url("${state.artUrl}")`
     }
   } else {
     art.dataset.src = ''
     art.innerHTML = '♪'
+    document.getElementById('backdrop').style.backgroundImage = ''
   }
 
   document.getElementById('icon-play').style.display  = state.isPlaying ? 'none' : ''
@@ -242,18 +193,21 @@ document.getElementById('btn-next').addEventListener('click', (e) => {
   window.miniPlayer.control('next')
 })
 
-// The only explicit close affordance - small, corner, hover-revealed rather
-// than sitting permanently over the art. Goes through the same restore() the
-// body click below already uses, so there is exactly one path back to the
-// main window, not two.
+// Closing the miniplayer and going back to the main window are the same
+// operation here: main.js closes this window and restores the main one from
+// its 'closed' event, so every path converges there whatever triggered it.
 document.getElementById('btn-close').addEventListener('click', (e) => {
   e.stopPropagation()
   window.miniPlayer.restore()
 })
 
-// Anywhere else in the window restores the main window, same as clicking a
-// Spotify/Apple Music miniplayer does.
-document.body.addEventListener('click', () => window.miniPlayer.restore())
+// Clicking the art or the text goes back to the main window, the way clicking
+// a Spotify or Apple Music miniplayer does. Bound to those rather than to
+// document.body: the transport buttons sit inside .wrap too, and a body-level
+// handler fires for them as well, so hitting pause also threw you back to the
+// main window.
+document.getElementById('art').addEventListener('click', () => window.miniPlayer.restore())
+document.querySelector('.info').addEventListener('click', () => window.miniPlayer.restore())
 </script>
 </body>
 </html>

@@ -583,7 +583,7 @@ ipcMain.on('metadata-editor-close', () => {
 // honour them, so no per-platform guard is needed here.
 const MINI_WIDTH = 300
 const MINI_MIN_HEIGHT = 100
-const MINI_MAX_HEIGHT = 500
+const MINI_MAX_HEIGHT = 900   // Apple Music's own tall state is ~880px
 const MINI_DEFAULT_HEIGHT = 120
 
 ipcMain.on('open-miniplayer', () => {
