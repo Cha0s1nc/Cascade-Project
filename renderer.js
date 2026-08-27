@@ -377,7 +377,8 @@ function queueAddedBy(i) {
 }
 
 /**
- * Add tracks to the queue, routed through the arbiter.
+ * Add tracks to the end of the queue ("Play last"), routed through the
+ * arbiter.
  *
  * A guest must not mutate locally - the next host broadcast would wipe it,
  * which is exactly how "Add to queue" used to look like it worked and then
@@ -391,12 +392,12 @@ function enqueueTracks(items, label) {
     return
   }
   if (mode === 'propose') {
-    if (wfRequestEnqueue(items)) showToast(`Asked the host to add ${label}`)
+    if (wfRequestEnqueue(items)) showToast(`Asked the host to play ${label} last`)
     return
   }
 
   queue.push(...items)
-  showToast(`Added ${label} to queue`)
+  showToast(`${label} plays last`)
 }
 
 function ownershipState() {
@@ -587,8 +588,8 @@ function startRemoteControl() {
     setVolume(pct)  { applyRemoteVolume(pct / 100) },
     volumeUp()      { applyRemoteVolume(volume + 0.1) },
     volumeDown()    { applyRemoteVolume(volume - 0.1) },
-    toggleMute()    { setDeckMuted(!audio.muted) },
-    setMute(muted)  { setDeckMuted(muted) },
+    toggleMute()    { applyRemoteMute(!audio.muted) },
+    setMute(muted)  { applyRemoteMute(muted) },
   }, playbackIsLocallyOwned)
 
   // Not fatal - playback works fine without it - but it must be visible.
@@ -599,9 +600,25 @@ function startRemoteControl() {
   })
 }
 
+// Both remote volume entry points funnel through here rather than straight to
+// setVolumeRatio/setDeckMuted, so "personal, per-device, never room-driven" is
+// enforced once, at the layer where a remote command actually reaches the
+// element - not by trusting the RemoteControl gate upstream to always cover
+// it. See CascadeCore.acceptsRemoteVolumeCommand for why this is its own
+// check rather than a reuse of playbackIsLocallyOwned.
+function remoteVolumeAllowed() {
+  return CascadeCore.acceptsRemoteVolumeCommand(ownershipState())
+}
+
 // Mirrors what the volume slider does, so a remote change looks identical.
 function applyRemoteVolume(next) {
+  if (!remoteVolumeAllowed()) return
   setVolumeRatio(next)
+}
+
+function applyRemoteMute(muted) {
+  if (!remoteVolumeAllowed()) return
+  setDeckMuted(muted)
 }
 
 // The library selection may have changed - force every lazy view to refetch.
@@ -2317,11 +2334,13 @@ document.getElementById('tctx-play-next').addEventListener('click', () => {
   // Guests append only - letting them jump the line would let the last clicker
   // always win the next slot.
   if (isWaterfallFollower()) { showToast('Only the host can choose what plays next'); return }
-  const insertAt = queueIndex + 1
-  queue.splice(insertAt, 0, _ctxItem)
+  queue = CascadeCore.insertAfterCurrent(queue, queueIndex, [_ctxItem])
   showToast(`"${_ctxItem.Name}" plays next`)
 })
 
+// "Play last" - appends to the end, which is what the old single "Add to
+// queue" action already did. Kept as enqueueTracks() rather than duplicating
+// its ownership handling (local/propose/blocked) here.
 document.getElementById('tctx-add-queue').addEventListener('click', () => {
   if (!_ctxItem) return
   closeTrackCtxMenu()
@@ -4538,13 +4557,7 @@ async function loadSettingsFields() {
     await _saveEqProfile()
   }
 
-  document.querySelectorAll('.eq-band-slider').forEach((el, i) => {
-    el.oninput = async () => {
-      _eqEditProfile().bands[i] = parseFloat(el.value)
-      _refreshEqUI()
-      await _saveEqProfile()
-    }
-  })
+  _buildEqGraphPoints()
 
   document.getElementById('eq-preamp-auto').onchange = async () => {
     const profile = _eqEditProfile()
@@ -5001,6 +5014,13 @@ const EQ_FILTER_Q = 1.0          // ~1.4 octave wide peaks - narrow enough that 
                                   // 60Hz-12kHz do not smear into one big tilt
 const EQ_RAMP_SEC = 0.015        // setTargetAtTime time constant - fast but click-free
 
+// Response-graph pixel size - must match the SVG's viewBox in index.html.
+// The graph's markup and CSS size it 1:1 with this viewBox on purpose (no
+// scaling), so a pointer's clientY can be turned into a dB straight off
+// getBoundingClientRect() without a transform to invert.
+const EQ_GRAPH_W = 260
+const EQ_GRAPH_H = 140
+
 // createMediaElementSource() may only be called once per element, ever - so
 // each deck's source node is built on first request and cached forever.
 function _deckSource(deck) {
@@ -5132,14 +5152,107 @@ async function _saveEqProfile() {
   if (_eqEditTarget === eqActiveMode) _applyEqToGraph()
 }
 
+// Builds the graph's five draggable points and their frequency labels from
+// CascadeCore.EQ_BANDS, once per settings-view load (loadSettingsFields()
+// re-runs every time the view is shown, so this rebuilds from scratch each
+// time rather than trying to detect "already built" - five small elements is
+// nothing to redo, and it sidesteps ever going stale).
+function _buildEqGraphPoints() {
+  const SVG_NS = 'http://www.w3.org/2000/svg'
+  const pointsG = document.getElementById('eq-graph-points')
+  const labelsWrap = document.getElementById('eq-graph-labels')
+  pointsG.innerHTML = ''
+  labelsWrap.innerHTML = ''
+
+  CascadeCore.EQ_BANDS.forEach((hz, i) => {
+    const label = CascadeCore.formatEqBandLabel(hz)
+
+    const circle = document.createElementNS(SVG_NS, 'circle')
+    circle.setAttribute('class', 'eq-graph-point')
+    circle.setAttribute('r', '6')
+    circle.setAttribute('cx', String(CascadeCore.eqBandX(i, CascadeCore.EQ_BANDS.length, EQ_GRAPH_W)))
+    circle.setAttribute('tabindex', '0')
+    circle.setAttribute('role', 'slider')
+    circle.setAttribute('aria-label', `${label} gain`)
+    circle.setAttribute('aria-valuemin', String(-CascadeCore.EQ_GAIN_LIMIT))
+    circle.setAttribute('aria-valuemax', String(CascadeCore.EQ_GAIN_LIMIT))
+    _wireEqPoint(circle, i)
+    pointsG.appendChild(circle)
+
+    const labelEl = document.createElement('div')
+    labelEl.className = 'eq-graph-label'
+    labelEl.innerHTML = `<span>${esc(label)}</span><span class="eq-band-value"></span>`
+    labelsWrap.appendChild(labelEl)
+  })
+}
+
+// Drag and keyboard for one graph point, mirroring wireBar()'s idiom (mouse
+// drag via document-level move/up, arrow keys as a real role="slider") but
+// vertical and in dB rather than horizontal and in a 0..1 ratio - the two
+// don't share enough shape to reuse the same function.
+function _wireEqPoint(circle, i) {
+  const apply = async (db) => {
+    _eqEditProfile().bands[i] = db
+    _refreshEqUI()
+    await _saveEqProfile()
+  }
+  const dbAt = (e) => {
+    const rect = document.getElementById('eq-graph').getBoundingClientRect()
+    return CascadeCore.eqYToDb(e.clientY - rect.top, rect.height)
+  }
+
+  let dragging = false
+  function onMove(e) { if (dragging) apply(dbAt(e)) }
+  function onUp() {
+    if (!dragging) return
+    dragging = false
+    circle.classList.remove('dragging')
+    document.removeEventListener('mousemove', onMove)
+    document.removeEventListener('mouseup', onUp)
+  }
+  circle.addEventListener('mousedown', (e) => {
+    dragging = true
+    circle.classList.add('dragging')
+    circle.focus()
+    apply(dbAt(e))
+    e.preventDefault()
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  })
+
+  circle.addEventListener('keydown', (e) => {
+    const cur = _eqEditProfile().bands[i]
+    let next
+    if (e.key === 'ArrowUp' || e.key === 'ArrowRight') next = cur + 0.5
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') next = cur - 0.5
+    else if (e.key === 'PageUp') next = cur + 3
+    else if (e.key === 'PageDown') next = cur - 3
+    else if (e.key === 'Home') next = -CascadeCore.EQ_GAIN_LIMIT
+    else if (e.key === 'End') next = CascadeCore.EQ_GAIN_LIMIT
+    else return
+    e.preventDefault()
+    e.stopPropagation()
+    // A key step never goes through eqYToDb (there is no pointer position to
+    // read), so it has to clamp itself - this is the same trust boundary
+    // eqYToDb enforces for a drag, just reached a different way.
+    apply(CascadeCore.clampGain(next))
+  })
+}
+
 // Syncs the settings-panel EQ controls to _eqEditProfile(). Called after
-// every edit so the preset dropdown, the preamp's auto value, and the band
-// labels never drift from the numbers actually in play.
+// every edit so the preset dropdown, the preamp's auto value, the curve and
+// the band labels never drift from the numbers actually in play.
 function _refreshEqUI() {
   const profile = _eqEditProfile()
-  document.querySelectorAll('.eq-band-slider').forEach((el, i) => {
-    el.value = String(profile.bands[i])
-    document.getElementById(`eq-band-value-${i}`).textContent = `${profile.bands[i].toFixed(1)} dB`
+  document.getElementById('eq-graph-curve').setAttribute('d', CascadeCore.eqCurvePath(profile.bands, EQ_GRAPH_W, EQ_GRAPH_H))
+  document.querySelectorAll('#eq-graph-points .eq-graph-point').forEach((circle, i) => {
+    const db = profile.bands[i]
+    circle.setAttribute('cy', String(CascadeCore.eqDbToY(db, EQ_GRAPH_H)))
+    circle.setAttribute('aria-valuenow', db.toFixed(1))
+    circle.setAttribute('aria-valuetext', `${db.toFixed(1)} dB`)
+  })
+  document.querySelectorAll('#eq-graph-labels .eq-band-value').forEach((el, i) => {
+    el.textContent = `${profile.bands[i].toFixed(1)} dB`
   })
   const auto = profile.preamp === null
   const preampAuto = document.getElementById('eq-preamp-auto')

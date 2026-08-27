@@ -70,6 +70,25 @@ export function acceptsRemoteCommand(s: OwnershipState): boolean {
 }
 
 /**
+ * True when an incoming remote volume/mute command should be applied.
+ *
+ * Volume is personal and per-device - it is never something a Waterfall host
+ * drives or the room shares, so this blocks it for host and guest alike
+ * rather than reusing acceptsRemoteCommand's host exception (the host's own
+ * controls stay live for transport, which they own; volume is nobody's to
+ * hand a remote for while a room is running, not even the host's own).
+ *
+ * Deliberately its own function rather than a call to acceptsRemoteCommand:
+ * transport ownership and volume-is-personal are two different rules that
+ * only happen to agree today. Loosening acceptsRemoteCommand later - e.g. to
+ * let a host's own remote drive transport during their own room - must not
+ * silently re-open this too.
+ */
+export function acceptsRemoteVolumeCommand(s: OwnershipState): boolean {
+  return !s.waterfallActive
+}
+
+/**
  * Adding to the queue is deliberately separate from `blocksLocalPlayback`.
  *
  * A guest may never *start* playback - that stays blocked - but appending to the

@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   playbackOwner, blocksLocalPlayback, acceptsRemoteCommand, queueAdditionMode,
+  acceptsRemoteVolumeCommand,
 } from '../src/core/ownership.ts'
 import type { OwnershipState } from '../src/core/ownership.ts'
 
@@ -46,6 +47,27 @@ test('cast is refused in a waterfall room, host or guest', () => {
 
 test('waterfall outranks cast', () => {
   assert.equal(playbackOwner(state({ waterfallActive: true })), 'waterfall')
+})
+
+test('remote volume: allowed outside any waterfall room', () => {
+  assert.equal(acceptsRemoteVolumeCommand(state()), true)
+})
+
+test('remote volume: refused in a waterfall room, host or guest alike', () => {
+  // Volume is personal - unlike acceptsRemoteCommand, the host gets no
+  // exception here. A host's own remote must not be able to touch a guest's
+  // volume, and there is no way to tell "the host's own remote" apart from
+  // "someone else's" at this layer, so both are refused identically.
+  assert.equal(acceptsRemoteVolumeCommand(state({ waterfallActive: true, waterfallIsHost: true })), false)
+  assert.equal(acceptsRemoteVolumeCommand(state({ waterfallActive: true, waterfallIsHost: false })), false)
+})
+
+test('remote volume: applying host state does not reopen it', () => {
+  // waterfallApplying is blocksLocalPlayback's escape hatch for playback the
+  // guest performs because the host said so. Volume has no such escape hatch -
+  // the host never has a legitimate reason to move a guest's volume.
+  const s = state({ waterfallActive: true, waterfallIsHost: false, waterfallApplying: true })
+  assert.equal(acceptsRemoteVolumeCommand(s), false)
 })
 
 test('queue additions: solo and host mutate directly', () => {
