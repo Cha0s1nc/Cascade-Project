@@ -105,12 +105,12 @@
   <div class="version-row">
     <div class="ver-block ver-current">
       <div class="ver-label">Current</div>
-      <div class="ver-value" id="ver-current">—</div>
+      <div class="ver-value" id="ver-current">-</div>
     </div>
     <div class="ver-arrow">→</div>
     <div class="ver-block ver-new">
       <div class="ver-label">New</div>
-      <div class="ver-value" id="ver-new">—</div>
+      <div class="ver-value" id="ver-new">-</div>
     </div>
   </div>
 </div>
@@ -225,7 +225,7 @@
     state = 'done'
     elFill.style.width = '100%'
     elLogDot.classList.remove('active')
-    elPctLabel.textContent = '100%  — Download complete'
+    elPctLabel.textContent = '100%  - Download complete'
     elSpeed.textContent = ''
     appendLog(`v${d.version} downloaded successfully. Ready to install.`, 'ok')
     btnAction.disabled = false

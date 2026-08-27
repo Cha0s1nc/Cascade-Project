@@ -2,7 +2,12 @@ name: Build
 
 on:
   push:
-    tags: ['v*']
+    # NOT tags. Releases are created as drafts, and publishing a draft creates
+    # its tag - which pushed a 'v*' tag, retriggered this workflow, and had it
+    # rebuild and overwrite the assets that had just been published. Worse, the
+    # tag lands on whatever target_commitish the release carries, so the rebuild
+    # was of a completely different commit. Use workflow_dispatch for manual
+    # builds instead.
     branches: ['stable', 'beta']
   workflow_dispatch:
     inputs:
@@ -55,7 +60,8 @@ jobs:
             echo "should_release=true"  >> $GITHUB_OUTPUT
 
           elif [[ "${{ github.event_name }}" == "push" ]]; then
-            # Tag push — use the tag
+            # Tag push — use the tag. Unreachable while the trigger above only
+            # lists branches; kept so re-enabling 'tags' still resolves sanely.
             REF="${{ github.ref_name }}"
             VERSION="${REF#v}"
             TAG="$REF"
@@ -122,8 +128,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Disabled: the only cert available is self-signed, which Gatekeeper treats
+      # as a BROKEN signature ("app is damaged", no Open Anyway button) rather
+      # than as unsigned. Ad-hoc signing gets the friendlier "unidentified
+      # developer" path instead. Re-enable this and the auto-discovery flag below
+      # if a real Apple Developer ID ever replaces the self-signed cert.
       - name: Import code-signing certificate
-        if: ${{ env.CSC_LINK != '' }}
+        if: false
         run: |
           echo "$CSC_LINK" | base64 --decode > /tmp/cert.p12
           security create-keychain -p "" build.keychain
@@ -139,7 +150,7 @@ jobs:
       - name: Build (macOS)
         run: npm run build:mac
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.CSC_LINK != '' && 'true' || 'false' }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -166,7 +177,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y rpm libarchive-tools
+          sudo apt-get install -y rpm libarchive-tools fakeroot dpkg
 
       - name: Set version
         run: npm version ${{ needs.setup.outputs.version }} --no-git-tag-version
@@ -191,6 +202,13 @@ jobs:
           path: dist/*.rpm
           retention-days: 7
 
+      - name: Upload DEB (Debian/Ubuntu)
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-linux-deb
+          path: dist/*.deb
+          retention-days: 7
+
   # ── Release ────────────────────────────────────────────────────────────────
   release:
     needs: [setup, build-windows, build-mac, build-linux]
@@ -207,6 +225,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.setup.outputs.tag }}
+          # Without this the draft carries no commitish, so publishing it creates
+          # the tag on the DEFAULT branch rather than the commit that was built.
+          # That is how v1.2.0-b4 ended up tagged at a three-week-old stable
+          # commit, and how the binaries came from code that had none of the
+          # work they were supposed to contain.
+          target_commitish: ${{ github.sha }}
           files: artifacts/**
           generate_release_notes: true
           draft: true

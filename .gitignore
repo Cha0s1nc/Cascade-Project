@@ -3,3 +3,21 @@ node_modules/
 *.log
 dist/
 out/
+.cascade-debug
+
+# Agent worktrees only. .claude/agents/ IS tracked - those definitions are
+# part of the project, and ignoring all of .claude/ would silently stop them
+# from being updated.
+.claude/worktrees/
+
+# esbuild output (src/ -> build/core.js). Rebuilt by `npm run build:ts`, which
+# every start/build script runs first, so it never needs to be committed.
+build/
+*.slrc
+spicylyrics-integration.js
+lyrics_align_test.py
+
+# Cloudflare Worker (wip-waterfall/signaling/) local state - wrangler's
+# cache/dev-session data and any local secrets, never the source or lockfile.
+wip-waterfall/signaling/.wrangler/
+wip-waterfall/signaling/.dev.vars

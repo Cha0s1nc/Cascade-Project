@@ -1,0 +1,1547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Lyrics Editor</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #111113;
+  color: #e8e8e9;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-size: 13px;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* ── Titlebar ── */
+.titlebar {
+  -webkit-app-region: drag;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.55);
+  background: #161618;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  letter-spacing: 0.01em;
+}
+
+/* ── Track header ── */
+.track-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: #161618;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  flex-shrink: 0;
+}
+
+.track-art {
+  width: 44px;
+  height: 44px;
+  border-radius: 5px;
+  object-fit: cover;
+  background: #2a2a2c;
+  flex-shrink: 0;
+}
+
+.track-info { flex: 1; min-width: 0; }
+.track-name { font-size: 14px; font-weight: 600; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.track-sub  { font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.header-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+.save-status { font-size: 11px; min-width: 80px; text-align: right; }
+.save-status.ok  { color: #4caf82; }
+.save-status.err { color: #e05a5a; }
+
+/* ── Buttons ── */
+.btn {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.7);
+  border-radius: 6px;
+  padding: 5px 11px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  -webkit-app-region: no-drag;
+  white-space: nowrap;
+}
+.btn:hover { background: rgba(255,255,255,0.12); color: #fff; }
+
+.btn-primary {
+  background: #6e4ff6;
+  border: 1px solid rgba(110,79,246,0.5);
+  color: #fff;
+  border-radius: 6px;
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s;
+  -webkit-app-region: no-drag;
+  white-space: nowrap;
+}
+.btn-primary:hover  { background: #7c61f7; }
+.btn-primary:disabled { opacity: 0.45; cursor: default; }
+
+/* ── Inspector ── */
+.inspector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  background: #18181a;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  flex-shrink: 0;
+  height: 46px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.inspector::-webkit-scrollbar { display: none; }
+
+.insp-hint { color: rgba(255,255,255,0.25); font-size: 12px; }
+
+.insp-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.35);
+  flex-shrink: 0;
+}
+
+.insp-sep { color: rgba(255,255,255,0.18); font-size: 12px; flex-shrink: 0; }
+
+.insp-input {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 5px;
+  color: #e8e8e9;
+  font-size: 12px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  padding: 3px 7px;
+  width: 88px;
+  flex-shrink: 0;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.insp-input:focus { outline: none; border-color: rgba(110,79,246,0.6); }
+.insp-input.wide { width: 150px; }
+
+.btn-stamp {
+  background: rgba(110,79,246,0.12);
+  border: 1px solid rgba(110,79,246,0.3);
+  color: rgba(150,120,255,0.9);
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.btn-stamp:hover { background: rgba(110,79,246,0.25); color: #fff; }
+
+.insp-divider {
+  width: 1px;
+  height: 20px;
+  background: rgba(255,255,255,0.07);
+  flex-shrink: 0;
+  margin: 0 2px;
+}
+
+/* ── Lines area ── */
+.lines-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 0 12px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.08) transparent;
+}
+.lines-area::-webkit-scrollbar { width: 5px; }
+.lines-area::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
+
+.line-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 12px;
+  border-radius: 7px;
+  margin: 1px 8px;
+  transition: background 0.1s;
+  cursor: default;
+}
+.line-row:hover { background: rgba(255,255,255,0.03); }
+.line-row.sel-line { background: rgba(110,79,246,0.07); }
+
+/* Left meta */
+.line-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex-shrink: 0;
+  width: 62px;
+  padding-top: 5px;
+  gap: 1px;
+}
+.line-num {
+  font-size: 10px;
+  color: rgba(255,255,255,0.18);
+  font-variant-numeric: tabular-nums;
+}
+.line-time {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 10px;
+  color: rgba(255,255,255,0.35);
+  cursor: pointer;
+  padding: 1px 4px;
+  border-radius: 3px;
+  transition: background 0.1s, color 0.1s;
+  white-space: nowrap;
+}
+.line-time:hover { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.7); }
+.line-row.sel-line .line-time { color: rgba(130,100,255,0.85); }
+
+/* Content */
+.line-content {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  min-height: 30px;
+  padding: 2px 0;
+}
+
+.line-plain {
+  font-size: 13px;
+  color: rgba(255,255,255,0.65);
+  padding: 3px 6px;
+  border-radius: 4px;
+  min-width: 80px;
+  -webkit-user-select: text;
+  user-select: text;
+  outline: none;
+  line-height: 1.5;
+}
+.line-plain:focus { background: rgba(110,79,246,0.05); outline: 1px solid rgba(110,79,246,0.35); }
+
+/* Word pills */
+.word-pill {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 13px;
+  color: rgba(255,255,255,0.7);
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+.word-pill:hover { background: rgba(255,255,255,0.09); color: #fff; }
+.word-pill.sel-word {
+  background: rgba(110,79,246,0.2);
+  border-color: rgba(110,79,246,0.55);
+  color: #fff;
+}
+
+.btn-add-word {
+  background: none;
+  border: 1px dashed rgba(255,255,255,0.13);
+  color: rgba(255,255,255,0.25);
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.1s, color 0.1s;
+  line-height: 1.4;
+}
+.btn-add-word:hover { border-color: rgba(255,255,255,0.3); color: rgba(255,255,255,0.6); }
+
+/* Word drag-and-drop */
+.word-pill[draggable] { cursor: grab; }
+.word-pill[draggable]:active { cursor: grabbing; }
+.word-pill.dragging { opacity: 0.25; }
+.word-pill.drop-before { box-shadow: -3px 0 0 0 rgba(110,79,246,0.9); }
+
+/* Row actions */
+.line-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+  padding-top: 4px;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.line-row:hover .line-actions { opacity: 1; }
+
+.btn-icon {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.28);
+  cursor: pointer;
+  padding: 3px 5px;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1;
+  transition: background 0.1s, color 0.1s;
+}
+.btn-icon:hover { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.8); }
+.btn-icon.danger:hover { background: rgba(220,50,50,0.1); color: rgba(220,80,80,0.9); }
+
+/* Add line */
+.btn-add-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 4px 16px;
+  padding: 7px;
+  border-radius: 6px;
+  border: 1px dashed rgba(255,255,255,0.1);
+  background: none;
+  color: rgba(255,255,255,0.25);
+  font-size: 12px;
+  cursor: pointer;
+  width: calc(100% - 32px);
+  transition: border-color 0.12s, color 0.12s;
+}
+.btn-add-line:hover { border-color: rgba(255,255,255,0.28); color: rgba(255,255,255,0.6); }
+
+/* ── Playback bar ── */
+.playback-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px;
+  background: #161618;
+  border-top: 1px solid rgba(255,255,255,0.07);
+  flex-shrink: 0;
+}
+
+.btn-play {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.8);
+  font-size: 15px;
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background 0.12s;
+}
+.btn-play:hover { background: rgba(255,255,255,0.08); color: #fff; }
+
+.scrubber {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 3px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 2px;
+  cursor: pointer;
+  outline: none;
+}
+.scrubber::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 11px;
+  height: 11px;
+  background: rgba(255,255,255,0.9);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+.scrubber:hover::-webkit-slider-thumb { transform: scale(1.2); }
+
+.speed-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.speed-label {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  color: rgba(255,255,255,0.4);
+  min-width: 36px;
+  text-align: right;
+  cursor: pointer;
+  user-select: none;
+}
+.speed-label:hover { color: rgba(255,255,255,0.7); }
+.speed-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 72px;
+  height: 3px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 2px;
+  cursor: pointer;
+  outline: none;
+}
+.speed-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 11px;
+  height: 11px;
+  background: rgba(255,255,255,0.9);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+.speed-slider:hover::-webkit-slider-thumb { transform: scale(1.2); }
+
+.time-disp {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  color: rgba(255,255,255,0.4);
+  flex-shrink: 0;
+  min-width: 130px;
+  text-align: right;
+}
+
+/* ── Stamp Mode ── */
+.stamp-mode-bar {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 16px;
+  background: rgba(255,160,0,0.07);
+  border-bottom: 1px solid rgba(255,160,0,0.18);
+  flex-shrink: 0;
+  font-size: 12px;
+  color: rgba(255,185,45,0.9);
+}
+.stamp-mode-bar.visible { display: flex; }
+.stamp-mode-bar kbd {
+  background: rgba(255,160,0,0.15);
+  border: 1px solid rgba(255,160,0,0.3);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 11px;
+  font-family: inherit;
+}
+.stamp-mode-bar .stamp-progress {
+  margin-left: auto;
+  font-size: 11px;
+  color: rgba(255,185,45,0.6);
+  font-variant-numeric: tabular-nums;
+}
+
+.word-pill.stamp-next {
+  background: rgba(255,160,0,0.18) !important;
+  border-color: rgba(255,160,0,0.6) !important;
+  color: #fff !important;
+  box-shadow: 0 0 0 2px rgba(255,160,0,0.22);
+}
+.line-time.stamp-next {
+  color: rgba(255,210,60,1);
+  background: rgba(255,160,0,0.15);
+  border-radius: 3px;
+  box-shadow: 0 0 0 2px rgba(255,160,0,0.2);
+}
+
+.btn-stamp-mode {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.7);
+  border-radius: 6px;
+  padding: 5px 11px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  -webkit-app-region: no-drag;
+  white-space: nowrap;
+}
+.btn-stamp-mode:hover { background: rgba(255,255,255,0.12); color: #fff; }
+.btn-stamp-mode.active {
+  background: rgba(255,160,0,0.15);
+  border-color: rgba(255,160,0,0.45);
+  color: rgba(255,210,60,1);
+}
+
+/* ── Karaoke preview ── */
+.karaoke-preview {
+  min-height: 46px;
+  max-height: 46px;
+  padding: 0 16px;
+  background: #13131a;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+}
+.kp-hint { font-size: 12px; color: rgba(255,255,255,0.18); }
+.kp-word {
+  font-size: 16px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.25);
+  transition: color 0.07s, text-shadow 0.07s;
+  white-space: nowrap;
+  padding: 0;
+}
+.kp-word.past { color: rgba(255,255,255,0.45); }
+.kp-word.active {
+  color: #fff;
+  text-shadow: 0 0 16px rgba(110,79,246,0.8);
+}
+.kp-plain {
+  font-size: 16px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.5);
+}
+</style>
+</head>
+<body>
+
+<div class="titlebar">Lyrics Editor</div>
+
+<div class="track-header">
+  <img class="track-art" id="track-art" src="" alt="">
+  <div class="track-info">
+    <div class="track-name" id="track-name">No track loaded</div>
+    <div class="track-sub"  id="track-sub"></div>
+  </div>
+  <div class="header-actions">
+    <button class="btn" id="btn-import">Import current lyrics</button>
+    <button class="btn" id="btn-file-import">Import .lrc / .slrc</button>
+    <input type="file" id="file-import" accept=".lrc,.slrc" style="display:none">
+    <button class="btn-stamp-mode" id="btn-stamp-mode">⏱ Stamp Mode</button>
+    <span class="save-status" id="save-status"></span>
+    <button class="btn-primary" id="btn-save" disabled>Save to Jellyfin</button>
+  </div>
+</div>
+
+<div class="inspector" id="inspector">
+  <span class="insp-hint">Select a line or word to edit timestamps</span>
+</div>
+
+<div class="stamp-mode-bar" id="stamp-mode-bar">
+  ⏱ <strong>Stamp Mode</strong> - press <kbd>Space</kbd> to stamp highlighted word · <kbd>Esc</kbd> to exit
+  <span class="stamp-progress" id="stamp-progress"></span>
+</div>
+
+<div class="karaoke-preview" id="karaoke-preview">
+  <span class="kp-hint">Play audio to see karaoke preview</span>
+</div>
+
+<div class="lines-area" id="lines-area"></div>
+
+<div class="playback-bar">
+  <button class="btn-play" id="btn-play">▶</button>
+  <input type="range" class="scrubber" id="scrubber" min="0" max="100" step="0.001" value="0">
+  <div class="time-disp" id="time-disp">0:00.000 / 0:00.000</div>
+  <div class="speed-control">
+    <input type="range" class="speed-slider" id="speed-slider" min="0.25" max="2" step="0.05" value="1">
+    <span class="speed-label" id="speed-label" title="Double-click to reset to 1×">1×</span>
+  </div>
+</div>
+
+<audio id="audio" preload="none"></audio>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────────
+
+let _dragWord   = null   // { li, wi } of pill being dragged
+let editorItem  = null   // Jellyfin item object
+let editorJf    = null   // { url, token }
+let initLines   = []     // original lines passed at open (for re-import)
+let editorLines = []     // working copy: [{ start, text, words: [{start,end,text}]|null }]
+let sel         = null   // { type:'line'|'word', li, wi? }
+
+// ── Stamp Mode state ───────────────────────────────────────────────────────────
+let stampMode  = false
+let stampSeq   = []   // flat array of { type:'word'|'line', li, wi? }
+let stampIdx   = 0
+
+// ── Karaoke preview state ──────────────────────────────────────────────────────
+let _kpActiveLi = -1  // last rendered active line index (avoid redundant re-renders)
+
+const audio   = document.getElementById('audio')
+const scrubber = document.getElementById('scrubber')
+
+// Catch-all dragover on the lines area so the browser keeps "move" cursor
+// even when the pointer passes through gaps between pills.
+document.getElementById('lines-area').addEventListener('dragover', e => {
+  if (_dragWord) { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }
+})
+
+// ── Utilities ──────────────────────────────────────────────────────────────────
+
+function secToDisplay(sec) {
+  if (sec == null || isNaN(sec)) return '-'
+  const m = Math.floor(sec / 60)
+  const s = (sec % 60).toFixed(3)
+  return `${m}:${s.padStart(6, '0')}`
+}
+
+function ticksToSec(ticks) { return ticks != null ? ticks / 10_000_000 : null }
+function secToTicks(sec)   { return sec   != null ? Math.round(sec * 10_000_000) : null }
+
+function dispToSec(str) {
+  if (!str || str === '-') return null
+  str = str.trim()
+  const m = str.match(/^(\d+):(\d+(?:\.\d*)?)$/)
+  if (m) return parseInt(m[1]) * 60 + parseFloat(m[2])
+  const n = parseFloat(str)
+  return isNaN(n) ? null : n
+}
+
+function ticksToLRC(ticks) {
+  const s = (ticks ?? 0) / 10_000_000
+  const m = Math.floor(s / 60)
+  const sec = (s % 60).toFixed(2)
+  return `${String(m).padStart(2,'0')}:${sec.padStart(5,'0')}`
+}
+
+function nowSec() { return audio.currentTime }
+
+function markDirty() {
+  document.getElementById('btn-save').disabled = false
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────────
+
+window.lyricsEditor.onInit(({ item, jf, lyricsData, volume }) => {
+  editorItem = item
+  editorJf   = jf
+
+  // Inherit the main window's level. This element defaults to 1.0, so without
+  // it the editor blasts at full volume no matter how quiet the app was set.
+  if (typeof volume === 'number') audio.volume = Math.min(1, Math.max(0, volume))
+
+  document.getElementById('track-name').textContent = item.Name || 'Unknown Track'
+  document.getElementById('track-sub').textContent  = [
+    item.AlbumArtist || (item.Artists && item.Artists[0]) || '',
+    item.Album || '',
+  ].filter(Boolean).join(' - ')
+
+  const art = document.getElementById('track-art')
+  art.src = `${jf.url}/Items/${item.Id}/Images/Primary?api_key=${jf.token}&width=96&quality=90`
+  art.onerror = () => { art.style.visibility = 'hidden' }
+
+  // Audio stream - same params as streamUrl() in renderer.js
+  audio.src = `${jf.url}/Audio/${item.Id}/universal?UserId=${jf.userId}&api_key=${jf.token}&Container=opus,mp3,aac,flac,wav,ogg&TranscodingContainer=ts&TranscodingProtocol=hls&AudioCodec=aac&MaxStreamingBitrate=140000000`
+  const durSec = (item.RunTimeTicks || 0) / 10_000_000
+  scrubber.max = durSec || 100
+  updateTimeDisp(0, durSec)
+
+  // Load lyrics
+  if (lyricsData && lyricsData.length) {
+    loadLyricsData(lyricsData)
+  } else {
+    editorLines = []
+    initLines   = []
+    renderLines()
+    renderInspector()
+  }
+
+  document.getElementById('btn-save').disabled = lyricsData && lyricsData.length ? false : true
+})
+
+function loadLyricsData(lyricsData) {
+  if (stampMode) exitStampMode()
+  initLines = lyricsData
+  editorLines = lyricsData.map(l => ({
+    start: l.Start != null ? l.Start / 10_000_000 : null,   // store as seconds internally
+    text:  l.Text || '',
+    words: l.Words ? l.Words.map(w => ({
+      start: w.Start != null ? w.Start / 10_000_000 : null,
+      end:   w.End   != null ? w.End   / 10_000_000 : null,
+      text:  w.Text || '',
+    })) : null,
+  }))
+  sel = null
+  _kpActiveLi = -1
+  renderLines()
+  renderInspector()
+}
+
+document.getElementById('btn-stamp-mode').addEventListener('click', toggleStampMode)
+
+document.getElementById('btn-import').addEventListener('click', () => {
+  if (!initLines.length) return
+  if (editorLines.length && !confirm('Re-import? This will overwrite your edits.')) return
+  loadLyricsData(initLines)
+  markDirty()
+})
+
+// ── .lrc / .slrc file import ───────────────────────────────────────────────────
+
+function parseLRCText(text) {
+  // Parses standard and enhanced (karaoke) LRC into editorLines format.
+  // Enhanced lines:  [mm:ss.xx]<mm:ss.xx>word1 <mm:ss.xx>word2 ...
+  // Plain lines:     [mm:ss.xx]line text
+  // Meta tags ([ar:], [ti:], etc.) and blank lines are skipped.
+
+  const META = /^\[(ar|al|ti|au|by|offset|re|ve):/i
+
+  function parseLRCTime(ts) {
+    // "mm:ss.xx" → seconds (number)
+    const m = ts.match(/^(\d+):(\d+(?:\.\d+)?)$/)
+    if (!m) return null
+    return parseInt(m[1], 10) * 60 + parseFloat(m[2])
+  }
+
+  function ticksFromSec(sec) {
+    // Convert seconds to .NET ticks (100-ns units) used by editorLines
+    return Math.round(sec * 1e7)
+  }
+
+  const lines = []
+
+  for (const raw of text.split('\n')) {
+    const trimmed = raw.trim()
+    if (!trimmed) continue
+    if (META.test(trimmed)) continue
+
+    // A line may have multiple time tags: [mm:ss.xx][mm:ss.xx]text
+    // We only support one tag per line here (standard usage).
+    const lineMatch = trimmed.match(/^\[(\d+:\d+(?:\.\d+)?)\](.*)$/)
+    if (!lineMatch) continue
+
+    const lineStart = parseLRCTime(lineMatch[1])
+    if (lineStart === null) continue
+
+    const rest = lineMatch[2]
+
+    // Check for inline word timestamps: <mm:ss.xx>word
+    const wordPattern = /<(\d+:\d+(?:\.\d+)?)>([^<]*)/g
+    let wm
+    const words = []
+    while ((wm = wordPattern.exec(rest)) !== null) {
+      const wStart = parseLRCTime(wm[1])
+      // Preserve trailing space - it's the word separator in enhanced LRC.
+      // e.g. ">Till <next>" → Text:"Till " so karaoke preview renders with natural spacing.
+      const wText  = wm[2]
+      if (wStart === null || !wText.trim()) continue
+      words.push({ Start: ticksFromSec(wStart), End: null, Text: wText })
+    }
+
+    // Set word End timestamps from the next word's Start (best-effort)
+    for (let i = 0; i < words.length - 1; i++) {
+      words[i].End = words[i + 1].Start
+    }
+
+    if (words.length > 0) {
+      // Join without extra space (trailing spaces already embedded in each Text)
+      lines.push({ Start: ticksFromSec(lineStart), End: null, Text: words.map(w => w.Text).join('').trim(), Words: words })
+    } else {
+      // Plain line - strip any leftover word tags
+      const plainText = rest.replace(/<[^>]*>/g, '').trim()
+      if (!plainText) continue
+      lines.push({ Start: ticksFromSec(lineStart), End: null, Text: plainText, Words: null })
+    }
+  }
+
+  return lines
+}
+
+document.getElementById('btn-file-import').addEventListener('click', () => {
+  document.getElementById('file-import').click()
+})
+
+document.getElementById('file-import').addEventListener('change', function () {
+  const file = this.files[0]
+  if (!file) return
+  if (editorLines.length && !confirm(`Import "${file.name}"? This will overwrite your current edits.`)) {
+    this.value = ''
+    return
+  }
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    const parsed = parseLRCText(e.target.result)
+    if (!parsed.length) {
+      alert('No valid LRC lines found in that file.')
+      return
+    }
+    loadLyricsData(parsed)
+    markDirty()
+  }
+  reader.readAsText(file, 'utf-8')
+  this.value = '' // reset so re-importing same file triggers change again
+})
+
+// ── Render lines ───────────────────────────────────────────────────────────────
+
+function renderLines() {
+  const area = document.getElementById('lines-area')
+  area.innerHTML = ''
+
+  editorLines.forEach((line, li) => {
+    const row = document.createElement('div')
+    row.className = 'line-row' + (sel?.li === li && sel?.wi == null ? ' sel-line' : '')
+    row.dataset.li = li
+
+    // ── Left meta ──
+    const meta = document.createElement('div')
+    meta.className = 'line-meta'
+
+    const num = document.createElement('div')
+    num.className = 'line-num'
+    num.textContent = li + 1
+
+    const time = document.createElement('div')
+    const isLineStampNext = stampMode && stampSeq[stampIdx]?.type === 'line' && stampSeq[stampIdx]?.li === li
+    time.className = 'line-time' + (isLineStampNext ? ' stamp-next' : '')
+    time.textContent = line.start != null ? secToDisplay(line.start) : '-'
+    time.title = 'Click to edit line timestamp'
+    time.addEventListener('click', e => { e.stopPropagation(); selectLine(li) })
+
+    meta.append(num, time)
+
+    // ── Content ──
+    const content = document.createElement('div')
+    content.className = 'line-content'
+
+    if (line.words) {
+      line.words.forEach((word, wi) => {
+        content.appendChild(makeWordPill(li, wi, word))
+      })
+      const addW = document.createElement('button')
+      addW.className = 'btn-add-word'
+      addW.textContent = '+'
+      addW.title = 'Add word'
+      addW.addEventListener('click', e => { e.stopPropagation(); addWord(li) })
+      content.appendChild(addW)
+    } else {
+      const plain = document.createElement('div')
+      plain.className = 'line-plain'
+      plain.contentEditable = 'true'
+      plain.spellcheck = false
+      plain.textContent = line.text
+      plain.addEventListener('input', () => { editorLines[li].text = plain.textContent; markDirty() })
+      plain.addEventListener('focus', () => selectLine(li))
+      content.appendChild(plain)
+    }
+
+    // ── Actions ──
+    const acts = document.createElement('div')
+    acts.className = 'line-actions'
+
+    if (li > 0) {
+      const up = makeIconBtn('↑', 'Move up', false, () => moveLine(li, -1))
+      acts.appendChild(up)
+    }
+    if (li < editorLines.length - 1) {
+      const dn = makeIconBtn('↓', 'Move down', false, () => moveLine(li, 1))
+      acts.appendChild(dn)
+    }
+    if (!line.words) {
+      acts.appendChild(makeIconBtn('W', 'Split into word pills', false, () => splitLineToWords(li)))
+    }
+    acts.appendChild(makeIconBtn('×', 'Remove line', true, () => removeLine(li)))
+
+    row.addEventListener('click', () => selectLine(li))
+    row.append(meta, content, acts)
+    area.appendChild(row)
+  })
+
+  // Add line button
+  const addLine = document.createElement('button')
+  addLine.className = 'btn-add-line'
+  addLine.textContent = '+ Add line'
+  addLine.addEventListener('click', () => appendLine())
+  area.appendChild(addLine)
+}
+
+function makeWordPill(li, wi, word) {
+  const pill = document.createElement('div')
+  const isStampNext = stampMode && stampSeq[stampIdx]?.type === 'word' && stampSeq[stampIdx]?.li === li && stampSeq[stampIdx]?.wi === wi
+  pill.className = 'word-pill'
+    + (sel?.li === li && sel?.wi === wi ? ' sel-word' : '')
+    + (isStampNext ? ' stamp-next' : '')
+  pill.dataset.li = li
+  pill.dataset.wi = wi
+  pill.textContent = word.text.trimEnd()
+  pill.title = 'Click to select · Double-click to edit text'
+  pill.addEventListener('click',    e => { e.stopPropagation(); selectWord(li, wi) })
+  pill.addEventListener('dblclick', e => { e.stopPropagation(); beginWordEdit(pill, li, wi) })
+
+  // Drag-to-reorder
+  pill.draggable = true
+  pill.addEventListener('dragstart', e => {
+    _dragWord = { li, wi }
+    requestAnimationFrame(() => pill.classList.add('dragging'))
+    e.dataTransfer.effectAllowed = 'move'
+  })
+  pill.addEventListener('dragend', () => {
+    pill.classList.remove('dragging')
+    document.querySelectorAll('.word-pill.drop-before').forEach(el => el.classList.remove('drop-before'))
+    _dragWord = null
+  })
+  pill.addEventListener('dragover', e => {
+    if (!_dragWord) return
+    if (_dragWord.li === li && _dragWord.wi === wi) return  // same pill
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    document.querySelectorAll('.word-pill.drop-before').forEach(el => el.classList.remove('drop-before'))
+    pill.classList.add('drop-before')
+  })
+  pill.addEventListener('dragleave', e => {
+    if (!pill.contains(e.relatedTarget)) pill.classList.remove('drop-before')
+  })
+  pill.addEventListener('drop', e => {
+    e.preventDefault()
+    pill.classList.remove('drop-before')
+    if (!_dragWord) return
+    if (_dragWord.li === li && _dragWord.wi === wi) return
+    moveWordBefore(_dragWord.li, _dragWord.wi, li, wi)
+  })
+
+  return pill
+}
+
+function makeIconBtn(label, title, danger, onClick) {
+  const b = document.createElement('button')
+  b.className = 'btn-icon' + (danger ? ' danger' : '')
+  b.textContent = label
+  b.title = title
+  b.addEventListener('click', e => { e.stopPropagation(); onClick() })
+  return b
+}
+
+// ── Inspector ──────────────────────────────────────────────────────────────────
+
+function renderInspector() {
+  const insp = document.getElementById('inspector')
+  insp.innerHTML = ''
+
+  if (!sel) {
+    insp.innerHTML = '<span class="insp-hint">Select a line or word to edit timestamps</span>'
+    return
+  }
+
+  const { type, li, wi } = sel
+  const line = editorLines[li]
+  if (!line) return
+
+  if (type === 'line') {
+    // LINE label
+    appendInspLabel(insp, 'LINE')
+    appendInspSep(insp, 'Start')
+
+    const startInp = appendInspInput(insp, line.start != null ? secToDisplay(line.start) : '', 'mm:ss.xxx')
+    startInp.addEventListener('change', () => {
+      const s = dispToSec(startInp.value)
+      if (s != null) { editorLines[li].start = s; startInp.value = secToDisplay(s); markDirty(); refreshLineMeta(li) }
+    })
+
+    appendStampBtn(insp, 'Stamp', () => {
+      editorLines[li].start = nowSec()
+      startInp.value = secToDisplay(editorLines[li].start)
+      markDirty()
+      refreshLineMeta(li)
+    })
+
+  } else if (type === 'word' && line.words) {
+    const word = line.words[wi]
+    if (!word) return
+
+    appendInspLabel(insp, 'WORD')
+
+    const textInp = appendInspInput(insp, word.text.trimEnd(), 'word text', true)
+    textInp.addEventListener('input', () => {
+      editorLines[li].words[wi].text = textInp.value
+      markDirty()
+      const pill = document.querySelector(`.word-pill[data-li="${li}"][data-wi="${wi}"]`)
+      if (pill) pill.textContent = textInp.value
+    })
+
+    appendInspDivider(insp)
+    appendInspSep(insp, 'Start')
+
+    const startInp = appendInspInput(insp, word.start != null ? secToDisplay(word.start) : '', 'mm:ss.xxx')
+    startInp.addEventListener('change', () => {
+      const s = dispToSec(startInp.value)
+      if (s != null) { editorLines[li].words[wi].start = s; startInp.value = secToDisplay(s); markDirty() }
+    })
+    appendStampBtn(insp, '⌚ Start', () => {
+      editorLines[li].words[wi].start = nowSec()
+      startInp.value = secToDisplay(editorLines[li].words[wi].start)
+      markDirty()
+    })
+
+    appendInspSep(insp, '→')
+    appendInspSep(insp, 'End')
+
+    const endInp = appendInspInput(insp, word.end != null ? secToDisplay(word.end) : '', 'mm:ss.xxx')
+    endInp.addEventListener('change', () => {
+      const s = dispToSec(endInp.value)
+      if (s != null) { editorLines[li].words[wi].end = s; endInp.value = secToDisplay(s); markDirty() }
+    })
+    appendStampBtn(insp, '⌚ End', () => {
+      editorLines[li].words[wi].end = nowSec()
+      endInp.value = secToDisplay(editorLines[li].words[wi].end)
+      markDirty()
+    })
+
+    appendInspDivider(insp)
+
+    // Move word left/right
+    if (wi > 0) {
+      const leftBtn = document.createElement('button')
+      leftBtn.className = 'btn-stamp'
+      leftBtn.textContent = '← word'
+      leftBtn.title = 'Move word left'
+      leftBtn.addEventListener('click', () => moveWord(li, wi, -1))
+      insp.appendChild(leftBtn)
+    }
+    if (wi < line.words.length - 1) {
+      const rightBtn = document.createElement('button')
+      rightBtn.className = 'btn-stamp'
+      rightBtn.textContent = 'word →'
+      rightBtn.title = 'Move word right'
+      rightBtn.addEventListener('click', () => moveWord(li, wi, 1))
+      insp.appendChild(rightBtn)
+    }
+
+    appendInspDivider(insp)
+
+    const rmBtn = document.createElement('button')
+    rmBtn.className = 'btn-icon danger'
+    rmBtn.textContent = '× word'
+    rmBtn.style.cssText = 'font-size:11px; padding:3px 7px; border:1px solid rgba(220,50,50,0.2); border-radius:5px'
+    rmBtn.addEventListener('click', () => removeWord(li, wi))
+    insp.appendChild(rmBtn)
+  }
+}
+
+// Inspector helpers
+function appendInspLabel(parent, text) {
+  const el = document.createElement('span')
+  el.className = 'insp-label'
+  el.textContent = text
+  parent.appendChild(el)
+  return el
+}
+function appendInspSep(parent, text) {
+  const el = document.createElement('span')
+  el.className = 'insp-sep'
+  el.textContent = text
+  parent.appendChild(el)
+  return el
+}
+function appendInspDivider(parent) {
+  const el = document.createElement('div')
+  el.className = 'insp-divider'
+  parent.appendChild(el)
+}
+function appendInspInput(parent, value, placeholder, wide = false) {
+  const el = document.createElement('input')
+  el.className = 'insp-input' + (wide ? ' wide' : '')
+  el.type = 'text'
+  el.value = value
+  el.placeholder = placeholder
+  parent.appendChild(el)
+  return el
+}
+function appendStampBtn(parent, label, onClick) {
+  const el = document.createElement('button')
+  el.className = 'btn-stamp'
+  el.textContent = label
+  el.addEventListener('click', onClick)
+  parent.appendChild(el)
+  return el
+}
+
+// ── Selection ──────────────────────────────────────────────────────────────────
+
+function selectLine(li) {
+  sel = { type: 'line', li }
+  document.querySelectorAll('.line-row').forEach(r   => r.classList.toggle('sel-line', parseInt(r.dataset.li) === li))
+  document.querySelectorAll('.word-pill').forEach(p  => p.classList.remove('sel-word'))
+  renderInspector()
+}
+
+function selectWord(li, wi) {
+  sel = { type: 'word', li, wi }
+  document.querySelectorAll('.line-row').forEach(r   => r.classList.remove('sel-line'))
+  document.querySelectorAll('.word-pill').forEach(p  => p.classList.toggle('sel-word', parseInt(p.dataset.li) === li && parseInt(p.dataset.wi) === wi))
+  renderInspector()
+}
+
+// ── Inline word edit ───────────────────────────────────────────────────────────
+
+function beginWordEdit(pillEl, li, wi) {
+  const orig = editorLines[li].words[wi].text
+  pillEl.contentEditable = 'true'
+  pillEl.style.webkitUserSelect = 'text'
+  pillEl.focus()
+  document.execCommand('selectAll')
+
+  const commit = () => {
+    pillEl.contentEditable = 'false'
+    pillEl.style.webkitUserSelect = ''
+    const newText = pillEl.textContent.trim()
+    editorLines[li].words[wi].text = newText || orig
+    pillEl.textContent = editorLines[li].words[wi].text
+    if (newText) markDirty()
+    if (sel?.li === li && sel?.wi === wi) renderInspector()
+  }
+
+  pillEl.addEventListener('blur', commit, { once: true })
+  pillEl.addEventListener('keydown', e => {
+    if (e.key === 'Enter')  { e.preventDefault(); pillEl.blur() }
+    if (e.key === 'Escape') { pillEl.textContent = orig; pillEl.blur() }
+  }, { once: true })
+}
+
+// ── Partial refreshes ──────────────────────────────────────────────────────────
+
+function refreshLineMeta(li) {
+  const timeEl = document.querySelector(`.line-row[data-li="${li}"] .line-time`)
+  if (timeEl) timeEl.textContent = editorLines[li].start != null ? secToDisplay(editorLines[li].start) : '-'
+}
+
+// ── Line/word operations ───────────────────────────────────────────────────────
+
+function appendLine() {
+  if (stampMode) exitStampMode()
+  editorLines.push({ start: null, text: '', words: null })
+  markDirty()
+  renderLines()
+  selectLine(editorLines.length - 1)
+  // scroll to bottom
+  const area = document.getElementById('lines-area')
+  area.scrollTop = area.scrollHeight
+}
+
+function removeLine(li) {
+  if (stampMode) exitStampMode()
+  editorLines.splice(li, 1)
+  if (sel?.li === li) sel = null
+  else if (sel?.li > li) sel = { ...sel, li: sel.li - 1 }
+  markDirty()
+  renderLines()
+  renderInspector()
+}
+
+function moveLine(li, dir) {
+  if (stampMode) exitStampMode()
+  const target = li + dir
+  if (target < 0 || target >= editorLines.length) return
+  ;[editorLines[li], editorLines[target]] = [editorLines[target], editorLines[li]]
+  if (sel?.li === li)     sel = { ...sel, li: target }
+  else if (sel?.li === target) sel = { ...sel, li }
+  markDirty()
+  renderLines()
+  renderInspector()
+}
+
+function addWord(li) {
+  const line = editorLines[li]
+  if (!line.words) line.words = []
+  line.words.push({ start: null, end: null, text: 'word' })
+  markDirty()
+  const wi = line.words.length - 1
+  renderLines()
+  selectWord(li, wi)
+  setTimeout(() => {
+    const pill = document.querySelector(`.word-pill[data-li="${li}"][data-wi="${wi}"]`)
+    if (pill) beginWordEdit(pill, li, wi)
+  }, 40)
+}
+
+function removeWord(li, wi) {
+  editorLines[li].words.splice(wi, 1)
+  if (!editorLines[li].words.length) editorLines[li].words = null
+  if (sel?.li === li && sel?.wi === wi) sel = { type: 'line', li }
+  markDirty()
+  renderLines()
+  renderInspector()
+}
+
+// Swap word at wi with its neighbour in direction dir (-1 left, +1 right)
+function moveWord(li, wi, dir) {
+  const words = editorLines[li].words
+  const target = wi + dir
+  if (target < 0 || target >= words.length) return
+  ;[words[wi], words[target]] = [words[target], words[wi]]
+  if (sel?.li === li && sel?.wi === wi) sel = { ...sel, wi: target }
+  markDirty()
+  renderLines()
+  renderInspector()
+}
+
+// Insert word at (fromLi, fromWi) before the word at (toLi, toWi). Cross-line safe.
+function moveWordBefore(fromLi, fromWi, toLi, toWi) {
+  if (fromLi === toLi && fromWi === toWi) return
+
+  // Remove from source - keep words:[] (not null) so line stays in word mode
+  const [moved] = editorLines[fromLi].words.splice(fromWi, 1)
+
+  // Adjust insertion index if moving forward within the same line (splice shifted indices)
+  let insertAt = (fromLi === toLi && fromWi < toWi) ? toWi - 1 : toWi
+
+  // Ensure target line has a words array
+  if (!editorLines[toLi].words) editorLines[toLi].words = []
+  editorLines[toLi].words.splice(insertAt, 0, moved)
+
+  if (sel?.li === fromLi && sel?.wi === fromWi) sel = { ...sel, li: toLi, wi: insertAt }
+  markDirty()
+  renderLines()
+  if (sel) renderInspector()
+}
+
+// ── Split line into word pills ─────────────────────────────────────────────────
+
+function splitLineToWords(li) {
+  const line = editorLines[li]
+  const words = (line.text || '').trim().split(/\s+/).filter(Boolean)
+  if (!words.length) return
+  if (stampMode) exitStampMode()
+  line.words = words.map(text => ({ start: null, end: null, text }))
+  markDirty()
+  _kpActiveLi = -1
+  renderLines()
+}
+
+// ── Stamp Mode ─────────────────────────────────────────────────────────────────
+
+function buildStampSequence() {
+  const seq = []
+  for (let li = 0; li < editorLines.length; li++) {
+    const line = editorLines[li]
+    if (line.words && line.words.length) {
+      for (let wi = 0; wi < line.words.length; wi++) {
+        seq.push({ type: 'word', li, wi })
+      }
+    } else {
+      seq.push({ type: 'line', li })
+    }
+  }
+  return seq
+}
+
+function enterStampMode() {
+  stampMode = true
+  stampSeq  = buildStampSequence()
+  stampIdx  = 0
+  document.getElementById('btn-stamp-mode').classList.add('active')
+  document.getElementById('stamp-mode-bar').classList.add('visible')
+  updateStampProgress()
+  // Apply initial highlight via re-render (to set classes on existing DOM)
+  applyStampHighlight(0)
+}
+
+function exitStampMode() {
+  // Remove all stamp highlights
+  document.querySelectorAll('.stamp-next').forEach(el => el.classList.remove('stamp-next'))
+  stampMode = false
+  stampSeq  = []
+  stampIdx  = 0
+  document.getElementById('btn-stamp-mode').classList.remove('active')
+  document.getElementById('stamp-mode-bar').classList.remove('visible')
+}
+
+function toggleStampMode() {
+  if (!editorLines.length) return
+  stampMode ? exitStampMode() : enterStampMode()
+}
+
+function stampNext() {
+  if (!stampMode || stampIdx >= stampSeq.length) return
+  const pos = stampSeq[stampIdx]
+  const now = nowSec()
+
+  // Auto-fill end time of the previous word
+  if (stampIdx > 0) {
+    const prev = stampSeq[stampIdx - 1]
+    if (prev.type === 'word' && editorLines[prev.li]?.words?.[prev.wi]) {
+      editorLines[prev.li].words[prev.wi].end = now
+    }
+  }
+
+  // Stamp current position
+  if (pos.type === 'word') {
+    if (editorLines[pos.li]?.words?.[pos.wi]) {
+      editorLines[pos.li].words[pos.wi].start = now
+      if (sel?.li === pos.li && sel?.wi === pos.wi) renderInspector()
+    }
+  } else {
+    editorLines[pos.li].start = now
+    refreshLineMeta(pos.li)
+    if (sel?.li === pos.li && sel?.type === 'line') renderInspector()
+  }
+  markDirty()
+
+  // Shift highlight from current to next
+  removeStampHighlight(pos)
+  stampIdx++
+  updateStampProgress()
+
+  if (stampIdx >= stampSeq.length) {
+    exitStampMode()
+  } else {
+    applyStampHighlight(stampIdx)
+  }
+}
+
+function applyStampHighlight(idx) {
+  if (idx < 0 || idx >= stampSeq.length) return
+  const pos = stampSeq[idx]
+  let el
+  if (pos.type === 'word') {
+    el = document.querySelector(`.word-pill[data-li="${pos.li}"][data-wi="${pos.wi}"]`)
+    if (el) { el.classList.add('stamp-next'); el.scrollIntoView({ block: 'nearest' }) }
+  } else {
+    el = document.querySelector(`.line-row[data-li="${pos.li}"] .line-time`)
+    if (el) {
+      el.classList.add('stamp-next')
+      el.closest('.line-row')?.scrollIntoView({ block: 'nearest' })
+    }
+  }
+}
+
+function removeStampHighlight(pos) {
+  if (!pos) return
+  if (pos.type === 'word') {
+    const el = document.querySelector(`.word-pill[data-li="${pos.li}"][data-wi="${pos.wi}"]`)
+    if (el) el.classList.remove('stamp-next')
+  } else {
+    const el = document.querySelector(`.line-row[data-li="${pos.li}"] .line-time`)
+    if (el) el.classList.remove('stamp-next')
+  }
+}
+
+function updateStampProgress() {
+  const el = document.getElementById('stamp-progress')
+  if (el && stampSeq.length) el.textContent = `${stampIdx + 1} / ${stampSeq.length}`
+}
+
+// ── Karaoke preview ────────────────────────────────────────────────────────────
+
+function escHtml(str) {
+  return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+function updateKaraokePreview() {
+  const preview = document.getElementById('karaoke-preview')
+  if (!preview) return
+
+  if (!editorLines.length) {
+    if (_kpActiveLi !== -99) { preview.innerHTML = '<span class="kp-hint">No lyrics loaded</span>'; _kpActiveLi = -99 }
+    return
+  }
+
+  const t = audio.currentTime
+  let activeLi = -1
+  for (let i = 0; i < editorLines.length; i++) {
+    if (editorLines[i].start != null && editorLines[i].start <= t) activeLi = i
+  }
+
+  if (activeLi < 0) {
+    const hasAnyTimestamp = editorLines.some(l => l.start != null)
+    const msg = hasAnyTimestamp
+      ? 'Waiting for first line…'
+      : 'No timestamps set - use Stamp Mode or click a line time to add them'
+    if (_kpActiveLi !== -2) {
+      preview.innerHTML = `<span class="kp-hint">${msg}</span>`
+      _kpActiveLi = -2
+    }
+    return
+  }
+
+  const line = editorLines[activeLi]
+
+  if (line.words && line.words.length) {
+    // Re-render word spans only when the active line changes
+    if (_kpActiveLi !== activeLi) {
+      preview.innerHTML = line.words
+        .map((w, wi) => `<span class="kp-word" data-wi="${wi}">${escHtml(w.text.trimEnd())}</span>`)
+        .join('')
+      _kpActiveLi = activeLi
+    }
+    // Find the active word (last word whose start <= t)
+    let activeWi = -1
+    for (let wi = 0; wi < line.words.length; wi++) {
+      if (line.words[wi].start != null && line.words[wi].start <= t) activeWi = wi
+    }
+    preview.querySelectorAll('.kp-word').forEach(el => {
+      const wi = parseInt(el.dataset.wi)
+      el.classList.toggle('active', wi === activeWi)
+      el.classList.toggle('past',   wi < activeWi)
+    })
+  } else {
+    // Plain text line - just show the text
+    if (_kpActiveLi !== activeLi) {
+      preview.innerHTML = `<span class="kp-plain">${escHtml(line.text)}</span>`
+      _kpActiveLi = activeLi
+    }
+  }
+}
+
+// ── LRC export ─────────────────────────────────────────────────────────────────
+
+function exportLRC() {
+  return editorLines.map(line => {
+    const lt = `[${ticksToLRC(secToTicks(line.start ?? 0))}]`
+    if (line.words && line.words.length) {
+      const ws = line.words.map((w, wi) => {
+        let text = w.text
+        // Ensure trailing space between words (standard enhanced LRC format).
+        // Words from server/file import already have it; user-edited words may not.
+        if (wi < line.words.length - 1) {
+          if (!text.endsWith(' ')) text = text + ' '
+        } else {
+          text = text.trimEnd()  // no trailing space on last word
+        }
+        return `<${ticksToLRC(secToTicks(w.start ?? 0))}>${text}`
+      }).join('')
+      return `${lt}${ws}`
+    }
+    return `${lt}${line.text}`
+  }).join('\n')
+}
+
+// ── Save to Jellyfin ───────────────────────────────────────────────────────────
+
+document.getElementById('btn-save').addEventListener('click', async () => {
+  if (!editorItem || !editorJf) return
+  const btn    = document.getElementById('btn-save')
+  const status = document.getElementById('save-status')
+
+  btn.disabled  = true
+  btn.textContent = 'Saving…'
+  status.className = 'save-status'
+  status.textContent = ''
+
+  try {
+    const lrcText = exportLRC()
+
+    // Save to the Cascade Lyrics Jellyfin plugin - stored server-side as .slrc,
+    // shared across all users on the server.
+    const r = await fetch(`${editorJf.url}/Audio/${editorItem.Id}/CascadeLyrics`, {
+      method: 'POST',
+      headers: {
+        'X-Emby-Token': editorJf.token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ lrc: lrcText }),
+    })
+
+    if (!r.ok) throw new Error(`HTTP ${r.status}`)
+
+    // Drop the main window's cached copy, otherwise it keeps serving pre-edit lyrics
+    window.lyricsEditor.saved(editorItem.Id)
+
+    status.className = 'save-status ok'
+    status.textContent = 'Saved ✓'
+    setTimeout(() => { status.textContent = '' }, 3000)
+  } catch (err) {
+    console.error('[LyricsEditor] Save error:', err)
+    status.className = 'save-status err'
+    status.textContent = `Failed: ${err.message}`
+  } finally {
+    btn.disabled  = false
+    btn.textContent = 'Save to Jellyfin'
+    document.getElementById('btn-save').disabled = false
+  }
+})
+
+// ── Playback ───────────────────────────────────────────────────────────────────
+
+const playBtn  = document.getElementById('btn-play')
+const timeDisp = document.getElementById('time-disp')
+
+function updateTimeDisp(cur, dur) {
+  timeDisp.textContent = `${secToDisplay(cur)} / ${secToDisplay(dur ?? (editorItem?.RunTimeTicks ?? 0) / 10_000_000)}`
+}
+
+function tryPlay() {
+  const p = audio.play()
+  if (p && typeof p.catch === 'function') {
+    p.catch(err => {
+      console.error('[LyricsEditor] audio.play() failed:', err)
+      const status = document.getElementById('save-status')
+      if (status) { status.className = 'save-status err'; status.textContent = 'Audio error: ' + err.message }
+    })
+  }
+}
+
+playBtn.addEventListener('click', () => { audio.paused ? tryPlay() : audio.pause() })
+audio.addEventListener('play',  () => { playBtn.textContent = '⏸' })
+audio.addEventListener('pause', () => { playBtn.textContent = '▶' })
+audio.addEventListener('ended', () => { playBtn.textContent = '▶' })
+
+audio.addEventListener('timeupdate', () => {
+  if (!scrubber._drag) scrubber.value = audio.currentTime
+  updateTimeDisp(audio.currentTime)
+  updateKaraokePreview()
+})
+
+audio.addEventListener('loadedmetadata', () => {
+  scrubber.max = audio.duration || 100
+})
+
+scrubber.addEventListener('mousedown', () => { scrubber._drag = true })
+scrubber.addEventListener('mouseup',   () => {
+  scrubber._drag = false
+  audio.currentTime = parseFloat(scrubber.value)
+  _kpActiveLi = -1   // force karaoke preview re-render after seek
+})
+scrubber.addEventListener('input', () => {
+  if (scrubber._drag) updateTimeDisp(parseFloat(scrubber.value))
+})
+
+// ── Speed control ──────────────────────────────────────────────────────────────
+
+const speedSlider = document.getElementById('speed-slider')
+const speedLabel  = document.getElementById('speed-label')
+
+function setSpeed(rate) {
+  rate = Math.min(2, Math.max(0.25, rate))
+  audio.playbackRate = rate
+  speedSlider.value  = rate
+  speedLabel.textContent = rate === 1 ? '1×' : rate.toFixed(2).replace(/\.?0+$/, '') + '×'
+}
+
+speedSlider.addEventListener('input', () => setSpeed(parseFloat(speedSlider.value)))
+
+// Double-click label resets to 1×
+speedLabel.addEventListener('dblclick', () => setSpeed(1))
+
+// Keyboard shortcuts (when not in a text field)
+document.addEventListener('keydown', e => {
+  const tag = document.activeElement?.tagName
+  const editable = document.activeElement?.isContentEditable
+  if (tag === 'INPUT' || editable) return
+
+  if (e.key === 'Escape' && stampMode) { e.preventDefault(); exitStampMode(); return }
+
+  if (stampMode) {
+    // In stamp mode: Space stamps the next word; arrow keys still seek
+    if (e.code === 'Space')      { e.preventDefault(); stampNext(); return }
+    if (e.code === 'ArrowLeft')  { e.preventDefault(); audio.currentTime = Math.max(0, audio.currentTime - 5) }
+    if (e.code === 'ArrowRight') { e.preventDefault(); audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + 5) }
+    return
+  }
+
+  if (e.code === 'Space')       { e.preventDefault(); audio.paused ? tryPlay() : audio.pause() }
+  if (e.code === 'ArrowLeft')   { e.preventDefault(); audio.currentTime = Math.max(0, audio.currentTime - 5) }
+  if (e.code === 'ArrowRight')  { e.preventDefault(); audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + 5) }
+  if (e.key  === 'j')           audio.currentTime = Math.max(0, audio.currentTime - 1)
+  if (e.key  === 'l')           audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + 1)
+})
+</script>
+</body>
+</html>

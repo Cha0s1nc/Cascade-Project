@@ -1,15 +1,38 @@
 const { app, BrowserWindow, ipcMain, clipboard, shell, Menu, globalShortcut, TouchBar } = require('electron')
+
+// A main-process throw before the window is shown means no window and, for a
+// rejection, not even a message: Electron shows a dialog for an uncaught
+// exception but stays completely silent on an unhandled rejection. That is how
+// you get "it just does not open, nothing in the terminal". Both are printed
+// here so a startup failure always says something.
+process.on('uncaughtException', err => {
+  console.error('[cascade] uncaught exception in the main process:', err)
+})
+process.on('unhandledRejection', err => {
+  console.error('[cascade] unhandled rejection in the main process:', err)
+})
 const { TouchBarButton, TouchBarSpacer, TouchBarLabel } = TouchBar
 const path = require('path')
 const https = require('https')
 const http  = require('http')
 const fs    = require('fs')
 const os    = require('os')
+const crypto = require('crypto')
 const Store = require('electron-store')
 
 // ── Discord RPC ────────────────────────────────────────────────────────────────
-let rpcClient  = null
-let rpcReady   = false
+let rpcClient   = null
+let rpcReady    = false
+let rpcUpdateTimer = null
+let lastRpcActivity = null
+
+// Discord activity type: 2 = Listening, 3 = Watching. Held here rather than on
+// the activity object because setActivity() rebuilds that object from a fixed
+// field list and drops anything it does not recognise - see the request() patch
+// in connectDiscordRpc().
+const RPC_TYPE_LISTENING = 2
+const RPC_TYPE_WATCHING  = 3
+let rpcActivityType = RPC_TYPE_LISTENING
 
 async function connectDiscordRpc(clientId) {
   if (!clientId) return
@@ -18,12 +41,17 @@ async function connectDiscordRpc(clientId) {
     rpcClient = new Client({ transport: 'ipc' })
     rpcClient.on('ready', () => {
       rpcReady = true
-      // Patch request() to inject type:2 (Listening) into every SET_ACTIVITY call
-      // setActivity() strips the type field, so we add it back at the protocol level
+      // Patch request() to inject the activity type into every SET_ACTIVITY call.
+      // setActivity() strips the type field, so we add it back at the protocol
+      // level - which is also why the renderer's choice arrives via
+      // rpcActivityType rather than on the activity object itself.
       const _origRequest = rpcClient.request.bind(rpcClient)
       rpcClient.request = function(cmd, args, ...rest) {
-        if (cmd === 'SET_ACTIVITY' && args?.activity) args.activity.type = 2
-        return _origRequest(cmd, args, ...rest).catch(e => console.warn('[discord-rpc] request failed:', e.message))
+        if (cmd === 'SET_ACTIVITY' && args?.activity) {
+          args.activity.type = rpcActivityType
+          args.activity.status_display_type = 1  // show state (artist/series) in member list sidebar
+        }
+        return _origRequest(cmd, args, ...rest).catch(() => { /* Discord rate limit or transient error - suppress */ })
       }
       if (win && !win.isDestroyed()) win.webContents.send('discord-rpc-status', true)
     })
@@ -51,31 +79,65 @@ ipcMain.on('discord-rpc-connect', async (_e, clientId) => {
 
 ipcMain.on('discord-rpc-update', (_e, activity) => {
   if (!rpcClient || !rpcReady) return
-  try {
-    if (activity) {
-      rpcClient.setActivity(activity)
-    } else {
-      rpcClient.clearActivity()
-    }
-  } catch (e) { console.warn('[discord-rpc] update failed:', e.message) }
+  // `watching` rides along on the activity; setActivity() would drop it, so it
+  // is lifted out here and applied by the request() patch instead.
+  rpcActivityType = activity?.watching ? RPC_TYPE_WATCHING : RPC_TYPE_LISTENING
+  lastRpcActivity = activity
+  if (rpcUpdateTimer) return  // already scheduled
+  rpcUpdateTimer = setTimeout(() => {
+    rpcUpdateTimer = null
+    if (!rpcClient || !rpcReady) return
+    try {
+      if (lastRpcActivity) rpcClient.setActivity(lastRpcActivity)
+      else rpcClient.clearActivity()
+    } catch {}
+  }, 5000)  // max one update per 5 seconds
 })
 
 ipcMain.on('discord-rpc-clear', () => {
+  // Drop the pending update as well as the live one. The throttle holds the
+  // last activity to send when its timer fires, so clearing on its own left a
+  // scheduled update to put the presence straight back up to five seconds
+  // later, with nothing to clear it again. That is how a paused track stayed
+  // on your profile indefinitely. Cleared before the connection check so the
+  // state is right even when there is nothing connected to tell.
+  lastRpcActivity = null
+  if (rpcUpdateTimer) { clearTimeout(rpcUpdateTimer); rpcUpdateTimer = null }
   if (!rpcClient || !rpcReady) return
   try { rpcClient.clearActivity() } catch {}
 })
 
 // ── Cascade Control Server (for Cha0s Stream integration) ─────────────────────
-// Listens on 127.0.0.1:47847 — Cha0s Stream POSTs here instead of using OS media keys
-const controlServer = http.createServer(async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*')
-  if (req.method === 'OPTIONS') { res.writeHead(204); return res.end() }
+// Listens on 127.0.0.1:47847 - Cha0s Stream POSTs here instead of using OS media keys.
+// Loopback-only, but any webpage open in a browser on this machine can also reach a
+// loopback port - so requests must carry the shared token below. The token lives in
+// a dotfile in the home dir rather than app config, so any local app (Stream included)
+// can find it without a manual pairing step; a browser page has no way to read it.
+const CONTROL_TOKEN_PATH = path.join(os.homedir(), '.cascade-control-token')
+function getOrCreateControlToken() {
+  try {
+    const existing = fs.readFileSync(CONTROL_TOKEN_PATH, 'utf8').trim()
+    if (/^[0-9a-f]{64}$/.test(existing)) return existing
+  } catch {}
+  const token = crypto.randomBytes(32).toString('hex')
+  try { fs.writeFileSync(CONTROL_TOKEN_PATH, token, { mode: 0o600 }) } catch {}
+  return token
+}
+const controlToken = getOrCreateControlToken()
+const CONTROL_ACTIONS = new Set(['playpause', 'next', 'prev'])
+
+const controlServer = http.createServer((req, res) => {
+  if (req.headers['x-cascade-token'] !== controlToken) {
+    res.writeHead(401, { 'Content-Type': 'application/json' })
+    return res.end(JSON.stringify({ ok: false, error: 'Unauthorized' }))
+  }
   if (req.method === 'POST' && req.url === '/cascade/control') {
     let body = ''
     req.on('data', chunk => { body += chunk })
     req.on('end', () => {
       try {
         const { action } = JSON.parse(body)
+        if (!CONTROL_ACTIONS.has(action)) throw new Error('bad action')
         if (win && !win.isDestroyed()) win.webContents.send('media-key', action)
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ ok: true }))
@@ -88,23 +150,11 @@ const controlServer = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ ok: true, app: 'Cascade', version: app.getVersion() }))
   } else if (req.method === 'GET' && req.url === '/cascade/now-playing') {
+    // cascadeNowPlaying is kept fresh by the renderer's 'now-playing-update' IPC
+    // messages (sent on track change/play/pause), so just serve the cache instead
+    // of running executeJavaScript in the renderer on every poll.
     res.writeHead(200, { 'Content-Type': 'application/json' })
-    if (win && !win.isDestroyed()) {
-      try {
-        const result = await win.webContents.executeJavaScript(`
-          JSON.stringify({
-            title:     queue[queueIndex]?.Name    || null,
-            artist:    queue[queueIndex]?.AlbumArtist || (queue[queueIndex]?.Artists?.[0]) || null,
-            isPlaying: typeof audio !== 'undefined' ? !audio.paused : false
-          })
-        `)
-        res.end(result)
-      } catch {
-        res.end(JSON.stringify(cascadeNowPlaying))
-      }
-    } else {
-      res.end(JSON.stringify(cascadeNowPlaying))
-    }
+    res.end(JSON.stringify(cascadeNowPlaying))
   } else {
     res.writeHead(404); res.end()
   }
@@ -116,139 +166,136 @@ controlServer.on('error', (err) => {
   console.warn('[cascade] Control server error:', err.message)
 })
 
-// ── Remote Control WebSocket Server (Android app) ─────────────────────────────
-// Listens on all interfaces, port 9876.
-// Enable/disable via store key 'remoteControlEnabled' (default: false).
-// Protocol: JSON messages — see remote_control_service.dart for the schema.
-
-const WebSocket = require('ws')
-let remoteWss    = null
-let remoteEnabled = false
-
-function startRemoteWss(port = 9876) {
-  if (remoteWss) return
-  remoteWss = new WebSocket.Server({ port }, () => {
-    console.log(`[remote] WebSocket server listening on *:${port}`)
-  })
-
-  remoteWss.on('connection', (ws) => {
-    console.log('[remote] Android client connected')
-
-    // Send current state immediately on connect
-    broadcastRemoteState()
-
-    ws.on('message', (raw) => {
-      try {
-        const msg = JSON.parse(raw.toString())
-        handleRemoteCmd(msg)
-      } catch {}
-    })
-
-    ws.on('close', () => console.log('[remote] Android client disconnected'))
-    ws.on('error', (e) => console.warn('[remote] WS error:', e.message))
-  })
-
-  remoteWss.on('error', (e) => {
-    console.warn('[remote] WSS error:', e.message)
-    remoteWss = null
-  })
-}
-
-function stopRemoteWss() {
-  if (!remoteWss) return
-  remoteWss.close(() => console.log('[remote] WebSocket server stopped'))
-  remoteWss = null
-}
-
-function broadcastRemoteState(state) {
-  if (!remoteWss) return
-  // If no state passed, ask the renderer for current state
-  if (!state) {
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('remote-get-state')
-    }
-    return
-  }
-  const msg = JSON.stringify({ event: 'stateUpdate', ...state })
-  remoteWss.clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) client.send(msg)
-  })
-}
-
-function handleRemoteCmd({ cmd, position, volume: vol }) {
-  if (!win || win.isDestroyed()) return
-  switch (cmd) {
-    case 'play':
-    case 'pause':
-    case 'next':
-    case 'prev':
-      win.webContents.send('media-key',
-        cmd === 'play' || cmd === 'pause' ? 'playpause' : cmd)
-      break
-    case 'seek':
-      win.webContents.send('remote-seek', position)
-      break
-    case 'setVolume':
-      win.webContents.send('remote-volume', vol)
-      break
-    case 'getState':
-      broadcastRemoteState()
-      break
-  }
-}
-
-// Renderer → main: state update to broadcast to WS clients
-ipcMain.on('remote-state-update', (_e, state) => broadcastRemoteState(state))
-
-// IPC: enable/disable remote control
-ipcMain.handle('remote-control-enable', (_e, enable) => {
-  remoteEnabled = enable
-  store.set('remoteControlEnabled', enable)
-  if (enable) startRemoteWss()
-  else        stopRemoteWss()
-  return { ok: true }
-})
-
-ipcMain.handle('remote-control-status', () => ({
-  enabled: remoteEnabled,
-  port:    9876,
-  clients: remoteWss ? remoteWss.clients.size : 0,
-}))
-
-// Auto-start if previously enabled
-;(async () => {
-  try {
-    const wasEnabled = store.get('remoteControlEnabled')
-    if (wasEnabled) { remoteEnabled = true; startRemoteWss() }
-  } catch {}
-})()
-
 const GITHUB_REPO = 'Cha0s1nc/Cascade-Project'
 
 const store = new Store()
 
+// The app's own .titlebar strip is 38px (index.html) - the Window Controls
+// Overlay height below must match it or the OS-drawn buttons sit off-centre.
+const TITLEBAR_HEIGHT = 38
+
+// Windows/Linux caption buttons drawn by the OS via titleBarOverlay, coloured
+// to match whichever theme is active so they stay readable in both. macOS
+// ignores this entirely - its traffic lights are drawn by the OS itself and
+// take their colour from nowhere we control.
+// Matches --surface/--text from index.html's :root and light theme block.
+/** titleBarOverlay options for win32/linux, or nothing at all if building them
+ *  fails. Degrading to no overlay costs the OS caption buttons; throwing here
+ *  costs the entire window. */
+function overlayOptions() {
+  try {
+    return { titleBarOverlay: { ...titleBarOverlayColors(storedThemeMode()), height: TITLEBAR_HEIGHT } }
+  } catch (e) {
+    console.error('[cascade] titleBarOverlay unavailable, falling back to a plain hidden titlebar:', e)
+    return {}
+  }
+}
+
+/**
+ * Show a window created with `show: false`, once.
+ *
+ * ready-to-show alone is not enough. It fires on the renderer's first paint,
+ * and on Windows a hidden window can fail to produce one at all: Chromium sees
+ * no reason to paint something invisible, so the window waits to be shown
+ * before painting and waits for a paint before being shown. Confirmed in
+ * practice - the main window never appeared and the event never fired, while
+ * the page itself was perfectly fine underneath.
+ *
+ * did-finish-load is the escape: it fires when the page has loaded, whether or
+ * not anything has been painted. Whichever arrives first wins, with a timeout
+ * as a last resort so a window can never be invisible forever. The backgroundColor
+ * set on each window is what stops the early case flashing white.
+ */
+function showWhenReady(w, after) {
+  let shown = false
+  const showOnce = (why) => {
+    if (shown || !w || w.isDestroyed()) return
+    shown = true
+    if (why) console.error(`[cascade] ${why}`)
+    w.show()
+    if (after) after()
+  }
+  w.once('ready-to-show', () => showOnce(null))
+  w.webContents.once('did-finish-load', () => showOnce(null))
+  setTimeout(() => showOnce('window never became ready, showing it anyway'), 10000)
+}
+
+function titleBarOverlayColors(mode) {
+  return mode === 'light'
+    ? { color: '#ffffff', symbolColor: '#1c1c1e' }
+    : { color: '#1c1c1e', symbolColor: '#f5f5f7' }
+}
+
+function storedThemeMode() {
+  try {
+    const raw = store.get('theme')
+    if (raw && JSON.parse(String(raw)).mode === 'light') return 'light'
+  } catch {
+    // Corrupt/missing store value - fall back to dark, same as the renderer does.
+  }
+  return 'dark'
+}
+
 let win
-let updaterWindow  = null
-let pendingDownload = null
+let updaterWindow     = null
+let lyricsEditorWindow = null
+let metadataEditorWindow = null
+let miniPlayerWindow  = null
+let pendingDownload   = null
 
 function createWindow() {
+  const isDarwin = process.platform === 'darwin'
   win = new BrowserWindow({
     width: 1100,
     height: 700,
     minWidth: 800,
-    minHeight: 500,
+    // 560, not 500: the video overlay stacks a picture, a title, two button
+    // rows, a scrubber and a volume slider into one column, and 500 was under
+    // what that needs - the picture was the part that got squeezed out.
+    minHeight: 560,
     backgroundColor: '#111113',
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 12, y: 11 },
+    // hiddenInset + trafficLightPosition is macOS-only and is silently ignored
+    // elsewhere, which used to leave Windows/Linux with the OS title bar AND
+    // the app's own 38px .titlebar stacked on top of each other. 'hidden' +
+    // titleBarOverlay (Electron 29, win32/linux) draws real OS caption buttons
+    // inside the app's own titlebar strip instead - index.html reserves space
+    // for them with padding-right.
+    titleBarStyle: isDarwin ? 'hiddenInset' : 'hidden',
+    ...(isDarwin
+      ? { trafficLightPosition: { x: 12, y: 11 } }
+      // Built separately and defensively: this is the newest thing in here and
+      // the only part that is macOS-untestable, so if the platform rejects the
+      // overlay the app must still open with a plain hidden titlebar rather
+      // than failing to produce a window at all.
+      : overlayOptions()),
     autoHideMenuBar: true,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'build', 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      // Chromium suspends requestAnimationFrame while minimized/occluded, so a track
+      // that changes then never gets its marquee measured.
+      // ponytail: costs a little idle CPU; drop it if battery drain shows up.
+      backgroundThrottling: false,
     },
     show: false,
   })
-  Menu.setApplicationMenu(null)
+  // macOS always renders an app menu, so passing null does not remove it, it
+  // leaves a stub with nothing bound to it - which is why Reload, the zoom
+  // items and Toggle Developer Tools all grey out. It costs the Edit menu too,
+  // and on macOS that menu is what makes Cmd+C/V/X/A work inside a text field
+  // at all, so without it you cannot paste a server URL or a password.
+  // Elsewhere a null menu really does mean no menu bar, which is what we want.
+  if (process.platform === 'darwin') {
+    Menu.setApplicationMenu(Menu.buildFromTemplate([
+      { role: 'appMenu' },
+      { role: 'editMenu' },
+      { role: 'viewMenu' },
+      { role: 'windowMenu' },
+    ]))
+  } else {
+    Menu.setApplicationMenu(null)
+  }
 
   win.loadFile('index.html')
 
@@ -280,20 +327,28 @@ function createWindow() {
     ipcMain.on('touchbar-update', () => {})
   }
 
-  win.once('ready-to-show', () => {
-    win.show()
+  showWhenReady(win)
+
+  // Hung off did-finish-load rather than ready-to-show. Same reason as
+  // showWhenReady: ready-to-show can simply never fire on Windows, which
+  // silently cost the media keys, the F12 devtools binding and the update
+  // check there. None of this needs a painted window, only a loaded one.
+  win.webContents.once('did-finish-load', () => {
     if (app.isPackaged) setTimeout(checkForUpdates, 5000)
 
-    // Register OS media keys here — app is already ready, window exists
     const send = (key) => { if (win && !win.isDestroyed()) win.webContents.send('media-key', key) }
     globalShortcut.register('MediaPlayPause',     () => send('playpause'))
     globalShortcut.register('MediaNextTrack',     () => send('next'))
     globalShortcut.register('MediaPreviousTrack', () => send('prev'))
-    globalShortcut.register('F12', () => { if (win && !win.isDestroyed()) win.webContents.toggleDevTools() })
+    win.webContents.on('before-input-event', (_e, input) => {
+      if (input.type === 'keyDown' && input.key === 'F12') win.webContents.toggleDevTools()
+    })
   })
 }
 
-app.whenReady().then(createWindow)
+app.whenReady().then(() => {
+  createWindow()
+})
 
 app.on('window-all-closed', () => {
   globalShortcut.unregisterAll()
@@ -305,12 +360,54 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow()
 })
 
-// Now-playing state — updated by the renderer, exposed via the control server
+// Now-playing state - updated by the renderer, exposed via the control server
 let cascadeNowPlaying = { title: null, artist: null, isPlaying: false }
 ipcMain.on('now-playing-update', (_e, data) => { cascadeNowPlaying = { ...cascadeNowPlaying, ...data } })
 
+// ── Debug mode ──────────────────────────────────────────────────────────────
+// A sentinel file's mere presence turns on the renderer's debug panel - no
+// settings toggle to accidentally ship on, no keyboard shortcut to fire by
+// accident. Checked once at startup, three candidate locations so it works
+// both packaged (userData) and run from a source checkout (project root, next
+// to the executable).
+const DEBUG_SENTINEL = '.cascade-debug'
+function debugSentinelPresent() {
+  const candidates = [path.join(__dirname, DEBUG_SENTINEL)]
+  try { candidates.push(path.join(app.getPath('userData'), DEBUG_SENTINEL)) } catch {}
+  try { candidates.push(path.join(path.dirname(app.getPath('exe')), DEBUG_SENTINEL)) } catch {}
+  return candidates.some(p => { try { return fs.existsSync(p) } catch { return false } })
+}
+
+// Resolved on first ask, not at module scope. It used to run during require(),
+// which meant app.getPath('userData') was called before the app was ready and
+// outside any try - and anything thrown there takes the whole main process down
+// before a window exists, with nothing on screen to say why. A diagnostic must
+// never be able to stop the app starting.
+let _debugMode = null
+ipcMain.handle('is-debug-mode', () => {
+  if (_debugMode === null) {
+    try { _debugMode = debugSentinelPresent() } catch (e) {
+      console.error('[cascade] debug sentinel check failed, carrying on without it:', e)
+      _debugMode = false
+    }
+  }
+  return _debugMode
+})
+
 // IPC: app version
 ipcMain.handle('get-version', () => app.getVersion())
+
+// IPC: whether this is a packaged (production) build vs. run from the command line
+ipcMain.handle('is-packaged', () => app.isPackaged)
+
+// IPC: theme switched in the renderer - recolour the OS-drawn caption buttons
+// to match. No-op on macOS: setTitleBarOverlay only applies to a window
+// created with titleBarOverlay set, which createWindow() only does elsewhere.
+ipcMain.on('set-titlebar-overlay', (_e, { mode } = {}) => {
+  if (process.platform === 'darwin') return
+  if (!win || win.isDestroyed()) return
+  try { win.setTitleBarOverlay(titleBarOverlayColors(mode)) } catch {}
+})
 
 // IPC: store
 ipcMain.handle('store-get', (_e, key) => store.get(key))
@@ -323,7 +420,7 @@ ipcMain.handle('clipboard-write', (_e, text) => clipboard.writeText(text))
 // IPC: shell
 ipcMain.handle('shell-open', (_e, url) => shell.openExternal(url))
 
-// IPC: download — uses Electron's session download API
+// IPC: download - uses Electron's session download API
 ipcMain.handle('download-file', (_e, url, filename) => {
   win.webContents.downloadURL(url)
 })
@@ -331,15 +428,19 @@ ipcMain.handle('download-file', (_e, url, filename) => {
 // ── Version helpers ────────────────────────────────────────────────────────────
 
 function parseVersion(v) {
-  // Strip pre-release suffix (e.g. 1.0.1b, 1.0.1-beta) before comparing
-  return String(v).replace(/^v/, '').replace(/[-+][a-zA-Z0-9._]*$/, '').split('.').map(n => parseInt(n, 10) || 0)
+  const s = String(v).replace(/^v/, '')
+  const betaMatch = s.match(/-b(\d+)$/i)
+  const betaNum = betaMatch ? parseInt(betaMatch[1], 10) : Infinity
+  const [major, minor, patch] = s.replace(/[-+][a-zA-Z0-9._]*$/, '').split('.').map(n => parseInt(n, 10) || 0)
+  return [major, minor, patch, betaNum]
 }
 function isNewer(latest, current) {
-  const [la, lb, lc] = parseVersion(latest)
-  const [ca, cb, cc] = parseVersion(current)
+  const [la, lb, lc, ld] = parseVersion(latest)
+  const [ca, cb, cc, cd] = parseVersion(current)
   if (la !== ca) return la > ca
   if (lb !== cb) return lb > cb
-  return lc > cc
+  if (lc !== cc) return lc > cc
+  return ld > cd
 }
 
 // ── Updater window ─────────────────────────────────────────────────────────────
@@ -350,6 +451,7 @@ function openUpdaterWindow(updateInfo) {
     downloadUrl: updateInfo.downloadUrl || null,
     assetName:   updateInfo.assetName   || null,
     releaseUrl:  updateInfo.releaseUrl  || '',
+    digest:      updateInfo.digest      || null,
     destPath:    null,
   }
   if (updaterWindow && !updaterWindow.isDestroyed()) { updaterWindow.focus(); return }
@@ -374,29 +476,275 @@ function openUpdaterWindow(updateInfo) {
   updaterWindow.on('closed', () => { updaterWindow = null })
 }
 
+// ── Lyrics editor window ───────────────────────────────────────────────────────
+
+ipcMain.on('open-lyrics-editor', (_e, data) => {
+  if (lyricsEditorWindow && !lyricsEditorWindow.isDestroyed()) {
+    lyricsEditorWindow.focus()
+    lyricsEditorWindow.webContents.send('lyrics-editor-init', data)
+    return
+  }
+  lyricsEditorWindow = new BrowserWindow({
+    width: 900, height: 680, minWidth: 720, minHeight: 520,
+    title: 'Lyrics Editor', backgroundColor: '#111113',
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 12, y: 12 },
+    autoHideMenuBar: true, resizable: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'lyrics-editor-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+    show: false,
+  })
+  lyricsEditorWindow.loadFile('lyrics-editor.html')
+  // Same show:false + ready-to-show pattern the main window was caught by, so
+  // the lyrics editor would never have opened on Windows either.
+  showWhenReady(lyricsEditorWindow, () => {
+    lyricsEditorWindow.webContents.send('lyrics-editor-init', data)
+  })
+  lyricsEditorWindow.webContents.on('before-input-event', (_e, input) => {
+    if (input.type === 'keyDown' && input.key === 'F12') lyricsEditorWindow.webContents.toggleDevTools()
+  })
+  lyricsEditorWindow.on('closed', () => { lyricsEditorWindow = null })
+})
+
+// Relay a successful save to the main window - the editor writes straight to the
+// server, so the main window's lyrics cache would otherwise keep serving the old copy.
+ipcMain.on('lyrics-editor-saved', (_e, itemId) => {
+  if (win && !win.isDestroyed()) win.webContents.send('lyrics-saved', itemId)
+})
+
+ipcMain.on('lyrics-editor-close', () => {
+  if (lyricsEditorWindow && !lyricsEditorWindow.isDestroyed()) lyricsEditorWindow.close()
+})
+
+// ── Metadata editor window ─────────────────────────────────────────────────────
+// Same shape as the lyrics editor above: its own small window, its own preload,
+// its own save-then-tell-the-main-window-to-drop-its-cache handshake. Gating on
+// jf.isAdmin happens in renderer.js before this ever fires - POST /Items/{id}
+// is RequiresElevation on the server, so a non-admin call would just 403, but
+// there is no reason to let it get that far.
+
+ipcMain.on('open-metadata-editor', (_e, data) => {
+  if (metadataEditorWindow && !metadataEditorWindow.isDestroyed()) {
+    metadataEditorWindow.focus()
+    metadataEditorWindow.webContents.send('metadata-editor-init', data)
+    return
+  }
+  // Unlike the lyrics editor, this window keeps the OS's own title bar rather
+  // than drawing a custom one: titleBarStyle:'hiddenInset' is macOS-only and
+  // silently ignored elsewhere, which is how a hand-rolled titlebar strip ends
+  // up stacked under the OS's own default one on Windows/Linux. A plain framed
+  // window sidesteps that entirely - nothing to guard per platform.
+  metadataEditorWindow = new BrowserWindow({
+    width: 640, height: 620, minWidth: 520, minHeight: 480,
+    title: 'Edit Metadata', backgroundColor: '#111113',
+    autoHideMenuBar: true, resizable: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'metadata-editor-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+    show: false,
+  })
+  metadataEditorWindow.loadFile('metadata-editor.html')
+  // Same show:false + ready-to-show pattern as the lyrics editor, for the same
+  // reason - ready-to-show alone can simply never fire on Windows.
+  showWhenReady(metadataEditorWindow, () => {
+    metadataEditorWindow.webContents.send('metadata-editor-init', data)
+  })
+  metadataEditorWindow.webContents.on('before-input-event', (_e, input) => {
+    if (input.type === 'keyDown' && input.key === 'F12') metadataEditorWindow.webContents.toggleDevTools()
+  })
+  metadataEditorWindow.on('closed', () => { metadataEditorWindow = null })
+})
+
+ipcMain.on('metadata-editor-saved', (_e, itemId) => {
+  if (win && !win.isDestroyed()) win.webContents.send('metadata-saved', itemId)
+})
+
+ipcMain.on('metadata-editor-close', () => {
+  if (metadataEditorWindow && !metadataEditorWindow.isDestroyed()) metadataEditorWindow.close()
+})
+
+// ── Miniplayer window ──────────────────────────────────────────────────────────
+// A remote control view, not a second player - see CODEMAP.md. Playback keeps
+// running in the main window's two <video> decks; this window only mirrors a
+// state snapshot and sends back play/pause/prev/next, which the main window
+// applies through its own existing button handlers (see onControl in
+// renderer.js) rather than any new playback code living here.
+
+// Apple Music-style vertical-only resize: width stays fixed (miniplayer.html's
+// compact-bar/stacked-art container query switches on height, not width), and
+// height ranges from a bare compact bar up to a comfortably art-forward view.
+// None of resizable/minWidth/maxWidth/minHeight/maxHeight below are macOS-only
+// (unlike titleBarStyle/trafficLightPosition above) - all three platforms
+// honour them, so no per-platform guard is needed here.
+const MINI_WIDTH = 300
+const MINI_MIN_HEIGHT = 100
+const MINI_MAX_HEIGHT = 900   // Apple Music's own tall state is ~880px
+const MINI_DEFAULT_HEIGHT = 120
+
+ipcMain.on('open-miniplayer', () => {
+  if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) {
+    miniPlayerWindow.focus()
+  } else {
+    // Store values are untrusted (CODEMAP) - a stale height from a build with
+    // a different min/max range must not hand the window an out-of-range size.
+    const savedHeight = store.get('miniplayerHeight')
+    const height = (typeof savedHeight === 'number' && savedHeight >= MINI_MIN_HEIGHT && savedHeight <= MINI_MAX_HEIGHT)
+      ? savedHeight : MINI_DEFAULT_HEIGHT
+
+    miniPlayerWindow = new BrowserWindow({
+      // Real traffic lights on macOS rather than an in-page button. They give a
+      // close that cannot be broken by page CSS, and they drag the window for
+      // free - which matters here, because the in-page versions of both were
+      // dead until the drag region was cut back to a strip. Windows and Linux
+      // stay frameless and keep the in-page close button; a titleBarOverlay at
+      // this window size would eat most of the top edge.
+      ...(process.platform === 'darwin'
+        ? {
+            titleBarStyle: 'hidden',
+            trafficLightPosition: { x: 10, y: 6 },
+            // A blurred translucent panel rather than a black rectangle. macOS
+            // only: Windows and Linux fall back to the page's own translucent
+            // background over an opaque window, which still reads as a tint.
+            vibrancy: 'under-window',
+            transparent: true,
+          }
+        : {}),
+      width: MINI_WIDTH, height,
+      minWidth: MINI_WIDTH, maxWidth: MINI_WIDTH,
+      minHeight: MINI_MIN_HEIGHT, maxHeight: MINI_MAX_HEIGHT,
+      title: 'Cascade', backgroundColor: '#111113',
+      frame: false, resizable: true, alwaysOnTop: true, skipTaskbar: true,
+      autoHideMenuBar: true,
+      webPreferences: {
+        preload: path.join(__dirname, 'miniplayer-preload.js'),
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
+      show: false,
+    })
+    miniPlayerWindow.loadFile('miniplayer.html')
+    // Same show:false + ready-to-show pattern as every other secondary window -
+    // ready-to-show alone can simply never fire on Windows.
+    showWhenReady(miniPlayerWindow)
+    // Debounced so a live drag-resize doesn't write the store on every
+    // intermediate frame.
+    let resizeSaveTimer = null
+    miniPlayerWindow.on('resize', () => {
+      clearTimeout(resizeSaveTimer)
+      resizeSaveTimer = setTimeout(() => {
+        if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) {
+          store.set('miniplayerHeight', miniPlayerWindow.getBounds().height)
+        }
+      }, 400)
+    })
+    miniPlayerWindow.on('closed', () => {
+      clearTimeout(resizeSaveTimer)
+      miniPlayerWindow = null
+      // Restoring the main window belongs HERE, not only in the
+      // miniplayer-restore handler below - this fires no matter how the
+      // window closed (the close button, the OS window-menu Close Window
+      // shortcut, Alt+F4, anything). The miniplayer stands in for the main
+      // window (win.minimize(), never hide()), so any path that loses this
+      // window must bring the main one back or the user is left with no
+      // window at all, which is exactly the failure this app already shipped
+      // once.
+      if (win && !win.isDestroyed()) { win.restore(); win.focus() }
+    })
+  }
+  // Compact-mode convention (Spotify/Apple Music): the miniplayer stands in for
+  // the main window rather than sitting alongside it. minimize(), not hide() -
+  // this app has no tray icon, so hide() would leave no way back to it.
+  if (win && !win.isDestroyed()) win.minimize()
+})
+
+ipcMain.on('miniplayer-state', (_e, state) => {
+  if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) miniPlayerWindow.webContents.send('miniplayer-state', state)
+})
+
+ipcMain.on('miniplayer-control', (_e, action) => {
+  if (win && !win.isDestroyed()) win.webContents.send('miniplayer-control', action)
+})
+
+// Closing (button or click-anywhere) just closes the window - the 'closed'
+// handler above is the single place that restores the main window, so every
+// way this window can go away ends up there instead of duplicating the logic.
+ipcMain.on('miniplayer-restore', () => {
+  if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) miniPlayerWindow.close()
+})
+
 // ── GitHub release check ───────────────────────────────────────────────────────
+
+// Which Linux package this install came from, so we hand back an update in the
+// same format. AppImage announces itself through the environment; past that the
+// distro's release file is the best available signal for deb vs rpm.
+function linuxPackageKind() {
+  if (process.env.APPIMAGE) return 'AppImage'
+  // ponytail: a deb installed on an rpm distro (or vice versa) guesses wrong.
+  // Read /opt/Cascade's owning package manager if that ever actually happens.
+  if (fs.existsSync('/etc/debian_version')) return 'deb'
+  if (fs.existsSync('/etc/redhat-release') || fs.existsSync('/etc/fedora-release')) return 'rpm'
+  return null
+}
+
+// Returns the asset matching this exact platform/arch/format, or undefined.
+// Deliberately no "close enough" fallback: handing someone an installer that
+// cannot run on their machine is worse than sending them to the releases page.
+function pickAsset(assets = []) {
+  const byExt = re => assets.filter(a => re.test(a.name))
+
+  if (process.platform === 'win32') return byExt(/\.exe$/i)[0]
+
+  if (process.platform === 'darwin') {
+    // Only the arm64 build carries its arch in the filename; the unsuffixed
+    // .dmg is the x64 one. Matching on process.arch alone silently handed
+    // Intel Macs the arm64 build.
+    const dmgs = byExt(/\.dmg$/i)
+    return process.arch === 'arm64'
+      ? dmgs.find(a => /arm64/i.test(a.name))
+      : dmgs.find(a => !/arm64/i.test(a.name))
+  }
+
+  if (process.platform === 'linux') {
+    const kind = linuxPackageKind()
+    if (kind === 'AppImage') return byExt(/\.AppImage$/i)[0]
+    if (kind === 'deb')      return byExt(/\.deb$/i)[0]
+    if (kind === 'rpm')      return byExt(/\.rpm$/i)[0]
+  }
+
+  return undefined
+}
 
 async function checkForUpdates() {
   try {
-    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
-      headers: { 'User-Agent': 'cascade-updater' }
-    })
-    if (!res.ok) throw new Error(`GitHub API ${res.status}`)
-    const release = await res.json()
-    const latestVersion = release.tag_name.replace(/^v/, '')
-    if (!isNewer(latestVersion, app.getVersion())) return
-
-    const platform = process.platform
-    const arch = process.arch
-    let asset
-    if (platform === 'win32') {
-      asset = release.assets.find(a => /\.exe$/i.test(a.name))
-    } else if (platform === 'darwin') {
-      asset = release.assets.find(a => /\.dmg$/i.test(a.name) && a.name.includes(arch))
-           || release.assets.find(a => /\.dmg$/i.test(a.name))
+    // Defaults on for a beta build itself (so it keeps finding newer betas), unless
+    // the user has explicitly chosen otherwise, that choice always wins.
+    const isBetaBuild = /-b\d*$/.test(app.getVersion())
+    const betaUpdates = store.get('betaUpdates', isBetaBuild)
+    let release
+    if (betaUpdates) {
+      const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=10`, {
+        headers: { 'User-Agent': 'cascade-updater' }
+      })
+      if (!res.ok) throw new Error(`GitHub API ${res.status}`)
+      const releases = await res.json()
+      release = releases.find(r => !r.draft)
     } else {
-      asset = null
+      const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+        headers: { 'User-Agent': 'cascade-updater' }
+      })
+      if (!res.ok) throw new Error(`GitHub API ${res.status}`)
+      release = await res.json()
     }
+    if (!release) return { hasUpdate: false }
+    const latestVersion = release.tag_name.replace(/^v/, '')
+    if (!isNewer(latestVersion, app.getVersion())) return { hasUpdate: false }
+
+    const asset = pickAsset(release.assets)
 
     openUpdaterWindow({
       version:      latestVersion,
@@ -405,9 +753,12 @@ async function checkForUpdates() {
       releaseUrl:   release.html_url     || '',
       downloadUrl:  asset?.browser_download_url || null,
       assetName:    asset?.name          || null,
+      digest:       asset?.digest        || null,
     })
+    return { hasUpdate: true }
   } catch (err) {
     console.error('[updater] Check failed:', err.message)
+    return { hasUpdate: false, error: err.message }
   }
 }
 
@@ -442,11 +793,26 @@ function downloadFile(url, destPath, onProgress) {
   })
 }
 
+// GitHub populates a "sha256:<hex>" digest on release assets - verifying against
+// it catches transit corruption/tampering. It does NOT prove the release itself
+// wasn't malicious (the digest is computed from the same upload), so this is
+// defense-in-depth, not a substitute for code signing.
+function verifyDigest(filePath, digest) {
+  return new Promise((resolve, reject) => {
+    const [algo, expected] = digest.split(':')
+    const hash = crypto.createHash(algo)
+    fs.createReadStream(filePath)
+      .on('data', chunk => hash.update(chunk))
+      .on('end', () => resolve(hash.digest('hex') === expected))
+      .on('error', reject)
+  })
+}
+
 // ── Updater IPC ────────────────────────────────────────────────────────────────
 
-ipcMain.handle('check-for-updates', () => {
+ipcMain.handle('check-for-updates', async () => {
   if (app.isPackaged) {
-    checkForUpdates()
+    return await checkForUpdates()
   } else {
     openUpdaterWindow({
       version: '99.0.0',
@@ -455,8 +821,8 @@ ipcMain.handle('check-for-updates', () => {
       releaseUrl: `https://github.com/${GITHUB_REPO}/releases`,
       downloadUrl: null, assetName: null,
     })
+    return { hasUpdate: true }
   }
-  return { ok: true }
 })
 
 ipcMain.handle('updater:download', async () => {
@@ -478,9 +844,16 @@ ipcMain.handle('updater:download', async () => {
       updaterWindow.webContents.send('updater:progress', {
         percent, bytesPerSecond: progress.bytesPerSecond,
         transferred: progress.transferred, total: progress.total,
-        logLine: `${percent}% — ${transferred} / ${total} MB  (${mbps} MB/s)`
+        logLine: `${percent}% - ${transferred} / ${total} MB  (${mbps} MB/s)`
       })
     })
+    if (pendingDownload.digest) {
+      const verified = await verifyDigest(destPath, pendingDownload.digest)
+      if (!verified) {
+        try { fs.unlinkSync(destPath) } catch {}
+        throw new Error('Downloaded file failed integrity verification - it may have been corrupted or tampered with in transit')
+      }
+    }
     pendingDownload.destPath = destPath
     if (updaterWindow && !updaterWindow.isDestroyed())
       updaterWindow.webContents.send('updater:done', { version: pendingDownload.version })
@@ -507,19 +880,42 @@ ipcMain.handle('updater:dismiss', () => {
   if (updaterWindow && !updaterWindow.isDestroyed()) updaterWindow.close()
 })
 
-// IPC: native context menu for now-playing
-ipcMain.handle('show-np-menu', (_e, actions) => {
-  return new Promise((resolve) => {
-    const template = actions.map(a => {
-      if (a.type === 'separator') return { type: 'separator' }
-      return {
-        label: a.label,
-        enabled: a.enabled !== false,
-        ...(a.role ? { role: a.role } : {}),
-        click: () => resolve(a.id)
-      }
-    })
-    const menu = Menu.buildFromTemplate(template)
-    menu.popup({ window: win, callback: () => resolve(null) })
+// IPC: Kugou KRC lyrics - word-level, no auth required
+// Search: http://lyrics.kugou.com/search   Download: http://lyrics.kugou.com/download
+// KRC decryption: skip 4-byte 'krc1' header, XOR with fixed 16-byte key, zlib inflate.
+;(function() {
+  const zlib    = require('zlib')
+  const KRC_KEY = Buffer.from([64, 71, 97, 119, 94, 50, 116, 71, 81, 54, 49, 45, 206, 210, 110, 105])
+
+  ipcMain.handle('kugou-lyrics', async (_e, { title, artist, durationMs }) => {
+    try {
+      const keyword   = `${artist} - ${title}`
+      const searchUrl = `http://lyrics.kugou.com/search?ver=1&man=yes&client=pc` +
+                        `&keyword=${encodeURIComponent(keyword)}&duration=${Math.round(durationMs)}`
+      const sRes  = await fetch(searchUrl, { signal: AbortSignal.timeout(8000) })
+      if (!sRes.ok) return null
+      const sData = await sRes.json()
+      const candidates = sData.candidates
+      if (!candidates?.length) return null
+
+      const { id, accesskey } = candidates[0]
+      const dlUrl = `http://lyrics.kugou.com/download?ver=1&client=pc` +
+                    `&id=${id}&accesskey=${accesskey}&fmt=krc&charset=utf8`
+      const dRes  = await fetch(dlUrl, { signal: AbortSignal.timeout(8000) })
+      if (!dRes.ok) return null
+      const dData = await dRes.json()
+      if (!dData.content) return null
+
+      // Decrypt KRC
+      const encrypted = Buffer.from(dData.content, 'base64')
+      const raw       = encrypted.slice(4)       // skip 'krc1' magic
+      const decrypted = Buffer.alloc(raw.length)
+      for (let i = 0; i < raw.length; i++) decrypted[i] = raw[i] ^ KRC_KEY[i % 16]
+      return zlib.inflateSync(decrypted).toString('utf8')
+    } catch (err) {
+      console.error('[Kugou] error:', err.message)
+      return null
+    }
   })
-})
+})()
+
