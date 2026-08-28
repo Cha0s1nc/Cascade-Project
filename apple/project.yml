@@ -4,8 +4,10 @@ packages:
   CascadeKit:
     path: CascadeKit
 
+# Both targets build the same App/Sources. SwiftUI covers most of the
+# difference; where it does not (tvOS has no Slider, and focus replaces touch)
+# the views branch on #if os(tvOS) rather than forking into two copies.
 targets:
-  # tvOS target lands when the UI work starts, sharing this same CascadeKit dependency.
   CascadeiOS:
     type: application
     platform: iOS
@@ -27,6 +29,26 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: xyz.chaosinc.cascade.ios
+        DEVELOPMENT_TEAM: 8SF895GF9C
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_VERSION: "6.0"
+
+  CascadetvOS:
+    type: application
+    platform: tvOS
+    deploymentTarget: "18.0"
+    sources:
+      - App/Sources
+    dependencies:
+      - package: CascadeKit
+        product: CascadeKit
+    info:
+      path: App/Info-tvOS.plist
+      properties:
+        UIBackgroundModes: [audio]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: xyz.chaosinc.cascade.tvos
         DEVELOPMENT_TEAM: 8SF895GF9C
         CODE_SIGN_STYLE: Automatic
         SWIFT_VERSION: "6.0"

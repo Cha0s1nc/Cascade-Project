@@ -23,6 +23,11 @@ public final class PlaybackService {
     // MARK: - What a view can read
 
     public private(set) var item: JfItem?
+    /// The queue and where we are in it. Views read `queue.items` to draw an
+    /// up-next list and `queue.index` to highlight the current row.
+    public private(set) var queue = QueueOrder()
+    public var repeatMode: RepeatMode = .none
+    public private(set) var shuffle = false
     public private(set) var isPaused = true
     /// Between a play() call landing and its stream actually resolving, so a
     /// view can show "loading" rather than a stale track.
@@ -83,8 +88,48 @@ public final class PlaybackService {
 
     // MARK: - Transport
 
-    /// Load a track and start playing it.
-    public func play(_ item: JfItem) async {
+    /// Play a list of tracks starting at one of them. This is the entry point
+    /// every screen uses: tapping a song in an album plays the whole album from
+    /// that song, which is why there is no single-track version.
+    public func play(_ items: [JfItem], startIndex: Int = 0) async {
+        guard items.indices.contains(startIndex) else { return }
+        queue = QueueOrder(items: items, index: startIndex, unshuffled: nil)
+        shuffle = false
+        await load(items[startIndex])
+    }
+
+    /// Skip forward. Distinct from a track ending on its own: with repeat-one
+    /// this still moves on, because a next button that refused to skip would
+    /// read as broken.
+    public func next() async {
+        guard let index = manualNextIndex(length: queue.items.count,
+                                          index: queue.index, repeatMode: repeatMode) else {
+            await stop()
+            return
+        }
+        queue.index = index
+        await load(queue.items[index])
+    }
+
+    public func previous() async {
+        guard let index = manualPreviousIndex(length: queue.items.count,
+                                              index: queue.index, repeatMode: repeatMode) else { return }
+        queue.index = index
+        await load(queue.items[index])
+    }
+
+    public func cycleRepeat() {
+        repeatMode = repeatMode.next
+    }
+
+    /// Reorders the queue around whatever is playing. The track keeps playing
+    /// untouched; only the order around it changes.
+    public func toggleShuffle() {
+        shuffle.toggle()
+        queue = setShuffle(queue, on: shuffle)
+    }
+
+    private func load(_ item: JfItem) async {
         // Whatever was playing is finished as far as the server is concerned,
         // and its transcode, if any, is now waste.
         if self.item != nil { await reportStopped() }
@@ -211,12 +256,29 @@ public final class PlaybackService {
         resolved = nil
         streamStartTicks = 0
         item = nil
+        queue = QueueOrder()
+        // Repeat and shuffle survive: they are the user's settings, not part of
+        // what happens to be playing, and a queue running out should not
+        // silently switch them off.
         isPaused = true
         isLoading = false
         isTranscoding = false
         positionSeconds = 0
         durationSeconds = 0
         clearNowPlaying()
+    }
+
+    /// A track finishing on its own, which is not the same as pressing next.
+    private func handleTrackEnded() async {
+        switch advanceOnEnd(length: queue.items.count, index: queue.index, repeatMode: repeatMode) {
+        case .stop:
+            await stop()
+        case .restart:
+            await seek(to: 0)
+        case .play(let index):
+            queue.index = index
+            await load(queue.items[index])
+        }
     }
 
     // MARK: - Wiring
@@ -259,7 +321,7 @@ public final class PlaybackService {
                     for await _ in NotificationCenter.default.notifications(
                         named: AVPlayerItem.didPlayToEndTimeNotification) {
                         guard let self else { return }
-                        await self.stop()
+                        await self.handleTrackEnded()
                     }
                 }
                 group.addTask {
@@ -367,6 +429,14 @@ public final class PlaybackService {
         }
         center.togglePlayPauseCommand.addTarget { [weak self] _ in
             MainActor.assumeIsolated { self?.togglePlayPause() }
+            return .success
+        }
+        center.nextTrackCommand.addTarget { [weak self] _ in
+            Task { @MainActor in await self?.next() }
+            return .success
+        }
+        center.previousTrackCommand.addTarget { [weak self] _ in
+            Task { @MainActor in await self?.previous() }
             return .success
         }
         center.changePlaybackPositionCommand.addTarget { [weak self] event in

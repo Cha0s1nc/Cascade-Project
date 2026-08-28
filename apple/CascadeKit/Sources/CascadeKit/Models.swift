@@ -69,6 +69,9 @@ public struct JfItem: Codable, Sendable, Identifiable, Equatable {
     public var runTimeTicks: Int?
     public var dateCreated: String?
     public var indexNumber: Int?
+    /// Disc number on a track. An album with no discs reported leaves this nil,
+    /// which sorts ahead of anything explicitly numbered.
+    public var parentIndexNumber: Int?
     public var productionYear: Int?
     public var childCount: Int?
 

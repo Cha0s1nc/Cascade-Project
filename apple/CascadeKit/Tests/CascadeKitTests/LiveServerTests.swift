@@ -12,28 +12,12 @@ import AVFoundation
 // this app sends are the shapes this server's version actually accepts. Never
 // trust an endpoint's shape from memory.
 
-private struct Env {
-    let server: String, user: String, pass: String
-    init?() {
-        let e = ProcessInfo.processInfo.environment
-        guard let s = e["CASCADE_SERVER"], let u = e["CASCADE_USER"], let p = e["CASCADE_PASS"] else { return nil }
-        server = s; user = u; pass = p
-    }
-}
 
-private let liveEnv = Env()
-private let deviceId = "cascade-swift-test-\(ProcessInfo.processInfo.hostName)"
-
-@Suite("Live server", .enabled(if: liveEnv != nil))
+@Suite("Live server", .enabled(if: liveCredentials != nil))
 struct LiveServerTests {
 
     private func signIn() async throws -> (JellyfinClient, ServerConfig) {
-        let env = liveEnv!
-        let auth = try await authenticate(serverUrl: env.server, username: env.user,
-                                          password: env.pass, appVersion: "0.1.0", deviceId: deviceId)
-        let config = ServerConfig(url: env.server, token: auth.accessToken,
-                                  userId: auth.user.id, deviceId: deviceId)
-        return (JellyfinClient(config: config), config)
+        try await LiveSession.shared.connect()
     }
 
     @Test func authenticateReturnsATokenAndUserId() async throws {
@@ -43,13 +27,13 @@ struct LiveServerTests {
     }
 
     @Test func wrongPasswordFailsLoudly() async throws {
-        let env = liveEnv!
+        let credentials = liveCredentials!
         // Rule one: a write or a sign-in that fails must throw, not quietly
         // return something that looks like success.
         await #expect(throws: JellyfinError.self) {
-            _ = try await authenticate(serverUrl: env.server, username: env.user,
+            _ = try await authenticate(serverUrl: credentials.server, username: credentials.user,
                                        password: "definitely-not-the-password",
-                                       appVersion: "0.1.0", deviceId: deviceId)
+                                       appVersion: "0.1.0", deviceId: "cascade-swift-badpass")
         }
     }
 
