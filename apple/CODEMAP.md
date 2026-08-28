@@ -29,6 +29,14 @@ reflections of it, so the phone runs the same compiled code the Apple TV will.
 - `project.yml` - xcodegen input. `Cascade.xcodeproj` is generated, not
   committed; run `xcodegen generate` after cloning.
 
+## Running on a device
+
+`./run-device.sh` builds, installs and launches on a connected iPhone without
+attaching the debugger. About 7 seconds warm. Xcode's own Run attaches LLDB,
+which resolves symbols by reading device memory and shows a "taking longer than
+expected" dialog; `~/.lldbinit` with `settings set target.preload-symbols false`
+takes the edge off that when you do need breakpoints.
+
 ## Tests
 
 `cd CascadeKit && swift test` runs offline in under a second.

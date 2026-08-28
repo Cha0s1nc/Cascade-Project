@@ -334,6 +334,11 @@ public final class PlaybackService {
             forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
             queue: .main
         ) { [weak self] time in
+            // assumeIsolated is safe HERE, unlike in the remote command
+            // handlers below, because this observer was registered with
+            // queue: .main and the main dispatch queue is the main actor's
+            // executor. Keeping it avoids hopping through a Task twice a
+            // second just to move a progress bar.
             MainActor.assumeIsolated {
                 guard let self, time.isNumeric else { return }
                 self.positionSeconds = CascadeKit.seconds(fromTicks: self.streamStartTicks) + time.seconds
@@ -445,17 +450,22 @@ public final class PlaybackService {
 
     private func configureRemoteCommands() {
         #if canImport(MediaPlayer)
+        // Task rather than MainActor.assumeIsolated. MPRemoteCommandCenter does
+        // not promise to call these on the main thread, and assumeIsolated does
+        // not check-and-recover when the assumption is wrong, it traps. That
+        // shows up as a debugger stop on no breakpoint the first time anyone
+        // touches a lock screen control.
         let center = MPRemoteCommandCenter.shared()
         center.playCommand.addTarget { [weak self] _ in
-            MainActor.assumeIsolated { self?.resume() }
+            Task { @MainActor in self?.resume() }
             return .success
         }
         center.pauseCommand.addTarget { [weak self] _ in
-            MainActor.assumeIsolated { self?.pause() }
+            Task { @MainActor in self?.pause() }
             return .success
         }
         center.togglePlayPauseCommand.addTarget { [weak self] _ in
-            MainActor.assumeIsolated { self?.togglePlayPause() }
+            Task { @MainActor in self?.togglePlayPause() }
             return .success
         }
         center.nextTrackCommand.addTarget { [weak self] _ in

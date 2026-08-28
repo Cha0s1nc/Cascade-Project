@@ -26,6 +26,12 @@ targets:
         # provisioning is the first thing the device build has to answer.
         UIBackgroundModes: [audio]
         UILaunchScreen: {}
+        # Declared so the build stops warning that a non-fullscreen app must
+        # support every orientation. Music browsing works in all of them.
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: xyz.chaosinc.cascade.ios
