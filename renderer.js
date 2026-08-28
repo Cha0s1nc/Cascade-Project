@@ -384,6 +384,24 @@ function queueAddedBy(i) {
  * which is exactly how "Add to queue" used to look like it worked and then
  * silently do nothing.
  */
+/**
+ * Insert tracks straight after the current one ("Play next").
+ *
+ * Deliberately stricter than enqueueTracks: a guest is refused outright rather
+ * than allowed to propose. Appending is fair game, but letting guests jump the
+ * line would let the last clicker always win the next slot.
+ *
+ * Returns whether it happened, so a caller with somewhere else to put the
+ * tracks (the remote handler falls back to playing them) can tell.
+ */
+function playNextTracks(items, label) {
+  if (!items.length) return false
+  if (isWaterfallFollower()) { showToast('Only the host can choose what plays next'); return false }
+  queue = CascadeCore.insertAfterCurrent(queue, queueIndex, items)
+  showToast(`${label} plays next`)
+  return true
+}
+
 function enqueueTracks(items, label) {
   const mode = queueAdditionMode()
 
@@ -567,7 +585,11 @@ function startRemoteControl() {
   if (_remote) _remote.stop()
 
   _remote = new CascadeCore.RemoteControl(jfClient, () => jf, {
-    async play(itemIds, startIndex) {
+    // playCommand was accepted by remote-control.ts and then dropped here, so
+    // PlayNext and PlayLast both behaved as PlayNow and wiped the queue instead
+    // of adding to it. Jellyfin controllers (and Cha0s Stream's song requests)
+    // send all three.
+    async play(itemIds, startIndex, playCommand) {
       if (!itemIds.length) return
       const res = await jfGet(`/Users/${jf.userId}/Items`, {
         Ids: itemIds.join(','),
@@ -581,7 +603,17 @@ function startRemoteControl() {
       // Jellyfin returns items in its own order, so re-sort to what was sent.
       const byId = new Map(items.map(i => [i.Id, i]))
       const ordered = itemIds.map(id => byId.get(id)).filter(Boolean)
-      playItems(ordered.length ? ordered : items, startIndex)
+      const tracks = ordered.length ? ordered : items
+
+      // With nothing playing there is no "next" or "last" to be relative to, so
+      // both degrade to starting playback rather than filling a queue the user
+      // would then have to press play on.
+      const idle = !queue.length || queueIndex < 0
+      const label = tracks.length === 1 ? `"${tracks[0].Name}"` : `${tracks.length} tracks`
+
+      if (playCommand === 'PlayNext' && !idle) { playNextTracks(tracks, label); return }
+      if (playCommand === 'PlayLast' && !idle) { enqueueTracks(tracks, label); return }
+      playItems(tracks, startIndex)
     },
     playPause()     { if (audio.paused) audio.play().catch(() => {}); else audio.pause() },
     pause()         { audio.pause() },
@@ -2388,9 +2420,7 @@ document.getElementById('tctx-play-next').addEventListener('click', () => {
   closeTrackCtxMenu()
   // Guests append only - letting them jump the line would let the last clicker
   // always win the next slot.
-  if (isWaterfallFollower()) { showToast('Only the host can choose what plays next'); return }
-  queue = CascadeCore.insertAfterCurrent(queue, queueIndex, [_ctxItem])
-  showToast(`"${_ctxItem.Name}" plays next`)
+  playNextTracks([_ctxItem], `"${_ctxItem.Name}"`)
 })
 
 // "Play last" - appends to the end, which is what the old single "Add to
@@ -6813,9 +6843,7 @@ document.getElementById('ictx-play-next').addEventListener('click', async () => 
   if (_ictxKind !== 'album' || !_ictxItem) return
   if (isWaterfallFollower()) { showToast('Only the host can choose what plays next'); return }
   const tracks = await fetchAlbumTracks(_ictxItem.Id)
-  if (!tracks.length) return
-  queue = CascadeCore.insertAfterCurrent(queue, queueIndex, tracks)
-  showToast(`"${_ictxItem.Name}" plays next`)
+  playNextTracks(tracks, `"${_ictxItem.Name}"`)
 })
 
 document.getElementById('ictx-play-last').addEventListener('click', async () => {
