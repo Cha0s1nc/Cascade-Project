@@ -5,6 +5,9 @@ import Observation
 #if canImport(MediaPlayer)
 import MediaPlayer
 #endif
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// The one place AVPlayer is wired to Jellyfin's playback API.
 ///
@@ -162,14 +165,27 @@ public final class PlaybackService {
         // startTicks and a resume position has to be seeked locally. That can
         // only happen once the asset has loaded enough to be seekable, which is
         // why this awaits the duration rather than seeking straight away.
-        if let seconds = try? await playerItem.asset.load(.duration).seconds,
-           seconds.isFinite, seconds > 0 {
+        //
+        // The error is surfaced rather than ignored. This is the one place an
+        // undecodable stream announces itself: resolveStream falls back rather
+        // than throwing, and a player pointed at something it cannot decode
+        // sits there silently instead of failing. Silence that looks like a bug
+        // in the app is exactly the failure mode the device profile exists to
+        // avoid, so it gets a message.
+        do {
+            let duration = try await playerItem.asset.load(.duration).seconds
             guard token == loadToken else { return }
-            durationSeconds = seconds
-            if stream.direct && startTicks > 0 {
-                await seekPlayer(to: CascadeKit.seconds(fromTicks: startTicks))
-                positionSeconds = CascadeKit.seconds(fromTicks: startTicks)
+            if duration.isFinite, duration > 0 {
+                durationSeconds = duration
+                if stream.direct && startTicks > 0 {
+                    await seekPlayer(to: CascadeKit.seconds(fromTicks: startTicks))
+                    positionSeconds = CascadeKit.seconds(fromTicks: startTicks)
+                }
             }
+        } catch {
+            guard token == loadToken else { return }
+            reportLoadFailure(playerItem, error)
+            return
         }
 
         guard token == loadToken else { return }
@@ -177,6 +193,8 @@ public final class PlaybackService {
         updateNowPlaying()
         await PlaybackReporter.start(client, state())
         startReporting()
+        // Not awaited: the track is already playing and the art is decoration.
+        Task { await loadArtwork(for: item) }
     }
 
     public func pause() {
@@ -266,6 +284,15 @@ public final class PlaybackService {
         positionSeconds = 0
         durationSeconds = 0
         clearNowPlaying()
+    }
+
+    /// Report a load failure with whatever detail the player has, which is
+    /// usually more specific than the thrown error alone.
+    private func reportLoadFailure(_ playerItem: AVPlayerItem, _ thrown: Error) {
+        let detail = (playerItem.error ?? thrown).localizedDescription
+        error = "Could not play this track: \(detail)"
+        isLoading = false
+        isPaused = true
     }
 
     /// A track finishing on its own, which is not the same as pressing next.
@@ -447,10 +474,34 @@ public final class PlaybackService {
         #endif
     }
 
+    /// Artwork for whatever is playing, kept so a position update does not
+    /// re-download the image every half second.
+    private var artwork: (itemId: String, image: MPMediaItemArtwork)?
+
+    /// Fetches the album art and puts it on the lock screen and Control Center.
+    ///
+    /// Separate from `updateNowPlaying` because that runs on every transport
+    /// change and this is a network round trip. The art arrives a moment after
+    /// the track does, which is what every other music app does too.
+    private func loadArtwork(for item: JfItem) async {
+        #if canImport(MediaPlayer) && canImport(UIKit)
+        let artId = item.albumId ?? item.id
+        guard artwork?.itemId != artId else { return }
+        guard let url = await client.imageUrl(itemId: artId, size: 600),
+              let (data, _) = try? await URLSession.shared.data(from: url),
+              let image = UIImage(data: data) else { return }
+
+        // Guard against a slow download landing after the user skipped on.
+        guard (self.item?.albumId ?? self.item?.id) == artId else { return }
+        artwork = (artId, MPMediaItemArtwork(boundsSize: image.size) { _ in image })
+        updateNowPlaying()
+        #endif
+    }
+
     private func updateNowPlaying() {
         #if canImport(MediaPlayer)
         guard let item else { return clearNowPlaying() }
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = [
+        var info: [String: Any] = [
             MPMediaItemPropertyTitle: item.name ?? "Unknown",
             MPMediaItemPropertyArtist: item.albumArtist ?? item.artists?.first ?? "",
             MPMediaItemPropertyAlbumTitle: item.album ?? "",
@@ -460,11 +511,16 @@ public final class PlaybackService {
             // lock screen's scrubber running on its own after a pause.
             MPNowPlayingInfoPropertyPlaybackRate: isPaused ? 0.0 : 1.0,
         ]
+        if let artwork, artwork.itemId == (item.albumId ?? item.id) {
+            info[MPMediaItemPropertyArtwork] = artwork.image
+        }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         #endif
     }
 
     private func clearNowPlaying() {
         #if canImport(MediaPlayer)
+        artwork = nil
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         #endif
     }

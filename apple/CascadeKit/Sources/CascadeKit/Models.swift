@@ -47,7 +47,7 @@ public struct JfMediaSourceRef: Codable, Sendable {
 
 /// A track, album, artist or playlist. Jellyfin returns one shape for all of
 /// them with different fields populated, hence almost everything optional.
-public struct JfItem: Codable, Sendable, Identifiable, Equatable {
+public struct JfItem: Codable, Sendable, Identifiable, Hashable {
     public var id: String
     public var name: String?
 
@@ -93,7 +93,12 @@ public struct JfItem: Codable, Sendable, Identifiable, Equatable {
         self.userData = userData
     }
 
+    // Identity is the id alone, not every field. Two fetches of the same track
+    // differ in whatever fields each query asked for, and SwiftUI navigation
+    // needs them to be the same item. Hashable rather than only Equatable so
+    // navigationDestination(for:) and NavigationPath can carry one.
     public static func == (a: JfItem, b: JfItem) -> Bool { a.id == b.id }
+    public func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
 
 /// Standard envelope for Jellyfin list endpoints.

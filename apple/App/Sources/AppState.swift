@@ -31,9 +31,12 @@ final class AppState {
         restore()
     }
 
-    /// Bring back the last session without asking for a password again. The
-    /// token can have been revoked server-side since, so this is optimistic:
-    /// the first request that comes back 401 sends the user to sign in.
+    /// Bring back the last session without asking for a password again.
+    ///
+    /// ponytail: optimistic. A token revoked server-side since last launch
+    /// leaves every screen showing a 401 until the user signs out from
+    /// Settings. Add a 401 interceptor that clears the session automatically if
+    /// that turns out to happen in practice rather than in theory.
     private func restore() {
         guard let token = Keychain.get("token"),
               let url = UserDefaults.standard.string(forKey: "cascade.serverUrl"),
@@ -67,11 +70,17 @@ final class AppState {
     }
 
     /// Which music libraries to browse. Empty means all of them.
+    ///
+    /// Updates the existing client rather than going through `adopt`, which
+    /// would build a new PlaybackService and stop whatever is playing. Changing
+    /// a browsing preference in Settings has no business interrupting a track.
     func setLibraries(_ ids: [String]) {
         guard var config else { return }
         config.libraryIds = ids
         UserDefaults.standard.set(ids, forKey: "cascade.libraryIds")
-        adopt(config)
+        self.config = config
+        let client = self.client
+        Task { await client?.update(config: config) }
     }
 
     private func adopt(_ config: ServerConfig) {

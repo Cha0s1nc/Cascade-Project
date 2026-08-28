@@ -2,7 +2,29 @@ import SwiftUI
 import CascadeKit
 
 struct ArtistsView: View {
+    @Environment(AppState.self) private var state
+    @State private var items: [JfItem] = []
+    @State private var isLoading = true
+    @State private var error: String?
+    @State private var selected: JfItem?
+    @State private var showDetail = false
+
     var body: some View {
-        Text("ArtistsView")
+        ScrollView {
+            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty)
+            ItemGrid(items: items) { selected = $0; showDetail = true }
+        }
+        .navigationTitle("Artists")
+        // JfItem is not Hashable, so navigationDestination(item:) is out;
+        // isPresented only needs the Bool.
+        .navigationDestination(isPresented: $showDetail) {
+            if let selected { ArtistDetailView(artist: selected) }
+        }
+        .task {
+            guard let client = state.client else { return }
+            do { items = try await client.artists() }
+            catch { self.error = error.localizedDescription }
+            isLoading = false
+        }
     }
 }

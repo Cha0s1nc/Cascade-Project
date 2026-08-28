@@ -18,7 +18,14 @@ reflections of it, so the phone runs the same compiled code the Apple TV will.
   - `Playback.swift` - PlaybackInfo negotiation, resume, transcode seeking.
   - `PlaybackReporting.swift` - start / progress / stopped.
   - `PlaybackService.swift` - the only place AVPlayer is wired up.
-- `App/Sources/` - the iOS target. Currently a test harness, not the app.
+- `App/Sources/` - both app targets build these same files. SwiftUI covers most
+  of the platform difference; where it does not (tvOS has no `Slider`, and focus
+  replaces touch) the views branch on `#if os(tvOS)` rather than forking.
+  - `AppState.swift` - the one session and one player, read from the environment.
+  - `Keychain.swift` - the access token lives here, not in UserDefaults.
+  - `Components.swift` - `ArtworkView`, `TrackRow`, `ItemGrid`, `LoadingOverlay`.
+  - `MainView.swift` - tabs, plus the iOS mini player.
+  - One file per screen.
 - `project.yml` - xcodegen input. `Cascade.xcodeproj` is generated, not
   committed; run `xcodegen generate` after cloning.
 
@@ -67,6 +74,15 @@ Not yet verified: anything needing an Apple TV. Real TV performance, tvOS codec
 limits, tvOS storage limits. The iPhone is a strong proxy for the audio path
 and no proof at all about video.
 
-Not built: queue, repeat, shuffle, library browsing, the real UI, tvOS target.
+Built since: queue with repeat and shuffle, the tvOS target, and every screen.
+Home, Albums, Artists, Songs, Album detail, Artist detail, Search, Settings,
+Sign in and Now Playing all build for both platforms.
+
+The tvOS player follows the mapping validated against tvOS Apple Music: it
+rests with no chrome, the artwork is the focus target, select is play/pause,
+left and right are previous and next, and the Play/Pause key works whether or
+not anything is on screen.
+
+Not built: playlists, favourites UI, lyrics, offline downloads.
 
 Out of scope for v1: EQ, crossfade, offline downloads, video.

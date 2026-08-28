@@ -20,7 +20,9 @@ struct RootView: View {
         if state.isSignedIn {
             MainView()
         } else {
-            SignInView()
+            // Wrapped so the title renders. MainView brings its own stack per
+            // tab, so this one is only for sign in.
+            NavigationStack { SignInView() }
         }
     }
 }
