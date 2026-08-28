@@ -475,7 +475,7 @@ const jfAuth = (serverUrl, username, password) =>
 // ── Connection ────────────────────────────────────────────────────────────────
 
 async function connect(serverUrl, token, userId) {
-  jf = { url: serverUrl.replace(/\/$/, ''), token, userId, deviceId }
+  jf = { url: serverUrl.replace(/\/$/, ''), token, userId, deviceId, appVersion }
 
   // Hand the session to the control server so Cha0s Stream can search and queue
   // against the same Jellyfin without the user configuring it a second time.
