@@ -38,6 +38,7 @@ const cascade: ElectronPlatform = {
     onStatus: (cb) => { ipcRenderer.on('discord-rpc-status', (_e, connected) => cb(connected)) },
   },
   nowPlayingUpdate: (data) => ipcRenderer.send('now-playing-update', data),
+  jellyfinCredentialsUpdate: (data) => ipcRenderer.send('jellyfin-credentials', data),
   kugouGetLyrics:   (opts) => ipcRenderer.invoke('kugou-lyrics', opts),
   lyricsEditor: {
     open:    (data) => ipcRenderer.send('open-lyrics-editor', data),

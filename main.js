@@ -149,6 +149,17 @@ const controlServer = http.createServer((req, res) => {
   } else if (req.method === 'GET' && req.url === '/cascade/status') {
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ ok: true, app: 'Cascade', version: app.getVersion() }))
+  } else if (req.method === 'GET' && req.url === '/cascade/jellyfin') {
+    // Cha0s Stream needs a Jellyfin session to resolve song requests. Rather
+    // than proxy search through here - which would need request/response IPC
+    // into the renderer, where `jf` actually lives - hand over the session and
+    // let it use Jellyfin's own API directly. 404 until connect() has run.
+    if (!cascadeJellyfin) {
+      res.writeHead(404, { 'Content-Type': 'application/json' })
+      return res.end(JSON.stringify({ ok: false, error: 'Not connected to Jellyfin' }))
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ ok: true, ...cascadeJellyfin }))
   } else if (req.method === 'GET' && req.url === '/cascade/now-playing') {
     // cascadeNowPlaying is kept fresh by the renderer's 'now-playing-update' IPC
     // messages (sent on track change/play/pause), so just serve the cache instead
@@ -363,6 +374,14 @@ app.on('activate', () => {
 // Now-playing state - updated by the renderer, exposed via the control server
 let cascadeNowPlaying = { title: null, artist: null, isPlaying: false }
 ipcMain.on('now-playing-update', (_e, data) => { cascadeNowPlaying = { ...cascadeNowPlaying, ...data } })
+
+// The live Jellyfin session, sent by the renderer's connect(). Held in memory
+// only - it is the renderer's token, not a second credential to persist, and a
+// stale one on disk would outlive the session it came from.
+let cascadeJellyfin = null
+ipcMain.on('jellyfin-credentials', (_e, data) => {
+  cascadeJellyfin = data && data.url && data.token ? { ...data } : null
+})
 
 // ── Debug mode ──────────────────────────────────────────────────────────────
 // A sentinel file's mere presence turns on the renderer's debug panel - no

@@ -477,6 +477,11 @@ const jfAuth = (serverUrl, username, password) =>
 async function connect(serverUrl, token, userId) {
   jf = { url: serverUrl.replace(/\/$/, ''), token, userId, deviceId }
 
+  // Hand the session to the control server so Cha0s Stream can search and queue
+  // against the same Jellyfin without the user configuring it a second time.
+  // Sent on every connect() so a re-auth replaces a token that has gone stale.
+  window.cascade.jellyfinCredentialsUpdate?.({ url: jf.url, token: jf.token, userId: jf.userId })
+
   const loadingEl  = document.getElementById('setup-loading')
   const loadingTxt = document.getElementById('setup-loading-text')
   const errorEl    = document.getElementById('setup-error')
