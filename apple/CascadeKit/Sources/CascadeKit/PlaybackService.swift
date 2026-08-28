@@ -5,9 +5,6 @@ import Observation
 #if canImport(MediaPlayer)
 import MediaPlayer
 #endif
-#if canImport(UIKit)
-import UIKit
-#endif
 
 /// The one place AVPlayer is wired to Jellyfin's playback API.
 ///
@@ -193,12 +190,6 @@ public final class PlaybackService {
         updateNowPlaying()
         await PlaybackReporter.start(client, state())
         startReporting()
-        // The URL is built here, on the way in, so the artwork task itself never
-        // touches the client actor. Not awaited: the track is already playing
-        // and the art is decoration.
-        let artId = item.albumId ?? item.id
-        let artUrl = await client.imageUrl(itemId: artId, size: 600)
-        Task { await loadArtwork(id: artId, from: artUrl) }
     }
 
     public func pause() {
@@ -488,41 +479,16 @@ public final class PlaybackService {
         #endif
     }
 
-    /// Artwork for whatever is playing, kept so a position update does not
-    /// re-download the image every half second.
-    private var artwork: (itemId: String, image: MPMediaItemArtwork)?
-
-    /// Fetches the album art and puts it on the lock screen and Control Center.
-    ///
-    /// Separate from `updateNowPlaying` because that runs on every transport
-    /// change and this is a network round trip. The art arrives a moment after
-    /// the track does, which is what every other music app does too.
-    /// Takes the URL rather than building it, so this has exactly one
-    /// suspension point. It used to `await client.imageUrl(...)` first, which
-    /// hopped to the JellyfinClient actor and back, and the resumption after
-    /// that hop is where the executor stopped being the main one.
-    private func loadArtwork(id artId: String, from url: URL?) async {
-        #if canImport(MediaPlayer) && canImport(UIKit)
-        guard let url, artwork?.itemId != artId else { return }
-        guard let (data, _) = try? await URLSession.shared.data(from: url),
-              let image = UIImage(data: data) else { return }
-
-        // Guard against a slow download landing after the user skipped on.
-        guard (item?.albumId ?? item?.id) == artId else { return }
-        artwork = (artId, MPMediaItemArtwork(boundsSize: image.size) { requested in
-            // The handler MUST return an image of the size it was asked for.
-            // Returning the original regardless is the common shortcut and it
-            // is a contract violation: MediaPlayer calls this repeatedly at
-            // different sizes and feeds the result into an internal pipeline
-            // that asserts on its own queue when the size does not match.
-            guard requested != image.size else { return image }
-            return UIGraphicsImageRenderer(size: requested).image { _ in
-                image.draw(in: CGRect(origin: .zero, size: requested))
-            }
-        })
-        updateNowPlaying()
-        #endif
-    }
+    // Album art is deliberately NOT sent to the lock screen.
+    //
+    // Adding it via MPMediaItemArtwork made MediaPlayer trap inside its own
+    // queue plumbing (dispatch_assert_queue_fail), first as a debugger stop and
+    // then as an outright crash. Two attempts at it, routing the write to the
+    // main queue and honouring the request handler's size contract, moved the
+    // trap around without removing it. Everything else on the lock screen works
+    // and a crash is worse than a missing thumbnail, so it is out until someone
+    // can reproduce it against a minimal MediaPlayer sample and find the real
+    // cause. Title, artist, album, duration and position are unaffected.
 
     private func updateNowPlaying() {
         #if canImport(MediaPlayer)
@@ -537,9 +503,6 @@ public final class PlaybackService {
             // lock screen's scrubber running on its own after a pause.
             MPNowPlayingInfoPropertyPlaybackRate: isPaused ? 0.0 : 1.0,
         ]
-        if let artwork, artwork.itemId == (item.albumId ?? item.id) {
-            info[MPMediaItemPropertyArtwork] = artwork.image
-        }
         // A NaN or infinite duration reaches MediaPlayer as a corrupt payload
         // rather than an error. A live stream and an asset whose duration is
         // still indefinite both produce one.
@@ -566,7 +529,6 @@ public final class PlaybackService {
 
     private func clearNowPlaying() {
         #if canImport(MediaPlayer)
-        artwork = nil
         // Same main queue requirement as the setter above.
         if Thread.isMainThread {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
