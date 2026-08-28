@@ -509,7 +509,17 @@ public final class PlaybackService {
 
         // Guard against a slow download landing after the user skipped on.
         guard (item?.albumId ?? item?.id) == artId else { return }
-        artwork = (artId, MPMediaItemArtwork(boundsSize: image.size) { _ in image })
+        artwork = (artId, MPMediaItemArtwork(boundsSize: image.size) { requested in
+            // The handler MUST return an image of the size it was asked for.
+            // Returning the original regardless is the common shortcut and it
+            // is a contract violation: MediaPlayer calls this repeatedly at
+            // different sizes and feeds the result into an internal pipeline
+            // that asserts on its own queue when the size does not match.
+            guard requested != image.size else { return image }
+            return UIGraphicsImageRenderer(size: requested).image { _ in
+                image.draw(in: CGRect(origin: .zero, size: requested))
+            }
+        })
         updateNowPlaying()
         #endif
     }
@@ -529,6 +539,13 @@ public final class PlaybackService {
         ]
         if let artwork, artwork.itemId == (item.albumId ?? item.id) {
             info[MPMediaItemPropertyArtwork] = artwork.image
+        }
+        // A NaN or infinite duration reaches MediaPlayer as a corrupt payload
+        // rather than an error. A live stream and an asset whose duration is
+        // still indefinite both produce one.
+        info = info.filter { _, value in
+            guard let number = value as? Double else { return true }
+            return number.isFinite
         }
         // MediaPlayer asserts it is on the main queue here and TRAPS when it is
         // not, which is a debugger stop on no breakpoint rather than an error.
