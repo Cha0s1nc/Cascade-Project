@@ -1,0 +1,32 @@
+name: Cascade
+
+packages:
+  CascadeKit:
+    path: CascadeKit
+
+targets:
+  # tvOS target lands when the UI work starts, sharing this same CascadeKit dependency.
+  CascadeiOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - App/Sources
+    dependencies:
+      - package: CascadeKit
+        product: CascadeKit
+    # Generated rather than hand-written, so the CFBundle keys Xcode expects
+    # stay in step with the target instead of being maintained twice.
+    info:
+      path: App/Info.plist
+      properties:
+        # Load-bearing: whether background audio survives under free
+        # provisioning is the first thing the device build has to answer.
+        UIBackgroundModes: [audio]
+        UILaunchScreen: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: xyz.chaosinc.cascade.ios
+        DEVELOPMENT_TEAM: 8SF895GF9C
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_VERSION: "6.0"

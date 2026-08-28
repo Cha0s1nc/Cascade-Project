@@ -1,0 +1,72 @@
+# Cascade Swift: map
+
+Native Jellyfin music client for iOS and tvOS. New project, not a port of the
+Electron desktop app, which keeps shipping untouched.
+
+Everything pure and testable lives in `CascadeKit`. The app targets are thin
+reflections of it, so the phone runs the same compiled code the Apple TV will.
+
+## Layout
+
+- `CascadeKit/` - the shared Swift package. No SwiftUI, no UIKit.
+  - `JSON.swift` - the one rule bridging Jellyfin's PascalCase to Swift naming.
+    Use `JSON.decoder` / `JSON.encoder`, never a bare `JSONDecoder()`.
+  - `Models.swift` - the Jellyfin shapes this app actually reads.
+  - `DeviceProfile.swift` - `DeviceProfile.apple`, what the server negotiates
+    against. Read the comments before changing anything in it.
+  - `JellyfinClient.swift` - auth and HTTP. Every call checks the status.
+  - `Playback.swift` - PlaybackInfo negotiation, resume, transcode seeking.
+  - `PlaybackReporting.swift` - start / progress / stopped.
+  - `PlaybackService.swift` - the only place AVPlayer is wired up.
+- `App/Sources/` - the iOS target. Currently a test harness, not the app.
+- `project.yml` - xcodegen input. `Cascade.xcodeproj` is generated, not
+  committed; run `xcodegen generate` after cloning.
+
+## Tests
+
+`cd CascadeKit && swift test` runs offline in under a second.
+
+Point it at a real server to also run the live suite, which is the only thing
+that checks the shapes this app sends against the shapes a given Jellyfin
+version accepts:
+
+```
+CASCADE_SERVER=https://host CASCADE_USER=name CASCADE_PASS=pw swift test
+```
+
+## Rules carried over from desktop, each of which cost real time to learn
+
+1. Read the response of anything that writes. Five desktop write paths once
+   reported success on an HTTP 403 because nothing checked the status.
+2. Never trust an endpoint's shape from memory. The server's own spec is at
+   `/api-docs/openapi.json`.
+3. A guessed device profile is worse than none. The server trusts it and hands
+   back something undecodable, which presents as silence, not an error.
+4. Comments explain WHY, especially where a bug forced the shape.
+5. No em dashes anywhere, code comments and commit messages included.
+6. Anything pure and testable belongs in CascadeKit with a test, not in a view.
+
+## Status
+
+Built: skeleton, device profile, auth, PlaybackInfo, AVPlayer playback with
+seek, audio session, now playing and remote commands.
+
+Verified against the live server: FLAC direct plays (no transcode), the stream
+URL serves bytes, AVFoundation decodes it to the duration Jellyfin reports, and
+all three reporting endpoints are accepted by 10.11.11.
+
+Verified on real hardware (iPhone 16, iOS 26, free provisioning, 2026-08-27):
+sign in, FLAC playback, seeking, lock screen controls, audio surviving a screen
+lock, and playback stopping when the app is swiped away.
+
+Background audio DOES work under free provisioning. That was the one unknown
+worth answering before building anything on top of it, so it is written down
+here rather than re-derived.
+
+Not yet verified: anything needing an Apple TV. Real TV performance, tvOS codec
+limits, tvOS storage limits. The iPhone is a strong proxy for the audio path
+and no proof at all about video.
+
+Not built: queue, repeat, shuffle, library browsing, the real UI, tvOS target.
+
+Out of scope for v1: EQ, crossfade, offline downloads, video.

@@ -1,0 +1,134 @@
+import Foundation
+
+// Jellyfin shapes, hand-written to cover only the fields Cascade actually
+// reads. Deliberately not generated from the server's OpenAPI schema: that
+// produces thousands of lines describing a surface this app never touches.
+// If you start using a new field, add it here.
+//
+// The wire is PascalCase; these are Swift-cased. See JSON.swift for the one
+// rule that bridges them, and use JSON.decoder/JSON.encoder for anything on
+// this file's types.
+
+public struct JfUserData: Codable, Sendable {
+    public var playCount: Int?
+    public var lastPlayedDate: String?
+    public var isFavorite: Bool?
+    /// Where the user stopped, in ticks. Jellyfin fills this from the
+    /// PositionTicks we report.
+    public var playbackPositionTicks: Int?
+    public var played: Bool?
+
+    public init(playbackPositionTicks: Int? = nil, played: Bool? = nil, isFavorite: Bool? = nil) {
+        self.playbackPositionTicks = playbackPositionTicks
+        self.played = played
+        self.isFavorite = isFavorite
+    }
+}
+
+/// One track inside a media source.
+public struct JfMediaStream: Codable, Sendable {
+    /// "Audio", "Video", "Subtitle".
+    public var type: String?
+    public var index: Int?
+    public var codec: String?
+    public var language: String?
+    public var displayTitle: String?
+    public var isDefault: Bool?
+}
+
+public struct JfImageTags: Codable, Sendable {
+    public var primary: String?
+}
+
+public struct JfMediaSourceRef: Codable, Sendable {
+    public var id: String?
+    public var container: String?
+}
+
+/// A track, album, artist or playlist. Jellyfin returns one shape for all of
+/// them with different fields populated, hence almost everything optional.
+public struct JfItem: Codable, Sendable, Identifiable, Equatable {
+    public var id: String
+    public var name: String?
+
+    /// "Audio", "MusicAlbum", "MusicArtist", "Playlist". The only thing
+    /// separating a song from a movie.
+    public var type: String?
+    public var mediaType: String?
+
+    public var album: String?
+    public var albumId: String?
+    public var albumArtist: String?
+    public var artists: [String]?
+
+    /// Art tags. Presence means art exists; the value is not used in image URLs.
+    public var albumPrimaryImageTag: String?
+    public var imageTags: JfImageTags?
+
+    /// Duration in ticks (100-nanosecond units).
+    public var runTimeTicks: Int?
+    public var dateCreated: String?
+    public var indexNumber: Int?
+    public var productionYear: Int?
+    public var childCount: Int?
+
+    /// Only on library views (/UserViews) - "music", "movies", etc.
+    public var collectionType: String?
+
+    /// Populated with Fields=MediaStreams.
+    public var mediaStreams: [JfMediaStream]?
+    public var mediaSources: [JfMediaSourceRef]?
+
+    public var userData: JfUserData?
+
+    public init(id: String, name: String? = nil, type: String? = nil,
+                runTimeTicks: Int? = nil, userData: JfUserData? = nil) {
+        self.id = id
+        self.name = name
+        self.type = type
+        self.runTimeTicks = runTimeTicks
+        self.userData = userData
+    }
+
+    public static func == (a: JfItem, b: JfItem) -> Bool { a.id == b.id }
+}
+
+/// Standard envelope for Jellyfin list endpoints.
+public struct JfItemsResponse: Codable, Sendable {
+    public var items: [JfItem]?
+    public var totalRecordCount: Int?
+}
+
+public struct JfAuthUser: Codable, Sendable {
+    public var id: String
+    public var name: String?
+}
+
+public struct JfAuthResult: Codable, Sendable {
+    public var accessToken: String
+    public var user: JfAuthUser
+}
+
+/// Connection state. `libraryIds` narrows every query to the user's chosen
+/// music libraries; empty means "the whole server".
+public struct ServerConfig: Sendable, Equatable {
+    public var url: String
+    public var token: String
+    public var userId: String
+    public var libraryIds: [String]
+    /// Must be unique per install. A constant here makes every Cascade look
+    /// like the same device to the server, so remote control cannot target one
+    /// of them and two instances collide in the session list.
+    public var deviceId: String
+
+    public init(url: String, token: String, userId: String,
+                libraryIds: [String] = [], deviceId: String) {
+        // A trailing slash turns every path into a double slash, which some
+        // reverse proxies answer with a redirect that drops the auth header.
+        self.url = url.hasSuffix("/") ? String(url.dropLast()) : url
+        self.token = token
+        self.userId = userId
+        self.libraryIds = libraryIds
+        self.deviceId = deviceId
+    }
+}
