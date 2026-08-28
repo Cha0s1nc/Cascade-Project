@@ -193,8 +193,12 @@ public final class PlaybackService {
         updateNowPlaying()
         await PlaybackReporter.start(client, state())
         startReporting()
-        // Not awaited: the track is already playing and the art is decoration.
-        Task { await loadArtwork(for: item) }
+        // The URL is built here, on the way in, so the artwork task itself never
+        // touches the client actor. Not awaited: the track is already playing
+        // and the art is decoration.
+        let artId = item.albumId ?? item.id
+        let artUrl = await client.imageUrl(itemId: artId, size: 600)
+        Task { await loadArtwork(id: artId, from: artUrl) }
     }
 
     public func pause() {
@@ -493,16 +497,18 @@ public final class PlaybackService {
     /// Separate from `updateNowPlaying` because that runs on every transport
     /// change and this is a network round trip. The art arrives a moment after
     /// the track does, which is what every other music app does too.
-    private func loadArtwork(for item: JfItem) async {
+    /// Takes the URL rather than building it, so this has exactly one
+    /// suspension point. It used to `await client.imageUrl(...)` first, which
+    /// hopped to the JellyfinClient actor and back, and the resumption after
+    /// that hop is where the executor stopped being the main one.
+    private func loadArtwork(id artId: String, from url: URL?) async {
         #if canImport(MediaPlayer) && canImport(UIKit)
-        let artId = item.albumId ?? item.id
-        guard artwork?.itemId != artId else { return }
-        guard let url = await client.imageUrl(itemId: artId, size: 600),
-              let (data, _) = try? await URLSession.shared.data(from: url),
+        guard let url, artwork?.itemId != artId else { return }
+        guard let (data, _) = try? await URLSession.shared.data(from: url),
               let image = UIImage(data: data) else { return }
 
         // Guard against a slow download landing after the user skipped on.
-        guard (self.item?.albumId ?? self.item?.id) == artId else { return }
+        guard (item?.albumId ?? item?.id) == artId else { return }
         artwork = (artId, MPMediaItemArtwork(boundsSize: image.size) { _ in image })
         updateNowPlaying()
         #endif
@@ -524,14 +530,32 @@ public final class PlaybackService {
         if let artwork, artwork.itemId == (item.albumId ?? item.id) {
             info[MPMediaItemPropertyArtwork] = artwork.image
         }
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        // MediaPlayer asserts it is on the main queue here and TRAPS when it is
+        // not, which is a debugger stop on no breakpoint rather than an error.
+        // Being MainActor-isolated should have been enough and in practice was
+        // not, so the write is routed rather than assumed. Costs nothing when
+        // already on main, which is the normal case.
+        //
+        // nonisolated(unsafe) because the dictionary is built here, handed over
+        // once, and never read or mutated again.
+        nonisolated(unsafe) let payload = info
+        if Thread.isMainThread {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = payload
+        } else {
+            DispatchQueue.main.async { MPNowPlayingInfoCenter.default().nowPlayingInfo = payload }
+        }
         #endif
     }
 
     private func clearNowPlaying() {
         #if canImport(MediaPlayer)
         artwork = nil
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        // Same main queue requirement as the setter above.
+        if Thread.isMainThread {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        } else {
+            DispatchQueue.main.async { MPNowPlayingInfoCenter.default().nowPlayingInfo = nil }
+        }
         #endif
     }
 }
