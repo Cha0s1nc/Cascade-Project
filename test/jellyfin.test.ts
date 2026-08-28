@@ -397,3 +397,38 @@ test('groupRecentlyWatched: several unrelated no-SeriesId episodes never collaps
   const items = [ep('e1', ''), ep('e2', undefined), ep('e3', '')]
   assert.deepEqual(groupRecentlyWatched(items).map(i => i.Id), ['e1', 'e2', 'e3'])
 })
+
+// The dashboard's device list showed a long-dead version because the client
+// version only ever travelled on the login calls, and a saved token is reused
+// indefinitely - so nothing refreshed it until the user signed out and back in.
+test('ordinary requests identify the client version, not just the login calls', async () => {
+  const cfg: ServerConfig = {
+    url: 'http://jf.test', token: 'tok', userId: 'u1',
+    deviceId: 'device-abc', appVersion: '2.0.1',
+  }
+  const client = new JellyfinClient(() => cfg)
+  stubFetch(() => ({ Items: [], TotalRecordCount: 0 }))
+
+  await client.get('/Items')
+  await client.post('/Items/x/Refresh', {})
+  await client.del('/Items/x')
+
+  assert.equal(calls.length, 3)
+  for (const { init } of calls) {
+    const headers = (init?.headers ?? {}) as Record<string, string>
+    assert.equal(headers['X-Emby-Token'], 'tok', 'token must still authenticate the request')
+    assert.equal(
+      headers['X-Emby-Authorization'],
+      authHeader('2.0.1', 'device-abc'),
+      'every request must report the running version so Jellyfin can refresh it',
+    )
+  }
+})
+
+test('a request without a known version falls back rather than sending "undefined"', async () => {
+  const client = new JellyfinClient(() => ({ url: 'http://jf.test', token: 't', userId: 'u' }))
+  stubFetch(() => ({ Items: [], TotalRecordCount: 0 }))
+  await client.get('/Items')
+  const headers = (calls[0].init?.headers ?? {}) as Record<string, string>
+  assert.ok(!headers['X-Emby-Authorization'].includes('undefined'))
+})

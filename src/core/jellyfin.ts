@@ -246,8 +246,28 @@ export class JellyfinClient {
     return this.getConfig()
   }
 
+  /**
+   * Headers for an ordinary, already-authenticated request.
+   *
+   * X-Emby-Authorization is here and not just on the login calls because
+   * Jellyfin records a client's version from that header, and it was only ever
+   * sent while authenticating. Since a saved token is reused indefinitely, the
+   * dashboard's device list kept showing whatever version last actually signed
+   * in - a 1.2.0 beta, long after 2.x shipped - and only a sign-out and back in
+   * would correct it. Sending it alongside the token refreshes it on any
+   * request. The token still travels in X-Emby-Token; this header identifies.
+   */
+  private headers(extra: Record<string, string> = {}): Record<string, string> {
+    const { token, appVersion, deviceId } = this.config
+    return {
+      'X-Emby-Token': token,
+      'X-Emby-Authorization': authHeader(appVersion ?? '0.0.0', deviceId ?? 'cascade-app'),
+      ...extra,
+    }
+  }
+
   async get<T = JfItemsResponse>(path: string, params: JfParams = {}): Promise<T> {
-    const { url, token } = this.config
+    const { url } = this.config
     const target = new URL(`${url}${path}`)
 
     for (const [k, v] of Object.entries(params)) {
@@ -257,13 +277,13 @@ export class JellyfinClient {
       target.searchParams.set(k, String(v))
     }
 
-    const res = await fetch(target, { headers: { 'X-Emby-Token': token } })
+    const res = await fetch(target, { headers: this.headers() })
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
     return res.json() as Promise<T>
   }
 
   async post<T>(path: string, body: unknown, params: JfParams = {}): Promise<T> {
-    const { url, token } = this.config
+    const { url } = this.config
     const target = new URL(`${url}${path}`)
     for (const [k, v] of Object.entries(params)) {
       if (v === undefined) continue
@@ -272,7 +292,7 @@ export class JellyfinClient {
 
     const res = await fetch(target, {
       method: 'POST',
-      headers: { 'X-Emby-Token': token, 'Content-Type': 'application/json' },
+      headers: this.headers({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(body),
     })
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
@@ -288,14 +308,14 @@ export class JellyfinClient {
    * carrying on.
    */
   async del(path: string, params: JfParams = {}): Promise<boolean> {
-    const { url, token } = this.config
+    const { url } = this.config
     const target = new URL(`${url}${path}`)
     for (const [k, v] of Object.entries(params)) {
       if (v === undefined) continue
       target.searchParams.set(k, String(v))
     }
     try {
-      const res = await fetch(target, { method: 'DELETE', headers: { 'X-Emby-Token': token } })
+      const res = await fetch(target, { method: 'DELETE', headers: this.headers() })
       return res.ok
     } catch {
       return false
