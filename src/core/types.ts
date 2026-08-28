@@ -122,6 +122,9 @@ export interface ServerConfig {
   /** Unique per install. Jellyfin uses it to tell clients apart, which remote
    *  control depends on. See authHeader() in jellyfin.ts. */
   deviceId?: string
+  /** Reported to Jellyfin on every request so the dashboard's device list keeps
+   *  up. See JellyfinClient.headers(). */
+  appVersion?: string
 }
 
 /** Query parameters for a Jellyfin request. Values are stringified by the client. */
