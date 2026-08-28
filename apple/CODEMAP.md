@@ -64,7 +64,13 @@ CASCADE_SERVER=https://host CASCADE_USER=name CASCADE_PASS=pw swift test
 ## Status
 
 Built: skeleton, device profile, auth, PlaybackInfo, AVPlayer playback with
-seek, audio session, now playing and remote commands.
+seek, audio session, now playing and remote commands. The whole build order in
+the original brief is done.
+
+Lock screen art is deliberately absent. MPMediaItemArtwork made MediaPlayer
+trap inside its own queue plumbing and then crash outright; two fixes moved the
+trap without removing it. Everything else on the lock screen works. See the
+comment in PlaybackService.swift before trying to add it back.
 
 Verified against the live server: FLAC direct plays (no transcode), the stream
 URL serves bytes, AVFoundation decodes it to the duration Jellyfin reports, and
@@ -92,5 +98,10 @@ left and right are previous and next, and the Play/Pause key works whether or
 not anything is on screen.
 
 Not built: playlists, favourites UI, lyrics, offline downloads.
+
+Never exercised by a person: every browsing screen. They compile for both
+platforms and the queries behind them are covered by live tests, but nobody has
+scrolled a thousand songs, run a search, or opened an album on a device yet.
+That is the largest untested surface in the project.
 
 Out of scope for v1: EQ, crossfade, offline downloads, video.
