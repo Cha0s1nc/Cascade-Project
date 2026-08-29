@@ -26,7 +26,14 @@ export interface PlatformStorage {
 export interface NowPlayingUpdate {
   title?: string
   artist?: string
+  album?: string
   isPlaying?: boolean
+  /** Jellyfin ids, so a consumer with its own session can build an artwork URL
+   *  rather than being handed one carrying this client's token. */
+  artItemId?: string
+  artImageTag?: string
+  durationMs?: number | null
+  positionMs?: number | null
 }
 
 /** The live Jellyfin session, handed to the control server so Cha0s Stream can
