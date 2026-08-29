@@ -416,6 +416,21 @@ export class JellyfinClient {
     const { url, token } = this.config
     return `${url}/Items/${itemId}/Images/Primary?fillHeight=600&fillWidth=600&quality=90&api_key=${token}`
   }
+
+  /** The stored image with no transformation requested.
+   *
+   *  `imageUrl` asks for fillHeight/fillWidth/quality, and any of those sends
+   *  the file through Jellyfin's image processor, which re-encodes it - so an
+   *  animated cover in the library arrives as a single flattened frame. Asking
+   *  for no transformation returns the original bytes untouched, which is the
+   *  only way an animated cover stays animated.
+   *
+   *  Unbounded in size, so this is for the one now-playing image and nothing
+   *  else. Grid tiles must keep using the resized still. */
+  originalArtUrl(itemId: string): string {
+    const { url, token } = this.config
+    return `${url}/Items/${itemId}/Images/Primary?api_key=${token}`
+  }
 }
 
 /** Flatten item lists, keeping the first occurrence of each Id. */
@@ -430,4 +445,15 @@ function dedupeById(lists: JfItem[][]): JfItemsResponse {
     }
   }
   return { Items: items, TotalRecordCount: items.length }
+}
+
+/** Whether a Content-Type is a format that *can* carry animation.
+ *
+ *  Deliberately not "is animated": a static GIF or WebP also matches, and the
+ *  only cost of a false positive is serving the original file instead of a
+ *  600px re-encode for one image. Telling the two apart means parsing frame
+ *  counts out of the bytes, which is a lot of work to save a few KB. */
+export function isAnimatedImageType(contentType: string | null | undefined): boolean {
+  const t = (contentType || '').split(';')[0].trim().toLowerCase()
+  return t === 'image/gif' || t === 'image/apng' || t === 'image/webp' || t === 'image/avif'
 }

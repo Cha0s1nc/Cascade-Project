@@ -232,6 +232,65 @@ function skeletonHTML(type, count) {
 const _ITUNES_ART_CACHE_MAX = 1000
 const _itunesArtCache = new Map()
 
+// Apple's *search* index does not contain every album Apple *sells*. Panic! At
+// The Disco's "A Fever You Can't Sweat Out" is the reproducible case: searching
+// for it by artist+album, by album alone, or with attribute=artistTerm returns
+// three unrelated records and never the album, yet the album is right there in
+// the catalogue under collectionId 80456435. Only /lookup on the artist id
+// finds it.
+//
+// So when the search comes back with nothing that matches, ask for the artist's
+// whole discography instead and match against that. Two extra requests, but
+// only on a miss, and the answer is cached per artist - so an album playthrough
+// pays for it once and every later track by that artist is free.
+const _ITUNES_DISCOG_CACHE_MAX = 100
+const _itunesDiscogCache = new Map()
+
+async function fetchItunesDiscography(artist) {
+  const key = artist.toLowerCase()
+  if (_itunesDiscogCache.has(key)) {
+    const v = _itunesDiscogCache.get(key)
+    _itunesDiscogCache.delete(key)
+    _itunesDiscogCache.set(key, v)  // most-recently-used
+    return v
+  }
+  if (_itunesDiscogCache.size >= _ITUNES_DISCOG_CACHE_MAX) {
+    _itunesDiscogCache.delete(_itunesDiscogCache.keys().next().value)
+  }
+  const inFlight = (async () => {
+    try {
+      const a = await fetch(
+        `https://itunes.apple.com/search?term=${encodeURIComponent(artist)}&entity=musicArtist&limit=1`,
+        { signal: AbortSignal.timeout(7000) }
+      )
+      if (!a.ok) { _itunesDiscogCache.delete(key); return [] }
+      const hit = (await a.json()).results?.[0]
+      // A wrong artist here would hand back a whole wrong discography for
+      // pickItunesArt to match titles against, which is exactly how you get a
+      // confident wrong cover.
+      if (!hit?.artistId || !CascadeCore.itunesArtistMatches(hit.artistName || '', artist)) return []
+      const r = await fetch(
+        `https://itunes.apple.com/lookup?id=${hit.artistId}&entity=album&limit=200`,
+        { signal: AbortSignal.timeout(7000) }
+      )
+      if (!r.ok) { _itunesDiscogCache.delete(key); return [] }
+      // Keep only the four fields the matcher reads - the full records are ~200
+      // per artist and the rest of each one is pricing and genre metadata.
+      const albums = ((await r.json()).results || [])
+        .filter(x => x.wrapperType === 'collection' && x.artworkUrl100)
+        .map(({ collectionName, collectionArtistName, artistName, artworkUrl100 }) =>
+          ({ collectionName, collectionArtistName, artistName, artworkUrl100 }))
+      _itunesDiscogCache.set(key, albums)
+      return albums
+    } catch {
+      _itunesDiscogCache.delete(key)
+      return []
+    }
+  })()
+  _itunesDiscogCache.set(key, inFlight)
+  return inFlight
+}
+
 async function fetchItunesArt(artist, album) {
   const key = `${artist}|||${album}`.toLowerCase()
   if (_itunesArtCache.has(key)) {
@@ -252,7 +311,7 @@ async function fetchItunesArt(artist, album) {
     try {
       const term = encodeURIComponent(`${artist} ${album}`.trim())
       const r = await fetch(
-        `https://itunes.apple.com/search?term=${term}&entity=album&limit=5&media=music`,
+        `https://itunes.apple.com/search?term=${term}&entity=album&limit=15&media=music`,
         { signal: AbortSignal.timeout(7000) }
       )
       // Unauthenticated iTunes search allows roughly 20 requests a minute, which
@@ -261,11 +320,15 @@ async function fetchItunesArt(artist, album) {
       // entry and let the next play ask again. Same for a timeout or a blip.
       if (!r.ok) { _itunesArtCache.delete(key); return null }
       const d = await r.json()
-      const result = d.results?.[0]
-      // Scale from 100px thumbnail to 600px - just replace the size token in the URL
-      const url = result?.artworkUrl100
-        ? result.artworkUrl100.replace(/\d+x\d+bb/, '600x600bb')
-        : null
+      // Not results[0] - see CascadeCore.pickItunesArt. The search is fuzzy, and
+      // the top hit for a common album title is often a tribute record, a
+      // karaoke version or somebody else's single.
+      let url = CascadeCore.pickItunesArt(d.results, artist, album)
+      // Nothing matched, so the search index may simply not have the album.
+      // See fetchItunesDiscography.
+      if (!url && artist && album) {
+        url = CascadeCore.pickItunesArt(await fetchItunesDiscography(artist), artist, album)
+      }
       // A real answer, including a real "iTunes has never heard of this", which
       // is worth remembering so a bootleg is not looked up once per play.
       _itunesArtCache.set(key, url)
@@ -279,8 +342,58 @@ async function fetchItunesArt(artist, album) {
   return inFlight
 }
 
-// Tracks the best available art URL for the current track (iTunes > Jellyfin)
+// Tracks the best available art URL for the current track
+// (animated local cover > iTunes > Jellyfin still)
 let _currentHighResArtUrl = null
+
+// Set to the item id whose library cover turned out to be animated. The iTunes
+// upgrade resolves independently and would otherwise overwrite a moving cover
+// with a still, and the two race - so whichever lands first, this decides.
+let _animatedArtItemId = null
+
+// Jellyfin re-encodes whenever a size is requested, which flattens an animated
+// cover to its first frame. So the now-playing view asks for the untransformed
+// original, but only when the stored file is a format that can actually move -
+// otherwise every track would be pulling an unbounded full-size image for no
+// gain. Grids are untouched on purpose: dozens of animated tiles decoding at
+// once is not a feature.
+//
+// One HEAD per album, cached, so an album playthrough pays for it once.
+const _ANIMATED_ART_CACHE_MAX = 200
+const _animatedArtCache = new Map()
+
+function animatedArtUrl(artItemId) {
+  if (_animatedArtCache.has(artItemId)) {
+    const v = _animatedArtCache.get(artItemId)
+    _animatedArtCache.delete(artItemId)
+    _animatedArtCache.set(artItemId, v)  // most-recently-used
+    return v
+  }
+  if (_animatedArtCache.size >= _ANIMATED_ART_CACHE_MAX) {
+    _animatedArtCache.delete(_animatedArtCache.keys().next().value)
+  }
+  const inFlight = (async () => {
+    try {
+      const url = jfClient.originalArtUrl(artItemId)
+      const r = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(5000) })
+      // ponytail: HEAD only. If some Jellyfin build ever refuses it, this reads
+      // as "not animated" and the still is used - which is today's behaviour,
+      // so the failure mode is exactly the status quo. Swap in a ranged GET if
+      // that ever actually happens.
+      const result = r.ok && CascadeCore.isAnimatedImageType(r.headers.get('content-type'))
+        ? url : null
+      _animatedArtCache.set(artItemId, result)
+      return result
+    } catch {
+      // A timeout or a blip is not an answer about the image, so do not
+      // remember it as one.
+      _animatedArtCache.delete(artItemId)
+      return null
+    }
+  })()
+  _animatedArtCache.set(artItemId, inFlight)
+  return inFlight
+}
 
 // Ask the server how to play a track, given what Chromium can decode. Async
 // because it POSTs /Items/{id}/PlaybackInfo - the server picks direct play or
@@ -384,6 +497,24 @@ function queueAddedBy(i) {
  * which is exactly how "Add to queue" used to look like it worked and then
  * silently do nothing.
  */
+/**
+ * Insert tracks straight after the current one ("Play next").
+ *
+ * Deliberately stricter than enqueueTracks: a guest is refused outright rather
+ * than allowed to propose. Appending is fair game, but letting guests jump the
+ * line would let the last clicker always win the next slot.
+ *
+ * Returns whether it happened, so a caller with somewhere else to put the
+ * tracks (the remote handler falls back to playing them) can tell.
+ */
+function playNextTracks(items, label) {
+  if (!items.length) return false
+  if (isWaterfallFollower()) { showToast('Only the host can choose what plays next'); return false }
+  queue = CascadeCore.insertAfterCurrent(queue, queueIndex, items)
+  showToast(`${label} plays next`)
+  return true
+}
+
 function enqueueTracks(items, label) {
   const mode = queueAdditionMode()
 
@@ -567,7 +698,11 @@ function startRemoteControl() {
   if (_remote) _remote.stop()
 
   _remote = new CascadeCore.RemoteControl(jfClient, () => jf, {
-    async play(itemIds, startIndex) {
+    // playCommand was accepted by remote-control.ts and then dropped here, so
+    // PlayNext and PlayLast both behaved as PlayNow and wiped the queue instead
+    // of adding to it. Jellyfin controllers (and Cha0s Stream's song requests)
+    // send all three.
+    async play(itemIds, startIndex, playCommand) {
       if (!itemIds.length) return
       const res = await jfGet(`/Users/${jf.userId}/Items`, {
         Ids: itemIds.join(','),
@@ -581,7 +716,17 @@ function startRemoteControl() {
       // Jellyfin returns items in its own order, so re-sort to what was sent.
       const byId = new Map(items.map(i => [i.Id, i]))
       const ordered = itemIds.map(id => byId.get(id)).filter(Boolean)
-      playItems(ordered.length ? ordered : items, startIndex)
+      const tracks = ordered.length ? ordered : items
+
+      // With nothing playing there is no "next" or "last" to be relative to, so
+      // both degrade to starting playback rather than filling a queue the user
+      // would then have to press play on.
+      const idle = !queue.length || queueIndex < 0
+      const label = tracks.length === 1 ? `"${tracks[0].Name}"` : `${tracks.length} tracks`
+
+      if (playCommand === 'PlayNext' && !idle) { playNextTracks(tracks, label); return }
+      if (playCommand === 'PlayLast' && !idle) { enqueueTracks(tracks, label); return }
+      playItems(tracks, startIndex)
     },
     playPause()     { if (audio.paused) audio.play().catch(() => {}); else audio.pause() },
     pause()         { audio.pause() },
@@ -2388,9 +2533,7 @@ document.getElementById('tctx-play-next').addEventListener('click', () => {
   closeTrackCtxMenu()
   // Guests append only - letting them jump the line would let the last clicker
   // always win the next slot.
-  if (isWaterfallFollower()) { showToast('Only the host can choose what plays next'); return }
-  queue = CascadeCore.insertAfterCurrent(queue, queueIndex, [_ctxItem])
-  showToast(`"${_ctxItem.Name}" plays next`)
+  playNextTracks([_ctxItem], `"${_ctxItem.Name}"`)
 })
 
 // "Play last" - appends to the end, which is what the old single "Add to
@@ -3318,11 +3461,26 @@ function updateNowPlaying(item) {
 
   const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
   _currentHighResArtUrl = art  // Jellyfin 600px as immediate baseline
+  _animatedArtItemId = null    // reset for new track
   const artEl = document.getElementById('np-art')
   if (art) {
     artEl.innerHTML = `<img src="${art}" alt="" onerror="this.innerHTML='♪'">`
   } else {
     artEl.innerHTML = '♪'
+  }
+
+  // Upgrade the still to the animated original if the library has one. Videos
+  // are skipped - a poster is a poster.
+  if (art && !video) {
+    const artItemId = item.AlbumId || item.Id
+    const animItemId = item.Id
+    animatedArtUrl(artItemId).then(animUrl => {
+      if (!animUrl || queue[queueIndex]?.Id !== animItemId) return  // track changed
+      _animatedArtItemId = animItemId
+      _currentHighResArtUrl = animUrl
+      document.getElementById('np-art').innerHTML = `<img src="${animUrl}" alt="" onerror="this.innerHTML='♪'">`
+      document.getElementById('ov-art').innerHTML = `<img src="${animUrl}" alt="" onerror="this.innerHTML='♪'">`
+    }).catch(() => {})
   }
   document.getElementById('np-info').innerHTML = `
     <span class="np-scroll-inner">
@@ -3382,6 +3540,7 @@ function updateNowPlaying(item) {
     const itemId = item.Id
     fetchItunesArt(artist, album).then(itunesUrl => {
       if (!itunesUrl || queue[queueIndex]?.Id !== itemId) return  // track changed or not found
+      if (_animatedArtItemId === itemId) return  // a moving library cover beats a still
       _currentHighResArtUrl = itunesUrl
       _currentBgArtUrl = itunesUrl
       // Update status bar art
@@ -6813,9 +6972,7 @@ document.getElementById('ictx-play-next').addEventListener('click', async () => 
   if (_ictxKind !== 'album' || !_ictxItem) return
   if (isWaterfallFollower()) { showToast('Only the host can choose what plays next'); return }
   const tracks = await fetchAlbumTracks(_ictxItem.Id)
-  if (!tracks.length) return
-  queue = CascadeCore.insertAfterCurrent(queue, queueIndex, tracks)
-  showToast(`"${_ictxItem.Name}" plays next`)
+  playNextTracks(tracks, `"${_ictxItem.Name}"`)
 })
 
 document.getElementById('ictx-play-last').addEventListener('click', async () => {
