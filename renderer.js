@@ -3498,7 +3498,19 @@ function updateNowPlaying(item) {
   window.cascade.touchbarUpdate({ title: `${item.Name}  -  ${item.AlbumArtist || item.Artists?.[0] || ''}` })
 
   // Notify Cha0s Stream of the new track
-  window.cascade.nowPlayingUpdate({ title: item.Name || '', artist: item.AlbumArtist || item.Artists?.[0] || '', isPlaying: true })
+  // Ids rather than a URL: artUrl() embeds this client's token, and a consumer
+  // with its own Jellyfin session (Cha0s Stream borrows one via
+  // /cascade/jellyfin) should build its own. Same fallbacks as line 1504.
+  window.cascade.nowPlayingUpdate({
+    title: item.Name || '',
+    artist: item.AlbumArtist || item.Artists?.[0] || '',
+    album: item.Album || '',
+    artItemId: item.AlbumId || item.Id || '',
+    artImageTag: item.AlbumPrimaryImageTag || item.ImageTags?.Primary || '',
+    durationMs: item.RunTimeTicks ? Math.round(item.RunTimeTicks / 10_000) : null,
+    positionMs: 0,
+    isPlaying: true,
+  })
 
   // Push track info to OS (lock screen, taskbar, Now Playing widget)
   if ('mediaSession' in navigator) {
@@ -3888,6 +3900,18 @@ function syncProgressUI() {
 }
 
 onDeck('timeupdate', syncProgressUI)
+
+let _npPositionSentAt = 0
+onDeck('timeupdate', () => {
+  const now = Date.now()
+  if (now - _npPositionSentAt < 3000) return
+  _npPositionSentAt = now
+  const dur = mediaDuration()
+  window.cascade.nowPlayingUpdate?.({
+    positionMs: Math.round(mediaPosition() * 1000),
+    durationMs: dur ? Math.round(dur * 1000) : null,
+  })
+})
 
 onDeck('play', () => {
   document.getElementById('icon-play').style.display = 'none'
@@ -4637,13 +4661,13 @@ window.cascade.onMediaKey((key) => {
 onDeck('play',  () => {
   if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
   window.cascade.touchbarUpdate({ playing: true })
-  window.cascade.nowPlayingUpdate({ isPlaying: true })
+  window.cascade.nowPlayingUpdate({ isPlaying: true, positionMs: Math.round(mediaPosition() * 1000) })
   pushMiniplayerState()
 })
 onDeck('pause', () => {
   if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
   window.cascade.touchbarUpdate({ playing: false })
-  window.cascade.nowPlayingUpdate({ isPlaying: false })
+  window.cascade.nowPlayingUpdate({ isPlaying: false, positionMs: Math.round(mediaPosition() * 1000) })
   pushMiniplayerState()
 })
 
