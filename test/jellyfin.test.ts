@@ -4,7 +4,7 @@ import {
   JellyfinClient, authenticate, authHeader,
   quickConnectEnabled, quickConnectInitiate, quickConnectApproved, quickConnectAuthenticate,
   QUICK_CONNECT_POLL_MS, QUICK_CONNECT_TIMEOUT_MS, readErrorMessage,
-  splitVideoLibraryIds, effectiveLibraryIds, groupRecentlyWatched,
+  splitVideoLibraryIds, effectiveLibraryIds, groupRecentlyWatched, isAnimatedImageType,
 } from '../src/core/jellyfin.ts'
 import type { ServerConfig, JfItemsResponse, JfItem } from '../src/core/types.ts'
 
@@ -431,4 +431,28 @@ test('a request without a known version falls back rather than sending "undefine
   await client.get('/Items')
   const headers = (calls[0].init?.headers ?? {}) as Record<string, string>
   assert.ok(!headers['X-Emby-Authorization'].includes('undefined'))
+})
+
+test('originalArtUrl asks for no transformation, so animation survives', () => {
+  const c = new JellyfinClient(() => ({ url: 'https://jf.example', token: 'tok' }) as never)
+  const original = c.originalArtUrl('abc')
+  assert.ok(!/fillHeight|fillWidth|quality/.test(original), 'no resize params - those re-encode')
+  assert.match(original, /^https:\/\/jf\.example\/Items\/abc\/Images\/Primary\?api_key=tok$/)
+  // The still path must keep its resize, or every grid tile pulls a full-size file.
+  assert.match(c.artUrl('abc', 'tag')!, /fillHeight=600&fillWidth=600&quality=90/)
+})
+
+test('isAnimatedImageType matches formats that can move, and nothing else', () => {
+  for (const t of ['image/gif', 'image/apng', 'image/webp', 'image/avif']) {
+    assert.ok(isAnimatedImageType(t), t)
+  }
+  for (const t of ['image/jpeg', 'image/png', 'image/bmp', 'text/html', '', null, undefined]) {
+    assert.ok(!isAnimatedImageType(t), String(t))
+  }
+})
+
+test('isAnimatedImageType tolerates charset params and casing', () => {
+  assert.ok(isAnimatedImageType('image/gif; charset=binary'))
+  assert.ok(isAnimatedImageType('  IMAGE/GIF  '))
+  assert.ok(!isAnimatedImageType('image/jpeg; qs=0.9'))
 })

@@ -232,6 +232,65 @@ function skeletonHTML(type, count) {
 const _ITUNES_ART_CACHE_MAX = 1000
 const _itunesArtCache = new Map()
 
+// Apple's *search* index does not contain every album Apple *sells*. Panic! At
+// The Disco's "A Fever You Can't Sweat Out" is the reproducible case: searching
+// for it by artist+album, by album alone, or with attribute=artistTerm returns
+// three unrelated records and never the album, yet the album is right there in
+// the catalogue under collectionId 80456435. Only /lookup on the artist id
+// finds it.
+//
+// So when the search comes back with nothing that matches, ask for the artist's
+// whole discography instead and match against that. Two extra requests, but
+// only on a miss, and the answer is cached per artist - so an album playthrough
+// pays for it once and every later track by that artist is free.
+const _ITUNES_DISCOG_CACHE_MAX = 100
+const _itunesDiscogCache = new Map()
+
+async function fetchItunesDiscography(artist) {
+  const key = artist.toLowerCase()
+  if (_itunesDiscogCache.has(key)) {
+    const v = _itunesDiscogCache.get(key)
+    _itunesDiscogCache.delete(key)
+    _itunesDiscogCache.set(key, v)  // most-recently-used
+    return v
+  }
+  if (_itunesDiscogCache.size >= _ITUNES_DISCOG_CACHE_MAX) {
+    _itunesDiscogCache.delete(_itunesDiscogCache.keys().next().value)
+  }
+  const inFlight = (async () => {
+    try {
+      const a = await fetch(
+        `https://itunes.apple.com/search?term=${encodeURIComponent(artist)}&entity=musicArtist&limit=1`,
+        { signal: AbortSignal.timeout(7000) }
+      )
+      if (!a.ok) { _itunesDiscogCache.delete(key); return [] }
+      const hit = (await a.json()).results?.[0]
+      // A wrong artist here would hand back a whole wrong discography for
+      // pickItunesArt to match titles against, which is exactly how you get a
+      // confident wrong cover.
+      if (!hit?.artistId || !CascadeCore.itunesArtistMatches(hit.artistName || '', artist)) return []
+      const r = await fetch(
+        `https://itunes.apple.com/lookup?id=${hit.artistId}&entity=album&limit=200`,
+        { signal: AbortSignal.timeout(7000) }
+      )
+      if (!r.ok) { _itunesDiscogCache.delete(key); return [] }
+      // Keep only the four fields the matcher reads - the full records are ~200
+      // per artist and the rest of each one is pricing and genre metadata.
+      const albums = ((await r.json()).results || [])
+        .filter(x => x.wrapperType === 'collection' && x.artworkUrl100)
+        .map(({ collectionName, collectionArtistName, artistName, artworkUrl100 }) =>
+          ({ collectionName, collectionArtistName, artistName, artworkUrl100 }))
+      _itunesDiscogCache.set(key, albums)
+      return albums
+    } catch {
+      _itunesDiscogCache.delete(key)
+      return []
+    }
+  })()
+  _itunesDiscogCache.set(key, inFlight)
+  return inFlight
+}
+
 async function fetchItunesArt(artist, album) {
   const key = `${artist}|||${album}`.toLowerCase()
   if (_itunesArtCache.has(key)) {
@@ -252,7 +311,7 @@ async function fetchItunesArt(artist, album) {
     try {
       const term = encodeURIComponent(`${artist} ${album}`.trim())
       const r = await fetch(
-        `https://itunes.apple.com/search?term=${term}&entity=album&limit=5&media=music`,
+        `https://itunes.apple.com/search?term=${term}&entity=album&limit=15&media=music`,
         { signal: AbortSignal.timeout(7000) }
       )
       // Unauthenticated iTunes search allows roughly 20 requests a minute, which
@@ -261,11 +320,15 @@ async function fetchItunesArt(artist, album) {
       // entry and let the next play ask again. Same for a timeout or a blip.
       if (!r.ok) { _itunesArtCache.delete(key); return null }
       const d = await r.json()
-      const result = d.results?.[0]
-      // Scale from 100px thumbnail to 600px - just replace the size token in the URL
-      const url = result?.artworkUrl100
-        ? result.artworkUrl100.replace(/\d+x\d+bb/, '600x600bb')
-        : null
+      // Not results[0] - see CascadeCore.pickItunesArt. The search is fuzzy, and
+      // the top hit for a common album title is often a tribute record, a
+      // karaoke version or somebody else's single.
+      let url = CascadeCore.pickItunesArt(d.results, artist, album)
+      // Nothing matched, so the search index may simply not have the album.
+      // See fetchItunesDiscography.
+      if (!url && artist && album) {
+        url = CascadeCore.pickItunesArt(await fetchItunesDiscography(artist), artist, album)
+      }
       // A real answer, including a real "iTunes has never heard of this", which
       // is worth remembering so a bootleg is not looked up once per play.
       _itunesArtCache.set(key, url)
@@ -279,8 +342,58 @@ async function fetchItunesArt(artist, album) {
   return inFlight
 }
 
-// Tracks the best available art URL for the current track (iTunes > Jellyfin)
+// Tracks the best available art URL for the current track
+// (animated local cover > iTunes > Jellyfin still)
 let _currentHighResArtUrl = null
+
+// Set to the item id whose library cover turned out to be animated. The iTunes
+// upgrade resolves independently and would otherwise overwrite a moving cover
+// with a still, and the two race - so whichever lands first, this decides.
+let _animatedArtItemId = null
+
+// Jellyfin re-encodes whenever a size is requested, which flattens an animated
+// cover to its first frame. So the now-playing view asks for the untransformed
+// original, but only when the stored file is a format that can actually move -
+// otherwise every track would be pulling an unbounded full-size image for no
+// gain. Grids are untouched on purpose: dozens of animated tiles decoding at
+// once is not a feature.
+//
+// One HEAD per album, cached, so an album playthrough pays for it once.
+const _ANIMATED_ART_CACHE_MAX = 200
+const _animatedArtCache = new Map()
+
+function animatedArtUrl(artItemId) {
+  if (_animatedArtCache.has(artItemId)) {
+    const v = _animatedArtCache.get(artItemId)
+    _animatedArtCache.delete(artItemId)
+    _animatedArtCache.set(artItemId, v)  // most-recently-used
+    return v
+  }
+  if (_animatedArtCache.size >= _ANIMATED_ART_CACHE_MAX) {
+    _animatedArtCache.delete(_animatedArtCache.keys().next().value)
+  }
+  const inFlight = (async () => {
+    try {
+      const url = jfClient.originalArtUrl(artItemId)
+      const r = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(5000) })
+      // ponytail: HEAD only. If some Jellyfin build ever refuses it, this reads
+      // as "not animated" and the still is used - which is today's behaviour,
+      // so the failure mode is exactly the status quo. Swap in a ranged GET if
+      // that ever actually happens.
+      const result = r.ok && CascadeCore.isAnimatedImageType(r.headers.get('content-type'))
+        ? url : null
+      _animatedArtCache.set(artItemId, result)
+      return result
+    } catch {
+      // A timeout or a blip is not an answer about the image, so do not
+      // remember it as one.
+      _animatedArtCache.delete(artItemId)
+      return null
+    }
+  })()
+  _animatedArtCache.set(artItemId, inFlight)
+  return inFlight
+}
 
 // Ask the server how to play a track, given what Chromium can decode. Async
 // because it POSTs /Items/{id}/PlaybackInfo - the server picks direct play or
@@ -3348,11 +3461,26 @@ function updateNowPlaying(item) {
 
   const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
   _currentHighResArtUrl = art  // Jellyfin 600px as immediate baseline
+  _animatedArtItemId = null    // reset for new track
   const artEl = document.getElementById('np-art')
   if (art) {
     artEl.innerHTML = `<img src="${art}" alt="" onerror="this.innerHTML='♪'">`
   } else {
     artEl.innerHTML = '♪'
+  }
+
+  // Upgrade the still to the animated original if the library has one. Videos
+  // are skipped - a poster is a poster.
+  if (art && !video) {
+    const artItemId = item.AlbumId || item.Id
+    const animItemId = item.Id
+    animatedArtUrl(artItemId).then(animUrl => {
+      if (!animUrl || queue[queueIndex]?.Id !== animItemId) return  // track changed
+      _animatedArtItemId = animItemId
+      _currentHighResArtUrl = animUrl
+      document.getElementById('np-art').innerHTML = `<img src="${animUrl}" alt="" onerror="this.innerHTML='♪'">`
+      document.getElementById('ov-art').innerHTML = `<img src="${animUrl}" alt="" onerror="this.innerHTML='♪'">`
+    }).catch(() => {})
   }
   document.getElementById('np-info').innerHTML = `
     <span class="np-scroll-inner">
@@ -3412,6 +3540,7 @@ function updateNowPlaying(item) {
     const itemId = item.Id
     fetchItunesArt(artist, album).then(itunesUrl => {
       if (!itunesUrl || queue[queueIndex]?.Id !== itemId) return  // track changed or not found
+      if (_animatedArtItemId === itemId) return  // a moving library cover beats a still
       _currentHighResArtUrl = itunesUrl
       _currentBgArtUrl = itunesUrl
       // Update status bar art
