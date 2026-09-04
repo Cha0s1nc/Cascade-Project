@@ -3505,6 +3505,11 @@ function updateNowPlaying(item) {
     title: item.Name || '',
     artist: item.AlbumArtist || item.Artists?.[0] || '',
     album: item.Album || '',
+    // The track's own id, distinct from artItemId, which prefers AlbumId and so
+    // identifies the artwork rather than the song. A consumer correlating what is
+    // playing against a request queue needs an exact key: matching on artist and
+    // title strings is guesswork, and artItemId collides across a whole album.
+    trackId: item.Id || '',
     artItemId: item.AlbumId || item.Id || '',
     artImageTag: item.AlbumPrimaryImageTag || item.ImageTags?.Primary || '',
     durationMs: item.RunTimeTicks ? Math.round(item.RunTimeTicks / 10_000) : null,
