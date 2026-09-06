@@ -17,6 +17,7 @@ const https = require('https')
 const http  = require('http')
 const fs    = require('fs')
 const os    = require('os')
+const { spawn } = require('child_process')
 const crypto = require('crypto')
 const Store = require('electron-store')
 
@@ -881,15 +882,51 @@ ipcMain.handle('updater:download', async () => {
   return { ok: true }
 })
 
+// Windows can install itself. These are the flags electron-updater passes to an
+// electron-builder NSIS installer: --updated marks it an upgrade rather than a
+// fresh install, /S suppresses the wizard, --force-run relaunches us afterwards.
+//
+// /D pins the target directory. Without it a silent assisted installer (this one
+// has allowToChangeInstallationDirectory) falls back to its default path rather
+// than wherever the user actually installed, so an update can land beside the old
+// copy instead of over it. NSIS requires /D last and unquoted, which is why it is
+// built that way and not passed through a quoting helper.
+function installSilentlyWindows(installerPath) {
+  const args = ['--updated', '/S', '--force-run', `/D=${path.dirname(process.execPath)}`]
+  const child = spawn(installerPath, args, { detached: true, stdio: 'ignore' })
+  child.unref()
+  return child
+}
+
 ipcMain.handle('updater:install', () => {
-  if (pendingDownload?.destPath) {
-    if (process.platform === 'darwin') {
-      shell.openPath(pendingDownload.destPath)
-    } else {
-      shell.openPath(pendingDownload.destPath).then(() => setTimeout(() => app.quit(), 1500))
-    }
-  } else if (pendingDownload?.releaseUrl) {
-    shell.openExternal(pendingDownload.releaseUrl)
+  if (!pendingDownload?.destPath) {
+    if (pendingDownload?.releaseUrl) shell.openExternal(pendingDownload.releaseUrl)
+    return
+  }
+
+  const handOver = () => shell.openPath(pendingDownload.destPath).then(() => {
+    // macOS still needs the drag to Applications, so it stays open. Everything
+    // else is handing off to an installer that has to replace a running binary.
+    if (process.platform !== 'darwin') setTimeout(() => app.quit(), 1500)
+  })
+
+  if (process.platform !== 'win32') return handOver()
+
+  try {
+    let quitTimer = null
+    const child = installSilentlyWindows(pendingDownload.destPath)
+    // spawn reports a missing or unrunnable installer asynchronously, so the
+    // quit waits long enough to hear about it. Quitting first would leave the
+    // user with no app and no installer.
+    child.on('error', (err) => {
+      console.error('[updater] Silent install failed, opening the installer:', err.message)
+      clearTimeout(quitTimer)
+      handOver()
+    })
+    quitTimer = setTimeout(() => app.quit(), 1000)
+  } catch (err) {
+    console.error('[updater] Silent install failed, opening the installer:', err.message)
+    handOver()
   }
 })
 
