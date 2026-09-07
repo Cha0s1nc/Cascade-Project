@@ -5282,8 +5282,7 @@ function stopBeatLoop() {
 
 let _audioCtx = null
 let _mediaSrc = null    // MediaElementAudioSourceNode for the CURRENT deck, kept
-                         // updated at every crossfade handoff - wip-waterfall/
-                         // NOTES.md still names this as the tap point.
+                         // updated at every crossfade handoff.
 const _deckSourceNodes = new Map()   // deck element -> its permanent MediaElementAudioSourceNode
 const _deckGainNodes = new Map()     // deck element -> its permanent GainNode (crossfade envelope only)
 let _eqPreamp = null     // shared GainNode, auto or manual makeup gain for the bands below

@@ -17,7 +17,7 @@
 
 // Default relay. Anyone who would rather not route their room through someone
 // else's server can point this at their own in Settings - the Worker source
-// lives in wip-waterfall/signaling/ and deploys with `npx wrangler deploy`.
+// lives in signaling/ and deploys with `npx wrangler deploy`.
 const WF_DEFAULT_RELAY = 'https://cascade-waterfall-signaling.cha0s-netw0rks.workers.dev'
 
 // Wire format and sync maths come from src/core/waterfall-protocol.ts, so a

@@ -111,7 +111,7 @@ Waterfall** control the rest:
 
 Rooms run through a Cloudflare Worker relay, which only ever forwards small
 control messages. Point it at your own instance in **Settings > Waterfall** if
-you'd rather not use the default - the Worker source is in `wip-waterfall/`.
+you'd rather not use the default - the Worker source is in `signaling/`.
 
 ---
 
