@@ -362,7 +362,13 @@ let _animatedArtItemId = null
 const _ANIMATED_ART_CACHE_MAX = 200
 const _animatedArtCache = new Map()
 
-function animatedArtUrl(artItemId) {
+// async, and load-bearing so: the cache holds the in-flight promise first and
+// then overwrites it with the resolved value, so a hit returns a bare null or a
+// bare URL string. Callers use .then(), which threw on every lookup after an
+// album's first - and since that throw escaped updateNowPlaying uncaught, it
+// took the whole tail of it with it: the track name and artist, the mediaSession
+// metadata, and the Discord presence push all stopped running.
+async function animatedArtUrl(artItemId) {
   if (_animatedArtCache.has(artItemId)) {
     const v = _animatedArtCache.get(artItemId)
     _animatedArtCache.delete(artItemId)
@@ -3395,6 +3401,19 @@ async function playCurrentTrack(opts = {}) {
 
 let _prefetchSession = 0
 
+/** Warms the iTunes cover cache for an upcoming track. Deduped by artist+album
+ *  inside fetchItunesArt, so playing through an album costs one lookup rather
+ *  than one per track. Fire and forget - the point is that the answer is
+ *  already sitting in the cache by the time the track starts and the Discord
+ *  presence wants it, instead of being a network round trip at exactly the
+ *  moment it is needed. */
+function warmItunesArt(item) {
+  if (!item || isVideoItem(item)) return
+  const artist = item.AlbumArtist || item.Artists?.[0] || ''
+  const album  = item.Album || ''
+  if (artist || album) fetchItunesArt(artist, album).catch(() => {})
+}
+
 async function _prefetchUpcoming() {
   const session = ++_prefetchSession
   const start = queueIndex + 1
@@ -3402,9 +3421,15 @@ async function _prefetchUpcoming() {
   for (let i = start; i < end; i++) {
     if (session !== _prefetchSession) break        // user skipped, abandon
     const item = queue[i]
-    if (!item?.Id || _lyricsCache.has(item.Id)) continue
-    await fetchLyricsWaterfall(item).catch(() => {})
-    if (session !== _prefetchSession) break
+    if (!item?.Id) continue
+    warmItunesArt(item)
+    // Cached lyrics used to `continue` straight past the gap below, which was
+    // right when they were the only request here. The cover warm-up is a
+    // request too, so the spacing now applies either way.
+    if (!_lyricsCache.has(item.Id)) {
+      await fetchLyricsWaterfall(item).catch(() => {})
+      if (session !== _prefetchSession) break
+    }
     await new Promise(r => setTimeout(r, 400))    // brief gap between API calls
   }
 }
@@ -3529,7 +3554,7 @@ function updateNowPlaying(item) {
   }
 
   // Discord RPC
-  rpcTrackStart = Date.now()
+  _syncRpcClock()
   updateDiscordPresence(item)
 
   // Album art accent: fetch for canvas color extraction (api_key is in URL, no extra header needed)
@@ -3855,7 +3880,6 @@ function stopPlayback() {
 
   if (item) reportPlaybackStopped(item.Id, positionTicks)
 
-  _clearRpcPauseTimer()  // nothing left to restore the presence for
   window.cascade.discord.clear()
   document.getElementById('np-art').innerHTML = '♪'
   document.getElementById('np-info').innerHTML = '<span class="np-empty">Nothing playing</span>'
@@ -3881,10 +3905,12 @@ function stopProgressReporting() {
 )
 
 // A seek moves the playback head without starting a new track, so Discord's
-// bar has to be re-anchored or it keeps drawing from the old position.
+// bar has to be re-anchored or it keeps drawing from the old position. Scrubbing
+// while paused only re-anchors: posting there would put the presence back up
+// and set the bar running against a track that is not playing.
 onDeck('seeked', () => {
   _syncRpcClock()
-  updateDiscordPresence(queue[queueIndex])
+  if (!audio.paused) updateDiscordPresence(queue[queueIndex])
 })
 
 // ── Audio events ──────────────────────────────────────────────────────────────
@@ -3928,7 +3954,6 @@ onDeck('timeupdate', () => {
 onDeck('play', () => {
   document.getElementById('icon-play').style.display = 'none'
   document.getElementById('icon-pause').style.display = ''
-  if (_rpcPauseTimer) { clearTimeout(_rpcPauseTimer); _rpcPauseTimer = null }
   // Re-anchor on every play, not just when resuming: a track can begin partway
   // in (a video resume, or "play from here"), and time spent paused has to come
   // off the clock either way. Both used to leave Discord counting from the
@@ -3945,20 +3970,13 @@ onDeck('pause', () => {
   // two decks' pause state in sync - simplest behavior, least surprising.
   cancelCrossfade()
 
-  // Give the pause a minute before giving up on the presence, rather than
-  // blanking it the instant playback stops. Guarded on a loaded track so the
-  // 'pause' event stopPlayback() itself triggers (via audio.pause(), queued
-  // async - it fires after stopPlayback's own cleanup already ran) cannot
-  // re-arm a timer for a queue that no longer exists.
-  // Re-send first: updateDiscordPresence drops the timestamps while paused, so
-  // this is what actually stops Discord's bar from running on without us.
-  updateDiscordPresence(queue[queueIndex])
-
-  if (_rpcPauseTimer) clearTimeout(_rpcPauseTimer)
-  _rpcPauseTimer = (discordEnabled && queue[queueIndex]) ? setTimeout(() => {
-    _rpcPauseTimer = null
-    window.cascade.discord.clear()
-  }, RPC_PAUSE_CLEAR_MS) : null
+  // Discord has no paused state. Its timestamps are wall-clock, so a presence
+  // left up while paused either runs the progress bar on without us or, with
+  // the timestamps removed, falls back to counting elapsed since it arrived.
+  // Both are a lie about where playback is, and neither can be frozen from
+  // here. Dropping the presence is the only honest option; 'play' puts it
+  // straight back.
+  window.cascade.discord.clear()
 })
 
 onDeck('ended', () => {
@@ -4778,7 +4796,6 @@ async function loadSettingsFields() {
       window.cascade.discord.connect(clientId)
     } else {
       window.cascade.discord.connect(null) // disconnects
-      _clearRpcPauseTimer()
       window.cascade.discord.clear()
     }
   }
@@ -7933,17 +7950,6 @@ updateNowPlaying = function(item) {
 let discordEnabled = false
 let rpcTrackStart = 0
 
-// How long a paused track keeps its Discord presence before giving up on it.
-const RPC_PAUSE_CLEAR_MS = 60_000
-let _rpcPauseTimer = null      // pending "give up on the paused presence" timeout, or null
-
-/** Cancels any pending pause-clear timer. Called by every deliberate clear
- *  (stop, sign-out, turning Discord off) so a timer scheduled for a pause that
- *  no longer matters cannot fire later and clear a presence that has moved on. */
-function _clearRpcPauseTimer() {
-  if (_rpcPauseTimer) { clearTimeout(_rpcPauseTimer); _rpcPauseTimer = null }
-}
-
 /** Re-anchors the wall-clock instant Discord's progress bar is drawn from to
  *  wherever playback actually is. Needed after anything that moves the head
  *  without restarting the track - a seek, or resuming from a pause. */
@@ -7967,6 +7973,13 @@ function _syncRpcClock() {
 // asked about.
 let _rpcArtToken = 0
 
+// How long the presence waits on an iTunes cover before pushing without one.
+// Warmed covers resolve instantly (see warmItunesArt), so this only governs the
+// cold case - the first track after launch, or one picked out by hand. Long
+// enough for a typical iTunes round trip, because pushing without the cover
+// means Discord shows the app icon until the follow-up clears the throttle.
+const RPC_ART_WAIT_MS = 800
+
 async function updateDiscordPresence(item) {
   if (!discordEnabled || !item) return
   const video = isVideoItem(item)
@@ -7984,32 +7997,50 @@ async function updateDiscordPresence(item) {
   // own duration: it is known before the media loads, and a progressive
   // transcode's audio.duration only counts what has been encoded so far.
   //
-  // Timestamps are wall-clock, so a paused track would keep advancing on
-  // Discord's side no matter what we sent. Drop them while paused and the bar
-  // disappears rather than lying; the 'play' handler puts it back.
+  // Pausing clears the presence outright rather than trying to freeze the bar,
+  // so anything built here is playing by definition.
   const durMs = item.RunTimeTicks ? item.RunTimeTicks / 10_000 : mediaDuration() * 1000
-  if (!audio.paused) {
-    activity.startTimestamp = rpcTrackStart
-    if (Number.isFinite(durMs) && durMs > 0) activity.endTimestamp = rpcTrackStart + Math.round(durMs)
-  }
+  activity.startTimestamp = rpcTrackStart
+  if (Number.isFinite(durMs) && durMs > 0) activity.endTimestamp = rpcTrackStart + Math.round(durMs)
 
-  // Push what we have first: the art lookup is a network round trip, and a
-  // presence that appears immediately and gains a cover a moment later beats
-  // one that shows up late.
   const token = ++_rpcArtToken
-  window.cascade.discord.update(activity)
-  if (video) return
-
   const artist = item.AlbumArtist || item.Artists?.[0] || ''
   const album  = item.Album || ''
-  if (!artist && !album) return
+  if (video || (!artist && !album)) { window.cascade.discord.update(activity); return }
 
-  const art = await fetchItunesArt(artist, album)
+  // Discord renders assets.large_text as the third line of a listening card -
+  // the album, below the track and the artist - not merely as the cover's hover
+  // tooltip. So it must not be gated on the cover the way it used to be: the
+  // album name is on the Jellyfin item already, while the artwork is a network
+  // round trip to iTunes, and pairing them made the album name wait on a
+  // lookup that has nothing to do with it.
+  if (album) activity.largeImageText = album.slice(0, 128)
+
+  // Give the cover a moment to land so the first push can carry it. An album
+  // already in the cache resolves straight away, which is the common case, and
+  // sending once means the card arrives complete. Anything slower still shows
+  // the text now and the cover when it turns up, rather than holding the whole
+  // presence hostage to a network round trip.
+  //
+  // This matters more than it looks: main.js throttles to one update every
+  // RPC_MIN_INTERVAL_MS, so a cover sent as a separate second update waits out
+  // that whole window before Discord sees it.
+  const art = await Promise.race([
+    fetchItunesArt(artist, album),
+    new Promise(r => setTimeout(() => r(undefined), RPC_ART_WAIT_MS)),
+  ])
   // The track can change while that is in flight, and a late answer for the
   // previous one would overwrite the presence that replaced it.
-  if (!art || token !== _rpcArtToken || !discordEnabled) return
-  activity.largeImageKey  = art
-  activity.largeImageText = album.slice(0, 128)
+  if (token !== _rpcArtToken || !discordEnabled) return
+  if (art) activity.largeImageKey = art
+  window.cascade.discord.update(activity)
+  // null is a real answer ("iTunes has never heard of this"); only undefined
+  // means the deadline beat the lookup and a cover may still be coming.
+  if (art !== undefined) return
+
+  const late = await fetchItunesArt(artist, album)
+  if (!late || token !== _rpcArtToken || !discordEnabled) return
+  activity.largeImageKey = late
   window.cascade.discord.update(activity)
 }
 
@@ -8029,6 +8060,13 @@ async function initDiscordRpc() {
     const label = document.getElementById('discord-rpc-status-label')
     if (dot)   dot.className   = 'ws-dot' + (connected ? ' connected' : '')
     if (label) label.textContent = connected ? 'Connected' : 'Not connected'
+
+    // Connecting is async and main.js drops any update that lands before the
+    // handshake finishes, so a track already playing by then had its presence
+    // thrown away with nothing to send it again - which is why it took a
+    // disable/re-enable to appear. Push it once the socket is actually up.
+    // Also covers Discord itself restarting, which reconnects the same way.
+    if (connected && !audio.paused) updateDiscordPresence(queue[queueIndex])
   })
 }
 

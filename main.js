@@ -65,6 +65,15 @@ let rpcReady    = false
 let rpcUpdateTimer = null
 let lastRpcActivity = null
 
+// Discord rate-limits presence updates, so they are throttled to one per
+// RPC_MIN_INTERVAL_MS. Leading edge, not trailing: the first update after a
+// quiet spell goes out at once and only a burst gets coalesced. Trailing edge
+// made every update wait out the full interval, which was most obvious on
+// unpause - the presence is cleared the moment you pause, so it stayed gone
+// for five seconds after you started playing again.
+const RPC_MIN_INTERVAL_MS = 5000
+let rpcLastSentAt = 0
+
 // Discord activity type: 2 = Listening, 3 = Watching. Held here rather than on
 // the activity object because setActivity() rebuilds that object from a fixed
 // field list and drops anything it does not recognise - see the request() patch
@@ -116,21 +125,26 @@ ipcMain.on('discord-rpc-connect', async (_e, clientId) => {
   if (clientId) await connectDiscordRpc(clientId)
 })
 
+function flushRpcActivity() {
+  rpcUpdateTimer = null
+  if (!rpcClient || !rpcReady) return
+  rpcLastSentAt = Date.now()
+  try {
+    if (lastRpcActivity) rpcClient.setActivity(lastRpcActivity)
+    else rpcClient.clearActivity()
+  } catch {}
+}
+
 ipcMain.on('discord-rpc-update', (_e, activity) => {
   if (!rpcClient || !rpcReady) return
   // `watching` rides along on the activity; setActivity() would drop it, so it
   // is lifted out here and applied by the request() patch instead.
   rpcActivityType = activity?.watching ? RPC_TYPE_WATCHING : RPC_TYPE_LISTENING
   lastRpcActivity = activity
-  if (rpcUpdateTimer) return  // already scheduled
-  rpcUpdateTimer = setTimeout(() => {
-    rpcUpdateTimer = null
-    if (!rpcClient || !rpcReady) return
-    try {
-      if (lastRpcActivity) rpcClient.setActivity(lastRpcActivity)
-      else rpcClient.clearActivity()
-    } catch {}
-  }, 5000)  // max one update per 5 seconds
+  if (rpcUpdateTimer) return  // a send is already queued, and it reads the latest
+  const wait = RPC_MIN_INTERVAL_MS - (Date.now() - rpcLastSentAt)
+  if (wait <= 0) flushRpcActivity()
+  else rpcUpdateTimer = setTimeout(flushRpcActivity, wait)
 })
 
 ipcMain.on('discord-rpc-clear', () => {
