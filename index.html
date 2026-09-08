@@ -180,7 +180,14 @@
     }
     .hshelf-track::-webkit-scrollbar { display: none; }
     .poster-grid.hshelf-track { display: flex; }
-    .poster-grid.hshelf-track .poster-card { flex: 0 0 150px; }
+    /* min-width:0 is load-bearing. A flex item defaults to min-width:auto,
+       which clamps it to its min-content width, and .poster-name is nowrap -
+       so its min-content width is the whole untruncated title and a long one
+       drags the card past its 150px basis. aspect-ratio then turns that into a
+       taller poster too, which is what made a shelf of long-titled shows sit
+       staggered. Constraining the card is also what lets .poster-name's own
+       text-overflow:ellipsis finally have something to ellipsize against. */
+    .poster-grid.hshelf-track .poster-card { flex: 0 0 150px; min-width: 0; }
     .hshelf-arrow {
       position: absolute; top: 0; bottom: 6px; width: 42px; z-index: 5;
       display: flex; align-items: center; justify-content: center;
