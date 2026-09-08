@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, clipboard, shell, Menu, globalShortcut, TouchBar } = require('electron')
+const { app, BrowserWindow, ipcMain, clipboard, shell, Menu, globalShortcut, TouchBar, protocol, net } = require('electron')
 
 // A main-process throw before the window is shown means no window and, for a
 // rejection, not even a message: Electron shows a dialog for an uncaught
@@ -19,7 +19,45 @@ const fs    = require('fs')
 const os    = require('os')
 const { spawn } = require('child_process')
 const crypto = require('crypto')
+const { pathToFileURL } = require('url')
 const Store = require('electron-store')
+
+// ── On-device translation assets ──────────────────────────────────────────────
+//
+// The lyrics translator loads ~228 MB of Marian weights plus the ONNX runtime
+// wasm binary from disk. The renderer is a file:// page and fetch() from
+// file:// is blocked, so those files are served over a private scheme instead.
+//
+// This has to be declared before app ready, and `supportFetchAPI` is the whole
+// point of it - without that flag transformers.js cannot fetch the weights.
+// `secure` keeps the worker from being treated as a mixed-content downgrade;
+// `standard` gives the URLs normal host/path parsing.
+protocol.registerSchemesAsPrivileged([{
+  scheme: 'cascade-model',
+  privileges: { standard: true, secure: true, supportFetchAPI: true },
+}])
+
+// Packaged, the models ride along as an extraResource next to the asar rather
+// than inside it - onnxruntime memory-maps the .onnx files and cannot read them
+// through asar's virtual filesystem.
+const MODELS_DIR = app.isPackaged
+  ? path.join(process.resourcesPath, 'models')
+  : path.join(__dirname, 'models')
+
+function registerModelProtocol() {
+  protocol.handle('cascade-model', (req) => {
+    const rel = decodeURIComponent(new URL(req.url).pathname)
+    const abs = path.normalize(path.join(MODELS_DIR, rel))
+    // Trust boundary: the path comes off a URL. Without this, a request for
+    // ../../.. walks straight out of the models directory and hands any file
+    // on disk to renderer JavaScript. path.sep guards the "/models-evil"
+    // prefix trick that a bare startsWith() would let through.
+    if (abs !== MODELS_DIR && !abs.startsWith(MODELS_DIR + path.sep)) {
+      return new Response('Forbidden', { status: 403 })
+    }
+    return net.fetch(pathToFileURL(abs).toString())
+  })
+}
 
 // ── Discord RPC ────────────────────────────────────────────────────────────────
 let rpcClient   = null
@@ -359,6 +397,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  registerModelProtocol()
   createWindow()
 })
 

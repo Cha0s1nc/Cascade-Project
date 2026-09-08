@@ -3880,6 +3880,13 @@ function stopProgressReporting() {
   onDeck(ev, reportPlaybackProgress)
 )
 
+// A seek moves the playback head without starting a new track, so Discord's
+// bar has to be re-anchored or it keeps drawing from the old position.
+onDeck('seeked', () => {
+  _syncRpcClock()
+  updateDiscordPresence(queue[queueIndex])
+})
+
 // ── Audio events ──────────────────────────────────────────────────────────────
 
 // Both scrubbers show the same numbers, so they are filled from one place -
@@ -3922,13 +3929,12 @@ onDeck('play', () => {
   document.getElementById('icon-play').style.display = 'none'
   document.getElementById('icon-pause').style.display = ''
   if (_rpcPauseTimer) { clearTimeout(_rpcPauseTimer); _rpcPauseTimer = null }
-  if (_rpcClearedByPause) {
-    _rpcClearedByPause = false
-    // The presence was cleared while paused - recompute the start timestamp
-    // from where playback actually is, otherwise Discord's elapsed time
-    // counts straight through the time spent paused.
-    rpcTrackStart = Date.now() - Math.round(mediaPosition() * 1000)
-  }
+  // Re-anchor on every play, not just when resuming: a track can begin partway
+  // in (a video resume, or "play from here"), and time spent paused has to come
+  // off the clock either way. Both used to leave Discord counting from the
+  // wrong instant - invisible when it was only an elapsed number, obvious once
+  // there is a bar drawn from it.
+  _syncRpcClock()
   updateDiscordPresence(queue[queueIndex])
 })
 
@@ -3944,10 +3950,13 @@ onDeck('pause', () => {
   // 'pause' event stopPlayback() itself triggers (via audio.pause(), queued
   // async - it fires after stopPlayback's own cleanup already ran) cannot
   // re-arm a timer for a queue that no longer exists.
+  // Re-send first: updateDiscordPresence drops the timestamps while paused, so
+  // this is what actually stops Discord's bar from running on without us.
+  updateDiscordPresence(queue[queueIndex])
+
   if (_rpcPauseTimer) clearTimeout(_rpcPauseTimer)
   _rpcPauseTimer = (discordEnabled && queue[queueIndex]) ? setTimeout(() => {
     _rpcPauseTimer = null
-    _rpcClearedByPause = true
     window.cascade.discord.clear()
   }, RPC_PAUSE_CLEAR_MS) : null
 })
@@ -6335,19 +6344,75 @@ function renderOverlayLyricLines(translated = false) {
   })
 }
 
-async function detectOverlayLyricsLanguage() {
+// ── On-device lyrics translation ──────────────────────────────────────────────
+//
+// Was MyMemory's free API. Every lyric line the user played left the machine,
+// and the language *detection* calls did it automatically with no click and no
+// setting, which made playback history readable by a third party. Both halves
+// now run locally: franc for detection, Marian in a Worker for translation.
+//
+// The Worker is created lazily. Spawning it costs ~230 MB of model reads, so
+// nothing touches it until someone actually presses Translate.
+
+let _translateWorker = null
+let _translateSeq = 0
+const _translatePending = new Map()
+
+function translateWorker() {
+  if (_translateWorker) return _translateWorker
+  _translateWorker = new Worker('build/translate-worker.js')
+
+  _translateWorker.onmessage = (e) => {
+    const { type, id } = e.data
+    const pending = _translatePending.get(id)
+    if (!pending) return
+    if (type === 'progress') { pending.onProgress?.(e.data); return }
+    _translatePending.delete(id)
+    if (type === 'result') pending.resolve(e.data.lines)
+    else pending.reject(new Error(e.data.message))
+  }
+
+  // A worker that dies takes every in-flight request with it and leaves the
+  // buttons stuck on "Translating…" forever. Fail them all, and drop the
+  // handle so the next attempt builds a fresh worker instead of posting into
+  // a corpse.
+  _translateWorker.onerror = (err) => {
+    const dead = [..._translatePending.values()]
+    _translatePending.clear()
+    _translateWorker = null
+    for (const p of dead) p.reject(new Error(err.message || 'Translation worker failed'))
+  }
+
+  return _translateWorker
+}
+
+/** Translates `lines` positionally into `target` (ISO 639-1). Resolves to an
+ *  array the same length as the input - blank lines stay blank. */
+function translateLines(lines, target, onProgress) {
+  const id = ++_translateSeq
+  return new Promise((resolve, reject) => {
+    _translatePending.set(id, { resolve, reject, onProgress })
+    translateWorker().postMessage({ id, lines, target })
+  })
+}
+
+/** Language of the current sheet, as ISO 639-1. Set by the detect functions and
+ *  read by the translate buttons to skip a pointless round trip when the target
+ *  is what the lyrics are already written in. */
+let lyricsLang = ''
+
+function lyricsPlainLines() {
+  return lyricsData.map(l => l.Text || '')
+}
+
+function detectOverlayLyricsLanguage() {
   const btn = document.getElementById('ov-translate-btn')
   btn.style.display = 'none'
   ovLyricsTranslated = false
   btn.classList.remove('translated')
-  const sample = lyricsData.find(l => l.Text?.trim())?.Text?.trim()
-  if (!sample) return
-  try {
-    const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(sample.slice(0, 100))}&langpair=autodetect|en`)
-    const data = await res.json()
-    const detected = data.responseData?.detectedLanguage || ''
-    if (detected && !detected.toLowerCase().startsWith('en')) btn.style.display = 'flex'
-  } catch {}
+  const lines = lyricsPlainLines()
+  lyricsLang = CascadeCore.detectLanguage(lines.join(' ').slice(0, 1000))
+  if (CascadeCore.shouldOfferTranslation(lines)) btn.style.display = 'flex'
 }
 
 document.getElementById('ov-translate-btn').addEventListener('click', async () => {
@@ -6365,19 +6430,9 @@ document.getElementById('ov-translate-btn').addEventListener('click', async () =
   btn.classList.add('loading')
 
   try {
-    // Reuse existing translation if already fetched by the side panel
+    // Reuse an existing translation if the side panel already produced one.
     if (!lyricsTranslated.length || lyricsTranslated.every(t => !t)) {
-      const lines = lyricsData.map(l => l.Text || '')
-      const chunkSize = 10
-      lyricsTranslated = new Array(lines.length).fill('')
-      for (let i = 0; i < lines.length; i += chunkSize) {
-        const chunk = lines.slice(i, i + chunkSize)
-        const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(chunk.join('\n'))}&langpair=autodetect|en`
-        const res = await fetch(url)
-        const data = await res.json()
-        const translated = (data.responseData?.translatedText || chunk.join('\n')).split('\n')
-        translated.forEach((t, j) => { lyricsTranslated[i + j] = t })
-      }
+      lyricsTranslated = await translateLines(lyricsPlainLines(), 'en')
     }
     ovLyricsTranslated = true
     btn.classList.add('translated')
@@ -6385,6 +6440,7 @@ document.getElementById('ov-translate-btn').addEventListener('click', async () =
     renderOverlayLyricLines(true)
   } catch (e) {
     console.error('Overlay translation failed', e)
+    btn.title = 'Translation unavailable'
   } finally {
     btn.classList.remove('loading')
   }
@@ -7726,23 +7782,14 @@ async function fetchLyrics() {
   if (!audio.paused) _startWordLoop()
 }
 
-async function detectAndShowTranslateBar() {
-  // Sample the first non-empty line for language detection
-  const sample = lyricsData.find(l => l.Text?.trim())?.Text?.trim()
-  if (!sample) return
-  try {
-    const res = await fetch(
-      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(sample.slice(0, 100))}&langpair=autodetect|en`
-    )
-    const data = await res.json()
-    const detected = data.responseData?.detectedLanguage || ''
-    // Show translate bar if detected language is not English
-    if (detected && !detected.toLowerCase().startsWith('en')) {
-      // Pre-select a sensible target language
-      document.getElementById('lyrics-translate-bar').classList.add('visible')
-    }
-  } catch {
-    // Detection failed silently - leave bar hidden
+function detectAndShowTranslateBar() {
+  // The whole sheet, not the first line. A Spanish song that opens on an
+  // English title line used to be detected as English and never offered a
+  // translation at all.
+  const lines = lyricsPlainLines()
+  lyricsLang = CascadeCore.detectLanguage(lines.join(' ').slice(0, 1000))
+  if (CascadeCore.shouldOfferTranslation(lines)) {
+    document.getElementById('lyrics-translate-bar').classList.add('visible')
   }
 }
 
@@ -7832,34 +7879,36 @@ onDeck('timeupdate', () => {
   }
 })
 
-// Translation via MyMemory free API
 document.getElementById('lyrics-translate-btn').addEventListener('click', async () => {
   if (!lyricsData.length) return
   const btn = document.getElementById('lyrics-translate-btn')
   const lang = document.getElementById('lyrics-lang').value
-  btn.disabled = true; btn.textContent = 'Translating…'
+
+  // Asking for the language the lyrics are already in would round-trip them
+  // through English and hand back a worse copy of what is already on screen.
+  if (lang === lyricsLang) {
+    btn.textContent = 'Already ' + document.getElementById('lyrics-lang').selectedOptions[0].text
+    setTimeout(() => { btn.textContent = 'Translate' }, 1800)
+    return
+  }
+
+  btn.disabled = true
+  btn.textContent = 'Translating…'
 
   try {
-    // Batch lines into chunks to avoid URL length limits
-    const lines = lyricsData.map(l => l.Text || '')
-    const chunkSize = 10
-    lyricsTranslated = new Array(lines.length).fill('')
-
-    for (let i = 0; i < lines.length; i += chunkSize) {
-      const chunk = lines.slice(i, i + chunkSize)
-      const joined = chunk.join('\n')
-      const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(joined)}&langpair=autodetect|${lang}`
-      const res = await fetch(url)
-      const data = await res.json()
-      const translated = (data.responseData?.translatedText || joined).split('\n')
-      translated.forEach((t, j) => { lyricsTranslated[i + j] = t })
-    }
+    lyricsTranslated = await translateLines(lyricsPlainLines(), lang, ({ done, total }) => {
+      // total 0 is the worker telling us it is still loading the model, which
+      // on a cold start is most of the wait.
+      btn.textContent = total ? `${Math.round(done / total * 100)}%` : 'Loading…'
+    })
     renderLyrics(true)
+    btn.textContent = 'Translate'
   } catch (e) {
     console.error('Translation failed', e)
+    btn.textContent = 'Failed'
+    setTimeout(() => { btn.textContent = 'Translate' }, 2500)
   } finally {
     btn.disabled = false
-    btn.textContent = 'Translate'
   }
 })
 
@@ -7887,16 +7936,19 @@ let rpcTrackStart = 0
 // How long a paused track keeps its Discord presence before giving up on it.
 const RPC_PAUSE_CLEAR_MS = 60_000
 let _rpcPauseTimer = null      // pending "give up on the paused presence" timeout, or null
-let _rpcClearedByPause = false // true once that timer has actually cleared the presence -
-                                // tells the next play event it needs to restore, not just resume
 
-/** Cancels any pending pause-clear timer and drops the "cleared by pause" flag.
- *  Called by every deliberate clear (stop, sign-out, turning Discord off) so a
- *  timer scheduled for a pause that no longer matters cannot fire later and
- *  clear a presence that has moved on. */
+/** Cancels any pending pause-clear timer. Called by every deliberate clear
+ *  (stop, sign-out, turning Discord off) so a timer scheduled for a pause that
+ *  no longer matters cannot fire later and clear a presence that has moved on. */
 function _clearRpcPauseTimer() {
   if (_rpcPauseTimer) { clearTimeout(_rpcPauseTimer); _rpcPauseTimer = null }
-  _rpcClearedByPause = false
+}
+
+/** Re-anchors the wall-clock instant Discord's progress bar is drawn from to
+ *  wherever playback actually is. Needed after anything that moves the head
+ *  without restarting the track - a seek, or resuming from a pause. */
+function _syncRpcClock() {
+  rpcTrackStart = Date.now() - Math.round(mediaPosition() * 1000)
 }
 
 // Discord renders large_image by fetching the URL from its own servers, so it
@@ -7919,12 +7971,26 @@ async function updateDiscordPresence(item) {
   if (!discordEnabled || !item) return
   const video = isVideoItem(item)
   const activity = {
-    details:        item.Name?.slice(0, 128) || 'Unknown Track',
-    state:          (secondaryLine(item) || (video ? '' : 'Unknown Artist')).slice(0, 128),
-    startTimestamp: rpcTrackStart,
+    details:  item.Name?.slice(0, 128) || 'Unknown Track',
+    state:    (secondaryLine(item) || (video ? '' : 'Unknown Artist')).slice(0, 128),
     // Flips Discord from "Listening to Cascade" to "Watching Cascade". Read and
     // stripped in main.js - setActivity() would drop it.
-    watching:       video,
+    watching: video,
+  }
+
+  // Discord draws the elapsed/total progress bar itself, but only when the
+  // activity carries BOTH timestamps - a start on its own gets the plain
+  // "XX:XX elapsed" line instead. Prefer Jellyfin's runtime over the deck's
+  // own duration: it is known before the media loads, and a progressive
+  // transcode's audio.duration only counts what has been encoded so far.
+  //
+  // Timestamps are wall-clock, so a paused track would keep advancing on
+  // Discord's side no matter what we sent. Drop them while paused and the bar
+  // disappears rather than lying; the 'play' handler puts it back.
+  const durMs = item.RunTimeTicks ? item.RunTimeTicks / 10_000 : mediaDuration() * 1000
+  if (!audio.paused) {
+    activity.startTimestamp = rpcTrackStart
+    if (Number.isFinite(durMs) && durMs > 0) activity.endTimestamp = rpcTrackStart + Math.round(durMs)
   }
 
   // Push what we have first: the art lookup is a network round trip, and a

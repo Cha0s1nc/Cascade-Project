@@ -57,7 +57,11 @@ export interface TouchBarUpdate {
 export interface DiscordActivity {
   details: string
   state: string
-  startTimestamp: number
+  /** Both timestamps together are what makes Discord draw a progress bar; a
+   *  start on its own only gets the "XX:XX elapsed" line. Absent while paused,
+   *  since they are wall-clock and would otherwise keep running. */
+  startTimestamp?: number
+  endTimestamp?: number
   largeImageKey?: string
   largeImageText?: string
   /** true renders as "Watching Cascade", false/absent as "Listening to Cascade". */

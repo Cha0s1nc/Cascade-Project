@@ -21,3 +21,6 @@ lyrics_align_test.py
 # cache/dev-session data and any local secrets, never the source or lockfile.
 signaling/.wrangler/
 signaling/.dev.vars
+# Translation models + ONNX runtime, fetched by scripts/fetch-models.js at
+# build time. 228 MB has no business in git.
+models/

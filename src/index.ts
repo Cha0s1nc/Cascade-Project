@@ -7,6 +7,7 @@
 
 export * from './core/types.ts'
 export * from './core/lyrics.ts'
+export * from './core/language.ts'
 export * from './core/jellyfin.ts'
 export * from './core/queue.ts'
 export * from './core/playlist-edit.ts'
