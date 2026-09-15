@@ -142,7 +142,7 @@ function playingVideo() {
 // a `function` declaration.
 const {
   parseLRC, parseKrc,
-  sortSongs, songSortValue, shuffleInPlace, shuffled, nextQueueIndex,
+  sortSongs, songSortValue, shuffleInPlace, nextQueueIndex,
   resolveStream, universalStreamUrl, withStartTicks, stopActiveEncoding,
   buildElectronProfile, DEFAULT_MAX_BITRATE,
   resumeTicks, neededAudioStreamIndex,
@@ -782,6 +782,7 @@ function applyRemoteMute(muted) {
 // non-empty and would keep queueing tracks from deselected libraries.
 function invalidateLibraryViews() {
   allSongs = []
+  _songsFetch = null
   for (const id of ['albums-grid', 'artists-grid', 'songs-rows', 'playlists-grid'])
     delete document.getElementById(id).dataset.loaded
 }
@@ -1811,6 +1812,29 @@ function trackRowHtml(item, i, opts = {}) {
 // ── Songs ─────────────────────────────────────────────────────────────────────
 
 let allSongs = []
+let _songsFetch = null
+
+// The one fetch behind both the Songs table and Shuffle All. They used to fetch
+// separately and race: Shuffle All's copy had no DateCreated and was never
+// sorted, so clicking it before the table loaded could leave the table in
+// server (title) order under a "Date Added" label. A second caller now waits
+// on the fetch already in flight instead of starting its own.
+function fetchAllSongs() {
+  if (_songsFetch) return _songsFetch
+  const p = _songsFetch = (async () => {
+    await loadSongsSortPrefs()
+    // jfGetAllPaged instead of jfGetMerged so libraries over 500 tracks aren't
+    // silently truncated.
+    const params = { SortBy: 'SortName', SortOrder: 'Ascending', IncludeItemTypes: 'Audio', Recursive: true, Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,UserData,DateCreated', Limit: 500 }
+    const data = await jfGetAllPaged(`/Users/${jf.userId}/Items`, params)
+    // The library selection changed mid-fetch: these are the old libraries' songs.
+    if (_songsFetch !== p) return
+    allSongs = data.Items || []
+    sortAllSongs()
+  })()
+  p.catch(() => { if (_songsFetch === p) _songsFetch = null })   // let the next call retry
+  return p
+}
 
 async function loadSongs() {
   const rows = document.getElementById('songs-rows')
@@ -1818,12 +1842,7 @@ async function loadSongs() {
   await loadSongsSortPrefs()
   updateSongsSortUI()
   try {
-    // jfGetAllPaged instead of jfGetMerged so libraries over 500 tracks aren't
-    // silently truncated (same fix as shuffleAllSongs).
-    const params = { SortBy: 'SortName', SortOrder: 'Ascending', IncludeItemTypes: 'Audio', Recursive: true, Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,UserData,DateCreated', Limit: 500 }
-    const data = await jfGetAllPaged(`/Users/${jf.userId}/Items`, params)
-    allSongs = data.Items || []
-    sortAllSongs()
+    await fetchAllSongs()
     renderSongRows()
   } catch (e) {
     rows.innerHTML = `<div class="empty-state">Could not load songs</div>`
@@ -4635,32 +4654,24 @@ likeBtn.addEventListener('click', toggleLike)
 
 // ── Shuffle All ───────────────────────────────────────────────────────────────
 
-// Shuffle a copy of items, then play it. Shared by every "Shuffle" button.
+// Turn shuffle on and play items from a random track. Shared by every "Shuffle"
+// button. playItems() does the shuffling and keeps items' own order as the
+// unshuffled queue; pre-shuffling here used to hand it an already random list,
+// so toggling shuffle off afterwards never restored the original order.
 function shuffleAndPlay(items) {
   if (!items.length) return
-  const order = shuffled(items)
-
-  // Store originals so toggling shuffle off restores order
-  _unshuffledQueue = items
   shuffle = true
   document.getElementById('btn-shuffle').classList.add('active')
   document.getElementById('ov-shuffle').classList.add('active')
 
-  playItems(order, 0)
+  playItems(items, Math.floor(Math.random() * items.length))
 }
 
 async function shuffleAllSongs() {
-  // Load songs if not yet fetched
   if (!allSongs.length) {
-    // No SortBy here - the result is shuffled immediately below, so making the
-    // server sort the whole library first would be wasted work. Paginate with
-    // jfGetAllPaged instead of jfGetMerged so libraries over 500 tracks aren't
-    // silently truncated.
-    const params = { IncludeItemTypes: 'Audio', Recursive: true, Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,UserData', Limit: 500 }
-    const data = await jfGetAllPaged(`/Users/${jf.userId}/Items`, params)
-    allSongs = data.Items || []
-    // If songs view is open, render the rows too
-    if (document.getElementById('songs-rows').dataset.loaded) renderSongRows()
+    await fetchAllSongs()
+    // loadSongs() renders the table itself once the shared fetch lands, so there
+    // is nothing to draw here.
   }
   shuffleAndPlay(allSongs)
 }
