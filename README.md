@@ -221,7 +221,9 @@ Builds are attached to [GitHub Releases](https://github.com/Cha0s1nc/Cascade-Pro
 
 ## License
 
-[GPL-3.0](LICENSE) © 2026 cha0s
+The source code is [GPL-3.0](LICENSE) © 2026 cha0s.
+
+The artwork in `assets/` (the app icon and everything else in that folder) is **not** GPL. It is © 2026 cha0s and Hxney_bun_, all rights reserved, under its own [artwork license](assets/LICENSE). You can share unmodified Cascade builds, but forks and modified versions have to remove it and use their own art. To ask for permission to use the artwork, email [contact@chaosinc.xyz](mailto:contact@chaosinc.xyz).
 
 ---
 

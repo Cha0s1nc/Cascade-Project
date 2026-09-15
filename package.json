@@ -39,7 +39,7 @@
     "name": "cha0s_1nc",
     "email": "contact@chaosinc.xyz"
   },
-  "license": "GPL-3.0",
+  "license": "SEE LICENSE IN LICENSE",
   "allowScripts": {
     "electron@29.4.6": true,
     "sharp@0.33.5": true

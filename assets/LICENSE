@@ -1,0 +1,36 @@
+Cascade Artwork License
+
+Copyright (C) 2026 cha0s and Hxney_bun_. All rights reserved.
+
+This license covers every image file in this assets/ folder, currently:
+
+  source.png, icon.png, icon.ico, icon.icns
+
+plus any future artwork added here, and anything generated or derived
+from it (for example icons rebuilt with `npm run icons`, resized or
+recolored copies, and screenshots used as branding).
+
+This artwork is NOT covered by the GNU General Public License that
+applies to Cascade's source code. Nothing in that license grants any
+rights to it.
+
+What you may do:
+
+  - Download, install, and use official Cascade releases.
+  - Redistribute official Cascade releases, or builds made from an
+    unmodified copy of this repository, as long as the application is
+    not changed in any way and this notice stays with it.
+
+What you may not do without written permission from both copyright
+holders:
+
+  - Use this artwork in a modified version, fork, or derivative of
+    Cascade. If you distribute a modified version, remove this artwork
+    and replace it with your own.
+  - Extract, copy, edit, or reuse this artwork on its own or in any
+    other project, product, or website.
+  - Use it in a way that suggests your project is, or is endorsed by,
+    the official Cascade.
+
+To ask for permission, email contact@chaosinc.xyz.
+If you want to get in contact with the artist, she can be found at @hxney_bun_ on both Twitch and Discord
