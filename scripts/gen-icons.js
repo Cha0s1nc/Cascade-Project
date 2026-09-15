@@ -21,7 +21,62 @@ const GENERATED = path.join(OUT, 'icon.png')
 // ponytail: tuned by eye for the current source.png; move it if the art changes.
 const INSTALLER_FOCUS = { x: 0.66, y: 0.26 }
 
+// Corner radius of the app icon, as a fraction of its width. The artwork is a
+// full-bleed square, and every platform draws app icons with rounded corners.
+// The installer images below are deliberately not rounded: they are crops of
+// the artwork filling a rectangle, not an icon.
+const ICON_RADIUS = 0.15
+
+// Apple's icon grid: inside a 1024 canvas the rounded square is 824 wide with a
+// 185.4 corner radius, and the rest is transparent margin. A full-bleed icon
+// ignores that and sits visibly larger than every other app in the Dock.
+const MAC_BODY = 824 / 1024
+const MAC_RADIUS = 185.4 / 824
+
+// Sizes written into icon.ico. Windows picks the nearest and scales it, so
+// shipping the small ones keeps the taskbar and Explorer crisp.
+const ICO_SIZES = [16, 32, 48, 64, 128, 256]
+
 function q(p) { return `"${p}"` }
+
+/** The artwork as a rounded square PNG of `size` px. `radius` is a fraction of
+ *  the width. Rounding is done at full size and scaled down, rather than
+ *  re-cutting a tiny mask per size, so the curve stays cleanly antialiased. */
+async function roundedPng(src, size, radius, canvas = size, pad = 0) {
+  const mask = Buffer.from(
+    `<svg width="${MAX_SIZE}" height="${MAX_SIZE}">` +
+    `<rect width="${MAX_SIZE}" height="${MAX_SIZE}" rx="${MAX_SIZE * radius}" ry="${MAX_SIZE * radius}" fill="#fff"/></svg>`)
+  // Two passes: sharp honours only one resize per pipeline, so masking at full
+  // size and scaling down have to be separate.
+  const full = await sharp(src).resize(MAX_SIZE, MAX_SIZE)
+    .composite([{ input: mask, blend: 'dest-in' }]).png().toBuffer()
+  const body = await sharp(full).resize(size, size).png().toBuffer()
+  if (!pad) return body
+  // Centered on a transparent canvas, for the margin macOS icons are drawn with.
+  return sharp({ create: { width: canvas, height: canvas, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
+    .composite([{ input: body, left: pad, top: pad }]).png().toBuffer()
+}
+
+/** A multi-size .ico. Each entry is a PNG, which every Windows since Vista
+ *  reads, so there is no BMP-with-AND-mask branch to get wrong. */
+function writeIco(file, images) {
+  const header = Buffer.alloc(6)
+  header.writeUInt16LE(1, 2)                // type: ICO
+  header.writeUInt16LE(images.length, 4)
+  let offset = 6 + images.length * 16
+  const entries = images.map(({ size, png }) => {
+    const e = Buffer.alloc(16)
+    e.writeUInt8(size >= 256 ? 0 : size, 0)  // 0 means 256
+    e.writeUInt8(size >= 256 ? 0 : size, 1)
+    e.writeUInt16LE(1, 4)                    // colour planes
+    e.writeUInt16LE(32, 6)                   // bits per pixel
+    e.writeUInt32LE(png.length, 8)
+    e.writeUInt32LE(offset, 12)
+    offset += png.length
+    return e
+  })
+  fs.writeFileSync(file, Buffer.concat([header, ...entries, ...images.map(i => i.png)]))
+}
 
 /** NSIS only takes 24-bit BMP for its installer images, and sharp cannot write
  *  BMP, so this is the minimal encoder: a 54 byte header, then bottom-up BGR
@@ -113,16 +168,11 @@ async function run() {
   await checkSize(SRC)
   console.log(`Generating icons from ${path.basename(SRC)}...`)
 
-  const sizes = [16, 32, 48, 64, 128, 256, 512, MAX_SIZE]
-  for (const s of sizes) {
-    await sharp(SRC).resize(s, s).png().toFile(path.join(OUT, `icon-${s}.png`))
-  }
-
   // icon.png (Linux)
-  fs.copyFileSync(path.join(OUT, `icon-${MAX_SIZE}.png`), path.join(OUT, 'icon.png'))
+  await sharp(await roundedPng(SRC, MAX_SIZE, ICON_RADIUS)).toFile(path.join(OUT, 'icon.png'))
   console.log('  icon.png')
 
-  // icon.icns (macOS) via iconutil
+  // icon.icns (macOS) via iconutil, on Apple's grid rather than full bleed
   if (process.platform === 'darwin') {
     const icnsDir = path.join(OUT, 'icon.iconset')
     fs.mkdirSync(icnsDir, { recursive: true })
@@ -135,8 +185,11 @@ async function run() {
       512:  'icon_256x256@2x',
       [MAX_SIZE]: 'icon_512x512@2x',
     }
-    for (const [s, name] of Object.entries(icnsMap)) {
-      fs.copyFileSync(path.join(OUT, `icon-${s}.png`), path.join(icnsDir, `${name}.png`))
+    for (const [size, name] of Object.entries(icnsMap)) {
+      const canvas = Number(size)
+      const body = Math.round(canvas * MAC_BODY)
+      const png = await roundedPng(SRC, body, MAC_RADIUS, canvas, Math.round((canvas - body) / 2))
+      fs.writeFileSync(path.join(icnsDir, `${name}.png`), png)
     }
     execSync(`iconutil -c icns ${q(icnsDir)} -o ${q(path.join(OUT, 'icon.icns'))}`)
     fs.rmSync(icnsDir, { recursive: true })
@@ -145,38 +198,11 @@ async function run() {
     console.log('  icon.icns - skipped (run on macOS to generate)')
   }
 
-  // icon.ico (Windows) - embed multiple sizes using sharp + manual ICO construction
-  // Simple approach: use the 256px png as a single-image ICO
-  // (electron-builder accepts a png renamed .ico for basic builds)
-  const png256 = fs.readFileSync(path.join(OUT, 'icon-256.png'))
-  const icoPath = path.join(OUT, 'icon.ico')
-
-  // Build a minimal valid ICO with one 256x256 entry
-  const header = Buffer.alloc(6)
-  header.writeUInt16LE(0, 0)   // reserved
-  header.writeUInt16LE(1, 2)   // type: ICO
-  header.writeUInt16LE(1, 4)   // count: 1 image
-
-  const entry = Buffer.alloc(16)
-  entry.writeUInt8(0, 0)       // width  (0 = 256)
-  entry.writeUInt8(0, 1)       // height (0 = 256)
-  entry.writeUInt8(0, 2)       // color count
-  entry.writeUInt8(0, 3)       // reserved
-  entry.writeUInt16LE(1, 4)    // color planes
-  entry.writeUInt16LE(32, 6)   // bits per pixel
-  entry.writeUInt32LE(png256.length, 8)    // size of image data
-  entry.writeUInt32LE(6 + 16, 12)          // offset of image data
-
-  fs.writeFileSync(icoPath, Buffer.concat([header, entry, png256]))
-  console.log('  icon.ico')
-
-  // Clean up intermediate pngs
-  for (const s of sizes) {
-    const f = path.join(OUT, `icon-${s}.png`)
-    if (s !== MAX_SIZE) fs.unlinkSync(f)
-  }
-  // rename 1024 to icon.png already done above, remove the numbered one
-  try { fs.unlinkSync(path.join(OUT, `icon-${MAX_SIZE}.png`)) } catch {}
+  // icon.ico (Windows)
+  const icoImages = []
+  for (const size of ICO_SIZES) icoImages.push({ size, png: await roundedPng(SRC, size, ICON_RADIUS) })
+  writeIco(path.join(OUT, 'icon.ico'), icoImages)
+  console.log(`  icon.ico (${ICO_SIZES.join(', ')})`)
 
   // Windows installer art. Sizes are fixed by NSIS: the welcome and finish page
   // sidebar is 164x314, the header on every other page is 150x57.
