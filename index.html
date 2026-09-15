@@ -6,6 +6,9 @@
   <title>Cascade</title>
   <style>
     :root {
+      /* Hover highlight timing for rows and cards: a quick fade in, a slower fade
+         out, so the highlight trails the pointer the way Apple Music's does. */
+      --hover-in: 0.12s; --hover-out: 0.35s;
       --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
       --bg: #111113; --surface: #1c1c1e; --surface2: #2c2c2e; --border: #3a3a3c;
       --accent: #6e4ff6; --accent-glow: rgba(110,79,246,0.25);
@@ -78,8 +81,8 @@
 
     /* Recently played */
     .rp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 4px; margin-bottom: 22px; }
-    .rp-item { display: flex; align-items: center; gap: 9px; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; padding: 8px 10px; cursor: pointer; transition: background 0.12s; overflow: hidden; }
-    .rp-item:hover { background: var(--surface2); }
+    .rp-item { display: flex; align-items: center; gap: 9px; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; padding: 8px 10px; cursor: pointer; transition: background var(--hover-out) ease-out; overflow: hidden; }
+    .rp-item:hover { background: var(--surface2); transition-duration: var(--hover-in); }
     .rp-art { width: 36px; height: 36px; border-radius: 5px; flex-shrink: 0; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 18px; }
     .rp-art img { width: 100%; height: 100%; object-fit: cover; }
     .rp-name { font-size: 12px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -97,8 +100,8 @@
     /* Same clipping trick as #rp-grid above, but to a single row - "Recently
        added" reads as one shelf of covers, not a stack. */
     #home-recent-albums { grid-template-rows: auto; grid-auto-rows: 0; row-gap: 0; overflow: hidden; }
-    .album-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; cursor: pointer; transition: background 0.12s; }
-    .album-card:hover { background: var(--surface2); }
+    .album-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; cursor: pointer; transition: background var(--hover-out) ease-out; }
+    .album-card:hover { background: var(--surface2); transition-duration: var(--hover-in); }
     .album-art { width: 100%; aspect-ratio: 1; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 36px; }
     .album-art img { width: 100%; height: 100%; object-fit: cover; }
     .album-body { padding: 8px 9px 9px; }
@@ -136,8 +139,8 @@
        "Recently watched" shelf. */
     #home-continue-grid { grid-template-rows: auto; grid-auto-rows: 0; row-gap: 0; overflow: hidden; }
     .poster-card { cursor: pointer; }
-    .poster-art { width: 100%; aspect-ratio: 2/3; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 32px; color: var(--text3); position: relative; transition: border-color 0.12s; }
-    .poster-card:hover .poster-art { border-color: var(--accent); }
+    .poster-art { width: 100%; aspect-ratio: 2/3; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 32px; color: var(--text3); position: relative; transition: border-color var(--hover-out) ease-out; }
+    .poster-card:hover .poster-art { border-color: var(--accent); transition-duration: var(--hover-in); }
     .poster-art img { width: 100%; height: 100%; object-fit: cover; }
     .poster-name { font-size: 12px; font-weight: 500; color: var(--text); margin-top: 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .poster-sub { font-size: 11px; color: var(--text3); }
@@ -216,8 +219,8 @@
     .season-tab:hover { color: var(--text); }
     .season-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
-    .ep-row { display: grid; grid-template-columns: 132px 1fr auto; gap: 14px; align-items: start; padding: 10px; border-radius: 8px; cursor: pointer; transition: background 0.12s; }
-    .ep-row:hover { background: var(--surface2); }
+    .ep-row { display: grid; grid-template-columns: 132px 1fr auto; gap: 14px; align-items: start; padding: 10px; border-radius: 8px; cursor: pointer; transition: background var(--hover-out) ease-out; }
+    .ep-row:hover { background: var(--surface2); transition-duration: var(--hover-in); }
     .ep-row.playing .ep-title { color: var(--accent); }
     .ep-thumb { width: 132px; aspect-ratio: 16/9; background: var(--surface2); border-radius: 5px; overflow: hidden; position: relative; display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--text3); }
     .ep-thumb img { width: 100%; height: 100%; object-fit: cover; }
@@ -231,8 +234,8 @@
 
     /* Artists */
     .artist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
-    .artist-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; cursor: pointer; transition: background 0.12s; padding: 12px; text-align: center; }
-    .artist-card:hover { background: var(--surface2); }
+    .artist-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; cursor: pointer; transition: background var(--hover-out) ease-out; padding: 12px; text-align: center; }
+    .artist-card:hover { background: var(--surface2); transition-duration: var(--hover-in); }
     .artist-avatar { width: 64px; height: 64px; border-radius: 50%; background: var(--surface2); margin: 0 auto 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 28px; }
     .artist-avatar img { width: 100%; height: 100%; object-fit: cover; }
     .artist-name { font-size: 12px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -246,7 +249,14 @@
     #songs-rows { position: relative; }
     #songs-rows .track-row:not(.skel-card) { position: absolute; left: 0; right: 0; }
     .track-row:last-child { border-bottom: none; }
-    .track-row:hover { background: rgba(255,255,255,0.05); }
+    /* Apple Music-style hover: a rounded highlight that fades in fast and out
+       slowly as the pointer moves on. Drawn on ::before rather than the row
+       background so the corners can round without bending the separator line,
+       and isolation keeps the z-index:-1 layer above the row's own .playing
+       background. */
+    .track-row { position: relative; isolation: isolate; }
+    .track-row::before { content: ''; position: absolute; inset: 0; border-radius: 6px; background: rgba(255,255,255,0.05); opacity: 0; transition: opacity var(--hover-out) ease-out; pointer-events: none; z-index: -1; }
+    .track-row:hover::before { opacity: 1; transition-duration: var(--hover-in); }
     .track-row.playing { background: rgba(110,79,246,0.1); }
     .track-num { font-size: 12px; color: var(--text3); text-align: center; }
     .track-thumb { position: relative; width: 32px; height: 32px; border-radius: 4px; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
@@ -288,8 +298,8 @@
 
     /* ── Playlists view ── */
     .playlist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 20px; }
-    .playlist-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; cursor: pointer; transition: background 0.12s; }
-    .playlist-card:hover { background: var(--surface2); }
+    .playlist-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; cursor: pointer; transition: background var(--hover-out) ease-out; }
+    .playlist-card:hover { background: var(--surface2); transition-duration: var(--hover-in); }
     .playlist-art { width: 100%; aspect-ratio: 1; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 36px; color: var(--text3); }
     .playlist-art img { width: 100%; height: 100%; object-fit: cover; }
     .playlist-body { padding: 8px 9px 10px; }
@@ -842,8 +852,8 @@
     #ov-panel-queue { transition: transform 0.3s cubic-bezier(0.4,0,0.2,1); }
     /* Height is pinned so it matches QUEUE_ROW_H exactly - the virtualiser's spacer
        heights and scroll indices are all computed from that constant. */
-    .queue-row { display: flex; align-items: center; gap: 10px; padding: 8px 16px; cursor: pointer; transition: background 0.1s; border-bottom: 0.5px solid var(--border); height: 53px; box-sizing: border-box; }
-    .queue-row:hover { background: rgba(255,255,255,0.03); }
+    .queue-row { display: flex; align-items: center; gap: 10px; padding: 8px 16px; cursor: pointer; transition: background var(--hover-out) ease-out; border-bottom: 0.5px solid var(--border); height: 53px; box-sizing: border-box; }
+    .queue-row:hover { background: rgba(255,255,255,0.03); transition-duration: var(--hover-in); }
     .queue-row.current { background: rgba(110,79,246,0.1); }
     .queue-row.current .queue-row-title { color: #a78bfa; font-weight: 500; }
     .queue-row-art { width: 36px; height: 36px; border-radius: 4px; background: var(--surface2); overflow: hidden; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 16px; }
@@ -1172,7 +1182,7 @@
        time, and reads as the panel dimming to be read. */
     .np-overlay.art-theme #ov-panel-lyrics.browsing { background: rgba(0,0,0,0.3) !important; }
     #ov-panel-lyrics { transition: background 0.35s ease; }
-    .np-overlay.art-theme .queue-row:hover { background: rgba(255,255,255,0.07); }
+    .np-overlay.art-theme .queue-row:hover { background: rgba(255,255,255,0.07); transition-duration: var(--hover-in); }
     .np-overlay.art-theme .queue-row.current { background: rgba(255,255,255,0.15); }
     .np-overlay.art-theme .queue-row-title { color: rgba(255,255,255,0.9); }
     .np-overlay.art-theme .queue-row-artist,
