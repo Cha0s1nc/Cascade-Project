@@ -29,7 +29,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
-    "electron": "^29.0.0",
+    "electron": "^44.3.0",
     "electron-builder": "^24.13.3",
     "esbuild": "^0.28.2",
     "sharp": "^0.33.4",
@@ -41,13 +41,13 @@
   },
   "license": "SEE LICENSE IN LICENSE",
   "allowScripts": {
-    "electron@29.4.6": true,
+    "electron@44.3.0": true,
     "sharp@0.33.5": true
   },
   "build": {
     "appId": "xyz.chaosinc.cascade",
     "productName": "Cascade",
-    "copyright": "Copyright \u00a9 2026 cha0s",
+    "copyright": "Copyright © 2026 cha0s",
     "files": [
       "main.js",
       "index.html",
