@@ -29,7 +29,7 @@ Cascade is a Jellyfin streaming app, originally prioritized for music streaming.
 - **Cha0s Stream integration** - exposes a local control server (`127.0.0.1:47847`) so [Cha0s Stream](https://github.com/Cha0s1nc/cha0s-stream) (my other tool) can control playback directly without OS key simulation or Jellyfin session API calls
 - **Auto-updater** - checks for new GitHub releases on startup and presents an update window with release notes, download progress, and one-click install
 - **Native window controls** - macOS gets its traffic lights, Windows and Linux get real OS caption buttons drawn inside Cascade's own titlebar rather than a second one stacked above it
-- **Cross-platform** - Mac (`.dmg`, Intel + Apple Silicon), Windows (`.exe`), Linux (`.AppImage`, `.deb`, `.rpm`)
+- **Cross-platform** - Mac (`.dmg`, Apple Silicon), Windows (`.exe`), Linux (`.AppImage`, `.deb`, `.rpm`)
 
 ---
 
@@ -203,7 +203,7 @@ A raster source smaller than 1024×1024 is rejected rather than upscaled. Needs
 ### Build installers
 
 ```bash
-npm run build:mac      # macOS .dmg (Intel + Apple Silicon)
+npm run build:mac      # macOS .dmg (Apple Silicon)
 npm run build:win      # Windows .exe
 npm run build:linux    # Linux .AppImage, .deb and .rpm
 npm run build          # Current platform
