@@ -15,7 +15,50 @@ const MAX_SIZE = 1024
 const CANDIDATES = ['source.svg', 'source.png']
 const GENERATED = path.join(OUT, 'icon.png')
 
+// Where the artwork's subject sits, as a fraction of its width and height. The
+// installer images are small crops, not the whole square, and they are centered
+// here so they land on the waterfall rather than empty sky.
+// ponytail: tuned by eye for the current source.png; move it if the art changes.
+const INSTALLER_FOCUS = { x: 0.66, y: 0.26 }
+
 function q(p) { return `"${p}"` }
+
+/** NSIS only takes 24-bit BMP for its installer images, and sharp cannot write
+ *  BMP, so this is the minimal encoder: a 54 byte header, then bottom-up BGR
+ *  rows padded to 4 bytes. `raw` is sharp's output with 3 channels. */
+function writeBmp(file, { data, info }) {
+  const { width: w, height: h } = info
+  const row = Math.ceil((w * 3) / 4) * 4
+  const buf = Buffer.alloc(54 + row * h)
+  buf.write('BM', 0)
+  buf.writeUInt32LE(buf.length, 2)
+  buf.writeUInt32LE(54, 10)       // pixel data offset
+  buf.writeUInt32LE(40, 14)       // BITMAPINFOHEADER size
+  buf.writeInt32LE(w, 18)
+  buf.writeInt32LE(h, 22)         // positive = bottom-up
+  buf.writeUInt16LE(1, 26)        // planes
+  buf.writeUInt16LE(24, 28)       // bits per pixel
+  buf.writeUInt32LE(row * h, 34)
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const s = (y * w + x) * 3
+      const d = 54 + (h - 1 - y) * row + x * 3
+      buf[d] = data[s + 2]; buf[d + 1] = data[s + 1]; buf[d + 2] = data[s]
+    }
+  }
+  fs.writeFileSync(file, buf)
+}
+
+/** A width x height crop of the artwork scaled to `scale` px square, centered
+ *  on INSTALLER_FOCUS and clamped so it never runs off the edge. */
+async function installerImage(src, file, scale, width, height) {
+  const left = Math.round(Math.min(scale - width,  Math.max(0, scale * INSTALLER_FOCUS.x - width / 2)))
+  const top  = Math.round(Math.min(scale - height, Math.max(0, scale * INSTALLER_FOCUS.y - height / 2)))
+  const raw = await sharp(src).resize(scale, scale).extract({ left, top, width, height })
+    .flatten({ background: '#111113' }).raw().toBuffer({ resolveWithObject: true })
+  writeBmp(path.join(OUT, file), raw)
+  console.log(`  ${file}`)
+}
 
 /** Which file to generate from: an explicit CLI argument, else the first
  *  candidate that exists. Vector wins when both are present, since it is the
@@ -134,6 +177,11 @@ async function run() {
   }
   // rename 1024 to icon.png already done above, remove the numbered one
   try { fs.unlinkSync(path.join(OUT, `icon-${MAX_SIZE}.png`)) } catch {}
+
+  // Windows installer art. Sizes are fixed by NSIS: the welcome and finish page
+  // sidebar is 164x314, the header on every other page is 150x57.
+  await installerImage(SRC, 'installer-sidebar.bmp', 314, 164, 314)
+  await installerImage(SRC, 'installer-header.bmp', 300, 150, 57)
 
   console.log('\nDone. Icons written to assets/')
 }

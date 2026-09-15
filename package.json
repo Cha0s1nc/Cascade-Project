@@ -68,6 +68,8 @@
       "miniplayer.html",
       "miniplayer-preload.js",
       "package.json",
+      "LICENSE",
+      "assets/LICENSE",
       "node_modules/**/*"
     ],
     "directories": {
@@ -129,7 +131,15 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "installerSidebar": "assets/installer-sidebar.bmp",
+      "installerHeader": "assets/installer-header.bmp",
+      "license": "assets/installer-license.txt",
+      "shortcutName": "Cascade",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false
     },
     "extraResources": [
       {
