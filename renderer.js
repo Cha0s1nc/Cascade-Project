@@ -6391,10 +6391,29 @@ function renderOverlayLyricLines(translated = false) {
 //
 // The Worker is created lazily. Spawning it costs ~230 MB of model reads, so
 // nothing touches it until someone actually presses Translate.
+//
+// And it is retired again once nothing has asked it for anything in
+// TRANSLATE_IDLE_MS. Loaded, the models are far heavier than on disk: measured,
+// one translation took the renderer from 147 MB to 967 MB, and terminating the
+// worker gave ~500 MB of that straight back. Before this, that stayed pinned for
+// the whole session after a single click. The price is a cold start on the next
+// translation after an idle spell (1.2s measured on Apple Silicon); translations
+// already made are held in lyricsTranslated and are unaffected.
 
+const TRANSLATE_IDLE_MS = 5 * 60_000
 let _translateWorker = null
 let _translateSeq = 0
+let _translateIdleTimer = null
 const _translatePending = new Map()
+
+function _retireTranslateWorker() {
+  _translateIdleTimer = null
+  // Never kill in-flight work. translateLines() clears this timer before it
+  // posts, so a request should not reach here, but this is what makes it safe.
+  if (_translatePending.size) return
+  _translateWorker?.terminate()
+  _translateWorker = null
+}
 
 function translateWorker() {
   if (_translateWorker) return _translateWorker
@@ -6408,6 +6427,7 @@ function translateWorker() {
     _translatePending.delete(id)
     if (type === 'result') pending.resolve(e.data.lines)
     else pending.reject(new Error(e.data.message))
+    if (!_translatePending.size) _translateIdleTimer = setTimeout(_retireTranslateWorker, TRANSLATE_IDLE_MS)
   }
 
   // A worker that dies takes every in-flight request with it and leaves the
@@ -6428,6 +6448,8 @@ function translateWorker() {
  *  array the same length as the input - blank lines stay blank. */
 function translateLines(lines, target, onProgress) {
   const id = ++_translateSeq
+  clearTimeout(_translateIdleTimer)
+  _translateIdleTimer = null
   return new Promise((resolve, reject) => {
     _translatePending.set(id, { resolve, reject, onProgress })
     translateWorker().postMessage({ id, lines, target })
