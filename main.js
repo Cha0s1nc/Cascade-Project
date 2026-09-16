@@ -32,9 +32,15 @@ const Store = require('electron-store')
 // point of it - without that flag transformers.js cannot fetch the weights.
 // `secure` keeps the worker from being treated as a mixed-content downgrade;
 // `standard` gives the URLs normal host/path parsing.
+//
+// `corsEnabled` is required too, and its absence broke translation outright:
+// the page is file://, so every fetch to this scheme is cross-origin, and
+// Chromium refuses cross-origin fetches to any scheme not flagged for CORS.
+// transformers.js swallows that as "file was not found locally", which is why
+// it read as a missing model rather than a blocked request.
 protocol.registerSchemesAsPrivileged([{
   scheme: 'cascade-model',
-  privileges: { standard: true, secure: true, supportFetchAPI: true },
+  privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
 }])
 
 // Packaged, the models ride along as an extraResource next to the asar rather

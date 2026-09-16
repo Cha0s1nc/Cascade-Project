@@ -22,16 +22,16 @@
     "build:worker": "esbuild src/translate-worker.ts --bundle --format=iife --outfile=build/translate-worker.js --target=chrome122 --sourcemap"
   },
   "dependencies": {
-    "@huggingface/transformers": "^4.2.0",
     "discord-rpc": "^4.0.1",
-    "electron-store": "^8.1.0",
-    "franc-min": "^6.2.0"
+    "electron-store": "^8.1.0"
   },
   "devDependencies": {
+    "@huggingface/transformers": "^4.2.0",
     "@types/node": "^26.2.0",
     "electron": "^44.3.0",
     "electron-builder": "^24.13.3",
     "esbuild": "^0.28.2",
+    "franc-min": "^6.2.0",
     "sharp": "^0.33.4",
     "typescript": "^7.0.2"
   },
@@ -54,10 +54,7 @@
       "renderer.js",
       "waterfall.js",
       "build/core.js",
-      "build/core.js.map",
       "build/preload.js",
-      "build/preload.js.map",
-      "build/translate-worker.js.map",
       "build/translate-worker.js",
       "updater.html",
       "updater-preload.js",
@@ -70,7 +67,8 @@
       "package.json",
       "LICENSE",
       "assets/LICENSE",
-      "node_modules/**/*"
+      "node_modules/**/*",
+      "!node_modules/@img/**"
     ],
     "directories": {
       "output": "dist"

@@ -33,6 +33,10 @@ const {
 } = CascadeCore
 
 // Metadata a queue row needs to render and play.
+// PrimaryImageAspectRatio was dropped from every Fields list in renderer.js (it
+// is never read - every tile is aspect-ratio: 1 in CSS). It stays HERE because
+// this constant feeds the waterfall protocol, whose consumer is the tvOS host,
+// not this repo. Do not remove it without checking that client first.
 const WF_ITEM_FIELDS = 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,UserData'
 
 // Read at session start rather than cached, so changing it in Settings takes

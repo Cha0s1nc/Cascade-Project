@@ -401,10 +401,15 @@ export class JellyfinClient {
     return dedupeById(perLibrary)
   }
 
-  /** Primary image URL for an item. No tag means no art, so no URL. */
+  /** Primary image URL for an item. No tag means no art, so no URL.
+   *
+   *  The tag rides along in the URL rather than only gating it: edit a cover in
+   *  Cascade's own metadata editor and the item's tag changes, so without it
+   *  every grid keeps rendering the pre-edit image from cache.
+   */
   artUrl(itemId: string, tag: string | undefined | null): string | null {
     if (!tag) return null
-    return this.imageUrl(itemId)
+    return `${this.imageUrl(itemId)}&tag=${encodeURIComponent(tag)}`
   }
 
   /** Artists always render a placeholder, so this has no tag guard. */

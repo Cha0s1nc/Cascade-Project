@@ -17,6 +17,9 @@ import { pipeline, env, type TranslationPipeline } from '@huggingface/transforme
 env.allowRemoteModels = false
 env.allowLocalModels = true
 env.localModelPath = 'cascade-model://app'
+// The weights are already on local disk, and the Cache API rejects custom
+// schemes anyway, so trying to cache them only logs one error per file.
+env.useBrowserCache = false
 
 // Typed optional because onnxruntime-node has no wasm backend. In a Worker it
 // is always there, and a silent skip here would send the runtime back to the

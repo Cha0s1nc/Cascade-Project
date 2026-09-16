@@ -715,7 +715,7 @@ function startRemoteControl() {
         // MediaStreams/MediaSources are what applySubtitles() needs. Without
         // them a movie pushed from Jellyfin's "Play On" would play with no
         // subtitles even when the file has them.
-        Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,UserData,MediaStreams,MediaSources',
+        Fields: 'AlbumId,AlbumPrimaryImageTag,UserData,MediaStreams,MediaSources',
       }).catch(() => null)
       const items = res?.Items || []
       if (!items.length) return
@@ -1488,7 +1488,7 @@ async function loadRecentlyPlayed() {
       Filters: 'IsPlayed',
       Limit: 24,
       Recursive: true,
-      Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,UserData'
+      Fields: 'AlbumId,AlbumPrimaryImageTag,UserData'
     })
     // jfGetMerged concatenates per-library results, so the server's DatePlayed
     // ordering only holds within a library - re-sort across the merge.
@@ -1527,8 +1527,7 @@ async function loadRecentlyAdded() {
       SortOrder: 'Descending',
       IncludeItemTypes: 'MusicAlbum',
       Limit: 24,
-      Recursive: true,
-      Fields: 'PrimaryImageAspectRatio'
+      Recursive: true
     })
     // Fetched wider than any row could show and clipped by CSS (.album-grid on
     // #home-recent-albums), so the row is always full at any window width.
@@ -1551,7 +1550,7 @@ async function loadAlbums() {
   const grid = document.getElementById('albums-grid')
   grid.dataset.loaded = '1'
   try {
-    const params = { SortBy: 'SortName', SortOrder: 'Ascending', IncludeItemTypes: 'MusicAlbum', Recursive: true, Fields: 'PrimaryImageAspectRatio', Limit: 200 }
+    const params = { SortBy: 'SortName', SortOrder: 'Ascending', IncludeItemTypes: 'MusicAlbum', Recursive: true, Limit: 200 }
     const data = await jfGetMerged(`/Users/${jf.userId}/Items`, params)
     grid.innerHTML = data.Items.map(item => albumCard(item)).join('')
     wireAlbumCards(grid, data.Items, item => { showView('albums'); openAlbum(item.Id) })
@@ -1618,7 +1617,7 @@ async function fetchAlbumTracks(albumId) {
     SortBy: 'ParentIndexNumber,IndexNumber,SortName',
     IncludeItemTypes: 'Audio',
     Recursive: true,
-    Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
+    Fields: 'AlbumId,AlbumPrimaryImageTag'
   })
   return data.Items || []
 }
@@ -1705,7 +1704,7 @@ async function fetchArtistSongs(artistId) {
   const data = await jfGet(`/Users/${jf.userId}/Items`, {
     ArtistIds: artistId, IncludeItemTypes: 'Audio', Recursive: true,
     SortBy: 'Album,ParentIndexNumber,IndexNumber',
-    Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
+    Fields: 'AlbumId,AlbumPrimaryImageTag'
   })
   return data.Items || []
 }
@@ -1726,8 +1725,7 @@ async function openArtist(artistId, name) {
     const [albumsData, songs] = await Promise.all([
       jfGet(`/Users/${jf.userId}/Items`, {
         ArtistIds: artistId, IncludeItemTypes: 'MusicAlbum', Recursive: true,
-        SortBy: 'ProductionYear,SortName', SortOrder: 'Descending',
-        Fields: 'PrimaryImageAspectRatio'
+        SortBy: 'ProductionYear,SortName', SortOrder: 'Descending'
       }),
       fetchArtistSongs(artistId)
     ])
@@ -1825,7 +1823,7 @@ function fetchAllSongs() {
     await loadSongsSortPrefs()
     // jfGetAllPaged instead of jfGetMerged so libraries over 500 tracks aren't
     // silently truncated.
-    const params = { SortBy: 'SortName', SortOrder: 'Ascending', IncludeItemTypes: 'Audio', Recursive: true, Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,UserData,DateCreated', Limit: 500 }
+    const params = { SortBy: 'SortName', SortOrder: 'Ascending', IncludeItemTypes: 'Audio', Recursive: true, Fields: 'AlbumId,AlbumPrimaryImageTag,UserData,DateCreated', Limit: 500 }
     const data = await jfGetAllPaged(`/Users/${jf.userId}/Items`, params)
     // The library selection changed mid-fetch: these are the old libraries' songs.
     if (_songsFetch !== p) return
@@ -2027,7 +2025,7 @@ async function loadPlaylists() {
       SortOrder: 'Ascending',
       IncludeItemTypes: 'Playlist',
       Recursive: true,
-      Fields: 'PrimaryImageAspectRatio,ChildCount'
+      Fields: 'ChildCount'
     })
     grid.innerHTML = smartHtml + (data.Items || []).map(item => {
       const art = artUrl(item.Id, item.ImageTags?.Primary)
@@ -2091,7 +2089,7 @@ function playlistMutated(playlistId) {
 async function fetchPlaylistTracks(playlistId) {
   const data = await jfGet(`/Playlists/${playlistId}/Items`, {
     UserId: jf.userId,
-    Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,DateCreated'
+    Fields: 'AlbumId,AlbumPrimaryImageTag,DateCreated'
   })
   return data.Items || []
 }
@@ -2414,7 +2412,7 @@ const SMART_PLAYLISTS = {
       const data = await jfGetMerged(`/Users/${jf.userId}/Items`, {
         IncludeItemTypes: 'Audio', Recursive: true, Filters: 'IsFavorite',
         SortBy: 'SortName', SortOrder: 'Ascending',
-        Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
+        Fields: 'AlbumId,AlbumPrimaryImageTag'
       })
       return data.Items || []
     }
@@ -2430,7 +2428,7 @@ const SMART_PLAYLISTS = {
       const data = await jfGetMerged(`/Users/${jf.userId}/Items`, {
         IncludeItemTypes: 'Audio', Recursive: true,
         SortBy: 'PlayCount', SortOrder: 'Descending', Limit: 200,
-        Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
+        Fields: 'AlbumId,AlbumPrimaryImageTag'
       })
       const items = (data.Items || []).filter(i => (i.UserData?.PlayCount || 0) > 0)
       items.sort((a, b) => (b.UserData?.PlayCount || 0) - (a.UserData?.PlayCount || 0))
@@ -2575,7 +2573,7 @@ document.getElementById('tctx-add-queue').addEventListener('click', () => {
  *  copy of this fetch+play+toast never had to exist. */
 async function instantMixAndPlay(itemId, label) {
   try {
-    const data = await jfGet(`/Items/${itemId}/InstantMix`, { UserId: jf.userId, Limit: 50, Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag' })
+    const data = await jfGet(`/Items/${itemId}/InstantMix`, { UserId: jf.userId, Limit: 50, Fields: 'AlbumId,AlbumPrimaryImageTag' })
     if (!data.Items?.length) { showNotice('Jellyfin did not return an instant mix for this.', 'Instant mix'); return }
     playItems(data.Items, 0)
     showToast(`Instant mix from "${label}"`)
@@ -2888,7 +2886,7 @@ async function loadPosterGrid(gridId, itemType, sub, onPick, getVideo, libs, ids
   const params = {
     SortBy: 'SortName', SortOrder: 'Ascending',
     IncludeItemTypes: itemType, Recursive: true,
-    Fields: 'PrimaryImageAspectRatio,UserData,ProductionYear',
+    Fields: 'UserData,ProductionYear',
     Limit: 500,
   }
   try {
@@ -2955,7 +2953,7 @@ async function loadContinueWatching() {
       IncludeItemTypes: 'Movie,Episode',
       Filters: 'IsResumable',
       Recursive: true,
-      Fields: 'PrimaryImageAspectRatio,UserData,ProductionYear',
+      Fields: 'UserData,ProductionYear',
       Limit: 24
     }, videoLibIds)
     // Same reasoning as Recently watched below: getMerged concatenates
@@ -3016,7 +3014,7 @@ async function loadRecentlyWatched() {
       IncludeItemTypes: 'Movie,Episode',
       Filters: 'IsPlayed',
       Recursive: true,
-      Fields: 'PrimaryImageAspectRatio,UserData,ProductionYear,SeriesPrimaryImageTag',
+      Fields: 'UserData,ProductionYear,SeriesPrimaryImageTag',
       Limit: 24
     }, videoLibIds)
     // getMerged concatenates per-library results, so the server's DatePlayed
@@ -3580,16 +3578,7 @@ function updateNowPlaying(item) {
   // Skipped for video - the overlay shows the film, not a recoloured backdrop.
   if (themeAlbumArt && art && !video) {
     _currentBgArtUrl = art
-    fetch(art)
-      .then(r => r.blob())
-      .then(blob => {
-        const objectUrl = URL.createObjectURL(blob)
-        const img = new Image()
-        img.onload = () => { applyAlbumArtTheme(img); URL.revokeObjectURL(objectUrl) }
-        img.onerror = () => URL.revokeObjectURL(objectUrl)
-        img.src = objectUrl
-      })
-      .catch(() => {})
+    themeFromArtUrl(art)
   }
 
   // Upgrade to iTunes high-res art in normal mode (async - replaces Jellyfin art when resolved)
@@ -3614,16 +3603,7 @@ function updateNowPlaying(item) {
       }
       // Re-run color extraction with the higher-quality source
       if (themeAlbumArt) {
-        fetch(itunesUrl)
-          .then(r => r.blob())
-          .then(blob => {
-            const objectUrl = URL.createObjectURL(blob)
-            const img = new Image()
-            img.onload = () => { applyAlbumArtTheme(img); URL.revokeObjectURL(objectUrl) }
-            img.onerror = () => URL.revokeObjectURL(objectUrl)
-            img.src = objectUrl
-          })
-          .catch(() => {})
+        themeFromArtUrl(itunesUrl)
       }
     })
   }
@@ -3637,7 +3617,16 @@ function updateNowPlaying(item) {
 // Pushed on track change, play/pause and every timeupdate; main.js drops it on
 // the floor when no miniplayer window is open, so there is no need to track
 // that state here too.
+//
+// That drop keeps the renderer from duplicating window state, and it stays. But
+// the miniplayer is gated to unpackaged builds, so in a packaged build the
+// window can never exist and every push is built, serialised and structured-
+// cloned across IPC purely to be discarded - four times a second, all session.
+// Bail before doing that work. Safe despite _miniplayerEnabled being declared
+// with let further down the file: every caller is event-driven or runs after
+// load, so none of them reaches here during module evaluation.
 function pushMiniplayerState() {
+  if (!_miniplayerEnabled) return
   const item = queue[queueIndex]
   if (!item) { window.cascade.miniPlayer.updateState(null); return }
   const art = _currentHighResArtUrl || artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
@@ -4037,7 +4026,7 @@ async function continueWithAutoMix(lastItem) {
   try {
     const data = await jfGet(`/Items/${lastItem.Id}/InstantMix`, {
       UserId: jf.userId, Limit: 25,
-      Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
+      Fields: 'AlbumId,AlbumPrimaryImageTag'
     })
     const items = (data.Items || []).filter(i => i.Id !== lastItem.Id)
     if (!items.length) return
@@ -5276,6 +5265,31 @@ function randomizeDrift() {
   _driftParams = CascadeCore.randomizeDrift()
 }
 
+// Every write to #np-overlay's background goes through here.
+//
+// The element is position: fixed inset: 0 and the queue, transport, album art
+// and lyrics all paint into that same layer, so each assignment re-rasters the
+// whole viewport - and assigning a value identical to the current one still
+// invalidates paint. The drift loop runs at ~15fps over periods of tens of
+// seconds and blobBackgroundCss rounds to one decimal, so most of those frames
+// produce a string that is already on the element.
+//
+// The cache lives here rather than in startBeatLoop's closure because three
+// other paths write this same property; a closure-local cache would go stale
+// behind them and skip a write that was actually needed.
+//
+// One cache for one element: every caller passes #np-overlay (the drift loop
+// and clearAlbumArtTheme look it up locally, refreshAmbient uses the npOverlay
+// const). Passing a second element here would make them share a cache and
+// suppress each other's writes, and #np-overlay must not be replaced in the
+// DOM either - a fresh element would start blank behind a stale cache.
+let _lastOverlayBgCss = null
+function setOverlayBackgroundImage(overlay, css) {
+  if (css === _lastOverlayBgCss) return
+  _lastOverlayBgCss = css
+  overlay.style.backgroundImage = css
+}
+
 function startBeatLoop() {
   if (_beatRafId) return
   const overlay = document.getElementById('np-overlay')
@@ -5293,7 +5307,7 @@ function startBeatLoop() {
     _lastBlobFrameTs = ts
     if (_blobColors.length > 0 && themeAlbumArt && _driftParams.length > 0) {
       const blobs = CascadeCore.driftedBlobs(_blobColors, _driftParams, Date.now() / 1000, _isLightTheme())
-      overlay.style.backgroundImage = CascadeCore.blobBackgroundCss(blobs)
+      setOverlayBackgroundImage(overlay, CascadeCore.blobBackgroundCss(blobs))
     }
   }
   frame()
@@ -5673,23 +5687,14 @@ function openOverlay() {
   if (themeAlbumArt && !playingVideo()) {
     if (_blobColors.length > 0) {
       npOverlay.style.backgroundColor = _blobBaseColor()
-      npOverlay.style.backgroundImage = buildBlobBackground(_blobColors, _isLightTheme())
+      setOverlayBackgroundImage(npOverlay, buildBlobBackground(_blobColors, _isLightTheme()))
       npOverlay.classList.add('art-theme')
     }
     const item = queue[queueIndex]
     if (item) {
       const art = _currentHighResArtUrl || artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
       if (art) {
-        fetch(art)
-          .then(r => r.blob())
-          .then(blob => {
-            const objectUrl = URL.createObjectURL(blob)
-            const img = new Image()
-            img.onload = () => { applyAlbumArtTheme(img); URL.revokeObjectURL(objectUrl) }
-            img.onerror = () => URL.revokeObjectURL(objectUrl)
-            img.src = objectUrl
-          })
-          .catch(() => {})
+        themeFromArtUrl(art)
       }
     }
   }
@@ -6724,7 +6729,7 @@ document.getElementById('ctx-instant-mix').addEventListener('click', async () =>
   try {
     const data = await jfGet(`/Items/${item.Id}/InstantMix`, {
       UserId: jf.userId, Limit: 25,
-      Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
+      Fields: 'AlbumId,AlbumPrimaryImageTag'
     })
     if (data.Items?.length) playItems(data.Items, 0)
   } catch (e) { console.error('Instant mix failed', e) }
@@ -7476,7 +7481,7 @@ window.cascade.metadataEditor.onSaved(async (itemId) => {
   try {
     const res = await jfGet(`/Users/${jf.userId}/Items`, {
       Ids: itemId,
-      Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,UserData',
+      Fields: 'AlbumId,AlbumPrimaryImageTag,UserData',
     })
     const fresh = res?.Items?.[0]
     // The track playing may have moved on while this was in flight.
@@ -7533,40 +7538,47 @@ function _wordProgress(w, nowTicks) {
   return (nowTicks - ws) / (we - ws) * 100
 }
 
+// Paint the karaoke fill across one line's word spans. Both callers below had
+// this body byte for byte, differing only in element ids and class names.
+//
+// The --p write is skipped when the value has not changed: _wordProgress pins a
+// word to 0 before it starts and 100 once it ends, so on any given frame every
+// span but one is being rewritten with what it already holds - and each write
+// invalidates a background-clip: text gradient sitting under a drop-shadow,
+// which is the most expensive text paint in index.html.
+function _paintWordSpans(line, nowTicks) {
+  line?.querySelectorAll('.lyric-word, .ov-lyric-word').forEach(w => {
+    const p = `${_wordProgress(w, nowTicks).toFixed(2)}%`
+    if (w.style.getPropertyValue('--p') !== p) w.style.setProperty('--p', p)
+    const ws = parseInt(w.dataset.ws)
+    const we = w.dataset.we ? parseInt(w.dataset.we) : null
+    w.classList.toggle('active', nowTicks >= ws && (!we || nowTicks < we))
+  })
+}
+
 function _wordHighlightFrame() {
   _wordRafId = requestAnimationFrame(_wordHighlightFrame)
   const nowTicks = (audio.currentTime + 0.225) * 10_000_000
 
   // Side panel - CSS scoping (.lyrics-line.active .lyric-word) handles inactive lines.
-  // Guard on the view actually being visible: the panel stays mounted (just hidden via
-  // CSS) when the user navigates elsewhere, so without this the loop would keep querying
-  // and restyling word spans at 60fps for the entire track even off-screen.
+  // Guard on the panel being open, which is exactly "the user can see this":
+  // .lyrics-panel is position: fixed above every view, so it is NOT hidden by
+  // navigating elsewhere and .open is the whole condition. This guard read
+  // getElementById('view-lyrics') until 2026-09-15; no such element has ever
+  // existed (the only match is #ctx-view-lyrics, a context menu item), so the
+  // optional chain yielded undefined and this branch never ran once.
   const panelIdx = lastLyricsIdx
-  if (document.getElementById('view-lyrics')?.classList.contains('active') && lyricsData[panelIdx]?.Words) {
-    document.getElementById('lyrics-inner')
-      ?.querySelector(`.lyrics-line[data-idx="${panelIdx}"]`)
-      ?.querySelectorAll('.lyric-word').forEach(w => {
-        const p = _wordProgress(w, nowTicks)
-        w.style.setProperty('--p', `${p.toFixed(2)}%`)
-        const ws = parseInt(w.dataset.ws)
-        const we = w.dataset.we ? parseInt(w.dataset.we) : null
-        w.classList.toggle('active', nowTicks >= ws && (!we || nowTicks < we))
-      })
+  if (lyricsPanelOpen() && lyricsData[panelIdx]?.Words) {
+    _paintWordSpans(document.getElementById('lyrics-inner')
+      ?.querySelector(`.lyrics-line[data-idx="${panelIdx}"]`), nowTicks)
   }
 
   // Overlay - same: CSS scoping handles inactive lines automatically
   if (overlayOpen && overlayLyricsOpen) {
     const ovIdx = lastOverlayLyricsIdx
     if (lyricsData[ovIdx]?.Words) {
-      document.getElementById('ov-lyrics-body')
-        ?.querySelector(`.ov-lyric-line[data-idx="${ovIdx}"]`)
-        ?.querySelectorAll('.ov-lyric-word').forEach(w => {
-          const p = _wordProgress(w, nowTicks)
-          w.style.setProperty('--p', `${p.toFixed(2)}%`)
-          const ws = parseInt(w.dataset.ws)
-          const we = w.dataset.we ? parseInt(w.dataset.we) : null
-          w.classList.toggle('active', nowTicks >= ws && (!we || nowTicks < we))
-        })
+      _paintWordSpans(document.getElementById('ov-lyrics-body')
+        ?.querySelector(`.ov-lyric-line[data-idx="${ovIdx}"]`), nowTicks)
     }
   }
 }
@@ -7591,6 +7603,11 @@ function showLyrics() {
   fetchLyrics()
 }
 function hideLyrics() { document.getElementById('lyrics-panel').classList.remove('open') }
+
+// The panel is position: fixed above every view, so .open is the whole answer to
+// "can the user see this" - navigating elsewhere does not hide it. Both lyrics
+// loops guard on this to stay off the CPU while the panel is closed.
+function lyricsPanelOpen() { return document.getElementById('lyrics-panel').classList.contains('open') }
 
 document.getElementById('lyrics-close').addEventListener('click', hideLyrics)
 
@@ -7766,6 +7783,14 @@ async function fetchLyricsWaterfall(item) {
   }
 
   _lastFetchStatus = tried
+  // Cache the miss too, not just the hits. Both readers gate on .has(), so an
+  // uncached miss meant every track with no lyrics anywhere re-ran all three
+  // sources on every single advance - for the track AND for the five that
+  // _prefetchUpcoming looks ahead at. On an instrumental album that is the
+  // whole waterfall, per track, forever. A forced source still bypasses the
+  // cache above, and _reloadLyricsFor() stays the escape hatch if a source was
+  // merely down rather than actually missing the track.
+  if (!forced) _cachePut(item.Id, null)
   return null
 }
 
@@ -7866,6 +7891,12 @@ let lyricsScrollTimer = null
 
 onDeck('timeupdate', () => {
   if (!lyricsData.length) return
+  // Nothing below is visible with the panel closed, and all of it is expensive:
+  // a class pass over every line, then clientHeight/offsetTop reads that force
+  // synchronous layout, then a spring that starts its own rAF. Safe to bail
+  // outright rather than keep the index in sync, because showLyrics() always
+  // routes through fetchLyrics(), which resets lastLyricsIdx and redraws.
+  if (!lyricsPanelOpen()) return
   // Same lookahead as word-fill (_wordHighlightFrame) so the last word's fill
   // animation and the line-promotion check complete in lockstep - no gap in
   // either direction (mid-fill cutoff if promotion is earlier, a visible
@@ -7952,7 +7983,7 @@ updateNowPlaying = function(item) {
   ovLyricsTranslated = false
   document.getElementById('ov-translate-btn').style.display = 'none'
   document.getElementById('ov-translate-btn').classList.remove('translated')
-  if (document.getElementById('lyrics-panel').classList.contains('open')) fetchLyrics()
+  if (lyricsPanelOpen()) fetchLyrics()
   if (overlayOpen && overlayLyricsOpen) renderOverlayLyrics()
 }
 
@@ -8146,14 +8177,14 @@ async function runSearch(query) {
     const wantShows   = showLibIds.length  > 0
 
     const [songsRes, albumsRes, artistsRes, moviesRes, showsRes] = await Promise.allSettled([
-      jfGetMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 10, IncludeItemTypes: 'Audio', Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag' }),
-      jfGetMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 8,  IncludeItemTypes: 'MusicAlbum', Fields: 'PrimaryImageAspectRatio' }),
+      jfGetMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 10, IncludeItemTypes: 'Audio', Fields: 'AlbumId,AlbumPrimaryImageTag' }),
+      jfGetMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 8,  IncludeItemTypes: 'MusicAlbum' }),
       jfGetMerged(`/Artists`,                  { SearchTerm: query, UserId: jf.userId, Limit: 8 }),
       wantMovies
-        ? jfClient.getMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 8, IncludeItemTypes: 'Movie', Fields: 'PrimaryImageAspectRatio,ProductionYear' }, movieLibIds)
+        ? jfClient.getMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 8, IncludeItemTypes: 'Movie', Fields: 'ProductionYear' }, movieLibIds)
         : Promise.resolve({ Items: [] }),
       wantShows
-        ? jfClient.getMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 8, IncludeItemTypes: 'Series', Fields: 'PrimaryImageAspectRatio,ProductionYear' }, showLibIds)
+        ? jfClient.getMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 8, IncludeItemTypes: 'Series', Fields: 'ProductionYear' }, showLibIds)
         : Promise.resolve({ Items: [] }),
     ])
     // jfGetMerged returns up to Limit x libraryCount - trim back to the intended size.
@@ -8444,6 +8475,30 @@ function _hslToRgb(hue, s, l) {
 // appears nowhere on the cover.
 const NEUTRAL_ART_SAT = 0.18
 
+// Extract colours from an art URL and theme from them.
+//
+// Always go via fetch -> blob -> objectURL, never hand applyAlbumArtTheme an
+// <img> that is already in the DOM: those are written by innerHTML with no
+// crossorigin, so the canvas extractTopColors draws them into is tainted,
+// getImageData throws, and the catch there returns no colours at all - the
+// symptom being a theme toggle that looks completely dead. Do NOT "fix" that by
+// putting crossorigin="anonymous" on the img tags instead; that sends an Origin
+// header the Jellyfin server may not answer, which breaks the image itself
+// rather than only its colours.
+function themeFromArtUrl(art) {
+  if (!art) return
+  fetch(art)
+    .then(r => r.blob())
+    .then(blob => {
+      const objectUrl = URL.createObjectURL(blob)
+      const img = new Image()
+      img.onload = () => { applyAlbumArtTheme(img); URL.revokeObjectURL(objectUrl) }
+      img.onerror = () => URL.revokeObjectURL(objectUrl)
+      img.src = objectUrl
+    })
+    .catch(() => {})
+}
+
 function applyAlbumArtTheme(imgEl) {
   if (!themeAlbumArt || !imgEl) return
 
@@ -8487,14 +8542,14 @@ function applyAlbumArtTheme(imgEl) {
   randomizeDrift()
   // Set gradient directly on the overlay - no z-index/clipping issues
   overlay.style.backgroundColor = _blobBaseColor()
-  overlay.style.backgroundImage = buildBlobBackground(_blobColors, light)
+  setOverlayBackgroundImage(overlay, buildBlobBackground(_blobColors, light))
   overlay.classList.add('art-theme')
 }
 
 function clearAlbumArtTheme() {
   const overlay = document.getElementById('np-overlay')
   overlay.classList.remove('art-theme')
-  overlay.style.backgroundImage = ''
+  setOverlayBackgroundImage(overlay, '')
   overlay.style.backgroundColor = ''
   document.documentElement.style.removeProperty('--art-overlay-bg')
   _blobColors = []
@@ -8544,7 +8599,7 @@ function setAlbumArtAccent(enabled) {
   if (themeAlbumArt) {
     // Apply immediately from current art
     const img = document.querySelector('#ov-art img') || document.querySelector('#np-art img')
-    if (img?.complete) applyAlbumArtTheme(img)
+    themeFromArtUrl(img?.src)
   } else {
     // Restore manual gradient and clear overlay tint
     clearAlbumArtTheme()
@@ -8855,7 +8910,7 @@ function initDebugPanel() {
 function _debugReapplyBlobs() {
   if (!themeAlbumArt) return
   const img = document.querySelector('#ov-art img') || document.querySelector('#np-art img')
-  if (img?.complete) applyAlbumArtTheme(img)
+  themeFromArtUrl(img?.src)
 }
 
 function initLightTuningPanel() {

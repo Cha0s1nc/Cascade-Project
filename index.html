@@ -877,7 +877,7 @@
     /* Overlay lyrics - GPU-accelerated clock-scroll */
     #ov-panel-lyrics { overflow: hidden; }
     .ov-lyrics-scroll { display: flex; flex-direction: column; align-items: center; will-change: transform; }
-    .ov-lyric-line { text-align: center; font-size: clamp(18px, 2.2vw, 38px); font-weight: 700; color: var(--text3); padding: 10px 32px; line-height: 1.4; cursor: default; max-width: min(500px, 80%); transform: scale(0.65); transform-origin: center center; opacity: 0; will-change: transform, opacity; transition: transform 0.55s cubic-bezier(0.16,1,0.3,1), opacity 0.55s cubic-bezier(0.16,1,0.3,1), color 0.4s; }
+    .ov-lyric-line { text-align: center; font-size: clamp(18px, 2.2vw, 38px); font-weight: 700; color: var(--text3); padding: 10px 32px; line-height: 1.4; cursor: default; max-width: min(500px, 80%); transform: scale(0.65); transform-origin: center center; opacity: 0; transition: transform 0.55s cubic-bezier(0.16,1,0.3,1), opacity 0.55s cubic-bezier(0.16,1,0.3,1), color 0.4s; }
     .ov-lyric-line.seekable { cursor: pointer; }
     .ov-lyric-line.past { opacity: 0; transform: scale(0.65); pointer-events: none; }
     .ov-lyric-line.near-3 { transform: scale(0.7); opacity: 0.14; }
@@ -1293,6 +1293,14 @@
       .lyrics-source-dropdown, .ov-more-scrim { transition: none; }
       .hshelf-track { scroll-behavior: auto; }
       .hshelf-arrow, .hshelf-arrow svg { transition: none; }
+      /* Two of the four animations that never stop on their own. The eq bars
+         are decorative and stop outright; the spinner only slows down, because
+         a frozen spinner stops telling the user work is still in flight.
+         The other two are handled at the end of this stylesheet - their rules
+         are defined below this point, and a media query adds no specificity,
+         so an override here would lose the cascade and silently do nothing. */
+      .track-eq i { animation: none; }
+      .setup-spinner { animation-duration: 3s; }
     }
 
     /* ── Equalizer ── */
@@ -1349,7 +1357,6 @@
     .ov-translate-btn:hover { background: rgba(255,255,255,0.22); transform: scale(1.1); }
     .ov-translate-btn.translated { background: var(--accent); border-color: transparent; color: white; }
     .ov-translate-btn.loading { opacity: 0.6; pointer-events: none; animation: spin 1s linear infinite; }
-    @keyframes spin { to { transform: rotate(360deg); } }
 
     /* ── Shuffle all button ── */
     .shuffle-all-btn { display: flex; align-items: center; gap: 5px; font-family: var(--font); font-size: 11px; font-weight: 600; background: none; border: 1px solid var(--border); border-radius: 6px; color: var(--text2); padding: 4px 10px; cursor: pointer; transition: background 0.12s, color 0.12s, border-color 0.12s; }
@@ -1371,6 +1378,18 @@
     }
     .skel-text { height: 10px; border-radius: 4px; background: var(--surface2); }
     @keyframes skel-shimmer { 100% { transform: translateX(100%); } }
+
+    /* The remaining two never-ending animations. They live here, at the end,
+       rather than in the reduced-motion block above, because both of their
+       rules are defined after that block and a media query adds no specificity
+       - an override up there loses on source order and does nothing at all.
+       The shimmer stops outright (it is decorative, and its original rule is
+       the `animation` shorthand, which resets any duration override anyway);
+       the translate spinner only slows, so it still reads as working. */
+    @media (prefers-reduced-motion: reduce) {
+      .skel::after { animation: none; }
+      .ov-translate-btn.loading { animation-duration: 3s; }
+    }
   </style>
 </head>
 <body>
