@@ -5659,6 +5659,11 @@ function startEqLoop() {
 
 function stopEqLoop() {
   if (_eqRafId) { cancelAnimationFrame(_eqRafId); _eqRafId = null }
+  // A stopped loop is not a silent one. Left set, a run of zeros that began
+  // before a pause (a quiet intro, say) is still counting when play resumes
+  // minutes later, so the first frame back reads the whole pause as silence,
+  // trips EQ_SILENCE_MS, sets _eqNoSignal and freezes the bars for the session.
+  _eqSilentSinceTs = 0
   // Drop 'live' off whatever currently has it so the CSS animation resumes -
   // covers both a normal stop and the silence-fallback giving up permanently.
   document.querySelectorAll('.track-eq.live').forEach(el => el.classList.remove('live'))
