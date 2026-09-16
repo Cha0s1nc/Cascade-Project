@@ -473,6 +473,23 @@ ipcMain.handle('is-debug-mode', () => {
   return _debugMode
 })
 
+// IPC: per-process resource use, for the debug panel's resources section. It
+// exists so a performance change is judged on a number rather than a feel.
+// Every Electron process is listed: the renderer (where the translation
+// worker's WASM heap is counted, since a dedicated Worker is a thread, not a
+// process), the GPU process, which carries the compositing cost, and the rest.
+// CPU is measured since the previous call, so the panel's 1s poll is what makes
+// it a per-second figure; the first reading after launch is always 0.
+ipcMain.handle('app-metrics', () => app.getAppMetrics().map(m => ({
+  type: m.type,
+  pid: m.pid,
+  memMB: Math.round(m.memory.workingSetSize / 1024),
+  cpu: m.cpu.percentCPUUsage,
+  // Wake-ups are the clearest sign of a timer or rAF loop that should be
+  // asleep. Always 0 on Windows.
+  wakeups: m.cpu.idleWakeupsPerSecond,
+})))
+
 // IPC: app version
 ipcMain.handle('get-version', () => app.getVersion())
 

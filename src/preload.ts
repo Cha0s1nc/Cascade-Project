@@ -27,6 +27,7 @@ const cascade: ElectronPlatform = {
   getVersion:      () => ipcRenderer.invoke('get-version'),
   isPackaged:      () => ipcRenderer.invoke('is-packaged'),
   isDebugMode:     () => ipcRenderer.invoke('is-debug-mode'),
+  appMetrics:      () => ipcRenderer.invoke('app-metrics'),
   onMediaKey:      (cb) => { ipcRenderer.on('media-key', (_e, key) => cb(key)) },
   platform:        process.platform,
   touchbarUpdate:  (data) => ipcRenderer.send('touchbar-update', data),

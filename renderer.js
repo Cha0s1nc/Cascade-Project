@@ -8803,6 +8803,25 @@ function debugAudioTracks(item) {
   })
 }
 
+// Last reading from main's app-metrics. debugPanelText() is synchronous, so the
+// IPC round trip happens on the panel's 1s tick and the text reads this copy.
+let _debugMetrics = null
+
+function refreshDebugMetrics() {
+  window.cascade.appMetrics().then(m => { _debugMetrics = m }).catch(() => {})
+}
+
+function debugResourceLines() {
+  if (!_debugMetrics) return ['(first reading pending)']
+  const rows = [..._debugMetrics].sort((x, y) => y.memMB - x.memMB)
+  const total = rows.reduce((t, r) => ({ mem: t.mem + r.memMB, cpu: t.cpu + r.cpu }), { mem: 0, cpu: 0 })
+  return [
+    ...rows.map(r => `${r.type.padEnd(9)} pid ${String(r.pid).padEnd(6)} ${String(r.memMB).padStart(5)} MB   cpu ${r.cpu.toFixed(1).padStart(5)}%   wake ${r.wakeups}/s`),
+    `total                ${String(total.mem).padStart(5)} MB   cpu ${total.cpu.toFixed(1).padStart(5)}%`,
+    `translate worker: ${_translateWorker ? 'loaded' : 'not loaded'}`,
+  ]
+}
+
 function debugPanelText() {
   const item = queue[queueIndex] || null
   const src = item?.MediaSources?.[0] || null
@@ -8848,6 +8867,9 @@ function debugPanelText() {
     '── web audio / eq ──',
     `graph failed: ${_eqGraphFailed}   no signal: ${_eqNoSignal}   ever had signal: ${_eqEverHadSignal}`,
     '',
+    '── resources ──',
+    ...debugResourceLines(),
+    '',
     `CascadeSLRC plugin absent: ${_cascadePluginAbsent}`,
   ].join('\n')
 }
@@ -8892,7 +8914,8 @@ function initDebugPanel() {
 
   document.body.appendChild(el)
   render()
-  setInterval(render, 1000)
+  refreshDebugMetrics()
+  setInterval(() => { refreshDebugMetrics(); render() }, 1000)
 }
 
 // ── Light-mode blob tuning (debug only) ─────────────────────────────────────

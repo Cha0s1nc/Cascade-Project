@@ -75,6 +75,17 @@ export interface UpdateCheckResult {
   error?: string
 }
 
+/** One Electron process, as the debug panel's resources section shows it. */
+export interface ProcessMetric {
+  type: string
+  pid: number
+  memMB: number
+  /** Percent of one core since the previous call. */
+  cpu: number
+  /** Always 0 on Windows. */
+  wakeups: number
+}
+
 export interface KugouLyricsQuery {
   title: string
   artist: string
@@ -110,6 +121,8 @@ export interface DesktopCapabilities {
   /** True when the `.cascade-debug` sentinel file was present at startup.
    *  Gates the renderer's debug panel - see main.js debugSentinelPresent(). */
   isDebugMode?(): Promise<boolean>
+  /** Per-process memory and CPU, for the debug panel. */
+  appMetrics?(): Promise<ProcessMetric[]>
 
   onMediaKey?(cb: (key: string) => void): void
   touchbarUpdate?(data: TouchBarUpdate): void
@@ -173,6 +186,7 @@ export interface ElectronPlatform extends Platform, DesktopCapabilities {
   checkForUpdates: NonNullable<DesktopCapabilities['checkForUpdates']>
   isPackaged: NonNullable<DesktopCapabilities['isPackaged']>
   isDebugMode: NonNullable<DesktopCapabilities['isDebugMode']>
+  appMetrics: NonNullable<DesktopCapabilities['appMetrics']>
   onMediaKey: NonNullable<DesktopCapabilities['onMediaKey']>
   touchbarUpdate: NonNullable<DesktopCapabilities['touchbarUpdate']>
   nowPlayingUpdate: NonNullable<DesktopCapabilities['nowPlayingUpdate']>
