@@ -114,7 +114,7 @@ literals. Renaming an id is a silent break that typecheck will not catch.
   `_waitForPlayable` **4396**.
 - `currentDeviceProfile()` - **437**. The profile minus any codec proven
   undecodable at runtime.
-- `_armAudioDecodeCheck()` - **8704**. Detects "video plays, no sound" using
+- `_armAudioDecodeCheck()` - **8737**. Detects "video plays, no sound" using
   `webkitAudioDecodedByteCount`, NOT the analyser level: a quiet scene and a
   broken decoder both read as zero level, but only a broken decoder has
   decoded zero BYTES while the clock ran. On failure it withdraws the codec
@@ -125,21 +125,32 @@ literals. Renaming an id is a silent break that typecheck will not catch.
   needs a `readyState` reading off the debug panel, not another guess.
 
 ### Web Audio / EQ
-- `_ensureEqGraph()` - **5380**. AudioContext -> per-deck source -> per-deck
+- `_ensureEqGraph()` - **5386**. AudioContext -> per-deck source -> per-deck
   gain (the crossfade envelope) -> preamp -> 5 biquads -> analyser -> out.
   Built once, never rewired.
-- Three failure flags at **5343**, and the distinction is load-bearing:
+- Three failure flags at **5349**, and the distinction is load-bearing:
   `_eqGraphFailed` (no graph at all, blocks bars AND crossfade),
   `_eqNoSignal` (cosmetic, bars only), `_eqEverHadSignal`. Conflating the
   first two silently killed crossfade for a whole session once.
+- `stopEqLoop()` resets `_eqSilentSinceTs`. Without it, a pause during a
+  silent intro left the silence timer counting, and resuming more than
+  `EQ_SILENCE_MS` later latched `_eqNoSignal` on the first frame and froze
+  the bars for the session. Reproduced before fixing.
 
 ### Lyrics
-- `lyricsPanelOpen()` - **7604**. The single visibility test both lyrics loops
-  use: `_paintWordSpans`/`_wordHighlightFrame` (**7543**) and the `timeupdate`
+- `lyricsPanelOpen()` - **7637**. The single visibility test both lyrics loops
+  use: `_paintWordSpans`/`_wordHighlightFrame` (**7576**) and the `timeupdate`
   line-promotion handler. `.lyrics-panel` is `position: fixed` ABOVE every view
   (index.html **958**), so it is NOT hidden by navigating elsewhere and `.open`
-  is the entire condition. Both loops are expensive off-screen: one restyles
-  word spans at 60fps, the other forces layout per line change.
+  is the entire condition. The guard matters for correctness (the karaoke fill
+  never ran before it); as a CPU saving it measured below noise, see
+  "Measured, not worth building" below.
+- Translation worker: `TRANSLATE_IDLE_MS` / `_retireTranslateWorker()` -
+  **6403** / **6409**. The worker is retired once nothing is pending for five
+  minutes. This is the largest runtime memory item in the app: one translation
+  took the renderer from 147 MB to 967 MB, and terminating returned ~500 MB. A
+  new request clears the timer before posting, and the retire refuses while
+  anything is in flight. Next translation starts cold, ~1s.
 - A lyrics MISS is cached, not just a hit (`_cachePut(item.Id, null)` at the
   tail of `fetchLyricsWaterfall`). Both readers gate on `.has()`, so without it
   a track with no lyrics anywhere re-ran all three sources on every advance -
@@ -148,13 +159,13 @@ literals. Renaming an id is a silent break that typecheck will not catch.
   when a source was merely down.
 
 ### Theme and album art
-- `setThemeMode()` - **8318**, `applyAlbumArtTheme()` - **8496**. **One**
+- `setThemeMode()` - **8351**, `applyAlbumArtTheme()` - **8529**. **One**
   extraction feeding both blobs and accent; a second, disagreeing one was
   removed.
-- `themeFromArtUrl()` - **8482**. The ONLY way to feed colour extraction, per
+- `themeFromArtUrl()` - **8515**. The ONLY way to feed colour extraction, per
   rule 8 above. Four call sites route through it; `applyAlbumArtTheme()` is
   called from nowhere else.
-- `setOverlayBackgroundImage()` - **5281**. Single choke point for
+- `setOverlayBackgroundImage()` - **5287**. Single choke point for
   `#np-overlay`'s background, holding a skip-if-unchanged cache. That element is
   `position: fixed; inset: 0` and the queue, transport, art and lyrics all paint
   into the same layer, so every assignment re-rasters the viewport - and writing
@@ -166,7 +177,7 @@ literals. Renaming an id is a silent break that typecheck will not catch.
   opposite directions on purpose. See `BLOB_L_RANGE` in `album-colors.ts`.
 
 ### Tooltips, menus, debug
-- `_positionTooltip()` - **8623**. One shared `#tooltip` element on `<body>`
+- `_positionTooltip()` - **8656**. One shared `#tooltip` element on `<body>`
   (index.html **513**), delegated from `document`. NOT a `::after`: a
   pseudo-element cannot escape clipping or a stacking context, which is why
   tips vanished behind the player bar and inside Settings.
@@ -177,14 +188,38 @@ literals. Renaming an id is a silent break that typecheck will not catch.
   `CascadeCore.clampMenuPosition()`.
   - Known gap, deliberately left: `#ctx-menu`'s own item handlers never call
     `hideCtxMenu()` on click.
-- `setItemPlayed()` - **7130**. `POST`/`DELETE /UserPlayedItems/{id}`.
+- `setItemPlayed()` - **7163**. `POST`/`DELETE /UserPlayedItems/{id}`.
 - `debugPanelText()` - **8800**. Behind a `.cascade-debug` sentinel file,
   costs nothing when absent. Shows PlayMethod, every audio track with whether
   this build claims to decode it, live analyser peak, decoded byte count, and
-  prefetch hit/miss with readyState. Shift-click copies it.
+  prefetch hit/miss with readyState. Shift-click copies it. Its resources
+  section (`refreshDebugMetrics()`, fed by main.js `app-metrics` over
+  `app.getAppMetrics()`) lists per-process memory, CPU and idle wake-ups.
+  **Measure with this before building any performance change.**
 - `pushMiniplayerState()` - **3628**. Sends lyrics from the CURRENT line
   onward, so the miniplayer renders top-down with the active line at the top
   and does no scrolling of its own.
+
+## Measured, not worth building
+
+Taken with the debug panel's resources section on Apple Silicon, playing real
+audio on the live deck. Recorded so these are not rebuilt on a hunch.
+
+- **Parking animation loops while minimized.** rAF does keep running at 61fps
+  behind a minimized window (`backgroundThrottling: false`), but with the EQ
+  bars, overlay blob drift and karaoke loop all live, renderer CPU was 3.4%
+  whether the loops ran or not. Chromium already skips raster for an unseen
+  window, and the loops' own JS is below noise. Built, measured, reverted.
+- **Detecting minimize from the page.** `visibilitychange` never fires and
+  `document.visibilityState` stays `visible` while minimized, because Electron
+  ties the Page Visibility API to `backgroundThrottling`. Anything that needs
+  it must come from main's window events.
+- **Overlay blob background.** Animating versus holding one frame, window
+  maximized at 1920x1169: GPU 5.0% versus 4.6%. Noise.
+- Where the cost actually is: audio playback itself (~1% renderer CPU over
+  paused), a constant ~4-5% GPU process baseline that does not move with any
+  of the above, and the translation worker's memory (now retired when idle).
+  Low-end hardware was not measured and could differ.
 
 ## index.html landmarks
 
