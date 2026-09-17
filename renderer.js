@@ -1239,15 +1239,23 @@ document.getElementById('vi-skip').addEventListener('click', dismissVideoIntro)
 // Every control writes through the exact function Settings itself calls
 // (applyLibrarySelection, applyVideoLibrarySelection via renderVideoLibraryGroups,
 // setCrossfadeEnabled, setCrossfadeSeconds, setMaxStreamingBitrate, setThemeMode,
-// setAlbumArtAccent) - there is nothing here that persists a setting on its own.
+// setAlbumArtAccent, setLyricsTranslationEnabled) - there is nothing here that
+// persists a setting on its own.
 
 // 1: the original first-run-only wizard (b6).
 // 2: re-shown to everyone upgrading, for video libraries, crossfade, the
 //    streaming cap and album art accent - none of which an existing user had
 //    ever been walked through.
-const WIZARD_REVISION = 2
+// 3: lyric translation, whose models download from the internet on first use.
+//    That is disclosed here before it can happen, not left to Settings.
+const WIZARD_REVISION = 3
 
-const FIRSTRUN_STEPS = ['libraries', 'crossfade', 'quality', 'theme']
+const FIRSTRUN_STEPS = ['libraries', 'crossfade', 'quality', 'theme', 'translation']
+
+// The revision each step arrived in. A fresh install walks every step; someone
+// updating is shown only what is new since the revision they last finished, not
+// four screens they have already been through for the sake of one new one.
+const FIRSTRUN_STEP_REVISION = { libraries: 1, crossfade: 2, quality: 2, theme: 2, translation: 3 }
 let _firstRunSteps = []
 let _firstRunIdx = 0
 
@@ -1285,7 +1293,9 @@ async function maybeShowSetupWizard() {
   // card, so showing both back to back would be two library pickers in a row.
   await window.cascade.store.set('videoIntroSeen', true)
 
-  _firstRunSteps = FIRSTRUN_STEPS.filter(s => s !== 'libraries' || _firstRunNeedsLibraryStep())
+  _firstRunSteps = FIRSTRUN_STEPS.filter(s =>
+    (s !== 'libraries' || _firstRunNeedsLibraryStep()) &&
+    (_wizardIsFirstRun || FIRSTRUN_STEP_REVISION[s] > seen))
   _firstRunIdx = 0
   _renderSetupStep()
   document.getElementById('firstrun-overlay').classList.remove('hidden')
@@ -1332,6 +1342,10 @@ function _renderSetupStep() {
     document.getElementById('fr-seg-dark').classList.toggle('active', !light)
     document.getElementById('fr-seg-light').classList.toggle('active', light)
     document.getElementById('fr-toggle-album-art').checked = themeAlbumArt
+  } else if (step === 'translation') {
+    // Seeded from the live value only. Never write a default on entry: this
+    // step is re-shown on update, and skipping it must change nothing.
+    document.getElementById('fr-lyrics-translation-toggle').checked = lyricsTranslationEnabled
   }
 }
 
@@ -1381,6 +1395,7 @@ document.getElementById('fr-seg-light').addEventListener('click', () => {
   document.getElementById('fr-seg-dark').classList.remove('active')
 })
 document.getElementById('fr-toggle-album-art').addEventListener('change', e => setAlbumArtAccent(e.target.checked))
+document.getElementById('fr-lyrics-translation-toggle').addEventListener('change', e => setLyricsTranslationEnabled(e.target.checked))
 
 /** `category` is 'movie' or 'show' - the two hardcoded video categories. */
 async function applyVideoLibrarySelection(category, ids) {
