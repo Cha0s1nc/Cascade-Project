@@ -79,11 +79,24 @@ async function getFromEnglish() {
   return fromEnglish
 }
 
-const BATCH = 8
-
 /** Translates `texts` positionally - output[i] corresponds to input[i], and a
  *  blank input stays blank. Marian on an empty sequence returns junk rather
- *  than an empty string, so blanks never reach the model. */
+ *  than an empty string, so blanks never reach the model.
+ *
+ *  One line per call, never a batch. transformers.js 4.2's generate() keeps no
+ *  per-row "finished" state: a line that reaches its end-of-sequence token keeps
+ *  generating until every row in the batch stops, and batch_decode keeps the
+ *  tokens after that EOS. In practice every row ran to max_new_tokens, so each
+ *  line came back as its translation followed by hundreds of characters of
+ *  "...and...and" (the lyric layout hid most of it). Padding also nudged the
+ *  output: the same line batched and alone could translate differently.
+ *  Measured on 14 mixed lines: batches of 8 took 9.4s and returned junk; one at
+ *  a time took 0.9s and returned clean text. Do not reintroduce batching
+ *  without per-row EOS handling AND a timing comparison.
+ *
+ *  Beam search is also effectively off: generation_config asks for num_beams 6,
+ *  but the generate loop takes only the top candidate each step, so decoding
+ *  is greedy whatever the config says. */
 async function run(id: number, pipe: TranslationPipeline, texts: string[], prefix = ''): Promise<string[]> {
   const out = new Array<string>(texts.length).fill('')
 
@@ -100,16 +113,14 @@ async function run(id: number, pipe: TranslationPipeline, texts: string[], prefi
   if (!unique.size) return out
 
   const keys = [...unique.keys()]
-  for (let i = 0; i < keys.length; i += BATCH) {
-    const slice = keys.slice(i, i + BATCH)
-    const res = await pipe(slice.map(k => prefix + k)) as Array<{ translation_text: string }>
-    slice.forEach((k, j) => {
-      // Falling back to the original line keeps the sheet aligned; a dropped
-      // line would shift every later translation onto the wrong lyric.
-      const text = res[j]?.translation_text ?? k
-      for (const idx of unique.get(k)!) out[idx] = text
-    })
-    self.postMessage({ type: 'progress', id, done: Math.min(i + BATCH, keys.length), total: keys.length })
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i]
+    const res = await pipe(prefix + k) as Array<{ translation_text: string }>
+    // Falling back to the original line keeps the sheet aligned; a dropped
+    // line would shift every later translation onto the wrong lyric.
+    const text = res[0]?.translation_text ?? k
+    for (const idx of unique.get(k)!) out[idx] = text
+    self.postMessage({ type: 'progress', id, done: i + 1, total: keys.length })
   }
   return out
 }
