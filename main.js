@@ -50,18 +50,27 @@ const MODELS_DIR = app.isPackaged
   ? path.join(process.resourcesPath, 'models')
   : path.join(__dirname, 'models')
 
+// Serve `rel` from inside `root`, or refuse. Trust boundary: the path comes off
+// a URL. Without this, a request for ../../.. walks straight out of the
+// directory and hands any file on disk to renderer JavaScript. path.sep guards
+// the "/models-evil" prefix trick that a bare startsWith() would let through.
+function serveWithin(root, rel) {
+  const abs = path.normalize(path.join(root, rel))
+  if (abs !== root && !abs.startsWith(root + path.sep)) {
+    return new Response('Forbidden', { status: 403 })
+  }
+  return net.fetch(pathToFileURL(abs).toString())
+}
+
 function registerModelProtocol() {
   protocol.handle('cascade-model', (req) => {
-    const rel = decodeURIComponent(new URL(req.url).pathname)
-    const abs = path.normalize(path.join(MODELS_DIR, rel))
-    // Trust boundary: the path comes off a URL. Without this, a request for
-    // ../../.. walks straight out of the models directory and hands any file
-    // on disk to renderer JavaScript. path.sep guards the "/models-evil"
-    // prefix trick that a bare startsWith() would let through.
-    if (abs !== MODELS_DIR && !abs.startsWith(MODELS_DIR + path.sep)) {
-      return new Response('Forbidden', { status: 403 })
-    }
-    return net.fetch(pathToFileURL(abs).toString())
+    const url = new URL(req.url)
+    const rel = decodeURIComponent(url.pathname)
+    // The translation runtime's wasm. Its worker cannot fetch it from file://.
+    if (rel.startsWith('/runtime/')) return serveWithin(BERGAMOT_RUNTIME_DIR, rel.slice('/runtime/'.length))
+    if (rel === '/models/registry.json') return translationRegistryResponse(url.searchParams.get('key'))
+    if (rel.startsWith('/models/')) return serveWithin(translationModelsDir(), rel.slice('/models/'.length))
+    return serveWithin(MODELS_DIR, rel)
   })
 }
 
@@ -901,6 +910,144 @@ function verifyDigest(filePath, digest) {
       .on('error', reject)
   })
 }
+
+// ── On-device translation models ─────────────────────────────────────────────
+//
+// Mozilla Firefox Translations models, one per source language into English,
+// downloaded on first use instead of shipped (about 50-70 MB each). The
+// manifest pins every file by sha256. Each file is fetched from Cascade's
+// GitHub release first and Mozilla's CDN second, and must match the hash
+// whichever answered.
+//
+// A model directory only ever exists complete: files land in <key>.partial/
+// and the directory is renamed once every file has verified. So "ready" is
+// simply "the directory exists", and a download killed halfway leaves nothing
+// that reads as installed.
+
+const TRANSLATION_MANIFEST = require('./translation-models.json')
+const BERGAMOT_RUNTIME_DIR = path.join(__dirname, 'build', 'bergamot', 'runtime')
+
+// Resolved on first ask, like DEBUG_SENTINEL: app.getPath() must never run
+// during require(), before the app is ready.
+let _translationModelsDir = null
+function translationModelsDir() {
+  if (!_translationModelsDir) _translationModelsDir = path.join(app.getPath('userData'), 'translation-models')
+  return _translationModelsDir
+}
+
+// Trust boundary: keys arrive over IPC and URLs and end up in filesystem paths,
+// so only a key the manifest itself defines is ever accepted.
+function translationModel(key) {
+  if (typeof key !== 'string' || !Object.prototype.hasOwnProperty.call(TRANSLATION_MANIFEST.models, key)) {
+    throw new Error(`Unknown translation model: ${key}`)
+  }
+  return TRANSLATION_MANIFEST.models[key]
+}
+
+const translationModelBytes = (model) => Object.values(model.files).reduce((n, f) => n + f.size, 0)
+const translationModelReady = (key) => fs.existsSync(path.join(translationModelsDir(), key))
+
+const _translationDownloads = new Map()   // key -> { promise, transferred }
+
+function translationModelsStatus() {
+  return Object.fromEntries(Object.entries(TRANSLATION_MANIFEST.models).map(([key, model]) => {
+    const dl = _translationDownloads.get(key)
+    return [key, {
+      name: model.name,
+      bytes: translationModelBytes(model),
+      state: dl ? 'downloading' : translationModelReady(key) ? 'ready' : 'absent',
+      transferred: dl ? dl.transferred : 0,
+    }]
+  }))
+}
+
+function sendTranslationProgress(payload) {
+  if (win && !win.isDestroyed()) win.webContents.send('translation-models:progress', payload)
+}
+
+function downloadTranslationModel(key) {
+  const model = translationModel(key)
+  if (translationModelReady(key)) return Promise.resolve()
+  const inFlight = _translationDownloads.get(key)
+  if (inFlight) return inFlight.promise   // a second click joins the first download
+
+  const total = translationModelBytes(model)
+  const entry = { transferred: 0, promise: null }
+  const promise = (async () => {
+    const dir = translationModelsDir()
+    const partial = path.join(dir, `${key}.partial`)
+    fs.rmSync(partial, { recursive: true, force: true })   // leftovers from an interrupted run
+    fs.mkdirSync(partial, { recursive: true })
+
+    let completed = 0   // bytes in files that already verified
+    let lastSent = 0
+    const report = (fileBytes, force) => {
+      entry.transferred = completed + fileBytes
+      const now = Date.now()
+      if (force || now - lastSent >= 250) {
+        lastSent = now
+        sendTranslationProgress({ key, state: 'downloading', transferred: entry.transferred, total })
+      }
+    }
+
+    for (const f of Object.values(model.files)) {
+      const dest = path.join(partial, f.file)
+      const sources = [`${TRANSLATION_MANIFEST.github}${key}-en.${f.file}`, f.mozilla]
+      let lastError = null
+      for (const url of sources) {
+        try {
+          // downloadFile resolves on a stream that ended early, so the hash is
+          // what actually proves a complete, untampered file. Never skip it.
+          await downloadFile(url, dest, p => report(p.transferred))
+          if (await verifyDigest(dest, `sha256:${f.sha256}`)) { lastError = null; break }
+          lastError = new Error('checksum mismatch')
+        } catch (err) {
+          lastError = err
+        }
+        try { fs.unlinkSync(dest) } catch {}
+        report(0, true)
+      }
+      if (lastError) throw new Error(`${f.file}: ${lastError.message}`)
+      completed += f.size
+      report(0, true)
+    }
+    fs.renameSync(partial, path.join(dir, key))
+  })()
+  entry.promise = promise
+  _translationDownloads.set(key, entry)
+  promise
+    .catch(() => {})   // the IPC caller receives the rejection; this chain only cleans up
+    .finally(() => {
+      _translationDownloads.delete(key)
+      sendTranslationProgress({ key, state: translationModelReady(key) ? 'ready' : 'absent', transferred: 0, total })
+    })
+  return promise
+}
+
+function removeTranslationModel(key) {
+  const model = translationModel(key)
+  if (_translationDownloads.has(key)) throw new Error('This model is still downloading')
+  fs.rmSync(path.join(translationModelsDir(), key), { recursive: true, force: true })
+  sendTranslationProgress({ key, state: 'absent', transferred: 0, total: translationModelBytes(model) })
+}
+
+// translator.js keys a registry by from+to ("zhen"), so Simplified and
+// Traditional Chinese could never share one. Each translator asks for a
+// registry holding only its own model, and only once that model is installed.
+function translationRegistryResponse(key) {
+  let model
+  try { model = translationModel(key) } catch { return new Response('{}', { status: 404 }) }
+  if (!translationModelReady(key)) return new Response('{}', { status: 404 })
+  const files = Object.fromEntries(Object.entries(model.files).map(([part, f]) =>
+    [part, { name: `cascade-model://app/models/${key}/${encodeURIComponent(f.file)}` }]))
+  return new Response(JSON.stringify({ [`${key.slice(0, 2)}en`]: files }), {
+    headers: { 'content-type': 'application/json' },
+  })
+}
+
+ipcMain.handle('translation-models:status', () => translationModelsStatus())
+ipcMain.handle('translation-models:download', (_e, key) => downloadTranslationModel(key))
+ipcMain.handle('translation-models:remove', (_e, key) => removeTranslationModel(key))
 
 // ── Updater IPC ────────────────────────────────────────────────────────────────
 

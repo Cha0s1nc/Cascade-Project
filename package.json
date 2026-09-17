@@ -65,6 +65,7 @@
       "miniplayer.html",
       "miniplayer-preload.js",
       "package.json",
+      "translation-models.json",
       "LICENSE",
       "assets/LICENSE",
       "node_modules/**/*",

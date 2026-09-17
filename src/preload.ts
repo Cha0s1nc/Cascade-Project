@@ -49,6 +49,12 @@ const cascade: ElectronPlatform = {
     open:    (data) => ipcRenderer.send('open-metadata-editor', data),
     onSaved: (cb) => { ipcRenderer.on('metadata-saved', (_e, itemId) => cb(itemId)) },
   },
+  translationModels: {
+    status:     () => ipcRenderer.invoke('translation-models:status'),
+    download:   (key) => ipcRenderer.invoke('translation-models:download', key),
+    remove:     (key) => ipcRenderer.invoke('translation-models:remove', key),
+    onProgress: (cb) => { ipcRenderer.on('translation-models:progress', (_e, p) => cb(p)) },
+  },
   miniPlayer: {
     open:        () => ipcRenderer.send('open-miniplayer'),
     updateState: (state) => ipcRenderer.send('miniplayer-state', state),

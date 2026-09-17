@@ -86,6 +86,23 @@ export interface ProcessMetric {
   wakeups: number
 }
 
+/** One on-device translation model, as main.js reports it. */
+export interface TranslationModelStatus {
+  name: string
+  /** Total download size of every file in the model. */
+  bytes: number
+  state: 'absent' | 'downloading' | 'ready'
+  /** Bytes downloaded so far; 0 unless downloading. */
+  transferred: number
+}
+
+export interface TranslationModelProgress {
+  key: string
+  state: 'absent' | 'downloading' | 'ready'
+  transferred: number
+  total: number
+}
+
 export interface KugouLyricsQuery {
   title: string
   artist: string
@@ -160,6 +177,16 @@ export interface DesktopCapabilities {
    * own media element would mean a fresh Jellyfin stream negotiation and
    * every track restarting.
    */
+  /** Download, inspect and remove the on-device lyric translation models.
+   *  Keys are the manifest's: 'ja', 'ko', 'zh-Hans', 'zh-Hant'. */
+  translationModels?: {
+    status(): Promise<Record<string, TranslationModelStatus>>
+    /** Resolves once the model is installed and verified; a second call for
+     *  the same key joins the download already running. */
+    download(key: string): Promise<void>
+    remove(key: string): Promise<void>
+    onProgress(cb: (p: TranslationModelProgress) => void): void
+  }
   miniPlayer?: {
     /** Opens the miniplayer window (creating it if needed) and minimizes the
      *  main window, mirroring Spotify/Apple Music's compact mode. */
@@ -196,5 +223,6 @@ export interface ElectronPlatform extends Platform, DesktopCapabilities {
   kugouGetLyrics: NonNullable<DesktopCapabilities['kugouGetLyrics']>
   lyricsEditor: NonNullable<DesktopCapabilities['lyricsEditor']>
   metadataEditor: NonNullable<DesktopCapabilities['metadataEditor']>
+  translationModels: NonNullable<DesktopCapabilities['translationModels']>
   miniPlayer: NonNullable<DesktopCapabilities['miniPlayer']>
 }
