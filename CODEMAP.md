@@ -1,8 +1,13 @@
 # Cascade code map
 
-**Describes commit `a3f5f52` on `dev`. Every line number below was re-derived
-at that commit, not carried over. Line numbers rot fast: if a landmark is not
-where this says, re-grep and fix the line here rather than trusting it.**
+**Describes the optimization pass on `dev` (parent `93bfb97`). Every line number
+below was re-derived at that state, not carried over. Line numbers rot fast: if
+a landmark is not where this says, re-grep and fix the line here rather than
+trusting it.**
+
+Last re-derivation found the drift from `a3f5f52` was NOT a constant offset -
+`connect()` had moved +137 lines while `_detachDeck()` had moved -111. A stale
+map cannot be corrected by arithmetic; it has to be re-grepped.
 
 Written so an agent can start work without re-reading the whole tree. It is a
 map, not documentation: it says where things are, how they are wired, and
@@ -13,11 +18,11 @@ the point. Most of what follows is a scar.
 
 | File | Lines | What it is |
 |---|---|---|
-| `renderer.js` | ~8630 | The whole UI. Plain global scope, **no semicolons**, no modules. |
-| `index.html` | ~2770 | All markup AND every CSS rule in one `<style>` block. |
-| `main.js` | ~920 | Electron main process. Uses semicolons. |
-| `src/core/*.ts` | 19 modules | Pure logic, bundled by esbuild via `src/index.ts` into the global `CascadeCore`. |
-| `test/*.test.ts` | - | `node --test`. **275 passing** at this commit. |
+| `renderer.js` | ~8996 | The whole UI. Plain global scope, **no semicolons**, no modules. |
+| `index.html` | ~2792 | All markup AND every CSS rule in one `<style>` block. |
+| `main.js` | ~1028 | Electron main process. Uses semicolons. |
+| `src/core/*.ts` | 21 modules | Pure logic, bundled by esbuild via `src/index.ts` into the global `CascadeCore`. |
+| `test/*.test.ts` | - | `node --test`. **303 passing** at this commit. |
 | `miniplayer.html`, `metadata-editor.html`, `lyrics-editor.html`, `updater.html` | - | Secondary windows, each with its own preload. |
 
 Verify with `npm run build:ts && npm run typecheck && npm test`.
@@ -48,43 +53,56 @@ literals. Renaming an id is a silent break that typecheck will not catch.
    Nothing under it receives hover, click or mousemove.
 7. **A pseudo-element cannot escape its host** - not its clipping, not its
    stacking context. No z-index fixes it from the inside.
+8. **A canvas painted from a DOM `<img>` is tainted.** Art elements are written
+   by `innerHTML` with no `crossorigin`, so `getImageData` throws and colour
+   extraction silently returns nothing - a theme toggle that looks simply dead.
+   Always go `fetch -> blob -> objectURL -> Image`; see `themeFromArtUrl()`.
+   Do NOT "fix" it with `crossorigin="anonymous"` on the tags: that sends an
+   Origin header the server may not answer, breaking the image itself.
+9. **A guard that names an element id is only as good as the id.** The side
+   panel's karaoke fill was gated on `getElementById('view-lyrics')`, which has
+   never existed - the optional chain yielded `undefined` and the feature never
+   ran once, for as long as it shipped. `?.` on a lookup turns a typo into
+   permanent silence. Grep the id before trusting a guard that uses one.
 
 ## renderer.js landmarks
 
 ### Session, permissions, setup
-- `connect(serverUrl, token, userId)` - **477**. Sets the global `jf`. Fires
+- `connect(serverUrl, token, userId)` - **614**. Sets the global `jf`. Fires
   `/Users/{id}/Views` in PARALLEL with the token ping rather than after it.
   The ping's response carries `Policy`, which is where `isAdmin` and
   `canDelete` come from, so both are free - do not add a request for them.
-- `_applyAdminGating()` - **644**. Gates the library scan, both Refresh
+- `_applyAdminGating()` - **801**. Gates the library scan, both Refresh
   metadata entries, Edit metadata/images, and playlist delete. **A new
   admin-only control must be added to this function's id list or it is not
   gated at all.** Uses the `.needs-admin` class plus an inline note.
-- `maybeShowSetupWizard()` - **1116**, `WIZARD_REVISION` - **1085**. Runs from
+- `maybeShowSetupWizard()`, `WIZARD_REVISION` - **1251**, and
+  `FIRSTRUN_STEP_REVISION` - **1258**, the revision each step arrived in. An
+  update shows only steps newer than the revision last finished. Runs from
   `connect()` off a stored revision, NOT the app version and NOT a boolean.
   Safe to re-show on update only because every step seeds from the current
   live value. **Never add a step that writes a default on entry.**
-- `setBrowseMode()` - **921**. The Music/Video toggle. A browsing filter only:
+- `setBrowseMode()` - **1078**. The Music/Video toggle. A browsing filter only:
   it never touches playback or the queue.
 
 ### Library, views, caches
-- `invalidateLibraryViews()` - **627**, `invalidateVideoViews()` - **635**.
+- `invalidateLibraryViews()` - **783**, `invalidateVideoViews()` - **792**.
   Plus the `dataset.loaded` flag `showView()` checks. That pair and that flag
   ARE the cache layer; there is no other.
-- `renderLibraryPicker()` - **749**, `renderVideoLibraryGroups()` - **974**.
+- `renderLibraryPicker()` - **906**, `renderVideoLibraryGroups()` - **1131**.
   Neither hides itself for having only one library. A sole video library
   defaults on but can be switched off, so `effectiveLibraryIds()` treats a
   missing saved value and an empty one as different answers.
-- `loadPosterGrid()` - **2703**. Adds `.lib-grouped` to the container when it
-  holds groups (index.html **151**). Without it the container is still a
+- `loadPosterGrid()` - **2874**. Adds `.lib-grouped` to the container when it
+  holds groups (index.html **154**). Without it the container is still a
   150px-column grid and each whole library group becomes ONE cell, which
   renders two libraries as two narrow columns.
 
 ### Playlists
-- `currentPlaylistItems` - **1901**, `playlistMutated()` - **1909**. **The
+- `currentPlaylistItems` - **2074**, `playlistMutated()` - **2082**. **The
   single choke point every mutation must go through.** Bypassing it is what
   once left the in-memory list holding removed tracks.
-- `openPlaylist()` - **2213**. Clears `has-extra-col` before drawing its
+- `openPlaylist()` - **2386**. Clears `has-extra-col` before drawing its
   skeleton, per rule 3 above.
 - Smart playlists (Favorites, Most Played) hide the Edit button: they are
   generated, with nothing on the server to rewrite.
@@ -92,13 +110,13 @@ literals. Renaming an id is a silent break that typecheck will not catch.
 ### Playback, decks, crossfade
 - Two permanent `<video>` decks, `DECKS`, the `audio` pointer, and
   `onDeck(type, fn)` which binds both and filters to the live one.
-- `_detachDeck(el)` - **4004**. **The only correct way to let go of a deck.**
+- `_detachDeck(el)` - **4232**. **The only correct way to let go of a deck.**
   Assigning `''` to `.src` makes the element load the page itself as media.
-- `_swapDeck` **4009**, `finishCrossfade` **4028**, `cancelCrossfade` **4053**,
-  `_waitForPlayable` **4168**.
-- `currentDeviceProfile()` - **318**. The profile minus any codec proven
+- `_swapDeck` **4237**, `finishCrossfade` **4256**, `cancelCrossfade` **4281**,
+  `_waitForPlayable` **4396**.
+- `currentDeviceProfile()` - **437**. The profile minus any codec proven
   undecodable at runtime.
-- `_armAudioDecodeCheck()` - **8335**. Detects "video plays, no sound" using
+- `_armAudioDecodeCheck()` - **8737**. Detects "video plays, no sound" using
   `webkitAudioDecodedByteCount`, NOT the analyser level: a quiet scene and a
   broken decoder both read as zero level, but only a broken decoder has
   decoded zero BYTES while the clock ran. On failure it withdraws the codec
@@ -109,78 +127,206 @@ literals. Renaming an id is a silent break that typecheck will not catch.
   needs a `readyState` reading off the debug panel, not another guess.
 
 ### Web Audio / EQ
-- `_ensureEqGraph()` - **5143**. AudioContext -> per-deck source -> per-deck
+- `_ensureEqGraph()` - **5386**. AudioContext -> per-deck source -> per-deck
   gain (the crossfade envelope) -> preamp -> 5 biquads -> analyser -> out.
   Built once, never rewired.
-- Three failure flags at **5106**, and the distinction is load-bearing:
+- Three failure flags at **5349**, and the distinction is load-bearing:
   `_eqGraphFailed` (no graph at all, blocks bars AND crossfade),
   `_eqNoSignal` (cosmetic, bars only), `_eqEverHadSignal`. Conflating the
   first two silently killed crossfade for a whole session once.
+- `stopEqLoop()` resets `_eqSilentSinceTs`. Without it, a pause during a
+  silent intro left the silence timer counting, and resuming more than
+  `EQ_SILENCE_MS` later latched `_eqNoSignal` on the first frame and froze
+  the bars for the session. Reproduced before fixing.
+
+### Lyrics
+- `lyricsPanelOpen()` - **7637**. The single visibility test both lyrics loops
+  use: `_paintWordSpans`/`_wordHighlightFrame` (**7576**) and the `timeupdate`
+  line-promotion handler. `.lyrics-panel` is `position: fixed` ABOVE every view
+  (index.html **958**), so it is NOT hidden by navigating elsewhere and `.open`
+  is the entire condition. The guard matters for correctness (the karaoke fill
+  never ran before it); as a CPU saving it measured below noise, see
+  "Measured, not worth building" below.
+- **Translation** is Mozilla's Firefox Translations models on the bergamot
+  WASM runtime, into English only, for `ja`, `ko`, `zh-Hans`, `zh-Hant`, `es`.
+  Adding a language: its files in `translation-models.json` (copied from
+  Remote Settings with hashes), uploaded to the models release as
+  `<key>-en.<file>`, and the key in `src/core/translation-models.ts`.
+  - `translation-models.json` pins every model file by size and sha256.
+    Updating a model is a manifest edit plus a new GitHub release, never a
+    runtime lookup of Mozilla's Remote Settings (Firefox internals).
+  - main.js `downloadTranslationModel()` - **962**. Tries Cascade's GitHub
+    release, then Mozilla's CDN, per file. **The hash check is not optional:**
+    `downloadFile()` resolves on a truncated stream. Files land in
+    `<key>.partial/` and the directory is renamed only once all verify, so an
+    installed model is exactly a directory that exists. Keys from IPC are
+    checked against the manifest before touching a path.
+  - The models' GitHub release must live in a **separate repo**, never
+    `Cascade-Project`: the updater reads that repo's latest (or first
+    non-draft) release as an app update.
+  - `cascade-model://` (`registerModelProtocol`, main.js **59**) serves
+    `/runtime/` (the wasm) and `/models/` (installed models) behind
+    `serveWithin()`'s escape guard, plus a registry per model
+    (`translationRegistryResponse`, **1031**): translator.js keys registries
+    by from+to, so the two Chinese models can never share one.
+  - `scripts/build-bergamot.js` vendors the runtime. It bundles translator.js
+    to the `Bergamot` global with `import.meta.url` defined as
+    `self.__bergamotBase` (set in index.html), and points the worker's wasm
+    fetch at `cascade-model://`, since fetch from file:// is blocked. Each patch
+    asserts it matched, so a runtime upgrade that moves the code fails the build.
+  - Renderer: `translateLines()` - **6491**, one `BatchTranslator` per model,
+    retired after `TRANSLATE_IDLE_MS` (**6436**); one line per call; an
+    in-memory LRU of translated lines for the session.
+    `ensureLyricsTranslation()` - **8215** downloads a missing model before
+    translating. `CascadeCore.translationModelFor()` decides which model (or
+    none, so no Translate button) a sheet gets, telling the Chinese scripts
+    apart by characters written differently in each.
+  - Two switches, on purpose: `lyricsTranslationEnabled` (Settings/wizard,
+    default on) is whether the feature exists; `lyricsTranslateOn` (the
+    Translate button, default off) is whether translations are showing.
+    `setLyricsTranslationEnabled()` - **8054** is the one path for both
+    Settings and the wizard.
+  - **Apple Translation (macOS 26+, default on there).** `native/apple-translate`
+    is a Swift helper (`TranslationSession(installedSource:target:)`, the
+    windowless macOS 26 API) built by `scripts/build-apple-translate.js`: a
+    no-op off macOS, fails in CI without the 26 SDK, warns and skips locally.
+    CI's mac job is pinned to `macos-26` for that SDK. It is `asarUnpack`ed,
+    since nothing inside app.asar can be executed. main.js keeps one
+    long-lived helper, spoken to with one JSON line each way over stdin, and
+    ends it after five idle minutes and on quit.
+    - `CascadeCore.pickTranslationEngine()` decides per sheet: Apple if the
+      language is installed in macOS; Mozilla if Apple is off, has no model
+      for it ("unsupported"), or the user chose Cascade's model for that
+      language; otherwise `needs-install`. The chosen-Mozilla list only
+      applies while a language is missing from macOS.
+    - `needs-install` shows the install prompt **only for an actual Translate
+      press** (`ensureLyricsTranslation(userAsked)`), never on a song change;
+      then the button reads "Install X…" and pressing it opens the prompt.
+    - Translated lines are cached per engine (`apple|ja|...`), so switching
+      engines never serves the other's output.
+    - Translation Languages has no System Settings link of its own; the
+      prompt opens Language & Region
+      (`com.apple.Localization-Settings.extension`) and says where to click.
+  - Settings model rows (`renderTranslationModelRows`, **8083**) update in
+    place, never rebuild: progress events arrive several times a second and a
+    rebuild would swap the button under the pointer.
+- A lyrics MISS is cached, not just a hit (`_cachePut(item.Id, null)` at the
+  tail of `fetchLyricsWaterfall`). Both readers gate on `.has()`, so without it
+  a track with no lyrics anywhere re-ran all three sources on every advance -
+  for the track and the five `_prefetchUpcoming` looks ahead at. A forced
+  source still bypasses the cache; `_reloadLyricsFor()` is the escape hatch
+  when a source was merely down.
 
 ### Theme and album art
-- `setThemeMode()` - **7973**, `applyAlbumArtTheme()` - **8127**. **One**
+- `setThemeMode()` - **8351**, `applyAlbumArtTheme()` - **8529**. **One**
   extraction feeding both blobs and accent; a second, disagreeing one was
   removed.
+- `themeFromArtUrl()` - **8515**. The ONLY way to feed colour extraction, per
+  rule 8 above. Four call sites route through it; `applyAlbumArtTheme()` is
+  called from nowhere else.
+- `setOverlayBackgroundImage()` - **5287**. Single choke point for
+  `#np-overlay`'s background, holding a skip-if-unchanged cache. That element is
+  `position: fixed; inset: 0` and the queue, transport, art and lyrics all paint
+  into the same layer, so every assignment re-rasters the viewport - and writing
+  an identical value still invalidates paint. The cache lives in the setter and
+  not in `startBeatLoop`'s closure precisely because three other paths write
+  this property and would leave a closure-local cache stale.
 - Light mode is NOT "dark but paler". With multiply blending a dark blob
   stains a near-white base like ink, so the two lightness ranges move in
   opposite directions on purpose. See `BLOB_L_RANGE` in `album-colors.ts`.
 
 ### Tooltips, menus, debug
-- `_positionTooltip()` - **8254**. One shared `#tooltip` element on `<body>`
-  (index.html **496**), delegated from `document`. NOT a `::after`: a
+- `_positionTooltip()` - **8656**. One shared `#tooltip` element on `<body>`
+  (index.html **513**), delegated from `document`. NOT a `::after`: a
   pseudo-element cannot escape clipping or a stacking context, which is why
   tips vanished behind the player bar and inside Settings.
 - Three context menus, all direct children of `<body>`: `#ctx-menu`
-  (**2429**), `#track-ctx-menu` (**2483**), `#item-ctx-menu` (**2531**, albums
+  (**2452**), `#track-ctx-menu` (**2506**), `#item-ctx-menu` (**2554**, albums
   / artists / video / series / playlists, driven by `menuItemsForKind()` in
   `src/core/context-menu.ts`). All three clamp position via
   `CascadeCore.clampMenuPosition()`.
   - Known gap, deliberately left: `#ctx-menu`'s own item handlers never call
     `hideCtxMenu()` on click.
-- `setItemPlayed()` - **6842**. `POST`/`DELETE /UserPlayedItems/{id}`.
-- `debugPanelText()` - **8431**. Behind a `.cascade-debug` sentinel file,
+- `setItemPlayed()` - **7163**. `POST`/`DELETE /UserPlayedItems/{id}`.
+- `debugPanelText()` - **8800**. Behind a `.cascade-debug` sentinel file,
   costs nothing when absent. Shows PlayMethod, every audio track with whether
   this build claims to decode it, live analyser peak, decoded byte count, and
-  prefetch hit/miss with readyState. Shift-click copies it.
-- `pushMiniplayerState()` - **3415**. Sends lyrics from the CURRENT line
+  prefetch hit/miss with readyState. Shift-click copies it. Its resources
+  section (`refreshDebugMetrics()`, fed by main.js `app-metrics` over
+  `app.getAppMetrics()`) lists per-process memory, CPU and idle wake-ups.
+  **Measure with this before building any performance change.**
+- `pushMiniplayerState()` - **3628**. Sends lyrics from the CURRENT line
   onward, so the miniplayer renders top-down with the active line at the top
   and does no scrolling of its own.
 
+## Measured, not worth building
+
+Taken with the debug panel's resources section on Apple Silicon, playing real
+audio on the live deck. Recorded so these are not rebuilt on a hunch.
+
+- **Parking animation loops while minimized.** rAF does keep running at 61fps
+  behind a minimized window (`backgroundThrottling: false`), but with the EQ
+  bars, overlay blob drift and karaoke loop all live, renderer CPU was 3.4%
+  whether the loops ran or not. Chromium already skips raster for an unseen
+  window, and the loops' own JS is below noise. Built, measured, reverted.
+- **Detecting minimize from the page.** `visibilitychange` never fires and
+  `document.visibilityState` stays `visible` while minimized, because Electron
+  ties the Page Visibility API to `backgroundThrottling`. Anything that needs
+  it must come from main's window events.
+- **Overlay blob background.** Animating versus holding one frame, window
+  maximized at 1920x1169: GPU 5.0% versus 4.6%. Noise.
+- Where the cost actually is: audio playback itself (~1% renderer CPU over
+  paused), a constant ~4-5% GPU process baseline that does not move with any
+  of the above, and translation memory while a model is loaded (translators
+  are retired when idle).
+  Low-end hardware was not measured and could differ.
+
 ## index.html landmarks
 
-- Titlebar CSS **21-40**, `--caption-reserve` at **36**. `data-platform` is set
+- Titlebar CSS **21-43**, `--caption-reserve` at **39**. `data-platform` is set
   on `<html>` from `window.cascade.platform`.
-- `#tooltip` **496**. `.hshelf` **163** (the horizontal shelf with edge arrows,
-  used by Home shelves and grouped library rows). `.lib-grouped` **151**.
-- Now-playing overlay: header **521**, video full mode **727**. The header and
+- `#tooltip` **513**. `.hshelf` **166** (the horizontal shelf with edge arrows,
+  used by Home shelves and grouped library rows). `.lib-grouped` **154**.
+- Now-playing overlay: header **536**, video full mode **744**. The header and
   the column divider have no borders on purpose - they cut through the album
   art background, which bleeds across both halves.
-- Settings `#view-settings` **1802**, five groups from **1805**: Library,
+- Settings `#view-settings` **1825**, five groups from **1827**: Library,
   Playback (Equalizer folded in), Lyrics & Metadata, Integrations, Account.
   Reorganising headings is fine; **renaming an id is not**.
-- First-run wizard `#firstrun-overlay` **2186**.
+- First-run wizard `#firstrun-overlay` **2209**.
 - Popups keep `display` fixed and transition opacity + visibility + transform.
   **Never go back to toggling `display`**: it cannot be transitioned, and
   `visibility` is what keeps a closed popup out of hit-testing.
 
 ## main.js landmarks
 
-- `showWhenReady(w, after)` - **209**. **The only correct way to show a window
+- `showWhenReady(w, after)` - **273**. **The only correct way to show a window
   created with `show: false`.** `ready-to-show` fires on first paint, and a
   hidden window on Windows may never produce one, which cost this app both its
   main window and its lyrics editor. Races it against `did-finish-load` with a
   timeout behind both. Media keys and the update check hang off
   `did-finish-load` for the same reason.
-- `createWindow()` - **246**. `hiddenInset` + `trafficLightPosition` are macOS
+- `createWindow()` - **310**. `hiddenInset` + `trafficLightPosition` are macOS
   only; Windows and Linux get `titleBarOverlay`. `minHeight: 560` is
   deliberate.
-- `DEBUG_SENTINEL` - **373**. Resolved on first ask, not at module scope: it
+- `DEBUG_SENTINEL` - **446**. Resolved on first ask, not at module scope: it
   once called `app.getPath()` during `require()`, before the app was ready.
-- Secondary windows: metadata editor **529**, miniplayer **589**
-  (`MINI_WIDTH` **584**, width locked, height 100-900, persisted).
+- Secondary windows: metadata editor **613**, miniplayer **672**
+  (`MINI_WIDTH` **657**, width locked, height 100-900, persisted).
   **Every new window must be added to `package.json`'s `build.files`** or it
   works in dev and is missing from the packaged app.
 - The miniplayer is gated to unpackaged builds; packaged shows "coming soon".
+- **Updates.** Windows runs the NSIS installer silently (`installSilentlyWindows`).
+  macOS installs in place through `mac-update.js`: mount the DMG, stage the new
+  `Cascade.app` beside the installed one, verify its signature, bundle id and
+  version, then a detached shell script waits for Cascade to quit, swaps the
+  bundles (restoring the old one if the swap fails) and relaunches. Running
+  from the DMG, an App Translocation copy, or an unwritable folder, or any
+  failed check, falls back to opening the DMG. Squirrel.Mac is not an option:
+  it requires a Developer ID signature and Cascade is ad-hoc signed. None of
+  this protects against a malicious release uploaded to the repo; GitHub's
+  asset digest only catches corruption. The swap script logs to
+  `$TMPDIR/cascade-update.log`.
 
 ## Server facts (verified against this user's live Jellyfin 10.11.11)
 

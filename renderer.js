@@ -24,6 +24,20 @@ let _queueScrollBound = false
 let volume = 1.0
 let crossfadeEnabled = false
 let crossfadeSeconds = 6
+// Lyric translation, restored from the store in init(). Two switches on purpose:
+// lyricsTranslationEnabled is whether the feature exists at all (Settings and
+// the wizard, default on); lyricsTranslateOn is whether translations are showing
+// right now (the Translate button, remembered across songs, default off).
+let lyricsTranslationEnabled = true
+let lyricsTranslateOn = false
+// Apple's built-in translation instead of Mozilla's models, on a Mac that can
+// use it (macOS 26+): on by default there. _appleTranslationSupported is filled
+// in by init() and stays false on every other platform. _appleMozillaChosen
+// holds the languages the user picked Cascade's model for from the install
+// prompt.
+let appleTranslationEnabled = true
+let _appleTranslationSupported = false
+const _appleMozillaChosen = new Set()
 let maxStreamingBitrate = 140000000   // overridden from settings in loadSettingsFields
 // The server only transcodes to specific bitrates, not a continuum - the
 // streaming quality slider is stepped through this exact list rather than
@@ -142,7 +156,7 @@ function playingVideo() {
 // a `function` declaration.
 const {
   parseLRC, parseKrc,
-  sortSongs, songSortValue, shuffleInPlace, shuffled, nextQueueIndex,
+  sortSongs, songSortValue, shuffleInPlace, nextQueueIndex,
   resolveStream, universalStreamUrl, withStartTicks, stopActiveEncoding,
   buildElectronProfile, DEFAULT_MAX_BITRATE,
   resumeTicks, neededAudioStreamIndex,
@@ -362,7 +376,13 @@ let _animatedArtItemId = null
 const _ANIMATED_ART_CACHE_MAX = 200
 const _animatedArtCache = new Map()
 
-function animatedArtUrl(artItemId) {
+// async, and load-bearing so: the cache holds the in-flight promise first and
+// then overwrites it with the resolved value, so a hit returns a bare null or a
+// bare URL string. Callers use .then(), which threw on every lookup after an
+// album's first - and since that throw escaped updateNowPlaying uncaught, it
+// took the whole tail of it with it: the track name and artist, the mediaSession
+// metadata, and the Discord presence push all stopped running.
+async function animatedArtUrl(artItemId) {
   if (_animatedArtCache.has(artItemId)) {
     const v = _animatedArtCache.get(artItemId)
     _animatedArtCache.delete(artItemId)
@@ -709,7 +729,7 @@ function startRemoteControl() {
         // MediaStreams/MediaSources are what applySubtitles() needs. Without
         // them a movie pushed from Jellyfin's "Play On" would play with no
         // subtitles even when the file has them.
-        Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,UserData,MediaStreams,MediaSources',
+        Fields: 'AlbumId,AlbumPrimaryImageTag,UserData,MediaStreams,MediaSources',
       }).catch(() => null)
       const items = res?.Items || []
       if (!items.length) return
@@ -776,6 +796,7 @@ function applyRemoteMute(muted) {
 // non-empty and would keep queueing tracks from deselected libraries.
 function invalidateLibraryViews() {
   allSongs = []
+  _songsFetch = null
   for (const id of ['albums-grid', 'artists-grid', 'songs-rows', 'playlists-grid'])
     delete document.getElementById(id).dataset.loaded
 }
@@ -1226,15 +1247,23 @@ document.getElementById('vi-skip').addEventListener('click', dismissVideoIntro)
 // Every control writes through the exact function Settings itself calls
 // (applyLibrarySelection, applyVideoLibrarySelection via renderVideoLibraryGroups,
 // setCrossfadeEnabled, setCrossfadeSeconds, setMaxStreamingBitrate, setThemeMode,
-// setAlbumArtAccent) - there is nothing here that persists a setting on its own.
+// setAlbumArtAccent, setLyricsTranslationEnabled) - there is nothing here that
+// persists a setting on its own.
 
 // 1: the original first-run-only wizard (b6).
 // 2: re-shown to everyone upgrading, for video libraries, crossfade, the
 //    streaming cap and album art accent - none of which an existing user had
 //    ever been walked through.
-const WIZARD_REVISION = 2
+// 3: lyric translation, whose models download from the internet on first use.
+//    That is disclosed here before it can happen, not left to Settings.
+const WIZARD_REVISION = 3
 
-const FIRSTRUN_STEPS = ['libraries', 'crossfade', 'quality', 'theme']
+const FIRSTRUN_STEPS = ['libraries', 'crossfade', 'quality', 'theme', 'translation']
+
+// The revision each step arrived in. A fresh install walks every step; someone
+// updating is shown only what is new since the revision they last finished, not
+// four screens they have already been through for the sake of one new one.
+const FIRSTRUN_STEP_REVISION = { libraries: 1, crossfade: 2, quality: 2, theme: 2, translation: 3 }
 let _firstRunSteps = []
 let _firstRunIdx = 0
 
@@ -1272,7 +1301,9 @@ async function maybeShowSetupWizard() {
   // card, so showing both back to back would be two library pickers in a row.
   await window.cascade.store.set('videoIntroSeen', true)
 
-  _firstRunSteps = FIRSTRUN_STEPS.filter(s => s !== 'libraries' || _firstRunNeedsLibraryStep())
+  _firstRunSteps = FIRSTRUN_STEPS.filter(s =>
+    (s !== 'libraries' || _firstRunNeedsLibraryStep()) &&
+    (_wizardIsFirstRun || FIRSTRUN_STEP_REVISION[s] > seen))
   _firstRunIdx = 0
   _renderSetupStep()
   document.getElementById('firstrun-overlay').classList.remove('hidden')
@@ -1319,6 +1350,11 @@ function _renderSetupStep() {
     document.getElementById('fr-seg-dark').classList.toggle('active', !light)
     document.getElementById('fr-seg-light').classList.toggle('active', light)
     document.getElementById('fr-toggle-album-art').checked = themeAlbumArt
+  } else if (step === 'translation') {
+    // Seeded from the live value only. Never write a default on entry: this
+    // step is re-shown on update, and skipping it must change nothing.
+    document.getElementById('fr-lyrics-translation-toggle').checked = lyricsTranslationEnabled
+    document.getElementById('fr-apple-translation-note').style.display = _appleTranslationSupported ? '' : 'none'
   }
 }
 
@@ -1368,6 +1404,7 @@ document.getElementById('fr-seg-light').addEventListener('click', () => {
   document.getElementById('fr-seg-dark').classList.remove('active')
 })
 document.getElementById('fr-toggle-album-art').addEventListener('change', e => setAlbumArtAccent(e.target.checked))
+document.getElementById('fr-lyrics-translation-toggle').addEventListener('change', e => setLyricsTranslationEnabled(e.target.checked))
 
 /** `category` is 'movie' or 'show' - the two hardcoded video categories. */
 async function applyVideoLibrarySelection(category, ids) {
@@ -1481,7 +1518,7 @@ async function loadRecentlyPlayed() {
       Filters: 'IsPlayed',
       Limit: 24,
       Recursive: true,
-      Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,UserData'
+      Fields: 'AlbumId,AlbumPrimaryImageTag,UserData'
     })
     // jfGetMerged concatenates per-library results, so the server's DatePlayed
     // ordering only holds within a library - re-sort across the merge.
@@ -1520,8 +1557,7 @@ async function loadRecentlyAdded() {
       SortOrder: 'Descending',
       IncludeItemTypes: 'MusicAlbum',
       Limit: 24,
-      Recursive: true,
-      Fields: 'PrimaryImageAspectRatio'
+      Recursive: true
     })
     // Fetched wider than any row could show and clipped by CSS (.album-grid on
     // #home-recent-albums), so the row is always full at any window width.
@@ -1544,7 +1580,7 @@ async function loadAlbums() {
   const grid = document.getElementById('albums-grid')
   grid.dataset.loaded = '1'
   try {
-    const params = { SortBy: 'SortName', SortOrder: 'Ascending', IncludeItemTypes: 'MusicAlbum', Recursive: true, Fields: 'PrimaryImageAspectRatio', Limit: 200 }
+    const params = { SortBy: 'SortName', SortOrder: 'Ascending', IncludeItemTypes: 'MusicAlbum', Recursive: true, Limit: 200 }
     const data = await jfGetMerged(`/Users/${jf.userId}/Items`, params)
     grid.innerHTML = data.Items.map(item => albumCard(item)).join('')
     wireAlbumCards(grid, data.Items, item => { showView('albums'); openAlbum(item.Id) })
@@ -1611,7 +1647,7 @@ async function fetchAlbumTracks(albumId) {
     SortBy: 'ParentIndexNumber,IndexNumber,SortName',
     IncludeItemTypes: 'Audio',
     Recursive: true,
-    Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
+    Fields: 'AlbumId,AlbumPrimaryImageTag'
   })
   return data.Items || []
 }
@@ -1698,7 +1734,7 @@ async function fetchArtistSongs(artistId) {
   const data = await jfGet(`/Users/${jf.userId}/Items`, {
     ArtistIds: artistId, IncludeItemTypes: 'Audio', Recursive: true,
     SortBy: 'Album,ParentIndexNumber,IndexNumber',
-    Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
+    Fields: 'AlbumId,AlbumPrimaryImageTag'
   })
   return data.Items || []
 }
@@ -1719,8 +1755,7 @@ async function openArtist(artistId, name) {
     const [albumsData, songs] = await Promise.all([
       jfGet(`/Users/${jf.userId}/Items`, {
         ArtistIds: artistId, IncludeItemTypes: 'MusicAlbum', Recursive: true,
-        SortBy: 'ProductionYear,SortName', SortOrder: 'Descending',
-        Fields: 'PrimaryImageAspectRatio'
+        SortBy: 'ProductionYear,SortName', SortOrder: 'Descending'
       }),
       fetchArtistSongs(artistId)
     ])
@@ -1805,6 +1840,29 @@ function trackRowHtml(item, i, opts = {}) {
 // ── Songs ─────────────────────────────────────────────────────────────────────
 
 let allSongs = []
+let _songsFetch = null
+
+// The one fetch behind both the Songs table and Shuffle All. They used to fetch
+// separately and race: Shuffle All's copy had no DateCreated and was never
+// sorted, so clicking it before the table loaded could leave the table in
+// server (title) order under a "Date Added" label. A second caller now waits
+// on the fetch already in flight instead of starting its own.
+function fetchAllSongs() {
+  if (_songsFetch) return _songsFetch
+  const p = _songsFetch = (async () => {
+    await loadSongsSortPrefs()
+    // jfGetAllPaged instead of jfGetMerged so libraries over 500 tracks aren't
+    // silently truncated.
+    const params = { SortBy: 'SortName', SortOrder: 'Ascending', IncludeItemTypes: 'Audio', Recursive: true, Fields: 'AlbumId,AlbumPrimaryImageTag,UserData,DateCreated', Limit: 500 }
+    const data = await jfGetAllPaged(`/Users/${jf.userId}/Items`, params)
+    // The library selection changed mid-fetch: these are the old libraries' songs.
+    if (_songsFetch !== p) return
+    allSongs = data.Items || []
+    sortAllSongs()
+  })()
+  p.catch(() => { if (_songsFetch === p) _songsFetch = null })   // let the next call retry
+  return p
+}
 
 async function loadSongs() {
   const rows = document.getElementById('songs-rows')
@@ -1812,12 +1870,7 @@ async function loadSongs() {
   await loadSongsSortPrefs()
   updateSongsSortUI()
   try {
-    // jfGetAllPaged instead of jfGetMerged so libraries over 500 tracks aren't
-    // silently truncated (same fix as shuffleAllSongs).
-    const params = { SortBy: 'SortName', SortOrder: 'Ascending', IncludeItemTypes: 'Audio', Recursive: true, Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,UserData,DateCreated', Limit: 500 }
-    const data = await jfGetAllPaged(`/Users/${jf.userId}/Items`, params)
-    allSongs = data.Items || []
-    sortAllSongs()
+    await fetchAllSongs()
     renderSongRows()
   } catch (e) {
     rows.innerHTML = `<div class="empty-state">Could not load songs</div>`
@@ -2002,7 +2055,7 @@ async function loadPlaylists() {
       SortOrder: 'Ascending',
       IncludeItemTypes: 'Playlist',
       Recursive: true,
-      Fields: 'PrimaryImageAspectRatio,ChildCount'
+      Fields: 'ChildCount'
     })
     grid.innerHTML = smartHtml + (data.Items || []).map(item => {
       const art = artUrl(item.Id, item.ImageTags?.Primary)
@@ -2066,7 +2119,7 @@ function playlistMutated(playlistId) {
 async function fetchPlaylistTracks(playlistId) {
   const data = await jfGet(`/Playlists/${playlistId}/Items`, {
     UserId: jf.userId,
-    Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,DateCreated'
+    Fields: 'AlbumId,AlbumPrimaryImageTag,DateCreated'
   })
   return data.Items || []
 }
@@ -2389,7 +2442,7 @@ const SMART_PLAYLISTS = {
       const data = await jfGetMerged(`/Users/${jf.userId}/Items`, {
         IncludeItemTypes: 'Audio', Recursive: true, Filters: 'IsFavorite',
         SortBy: 'SortName', SortOrder: 'Ascending',
-        Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
+        Fields: 'AlbumId,AlbumPrimaryImageTag'
       })
       return data.Items || []
     }
@@ -2405,7 +2458,7 @@ const SMART_PLAYLISTS = {
       const data = await jfGetMerged(`/Users/${jf.userId}/Items`, {
         IncludeItemTypes: 'Audio', Recursive: true,
         SortBy: 'PlayCount', SortOrder: 'Descending', Limit: 200,
-        Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
+        Fields: 'AlbumId,AlbumPrimaryImageTag'
       })
       const items = (data.Items || []).filter(i => (i.UserData?.PlayCount || 0) > 0)
       items.sort((a, b) => (b.UserData?.PlayCount || 0) - (a.UserData?.PlayCount || 0))
@@ -2550,7 +2603,7 @@ document.getElementById('tctx-add-queue').addEventListener('click', () => {
  *  copy of this fetch+play+toast never had to exist. */
 async function instantMixAndPlay(itemId, label) {
   try {
-    const data = await jfGet(`/Items/${itemId}/InstantMix`, { UserId: jf.userId, Limit: 50, Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag' })
+    const data = await jfGet(`/Items/${itemId}/InstantMix`, { UserId: jf.userId, Limit: 50, Fields: 'AlbumId,AlbumPrimaryImageTag' })
     if (!data.Items?.length) { showNotice('Jellyfin did not return an instant mix for this.', 'Instant mix'); return }
     playItems(data.Items, 0)
     showToast(`Instant mix from "${label}"`)
@@ -2863,7 +2916,7 @@ async function loadPosterGrid(gridId, itemType, sub, onPick, getVideo, libs, ids
   const params = {
     SortBy: 'SortName', SortOrder: 'Ascending',
     IncludeItemTypes: itemType, Recursive: true,
-    Fields: 'PrimaryImageAspectRatio,UserData,ProductionYear',
+    Fields: 'UserData,ProductionYear',
     Limit: 500,
   }
   try {
@@ -2930,7 +2983,7 @@ async function loadContinueWatching() {
       IncludeItemTypes: 'Movie,Episode',
       Filters: 'IsResumable',
       Recursive: true,
-      Fields: 'PrimaryImageAspectRatio,UserData,ProductionYear',
+      Fields: 'UserData,ProductionYear',
       Limit: 24
     }, videoLibIds)
     // Same reasoning as Recently watched below: getMerged concatenates
@@ -2991,7 +3044,7 @@ async function loadRecentlyWatched() {
       IncludeItemTypes: 'Movie,Episode',
       Filters: 'IsPlayed',
       Recursive: true,
-      Fields: 'PrimaryImageAspectRatio,UserData,ProductionYear,SeriesPrimaryImageTag',
+      Fields: 'UserData,ProductionYear,SeriesPrimaryImageTag',
       Limit: 24
     }, videoLibIds)
     // getMerged concatenates per-library results, so the server's DatePlayed
@@ -3395,6 +3448,19 @@ async function playCurrentTrack(opts = {}) {
 
 let _prefetchSession = 0
 
+/** Warms the iTunes cover cache for an upcoming track. Deduped by artist+album
+ *  inside fetchItunesArt, so playing through an album costs one lookup rather
+ *  than one per track. Fire and forget - the point is that the answer is
+ *  already sitting in the cache by the time the track starts and the Discord
+ *  presence wants it, instead of being a network round trip at exactly the
+ *  moment it is needed. */
+function warmItunesArt(item) {
+  if (!item || isVideoItem(item)) return
+  const artist = item.AlbumArtist || item.Artists?.[0] || ''
+  const album  = item.Album || ''
+  if (artist || album) fetchItunesArt(artist, album).catch(() => {})
+}
+
 async function _prefetchUpcoming() {
   const session = ++_prefetchSession
   const start = queueIndex + 1
@@ -3402,9 +3468,15 @@ async function _prefetchUpcoming() {
   for (let i = start; i < end; i++) {
     if (session !== _prefetchSession) break        // user skipped, abandon
     const item = queue[i]
-    if (!item?.Id || _lyricsCache.has(item.Id)) continue
-    await fetchLyricsWaterfall(item).catch(() => {})
-    if (session !== _prefetchSession) break
+    if (!item?.Id) continue
+    warmItunesArt(item)
+    // Cached lyrics used to `continue` straight past the gap below, which was
+    // right when they were the only request here. The cover warm-up is a
+    // request too, so the spacing now applies either way.
+    if (!_lyricsCache.has(item.Id)) {
+      await fetchLyricsWaterfall(item).catch(() => {})
+      if (session !== _prefetchSession) break
+    }
     await new Promise(r => setTimeout(r, 400))    // brief gap between API calls
   }
 }
@@ -3505,6 +3577,11 @@ function updateNowPlaying(item) {
     title: item.Name || '',
     artist: item.AlbumArtist || item.Artists?.[0] || '',
     album: item.Album || '',
+    // The track's own id, distinct from artItemId, which prefers AlbumId and so
+    // identifies the artwork rather than the song. A consumer correlating what is
+    // playing against a request queue needs an exact key: matching on artist and
+    // title strings is guesswork, and artItemId collides across a whole album.
+    trackId: item.Id || '',
     artItemId: item.AlbumId || item.Id || '',
     artImageTag: item.AlbumPrimaryImageTag || item.ImageTags?.Primary || '',
     durationMs: item.RunTimeTicks ? Math.round(item.RunTimeTicks / 10_000) : null,
@@ -3524,23 +3601,14 @@ function updateNowPlaying(item) {
   }
 
   // Discord RPC
-  rpcTrackStart = Date.now()
+  _syncRpcClock()
   updateDiscordPresence(item)
 
   // Album art accent: fetch for canvas color extraction (api_key is in URL, no extra header needed)
   // Skipped for video - the overlay shows the film, not a recoloured backdrop.
   if (themeAlbumArt && art && !video) {
     _currentBgArtUrl = art
-    fetch(art)
-      .then(r => r.blob())
-      .then(blob => {
-        const objectUrl = URL.createObjectURL(blob)
-        const img = new Image()
-        img.onload = () => { applyAlbumArtTheme(img); URL.revokeObjectURL(objectUrl) }
-        img.onerror = () => URL.revokeObjectURL(objectUrl)
-        img.src = objectUrl
-      })
-      .catch(() => {})
+    themeFromArtUrl(art)
   }
 
   // Upgrade to iTunes high-res art in normal mode (async - replaces Jellyfin art when resolved)
@@ -3565,16 +3633,7 @@ function updateNowPlaying(item) {
       }
       // Re-run color extraction with the higher-quality source
       if (themeAlbumArt) {
-        fetch(itunesUrl)
-          .then(r => r.blob())
-          .then(blob => {
-            const objectUrl = URL.createObjectURL(blob)
-            const img = new Image()
-            img.onload = () => { applyAlbumArtTheme(img); URL.revokeObjectURL(objectUrl) }
-            img.onerror = () => URL.revokeObjectURL(objectUrl)
-            img.src = objectUrl
-          })
-          .catch(() => {})
+        themeFromArtUrl(itunesUrl)
       }
     })
   }
@@ -3588,7 +3647,16 @@ function updateNowPlaying(item) {
 // Pushed on track change, play/pause and every timeupdate; main.js drops it on
 // the floor when no miniplayer window is open, so there is no need to track
 // that state here too.
+//
+// That drop keeps the renderer from duplicating window state, and it stays. But
+// the miniplayer is gated to unpackaged builds, so in a packaged build the
+// window can never exist and every push is built, serialised and structured-
+// cloned across IPC purely to be discarded - four times a second, all session.
+// Bail before doing that work. Safe despite _miniplayerEnabled being declared
+// with let further down the file: every caller is event-driven or runs after
+// load, so none of them reaches here during module evaluation.
 function pushMiniplayerState() {
+  if (!_miniplayerEnabled) return
   const item = queue[queueIndex]
   if (!item) { window.cascade.miniPlayer.updateState(null); return }
   const art = _currentHighResArtUrl || artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
@@ -3850,7 +3918,6 @@ function stopPlayback() {
 
   if (item) reportPlaybackStopped(item.Id, positionTicks)
 
-  _clearRpcPauseTimer()  // nothing left to restore the presence for
   window.cascade.discord.clear()
   document.getElementById('np-art').innerHTML = '♪'
   document.getElementById('np-info').innerHTML = '<span class="np-empty">Nothing playing</span>'
@@ -3874,6 +3941,15 @@ function stopProgressReporting() {
 ;['play', 'pause', 'seeked', 'volumechange'].forEach(ev =>
   onDeck(ev, reportPlaybackProgress)
 )
+
+// A seek moves the playback head without starting a new track, so Discord's
+// bar has to be re-anchored or it keeps drawing from the old position. Scrubbing
+// while paused only re-anchors: posting there would put the presence back up
+// and set the bar running against a track that is not playing.
+onDeck('seeked', () => {
+  _syncRpcClock()
+  if (!audio.paused) updateDiscordPresence(queue[queueIndex])
+})
 
 // ── Audio events ──────────────────────────────────────────────────────────────
 
@@ -3916,14 +3992,12 @@ onDeck('timeupdate', () => {
 onDeck('play', () => {
   document.getElementById('icon-play').style.display = 'none'
   document.getElementById('icon-pause').style.display = ''
-  if (_rpcPauseTimer) { clearTimeout(_rpcPauseTimer); _rpcPauseTimer = null }
-  if (_rpcClearedByPause) {
-    _rpcClearedByPause = false
-    // The presence was cleared while paused - recompute the start timestamp
-    // from where playback actually is, otherwise Discord's elapsed time
-    // counts straight through the time spent paused.
-    rpcTrackStart = Date.now() - Math.round(mediaPosition() * 1000)
-  }
+  // Re-anchor on every play, not just when resuming: a track can begin partway
+  // in (a video resume, or "play from here"), and time spent paused has to come
+  // off the clock either way. Both used to leave Discord counting from the
+  // wrong instant - invisible when it was only an elapsed number, obvious once
+  // there is a bar drawn from it.
+  _syncRpcClock()
   updateDiscordPresence(queue[queueIndex])
 })
 
@@ -3934,17 +4008,13 @@ onDeck('pause', () => {
   // two decks' pause state in sync - simplest behavior, least surprising.
   cancelCrossfade()
 
-  // Give the pause a minute before giving up on the presence, rather than
-  // blanking it the instant playback stops. Guarded on a loaded track so the
-  // 'pause' event stopPlayback() itself triggers (via audio.pause(), queued
-  // async - it fires after stopPlayback's own cleanup already ran) cannot
-  // re-arm a timer for a queue that no longer exists.
-  if (_rpcPauseTimer) clearTimeout(_rpcPauseTimer)
-  _rpcPauseTimer = (discordEnabled && queue[queueIndex]) ? setTimeout(() => {
-    _rpcPauseTimer = null
-    _rpcClearedByPause = true
-    window.cascade.discord.clear()
-  }, RPC_PAUSE_CLEAR_MS) : null
+  // Discord has no paused state. Its timestamps are wall-clock, so a presence
+  // left up while paused either runs the progress bar on without us or, with
+  // the timestamps removed, falls back to counting elapsed since it arrived.
+  // Both are a lie about where playback is, and neither can be frozen from
+  // here. Dropping the presence is the only honest option; 'play' puts it
+  // straight back.
+  window.cascade.discord.clear()
 })
 
 onDeck('ended', () => {
@@ -3986,7 +4056,7 @@ async function continueWithAutoMix(lastItem) {
   try {
     const data = await jfGet(`/Items/${lastItem.Id}/InstantMix`, {
       UserId: jf.userId, Limit: 25,
-      Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
+      Fields: 'AlbumId,AlbumPrimaryImageTag'
     })
     const items = (data.Items || []).filter(i => i.Id !== lastItem.Id)
     if (!items.length) return
@@ -4603,32 +4673,24 @@ likeBtn.addEventListener('click', toggleLike)
 
 // ── Shuffle All ───────────────────────────────────────────────────────────────
 
-// Shuffle a copy of items, then play it. Shared by every "Shuffle" button.
+// Turn shuffle on and play items from a random track. Shared by every "Shuffle"
+// button. playItems() does the shuffling and keeps items' own order as the
+// unshuffled queue; pre-shuffling here used to hand it an already random list,
+// so toggling shuffle off afterwards never restored the original order.
 function shuffleAndPlay(items) {
   if (!items.length) return
-  const order = shuffled(items)
-
-  // Store originals so toggling shuffle off restores order
-  _unshuffledQueue = items
   shuffle = true
   document.getElementById('btn-shuffle').classList.add('active')
   document.getElementById('ov-shuffle').classList.add('active')
 
-  playItems(order, 0)
+  playItems(items, Math.floor(Math.random() * items.length))
 }
 
 async function shuffleAllSongs() {
-  // Load songs if not yet fetched
   if (!allSongs.length) {
-    // No SortBy here - the result is shuffled immediately below, so making the
-    // server sort the whole library first would be wasted work. Paginate with
-    // jfGetAllPaged instead of jfGetMerged so libraries over 500 tracks aren't
-    // silently truncated.
-    const params = { IncludeItemTypes: 'Audio', Recursive: true, Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,UserData', Limit: 500 }
-    const data = await jfGetAllPaged(`/Users/${jf.userId}/Items`, params)
-    allSongs = data.Items || []
-    // If songs view is open, render the rows too
-    if (document.getElementById('songs-rows').dataset.loaded) renderSongRows()
+    await fetchAllSongs()
+    // loadSongs() renders the table itself once the shared fetch lands, so there
+    // is nothing to draw here.
   }
   shuffleAndPlay(allSongs)
 }
@@ -4695,6 +4757,13 @@ async function loadSettingsFields() {
   betaUpdatesToggle.onchange = async () => {
     await window.cascade.store.set('betaUpdates', betaUpdatesToggle.checked)
   }
+
+  // Lyric translation
+  document.getElementById('lyrics-translation-toggle').checked = lyricsTranslationEnabled
+  renderAppleTranslationRow()
+  window.cascade.translationModels.status()
+    .then(s => { _translationModels = s; renderTranslationModelRows() })
+    .catch(() => {})
 
   // Crossfade settings
   const crossfadeToggle = document.getElementById('crossfade-toggle')
@@ -4764,7 +4833,6 @@ async function loadSettingsFields() {
       window.cascade.discord.connect(clientId)
     } else {
       window.cascade.discord.connect(null) // disconnects
-      _clearRpcPauseTimer()
       window.cascade.discord.clear()
     }
   }
@@ -5161,6 +5229,19 @@ async function init() {
   await initDiscordRpc()
 
   crossfadeEnabled = (await window.cascade.store.get('crossfadeEnabled')) === true
+  lyricsTranslateOn = (await window.cascade.store.get('lyricsTranslateOn')) === true
+  // Only an explicit false switches the feature off; missing or corrupt means on.
+  lyricsTranslationEnabled = (await window.cascade.store.get('lyricsTranslationEnabled')) !== false
+  _appleTranslationSupported = await window.cascade.appleTranslation.supported().catch(() => false)
+  appleTranslationEnabled = (await window.cascade.store.get('appleTranslationEnabled')) !== false
+  {
+    // Stored values are untrusted: only real model keys survive.
+    const chosen = await window.cascade.store.get('appleTranslationMozillaChosen')
+    if (Array.isArray(chosen)) {
+      for (const k of chosen) if (CascadeCore.TRANSLATION_MODEL_KEYS.includes(k)) _appleMozillaChosen.add(k)
+    }
+  }
+  syncTranslateButtons()
   crossfadeSeconds = parseInt(await window.cascade.store.get('crossfadeSeconds'), 10) || 6
   maxStreamingBitrate = parseInt(await window.cascade.store.get('maxStreamingBitrate'), 10) || DEFAULT_MAX_BITRATE
 
@@ -5234,6 +5315,31 @@ function randomizeDrift() {
   _driftParams = CascadeCore.randomizeDrift()
 }
 
+// Every write to #np-overlay's background goes through here.
+//
+// The element is position: fixed inset: 0 and the queue, transport, album art
+// and lyrics all paint into that same layer, so each assignment re-rasters the
+// whole viewport - and assigning a value identical to the current one still
+// invalidates paint. The drift loop runs at ~15fps over periods of tens of
+// seconds and blobBackgroundCss rounds to one decimal, so most of those frames
+// produce a string that is already on the element.
+//
+// The cache lives here rather than in startBeatLoop's closure because three
+// other paths write this same property; a closure-local cache would go stale
+// behind them and skip a write that was actually needed.
+//
+// One cache for one element: every caller passes #np-overlay (the drift loop
+// and clearAlbumArtTheme look it up locally, refreshAmbient uses the npOverlay
+// const). Passing a second element here would make them share a cache and
+// suppress each other's writes, and #np-overlay must not be replaced in the
+// DOM either - a fresh element would start blank behind a stale cache.
+let _lastOverlayBgCss = null
+function setOverlayBackgroundImage(overlay, css) {
+  if (css === _lastOverlayBgCss) return
+  _lastOverlayBgCss = css
+  overlay.style.backgroundImage = css
+}
+
 function startBeatLoop() {
   if (_beatRafId) return
   const overlay = document.getElementById('np-overlay')
@@ -5251,7 +5357,7 @@ function startBeatLoop() {
     _lastBlobFrameTs = ts
     if (_blobColors.length > 0 && themeAlbumArt && _driftParams.length > 0) {
       const blobs = CascadeCore.driftedBlobs(_blobColors, _driftParams, Date.now() / 1000, _isLightTheme())
-      overlay.style.backgroundImage = CascadeCore.blobBackgroundCss(blobs)
+      setOverlayBackgroundImage(overlay, CascadeCore.blobBackgroundCss(blobs))
     }
   }
   frame()
@@ -5277,8 +5383,7 @@ function stopBeatLoop() {
 
 let _audioCtx = null
 let _mediaSrc = null    // MediaElementAudioSourceNode for the CURRENT deck, kept
-                         // updated at every crossfade handoff - wip-waterfall/
-                         // NOTES.md still names this as the tap point.
+                         // updated at every crossfade handoff.
 const _deckSourceNodes = new Map()   // deck element -> its permanent MediaElementAudioSourceNode
 const _deckGainNodes = new Map()     // deck element -> its permanent GainNode (crossfade envelope only)
 let _eqPreamp = null     // shared GainNode, auto or manual makeup gain for the bands below
@@ -5604,6 +5709,11 @@ function startEqLoop() {
 
 function stopEqLoop() {
   if (_eqRafId) { cancelAnimationFrame(_eqRafId); _eqRafId = null }
+  // A stopped loop is not a silent one. Left set, a run of zeros that began
+  // before a pause (a quiet intro, say) is still counting when play resumes
+  // minutes later, so the first frame back reads the whole pause as silence,
+  // trips EQ_SILENCE_MS, sets _eqNoSignal and freezes the bars for the session.
+  _eqSilentSinceTs = 0
   // Drop 'live' off whatever currently has it so the CSS animation resumes -
   // covers both a normal stop and the silence-fallback giving up permanently.
   document.querySelectorAll('.track-eq.live').forEach(el => el.classList.remove('live'))
@@ -5632,23 +5742,14 @@ function openOverlay() {
   if (themeAlbumArt && !playingVideo()) {
     if (_blobColors.length > 0) {
       npOverlay.style.backgroundColor = _blobBaseColor()
-      npOverlay.style.backgroundImage = buildBlobBackground(_blobColors, _isLightTheme())
+      setOverlayBackgroundImage(npOverlay, buildBlobBackground(_blobColors, _isLightTheme()))
       npOverlay.classList.add('art-theme')
     }
     const item = queue[queueIndex]
     if (item) {
       const art = _currentHighResArtUrl || artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
       if (art) {
-        fetch(art)
-          .then(r => r.blob())
-          .then(blob => {
-            const objectUrl = URL.createObjectURL(blob)
-            const img = new Image()
-            img.onload = () => { applyAlbumArtTheme(img); URL.revokeObjectURL(objectUrl) }
-            img.onerror = () => URL.revokeObjectURL(objectUrl)
-            img.src = objectUrl
-          })
-          .catch(() => {})
+        themeFromArtUrl(art)
       }
     }
   }
@@ -6300,24 +6401,24 @@ async function renderOverlayLyrics() {
 
   // Detect language and show translate button if non-English
   detectOverlayLyricsLanguage()
+  ensureLyricsTranslation()
 }
 
-let ovLyricsTranslated = false
 
-function renderOverlayLyricLines(translated = false) {
+function renderOverlayLyricLines() {
   const body = document.getElementById('ov-lyrics-body')
   body.innerHTML = lyricsData.map((line, i) => {
     const hasTimestamp = line.Start != null
-    const transText = translated && lyricsTranslated[i]
-    let content
-    if (line.Words && !transText) {
-      content = line.Words.map(w =>
-        `<span class="ov-lyric-word" data-ws="${w.Start}" data-we="${w.End ?? ''}">${esc(w.Text)}</span>`
-      ).join('')
-    } else {
-      content = esc(transText ? lyricsTranslated[i] : (line.Text || ''))
-    }
-    return `<div class="ov-lyric-line${hasTimestamp ? ' seekable' : ''}" data-idx="${i}"${hasTimestamp ? ` data-start="${line.Start}"` : ''}>${content}</div>`
+    // The original always stays, karaoke fill included; a translation sits
+    // under it inside the same element, so the line's height (which the scroll
+    // spring centres on) and its click-to-seek both cover the pair.
+    const content = line.Words
+      ? line.Words.map(w =>
+          `<span class="ov-lyric-word" data-ws="${w.Start}" data-we="${w.End ?? ''}">${esc(w.Text)}</span>`
+        ).join('')
+      : esc(line.Text || '')
+    const trans = lyricTranslationFor(i)
+    return `<div class="ov-lyric-line${hasTimestamp ? ' seekable' : ''}" data-idx="${i}"${hasTimestamp ? ` data-start="${line.Start}"` : ''}>${content}${trans ? `<div class="ov-lyric-trans">${esc(trans)}</div>` : ''}</div>`
   }).join('')
   body.querySelectorAll('.ov-lyric-line.seekable').forEach(el => {
     el.addEventListener('click', () => {
@@ -6331,60 +6432,138 @@ function renderOverlayLyricLines(translated = false) {
   })
 }
 
-async function detectOverlayLyricsLanguage() {
-  const btn = document.getElementById('ov-translate-btn')
-  btn.style.display = 'none'
-  ovLyricsTranslated = false
-  btn.classList.remove('translated')
-  const sample = lyricsData.find(l => l.Text?.trim())?.Text?.trim()
-  if (!sample) return
-  try {
-    const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(sample.slice(0, 100))}&langpair=autodetect|en`)
-    const data = await res.json()
-    const detected = data.responseData?.detectedLanguage || ''
-    if (detected && !detected.toLowerCase().startsWith('en')) btn.style.display = 'flex'
-  } catch {}
+// ── On-device lyrics translation ──────────────────────────────────────────────
+//
+// Was MyMemory's free API. Every lyric line the user played left the machine,
+// and the language *detection* calls did it automatically with no click and no
+// setting, which made playback history readable by a third party. Both halves
+// now run locally: franc for detection, and Mozilla's Firefox Translations
+// models (Marian, run by the bergamot WASM runtime vendored into
+// build/bergamot/ by scripts/build-bergamot.js) for translation.
+//
+// Each model translates one language into English and is downloaded on first
+// use by main.js - see translation-models.json. There is one BatchTranslator per
+// model, created lazily: translator.js keys models by from+to, so Simplified and
+// Traditional Chinese can only coexist as separate translators, each reading a
+// registry that holds just its own model.
+//
+// Translators are retired once nothing has asked for a translation in
+// TRANSLATE_IDLE_MS. A loaded model lives in its translator's worker, so this is
+// what hands that memory back after a song or two instead of holding it all
+// session. The next translation after an idle spell reloads the model from disk.
+
+const TRANSLATE_IDLE_MS = 5 * 60_000
+const _translators = new Map()   // model key -> Bergamot.BatchTranslator
+let _translateBusy = 0
+let _translateIdleTimer = null
+
+// Translated lines, remembered for the rest of the session so going back to a
+// song, or a chorus shared across a sheet, costs nothing the second time. Keyed
+// by engine, model and exact line text ("apple|ja|..." - neither ever contains "|"),
+// least recently used dropped first. Memory only: translating a line takes a
+// fraction of a second, so a disk cache would be a second store of lyric text
+// for no noticeable gain.
+// ponytail: in-memory LRU; persist it if re-translating after a restart ever
+// measures as slow.
+const TRANSLATION_CACHE_LINES = 5000
+const _translatedLines = new Map()
+function _rememberedLine(cacheKey) {
+  const text = _translatedLines.get(cacheKey)
+  if (text !== undefined) { _translatedLines.delete(cacheKey); _translatedLines.set(cacheKey, text) }
+  return text
+}
+function _rememberLine(cacheKey, text) {
+  _translatedLines.set(cacheKey, text)
+  if (_translatedLines.size > TRANSLATION_CACHE_LINES) _translatedLines.delete(_translatedLines.keys().next().value)
 }
 
-document.getElementById('ov-translate-btn').addEventListener('click', async () => {
-  const btn = document.getElementById('ov-translate-btn')
+function _retireTranslators() {
+  _translateIdleTimer = null
+  if (_translateBusy) return   // never pull a worker out from under a translation
+  for (const t of _translators.values()) t.delete()
+  _translators.clear()
+}
 
-  // Toggle back to original
-  if (ovLyricsTranslated) {
-    ovLyricsTranslated = false
-    btn.classList.remove('translated')
-    btn.title = 'Translate to English'
-    renderOverlayLyricLines(false)
-    return
+function _translatorFor(key) {
+  let t = _translators.get(key)
+  if (!t) {
+    t = new Bergamot.BatchTranslator({
+      registryUrl: `cascade-model://app/models/registry.json?key=${encodeURIComponent(key)}`,
+      workers: 1,
+    })
+    _translators.set(key, t)
   }
+  return t
+}
 
-  btn.classList.add('loading')
+/** Forget a model's translator: after a failure, or once the model is removed. */
+function dropTranslator(key) {
+  _translators.get(key)?.delete()
+  _translators.delete(key)
+}
 
+/** Translates `lines` into English with model `key`, positionally: the result is
+ *  the same length as the input and blank lines stay blank. Repeated lines are
+ *  translated once, since a lyric sheet is mostly chorus. One line per call:
+ *  lines are lyrics, not sentences, and batching them would let one line's
+ *  context bleed into the next. It is also what keeps progress meaningful with
+ *  Apple, whose own batch call returns everything at once.
+ *  `engine` is 'mozilla' (the bergamot translators here) or 'apple' (the macOS
+ *  helper in main.js). */
+async function translateLines(lines, key, onProgress, engine = 'mozilla') {
+  clearTimeout(_translateIdleTimer)
+  _translateIdleTimer = null
+  _translateBusy++
   try {
-    // Reuse existing translation if already fetched by the side panel
-    if (!lyricsTranslated.length || lyricsTranslated.every(t => !t)) {
-      const lines = lyricsData.map(l => l.Text || '')
-      const chunkSize = 10
-      lyricsTranslated = new Array(lines.length).fill('')
-      for (let i = 0; i < lines.length; i += chunkSize) {
-        const chunk = lines.slice(i, i + chunkSize)
-        const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(chunk.join('\n'))}&langpair=autodetect|en`
-        const res = await fetch(url)
-        const data = await res.json()
-        const translated = (data.responseData?.translatedText || chunk.join('\n')).split('\n')
-        translated.forEach((t, j) => { lyricsTranslated[i + j] = t })
+    const out = new Array(lines.length).fill('')
+    const unique = new Map()
+    lines.forEach((line, i) => {
+      const text = line.trim()
+      if (!text) return
+      if (!unique.has(text)) unique.set(text, [])
+      unique.get(text).push(i)
+    })
+    const from = key.slice(0, 2)
+    let done = 0
+    for (const [text, indexes] of unique) {
+      // The engine is part of the key: both translate the same languages, and
+      // switching engines must not serve the other one's output from memory.
+      const cacheKey = `${engine}|${key}|${text}`
+      let english = _rememberedLine(cacheKey)
+      if (english === undefined) {
+        english = engine === 'apple'
+          ? await window.cascade.appleTranslation.translate(key, text)
+          : (await _translatorFor(key).translate({ from, to: 'en', text, html: false })).target.text
+        _rememberLine(cacheKey, english)
       }
+      for (const i of indexes) out[i] = english
+      onProgress?.({ done: ++done, total: unique.size })
     }
-    ovLyricsTranslated = true
-    btn.classList.add('translated')
-    btn.title = 'Show original'
-    renderOverlayLyricLines(true)
+    return out
   } catch (e) {
-    console.error('Overlay translation failed', e)
+    // A translator whose worker died or whose model would not load must not be
+    // reused; the next attempt builds a fresh one. (Apple's helper restarts
+    // itself in main.js.)
+    if (engine === 'mozilla') dropTranslator(key)
+    throw e
   } finally {
-    btn.classList.remove('loading')
+    if (!--_translateBusy) _translateIdleTimer = setTimeout(_retireTranslators, TRANSLATE_IDLE_MS)
   }
-})
+}
+
+function lyricsPlainLines() {
+  return lyricsData.map(l => l.Text || '')
+}
+
+// Only a sheet one of the downloadable models can translate gets a Translate
+// button: offering one for, say, Spanish would be a button that can only fail.
+function detectOverlayLyricsLanguage() {
+  syncTranslateButtons()
+  document.getElementById('ov-translate-btn').style.display =
+    lyricsTranslationEnabled && CascadeCore.translationModelFor(lyricsPlainLines()) ? 'flex' : 'none'
+}
+
+document.getElementById('ov-translate-btn').addEventListener('click', () => onTranslateButton())
 
 // Lightweight critically-damped-ish spring for scroll position. Unlike a CSS
 // transition, it carries velocity across target changes - when a new line
@@ -6636,7 +6815,7 @@ document.getElementById('ctx-instant-mix').addEventListener('click', async () =>
   try {
     const data = await jfGet(`/Items/${item.Id}/InstantMix`, {
       UserId: jf.userId, Limit: 25,
-      Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag'
+      Fields: 'AlbumId,AlbumPrimaryImageTag'
     })
     if (data.Items?.length) playItems(data.Items, 0)
   } catch (e) { console.error('Instant mix failed', e) }
@@ -7388,7 +7567,7 @@ window.cascade.metadataEditor.onSaved(async (itemId) => {
   try {
     const res = await jfGet(`/Users/${jf.userId}/Items`, {
       Ids: itemId,
-      Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,UserData',
+      Fields: 'AlbumId,AlbumPrimaryImageTag,UserData',
     })
     const fresh = res?.Items?.[0]
     // The track playing may have moved on while this was in flight.
@@ -7445,40 +7624,47 @@ function _wordProgress(w, nowTicks) {
   return (nowTicks - ws) / (we - ws) * 100
 }
 
+// Paint the karaoke fill across one line's word spans. Both callers below had
+// this body byte for byte, differing only in element ids and class names.
+//
+// The --p write is skipped when the value has not changed: _wordProgress pins a
+// word to 0 before it starts and 100 once it ends, so on any given frame every
+// span but one is being rewritten with what it already holds - and each write
+// invalidates a background-clip: text gradient sitting under a drop-shadow,
+// which is the most expensive text paint in index.html.
+function _paintWordSpans(line, nowTicks) {
+  line?.querySelectorAll('.lyric-word, .ov-lyric-word').forEach(w => {
+    const p = `${_wordProgress(w, nowTicks).toFixed(2)}%`
+    if (w.style.getPropertyValue('--p') !== p) w.style.setProperty('--p', p)
+    const ws = parseInt(w.dataset.ws)
+    const we = w.dataset.we ? parseInt(w.dataset.we) : null
+    w.classList.toggle('active', nowTicks >= ws && (!we || nowTicks < we))
+  })
+}
+
 function _wordHighlightFrame() {
   _wordRafId = requestAnimationFrame(_wordHighlightFrame)
   const nowTicks = (audio.currentTime + 0.225) * 10_000_000
 
   // Side panel - CSS scoping (.lyrics-line.active .lyric-word) handles inactive lines.
-  // Guard on the view actually being visible: the panel stays mounted (just hidden via
-  // CSS) when the user navigates elsewhere, so without this the loop would keep querying
-  // and restyling word spans at 60fps for the entire track even off-screen.
+  // Guard on the panel being open, which is exactly "the user can see this":
+  // .lyrics-panel is position: fixed above every view, so it is NOT hidden by
+  // navigating elsewhere and .open is the whole condition. This guard read
+  // getElementById('view-lyrics') until 2026-09-15; no such element has ever
+  // existed (the only match is #ctx-view-lyrics, a context menu item), so the
+  // optional chain yielded undefined and this branch never ran once.
   const panelIdx = lastLyricsIdx
-  if (document.getElementById('view-lyrics')?.classList.contains('active') && lyricsData[panelIdx]?.Words) {
-    document.getElementById('lyrics-inner')
-      ?.querySelector(`.lyrics-line[data-idx="${panelIdx}"]`)
-      ?.querySelectorAll('.lyric-word').forEach(w => {
-        const p = _wordProgress(w, nowTicks)
-        w.style.setProperty('--p', `${p.toFixed(2)}%`)
-        const ws = parseInt(w.dataset.ws)
-        const we = w.dataset.we ? parseInt(w.dataset.we) : null
-        w.classList.toggle('active', nowTicks >= ws && (!we || nowTicks < we))
-      })
+  if (lyricsPanelOpen() && lyricsData[panelIdx]?.Words) {
+    _paintWordSpans(document.getElementById('lyrics-inner')
+      ?.querySelector(`.lyrics-line[data-idx="${panelIdx}"]`), nowTicks)
   }
 
   // Overlay - same: CSS scoping handles inactive lines automatically
   if (overlayOpen && overlayLyricsOpen) {
     const ovIdx = lastOverlayLyricsIdx
     if (lyricsData[ovIdx]?.Words) {
-      document.getElementById('ov-lyrics-body')
-        ?.querySelector(`.ov-lyric-line[data-idx="${ovIdx}"]`)
-        ?.querySelectorAll('.ov-lyric-word').forEach(w => {
-          const p = _wordProgress(w, nowTicks)
-          w.style.setProperty('--p', `${p.toFixed(2)}%`)
-          const ws = parseInt(w.dataset.ws)
-          const we = w.dataset.we ? parseInt(w.dataset.we) : null
-          w.classList.toggle('active', nowTicks >= ws && (!we || nowTicks < we))
-        })
+      _paintWordSpans(document.getElementById('ov-lyrics-body')
+        ?.querySelector(`.ov-lyric-line[data-idx="${ovIdx}"]`), nowTicks)
     }
   }
 }
@@ -7503,6 +7689,11 @@ function showLyrics() {
   fetchLyrics()
 }
 function hideLyrics() { document.getElementById('lyrics-panel').classList.remove('open') }
+
+// The panel is position: fixed above every view, so .open is the whole answer to
+// "can the user see this" - navigating elsewhere does not hide it. Both lyrics
+// loops guard on this to stay off the CPU while the panel is closed.
+function lyricsPanelOpen() { return document.getElementById('lyrics-panel').classList.contains('open') }
 
 document.getElementById('lyrics-close').addEventListener('click', hideLyrics)
 
@@ -7678,6 +7869,14 @@ async function fetchLyricsWaterfall(item) {
   }
 
   _lastFetchStatus = tried
+  // Cache the miss too, not just the hits. Both readers gate on .has(), so an
+  // uncached miss meant every track with no lyrics anywhere re-ran all three
+  // sources on every single advance - for the track AND for the five that
+  // _prefetchUpcoming looks ahead at. On an instrumental album that is the
+  // whole waterfall, per track, forever. A forced source still bypasses the
+  // cache above, and _reloadLyricsFor() stays the escape hatch if a source was
+  // merely down rather than actually missing the track.
+  if (!forced) _cachePut(item.Id, null)
   return null
 }
 
@@ -7718,45 +7917,34 @@ async function fetchLyrics() {
   updateSourcePills()
   renderLyrics()
   detectAndShowTranslateBar()
+  ensureLyricsTranslation()
   _stopWordLoop()
   if (!audio.paused) _startWordLoop()
 }
 
-async function detectAndShowTranslateBar() {
-  // Sample the first non-empty line for language detection
-  const sample = lyricsData.find(l => l.Text?.trim())?.Text?.trim()
-  if (!sample) return
-  try {
-    const res = await fetch(
-      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(sample.slice(0, 100))}&langpair=autodetect|en`
-    )
-    const data = await res.json()
-    const detected = data.responseData?.detectedLanguage || ''
-    // Show translate bar if detected language is not English
-    if (detected && !detected.toLowerCase().startsWith('en')) {
-      // Pre-select a sensible target language
-      document.getElementById('lyrics-translate-bar').classList.add('visible')
-    }
-  } catch {
-    // Detection failed silently - leave bar hidden
-  }
+function detectAndShowTranslateBar() {
+  // The whole sheet, not the first line: a song opening on an English title line
+  // must still read as the language the rest of it is in.
+  const key = lyricsTranslationEnabled && CascadeCore.translationModelFor(lyricsPlainLines())
+  document.getElementById('lyrics-translate-bar').classList.toggle('visible', !!key)
+  document.getElementById('lyrics-translate-label').textContent = key ? `${_translationModelName(key)} lyrics` : ''
 }
 
-function renderLyrics(showTranslation = false) {
+function renderLyrics() {
   const body = document.getElementById('lyrics-body')
   const lines = lyricsData.map((line, i) => {
     const hasTimestamp = line.Start != null
-    const transText = showTranslation && lyricsTranslated[i]
-    const trans = transText ? `<div class="lyrics-line translated">${esc(lyricsTranslated[i])}</div>` : ''
-    let content
-    if (line.Words && !transText) {
-      content = line.Words.map(w =>
-        `<span class="lyric-word" data-ws="${w.Start}" data-we="${w.End ?? ''}">${esc(w.Text)}</span>`
-      ).join('')
-    } else {
-      content = esc(transText ? lyricsTranslated[i] : (line.Text || ''))
-    }
-    return `<div class="lyrics-line${hasTimestamp ? ' seekable' : ''}" data-idx="${i}"${hasTimestamp ? ` data-start="${line.Start}"` : ''}>${content}</div>${trans}`
+    // Same shape as the overlay: original (karaoke intact) with the translation
+    // nested under it. This used to replace the line's text with the translation
+    // AND append the translation again as a sibling, so a translated sheet showed
+    // every translation twice and the original not at all.
+    const content = line.Words
+      ? line.Words.map(w =>
+          `<span class="lyric-word" data-ws="${w.Start}" data-we="${w.End ?? ''}">${esc(w.Text)}</span>`
+        ).join('')
+      : esc(line.Text || '')
+    const trans = lyricTranslationFor(i)
+    return `<div class="lyrics-line${hasTimestamp ? ' seekable' : ''}" data-idx="${i}"${hasTimestamp ? ` data-start="${line.Start}"` : ''}>${content}${trans ? `<div class="lyric-trans">${esc(trans)}</div>` : ''}</div>`
   }).join('')
 
   // Wrap in a translateY-driven inner div - position is spring-animated in JS
@@ -7787,6 +7975,12 @@ let lyricsScrollTimer = null
 
 onDeck('timeupdate', () => {
   if (!lyricsData.length) return
+  // Nothing below is visible with the panel closed, and all of it is expensive:
+  // a class pass over every line, then clientHeight/offsetTop reads that force
+  // synchronous layout, then a spring that starts its own rAF. Safe to bail
+  // outright rather than keep the index in sync, because showLyrics() always
+  // routes through fetchLyrics(), which resets lastLyricsIdx and redraws.
+  if (!lyricsPanelOpen()) return
   // Same lookahead as word-fill (_wordHighlightFrame) so the last word's fill
   // animation and the line-promotion check complete in lockstep - no gap in
   // either direction (mid-fill cutoff if promotion is earlier, a visible
@@ -7807,9 +8001,14 @@ onDeck('timeupdate', () => {
   }
 
   if (activeIdx === lastLyricsIdx) return
-  const instant = activeIdx > baseIdx
-  lastLyricsIdx = activeIdx
+  _applySideLyricsActive(activeIdx, activeIdx > baseIdx)
+})
 
+// Highlight and centre one line in the side panel. Split out of the timeupdate
+// handler so a re-render (a translation arriving, say) can put the highlight
+// back straight away - while paused, no timeupdate would come to do it.
+function _applySideLyricsActive(activeIdx, instant) {
+  lastLyricsIdx = activeIdx
   const body = document.getElementById('lyrics-body')
   body.querySelectorAll('.lyrics-line[data-idx]').forEach(el => {
     el.classList.toggle('active', parseInt(el.dataset.idx) === activeIdx)
@@ -7826,38 +8025,419 @@ onDeck('timeupdate', () => {
       else sideLyricsSpring.setTarget(y)
     }
   }
-})
+}
 
-// Translation via MyMemory free API
-document.getElementById('lyrics-translate-btn').addEventListener('click', async () => {
-  if (!lyricsData.length) return
-  const btn = document.getElementById('lyrics-translate-btn')
-  const lang = document.getElementById('lyrics-lang').value
-  btn.disabled = true; btn.textContent = 'Translating…'
+document.getElementById('lyrics-translate-btn').addEventListener('click', () => onTranslateButton())
 
-  try {
-    // Batch lines into chunks to avoid URL length limits
-    const lines = lyricsData.map(l => l.Text || '')
-    const chunkSize = 10
-    lyricsTranslated = new Array(lines.length).fill('')
+// ── Translation state shared by both lyric views ──────────────────────────────
+//
+// One switch, remembered across songs and restarts: turn it on and every later
+// foreign-language sheet translates as soon as it is on screen, in either view.
+// Nothing is translated while neither view is showing lyrics.
 
-    for (let i = 0; i < lines.length; i += chunkSize) {
-      const chunk = lines.slice(i, i + chunkSize)
-      const joined = chunk.join('\n')
-      const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(joined)}&langpair=autodetect|${lang}`
-      const res = await fetch(url)
-      const data = await res.json()
-      const translated = (data.responseData?.translatedText || joined).split('\n')
-      translated.forEach((t, j) => { lyricsTranslated[i + j] = t })
-    }
-    renderLyrics(true)
-  } catch (e) {
-    console.error('Translation failed', e)
-  } finally {
-    btn.disabled = false
-    btn.textContent = 'Translate'
+let _lyricsTranslatedFor = null   // the lyricsData array lyricsTranslated was made from
+let _lyricsTranslating = null     // { sheet, key, promise } while one is in flight
+let _translateStatus = ''         // transient button label: download or translate progress, 'Failed'
+let _translateStatusTimer = null
+
+// Names and sizes of the downloadable models, straight from main.js's manifest,
+// so the renderer never keeps its own copy to drift. Kept current from progress
+// events; the key itself shows only if a label renders before the first read.
+let _translationModels = {}
+const _translationModelName = key => _translationModels[key]?.name || key
+
+window.cascade.translationModels.status().then(s => { _translationModels = s }).catch(() => {})
+
+window.cascade.translationModels.onProgress(p => {
+  if (_translationModels[p.key]) {
+    _translationModels[p.key].state = p.state
+    _translationModels[p.key].transferred = p.transferred
+  }
+  if (p.state === 'absent') dropTranslator(p.key)
+  updateTranslationModelRow(p.key)
+  if (_lyricsTranslating?.key === p.key && p.state === 'downloading' && p.total) {
+    _flashTranslateStatus(`Downloading ${Math.round(p.transferred / p.total * 100)}%`, 0)
   }
 })
+
+// Said once per model per session, the moment a download actually starts. The
+// wizard and Settings carry the full disclosure; this is the "it's happening
+// now". Toasts can be switched off, which is fine for that reason.
+const _announcedDownloads = new Set()
+function _announceModelDownload(key) {
+  if (_announcedDownloads.has(key)) return
+  _announcedDownloads.add(key)
+  const m = _translationModels[key]
+  showToast(`Downloading the ${_translationModelName(key)} translation model${m ? ` (${Math.round(m.bytes / 1e6)} MB)` : ''}`, 3500)
+}
+
+// ── Apple Translation or Mozilla's models ─────────────────────────────────────
+//
+// On a Mac that supports it (macOS 26+), Apple's built-in translation is the
+// default: more accurate, and nothing downloads through Cascade. It needs each
+// language installed in macOS. When a song's language is installable but not
+// installed, the Translate press asks rather than quietly downloading Mozilla's
+// model: install it in macOS (recommended), or use Cascade's model for that
+// language. That choice is remembered per language, and only applies while the
+// language is missing from macOS, so installing it later brings Apple back.
+
+let _pendingInstallKey = null   // the sheet's language, while it waits on macOS
+
+const _appleInUse = () => _appleTranslationSupported && appleTranslationEnabled
+
+async function _translationEngineFor(key) {
+  if (!_appleInUse()) return 'mozilla'
+  const status = await window.cascade.appleTranslation.availability()
+  return CascadeCore.pickTranslationEngine({
+    appleEnabled: true,
+    appleStatus: status[key],
+    mozillaChosen: _appleMozillaChosen.has(key),
+  })
+}
+
+function openAppleInstallPrompt(key) {
+  const name = _translationModelName(key)
+  const m = _translationModels[key]
+  const modal = document.getElementById('apple-install-modal')
+  modal.dataset.key = key
+  document.getElementById('apple-install-title').textContent = `Install ${name} in macOS?`
+  document.getElementById('apple-install-lang').textContent = name
+  document.getElementById('apple-install-mozilla').textContent =
+    `Use Cascade's model${m ? ` (${Math.round(m.bytes / 1e6)} MB)` : ''}`
+  modal.classList.remove('hidden')
+}
+
+function _closeAppleInstallPrompt() {
+  document.getElementById('apple-install-modal').classList.add('hidden')
+}
+
+// Cancel and "Open System Settings" both leave the song untranslated for now,
+// so the Translate button goes back to plain Translate: after installing the
+// language, pressing it again is all that is needed.
+document.getElementById('apple-install-open').addEventListener('click', () => {
+  _closeAppleInstallPrompt()
+  window.cascade.appleTranslation.openSettings()
+  setLyricsTranslateOn(false)
+})
+document.getElementById('apple-install-cancel').addEventListener('click', () => {
+  _closeAppleInstallPrompt()
+  setLyricsTranslateOn(false)
+})
+document.getElementById('apple-install-mozilla').addEventListener('click', () => {
+  const key = document.getElementById('apple-install-modal').dataset.key
+  _closeAppleInstallPrompt()
+  if (!CascadeCore.TRANSLATION_MODEL_KEYS.includes(key)) return
+  _appleMozillaChosen.add(key)
+  window.cascade.store.set('appleTranslationMozillaChosen', [..._appleMozillaChosen])
+  _pendingInstallKey = null
+  _flashTranslateStatus('', 0)
+  ensureLyricsTranslation(true)
+  renderAppleTranslationRow()
+})
+
+// Both Translate buttons. While a sheet is waiting on its language, the button
+// reads "Install Korean…" and pressing it asks again instead of switching off.
+function onTranslateButton() {
+  if (lyricsTranslateOn && _pendingInstallKey) return openAppleInstallPrompt(_pendingInstallKey)
+  setLyricsTranslateOn(!lyricsTranslateOn)
+}
+
+// The one path for the Settings toggle.
+async function setAppleTranslationEnabled(enabled) {
+  appleTranslationEnabled = enabled
+  const toggle = document.getElementById('apple-translation-toggle')
+  if (toggle) toggle.checked = enabled
+  // The translation on screen came from the other engine, which is no longer
+  // the one asked for: drop it and translate again.
+  _pendingInstallKey = null
+  _lyricsTranslatedFor = null
+  _flashTranslateStatus('', 0)
+  rerenderLyricViews()
+  ensureLyricsTranslation()
+  renderAppleTranslationRow()
+  await window.cascade.store.set('appleTranslationEnabled', enabled)
+}
+
+async function renderAppleTranslationRow() {
+  const row = document.getElementById('apple-translation-row')
+  if (!_appleTranslationSupported) { row.style.display = 'none'; return }
+  row.style.display = ''
+  document.getElementById('apple-translation-toggle').checked = appleTranslationEnabled
+  document.getElementById('apple-translation-reset').style.display = _appleMozillaChosen.size ? '' : 'none'
+  const statusEl = document.getElementById('apple-translation-status')
+  try {
+    const status = await window.cascade.appleTranslation.availability()
+    const names = keys => keys.map(_translationModelName).join(', ')
+    const keys = CascadeCore.TRANSLATION_MODEL_KEYS
+    const installed = keys.filter(k => status[k] === 'installed')
+    const missing = keys.filter(k => status[k] === 'supported')
+    const parts = []
+    if (installed.length) parts.push(`Installed in macOS: ${names(installed)}.`)
+    if (missing.length) {
+      parts.push(`Not installed: ${missing.map(k => _translationModelName(k) + (_appleMozillaChosen.has(k) ? ' (using Cascade’s model)' : '')).join(', ')}.`)
+    }
+    statusEl.textContent = parts.join(' ')
+  } catch {
+    statusEl.textContent = 'Could not check which languages are installed in macOS.'
+  }
+}
+
+document.getElementById('apple-translation-toggle').addEventListener('change', e => setAppleTranslationEnabled(e.target.checked))
+document.getElementById('apple-translation-open').addEventListener('click', () => window.cascade.appleTranslation.openSettings())
+document.getElementById('apple-translation-reset').addEventListener('click', () => {
+  _appleMozillaChosen.clear()
+  window.cascade.store.set('appleTranslationMozillaChosen', [])
+  // A sheet showing Cascade's model for a language Apple could handle should
+  // go back to asking.
+  _lyricsTranslatedFor = null
+  rerenderLyricViews()
+  ensureLyricsTranslation()
+  renderAppleTranslationRow()
+})
+
+// ── Lyric translation in Settings: the feature switch and the models ──────────
+
+// The feature switch, deliberately separate from lyricsTranslateOn: this one
+// says whether translation exists at all (default on), that one whether
+// translations are showing right now (default off). Off hides both Translate
+// buttons, strips any translation already on screen, and nothing downloads.
+// The one code path for Settings and the first-run wizard alike.
+async function setLyricsTranslationEnabled(enabled) {
+  lyricsTranslationEnabled = enabled
+  for (const id of ['lyrics-translation-toggle', 'fr-lyrics-translation-toggle']) {
+    const el = document.getElementById(id)
+    if (el) el.checked = enabled
+  }
+  if (lyricsData.length) {
+    detectAndShowTranslateBar()
+    detectOverlayLyricsLanguage()
+  }
+  rerenderLyricViews()
+  renderTranslationModelRows()
+  if (enabled) ensureLyricsTranslation()
+  await window.cascade.store.set('lyricsTranslationEnabled', enabled)
+}
+
+document.getElementById('lyrics-translation-toggle').addEventListener('change', e => setLyricsTranslationEnabled(e.target.checked))
+
+// Last download failure per model, this session, shown on its row until the
+// next attempt.
+const _translationModelErrors = {}
+
+// ipcRenderer.invoke wraps a main-process throw as "Error invoking remote
+// method 'x': Error: <message>"; only the message means anything to a person.
+const _ipcErrorMessage = err =>
+  String(err?.message || err).replace(/^Error invoking remote method '[^']*': (Error: )?/, '')
+
+const _mb = bytes => `${Math.round(bytes / 1e6)} MB`
+
+function renderTranslationModelRows() {
+  const list = document.getElementById('translation-models-list')
+  const keys = Object.keys(_translationModels)
+  // Rows are built once, then updated in place: a download sends several
+  // progress events a second, and rebuilding would swap out the button under
+  // the pointer mid-click on the other rows.
+  if (list.children.length !== keys.length) {
+    list.innerHTML = keys.map(key => `
+      <div class="setting-row tm-row" data-key="${esc(key)}">
+        <div class="setting-label">
+          <span class="setting-name">${esc(_translationModelName(key))}</span>
+          <span class="setting-desc tm-status"></span>
+          <div class="tm-bar" hidden><div class="tm-bar-fill"></div></div>
+        </div>
+        <div class="tm-actions"></div>
+      </div>`).join('')
+  }
+  for (const key of keys) updateTranslationModelRow(key)
+}
+
+function updateTranslationModelRow(key) {
+  const row = document.querySelector(`#translation-models-list .tm-row[data-key="${CSS.escape(key)}"]`)
+  const m = _translationModels[key]
+  if (!row || !m) return
+  const pct = m.state === 'downloading' && m.bytes ? Math.round(m.transferred / m.bytes * 100) : 0
+  row.querySelector('.tm-status').textContent =
+    m.state === 'ready' ? `Downloaded · ${_mb(m.bytes)}`
+    : m.state === 'downloading' ? `Downloading ${pct}% · ${_mb(m.transferred)} of ${_mb(m.bytes)}`
+    : _translationModelErrors[key] ? `Download failed: ${_translationModelErrors[key]}`
+    : `Not downloaded · ${_mb(m.bytes)}`
+  row.querySelector('.tm-bar').hidden = m.state !== 'downloading'
+  row.querySelector('.tm-bar-fill').style.width = `${pct}%`
+
+  // Buttons change only when the state (or the feature switch) does. Remove
+  // stays available with translation switched off, so the space can still be
+  // freed; fetching anything new does not.
+  const actions = row.querySelector('.tm-actions')
+  const signature = `${m.state}:${lyricsTranslationEnabled}`
+  if (actions.dataset.signature === signature) return
+  actions.dataset.signature = signature
+  const off = lyricsTranslationEnabled ? '' : ' disabled'
+  actions.innerHTML =
+    m.state === 'ready'
+      ? `<button class="btn btn-secondary" data-action="redownload"${off}>Redownload</button><button class="btn btn-danger" data-action="remove">Remove</button>`
+    : m.state === 'absent'
+      ? `<button class="btn btn-secondary" data-action="download"${off}>Download</button>`
+    : '<button class="btn btn-secondary" disabled>Downloading…</button>'
+}
+
+document.getElementById('translation-models-list').addEventListener('click', async e => {
+  const btn = e.target.closest('button[data-action]')
+  const row = btn?.closest('.tm-row')
+  if (!btn || !row || btn.disabled) return
+  const key = row.dataset.key
+  const action = btn.dataset.action
+  const state = _translationModels[key]?.state
+  // Guarded here as well as by `disabled`: a disabled-looking button can still
+  // be clicked programmatically, and a row can briefly lag its model's state.
+  if (action === 'download' && (state !== 'absent' || !lyricsTranslationEnabled)) return
+  if (action === 'redownload' && (state !== 'ready' || !lyricsTranslationEnabled)) return
+  if (action === 'remove' && state !== 'ready') return
+
+  delete _translationModelErrors[key]
+  try {
+    if (action === 'remove' || action === 'redownload') {
+      dropTranslator(key)
+      await window.cascade.translationModels.remove(key)
+    }
+    if (action === 'download' || action === 'redownload') {
+      await window.cascade.translationModels.download(key)
+    }
+  } catch (err) {
+    _translationModelErrors[key] = _ipcErrorMessage(err)
+  }
+  _translationModels = await window.cascade.translationModels.status()
+  renderTranslationModelRows()
+})
+
+// The translation to show under line i, or '' for none. Only a translation of
+// THIS sheet counts - checked by array identity, so any reload, source switch or
+// edit that replaces lyricsData invalidates it without every such path having to
+// remember. A line the model returned unchanged (English lines in a mixed song)
+// is not repeated under itself.
+function lyricTranslationFor(i) {
+  if (!lyricsTranslationEnabled || !lyricsTranslateOn || _lyricsTranslatedFor !== lyricsData) return ''
+  const t = (lyricsTranslated[i] || '').trim()
+  return t && t.toLowerCase() !== (lyricsData[i]?.Text || '').trim().toLowerCase() ? t : ''
+}
+
+function _flashTranslateStatus(label, ms) {
+  _translateStatus = label
+  clearTimeout(_translateStatusTimer)
+  if (ms) _translateStatusTimer = setTimeout(() => { _translateStatus = ''; syncTranslateButtons() }, ms)
+  syncTranslateButtons()
+}
+
+function syncTranslateButtons() {
+  const side = document.getElementById('lyrics-translate-btn')
+  const ov = document.getElementById('ov-translate-btn')
+  side.textContent = _translateStatus || (lyricsTranslateOn ? 'Show original' : 'Translate')
+  ov.classList.toggle('translated', lyricsTranslateOn)
+  ov.classList.toggle('loading', !!_lyricsTranslating)
+  ov.title = _translateStatus === 'Failed' ? 'Translation unavailable'
+    : _pendingInstallKey ? `Install ${_translationModelName(_pendingInstallKey)} in macOS to translate`
+    : lyricsTranslateOn ? 'Show original' : 'Translate lyrics'
+}
+
+function setLyricsTranslateOn(on) {
+  lyricsTranslateOn = on
+  if (!on) _pendingInstallKey = null
+  _flashTranslateStatus('', 0)
+  rerenderLyricViews()
+  window.cascade.store.set('lyricsTranslateOn', on)
+  if (on) ensureLyricsTranslation(true)
+}
+
+// Re-render whichever lyric views are showing, keeping their active line.
+function rerenderLyricViews() {
+  if (!lyricsData.length) return
+  if (document.getElementById('lyrics-inner')) {
+    const idx = lastLyricsIdx
+    renderLyrics()
+    if (idx >= 0) _applySideLyricsActive(idx, true)
+  }
+  if (overlayOpen && overlayLyricsOpen && document.querySelector('#ov-lyrics-body .ov-lyric-line')) {
+    renderOverlayLyricLines()
+    if (lastOverlayLyricsIdx >= 0) updateOverlayLyricsActive(lastOverlayLyricsIdx, true)
+  }
+}
+
+// Translate the current sheet if the switch is on and it needs it. Safe to call
+// from every place a sheet appears: a finished translation just re-renders, and
+// a second call for the same sheet joins the one in flight. Picks Apple or
+// Mozilla per sheet; with Mozilla, a model not installed yet downloads here.
+// `userAsked` is true only for an actual Translate press, the one moment the
+// install prompt may appear - a song change must never pop a dialog.
+function ensureLyricsTranslation(userAsked = false) {
+  if (!lyricsTranslationEnabled || !lyricsTranslateOn || !lyricsData.length) return
+  const sheet = lyricsData
+  if (_lyricsTranslatedFor === sheet) return rerenderLyricViews()
+  if (_lyricsTranslating?.sheet === sheet) return _lyricsTranslating.promise
+
+  const lines = lyricsPlainLines()
+  const key = CascadeCore.translationModelFor(lines)
+  // A new sheet in another language (or none) is no longer waiting on the old one.
+  if (_pendingInstallKey && _pendingInstallKey !== key) {
+    _pendingInstallKey = null
+    _flashTranslateStatus('', 0)
+  }
+  if (!key) return
+
+  const promise = (async () => {
+    // Yield once first, so the finally below always runs after `promise` and
+    // _lyricsTranslating are assigned - even if something throws synchronously,
+    // which would otherwise leave the button stuck spinning.
+    await null
+    try {
+      const engine = await _translationEngineFor(key)
+      if (lyricsData !== sheet) { _flashTranslateStatus('', 0); return }
+      if (engine === 'needs-install') {
+        _pendingInstallKey = key
+        _flashTranslateStatus(`Install ${_translationModelName(key)}…`, 0)
+        if (userAsked) openAppleInstallPrompt(key)
+        return
+      }
+      _pendingInstallKey = null
+
+      if (engine === 'mozilla') {
+        const status = await window.cascade.translationModels.status()
+        _translationModels = status
+        if (status[key]?.state !== 'ready') {
+          _announceModelDownload(key)
+          _flashTranslateStatus('Downloading…', 0)
+          // Progress arrives through onProgress. The download carries on in
+          // main.js even if the song changes, so a model fetched for one song
+          // is ready for the next.
+          try {
+            await window.cascade.translationModels.download(key)
+          } catch (err) {
+            _translationModelErrors[key] = _ipcErrorMessage(err)
+            throw err
+          }
+        }
+        if (lyricsData !== sheet) { _flashTranslateStatus('', 0); return }   // the song moved on
+      }
+
+      _flashTranslateStatus(engine === 'apple' ? 'Translating…' : 'Loading…', 0)
+      const out = await translateLines(lines, key, ({ done, total }) => {
+        if (lyricsData === sheet) _flashTranslateStatus(`${Math.round(done / total * 100)}%`, 0)
+      }, engine)
+      if (lyricsData !== sheet) { _flashTranslateStatus('', 0); return }
+      lyricsTranslated = out
+      _lyricsTranslatedFor = sheet
+      _flashTranslateStatus('', 0)
+      rerenderLyricViews()
+    } catch (e) {
+      console.error('Translation failed', e)
+      _flashTranslateStatus('Failed', 2500)
+    } finally {
+      if (_lyricsTranslating?.promise === promise) _lyricsTranslating = null
+      syncTranslateButtons()
+    }
+  })()
+  _lyricsTranslating = { sheet, key, promise }
+  syncTranslateButtons()
+  return promise
+}
 
 // Re-fetch lyrics when track changes
 const _origUpdateNP = updateNowPlaying
@@ -7868,10 +8448,8 @@ updateNowPlaying = function(item) {
   lyricsTranslated = []
   lastLyricsIdx = -1
   _lyricsScanIdx = 0
-  ovLyricsTranslated = false
   document.getElementById('ov-translate-btn').style.display = 'none'
-  document.getElementById('ov-translate-btn').classList.remove('translated')
-  if (document.getElementById('lyrics-panel').classList.contains('open')) fetchLyrics()
+  if (lyricsPanelOpen()) fetchLyrics()
   if (overlayOpen && overlayLyricsOpen) renderOverlayLyrics()
 }
 
@@ -7880,19 +8458,11 @@ updateNowPlaying = function(item) {
 let discordEnabled = false
 let rpcTrackStart = 0
 
-// How long a paused track keeps its Discord presence before giving up on it.
-const RPC_PAUSE_CLEAR_MS = 60_000
-let _rpcPauseTimer = null      // pending "give up on the paused presence" timeout, or null
-let _rpcClearedByPause = false // true once that timer has actually cleared the presence -
-                                // tells the next play event it needs to restore, not just resume
-
-/** Cancels any pending pause-clear timer and drops the "cleared by pause" flag.
- *  Called by every deliberate clear (stop, sign-out, turning Discord off) so a
- *  timer scheduled for a pause that no longer matters cannot fire later and
- *  clear a presence that has moved on. */
-function _clearRpcPauseTimer() {
-  if (_rpcPauseTimer) { clearTimeout(_rpcPauseTimer); _rpcPauseTimer = null }
-  _rpcClearedByPause = false
+/** Re-anchors the wall-clock instant Discord's progress bar is drawn from to
+ *  wherever playback actually is. Needed after anything that moves the head
+ *  without restarting the track - a seek, or resuming from a pause. */
+function _syncRpcClock() {
+  rpcTrackStart = Date.now() - Math.round(mediaPosition() * 1000)
 }
 
 // Discord renders large_image by fetching the URL from its own servers, so it
@@ -7911,35 +8481,74 @@ function _clearRpcPauseTimer() {
 // asked about.
 let _rpcArtToken = 0
 
+// How long the presence waits on an iTunes cover before pushing without one.
+// Warmed covers resolve instantly (see warmItunesArt), so this only governs the
+// cold case - the first track after launch, or one picked out by hand. Long
+// enough for a typical iTunes round trip, because pushing without the cover
+// means Discord shows the app icon until the follow-up clears the throttle.
+const RPC_ART_WAIT_MS = 800
+
 async function updateDiscordPresence(item) {
   if (!discordEnabled || !item) return
   const video = isVideoItem(item)
   const activity = {
-    details:        item.Name?.slice(0, 128) || 'Unknown Track',
-    state:          (secondaryLine(item) || (video ? '' : 'Unknown Artist')).slice(0, 128),
-    startTimestamp: rpcTrackStart,
+    details:  item.Name?.slice(0, 128) || 'Unknown Track',
+    state:    (secondaryLine(item) || (video ? '' : 'Unknown Artist')).slice(0, 128),
     // Flips Discord from "Listening to Cascade" to "Watching Cascade". Read and
     // stripped in main.js - setActivity() would drop it.
-    watching:       video,
+    watching: video,
   }
 
-  // Push what we have first: the art lookup is a network round trip, and a
-  // presence that appears immediately and gains a cover a moment later beats
-  // one that shows up late.
-  const token = ++_rpcArtToken
-  window.cascade.discord.update(activity)
-  if (video) return
+  // Discord draws the elapsed/total progress bar itself, but only when the
+  // activity carries BOTH timestamps - a start on its own gets the plain
+  // "XX:XX elapsed" line instead. Prefer Jellyfin's runtime over the deck's
+  // own duration: it is known before the media loads, and a progressive
+  // transcode's audio.duration only counts what has been encoded so far.
+  //
+  // Pausing clears the presence outright rather than trying to freeze the bar,
+  // so anything built here is playing by definition.
+  const durMs = item.RunTimeTicks ? item.RunTimeTicks / 10_000 : mediaDuration() * 1000
+  activity.startTimestamp = rpcTrackStart
+  if (Number.isFinite(durMs) && durMs > 0) activity.endTimestamp = rpcTrackStart + Math.round(durMs)
 
+  const token = ++_rpcArtToken
   const artist = item.AlbumArtist || item.Artists?.[0] || ''
   const album  = item.Album || ''
-  if (!artist && !album) return
+  if (video || (!artist && !album)) { window.cascade.discord.update(activity); return }
 
-  const art = await fetchItunesArt(artist, album)
+  // Discord renders assets.large_text as the third line of a listening card -
+  // the album, below the track and the artist - not merely as the cover's hover
+  // tooltip. So it must not be gated on the cover the way it used to be: the
+  // album name is on the Jellyfin item already, while the artwork is a network
+  // round trip to iTunes, and pairing them made the album name wait on a
+  // lookup that has nothing to do with it.
+  if (album) activity.largeImageText = album.slice(0, 128)
+
+  // Give the cover a moment to land so the first push can carry it. An album
+  // already in the cache resolves straight away, which is the common case, and
+  // sending once means the card arrives complete. Anything slower still shows
+  // the text now and the cover when it turns up, rather than holding the whole
+  // presence hostage to a network round trip.
+  //
+  // This matters more than it looks: main.js throttles to one update every
+  // RPC_MIN_INTERVAL_MS, so a cover sent as a separate second update waits out
+  // that whole window before Discord sees it.
+  const art = await Promise.race([
+    fetchItunesArt(artist, album),
+    new Promise(r => setTimeout(() => r(undefined), RPC_ART_WAIT_MS)),
+  ])
   // The track can change while that is in flight, and a late answer for the
   // previous one would overwrite the presence that replaced it.
-  if (!art || token !== _rpcArtToken || !discordEnabled) return
-  activity.largeImageKey  = art
-  activity.largeImageText = album.slice(0, 128)
+  if (token !== _rpcArtToken || !discordEnabled) return
+  if (art) activity.largeImageKey = art
+  window.cascade.discord.update(activity)
+  // null is a real answer ("iTunes has never heard of this"); only undefined
+  // means the deadline beat the lookup and a cover may still be coming.
+  if (art !== undefined) return
+
+  const late = await fetchItunesArt(artist, album)
+  if (!late || token !== _rpcArtToken || !discordEnabled) return
+  activity.largeImageKey = late
   window.cascade.discord.update(activity)
 }
 
@@ -7959,6 +8568,13 @@ async function initDiscordRpc() {
     const label = document.getElementById('discord-rpc-status-label')
     if (dot)   dot.className   = 'ws-dot' + (connected ? ' connected' : '')
     if (label) label.textContent = connected ? 'Connected' : 'Not connected'
+
+    // Connecting is async and main.js drops any update that lands before the
+    // handshake finishes, so a track already playing by then had its presence
+    // thrown away with nothing to send it again - which is why it took a
+    // disable/re-enable to appear. Push it once the socket is actually up.
+    // Also covers Discord itself restarting, which reconnects the same way.
+    if (connected && !audio.paused) updateDiscordPresence(queue[queueIndex])
   })
 }
 
@@ -8027,14 +8643,14 @@ async function runSearch(query) {
     const wantShows   = showLibIds.length  > 0
 
     const [songsRes, albumsRes, artistsRes, moviesRes, showsRes] = await Promise.allSettled([
-      jfGetMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 10, IncludeItemTypes: 'Audio', Fields: 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag' }),
-      jfGetMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 8,  IncludeItemTypes: 'MusicAlbum', Fields: 'PrimaryImageAspectRatio' }),
+      jfGetMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 10, IncludeItemTypes: 'Audio', Fields: 'AlbumId,AlbumPrimaryImageTag' }),
+      jfGetMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 8,  IncludeItemTypes: 'MusicAlbum' }),
       jfGetMerged(`/Artists`,                  { SearchTerm: query, UserId: jf.userId, Limit: 8 }),
       wantMovies
-        ? jfClient.getMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 8, IncludeItemTypes: 'Movie', Fields: 'PrimaryImageAspectRatio,ProductionYear' }, movieLibIds)
+        ? jfClient.getMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 8, IncludeItemTypes: 'Movie', Fields: 'ProductionYear' }, movieLibIds)
         : Promise.resolve({ Items: [] }),
       wantShows
-        ? jfClient.getMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 8, IncludeItemTypes: 'Series', Fields: 'PrimaryImageAspectRatio,ProductionYear' }, showLibIds)
+        ? jfClient.getMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 8, IncludeItemTypes: 'Series', Fields: 'ProductionYear' }, showLibIds)
         : Promise.resolve({ Items: [] }),
     ])
     // jfGetMerged returns up to Limit x libraryCount - trim back to the intended size.
@@ -8325,6 +8941,30 @@ function _hslToRgb(hue, s, l) {
 // appears nowhere on the cover.
 const NEUTRAL_ART_SAT = 0.18
 
+// Extract colours from an art URL and theme from them.
+//
+// Always go via fetch -> blob -> objectURL, never hand applyAlbumArtTheme an
+// <img> that is already in the DOM: those are written by innerHTML with no
+// crossorigin, so the canvas extractTopColors draws them into is tainted,
+// getImageData throws, and the catch there returns no colours at all - the
+// symptom being a theme toggle that looks completely dead. Do NOT "fix" that by
+// putting crossorigin="anonymous" on the img tags instead; that sends an Origin
+// header the Jellyfin server may not answer, which breaks the image itself
+// rather than only its colours.
+function themeFromArtUrl(art) {
+  if (!art) return
+  fetch(art)
+    .then(r => r.blob())
+    .then(blob => {
+      const objectUrl = URL.createObjectURL(blob)
+      const img = new Image()
+      img.onload = () => { applyAlbumArtTheme(img); URL.revokeObjectURL(objectUrl) }
+      img.onerror = () => URL.revokeObjectURL(objectUrl)
+      img.src = objectUrl
+    })
+    .catch(() => {})
+}
+
 function applyAlbumArtTheme(imgEl) {
   if (!themeAlbumArt || !imgEl) return
 
@@ -8368,14 +9008,14 @@ function applyAlbumArtTheme(imgEl) {
   randomizeDrift()
   // Set gradient directly on the overlay - no z-index/clipping issues
   overlay.style.backgroundColor = _blobBaseColor()
-  overlay.style.backgroundImage = buildBlobBackground(_blobColors, light)
+  setOverlayBackgroundImage(overlay, buildBlobBackground(_blobColors, light))
   overlay.classList.add('art-theme')
 }
 
 function clearAlbumArtTheme() {
   const overlay = document.getElementById('np-overlay')
   overlay.classList.remove('art-theme')
-  overlay.style.backgroundImage = ''
+  setOverlayBackgroundImage(overlay, '')
   overlay.style.backgroundColor = ''
   document.documentElement.style.removeProperty('--art-overlay-bg')
   _blobColors = []
@@ -8425,7 +9065,7 @@ function setAlbumArtAccent(enabled) {
   if (themeAlbumArt) {
     // Apply immediately from current art
     const img = document.querySelector('#ov-art img') || document.querySelector('#np-art img')
-    if (img?.complete) applyAlbumArtTheme(img)
+    themeFromArtUrl(img?.src)
   } else {
     // Restore manual gradient and clear overlay tint
     clearAlbumArtTheme()
@@ -8629,6 +9269,25 @@ function debugAudioTracks(item) {
   })
 }
 
+// Last reading from main's app-metrics. debugPanelText() is synchronous, so the
+// IPC round trip happens on the panel's 1s tick and the text reads this copy.
+let _debugMetrics = null
+
+function refreshDebugMetrics() {
+  window.cascade.appMetrics().then(m => { _debugMetrics = m }).catch(() => {})
+}
+
+function debugResourceLines() {
+  if (!_debugMetrics) return ['(first reading pending)']
+  const rows = [..._debugMetrics].sort((x, y) => y.memMB - x.memMB)
+  const total = rows.reduce((t, r) => ({ mem: t.mem + r.memMB, cpu: t.cpu + r.cpu }), { mem: 0, cpu: 0 })
+  return [
+    ...rows.map(r => `${r.type.padEnd(9)} pid ${String(r.pid).padEnd(6)} ${String(r.memMB).padStart(5)} MB   cpu ${r.cpu.toFixed(1).padStart(5)}%   wake ${r.wakeups}/s`),
+    `total                ${String(total.mem).padStart(5)} MB   cpu ${total.cpu.toFixed(1).padStart(5)}%`,
+    `translators loaded: ${[..._translators.keys()].join(', ') || 'none'}`,
+  ]
+}
+
 function debugPanelText() {
   const item = queue[queueIndex] || null
   const src = item?.MediaSources?.[0] || null
@@ -8674,6 +9333,9 @@ function debugPanelText() {
     '── web audio / eq ──',
     `graph failed: ${_eqGraphFailed}   no signal: ${_eqNoSignal}   ever had signal: ${_eqEverHadSignal}`,
     '',
+    '── resources ──',
+    ...debugResourceLines(),
+    '',
     `CascadeSLRC plugin absent: ${_cascadePluginAbsent}`,
   ].join('\n')
 }
@@ -8718,7 +9380,8 @@ function initDebugPanel() {
 
   document.body.appendChild(el)
   render()
-  setInterval(render, 1000)
+  refreshDebugMetrics()
+  setInterval(() => { refreshDebugMetrics(); render() }, 1000)
 }
 
 // ── Light-mode blob tuning (debug only) ─────────────────────────────────────
@@ -8736,7 +9399,7 @@ function initDebugPanel() {
 function _debugReapplyBlobs() {
   if (!themeAlbumArt) return
   const img = document.querySelector('#ov-art img') || document.querySelector('#np-art img')
-  if (img?.complete) applyAlbumArtTheme(img)
+  themeFromArtUrl(img?.src)
 }
 
 function initLightTuningPanel() {

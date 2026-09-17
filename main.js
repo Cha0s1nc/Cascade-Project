@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, clipboard, shell, Menu, globalShortcut, TouchBar } = require('electron')
+const { app, BrowserWindow, ipcMain, clipboard, shell, Menu, globalShortcut, TouchBar, protocol, net } = require('electron')
 
 // A main-process throw before the window is shown means no window and, for a
 // rejection, not even a message: Electron shows a dialog for an uncaught
@@ -17,14 +17,72 @@ const https = require('https')
 const http  = require('http')
 const fs    = require('fs')
 const os    = require('os')
+const { spawn } = require('child_process')
+const { installInPlace } = require('./mac-update')
 const crypto = require('crypto')
+const { pathToFileURL } = require('url')
 const Store = require('electron-store')
+
+// ── On-device translation assets ──────────────────────────────────────────────
+//
+// The lyrics translator is Mozilla's bergamot runtime running Firefox
+// Translations models (see "On-device translation models" further down). The
+// renderer is a file:// page and fetch() from file:// is blocked, so the
+// runtime's wasm and the downloaded models are served over a private scheme.
+//
+// This has to be declared before app ready. `supportFetchAPI` is what lets the
+// runtime fetch its wasm and the model files at all; `secure` keeps its worker
+// from being treated as a mixed-content downgrade; `standard` gives the URLs
+// normal host/path parsing.
+//
+// `corsEnabled` is required too, and its absence once broke translation
+// outright: the page is file://, so every fetch to this scheme is cross-origin,
+// and Chromium refuses cross-origin fetches to any scheme not flagged for CORS.
+// The translation library of the day swallowed that as "file was not found
+// locally", so it read as a missing model rather than a blocked request.
+protocol.registerSchemesAsPrivileged([{
+  scheme: 'cascade-model',
+  privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
+}])
+
+// Serve `rel` from inside `root`, or refuse. Trust boundary: the path comes off
+// a URL. Without this, a request for ../../.. walks straight out of the
+// directory and hands any file on disk to renderer JavaScript. path.sep guards
+// the "/models-evil" prefix trick that a bare startsWith() would let through.
+function serveWithin(root, rel) {
+  const abs = path.normalize(path.join(root, rel))
+  if (abs !== root && !abs.startsWith(root + path.sep)) {
+    return new Response('Forbidden', { status: 403 })
+  }
+  return net.fetch(pathToFileURL(abs).toString())
+}
+
+function registerModelProtocol() {
+  protocol.handle('cascade-model', (req) => {
+    const url = new URL(req.url)
+    const rel = decodeURIComponent(url.pathname)
+    // The translation runtime's wasm. Its worker cannot fetch it from file://.
+    if (rel.startsWith('/runtime/')) return serveWithin(BERGAMOT_RUNTIME_DIR, rel.slice('/runtime/'.length))
+    if (rel === '/models/registry.json') return translationRegistryResponse(url.searchParams.get('key'))
+    if (rel.startsWith('/models/')) return serveWithin(translationModelsDir(), rel.slice('/models/'.length))
+    return new Response('Not found', { status: 404 })
+  })
+}
 
 // ── Discord RPC ────────────────────────────────────────────────────────────────
 let rpcClient   = null
 let rpcReady    = false
 let rpcUpdateTimer = null
 let lastRpcActivity = null
+
+// Discord rate-limits presence updates, so they are throttled to one per
+// RPC_MIN_INTERVAL_MS. Leading edge, not trailing: the first update after a
+// quiet spell goes out at once and only a burst gets coalesced. Trailing edge
+// made every update wait out the full interval, which was most obvious on
+// unpause - the presence is cleared the moment you pause, so it stayed gone
+// for five seconds after you started playing again.
+const RPC_MIN_INTERVAL_MS = 5000
+let rpcLastSentAt = 0
 
 // Discord activity type: 2 = Listening, 3 = Watching. Held here rather than on
 // the activity object because setActivity() rebuilds that object from a fixed
@@ -77,21 +135,26 @@ ipcMain.on('discord-rpc-connect', async (_e, clientId) => {
   if (clientId) await connectDiscordRpc(clientId)
 })
 
+function flushRpcActivity() {
+  rpcUpdateTimer = null
+  if (!rpcClient || !rpcReady) return
+  rpcLastSentAt = Date.now()
+  try {
+    if (lastRpcActivity) rpcClient.setActivity(lastRpcActivity)
+    else rpcClient.clearActivity()
+  } catch {}
+}
+
 ipcMain.on('discord-rpc-update', (_e, activity) => {
   if (!rpcClient || !rpcReady) return
   // `watching` rides along on the activity; setActivity() would drop it, so it
   // is lifted out here and applied by the request() patch instead.
   rpcActivityType = activity?.watching ? RPC_TYPE_WATCHING : RPC_TYPE_LISTENING
   lastRpcActivity = activity
-  if (rpcUpdateTimer) return  // already scheduled
-  rpcUpdateTimer = setTimeout(() => {
-    rpcUpdateTimer = null
-    if (!rpcClient || !rpcReady) return
-    try {
-      if (lastRpcActivity) rpcClient.setActivity(lastRpcActivity)
-      else rpcClient.clearActivity()
-    } catch {}
-  }, 5000)  // max one update per 5 seconds
+  if (rpcUpdateTimer) return  // a send is already queued, and it reads the latest
+  const wait = RPC_MIN_INTERVAL_MS - (Date.now() - rpcLastSentAt)
+  if (wait <= 0) flushRpcActivity()
+  else rpcUpdateTimer = setTimeout(flushRpcActivity, wait)
 })
 
 ipcMain.on('discord-rpc-clear', () => {
@@ -358,6 +421,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  registerModelProtocol()
   createWindow()
 })
 
@@ -412,6 +476,23 @@ ipcMain.handle('is-debug-mode', () => {
   }
   return _debugMode
 })
+
+// IPC: per-process resource use, for the debug panel's resources section. It
+// exists so a performance change is judged on a number rather than a feel.
+// Every Electron process is listed: the renderer (where the translation
+// worker's WASM heap is counted, since a dedicated Worker is a thread, not a
+// process), the GPU process, which carries the compositing cost, and the rest.
+// CPU is measured since the previous call, so the panel's 1s poll is what makes
+// it a per-second figure; the first reading after launch is always 0.
+ipcMain.handle('app-metrics', () => app.getAppMetrics().map(m => ({
+  type: m.type,
+  pid: m.pid,
+  memMB: Math.round(m.memory.workingSetSize / 1024),
+  cpu: m.cpu.percentCPUUsage,
+  // Wake-ups are the clearest sign of a timer or rAF loop that should be
+  // asleep. Always 0 on Windows.
+  wakeups: m.cpu.idleWakeupsPerSecond,
+})))
 
 // IPC: app version
 ipcMain.handle('get-version', () => app.getVersion())
@@ -718,14 +799,12 @@ function pickAsset(assets = []) {
 
   if (process.platform === 'win32') return byExt(/\.exe$/i)[0]
 
+  // Apple Silicon only. An Intel Mac gets undefined and is sent to the release
+  // page rather than handed a build it cannot run. The arm64 build carries its
+  // arch in the filename, so the match stays explicit even though it is now the
+  // only dmg published; older releases still have an unsuffixed x64 one.
   if (process.platform === 'darwin') {
-    // Only the arm64 build carries its arch in the filename; the unsuffixed
-    // .dmg is the x64 one. Matching on process.arch alone silently handed
-    // Intel Macs the arm64 build.
-    const dmgs = byExt(/\.dmg$/i)
-    return process.arch === 'arm64'
-      ? dmgs.find(a => /arm64/i.test(a.name))
-      : dmgs.find(a => !/arm64/i.test(a.name))
+    return process.arch === 'arm64' ? byExt(/\.dmg$/i).find(a => /arm64/i.test(a.name)) : undefined
   }
 
   if (process.platform === 'linux') {
@@ -827,6 +906,253 @@ function verifyDigest(filePath, digest) {
   })
 }
 
+// ── On-device translation models ─────────────────────────────────────────────
+//
+// Mozilla Firefox Translations models, one per source language into English,
+// downloaded on first use instead of shipped (about 50-70 MB each). The
+// manifest pins every file by sha256. Each file is fetched from Cascade's
+// GitHub release first and Mozilla's CDN second, and must match the hash
+// whichever answered.
+//
+// A model directory only ever exists complete: files land in <key>.partial/
+// and the directory is renamed once every file has verified. So "ready" is
+// simply "the directory exists", and a download killed halfway leaves nothing
+// that reads as installed.
+
+const TRANSLATION_MANIFEST = require('./translation-models.json')
+const BERGAMOT_RUNTIME_DIR = path.join(__dirname, 'build', 'bergamot', 'runtime')
+
+// Resolved on first ask, like DEBUG_SENTINEL: app.getPath() must never run
+// during require(), before the app is ready.
+let _translationModelsDir = null
+function translationModelsDir() {
+  if (!_translationModelsDir) _translationModelsDir = path.join(app.getPath('userData'), 'translation-models')
+  return _translationModelsDir
+}
+
+// Trust boundary: keys arrive over IPC and URLs and end up in filesystem paths,
+// so only a key the manifest itself defines is ever accepted.
+function translationModel(key) {
+  if (typeof key !== 'string' || !Object.prototype.hasOwnProperty.call(TRANSLATION_MANIFEST.models, key)) {
+    throw new Error(`Unknown translation model: ${key}`)
+  }
+  return TRANSLATION_MANIFEST.models[key]
+}
+
+const translationModelBytes = (model) => Object.values(model.files).reduce((n, f) => n + f.size, 0)
+const translationModelReady = (key) => fs.existsSync(path.join(translationModelsDir(), key))
+
+const _translationDownloads = new Map()   // key -> { promise, transferred }
+
+function translationModelsStatus() {
+  return Object.fromEntries(Object.entries(TRANSLATION_MANIFEST.models).map(([key, model]) => {
+    const dl = _translationDownloads.get(key)
+    return [key, {
+      name: model.name,
+      bytes: translationModelBytes(model),
+      state: dl ? 'downloading' : translationModelReady(key) ? 'ready' : 'absent',
+      transferred: dl ? dl.transferred : 0,
+    }]
+  }))
+}
+
+function sendTranslationProgress(payload) {
+  if (win && !win.isDestroyed()) win.webContents.send('translation-models:progress', payload)
+}
+
+function downloadTranslationModel(key) {
+  const model = translationModel(key)
+  if (translationModelReady(key)) return Promise.resolve()
+  const inFlight = _translationDownloads.get(key)
+  if (inFlight) return inFlight.promise   // a second click joins the first download
+
+  const total = translationModelBytes(model)
+  const entry = { transferred: 0, promise: null }
+  const promise = (async () => {
+    const dir = translationModelsDir()
+    const partial = path.join(dir, `${key}.partial`)
+    fs.rmSync(partial, { recursive: true, force: true })   // leftovers from an interrupted run
+    fs.mkdirSync(partial, { recursive: true })
+
+    let completed = 0   // bytes in files that already verified
+    let lastSent = 0
+    const report = (fileBytes, force) => {
+      entry.transferred = completed + fileBytes
+      const now = Date.now()
+      if (force || now - lastSent >= 250) {
+        lastSent = now
+        sendTranslationProgress({ key, state: 'downloading', transferred: entry.transferred, total })
+      }
+    }
+
+    for (const f of Object.values(model.files)) {
+      const dest = path.join(partial, f.file)
+      const sources = [`${TRANSLATION_MANIFEST.github}${key}-en.${f.file}`, f.mozilla]
+      let lastError = null
+      for (const url of sources) {
+        try {
+          // downloadFile resolves on a stream that ended early, so the hash is
+          // what actually proves a complete, untampered file. Never skip it.
+          await downloadFile(url, dest, p => report(p.transferred))
+          if (await verifyDigest(dest, `sha256:${f.sha256}`)) { lastError = null; break }
+          lastError = new Error('checksum mismatch')
+        } catch (err) {
+          lastError = err
+        }
+        try { fs.unlinkSync(dest) } catch {}
+        report(0, true)
+      }
+      if (lastError) throw new Error(`${f.file}: ${lastError.message}`)
+      completed += f.size
+      report(0, true)
+    }
+    fs.renameSync(partial, path.join(dir, key))
+  })()
+  entry.promise = promise
+  _translationDownloads.set(key, entry)
+  promise
+    .catch(() => {})   // the IPC caller receives the rejection; this chain only cleans up
+    .finally(() => {
+      _translationDownloads.delete(key)
+      sendTranslationProgress({ key, state: translationModelReady(key) ? 'ready' : 'absent', transferred: 0, total })
+    })
+  return promise
+}
+
+function removeTranslationModel(key) {
+  const model = translationModel(key)
+  if (_translationDownloads.has(key)) throw new Error('This model is still downloading')
+  fs.rmSync(path.join(translationModelsDir(), key), { recursive: true, force: true })
+  sendTranslationProgress({ key, state: 'absent', transferred: 0, total: translationModelBytes(model) })
+}
+
+// translator.js keys a registry by from+to ("zhen"), so Simplified and
+// Traditional Chinese could never share one. Each translator asks for a
+// registry holding only its own model, and only once that model is installed.
+function translationRegistryResponse(key) {
+  let model
+  try { model = translationModel(key) } catch { return new Response('{}', { status: 404 }) }
+  if (!translationModelReady(key)) return new Response('{}', { status: 404 })
+  const files = Object.fromEntries(Object.entries(model.files).map(([part, f]) =>
+    [part, { name: `cascade-model://app/models/${key}/${encodeURIComponent(f.file)}` }]))
+  return new Response(JSON.stringify({ [`${key.slice(0, 2)}en`]: files }), {
+    headers: { 'content-type': 'application/json' },
+  })
+}
+
+ipcMain.handle('translation-models:status', () => translationModelsStatus())
+ipcMain.handle('translation-models:download', (_e, key) => downloadTranslationModel(key))
+ipcMain.handle('translation-models:remove', (_e, key) => removeTranslationModel(key))
+
+// ── Apple Translation (macOS 26+) ────────────────────────────────────────────
+//
+// On a Mac that supports it, lyric translation can use the translation built
+// into macOS instead of Mozilla's downloaded models. Apple's framework is Swift
+// only, so native/apple-translate is a small helper process, built by
+// scripts/build-apple-translate.js and spoken to over stdin/stdout, one JSON
+// line each way.
+//
+// One long-lived process, started on first use and ended after
+// APPLE_TRANSLATE_IDLE_MS without a request, so a sheet's lines share one
+// loaded model instead of paying Apple's startup per line.
+
+// The helper is executed, and nothing inside app.asar can be: electron-builder
+// unpacks build/apple-translate/ (asarUnpack), so a packaged build finds it
+// under app.asar.unpacked instead.
+const APPLE_TRANSLATE_BIN = path.join(__dirname, 'build', 'apple-translate', 'apple-translate')
+  .replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`)
+const APPLE_TRANSLATE_IDLE_MS = 5 * 60 * 1000
+const APPLE_SETTINGS_URL = 'x-apple.systempreferences:com.apple.Localization-Settings.extension'
+
+// Only macOS 26+ has the windowless API the helper uses, and the helper is
+// built with a macOS 26 deployment target, so an older Mac never launches it.
+function appleTranslationSupported() {
+  return process.platform === 'darwin'
+    && parseInt(process.getSystemVersion(), 10) >= 26
+    && fs.existsSync(APPLE_TRANSLATE_BIN)
+}
+
+let _appleHelper = null   // { proc, pending: Map<id, {resolve, reject}>, seq, buffer }
+let _appleIdleTimer = null
+
+function appleHelper() {
+  if (_appleHelper) return _appleHelper
+  const proc = spawn(APPLE_TRANSLATE_BIN, [], { stdio: ['pipe', 'pipe', 'ignore'] })
+  const helper = { proc, pending: new Map(), seq: 0, buffer: '' }
+
+  proc.stdout.setEncoding('utf8')
+  proc.stdout.on('data', chunk => {
+    helper.buffer += chunk
+    let nl
+    while ((nl = helper.buffer.indexOf('\n')) >= 0) {
+      const line = helper.buffer.slice(0, nl)
+      helper.buffer = helper.buffer.slice(nl + 1)
+      let msg
+      try { msg = JSON.parse(line) } catch { continue }
+      const waiter = helper.pending.get(msg.id)
+      if (!waiter) continue
+      helper.pending.delete(msg.id)
+      if (msg.error) waiter.reject(new Error(msg.error))
+      else waiter.resolve(msg)
+    }
+  })
+
+  // A helper that dies takes every request in flight with it. Fail them all
+  // and forget it, so the next request starts a fresh one.
+  const fail = (err) => {
+    if (_appleHelper === helper) _appleHelper = null
+    for (const waiter of helper.pending.values()) waiter.reject(err)
+    helper.pending.clear()
+  }
+  proc.on('error', fail)
+  proc.stdin.on('error', fail)
+  proc.on('exit', code => fail(new Error(`Apple Translation helper exited (${code})`)))
+
+  _appleHelper = helper
+  return helper
+}
+
+function appleRequest(request) {
+  clearTimeout(_appleIdleTimer)
+  const helper = appleHelper()
+  const id = ++helper.seq
+  return new Promise((resolve, reject) => {
+    helper.pending.set(id, { resolve, reject })
+    helper.proc.stdin.write(JSON.stringify({ ...request, id }) + '\n')
+  }).finally(() => {
+    if (_appleHelper && !_appleHelper.pending.size) {
+      _appleIdleTimer = setTimeout(() => {
+        if (_appleHelper && !_appleHelper.pending.size) { _appleHelper.proc.kill(); _appleHelper = null }
+      }, APPLE_TRANSLATE_IDLE_MS)
+    }
+  })
+}
+
+app.on('will-quit', () => { _appleHelper?.proc.kill() })
+
+ipcMain.handle('apple-translation:supported', () => appleTranslationSupported())
+
+// Status of every language Cascade translates, straight from macOS.
+ipcMain.handle('apple-translation:availability', async () => {
+  if (!appleTranslationSupported()) return {}
+  const { status } = await appleRequest({ op: 'availability', languages: Object.keys(TRANSLATION_MANIFEST.models) })
+  return status
+})
+
+// Trust boundary: both arguments come from the renderer. Only a language
+// Cascade itself offers, and a single lyric line of sane length, go to macOS.
+ipcMain.handle('apple-translation:translate', async (_e, key, text) => {
+  translationModel(key)
+  if (typeof text !== 'string' || text.length > 2000) throw new Error('Invalid text to translate')
+  if (!appleTranslationSupported()) throw new Error('Apple Translation is not available on this Mac')
+  const { text: english } = await appleRequest({ op: 'translate', source: key, text })
+  return english
+})
+
+// Translation Languages is a button inside Language & Region with no link of
+// its own, so this opens Language & Region and the prompt says where to click.
+ipcMain.handle('apple-translation:open-settings', () => shell.openExternal(APPLE_SETTINGS_URL))
+
 // ── Updater IPC ────────────────────────────────────────────────────────────────
 
 ipcMain.handle('check-for-updates', async () => {
@@ -883,15 +1209,77 @@ ipcMain.handle('updater:download', async () => {
   return { ok: true }
 })
 
+// Windows can install itself. These are the flags electron-updater passes to an
+// electron-builder NSIS installer: --updated marks it an upgrade rather than a
+// fresh install, /S suppresses the wizard, --force-run relaunches us afterwards.
+//
+// /D pins the target directory. Without it a silent assisted installer (this one
+// has allowToChangeInstallationDirectory) falls back to its default path rather
+// than wherever the user actually installed, so an update can land beside the old
+// copy instead of over it. NSIS requires /D last and unquoted, which is why it is
+// built that way and not passed through a quoting helper.
+function installSilentlyWindows(installerPath) {
+  const args = ['--updated', '/S', '--force-run', `/D=${path.dirname(process.execPath)}`]
+  const child = spawn(installerPath, args, { detached: true, stdio: 'ignore' })
+  child.unref()
+  return child
+}
+
 ipcMain.handle('updater:install', () => {
-  if (pendingDownload?.destPath) {
-    if (process.platform === 'darwin') {
-      shell.openPath(pendingDownload.destPath)
-    } else {
-      shell.openPath(pendingDownload.destPath).then(() => setTimeout(() => app.quit(), 1500))
+  if (!pendingDownload?.destPath) {
+    if (pendingDownload?.releaseUrl) shell.openExternal(pendingDownload.releaseUrl)
+    return
+  }
+
+  const handOver = () => shell.openPath(pendingDownload.destPath).then(() => {
+    // macOS still needs the drag to Applications, so it stays open. Everything
+    // else is handing off to an installer that has to replace a running binary.
+    if (process.platform !== 'darwin') setTimeout(() => app.quit(), 1500)
+  })
+
+  // macOS replaces the app in place and relaunches; see mac-update.js. Any
+  // reason that is not safe (running from the DMG or a translocated copy, a
+  // folder this account cannot write to, a staged copy that fails its checks)
+  // falls back to opening the DMG, which is what every Mac update did before.
+  // An unpackaged dev run has no Cascade.app of its own to replace.
+  if (process.platform === 'darwin') {
+    if (!app.isPackaged) return handOver()
+    const log = (line) => {
+      if (updaterWindow && !updaterWindow.isDestroyed()) updaterWindow.webContents.send('updater:log', line)
     }
-  } else if (pendingDownload?.releaseUrl) {
-    shell.openExternal(pendingDownload.releaseUrl)
+    return installInPlace({
+      dmgPath: pendingDownload.destPath,
+      appBundle: path.resolve(process.execPath, '..', '..', '..'),
+      expectedVersion: pendingDownload.version,
+      bundleId: require('./package.json').build.appId,
+      pid: process.pid,
+      log,
+    }).then(() => {
+      setTimeout(() => app.quit(), 300)
+    }).catch((err) => {
+      console.error('[updater] In-place update failed, opening the installer:', err.message)
+      log(`Could not update in place (${err.message}). Opening the installer instead.`)
+      return handOver()
+    })
+  }
+
+  if (process.platform !== 'win32') return handOver()
+
+  try {
+    let quitTimer = null
+    const child = installSilentlyWindows(pendingDownload.destPath)
+    // spawn reports a missing or unrunnable installer asynchronously, so the
+    // quit waits long enough to hear about it. Quitting first would leave the
+    // user with no app and no installer.
+    child.on('error', (err) => {
+      console.error('[updater] Silent install failed, opening the installer:', err.message)
+      clearTimeout(quitTimer)
+      handOver()
+    })
+    quitTimer = setTimeout(() => app.quit(), 1000)
+  } catch (err) {
+    console.error('[updater] Silent install failed, opening the installer:', err.message)
+    handOver()
   }
 })
 

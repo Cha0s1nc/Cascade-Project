@@ -171,6 +171,11 @@ test('artUrl: no tag means no art', () => {
   assert.equal(c.artUrl('X', undefined), null)
   assert.equal(c.artUrl('X', null), null)
   assert.ok(c.artUrl('X', 'tag')?.includes('/Items/X/Images/Primary'))
+  // The tag must reach the URL, not just gate it: editing a cover in Cascade
+  // changes the item's tag, and without it every grid keeps serving the
+  // pre-edit image out of cache.
+  assert.match(c.artUrl('X', 'tag')!, /[?&]tag=tag(&|$)/)
+  assert.match(c.artUrl('X', 'a b&c')!, /[?&]tag=a%20b%26c(&|$)/)
   // Artists have no tag guard - they always render something.
   assert.ok(c.artistArtUrl('Y').includes('/Items/Y/Images/Primary'))
 })

@@ -1,0 +1,19 @@
+Cascade
+Copyright (C) 2026 cha0s
+
+SOURCE CODE
+
+Cascade's source code is free software under the GNU General Public License,
+version 3. You can use, study, share, and modify it under those terms. The full
+license text is installed alongside the app, and the source is available at
+https://github.com/Cha0s1nc/Cascade-Project
+
+ARTWORK
+
+The Cascade icon and the artwork in this installer are Copyright (C) 2026 cha0s
+and Hxney_bun_, all rights reserved. They are not covered by the GPL.
+
+You may install, use, and share unmodified Cascade releases. You may not reuse
+the artwork on its own, or ship it in a modified version or fork of Cascade.
+
+To ask for permission to use the artwork, email contact@chaosinc.xyz.

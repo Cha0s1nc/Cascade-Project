@@ -6,6 +6,9 @@
   <title>Cascade</title>
   <style>
     :root {
+      /* Hover highlight timing for rows and cards: a quick fade in, a slower fade
+         out, so the highlight trails the pointer the way Apple Music's does. */
+      --hover-in: 0.12s; --hover-out: 0.35s;
       --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
       --bg: #111113; --surface: #1c1c1e; --surface2: #2c2c2e; --border: #3a3a3c;
       --accent: #6e4ff6; --accent-glow: rgba(110,79,246,0.25);
@@ -78,8 +81,8 @@
 
     /* Recently played */
     .rp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 4px; margin-bottom: 22px; }
-    .rp-item { display: flex; align-items: center; gap: 9px; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; padding: 8px 10px; cursor: pointer; transition: background 0.12s; overflow: hidden; }
-    .rp-item:hover { background: var(--surface2); }
+    .rp-item { display: flex; align-items: center; gap: 9px; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; padding: 8px 10px; cursor: pointer; transition: background var(--hover-out) ease-out; overflow: hidden; }
+    .rp-item:hover { background: var(--surface2); transition-duration: var(--hover-in); }
     .rp-art { width: 36px; height: 36px; border-radius: 5px; flex-shrink: 0; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 18px; }
     .rp-art img { width: 100%; height: 100%; object-fit: cover; }
     .rp-name { font-size: 12px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -97,8 +100,8 @@
     /* Same clipping trick as #rp-grid above, but to a single row - "Recently
        added" reads as one shelf of covers, not a stack. */
     #home-recent-albums { grid-template-rows: auto; grid-auto-rows: 0; row-gap: 0; overflow: hidden; }
-    .album-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; cursor: pointer; transition: background 0.12s; }
-    .album-card:hover { background: var(--surface2); }
+    .album-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; cursor: pointer; transition: background var(--hover-out) ease-out; }
+    .album-card:hover { background: var(--surface2); transition-duration: var(--hover-in); }
     .album-art { width: 100%; aspect-ratio: 1; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 36px; }
     .album-art img { width: 100%; height: 100%; object-fit: cover; }
     .album-body { padding: 8px 9px 9px; }
@@ -136,8 +139,8 @@
        "Recently watched" shelf. */
     #home-continue-grid { grid-template-rows: auto; grid-auto-rows: 0; row-gap: 0; overflow: hidden; }
     .poster-card { cursor: pointer; }
-    .poster-art { width: 100%; aspect-ratio: 2/3; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 32px; color: var(--text3); position: relative; transition: border-color 0.12s; }
-    .poster-card:hover .poster-art { border-color: var(--accent); }
+    .poster-art { width: 100%; aspect-ratio: 2/3; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 32px; color: var(--text3); position: relative; transition: border-color var(--hover-out) ease-out; }
+    .poster-card:hover .poster-art { border-color: var(--accent); transition-duration: var(--hover-in); }
     .poster-art img { width: 100%; height: 100%; object-fit: cover; }
     .poster-name { font-size: 12px; font-weight: 500; color: var(--text); margin-top: 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .poster-sub { font-size: 11px; color: var(--text3); }
@@ -180,7 +183,14 @@
     }
     .hshelf-track::-webkit-scrollbar { display: none; }
     .poster-grid.hshelf-track { display: flex; }
-    .poster-grid.hshelf-track .poster-card { flex: 0 0 150px; }
+    /* min-width:0 is load-bearing. A flex item defaults to min-width:auto,
+       which clamps it to its min-content width, and .poster-name is nowrap -
+       so its min-content width is the whole untruncated title and a long one
+       drags the card past its 150px basis. aspect-ratio then turns that into a
+       taller poster too, which is what made a shelf of long-titled shows sit
+       staggered. Constraining the card is also what lets .poster-name's own
+       text-overflow:ellipsis finally have something to ellipsize against. */
+    .poster-grid.hshelf-track .poster-card { flex: 0 0 150px; min-width: 0; }
     .hshelf-arrow {
       position: absolute; top: 0; bottom: 6px; width: 42px; z-index: 5;
       display: flex; align-items: center; justify-content: center;
@@ -209,8 +219,8 @@
     .season-tab:hover { color: var(--text); }
     .season-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
-    .ep-row { display: grid; grid-template-columns: 132px 1fr auto; gap: 14px; align-items: start; padding: 10px; border-radius: 8px; cursor: pointer; transition: background 0.12s; }
-    .ep-row:hover { background: var(--surface2); }
+    .ep-row { display: grid; grid-template-columns: 132px 1fr auto; gap: 14px; align-items: start; padding: 10px; border-radius: 8px; cursor: pointer; transition: background var(--hover-out) ease-out; }
+    .ep-row:hover { background: var(--surface2); transition-duration: var(--hover-in); }
     .ep-row.playing .ep-title { color: var(--accent); }
     .ep-thumb { width: 132px; aspect-ratio: 16/9; background: var(--surface2); border-radius: 5px; overflow: hidden; position: relative; display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--text3); }
     .ep-thumb img { width: 100%; height: 100%; object-fit: cover; }
@@ -224,8 +234,8 @@
 
     /* Artists */
     .artist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
-    .artist-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; cursor: pointer; transition: background 0.12s; padding: 12px; text-align: center; }
-    .artist-card:hover { background: var(--surface2); }
+    .artist-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; cursor: pointer; transition: background var(--hover-out) ease-out; padding: 12px; text-align: center; }
+    .artist-card:hover { background: var(--surface2); transition-duration: var(--hover-in); }
     .artist-avatar { width: 64px; height: 64px; border-radius: 50%; background: var(--surface2); margin: 0 auto 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 28px; }
     .artist-avatar img { width: 100%; height: 100%; object-fit: cover; }
     .artist-name { font-size: 12px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -239,7 +249,14 @@
     #songs-rows { position: relative; }
     #songs-rows .track-row:not(.skel-card) { position: absolute; left: 0; right: 0; }
     .track-row:last-child { border-bottom: none; }
-    .track-row:hover { background: rgba(255,255,255,0.05); }
+    /* Apple Music-style hover: a rounded highlight that fades in fast and out
+       slowly as the pointer moves on. Drawn on ::before rather than the row
+       background so the corners can round without bending the separator line,
+       and isolation keeps the z-index:-1 layer above the row's own .playing
+       background. */
+    .track-row { position: relative; isolation: isolate; }
+    .track-row::before { content: ''; position: absolute; inset: 0; border-radius: 6px; background: rgba(255,255,255,0.05); opacity: 0; transition: opacity var(--hover-out) ease-out; pointer-events: none; z-index: -1; }
+    .track-row:hover::before { opacity: 1; transition-duration: var(--hover-in); }
     .track-row.playing { background: rgba(110,79,246,0.1); }
     .track-num { font-size: 12px; color: var(--text3); text-align: center; }
     .track-thumb { position: relative; width: 32px; height: 32px; border-radius: 4px; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
@@ -281,8 +298,8 @@
 
     /* ── Playlists view ── */
     .playlist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 20px; }
-    .playlist-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; cursor: pointer; transition: background 0.12s; }
-    .playlist-card:hover { background: var(--surface2); }
+    .playlist-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; cursor: pointer; transition: background var(--hover-out) ease-out; }
+    .playlist-card:hover { background: var(--surface2); transition-duration: var(--hover-in); }
     .playlist-art { width: 100%; aspect-ratio: 1; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 36px; color: var(--text3); }
     .playlist-art img { width: 100%; height: 100%; object-fit: cover; }
     .playlist-body { padding: 8px 9px 10px; }
@@ -328,6 +345,11 @@
     .setting-label { display: flex; flex-direction: column; gap: 2px; flex: 1; }
     .setting-name { font-size: 13px; font-weight: 500; color: var(--text); }
     .setting-desc { font-size: 11px; color: var(--text3); }
+    /* Translation model rows (Settings > Lyrics & Metadata). */
+    .tm-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .tm-bar { height: 3px; border-radius: 2px; background: var(--surface2); overflow: hidden; margin-top: 5px; max-width: 260px; }
+    .tm-bar-fill { height: 100%; width: 0; background: var(--accent1, var(--accent)); transition: width 0.25s ease; }
+    @media (prefers-reduced-motion: reduce) { .tm-bar-fill { transition: none; } }
     .setting-input { font-family: var(--font); font-size: 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 6px 10px; width: 260px; outline: none; transition: border-color 0.15s; }
     .setting-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
     select.setting-input { cursor: pointer; }
@@ -835,8 +857,8 @@
     #ov-panel-queue { transition: transform 0.3s cubic-bezier(0.4,0,0.2,1); }
     /* Height is pinned so it matches QUEUE_ROW_H exactly - the virtualiser's spacer
        heights and scroll indices are all computed from that constant. */
-    .queue-row { display: flex; align-items: center; gap: 10px; padding: 8px 16px; cursor: pointer; transition: background 0.1s; border-bottom: 0.5px solid var(--border); height: 53px; box-sizing: border-box; }
-    .queue-row:hover { background: rgba(255,255,255,0.03); }
+    .queue-row { display: flex; align-items: center; gap: 10px; padding: 8px 16px; cursor: pointer; transition: background var(--hover-out) ease-out; border-bottom: 0.5px solid var(--border); height: 53px; box-sizing: border-box; }
+    .queue-row:hover { background: rgba(255,255,255,0.03); transition-duration: var(--hover-in); }
     .queue-row.current { background: rgba(110,79,246,0.1); }
     .queue-row.current .queue-row-title { color: #a78bfa; font-weight: 500; }
     .queue-row-art { width: 36px; height: 36px; border-radius: 4px; background: var(--surface2); overflow: hidden; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 16px; }
@@ -859,32 +881,35 @@
     .track-row[draggable="true"].drag-over { border-top: 2px solid var(--accent); }
     /* Overlay lyrics - GPU-accelerated clock-scroll */
     #ov-panel-lyrics { overflow: hidden; }
-    .ov-lyrics-scroll { display: flex; flex-direction: column; align-items: center; will-change: transform; }
-    .ov-lyric-line { text-align: center; font-size: clamp(18px, 2.2vw, 38px); font-weight: 700; color: var(--text3); padding: 10px 32px; line-height: 1.4; cursor: default; max-width: min(500px, 80%); transform: scale(0.65); transform-origin: center center; opacity: 0; will-change: transform, opacity; transition: transform 0.55s cubic-bezier(0.16,1,0.3,1), opacity 0.55s cubic-bezier(0.16,1,0.3,1), color 0.4s; }
+    .ov-lyrics-scroll { display: flex; flex-direction: column; align-items: flex-start; will-change: transform; }
+    /* Left-aligned and full size. Lines around the active one step back by
+       fading and blurring rather than shrinking, so nothing reflows or shifts
+       sideways as the active line moves. */
+    .ov-lyric-line { text-align: left; font-size: clamp(22px, 3vw, 50px); font-weight: 800; letter-spacing: -0.015em; color: white; padding: 12px 56px; line-height: 1.25; cursor: default; max-width: min(900px, 92%); opacity: 0; filter: blur(6px); transition: opacity 0.55s cubic-bezier(0.16,1,0.3,1), filter 0.55s cubic-bezier(0.16,1,0.3,1); }
     .ov-lyric-line.seekable { cursor: pointer; }
-    .ov-lyric-line.past { opacity: 0; transform: scale(0.65); pointer-events: none; }
-    .ov-lyric-line.near-3 { transform: scale(0.7); opacity: 0.14; }
-    .ov-lyric-line.near-2 { transform: scale(0.78); opacity: 0.28; }
-    .ov-lyric-line.near-1 { transform: scale(0.9); opacity: 0.5; color: var(--text2); }
-    .ov-lyric-line.active { transform: scale(1.05); opacity: 1; color: white; filter: drop-shadow(0 0 18px rgba(255,255,255,0.25)); }
-    .ov-lyric-word { -webkit-text-fill-color: rgba(255,255,255,0.22); }
+    .ov-lyric-line.past { opacity: 0; pointer-events: none; }
+    .ov-lyric-line.near-3 { opacity: 0.12; filter: blur(4px); }
+    .ov-lyric-line.near-2 { opacity: 0.22; filter: blur(3px); }
+    .ov-lyric-line.near-1 { opacity: 0.35; filter: blur(2px); }
+    .ov-lyric-line.active { opacity: 1; filter: none; }
+    .ov-lyric-trans { font-size: clamp(14px, 1.35vw, 22px); font-weight: 500; letter-spacing: 0; line-height: 1.3; margin-top: 6px; color: rgba(255,255,255,0.72); -webkit-text-fill-color: currentColor; }
+    /* Unsung words stay readable, not ghosted: the fill is the progress cue. */
+    .ov-lyric-word { -webkit-text-fill-color: rgba(255,255,255,0.4); }
     .ov-lyric-line.active .ov-lyric-word {
       --p: 0%;
-      background: linear-gradient(to right, white var(--p), rgba(255,255,255,0.22) var(--p));
+      background: linear-gradient(to right, white var(--p), rgba(255,255,255,0.4) var(--p));
       -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
     }
-    .ov-lyric-line.active .ov-lyric-word.active { filter: drop-shadow(0 0 8px rgba(255,255,255,0.55)); transition: filter 0.07s ease-in; }
-    .ov-lyric-line.active .ov-lyric-word:not(.active) { filter: none; transition: filter 0.4s ease-out; }
-    #ov-panel-lyrics:hover .ov-lyric-line.past { opacity: 0.2; transform: scale(0.72); pointer-events: auto; }
-    #ov-panel-lyrics:hover .ov-lyric-line.past.near-past { opacity: 0.35; transform: scale(0.82); }
+    #ov-panel-lyrics:hover .ov-lyric-line.past { opacity: 0.18; filter: blur(2px); pointer-events: auto; }
+    #ov-panel-lyrics:hover .ov-lyric-line.past.near-past { opacity: 0.3; filter: blur(1px); }
     /* Scrolling by hand means you want to read, and the karaoke fade hides
        exactly what you are scrolling toward - past lines and anything beyond
        near-3 sit at opacity 0. Bring the whole lyric up while browsing. The
        line's existing transition does the fade both ways, so it settles back
        into the karaoke look on its own when the spring returns to the active
        line. */
-    #ov-panel-lyrics.browsing .ov-lyric-line { opacity: 0.8; transform: scale(0.88); color: white; text-shadow: 0 1px 4px rgba(0,0,0,0.55); pointer-events: auto; }
-    #ov-panel-lyrics.browsing .ov-lyric-line.active { opacity: 1; transform: scale(1); color: white; }
+    #ov-panel-lyrics.browsing .ov-lyric-line { opacity: 0.8; filter: none; color: white; text-shadow: 0 1px 4px rgba(0,0,0,0.55); pointer-events: auto; }
+    #ov-panel-lyrics.browsing .ov-lyric-line.active { opacity: 1; color: white; }
 
     /* Light theme: everything above assumes a dark backdrop and hardcodes
        white/near-white, which is fine under album-art-theme's dark blobs but
@@ -899,13 +924,13 @@
        Deliberately left alone: .near-1/.near-2/.near-3/.past, which fade to
        near-zero opacity on purpose and are not meant to be read. Selectors
        are scoped to [data-theme="light"] so dark theme is untouched. */
-    html[data-theme="light"] .ov-lyric-word { -webkit-text-fill-color: rgba(28,28,30,0.32); }
-    html[data-theme="light"] .ov-lyric-line.active { color: #1c1c1e; filter: drop-shadow(0 0 18px rgba(255,255,255,0.55)); }
+    html[data-theme="light"] .ov-lyric-word { -webkit-text-fill-color: rgba(28,28,30,0.4); }
+    html[data-theme="light"] .ov-lyric-line { color: #1c1c1e; }
+    html[data-theme="light"] .ov-lyric-trans { color: rgba(28,28,30,0.7); }
     html[data-theme="light"] .ov-lyric-line.active .ov-lyric-word {
-      background: linear-gradient(to right, #1c1c1e var(--p), rgba(28,28,30,0.32) var(--p));
+      background: linear-gradient(to right, #1c1c1e var(--p), rgba(28,28,30,0.4) var(--p));
       -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
     }
-    html[data-theme="light"] .ov-lyric-line.active .ov-lyric-word.active { filter: drop-shadow(0 0 8px rgba(255,255,255,0.7)); }
     html[data-theme="light"] #ov-panel-lyrics.browsing .ov-lyric-line { color: #1c1c1e; text-shadow: 0 1px 3px rgba(255,255,255,0.6); }
     html[data-theme="light"] #ov-panel-lyrics.browsing .ov-lyric-line.active { color: #1c1c1e; }
 
@@ -947,16 +972,17 @@
     .lyrics-close:hover { color: var(--text); }
     .lyrics-translate-bar { display: none; align-items: center; gap: 6px; padding: 8px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
     .lyrics-translate-bar.visible { display: flex; }
-    .lyrics-translate-bar label { font-size: 11px; color: var(--text3); flex-shrink: 0; }
-    .lyrics-lang-select { flex: 1; font-family: var(--font); font-size: 11px; background: var(--surface2); border: 1px solid var(--border); border-radius: 5px; color: var(--text); padding: 4px 6px; outline: none; cursor: pointer; }
-    .lyrics-translate-btn { font-family: var(--font); font-size: 11px; font-weight: 600; background: var(--accent); color: white; border: none; border-radius: 5px; padding: 4px 10px; cursor: pointer; transition: opacity 0.12s; flex-shrink: 0; }
+    .lyrics-translate-bar label { flex: 1; min-width: 0; font-size: 11px; color: var(--text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lyrics-translate-btn { flex-shrink: 0; white-space: nowrap; font-family: var(--font); font-size: 11px; font-weight: 600; background: var(--accent); color: white; border: none; border-radius: 5px; padding: 4px 10px; cursor: pointer; transition: opacity 0.12s; flex-shrink: 0; }
     .lyrics-translate-btn:hover { opacity: 0.85; }
     .lyrics-translate-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-    .lyrics-body { flex: 1; overflow: hidden; padding: 16px 14px; }
-    .lyrics-line { font-size: 13px; color: var(--text2); line-height: 1.8; padding: 2px 0; transition: color 0.2s, transform 0.18s ease, opacity 0.35s ease; opacity: 0.38; }
-    .lyrics-line.active { color: var(--text); font-weight: 500; opacity: 1; }
-    .lyrics-line.active:has(.lyric-word) { transform: translateY(-9px); }
-    .lyrics-line.translated { color: var(--text3); font-size: 11px; margin-top: -4px; font-style: italic; }
+    .lyrics-body { flex: 1; overflow: hidden; padding: 16px 20px; }
+    /* Large, bold, left-aligned lines; the active one at full strength and the
+       rest dimmed, with any translation small and quiet directly underneath
+       (nested inside the line, so centring and click-to-seek cover both). */
+    .lyrics-line { font-size: 20px; font-weight: 700; line-height: 1.35; letter-spacing: -0.01em; color: var(--text); padding: 10px 0; transition: opacity 0.35s ease; opacity: 0.3; }
+    .lyrics-line.active { opacity: 1; }
+    .lyric-trans { font-size: 12px; font-weight: 500; line-height: 1.4; letter-spacing: 0; margin-top: 4px; color: var(--text2); -webkit-text-fill-color: currentColor; }
     .lyrics-empty { font-size: 12px; color: var(--text3); text-align: center; padding: 40px 0; }
     .lyric-word { -webkit-text-fill-color: white; }
     .lyrics-line.active .lyric-word {
@@ -1165,7 +1191,7 @@
        time, and reads as the panel dimming to be read. */
     .np-overlay.art-theme #ov-panel-lyrics.browsing { background: rgba(0,0,0,0.3) !important; }
     #ov-panel-lyrics { transition: background 0.35s ease; }
-    .np-overlay.art-theme .queue-row:hover { background: rgba(255,255,255,0.07); }
+    .np-overlay.art-theme .queue-row:hover { background: rgba(255,255,255,0.07); transition-duration: var(--hover-in); }
     .np-overlay.art-theme .queue-row.current { background: rgba(255,255,255,0.15); }
     .np-overlay.art-theme .queue-row-title { color: rgba(255,255,255,0.9); }
     .np-overlay.art-theme .queue-row-artist,
@@ -1208,7 +1234,7 @@
       color: #1c1c1e; filter: drop-shadow(0 0 18px rgba(255,255,255,0.55));
     }
     html[data-theme="light"] .np-overlay.art-theme .ov-lyric-line.active .ov-lyric-word {
-      background: linear-gradient(to right, #1c1c1e var(--p), rgba(28,28,30,0.3) var(--p));
+      background: linear-gradient(to right, #1c1c1e var(--p), rgba(28,28,30,0.4) var(--p));
       -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
     }
     html[data-theme="light"] .np-overlay.art-theme .ov-lyric-line.active .ov-lyric-word.active {
@@ -1276,6 +1302,14 @@
       .lyrics-source-dropdown, .ov-more-scrim { transition: none; }
       .hshelf-track { scroll-behavior: auto; }
       .hshelf-arrow, .hshelf-arrow svg { transition: none; }
+      /* Two of the four animations that never stop on their own. The eq bars
+         are decorative and stop outright; the spinner only slows down, because
+         a frozen spinner stops telling the user work is still in flight.
+         The other two are handled at the end of this stylesheet - their rules
+         are defined below this point, and a media query adds no specificity,
+         so an override here would lose the cascade and silently do nothing. */
+      .track-eq i { animation: none; }
+      .setup-spinner { animation-duration: 3s; }
     }
 
     /* ── Equalizer ── */
@@ -1332,7 +1366,6 @@
     .ov-translate-btn:hover { background: rgba(255,255,255,0.22); transform: scale(1.1); }
     .ov-translate-btn.translated { background: var(--accent); border-color: transparent; color: white; }
     .ov-translate-btn.loading { opacity: 0.6; pointer-events: none; animation: spin 1s linear infinite; }
-    @keyframes spin { to { transform: rotate(360deg); } }
 
     /* ── Shuffle all button ── */
     .shuffle-all-btn { display: flex; align-items: center; gap: 5px; font-family: var(--font); font-size: 11px; font-weight: 600; background: none; border: 1px solid var(--border); border-radius: 6px; color: var(--text2); padding: 4px 10px; cursor: pointer; transition: background 0.12s, color 0.12s, border-color 0.12s; }
@@ -1354,6 +1387,18 @@
     }
     .skel-text { height: 10px; border-radius: 4px; background: var(--surface2); }
     @keyframes skel-shimmer { 100% { transform: translateX(100%); } }
+
+    /* The remaining two never-ending animations. They live here, at the end,
+       rather than in the reduced-motion block above, because both of their
+       rules are defined after that block and a media query adds no specificity
+       - an override up there loses on source order and does nothing at all.
+       The shimmer stops outright (it is decorative, and its original rule is
+       the `animation` shorthand, which resets any duration override anyway);
+       the translate spinner only slows, so it still reads as working. */
+    @media (prefers-reduced-motion: reduce) {
+      .skel::after { animation: none; }
+      .ov-translate-btn.loading { animation-duration: 3s; }
+    }
   </style>
 </head>
 <body>
@@ -1973,6 +2018,33 @@
                 <option value="cascade-synced" class="lsd-server-only" style="display:none">Synced Only</option>
               </select>
             </div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="setting-name">Lyric Translation</span>
+                <span class="setting-desc">Translates Japanese, Korean, Chinese and Spanish lyrics into English on this computer. Each language's model (about 35-70 MB, from Mozilla's Firefox Translations) downloads the first time it's needed, from Cascade's GitHub or Mozilla's servers. Your lyrics never leave your computer.</span>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="lyrics-translation-toggle">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div class="setting-row" id="apple-translation-row" style="display:none">
+              <div class="setting-label">
+                <span class="setting-name">Use Apple Translation</span>
+                <span class="setting-desc">Recommended on this Mac. Translates with the translation built into macOS instead of Cascade's downloadable models: more accurate, and nothing downloads through Cascade, though it is a little slower. Each language needs to be installed in macOS first, under Translation Languages in Language &amp; Region.</span>
+                <span class="setting-desc" id="apple-translation-status"></span>
+              </div>
+              <div class="tm-actions">
+                <button class="btn btn-secondary" id="apple-translation-reset" style="display:none">Ask again</button>
+                <button class="btn btn-secondary" id="apple-translation-open">Language &amp; Region</button>
+                <label class="toggle">
+                  <input type="checkbox" id="apple-translation-toggle">
+                  <span class="toggle-track"></span>
+                </label>
+              </div>
+            </div>
+            <div class="lib-group-title" style="padding:0 14px;">Translation Models</div>
+            <div id="translation-models-list"></div>
           </div>
           <div class="settings-group">
             <div class="sg-title">Integrations</div>
@@ -2243,6 +2315,21 @@
       </div>
     </div>
 
+    <div id="fr-step-translation" style="display:none">
+      <p class="setup-subtitle">Cascade can translate Japanese, Korean, Chinese and Spanish lyrics into English, entirely on this computer.</p>
+      <div class="tp-album-row">
+        <div class="tp-album-label">
+          <span class="tp-album-name">Lyric translation</span>
+          <span class="tp-album-desc">The first time you translate a song in one of these languages, Cascade downloads that language's translation model (about 35-70 MB, from Mozilla's Firefox Translations) from Cascade's GitHub or Mozilla's servers. Nothing downloads until you press Translate. Your lyrics never leave your computer, and downloaded models can be removed in Settings.</span>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="fr-lyrics-translation-toggle">
+          <span class="toggle-track"></span>
+        </label>
+      </div>
+      <p class="setup-subtitle" id="fr-apple-translation-note" style="display:none;font-size:11px;margin-top:10px;">On this Mac, Cascade uses Apple's built-in translation instead, for any of these languages installed in macOS, and nothing downloads for those. You can change this in Settings.</p>
+    </div>
+
     <p class="setup-subtitle" style="font-size:11px;margin:16px 0 0;">You can change all of this later in Settings.</p>
     <button class="setup-btn" id="fr-next">Next</button>
     <button class="setup-btn setup-btn-alt" id="fr-skip">Skip</button>
@@ -2384,7 +2471,7 @@
           </button></span>
         </div>
         <div class="ov-lyrics-scroll" id="ov-lyrics-body"></div>
-        <button class="ov-translate-btn" id="ov-translate-btn" title="Translate to English" style="display:none">
+        <button class="ov-translate-btn" id="ov-translate-btn" title="Translate lyrics" style="display:none">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
         </button>
       </div>
@@ -2617,21 +2704,7 @@
     </div>
   </div>
   <div class="lyrics-translate-bar" id="lyrics-translate-bar">
-    <label>Translate to</label>
-    <select class="lyrics-lang-select" id="lyrics-lang">
-      <option value="en">English</option>
-      <option value="es">Spanish</option>
-      <option value="fr">French</option>
-      <option value="de">German</option>
-      <option value="ja">Japanese</option>
-      <option value="ko">Korean</option>
-      <option value="zh">Chinese</option>
-      <option value="pt">Portuguese</option>
-      <option value="it">Italian</option>
-      <option value="ru">Russian</option>
-      <option value="ar">Arabic</option>
-      <option value="hi">Hindi</option>
-    </select>
+    <label id="lyrics-translate-label"></label>
     <button class="lyrics-translate-btn" id="lyrics-translate-btn">Translate</button>
   </div>
   <div class="lyrics-pill-group" id="sidebar-pill-group">
@@ -2728,6 +2801,24 @@
 
 <div id="toast"></div>
 
+<!-- Apple Translation: a song's language is not installed in macOS -->
+<div class="modal-overlay hidden" id="apple-install-modal">
+  <div class="modal-card" style="width:400px;max-height:none;">
+    <div class="modal-title" id="apple-install-title">Install this language in macOS?</div>
+    <p style="font-size:12px;color:var(--text2);line-height:1.6;margin-bottom:8px;">
+      Apple Translation is <strong style="color:var(--text);font-weight:600;">recommended</strong>: it is more accurate, runs on this Mac, and downloads nothing through Cascade. <span id="apple-install-lang">This language</span> just needs to be installed in macOS first.
+    </p>
+    <p style="font-size:12px;color:var(--text3);line-height:1.6;margin-bottom:18px;">
+      In System Settings, click <strong style="color:var(--text2);font-weight:600;">Translation Languages</strong> in Language &amp; Region and download it, then press Translate again. Or use Cascade's own model for it, which downloads now.
+    </p>
+    <div class="modal-actions" style="flex-wrap:wrap;">
+      <button class="modal-btn" id="apple-install-cancel">Cancel</button>
+      <button class="modal-btn" id="apple-install-mozilla">Use Cascade's model</button>
+      <button class="modal-btn modal-btn-accent" id="apple-install-open">Open System Settings</button>
+    </div>
+  </div>
+</div>
+
 <!-- CascadeSLRC plugin info modal (shown once) -->
 <div class="modal-overlay hidden" id="cascade-plugin-modal">
   <div class="modal-card" style="width:380px;max-height:none;">
@@ -2762,6 +2853,9 @@
 </div>
 
 <script src="build/core.js"></script>
+<!-- The translation runtime finds its worker relative to its own URL; see scripts/build-bergamot.js. -->
+<script>self.__bergamotBase = new URL('build/bergamot/translator.js', location.href).href</script>
+<script src="build/bergamot/translator.js"></script>
 <script src="renderer.js"></script>
 <script src="waterfall.js"></script>
 <div id="tooltip" role="tooltip" aria-hidden="true"></div>

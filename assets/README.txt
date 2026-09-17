@@ -35,7 +35,8 @@ overwritten by its own output partway through the run.
 macOS note: icon.icns needs `iconutil`, so it is only produced when the script
 runs on macOS. Everything else builds anywhere.
 
-Licensing: settle this before shipping new artwork. The project code is GPL-3.
-Artwork committed here with nothing said about it is implicitly GPL-3 too, which
-would let anyone fork Cascade, keep the logo, and ship a visually identical app.
-Agree terms with the artist, then state them here and in the README.
+Licensing: the artwork here is NOT GPL. It is (C) 2026 cha0s and Hxney_bun_,
+all rights reserved, under assets/LICENSE. Unmodified builds may be shared;
+forks and modified versions must replace it. Anything new added to this folder
+falls under the same terms, so get the artist's agreement first.
+To ask for permission to use the artwork, email contact@chaosinc.xyz.

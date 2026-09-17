@@ -57,7 +57,11 @@ export interface TouchBarUpdate {
 export interface DiscordActivity {
   details: string
   state: string
-  startTimestamp: number
+  /** Both timestamps together are what makes Discord draw a progress bar; a
+   *  start on its own only gets the "XX:XX elapsed" line. Absent while paused,
+   *  since they are wall-clock and would otherwise keep running. */
+  startTimestamp?: number
+  endTimestamp?: number
   largeImageKey?: string
   largeImageText?: string
   /** true renders as "Watching Cascade", false/absent as "Listening to Cascade". */
@@ -69,6 +73,34 @@ export interface DiscordActivity {
 export interface UpdateCheckResult {
   hasUpdate: boolean
   error?: string
+}
+
+/** One Electron process, as the debug panel's resources section shows it. */
+export interface ProcessMetric {
+  type: string
+  pid: number
+  memMB: number
+  /** Percent of one core since the previous call. */
+  cpu: number
+  /** Always 0 on Windows. */
+  wakeups: number
+}
+
+/** One on-device translation model, as main.js reports it. */
+export interface TranslationModelStatus {
+  name: string
+  /** Total download size of every file in the model. */
+  bytes: number
+  state: 'absent' | 'downloading' | 'ready'
+  /** Bytes downloaded so far; 0 unless downloading. */
+  transferred: number
+}
+
+export interface TranslationModelProgress {
+  key: string
+  state: 'absent' | 'downloading' | 'ready'
+  transferred: number
+  total: number
 }
 
 export interface KugouLyricsQuery {
@@ -106,6 +138,8 @@ export interface DesktopCapabilities {
   /** True when the `.cascade-debug` sentinel file was present at startup.
    *  Gates the renderer's debug panel - see main.js debugSentinelPresent(). */
   isDebugMode?(): Promise<boolean>
+  /** Per-process memory and CPU, for the debug panel. */
+  appMetrics?(): Promise<ProcessMetric[]>
 
   onMediaKey?(cb: (key: string) => void): void
   touchbarUpdate?(data: TouchBarUpdate): void
@@ -143,6 +177,27 @@ export interface DesktopCapabilities {
    * own media element would mean a fresh Jellyfin stream negotiation and
    * every track restarting.
    */
+  /** Apple's on-device Translation framework, through a helper process.
+   *  Only macOS 26+; `supported()` is false everywhere else. */
+  appleTranslation?: {
+    supported(): Promise<boolean>
+    /** Per model key: installed in macOS, installable, or not offered by Apple. */
+    availability(): Promise<Record<string, 'installed' | 'supported' | 'unsupported'>>
+    /** One line into English. Rejects if the language is not installed. */
+    translate(key: string, text: string): Promise<string>
+    /** Opens System Settings at Language & Region. */
+    openSettings(): Promise<void>
+  }
+  /** Download, inspect and remove the on-device lyric translation models.
+   *  Keys are the manifest's: 'ja', 'ko', 'zh-Hans', 'zh-Hant'. */
+  translationModels?: {
+    status(): Promise<Record<string, TranslationModelStatus>>
+    /** Resolves once the model is installed and verified; a second call for
+     *  the same key joins the download already running. */
+    download(key: string): Promise<void>
+    remove(key: string): Promise<void>
+    onProgress(cb: (p: TranslationModelProgress) => void): void
+  }
   miniPlayer?: {
     /** Opens the miniplayer window (creating it if needed) and minimizes the
      *  main window, mirroring Spotify/Apple Music's compact mode. */
@@ -169,6 +224,7 @@ export interface ElectronPlatform extends Platform, DesktopCapabilities {
   checkForUpdates: NonNullable<DesktopCapabilities['checkForUpdates']>
   isPackaged: NonNullable<DesktopCapabilities['isPackaged']>
   isDebugMode: NonNullable<DesktopCapabilities['isDebugMode']>
+  appMetrics: NonNullable<DesktopCapabilities['appMetrics']>
   onMediaKey: NonNullable<DesktopCapabilities['onMediaKey']>
   touchbarUpdate: NonNullable<DesktopCapabilities['touchbarUpdate']>
   nowPlayingUpdate: NonNullable<DesktopCapabilities['nowPlayingUpdate']>
@@ -178,5 +234,7 @@ export interface ElectronPlatform extends Platform, DesktopCapabilities {
   kugouGetLyrics: NonNullable<DesktopCapabilities['kugouGetLyrics']>
   lyricsEditor: NonNullable<DesktopCapabilities['lyricsEditor']>
   metadataEditor: NonNullable<DesktopCapabilities['metadataEditor']>
+  appleTranslation: NonNullable<DesktopCapabilities['appleTranslation']>
+  translationModels: NonNullable<DesktopCapabilities['translationModels']>
   miniPlayer: NonNullable<DesktopCapabilities['miniPlayer']>
 }

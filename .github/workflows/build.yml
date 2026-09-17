@@ -8,13 +8,19 @@ on:
     # tag lands on whatever target_commitish the release carries, so the rebuild
     # was of a completely different commit. Use workflow_dispatch for manual
     # builds instead.
-    branches: ['stable', 'beta']
+    branches: ['stable']
+  # Manual runs build any branch. Leave prerelease off for a test build (installers
+  # on the run page, no release); turn it on to publish a -bN beta draft.
   workflow_dispatch:
     inputs:
       version:
         description: 'Version to build (e.g. 1.1.1) — leave blank to use package.json'
         required: false
         default: ''
+      prerelease:
+        description: 'Publish as a beta (-bN) prerelease draft'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -38,8 +44,8 @@ jobs:
         run: |
           PKG=$(node -p "require('./package.json').version")
 
-          if [[ "${{ github.ref }}" == "refs/heads/beta" ]]; then
-            # Push to beta — auto-increment beta build number
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.prerelease }}" == "true" ]]; then
+            # Manual beta - auto-increment beta build number
             BASE="${PKG%%-*}"
             COUNT=$(git tag -l "v${BASE}-b[0-9]*" | wc -l | tr -d ' ')
             BETA_NUM=$((COUNT + 1))
@@ -72,7 +78,7 @@ jobs:
             echo "should_release=true"  >> $GITHUB_OUTPUT
 
           else
-            # workflow_dispatch
+            # workflow_dispatch test build
             INPUT="${{ github.event.inputs.version }}"
             VERSION="${INPUT:-$PKG}"
             TAG="v${VERSION}"
@@ -91,7 +97,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Set version
@@ -113,13 +119,16 @@ jobs:
   # ── macOS ──────────────────────────────────────────────────────────────────
   build-mac:
     needs: setup
-    runs-on: macos-latest
+    # Pinned rather than macos-latest: the Apple Translation helper needs the
+    # macOS 26 SDK, and a runner rollback would fail the build in a way that
+    # looks unrelated to the label.
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Set version
@@ -171,7 +180,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Install system dependencies

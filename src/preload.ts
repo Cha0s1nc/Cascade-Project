@@ -27,6 +27,7 @@ const cascade: ElectronPlatform = {
   getVersion:      () => ipcRenderer.invoke('get-version'),
   isPackaged:      () => ipcRenderer.invoke('is-packaged'),
   isDebugMode:     () => ipcRenderer.invoke('is-debug-mode'),
+  appMetrics:      () => ipcRenderer.invoke('app-metrics'),
   onMediaKey:      (cb) => { ipcRenderer.on('media-key', (_e, key) => cb(key)) },
   platform:        process.platform,
   touchbarUpdate:  (data) => ipcRenderer.send('touchbar-update', data),
@@ -47,6 +48,18 @@ const cascade: ElectronPlatform = {
   metadataEditor: {
     open:    (data) => ipcRenderer.send('open-metadata-editor', data),
     onSaved: (cb) => { ipcRenderer.on('metadata-saved', (_e, itemId) => cb(itemId)) },
+  },
+  appleTranslation: {
+    supported:    () => ipcRenderer.invoke('apple-translation:supported'),
+    availability: () => ipcRenderer.invoke('apple-translation:availability'),
+    translate:    (key, text) => ipcRenderer.invoke('apple-translation:translate', key, text),
+    openSettings: () => ipcRenderer.invoke('apple-translation:open-settings'),
+  },
+  translationModels: {
+    status:     () => ipcRenderer.invoke('translation-models:status'),
+    download:   (key) => ipcRenderer.invoke('translation-models:download', key),
+    remove:     (key) => ipcRenderer.invoke('translation-models:remove', key),
+    onProgress: (cb) => { ipcRenderer.on('translation-models:progress', (_e, p) => cb(p)) },
   },
   miniPlayer: {
     open:        () => ipcRenderer.send('open-miniplayer'),

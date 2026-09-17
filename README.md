@@ -21,15 +21,15 @@ Cascade is a Jellyfin streaming app, originally prioritized for music streaming.
 - **Remote control target** - Cascade appears in Jellyfin's "Play On" list, so you can drive it from the web UI or your phone
 - **Waterfall (beta)** - synced listening rooms. Everyone streams the same track from the same Jellyfin server, and the room shares a queue. Guests can add tracks, and optionally control playback. No audio crosses the wire
 - **Full-screen now-playing overlay** - click the player bar to expand a full-screen view with large album art, controls, a live queue panel, and synced lyrics. Lyrics scale up automatically when the window is maximised or fullscreened
-- **Synced lyrics** - timestamp-synced lyrics from Jellyfin with click-to-seek. Opens as a slide-in panel or in the full-screen overlay. A globe button in the overlay lyrics panel auto-detects non-English tracks and translates to English with one tap (Pulled from a couple sources when online, pulled from sidecar `.slrc` files on "Server Only Mode" - "Server Only Mode" and the built-in lyrics editor need the CascadeSLRC plugin for Jellyfin, which is not publicly released yet. Cascade detects whether it is installed and greys those controls out with an explanation when it is not, so nothing silently fails)
-- **Lyrics translation** - auto-detects non-English tracks and shows a translate bar. One click translates to 12 languages via the MyMemory API
+- **Synced lyrics** - timestamp-synced lyrics from Jellyfin with click-to-seek. Opens as a slide-in panel or in the full-screen overlay. A globe button in the overlay lyrics panel auto-detects non-English tracks and translates to English with one tap, on-device (Pulled from a couple sources when online, pulled from sidecar `.slrc` files on "Server Only Mode" - "Server Only Mode" and the built-in lyrics editor need the CascadeSLRC plugin for Jellyfin, which is not publicly released yet. Cascade detects whether it is installed and greys those controls out with an explanation when it is not, so nothing silently fails)
+- **Lyrics translation** - Japanese, Korean, Chinese (Simplified and Traditional) and Spanish lyrics get a Translate button, and translations appear under each line in English. Detection and translation both run **entirely on your machine**: no lyric, and no record of what you are playing, ever leaves it. Language detection is trigram matching (`franc`); translation runs Mozilla's [Firefox Translations](https://github.com/mozilla/firefox-translations-models) models on the bergamot WebAssembly runtime. Each language's model (about 35-70 MB) downloads the first time you translate a song in it, from Cascade's GitHub releases or Mozilla's servers, and is checked against a pinned SHA-256 before use. Models can be removed or redownloaded in Settings, and translation can be switched off entirely. On macOS 26 or newer, Cascade uses **Apple's built-in translation** instead by default, for any of these languages installed in macOS: it is more accurate and downloads nothing through Cascade. If a song's language is not installed in macOS, Cascade offers to open System Settings to install it (recommended) or to use its own model for that language
 - **Album art accent mode** - toggle in the theme picker to automatically match the gradient and full-screen overlay background to the dominant colour of the current album art, updating on every track change
 - **Discord Rich Presence** - shows the current track in Discord as "Listening to Cascade", or "Watching Cascade" for a movie or episode. Enable in Settings with one toggle - no setup required
 - **Touch Bar** - actually has support for MacBooks with a Touch Bar
 - **Cha0s Stream integration** - exposes a local control server (`127.0.0.1:47847`) so [Cha0s Stream](https://github.com/Cha0s1nc/cha0s-stream) (my other tool) can control playback directly without OS key simulation or Jellyfin session API calls
 - **Auto-updater** - checks for new GitHub releases on startup and presents an update window with release notes, download progress, and one-click install
 - **Native window controls** - macOS gets its traffic lights, Windows and Linux get real OS caption buttons drawn inside Cascade's own titlebar rather than a second one stacked above it
-- **Cross-platform** - Mac (`.dmg`, Intel + Apple Silicon), Windows (`.exe`), Linux (`.AppImage`, `.deb`, `.rpm`)
+- **Cross-platform** - Mac (`.dmg`, Apple Silicon), Windows (`.exe`), Linux (`.AppImage`, `.deb`, `.rpm`)
 
 ---
 
@@ -75,7 +75,7 @@ After connecting, open **Settings** to choose which Jellyfin music libraries Cas
 
 Movie and TV libraries are chosen separately in the same place and are off by default. Turning one on adds Movies and TV Shows to the sidebar; turning them all off removes video from the app entirely.
 
-**Scan library on server** asks Jellyfin to look for files added or removed outside it, and needs a Jellyfin admin account - it is greyed out with an explanation otherwise. **Refresh app** is local, works on any account, and just re-reads everything from the server.
+**Scan library on server** asks Jellyfin to look for files added or removed outside it, and needs a Jellyfin *admin* account - it is greyed out with an explanation otherwise. **Refresh app** is local, works on any account, and just re-reads everything from the server.
 
 ---
 
@@ -111,7 +111,7 @@ Waterfall** control the rest:
 
 Rooms run through a Cloudflare Worker relay, which only ever forwards small
 control messages. Point it at your own instance in **Settings > Waterfall** if
-you'd rather not use the default - the Worker source is in `wip-waterfall/`.
+you'd rather not use the default - the Worker source is in `signaling/`.
 
 ---
 
@@ -203,7 +203,7 @@ A raster source smaller than 1024×1024 is rejected rather than upscaled. Needs
 ### Build installers
 
 ```bash
-npm run build:mac      # macOS .dmg (Intel + Apple Silicon)
+npm run build:mac      # macOS .dmg (Apple Silicon)
 npm run build:win      # Windows .exe
 npm run build:linux    # Linux .AppImage, .deb and .rpm
 npm run build          # Current platform
@@ -221,7 +221,11 @@ Builds are attached to [GitHub Releases](https://github.com/Cha0s1nc/Cascade-Pro
 
 ## License
 
-[GPL-3.0](LICENSE) © 2026 cha0s
+The source code is [GPL-3.0](LICENSE) © 2026 cha0s.
+
+Lyric translation uses Mozilla's [bergamot-translator](https://github.com/browsermt/bergamot-translator) runtime (bundled) and [Firefox Translations models](https://github.com/mozilla/firefox-translations-models) (downloaded on first use), both under the [Mozilla Public License 2.0](https://www.mozilla.org/MPL/2.0/). Their source is available at those links.
+
+The artwork in `assets/` (the app icon and everything else in that folder) is **not** GPL. It is © 2026 cha0s and Hxney_bun_, all rights reserved, under its own [artwork license](assets/LICENSE). You can share unmodified Cascade builds, but forks and modified versions have to remove it and use their own art. To ask for permission to use the artwork, email [contact@chaosinc.xyz](mailto:contact@chaosinc.xyz).
 
 ---
 

@@ -17,7 +17,7 @@
 
 // Default relay. Anyone who would rather not route their room through someone
 // else's server can point this at their own in Settings - the Worker source
-// lives in wip-waterfall/signaling/ and deploys with `npx wrangler deploy`.
+// lives in signaling/ and deploys with `npx wrangler deploy`.
 const WF_DEFAULT_RELAY = 'https://cascade-waterfall-signaling.cha0s-netw0rks.workers.dev'
 
 // Wire format and sync maths come from src/core/waterfall-protocol.ts, so a
@@ -33,6 +33,10 @@ const {
 } = CascadeCore
 
 // Metadata a queue row needs to render and play.
+// PrimaryImageAspectRatio was dropped from every Fields list in renderer.js (it
+// is never read - every tile is aspect-ratio: 1 in CSS). It stays HERE because
+// this constant feeds the waterfall protocol, whose consumer is the tvOS host,
+// not this repo. Do not remove it without checking that client first.
 const WF_ITEM_FIELDS = 'PrimaryImageAspectRatio,AlbumId,AlbumPrimaryImageTag,UserData'
 
 // Read at session start rather than cached, so changing it in Settings takes

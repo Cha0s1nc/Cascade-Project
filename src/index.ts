@@ -7,6 +7,7 @@
 
 export * from './core/types.ts'
 export * from './core/lyrics.ts'
+export * from './core/language.ts'
 export * from './core/jellyfin.ts'
 export * from './core/queue.ts'
 export * from './core/playlist-edit.ts'
@@ -26,3 +27,4 @@ export * from './core/browse-mode.ts'
 export * from './core/miniplayer.ts'
 export * from './core/context-menu.ts'
 export * from './core/itunes-art.ts'
+export * from './core/translation-models.ts'

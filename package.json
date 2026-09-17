@@ -1,12 +1,12 @@
 {
   "name": "cascade",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "description": "A Jellyfin music client inspired by Cider",
   "main": "main.js",
   "scripts": {
     "build:core": "esbuild src/index.ts --bundle --format=iife --global-name=CascadeCore --outfile=build/core.js --target=chrome122 --sourcemap",
     "build:preload": "esbuild src/preload.ts --bundle --format=cjs --platform=node --external:electron --outfile=build/preload.js --target=node20 --sourcemap",
-    "build:ts": "npm run build:core && npm run build:preload",
+    "build:ts": "npm run build:core && npm run build:preload && npm run build:bergamot && npm run build:apple",
     "typecheck": "tsc --noEmit",
     "typecheck:legacy": "tsc -p tsconfig.legacy.json",
     "test": "node --test \"test/**/*.test.ts\"",
@@ -17,17 +17,21 @@
     "build:mac": "npm run build:ts && electron-builder --mac --publish never",
     "build:win": "npm run build:ts && electron-builder --win --publish never",
     "build:linux": "npm run build:ts && electron-builder --linux --publish never",
-    "icons": "node scripts/gen-icons.js"
+    "icons": "node scripts/gen-icons.js",
+    "build:bergamot": "node scripts/build-bergamot.js",
+    "build:apple": "node scripts/build-apple-translate.js"
   },
   "dependencies": {
     "discord-rpc": "^4.0.1",
     "electron-store": "^8.1.0"
   },
   "devDependencies": {
+    "@browsermt/bergamot-translator": "0.4.9",
     "@types/node": "^26.2.0",
-    "electron": "^29.0.0",
+    "electron": "^44.3.0",
     "electron-builder": "^24.13.3",
     "esbuild": "^0.28.2",
+    "franc-min": "^6.2.0",
     "sharp": "^0.33.4",
     "typescript": "^7.0.2"
   },
@@ -35,9 +39,9 @@
     "name": "cha0s_1nc",
     "email": "contact@chaosinc.xyz"
   },
-  "license": "GPL-3.0",
+  "license": "SEE LICENSE IN LICENSE",
   "allowScripts": {
-    "electron@29.4.6": true,
+    "electron@44.3.0": true,
     "sharp@0.33.5": true
   },
   "build": {
@@ -46,13 +50,14 @@
     "copyright": "Copyright © 2026 cha0s",
     "files": [
       "main.js",
+      "mac-update.js",
       "index.html",
       "renderer.js",
       "waterfall.js",
       "build/core.js",
-      "build/core.js.map",
       "build/preload.js",
-      "build/preload.js.map",
+      "build/bergamot/**/*",
+      "build/apple-translate/**/*",
       "updater.html",
       "updater-preload.js",
       "lyrics-editor.html",
@@ -62,7 +67,14 @@
       "miniplayer.html",
       "miniplayer-preload.js",
       "package.json",
-      "node_modules/**/*"
+      "translation-models.json",
+      "LICENSE",
+      "assets/LICENSE",
+      "node_modules/**/*",
+      "!node_modules/@img/**"
+    ],
+    "asarUnpack": [
+      "build/apple-translate/**"
     ],
     "directories": {
       "output": "dist"
@@ -75,7 +87,6 @@
         {
           "target": "dmg",
           "arch": [
-            "x64",
             "arm64"
           ]
         }
@@ -124,7 +135,15 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "installerSidebar": "assets/installer-sidebar.bmp",
+      "installerHeader": "assets/installer-header.bmp",
+      "license": "assets/installer-license.txt",
+      "shortcutName": "Cascade",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false
     }
   }
 }
