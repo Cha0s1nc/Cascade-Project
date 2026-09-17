@@ -345,6 +345,11 @@
     .setting-label { display: flex; flex-direction: column; gap: 2px; flex: 1; }
     .setting-name { font-size: 13px; font-weight: 500; color: var(--text); }
     .setting-desc { font-size: 11px; color: var(--text3); }
+    /* Translation model rows (Settings > Lyrics & Metadata). */
+    .tm-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .tm-bar { height: 3px; border-radius: 2px; background: var(--surface2); overflow: hidden; margin-top: 5px; max-width: 260px; }
+    .tm-bar-fill { height: 100%; width: 0; background: var(--accent1, var(--accent)); transition: width 0.25s ease; }
+    @media (prefers-reduced-motion: reduce) { .tm-bar-fill { transition: none; } }
     .setting-input { font-family: var(--font); font-size: 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 6px 10px; width: 260px; outline: none; transition: border-color 0.15s; }
     .setting-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
     select.setting-input { cursor: pointer; }
@@ -2013,6 +2018,18 @@
                 <option value="cascade-synced" class="lsd-server-only" style="display:none">Synced Only</option>
               </select>
             </div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="setting-name">Lyric Translation</span>
+                <span class="setting-desc">Translates Japanese, Korean and Chinese lyrics into English on this computer. Each language's model (about 50-70 MB, from Mozilla's Firefox Translations) downloads the first time it's needed, from Cascade's GitHub or Mozilla's servers. Your lyrics never leave your computer.</span>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="lyrics-translation-toggle">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div class="lib-group-title" style="padding:0 14px;">Translation Models</div>
+            <div id="translation-models-list"></div>
           </div>
           <div class="settings-group">
             <div class="sg-title">Integrations</div>

@@ -24,8 +24,11 @@ let _queueScrollBound = false
 let volume = 1.0
 let crossfadeEnabled = false
 let crossfadeSeconds = 6
-// Lyric translation: one remembered switch shared by the side panel and the
-// full-screen lyrics. Restored from the store in init().
+// Lyric translation, restored from the store in init(). Two switches on purpose:
+// lyricsTranslationEnabled is whether the feature exists at all (Settings and
+// the wizard, default on); lyricsTranslateOn is whether translations are showing
+// right now (the Translate button, remembered across songs, default off).
+let lyricsTranslationEnabled = true
 let lyricsTranslateOn = false
 let maxStreamingBitrate = 140000000   // overridden from settings in loadSettingsFields
 // The server only transcodes to specific bitrates, not a continuum - the
@@ -4731,6 +4734,12 @@ async function loadSettingsFields() {
     await window.cascade.store.set('betaUpdates', betaUpdatesToggle.checked)
   }
 
+  // Lyric translation
+  document.getElementById('lyrics-translation-toggle').checked = lyricsTranslationEnabled
+  window.cascade.translationModels.status()
+    .then(s => { _translationModels = s; renderTranslationModelRows() })
+    .catch(() => {})
+
   // Crossfade settings
   const crossfadeToggle = document.getElementById('crossfade-toggle')
   const crossfadeDurationRow = document.getElementById('crossfade-duration-row')
@@ -5196,6 +5205,8 @@ async function init() {
 
   crossfadeEnabled = (await window.cascade.store.get('crossfadeEnabled')) === true
   lyricsTranslateOn = (await window.cascade.store.get('lyricsTranslateOn')) === true
+  // Only an explicit false switches the feature off; missing or corrupt means on.
+  lyricsTranslationEnabled = (await window.cascade.store.get('lyricsTranslationEnabled')) !== false
   syncTranslateButtons()
   crossfadeSeconds = parseInt(await window.cascade.store.get('crossfadeSeconds'), 10) || 6
   maxStreamingBitrate = parseInt(await window.cascade.store.get('maxStreamingBitrate'), 10) || DEFAULT_MAX_BITRATE
@@ -6507,7 +6518,7 @@ function lyricsPlainLines() {
 function detectOverlayLyricsLanguage() {
   syncTranslateButtons()
   document.getElementById('ov-translate-btn').style.display =
-    CascadeCore.translationModelFor(lyricsPlainLines()) ? 'flex' : 'none'
+    lyricsTranslationEnabled && CascadeCore.translationModelFor(lyricsPlainLines()) ? 'flex' : 'none'
 }
 
 document.getElementById('ov-translate-btn').addEventListener('click', () => setLyricsTranslateOn(!lyricsTranslateOn))
@@ -7872,7 +7883,7 @@ async function fetchLyrics() {
 function detectAndShowTranslateBar() {
   // The whole sheet, not the first line: a song opening on an English title line
   // must still read as the language the rest of it is in.
-  const key = CascadeCore.translationModelFor(lyricsPlainLines())
+  const key = lyricsTranslationEnabled && CascadeCore.translationModelFor(lyricsPlainLines())
   document.getElementById('lyrics-translate-bar').classList.toggle('visible', !!key)
   document.getElementById('lyrics-translate-label').textContent = key ? `${_translationModelName(key)} lyrics` : ''
 }
@@ -8001,6 +8012,7 @@ window.cascade.translationModels.onProgress(p => {
     _translationModels[p.key].transferred = p.transferred
   }
   if (p.state === 'absent') dropTranslator(p.key)
+  updateTranslationModelRow(p.key)
   if (_lyricsTranslating?.key === p.key && p.state === 'downloading' && p.total) {
     _flashTranslateStatus(`Downloading ${Math.round(p.transferred / p.total * 100)}%`, 0)
   }
@@ -8017,13 +8029,127 @@ function _announceModelDownload(key) {
   showToast(`Downloading the ${_translationModelName(key)} translation model${m ? ` (${Math.round(m.bytes / 1e6)} MB)` : ''}`, 3500)
 }
 
+// ── Lyric translation in Settings: the feature switch and the models ──────────
+
+// The feature switch, deliberately separate from lyricsTranslateOn: this one
+// says whether translation exists at all (default on), that one whether
+// translations are showing right now (default off). Off hides both Translate
+// buttons, strips any translation already on screen, and nothing downloads.
+// The one code path for Settings and the first-run wizard alike.
+async function setLyricsTranslationEnabled(enabled) {
+  lyricsTranslationEnabled = enabled
+  for (const id of ['lyrics-translation-toggle', 'fr-lyrics-translation-toggle']) {
+    const el = document.getElementById(id)
+    if (el) el.checked = enabled
+  }
+  if (lyricsData.length) {
+    detectAndShowTranslateBar()
+    detectOverlayLyricsLanguage()
+  }
+  rerenderLyricViews()
+  renderTranslationModelRows()
+  if (enabled) ensureLyricsTranslation()
+  await window.cascade.store.set('lyricsTranslationEnabled', enabled)
+}
+
+document.getElementById('lyrics-translation-toggle').addEventListener('change', e => setLyricsTranslationEnabled(e.target.checked))
+
+// Last download failure per model, this session, shown on its row until the
+// next attempt.
+const _translationModelErrors = {}
+
+// ipcRenderer.invoke wraps a main-process throw as "Error invoking remote
+// method 'x': Error: <message>"; only the message means anything to a person.
+const _ipcErrorMessage = err =>
+  String(err?.message || err).replace(/^Error invoking remote method '[^']*': (Error: )?/, '')
+
+const _mb = bytes => `${Math.round(bytes / 1e6)} MB`
+
+function renderTranslationModelRows() {
+  const list = document.getElementById('translation-models-list')
+  const keys = Object.keys(_translationModels)
+  // Rows are built once, then updated in place: a download sends several
+  // progress events a second, and rebuilding would swap out the button under
+  // the pointer mid-click on the other rows.
+  if (list.children.length !== keys.length) {
+    list.innerHTML = keys.map(key => `
+      <div class="setting-row tm-row" data-key="${esc(key)}">
+        <div class="setting-label">
+          <span class="setting-name">${esc(_translationModelName(key))}</span>
+          <span class="setting-desc tm-status"></span>
+          <div class="tm-bar" hidden><div class="tm-bar-fill"></div></div>
+        </div>
+        <div class="tm-actions"></div>
+      </div>`).join('')
+  }
+  for (const key of keys) updateTranslationModelRow(key)
+}
+
+function updateTranslationModelRow(key) {
+  const row = document.querySelector(`#translation-models-list .tm-row[data-key="${CSS.escape(key)}"]`)
+  const m = _translationModels[key]
+  if (!row || !m) return
+  const pct = m.state === 'downloading' && m.bytes ? Math.round(m.transferred / m.bytes * 100) : 0
+  row.querySelector('.tm-status').textContent =
+    m.state === 'ready' ? `Downloaded · ${_mb(m.bytes)}`
+    : m.state === 'downloading' ? `Downloading ${pct}% · ${_mb(m.transferred)} of ${_mb(m.bytes)}`
+    : _translationModelErrors[key] ? `Download failed: ${_translationModelErrors[key]}`
+    : `Not downloaded · ${_mb(m.bytes)}`
+  row.querySelector('.tm-bar').hidden = m.state !== 'downloading'
+  row.querySelector('.tm-bar-fill').style.width = `${pct}%`
+
+  // Buttons change only when the state (or the feature switch) does. Remove
+  // stays available with translation switched off, so the space can still be
+  // freed; fetching anything new does not.
+  const actions = row.querySelector('.tm-actions')
+  const signature = `${m.state}:${lyricsTranslationEnabled}`
+  if (actions.dataset.signature === signature) return
+  actions.dataset.signature = signature
+  const off = lyricsTranslationEnabled ? '' : ' disabled'
+  actions.innerHTML =
+    m.state === 'ready'
+      ? `<button class="btn btn-secondary" data-action="redownload"${off}>Redownload</button><button class="btn btn-danger" data-action="remove">Remove</button>`
+    : m.state === 'absent'
+      ? `<button class="btn btn-secondary" data-action="download"${off}>Download</button>`
+    : '<button class="btn btn-secondary" disabled>Downloading…</button>'
+}
+
+document.getElementById('translation-models-list').addEventListener('click', async e => {
+  const btn = e.target.closest('button[data-action]')
+  const row = btn?.closest('.tm-row')
+  if (!btn || !row || btn.disabled) return
+  const key = row.dataset.key
+  const action = btn.dataset.action
+  const state = _translationModels[key]?.state
+  // Guarded here as well as by `disabled`: a disabled-looking button can still
+  // be clicked programmatically, and a row can briefly lag its model's state.
+  if (action === 'download' && (state !== 'absent' || !lyricsTranslationEnabled)) return
+  if (action === 'redownload' && (state !== 'ready' || !lyricsTranslationEnabled)) return
+  if (action === 'remove' && state !== 'ready') return
+
+  delete _translationModelErrors[key]
+  try {
+    if (action === 'remove' || action === 'redownload') {
+      dropTranslator(key)
+      await window.cascade.translationModels.remove(key)
+    }
+    if (action === 'download' || action === 'redownload') {
+      await window.cascade.translationModels.download(key)
+    }
+  } catch (err) {
+    _translationModelErrors[key] = _ipcErrorMessage(err)
+  }
+  _translationModels = await window.cascade.translationModels.status()
+  renderTranslationModelRows()
+})
+
 // The translation to show under line i, or '' for none. Only a translation of
 // THIS sheet counts - checked by array identity, so any reload, source switch or
 // edit that replaces lyricsData invalidates it without every such path having to
 // remember. A line the model returned unchanged (English lines in a mixed song)
 // is not repeated under itself.
 function lyricTranslationFor(i) {
-  if (!lyricsTranslateOn || _lyricsTranslatedFor !== lyricsData) return ''
+  if (!lyricsTranslationEnabled || !lyricsTranslateOn || _lyricsTranslatedFor !== lyricsData) return ''
   const t = (lyricsTranslated[i] || '').trim()
   return t && t.toLowerCase() !== (lyricsData[i]?.Text || '').trim().toLowerCase() ? t : ''
 }
@@ -8072,7 +8198,7 @@ function rerenderLyricViews() {
 // a second call for the same sheet joins the one in flight. If the sheet's model
 // is not installed yet, this is the moment it downloads.
 function ensureLyricsTranslation() {
-  if (!lyricsTranslateOn || !lyricsData.length) return
+  if (!lyricsTranslationEnabled || !lyricsTranslateOn || !lyricsData.length) return
   const sheet = lyricsData
   if (_lyricsTranslatedFor === sheet) return rerenderLyricViews()
   if (_lyricsTranslating?.sheet === sheet) return _lyricsTranslating.promise
@@ -8095,7 +8221,12 @@ function ensureLyricsTranslation() {
         // Progress arrives through onProgress. The download carries on in
         // main.js even if the song changes, so a model fetched for one song is
         // ready for the next.
-        await window.cascade.translationModels.download(key)
+        try {
+          await window.cascade.translationModels.download(key)
+        } catch (err) {
+          _translationModelErrors[key] = _ipcErrorMessage(err)
+          throw err
+        }
       }
       if (lyricsData !== sheet) { _flashTranslateStatus('', 0); return }   // the song moved on
       _flashTranslateStatus('Loading…', 0)
