@@ -24,6 +24,10 @@ let _queueScrollBound = false
 let volume = 1.0
 let crossfadeEnabled = false
 let crossfadeSeconds = 6
+// Lyric translation: one remembered switch and one target language, shared by
+// the side panel and the full-screen lyrics. Restored from the store in init().
+let lyricsTranslateOn = false
+let lyricsTranslateLang = 'en'
 let maxStreamingBitrate = 140000000   // overridden from settings in loadSettingsFields
 // The server only transcodes to specific bitrates, not a continuum - the
 // streaming quality slider is stepped through this exact list rather than
@@ -5192,6 +5196,16 @@ async function init() {
   await initDiscordRpc()
 
   crossfadeEnabled = (await window.cascade.store.get('crossfadeEnabled')) === true
+  lyricsTranslateOn = (await window.cascade.store.get('lyricsTranslateOn')) === true
+  {
+    // Stored values are untrusted: only a language the picker actually offers
+    // (and does not disable) may become the target.
+    const picker = document.getElementById('lyrics-lang')
+    const saved = await window.cascade.store.get('lyricsTranslateLang')
+    if ([...picker.options].some(o => o.value === saved && !o.disabled)) lyricsTranslateLang = saved
+    picker.value = lyricsTranslateLang
+  }
+  syncTranslateButtons()
   crossfadeSeconds = parseInt(await window.cascade.store.get('crossfadeSeconds'), 10) || 6
   maxStreamingBitrate = parseInt(await window.cascade.store.get('maxStreamingBitrate'), 10) || DEFAULT_MAX_BITRATE
 
@@ -6351,24 +6365,24 @@ async function renderOverlayLyrics() {
 
   // Detect language and show translate button if non-English
   detectOverlayLyricsLanguage()
+  ensureLyricsTranslation()
 }
 
-let ovLyricsTranslated = false
 
-function renderOverlayLyricLines(translated = false) {
+function renderOverlayLyricLines() {
   const body = document.getElementById('ov-lyrics-body')
   body.innerHTML = lyricsData.map((line, i) => {
     const hasTimestamp = line.Start != null
-    const transText = translated && lyricsTranslated[i]
-    let content
-    if (line.Words && !transText) {
-      content = line.Words.map(w =>
-        `<span class="ov-lyric-word" data-ws="${w.Start}" data-we="${w.End ?? ''}">${esc(w.Text)}</span>`
-      ).join('')
-    } else {
-      content = esc(transText ? lyricsTranslated[i] : (line.Text || ''))
-    }
-    return `<div class="ov-lyric-line${hasTimestamp ? ' seekable' : ''}" data-idx="${i}"${hasTimestamp ? ` data-start="${line.Start}"` : ''}>${content}</div>`
+    // The original always stays, karaoke fill included; a translation sits
+    // under it inside the same element, so the line's height (which the scroll
+    // spring centres on) and its click-to-seek both cover the pair.
+    const content = line.Words
+      ? line.Words.map(w =>
+          `<span class="ov-lyric-word" data-ws="${w.Start}" data-we="${w.End ?? ''}">${esc(w.Text)}</span>`
+        ).join('')
+      : esc(line.Text || '')
+    const trans = lyricTranslationFor(i)
+    return `<div class="ov-lyric-line${hasTimestamp ? ' seekable' : ''}" data-idx="${i}"${hasTimestamp ? ` data-start="${line.Start}"` : ''}>${content}${trans ? `<div class="ov-lyric-trans">${esc(trans)}</div>` : ''}</div>`
   }).join('')
   body.querySelectorAll('.ov-lyric-line.seekable').forEach(el => {
     el.addEventListener('click', () => {
@@ -6468,43 +6482,13 @@ function lyricsPlainLines() {
 function detectOverlayLyricsLanguage() {
   const btn = document.getElementById('ov-translate-btn')
   btn.style.display = 'none'
-  ovLyricsTranslated = false
-  btn.classList.remove('translated')
+  syncTranslateButtons()
   const lines = lyricsPlainLines()
   lyricsLang = CascadeCore.detectLanguage(lines.join(' ').slice(0, 1000))
   if (CascadeCore.shouldOfferTranslation(lines)) btn.style.display = 'flex'
 }
 
-document.getElementById('ov-translate-btn').addEventListener('click', async () => {
-  const btn = document.getElementById('ov-translate-btn')
-
-  // Toggle back to original
-  if (ovLyricsTranslated) {
-    ovLyricsTranslated = false
-    btn.classList.remove('translated')
-    btn.title = 'Translate to English'
-    renderOverlayLyricLines(false)
-    return
-  }
-
-  btn.classList.add('loading')
-
-  try {
-    // Reuse an existing translation if the side panel already produced one.
-    if (!lyricsTranslated.length || lyricsTranslated.every(t => !t)) {
-      lyricsTranslated = await translateLines(lyricsPlainLines(), 'en')
-    }
-    ovLyricsTranslated = true
-    btn.classList.add('translated')
-    btn.title = 'Show original'
-    renderOverlayLyricLines(true)
-  } catch (e) {
-    console.error('Overlay translation failed', e)
-    btn.title = 'Translation unavailable'
-  } finally {
-    btn.classList.remove('loading')
-  }
-})
+document.getElementById('ov-translate-btn').addEventListener('click', () => setLyricsTranslateOn(!lyricsTranslateOn))
 
 // Lightweight critically-damped-ish spring for scroll position. Unlike a CSS
 // transition, it carries velocity across target changes - when a new line
@@ -7858,6 +7842,7 @@ async function fetchLyrics() {
   updateSourcePills()
   renderLyrics()
   detectAndShowTranslateBar()
+  ensureLyricsTranslation()
   _stopWordLoop()
   if (!audio.paused) _startWordLoop()
 }
@@ -7873,21 +7858,21 @@ function detectAndShowTranslateBar() {
   }
 }
 
-function renderLyrics(showTranslation = false) {
+function renderLyrics() {
   const body = document.getElementById('lyrics-body')
   const lines = lyricsData.map((line, i) => {
     const hasTimestamp = line.Start != null
-    const transText = showTranslation && lyricsTranslated[i]
-    const trans = transText ? `<div class="lyrics-line translated">${esc(lyricsTranslated[i])}</div>` : ''
-    let content
-    if (line.Words && !transText) {
-      content = line.Words.map(w =>
-        `<span class="lyric-word" data-ws="${w.Start}" data-we="${w.End ?? ''}">${esc(w.Text)}</span>`
-      ).join('')
-    } else {
-      content = esc(transText ? lyricsTranslated[i] : (line.Text || ''))
-    }
-    return `<div class="lyrics-line${hasTimestamp ? ' seekable' : ''}" data-idx="${i}"${hasTimestamp ? ` data-start="${line.Start}"` : ''}>${content}</div>${trans}`
+    // Same shape as the overlay: original (karaoke intact) with the translation
+    // nested under it. This used to replace the line's text with the translation
+    // AND append the translation again as a sibling, so a translated sheet showed
+    // every translation twice and the original not at all.
+    const content = line.Words
+      ? line.Words.map(w =>
+          `<span class="lyric-word" data-ws="${w.Start}" data-we="${w.End ?? ''}">${esc(w.Text)}</span>`
+        ).join('')
+      : esc(line.Text || '')
+    const trans = lyricTranslationFor(i)
+    return `<div class="lyrics-line${hasTimestamp ? ' seekable' : ''}" data-idx="${i}"${hasTimestamp ? ` data-start="${line.Start}"` : ''}>${content}${trans ? `<div class="lyric-trans">${esc(trans)}</div>` : ''}</div>`
   }).join('')
 
   // Wrap in a translateY-driven inner div - position is spring-animated in JS
@@ -7944,9 +7929,14 @@ onDeck('timeupdate', () => {
   }
 
   if (activeIdx === lastLyricsIdx) return
-  const instant = activeIdx > baseIdx
-  lastLyricsIdx = activeIdx
+  _applySideLyricsActive(activeIdx, activeIdx > baseIdx)
+})
 
+// Highlight and centre one line in the side panel. Split out of the timeupdate
+// handler so a re-render (a translation arriving, say) can put the highlight
+// back straight away - while paused, no timeupdate would come to do it.
+function _applySideLyricsActive(activeIdx, instant) {
+  lastLyricsIdx = activeIdx
   const body = document.getElementById('lyrics-body')
   body.querySelectorAll('.lyrics-line[data-idx]').forEach(el => {
     el.classList.toggle('active', parseInt(el.dataset.idx) === activeIdx)
@@ -7963,40 +7953,129 @@ onDeck('timeupdate', () => {
       else sideLyricsSpring.setTarget(y)
     }
   }
+}
+
+document.getElementById('lyrics-translate-btn').addEventListener('click', () => setLyricsTranslateOn(!lyricsTranslateOn))
+
+document.getElementById('lyrics-lang').addEventListener('change', e => {
+  lyricsTranslateLang = e.target.value
+  window.cascade.store.set('lyricsTranslateLang', lyricsTranslateLang)
+  rerenderLyricViews()        // drop the old language's lines at once
+  ensureLyricsTranslation()
 })
 
-document.getElementById('lyrics-translate-btn').addEventListener('click', async () => {
-  if (!lyricsData.length) return
-  const btn = document.getElementById('lyrics-translate-btn')
-  const lang = document.getElementById('lyrics-lang').value
+// ── Translation state shared by both lyric views ──────────────────────────────
+//
+// One switch, remembered across songs and restarts: turn it on and every later
+// foreign-language sheet translates as soon as it is on screen, in either view.
+// Nothing is translated while neither view is showing lyrics.
 
+let _lyricsTranslatedFor = null   // the lyricsData array lyricsTranslated was made from
+let _lyricsTranslatedLang = ''
+let _lyricsTranslating = null     // { sheet, lang, promise } while one is in flight
+let _translateStatus = ''         // transient button label: progress, 'Failed', 'Already …'
+let _translateStatusTimer = null
+
+// The translation to show under line i, or '' for none. Only a translation of
+// THIS sheet counts - checked by array identity, so any reload, source switch or
+// edit that replaces lyricsData invalidates it without every such path having to
+// remember - and only for the language currently chosen. A line the model
+// returned unchanged (English lines in a mixed song) is not repeated under itself.
+function lyricTranslationFor(i) {
+  if (!lyricsTranslateOn || _lyricsTranslatedFor !== lyricsData || _lyricsTranslatedLang !== lyricsTranslateLang) return ''
+  const t = (lyricsTranslated[i] || '').trim()
+  return t && t.toLowerCase() !== (lyricsData[i]?.Text || '').trim().toLowerCase() ? t : ''
+}
+
+function _flashTranslateStatus(label, ms) {
+  _translateStatus = label
+  clearTimeout(_translateStatusTimer)
+  if (ms) _translateStatusTimer = setTimeout(() => { _translateStatus = ''; syncTranslateButtons() }, ms)
+  syncTranslateButtons()
+}
+
+function syncTranslateButtons() {
+  const side = document.getElementById('lyrics-translate-btn')
+  const ov = document.getElementById('ov-translate-btn')
+  side.textContent = _translateStatus || (lyricsTranslateOn ? 'Show original' : 'Translate')
+  ov.classList.toggle('translated', lyricsTranslateOn)
+  ov.classList.toggle('loading', !!_lyricsTranslating)
+  ov.title = _translateStatus === 'Failed' ? 'Translation unavailable'
+    : lyricsTranslateOn ? 'Show original' : 'Translate lyrics'
+}
+
+function setLyricsTranslateOn(on) {
+  lyricsTranslateOn = on
+  _flashTranslateStatus('', 0)
+  rerenderLyricViews()
+  window.cascade.store.set('lyricsTranslateOn', on)
+  if (on) ensureLyricsTranslation(true)
+}
+
+// Re-render whichever lyric views are showing, keeping their active line.
+function rerenderLyricViews() {
+  if (!lyricsData.length) return
+  if (document.getElementById('lyrics-inner')) {
+    const idx = lastLyricsIdx
+    renderLyrics()
+    if (idx >= 0) _applySideLyricsActive(idx, true)
+  }
+  if (overlayOpen && overlayLyricsOpen && document.querySelector('#ov-lyrics-body .ov-lyric-line')) {
+    renderOverlayLyricLines()
+    if (lastOverlayLyricsIdx >= 0) updateOverlayLyricsActive(lastOverlayLyricsIdx, true)
+  }
+}
+
+// Translate the current sheet if the switch is on and it needs it. Safe to call
+// from every place a sheet appears: a finished translation just re-renders, and
+// a second call for the same sheet and language joins the one in flight.
+// `userAsked` is true only for the click that turns the switch on, which is the
+// one moment a "nothing to do" deserves a word on the button.
+function ensureLyricsTranslation(userAsked = false) {
+  if (!lyricsTranslateOn || !lyricsData.length) return
+  const sheet = lyricsData
+  const lang = lyricsTranslateLang
+  if (_lyricsTranslatedFor === sheet && _lyricsTranslatedLang === lang) return rerenderLyricViews()
+  if (_lyricsTranslating?.sheet === sheet && _lyricsTranslating.lang === lang) return _lyricsTranslating.promise
+
+  const lines = lyricsPlainLines()
+  if (!CascadeCore.shouldOfferTranslation(lines)) return
   // Asking for the language the lyrics are already in would round-trip them
   // through English and hand back a worse copy of what is already on screen.
-  if (lang === lyricsLang) {
-    btn.textContent = 'Already ' + document.getElementById('lyrics-lang').selectedOptions[0].text
-    setTimeout(() => { btn.textContent = 'Translate' }, 1800)
+  if (CascadeCore.detectLanguage(lines.join(' ').slice(0, 1000)) === lang) {
+    if (userAsked) _flashTranslateStatus('Already ' + document.getElementById('lyrics-lang').selectedOptions[0].text, 1800)
     return
   }
 
-  btn.disabled = true
-  btn.textContent = 'Translating…'
-
-  try {
-    lyricsTranslated = await translateLines(lyricsPlainLines(), lang, ({ done, total }) => {
-      // total 0 is the worker telling us it is still loading the model, which
-      // on a cold start is most of the wait.
-      btn.textContent = total ? `${Math.round(done / total * 100)}%` : 'Loading…'
-    })
-    renderLyrics(true)
-    btn.textContent = 'Translate'
-  } catch (e) {
-    console.error('Translation failed', e)
-    btn.textContent = 'Failed'
-    setTimeout(() => { btn.textContent = 'Translate' }, 2500)
-  } finally {
-    btn.disabled = false
-  }
-})
+  const promise = (async () => {
+    // Yield once first, so the finally below always runs after `promise` and
+    // _lyricsTranslating are assigned - even if creating the worker throws
+    // synchronously, which would otherwise leave the button stuck spinning.
+    await null
+    // total 0 is the worker still loading the model, most of a cold start.
+    _flashTranslateStatus('Loading…', 0)
+    try {
+      const out = await translateLines(lines, lang, ({ done, total }) => {
+        if (lyricsData === sheet) _flashTranslateStatus(total ? `${Math.round(done / total * 100)}%` : 'Loading…', 0)
+      })
+      if (lyricsData !== sheet || lyricsTranslateLang !== lang) return   // the song or language moved on
+      lyricsTranslated = out
+      _lyricsTranslatedFor = sheet
+      _lyricsTranslatedLang = lang
+      _flashTranslateStatus('', 0)
+      rerenderLyricViews()
+    } catch (e) {
+      console.error('Translation failed', e)
+      _flashTranslateStatus('Failed', 2500)
+    } finally {
+      if (_lyricsTranslating?.promise === promise) _lyricsTranslating = null
+      syncTranslateButtons()
+    }
+  })()
+  _lyricsTranslating = { sheet, lang, promise }
+  syncTranslateButtons()
+  return promise
+}
 
 // Re-fetch lyrics when track changes
 const _origUpdateNP = updateNowPlaying
@@ -8007,9 +8086,7 @@ updateNowPlaying = function(item) {
   lyricsTranslated = []
   lastLyricsIdx = -1
   _lyricsScanIdx = 0
-  ovLyricsTranslated = false
   document.getElementById('ov-translate-btn').style.display = 'none'
-  document.getElementById('ov-translate-btn').classList.remove('translated')
   if (lyricsPanelOpen()) fetchLyrics()
   if (overlayOpen && overlayLyricsOpen) renderOverlayLyrics()
 }

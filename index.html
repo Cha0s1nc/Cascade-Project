@@ -876,32 +876,35 @@
     .track-row[draggable="true"].drag-over { border-top: 2px solid var(--accent); }
     /* Overlay lyrics - GPU-accelerated clock-scroll */
     #ov-panel-lyrics { overflow: hidden; }
-    .ov-lyrics-scroll { display: flex; flex-direction: column; align-items: center; will-change: transform; }
-    .ov-lyric-line { text-align: center; font-size: clamp(18px, 2.2vw, 38px); font-weight: 700; color: var(--text3); padding: 10px 32px; line-height: 1.4; cursor: default; max-width: min(500px, 80%); transform: scale(0.65); transform-origin: center center; opacity: 0; transition: transform 0.55s cubic-bezier(0.16,1,0.3,1), opacity 0.55s cubic-bezier(0.16,1,0.3,1), color 0.4s; }
+    .ov-lyrics-scroll { display: flex; flex-direction: column; align-items: flex-start; will-change: transform; }
+    /* Left-aligned and full size. Lines around the active one step back by
+       fading and blurring rather than shrinking, so nothing reflows or shifts
+       sideways as the active line moves. */
+    .ov-lyric-line { text-align: left; font-size: clamp(22px, 3vw, 50px); font-weight: 800; letter-spacing: -0.015em; color: white; padding: 12px 56px; line-height: 1.25; cursor: default; max-width: min(900px, 92%); opacity: 0; filter: blur(6px); transition: opacity 0.55s cubic-bezier(0.16,1,0.3,1), filter 0.55s cubic-bezier(0.16,1,0.3,1); }
     .ov-lyric-line.seekable { cursor: pointer; }
-    .ov-lyric-line.past { opacity: 0; transform: scale(0.65); pointer-events: none; }
-    .ov-lyric-line.near-3 { transform: scale(0.7); opacity: 0.14; }
-    .ov-lyric-line.near-2 { transform: scale(0.78); opacity: 0.28; }
-    .ov-lyric-line.near-1 { transform: scale(0.9); opacity: 0.5; color: var(--text2); }
-    .ov-lyric-line.active { transform: scale(1.05); opacity: 1; color: white; filter: drop-shadow(0 0 18px rgba(255,255,255,0.25)); }
-    .ov-lyric-word { -webkit-text-fill-color: rgba(255,255,255,0.22); }
+    .ov-lyric-line.past { opacity: 0; pointer-events: none; }
+    .ov-lyric-line.near-3 { opacity: 0.12; filter: blur(4px); }
+    .ov-lyric-line.near-2 { opacity: 0.22; filter: blur(3px); }
+    .ov-lyric-line.near-1 { opacity: 0.35; filter: blur(2px); }
+    .ov-lyric-line.active { opacity: 1; filter: none; }
+    .ov-lyric-trans { font-size: clamp(14px, 1.35vw, 22px); font-weight: 500; letter-spacing: 0; line-height: 1.3; margin-top: 6px; color: rgba(255,255,255,0.72); -webkit-text-fill-color: currentColor; }
+    /* Unsung words stay readable, not ghosted: the fill is the progress cue. */
+    .ov-lyric-word { -webkit-text-fill-color: rgba(255,255,255,0.4); }
     .ov-lyric-line.active .ov-lyric-word {
       --p: 0%;
-      background: linear-gradient(to right, white var(--p), rgba(255,255,255,0.22) var(--p));
+      background: linear-gradient(to right, white var(--p), rgba(255,255,255,0.4) var(--p));
       -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
     }
-    .ov-lyric-line.active .ov-lyric-word.active { filter: drop-shadow(0 0 8px rgba(255,255,255,0.55)); transition: filter 0.07s ease-in; }
-    .ov-lyric-line.active .ov-lyric-word:not(.active) { filter: none; transition: filter 0.4s ease-out; }
-    #ov-panel-lyrics:hover .ov-lyric-line.past { opacity: 0.2; transform: scale(0.72); pointer-events: auto; }
-    #ov-panel-lyrics:hover .ov-lyric-line.past.near-past { opacity: 0.35; transform: scale(0.82); }
+    #ov-panel-lyrics:hover .ov-lyric-line.past { opacity: 0.18; filter: blur(2px); pointer-events: auto; }
+    #ov-panel-lyrics:hover .ov-lyric-line.past.near-past { opacity: 0.3; filter: blur(1px); }
     /* Scrolling by hand means you want to read, and the karaoke fade hides
        exactly what you are scrolling toward - past lines and anything beyond
        near-3 sit at opacity 0. Bring the whole lyric up while browsing. The
        line's existing transition does the fade both ways, so it settles back
        into the karaoke look on its own when the spring returns to the active
        line. */
-    #ov-panel-lyrics.browsing .ov-lyric-line { opacity: 0.8; transform: scale(0.88); color: white; text-shadow: 0 1px 4px rgba(0,0,0,0.55); pointer-events: auto; }
-    #ov-panel-lyrics.browsing .ov-lyric-line.active { opacity: 1; transform: scale(1); color: white; }
+    #ov-panel-lyrics.browsing .ov-lyric-line { opacity: 0.8; filter: none; color: white; text-shadow: 0 1px 4px rgba(0,0,0,0.55); pointer-events: auto; }
+    #ov-panel-lyrics.browsing .ov-lyric-line.active { opacity: 1; color: white; }
 
     /* Light theme: everything above assumes a dark backdrop and hardcodes
        white/near-white, which is fine under album-art-theme's dark blobs but
@@ -916,13 +919,13 @@
        Deliberately left alone: .near-1/.near-2/.near-3/.past, which fade to
        near-zero opacity on purpose and are not meant to be read. Selectors
        are scoped to [data-theme="light"] so dark theme is untouched. */
-    html[data-theme="light"] .ov-lyric-word { -webkit-text-fill-color: rgba(28,28,30,0.32); }
-    html[data-theme="light"] .ov-lyric-line.active { color: #1c1c1e; filter: drop-shadow(0 0 18px rgba(255,255,255,0.55)); }
+    html[data-theme="light"] .ov-lyric-word { -webkit-text-fill-color: rgba(28,28,30,0.4); }
+    html[data-theme="light"] .ov-lyric-line { color: #1c1c1e; }
+    html[data-theme="light"] .ov-lyric-trans { color: rgba(28,28,30,0.7); }
     html[data-theme="light"] .ov-lyric-line.active .ov-lyric-word {
-      background: linear-gradient(to right, #1c1c1e var(--p), rgba(28,28,30,0.32) var(--p));
+      background: linear-gradient(to right, #1c1c1e var(--p), rgba(28,28,30,0.4) var(--p));
       -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
     }
-    html[data-theme="light"] .ov-lyric-line.active .ov-lyric-word.active { filter: drop-shadow(0 0 8px rgba(255,255,255,0.7)); }
     html[data-theme="light"] #ov-panel-lyrics.browsing .ov-lyric-line { color: #1c1c1e; text-shadow: 0 1px 3px rgba(255,255,255,0.6); }
     html[data-theme="light"] #ov-panel-lyrics.browsing .ov-lyric-line.active { color: #1c1c1e; }
 
@@ -965,15 +968,17 @@
     .lyrics-translate-bar { display: none; align-items: center; gap: 6px; padding: 8px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
     .lyrics-translate-bar.visible { display: flex; }
     .lyrics-translate-bar label { font-size: 11px; color: var(--text3); flex-shrink: 0; }
-    .lyrics-lang-select { flex: 1; font-family: var(--font); font-size: 11px; background: var(--surface2); border: 1px solid var(--border); border-radius: 5px; color: var(--text); padding: 4px 6px; outline: none; cursor: pointer; }
-    .lyrics-translate-btn { font-family: var(--font); font-size: 11px; font-weight: 600; background: var(--accent); color: white; border: none; border-radius: 5px; padding: 4px 10px; cursor: pointer; transition: opacity 0.12s; flex-shrink: 0; }
+    .lyrics-lang-select { flex: 1; min-width: 0; font-family: var(--font); font-size: 11px; background: var(--surface2); border: 1px solid var(--border); border-radius: 5px; color: var(--text); padding: 4px 6px; outline: none; cursor: pointer; }
+    .lyrics-translate-btn { flex-shrink: 0; white-space: nowrap; font-family: var(--font); font-size: 11px; font-weight: 600; background: var(--accent); color: white; border: none; border-radius: 5px; padding: 4px 10px; cursor: pointer; transition: opacity 0.12s; flex-shrink: 0; }
     .lyrics-translate-btn:hover { opacity: 0.85; }
     .lyrics-translate-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-    .lyrics-body { flex: 1; overflow: hidden; padding: 16px 14px; }
-    .lyrics-line { font-size: 13px; color: var(--text2); line-height: 1.8; padding: 2px 0; transition: color 0.2s, transform 0.18s ease, opacity 0.35s ease; opacity: 0.38; }
-    .lyrics-line.active { color: var(--text); font-weight: 500; opacity: 1; }
-    .lyrics-line.active:has(.lyric-word) { transform: translateY(-9px); }
-    .lyrics-line.translated { color: var(--text3); font-size: 11px; margin-top: -4px; font-style: italic; }
+    .lyrics-body { flex: 1; overflow: hidden; padding: 16px 20px; }
+    /* Large, bold, left-aligned lines; the active one at full strength and the
+       rest dimmed, with any translation small and quiet directly underneath
+       (nested inside the line, so centring and click-to-seek cover both). */
+    .lyrics-line { font-size: 20px; font-weight: 700; line-height: 1.35; letter-spacing: -0.01em; color: var(--text); padding: 10px 0; transition: opacity 0.35s ease; opacity: 0.3; }
+    .lyrics-line.active { opacity: 1; }
+    .lyric-trans { font-size: 12px; font-weight: 500; line-height: 1.4; letter-spacing: 0; margin-top: 4px; color: var(--text2); -webkit-text-fill-color: currentColor; }
     .lyrics-empty { font-size: 12px; color: var(--text3); text-align: center; padding: 40px 0; }
     .lyric-word { -webkit-text-fill-color: white; }
     .lyrics-line.active .lyric-word {
@@ -1225,7 +1230,7 @@
       color: #1c1c1e; filter: drop-shadow(0 0 18px rgba(255,255,255,0.55));
     }
     html[data-theme="light"] .np-overlay.art-theme .ov-lyric-line.active .ov-lyric-word {
-      background: linear-gradient(to right, #1c1c1e var(--p), rgba(28,28,30,0.3) var(--p));
+      background: linear-gradient(to right, #1c1c1e var(--p), rgba(28,28,30,0.4) var(--p));
       -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
     }
     html[data-theme="light"] .np-overlay.art-theme .ov-lyric-line.active .ov-lyric-word.active {
