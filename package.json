@@ -6,7 +6,7 @@
   "scripts": {
     "build:core": "esbuild src/index.ts --bundle --format=iife --global-name=CascadeCore --outfile=build/core.js --target=chrome122 --sourcemap",
     "build:preload": "esbuild src/preload.ts --bundle --format=cjs --platform=node --external:electron --outfile=build/preload.js --target=node20 --sourcemap",
-    "build:ts": "npm run build:core && npm run build:preload && npm run build:worker && npm run models",
+    "build:ts": "npm run build:core && npm run build:preload && npm run build:worker && npm run build:bergamot && npm run models",
     "typecheck": "tsc --noEmit",
     "typecheck:legacy": "tsc -p tsconfig.legacy.json",
     "test": "node --test \"test/**/*.test.ts\"",
@@ -19,6 +19,7 @@
     "build:linux": "npm run build:ts && electron-builder --linux --publish never",
     "icons": "node scripts/gen-icons.js",
     "models": "node scripts/fetch-models.js",
+    "build:bergamot": "node scripts/build-bergamot.js",
     "build:worker": "esbuild src/translate-worker.ts --bundle --format=iife --outfile=build/translate-worker.js --target=chrome122 --sourcemap"
   },
   "dependencies": {
@@ -26,6 +27,7 @@
     "electron-store": "^8.1.0"
   },
   "devDependencies": {
+    "@browsermt/bergamot-translator": "0.4.9",
     "@huggingface/transformers": "^4.2.0",
     "@types/node": "^26.2.0",
     "electron": "^44.3.0",
@@ -56,6 +58,7 @@
       "build/core.js",
       "build/preload.js",
       "build/translate-worker.js",
+      "build/bergamot/**/*",
       "updater.html",
       "updater-preload.js",
       "lyrics-editor.html",

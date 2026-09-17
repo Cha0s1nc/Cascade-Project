@@ -967,8 +967,7 @@
     .lyrics-close:hover { color: var(--text); }
     .lyrics-translate-bar { display: none; align-items: center; gap: 6px; padding: 8px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
     .lyrics-translate-bar.visible { display: flex; }
-    .lyrics-translate-bar label { font-size: 11px; color: var(--text3); flex-shrink: 0; }
-    .lyrics-lang-select { flex: 1; min-width: 0; font-family: var(--font); font-size: 11px; background: var(--surface2); border: 1px solid var(--border); border-radius: 5px; color: var(--text); padding: 4px 6px; outline: none; cursor: pointer; }
+    .lyrics-translate-bar label { flex: 1; min-width: 0; font-size: 11px; color: var(--text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .lyrics-translate-btn { flex-shrink: 0; white-space: nowrap; font-family: var(--font); font-size: 11px; font-weight: 600; background: var(--accent); color: white; border: none; border-radius: 5px; padding: 4px 10px; cursor: pointer; transition: opacity 0.12s; flex-shrink: 0; }
     .lyrics-translate-btn:hover { opacity: 0.85; }
     .lyrics-translate-btn:disabled { opacity: 0.45; cursor: not-allowed; }
@@ -2425,7 +2424,7 @@
           </button></span>
         </div>
         <div class="ov-lyrics-scroll" id="ov-lyrics-body"></div>
-        <button class="ov-translate-btn" id="ov-translate-btn" title="Translate to English" style="display:none">
+        <button class="ov-translate-btn" id="ov-translate-btn" title="Translate lyrics" style="display:none">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
         </button>
       </div>
@@ -2658,21 +2657,7 @@
     </div>
   </div>
   <div class="lyrics-translate-bar" id="lyrics-translate-bar">
-    <label>Translate to</label>
-    <select class="lyrics-lang-select" id="lyrics-lang">
-      <option value="en">English</option>
-      <option value="es">Spanish</option>
-      <option value="fr">French</option>
-      <option value="de">German</option>
-      <option value="ja">Japanese</option>
-      <option value="ko" disabled>Korean (no on-device model)</option>
-      <option value="zh">Chinese</option>
-      <option value="pt">Portuguese</option>
-      <option value="it">Italian</option>
-      <option value="ru">Russian</option>
-      <option value="ar">Arabic</option>
-      <option value="hi">Hindi</option>
-    </select>
+    <label id="lyrics-translate-label"></label>
     <button class="lyrics-translate-btn" id="lyrics-translate-btn">Translate</button>
   </div>
   <div class="lyrics-pill-group" id="sidebar-pill-group">
@@ -2803,6 +2788,9 @@
 </div>
 
 <script src="build/core.js"></script>
+<!-- The translation runtime finds its worker relative to its own URL; see scripts/build-bergamot.js. -->
+<script>self.__bergamotBase = new URL('build/bergamot/translator.js', location.href).href</script>
+<script src="build/bergamot/translator.js"></script>
 <script src="renderer.js"></script>
 <script src="waterfall.js"></script>
 <div id="tooltip" role="tooltip" aria-hidden="true"></div>

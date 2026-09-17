@@ -24,10 +24,9 @@ let _queueScrollBound = false
 let volume = 1.0
 let crossfadeEnabled = false
 let crossfadeSeconds = 6
-// Lyric translation: one remembered switch and one target language, shared by
-// the side panel and the full-screen lyrics. Restored from the store in init().
+// Lyric translation: one remembered switch shared by the side panel and the
+// full-screen lyrics. Restored from the store in init().
 let lyricsTranslateOn = false
-let lyricsTranslateLang = 'en'
 let maxStreamingBitrate = 140000000   // overridden from settings in loadSettingsFields
 // The server only transcodes to specific bitrates, not a continuum - the
 // streaming quality slider is stepped through this exact list rather than
@@ -5197,14 +5196,6 @@ async function init() {
 
   crossfadeEnabled = (await window.cascade.store.get('crossfadeEnabled')) === true
   lyricsTranslateOn = (await window.cascade.store.get('lyricsTranslateOn')) === true
-  {
-    // Stored values are untrusted: only a language the picker actually offers
-    // (and does not disable) may become the target.
-    const picker = document.getElementById('lyrics-lang')
-    const saved = await window.cascade.store.get('lyricsTranslateLang')
-    if ([...picker.options].some(o => o.value === saved && !o.disabled)) lyricsTranslateLang = saved
-    picker.value = lyricsTranslateLang
-  }
   syncTranslateButtons()
   crossfadeSeconds = parseInt(await window.cascade.store.get('crossfadeSeconds'), 10) || 6
   maxStreamingBitrate = parseInt(await window.cascade.store.get('maxStreamingBitrate'), 10) || DEFAULT_MAX_BITRATE
@@ -6401,91 +6392,122 @@ function renderOverlayLyricLines() {
 // Was MyMemory's free API. Every lyric line the user played left the machine,
 // and the language *detection* calls did it automatically with no click and no
 // setting, which made playback history readable by a third party. Both halves
-// now run locally: franc for detection, Marian in a Worker for translation.
+// now run locally: franc for detection, and Mozilla's Firefox Translations
+// models (Marian, run by the bergamot WASM runtime vendored into
+// build/bergamot/ by scripts/build-bergamot.js) for translation.
 //
-// The Worker is created lazily. Spawning it costs ~230 MB of model reads, so
-// nothing touches it until someone actually presses Translate.
+// Each model translates one language into English and is downloaded on first
+// use by main.js - see translation-models.json. There is one BatchTranslator per
+// model, created lazily: translator.js keys models by from+to, so Simplified and
+// Traditional Chinese can only coexist as separate translators, each reading a
+// registry that holds just its own model.
 //
-// And it is retired again once nothing has asked it for anything in
-// TRANSLATE_IDLE_MS. Loaded, the models are far heavier than on disk: measured,
-// one translation took the renderer from 147 MB to 967 MB, and terminating the
-// worker gave ~500 MB of that straight back. Before this, that stayed pinned for
-// the whole session after a single click. The price is a cold start on the next
-// translation after an idle spell (1.2s measured on Apple Silicon); translations
-// already made are held in lyricsTranslated and are unaffected.
+// Translators are retired once nothing has asked for a translation in
+// TRANSLATE_IDLE_MS. A loaded model lives in its translator's worker, so this is
+// what hands that memory back after a song or two instead of holding it all
+// session. The next translation after an idle spell reloads the model from disk.
 
 const TRANSLATE_IDLE_MS = 5 * 60_000
-let _translateWorker = null
-let _translateSeq = 0
+const _translators = new Map()   // model key -> Bergamot.BatchTranslator
+let _translateBusy = 0
 let _translateIdleTimer = null
-const _translatePending = new Map()
 
-function _retireTranslateWorker() {
+// Translated lines, remembered for the rest of the session so going back to a
+// song, or a chorus shared across a sheet, costs nothing the second time. Keyed
+// by model and exact line text ("ja|..." - a model key never contains "|"),
+// least recently used dropped first. Memory only: translating a line takes a
+// fraction of a second, so a disk cache would be a second store of lyric text
+// for no noticeable gain.
+// ponytail: in-memory LRU; persist it if re-translating after a restart ever
+// measures as slow.
+const TRANSLATION_CACHE_LINES = 5000
+const _translatedLines = new Map()
+function _rememberedLine(cacheKey) {
+  const text = _translatedLines.get(cacheKey)
+  if (text !== undefined) { _translatedLines.delete(cacheKey); _translatedLines.set(cacheKey, text) }
+  return text
+}
+function _rememberLine(cacheKey, text) {
+  _translatedLines.set(cacheKey, text)
+  if (_translatedLines.size > TRANSLATION_CACHE_LINES) _translatedLines.delete(_translatedLines.keys().next().value)
+}
+
+function _retireTranslators() {
   _translateIdleTimer = null
-  // Never kill in-flight work. translateLines() clears this timer before it
-  // posts, so a request should not reach here, but this is what makes it safe.
-  if (_translatePending.size) return
-  _translateWorker?.terminate()
-  _translateWorker = null
+  if (_translateBusy) return   // never pull a worker out from under a translation
+  for (const t of _translators.values()) t.delete()
+  _translators.clear()
 }
 
-function translateWorker() {
-  if (_translateWorker) return _translateWorker
-  _translateWorker = new Worker('build/translate-worker.js')
-
-  _translateWorker.onmessage = (e) => {
-    const { type, id } = e.data
-    const pending = _translatePending.get(id)
-    if (!pending) return
-    if (type === 'progress') { pending.onProgress?.(e.data); return }
-    _translatePending.delete(id)
-    if (type === 'result') pending.resolve(e.data.lines)
-    else pending.reject(new Error(e.data.message))
-    if (!_translatePending.size) _translateIdleTimer = setTimeout(_retireTranslateWorker, TRANSLATE_IDLE_MS)
+function _translatorFor(key) {
+  let t = _translators.get(key)
+  if (!t) {
+    t = new Bergamot.BatchTranslator({
+      registryUrl: `cascade-model://app/models/registry.json?key=${encodeURIComponent(key)}`,
+      workers: 1,
+    })
+    _translators.set(key, t)
   }
-
-  // A worker that dies takes every in-flight request with it and leaves the
-  // buttons stuck on "Translating…" forever. Fail them all, and drop the
-  // handle so the next attempt builds a fresh worker instead of posting into
-  // a corpse.
-  _translateWorker.onerror = (err) => {
-    const dead = [..._translatePending.values()]
-    _translatePending.clear()
-    _translateWorker = null
-    for (const p of dead) p.reject(new Error(err.message || 'Translation worker failed'))
-  }
-
-  return _translateWorker
+  return t
 }
 
-/** Translates `lines` positionally into `target` (ISO 639-1). Resolves to an
- *  array the same length as the input - blank lines stay blank. */
-function translateLines(lines, target, onProgress) {
-  const id = ++_translateSeq
+/** Forget a model's translator: after a failure, or once the model is removed. */
+function dropTranslator(key) {
+  _translators.get(key)?.delete()
+  _translators.delete(key)
+}
+
+/** Translates `lines` into English with model `key`, positionally: the result is
+ *  the same length as the input and blank lines stay blank. Repeated lines are
+ *  translated once, since a lyric sheet is mostly chorus. One line per call:
+ *  lines are lyrics, not sentences, and batching them would let one line's
+ *  context bleed into the next. */
+async function translateLines(lines, key, onProgress) {
   clearTimeout(_translateIdleTimer)
   _translateIdleTimer = null
-  return new Promise((resolve, reject) => {
-    _translatePending.set(id, { resolve, reject, onProgress })
-    translateWorker().postMessage({ id, lines, target })
-  })
+  _translateBusy++
+  try {
+    const out = new Array(lines.length).fill('')
+    const unique = new Map()
+    lines.forEach((line, i) => {
+      const text = line.trim()
+      if (!text) return
+      if (!unique.has(text)) unique.set(text, [])
+      unique.get(text).push(i)
+    })
+    const from = key.slice(0, 2)
+    let done = 0
+    for (const [text, indexes] of unique) {
+      const cacheKey = `${key}|${text}`
+      let english = _rememberedLine(cacheKey)
+      if (english === undefined) {
+        english = (await _translatorFor(key).translate({ from, to: 'en', text, html: false })).target.text
+        _rememberLine(cacheKey, english)
+      }
+      for (const i of indexes) out[i] = english
+      onProgress?.({ done: ++done, total: unique.size })
+    }
+    return out
+  } catch (e) {
+    // A translator whose worker died or whose model would not load must not be
+    // reused; the next attempt builds a fresh one.
+    dropTranslator(key)
+    throw e
+  } finally {
+    if (!--_translateBusy) _translateIdleTimer = setTimeout(_retireTranslators, TRANSLATE_IDLE_MS)
+  }
 }
-
-/** Language of the current sheet, as ISO 639-1. Set by the detect functions and
- *  read by the translate buttons to skip a pointless round trip when the target
- *  is what the lyrics are already written in. */
-let lyricsLang = ''
 
 function lyricsPlainLines() {
   return lyricsData.map(l => l.Text || '')
 }
 
+// Only a sheet one of the downloadable models can translate gets a Translate
+// button: offering one for, say, Spanish would be a button that can only fail.
 function detectOverlayLyricsLanguage() {
-  const btn = document.getElementById('ov-translate-btn')
-  btn.style.display = 'none'
   syncTranslateButtons()
-  const lines = lyricsPlainLines()
-  lyricsLang = CascadeCore.detectLanguage(lines.join(' ').slice(0, 1000))
-  if (CascadeCore.shouldOfferTranslation(lines)) btn.style.display = 'flex'
+  document.getElementById('ov-translate-btn').style.display =
+    CascadeCore.translationModelFor(lyricsPlainLines()) ? 'flex' : 'none'
 }
 
 document.getElementById('ov-translate-btn').addEventListener('click', () => setLyricsTranslateOn(!lyricsTranslateOn))
@@ -7848,14 +7870,11 @@ async function fetchLyrics() {
 }
 
 function detectAndShowTranslateBar() {
-  // The whole sheet, not the first line. A Spanish song that opens on an
-  // English title line used to be detected as English and never offered a
-  // translation at all.
-  const lines = lyricsPlainLines()
-  lyricsLang = CascadeCore.detectLanguage(lines.join(' ').slice(0, 1000))
-  if (CascadeCore.shouldOfferTranslation(lines)) {
-    document.getElementById('lyrics-translate-bar').classList.add('visible')
-  }
+  // The whole sheet, not the first line: a song opening on an English title line
+  // must still read as the language the rest of it is in.
+  const key = CascadeCore.translationModelFor(lyricsPlainLines())
+  document.getElementById('lyrics-translate-bar').classList.toggle('visible', !!key)
+  document.getElementById('lyrics-translate-label').textContent = key ? `${_translationModelName(key)} lyrics` : ''
 }
 
 function renderLyrics() {
@@ -7957,13 +7976,6 @@ function _applySideLyricsActive(activeIdx, instant) {
 
 document.getElementById('lyrics-translate-btn').addEventListener('click', () => setLyricsTranslateOn(!lyricsTranslateOn))
 
-document.getElementById('lyrics-lang').addEventListener('change', e => {
-  lyricsTranslateLang = e.target.value
-  window.cascade.store.set('lyricsTranslateLang', lyricsTranslateLang)
-  rerenderLyricViews()        // drop the old language's lines at once
-  ensureLyricsTranslation()
-})
-
 // ── Translation state shared by both lyric views ──────────────────────────────
 //
 // One switch, remembered across songs and restarts: turn it on and every later
@@ -7971,18 +7983,47 @@ document.getElementById('lyrics-lang').addEventListener('change', e => {
 // Nothing is translated while neither view is showing lyrics.
 
 let _lyricsTranslatedFor = null   // the lyricsData array lyricsTranslated was made from
-let _lyricsTranslatedLang = ''
-let _lyricsTranslating = null     // { sheet, lang, promise } while one is in flight
-let _translateStatus = ''         // transient button label: progress, 'Failed', 'Already …'
+let _lyricsTranslating = null     // { sheet, key, promise } while one is in flight
+let _translateStatus = ''         // transient button label: download or translate progress, 'Failed'
 let _translateStatusTimer = null
+
+// Names and sizes of the downloadable models, straight from main.js's manifest,
+// so the renderer never keeps its own copy to drift. Kept current from progress
+// events; the key itself shows only if a label renders before the first read.
+let _translationModels = {}
+const _translationModelName = key => _translationModels[key]?.name || key
+
+window.cascade.translationModels.status().then(s => { _translationModels = s }).catch(() => {})
+
+window.cascade.translationModels.onProgress(p => {
+  if (_translationModels[p.key]) {
+    _translationModels[p.key].state = p.state
+    _translationModels[p.key].transferred = p.transferred
+  }
+  if (p.state === 'absent') dropTranslator(p.key)
+  if (_lyricsTranslating?.key === p.key && p.state === 'downloading' && p.total) {
+    _flashTranslateStatus(`Downloading ${Math.round(p.transferred / p.total * 100)}%`, 0)
+  }
+})
+
+// Said once per model per session, the moment a download actually starts. The
+// wizard and Settings carry the full disclosure; this is the "it's happening
+// now". Toasts can be switched off, which is fine for that reason.
+const _announcedDownloads = new Set()
+function _announceModelDownload(key) {
+  if (_announcedDownloads.has(key)) return
+  _announcedDownloads.add(key)
+  const m = _translationModels[key]
+  showToast(`Downloading the ${_translationModelName(key)} translation model${m ? ` (${Math.round(m.bytes / 1e6)} MB)` : ''}`, 3500)
+}
 
 // The translation to show under line i, or '' for none. Only a translation of
 // THIS sheet counts - checked by array identity, so any reload, source switch or
 // edit that replaces lyricsData invalidates it without every such path having to
-// remember - and only for the language currently chosen. A line the model
-// returned unchanged (English lines in a mixed song) is not repeated under itself.
+// remember. A line the model returned unchanged (English lines in a mixed song)
+// is not repeated under itself.
 function lyricTranslationFor(i) {
-  if (!lyricsTranslateOn || _lyricsTranslatedFor !== lyricsData || _lyricsTranslatedLang !== lyricsTranslateLang) return ''
+  if (!lyricsTranslateOn || _lyricsTranslatedFor !== lyricsData) return ''
   const t = (lyricsTranslated[i] || '').trim()
   return t && t.toLowerCase() !== (lyricsData[i]?.Text || '').trim().toLowerCase() ? t : ''
 }
@@ -8009,7 +8050,7 @@ function setLyricsTranslateOn(on) {
   _flashTranslateStatus('', 0)
   rerenderLyricViews()
   window.cascade.store.set('lyricsTranslateOn', on)
-  if (on) ensureLyricsTranslation(true)
+  if (on) ensureLyricsTranslation()
 }
 
 // Re-render whichever lyric views are showing, keeping their active line.
@@ -8028,40 +8069,42 @@ function rerenderLyricViews() {
 
 // Translate the current sheet if the switch is on and it needs it. Safe to call
 // from every place a sheet appears: a finished translation just re-renders, and
-// a second call for the same sheet and language joins the one in flight.
-// `userAsked` is true only for the click that turns the switch on, which is the
-// one moment a "nothing to do" deserves a word on the button.
-function ensureLyricsTranslation(userAsked = false) {
+// a second call for the same sheet joins the one in flight. If the sheet's model
+// is not installed yet, this is the moment it downloads.
+function ensureLyricsTranslation() {
   if (!lyricsTranslateOn || !lyricsData.length) return
   const sheet = lyricsData
-  const lang = lyricsTranslateLang
-  if (_lyricsTranslatedFor === sheet && _lyricsTranslatedLang === lang) return rerenderLyricViews()
-  if (_lyricsTranslating?.sheet === sheet && _lyricsTranslating.lang === lang) return _lyricsTranslating.promise
+  if (_lyricsTranslatedFor === sheet) return rerenderLyricViews()
+  if (_lyricsTranslating?.sheet === sheet) return _lyricsTranslating.promise
 
   const lines = lyricsPlainLines()
-  if (!CascadeCore.shouldOfferTranslation(lines)) return
-  // Asking for the language the lyrics are already in would round-trip them
-  // through English and hand back a worse copy of what is already on screen.
-  if (CascadeCore.detectLanguage(lines.join(' ').slice(0, 1000)) === lang) {
-    if (userAsked) _flashTranslateStatus('Already ' + document.getElementById('lyrics-lang').selectedOptions[0].text, 1800)
-    return
-  }
+  const key = CascadeCore.translationModelFor(lines)
+  if (!key) return
 
   const promise = (async () => {
     // Yield once first, so the finally below always runs after `promise` and
-    // _lyricsTranslating are assigned - even if creating the worker throws
-    // synchronously, which would otherwise leave the button stuck spinning.
+    // _lyricsTranslating are assigned - even if something throws synchronously,
+    // which would otherwise leave the button stuck spinning.
     await null
-    // total 0 is the worker still loading the model, most of a cold start.
-    _flashTranslateStatus('Loading…', 0)
     try {
-      const out = await translateLines(lines, lang, ({ done, total }) => {
-        if (lyricsData === sheet) _flashTranslateStatus(total ? `${Math.round(done / total * 100)}%` : 'Loading…', 0)
+      const status = await window.cascade.translationModels.status()
+      _translationModels = status
+      if (status[key]?.state !== 'ready') {
+        _announceModelDownload(key)
+        _flashTranslateStatus('Downloading…', 0)
+        // Progress arrives through onProgress. The download carries on in
+        // main.js even if the song changes, so a model fetched for one song is
+        // ready for the next.
+        await window.cascade.translationModels.download(key)
+      }
+      if (lyricsData !== sheet) { _flashTranslateStatus('', 0); return }   // the song moved on
+      _flashTranslateStatus('Loading…', 0)
+      const out = await translateLines(lines, key, ({ done, total }) => {
+        if (lyricsData === sheet) _flashTranslateStatus(`${Math.round(done / total * 100)}%`, 0)
       })
-      if (lyricsData !== sheet || lyricsTranslateLang !== lang) return   // the song or language moved on
+      if (lyricsData !== sheet) { _flashTranslateStatus('', 0); return }
       lyricsTranslated = out
       _lyricsTranslatedFor = sheet
-      _lyricsTranslatedLang = lang
       _flashTranslateStatus('', 0)
       rerenderLyricViews()
     } catch (e) {
@@ -8072,7 +8115,7 @@ function ensureLyricsTranslation(userAsked = false) {
       syncTranslateButtons()
     }
   })()
-  _lyricsTranslating = { sheet, lang, promise }
+  _lyricsTranslating = { sheet, key, promise }
   syncTranslateButtons()
   return promise
 }
@@ -8922,7 +8965,7 @@ function debugResourceLines() {
   return [
     ...rows.map(r => `${r.type.padEnd(9)} pid ${String(r.pid).padEnd(6)} ${String(r.memMB).padStart(5)} MB   cpu ${r.cpu.toFixed(1).padStart(5)}%   wake ${r.wakeups}/s`),
     `total                ${String(total.mem).padStart(5)} MB   cpu ${total.cpu.toFixed(1).padStart(5)}%`,
-    `translate worker: ${_translateWorker ? 'loaded' : 'not loaded'}`,
+    `translators loaded: ${[..._translators.keys()].join(', ') || 'none'}`,
   ]
 }
 
