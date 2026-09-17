@@ -177,6 +177,17 @@ export interface DesktopCapabilities {
    * own media element would mean a fresh Jellyfin stream negotiation and
    * every track restarting.
    */
+  /** Apple's on-device Translation framework, through a helper process.
+   *  Only macOS 26+; `supported()` is false everywhere else. */
+  appleTranslation?: {
+    supported(): Promise<boolean>
+    /** Per model key: installed in macOS, installable, or not offered by Apple. */
+    availability(): Promise<Record<string, 'installed' | 'supported' | 'unsupported'>>
+    /** One line into English. Rejects if the language is not installed. */
+    translate(key: string, text: string): Promise<string>
+    /** Opens System Settings at Language & Region. */
+    openSettings(): Promise<void>
+  }
   /** Download, inspect and remove the on-device lyric translation models.
    *  Keys are the manifest's: 'ja', 'ko', 'zh-Hans', 'zh-Hant'. */
   translationModels?: {
@@ -223,6 +234,7 @@ export interface ElectronPlatform extends Platform, DesktopCapabilities {
   kugouGetLyrics: NonNullable<DesktopCapabilities['kugouGetLyrics']>
   lyricsEditor: NonNullable<DesktopCapabilities['lyricsEditor']>
   metadataEditor: NonNullable<DesktopCapabilities['metadataEditor']>
+  appleTranslation: NonNullable<DesktopCapabilities['appleTranslation']>
   translationModels: NonNullable<DesktopCapabilities['translationModels']>
   miniPlayer: NonNullable<DesktopCapabilities['miniPlayer']>
 }

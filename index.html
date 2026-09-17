@@ -2028,6 +2028,21 @@
                 <span class="toggle-track"></span>
               </label>
             </div>
+            <div class="setting-row" id="apple-translation-row" style="display:none">
+              <div class="setting-label">
+                <span class="setting-name">Use Apple Translation</span>
+                <span class="setting-desc">Recommended on this Mac. Translates with the translation built into macOS instead of Cascade's downloadable models: more accurate, and nothing downloads through Cascade, though it is a little slower. Each language needs to be installed in macOS first, under Translation Languages in Language &amp; Region.</span>
+                <span class="setting-desc" id="apple-translation-status"></span>
+              </div>
+              <div class="tm-actions">
+                <button class="btn btn-secondary" id="apple-translation-reset" style="display:none">Ask again</button>
+                <button class="btn btn-secondary" id="apple-translation-open">Language &amp; Region</button>
+                <label class="toggle">
+                  <input type="checkbox" id="apple-translation-toggle">
+                  <span class="toggle-track"></span>
+                </label>
+              </div>
+            </div>
             <div class="lib-group-title" style="padding:0 14px;">Translation Models</div>
             <div id="translation-models-list"></div>
           </div>
@@ -2312,6 +2327,7 @@
           <span class="toggle-track"></span>
         </label>
       </div>
+      <p class="setup-subtitle" id="fr-apple-translation-note" style="display:none;font-size:11px;margin-top:10px;">On this Mac, Cascade uses Apple's built-in translation instead, for any of these languages installed in macOS, and nothing downloads for those. You can change this in Settings.</p>
     </div>
 
     <p class="setup-subtitle" style="font-size:11px;margin:16px 0 0;">You can change all of this later in Settings.</p>
@@ -2784,6 +2800,24 @@
 </div>
 
 <div id="toast"></div>
+
+<!-- Apple Translation: a song's language is not installed in macOS -->
+<div class="modal-overlay hidden" id="apple-install-modal">
+  <div class="modal-card" style="width:400px;max-height:none;">
+    <div class="modal-title" id="apple-install-title">Install this language in macOS?</div>
+    <p style="font-size:12px;color:var(--text2);line-height:1.6;margin-bottom:8px;">
+      Apple Translation is <strong style="color:var(--text);font-weight:600;">recommended</strong>: it is more accurate, runs on this Mac, and downloads nothing through Cascade. <span id="apple-install-lang">This language</span> just needs to be installed in macOS first.
+    </p>
+    <p style="font-size:12px;color:var(--text3);line-height:1.6;margin-bottom:18px;">
+      In System Settings, click <strong style="color:var(--text2);font-weight:600;">Translation Languages</strong> in Language &amp; Region and download it, then press Translate again. Or use Cascade's own model for it, which downloads now.
+    </p>
+    <div class="modal-actions" style="flex-wrap:wrap;">
+      <button class="modal-btn" id="apple-install-cancel">Cancel</button>
+      <button class="modal-btn" id="apple-install-mozilla">Use Cascade's model</button>
+      <button class="modal-btn modal-btn-accent" id="apple-install-open">Open System Settings</button>
+    </div>
+  </div>
+</div>
 
 <!-- CascadeSLRC plugin info modal (shown once) -->
 <div class="modal-overlay hidden" id="cascade-plugin-modal">

@@ -1043,6 +1043,115 @@ ipcMain.handle('translation-models:status', () => translationModelsStatus())
 ipcMain.handle('translation-models:download', (_e, key) => downloadTranslationModel(key))
 ipcMain.handle('translation-models:remove', (_e, key) => removeTranslationModel(key))
 
+// ── Apple Translation (macOS 26+) ────────────────────────────────────────────
+//
+// On a Mac that supports it, lyric translation can use the translation built
+// into macOS instead of Mozilla's downloaded models. Apple's framework is Swift
+// only, so native/apple-translate is a small helper process, built by
+// scripts/build-apple-translate.js and spoken to over stdin/stdout, one JSON
+// line each way.
+//
+// One long-lived process, started on first use and ended after
+// APPLE_TRANSLATE_IDLE_MS without a request, so a sheet's lines share one
+// loaded model instead of paying Apple's startup per line.
+
+// The helper is executed, and nothing inside app.asar can be: electron-builder
+// unpacks build/apple-translate/ (asarUnpack), so a packaged build finds it
+// under app.asar.unpacked instead.
+const APPLE_TRANSLATE_BIN = path.join(__dirname, 'build', 'apple-translate', 'apple-translate')
+  .replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`)
+const APPLE_TRANSLATE_IDLE_MS = 5 * 60 * 1000
+const APPLE_SETTINGS_URL = 'x-apple.systempreferences:com.apple.Localization-Settings.extension'
+
+// Only macOS 26+ has the windowless API the helper uses, and the helper is
+// built with a macOS 26 deployment target, so an older Mac never launches it.
+function appleTranslationSupported() {
+  return process.platform === 'darwin'
+    && parseInt(process.getSystemVersion(), 10) >= 26
+    && fs.existsSync(APPLE_TRANSLATE_BIN)
+}
+
+let _appleHelper = null   // { proc, pending: Map<id, {resolve, reject}>, seq, buffer }
+let _appleIdleTimer = null
+
+function appleHelper() {
+  if (_appleHelper) return _appleHelper
+  const proc = spawn(APPLE_TRANSLATE_BIN, [], { stdio: ['pipe', 'pipe', 'ignore'] })
+  const helper = { proc, pending: new Map(), seq: 0, buffer: '' }
+
+  proc.stdout.setEncoding('utf8')
+  proc.stdout.on('data', chunk => {
+    helper.buffer += chunk
+    let nl
+    while ((nl = helper.buffer.indexOf('\n')) >= 0) {
+      const line = helper.buffer.slice(0, nl)
+      helper.buffer = helper.buffer.slice(nl + 1)
+      let msg
+      try { msg = JSON.parse(line) } catch { continue }
+      const waiter = helper.pending.get(msg.id)
+      if (!waiter) continue
+      helper.pending.delete(msg.id)
+      if (msg.error) waiter.reject(new Error(msg.error))
+      else waiter.resolve(msg)
+    }
+  })
+
+  // A helper that dies takes every request in flight with it. Fail them all
+  // and forget it, so the next request starts a fresh one.
+  const fail = (err) => {
+    if (_appleHelper === helper) _appleHelper = null
+    for (const waiter of helper.pending.values()) waiter.reject(err)
+    helper.pending.clear()
+  }
+  proc.on('error', fail)
+  proc.stdin.on('error', fail)
+  proc.on('exit', code => fail(new Error(`Apple Translation helper exited (${code})`)))
+
+  _appleHelper = helper
+  return helper
+}
+
+function appleRequest(request) {
+  clearTimeout(_appleIdleTimer)
+  const helper = appleHelper()
+  const id = ++helper.seq
+  return new Promise((resolve, reject) => {
+    helper.pending.set(id, { resolve, reject })
+    helper.proc.stdin.write(JSON.stringify({ ...request, id }) + '\n')
+  }).finally(() => {
+    if (_appleHelper && !_appleHelper.pending.size) {
+      _appleIdleTimer = setTimeout(() => {
+        if (_appleHelper && !_appleHelper.pending.size) { _appleHelper.proc.kill(); _appleHelper = null }
+      }, APPLE_TRANSLATE_IDLE_MS)
+    }
+  })
+}
+
+app.on('will-quit', () => { _appleHelper?.proc.kill() })
+
+ipcMain.handle('apple-translation:supported', () => appleTranslationSupported())
+
+// Status of every language Cascade translates, straight from macOS.
+ipcMain.handle('apple-translation:availability', async () => {
+  if (!appleTranslationSupported()) return {}
+  const { status } = await appleRequest({ op: 'availability', languages: Object.keys(TRANSLATION_MANIFEST.models) })
+  return status
+})
+
+// Trust boundary: both arguments come from the renderer. Only a language
+// Cascade itself offers, and a single lyric line of sane length, go to macOS.
+ipcMain.handle('apple-translation:translate', async (_e, key, text) => {
+  translationModel(key)
+  if (typeof text !== 'string' || text.length > 2000) throw new Error('Invalid text to translate')
+  if (!appleTranslationSupported()) throw new Error('Apple Translation is not available on this Mac')
+  const { text: english } = await appleRequest({ op: 'translate', source: key, text })
+  return english
+})
+
+// Translation Languages is a button inside Language & Region with no link of
+// its own, so this opens Language & Region and the prompt says where to click.
+ipcMain.handle('apple-translation:open-settings', () => shell.openExternal(APPLE_SETTINGS_URL))
+
 // ── Updater IPC ────────────────────────────────────────────────────────────────
 
 ipcMain.handle('check-for-updates', async () => {

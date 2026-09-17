@@ -49,6 +49,12 @@ const cascade: ElectronPlatform = {
     open:    (data) => ipcRenderer.send('open-metadata-editor', data),
     onSaved: (cb) => { ipcRenderer.on('metadata-saved', (_e, itemId) => cb(itemId)) },
   },
+  appleTranslation: {
+    supported:    () => ipcRenderer.invoke('apple-translation:supported'),
+    availability: () => ipcRenderer.invoke('apple-translation:availability'),
+    translate:    (key, text) => ipcRenderer.invoke('apple-translation:translate', key, text),
+    openSettings: () => ipcRenderer.invoke('apple-translation:open-settings'),
+  },
   translationModels: {
     status:     () => ipcRenderer.invoke('translation-models:status'),
     download:   (key) => ipcRenderer.invoke('translation-models:download', key),

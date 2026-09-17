@@ -30,6 +30,14 @@ let crossfadeSeconds = 6
 // right now (the Translate button, remembered across songs, default off).
 let lyricsTranslationEnabled = true
 let lyricsTranslateOn = false
+// Apple's built-in translation instead of Mozilla's models, on a Mac that can
+// use it (macOS 26+): on by default there. _appleTranslationSupported is filled
+// in by init() and stays false on every other platform. _appleMozillaChosen
+// holds the languages the user picked Cascade's model for from the install
+// prompt.
+let appleTranslationEnabled = true
+let _appleTranslationSupported = false
+const _appleMozillaChosen = new Set()
 let maxStreamingBitrate = 140000000   // overridden from settings in loadSettingsFields
 // The server only transcodes to specific bitrates, not a continuum - the
 // streaming quality slider is stepped through this exact list rather than
@@ -1346,6 +1354,7 @@ function _renderSetupStep() {
     // Seeded from the live value only. Never write a default on entry: this
     // step is re-shown on update, and skipping it must change nothing.
     document.getElementById('fr-lyrics-translation-toggle').checked = lyricsTranslationEnabled
+    document.getElementById('fr-apple-translation-note').style.display = _appleTranslationSupported ? '' : 'none'
   }
 }
 
@@ -4751,6 +4760,7 @@ async function loadSettingsFields() {
 
   // Lyric translation
   document.getElementById('lyrics-translation-toggle').checked = lyricsTranslationEnabled
+  renderAppleTranslationRow()
   window.cascade.translationModels.status()
     .then(s => { _translationModels = s; renderTranslationModelRows() })
     .catch(() => {})
@@ -5222,6 +5232,15 @@ async function init() {
   lyricsTranslateOn = (await window.cascade.store.get('lyricsTranslateOn')) === true
   // Only an explicit false switches the feature off; missing or corrupt means on.
   lyricsTranslationEnabled = (await window.cascade.store.get('lyricsTranslationEnabled')) !== false
+  _appleTranslationSupported = await window.cascade.appleTranslation.supported().catch(() => false)
+  appleTranslationEnabled = (await window.cascade.store.get('appleTranslationEnabled')) !== false
+  {
+    // Stored values are untrusted: only real model keys survive.
+    const chosen = await window.cascade.store.get('appleTranslationMozillaChosen')
+    if (Array.isArray(chosen)) {
+      for (const k of chosen) if (CascadeCore.TRANSLATION_MODEL_KEYS.includes(k)) _appleMozillaChosen.add(k)
+    }
+  }
   syncTranslateButtons()
   crossfadeSeconds = parseInt(await window.cascade.store.get('crossfadeSeconds'), 10) || 6
   maxStreamingBitrate = parseInt(await window.cascade.store.get('maxStreamingBitrate'), 10) || DEFAULT_MAX_BITRATE
@@ -6440,7 +6459,7 @@ let _translateIdleTimer = null
 
 // Translated lines, remembered for the rest of the session so going back to a
 // song, or a chorus shared across a sheet, costs nothing the second time. Keyed
-// by model and exact line text ("ja|..." - a model key never contains "|"),
+// by engine, model and exact line text ("apple|ja|..." - neither ever contains "|"),
 // least recently used dropped first. Memory only: translating a line takes a
 // fraction of a second, so a disk cache would be a second store of lyric text
 // for no noticeable gain.
@@ -6487,8 +6506,11 @@ function dropTranslator(key) {
  *  the same length as the input and blank lines stay blank. Repeated lines are
  *  translated once, since a lyric sheet is mostly chorus. One line per call:
  *  lines are lyrics, not sentences, and batching them would let one line's
- *  context bleed into the next. */
-async function translateLines(lines, key, onProgress) {
+ *  context bleed into the next. It is also what keeps progress meaningful with
+ *  Apple, whose own batch call returns everything at once.
+ *  `engine` is 'mozilla' (the bergamot translators here) or 'apple' (the macOS
+ *  helper in main.js). */
+async function translateLines(lines, key, onProgress, engine = 'mozilla') {
   clearTimeout(_translateIdleTimer)
   _translateIdleTimer = null
   _translateBusy++
@@ -6504,10 +6526,14 @@ async function translateLines(lines, key, onProgress) {
     const from = key.slice(0, 2)
     let done = 0
     for (const [text, indexes] of unique) {
-      const cacheKey = `${key}|${text}`
+      // The engine is part of the key: both translate the same languages, and
+      // switching engines must not serve the other one's output from memory.
+      const cacheKey = `${engine}|${key}|${text}`
       let english = _rememberedLine(cacheKey)
       if (english === undefined) {
-        english = (await _translatorFor(key).translate({ from, to: 'en', text, html: false })).target.text
+        english = engine === 'apple'
+          ? await window.cascade.appleTranslation.translate(key, text)
+          : (await _translatorFor(key).translate({ from, to: 'en', text, html: false })).target.text
         _rememberLine(cacheKey, english)
       }
       for (const i of indexes) out[i] = english
@@ -6516,8 +6542,9 @@ async function translateLines(lines, key, onProgress) {
     return out
   } catch (e) {
     // A translator whose worker died or whose model would not load must not be
-    // reused; the next attempt builds a fresh one.
-    dropTranslator(key)
+    // reused; the next attempt builds a fresh one. (Apple's helper restarts
+    // itself in main.js.)
+    if (engine === 'mozilla') dropTranslator(key)
     throw e
   } finally {
     if (!--_translateBusy) _translateIdleTimer = setTimeout(_retireTranslators, TRANSLATE_IDLE_MS)
@@ -6536,7 +6563,7 @@ function detectOverlayLyricsLanguage() {
     lyricsTranslationEnabled && CascadeCore.translationModelFor(lyricsPlainLines()) ? 'flex' : 'none'
 }
 
-document.getElementById('ov-translate-btn').addEventListener('click', () => setLyricsTranslateOn(!lyricsTranslateOn))
+document.getElementById('ov-translate-btn').addEventListener('click', () => onTranslateButton())
 
 // Lightweight critically-damped-ish spring for scroll position. Unlike a CSS
 // transition, it carries velocity across target changes - when a new line
@@ -8000,7 +8027,7 @@ function _applySideLyricsActive(activeIdx, instant) {
   }
 }
 
-document.getElementById('lyrics-translate-btn').addEventListener('click', () => setLyricsTranslateOn(!lyricsTranslateOn))
+document.getElementById('lyrics-translate-btn').addEventListener('click', () => onTranslateButton())
 
 // ── Translation state shared by both lyric views ──────────────────────────────
 //
@@ -8043,6 +8070,130 @@ function _announceModelDownload(key) {
   const m = _translationModels[key]
   showToast(`Downloading the ${_translationModelName(key)} translation model${m ? ` (${Math.round(m.bytes / 1e6)} MB)` : ''}`, 3500)
 }
+
+// ── Apple Translation or Mozilla's models ─────────────────────────────────────
+//
+// On a Mac that supports it (macOS 26+), Apple's built-in translation is the
+// default: more accurate, and nothing downloads through Cascade. It needs each
+// language installed in macOS. When a song's language is installable but not
+// installed, the Translate press asks rather than quietly downloading Mozilla's
+// model: install it in macOS (recommended), or use Cascade's model for that
+// language. That choice is remembered per language, and only applies while the
+// language is missing from macOS, so installing it later brings Apple back.
+
+let _pendingInstallKey = null   // the sheet's language, while it waits on macOS
+
+const _appleInUse = () => _appleTranslationSupported && appleTranslationEnabled
+
+async function _translationEngineFor(key) {
+  if (!_appleInUse()) return 'mozilla'
+  const status = await window.cascade.appleTranslation.availability()
+  return CascadeCore.pickTranslationEngine({
+    appleEnabled: true,
+    appleStatus: status[key],
+    mozillaChosen: _appleMozillaChosen.has(key),
+  })
+}
+
+function openAppleInstallPrompt(key) {
+  const name = _translationModelName(key)
+  const m = _translationModels[key]
+  const modal = document.getElementById('apple-install-modal')
+  modal.dataset.key = key
+  document.getElementById('apple-install-title').textContent = `Install ${name} in macOS?`
+  document.getElementById('apple-install-lang').textContent = name
+  document.getElementById('apple-install-mozilla').textContent =
+    `Use Cascade's model${m ? ` (${Math.round(m.bytes / 1e6)} MB)` : ''}`
+  modal.classList.remove('hidden')
+}
+
+function _closeAppleInstallPrompt() {
+  document.getElementById('apple-install-modal').classList.add('hidden')
+}
+
+// Cancel and "Open System Settings" both leave the song untranslated for now,
+// so the Translate button goes back to plain Translate: after installing the
+// language, pressing it again is all that is needed.
+document.getElementById('apple-install-open').addEventListener('click', () => {
+  _closeAppleInstallPrompt()
+  window.cascade.appleTranslation.openSettings()
+  setLyricsTranslateOn(false)
+})
+document.getElementById('apple-install-cancel').addEventListener('click', () => {
+  _closeAppleInstallPrompt()
+  setLyricsTranslateOn(false)
+})
+document.getElementById('apple-install-mozilla').addEventListener('click', () => {
+  const key = document.getElementById('apple-install-modal').dataset.key
+  _closeAppleInstallPrompt()
+  if (!CascadeCore.TRANSLATION_MODEL_KEYS.includes(key)) return
+  _appleMozillaChosen.add(key)
+  window.cascade.store.set('appleTranslationMozillaChosen', [..._appleMozillaChosen])
+  _pendingInstallKey = null
+  _flashTranslateStatus('', 0)
+  ensureLyricsTranslation(true)
+  renderAppleTranslationRow()
+})
+
+// Both Translate buttons. While a sheet is waiting on its language, the button
+// reads "Install Korean…" and pressing it asks again instead of switching off.
+function onTranslateButton() {
+  if (lyricsTranslateOn && _pendingInstallKey) return openAppleInstallPrompt(_pendingInstallKey)
+  setLyricsTranslateOn(!lyricsTranslateOn)
+}
+
+// The one path for the Settings toggle.
+async function setAppleTranslationEnabled(enabled) {
+  appleTranslationEnabled = enabled
+  const toggle = document.getElementById('apple-translation-toggle')
+  if (toggle) toggle.checked = enabled
+  // The translation on screen came from the other engine, which is no longer
+  // the one asked for: drop it and translate again.
+  _pendingInstallKey = null
+  _lyricsTranslatedFor = null
+  _flashTranslateStatus('', 0)
+  rerenderLyricViews()
+  ensureLyricsTranslation()
+  renderAppleTranslationRow()
+  await window.cascade.store.set('appleTranslationEnabled', enabled)
+}
+
+async function renderAppleTranslationRow() {
+  const row = document.getElementById('apple-translation-row')
+  if (!_appleTranslationSupported) { row.style.display = 'none'; return }
+  row.style.display = ''
+  document.getElementById('apple-translation-toggle').checked = appleTranslationEnabled
+  document.getElementById('apple-translation-reset').style.display = _appleMozillaChosen.size ? '' : 'none'
+  const statusEl = document.getElementById('apple-translation-status')
+  try {
+    const status = await window.cascade.appleTranslation.availability()
+    const names = keys => keys.map(_translationModelName).join(', ')
+    const keys = CascadeCore.TRANSLATION_MODEL_KEYS
+    const installed = keys.filter(k => status[k] === 'installed')
+    const missing = keys.filter(k => status[k] === 'supported')
+    const parts = []
+    if (installed.length) parts.push(`Installed in macOS: ${names(installed)}.`)
+    if (missing.length) {
+      parts.push(`Not installed: ${missing.map(k => _translationModelName(k) + (_appleMozillaChosen.has(k) ? ' (using Cascade’s model)' : '')).join(', ')}.`)
+    }
+    statusEl.textContent = parts.join(' ')
+  } catch {
+    statusEl.textContent = 'Could not check which languages are installed in macOS.'
+  }
+}
+
+document.getElementById('apple-translation-toggle').addEventListener('change', e => setAppleTranslationEnabled(e.target.checked))
+document.getElementById('apple-translation-open').addEventListener('click', () => window.cascade.appleTranslation.openSettings())
+document.getElementById('apple-translation-reset').addEventListener('click', () => {
+  _appleMozillaChosen.clear()
+  window.cascade.store.set('appleTranslationMozillaChosen', [])
+  // A sheet showing Cascade's model for a language Apple could handle should
+  // go back to asking.
+  _lyricsTranslatedFor = null
+  rerenderLyricViews()
+  ensureLyricsTranslation()
+  renderAppleTranslationRow()
+})
 
 // ── Lyric translation in Settings: the feature switch and the models ──────────
 
@@ -8183,15 +8334,17 @@ function syncTranslateButtons() {
   ov.classList.toggle('translated', lyricsTranslateOn)
   ov.classList.toggle('loading', !!_lyricsTranslating)
   ov.title = _translateStatus === 'Failed' ? 'Translation unavailable'
+    : _pendingInstallKey ? `Install ${_translationModelName(_pendingInstallKey)} in macOS to translate`
     : lyricsTranslateOn ? 'Show original' : 'Translate lyrics'
 }
 
 function setLyricsTranslateOn(on) {
   lyricsTranslateOn = on
+  if (!on) _pendingInstallKey = null
   _flashTranslateStatus('', 0)
   rerenderLyricViews()
   window.cascade.store.set('lyricsTranslateOn', on)
-  if (on) ensureLyricsTranslation()
+  if (on) ensureLyricsTranslation(true)
 }
 
 // Re-render whichever lyric views are showing, keeping their active line.
@@ -8210,9 +8363,11 @@ function rerenderLyricViews() {
 
 // Translate the current sheet if the switch is on and it needs it. Safe to call
 // from every place a sheet appears: a finished translation just re-renders, and
-// a second call for the same sheet joins the one in flight. If the sheet's model
-// is not installed yet, this is the moment it downloads.
-function ensureLyricsTranslation() {
+// a second call for the same sheet joins the one in flight. Picks Apple or
+// Mozilla per sheet; with Mozilla, a model not installed yet downloads here.
+// `userAsked` is true only for an actual Translate press, the one moment the
+// install prompt may appear - a song change must never pop a dialog.
+function ensureLyricsTranslation(userAsked = false) {
   if (!lyricsTranslationEnabled || !lyricsTranslateOn || !lyricsData.length) return
   const sheet = lyricsData
   if (_lyricsTranslatedFor === sheet) return rerenderLyricViews()
@@ -8220,6 +8375,11 @@ function ensureLyricsTranslation() {
 
   const lines = lyricsPlainLines()
   const key = CascadeCore.translationModelFor(lines)
+  // A new sheet in another language (or none) is no longer waiting on the old one.
+  if (_pendingInstallKey && _pendingInstallKey !== key) {
+    _pendingInstallKey = null
+    _flashTranslateStatus('', 0)
+  }
   if (!key) return
 
   const promise = (async () => {
@@ -8228,26 +8388,39 @@ function ensureLyricsTranslation() {
     // which would otherwise leave the button stuck spinning.
     await null
     try {
-      const status = await window.cascade.translationModels.status()
-      _translationModels = status
-      if (status[key]?.state !== 'ready') {
-        _announceModelDownload(key)
-        _flashTranslateStatus('Downloading…', 0)
-        // Progress arrives through onProgress. The download carries on in
-        // main.js even if the song changes, so a model fetched for one song is
-        // ready for the next.
-        try {
-          await window.cascade.translationModels.download(key)
-        } catch (err) {
-          _translationModelErrors[key] = _ipcErrorMessage(err)
-          throw err
-        }
+      const engine = await _translationEngineFor(key)
+      if (lyricsData !== sheet) { _flashTranslateStatus('', 0); return }
+      if (engine === 'needs-install') {
+        _pendingInstallKey = key
+        _flashTranslateStatus(`Install ${_translationModelName(key)}…`, 0)
+        if (userAsked) openAppleInstallPrompt(key)
+        return
       }
-      if (lyricsData !== sheet) { _flashTranslateStatus('', 0); return }   // the song moved on
-      _flashTranslateStatus('Loading…', 0)
+      _pendingInstallKey = null
+
+      if (engine === 'mozilla') {
+        const status = await window.cascade.translationModels.status()
+        _translationModels = status
+        if (status[key]?.state !== 'ready') {
+          _announceModelDownload(key)
+          _flashTranslateStatus('Downloading…', 0)
+          // Progress arrives through onProgress. The download carries on in
+          // main.js even if the song changes, so a model fetched for one song
+          // is ready for the next.
+          try {
+            await window.cascade.translationModels.download(key)
+          } catch (err) {
+            _translationModelErrors[key] = _ipcErrorMessage(err)
+            throw err
+          }
+        }
+        if (lyricsData !== sheet) { _flashTranslateStatus('', 0); return }   // the song moved on
+      }
+
+      _flashTranslateStatus(engine === 'apple' ? 'Translating…' : 'Loading…', 0)
       const out = await translateLines(lines, key, ({ done, total }) => {
         if (lyricsData === sheet) _flashTranslateStatus(`${Math.round(done / total * 100)}%`, 0)
-      })
+      }, engine)
       if (lyricsData !== sheet) { _flashTranslateStatus('', 0); return }
       lyricsTranslated = out
       _lyricsTranslatedFor = sheet

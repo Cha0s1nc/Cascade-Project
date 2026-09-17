@@ -6,7 +6,7 @@
   "scripts": {
     "build:core": "esbuild src/index.ts --bundle --format=iife --global-name=CascadeCore --outfile=build/core.js --target=chrome122 --sourcemap",
     "build:preload": "esbuild src/preload.ts --bundle --format=cjs --platform=node --external:electron --outfile=build/preload.js --target=node20 --sourcemap",
-    "build:ts": "npm run build:core && npm run build:preload && npm run build:bergamot",
+    "build:ts": "npm run build:core && npm run build:preload && npm run build:bergamot && npm run build:apple",
     "typecheck": "tsc --noEmit",
     "typecheck:legacy": "tsc -p tsconfig.legacy.json",
     "test": "node --test \"test/**/*.test.ts\"",
@@ -18,7 +18,8 @@
     "build:win": "npm run build:ts && electron-builder --win --publish never",
     "build:linux": "npm run build:ts && electron-builder --linux --publish never",
     "icons": "node scripts/gen-icons.js",
-    "build:bergamot": "node scripts/build-bergamot.js"
+    "build:bergamot": "node scripts/build-bergamot.js",
+    "build:apple": "node scripts/build-apple-translate.js"
   },
   "dependencies": {
     "discord-rpc": "^4.0.1",
@@ -55,6 +56,7 @@
       "build/core.js",
       "build/preload.js",
       "build/bergamot/**/*",
+      "build/apple-translate/**/*",
       "updater.html",
       "updater-preload.js",
       "lyrics-editor.html",
@@ -69,6 +71,9 @@
       "assets/LICENSE",
       "node_modules/**/*",
       "!node_modules/@img/**"
+    ],
+    "asarUnpack": [
+      "build/apple-translate/**"
     ],
     "directories": {
       "output": "dist"

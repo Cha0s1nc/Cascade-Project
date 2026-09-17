@@ -3,7 +3,7 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { translationModelFor, chineseScript, SCRIPT_PAIRS } from '../src/core/translation-models.ts'
+import { translationModelFor, chineseScript, SCRIPT_PAIRS, pickTranslationEngine } from '../src/core/translation-models.ts'
 
 const UDHR = {
   en: 'All human beings are born free and equal in dignity and rights. They are endowed with reason and conscience and should act towards one another in a spirit of brotherhood.',
@@ -52,4 +52,18 @@ test('the script tables stay aligned pair for pair', () => {
   assert.equal(new Set(t).size, t.length, 'duplicate in TRADITIONAL')
   // No character may appear in both tables, or it would count for both sides.
   assert.equal(s.filter(c => t.includes(c)).length, 0)
+})
+
+test('pickTranslationEngine prefers Apple only where it can actually run', () => {
+  // Apple off, or not available on this Mac: always Mozilla.
+  assert.equal(pickTranslationEngine({ appleEnabled: false, appleStatus: 'installed', mozillaChosen: false }), 'mozilla')
+  assert.equal(pickTranslationEngine({ appleEnabled: true, appleStatus: undefined, mozillaChosen: false }), 'mozilla')
+  // Installed in macOS wins, even over an earlier choice of Mozilla.
+  assert.equal(pickTranslationEngine({ appleEnabled: true, appleStatus: 'installed', mozillaChosen: false }), 'apple')
+  assert.equal(pickTranslationEngine({ appleEnabled: true, appleStatus: 'installed', mozillaChosen: true }), 'apple')
+  // Installable but not installed: ask, unless Mozilla was already chosen.
+  assert.equal(pickTranslationEngine({ appleEnabled: true, appleStatus: 'supported', mozillaChosen: false }), 'needs-install')
+  assert.equal(pickTranslationEngine({ appleEnabled: true, appleStatus: 'supported', mozillaChosen: true }), 'mozilla')
+  // Apple has no model at all: nothing to install, so no prompt.
+  assert.equal(pickTranslationEngine({ appleEnabled: true, appleStatus: 'unsupported', mozillaChosen: false }), 'mozilla')
 })

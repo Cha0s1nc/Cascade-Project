@@ -186,6 +186,27 @@ literals. Renaming an id is a silent break that typecheck will not catch.
     Translate button, default off) is whether translations are showing.
     `setLyricsTranslationEnabled()` - **8054** is the one path for both
     Settings and the wizard.
+  - **Apple Translation (macOS 26+, default on there).** `native/apple-translate`
+    is a Swift helper (`TranslationSession(installedSource:target:)`, the
+    windowless macOS 26 API) built by `scripts/build-apple-translate.js`: a
+    no-op off macOS, fails in CI without the 26 SDK, warns and skips locally.
+    CI's mac job is pinned to `macos-26` for that SDK. It is `asarUnpack`ed,
+    since nothing inside app.asar can be executed. main.js keeps one
+    long-lived helper, spoken to with one JSON line each way over stdin, and
+    ends it after five idle minutes and on quit.
+    - `CascadeCore.pickTranslationEngine()` decides per sheet: Apple if the
+      language is installed in macOS; Mozilla if Apple is off, has no model
+      for it ("unsupported"), or the user chose Cascade's model for that
+      language; otherwise `needs-install`. The chosen-Mozilla list only
+      applies while a language is missing from macOS.
+    - `needs-install` shows the install prompt **only for an actual Translate
+      press** (`ensureLyricsTranslation(userAsked)`), never on a song change;
+      then the button reads "Install X…" and pressing it opens the prompt.
+    - Translated lines are cached per engine (`apple|ja|...`), so switching
+      engines never serves the other's output.
+    - Translation Languages has no System Settings link of its own; the
+      prompt opens Language & Region
+      (`com.apple.Localization-Settings.extension`) and says where to click.
   - Settings model rows (`renderTranslationModelRows`, **8083**) update in
     place, never rebuild: progress events arrive several times a second and a
     rebuild would swap the button under the pointer.

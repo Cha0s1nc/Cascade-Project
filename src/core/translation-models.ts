@@ -51,3 +51,33 @@ export function translationModelFor(lines: string[]): TranslationModelKey | null
   if (lang === 'zh') return chineseScript(text)
   return null
 }
+
+/** What Apple's Translation framework says about one language into English. */
+export type AppleLanguageStatus = 'installed' | 'supported' | 'unsupported'
+
+/** 'needs-install': Apple could translate this once the language is installed
+ *  in macOS, and the user has not chosen Mozilla's model for it instead. */
+export type TranslationEngine = 'apple' | 'mozilla' | 'needs-install'
+
+/**
+ * Which engine translates a sheet in one of the supported languages.
+ *
+ * `appleEnabled` is the setting AND this Mac being able to use it (macOS 26+
+ * with the helper built). `appleStatus` is undefined whenever Apple is not in
+ * play. `mozillaChosen` is the user having picked Mozilla's model for this
+ * language from the install prompt; it only ever matters while the language
+ * is not installed in macOS, so installing it later switches back to Apple
+ * with no setting to undo.
+ */
+export function pickTranslationEngine(o: {
+  appleEnabled: boolean
+  appleStatus?: AppleLanguageStatus
+  mozillaChosen: boolean
+}): TranslationEngine {
+  if (!o.appleEnabled || !o.appleStatus) return 'mozilla'
+  if (o.appleStatus === 'installed') return 'apple'
+  // Nothing to install: Apple has no model for this language at all, so
+  // asking would be a prompt with no way to say yes.
+  if (o.appleStatus === 'unsupported') return 'mozilla'
+  return o.mozillaChosen ? 'mozilla' : 'needs-install'
+}
