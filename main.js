@@ -24,31 +24,25 @@ const Store = require('electron-store')
 
 // ── On-device translation assets ──────────────────────────────────────────────
 //
-// The lyrics translator loads ~228 MB of Marian weights plus the ONNX runtime
-// wasm binary from disk. The renderer is a file:// page and fetch() from
-// file:// is blocked, so those files are served over a private scheme instead.
+// The lyrics translator is Mozilla's bergamot runtime running Firefox
+// Translations models (see "On-device translation models" further down). The
+// renderer is a file:// page and fetch() from file:// is blocked, so the
+// runtime's wasm and the downloaded models are served over a private scheme.
 //
-// This has to be declared before app ready, and `supportFetchAPI` is the whole
-// point of it - without that flag transformers.js cannot fetch the weights.
-// `secure` keeps the worker from being treated as a mixed-content downgrade;
-// `standard` gives the URLs normal host/path parsing.
+// This has to be declared before app ready. `supportFetchAPI` is what lets the
+// runtime fetch its wasm and the model files at all; `secure` keeps its worker
+// from being treated as a mixed-content downgrade; `standard` gives the URLs
+// normal host/path parsing.
 //
-// `corsEnabled` is required too, and its absence broke translation outright:
-// the page is file://, so every fetch to this scheme is cross-origin, and
-// Chromium refuses cross-origin fetches to any scheme not flagged for CORS.
-// transformers.js swallows that as "file was not found locally", which is why
-// it read as a missing model rather than a blocked request.
+// `corsEnabled` is required too, and its absence once broke translation
+// outright: the page is file://, so every fetch to this scheme is cross-origin,
+// and Chromium refuses cross-origin fetches to any scheme not flagged for CORS.
+// The translation library of the day swallowed that as "file was not found
+// locally", so it read as a missing model rather than a blocked request.
 protocol.registerSchemesAsPrivileged([{
   scheme: 'cascade-model',
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
 }])
-
-// Packaged, the models ride along as an extraResource next to the asar rather
-// than inside it - onnxruntime memory-maps the .onnx files and cannot read them
-// through asar's virtual filesystem.
-const MODELS_DIR = app.isPackaged
-  ? path.join(process.resourcesPath, 'models')
-  : path.join(__dirname, 'models')
 
 // Serve `rel` from inside `root`, or refuse. Trust boundary: the path comes off
 // a URL. Without this, a request for ../../.. walks straight out of the
@@ -70,7 +64,7 @@ function registerModelProtocol() {
     if (rel.startsWith('/runtime/')) return serveWithin(BERGAMOT_RUNTIME_DIR, rel.slice('/runtime/'.length))
     if (rel === '/models/registry.json') return translationRegistryResponse(url.searchParams.get('key'))
     if (rel.startsWith('/models/')) return serveWithin(translationModelsDir(), rel.slice('/models/'.length))
-    return serveWithin(MODELS_DIR, rel)
+    return new Response('Not found', { status: 404 })
   })
 }
 

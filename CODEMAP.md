@@ -76,7 +76,9 @@ literals. Renaming an id is a silent break that typecheck will not catch.
   metadata entries, Edit metadata/images, and playlist delete. **A new
   admin-only control must be added to this function's id list or it is not
   gated at all.** Uses the `.needs-admin` class plus an inline note.
-- `maybeShowSetupWizard()` - **1273**, `WIZARD_REVISION` - **1242**. Runs from
+- `maybeShowSetupWizard()`, `WIZARD_REVISION` - **1251**, and
+  `FIRSTRUN_STEP_REVISION` - **1258**, the revision each step arrived in. An
+  update shows only steps newer than the revision last finished. Runs from
   `connect()` off a stored revision, NOT the app version and NOT a boolean.
   Safe to re-show on update only because every step seeds from the current
   live value. **Never add a step that writes a default on entry.**
@@ -145,12 +147,45 @@ literals. Renaming an id is a silent break that typecheck will not catch.
   is the entire condition. The guard matters for correctness (the karaoke fill
   never ran before it); as a CPU saving it measured below noise, see
   "Measured, not worth building" below.
-- Translation worker: `TRANSLATE_IDLE_MS` / `_retireTranslateWorker()` -
-  **6403** / **6409**. The worker is retired once nothing is pending for five
-  minutes. This is the largest runtime memory item in the app: one translation
-  took the renderer from 147 MB to 967 MB, and terminating returned ~500 MB. A
-  new request clears the timer before posting, and the retire refuses while
-  anything is in flight. Next translation starts cold, ~1s.
+- **Translation** is Mozilla's Firefox Translations models on the bergamot
+  WASM runtime, into English only, for `ja`, `ko`, `zh-Hans`, `zh-Hant`.
+  - `translation-models.json` pins every model file by size and sha256.
+    Updating a model is a manifest edit plus a new GitHub release, never a
+    runtime lookup of Mozilla's Remote Settings (Firefox internals).
+  - main.js `downloadTranslationModel()` - **962**. Tries Cascade's GitHub
+    release, then Mozilla's CDN, per file. **The hash check is not optional:**
+    `downloadFile()` resolves on a truncated stream. Files land in
+    `<key>.partial/` and the directory is renamed only once all verify, so an
+    installed model is exactly a directory that exists. Keys from IPC are
+    checked against the manifest before touching a path.
+  - The models' GitHub release must live in a **separate repo**, never
+    `Cascade-Project`: the updater reads that repo's latest (or first
+    non-draft) release as an app update.
+  - `cascade-model://` (`registerModelProtocol`, main.js **59**) serves
+    `/runtime/` (the wasm) and `/models/` (installed models) behind
+    `serveWithin()`'s escape guard, plus a registry per model
+    (`translationRegistryResponse`, **1031**): translator.js keys registries
+    by from+to, so the two Chinese models can never share one.
+  - `scripts/build-bergamot.js` vendors the runtime. It bundles translator.js
+    to the `Bergamot` global with `import.meta.url` defined as
+    `self.__bergamotBase` (set in index.html), and points the worker's wasm
+    fetch at `cascade-model://`, since fetch from file:// is blocked. Each patch
+    asserts it matched, so a runtime upgrade that moves the code fails the build.
+  - Renderer: `translateLines()` - **6491**, one `BatchTranslator` per model,
+    retired after `TRANSLATE_IDLE_MS` (**6436**); one line per call; an
+    in-memory LRU of translated lines for the session.
+    `ensureLyricsTranslation()` - **8215** downloads a missing model before
+    translating. `CascadeCore.translationModelFor()` decides which model (or
+    none, so no Translate button) a sheet gets, telling the Chinese scripts
+    apart by characters written differently in each.
+  - Two switches, on purpose: `lyricsTranslationEnabled` (Settings/wizard,
+    default on) is whether the feature exists; `lyricsTranslateOn` (the
+    Translate button, default off) is whether translations are showing.
+    `setLyricsTranslationEnabled()` - **8054** is the one path for both
+    Settings and the wizard.
+  - Settings model rows (`renderTranslationModelRows`, **8083**) update in
+    place, never rebuild: progress events arrive several times a second and a
+    rebuild would swap the button under the pointer.
 - A lyrics MISS is cached, not just a hit (`_cachePut(item.Id, null)` at the
   tail of `fetchLyricsWaterfall`). Both readers gate on `.has()`, so without it
   a track with no lyrics anywhere re-ran all three sources on every advance -
@@ -218,7 +253,8 @@ audio on the live deck. Recorded so these are not rebuilt on a hunch.
   maximized at 1920x1169: GPU 5.0% versus 4.6%. Noise.
 - Where the cost actually is: audio playback itself (~1% renderer CPU over
   paused), a constant ~4-5% GPU process baseline that does not move with any
-  of the above, and the translation worker's memory (now retired when idle).
+  of the above, and translation memory while a model is loaded (translators
+  are retired when idle).
   Low-end hardware was not measured and could differ.
 
 ## index.html landmarks
