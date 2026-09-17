@@ -148,7 +148,10 @@ literals. Renaming an id is a silent break that typecheck will not catch.
   never ran before it); as a CPU saving it measured below noise, see
   "Measured, not worth building" below.
 - **Translation** is Mozilla's Firefox Translations models on the bergamot
-  WASM runtime, into English only, for `ja`, `ko`, `zh-Hans`, `zh-Hant`.
+  WASM runtime, into English only, for `ja`, `ko`, `zh-Hans`, `zh-Hant`, `es`.
+  Adding a language: its files in `translation-models.json` (copied from
+  Remote Settings with hashes), uploaded to the models release as
+  `<key>-en.<file>`, and the key in `src/core/translation-models.ts`.
   - `translation-models.json` pins every model file by size and sha256.
     Updating a model is a manifest edit plus a new GitHub release, never a
     runtime lookup of Mozilla's Remote Settings (Firefox internals).

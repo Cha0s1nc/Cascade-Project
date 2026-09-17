@@ -2,15 +2,15 @@
 //
 // Translation runs Mozilla's Firefox Translations models (Marian, via the
 // bergamot WASM runtime). Each is one source language into English, downloaded
-// on first use - see translation-models.json and main.js. Only these four are
+// on first use - see translation-models.json and main.js. Only these five are
 // offered: a sheet in any other language gets no Translate button at all,
 // because there is no model that could honour the click.
 
 import { detectLanguage } from './language.ts'
 
-export type TranslationModelKey = 'ja' | 'ko' | 'zh-Hans' | 'zh-Hant'
+export type TranslationModelKey = 'ja' | 'ko' | 'zh-Hans' | 'zh-Hant' | 'es'
 
-export const TRANSLATION_MODEL_KEYS: readonly TranslationModelKey[] = ['ja', 'ko', 'zh-Hans', 'zh-Hant']
+export const TRANSLATION_MODEL_KEYS: readonly TranslationModelKey[] = ['ja', 'ko', 'zh-Hans', 'zh-Hant', 'es']
 
 // Common characters written differently in the two Chinese scripts, paired by
 // position. franc answers "Chinese" for both, and Mozilla ships a separate
@@ -47,7 +47,7 @@ export const SCRIPT_PAIRS = { SIMPLIFIED, TRADITIONAL }
 export function translationModelFor(lines: string[]): TranslationModelKey | null {
   const text = lines.join(' ').slice(0, 1000)
   const lang = detectLanguage(text)
-  if (lang === 'ja' || lang === 'ko') return lang
+  if (lang === 'ja' || lang === 'ko' || lang === 'es') return lang
   if (lang === 'zh') return chineseScript(text)
   return null
 }
