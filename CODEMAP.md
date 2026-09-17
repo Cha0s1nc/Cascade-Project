@@ -316,6 +316,17 @@ audio on the live deck. Recorded so these are not rebuilt on a hunch.
   **Every new window must be added to `package.json`'s `build.files`** or it
   works in dev and is missing from the packaged app.
 - The miniplayer is gated to unpackaged builds; packaged shows "coming soon".
+- **Updates.** Windows runs the NSIS installer silently (`installSilentlyWindows`).
+  macOS installs in place through `mac-update.js`: mount the DMG, stage the new
+  `Cascade.app` beside the installed one, verify its signature, bundle id and
+  version, then a detached shell script waits for Cascade to quit, swaps the
+  bundles (restoring the old one if the swap fails) and relaunches. Running
+  from the DMG, an App Translocation copy, or an unwritable folder, or any
+  failed check, falls back to opening the DMG. Squirrel.Mac is not an option:
+  it requires a Developer ID signature and Cascade is ad-hoc signed. None of
+  this protects against a malicious release uploaded to the repo; GitHub's
+  asset digest only catches corruption. The swap script logs to
+  `$TMPDIR/cascade-update.log`.
 
 ## Server facts (verified against this user's live Jellyfin 10.11.11)
 

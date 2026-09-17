@@ -18,6 +18,7 @@ const http  = require('http')
 const fs    = require('fs')
 const os    = require('os')
 const { spawn } = require('child_process')
+const { installInPlace } = require('./mac-update')
 const crypto = require('crypto')
 const { pathToFileURL } = require('url')
 const Store = require('electron-store')
@@ -1235,6 +1236,32 @@ ipcMain.handle('updater:install', () => {
     // else is handing off to an installer that has to replace a running binary.
     if (process.platform !== 'darwin') setTimeout(() => app.quit(), 1500)
   })
+
+  // macOS replaces the app in place and relaunches; see mac-update.js. Any
+  // reason that is not safe (running from the DMG or a translocated copy, a
+  // folder this account cannot write to, a staged copy that fails its checks)
+  // falls back to opening the DMG, which is what every Mac update did before.
+  // An unpackaged dev run has no Cascade.app of its own to replace.
+  if (process.platform === 'darwin') {
+    if (!app.isPackaged) return handOver()
+    const log = (line) => {
+      if (updaterWindow && !updaterWindow.isDestroyed()) updaterWindow.webContents.send('updater:log', line)
+    }
+    return installInPlace({
+      dmgPath: pendingDownload.destPath,
+      appBundle: path.resolve(process.execPath, '..', '..', '..'),
+      expectedVersion: pendingDownload.version,
+      bundleId: require('./package.json').build.appId,
+      pid: process.pid,
+      log,
+    }).then(() => {
+      setTimeout(() => app.quit(), 300)
+    }).catch((err) => {
+      console.error('[updater] In-place update failed, opening the installer:', err.message)
+      log(`Could not update in place (${err.message}). Opening the installer instead.`)
+      return handOver()
+    })
+  }
 
   if (process.platform !== 'win32') return handOver()
 

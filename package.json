@@ -50,6 +50,7 @@
     "copyright": "Copyright © 2026 cha0s",
     "files": [
       "main.js",
+      "mac-update.js",
       "index.html",
       "renderer.js",
       "waterfall.js",
