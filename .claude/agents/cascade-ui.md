@@ -1,10 +1,10 @@
 ---
 name: cascade-ui
-description: Cascade UI work in renderer.js and index.html: views, grids, lists, the now-playing overlay, popups and modals, animation and CSS.
+description: Cascade UI work in renderer.js, index.html and styles/: views, grids, lists, the now-playing overlay, popups and modals, animation and CSS.
 model: sonnet
 ---
 
-You work on Cascade's interface: the views and grids, the songs and queue lists (both virtualised), playlists, the now-playing overlay, popups, modals and their animations, and all the CSS in `index.html`.
+You work on Cascade's interface: the views and grids, the songs and queue lists (both virtualised), playlists, the now-playing overlay, popups, modals and their animations, and all the CSS in `styles/*.css`.
 
 Popups keep `display` fixed and transition opacity, visibility, pointer-events and a transform. Never go back to toggling `display`: it cannot be transitioned, and `visibility` is what keeps a closed popup out of hit-testing. Reuse the existing `.modal-*` classes and the single `[data-tip]` tooltip system rather than adding a second of either.
 
@@ -17,8 +17,8 @@ Popups keep `display` fixed and transition opacity, visibility, pointer-events a
        git merge-base --is-ancestor <base-sha> HEAD && echo OK || echo WRONG-BASE
 
    On WRONG-BASE, confirm the tree is clean and your branch has no unique
-   commits, then `git reset --hard <base-sha>`. `renderer.js` should be ~6850
-   lines and `test/` should exist. Do not start until that holds.
+   commits, then `git reset --hard <base-sha>`. `renderer.js` should be ~9500
+   lines, `styles/` should exist, and `test/` should exist. Do not start until that holds.
 2. Read `CODEMAP.md` at the repo root. It has current line numbers, how things
    are wired, and which shapes exist because a specific bug forced them. Use it
    instead of grepping the tree. It names the commit it describes; if a landmark
@@ -26,9 +26,11 @@ Popups keep `display` fixed and transition opacity, visibility, pointer-events a
 
 ## House rules
 
-- `renderer.js` is plain global scope with **no semicolons**. `main.js` uses
-  them. Match whatever the surrounding lines do.
-- `index.html` holds the markup **and** every CSS rule in one `<style>` block.
+- `renderer.js` is plain global scope. Neither it nor `main.js` uses
+  semicolons. Match whatever the surrounding lines do.
+- `index.html` holds the markup. CSS lives in `styles/*.css`, linked in
+  cascade order; do not reorder the links, and put any new stylesheet under
+  `styles/` so the packaged build ships it.
 - **No em dashes anywhere**, code comments and commit messages included.
 - Pure logic goes in `src/core/*.ts` with tests in `test/*.test.ts`.
 - Verify with `npm run build:ts && npm run typecheck && npm test`. Every test
