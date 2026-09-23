@@ -24,34 +24,26 @@ export interface LyricLine {
   Background?: LyricWord[] | null
 }
 
-/** Longest a line is held past the next line's start while its background
- *  vocals finish: long enough to see them, short enough that a long overlap
- *  cannot hide the next line. */
-export const BACKGROUND_HOLD_MAX_TICKS = 25_000_000   // 2.5s
-
 const lastEnd = (words: LyricWord[] | null | undefined): number | null =>
   words?.length ? words[words.length - 1].End : null
 
 /**
  * Which line to show as current, given `baseIdx` (the last line whose Start has
- * passed). Two adjustments for karaoke, shared by the side panel and the
- * overlay, which used to carry this logic twice:
+ * passed). Shared by the side panel and the overlay, which used to carry this
+ * logic twice.
  *
- * - Promote early: once a line is completely sung, move to the next one rather
- *   than sitting dim until the next line's own start. "Completely" includes
- *   its background vocals: promoting on the lead alone closed the background
- *   row the moment those vocals began, so they were never seen.
- * - Hold back: when the previous line's background vocals run over into this
- *   line, keep the previous one current until they finish, up to
- *   BACKGROUND_HOLD_MAX_TICKS past this line's start.
+ * Promote early: once a karaoke line is completely sung, move to the next one
+ * rather than sitting dim until the next line's own start. "Completely"
+ * includes its background vocals: promoting on the lead alone closed the
+ * background row the moment those vocals began, so they were never seen.
+ *
+ * Background vocals that run on into the next line are not handled here: that
+ * is an overlap like any other, and activeLyricRange lights both lines as a
+ * group. (A hold that kept the earlier line current did this before, and left
+ * the next line dark while it was being sung.)
  */
 export function currentLyricIndex(lines: LyricLine[], baseIdx: number, nowTicks: number): number {
-  const prev = lines[baseIdx - 1]
   const cur = lines[baseIdx]
-  if (prev && cur) {
-    const bgEnd = lastEnd(prev.Background)
-    if (bgEnd != null && nowTicks < bgEnd && nowTicks - cur.Start < BACKGROUND_HOLD_MAX_TICKS) return baseIdx - 1
-  }
   if (cur?.Words?.length && lines[baseIdx + 1]) {
     const leadEnd = lastEnd(cur.Words)
     const bgEnd = lastEnd(cur.Background)
@@ -73,21 +65,24 @@ export function lineEndTicks(line: LyricLine): number | null {
  * When a line starts before the previous one has ended (a duet, a call and
  * response), Apple Music keeps both lit until the later one ends, instead of
  * dimming the first mid-word. So: walk back over each earlier line that the
- * next one starts inside, for as long as the latest line is still being sung.
- * Lines with no end time (plain LRC) never overlap, so this is [idx, idx].
+ * next one starts inside, and keep the group lit until all of it is sung.
+ * Background vocals count: a background part running into the next line makes
+ * the two a group like any overlap. Lines with no end time (plain LRC) never
+ * overlap, so this is [idx, idx].
  */
 export function activeLyricRange(lines: LyricLine[], idx: number, nowTicks: number): [number, number] {
-  const cur = lines[idx]
-  if (!cur) return [idx, idx]
-  const curEnd = lineEndTicks(cur)
-  if (curEnd == null || nowTicks >= curEnd) return [idx, idx]
+  if (!lines[idx]) return [idx, idx]
   let first = idx
+  let groupEnd = lineEndTicks(lines[idx]) ?? -Infinity
   while (first > 0) {
     const prevEnd = lineEndTicks(lines[first - 1])
     if (prevEnd == null || lines[first].Start >= prevEnd) break
     first--
+    groupEnd = Math.max(groupEnd, prevEnd)
   }
-  return [first, idx]
+  // Lit until every line in the group is sung, background vocals included:
+  // an earlier line's background can outlast the line that overlapped it.
+  return first < idx && nowTicks < groupEnd ? [first, idx] : [idx, idx]
 }
 
 /** A word held at least this long gets the emphasis glow. */

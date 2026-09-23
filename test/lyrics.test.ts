@@ -158,14 +158,20 @@ test('currentLyricIndex: waits for background vocals before promoting early', ()
   assert.equal(currentLyricIndex(lines, 0, 15.5 * SEC), 1)
 })
 
-test('currentLyricIndex: holds the previous line while its background overlaps, up to the cap', () => {
+test('background vocals running into the next line light both as a group', () => {
   const w = (t: string, s: number, e: number) => ({ Start: s * SEC, End: e * SEC, Text: t })
   const lines = [
     { Start: 10 * SEC, End: 12 * SEC, Text: 'lead', Words: [w('lead', 10, 12)], Background: [w('ooh', 12, 21)] },
     { Start: 13 * SEC, End: 16 * SEC, Text: 'next', Words: [w('next', 13, 16)] },
   ]
-  assert.equal(currentLyricIndex(lines, 1, 14 * SEC), 0)     // held: background still being sung
-  assert.equal(currentLyricIndex(lines, 1, 15.6 * SEC), 1)   // 2.6s past next start: cap reached
+  // The next line is current as soon as it starts, and the first stays lit
+  // with it while its background is sung, and until the next line ends.
+  assert.equal(currentLyricIndex(lines, 1, 14 * SEC), 1)
+  assert.deepEqual(activeLyricRange(lines, 1, 14 * SEC), [0, 1])
+  assert.deepEqual(activeLyricRange(lines, 1, 15.5 * SEC), [0, 1])
+  // The next line ended at 16s, but the first one's background runs to 21s.
+  assert.deepEqual(activeLyricRange(lines, 1, 16.5 * SEC), [0, 1])
+  assert.deepEqual(activeLyricRange(lines, 1, 21.5 * SEC), [1, 1])
 })
 
 test('activeLyricRange: a line starting inside the previous one keeps both lit until it ends', () => {
