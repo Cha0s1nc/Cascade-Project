@@ -99,6 +99,22 @@ not anything is on screen.
 
 Not built: playlists, favourites UI, lyrics, offline downloads.
 
+Added on branch `ios-next` (2026-09-23, Xcode 27 / iOS and tvOS 27 SDKs):
+- Quick Connect sign-in (`QuickConnect.swift`), verified in the iOS simulator
+  against the live server. Debug builds take `-cascade.autoQuickConnect YES`
+  (with `-cascade.serverUrl <url>`) to start it on launch, for driving
+  simulators without UI automation.
+- Lyrics on Now Playing from the server's Cascade plugin (`Lyrics.swift`:
+  `parseLRC` ported with the desktop's tests; plugin probe tries
+  `CascadeServer/Info`, then the pre-rename `CascadeLyrics/Info`). Line sync
+  only, no karaoke word fill yet. Never requests SpicyLyrics (no credit UI).
+  iOS toggles artwork/lyrics and a tapped line seeks; tvOS shows lyrics in
+  place of the queue.
+- Favourite button on iOS Now Playing (not on tvOS yet).
+- Playlists tab, read-only: browse, play, shuffle.
+None of the new UI has been tapped through by a person yet; the simulator
+checks were sign-in and Home only.
+
 Never exercised by a person: every browsing screen. They compile for both
 platforms and the queries behind them are covered by live tests, but nobody has
 scrolled a thousand songs, run a search, or opened an album on a device yet.

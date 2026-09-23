@@ -31,7 +31,7 @@ struct SignInView: View {
             if let code = quickConnectCode {
                 Section("Quick Connect") {
                     Text(code)
-                        .font(.system(size: 44, weight: .bold, design: .monospaced))
+                        .font(.system(size: codeSize, weight: .bold, design: .monospaced))
                         .frame(maxWidth: .infinity)
                         .accessibilityLabel("Quick Connect code \(code.map(String.init).joined(separator: " "))")
                     Text("Enter this code in Jellyfin on a device where you're already signed in: your profile, then Quick Connect.")
@@ -88,6 +88,15 @@ struct SignInView: View {
             }
             #endif
         }
+    }
+
+    /// Read from across the room on a TV, at arm's length on a phone.
+    private var codeSize: CGFloat {
+        #if os(tvOS)
+        120
+        #else
+        44
+        #endif
     }
 
     private func submit() {
