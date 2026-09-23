@@ -10,14 +10,22 @@
 .artist-name { font-size: 12px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Songs / track list */
-.track-list { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-.tl-head { display: grid; grid-template-columns: 28px 32px 1fr 160px 52px; gap: 8px; padding: 7px 12px; border-bottom: 1px solid var(--border); }
+/* Column widths shared by every flavour of the track table (plain, playlist,
+   playlist with the extra Added/Plays column, playlist edit mode with the
+   checkbox column too). One set of variables instead of five copies of the
+   same numbers drifting apart. */
+:root {
+  --track-cols: 28px 32px 1fr 160px 52px;
+  --track-cols-extra: 28px 32px 1fr 160px 112px 52px;
+  --track-cols-edit: 24px 28px 32px 1fr 160px 112px 52px;
+}
+.track-list { border-radius: 8px; overflow: hidden; }
+.tl-head { display: grid; grid-template-columns: var(--track-cols); gap: 8px; padding: 7px 12px; }
 .tl-head span { font-size: 10px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; }
 .tl-head span:last-child { text-align: right; }
-.track-row { display: grid; grid-template-columns: 28px 32px 1fr 160px 52px; gap: 8px; padding: 6px 12px; align-items: center; cursor: pointer; border-bottom: 1px solid var(--border); transition: background 0.1s; height: 45px; box-sizing: border-box; }
+.track-row { display: grid; grid-template-columns: var(--track-cols); gap: 8px; padding: 6px 12px; align-items: center; cursor: pointer; transition: background 0.1s; height: 45px; box-sizing: border-box; }
 #songs-rows { position: relative; }
 #songs-rows .track-row:not(.skel-card) { position: absolute; left: 0; right: 0; }
-.track-row:last-child { border-bottom: none; }
 /* Apple Music-style hover: a rounded highlight that fades in fast and out
    slowly as the pointer moves on. Drawn on ::before rather than the row
    background so the corners can round without bending the separator line,
@@ -92,9 +100,9 @@
    carry it), so there's no separate edit-only combo. Scoped to
    #playlist-detail so the Songs/Album/Artist track lists sharing
    .tl-head/.track-row are untouched. */
-#playlist-detail .tl-head, #playlist-detail .track-row { grid-template-columns: 28px 32px 1fr 160px 52px; }
-#playlist-detail.has-extra-col .tl-head, #playlist-detail.has-extra-col .track-row { grid-template-columns: 28px 32px 1fr 160px 112px 52px; }
-#playlist-detail.edit-mode.has-extra-col .tl-head, #playlist-detail.edit-mode.has-extra-col .track-row { grid-template-columns: 24px 28px 32px 1fr 160px 112px 52px; }
+#playlist-detail .tl-head, #playlist-detail .track-row { grid-template-columns: var(--track-cols); }
+#playlist-detail.has-extra-col .tl-head, #playlist-detail.has-extra-col .track-row { grid-template-columns: var(--track-cols-extra); }
+#playlist-detail.edit-mode.has-extra-col .tl-head, #playlist-detail.edit-mode.has-extra-col .track-row { grid-template-columns: var(--track-cols-edit); }
 .tl-check { display: none; align-items: center; justify-content: center; }
 #playlist-detail.edit-mode .tl-check { display: flex; }
 .tl-extra { display: none; font-size: 12px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

@@ -318,8 +318,11 @@ html[data-platform="linux"] .np-overlay.video.full #ov-full-exit {
 #ov-panel-queue { transition: transform 0.3s cubic-bezier(0.4,0,0.2,1); }
 /* Height is pinned so it matches QUEUE_ROW_H exactly - the virtualiser's spacer
    heights and scroll indices are all computed from that constant. */
-.queue-row { display: flex; align-items: center; gap: 10px; padding: 8px 16px; cursor: pointer; transition: background var(--hover-out) ease-out; border-bottom: 0.5px solid var(--border); height: 53px; box-sizing: border-box; }
-.queue-row:hover { background: rgba(255,255,255,0.03); transition-duration: var(--hover-in); }
+/* Same rounded hover highlight as .track-row (styles/library.css), drawn on
+   ::before so corners can round without a visible seam between rows. */
+.queue-row { display: flex; align-items: center; gap: 10px; padding: 8px 16px; cursor: pointer; height: 53px; box-sizing: border-box; position: relative; isolation: isolate; }
+.queue-row::before { content: ''; position: absolute; inset: 0; border-radius: 6px; background: rgba(255,255,255,0.05); opacity: 0; transition: opacity var(--hover-out) ease-out; pointer-events: none; z-index: -1; }
+.queue-row:hover::before { opacity: 1; transition-duration: var(--hover-in); }
 .queue-row.current { background: rgba(110,79,246,0.1); }
 .queue-row.current .queue-row-title { color: #a78bfa; font-weight: 500; }
 .queue-row-art { width: 36px; height: 36px; border-radius: 4px; background: var(--surface2); overflow: hidden; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 16px; }
