@@ -809,7 +809,7 @@ function invalidateVideoViews() {
 }
 
 /** Greys out the server library scan button when the account is not an admin,
- *  using the same disabled+data-tip pattern as the CascadeSLRC gating below.
+ *  using the same disabled+data-tip pattern as the Cascade Server plugin gating below.
  *  Safe to call anytime, including before connect() has run (jf.isAdmin is
  *  then undefined, which reads as "not admin" - the safe default). */
 function _applyAdminGating() {
@@ -7300,39 +7300,59 @@ let serverOnlyMode    = false  // fetch exclusively from Cascade plugin when tru
 // Valid lyrics source keys - any stored value not in this set is stale and gets reset
 const VALID_LYRICS_SOURCES = new Set(['auto', 'Kugou', 'LRCLIB', 'Jellyfin', 'cascade-karaoke', 'cascade-synced'])
 
-// ── CascadeSLRC plugin detection ────────────────────────────────────────────
+// ── Cascade Server plugin detection ─────────────────────────────────────────
 // Whether the connected server has the plugin at all. Probed once per
 // connection (see probeCascadePlugin, called from connect()) and cached here
 // for the session - not worth a round trip per track.
 let _cascadePluginAbsent = false
-const NO_PLUGIN_TIP = 'No SLRC Plugin'
+const NO_PLUGIN_TIP = 'No Cascade Server plugin'
+// Which route family answered: 'server' (CascadeServer/*, 2.0.0.0+) or
+// 'legacy' (the plugin's pre-rename CascadeLyrics routes). The lyrics fetch
+// awaits _cascadePluginProbed so a track loaded during connect does not hit
+// the wrong route.
+let _cascadePluginApi = 'server'
+let _cascadePluginProbed = Promise.resolve()
+
+/** Full URL of the plugin's lyrics GET/POST route for an item. */
+function cascadeLyricsUrl(itemId) {
+  return `${jf.url}/${CascadeCore.cascadeLyricsPath(_cascadePluginApi, itemId)}`
+}
 
 /**
- * GET {jf.url}/CascadeLyrics/Info with the normal auth header. The plugin
- * exposes that route for exactly this question, so reaching it is the answer
- * and the body is not read here.
+ * GET {jf.url}/CascadeServer/Info with the normal auth header, and on a 404
+ * the pre-rename CascadeLyrics/Info. The plugin exposes that route for
+ * exactly this question, so reaching it is the answer and the body is not
+ * read here.
  *
  * Neither of the obvious alternatives works. Jellyfin's own /Plugins needs
  * elevation and Cascade signs in as a normal user, and the lyrics route
  * cannot answer either, since a server without the plugin and a track with
  * genuinely no lyrics both return a bare 404.
  */
-async function probeCascadePlugin() {
-  let status = null
-  try {
-    const r = await fetch(`${jf.url}/CascadeLyrics/Info`, {
-      headers: { 'X-Emby-Token': jf.token },
-      signal: AbortSignal.timeout(8000),
-    })
-    status = r.status
-  } catch {
-    // Network failure - status stays null, which reads as 'unknown' below.
+function probeCascadePlugin() {
+  _cascadePluginApi = 'server'
+  const statusOf = async (path) => {
+    try {
+      const r = await fetch(`${jf.url}/${path}`, {
+        headers: { 'X-Emby-Token': jf.token },
+        signal: AbortSignal.timeout(8000),
+      })
+      return r.status
+    } catch {
+      return null  // network failure reads as 'unknown'
+    }
   }
-  const verdict = CascadeCore.interpretCascadePluginProbe(status)
-  // 'unknown' (401, 5xx, network failure) is treated as present: never grey
-  // out a working feature because the network hiccuped.
-  _cascadePluginAbsent = verdict === 'absent'
-  _applyCascadePluginAvailability()
+  _cascadePluginProbed = (async () => {
+    const serverStatus = await statusOf('CascadeServer/Info')
+    const legacyStatus = serverStatus === 404 ? await statusOf('CascadeLyrics/Info') : null
+    const { probe, api } = CascadeCore.resolveCascadePluginProbe(serverStatus, legacyStatus)
+    _cascadePluginApi = api
+    // 'unknown' (401, 5xx, network failure) is treated as present: never grey
+    // out a working feature because the network hiccuped.
+    _cascadePluginAbsent = probe === 'absent'
+    _applyCascadePluginAvailability()
+  })()
+  return _cascadePluginProbed
 }
 
 /** Disables what depends on the plugin once probeCascadePlugin() has found it
@@ -7370,7 +7390,7 @@ function _applyCascadePluginAvailability() {
     window.cascade.store.set('serverOnlyMode', false)
     if (toggle) toggle.checked = false
     _applyServerOnlyMode(false)
-    showToast('Server-only lyrics mode turned off - the CascadeSLRC plugin was not found on this server')
+    showToast('Server-only lyrics mode turned off - the Cascade Server plugin was not found on this server')
   }
 }
 
@@ -7485,7 +7505,7 @@ function _openSourceDropdown(nearEl) {
   })
 }
 
-// ── CascadeSLRC plugin one-time info modal ────────────────────────────────────
+// ── Cascade Server plugin one-time info modal ────────────────────────────────
 // Resolves true if user clicks "Continue", false if they click "Cancel".
 // After first "Continue" the modal is never shown again (persisted in store).
 async function _ensureCascadePluginNotice() {
@@ -7517,7 +7537,7 @@ async function openLyricsEditorFor(item) {
   // item) routes through here, so this is the one place that needs to know
   // the plugin is missing.
   if (_cascadePluginAbsent) {
-    showToast('The lyrics editor needs the CascadeSLRC plugin, which was not found on this server')
+    showToast('The lyrics editor needs the Cascade Server plugin, which was not found on this server')
     return
   }
   const proceed = await _ensureCascadePluginNotice()
@@ -7527,7 +7547,8 @@ async function openLyricsEditorFor(item) {
   const seed = item.Id === queue[queueIndex]?.Id ? (lyricsData || []) : []
   // Pass `volume`, not audio.volume: mid-crossfade the element is partway
   // through a fade and would hand the editor whatever that transient value is.
-  window.cascade.lyricsEditor.open({ item, jf, lyricsData: seed, volume })
+  await _cascadePluginProbed
+  window.cascade.lyricsEditor.open({ item, jf, lyricsData: seed, volume, lyricsUrl: cascadeLyricsUrl(item.Id) })
 }
 
 ;['lyrics-edit-btn', 'ov-lyrics-edit-btn'].forEach(id => {
@@ -7751,7 +7772,8 @@ async function fetchLyricsWaterfall(item) {
                    : null   // auto = accept either (plugin returns karaoke first)
     const tried = { Cascade: null }
     try {
-      const r = await fetch(`${jf.url}/Audio/${item.Id}/CascadeLyrics`,
+      await _cascadePluginProbed
+      const r = await fetch(cascadeLyricsUrl(item.Id),
         { headers: { 'X-Emby-Token': jf.token }, signal: AbortSignal.timeout(8000) })
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       const d = await r.json()
@@ -9336,7 +9358,7 @@ function debugPanelText() {
     '── resources ──',
     ...debugResourceLines(),
     '',
-    `CascadeSLRC plugin absent: ${_cascadePluginAbsent}`,
+    `Cascade Server plugin absent: ${_cascadePluginAbsent}`,
   ].join('\n')
 }
 
@@ -9348,7 +9370,7 @@ function initDebugPanel() {
     + 'border-radius:6px;background:rgba(0,0,0,0.82);color:#7CFC7C;'
     + 'font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;'
     + 'word-break:break-all;user-select:text;cursor:pointer;'
-  el.title = 'Cascade debug panel - click to collapse, Shift-click to copy. Force CascadeSLRC absent: Alt-click.'
+  el.title = 'Cascade debug panel - click to collapse, Shift-click to copy. Force Cascade Server plugin absent: Alt-click.'
 
   let collapsed = false
   function render() {

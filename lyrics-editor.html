@@ -563,6 +563,7 @@ body {
 let _dragWord   = null   // { li, wi } of pill being dragged
 let editorItem  = null   // Jellyfin item object
 let editorJf    = null   // { url, token }
+let editorLyricsUrl = null // Cascade Server plugin lyrics route for editorItem, from the main window
 let initLines   = []     // original lines passed at open (for re-import)
 let editorLines = []     // working copy: [{ start, text, words: [{start,end,text}]|null }]
 let sel         = null   // { type:'line'|'word', li, wi? }
@@ -620,9 +621,10 @@ function markDirty() {
 
 // ── Init ───────────────────────────────────────────────────────────────────────
 
-window.lyricsEditor.onInit(({ item, jf, lyricsData, volume }) => {
+window.lyricsEditor.onInit(({ item, jf, lyricsData, volume, lyricsUrl }) => {
   editorItem = item
   editorJf   = jf
+  editorLyricsUrl = lyricsUrl || null
 
   // Inherit the main window's level. This element defaults to 1.0, so without
   // it the editor blasts at full volume no matter how quiet the app was set.
@@ -1428,9 +1430,10 @@ document.getElementById('btn-save').addEventListener('click', async () => {
   try {
     const lrcText = exportLRC()
 
-    // Save to the Cascade Lyrics Jellyfin plugin - stored server-side as .slrc,
-    // shared across all users on the server.
-    const r = await fetch(`${editorJf.url}/Audio/${editorItem.Id}/CascadeLyrics`, {
+    // Save to the Cascade Server Jellyfin plugin - stored server-side as .slrc,
+    // shared across all users on the server. The main window passes the route
+    // for whichever plugin build answered its probe; the fallback is the old one.
+    const r = await fetch(editorLyricsUrl || `${editorJf.url}/Audio/${editorItem.Id}/CascadeLyrics`, {
       method: 'POST',
       headers: {
         'X-Emby-Token': editorJf.token,
