@@ -37,6 +37,16 @@
   transition: max-height 0.4s ease, opacity 0.4s ease, margin-top 0.4s ease;
 }
 .lyrics-line.active .lyric-bg, .ov-lyric-line.active .lyric-bg { max-height: 4em; opacity: 0.85; margin-top: 0.3em; }
+/* Sung words lift a little and stay up until the line changes, as in Apple
+   Music: measured from a 60fps recording, each word rises ~0.04em (2px at
+   ~52px text) over ~0.6s once the fill reaches it; unsung words stay put.
+   position: relative + top, not a transform: an inline word keeps its trailing
+   space that way and the line never reflows. Held notes (.emph) are left out:
+   their letters do their own, larger lift below. Tunable live with
+   cascadeDebug.lyricMotion({ wordLift, wordLiftTime }). */
+.lyric-word, .ov-lyric-word { position: relative; top: 0; transition: top var(--word-lift-time, 0.6s) cubic-bezier(0.25, 0.8, 0.25, 1); }
+.lyrics-line.active .lyric-word.sung:not(.emph),
+.ov-lyric-line.active .ov-lyric-word.sung:not(.emph) { top: calc(var(--word-lift, 0.04em) * -1); }
 /* A held note (SpicyLyrics only, see lyricWordSpans) swells letter by letter,
    as in Apple Music. Measured frame by frame from a 60fps recording of Apple
    Music playing Disturbia (the held "now"):
@@ -45,7 +55,7 @@
    - it overshoots: peaks at ~0.1em up, then settles to ~60% of that by ~1.7s;
    - it holds there until the LINE stops being current, not the word, then
      settles back (the transition on .emph-l);
-   - ordinary words do not lift at all.
+   - ordinary words only get the small lift above.
    Each letter is its own .emph-l with its own share of the fill. The word keeps
    a small margin to swell into (never reflows the line) and its background is
    off, since a gradient there would ghost the letters where they started.

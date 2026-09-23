@@ -7676,7 +7676,8 @@ window.cascadeDebug = {
   // Held notes (styles/lyrics.css): emphLift (em) and emphScale are the PEAK
   // rise and swell of each letter (0.1, 1.08); emphHold is the fraction of the
   // peak it settles to and holds until the line ends (0.6); emphRise is the
-  // whole rise-and-settle in seconds (1.7, peak at 65% of it). Defaults were
+  // whole rise-and-settle in seconds (1.7, peak at 65% of it). Every sung
+  // word: wordLift (em, 0.04) and wordLiftTime (s, 0.6). Defaults were
   // measured from a 60fps recording of Apple Music.
   lyricMotion(opts = {}) {
     for (const k of ['stiffness', 'damping', 'ripple']) {
@@ -7687,6 +7688,10 @@ window.cascadeDebug = {
     if (Number.isFinite(opts.emphScale) && opts.emphScale > 0) root.setProperty('--emph-scale', String(opts.emphScale))
     if (Number.isFinite(opts.emphHold) && opts.emphHold >= 0) root.setProperty('--emph-hold', String(opts.emphHold))
     if (Number.isFinite(opts.emphRise) && opts.emphRise > 0) root.setProperty('--emph-rise', `${opts.emphRise}s`)
+    if (Number.isFinite(opts.wordLift)) root.setProperty('--word-lift', `${opts.wordLift}em`)
+    if (Number.isFinite(opts.wordLiftTime) && opts.wordLiftTime >= 0) root.setProperty('--word-lift-time', `${opts.wordLiftTime}s`)
+    LYRIC_MOTION.wordLift = parseFloat(root.getPropertyValue('--word-lift')) || 0.04
+    LYRIC_MOTION.wordLiftTime = parseFloat(root.getPropertyValue('--word-lift-time')) || 0.6
     LYRIC_MOTION.emphLift = parseFloat(root.getPropertyValue('--emph-lift')) || 0.1
     LYRIC_MOTION.emphScale = parseFloat(root.getPropertyValue('--emph-scale')) || 1.08
     LYRIC_MOTION.emphHold = parseFloat(root.getPropertyValue('--emph-hold')) || 0.6
@@ -8083,6 +8088,10 @@ function _paintWordSpans(line, nowTicks) {
     const ws = parseInt(w.dataset.ws)
     const we = w.dataset.we ? parseInt(w.dataset.we) : null
     w.classList.toggle('active', nowTicks >= ws && (!we || nowTicks < we))
+    // Reached by the fill: lifts slightly and stays up for the line
+    // (styles/lyrics.css). Cleared again on a seek back.
+    const sung = nowTicks >= ws
+    if (w.classList.contains('sung') !== sung) w.classList.toggle('sung', sung)
   })
 }
 
