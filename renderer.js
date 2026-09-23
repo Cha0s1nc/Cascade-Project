@@ -8029,12 +8029,11 @@ const _graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
  *  SpicyLyrics only (lyricsCredit set): its syllables carry real end times.
  *  Kugou stretches a word's end across any pause that follows it, and our own
  *  Enhanced LRC takes the next word's start as the end, so in both a word
- *  before a gap looks held when it is not. An emphasised word is an
- *  inline-block (to scale), which would swallow its trailing space, so that
- *  space goes after the span instead of inside it. */
+ *  before a gap looks held when it is not. Trailing spaces go between word
+ *  groups, never inside a span: an inline-block would swallow one. */
 function lyricWordSpans(line, cls) {
   const emphasis = !!lyricsCredit
-  const spans = words => words.map(w => {
+  const span = w => {
     const data = `data-ws="${w.Start}" data-we="${w.End ?? ''}"`
     if (emphasis && CascadeCore.isEmphasisWord(w)) {
       // Letter by letter, as Apple Music swells a held note: each letter is
@@ -8042,10 +8041,22 @@ function lyricWordSpans(line, cls) {
       // units, so an accented letter or an emoji stays in one piece.
       const text = w.Text.trimEnd()
       const letters = [..._graphemes.segment(text)].map(g => `<span class="emph-l">${esc(g.segment)}</span>`).join('')
-      return `<span class="${cls} emph" ${data}>${letters}</span>${w.Text.length > text.length ? ' ' : ''}`
+      return `<span class="${cls} emph" ${data}>${letters}</span>`
     }
-    return `<span class="${cls}" ${data}>${esc(w.Text)}</span>`
-  }).join('')
+    return `<span class="${cls}" ${data}>${esc(w.Text.trimEnd())}</span>`
+  }
+  // Each whole word (its syllables up to a trailing space) sits in one
+  // no-wrap span, with the space outside it. Chromium may break a line beside
+  // an inline-block, so a held note's letters, or a syllable next to one,
+  // wrapped mid-word ("y / eah").
+  const spans = words => {
+    let out = '', word = ''
+    for (const w of words) {
+      word += span(w)
+      if (/\s$/.test(w.Text)) { out += `<span class="lyric-wordgroup">${word}</span> `; word = '' }
+    }
+    return out + (word ? `<span class="lyric-wordgroup">${word}</span>` : '')
+  }
   const bg = line.Background?.length ? `<div class="lyric-bg">${spans(line.Background)}</div>` : ''
   return spans(line.Words) + bg
 }
