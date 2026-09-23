@@ -6721,8 +6721,19 @@ document.getElementById('ov-translate-btn').addEventListener('click', () => onTr
 // keeps moving from its current speed toward the new target instead of
 // restarting from a standstill, which is what makes back-to-back line changes
 // read as one continuous glide instead of a stutter-restart.
-function createSpring(onUpdate, stiffness = 210, damping = 26) {
+// Lyric motion, shared by both lyric springs and tunable live from DevTools
+// (cascadeDebug.lyricMotion). Critically damped by default (damping =
+// 2 * sqrt(stiffness)): it settles without overshooting, the smooth ease Apple
+// Music's lyrics move with, where the old 210/26 bounced slightly.
+const LYRIC_MOTION = { stiffness: 180, damping: 27, ripple: 65 }
+
+function createSpring(onUpdate, motion = LYRIC_MOTION) {
   let pos = 0, vel = 0, target = 0
+  // A target can be a function, re-read every frame while the spring runs.
+  // The lyric views pass one: a line's background-vocal row opens and closes
+  // over 0.4s, which moves every line under a target measured once, so the
+  // "centred" line drifted off centre with no easing at all.
+  let targetFn = null
   let raf = null
   let lastTs = null
 
@@ -6730,8 +6741,9 @@ function createSpring(onUpdate, stiffness = 210, damping = 26) {
     if (lastTs == null) lastTs = ts
     const dt = Math.min((ts - lastTs) / 1000, 0.05)  // clamp so a stalled tab doesn't fling on resume
     lastTs = ts
+    if (targetFn) target = targetFn()
 
-    const accel = (target - pos) * stiffness - vel * damping
+    const accel = (target - pos) * motion.stiffness - vel * motion.damping
     vel += accel * dt
     pos += vel * dt
 
@@ -6748,13 +6760,19 @@ function createSpring(onUpdate, stiffness = 210, damping = 26) {
   }
 
   return {
-    setTarget(t) { target = t; ensureRunning() },
+    setTarget(t) {
+      targetFn = typeof t === 'function' ? t : null
+      target = targetFn ? targetFn() : t
+      ensureRunning()
+    },
     jumpTo(t) {
+      targetFn = null
       target = t; pos = t; vel = 0
       if (raf) { cancelAnimationFrame(raf); raf = null; lastTs = null }
       onUpdate(pos)
     },
     setPos(p) {   // direct 1:1 tracking (manual drag) - no physics involved
+      targetFn = null
       pos = p; vel = 0; target = p
       if (raf) { cancelAnimationFrame(raf); raf = null; lastTs = null }
       onUpdate(pos)
@@ -6789,7 +6807,7 @@ function updateOverlayLyricsActive(activeIdx, instant) {
     }
     // Ripple: lines further from the active one settle in slightly later,
     // so the stack cascades outward instead of moving as one rigid block.
-    el.style.transitionDelay = dist > 0 ? `${Math.min(dist, 3) * 65}ms` : '0ms'
+    el.style.transitionDelay = dist > 0 ? `${Math.min(dist, 3) * LYRIC_MOTION.ripple}ms` : '0ms'
   })
   // GPU-accelerated: translate the container so active line sits at panel center
   _scrollOverlayLyricsTo(activeIdx, instant)
@@ -6803,14 +6821,13 @@ function _scrollOverlayLyricsTo(idx, instant) {
   const panel = document.getElementById('ov-panel-lyrics')
   const el = body.querySelector(`.ov-lyric-line[data-idx="${idx}"]`)
   if (!el) return
-  const panelMid = panel.clientHeight / 2
-  const activeMid = el.offsetTop + el.offsetHeight / 2
-  ovLyricsBaseY = panelMid - activeMid
+  const centreOn = () => (ovLyricsBaseY = panel.clientHeight / 2 - (el.offsetTop + el.offsetHeight / 2))
+  centreOn()
   // While the user is manually scrolling, leave the spring alone - it gets
   // redirected (base + their offset) from the wheel handler instead.
   if (ovLyricsUserScrolling) return
   if (instant) ovLyricsSpring.jumpTo(ovLyricsBaseY)
-  else ovLyricsSpring.setTarget(ovLyricsBaseY)
+  else ovLyricsSpring.setTarget(centreOn)   // re-measured per frame, see createSpring
 }
 
 // lyricsData is sorted by Start time, and playback only moves forward except on
@@ -6897,9 +6914,11 @@ onDeck('timeupdate', () => {
   const activeIdx = CascadeCore.currentLyricIndex(lyricsData, baseIdx, nowSec * 10_000_000)
 
   if (activeIdx === lastOverlayLyricsIdx) return
-  const advancedEarly = activeIdx > baseIdx
   lastOverlayLyricsIdx = activeIdx
-  updateOverlayLyricsActive(activeIdx, advancedEarly)
+  // Always a glide. An early promotion (a karaoke line sung before the next
+  // one's start) used to jump there instantly, and SpicyLyrics' syncs make
+  // nearly every change early, so every line change was a snap.
+  updateOverlayLyricsActive(activeIdx, false)
 })
 
 // Update overlay when track changes
@@ -7634,6 +7653,21 @@ window.cascade.lyricsEditor.onSaved(itemId => _reloadLyricsFor(itemId))
 //   cascadeDebug.spicy()           no id: look the playing track up on MusicBrainz first
 //   cascadeDebug.spotifyId()       just the lookup, for the playing track
 window.cascadeDebug = {
+  // Tune the lyric motion live:  cascadeDebug.lyricMotion({ stiffness: 150 })
+  // stiffness: how hard lines are pulled to centre (higher = quicker).
+  // damping: how much the movement is resisted (2 * sqrt(stiffness) = settles
+  // with no overshoot; less bounces, more crawls). ripple: ms each following
+  // line lags behind the one above it in the overlay's fade. Session only;
+  // tell Claude the numbers you like and they become the defaults.
+  lyricMotion(opts = {}) {
+    for (const k of ['stiffness', 'damping', 'ripple']) {
+      if (Number.isFinite(opts[k]) && opts[k] >= 0) LYRIC_MOTION[k] = opts[k]
+    }
+    const critical = 2 * Math.sqrt(LYRIC_MOTION.stiffness)
+    console.log(`[cascadeDebug] lyric motion`, { ...LYRIC_MOTION }, `(no-overshoot damping for this stiffness: ${critical.toFixed(1)})`)
+    return { ...LYRIC_MOTION }
+  },
+
   // Port of scripts/test-spotify-id.js: search MusicBrainz for the recording,
   // check up to 10 candidates for a Spotify link, and pick the one closest in
   // length to what is playing (the top hit is often a remaster with no link;
@@ -8396,7 +8430,7 @@ onDeck('timeupdate', () => {
   const activeIdx = CascadeCore.currentLyricIndex(lyricsData, baseIdx, nowSec * 10_000_000)
 
   if (activeIdx === lastLyricsIdx) return
-  _applySideLyricsActive(activeIdx, activeIdx > baseIdx)
+  _applySideLyricsActive(activeIdx, false)   // always a glide, as in the overlay above
 })
 
 // Highlight and centre one line in the side panel. Split out of the timeupdate
@@ -8413,11 +8447,9 @@ function _applySideLyricsActive(activeIdx, instant) {
     const inner = document.getElementById('lyrics-inner')
     const target = inner?.querySelector(`.lyrics-line[data-idx="${activeIdx}"]`)
     if (target) {
-      const panelMid  = body.clientHeight / 2
-      const activeMid = target.offsetTop + target.offsetHeight / 2
-      const y = panelMid - activeMid
-      if (instant) sideLyricsSpring.jumpTo(y)
-      else sideLyricsSpring.setTarget(y)
+      const centreOn = () => body.clientHeight / 2 - (target.offsetTop + target.offsetHeight / 2)
+      if (instant) sideLyricsSpring.jumpTo(centreOn())
+      else sideLyricsSpring.setTarget(centreOn)   // re-measured per frame, see createSpring
     }
   }
 }
