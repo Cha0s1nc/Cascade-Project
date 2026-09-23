@@ -115,8 +115,13 @@ function setDeckMuted(m) { DECKS.forEach(d => d.muted = m) }
  * other), and the persisted setting. Every volume-changing input - drag, keyboard,
  * the remote-control API, and the saved-value restore on launch - goes through
  * this so none of them can drift from the others.
+ *
+ * `sourceBar`, when given, is the bar the user is actively working (dragging or
+ * has focused via keyboard) - the one whose tooltip should live-update. Both
+ * bars always get the refreshed data-tip text either way, so a later plain
+ * hover on the other one shows the current value too.
  */
-function setVolumeRatio(ratio) {
+function setVolumeRatio(ratio, sourceBar) {
   ratio = Math.max(0, Math.min(1, ratio))
   volume = ratio
   setDeckVolume(ratio)
@@ -124,8 +129,16 @@ function setVolumeRatio(ratio) {
   document.getElementById('vol-fill').style.width = pct
   document.getElementById('ov-vol-fill').style.width = pct
   const now = String(Math.round(ratio * 100))
-  document.getElementById('vol-bar').setAttribute('aria-valuenow', now)
-  document.getElementById('ov-vol-bar').setAttribute('aria-valuenow', now)
+  const volBar = document.getElementById('vol-bar')
+  const ovVolBar = document.getElementById('ov-vol-bar')
+  volBar.setAttribute('aria-valuenow', now)
+  ovVolBar.setAttribute('aria-valuenow', now)
+  const tip = `Volume ${now}%`
+  volBar.setAttribute('data-tip', tip)
+  ovVolBar.setAttribute('data-tip', tip)
+  if (sourceBar && (sourceBar.classList.contains('dragging') || document.activeElement === sourceBar)) {
+    _positionTooltip(sourceBar)
+  }
   window.cascade.store.set('volume', ratio)
 }
 
@@ -4540,6 +4553,12 @@ function wireBar(bar, { getRatio, onChange, onCommit, step, bigStep }) {
     bar.classList.remove('dragging')
     document.removeEventListener('mousemove', onMove)
     document.removeEventListener('mouseup', onUp)
+    // The pointer usually ends the drag outside the bar's rect, so mouseout
+    // never fires there to hide a live tooltip (see the document-level
+    // mouseout listener, which skips hiding while .dragging is set). Close it
+    // here instead, unless the pointer happens to still be over the bar, in
+    // which case the ordinary hover state should keep it open.
+    if (!bar.matches(':hover')) _hideTooltip()
     if (onCommit) onCommit(ratioAt(e))
   }
   bar.addEventListener('mousedown', (e) => {
@@ -4611,11 +4630,12 @@ function wireProgressBar(barId, fillId, curId) {
 /** Wires a volume bar (statusbar or overlay) through the shared setVolumeRatio(),
  *  which is what keeps the two mirrored. */
 function wireVolumeBar(barId) {
-  wireBar(document.getElementById(barId), {
+  const bar = document.getElementById(barId)
+  wireBar(bar, {
     getRatio: () => audio.volume,
     step:     () => 0.05,
     bigStep:  () => 0.2,
-    onChange: (ratio) => setVolumeRatio(ratio),
+    onChange: (ratio) => setVolumeRatio(ratio, bar),
   })
 }
 
@@ -9137,7 +9157,12 @@ document.addEventListener('mouseover', (e) => {
   if (host) _positionTooltip(host)
 })
 document.addEventListener('mouseout', (e) => {
-  if (e.target.closest?.('[data-tip]')) _hideTooltip()
+  const host = e.target.closest?.('[data-tip]')
+  // A drag routinely carries the pointer outside the bar's rect (dragging the
+  // volume handle past its ends, for one), which fires this same mouseout -
+  // wireBar's .dragging class is what tells a live drag from an actual leave.
+  // wireBar hides the tip itself once the drag ends.
+  if (host && !host.classList.contains('dragging')) _hideTooltip()
 })
 // Keyboard parity with the old :focus-visible rule.
 document.addEventListener('focusin', (e) => {
