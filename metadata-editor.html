@@ -197,7 +197,7 @@ input:focus { outline: none; border-color: rgba(110,79,246,0.6); }
 // applies when --font is unset, not when it's set-but-invalid).
 ;(async () => {
   try {
-    const raw = await window.metadataEditor.store.get('uiFont')
+    const raw = await window.metadataEditor.uiFont()
     if (!raw) return
     const { preset, custom } = JSON.parse(raw)
     const SYSTEM = "-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
