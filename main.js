@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, clipboard, shell, Menu, globalShortcut, TouchBar, protocol, net } = require('electron')
+const { app, BrowserWindow, ipcMain, clipboard, shell, Menu, globalShortcut, TouchBar, protocol, net, screen } = require('electron')
 
 // A main-process throw before the window is shown means no window and, for a
 // rejection, not even a message: Electron shows a dialog for an uncaught
@@ -805,6 +805,8 @@ ipcMain.on('open-miniplayer', () => {
       },
       show: false,
     })
+    // Hidden until the pointer is over the window (miniplayer-hover below).
+    if (process.platform === 'darwin') miniPlayerWindow.setWindowButtonVisibility(false)
     miniPlayerWindow.loadFile('miniplayer.html')
     // Same show:false + ready-to-show pattern as every other secondary window -
     // ready-to-show alone can simply never fire on Windows.
@@ -822,6 +824,7 @@ ipcMain.on('open-miniplayer', () => {
     })
     miniPlayerWindow.on('closed', () => {
       clearTimeout(resizeSaveTimer)
+      clearInterval(miniHoverTimer); miniHoverTimer = null
       miniPlayerWindow = null
       // Restoring the main window belongs HERE, not only in the
       // miniplayer-restore handler below - this fires no matter how the
@@ -842,6 +845,33 @@ ipcMain.on('open-miniplayer', () => {
 
 ipcMain.on('miniplayer-state', (_e, state) => {
   if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) miniPlayerWindow.webContents.send('miniplayer-state', state)
+})
+
+// Traffic lights only while the pointer is over the miniplayer. The page's
+// mouseleave is not trusted to hide them: the lights are native buttons drawn
+// over the page, so pointing AT them can read as leaving the page, and hiding
+// them then would pull the close button out from under the pointer. On a
+// leave, the real cursor position decides, re-checked until it is outside.
+let miniHoverTimer = null
+ipcMain.on('miniplayer-hover', (_e, on) => {
+  if (process.platform !== 'darwin') return
+  clearInterval(miniHoverTimer); miniHoverTimer = null
+  if (!miniPlayerWindow || miniPlayerWindow.isDestroyed()) return
+  if (on === true) { miniPlayerWindow.setWindowButtonVisibility(true); return }
+  // True once there is nothing left to watch: window gone, or pointer out
+  // and the lights hidden.
+  const settled = () => {
+    if (!miniPlayerWindow || miniPlayerWindow.isDestroyed()) return true
+    const p = screen.getCursorScreenPoint()
+    const b = miniPlayerWindow.getBounds()
+    if (p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height) return false
+    miniPlayerWindow.setWindowButtonVisibility(false)
+    return true
+  }
+  if (settled()) return
+  miniHoverTimer = setInterval(() => {
+    if (settled()) { clearInterval(miniHoverTimer); miniHoverTimer = null }
+  }, 250)
 })
 
 ipcMain.on('miniplayer-control', (_e, action) => {

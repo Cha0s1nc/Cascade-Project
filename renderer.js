@@ -3747,7 +3747,11 @@ function pushMiniplayerState() {
   // From the active line onward, so the miniplayer can render top-down with
   // the current line pinned at the top without any scrolling of its own.
   const lyricTail = CascadeCore.miniplayerLyricTail(lyricsData, lastLyricsIdx)
-  window.cascade.miniPlayer.updateState(CascadeCore.buildMiniplayerState(track, !audio.paused, mediaPosition(), mediaDuration(), lyricTail))
+  // The heart's own class, same source of truth toggleLike() reads for the
+  // current track. By id, not the likeBtn const: this can run before that
+  // line of the script has executed.
+  const isFavorite = !!document.getElementById('btn-like')?.classList.contains('liked')
+  window.cascade.miniPlayer.updateState(CascadeCore.buildMiniplayerState(track, !audio.paused, mediaPosition(), mediaDuration(), lyricTail, { isFavorite, volume }))
 }
 
 // Derived from the DOM, never cached: _drawSongRows() replaces rows.innerHTML on every
@@ -4794,6 +4798,7 @@ async function toggleLike(item) {
       }
       likeBtn.classList.toggle('liked', !isLiked)
       document.getElementById('ov-like').classList.toggle('liked', !isLiked)
+      pushMiniplayerState()
     }
   } catch (e) {
     console.error('Favorite failed', e)
@@ -4865,12 +4870,23 @@ onDeck('pause', () => {
   pushMiniplayerState()
 })
 
-// Miniplayer control -> the exact same buttons onMediaKey above already
-// drives, not a second playback path.
-window.cascade.miniPlayer.onControl((action) => {
-  if (action === 'playpause') document.getElementById('btn-play').click()
-  else if (action === 'next')  document.getElementById('btn-next').click()
-  else if (action === 'prev')  document.getElementById('btn-prev').click()
+// Miniplayer control -> the exact same buttons and functions the main window
+// already uses, not a second playback path. The message comes from another
+// page, so it is parsed and clamped (parseMiniplayerCommand) before anything
+// acts on it; an unknown message is dropped.
+window.cascade.miniPlayer.onControl(async (raw) => {
+  const cmd = CascadeCore.parseMiniplayerCommand(raw)
+  if (!cmd) return
+  if (cmd.type === 'playpause') document.getElementById('btn-play').click()
+  else if (cmd.type === 'next') document.getElementById('btn-next').click()
+  else if (cmd.type === 'prev') document.getElementById('btn-prev').click()
+  else if (cmd.type === 'like') await toggleLike()
+  else if (cmd.type === 'seek') { const dur = mediaDuration(); if (dur) await seekTo(cmd.fraction * dur) }
+  // `volume`, not audio.volume: mid-crossfade the element is partway through
+  // a fade (see openLyricsEditorFor).
+  else if (cmd.type === 'volume') setVolumeRatio(volume + cmd.delta)
+  // Paused, there is no timeupdate to carry the new state back.
+  pushMiniplayerState()
 })
 
 // ── Settings ──────────────────────────────────────────────────────────────────

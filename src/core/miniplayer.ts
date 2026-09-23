@@ -27,6 +27,10 @@ export interface MiniplayerState {
    *  renders them top-down and does no scrolling of its own: "current line at
    *  the top" falls out of only ever sending the tail. */
   lyrics: string[]
+  /** Whether the current track is a favorite, for the heart button. */
+  isFavorite: boolean
+  /** 0-1, the user's volume (not a mid-crossfade deck level). */
+  volume: number
 }
 
 /** How many upcoming lines to send. Enough to fill a very tall window, few
@@ -57,12 +61,42 @@ export function miniplayerLyricTail(
 /** The only actions the miniplayer window may ask the main window to take.
  *  Deliberately a closed set - anything else is a message this app does not
  *  understand and must be ignored rather than forwarded to `.click()`. */
-export type MiniplayerAction = 'playpause' | 'next' | 'prev'
+export type MiniplayerAction = 'playpause' | 'next' | 'prev' | 'like'
 
-const MINIPLAYER_ACTIONS: ReadonlySet<string> = new Set(['playpause', 'next', 'prev'])
+const MINIPLAYER_ACTIONS: ReadonlySet<string> = new Set(['playpause', 'next', 'prev', 'like'])
 
 export function isMiniplayerAction(value: unknown): value is MiniplayerAction {
   return typeof value === 'string' && MINIPLAYER_ACTIONS.has(value)
+}
+
+/** A validated control message. The two with a value arrive as
+ *  `{ type, value }`; everything else is a bare action string. */
+export type MiniplayerCommand =
+  | { type: MiniplayerAction }
+  | { type: 'seek', fraction: number }
+  | { type: 'volume', delta: number }
+
+/** Largest volume step one message may ask for. A wheel tick sends a few
+ *  percent; anything bigger is a bug or a hostile page, not a gesture. */
+export const MINIPLAYER_MAX_VOLUME_STEP = 0.2
+
+/**
+ * Turns whatever came over IPC into a command, or null to ignore it. The
+ * miniplayer is a separate page, so its messages are input like any other:
+ * a seek outside 0-1 or a NaN volume step must never reach seekTo() or
+ * setVolumeRatio().
+ */
+export function parseMiniplayerCommand(raw: unknown): MiniplayerCommand | null {
+  if (isMiniplayerAction(raw)) return { type: raw }
+  if (!raw || typeof raw !== 'object') return null
+  const { type, value } = raw as { type?: unknown, value?: unknown }
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  if (type === 'seek') return { type: 'seek', fraction: Math.max(0, Math.min(1, value)) }
+  if (type === 'volume') {
+    const m = MINIPLAYER_MAX_VOLUME_STEP
+    return { type: 'volume', delta: Math.max(-m, Math.min(m, value)) }
+  }
+  return null
 }
 
 /** Safe 0-100 progress. Guards both a not-yet-known duration (0, or not a
@@ -88,6 +122,7 @@ export function buildMiniplayerState(
   positionSec: number,
   durationSec: number,
   lyrics: string[] = [],
+  extra: { isFavorite?: boolean, volume?: number } = {},
 ): MiniplayerState {
   const safePos = Number.isFinite(positionSec) && positionSec > 0 ? positionSec : 0
   const safeDur = Number.isFinite(durationSec) && durationSec > 0 ? durationSec : 0
@@ -101,5 +136,7 @@ export function buildMiniplayerState(
     durationSec: safeDur,
     progressPct: miniplayerProgressPct(safePos, safeDur),
     lyrics: Array.isArray(lyrics) ? lyrics : [],
+    isFavorite: !!extra.isFavorite,
+    volume: Number.isFinite(extra.volume) ? Math.max(0, Math.min(1, extra.volume as number)) : 1,
   }
 }
