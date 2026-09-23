@@ -4745,11 +4745,18 @@ document.getElementById('btn-miniplayer-open').addEventListener('click', () => {
 // Like / favourite
 const likeBtn = document.getElementById('btn-like')
 
-/** POST/DELETE /Users/{userId}/FavoriteItems/{id} - shared by the transport
- *  bar's heart button, the overlay's, and the Favorite/Unfavorite row every
- *  context menu that offers one (now playing, track rows, albums, artists)
- *  reuses. `item` defaults to whatever is currently playing, which is what
- *  the two heart buttons pass nothing and get.
+/** POST/DELETE /UserFavoriteItems/{id} - shared by the transport bar's heart
+ *  button, the overlay's, and the Favorite/Unfavorite row every context menu
+ *  that offers one (now playing, track rows, albums, artists) reuses. `item`
+ *  defaults to whatever is currently playing, which is what the two heart
+ *  buttons pass nothing and get.
+ *
+ *  NOT /Users/{userId}/FavoriteItems/{id} - checked against this server's own
+ *  OpenAPI spec (10.11.11), where /UserFavoriteItems is the only favorites
+ *  path, same userId-as-query-param shape as /UserPlayedItems (see
+ *  setItemPlayed). The old route would have 404'd on every heart click,
+ *  silently, since nothing here read the response before this function
+ *  started doing that (CODEMAP rule 1).
  *
  *  For the current track, "liked" is read off the button's own class rather
  *  than item.UserData - that DOM state is already kept in sync by
@@ -4769,7 +4776,7 @@ async function toggleLike(item) {
   if (!item) return
   const isLiked = isCurrent ? likeBtn.classList.contains('liked') : !!item.UserData?.IsFavorite
   try {
-    const res = await fetch(`${jf.url}/Users/${jf.userId}/FavoriteItems/${item.Id}`, {
+    const res = await fetch(`${jf.url}/UserFavoriteItems/${item.Id}?userId=${encodeURIComponent(jf.userId)}`, {
       method: isLiked ? 'DELETE' : 'POST',
       headers: { 'X-Emby-Token': jf.token }
     })
