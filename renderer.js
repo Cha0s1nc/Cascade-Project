@@ -4946,11 +4946,10 @@ document.getElementById('btn-save-settings').addEventListener('click', async () 
   await window.cascade.store.set('username', user)
 
   try {
-    // An account signed in with a code has no stored password, and sending an
-    // empty one just 401s. If the existing token still works against this URL,
-    // there is nothing to re-authenticate - keep the session and save.
-    const effectivePass = pass || await window.cascade.store.get('password') || ''
-    if (!effectivePass) {
+    // No password is ever stored (the token is the session), so an empty field
+    // means "keep the current session": sending an empty password just 401s.
+    // If the existing token still works against this URL, keep it and save.
+    if (!pass) {
       const token = await window.cascade.store.get('token')
       const userId = await window.cascade.store.get('userId')
       if (!token || !userId) { promptReauth('Sign in again to change these.'); return }
@@ -4961,10 +4960,10 @@ document.getElementById('btn-save-settings').addEventListener('click', async () 
       return
     }
 
-    const auth = await jfAuth(url, user, effectivePass)
+    const auth = await jfAuth(url, user, pass)
     await window.cascade.store.set('token', auth.AccessToken)
     await window.cascade.store.set('userId', auth.User.Id)
-    if (pass) await window.cascade.store.set('password', pass)
+    await window.cascade.store.set('deviceIdMigrated', true)  // fresh login, current device id
 
     const status = document.getElementById('save-status')
     status.classList.add('visible')
@@ -5012,19 +5011,16 @@ document.getElementById('btn-logout').addEventListener('click', async () => {
 // Sign in by approving a code on a device you're already logged in on, instead
 // of typing a password. Protocol lives in src/core/jellyfin.ts.
 //
-// Worth having beyond convenience: it means Cascade never has to store a
-// password. The device-id migration falls back to the stored one, so an account
-// signed in this way simply keeps its existing token.
+// Cascade stores no password for any sign-in method; the token is the session.
 
 let _qcAbort = null   // set while a request is live; calling it stops the poll
 
 /**
  * Drop back to the sign-in screen because the session is no longer usable.
  *
- * Signing in with a code stores no password, so those accounts have nothing to
- * re-authenticate with silently - without this they would land on a form asking
- * for a password they never had. probeQuickConnect() re-runs so the code option
- * is showing by the time they read the message.
+ * No password is stored for any account, so there is nothing to re-authenticate
+ * with silently. probeQuickConnect() re-runs so the code option is showing by
+ * the time they read the message, for accounts that never had a password here.
  */
 function promptReauth(message) {
   document.getElementById('setup-overlay').classList.remove('hidden')
@@ -5133,9 +5129,10 @@ document.getElementById('setup-connect').addEventListener('click', async () => {
     const auth = await jfAuth(url, user, pass)
     await window.cascade.store.set('serverUrl', url)
     await window.cascade.store.set('username', user)
-    await window.cascade.store.set('password', pass)
     await window.cascade.store.set('token', auth.AccessToken)
     await window.cascade.store.set('userId', auth.User.Id)
+    // A fresh login is already bound to the current device id.
+    await window.cascade.store.set('deviceIdMigrated', true)
 
     document.getElementById('setup-overlay').classList.add('hidden')
     await connect(url, auth.AccessToken, auth.User.Id)
@@ -5180,10 +5177,11 @@ document.getElementById('btn-check-updates').addEventListener('click', async () 
 // control could not target a specific client. The device id in the auth header
 // only takes effect on a fresh login, so retiring it means re-authenticating.
 //
-// Runs once, needs a stored password, and only swaps the token on success -
-// a failed re-auth must leave the working token untouched rather than logging
-// the user out. If there is no stored password the flag is not set, so this
-// retries on a later launch once there is one.
+// Runs once, needs the password an install saved before 2.2.0 (read once in
+// init() and then deleted), and only swaps the token on success - a failed
+// re-auth must leave the working token untouched rather than logging the user
+// out. Without that password it cannot run; the old token keeps working, and
+// the next real sign-in (which always sets the flag) retires the old id.
 // Returns the credentials to connect with - the refreshed pair on success, the
 // existing ones otherwise - so the new identity applies on this launch rather
 // than the next one.
@@ -5257,40 +5255,32 @@ async function init() {
 
   const serverUrl = await window.cascade.store.get('serverUrl')
   const username  = await window.cascade.store.get('username')
-  const password  = await window.cascade.store.get('password')
+  // Only ever read to finish migrateDeviceId() for an install that still has
+  // one saved from before 2.2.0, then deleted. Jellyfin tokens do not expire
+  // on their own, so the token is the session and a password on disk is only
+  // a plaintext liability.
+  const legacyPassword = await window.cascade.store.get('password')
   let token       = await window.cascade.store.get('token')
   let userId      = await window.cascade.store.get('userId')
 
   // Always pre-fill the setup form so the user never has to retype from scratch
   if (serverUrl) document.getElementById('setup-url').value      = serverUrl
   if (username)  document.getElementById('setup-username').value  = username
-  if (password)  document.getElementById('setup-password').value  = password
   // The probe normally runs as the user types; a pre-filled URL never fires that.
   if (serverUrl) probeQuickConnect()
 
-  ;({ token, userId } = await migrateDeviceId(serverUrl, username, password, token, userId))
+  ;({ token, userId } = await migrateDeviceId(serverUrl, username, legacyPassword, token, userId))
+  if (legacyPassword !== undefined) await window.cascade.store.delete('password')
 
   if (serverUrl && token && userId) {
     document.getElementById('setup-overlay').classList.add('hidden')
     try {
       await connect(serverUrl, token, userId)
     } catch (e) {
-      // Token stale - silently re-auth with stored credentials before giving up
-      if (serverUrl && username && password) {
-        try {
-          const auth = await jfAuth(serverUrl, username, password)
-          await window.cascade.store.set('token', auth.AccessToken)
-          await window.cascade.store.set('userId', auth.User.Id)
-          await connect(serverUrl, auth.AccessToken, auth.User.Id)
-          return
-        } catch {}
-      }
-      // Nothing to retry with. An account set up via Quick Connect has no stored
-      // password by design, so say what actually happened rather than presenting
-      // a blank password field.
-      promptReauth(password
-        ? 'Your session expired. Sign in again.'
-        : 'Your session expired. Sign in again with a code, or enter your password.')
+      // The token was rejected: Jellyfin tokens only die when revoked (signed
+      // out, device removed in the dashboard), so this is a real sign-in, not a
+      // refresh. There is no stored password to retry with, by design.
+      promptReauth('Your session expired. Sign in again with a code, or enter your password.')
     }
   }
   // else setup overlay stays visible (fields already pre-filled above)
