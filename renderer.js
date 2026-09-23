@@ -8035,6 +8035,14 @@ function _paintWordSpans(line, nowTicks) {
     // hanging over each end.
     const prog = _wordProgress(w, nowTicks)
     const p = `calc(${prog.toFixed(2)}% + ${(prog * 0.006 - 0.3).toFixed(3)}em)`
+    // A held note grows WITH the note, as in Apple Music, not to full size the
+    // moment it starts: --e is its progress through the word on a smoothstep
+    // curve, and styles/lyrics.css scales the lift, swell and glow by it.
+    if (w.classList.contains('emph')) {
+      const t = prog / 100
+      const e = (t * t * (3 - 2 * t)).toFixed(3)
+      if (w.style.getPropertyValue('--e') !== e) w.style.setProperty('--e', e)
+    }
     if (w.style.getPropertyValue('--p') !== p) w.style.setProperty('--p', p)
     const ws = parseInt(w.dataset.ws)
     const we = w.dataset.we ? parseInt(w.dataset.we) : null

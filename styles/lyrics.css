@@ -43,20 +43,27 @@
    the drop-shadow over the background-clip fill (the costly paint) stays cheap. */
 .lyric-word.emph, .ov-lyric-word.emph {
   /* The margin is room to swell into: 8% of a word eats into the spaces on
-     either side. Always there, so starting the swell never reflows the line. */
+     either side. Always there, so starting the swell never reflows the line.
+     The transition is only the release: settling back once the word ends. */
   display: inline-block; transform-origin: 50% 75%; margin: 0 0.06em;
-  transition: transform 0.35s cubic-bezier(0.2, 0.7, 0.2, 1), filter 0.35s ease;
+  transition: transform 0.45s cubic-bezier(0.2, 0.7, 0.2, 1), filter 0.45s ease;
 }
+/* While sung, the lift, swell and glow follow --e (0 to 1, the word's
+   progress, eased; set per frame by _paintWordSpans), so the word grows
+   through the held note. No transition here: it would lag the note. */
 .lyrics-line.active .lyric-word.emph.active,
 .ov-lyric-line.active .ov-lyric-word.emph.active {
+  --e: 0;
+  transition: none;
   /* Lift and swell read from variables so cascadeDebug.lyricMotion can tune
      them live. 0.12em is what Apple Music's held "now" rises in the
      reference recording; 0.05em read as barely moving. */
-  transform: translateY(calc(var(--emph-lift, 0.12em) * -1)) scale(var(--emph-scale, 1.08));
-  filter: drop-shadow(0 0 0.35em rgba(255,255,255,0.7));
+  transform: translateY(calc(var(--emph-lift, 0.12em) * -1 * var(--e)))
+             scale(calc(1 + (var(--emph-scale, 1.08) - 1) * var(--e)));
+  filter: drop-shadow(0 0 calc(0.35em * var(--e)) rgba(255,255,255,calc(0.7 * var(--e))));
 }
 html[data-theme="light"] .lyrics-line.active .lyric-word.emph.active,
-html[data-theme="light"] .ov-lyric-line.active .ov-lyric-word.emph.active { filter: drop-shadow(0 0 0.3em rgba(28,28,30,0.35)); }
+html[data-theme="light"] .ov-lyric-line.active .ov-lyric-word.emph.active { filter: drop-shadow(0 0 calc(0.3em * var(--e)) rgba(28,28,30,calc(0.35 * var(--e)))); }
 /* Same word-fill bug as the overlay lyrics above, same fix: the sidebar
    panel's own background is var(--surface), white in light theme, so the
    hardcoded white fill above needs a light-theme ink equivalent. */
