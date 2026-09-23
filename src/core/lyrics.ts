@@ -18,6 +18,26 @@ export interface LyricLine {
   Text: string
   /** null for plain LRC lines; populated for karaoke (word-level) formats. */
   Words: LyricWord[] | null
+  /** Background vocals sung over this line, drawn smaller underneath it the
+   *  way Apple Music and SpicyLyrics do. Only SpicyLyrics' syllable syncs
+   *  carry them separately; every other source leaves this out. */
+  Background?: LyricWord[] | null
+}
+
+/** A word held at least this long gets the emphasis glow. */
+export const EMPHASIS_MIN_TICKS = 10_000_000   // 1s
+
+/**
+ * Whether a karaoke word is held long enough to be emphasised (a glow and a
+ * slight lift while it is sung), after Apple Music's and SpicyLyrics' look:
+ * held notes stand out from the syllables that pass quickly. Short enough
+ * words only: a long word stretched over a second is not a held note, it is
+ * just a long word.
+ */
+export function isEmphasisWord(w: LyricWord): boolean {
+  if (w.End == null || w.End - w.Start < EMPHASIS_MIN_TICKS) return false
+  const letters = w.Text.replace(/[^\p{L}\p{N}]/gu, '')
+  return letters.length > 0 && letters.length <= 12
 }
 
 const TICKS_PER_MS = 10_000

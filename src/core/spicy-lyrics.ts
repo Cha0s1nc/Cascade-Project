@@ -107,22 +107,23 @@ function syllableLines(content: unknown[]): LyricLine[] {
   for (const c of content) {
     if (!isObj(c)) continue
     const words = groupWords(c.Lead)
-    // Background vocals follow the lead in parentheses, the way the API's own
-    // Line type flattens them. Their own timings stay, so they still fill.
+    // Background vocals get a row of their own under the lead, as Apple Music
+    // and SpicyLyrics draw them; merged into the lead line, two fills ran
+    // across one line at once. Several background phrases on one line join
+    // into one row, each keeping its own timings.
+    const background: LyricWord[] = []
     for (const bg of arr(c.Background)) {
       const bw = groupWords(bg)
       if (!bw.length) continue
-      if (words.length) words[words.length - 1].Text = words[words.length - 1].Text.trimEnd() + ' '
-      bw[0].Text = '(' + bw[0].Text
-      bw[bw.length - 1].Text = bw[bw.length - 1].Text.trimEnd() + ')'
-      words.push(...bw)
+      if (background.length) background[background.length - 1].Text = background[background.length - 1].Text.trimEnd() + ' '
+      background.push(...bw)
     }
     if (!words.length) continue
     const lead = isObj(c.Lead) ? c.Lead : {}
     const start = ticks(lead.StartTime) ?? words[0].Start
     const end = ticks(lead.EndTime) ?? words[words.length - 1].End
     const text = words.map(w => w.Text).join('').trim()
-    if (text) lines.push({ Start: start, End: end, Text: text, Words: words })
+    if (text) lines.push({ Start: start, End: end, Text: text, Words: words, ...(background.length ? { Background: background } : {}) })
   }
   return lines
 }

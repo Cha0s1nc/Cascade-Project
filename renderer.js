@@ -6566,11 +6566,7 @@ function renderOverlayLyricLines() {
     // The original always stays, karaoke fill included; a translation sits
     // under it inside the same element, so the line's height (which the scroll
     // spring centres on) and its click-to-seek both cover the pair.
-    const content = line.Words
-      ? line.Words.map(w =>
-          `<span class="ov-lyric-word" data-ws="${w.Start}" data-we="${w.End ?? ''}">${esc(w.Text)}</span>`
-        ).join('')
-      : esc(line.Text || '')
+    const content = line.Words ? lyricWordSpans(line, 'ov-lyric-word') : esc(line.Text || '')
     const trans = lyricTranslationFor(i)
     return `<div class="ov-lyric-line${hasTimestamp ? ' seekable' : ''}" data-idx="${i}"${hasTimestamp ? ` data-start="${line.Start}"` : ''}>${content}${trans ? `<div class="ov-lyric-trans">${esc(trans)}</div>` : ''}</div>`
   }).join('')
@@ -7961,6 +7957,19 @@ function _wordProgress(w, nowTicks) {
   return (nowTicks - ws) / (we - ws) * 100
 }
 
+/** A karaoke line's word spans, shared by the side panel and the overlay.
+ *  Background vocals (SpicyLyrics) get their own smaller row underneath,
+ *  inside the same line element, so _paintWordSpans fills them on their own
+ *  timings with no second loop. A word held a second or more gets `emph`,
+ *  the glow and lift Apple Music and SpicyLyrics give held notes. */
+function lyricWordSpans(line, cls) {
+  const spans = words => words.map(w =>
+    `<span class="${cls}${CascadeCore.isEmphasisWord(w) ? ' emph' : ''}" data-ws="${w.Start}" data-we="${w.End ?? ''}">${esc(w.Text)}</span>`
+  ).join('')
+  const bg = line.Background?.length ? `<div class="lyric-bg">${spans(line.Background)}</div>` : ''
+  return spans(line.Words) + bg
+}
+
 // Paint the karaoke fill across one line's word spans. Both callers below had
 // this body byte for byte, differing only in element ids and class names.
 //
@@ -8321,11 +8330,7 @@ function renderLyrics() {
     // nested under it. This used to replace the line's text with the translation
     // AND append the translation again as a sibling, so a translated sheet showed
     // every translation twice and the original not at all.
-    const content = line.Words
-      ? line.Words.map(w =>
-          `<span class="lyric-word" data-ws="${w.Start}" data-we="${w.End ?? ''}">${esc(w.Text)}</span>`
-        ).join('')
-      : esc(line.Text || '')
+    const content = line.Words ? lyricWordSpans(line, 'lyric-word') : esc(line.Text || '')
     const trans = lyricTranslationFor(i)
     return `<div class="lyrics-line${hasTimestamp ? ' seekable' : ''}" data-idx="${i}"${hasTimestamp ? ` data-start="${line.Start}"` : ''}>${content}${trans ? `<div class="lyric-trans">${esc(trans)}</div>` : ''}</div>`
   }).join('')

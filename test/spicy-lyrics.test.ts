@@ -31,8 +31,10 @@ test('syllable sync: seconds become ticks, IsPartOfWord joins, gaps survive', ()
   const [line] = out.lines
   assert.equal(line.Start, 73_570_000)
   assert.equal(line.End, 95_000_000)
-  assert.equal(line.Text, 'Hello world (oh)')
-  assert.deepEqual(line.Words!.map(w => w.Text), ['Hel', 'lo ', 'world ', '(oh)'])
+  assert.equal(line.Text, 'Hello world')
+  assert.deepEqual(line.Words!.map(w => w.Text), ['Hel', 'lo ', 'world'])
+  // Background vocals are their own row, with their own timing.
+  assert.deepEqual(line.Background!.map(w => [w.Text, w.Start]), [['oh', 85_000_000]])
   // "lo" ends at 7.9 and "world" starts at 8.2: the pause is kept, not
   // papered over by borrowing the next word's start.
   assert.equal(line.Words![1].End, 79_000_000)

@@ -6,7 +6,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseLRC, parseKrc, lyricsTextMatch } from '../src/core/lyrics.ts'
+import { parseLRC, parseKrc, lyricsTextMatch, isEmphasisWord } from '../src/core/lyrics.ts'
 
 const SEC = 10_000_000   // ticks per second
 const MS = 10_000        // ticks per millisecond
@@ -129,4 +129,14 @@ test('lyricsTextMatch: skips the check when there are too few Latin words', () =
   const a = { lines: [{ Start: 0, End: null, Words: null, Text: '君の名は' }] }
   const b = { lines: [{ Start: 0, End: null, Words: null, Text: 'completely different english words here' }] }
   assert.equal(lyricsTextMatch(a, b), true)
+})
+
+test('isEmphasisWord: held a second or more, and short enough to be a held note', () => {
+  const w = (text: string, sec: number) => ({ Start: 0, End: sec * SEC, Text: text })
+  assert.equal(isEmphasisWord(w('ohhh', 1.2)), true)
+  assert.equal(isEmphasisWord(w('ohhh', 0.6)), false)
+  assert.equal(isEmphasisWord(w('ohhh ', 1)), true)                 // trailing space is not a letter
+  assert.equal(isEmphasisWord(w('extraordinarily', 1.5)), false)     // just a long word
+  assert.equal(isEmphasisWord({ Start: 0, End: null, Text: 'x' }), false)
+  assert.equal(isEmphasisWord(w('!', 2)), false)
 })
