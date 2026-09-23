@@ -92,19 +92,68 @@ const RPC_TYPE_LISTENING = 2
 const RPC_TYPE_WATCHING  = 3
 let rpcActivityType = RPC_TYPE_LISTENING
 
+// Reconnect on login failure or on Discord restarting - discord-rpc has no
+// retry of its own, so without this a Discord not running at startup, or
+// quit and relaunched later, killed presence for the rest of the session.
+// Backoff (not the fixed interval RemoteControl uses for its own reconnect
+// in remote-control.ts) because "Discord is not running" is commonly a long
+// wait, not a blip on a LAN link.
+const RPC_RECONNECT_MIN_MS = 15000
+const RPC_RECONNECT_MAX_MS = 60000
+let rpcClientId = null       // desired client id; null means RPC should be off
+let rpcReconnectTimer = null
+let rpcReconnectDelay = RPC_RECONNECT_MIN_MS
+
+function cancelRpcReconnect() {
+  if (rpcReconnectTimer) { clearTimeout(rpcReconnectTimer); rpcReconnectTimer = null }
+  rpcReconnectDelay = RPC_RECONNECT_MIN_MS
+}
+
+// destroy() rejects rather than throws when the socket never connected or
+// already closed itself (discord-rpc's IPC transport reads this.socket,
+// which is null or already ended), so a plain try/catch around the call
+// misses it and leaves an unhandled rejection. Also the one place a
+// superseded client (replaced before login finished, or a stale success
+// arriving after a newer attempt took over) gets told to let go of its
+// socket - without this it sits connected to Discord forever, unused.
+function closeRpcClient(client) {
+  try { Promise.resolve(client.destroy()).catch(() => {}) } catch {}
+}
+
+function scheduleRpcReconnect() {
+  if (rpcReconnectTimer || !rpcClientId) return
+  const delay = rpcReconnectDelay
+  rpcReconnectDelay = Math.min(rpcReconnectDelay * 2, RPC_RECONNECT_MAX_MS)
+  rpcReconnectTimer = setTimeout(() => {
+    rpcReconnectTimer = null
+    connectDiscordRpc(rpcClientId)
+  }, delay)
+}
+
 async function connectDiscordRpc(clientId) {
   if (!clientId) return
+  rpcClientId = clientId
+  // A fresh Client every attempt - discord-rpc caches a connect promise
+  // internally and cannot be reused after a failed or closed login.
+  let client = null
   try {
     const { Client } = require('discord-rpc')
-    rpcClient = new Client({ transport: 'ipc' })
-    rpcClient.on('ready', () => {
+    client = new Client({ transport: 'ipc' })
+    rpcClient = client
+    client.on('ready', () => {
+      // A late READY from a client a newer attempt already replaced - close
+      // it rather than leave it connected and unused. This and the check
+      // below are what keep a stale client's events from clobbering the
+      // current one's state.
+      if (client !== rpcClient) { closeRpcClient(client); return }
       rpcReady = true
+      cancelRpcReconnect()  // connected, so the next outage starts backoff fresh
       // Patch request() to inject the activity type into every SET_ACTIVITY call.
       // setActivity() strips the type field, so we add it back at the protocol
       // level - which is also why the renderer's choice arrives via
       // rpcActivityType rather than on the activity object itself.
-      const _origRequest = rpcClient.request.bind(rpcClient)
-      rpcClient.request = function(cmd, args, ...rest) {
+      const _origRequest = client.request.bind(client)
+      client.request = function(cmd, args, ...rest) {
         if (cmd === 'SET_ACTIVITY' && args?.activity) {
           args.activity.type = rpcActivityType
           args.activity.status_display_type = 1  // show state (artist/series) in member list sidebar
@@ -113,22 +162,51 @@ async function connectDiscordRpc(clientId) {
       }
       if (win && !win.isDestroyed()) win.webContents.send('discord-rpc-status', true)
     })
-    rpcClient.on('disconnected', () => {
+    client.on('disconnected', () => {
+      if (client !== rpcClient) return
       rpcReady = false
       rpcClient = null
       if (win && !win.isDestroyed()) win.webContents.send('discord-rpc-status', false)
+      // Discord quit, crashed, or is restarting for an update. There is no
+      // event for "Discord came back", so retrying on a timer is the only way
+      // to notice - the renderer already treats a true status as a fresh
+      // reconnect and re-sends the current presence.
+      scheduleRpcReconnect()
     })
-    await rpcClient.login({ clientId })
+    await client.login({ clientId })
   } catch (e) {
     console.warn('[discord-rpc] connect failed:', e.message)
-    rpcClient = null
-    rpcReady  = false
+    // A timed-out login (RPC_CONNECTION_TIMEOUT) can leave the socket itself
+    // still open even though the promise rejected - close it regardless of
+    // whether this attempt is still current.
+    if (client) closeRpcClient(client)
+    // Only touch shared state if this attempt is still the current one - a
+    // disable or a client id change in the meantime already moved rpcClient
+    // on, and clearing it here would null out a newer, live client.
+    if (client && client === rpcClient) {
+      rpcClient = null
+      rpcReady  = false
+      scheduleRpcReconnect()
+    }
   }
 }
 
 function destroyRpc() {
-  if (rpcClient) { try { rpcClient.destroy() } catch {} rpcClient = null; rpcReady = false }
+  rpcClientId = null
+  cancelRpcReconnect()
+  if (rpcClient) {
+    const client = rpcClient
+    rpcClient = null
+    rpcReady = false
+    closeRpcClient(client)
+  }
 }
+
+// Cover a programmatic app.quit() (the updater's silent-install paths) as
+// well as window-all-closed, which already calls destroyRpc() itself.
+// Separate listener, not folded into the existing will-quit handler above,
+// so this stays inside the Discord section.
+app.on('will-quit', destroyRpc)
 
 ipcMain.on('discord-rpc-connect', async (_e, clientId) => {
   destroyRpc()
