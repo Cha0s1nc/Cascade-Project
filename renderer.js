@@ -7960,12 +7960,25 @@ function _wordProgress(w, nowTicks) {
 /** A karaoke line's word spans, shared by the side panel and the overlay.
  *  Background vocals (SpicyLyrics) get their own smaller row underneath,
  *  inside the same line element, so _paintWordSpans fills them on their own
- *  timings with no second loop. A word held a second or more gets `emph`,
- *  the glow and lift Apple Music and SpicyLyrics give held notes. */
+ *  timings with no second loop.
+ *
+ *  Held notes get `emph`: they swell and glow while sung, after Apple Music.
+ *  SpicyLyrics only (lyricsCredit set): its syllables carry real end times.
+ *  Kugou stretches a word's end across any pause that follows it, and our own
+ *  Enhanced LRC takes the next word's start as the end, so in both a word
+ *  before a gap looks held when it is not. An emphasised word is an
+ *  inline-block (to scale), which would swallow its trailing space, so that
+ *  space goes after the span instead of inside it. */
 function lyricWordSpans(line, cls) {
-  const spans = words => words.map(w =>
-    `<span class="${cls}${CascadeCore.isEmphasisWord(w) ? ' emph' : ''}" data-ws="${w.Start}" data-we="${w.End ?? ''}">${esc(w.Text)}</span>`
-  ).join('')
+  const emphasis = !!lyricsCredit
+  const spans = words => words.map(w => {
+    const data = `data-ws="${w.Start}" data-we="${w.End ?? ''}"`
+    if (emphasis && CascadeCore.isEmphasisWord(w)) {
+      const text = w.Text.trimEnd()
+      return `<span class="${cls} emph" ${data}>${esc(text)}</span>${w.Text.length > text.length ? ' ' : ''}`
+    }
+    return `<span class="${cls}" ${data}>${esc(w.Text)}</span>`
+  }).join('')
   const bg = line.Background?.length ? `<div class="lyric-bg">${spans(line.Background)}</div>` : ''
   return spans(line.Words) + bg
 }
