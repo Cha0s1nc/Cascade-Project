@@ -7634,6 +7634,75 @@ function _reloadLyricsFor(itemId) {
 // cache below keeps handing back the copy from before the edit.
 window.cascade.lyricsEditor.onSaved(itemId => _reloadLyricsFor(itemId))
 
+// DevTools helper for testing SpicyLyrics before the plugin can match tracks to
+// Spotify ids on its own:  cascadeDebug.spicy('<spotify track id>')
+// Asks Cascade Server's admin-only test route (the plugin fetches with the
+// server's key; the key never comes near this window), runs the real
+// converter, and shows the result as the playing track's lyrics, credit and
+// all, exactly as the real path would. Session only: the next track, or a
+// reload of this one, goes back to normal. Needs an admin account.
+//   cascadeDebug.spicy()           no id: look the playing track up on MusicBrainz first
+//   cascadeDebug.spotifyId()       just the lookup, for the playing track
+window.cascadeDebug = {
+  // Port of scripts/test-spotify-id.js: search MusicBrainz for the recording,
+  // check up to 10 candidates for a Spotify link, and pick the one closest in
+  // length to what is playing (the top hit is often a remaster with no link;
+  // "I Write Sins Not Tragedies" had it on the 6th). 1.1s between lookups,
+  // per MusicBrainz's 1 request/second rule, so a miss can take ~12s.
+  // ponytail: debug-only, and a browser cannot set MusicBrainz's requested
+  // User-Agent. The real resolver belongs in the plugin (or SpicyLyrics'
+  // coming search), where it can.
+  async spotifyId(item = queue[queueIndex]) {
+    if (!item) return console.warn('[cascadeDebug] Nothing playing.')
+    const title = item.Name || ''
+    const artist = item.AlbumArtist || item.Artists?.[0] || ''
+    const durationMs = (item.RunTimeTicks || 0) / 10_000
+    const q = s => `"${s.replace(/["\\]/g, '\\$&')}"`
+    const mb = async url => {
+      const r = await fetch(url)
+      if (!r.ok) throw new Error(`MusicBrainz HTTP ${r.status}`)
+      return r.json()
+    }
+    console.log(`[cascadeDebug] Looking up "${title}" by ${artist} on MusicBrainz (up to ~12s)...`)
+    const search = await mb(`https://musicbrainz.org/ws/2/recording/?query=${encodeURIComponent(`recording:${q(title)} AND artist:${q(artist)}`)}&fmt=json&limit=10`)
+    const candidates = search.recordings || []
+    if (!candidates.length) { console.warn('[cascadeDebug] No MusicBrainz recording matched.'); return null }
+    const hits = []
+    for (const c of candidates) {
+      await new Promise(r => setTimeout(r, 1100))
+      const rec = await mb(`https://musicbrainz.org/ws/2/recording/${c.id}?inc=url-rels&fmt=json`).catch(() => null)
+      const rel = (rec?.relations || []).find(r => r.url?.resource?.includes('open.spotify.com/track/'))
+      if (rel) hits.push({ spotifyId: rel.url.resource.split('/track/')[1].split(/[?/]/)[0], mbid: c.id, lengthMs: c.length ?? null })
+    }
+    if (!hits.length) { console.warn(`[cascadeDebug] Checked ${candidates.length} recordings; none has a Spotify link.`); return null }
+    // Closest length wins; a candidate with no length sorts last.
+    hits.sort((a, b) => (a.lengthMs == null) - (b.lengthMs == null) || Math.abs(a.lengthMs - durationMs) - Math.abs(b.lengthMs - durationMs))
+    console.log(`[cascadeDebug] Spotify id ${hits[0].spotifyId} (MusicBrainz recording ${hits[0].mbid}; ${hits.length} of ${candidates.length} candidates had a link)`)
+    return hits[0].spotifyId
+  },
+
+  async spicy(spotifyId) {
+    const cur = queue[queueIndex]
+    if (!jf || !cur) return console.warn('[cascadeDebug] Play something first; the lyrics go on the current track.')
+    if (!spotifyId) spotifyId = await this.spotifyId(cur)
+    if (!spotifyId) return
+    const id = String(spotifyId || '').trim().replace(/^spotify:track:/, '').replace(/^https?:\/\/open\.spotify\.com\/track\//, '').split('?')[0]
+    const r = await fetch(`${jf.url}/CascadeServer/SpicyLyrics/${encodeURIComponent(id)}`, { headers: { 'X-Emby-Token': jf.token } })
+    const body = await r.json().catch(() => null)
+    if (!r.ok) return console.error(`[cascadeDebug] HTTP ${r.status}`, body ?? '(no body; 404 with no body means the plugin is older than this route, 401/403 means not an admin)')
+    const conv = CascadeCore.convertSpicyLyrics(body.spicy)
+    console.log('[cascadeDebug] raw SpicyLyrics response:', body.spicy)
+    if (!conv) return console.error('[cascadeDebug] The converter produced nothing from that response. That is a converter bug worth reporting, with the raw response above.')
+    const words = conv.lines.reduce((n, l) => n + (l.Words?.length || 0), 0)
+    console.log(`[cascadeDebug] ${body.spicy?.Body?.Type} sync, ${conv.lines.length} lines, ${words} timed words`, conv.credit)
+    if (lyricsForcedSource && lyricsForcedSource !== 'auto') console.warn('[cascadeDebug] A lyrics source is forced in the pill; set it to Auto or this is overridden on the next fetch.')
+    _cachePut(cur.Id, { lines: conv.lines, source: conv.credit.provider, credit: conv.credit, tried: {} })
+    lyricsData = []; lastLyricsIdx = -1; lastOverlayLyricsIdx = -1; _lyricsScanIdx = 0; _ovLyricsScanIdx = 0
+    fetchLyrics()
+    return conv
+  },
+}
+
 function _applyServerOnlyMode(on) {
   // Dropdown: hide external sources and sep, show/hide server-only items; Auto always visible
   document.querySelectorAll('#lyrics-source-dropdown .lsd-non-server')
