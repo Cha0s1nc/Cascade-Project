@@ -112,8 +112,11 @@ Added on branch `ios-next` (2026-09-23, Xcode 27 / iOS and tvOS 27 SDKs):
   place of the queue.
 - Favourite button on iOS Now Playing (not on tvOS yet).
 - Playlists tab, read-only: browse, play, shuffle.
-None of the new UI has been tapped through by a person yet; the simulator
-checks were sign-in and Home only.
+Verified by a person on the iPhone 16 (iOS 27, free provisioning, Xcode 27,
+2026-09-23): Quick Connect sign-in, lyrics on Now Playing (toggle, sync,
+tap-to-seek), the favourite button sticking server-side, and the Playlists
+tab. tvOS: builds and reaches the Quick Connect screen; signed-in use not
+checked yet.
 
 Never exercised by a person: every browsing screen. They compile for both
 platforms and the queries behind them are covered by live tests, but nobody has
