@@ -275,6 +275,11 @@ html[data-platform="linux"] .np-overlay.video.full #ov-full-exit {
 .dd-check { display: inline-block; width: 12px; flex-shrink: 0; color: var(--accent1, var(--accent)); }
 .ov-dd-item.active .dd-check::before { content: '✓'; }
 .np-overlay-btns { display: flex; align-items: center; gap: 20px; }
+/* Two rows share .np-overlay-btns' base but need their own gap - was inline
+   style= on each, moved here so index.html markup carries no layout of its
+   own for either. */
+.np-overlay-btns-transport { gap: 24px; }
+.np-overlay-btns-secondary { gap: 28px; margin-top: 2px; }
 .np-ov-ctrl { background: none; border: none; color: var(--text3); cursor: pointer; padding: 0; display: flex; align-items: center; transition: color 0.12s; }
 .np-ov-ctrl:hover { color: var(--text); }
 .np-ov-ctrl.active { color: var(--accent); }
@@ -282,6 +287,12 @@ html[data-platform="linux"] .np-overlay.video.full #ov-full-exit {
 .np-ov-play:hover { opacity: 0.85; }
 .np-overlay-prog { display: flex; align-items: center; gap: 10px; width: 100%; }
 .np-overlay-prog-bar { flex: 1; height: 4px; background: var(--border); border-radius: 2px; cursor: pointer; position: relative; }
+/* Was inline style="width:140px" - moved here verbatim. .np-overlay-prog-bar's
+   flex:1 sets flex-basis:0%, but with no min-width:0 override a flex item's
+   width still acts as its automatic minimum size, and .np-overlay-vol itself
+   is shrink-to-fit (no flex:1 of its own), so this is what actually fixes the
+   bar's width rather than the flex-basis. Verified in a browser, not assumed. */
+#ov-vol-bar { width: 140px; }
 .np-overlay-prog-fill { height: 100%; background: var(--accent); border-radius: 2px; width: 0%; position: relative; }
 /* Drag handle. Both bars already drag, nothing said so - a bar with no grip
    reads as a readout you tap, not something you can take hold of. It fades
@@ -344,12 +355,21 @@ html[data-platform="linux"] .np-overlay.video.full #ov-full-exit {
 .track-row[draggable="true"].dragging { opacity: 0.4; background: rgba(110,79,246,0.08); }
 .track-row[draggable="true"].drag-over { border-top: 2px solid var(--accent); }
 /* Overlay lyrics - GPU-accelerated clock-scroll */
-#ov-panel-lyrics { overflow: hidden; }
+/* Was inline style= (position/background/transform/transition) - the open/
+   closed slide itself is still driven from renderer.js, which sets
+   .style.transform directly on toggle (see the queue/lyrics tab switch) and
+   so always overrides this rule's transform when the panel actually opens or
+   closes; this is only the default (closed) state and the transition that
+   animates those JS-driven changes. */
+#ov-panel-lyrics { position: absolute; inset: 0; background: var(--surface); overflow: hidden; transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.4,0,0.2,1); }
 .ov-lyrics-scroll { display: flex; flex-direction: column; align-items: flex-start; will-change: transform; }
 /* Left-aligned and full size. Lines around the active one step back by
    fading and blurring rather than shrinking, so nothing reflows or shifts
    sideways as the active line moves. */
-.ov-lyric-line { text-align: left; font-size: clamp(22px, 3vw, 50px); font-weight: 800; letter-spacing: -0.015em; color: white; padding: 12px 56px; line-height: 1.25; cursor: default; max-width: min(900px, 92%); opacity: 0; filter: blur(6px); transition: opacity 0.55s cubic-bezier(0.16,1,0.3,1), filter 0.55s cubic-bezier(0.16,1,0.3,1); }
+/* --np-lyric-scale is the Now Playing lyric size setting (renderer.js
+   saveNpTuning()/loadNpTuning()) - a multiplier on the shipped clamp so a
+   stored size never has to duplicate its min/preferred/max, just scale them. */
+.ov-lyric-line { text-align: left; font-size: calc(clamp(22px, 3vw, 50px) * var(--np-lyric-scale, 1)); font-weight: 800; letter-spacing: -0.015em; color: white; padding: 12px 56px; line-height: 1.25; cursor: default; max-width: min(900px, 92%); opacity: 0; filter: blur(6px); transition: opacity 0.55s cubic-bezier(0.16,1,0.3,1), filter 0.55s cubic-bezier(0.16,1,0.3,1); }
 .ov-lyric-line.seekable { cursor: pointer; }
 .ov-lyric-line.past { opacity: 0; pointer-events: none; }
 .ov-lyric-line.near-3 { opacity: 0.12; filter: blur(4px); }

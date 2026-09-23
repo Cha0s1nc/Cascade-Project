@@ -5357,6 +5357,7 @@ async function init() {
   await loadTheme()
   buildPresets()
   await loadUiFont()
+  await loadNpTuning()
   await initDiscordRpc()
 
   crossfadeEnabled = (await window.cascade.store.get('crossfadeEnabled')) === true
@@ -9099,6 +9100,72 @@ document.getElementById('tp-font-preset').addEventListener('change', (e) => {
 document.getElementById('tp-font-custom').addEventListener('input', (e) => {
   saveUiFont('custom', e.target.value)
 })
+
+// ── Now Playing tuning ───────────────────────────────────────────────────────
+// Lyric size, background dim and background blend: persisted, user-facing
+// versions of the same CSS custom properties initLightTuningPanel() (below)
+// exposes as session-only debug sliders - --np-lyric-scale drives
+// .ov-lyric-line's font-size, --np-scrim-left/right/header and --np-blend
+// drive the light-theme art-accent scrims (styles/theme.css's "four custom
+// properties" block). One dim knob sets all three scrims identically, since
+// they already share one shipped default (see src/core/np-tuning.ts) and the
+// debug panel's per-scrim split exists for tuning, not for a normal setting
+// to expose. setOverlayBackgroundImage() stays the only writer of the
+// overlay's actual background image - none of this touches it, only the
+// blend/scrim painted on top of whatever that set.
+//
+// CascadeCore's clamp*() functions are the one place a corrupted stored
+// number gets turned into something safe before it can reach a CSS value -
+// same "store values are untrusted" rule as everywhere else.
+function applyNpTuning(lyricScale, bgDim, bgBlend) {
+  const root = document.documentElement
+  root.style.setProperty('--np-lyric-scale', String(CascadeCore.clampLyricScale(lyricScale)))
+  const dim = String(CascadeCore.clampBgDim(bgDim))
+  root.style.setProperty('--np-scrim-left', dim)
+  root.style.setProperty('--np-scrim-right', dim)
+  root.style.setProperty('--np-scrim-header', dim)
+  root.style.setProperty('--np-blend', CascadeCore.clampBgBlend(bgBlend) ? 'multiply' : 'normal')
+}
+
+async function saveNpTuning(lyricScale, bgDim, bgBlend) {
+  await window.cascade.store.set('npTuning', JSON.stringify({ lyricScale, bgDim, bgBlend }))
+  applyNpTuning(lyricScale, bgDim, bgBlend)
+}
+
+async function loadNpTuning() {
+  let lyricScale, bgDim, bgBlend
+  try {
+    const raw = await window.cascade.store.get('npTuning')
+    if (raw) {
+      const t = JSON.parse(raw)
+      lyricScale = t.lyricScale; bgDim = t.bgDim; bgBlend = t.bgBlend
+    }
+  } catch {}
+  lyricScale = CascadeCore.clampLyricScale(lyricScale)
+  bgDim = CascadeCore.clampBgDim(bgDim)
+  bgBlend = CascadeCore.clampBgBlend(bgBlend)
+  applyNpTuning(lyricScale, bgDim, bgBlend)
+  const scaleInput = document.getElementById('tp-lyric-scale')
+  const dimInput = document.getElementById('tp-bg-dim')
+  const blendInput = document.getElementById('tp-bg-blend')
+  if (scaleInput) scaleInput.value = String(lyricScale)
+  if (dimInput) dimInput.value = String(bgDim)
+  if (blendInput) blendInput.checked = bgBlend
+}
+
+/** Reads all three controls' current values, so any one changing saves and
+ *  applies the whole set together - matches how they are stored (one key). */
+function _npTuningInputValues() {
+  return [
+    parseFloat(document.getElementById('tp-lyric-scale').value),
+    parseFloat(document.getElementById('tp-bg-dim').value),
+    document.getElementById('tp-bg-blend').checked,
+  ]
+}
+
+document.getElementById('tp-lyric-scale').addEventListener('input', () => saveNpTuning(..._npTuningInputValues()))
+document.getElementById('tp-bg-dim').addEventListener('input', () => saveNpTuning(..._npTuningInputValues()))
+document.getElementById('tp-bg-blend').addEventListener('change', () => saveNpTuning(..._npTuningInputValues()))
 
 /** Album art accent mode overrides whatever gradient/preset is picked, so
  *  those controls do nothing while it's on - dim them and say why rather
