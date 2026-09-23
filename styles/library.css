@@ -1,0 +1,104 @@
+/* Albums view */
+#view-albums .album-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+
+/* Artists */
+.artist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+.artist-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; cursor: pointer; transition: background var(--hover-out) ease-out; padding: 12px; text-align: center; }
+.artist-card:hover { background: var(--surface2); transition-duration: var(--hover-in); }
+.artist-avatar { width: 64px; height: 64px; border-radius: 50%; background: var(--surface2); margin: 0 auto 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 28px; }
+.artist-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.artist-name { font-size: 12px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Songs / track list */
+.track-list { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.tl-head { display: grid; grid-template-columns: 28px 32px 1fr 160px 52px; gap: 8px; padding: 7px 12px; border-bottom: 1px solid var(--border); }
+.tl-head span { font-size: 10px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; }
+.tl-head span:last-child { text-align: right; }
+.track-row { display: grid; grid-template-columns: 28px 32px 1fr 160px 52px; gap: 8px; padding: 6px 12px; align-items: center; cursor: pointer; border-bottom: 1px solid var(--border); transition: background 0.1s; height: 45px; box-sizing: border-box; }
+#songs-rows { position: relative; }
+#songs-rows .track-row:not(.skel-card) { position: absolute; left: 0; right: 0; }
+.track-row:last-child { border-bottom: none; }
+/* Apple Music-style hover: a rounded highlight that fades in fast and out
+   slowly as the pointer moves on. Drawn on ::before rather than the row
+   background so the corners can round without bending the separator line,
+   and isolation keeps the z-index:-1 layer above the row's own .playing
+   background. */
+.track-row { position: relative; isolation: isolate; }
+.track-row::before { content: ''; position: absolute; inset: 0; border-radius: 6px; background: rgba(255,255,255,0.05); opacity: 0; transition: opacity var(--hover-out) ease-out; pointer-events: none; z-index: -1; }
+.track-row:hover::before { opacity: 1; transition-duration: var(--hover-in); }
+.track-row.playing { background: rgba(110,79,246,0.1); }
+.track-num { font-size: 12px; color: var(--text3); text-align: center; }
+.track-thumb { position: relative; width: 32px; height: 32px; border-radius: 4px; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.track-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* Play overlay on hover */
+.track-thumb::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,0.45) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='14' height='14'%3E%3Cpolygon points='6 4 20 12 6 20' fill='white'/%3E%3C/svg%3E") center/14px no-repeat;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  cursor: pointer;
+}
+.track-row:hover .track-thumb::after,
+.track-row.selected .track-thumb::after { opacity: 1; }
+/* Hide play icon when this row is already playing - show EQ bars instead */
+.track-row.playing .track-thumb::after { opacity: 0 !important; }
+/* EQ bars - now-playing animation */
+.track-eq { position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: center; gap: 2px; padding: 8px 6px 7px; background: rgba(0,0,0,0.5); border-radius: 4px; opacity: 0; pointer-events: none; transition: opacity 0.15s; }
+.track-row.playing .track-thumb .track-eq { opacity: 1; }
+.track-eq i { display: block; width: 3px; height: 14px; border-radius: 1px 1px 0 0; background: white; transform-origin: bottom; animation: eq-bar 0.7s ease-in-out infinite alternate; }
+.track-eq i:nth-child(1) { animation-duration: 0.55s; animation-delay: 0s; }
+.track-eq i:nth-child(2) { animation-duration: 0.75s; animation-delay: -0.25s; }
+.track-eq i:nth-child(3) { animation-duration: 0.6s;  animation-delay: -0.1s; }
+@keyframes eq-bar { from { transform: scaleY(0.25); } to { transform: scaleY(1); } }
+/* Real audio takes over from the CSS animation - see startEqLoop() in renderer.js.
+   The animation stops so it does not fight the transform written each frame; the
+   short transition keeps ~30fps updates from looking steppy. */
+.track-eq.live i { animation: none; transition: transform 0.08s linear; }
+.track-title { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.track-row.playing .track-title { color: #a78bfa; font-weight: 500; }
+.track-artist { font-size: 11px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.track-album-name { font-size: 12px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.track-dur { font-size: 12px; color: var(--text3); text-align: right; }
+/* Clickable artist/album text - track rows and the album detail meta line */
+.row-link { cursor: pointer; }
+.row-link:hover { color: var(--text); text-decoration: underline; }
+
+/* ── Playlists view ── */
+.playlist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 20px; }
+.playlist-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; cursor: pointer; transition: background var(--hover-out) ease-out; }
+.playlist-card:hover { background: var(--surface2); transition-duration: var(--hover-in); }
+.playlist-art { width: 100%; aspect-ratio: 1; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 36px; color: var(--text3); }
+.playlist-art img { width: 100%; height: 100%; object-fit: cover; }
+.playlist-body { padding: 8px 9px 10px; }
+.playlist-name { font-size: 12px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; }
+.playlist-count { font-size: 11px; color: var(--text3); }
+
+/* Playlist detail (track list inside a playlist) */
+#playlist-detail { display: none; }
+#playlist-detail.active { display: block; }
+.pl-detail-header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+.pl-detail-art { width: 80px; height: 80px; border-radius: 8px; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 36px; flex-shrink: 0; }
+.pl-detail-art img { width: 100%; height: 100%; object-fit: cover; }
+.pl-detail-name { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 4px; }
+.pl-detail-meta { font-size: 12px; color: var(--text3); }
+.pl-back-btn { background: none; border: none; color: var(--text3); cursor: pointer; font-size: 12px; font-family: var(--font); display: flex; align-items: center; gap: 5px; margin-bottom: 14px; transition: color 0.12s; }
+.pl-back-btn:hover { color: var(--text); }
+
+/* Edit Playlist mode: a checkbox column plus, for a real playlist or Most
+   Played, one extra info column (Added to server / Plays). Edit mode never
+   applies without the extra column also being on (real playlists always
+   carry it), so there's no separate edit-only combo. Scoped to
+   #playlist-detail so the Songs/Album/Artist track lists sharing
+   .tl-head/.track-row are untouched. */
+#playlist-detail .tl-head, #playlist-detail .track-row { grid-template-columns: 28px 32px 1fr 160px 52px; }
+#playlist-detail.has-extra-col .tl-head, #playlist-detail.has-extra-col .track-row { grid-template-columns: 28px 32px 1fr 160px 112px 52px; }
+#playlist-detail.edit-mode.has-extra-col .tl-head, #playlist-detail.edit-mode.has-extra-col .track-row { grid-template-columns: 24px 28px 32px 1fr 160px 112px 52px; }
+.tl-check { display: none; align-items: center; justify-content: center; }
+#playlist-detail.edit-mode .tl-check { display: flex; }
+.tl-extra { display: none; font-size: 12px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#playlist-detail.has-extra-col .tl-extra { display: block; }
+.pl-edit-toolbar { display: none; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+.pl-edit-toolbar.visible { display: flex; }
+.pl-edit-count { font-size: 11px; color: var(--text3); margin-right: auto; }

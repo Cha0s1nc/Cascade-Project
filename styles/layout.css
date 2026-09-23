@@ -1,0 +1,183 @@
+/* ── Body wrap ── */
+.body-wrap { flex: 1; display: flex; position: relative; overflow: hidden; }
+
+/* ── Sidebar ── */
+.sidenav { position: absolute; left: 0; top: 0; bottom: 0; width: 48px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 8px 0; overflow: hidden; transition: width 0.18s cubic-bezier(0.4,0,0.2,1); z-index: 20; }
+.sidenav.expanded { width: 220px; box-shadow: 4px 0 20px rgba(0,0,0,0.3); }
+.nav-item { position: relative; display: flex; align-items: center; margin: 2px 6px; padding: 8px 5px; border-radius: 7px; cursor: pointer; white-space: nowrap; min-height: 36px; overflow: hidden; transition: background 0.12s; color: var(--text3); }
+.nav-item:hover { background: rgba(255,255,255,0.05); color: var(--text2); }
+.nav-item.active { background: rgba(255,255,255,0.06); color: var(--text); }
+.nav-bar { position: absolute; left: -6px; top: 7px; bottom: 7px; width: 3px; border-radius: 0 2px 2px 0; background: var(--grad); opacity: 0; transition: opacity 0.15s; margin-left: 0; }
+.nav-item.active .nav-bar { opacity: 1; }
+.nav-icon { font-size: 15px; width: 26px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.nav-info { max-width: 0; overflow: hidden; opacity: 0; transition: max-width 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.15s 0.04s; }
+.sidenav.expanded .nav-info { max-width: 160px; opacity: 1; margin-left: 10px; }
+.nav-label { font-size: 13px; font-weight: 500; color: var(--text); white-space: nowrap; }
+.nav-spacer { flex: 1; }
+
+/* Backdrop dims main when sidebar is open */
+.backdrop { position: absolute; left: 48px; top: 0; right: 0; bottom: 0; background: transparent; pointer-events: none; transition: background 0.2s; z-index: 15; }
+.backdrop.dim { background: rgba(0,0,0,0.52); pointer-events: all; }
+
+/* ── Main area ── */
+.main { margin-left: 48px; flex: 1; display: flex; flex-direction: column; overflow: hidden; z-index: 1; }
+.view { display: none; flex: 1; min-height: 0; overflow-y: auto; padding: 22px 22px 12px; }
+.view::-webkit-scrollbar { width: 4px; }
+.view::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.view.active { display: block; }
+
+/* ── Home view ── */
+.greeting { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 20px; }
+.sect-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; }
+.sect-title { font-size: 10px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.07em; }
+.sect-more { font-size: 11px; font-weight: 500; background: var(--grad); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; cursor: pointer; border: none; background-color: transparent; }
+
+/* Recently played */
+.rp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 4px; margin-bottom: 22px; }
+.rp-item { display: flex; align-items: center; gap: 9px; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; padding: 8px 10px; cursor: pointer; transition: background var(--hover-out) ease-out; overflow: hidden; }
+.rp-item:hover { background: var(--surface2); transition-duration: var(--hover-in); }
+.rp-art { width: 36px; height: 36px; border-radius: 5px; flex-shrink: 0; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+.rp-art img { width: 100%; height: 100%; object-fit: cover; }
+.rp-name { font-size: 12px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rp-sub { font-size: 11px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* More items are fetched than any row could hold (see loadRecentlyPlayed),
+   so the grid is always exactly full at any window width instead of
+   ragged. grid-auto-rows: 0 collapses every implicit row past the 4
+   explicit ones to nothing; overflow: hidden clips what that leaves
+   hanging outside the container. row-gap: 0 stops the collapsed rows
+   from still contributing a gap - no resize listener needed. */
+#rp-grid { grid-template-rows: repeat(4, auto); grid-auto-rows: 0; row-gap: 0; overflow: hidden; }
+
+/* Album grid */
+.album-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; margin-bottom: 8px; }
+/* Same clipping trick as #rp-grid above, but to a single row - "Recently
+   added" reads as one shelf of covers, not a stack. */
+#home-recent-albums { grid-template-rows: auto; grid-auto-rows: 0; row-gap: 0; overflow: hidden; }
+.album-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; cursor: pointer; transition: background var(--hover-out) ease-out; }
+.album-card:hover { background: var(--surface2); transition-duration: var(--hover-in); }
+.album-art { width: 100%; aspect-ratio: 1; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 36px; }
+.album-art img { width: 100%; height: 100%; object-fit: cover; }
+.album-body { padding: 8px 9px 9px; }
+.album-name { font-size: 12px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; }
+.album-artist { font-size: 11px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── Video: posters, detail, episodes ──
+   Posters are 2:3 rather than the 1:1 an album cover uses, so they get their
+   own grid rather than a modifier on .album-grid. Everything else reuses the
+   card chrome. */
+/* Movies/TV nav rows are independent: each stays hidden until its own
+   category is in play (a library picked in Settings, or auto-selected
+   because there's only one), which sets .has-movies / .has-shows on <body>. */
+body:not(.has-movies) .nav-movies { display: none; }
+body:not(.has-shows) .nav-shows { display: none; }
+/* Music / Video mode: on top of the has-movies/has-shows gating above, not
+   instead of it. Either rule alone can hide a nav row; nothing here ever
+   needs to un-hide one. */
+.mode-toggle.hidden { display: none; }
+/* .seg-btn is sized for the full-width Dark/Light row in Settings: flex: 1
+   and no horizontal padding, which in a shrink-to-fit titlebar control puts
+   the content flush against the edges. */
+.mode-toggle .seg-btn { flex: 0 0 auto; padding: 3px 10px; display: flex; align-items: center; justify-content: center; }
+.mode-toggle .seg-btn svg { width: 15px; height: 15px; display: block; }
+body.mode-video .nav-music { display: none; }
+body.mode-music .nav-movies, body.mode-music .nav-shows { display: none; }
+/* Home shelves: the music pair (#home-music-shelves) hides outright in
+   Video mode. The video pair already hides itself via inline style when
+   empty (loadContinueWatching/loadRecentlyWatched) - !important is what
+   lets Music mode override that inline style too. */
+body.mode-video #home-music-shelves { display: none; }
+body.mode-music #home-resume-section, body.mode-music #home-continue-section { display: none !important; }
+.poster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; margin-bottom: 8px; }
+/* Same single-row clipping trick as #home-recent-albums, for the Home
+   "Recently watched" shelf. */
+#home-continue-grid { grid-template-rows: auto; grid-auto-rows: 0; row-gap: 0; overflow: hidden; }
+.poster-card { cursor: pointer; }
+.poster-art { width: 100%; aspect-ratio: 2/3; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 32px; color: var(--text3); position: relative; transition: border-color var(--hover-out) ease-out; }
+.poster-card:hover .poster-art { border-color: var(--accent); transition-duration: var(--hover-in); }
+.poster-art img { width: 100%; height: 100%; object-fit: cover; }
+.poster-name { font-size: 12px; font-weight: 500; color: var(--text); margin-top: 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.poster-sub { font-size: 11px; color: var(--text3); }
+/* Resume bar across the bottom of a poster - how far in the user got. */
+.poster-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(0,0,0,0.5); }
+.poster-progress > span { display: block; height: 100%; background: var(--accent); }
+
+/* Poster grid split into one section per library, when a category has more
+   than one - collapsible so a big library doesn't force endless scrolling.
+
+   .lib-grouped is what stops the container laying its groups out as grid
+   cells. #movies-grid and #shows-grid carry .poster-grid, which is a
+   150px-column grid, so a .lib-group child became ONE 150px cell: two
+   libraries rendered as two narrow columns side by side, each showing a
+   single clipped poster. The groups stack; only the cards inside them are
+   ever a grid or a shelf. */
+.poster-grid.lib-grouped { display: block; }
+.lib-group + .lib-group { margin-top: 20px; }
+.lib-group-header { cursor: pointer; user-select: none; }
+.lib-group-header:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); border-radius: 6px; }
+.lib-group-chevron { display: inline-block; margin-right: 6px; transition: transform 0.12s; }
+.lib-group.collapsed .lib-group-chevron { transform: rotate(-90deg); }
+.lib-group.collapsed .hshelf { display: none; }
+.lib-group-count { font-size: 11px; color: var(--text3); }
+
+/* ── Horizontal shelf: a sideways-scrolling row with edge arrows ──
+   One component, reused for Home's "Continue watching" and for a grouped
+   library's poster row (.lib-group .poster-grid, below). The track itself
+   is a plain overflow-x:auto flex row, so a trackpad's native horizontal
+   swipe and the page's own vertical scroll both keep working untouched -
+   the arrows only exist for a plain vertical-only mouse wheel, which
+   cannot reach that scroll at all otherwise. wireHShelf() (renderer.js)
+   shows/hides each arrow based on real overflow and current scroll
+   position, so a row that already fits never shows a dead arrow. */
+.hshelf { position: relative; }
+.hshelf-track {
+  display: flex; gap: 14px; overflow-x: auto; overflow-y: hidden;
+  scroll-behavior: smooth; scrollbar-width: none; -ms-overflow-style: none;
+  padding-bottom: 2px;
+}
+.hshelf-track::-webkit-scrollbar { display: none; }
+.poster-grid.hshelf-track { display: flex; }
+/* min-width:0 is load-bearing. A flex item defaults to min-width:auto,
+   which clamps it to its min-content width, and .poster-name is nowrap -
+   so its min-content width is the whole untruncated title and a long one
+   drags the card past its 150px basis. aspect-ratio then turns that into a
+   taller poster too, which is what made a shelf of long-titled shows sit
+   staggered. Constraining the card is also what lets .poster-name's own
+   text-overflow:ellipsis finally have something to ellipsize against. */
+.poster-grid.hshelf-track .poster-card { flex: 0 0 150px; min-width: 0; }
+.hshelf-arrow {
+  position: absolute; top: 0; bottom: 6px; width: 42px; z-index: 5;
+  display: flex; align-items: center; justify-content: center;
+  border: none; cursor: pointer; color: var(--text); padding: 0;
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity 0.15s;
+}
+.hshelf-arrow.show { opacity: 1; visibility: visible; pointer-events: auto; }
+.hshelf-arrow-left { left: 0; background: linear-gradient(to right, var(--bg) 40%, transparent); justify-content: flex-start; }
+.hshelf-arrow-right { right: 0; background: linear-gradient(to left, var(--bg) 40%, transparent); justify-content: flex-end; }
+.hshelf-arrow svg { width: 20px; height: 20px; filter: drop-shadow(0 1px 3px rgba(0,0,0,0.35)); transition: transform 0.12s; }
+.hshelf-arrow:hover svg { transform: scale(1.2); }
+.hshelf-arrow:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); border-radius: 6px; }
+
+.vd-header { display: flex; gap: 22px; margin-bottom: 22px; align-items: flex-start; }
+.vd-poster { width: 190px; flex-shrink: 0; aspect-ratio: 2/3; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 40px; color: var(--text3); }
+.vd-poster img { width: 100%; height: 100%; object-fit: cover; }
+.vd-info { flex: 1; min-width: 0; padding-top: 4px; }
+.vd-title { font-size: 25px; font-weight: 650; letter-spacing: -0.02em; color: var(--text); margin-bottom: 6px; }
+.vd-meta { font-size: 12px; color: var(--text3); margin-bottom: 14px; }
+.vd-overview { font-size: 13px; line-height: 1.6; color: var(--text2); max-width: 62ch; margin-bottom: 18px; }
+.vd-actions { display: flex; gap: 9px; flex-wrap: wrap; }
+
+.season-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+.season-tab { background: var(--surface); border: 1px solid var(--border); color: var(--text3); border-radius: 999px; padding: 5px 13px; font-size: 12px; cursor: pointer; transition: all 0.12s; }
+.season-tab:hover { color: var(--text); }
+.season-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.ep-row { display: grid; grid-template-columns: 132px 1fr auto; gap: 14px; align-items: start; padding: 10px; border-radius: 8px; cursor: pointer; transition: background var(--hover-out) ease-out; }
+.ep-row:hover { background: var(--surface2); transition-duration: var(--hover-in); }
+.ep-row.playing .ep-title { color: var(--accent); }
+.ep-thumb { width: 132px; aspect-ratio: 16/9; background: var(--surface2); border-radius: 5px; overflow: hidden; position: relative; display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--text3); }
+.ep-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.ep-title { font-size: 13px; font-weight: 500; color: var(--text); margin-bottom: 3px; }
+.ep-overview { font-size: 12px; line-height: 1.5; color: var(--text3); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ep-time { font-size: 11px; color: var(--text3); font-variant-numeric: tabular-nums; padding-top: 2px; }
+.ep-watched { color: var(--accent); }

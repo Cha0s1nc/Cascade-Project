@@ -1,0 +1,180 @@
+/* ── Album art fullscreen theme ── */
+/* Background gradient is set directly on the overlay via JS inline style */
+.np-overlay.art-theme {
+  transition: transform 0.38s cubic-bezier(0.4,0,0.2,1);
+}
+/* #ov-bg-pulse is now purely a beat-darkening overlay (black, variable opacity) */
+#ov-bg-pulse {
+  display: none;
+  position: absolute;
+  inset: 0;
+  background: black;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+.np-overlay.art-theme #ov-bg-pulse { display: block; }
+.np-overlay.art-theme > *:not(#ov-bg-pulse) { position: relative; z-index: 2; }
+/* Tint panels so content stays readable over the blob background */
+.np-overlay.art-theme .np-overlay-left { background: rgba(0,0,0,0.25); }
+.np-overlay.art-theme .np-overlay-right { background: rgba(0,0,0,0.1); }
+.np-overlay.art-theme .np-overlay-header { background: rgba(0,0,0,0.28); }
+/* Force all overlay control buttons white + black outline */
+.np-overlay.art-theme .np-ov-ctrl,
+.np-overlay.art-theme .np-ov-ctrl.active,
+.np-overlay.art-theme .np-overlay-close,
+.np-overlay.art-theme .np-like-ov { color: white !important; filter: drop-shadow(0 1px 3px rgba(0,0,0,0.8)); }
+/* Force SVG stroke directly so active-state accent can't bleed through */
+.np-overlay.art-theme .np-ov-ctrl svg,
+.np-overlay.art-theme .np-ov-ctrl.active svg,
+.np-overlay.art-theme .np-overlay-close svg { stroke: white !important; }
+.np-overlay.art-theme .np-ov-ctrl:hover,
+.np-overlay.art-theme .np-ov-ctrl.active:hover,
+.np-overlay.art-theme .np-overlay-close:hover,
+.np-overlay.art-theme .np-like-ov:hover { color: rgba(255,255,255,0.75) !important; }
+.np-overlay.art-theme .np-ov-ctrl:hover svg,
+.np-overlay.art-theme .np-ov-ctrl.active:hover svg { stroke: rgba(255,255,255,0.75) !important; }
+/* Active buttons: white with full opacity, dimmed when inactive */
+.np-overlay.art-theme .np-ov-ctrl:not(.active) { opacity: 0.55; }
+.np-overlay.art-theme .np-ov-ctrl.active { opacity: 1; }
+.np-overlay.art-theme .np-like-ov.liked { color: #ff6b8a !important; }
+/* Play/pause button: white pill, black icons */
+.np-overlay.art-theme .np-ov-play { background: white; box-shadow: 0 2px 12px rgba(0,0,0,0.5); }
+.np-overlay.art-theme .np-ov-play svg { fill: #111 !important; }
+/* Progress + volume bars */
+.np-overlay.art-theme .np-overlay-prog-bar { background: rgba(255,255,255,0.2); }
+.np-overlay.art-theme .np-overlay-prog-fill { background: white; }
+.np-overlay.art-theme #ov-vol-fill { background: rgba(255,255,255,0.7) !important; }
+/* Track text */
+.np-overlay.art-theme .np-overlay-track { color: white; }
+.np-overlay.art-theme .np-overlay-artist { color: rgba(255,255,255,0.7); }
+.np-overlay.art-theme .np-overlay-time { color: rgba(255,255,255,0.6); }
+/* Queue/lyrics panel gets a translucent dark surface */
+.np-overlay.art-theme #ov-panel-queue { background: transparent; }
+.np-overlay.art-theme #ov-panel-lyrics { background: transparent !important; }
+/* Browsing shows the whole lyric, and the art wash behind it can be any
+   colour the cover happens to be - a pale one leaves white text sitting on
+   near-white. A scrim only while scrolling costs nothing the rest of the
+   time, and reads as the panel dimming to be read. */
+.np-overlay.art-theme #ov-panel-lyrics.browsing { background: rgba(0,0,0,0.3) !important; }
+#ov-panel-lyrics { transition: background 0.35s ease; }
+.np-overlay.art-theme .queue-row:hover { background: rgba(255,255,255,0.07); transition-duration: var(--hover-in); }
+.np-overlay.art-theme .queue-row.current { background: rgba(255,255,255,0.15); }
+.np-overlay.art-theme .queue-row-title { color: rgba(255,255,255,0.9); }
+.np-overlay.art-theme .queue-row-artist,
+.np-overlay.art-theme .queue-row-dur { color: rgba(255,255,255,0.45); }
+.np-overlay.art-theme .np-overlay-tabs { border-bottom-color: rgba(255,255,255,0.12); }
+.np-overlay.art-theme .np-ov-tab { color: rgba(255,255,255,0.45); }
+.np-overlay.art-theme .np-ov-tab.active { color: white; }
+.np-overlay.art-theme .np-overlay-title { color: rgba(255,255,255,0.5); }
+
+/* Light theme's blobs are pale (album-colors.ts' light MIN_L/MAX_L pair),
+   not the black-glow vivid ones above - so the white text and black-tinted
+   panel scrims tuned for that dark background need light equivalents here,
+   or the title/artist/lyrics read as this codebase's other readability bug
+   (dd975bd) in the opposite direction: dark-on-dark became white-on-white
+   instead of white-on-pale. Deliberately narrow: only the text and the
+   panel scrims behind it, not the control rows (buttons/sliders), which
+   stay exactly as they are. */
+/* Pale blobs added straight (background-blend-mode's default, "normal")
+   wash out fast where two overlap - multiply keeps the overlap readable as
+   a deeper mix of the two colours instead of flattening toward white,
+   which is what a "glow" blend (screen/lighten, the dark theme's implicit
+   behaviour) would do here. */
+/* The four custom properties below (--np-blend, --np-scrim-*) exist so the
+   debug panel's light-mode tuning sliders can override them live from JS -
+   see initLightTuningPanel() in renderer.js. Their fallback values are the
+   shipped defaults; nothing outside that debug panel ever sets them. */
+html[data-theme="light"] .np-overlay.art-theme { background-blend-mode: var(--np-blend, multiply); }
+html[data-theme="light"] .np-overlay.art-theme .np-overlay-left { background: rgba(255,255,255,var(--np-scrim-left, 0.16)); }
+html[data-theme="light"] .np-overlay.art-theme .np-overlay-right { background: rgba(255,255,255,var(--np-scrim-right, 0.16)); }
+html[data-theme="light"] .np-overlay.art-theme .np-overlay-header { background: rgba(255,255,255,var(--np-scrim-header, 0.16)); }
+html[data-theme="light"] .np-overlay.art-theme .np-overlay-track { color: #1c1c1e; }
+html[data-theme="light"] .np-overlay.art-theme .np-overlay-artist { color: rgba(28,28,30,0.7); }
+html[data-theme="light"] .np-overlay.art-theme .np-overlay-title { color: rgba(28,28,30,0.5); }
+/* The karaoke active line floats directly on the blobs with no scrim (only
+   .browsing gets one, and that scrim is already dark - see dd975bd - so it
+   needs no light variant). Everything else in .ov-lyric-line/.ov-lyric-word
+   is deliberately left alone: it is already unreadable in light theme with
+   album art off, which is a pre-existing gap this task did not touch. */
+html[data-theme="light"] .np-overlay.art-theme .ov-lyric-line.active {
+  color: #1c1c1e; filter: drop-shadow(0 0 18px rgba(255,255,255,0.55));
+}
+html[data-theme="light"] .np-overlay.art-theme .ov-lyric-line.active .ov-lyric-word {
+  background: linear-gradient(to right, #1c1c1e var(--p), rgba(28,28,30,0.4) var(--p));
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+html[data-theme="light"] .np-overlay.art-theme .ov-lyric-line.active .ov-lyric-word.active {
+  filter: drop-shadow(0 0 8px rgba(255,255,255,0.7));
+}
+
+/* ── Light theme ── */
+html[data-theme="light"] {
+  --bg: #f2f2f7; --surface: #ffffff; --surface2: #e5e5ea; --border: #d1d1d6;
+  --text: #1c1c1e; --text2: #636366; --text3: #aeaeb2;
+  --accent-glow: rgba(110,79,246,0.15);
+}
+html[data-theme="light"] .backdrop.dim { background: rgba(0,0,0,0.28); }
+html[data-theme="light"] .np-overlay { background: var(--bg); }
+
+/* ── Theme picker ── */
+#theme-dot { width: 11px; height: 11px; border-radius: 50%; background: var(--grad); cursor: pointer; flex-shrink: 0; transition: transform 0.15s, filter 0.15s; border: none; padding: 0; }
+#theme-dot:hover { transform: scale(1.25); filter: brightness(1.15); }
+/* display stays flex always (never none) so opacity/transform/visibility
+   can animate reversibly, same trick as #setup-overlay. */
+.theme-picker { position: absolute; top: 46px; right: 16px; z-index: 400; width: 248px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 13px;
+  padding: 14px 14px 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.45);
+  display: flex; flex-direction: column; gap: 13px;
+  opacity: 0; visibility: hidden; pointer-events: none; transform: scale(0.98); transform-origin: top right;
+  transition: opacity 140ms cubic-bezier(0.2,0.7,0.3,1), transform 140ms cubic-bezier(0.2,0.7,0.3,1), visibility 140ms; }
+.theme-picker.open { opacity: 1; visibility: visible; pointer-events: auto; transform: none; }
+.tp-row { display: flex; align-items: center; justify-content: space-between; }
+.tp-title { font-size: 12px; font-weight: 600; color: var(--text); }
+.tp-close { background: none; border: none; color: var(--text3); cursor: pointer; font-size: 18px; line-height: 1; padding: 0 2px; transition: color 0.12s; }
+.tp-close:hover { color: var(--text); }
+.tp-label { font-size: 10px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 7px; }
+.tp-divider { height: 1px; background: var(--border); margin: 0 -14px; }
+.seg-control { display: flex; background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 2px; gap: 2px; }
+.seg-btn { font-family: var(--font); font-size: 11px; font-weight: 500; padding: 4px 0; flex: 1; text-align: center; border-radius: 5px; border: none; background: transparent; color: var(--text2); cursor: pointer; transition: all 0.15s; }
+.seg-btn.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+.tp-colors { display: flex; align-items: center; gap: 8px; }
+.tp-color-wrap { display: flex; flex-direction: column; align-items: center; gap: 3px; flex: 1; }
+.tp-color-name { font-size: 10px; color: var(--text3); }
+.tp-arrow { font-size: 13px; color: var(--text3); }
+input[type="color"].tp-swatch { width: 100%; height: 30px; border: 1px solid var(--border); border-radius: 7px; cursor: pointer; padding: 2px 3px; background: var(--surface2); }
+.tp-presets { display: flex; gap: 7px; flex-wrap: wrap; }
+.tp-preset { width: 26px; height: 26px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; transition: transform 0.12s, border-color 0.15s; box-shadow: 0 1px 4px rgba(0,0,0,0.3); }
+.tp-preset:hover { transform: scale(1.18); }
+.tp-preset.active { border-color: var(--text); }
+/* Album art accent overrides the gradient/presets while it's on, so both
+   are dimmed and inert rather than clickable but pointless. The lock
+   stays off the host itself so it still catches hover for its tooltip. */
+.tp-colors.locked, #tp-presets.locked { opacity: 0.45; }
+.tp-colors.locked .tp-swatch, #tp-presets.locked .tp-preset { pointer-events: none; }
+.tp-colors.locked[data-tip], #tp-presets.locked[data-tip] { cursor: not-allowed; }
+.tp-album-row { display: flex; align-items: center; justify-content: space-between; }
+.tp-album-label { display: flex; flex-direction: column; gap: 2px; }
+.tp-album-name { font-size: 12px; font-weight: 500; color: var(--text); }
+.tp-album-desc { font-size: 10px; color: var(--text3); }
+.toggle { position: relative; width: 36px; height: 20px; flex-shrink: 0; }
+.toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+.toggle-track { position: absolute; inset: 0; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; cursor: pointer; transition: background 0.2s, border-color 0.2s; }
+.toggle input:checked + .toggle-track { background: var(--accent); border-color: var(--accent); }
+.toggle-track::after { content: ''; position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; background: white; border-radius: 50%; transition: transform 0.2s; }
+.toggle input:checked + .toggle-track::after { transform: translateX(16px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ctx-menu, .ov-dropdown, .theme-picker, .modal-overlay, .modal-card,
+  .lyrics-source-dropdown, .ov-more-scrim { transition: none; }
+  .hshelf-track { scroll-behavior: auto; }
+  .hshelf-arrow, .hshelf-arrow svg { transition: none; }
+  /* Two of the four animations that never stop on their own. The eq bars
+     are decorative and stop outright; the spinner only slows down, because
+     a frozen spinner stops telling the user work is still in flight.
+     The other two are handled at the end of this stylesheet - their rules
+     are defined below this point, and a media query adds no specificity,
+     so an override here would lose the cascade and silently do nothing. */
+  .track-eq i { animation: none; }
+  .setup-spinner { animation-duration: 3s; }
+}

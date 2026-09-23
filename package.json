@@ -52,6 +52,7 @@
       "main.js",
       "mac-update.js",
       "index.html",
+      "styles/**/*",
       "renderer.js",
       "waterfall.js",
       "build/core.js",
