@@ -92,13 +92,16 @@ final class AppState {
     /// Updates the existing client rather than going through `adopt`, which
     /// would build a new PlaybackService and stop whatever is playing. Changing
     /// a browsing preference in Settings has no business interrupting a track.
-    func setLibraries(_ ids: [String]) {
+    ///
+    /// The client is updated BEFORE the published config changes: screens
+    /// reload when the config's library list changes, and reloading first
+    /// meant querying the client while it still held the old selection.
+    func setLibraries(_ ids: [String]) async {
         guard var config else { return }
         config.libraryIds = ids
         UserDefaults.standard.set(ids, forKey: "cascade.libraryIds")
+        await client?.update(config: config)
         self.config = config
-        let client = self.client
-        Task { await client?.update(config: config) }
     }
 
     private func adopt(_ config: ServerConfig) {

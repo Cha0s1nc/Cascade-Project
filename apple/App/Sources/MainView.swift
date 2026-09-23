@@ -30,27 +30,25 @@ struct MainView: View {
 
     private var tabs: some View {
         TabView {
-            Tab("Home", systemImage: "house") {
-                NavigationStack { HomeView() }
-            }
-            Tab("Albums", systemImage: "square.stack") {
-                NavigationStack { AlbumsView() }
-            }
-            Tab("Artists", systemImage: "music.mic") {
-                NavigationStack { ArtistsView() }
-            }
-            Tab("Songs", systemImage: "music.note.list") {
-                NavigationStack { SongsView() }
-            }
-            Tab("Playlists", systemImage: "music.note.square.stack") {
-                NavigationStack { PlaylistsView() }
-            }
-            Tab("Search", systemImage: "magnifyingglass", role: .search) {
-                NavigationStack { SearchView() }
-            }
-            Tab("Settings", systemImage: "gear") {
-                NavigationStack { SettingsView() }
-            }
+            Tab("Home", systemImage: "house") { stack { HomeView() } }
+            Tab("Albums", systemImage: "square.stack") { stack { AlbumsView() } }
+            Tab("Artists", systemImage: "music.mic") { stack { ArtistsView() } }
+            Tab("Songs", systemImage: "music.note.list") { stack { SongsView() } }
+            Tab("Playlists", systemImage: "music.note.square.stack") { stack { PlaylistsView() } }
+            #if os(tvOS)
+            Tab("Search", systemImage: "magnifyingglass", role: .search) { stack { SearchView() } }
+            Tab("Settings", systemImage: "gear") { stack { SettingsView() } }
+            #endif
+        }
+    }
+
+    /// One stack per tab, with the shared routes and (on iOS) the search and
+    /// settings buttons.
+    private func stack<Content: View>(@ViewBuilder _ root: () -> Content) -> some View {
+        NavigationStack {
+            root()
+                .libraryToolbar()
+                .appNavigation()
         }
     }
 }

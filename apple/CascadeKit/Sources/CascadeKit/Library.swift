@@ -30,31 +30,37 @@ public extension JellyfinClient {
         return music.filter { chosen.contains($0.id) }
     }
 
-    /// One query per selected library, merged and de-duplicated by id. With no
-    /// library selected this is a single unscoped query.
+    /// One query per selected library, run in parallel, merged in library
+    /// order and de-duplicated by id. With no library selected this is a
+    /// single unscoped query.
     ///
     /// Jellyfin has no "these parents" parameter, so scoping to more than one
-    /// library genuinely is more than one request.
-    func itemsAcrossLibraries(_ params: [String: String?]) async throws -> [JfItem] {
+    /// library genuinely is more than one request; they used to run one after
+    /// another, which is most of why a multi-library screen felt slow.
+    func itemsAcrossLibraries(_ params: [String: String?], path: String = "/Items") async throws -> [JfItem] {
         let libraries = currentConfig.libraryIds
         guard !libraries.isEmpty else {
-            let response: JfItemsResponse = try await get("/Items", params: params)
+            let response: JfItemsResponse = try await get(path, params: params)
             return response.items ?? []
         }
 
-        var merged: [JfItem] = []
-        var seen = Set<String>()
-        for library in libraries {
-            var scoped = params
-            scoped["parentId"] = library
-            // One failing library must not sink the whole screen, so this
-            // yields nothing for that library rather than throwing.
-            let response: JfItemsResponse? = try? await get("/Items", params: scoped)
-            for item in response?.items ?? [] where seen.insert(item.id).inserted {
-                merged.append(item)
+        let pages = await withTaskGroup(of: (Int, [JfItem]).self) { group in
+            for (index, library) in libraries.enumerated() {
+                var scoped = params
+                scoped["parentId"] = library
+                group.addTask {
+                    // One failing library must not sink the whole screen, so
+                    // it yields nothing rather than throwing.
+                    let response: JfItemsResponse? = try? await self.get(path, params: scoped)
+                    return (index, response?.items ?? [])
+                }
             }
+            var byLibrary: [(Int, [JfItem])] = []
+            for await page in group { byLibrary.append(page) }
+            return byLibrary.sorted { $0.0 < $1.0 }.flatMap(\.1)
         }
-        return merged
+        var seen = Set<String>()
+        return pages.filter { seen.insert($0.id).inserted }
     }
 
     private var baseParams: [String: String?] {
@@ -71,27 +77,14 @@ public extension JellyfinClient {
     }
 
     /// Album artists rather than every credited artist, which is the list a
-    /// music app means by "Artists". A separate endpoint, not an item type.
-    func artists(limit: Int = 500) async throws -> [JfItem] {
-        let libraries = currentConfig.libraryIds
-        var params: [String: String?] = ["userId": currentConfig.userId, "limit": String(limit)]
-        // This endpoint takes one parentId, so with several libraries selected
-        // it is queried per library, same as itemsAcrossLibraries.
-        guard !libraries.isEmpty else {
-            let response: JfItemsResponse = try await get("/Artists/AlbumArtists", params: params)
-            return response.items ?? []
-        }
-
-        var merged: [JfItem] = []
-        var seen = Set<String>()
-        for library in libraries {
-            params["parentId"] = library
-            let response: JfItemsResponse? = try? await get("/Artists/AlbumArtists", params: params)
-            for item in response?.items ?? [] where seen.insert(item.id).inserted {
-                merged.append(item)
-            }
-        }
-        return merged
+    /// music app means by "Artists". A separate endpoint, not an item type; it
+    /// takes one parentId, so several libraries are queried per library too.
+    func artists(limit: Int = 500, startIndex: Int = 0) async throws -> [JfItem] {
+        try await itemsAcrossLibraries([
+            "userId": currentConfig.userId,
+            "limit": String(limit),
+            "startIndex": String(startIndex),
+        ], path: "/Artists/AlbumArtists")
     }
 
     func songs(limit: Int = 500, startIndex: Int = 0) async throws -> [JfItem] {

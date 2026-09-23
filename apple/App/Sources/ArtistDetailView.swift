@@ -8,21 +8,14 @@ struct ArtistDetailView: View {
     @State private var albums: [JfItem] = []
     @State private var isLoading = true
     @State private var error: String?
-    @State private var selected: JfItem?
-    @State private var showDetail = false
 
     var body: some View {
         ScrollView {
             header
             LoadingOverlay(isLoading: isLoading, error: error, isEmpty: albums.isEmpty)
-            ItemGrid(items: albums) { selected = $0; showDetail = true }
+            ItemGrid(items: albums)
         }
         .navigationTitle(artist.name ?? "Artist")
-        // JfItem is not Hashable, so navigationDestination(item:) is out;
-        // isPresented only needs the Bool.
-        .navigationDestination(isPresented: $showDetail) {
-            if let selected { AlbumDetailView(album: selected) }
-        }
         .task {
             guard let client = state.client else { return }
             do { albums = try await client.albums(byArtist: artist.id) }

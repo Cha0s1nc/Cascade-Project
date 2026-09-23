@@ -5,6 +5,13 @@ import CascadeKit
 struct CascadeApp: App {
     @State private var state = AppState()
 
+    init() {
+        // Artwork loads through AsyncImage on URLSession.shared. Jellyfin marks
+        // images cache-control: public, but the default cache holds only a
+        // few megabytes, so scrolling back up re-downloaded every cover.
+        URLCache.shared = URLCache(memoryCapacity: 64 << 20, diskCapacity: 512 << 20)
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()

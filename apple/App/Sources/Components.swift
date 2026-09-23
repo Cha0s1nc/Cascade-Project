@@ -68,7 +68,6 @@ struct TrackRow: View {
 /// share one view rather than two near-identical ones.
 struct ItemGrid: View {
     let items: [JfItem]
-    let onSelect: (JfItem) -> Void
 
     #if os(tvOS)
     private let tile: CGFloat = 220
@@ -80,18 +79,21 @@ struct ItemGrid: View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: tile), spacing: 16)], spacing: 20) {
                 ForEach(items) { item in
-                    Button {
-                        onSelect(item)
-                    } label: {
+                    NavigationLink(value: item) {
                         VStack(alignment: .leading, spacing: 6) {
                             ArtworkView(itemId: item.id, size: tile)
                             Text(item.name ?? "Unknown")
                                 .font(.caption)
                                 .lineLimit(1)
-                            Text(item.albumArtist ?? "\(item.childCount ?? 0) tracks")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
+                            // Only what the server actually sent: artists come
+                            // without a count, and "0 tracks" under every one
+                            // of them was a made-up number.
+                            if let subtitle = subtitle(item) {
+                                Text(subtitle)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
                         }
                     }
                     .buttonStyle(.plain)
@@ -99,6 +101,12 @@ struct ItemGrid: View {
             }
             .padding()
         }
+    }
+
+    private func subtitle(_ item: JfItem) -> String? {
+        if let artist = item.albumArtist { return artist }
+        if let count = item.childCount { return count == 1 ? "1 song" : "\(count) songs" }
+        return nil
     }
 }
 

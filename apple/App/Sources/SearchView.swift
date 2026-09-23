@@ -24,9 +24,7 @@ struct SearchView: View {
             if !artists.isEmpty {
                 Section("Artists") {
                     ForEach(artists) { artist in
-                        NavigationLink {
-                            ArtistDetailView(artist: artist)
-                        } label: {
+                        NavigationLink(value: artist) {
                             Text(artist.name ?? "Unknown")
                         }
                     }
@@ -35,9 +33,7 @@ struct SearchView: View {
             if !albums.isEmpty {
                 Section("Albums") {
                     ForEach(albums) { album in
-                        NavigationLink {
-                            AlbumDetailView(album: album)
-                        } label: {
+                        NavigationLink(value: album) {
                             Text(album.name ?? "Unknown")
                         }
                     }

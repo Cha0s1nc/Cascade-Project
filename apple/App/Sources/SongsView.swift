@@ -31,10 +31,17 @@ struct SongsView: View {
                 sortControl
             }
         }
-        .task {
+        // Keyed on the library selection, so changing it in Settings reloads.
+        .task(id: state.config?.libraryIds) {
             guard let client = state.client else { return }
-            do { items = try await client.songs() }
-            catch { self.error = error.localizedDescription }
+            isLoading = true
+            error = nil
+            do {
+                try await loadPaged(fetch: { try await client.songs(limit: $0, startIndex: $1) }) {
+                    items = $0
+                    isLoading = false
+                }
+            } catch { self.error = error.localizedDescription }
             isLoading = false
         }
     }

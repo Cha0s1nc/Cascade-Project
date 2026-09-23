@@ -57,7 +57,10 @@ struct SettingsView: View {
         .task {
             guard let client = state.client else { return }
             selected = Set(state.config?.libraryIds ?? [])
-            do { libraries = try await client.musicLibraries() }
+            // Every music library, not musicLibraries(): that one is filtered
+            // to the current selection, so after picking one library the
+            // others vanished from this list and could never be picked again.
+            do { libraries = try await client.views().filter { $0.collectionType == "music" } }
             catch { self.error = error.localizedDescription }
             isLoading = false
         }
@@ -65,6 +68,7 @@ struct SettingsView: View {
 
     private func toggle(_ id: String) {
         if selected.contains(id) { selected.remove(id) } else { selected.insert(id) }
-        state.setLibraries(Array(selected))
+        let ids = Array(selected)
+        Task { await state.setLibraries(ids) }
     }
 }

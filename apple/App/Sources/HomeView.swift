@@ -9,11 +9,12 @@ struct HomeView: View {
     @State private var recentAlbums: [JfItem] = []
     @State private var recentTracks: [JfItem] = []
     @State private var frequentTracks: [JfItem] = []
+    @State private var playlists: [JfItem] = []
     @State private var isLoading = true
     @State private var error: String?
 
     private var isEmpty: Bool {
-        recentAlbums.isEmpty && recentTracks.isEmpty && frequentTracks.isEmpty
+        recentAlbums.isEmpty && recentTracks.isEmpty && frequentTracks.isEmpty && playlists.isEmpty
     }
 
     var body: some View {
@@ -26,6 +27,11 @@ struct HomeView: View {
                 if !recentTracks.isEmpty {
                     row("Recently Played", tracks: recentTracks)
                 }
+                if !playlists.isEmpty {
+                    // "Recent" only once something has been played from one;
+                    // until then it is simply the user's playlists.
+                    row(RecentPlaylists.ids.isEmpty ? "Playlists" : "Recent Playlists", albums: playlists)
+                }
                 if !frequentTracks.isEmpty {
                     row("Frequently Played", tracks: frequentTracks)
                 }
@@ -33,13 +39,20 @@ struct HomeView: View {
             .padding(.vertical)
         }
         .navigationTitle("Home")
-        .task {
+        // Keyed on the library selection, so changing it in Settings reloads.
+        .task(id: state.config?.libraryIds) {
             guard let client = state.client else { return }
+            isLoading = true
             do {
                 async let added = client.recentlyAdded()
                 async let played = client.recentlyPlayed()
                 async let frequent = client.frequentlyPlayed()
+                // Playlists are optional here: a failure hides the row rather
+                // than the whole screen.
+                async let lists = try? client.playlists()
                 (recentAlbums, recentTracks, frequentTracks) = try await (added, played, frequent)
+                playlists = Array(RecentPlaylists.ordered(await lists ?? []).prefix(12))
+                error = nil
             } catch {
                 self.error = error.localizedDescription
             }
@@ -53,9 +66,7 @@ struct HomeView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 16) {
                     ForEach(albums) { album in
-                        NavigationLink {
-                            AlbumDetailView(album: album)
-                        } label: {
+                        NavigationLink(value: album) {
                             VStack(alignment: .leading, spacing: 6) {
                                 ArtworkView(itemId: album.id, size: 150)
                                 Text(album.name ?? "Unknown").font(.caption).lineLimit(1)

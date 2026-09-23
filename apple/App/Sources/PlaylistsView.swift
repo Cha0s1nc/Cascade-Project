@@ -8,18 +8,13 @@ struct PlaylistsView: View {
     @State private var items: [JfItem] = []
     @State private var isLoading = true
     @State private var error: String?
-    @State private var selected: JfItem?
-    @State private var showDetail = false
 
     var body: some View {
         ScrollView {
             LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty)
-            ItemGrid(items: items) { selected = $0; showDetail = true }
+            ItemGrid(items: items)
         }
         .navigationTitle("Playlists")
-        .navigationDestination(isPresented: $showDetail) {
-            if let selected { PlaylistDetailView(playlist: selected) }
-        }
         .task {
             guard let client = state.client else { return }
             do { items = try await client.playlists() }
@@ -51,11 +46,13 @@ struct PlaylistDetailView: View {
                         .foregroundStyle(.secondary)
                     HStack(spacing: 16) {
                         Button {
+                            RecentPlaylists.touch(playlist.id)
                             Task { await state.player?.play(tracks, startIndex: 0) }
                         } label: {
                             Label("Play", systemImage: "play.fill")
                         }
                         Button {
+                            RecentPlaylists.touch(playlist.id)
                             Task {
                                 await state.player?.play(tracks, startIndex: 0)
                                 state.player?.toggleShuffle()
@@ -72,6 +69,7 @@ struct PlaylistDetailView: View {
 
                 ForEach(Array(tracks.enumerated()), id: \.offset) { index, track in
                     Button {
+                        RecentPlaylists.touch(playlist.id)
                         Task { await state.player?.play(tracks, startIndex: index) }
                     } label: {
                         TrackRow(track: track)
