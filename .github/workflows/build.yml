@@ -88,9 +88,37 @@ jobs:
             echo "should_release=false" >> $GITHUB_OUTPUT
           fi
 
+  # ── Test and typecheck ────────────────────────────────────────────────────
+  # Gates every build job below: a red test or a type error must never reach
+  # a packaged build, let alone a release draft.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # build:apple no-ops off macOS, and build:bergamot only unpacks files
+      # already fetched by npm ci, so the full build:ts is safe and free on
+      # Linux - no point splitting it just to run on ubuntu.
+      - name: Build TypeScript
+        run: npm run build:ts
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm test
+
   # ── Windows ────────────────────────────────────────────────────────────────
   build-windows:
-    needs: setup
+    needs: [setup, test]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -118,7 +146,7 @@ jobs:
 
   # ── macOS ──────────────────────────────────────────────────────────────────
   build-mac:
-    needs: setup
+    needs: [setup, test]
     # Pinned rather than macos-latest: the Apple Translation helper needs the
     # macOS 26 SDK, and a runner rollback would fail the build in a way that
     # looks unrelated to the label.
@@ -173,7 +201,7 @@ jobs:
 
   # ── Linux (AppImage + RPM) ─────────────────────────────────────────────────
   build-linux:
-    needs: setup
+    needs: [setup, test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
