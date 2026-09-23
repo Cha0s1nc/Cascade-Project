@@ -8005,6 +8005,8 @@ function _wordProgress(w, nowTicks) {
   return (nowTicks - ws) / (we - ws) * 100
 }
 
+const _graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+
 /** A karaoke line's word spans, shared by the side panel and the overlay.
  *  Background vocals (SpicyLyrics) get their own smaller row underneath,
  *  inside the same line element, so _paintWordSpans fills them on their own
@@ -8022,8 +8024,12 @@ function lyricWordSpans(line, cls) {
   const spans = words => words.map(w => {
     const data = `data-ws="${w.Start}" data-we="${w.End ?? ''}"`
     if (emphasis && CascadeCore.isEmphasisWord(w)) {
+      // Letter by letter, as Apple Music swells a held note: each letter is
+      // its own span (see _paintWordSpans). Split into graphemes, not code
+      // units, so an accented letter or an emoji stays in one piece.
       const text = w.Text.trimEnd()
-      return `<span class="${cls} emph" ${data}>${esc(text)}</span>${w.Text.length > text.length ? ' ' : ''}`
+      const letters = [..._graphemes.segment(text)].map(g => `<span class="emph-l">${esc(g.segment)}</span>`).join('')
+      return `<span class="${cls} emph" ${data}>${letters}</span>${w.Text.length > text.length ? ' ' : ''}`
     }
     return `<span class="${cls}" ${data}>${esc(w.Text)}</span>`
   }).join('')
@@ -8048,13 +8054,22 @@ function _paintWordSpans(line, nowTicks) {
     // hanging over each end.
     const prog = _wordProgress(w, nowTicks)
     const p = `calc(${prog.toFixed(2)}% + ${(prog * 0.006 - 0.3).toFixed(3)}em)`
-    // A held note grows WITH the note, as in Apple Music, not to full size the
-    // moment it starts: --e is its progress through the word on a smoothstep
-    // curve, and styles/lyrics.css scales the lift, swell and glow by it.
+    // A held note swells letter by letter, as in Apple Music: the word's
+    // progress sweeps across its letters, and each letter gets its own share
+    // of the fill (--p) and its own growth (--e, smoothstep of how far the
+    // fill is through that letter), which styles/lyrics.css turns into lift,
+    // swell and glow. A letter the fill has passed stays up.
     if (w.classList.contains('emph')) {
-      const t = prog / 100
-      const e = (t * t * (3 - 2 * t)).toFixed(3)
-      if (w.style.getPropertyValue('--e') !== e) w.style.setProperty('--e', e)
+      const letters = w.children
+      const n = letters.length
+      for (let i = 0; i < n; i++) {
+        const t = Math.max(0, Math.min(1, prog / 100 * n - i))
+        const lp = `calc(${(t * 100).toFixed(2)}% + ${(t * 0.6 - 0.3).toFixed(3)}em)`
+        const le = (t * t * (3 - 2 * t)).toFixed(3)
+        const st = letters[i].style
+        if (st.getPropertyValue('--p') !== lp) st.setProperty('--p', lp)
+        if (st.getPropertyValue('--e') !== le) st.setProperty('--e', le)
+      }
     }
     if (w.style.getPropertyValue('--p') !== p) w.style.setProperty('--p', p)
     const ws = parseInt(w.dataset.ws)

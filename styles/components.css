@@ -86,6 +86,6 @@ input[type="range"]:disabled { opacity: 0.4; cursor: default; }
   .ov-translate-btn.loading { animation-duration: 3s; }
   /* Held notes and background rows (styles/lyrics.css): keep the glow and
      the row, drop the swell and the easing. */
-  .lyric-word.emph, .ov-lyric-word.emph, .lyric-bg { transition: none; }
-  .lyrics-line.active .lyric-word.emph.active, .ov-lyric-line.active .ov-lyric-word.emph.active { transform: none; }
+  .emph-l, .lyric-bg { transition: none; }
+  .lyrics-line.active .emph.active .emph-l, .ov-lyric-line.active .emph.active .emph-l { transform: none; }
 }
