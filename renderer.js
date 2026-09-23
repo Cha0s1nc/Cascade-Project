@@ -7693,6 +7693,10 @@ window.cascadeDebug = {
     const conv = CascadeCore.convertSpicyLyrics(body.spicy)
     console.log('[cascadeDebug] raw SpicyLyrics response:', body.spicy)
     if (!conv) return console.error('[cascadeDebug] The converter produced nothing from that response. That is a converter bug worth reporting, with the raw response above.')
+    const durationSec = (cur.RunTimeTicks || 0) / 10_000_000
+    if (!CascadeCore.spicyFitsTrack(body.spicy, durationSec)) {
+      console.warn(`[cascadeDebug] Version mismatch: this sync runs to ${body.spicy?.Body?.EndTime}s but the file is ${durationSec.toFixed(1)}s, so it is for another release and will drift. Loaded anyway so you can see it; normal playback rejects it and falls back to Kugou/LRCLIB. Try the id from Spotify's Share link for the matching release.`)
+    }
     const words = conv.lines.reduce((n, l) => n + (l.Words?.length || 0), 0)
     console.log(`[cascadeDebug] ${body.spicy?.Body?.Type} sync, ${conv.lines.length} lines, ${words} timed words`, conv.credit)
     if (lyricsForcedSource && lyricsForcedSource !== 'auto') console.warn('[cascadeDebug] A lyrics source is forced in the pill; set it to Auto or this is overridden on the next fetch.')
@@ -8095,7 +8099,10 @@ async function fetchLyricsWaterfall(item) {
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       let d = await r.json()
       if (d.type === 'syllable') {
-        const conv = CascadeCore.convertSpicyLyrics(d.spicy)
+        // A sync for a longer version drifts against this file; the plugin's
+        // own files beat that (spicyFitsTrack).
+        const conv = CascadeCore.spicyFitsTrack(d.spicy, (item.RunTimeTicks || 0) / 10_000_000)
+          ? CascadeCore.convertSpicyLyrics(d.spicy) : null
         if (conv) {
           tried.Cascade = 'ok'
           _lastFetchStatus = tried
@@ -8207,6 +8214,8 @@ async function fetchLyricsWaterfall(item) {
     if (!r.ok) return null
     const d = await r.json()
     if (d?.type !== 'syllable') return null
+    // Another version's sync drifts against this file: let the others win.
+    if (!CascadeCore.spicyFitsTrack(d.spicy, (item.RunTimeTicks || 0) / 10_000_000)) return null
     const conv = CascadeCore.convertSpicyLyrics(d.spicy)
     return conv ? { lines: conv.lines, source: conv.credit.provider, credit: conv.credit } : null
   })().catch(err => { if (!_isAbort(err)) console.error('[Lyrics] SpicyLyrics error:', err); return null })

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { convertSpicyLyrics, spicyCredit, safeCreditUrl } from '../src/core/spicy-lyrics.ts'
+import { convertSpicyLyrics, spicyCredit, safeCreditUrl, spicyFitsTrack } from '../src/core/spicy-lyrics.ts'
 
 // Fixtures follow the SpicyLyrics reference schema (times in seconds).
 const syllableBody = {
@@ -103,4 +103,17 @@ test('credit links are https only', () => {
   }
   const c = spicyCredit({ source: 'spicy_lyrics', UploadAttribution: { Uploader: { username: 'x', url: 'javascript:alert(1)' } } })
   assert.deepEqual(c.uploader, { name: 'x', url: null })
+})
+
+test('fits track: a sync running past the end of the file is another version', () => {
+  // The real case: Apple Music sync to 190.73s, local file 186.6s.
+  assert.equal(spicyFitsTrack({ Body: { EndTime: 190.73 } }, 186.6), false)
+  assert.equal(spicyFitsTrack({ EndTime: 185 }, 186.6), true)
+  assert.equal(spicyFitsTrack({ EndTime: 187.5 }, 186.6), true)   // inside the slack
+})
+
+test('fits track: nothing to judge means it passes', () => {
+  assert.equal(spicyFitsTrack({ Body: {} }, 186.6), true)
+  assert.equal(spicyFitsTrack({ Body: { EndTime: 999 } }, 0), true)
+  assert.equal(spicyFitsTrack(null, 186.6), true)
 })

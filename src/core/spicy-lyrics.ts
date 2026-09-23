@@ -146,6 +146,29 @@ function staticLines(list: unknown[]): LyricLine[] {
     .map(t => ({ Start: null as unknown as number, End: null, Text: t, Words: null }))
 }
 
+/** How far past the end of the file a sync may run before it is taken to be
+ *  for a different version. A little slack for rounding and trailing silence. */
+export const SPICY_END_TOLERANCE_SEC = 1.5
+
+/**
+ * Whether a SpicyLyrics sync can belong to the file being played. A sync is
+ * keyed to a Spotify track, and a song has one per release; the id found for
+ * it can belong to another version (a longer edit, a remaster), whose timings
+ * drift against this file. Vocals cannot end after the track does, so a sync
+ * whose EndTime runs past the file's length is for a different version.
+ * Tested on the real case: a 190.7s sync against a 186.6s file ran 3.5s late
+ * at the first verse and 8s late by the end.
+ *
+ * Only catches a LONGER version: a shorter one ends in time and passes. With
+ * no EndTime or no known duration there is nothing to judge, so it passes.
+ */
+export function spicyFitsTrack(raw: unknown, durationSec: number): boolean {
+  const body = isObj(raw) && isObj(raw.Body) ? raw.Body : raw
+  const end = isObj(body) ? body.EndTime : undefined
+  if (typeof end !== 'number' || !Number.isFinite(end) || !(durationSec > 0)) return true
+  return end <= durationSec + SPICY_END_TOLERANCE_SEC
+}
+
 /**
  * Converts a SpicyLyrics response (the whole envelope, or just its Body) into
  * lines plus the credit to show. Null when there is nothing usable, so the
