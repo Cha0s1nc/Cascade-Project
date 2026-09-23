@@ -6891,16 +6891,10 @@ onDeck('timeupdate', () => {
   const baseIdx = _scanLyricsBaseIdx(nowSec, _ovLyricsScanIdx)
   _ovLyricsScanIdx = baseIdx
 
-  // Karaoke lines: promote to the next line (position AND highlight together)
-  // the instant the current line's last word finishes, instead of waiting for
-  // the next line's own start - otherwise the view snaps into place early but
-  // sits dim/inactive for a beat, which reads as stuck.
-  let activeIdx = baseIdx
-  const words = lyricsData[baseIdx]?.Words
-  if (words?.length && lyricsData[baseIdx + 1]) {
-    const lastWordEnd = words[words.length - 1].End
-    if (lastWordEnd != null && nowSec >= lastWordEnd / 10_000_000) activeIdx = baseIdx + 1
-  }
+  // Karaoke: promote early once a line (background vocals included) is sung,
+  // and hold a line while its background vocals run into the next one. Shared
+  // with the side panel; see currentLyricIndex in src/core/lyrics.ts.
+  const activeIdx = CascadeCore.currentLyricIndex(lyricsData, baseIdx, nowSec * 10_000_000)
 
   if (activeIdx === lastOverlayLyricsIdx) return
   const advancedEarly = activeIdx > baseIdx
@@ -7993,7 +7987,13 @@ function lyricWordSpans(line, cls) {
 // which is the most expensive text paint in index.html.
 function _paintWordSpans(line, nowTicks) {
   line?.querySelectorAll('.lyric-word, .ov-lyric-word').forEach(w => {
-    const p = `${_wordProgress(w, nowTicks).toFixed(2)}%`
+    // The fill has a soft edge 0.6em wide, as in Apple Music (the gradients in
+    // styles/ put its colour stops at --p minus and plus 0.3em). Sliding the
+    // edge's centre from -0.3em past the start to +0.3em past the end keeps an
+    // unsung word fully dim and a sung one fully lit, instead of half an edge
+    // hanging over each end.
+    const prog = _wordProgress(w, nowTicks)
+    const p = `calc(${prog.toFixed(2)}% + ${(prog * 0.006 - 0.3).toFixed(3)}em)`
     if (w.style.getPropertyValue('--p') !== p) w.style.setProperty('--p', p)
     const ws = parseInt(w.dataset.ws)
     const we = w.dataset.we ? parseInt(w.dataset.we) : null
@@ -8390,16 +8390,10 @@ onDeck('timeupdate', () => {
   const baseIdx = _scanLyricsBaseIdx(nowSec, _lyricsScanIdx)
   _lyricsScanIdx = baseIdx
 
-  // For karaoke lines, promote to the next line (highlight AND scroll together)
-  // the instant its last word finishes, instead of waiting for the next line's
-  // own start - otherwise the view snaps into place early but sits dim/inactive
-  // for a beat, which reads as stuck.
-  let activeIdx = baseIdx
-  const words = lyricsData[baseIdx]?.Words
-  if (words?.length && lyricsData[baseIdx + 1]) {
-    const lastWordEnd = words[words.length - 1].End
-    if (lastWordEnd != null && nowSec >= lastWordEnd / 10_000_000) activeIdx = baseIdx + 1
-  }
+  // Karaoke: promote early once a line (background vocals included) is sung,
+  // and hold a line while its background vocals run into the next one. Shared
+  // with the overlay; see currentLyricIndex in src/core/lyrics.ts.
+  const activeIdx = CascadeCore.currentLyricIndex(lyricsData, baseIdx, nowSec * 10_000_000)
 
   if (activeIdx === lastLyricsIdx) return
   _applySideLyricsActive(activeIdx, activeIdx > baseIdx)

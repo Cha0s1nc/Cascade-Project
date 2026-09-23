@@ -6,7 +6,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseLRC, parseKrc, lyricsTextMatch, isEmphasisWord } from '../src/core/lyrics.ts'
+import { parseLRC, parseKrc, lyricsTextMatch, isEmphasisWord, currentLyricIndex } from '../src/core/lyrics.ts'
 
 const SEC = 10_000_000   // ticks per second
 const MS = 10_000        // ticks per millisecond
@@ -139,4 +139,31 @@ test('isEmphasisWord: held a second or more, and short enough to be a held note'
   assert.equal(isEmphasisWord(w('extraordinarily', 1.5)), false)     // just a long word
   assert.equal(isEmphasisWord({ Start: 0, End: null, Text: 'x' }), false)
   assert.equal(isEmphasisWord(w('!', 2)), false)
+})
+
+test('currentLyricIndex: promotes once the lead is sung, when there is no background', () => {
+  const lines = parseLRC('[00:10.00]<00:10.00>one <00:11.00>two\n[00:20.00]next')
+  lines[0].Words![1].End = 12 * SEC
+  assert.equal(currentLyricIndex(lines, 0, 11.5 * SEC), 0)
+  assert.equal(currentLyricIndex(lines, 0, 12.5 * SEC), 1)   // early, before 20s
+})
+
+test('currentLyricIndex: waits for background vocals before promoting early', () => {
+  const w = (t: string, s: number, e: number) => ({ Start: s * SEC, End: e * SEC, Text: t })
+  const lines = [
+    { Start: 10 * SEC, End: 12 * SEC, Text: 'lead', Words: [w('lead', 10, 12)], Background: [w('ooh', 12, 15)] },
+    { Start: 20 * SEC, End: 22 * SEC, Text: 'next', Words: [w('next', 20, 22)] },
+  ]
+  assert.equal(currentLyricIndex(lines, 0, 13 * SEC), 0)   // lead done, background still going
+  assert.equal(currentLyricIndex(lines, 0, 15.5 * SEC), 1)
+})
+
+test('currentLyricIndex: holds the previous line while its background overlaps, up to the cap', () => {
+  const w = (t: string, s: number, e: number) => ({ Start: s * SEC, End: e * SEC, Text: t })
+  const lines = [
+    { Start: 10 * SEC, End: 12 * SEC, Text: 'lead', Words: [w('lead', 10, 12)], Background: [w('ooh', 12, 21)] },
+    { Start: 13 * SEC, End: 16 * SEC, Text: 'next', Words: [w('next', 13, 16)] },
+  ]
+  assert.equal(currentLyricIndex(lines, 1, 14 * SEC), 0)     // held: background still being sung
+  assert.equal(currentLyricIndex(lines, 1, 15.6 * SEC), 1)   // 2.6s past next start: cap reached
 })

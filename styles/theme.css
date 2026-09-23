@@ -101,7 +101,7 @@ html[data-theme="light"] .np-overlay.art-theme .ov-lyric-line.active {
   color: #1c1c1e; filter: drop-shadow(0 0 18px rgba(255,255,255,0.55));
 }
 html[data-theme="light"] .np-overlay.art-theme .ov-lyric-line.active .ov-lyric-word {
-  background: linear-gradient(to right, #1c1c1e var(--p), rgba(28,28,30,0.4) var(--p));
+  background: linear-gradient(to right, #1c1c1e calc(var(--p) - 0.3em), rgba(28,28,30,0.4) calc(var(--p) + 0.3em));
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
 }
 html[data-theme="light"] .np-overlay.art-theme .ov-lyric-line.active .ov-lyric-word.active {

@@ -22,8 +22,8 @@
 .lyrics-empty { font-size: 12px; color: var(--text3); text-align: center; padding: 40px 0; }
 .lyric-word { -webkit-text-fill-color: white; }
 .lyrics-line.active .lyric-word {
-  --p: 0%;
-  background: linear-gradient(to right, white var(--p), rgba(255,255,255,0.28) var(--p));
+  --p: -0.3em;   /* unsung: the soft edge sits wholly before the word */
+  background: linear-gradient(to right, white calc(var(--p) - 0.3em), rgba(255,255,255,0.28) calc(var(--p) + 0.3em));
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
 }
 /* Background vocals (SpicyLyrics): their own row under the lead, smaller and
@@ -59,7 +59,7 @@ html[data-theme="light"] .ov-lyric-line.active .ov-lyric-word.emph.active { filt
    hardcoded white fill above needs a light-theme ink equivalent. */
 html[data-theme="light"] .lyric-word { -webkit-text-fill-color: rgba(28,28,30,0.32); }
 html[data-theme="light"] .lyrics-line.active .lyric-word {
-  background: linear-gradient(to right, #1c1c1e var(--p), rgba(28,28,30,0.32) var(--p));
+  background: linear-gradient(to right, #1c1c1e calc(var(--p) - 0.3em), rgba(28,28,30,0.32) calc(var(--p) + 0.3em));
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
 }
 

@@ -380,8 +380,8 @@ html[data-platform="linux"] .np-overlay.video.full #ov-full-exit {
 /* Unsung words stay readable, not ghosted: the fill is the progress cue. */
 .ov-lyric-word { -webkit-text-fill-color: rgba(255,255,255,0.4); }
 .ov-lyric-line.active .ov-lyric-word {
-  --p: 0%;
-  background: linear-gradient(to right, white var(--p), rgba(255,255,255,0.4) var(--p));
+  --p: -0.3em;   /* unsung: the soft edge sits wholly before the word */
+  background: linear-gradient(to right, white calc(var(--p) - 0.3em), rgba(255,255,255,0.4) calc(var(--p) + 0.3em));
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
 }
 #ov-panel-lyrics:hover .ov-lyric-line.past { opacity: 0.18; filter: blur(2px); pointer-events: auto; }
@@ -412,7 +412,7 @@ html[data-theme="light"] .ov-lyric-word { -webkit-text-fill-color: rgba(28,28,30
 html[data-theme="light"] .ov-lyric-line { color: #1c1c1e; }
 html[data-theme="light"] .ov-lyric-trans { color: rgba(28,28,30,0.7); }
 html[data-theme="light"] .ov-lyric-line.active .ov-lyric-word {
-  background: linear-gradient(to right, #1c1c1e var(--p), rgba(28,28,30,0.4) var(--p));
+  background: linear-gradient(to right, #1c1c1e calc(var(--p) - 0.3em), rgba(28,28,30,0.4) calc(var(--p) + 0.3em));
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
 }
 html[data-theme="light"] #ov-panel-lyrics.browsing .ov-lyric-line { color: #1c1c1e; text-shadow: 0 1px 3px rgba(255,255,255,0.6); }

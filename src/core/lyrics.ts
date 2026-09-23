@@ -24,6 +24,43 @@ export interface LyricLine {
   Background?: LyricWord[] | null
 }
 
+/** Longest a line is held past the next line's start while its background
+ *  vocals finish: long enough to see them, short enough that a long overlap
+ *  cannot hide the next line. */
+export const BACKGROUND_HOLD_MAX_TICKS = 25_000_000   // 2.5s
+
+const lastEnd = (words: LyricWord[] | null | undefined): number | null =>
+  words?.length ? words[words.length - 1].End : null
+
+/**
+ * Which line to show as current, given `baseIdx` (the last line whose Start has
+ * passed). Two adjustments for karaoke, shared by the side panel and the
+ * overlay, which used to carry this logic twice:
+ *
+ * - Promote early: once a line is completely sung, move to the next one rather
+ *   than sitting dim until the next line's own start. "Completely" includes
+ *   its background vocals: promoting on the lead alone closed the background
+ *   row the moment those vocals began, so they were never seen.
+ * - Hold back: when the previous line's background vocals run over into this
+ *   line, keep the previous one current until they finish, up to
+ *   BACKGROUND_HOLD_MAX_TICKS past this line's start.
+ */
+export function currentLyricIndex(lines: LyricLine[], baseIdx: number, nowTicks: number): number {
+  const prev = lines[baseIdx - 1]
+  const cur = lines[baseIdx]
+  if (prev && cur) {
+    const bgEnd = lastEnd(prev.Background)
+    if (bgEnd != null && nowTicks < bgEnd && nowTicks - cur.Start < BACKGROUND_HOLD_MAX_TICKS) return baseIdx - 1
+  }
+  if (cur?.Words?.length && lines[baseIdx + 1]) {
+    const leadEnd = lastEnd(cur.Words)
+    const bgEnd = lastEnd(cur.Background)
+    const end = leadEnd == null ? null : Math.max(leadEnd, bgEnd ?? leadEnd)
+    if (end != null && nowTicks >= end) return baseIdx + 1
+  }
+  return baseIdx
+}
+
 /** A word held at least this long gets the emphasis glow. */
 export const EMPHASIS_MIN_TICKS = 10_000_000   // 1s
 
