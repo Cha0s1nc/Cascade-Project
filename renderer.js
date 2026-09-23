@@ -2594,7 +2594,10 @@ function wireTrackRow(el, item, items, idx, opts = {}) {
 document.getElementById('tctx-play').addEventListener('click', () => {
   if (!_ctxEl) return
   closeTrackCtxMenu()
-  _ctxEl.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+  // Every row plays on dblclick except a queue row, which only ever listens
+  // for a plain click (see _drawQueueRows) - a dblclick here would do nothing.
+  const evt = _ctxEl.classList.contains('queue-row') ? 'click' : 'dblclick'
+  _ctxEl.dispatchEvent(new MouseEvent(evt, { bubbles: true }))
 })
 
 document.getElementById('tctx-play-next').addEventListener('click', () => {
@@ -2791,6 +2794,12 @@ document.getElementById('tctx-delete').addEventListener('click', () => {
         queue.splice(qIdx, 1)
         if (qIdx < queueIndex) queueIndex--
         else if (wasCurrent) queueIndex = Math.min(queueIndex, queue.length - 1)
+        // Same cleanup the queue panel's own remove button does - without it
+        // every row after this one keeps the data-qi it had before the splice,
+        // so the next click on one of them plays the wrong track, and a
+        // deleted "next" track stays prefetched.
+        _reprefetch()
+        renderQueuePanel()
         if (wasCurrent) { if (queue.length) playCurrentTrack(); else _clearStreamPrefetch() }
       }
       showToast('Deleted from server')
@@ -4747,10 +4756,16 @@ const likeBtn = document.getElementById('btn-like')
  *  updateNowPlaying() and is right even when UserData never loaded. Any other
  *  item (a menu's target, not necessarily playing) has no button to read, so
  *  it falls back to item.UserData?.IsFavorite, which is what the menu that
- *  opened on it used to decide the row's own Favorite/Unfavorite label. */
+ *  opened on it used to decide the row's own Favorite/Unfavorite label.
+ *
+ *  Compared by Id, not by reference: a Songs/album/artist row and
+ *  queue[queueIndex] are frequently different objects for the same track
+ *  (the row came from its own list fetch), so favoriting the playing song
+ *  from a row still has to find and update the one the heart buttons read. */
 async function toggleLike(item) {
-  const isCurrent = !item || item === queue[queueIndex]
-  item = item || queue[queueIndex]
+  const current = queue[queueIndex]
+  const isCurrent = !item || (!!current && item.Id === current.Id)
+  item = item || current
   if (!item) return
   const isLiked = isCurrent ? likeBtn.classList.contains('liked') : !!item.UserData?.IsFavorite
   try {
@@ -4763,6 +4778,13 @@ async function toggleLike(item) {
     if (!item.UserData) item.UserData = {}
     item.UserData.IsFavorite = !isLiked
     if (isCurrent) {
+      // item may be a different object than queue[queueIndex] holding the
+      // same track (see above) - patch both so a later ctx-menu/showCtxMenu
+      // read of queue[queueIndex] sees the change too.
+      if (current && current !== item) {
+        if (!current.UserData) current.UserData = {}
+        current.UserData.IsFavorite = !isLiked
+      }
       likeBtn.classList.toggle('liked', !isLiked)
       document.getElementById('ov-like').classList.toggle('liked', !isLiked)
     }
