@@ -25,6 +25,8 @@ export interface MenuItemVisibility {
   shuffle: boolean
   instantMix: boolean
   addPlaylist: boolean
+  download: boolean
+  favorite: boolean
   markPlayed: boolean
   markUnplayed: boolean
   goArtist: boolean
@@ -37,8 +39,8 @@ export interface MenuItemVisibility {
 
 const NONE: MenuItemVisibility = {
   play: false, playNext: false, playLast: false, shuffle: false, instantMix: false,
-  addPlaylist: false, markPlayed: false, markUnplayed: false, goArtist: false,
-  viewDetail: false, rename: false, deleteItem: false, refreshMeta: false, editMeta: false,
+  addPlaylist: false, download: false, favorite: false, markPlayed: false, markUnplayed: false,
+  goArtist: false, viewDetail: false, rename: false, deleteItem: false, refreshMeta: false, editMeta: false,
 }
 
 /**
@@ -50,10 +52,11 @@ const NONE: MenuItemVisibility = {
 export function menuItemsForKind(kind: MenuItemKind, opts: MenuItemOptions = {}): MenuItemVisibility {
   switch (kind) {
     case 'album':
-      return { ...NONE, play: true, playNext: true, playLast: true, shuffle: true,
-        addPlaylist: true, goArtist: true, refreshMeta: true, editMeta: true }
+      return { ...NONE, play: true, playNext: true, playLast: true, shuffle: true, instantMix: true,
+        addPlaylist: true, download: true, favorite: true, goArtist: true, refreshMeta: true, editMeta: true }
     case 'artist':
-      return { ...NONE, play: true, shuffle: true, instantMix: true, viewDetail: true }
+      return { ...NONE, play: true, playNext: true, playLast: true, shuffle: true, instantMix: true,
+        addPlaylist: true, favorite: true, viewDetail: true }
     case 'video':
       return { ...NONE, play: true, viewDetail: true,
         markPlayed: opts.isPlayed === false, markUnplayed: opts.isPlayed === true }
@@ -61,9 +64,10 @@ export function menuItemsForKind(kind: MenuItemKind, opts: MenuItemOptions = {})
       return { ...NONE, viewDetail: true,
         markPlayed: opts.isPlayed === false, markUnplayed: opts.isPlayed === true }
     case 'playlist':
-      return { ...NONE, play: true, shuffle: true, rename: true, deleteItem: true }
+      return { ...NONE, play: true, playNext: true, playLast: true, shuffle: true,
+        addPlaylist: true, rename: true, deleteItem: true }
     case 'smart-playlist':
-      return { ...NONE, play: true, shuffle: true }
+      return { ...NONE, play: true, playNext: true, playLast: true, shuffle: true, addPlaylist: true }
   }
 }
 

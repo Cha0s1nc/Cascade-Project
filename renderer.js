@@ -840,17 +840,18 @@ function _applyAdminGating() {
   // anything. All admin-only. These say why inline rather than with a
   // [data-tip]: a context menu item is a row in a list, and a tip floating
   // over the row below it would cover the next thing you were about to read.
-  for (const id of ['ctx-refresh-meta', 'tctx-refresh-meta', 'ictx-refresh-meta', 'ctx-edit-meta', 'ctx-edit-images', 'tctx-edit-meta', 'ictx-edit-meta']) {
+  for (const id of ['ctx-refresh-meta', 'tctx-refresh-meta', 'ictx-refresh-meta', 'ctx-edit-meta', 'ctx-edit-images', 'tctx-edit-meta', 'tctx-edit-images', 'ictx-edit-meta']) {
     const item = document.getElementById(id)
     if (item) item.classList.toggle('needs-admin', !jf.isAdmin)
     const note = document.getElementById(id + '-note')
     if (note) note.hidden = !!jf.isAdmin
   }
-  // Delete media (now-playing) and delete playlist (playlist card menu) are both
-  // gated on the actual deletion right (see canDeleteMedia), not admin - an admin
-  // always has it, but a non-admin can be granted it too, and gating on isAdmin
-  // would hide the feature from someone who has it.
-  for (const id of ['ctx-delete', 'ictx-delete']) {
+  // Delete media (now-playing and track rows) and delete playlist (playlist
+  // card menu) are all gated on the actual deletion right (see
+  // canDeleteMedia), not admin - an admin always has it, but a non-admin can
+  // be granted it too, and gating on isAdmin would hide the feature from
+  // someone who has it.
+  for (const id of ['ctx-delete', 'tctx-delete', 'ictx-delete']) {
     const item = document.getElementById(id)
     if (item) item.classList.toggle('needs-admin', !jf.canDelete)
     const note = document.getElementById(id + '-note')
@@ -2531,6 +2532,8 @@ function showTrackCtxMenu(item, el, x, y, inPlaylist = false) {
   _ctxItem = item; _ctxEl = el; _ctxInPl = inPlaylist
   // Show/hide playlist-only items
   trackCtxMenu.querySelectorAll('.tctx-pl-only').forEach(n => n.classList.toggle('hidden', !inPlaylist))
+  const favLabel = document.getElementById('tctx-favorite-label')
+  if (favLabel) favLabel.textContent = item?.UserData?.IsFavorite ? 'Unfavorite' : 'Favorite'
   trackCtxMenu.style.left = `${x}px`
   trackCtxMenu.style.top  = `${y}px`
   trackCtxMenu.classList.add('open')
@@ -2629,12 +2632,25 @@ document.getElementById('tctx-instant-mix').addEventListener('click', () => {
   instantMixAndPlay(_ctxItem.Id, _ctxItem.Name)
 })
 
+document.getElementById('tctx-favorite').addEventListener('click', () => {
+  if (!_ctxItem) return
+  closeTrackCtxMenu()
+  toggleLike(_ctxItem)
+})
+
 document.getElementById('tctx-add-playlist').addEventListener('click', () => {
   if (!_ctxItem) return
   closeTrackCtxMenu()
   // Reuse existing add-to-playlist modal - store item for it
   _atpTargetItem = _ctxItem
   openAtpModal()
+})
+
+// Media info - openMediaInfoFor() defined with the now-playing context menu above.
+document.getElementById('tctx-media-info').addEventListener('click', () => {
+  if (!_ctxItem) return
+  closeTrackCtxMenu()
+  openMediaInfoFor(_ctxItem)
 })
 
 document.getElementById('tctx-download').addEventListener('click', () => {
@@ -2720,6 +2736,21 @@ document.getElementById('tctx-edit-meta').addEventListener('click', () => {
   openMetadataEditorFor(_ctxItem)
 })
 
+// openInJellyfinWeb() and openLyricsEditorFor() are defined with the
+// now-playing context menu / lyrics editor below - same functions, no second
+// copy hardwired to queue[queueIndex].
+document.getElementById('tctx-edit-images').addEventListener('click', () => {
+  if (!_ctxItem) return
+  closeTrackCtxMenu()
+  openInJellyfinWeb(_ctxItem)
+})
+
+document.getElementById('tctx-edit-lyrics').addEventListener('click', () => {
+  if (!_ctxItem) return
+  closeTrackCtxMenu()
+  openLyricsEditorFor(_ctxItem)
+})
+
 document.getElementById('tctx-pl-remove').addEventListener('click', async () => {
   if (!_ctxEl || !currentPlaylistId) return
   closeTrackCtxMenu()
@@ -2735,6 +2766,36 @@ document.getElementById('tctx-pl-remove').addEventListener('click', async () => 
     // (what Play/Shuffle use) still holding the removed track.
     await playlistMutated(currentPlaylistId)
   } catch (e) { showNotice(`Could not remove this track from the playlist.\n\n${e.message}`, 'Playlist') }
+})
+
+// Delete media - deleteItemFromServer() is defined with the now-playing
+// context menu below (shared with "Delete media" there and "Delete playlist"
+// on the item context menu), made to take an item instead of always reading
+// queue[queueIndex]. Unlike Remove from playlist above, this deletes the file
+// from the server, so it can turn up in Songs, an album, an artist or search -
+// invalidating the lazy caches and reloading whatever's on screen is the same
+// "re-fetch, don't hand-patch" reasoning as playlistMutated's comment above.
+document.getElementById('tctx-delete').addEventListener('click', () => {
+  if (!_ctxItem) return
+  const item = _ctxItem
+  closeTrackCtxMenu()
+  deleteItemFromServer(item, {
+    confirmMsg: `Delete "${item.Name}" from your server? This cannot be undone.`,
+    onDeleted: () => {
+      invalidateLibraryViews()
+      showView(_currentView)
+      const qIdx = queue.findIndex(q => q.Id === item.Id)
+      if (qIdx !== -1) {
+        const wasCurrent = qIdx === queueIndex
+        if (wasCurrent) { audio.pause(); _detachDeck(audio) }
+        queue.splice(qIdx, 1)
+        if (qIdx < queueIndex) queueIndex--
+        else if (wasCurrent) queueIndex = Math.min(queueIndex, queue.length - 1)
+        if (wasCurrent) { if (queue.length) playCurrentTrack(); else _clearStreamPrefetch() }
+      }
+      showToast('Deleted from server')
+    }
+  })
 })
 
 // ── Movies & TV ───────────────────────────────────────────────────────────────
@@ -4675,21 +4736,43 @@ document.getElementById('btn-miniplayer-open').addEventListener('click', () => {
 // Like / favourite
 const likeBtn = document.getElementById('btn-like')
 
-async function toggleLike() {
-  const item = queue[queueIndex]
+/** POST/DELETE /Users/{userId}/FavoriteItems/{id} - shared by the transport
+ *  bar's heart button, the overlay's, and the Favorite/Unfavorite row every
+ *  context menu that offers one (now playing, track rows, albums, artists)
+ *  reuses. `item` defaults to whatever is currently playing, which is what
+ *  the two heart buttons pass nothing and get.
+ *
+ *  For the current track, "liked" is read off the button's own class rather
+ *  than item.UserData - that DOM state is already kept in sync by
+ *  updateNowPlaying() and is right even when UserData never loaded. Any other
+ *  item (a menu's target, not necessarily playing) has no button to read, so
+ *  it falls back to item.UserData?.IsFavorite, which is what the menu that
+ *  opened on it used to decide the row's own Favorite/Unfavorite label. */
+async function toggleLike(item) {
+  const isCurrent = !item || item === queue[queueIndex]
+  item = item || queue[queueIndex]
   if (!item) return
-  const isLiked = likeBtn.classList.contains('liked')
+  const isLiked = isCurrent ? likeBtn.classList.contains('liked') : !!item.UserData?.IsFavorite
   try {
-    await fetch(`${jf.url}/Users/${jf.userId}/FavoriteItems/${item.Id}`, {
+    const res = await fetch(`${jf.url}/Users/${jf.userId}/FavoriteItems/${item.Id}`, {
       method: isLiked ? 'DELETE' : 'POST',
       headers: { 'X-Emby-Token': jf.token }
     })
-    likeBtn.classList.toggle('liked', !isLiked)
-    document.getElementById('ov-like').classList.toggle('liked', !isLiked)
-  } catch (e) { console.error('Like failed', e) }
+    // Read the response rather than assume success - see CODEMAP rule 1.
+    if (!res.ok) throw new Error(String(res.status))
+    if (!item.UserData) item.UserData = {}
+    item.UserData.IsFavorite = !isLiked
+    if (isCurrent) {
+      likeBtn.classList.toggle('liked', !isLiked)
+      document.getElementById('ov-like').classList.toggle('liked', !isLiked)
+    }
+  } catch (e) {
+    console.error('Favorite failed', e)
+    showNotice('Could not update favorite status on the server.', 'Favorite')
+  }
 }
 
-likeBtn.addEventListener('click', toggleLike)
+likeBtn.addEventListener('click', () => toggleLike())
 
 // ── Shuffle All ───────────────────────────────────────────────────────────────
 
@@ -5950,7 +6033,7 @@ document.getElementById('ov-shuffle').addEventListener('click', () => {
 document.getElementById('ov-repeat').addEventListener('click', () => {
   document.getElementById('btn-repeat').click()
 })
-document.getElementById('ov-like').addEventListener('click', toggleLike)
+document.getElementById('ov-like').addEventListener('click', () => toggleLike())
 
 // Overlay progress bar - shares wireProgressBar() with the statusbar one.
 wireProgressBar('ov-prog-bar', 'ov-prog-fill', 'ov-cur')
@@ -6306,6 +6389,13 @@ function _drawQueueRows(container, scrollToCurrent) {
       queueIndex = qi
       playCurrentTrack()
       renderQueuePanel()
+    })
+
+    // Right click - reuse the same universal track menu as every other row of
+    // tracks in the app rather than a fourth hand-rolled menu.
+    el.addEventListener('contextmenu', (e) => {
+      e.preventDefault()
+      showTrackCtxMenu(queue[qi], el, e.clientX, e.clientY, false)
     })
 
     // Absent for followers - see the row markup above.
@@ -6780,6 +6870,11 @@ updateNowPlaying = function(item) {
 const ctxMenu = document.getElementById('ctx-menu')
 
 function showCtxMenu(x, y) {
+  // Same source of truth as toggleLike() uses for the current track: the
+  // button's own class, kept live by updateNowPlaying() regardless of
+  // whether UserData ever loaded for this item.
+  const favLabel = document.getElementById('ctx-favorite-label')
+  if (favLabel) favLabel.textContent = likeBtn.classList.contains('liked') ? 'Unfavorite' : 'Favorite'
   ctxMenu.style.left = `${x}px`
   ctxMenu.style.top = `${y}px`
   ctxMenu.classList.add('open')
@@ -6830,6 +6925,11 @@ document.getElementById('ctx-instant-mix').addEventListener('click', async () =>
     if (data.Items?.length) playItems(data.Items, 0)
   } catch (e) { console.error('Instant mix failed', e) }
 })
+
+// Favorite / unfavorite - toggleLike() defined with the transport bar's heart
+// button above. No hideCtxMenu() call, matching every other row in this menu
+// (see the "known gap" note in CODEMAP: #ctx-menu never closes itself on click).
+document.getElementById('ctx-favorite').addEventListener('click', () => toggleLike())
 
 // Add to playlist
 // Set by a context menu before opening the modal; falls back to now-playing.
@@ -6946,9 +7046,9 @@ document.getElementById('ctx-copy-url').addEventListener('click', () => {
   window.cascade.clipboard.write(streamUrl(item.Id, isVideoItem(item) ? 'Video' : 'Audio'))
 })
 
-// Media info
-document.getElementById('ctx-media-info').addEventListener('click', async () => {
-  const item = queue[queueIndex]
+// Media info - shared by the now-playing and track context menus, so there is
+// one fetch-and-render instead of a second copy hardwired to queue[queueIndex].
+async function openMediaInfoFor(item) {
   if (!item) return
   const modal = document.getElementById('mi-modal')
   const grid = document.getElementById('mi-grid')
@@ -6976,7 +7076,8 @@ document.getElementById('ctx-media-info').addEventListener('click', async () => 
       `<span class="mi-key">${k}</span><span class="mi-val">${esc(String(v))}</span>`
     ).join('')
   } catch { grid.innerHTML = '<span class="mi-key">Error</span><span class="mi-val">Could not load</span>' }
-})
+}
+document.getElementById('ctx-media-info').addEventListener('click', () => openMediaInfoFor(queue[queueIndex]))
 document.getElementById('mi-close').addEventListener('click', () => document.getElementById('mi-modal').classList.add('hidden'))
 
 // Refresh metadata - refreshItemMetadata() defined with the track context
@@ -7087,6 +7188,7 @@ let _ictxOnDetail = null   // "View detail"/"Go to artist page" handler - the
 const ICTX_FLAG_IDS = {
   play: 'ictx-play', playNext: 'ictx-play-next', playLast: 'ictx-play-last',
   shuffle: 'ictx-shuffle', instantMix: 'ictx-instant-mix', addPlaylist: 'ictx-add-playlist',
+  download: 'ictx-download', favorite: 'ictx-favorite',
   markPlayed: 'ictx-mark-played', markUnplayed: 'ictx-mark-unplayed',
   goArtist: 'ictx-go-artist', viewDetail: 'ictx-view-detail',
   rename: 'ictx-rename', deleteItem: 'ictx-delete',
@@ -7135,6 +7237,8 @@ function showItemCtxMenu(kind, item, el, x, y, onDetail) {
   if (shuffleLabel) shuffleLabel.textContent = kind === 'artist' ? 'Shuffle all' : 'Shuffle'
   const detailLabel = document.getElementById('ictx-view-detail-label')
   if (detailLabel) detailLabel.textContent = kind === 'artist' ? 'Go to artist page' : 'Go to details'
+  const favLabel = document.getElementById('ictx-favorite-label')
+  if (favLabel) favLabel.textContent = item?.UserData?.IsFavorite ? 'Unfavorite' : 'Favorite'
 
   _reflowItemCtxSeparators()
 
@@ -7178,36 +7282,62 @@ document.getElementById('ictx-shuffle').addEventListener('click', async () => {
   if (tracks.length) shuffleAndPlay(tracks)
 })
 
-// Play next/last are album-only (see menuItemsForKind) - same ownership guard
-// as the track menu's tctx-play-next/tctx-add-queue, not a relaxed copy of it.
+// Play next/last, add to playlist: album, artist, playlist and smart-playlist
+// (see menuItemsForKind) - same ownership guard as the track menu's
+// tctx-play-next/tctx-add-queue, not a relaxed copy of it. _ictxTracks()
+// fetches whichever container's tracks the current kind needs.
+const ICTX_QUEUEABLE_KINDS = ['album', 'artist', 'playlist', 'smart-playlist']
+
 document.getElementById('ictx-play-next').addEventListener('click', async () => {
   hideItemCtxMenu()
-  if (_ictxKind !== 'album' || !_ictxItem) return
+  if (!ICTX_QUEUEABLE_KINDS.includes(_ictxKind) || !_ictxItem) return
   if (isWaterfallFollower()) { showToast('Only the host can choose what plays next'); return }
-  const tracks = await fetchAlbumTracks(_ictxItem.Id)
-  playNextTracks(tracks, `"${_ictxItem.Name}"`)
+  const tracks = await _ictxTracks()
+  if (tracks.length) playNextTracks(tracks, `"${_ictxItem.Name}"`)
 })
 
 document.getElementById('ictx-play-last').addEventListener('click', async () => {
   hideItemCtxMenu()
-  if (_ictxKind !== 'album' || !_ictxItem) return
-  const tracks = await fetchAlbumTracks(_ictxItem.Id)
+  if (!ICTX_QUEUEABLE_KINDS.includes(_ictxKind) || !_ictxItem) return
+  const tracks = await _ictxTracks()
   if (tracks.length) enqueueTracks(tracks, `"${_ictxItem.Name}"`)
 })
 
+// Instant mix: album and artist (see menuItemsForKind) - the endpoint takes
+// any item id, so seeding it from an album works exactly like from a track.
 document.getElementById('ictx-instant-mix').addEventListener('click', () => {
   hideItemCtxMenu()
-  if (_ictxKind !== 'artist' || !_ictxItem) return
+  if (!['album', 'artist'].includes(_ictxKind) || !_ictxItem) return
   instantMixAndPlay(_ictxItem.Id, _ictxItem.Name)
 })
 
 document.getElementById('ictx-add-playlist').addEventListener('click', async () => {
   hideItemCtxMenu()
-  if (_ictxKind !== 'album' || !_ictxItem) return
-  const tracks = await fetchAlbumTracks(_ictxItem.Id)
+  if (!ICTX_QUEUEABLE_KINDS.includes(_ictxKind) || !_ictxItem) return
+  const tracks = await _ictxTracks()
   if (!tracks.length) return
   _atpTargetItem = tracks   // array - atpLoadPlaylists() POSTs every id at once
   openAtpModal()
+})
+
+// Download: album-only (see menuItemsForKind) - there is no single file to
+// hand window.cascade.download for a whole album, so this queues one download
+// per track the same way tctx-download does for a single one.
+document.getElementById('ictx-download').addEventListener('click', async () => {
+  hideItemCtxMenu()
+  if (_ictxKind !== 'album' || !_ictxItem) return
+  const tracks = await fetchAlbumTracks(_ictxItem.Id)
+  for (const t of tracks) {
+    window.cascade.download(`${jf.url}/Items/${t.Id}/Download?api_key=${jf.token}`, t.Name)
+  }
+})
+
+// Favorite/unfavorite: album and artist (see menuItemsForKind) - toggleLike()
+// defined with the transport bar's heart button.
+document.getElementById('ictx-favorite').addEventListener('click', () => {
+  hideItemCtxMenu()
+  if (!['album', 'artist'].includes(_ictxKind) || !_ictxItem) return
+  toggleLike(_ictxItem)
 })
 
 document.getElementById('ictx-go-artist').addEventListener('click', () => {
