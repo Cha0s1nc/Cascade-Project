@@ -6,7 +6,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseLRC, parseKrc, lyricsTextMatch, isEmphasisWord, currentLyricIndex } from '../src/core/lyrics.ts'
+import { parseLRC, parseKrc, lyricsTextMatch, isEmphasisWord, currentLyricIndex, activeLyricRange } from '../src/core/lyrics.ts'
 
 const SEC = 10_000_000   // ticks per second
 const MS = 10_000        // ticks per millisecond
@@ -166,4 +166,19 @@ test('currentLyricIndex: holds the previous line while its background overlaps, 
   ]
   assert.equal(currentLyricIndex(lines, 1, 14 * SEC), 0)     // held: background still being sung
   assert.equal(currentLyricIndex(lines, 1, 15.6 * SEC), 1)   // 2.6s past next start: cap reached
+})
+
+test('activeLyricRange: a line starting inside the previous one keeps both lit until it ends', () => {
+  const l = (s: number, e: number, t: string) => ({ Start: s * SEC, End: e * SEC, Text: t, Words: null })
+  const lines = [l(0, 5, 'before'), l(10, 14, 'A'), l(12, 16, 'B'), l(20, 22, 'after')]
+  assert.deepEqual(activeLyricRange(lines, 2, 13 * SEC), [1, 2])   // A still going when B began
+  assert.deepEqual(activeLyricRange(lines, 2, 15 * SEC), [1, 2])   // A done, B not: both stay lit
+  assert.deepEqual(activeLyricRange(lines, 2, 16.5 * SEC), [2, 2]) // B ended
+  assert.deepEqual(activeLyricRange(lines, 1, 11 * SEC), [1, 1])   // no overlap into 'before'
+})
+
+test('activeLyricRange: chains through several overlapping lines, and ignores untimed ones', () => {
+  const l = (s: number, e: number | null) => ({ Start: s * SEC, End: e == null ? null : e * SEC, Text: 'x', Words: null })
+  assert.deepEqual(activeLyricRange([l(0, 6), l(4, 9), l(8, 12)], 2, 10 * SEC), [0, 2])
+  assert.deepEqual(activeLyricRange([l(0, null), l(1, null)], 1, 2 * SEC), [1, 1])
 })

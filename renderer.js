@@ -6790,12 +6790,19 @@ const sideLyricsSpring = createSpring(pos => {
   if (el) el.style.transform = `translateY(${pos}px)`
 })
 
-function updateOverlayLyricsActive(activeIdx, instant) {
+// First line of the overlay's current group; lastOverlayLyricsIdx is the last.
+// They differ only while lines overlap (see activeLyricRange).
+let ovActiveFirst = -1
+
+function updateOverlayLyricsActive(activeIdx, instant, first = activeIdx) {
   const body = document.getElementById('ov-lyrics-body')
   const panel = document.getElementById('ov-panel-lyrics')
+  ovActiveFirst = first
   body.querySelectorAll('.ov-lyric-line').forEach(el => {
     const idx = parseInt(el.dataset.idx)
-    const dist = idx - activeIdx  // signed: negative = past, positive = upcoming
+    // Signed distance from the current group: negative = past, positive =
+    // upcoming, 0 = any line in the group.
+    const dist = idx < first ? idx - first : idx > activeIdx ? idx - activeIdx : 0
     el.classList.remove('active', 'near-1', 'near-2', 'near-3', 'past', 'near-past')
     if (dist === 0) el.classList.add('active')
     else if (dist === 1) el.classList.add('near-1')
@@ -6810,18 +6817,21 @@ function updateOverlayLyricsActive(activeIdx, instant) {
     el.style.transitionDelay = dist > 0 ? `${Math.min(dist, 3) * LYRIC_MOTION.ripple}ms` : '0ms'
   })
   // GPU-accelerated: translate the container so active line sits at panel center
-  _scrollOverlayLyricsTo(activeIdx, instant)
+  _scrollOverlayLyricsTo(activeIdx, instant, first)
 }
 
 // Centers the given line in the overlay lyrics panel. `instant` skips the
 // spring animation - used when snap-scrolling right as a karaoke line's last
 // word finishes, so the jump isn't a glide disconnected from the vocal.
-function _scrollOverlayLyricsTo(idx, instant) {
+function _scrollOverlayLyricsTo(idx, instant, first = idx) {
   const body = document.getElementById('ov-lyrics-body')
   const panel = document.getElementById('ov-panel-lyrics')
   const el = body.querySelector(`.ov-lyric-line[data-idx="${idx}"]`)
   if (!el) return
-  const centreOn = () => (ovLyricsBaseY = panel.clientHeight / 2 - (el.offsetTop + el.offsetHeight / 2))
+  // A group of overlapping lines is centred as one block, top of the first to
+  // the bottom of the last; a single line is the same with top === el.
+  const top = body.querySelector(`.ov-lyric-line[data-idx="${first}"]`) || el
+  const centreOn = () => (ovLyricsBaseY = panel.clientHeight / 2 - (top.offsetTop + el.offsetTop + el.offsetHeight) / 2)
   centreOn()
   // While the user is manually scrolling, leave the spring alone - it gets
   // redirected (base + their offset) from the wheel handler instead.
@@ -6912,13 +6922,16 @@ onDeck('timeupdate', () => {
   // and hold a line while its background vocals run into the next one. Shared
   // with the side panel; see currentLyricIndex in src/core/lyrics.ts.
   const activeIdx = CascadeCore.currentLyricIndex(lyricsData, baseIdx, nowSec * 10_000_000)
+  // Overlapping lines (a duet, a call and response) stay lit together until
+  // the later one ends: activeLyricRange in src/core/lyrics.ts.
+  const [first] = CascadeCore.activeLyricRange(lyricsData, activeIdx, nowSec * 10_000_000)
 
-  if (activeIdx === lastOverlayLyricsIdx) return
+  if (activeIdx === lastOverlayLyricsIdx && first === ovActiveFirst) return
   lastOverlayLyricsIdx = activeIdx
   // Always a glide. An early promotion (a karaoke line sung before the next
   // one's start) used to jump there instantly, and SpicyLyrics' syncs make
   // nearly every change early, so every line change was a snap.
-  updateOverlayLyricsActive(activeIdx, false)
+  updateOverlayLyricsActive(activeIdx, false, first)
 })
 
 // Update overlay when track changes
@@ -8061,19 +8074,18 @@ function _wordHighlightFrame() {
   // getElementById('view-lyrics') until 2026-09-15; no such element has ever
   // existed (the only match is #ctx-view-lyrics, a context menu item), so the
   // optional chain yielded undefined and this branch never ran once.
-  const panelIdx = lastLyricsIdx
-  if (lyricsPanelOpen() && lyricsData[panelIdx]?.Words) {
-    _paintWordSpans(document.getElementById('lyrics-inner')
-      ?.querySelector(`.lyrics-line[data-idx="${panelIdx}"]`), nowTicks)
+  // Every line of the current group: more than one while lines overlap.
+  const paintGroup = (container, sel, first, last) => {
+    if (!container || last < 0) return
+    for (let i = first >= 0 && first <= last ? first : last; i <= last; i++) {
+      if (lyricsData[i]?.Words) _paintWordSpans(container.querySelector(`${sel}[data-idx="${i}"]`), nowTicks)
+    }
   }
+  if (lyricsPanelOpen()) paintGroup(document.getElementById('lyrics-inner'), '.lyrics-line', lyricsActiveFirst, lastLyricsIdx)
 
   // Overlay - same: CSS scoping handles inactive lines automatically
   if (overlayOpen && overlayLyricsOpen) {
-    const ovIdx = lastOverlayLyricsIdx
-    if (lyricsData[ovIdx]?.Words) {
-      _paintWordSpans(document.getElementById('ov-lyrics-body')
-        ?.querySelector(`.ov-lyric-line[data-idx="${ovIdx}"]`), nowTicks)
-    }
+    paintGroup(document.getElementById('ov-lyrics-body'), '.ov-lyric-line', ovActiveFirst, lastOverlayLyricsIdx)
   }
 }
 
@@ -8443,26 +8455,36 @@ onDeck('timeupdate', () => {
   // and hold a line while its background vocals run into the next one. Shared
   // with the overlay; see currentLyricIndex in src/core/lyrics.ts.
   const activeIdx = CascadeCore.currentLyricIndex(lyricsData, baseIdx, nowSec * 10_000_000)
+  // Overlapping lines stay lit together, as in the overlay above.
+  const [first] = CascadeCore.activeLyricRange(lyricsData, activeIdx, nowSec * 10_000_000)
 
-  if (activeIdx === lastLyricsIdx) return
-  _applySideLyricsActive(activeIdx, false)   // always a glide, as in the overlay above
+  if (activeIdx === lastLyricsIdx && first === lyricsActiveFirst) return
+  _applySideLyricsActive(activeIdx, false, first)   // always a glide, as in the overlay above
 })
 
 // Highlight and centre one line in the side panel. Split out of the timeupdate
 // handler so a re-render (a translation arriving, say) can put the highlight
 // back straight away - while paused, no timeupdate would come to do it.
-function _applySideLyricsActive(activeIdx, instant) {
+// First line of the side panel's current group; lastLyricsIdx is the last.
+// They differ only while lines overlap (see activeLyricRange).
+let lyricsActiveFirst = -1
+
+function _applySideLyricsActive(activeIdx, instant, first = activeIdx) {
   lastLyricsIdx = activeIdx
+  lyricsActiveFirst = first
   const body = document.getElementById('lyrics-body')
   body.querySelectorAll('.lyrics-line[data-idx]').forEach(el => {
-    el.classList.toggle('active', parseInt(el.dataset.idx) === activeIdx)
+    const idx = parseInt(el.dataset.idx)
+    el.classList.toggle('active', idx >= first && idx <= activeIdx)
   })
 
   if (!lyricsScrollSuppressed) {
     const inner = document.getElementById('lyrics-inner')
     const target = inner?.querySelector(`.lyrics-line[data-idx="${activeIdx}"]`)
     if (target) {
-      const centreOn = () => body.clientHeight / 2 - (target.offsetTop + target.offsetHeight / 2)
+      // A group of overlapping lines is centred as one block.
+      const top = inner.querySelector(`.lyrics-line[data-idx="${first}"]`) || target
+      const centreOn = () => body.clientHeight / 2 - (top.offsetTop + target.offsetTop + target.offsetHeight) / 2
       if (instant) sideLyricsSpring.jumpTo(centreOn())
       else sideLyricsSpring.setTarget(centreOn)   // re-measured per frame, see createSpring
     }

@@ -61,6 +61,35 @@ export function currentLyricIndex(lines: LyricLine[], baseIdx: number, nowTicks:
   return baseIdx
 }
 
+/** When a line is sung to: the latest of its own End, its last word's and
+ *  its last background word's. Null when nothing says (plain LRC). */
+export function lineEndTicks(line: LyricLine): number | null {
+  const ends = [line.End, lastEnd(line.Words), lastEnd(line.Background)].filter((t): t is number => t != null)
+  return ends.length ? Math.max(...ends) : null
+}
+
+/**
+ * The lines to show as current, [first, last], around `idx` (currentLyricIndex).
+ * When a line starts before the previous one has ended (a duet, a call and
+ * response), Apple Music keeps both lit until the later one ends, instead of
+ * dimming the first mid-word. So: walk back over each earlier line that the
+ * next one starts inside, for as long as the latest line is still being sung.
+ * Lines with no end time (plain LRC) never overlap, so this is [idx, idx].
+ */
+export function activeLyricRange(lines: LyricLine[], idx: number, nowTicks: number): [number, number] {
+  const cur = lines[idx]
+  if (!cur) return [idx, idx]
+  const curEnd = lineEndTicks(cur)
+  if (curEnd == null || nowTicks >= curEnd) return [idx, idx]
+  let first = idx
+  while (first > 0) {
+    const prevEnd = lineEndTicks(lines[first - 1])
+    if (prevEnd == null || lines[first].Start >= prevEnd) break
+    first--
+  }
+  return [first, idx]
+}
+
 /** A word held at least this long gets the emphasis glow. */
 export const EMPHASIS_MIN_TICKS = 10_000_000   // 1s
 
