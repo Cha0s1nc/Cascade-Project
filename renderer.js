@@ -7535,7 +7535,9 @@ async function openLyricsEditorFor(item) {
   if (!item || !jf) return
   // Root-cause gate: every entry point (both buttons and the context menu
   // item) routes through here, so this is the one place that needs to know
-  // the plugin is missing.
+  // the plugin is missing. Wait for the probe first so the verdict and the
+  // route it picked are both settled.
+  await _cascadePluginProbed
   if (_cascadePluginAbsent) {
     showToast('The lyrics editor needs the Cascade Server plugin, which was not found on this server')
     return
@@ -7547,7 +7549,6 @@ async function openLyricsEditorFor(item) {
   const seed = item.Id === queue[queueIndex]?.Id ? (lyricsData || []) : []
   // Pass `volume`, not audio.volume: mid-crossfade the element is partway
   // through a fade and would hand the editor whatever that transient value is.
-  await _cascadePluginProbed
   window.cascade.lyricsEditor.open({ item, jf, lyricsData: seed, volume, lyricsUrl: cascadeLyricsUrl(item.Id) })
 }
 
