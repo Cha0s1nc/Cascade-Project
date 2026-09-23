@@ -1,6 +1,6 @@
 # Cascade code map
 
-**Describes `dev` at `526f6ba` (the CSS split). Every line number below was
+**Describes `dev` at `edd2fad`. Every line number below was
 re-derived at that state, not carried over. Line numbers rot fast: if
 a landmark is not where this says, re-grep and fix the line here rather than
 trusting it.**
@@ -18,10 +18,10 @@ the point. Most of what follows is a scar.
 
 | File | Lines | What it is |
 |---|---|---|
-| `renderer.js` | ~9491 | The whole UI. Plain global scope, **no semicolons**, no modules. |
+| `renderer.js` | ~9809 | The whole UI. Plain global scope, **no semicolons**, no modules. |
 | `index.html` | ~1479 | All markup. No CSS: it links `styles/*.css`. |
 | `styles/*.css` | 12 files | Every CSS rule, split by area and linked from `index.html` **in cascade order** (base, layout, library, settings, player-bar, controls, np-overlay, menus, lyrics, modals, theme, components). Reordering the `<link>`s changes the cascade. A new stylesheet must be under `styles/`, which `package.json` `build.files` ships. |
-| `main.js` | ~1328 | Electron main process. **No semicolons**, same as renderer.js. |
+| `main.js` | ~1406 | Electron main process. **No semicolons**, same as renderer.js. |
 | `src/core/*.ts` | 21 modules | Pure logic, bundled by esbuild via `src/index.ts` into the global `CascadeCore`. |
 | `test/*.test.ts` | - | `node --test`. **303 passing** at this commit. |
 | `miniplayer.html`, `metadata-editor.html`, `lyrics-editor.html`, `updater.html` | - | Secondary windows, each with its own preload. |
@@ -69,41 +69,41 @@ literals. Renaming an id is a silent break that typecheck will not catch.
 ## renderer.js landmarks
 
 ### Session, permissions, setup
-- `connect(serverUrl, token, userId)` - **628**. Sets the global `jf`. Fires
+- `connect(serverUrl, token, userId)` - **641**. Sets the global `jf`. Fires
   `/Users/{id}/Views` in PARALLEL with the token ping rather than after it.
   The ping's response carries `Policy`, which is where `isAdmin` and
   `canDelete` come from, so both are free - do not add a request for them.
-- `_applyAdminGating()` - **815**. Gates the library scan, both Refresh
+- `_applyAdminGating()` - **828**. Gates the library scan, both Refresh
   metadata entries, Edit metadata/images, and playlist delete. **A new
   admin-only control must be added to this function's id list or it is not
   gated at all.** Uses the `.needs-admin` class plus an inline note.
-- `maybeShowSetupWizard()` - **1295**, `WIZARD_REVISION` - **1259**, and
-  `FIRSTRUN_STEP_REVISION` - **1266**, the revision each step arrived in. An
+- `maybeShowSetupWizard()` - **1309**, `WIZARD_REVISION` - **1273**, and
+  `FIRSTRUN_STEP_REVISION` - **1280**, the revision each step arrived in. An
   update shows only steps newer than the revision last finished. Runs from
   `connect()` off a stored revision, NOT the app version and NOT a boolean.
   Safe to re-show on update only because every step seeds from the current
   live value. **Never add a step that writes a default on entry.**
-- `setBrowseMode()` - **1092**. The Music/Video toggle. A browsing filter only:
+- `setBrowseMode()` - **1106**. The Music/Video toggle. A browsing filter only:
   it never touches playback or the queue.
 
 ### Library, views, caches
-- `invalidateLibraryViews()` - **797**, `invalidateVideoViews()` - **806**.
+- `invalidateLibraryViews()` - **810**, `invalidateVideoViews()` - **819**.
   Plus the `dataset.loaded` flag `showView()` checks. That pair and that flag
   ARE the cache layer; there is no other.
-- `renderLibraryPicker()` - **920**, `renderVideoLibraryGroups()` - **1145**.
+- `renderLibraryPicker()` - **934**, `renderVideoLibraryGroups()` - **1159**.
   Neither hides itself for having only one library. A sole video library
   defaults on but can be switched off, so `effectiveLibraryIds()` treats a
   missing saved value and an empty one as different answers.
-- `loadPosterGrid()` - **2904**. Adds `.lib-grouped` to the container when it
+- `loadPosterGrid()` - **2987**. Adds `.lib-grouped` to the container when it
   holds groups (`styles/layout.css` **113**). Without it the container is still a
   150px-column grid and each whole library group becomes ONE cell, which
   renders two libraries as two narrow columns.
 
 ### Playlists
-- `currentPlaylistItems` - **2104**, `playlistMutated()` - **2112**. **The
+- `currentPlaylistItems` - **2118**, `playlistMutated()` - **2126**. **The
   single choke point every mutation must go through.** Bypassing it is what
   once left the in-memory list holding removed tracks.
-- `openPlaylist()` - **2416**. Clears `has-extra-col` before drawing its
+- `openPlaylist()` - **2430**. Clears `has-extra-col` before drawing its
   skeleton, per rule 3 above.
 - Smart playlists (Favorites, Most Played) hide the Edit button: they are
   generated, with nothing on the server to rewrite.
@@ -111,13 +111,13 @@ literals. Renaming an id is a silent break that typecheck will not catch.
 ### Playback, decks, crossfade
 - Two permanent `<video>` decks, `DECKS`, the `audio` pointer, and
   `onDeck(type, fn)` which binds both and filters to the live one.
-- `_detachDeck(el)` - **4262**. **The only correct way to let go of a deck.**
+- `_detachDeck(el)` - **4345**. **The only correct way to let go of a deck.**
   Assigning `''` to `.src` makes the element load the page itself as media.
-- `_swapDeck` **4267**, `finishCrossfade` **4286**, `cancelCrossfade` **4311**,
-  `_waitForPlayable` **4426**.
-- `currentDeviceProfile()` - **451**. The profile minus any codec proven
+- `_swapDeck` **4350**, `finishCrossfade` **4369**, `cancelCrossfade` **4394**,
+  `_waitForPlayable` **4509**.
+- `currentDeviceProfile()` - **464**. The profile minus any codec proven
   undecodable at runtime.
-- `_armAudioDecodeCheck()` - **9176**. Detects "video plays, no sound" using
+- `_armAudioDecodeCheck()` - **9494**. Detects "video plays, no sound" using
   `webkitAudioDecodedByteCount`, NOT the analyser level: a quiet scene and a
   broken decoder both read as zero level, but only a broken decoder has
   decoded zero BYTES while the clock ran. On failure it withdraws the codec
@@ -128,10 +128,10 @@ literals. Renaming an id is a silent break that typecheck will not catch.
   needs a `readyState` reading off the debug panel, not another guess.
 
 ### Web Audio / EQ
-- `_ensureEqGraph()` - **5436**. AudioContext -> per-deck source -> per-deck
+- `_ensureEqGraph()` - **5560**. AudioContext -> per-deck source -> per-deck
   gain (the crossfade envelope) -> preamp -> 5 biquads -> analyser -> out.
   Built once, never rewired.
-- Three failure flags at **5399**, and the distinction is load-bearing:
+- Three failure flags at **5523**, and the distinction is load-bearing:
   `_eqGraphFailed` (no graph at all, blocks bars AND crossfade),
   `_eqNoSignal` (cosmetic, bars only), `_eqEverHadSignal`. Conflating the
   first two silently killed crossfade for a whole session once.
@@ -141,8 +141,8 @@ literals. Renaming an id is a silent break that typecheck will not catch.
   the bars for the session. Reproduced before fixing.
 
 ### Lyrics
-- `lyricsPanelOpen()` - **7696**. The single visibility test both lyrics loops
-  use: `_paintWordSpans`/`_wordHighlightFrame` (**7635**/**7645**) and the `timeupdate`
+- `lyricsPanelOpen()` - **7889**. The single visibility test both lyrics loops
+  use: `_paintWordSpans`/`_wordHighlightFrame` (**7828**/**7838**) and the `timeupdate`
   line-promotion handler. `.lyrics-panel` is `position: fixed` ABOVE every view
   (`styles/lyrics.css` **2**), so it is NOT hidden by navigating elsewhere and `.open`
   is the entire condition. The guard matters for correctness (the karaoke fill
@@ -156,7 +156,7 @@ literals. Renaming an id is a silent break that typecheck will not catch.
   - `translation-models.json` pins every model file by size and sha256.
     Updating a model is a manifest edit plus a new GitHub release, never a
     runtime lookup of Mozilla's Remote Settings (Firefox internals).
-  - main.js `downloadTranslationModel()` - **963**. Tries Cascade's GitHub
+  - main.js `downloadTranslationModel()` - **1041**. Tries Cascade's GitHub
     release, then Mozilla's CDN, per file. **The hash check is not optional:**
     `downloadFile()` resolves on a truncated stream. Files land in
     `<key>.partial/` and the directory is renamed only once all verify, so an
@@ -168,24 +168,24 @@ literals. Renaming an id is a silent break that typecheck will not catch.
   - `cascade-model://` (`registerModelProtocol`, main.js **60**) serves
     `/runtime/` (the wasm) and `/models/` (installed models) behind
     `serveWithin()`'s escape guard, plus a registry per model
-    (`translationRegistryResponse`, **1032**): translator.js keys registries
+    (`translationRegistryResponse`, **1110**): translator.js keys registries
     by from+to, so the two Chinese models can never share one.
   - `scripts/build-bergamot.js` vendors the runtime. It bundles translator.js
     to the `Bergamot` global with `import.meta.url` defined as
     `self.__bergamotBase` (set in index.html), and points the worker's wasm
     fetch at `cascade-model://`, since fetch from file:// is blocked. Each patch
     asserts it matched, so a runtime upgrade that moves the code fails the build.
-  - Renderer: `translateLines()` - **6513**, one `BatchTranslator` per model,
-    retired after `TRANSLATE_IDLE_MS` (**6455**); one line per call; an
+  - Renderer: `translateLines()` - **6644**, one `BatchTranslator` per model,
+    retired after `TRANSLATE_IDLE_MS` (**6586**); one line per call; an
     in-memory LRU of translated lines for the session.
-    `ensureLyricsTranslation()` - **8370** downloads a missing model before
+    `ensureLyricsTranslation()` - **8564** downloads a missing model before
     translating. `CascadeCore.translationModelFor()` decides which model (or
     none, so no Translate button) a sheet gets, telling the Chinese scripts
     apart by characters written differently in each.
   - Two switches, on purpose: `lyricsTranslationEnabled` (Settings/wizard,
     default on) is whether the feature exists; `lyricsTranslateOn` (the
     Translate button, default off) is whether translations are showing.
-    `setLyricsTranslationEnabled()` - **8205** is the one path for both
+    `setLyricsTranslationEnabled()` - **8399** is the one path for both
     Settings and the wizard.
   - **Apple Translation (macOS 26+, default on there).** `native/apple-translate`
     is a Swift helper (`TranslationSession(installedSource:target:)`, the
@@ -208,7 +208,7 @@ literals. Renaming an id is a silent break that typecheck will not catch.
     - Translation Languages has no System Settings link of its own; the
       prompt opens Language & Region
       (`com.apple.Localization-Settings.extension`) and says where to click.
-  - Settings model rows (`renderTranslationModelRows`, **8234**) update in
+  - Settings model rows (`renderTranslationModelRows`, **8428**) update in
     place, never rebuild: progress events arrive several times a second and a
     rebuild would swap the button under the pointer.
 - A lyrics MISS is cached, not just a hit (`_cachePut(item.Id, null)` at the
@@ -219,13 +219,13 @@ literals. Renaming an id is a silent break that typecheck will not catch.
   when a source was merely down.
 
 ### Theme and album art
-- `setThemeMode()` - **8790**, `applyAlbumArtTheme()` - **8968**. **One**
+- `setThemeMode()` - **8984**, `applyAlbumArtTheme()` - **9281**. **One**
   extraction feeding both blobs and accent; a second, disagreeing one was
   removed.
-- `themeFromArtUrl()` - **8954**. The ONLY way to feed colour extraction, per
+- `themeFromArtUrl()` - **9267**. The ONLY way to feed colour extraction, per
   rule 8 above. Four call sites route through it; `applyAlbumArtTheme()` is
   called from nowhere else.
-- `setOverlayBackgroundImage()` - **5337**. Single choke point for
+- `setOverlayBackgroundImage()` - **5461**. Single choke point for
   `#np-overlay`'s background, holding a skip-if-unchanged cache. That element is
   `position: fixed; inset: 0` and the queue, transport, art and lyrics all paint
   into the same layer, so every assignment re-rasters the viewport - and writing
@@ -237,50 +237,50 @@ literals. Renaming an id is a silent break that typecheck will not catch.
   opposite directions on purpose. See `BLOB_L_RANGE` in `album-colors.ts`.
 
 ### Tooltips, menus, debug
-- `_positionTooltip()` - **9095**. One shared `#tooltip` element on `<body>`
-  (index.html **1477**, CSS `styles/controls.css` **19**), delegated from `document`. NOT a `::after`: a
+- `_positionTooltip()` - **9408**. One shared `#tooltip` element on `<body>`
+  (index.html **1534**, CSS `styles/controls.css` **19**), delegated from `document`. NOT a `::after`: a
   pseudo-element cannot escape clipping or a stacking context, which is why
   tips vanished behind the player bar and inside Settings.
 - Three context menus, all direct children of `<body>`: `#ctx-menu`
-  (index.html **1132**), `#track-ctx-menu` (**1186**), `#item-ctx-menu` (**1234**, albums
+  (index.html **1164**), `#track-ctx-menu` (**1221**), `#item-ctx-menu` (**1285**, albums
   / artists / video / series / playlists, driven by `menuItemsForKind()` in
   `src/core/context-menu.ts`). All three clamp position via
   `CascadeCore.clampMenuPosition()`.
   - Known gap, deliberately left: `#ctx-menu`'s own item handlers never call
     `hideCtxMenu()` on click.
-- `setItemPlayed()` - **7222**. `POST`/`DELETE /UserPlayedItems/{id}`.
-- `debugPanelText()` - **9291**. Behind a `.cascade-debug` sentinel file,
+- `setItemPlayed()` - **7393**. `POST`/`DELETE /UserPlayedItems/{id}`.
+- `debugPanelText()` - **9609**. Behind a `.cascade-debug` sentinel file,
   costs nothing when absent. Shows PlayMethod, every audio track with whether
   this build claims to decode it, live analyser peak, decoded byte count, and
   prefetch hit/miss with readyState. Shift-click copies it. Its resources
   section (`refreshDebugMetrics()`, fed by main.js `app-metrics` over
   `app.getAppMetrics()`) lists per-process memory, CPU and idle wake-ups.
   **Measure with this before building any performance change.**
-- `pushMiniplayerState()` - **3658**. Sends lyrics from the CURRENT line
+- `pushMiniplayerState()` - **3741**. Sends lyrics from the CURRENT line
   onward, so the miniplayer renders top-down with the active line at the top
   and does no scrolling of its own.
 
 ### Landmarks for the 2.2.0 work
-- Volume: `setVolumeRatio()` **119** is the single choke point (both bars via
-  `wireVolumeBar()` **4613** / `wireBar()` **4529**, `nudgeVolume()` **6104**,
+- Volume: `setVolumeRatio()` **124** is the single choke point (both bars via
+  `wireVolumeBar()` **4702** / `wireBar()` **4612**, `nudgeVolume()` **6228**,
   remote control).
-- Track lists: `trackRowHtml()` **1804** (shared row markup), `wireTrackRow()`
-  **2537**. Songs view: `renderSongRows()` **1965** / `_drawSongRows()` **2035**,
+- Track lists: `trackRowHtml()` **1818** (shared row markup), `wireTrackRow()`
+  **2553**. Songs view: `renderSongRows()` **1979** / `_drawSongRows()` **2049**,
   virtualised, **wires its own handlers inline instead of `wireTrackRow`**, so a
-  row behaviour change goes in both. `SONG_ROW_H` **1958** and `QUEUE_ROW_H`
-  **20** must match the CSS row heights. Queue: `_drawQueueRows()` **6246**.
-  Others: `openAlbum()` **1655**, `openArtist()` **1742**,
-  `renderPlaylistDetailItems()` **2323**, search `runSearch()` **8633**.
-- Settings wiring: `loadSettingsFields()` **4746**. Theme save: `saveTheme()` **8828**.
-- Track change: `playCurrentTrack()` **3349**, `updateNowPlaying()` **3521**
+  row behaviour change goes in both. `SONG_ROW_H` **1972** and `QUEUE_ROW_H`
+  **20** must match the CSS row heights. Queue: `_drawQueueRows()` **6370**.
+  Others: `openAlbum()` **1669**, `openArtist()` **1756**,
+  `renderPlaylistDetailItems()` **2337**, search `runSearch()` **8827**.
+- Settings wiring: `loadSettingsFields()` **4878**. Theme save: `saveTheme()` **9022**.
+- Track change: `playCurrentTrack()` **3432**, `updateNowPlaying()` **3604**
   (mediaSession metadata).
-- Menus: `hideCtxMenu()` **6781**; `menuItemsForKind()` `src/core/context-menu.ts` **50**.
-- Discord: renderer `initDiscordRpc()` **8558**; main `connectDiscordRpc()`
-  main.js **95**, `destroyRpc()` **129**.
-- Lyrics sources: `fetchLyricsWaterfall()` **7725**; plugin probe
-  `_cascadePluginAbsent` **7307**.
-- Updater: main.js `parseVersion()` **530**, `checkForUpdates()` **820**,
-  `installSilentlyWindows()` **1221**.
+- Menus: `hideCtxMenu()` **6917**; `menuItemsForKind()` `src/core/context-menu.ts` **50**.
+- Discord: renderer `initDiscordRpc()` **8752**; main `connectDiscordRpc()`
+  main.js **95**, `destroyRpc()` **194**.
+- Lyrics sources: `fetchLyricsWaterfall()` **7918**; plugin probe
+  `_cascadePluginAbsent` **7478**.
+- Updater: main.js `parseVersion()` **608**, `checkForUpdates()` **898**,
+  `installSilentlyWindows()` **1299**.
 
 ## Measured, not worth building
 
@@ -311,33 +311,33 @@ audio on the live deck. Recorded so these are not rebuilt on a hunch.
   `data-platform` is set on `<html>` from `window.cascade.platform`.
 - `.hshelf` `styles/layout.css` **131** (the horizontal shelf with edge arrows,
   used by Home shelves and grouped library rows). `.lib-grouped` **113**.
-- Now-playing overlay: markup index.html **956**; CSS `styles/np-overlay.css`,
+- Now-playing overlay: markup index.html **988**; CSS `styles/np-overlay.css`,
   header at **4**, video full mode at **200**. The header and
   the column divider have no borders on purpose - they cut through the album
   art background, which bleeds across both halves.
-- Settings `#view-settings` index.html **463**, five groups from **465**: Library,
+- Settings `#view-settings` index.html **495**, five groups from **497**: Library,
   Playback (Equalizer folded in), Lyrics & Metadata, Integrations, Account.
   Reorganising headings is fine; **renaming an id is not**.
-- First-run wizard `#firstrun-overlay` **874**. Theme picker popover `#theme-picker` **43**.
+- First-run wizard `#firstrun-overlay` **906**. Theme picker popover `#theme-picker` **43**.
 - Popups keep `display` fixed and transition opacity + visibility + transform.
   **Never go back to toggling `display`**: it cannot be transitioned, and
   `visibility` is what keeps a closed popup out of hit-testing.
 
 ## main.js landmarks
 
-- `showWhenReady(w, after)` - **283**. **The only correct way to show a window
+- `showWhenReady(w, after)` - **361**. **The only correct way to show a window
   created with `show: false`.** `ready-to-show` fires on first paint, and a
   hidden window on Windows may never produce one, which cost this app both its
   main window and its lyrics editor. Races it against `did-finish-load` with a
   timeout behind both. Media keys and the update check hang off
   `did-finish-load` for the same reason.
-- `createWindow()` - **320**. `hiddenInset` + `trafficLightPosition` are macOS
+- `createWindow()` - **398**. `hiddenInset` + `trafficLightPosition` are macOS
   only; Windows and Linux get `titleBarOverlay`. `minHeight: 560` is
   deliberate.
-- `DEBUG_SENTINEL` - **456**. Resolved on first ask, not at module scope: it
+- `DEBUG_SENTINEL` - **534**. Resolved on first ask, not at module scope: it
   once called `app.getPath()` during `require()`, before the app was ready.
 - Secondary windows: metadata editor **640**, miniplayer **699**
-  (`MINI_WIDTH` **684**, width locked, height 100-900, persisted).
+  (`MINI_WIDTH` **762**, width locked, height 100-900, persisted).
   **Every new window must be added to `package.json`'s `build.files`** or it
   works in dev and is missing from the packaged app.
 - The miniplayer is gated to unpackaged builds; packaged shows "coming soon".
