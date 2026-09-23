@@ -13,6 +13,9 @@ final class AppState {
     private(set) var config: ServerConfig?
     private(set) var client: JellyfinClient?
     private(set) var player: PlaybackService?
+    /// Which route family the server's Cascade plugin answers on, once probed.
+    /// Nil until then, and stays nil when the plugin is absent: no lyrics.
+    private(set) var cascadePluginApi: CascadePluginApi?
 
     var isSignedIn: Bool { client != nil }
 
@@ -81,6 +84,7 @@ final class AppState {
         config = nil
         client = nil
         player = nil
+        cascadePluginApi = nil
     }
 
     /// Which music libraries to browse. Empty means all of them.
@@ -104,6 +108,13 @@ final class AppState {
         // Rebuilt with the client so the player never holds a stale token or a
         // stale library selection.
         self.player = PlaybackService(client: client, config: config)
+        cascadePluginApi = nil
+        Task {
+            let (probe, api) = await client.probeCascadePlugin()
+            // 'unknown' counts as present: a network hiccup must not hide
+            // lyrics for the whole session. A wrong guess just 404s per track.
+            if probe != .absent, self.client === client { cascadePluginApi = api }
+        }
     }
 
     var appVersion: String {

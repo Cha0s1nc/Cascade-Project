@@ -6,9 +6,16 @@ import CascadeKit
 /// only focus target, remote directions for transport, queue shown alongside.
 struct NowPlayingView: View {
     let player: PlaybackService
+    @Environment(AppState.self) private var state
+    @State private var lyrics = LyricsModel()
+    /// Whether the current track is a favourite. Local, because the player's
+    /// item is a snapshot the server's answer does not update.
+    @State private var isFavorite = false
 
     #if !os(tvOS)
     @Environment(\.dismiss) private var dismiss
+    /// Lyrics in place of the artwork, the way Apple Music's toggle works.
+    @State private var showLyrics = false
     // While the user is dragging, the slider owns the value; the player still
     // publishes a position every half second underneath and would otherwise
     // yank the thumb back under the finger.
@@ -17,11 +24,30 @@ struct NowPlayingView: View {
     #endif
 
     var body: some View {
-        #if os(tvOS)
-        tvBody
-        #else
-        iosBody
-        #endif
+        Group {
+            #if os(tvOS)
+            tvBody
+            #else
+            iosBody
+            #endif
+        }
+        .task(id: "\(player.item?.id ?? "")|\(String(describing: state.cascadePluginApi))") {
+            isFavorite = player.item?.userData?.isFavorite ?? false
+            await lyrics.load(itemId: player.item?.id, client: state.client, api: state.cascadePluginApi)
+        }
+    }
+
+    /// Flips only once the server has accepted it: a refused write must not
+    /// look like a successful one (CODEMAP rule 1).
+    private func toggleFavorite() {
+        guard let id = player.item?.id, let client = state.client else { return }
+        let target = !isFavorite
+        Task {
+            do {
+                try await client.setFavorite(target, itemId: id)
+                if player.item?.id == id { isFavorite = target }
+            } catch {}
+        }
     }
 
     #if os(tvOS)
@@ -56,7 +82,10 @@ struct NowPlayingView: View {
                     .frame(width: 480)
             }
 
-            if !player.queue.items.isEmpty {
+            if let lines = lyrics.lines {
+                LyricsView(lines: lines, player: player)
+                    .frame(maxWidth: 900)
+            } else if !player.queue.items.isEmpty {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
                         ForEach(Array(player.queue.items.enumerated()), id: \.offset) { index, track in
@@ -85,7 +114,12 @@ struct NowPlayingView: View {
                 }
             }
 
-            ArtworkView(itemId: player.item?.albumId ?? player.item?.id, size: 300)
+            if showLyrics, let lines = lyrics.lines {
+                LyricsView(lines: lines, player: player)
+                    .frame(maxHeight: .infinity)
+            } else {
+                ArtworkView(itemId: player.item?.albumId ?? player.item?.id, size: 300)
+            }
 
             VStack(spacing: 4) {
                 Text(player.item?.name ?? "Nothing playing")
@@ -98,6 +132,25 @@ struct NowPlayingView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+            }
+
+            HStack(spacing: 36) {
+                Button(action: toggleFavorite) {
+                    Image(systemName: isFavorite ? "heart.fill" : "heart")
+                        .font(.title3)
+                }
+                .foregroundStyle(isFavorite ? Color.pink : Color.secondary)
+                .accessibilityLabel(isFavorite ? "Unfavourite" : "Favourite")
+
+                Button {
+                    withAnimation { showLyrics.toggle() }
+                } label: {
+                    Image(systemName: "quote.bubble")
+                        .font(.title3)
+                }
+                .foregroundStyle(showLyrics ? Color.accentColor : Color.secondary)
+                .disabled(lyrics.lines == nil)
+                .accessibilityLabel(showLyrics ? "Hide lyrics" : "Show lyrics")
             }
 
             if let error = player.error {
