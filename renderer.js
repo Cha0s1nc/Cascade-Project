@@ -7673,8 +7673,11 @@ window.cascadeDebug = {
   // with no overshoot; less bounces, more crawls). ripple: ms each following
   // line lags behind the one above it in the overlay's fade. Session only;
   // tell Claude the numbers you like and they become the defaults.
-  // emphLift (em) and emphScale: how far a held note rises and how much it
-  // swells while sung (defaults 0.12 and 1.08, set in styles/lyrics.css).
+  // Held notes (styles/lyrics.css): emphLift (em) and emphScale are the PEAK
+  // rise and swell of each letter (0.1, 1.08); emphHold is the fraction of the
+  // peak it settles to and holds until the line ends (0.6); emphRise is the
+  // whole rise-and-settle in seconds (1.7, peak at 65% of it). Defaults were
+  // measured from a 60fps recording of Apple Music.
   lyricMotion(opts = {}) {
     for (const k of ['stiffness', 'damping', 'ripple']) {
       if (Number.isFinite(opts[k]) && opts[k] >= 0) LYRIC_MOTION[k] = opts[k]
@@ -7682,8 +7685,12 @@ window.cascadeDebug = {
     const root = document.documentElement.style
     if (Number.isFinite(opts.emphLift)) root.setProperty('--emph-lift', `${opts.emphLift}em`)
     if (Number.isFinite(opts.emphScale) && opts.emphScale > 0) root.setProperty('--emph-scale', String(opts.emphScale))
-    LYRIC_MOTION.emphLift = parseFloat(root.getPropertyValue('--emph-lift')) || 0.12
+    if (Number.isFinite(opts.emphHold) && opts.emphHold >= 0) root.setProperty('--emph-hold', String(opts.emphHold))
+    if (Number.isFinite(opts.emphRise) && opts.emphRise > 0) root.setProperty('--emph-rise', `${opts.emphRise}s`)
+    LYRIC_MOTION.emphLift = parseFloat(root.getPropertyValue('--emph-lift')) || 0.1
     LYRIC_MOTION.emphScale = parseFloat(root.getPropertyValue('--emph-scale')) || 1.08
+    LYRIC_MOTION.emphHold = parseFloat(root.getPropertyValue('--emph-hold')) || 0.6
+    LYRIC_MOTION.emphRise = parseFloat(root.getPropertyValue('--emph-rise')) || 1.7
     const critical = 2 * Math.sqrt(LYRIC_MOTION.stiffness)
     console.log(`[cascadeDebug] lyric motion`, { ...LYRIC_MOTION }, `(no-overshoot damping for this stiffness: ${critical.toFixed(1)})`)
     return { ...LYRIC_MOTION }
@@ -8056,20 +8063,20 @@ function _paintWordSpans(line, nowTicks) {
     const prog = _wordProgress(w, nowTicks)
     const p = `calc(${prog.toFixed(2)}% + ${(prog * 0.006 - 0.3).toFixed(3)}em)`
     // A held note swells letter by letter, as in Apple Music: the word's
-    // progress sweeps across its letters, and each letter gets its own share
-    // of the fill (--p) and its own growth (--e, smoothstep of how far the
-    // fill is through that letter), which styles/lyrics.css turns into lift,
-    // swell and glow. A letter the fill has passed stays up.
+    // progress sweeps across its letters, each getting its own share of the
+    // fill (--p). A letter the fill has reached is .lit, which starts its
+    // rise animation in styles/lyrics.css (delayed peak, then a settle, held
+    // until the line ends). Unlit again on a seek back, so it can replay.
     if (w.classList.contains('emph')) {
       const letters = w.children
       const n = letters.length
       for (let i = 0; i < n; i++) {
         const t = Math.max(0, Math.min(1, prog / 100 * n - i))
         const lp = `calc(${(t * 100).toFixed(2)}% + ${(t * 0.6 - 0.3).toFixed(3)}em)`
-        const le = (t * t * (3 - 2 * t)).toFixed(3)
         const st = letters[i].style
         if (st.getPropertyValue('--p') !== lp) st.setProperty('--p', lp)
-        if (st.getPropertyValue('--e') !== le) st.setProperty('--e', le)
+        const lit = t > 0
+        if (letters[i].classList.contains('lit') !== lit) letters[i].classList.toggle('lit', lit)
       }
     }
     if (w.style.getPropertyValue('--p') !== p) w.style.setProperty('--p', p)

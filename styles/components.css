@@ -87,5 +87,5 @@ input[type="range"]:disabled { opacity: 0.4; cursor: default; }
   /* Held notes and background rows (styles/lyrics.css): keep the glow and
      the row, drop the swell and the easing. */
   .emph-l, .lyric-bg { transition: none; }
-  .lyrics-line.active .emph.active .emph-l, .ov-lyric-line.active .emph.active .emph-l { transform: none; }
+  .lyrics-line.active .emph .emph-l.lit, .ov-lyric-line.active .emph .emph-l.lit { animation: none; }
 }
