@@ -1,0 +1,94 @@
+import SwiftUI
+import CascadeKit
+
+/// Read-only for now: browse and play. Editing (add, remove, reorder) comes
+/// later; the server facts it will need are in the desktop's CODEMAP.
+struct PlaylistsView: View {
+    @Environment(AppState.self) private var state
+    @State private var items: [JfItem] = []
+    @State private var isLoading = true
+    @State private var error: String?
+    @State private var selected: JfItem?
+    @State private var showDetail = false
+
+    var body: some View {
+        ScrollView {
+            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty)
+            ItemGrid(items: items) { selected = $0; showDetail = true }
+        }
+        .navigationTitle("Playlists")
+        .navigationDestination(isPresented: $showDetail) {
+            if let selected { PlaylistDetailView(playlist: selected) }
+        }
+        .task {
+            guard let client = state.client else { return }
+            do { items = try await client.playlists() }
+            catch { self.error = error.localizedDescription }
+            isLoading = false
+        }
+    }
+}
+
+struct PlaylistDetailView: View {
+    let playlist: JfItem
+
+    @Environment(AppState.self) private var state
+    @State private var tracks: [JfItem] = []
+    @State private var isLoading = true
+    @State private var error: String?
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 12) {
+                VStack(spacing: 12) {
+                    ArtworkView(itemId: playlist.id, size: 200)
+                    Text(playlist.name ?? "Playlist")
+                        .font(.title2.bold())
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                    Text("\(tracks.count) songs")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 16) {
+                        Button {
+                            Task { await state.player?.play(tracks, startIndex: 0) }
+                        } label: {
+                            Label("Play", systemImage: "play.fill")
+                        }
+                        Button {
+                            Task {
+                                await state.player?.play(tracks, startIndex: 0)
+                                state.player?.toggleShuffle()
+                            }
+                        } label: {
+                            Label("Shuffle", systemImage: "shuffle")
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(tracks.isEmpty)
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+
+                ForEach(Array(tracks.enumerated()), id: \.offset) { index, track in
+                    Button {
+                        Task { await state.player?.play(tracks, startIndex: index) }
+                    } label: {
+                        TrackRow(track: track)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal)
+                }
+                LoadingOverlay(isLoading: isLoading, error: error, isEmpty: tracks.isEmpty)
+                    .padding(.horizontal)
+            }
+        }
+        .navigationTitle(playlist.name ?? "Playlist")
+        .task {
+            guard let client = state.client else { return }
+            do { tracks = try await client.tracks(inPlaylist: playlist.id) }
+            catch { self.error = error.localizedDescription }
+            isLoading = false
+        }
+    }
+}

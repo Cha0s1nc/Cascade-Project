@@ -116,6 +116,30 @@ public extension JellyfinClient {
         return response.items ?? []
     }
 
+    /// The user's playlists. Not scoped to the chosen music libraries:
+    /// playlists live in Jellyfin's own playlists collection, so the library
+    /// filter would hide every one of them.
+    func playlists() async throws -> [JfItem] {
+        let response: JfItemsResponse = try await get("/Items", params: [
+            "userId": currentConfig.userId,
+            "includeItemTypes": "Playlist",
+            "recursive": "true",
+            "sortBy": "SortName",
+            "fields": "ChildCount",
+        ])
+        return response.items ?? []
+    }
+
+    /// A playlist's tracks in the playlist's own order (no sortBy: the order
+    /// is the playlist). Same route and fields the desktop uses.
+    func tracks(inPlaylist playlistId: String) async throws -> [JfItem] {
+        let response: JfItemsResponse = try await get("/Playlists/\(playlistId)/Items", params: [
+            "userId": currentConfig.userId,
+            "fields": trackFields,
+        ])
+        return response.items ?? []
+    }
+
     /// An artist's albums, newest first.
     func albums(byArtist artistId: String) async throws -> [JfItem] {
         try await itemsAcrossLibraries(baseParams.merging([

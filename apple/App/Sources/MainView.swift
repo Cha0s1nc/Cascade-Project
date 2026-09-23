@@ -42,6 +42,9 @@ struct MainView: View {
             Tab("Songs", systemImage: "music.note.list") {
                 NavigationStack { SongsView() }
             }
+            Tab("Playlists", systemImage: "music.note.square.stack") {
+                NavigationStack { PlaylistsView() }
+            }
             Tab("Search", systemImage: "magnifyingglass", role: .search) {
                 NavigationStack { SearchView() }
             }
