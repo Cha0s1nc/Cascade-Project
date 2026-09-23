@@ -4114,7 +4114,7 @@ onDeck('ended', () => {
 
   if (sleepAtTrackEnd) {
     sleepAtTrackEnd = false
-    document.getElementById('ov-sleep-timer').classList.remove('active')
+    document.getElementById('ctx-sleep-timer').classList.remove('active')
     showToast('Sleep timer: playback paused')
     return
   }
@@ -4796,8 +4796,9 @@ async function toggleLike(item) {
         if (!current.UserData) current.UserData = {}
         current.UserData.IsFavorite = !isLiked
       }
+      // #ov-like (the overlay's own heart button) is gone - see Favorite
+      // in #ctx-menu, whose label showCtxMenu() refreshes on open.
       likeBtn.classList.toggle('liked', !isLiked)
-      document.getElementById('ov-like').classList.toggle('liked', !isLiked)
       pushMiniplayerState()
     }
   } catch (e) {
@@ -5966,7 +5967,7 @@ let sleepAtTrackEnd = false  // true when "End of current track" is selected
 function clearSleepTimer() {
   if (sleepTimerId) { clearTimeout(sleepTimerId); sleepTimerId = null }
   sleepAtTrackEnd = false
-  document.getElementById('ov-sleep-timer').classList.remove('active')
+  document.getElementById('ctx-sleep-timer').classList.remove('active')
 }
 
 function setSleepTimerMinutes(mins) {
@@ -5974,17 +5975,17 @@ function setSleepTimerMinutes(mins) {
   sleepTimerId = setTimeout(() => {
     audio.pause()
     sleepTimerId = null
-    document.getElementById('ov-sleep-timer').classList.remove('active')
+    document.getElementById('ctx-sleep-timer').classList.remove('active')
     showToast('Sleep timer: playback paused')
   }, mins * 60 * 1000)
-  document.getElementById('ov-sleep-timer').classList.add('active')
+  document.getElementById('ctx-sleep-timer').classList.add('active')
   showToast(`Sleep timer set for ${mins} minutes`)
 }
 
 function setSleepTimerAtTrackEnd() {
   clearSleepTimer()
   sleepAtTrackEnd = true
-  document.getElementById('ov-sleep-timer').classList.add('active')
+  document.getElementById('ctx-sleep-timer').classList.add('active')
   showToast('Playback will pause after this track')
 }
 
@@ -6014,9 +6015,14 @@ function toggleDropdownUnder(dd, btnEl) {
   return true
 }
 
-document.getElementById('ov-sleep-timer').addEventListener('click', (e) => {
+// Sleep timer moved from its own overlay button into the More menu (see
+// #ctx-menu). hideCtxMenu() first, unlike this menu's other rows (CODEMAP
+// notes they deliberately never close themselves) - leaving it open behind
+// the dropdown this opens would look broken, not deliberate.
+document.getElementById('ctx-sleep-timer').addEventListener('click', (e) => {
   e.stopPropagation()
-  toggleDropdownUnder(sleepTimerDropdown, e.currentTarget)
+  hideCtxMenu()
+  toggleDropdownUnder(sleepTimerDropdown, document.getElementById('ov-more-btn'))
 })
 
 sleepTimerDropdown.querySelectorAll('[data-sleep-mins]').forEach(btn => {
@@ -6034,7 +6040,7 @@ sleepTimerDropdown.querySelectorAll('[data-sleep-mins]').forEach(btn => {
 // button that opens it. A per-menu copy is how the third one ends up staying
 // open behind the second.
 const OV_DROPDOWNS = [
-  ['sleep-timer-dropdown',  'ov-sleep-timer'],
+  ['sleep-timer-dropdown',  'ctx-sleep-timer'],
   ['subs-dropdown',         'ov-subs'],
   ['audio-track-dropdown',  'ov-audio-track'],
 ]
@@ -6085,8 +6091,6 @@ document.getElementById('ov-shuffle').addEventListener('click', () => {
 document.getElementById('ov-repeat').addEventListener('click', () => {
   document.getElementById('btn-repeat').click()
 })
-document.getElementById('ov-like').addEventListener('click', () => toggleLike())
-
 // Overlay progress bar - shares wireProgressBar() with the statusbar one.
 wireProgressBar('ov-prog-bar', 'ov-prog-fill', 'ov-cur')
 
@@ -6342,9 +6346,6 @@ function syncOverlayState() {
   document.getElementById('ov-track').innerHTML  = `<span class="np-scroll-inner">${esc(item.Name || '')}</span>`
   document.getElementById('ov-artist').innerHTML = `<span class="np-scroll-inner">${esc(item.AlbumArtist || item.Artists?.[0] || '')}</span>`
   refreshMarquees()
-
-  // Like state
-  document.getElementById('ov-like').classList.toggle('liked', item.UserData?.IsFavorite || false)
 
   // Shuffle / repeat state
   document.getElementById('ov-shuffle').classList.toggle('active', shuffle)

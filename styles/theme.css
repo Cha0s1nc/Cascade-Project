@@ -22,22 +22,19 @@
 /* Force all overlay control buttons white + black outline */
 .np-overlay.art-theme .np-ov-ctrl,
 .np-overlay.art-theme .np-ov-ctrl.active,
-.np-overlay.art-theme .np-overlay-close,
-.np-overlay.art-theme .np-like-ov { color: white !important; filter: drop-shadow(0 1px 3px rgba(0,0,0,0.8)); }
+.np-overlay.art-theme .np-overlay-close { color: white !important; filter: drop-shadow(0 1px 3px rgba(0,0,0,0.8)); }
 /* Force SVG stroke directly so active-state accent can't bleed through */
 .np-overlay.art-theme .np-ov-ctrl svg,
 .np-overlay.art-theme .np-ov-ctrl.active svg,
 .np-overlay.art-theme .np-overlay-close svg { stroke: white !important; }
 .np-overlay.art-theme .np-ov-ctrl:hover,
 .np-overlay.art-theme .np-ov-ctrl.active:hover,
-.np-overlay.art-theme .np-overlay-close:hover,
-.np-overlay.art-theme .np-like-ov:hover { color: rgba(255,255,255,0.75) !important; }
+.np-overlay.art-theme .np-overlay-close:hover { color: rgba(255,255,255,0.75) !important; }
 .np-overlay.art-theme .np-ov-ctrl:hover svg,
 .np-overlay.art-theme .np-ov-ctrl.active:hover svg { stroke: rgba(255,255,255,0.75) !important; }
 /* Active buttons: white with full opacity, dimmed when inactive */
 .np-overlay.art-theme .np-ov-ctrl:not(.active) { opacity: 0.55; }
 .np-overlay.art-theme .np-ov-ctrl.active { opacity: 1; }
-.np-overlay.art-theme .np-like-ov.liked { color: #ff6b8a !important; }
 /* Play/pause button: white pill, black icons */
 .np-overlay.art-theme .np-ov-play { background: white; box-shadow: 0 2px 12px rgba(0,0,0,0.5); }
 .np-overlay.art-theme .np-ov-play svg { fill: #111 !important; }

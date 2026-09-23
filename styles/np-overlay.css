@@ -310,10 +310,6 @@ html[data-platform="linux"] .np-overlay.video.full #ov-full-exit {
 .np-overlay-prog-bar:focus-visible .np-overlay-prog-fill::after { transform: translateY(-50%) scale(1); }
 .np-overlay-time { font-size: 11px; color: var(--text3); font-variant-numeric: tabular-nums; min-width: 32px; }
 .np-overlay-time.right { text-align: right; }
-.np-like-ov { background: none; border: none; color: var(--text3); cursor: pointer; padding: 0; display: flex; align-items: center; transition: color 0.15s; }
-.np-like-ov:hover { color: #ff6b8a; }
-.np-like-ov.liked { color: #ff6b8a; }
-.np-like-ov.liked svg { fill: #ff6b8a; stroke: #ff6b8a; }
 /* Right: queue / lyrics tabs */
 .np-overlay-right { display: flex; flex-direction: column; overflow: hidden; }
 .np-overlay-tabs { display: flex; padding: 0 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
