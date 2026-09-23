@@ -6722,10 +6722,11 @@ document.getElementById('ov-translate-btn').addEventListener('click', () => onTr
 // restarting from a standstill, which is what makes back-to-back line changes
 // read as one continuous glide instead of a stutter-restart.
 // Lyric motion, shared by both lyric springs and tunable live from DevTools
-// (cascadeDebug.lyricMotion). Critically damped by default (damping =
-// 2 * sqrt(stiffness)): it settles without overshooting, the smooth ease Apple
-// Music's lyrics move with, where the old 210/26 bounced slightly.
-const LYRIC_MOTION = { stiffness: 180, damping: 27, ripple: 65 }
+// (cascadeDebug.lyricMotion). Tuned by eye against Apple Music, 2026-09-23:
+// overdamped (critical damping for 250 would be ~31.6), so lines ease in and
+// never overshoot, where the old 210/26 bounced slightly; and a longer ripple,
+// so the lines below trail a little more.
+const LYRIC_MOTION = { stiffness: 250, damping: 50, ripple: 90 }
 
 function createSpring(onUpdate, motion = LYRIC_MOTION) {
   let pos = 0, vel = 0, target = 0
