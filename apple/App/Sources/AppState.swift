@@ -51,6 +51,20 @@ final class AppState {
         let auth = try await authenticate(serverUrl: server, username: username,
                                           password: password, appVersion: appVersion,
                                           deviceId: Self.deviceId)
+        persist(server: server, auth: auth)
+    }
+
+    /// Finish a QuickConnect sign-in once the code has been approved. Saves the
+    /// session exactly as a password sign-in does, so restore() cannot tell
+    /// them apart.
+    func signIn(server: String, quickConnectSecret secret: String) async throws {
+        let auth = try await QuickConnect.authenticate(serverUrl: server, secret: secret,
+                                                       appVersion: appVersion, deviceId: Self.deviceId)
+        persist(server: server, auth: auth)
+    }
+
+    private func persist(server: String, auth: JfAuthResult) {
+        let server = server.hasSuffix("/") ? String(server.dropLast()) : server
         let config = ServerConfig(url: server, token: auth.accessToken,
                                   userId: auth.user.id, deviceId: Self.deviceId)
         Keychain.set(config.token, for: "token")
