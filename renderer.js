@@ -7659,10 +7659,17 @@ window.cascadeDebug = {
   // with no overshoot; less bounces, more crawls). ripple: ms each following
   // line lags behind the one above it in the overlay's fade. Session only;
   // tell Claude the numbers you like and they become the defaults.
+  // emphLift (em) and emphScale: how far a held note rises and how much it
+  // swells while sung (defaults 0.12 and 1.08, set in styles/lyrics.css).
   lyricMotion(opts = {}) {
     for (const k of ['stiffness', 'damping', 'ripple']) {
       if (Number.isFinite(opts[k]) && opts[k] >= 0) LYRIC_MOTION[k] = opts[k]
     }
+    const root = document.documentElement.style
+    if (Number.isFinite(opts.emphLift)) root.setProperty('--emph-lift', `${opts.emphLift}em`)
+    if (Number.isFinite(opts.emphScale) && opts.emphScale > 0) root.setProperty('--emph-scale', String(opts.emphScale))
+    LYRIC_MOTION.emphLift = parseFloat(root.getPropertyValue('--emph-lift')) || 0.12
+    LYRIC_MOTION.emphScale = parseFloat(root.getPropertyValue('--emph-scale')) || 1.08
     const critical = 2 * Math.sqrt(LYRIC_MOTION.stiffness)
     console.log(`[cascadeDebug] lyric motion`, { ...LYRIC_MOTION }, `(no-overshoot damping for this stiffness: ${critical.toFixed(1)})`)
     return { ...LYRIC_MOTION }

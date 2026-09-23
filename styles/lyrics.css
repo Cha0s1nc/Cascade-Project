@@ -49,7 +49,10 @@
 }
 .lyrics-line.active .lyric-word.emph.active,
 .ov-lyric-line.active .ov-lyric-word.emph.active {
-  transform: translateY(-0.05em) scale(1.08);
+  /* Lift and swell read from variables so cascadeDebug.lyricMotion can tune
+     them live. 0.12em is what Apple Music's held "now" rises in the
+     reference recording; 0.05em read as barely moving. */
+  transform: translateY(calc(var(--emph-lift, 0.12em) * -1)) scale(var(--emph-scale, 1.08));
   filter: drop-shadow(0 0 0.35em rgba(255,255,255,0.7));
 }
 html[data-theme="light"] .lyrics-line.active .lyric-word.emph.active,
