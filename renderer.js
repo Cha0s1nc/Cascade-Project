@@ -3751,7 +3751,7 @@ function pushMiniplayerState() {
   // current track. By id, not the likeBtn const: this can run before that
   // line of the script has executed.
   const isFavorite = !!document.getElementById('btn-like')?.classList.contains('liked')
-  window.cascade.miniPlayer.updateState(CascadeCore.buildMiniplayerState(track, !audio.paused, mediaPosition(), mediaDuration(), lyricTail, { isFavorite, volume }))
+  window.cascade.miniPlayer.updateState(CascadeCore.buildMiniplayerState(track, !audio.paused, mediaPosition(), mediaDuration(), lyricTail, { isFavorite, volume, credit: lyricsCredit }))
 }
 
 // Derived from the DOM, never cached: _drawSongRows() replaces rows.innerHTML on every
@@ -4885,6 +4885,11 @@ window.cascade.miniPlayer.onControl(async (raw) => {
   // `volume`, not audio.volume: mid-crossfade the element is partway through
   // a fade (see openLyricsEditorFor).
   else if (cmd.type === 'volume') setVolumeRatio(volume + cmd.delta)
+  else if (cmd.type === 'credit') {
+    const url = CascadeCore.safeCreditUrl(lyricsCredit?.[cmd.who]?.url)
+    if (url) window.cascade.shell.openExternal(url)
+    return
+  }
   // Paused, there is no timeupdate to carry the new state back.
   pushMiniplayerState()
 })
@@ -6516,12 +6521,14 @@ async function renderOverlayLyrics() {
     _showLyricsFetchToast(result)
     if (!result) {
       lyricsSource = null
+      lyricsCredit = null
       updateSourcePills()
       body.innerHTML = '<div class="lyrics-empty" style="padding:40px 0;text-align:center">No lyrics available</div>'
       return
     }
     lyricsData   = result.lines
     lyricsSource = result.source
+    lyricsCredit = result.credit || null
     updateSourcePills()
     _stopWordLoop()
     if (!audio.paused) _startWordLoop()
@@ -7480,7 +7487,13 @@ document.getElementById('ictx-edit-meta').addEventListener('click', () => {
 
 // ── Lyrics panel ──────────────────────────────────────────────────────────────
 
-let lyricsSource        = null   // source that was actually used: 'Kugou' | 'LRCLIB' | 'LRCLIB (plain)' | 'Jellyfin' | 'Karaoke' | 'Synced'
+let lyricsSource        = null   // source that was actually used: 'Kugou' | 'LRCLIB' | 'LRCLIB (plain)' | 'Jellyfin' | 'Karaoke' | 'Synced' | a SpicyLyrics provider
+// SpicyLyrics' credit for the lyrics on screen ({ provider, uploader, maker },
+// see src/core/spicy-lyrics.ts), or null for every other source. Its terms
+// require it wherever the lyrics show: the side panel, the overlay and the
+// miniplayer. Non-null also means these lines must never be saved anywhere
+// permanent (see openLyricsEditorFor).
+let lyricsCredit        = null
 let lyricsForcedSource  = 'auto' // 'auto' | 'Kugou' | 'LRCLIB' | 'Jellyfin' | 'cascade-karaoke' | 'cascade-synced'
 let serverOnlyMode    = false  // fetch exclusively from Cascade plugin when true
 
@@ -7499,6 +7512,9 @@ const NO_PLUGIN_TIP = 'No Cascade Server plugin'
 // the wrong route.
 let _cascadePluginApi = 'server'
 let _cascadePluginProbed = Promise.resolve()
+// What the plugin's Info route says it can do. 'syllable' means a SpicyLyrics
+// key is set on the server, so asking for SpicyLyrics is worth a request.
+let _cascadePluginCaps = new Set()
 
 /** Full URL of the plugin's lyrics GET/POST route for an item. */
 function cascadeLyricsUrl(itemId) {
@@ -7518,12 +7534,21 @@ function cascadeLyricsUrl(itemId) {
  */
 function probeCascadePlugin() {
   _cascadePluginApi = 'server'
+  _cascadePluginCaps = new Set()
   const statusOf = async (path) => {
     try {
       const r = await fetch(`${jf.url}/${path}`, {
         headers: { 'X-Emby-Token': jf.token },
         signal: AbortSignal.timeout(8000),
       })
+      // The body is only read for the capability list; the status alone is
+      // still the presence answer, so a body that fails to parse costs nothing.
+      if (r.ok) {
+        try {
+          const caps = (await r.json())?.capabilities
+          if (Array.isArray(caps)) _cascadePluginCaps = new Set(caps.filter(c => typeof c === 'string'))
+        } catch {}
+      }
       return r.status
     } catch {
       return null  // network failure reads as 'unknown'
@@ -7659,7 +7684,34 @@ function updateSourcePills() {
     p.textContent = label
     p.classList.toggle('forced', forced)
   })
+  renderLyricsCredit()
 }
+
+/** The always-visible credit line at the foot of each lyrics panel, for
+ *  SpicyLyrics lyrics: the provider, then the uploader and maker of a
+ *  community sync. Not left to the source pill, which only shows on hover -
+ *  the terms want it on screen, not tucked away. Links are https only
+ *  (safeCreditUrl) and open in the browser. */
+function renderLyricsCredit() {
+  const c = lyricsCredit
+  const people = c ? [['Uploaded by', c.uploader], ['Synced by', c.maker]].filter(([, p]) => p) : []
+  const html = c ? [esc(c.provider), ...people.map(([role, p]) => p.url
+    ? `${role} <a href="#" class="lyrics-credit-link" data-url="${esc(p.url)}">${esc(p.name)}</a>`
+    : `${role} ${esc(p.name)}`)].join(' · ') : ''
+  document.querySelectorAll('.lyrics-credit').forEach(el => {
+    el.innerHTML = html
+    el.hidden = !html
+  })
+  pushMiniplayerState()
+}
+
+document.addEventListener('click', (e) => {
+  const a = e.target.closest?.('.lyrics-credit-link')
+  if (!a) return
+  e.preventDefault()
+  const url = CascadeCore.safeCreditUrl(a.dataset.url)
+  if (url) window.cascade.shell.openExternal(url)
+})
 
 function _openSourceDropdown(nearEl) {
   const dd   = document.getElementById('lyrics-source-dropdown')
@@ -7733,7 +7785,10 @@ async function openLyricsEditorFor(item) {
   if (!proceed) return
   // lyricsData holds the playing track's lines - only seed the editor with it when
   // that is actually the track being edited, otherwise let the editor fetch its own.
-  const seed = item.Id === queue[queueIndex]?.Id ? (lyricsData || []) : []
+  // Never from SpicyLyrics (lyricsCredit set): saving writes a permanent .slrc,
+  // and its terms allow keeping that data 30 days at most and forbid building
+  // an archive of it. The editor then fetches its own, which never asks for it.
+  const seed = item.Id === queue[queueIndex]?.Id && !lyricsCredit ? (lyricsData || []) : []
   // Pass `volume`, not audio.volume: mid-crossfade the element is partway
   // through a fade and would hand the editor whatever that transient value is.
   window.cascade.lyricsEditor.open({ item, jf, lyricsData: seed, volume, lyricsUrl: cascadeLyricsUrl(item.Id) })
@@ -7961,10 +8016,31 @@ async function fetchLyricsWaterfall(item) {
     const tried = { Cascade: null }
     try {
       await _cascadePluginProbed
-      const r = await fetch(cascadeLyricsUrl(item.Id),
+      // Auto asks for SpicyLyrics first; the plugin answers it only with a key
+      // set and a Spotify id for the track, and otherwise falls through to its
+      // own files. A forced karaoke/synced choice means exactly those files.
+      const url = !wantType && _cascadePluginCaps.has('syllable')
+        ? `${cascadeLyricsUrl(item.Id)}?syllable=true` : cascadeLyricsUrl(item.Id)
+      const r = await fetch(url,
         { headers: { 'X-Emby-Token': jf.token }, signal: AbortSignal.timeout(8000) })
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
-      const d = await r.json()
+      let d = await r.json()
+      if (d.type === 'syllable') {
+        const conv = CascadeCore.convertSpicyLyrics(d.spicy)
+        if (conv) {
+          tried.Cascade = 'ok'
+          _lastFetchStatus = tried
+          const out = { lines: conv.lines, source: conv.credit.provider, credit: conv.credit, tried }
+          _cachePut(item.Id, out)
+          return out
+        }
+        // Unusable SpicyLyrics body: ask again for the plugin's own files
+        // rather than showing nothing when they exist.
+        const r2 = await fetch(cascadeLyricsUrl(item.Id),
+          { headers: { 'X-Emby-Token': jf.token }, signal: AbortSignal.timeout(8000) })
+        if (!r2.ok) throw new Error(`HTTP ${r2.status}`)
+        d = await r2.json()
+      }
       if (!d.lrc || (wantType && d.type !== wantType)) {
         tried.Cascade = 'fail'; _lastFetchStatus = tried; return null
       }
@@ -8049,13 +8125,30 @@ async function fetchLyricsWaterfall(item) {
     }
   }
 
+  // SpicyLyrics through the plugin, ahead of everything else when it answers.
+  // Only asked when the plugin reports a key (the 'syllable' capability), and
+  // only a SpicyLyrics body counts: the plugin's own files are server-only
+  // mode's business, not this waterfall's. Outside `sources`, so it is not a
+  // forceable choice and a miss is never reported as a failed source - most
+  // tracks will not have one.
+  const spicyProm = (async () => {
+    await _cascadePluginProbed
+    if (_cascadePluginAbsent || !_cascadePluginCaps.has('syllable')) return null
+    const r = await fetch(`${cascadeLyricsUrl(item.Id)}?syllable=true`, { headers: { 'X-Emby-Token': jf.token }, ...sig })
+    if (!r.ok) return null
+    const d = await r.json()
+    if (d?.type !== 'syllable') return null
+    const conv = CascadeCore.convertSpicyLyrics(d.spicy)
+    return conv ? { lines: conv.lines, source: conv.credit.provider, credit: conv.credit } : null
+  })().catch(err => { if (!_isAbort(err)) console.error('[Lyrics] SpicyLyrics error:', err); return null })
+
   // Fire all sources simultaneously
   const [kugouProm, lrcProm, jfProm] = sources.map(([name, fn]) =>
     fn().then(r => ({ name, result: r }))
       .catch(err => { if (!_isAbort(err)) console.error(`[Lyrics] ${name} error:`, err); return { name, result: null } })
   )
 
-  const [kugouRes, lrcRes, jfRes] = await Promise.all([kugouProm, lrcProm, jfProm])
+  const [kugouRes, lrcRes, jfRes, spicyRes] = await Promise.all([kugouProm, lrcProm, jfProm, spicyProm])
 
   // Instrumental check (any source can flag it)
   for (const { result } of [kugouRes, lrcRes, jfRes]) {
@@ -8070,7 +8163,7 @@ async function fetchLyricsWaterfall(item) {
   tried['LRCLIB']   = lrcRes.result   ? 'ok' : 'fail'
   tried['Jellyfin'] = jfRes.result    ? 'ok' : 'fail'
 
-  const winner = kugouRes.result || lrcRes.result || jfRes.result
+  const winner = spicyRes || kugouRes.result || lrcRes.result || jfRes.result
   if (winner) {
     _lastFetchStatus = tried
     const out = { ...winner, tried }
@@ -8118,12 +8211,14 @@ async function fetchLyrics() {
   _showLyricsFetchToast(result)
   if (!result) {
     lyricsSource = null
+    lyricsCredit = null
     updateSourcePills()
     body.innerHTML = '<div class="lyrics-empty">No lyrics available for this track</div>'
     return
   }
   lyricsData   = result.lines
   lyricsSource = result.source
+  lyricsCredit = result.credit || null
   updateSourcePills()
   renderLyrics()
   detectAndShowTranslateBar()

@@ -596,7 +596,13 @@ ipcMain.handle('store-delete', (_e, key) => store.delete(key))
 ipcMain.handle('clipboard-write', (_e, text) => clipboard.writeText(text))
 
 // IPC: shell
-ipcMain.handle('shell-open', (_e, url) => shell.openExternal(url))
+// Web links only. Some of what reaches this comes from third parties (a
+// SpicyLyrics credit link), and openExternal will just as happily launch a
+// file:// path or a custom app scheme.
+ipcMain.handle('shell-open', (_e, url) => {
+  if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return
+  return shell.openExternal(url)
+})
 
 // IPC: download - uses Electron's session download API
 ipcMain.handle('download-file', (_e, url, filename) => {

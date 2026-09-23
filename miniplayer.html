@@ -246,6 +246,18 @@ body.away .close-btn { opacity: 0; }
   /* A new current line eases up into place instead of the list jumping. */
   .lyrics.advanced .lyric-list { animation: lyric-in 0.32s cubic-bezier(0.2, 0.7, 0.2, 1); }
   .lyric-empty { font-size: 13px; color: rgba(255,255,255,0.35); }
+  /* SpicyLyrics' terms want the credit on screen wherever its lyrics are.
+     At the top, not the foot: the bottom of this area fades out. */
+  .lyric-credit {
+    font-size: 11px; line-height: 1.4; color: rgba(255,255,255,0.45); margin-bottom: 12px;
+    /* Wraps rather than truncating: a cut-off name is a hidden credit. */
+  }
+  .lyric-credit[hidden] { display: none; }
+  .lyric-credit button {
+    border: none; background: none; padding: 0; font: inherit; cursor: pointer;
+    color: rgba(255,255,255,0.75);
+  }
+  .lyric-credit button:hover { color: #fff; text-decoration: underline; }
 }
 @keyframes lyric-in {
   from { transform: translateY(14px); opacity: 0.6; }
@@ -323,7 +335,7 @@ body.away .close-btn { opacity: 0; }
       </button>
     </div>
   </div>
-  <div class="lyrics" id="lyrics"><div class="lyric-list" id="lyric-list"></div></div>
+  <div class="lyrics" id="lyrics"><div class="lyric-credit" id="lyric-credit" hidden></div><div class="lyric-list" id="lyric-list"></div></div>
 </div>
 
 <div class="vol-hud" id="vol-hud" aria-hidden="true">
@@ -390,6 +402,7 @@ window.miniPlayer.onState((state) => {
     setLike(false)
     setPlaying(false)
     renderLyrics([])
+    renderCredit(null)
     return
   }
 
@@ -401,6 +414,27 @@ window.miniPlayer.onState((state) => {
   setPlaying(state.isPlaying)
   if (!_wheelActive && Number.isFinite(state.volume)) _volume = state.volume
   renderLyrics(state.lyrics || [])
+  renderCredit(state.credit)
+})
+
+// Names only; the main window holds the links and opens them on request
+// (the `credit` command), so this window never opens a URL itself.
+let _lastCreditKey = ''
+function renderCredit(c) {
+  const key = c ? JSON.stringify(c) : ''
+  if (key === _lastCreditKey) return
+  _lastCreditKey = key
+  const el = $('lyric-credit')
+  if (!c) { el.hidden = true; el.innerHTML = ''; return }
+  const parts = [esc(c.provider)]
+  if (c.uploader) parts.push(`Uploaded by <button data-who="0">${esc(c.uploader)}</button>`)
+  if (c.maker) parts.push(`Synced by <button data-who="1">${esc(c.maker)}</button>`)
+  el.innerHTML = parts.join(' · ')
+  el.hidden = false
+}
+$('lyric-credit').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-who]')
+  if (b) control({ type: 'credit', value: Number(b.dataset.who) })
 })
 
 function setPlaying(on) {

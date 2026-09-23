@@ -106,3 +106,18 @@ test('buildMiniplayerState carries favorite and a clamped volume', () => {
   assert.equal(buildMiniplayerState(track, true, 0, 0, [], { volume: 3 }).volume, 1)
   assert.equal(buildMiniplayerState(track, true, 0, 0, [], { volume: NaN }).volume, 1)
 })
+
+test('parseMiniplayerCommand: credit takes 0 (uploader) or 1 (maker) only', () => {
+  assert.deepEqual(parseMiniplayerCommand({ type: 'credit', value: 0 }), { type: 'credit', who: 'uploader' })
+  assert.deepEqual(parseMiniplayerCommand({ type: 'credit', value: 1 }), { type: 'credit', who: 'maker' })
+  for (const v of [2, -1, 0.5, NaN]) assert.equal(parseMiniplayerCommand({ type: 'credit', value: v }), null)
+})
+
+test('buildMiniplayerState carries the credit as names only', () => {
+  const track = { itemId: 'a', title: 'T', subtitle: 'S', artUrl: null }
+  const credit = { provider: 'Spicy Lyrics', uploader: { name: 'spikerko', url: 'https://x' }, maker: null }
+  assert.deepEqual(buildMiniplayerState(track, true, 0, 0, [], { credit }).credit,
+    { provider: 'Spicy Lyrics', uploader: 'spikerko', maker: null })
+  assert.equal(buildMiniplayerState(track, true, 0, 0).credit, null)
+  assert.equal(buildMiniplayerState(track, true, 0, 0, [], { credit: { provider: '' } }).credit, null)
+})

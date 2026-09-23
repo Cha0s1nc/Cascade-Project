@@ -79,6 +79,22 @@ html[data-theme="light"] .lyrics-source-pill:hover:not(.forced) { background: rg
 html[data-theme="light"] .lyrics-edit-btn { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.1); color: rgba(28,28,30,0.55); }
 html[data-theme="light"] .lyrics-edit-btn:hover { background: rgba(0,0,0,0.1); color: #1c1c1e; }
 
+/* ── Lyrics credit ──
+   SpicyLyrics' terms: the provider, and the uploader and maker of a community
+   sync, on screen wherever its lyrics show. Pinned to the foot of the panel
+   and always visible, unlike the hover-only pill group above. */
+.lyrics-credit {
+  position: absolute; left: 16px; right: 16px; bottom: 10px; z-index: 20;
+  font-size: 11px; line-height: 1.4; color: var(--text3);
+  text-shadow: 0 1px 6px rgba(0,0,0,0.35);
+  /* Wraps rather than truncating: a cut-off name is a hidden credit. */
+}
+.lyrics-credit[hidden] { display: none; }
+.lyrics-credit-link { color: var(--text2); text-decoration: none; }
+.lyrics-credit-link:hover { color: var(--text); text-decoration: underline; }
+.np-overlay.art-theme .lyrics-credit { color: rgba(255,255,255,0.6); }
+.np-overlay.art-theme .lyrics-credit-link { color: rgba(255,255,255,0.85); }
+
 /* ── Lyrics source dropdown ── */
 /* Was a one-shot @keyframes that only played on open, so closing just
    snapped. A transition on the same values plays both ways. */

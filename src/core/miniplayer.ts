@@ -31,7 +31,13 @@ export interface MiniplayerState {
   isFavorite: boolean
   /** 0-1, the user's volume (not a mid-crossfade deck level). */
   volume: number
+  /** SpicyLyrics credit for the lyrics shown, or null for any other source.
+   *  Names only: the links stay in the main window, which opens them when
+   *  the miniplayer sends a `credit` command. */
+  credit: MiniplayerCredit | null
 }
+
+export interface MiniplayerCredit { provider: string, uploader: string | null, maker: string | null }
 
 /** How many upcoming lines to send. Enough to fill a very tall window, few
  *  enough that this can ride along on every progress tick without the IPC
@@ -75,6 +81,7 @@ export type MiniplayerCommand =
   | { type: MiniplayerAction }
   | { type: 'seek', fraction: number }
   | { type: 'volume', delta: number }
+  | { type: 'credit', who: 'uploader' | 'maker' }
 
 /** Largest volume step one message may ask for. A wheel tick sends a few
  *  percent; anything bigger is a bug or a hostile page, not a gesture. */
@@ -96,6 +103,7 @@ export function parseMiniplayerCommand(raw: unknown): MiniplayerCommand | null {
     const m = MINIPLAYER_MAX_VOLUME_STEP
     return { type: 'volume', delta: Math.max(-m, Math.min(m, value)) }
   }
+  if (type === 'credit' && (value === 0 || value === 1)) return { type: 'credit', who: value === 0 ? 'uploader' : 'maker' }
   return null
 }
 
@@ -122,7 +130,7 @@ export function buildMiniplayerState(
   positionSec: number,
   durationSec: number,
   lyrics: string[] = [],
-  extra: { isFavorite?: boolean, volume?: number } = {},
+  extra: { isFavorite?: boolean, volume?: number, credit?: { provider?: unknown, uploader?: { name?: unknown } | null, maker?: { name?: unknown } | null } | null } = {},
 ): MiniplayerState {
   const safePos = Number.isFinite(positionSec) && positionSec > 0 ? positionSec : 0
   const safeDur = Number.isFinite(durationSec) && durationSec > 0 ? durationSec : 0
@@ -138,5 +146,18 @@ export function buildMiniplayerState(
     lyrics: Array.isArray(lyrics) ? lyrics : [],
     isFavorite: !!extra.isFavorite,
     volume: Number.isFinite(extra.volume) ? Math.max(0, Math.min(1, extra.volume as number)) : 1,
+    credit: miniplayerCredit(extra.credit),
   }
+}
+
+function creditName(v: unknown): string | null {
+  return typeof v === 'string' && v.trim() ? v.trim().slice(0, 80) : null
+}
+
+/** The credit trimmed to what the miniplayer draws. Null unless there is a
+ *  provider name, since the provider is the one part always required. */
+export function miniplayerCredit(c: { provider?: unknown, uploader?: { name?: unknown } | null, maker?: { name?: unknown } | null } | null | undefined): MiniplayerCredit | null {
+  const provider = creditName(c?.provider)
+  if (!provider) return null
+  return { provider, uploader: creditName(c?.uploader?.name), maker: creditName(c?.maker?.name) }
 }
