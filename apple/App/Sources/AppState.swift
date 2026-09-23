@@ -66,7 +66,15 @@ final class AppState {
         persist(server: server, auth: auth)
     }
 
+    /// The signed-in user's display name, for Settings. Saved at sign-in;
+    /// Settings fills it in for sessions signed in before it was saved.
+    var username: String? {
+        get { UserDefaults.standard.string(forKey: "cascade.username") }
+        set { UserDefaults.standard.set(newValue, forKey: "cascade.username") }
+    }
+
     private func persist(server: String, auth: JfAuthResult) {
+        username = auth.user.name
         let server = server.hasSuffix("/") ? String(server.dropLast()) : server
         let config = ServerConfig(url: server, token: auth.accessToken,
                                   userId: auth.user.id, deviceId: Self.deviceId)
@@ -81,6 +89,7 @@ final class AppState {
         Keychain.remove("token")
         UserDefaults.standard.removeObject(forKey: "cascade.userId")
         UserDefaults.standard.removeObject(forKey: "cascade.libraryIds")
+        UserDefaults.standard.removeObject(forKey: "cascade.username")
         config = nil
         client = nil
         player = nil
