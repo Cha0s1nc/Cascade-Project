@@ -8049,13 +8049,23 @@ function lyricWordSpans(line, cls) {
   // no-wrap span, with the space outside it. Chromium may break a line beside
   // an inline-block, so a held note's letters, or a syllable next to one,
   // wrapped mid-word ("y / eah").
+  //
+  // A word with a held syllable is held as a whole, as in Apple Music: one
+  // .emph span from the first syllable's start to the last one's end, so the
+  // fill sweeps evenly across it. Per syllable, "Disturbi" filled in 0.6s and
+  // then one held "a" crawled for 1.5s, and only the "a" swelled.
+  const group = syls => {
+    const whole = { Start: syls[0].Start, End: syls[syls.length - 1].End, Text: syls.map(w => w.Text).join('') }
+    const held = emphasis && syls.length > 1 && syls.some(w => CascadeCore.isEmphasisWord(w)) && CascadeCore.isEmphasisWord(whole)
+    return `<span class="lyric-wordgroup">${(held ? [whole] : syls).map(span).join('')}</span>`
+  }
   const spans = words => {
-    let out = '', word = ''
+    let out = '', syls = []
     for (const w of words) {
-      word += span(w)
-      if (/\s$/.test(w.Text)) { out += `<span class="lyric-wordgroup">${word}</span> `; word = '' }
+      syls.push(w)
+      if (/\s$/.test(w.Text)) { out += group(syls) + ' '; syls = [] }
     }
-    return out + (word ? `<span class="lyric-wordgroup">${word}</span>` : '')
+    return out + (syls.length ? group(syls) : '')
   }
   const bg = line.Background?.length ? `<div class="lyric-bg">${spans(line.Background)}</div>` : ''
   return spans(line.Words) + bg
