@@ -7,7 +7,7 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
   background: #111113;
   color: #e8e8e9;
   height: 100vh;
@@ -189,6 +189,30 @@ input:focus { outline: none; border-color: rgba(110,79,246,0.6); }
 </div>
 
 <script>
+// Global font setting. This window doesn't load build/core.js, so this is a
+// small duplicate of CascadeCore.resolveUiFont() (src/core/font.ts) rather
+// than the real thing - keep the two in sync if either changes. Unsanitized
+// custom input never reaches --font: an invalid value there falls back to
+// nothing rather than to var(--font, ...)'s own fallback (that fallback only
+// applies when --font is unset, not when it's set-but-invalid).
+;(async () => {
+  try {
+    const raw = await window.metadataEditor.store.get('uiFont')
+    if (!raw) return
+    const { preset, custom } = JSON.parse(raw)
+    const SYSTEM = "-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
+    const PRESETS = { system: SYSTEM, sans: 'Helvetica, Arial, sans-serif', serif: "Georgia, 'Times New Roman', serif", mono: "'SF Mono', 'Cascadia Code', 'Fira Code', monospace" }
+    let value = SYSTEM
+    if (preset === 'custom') {
+      const name = typeof custom === 'string' ? custom.trim().slice(0, 60).replace(/[^A-Za-z0-9 -]/g, '') : ''
+      value = name ? `"${name}", ${SYSTEM}` : SYSTEM
+    } else if (PRESETS[preset]) {
+      value = PRESETS[preset]
+    }
+    document.documentElement.style.setProperty('--font', value)
+  } catch {}
+})()
+
 // Modeled on lyrics-editor.html: its own window, its own preload, fetch the
 // full item first and send the whole thing back modified - a partial body
 // blanks the fields the form does not show (see CODEMAP's server facts).

@@ -153,6 +153,10 @@ input[type="color"].tp-swatch { width: 100%; height: 30px; border: 1px solid var
 .tp-colors.locked, #tp-presets.locked { opacity: 0.45; }
 .tp-colors.locked .tp-swatch, #tp-presets.locked .tp-preset { pointer-events: none; }
 .tp-colors.locked[data-tip], #tp-presets.locked[data-tip] { cursor: not-allowed; }
+/* .setting-input is sized for the wider Settings page - override its fixed
+   width for the theme picker's 248px popover. */
+.theme-picker .setting-input { width: 100%; }
+#tp-font-custom { margin-top: 8px; }
 .tp-album-row { display: flex; align-items: center; justify-content: space-between; }
 .tp-album-label { display: flex; flex-direction: column; gap: 2px; }
 .tp-album-name { font-size: 12px; font-weight: 500; color: var(--text); }

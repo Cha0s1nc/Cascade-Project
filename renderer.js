@@ -5356,6 +5356,7 @@ async function init() {
 
   await loadTheme()
   buildPresets()
+  await loadUiFont()
   await initDiscordRpc()
 
   crossfadeEnabled = (await window.cascade.store.get('crossfadeEnabled')) === true
@@ -9045,6 +9046,59 @@ async function loadTheme() {
   buildPresets()
   updateAccentLock()
 }
+
+// ── UI font ───────────────────────────────────────────────────────────────────
+// Same store-then-apply shape as theme above, kept in its own key (uiFont)
+// rather than folded into 'theme' - font family and colour theme are
+// unrelated settings that happen to share a popover for now.
+
+/** The one place that writes --font (styles/base.css). CascadeCore.resolveUiFont()
+ *  is the one place that turns a stored (preset, custom name) pair into a safe
+ *  value - see src/core/font.ts for why an unsanitized custom name can't go
+ *  straight into a CSS custom property with no fallback downstream. */
+function applyUiFont(preset, custom) {
+  document.documentElement.style.setProperty('--font', CascadeCore.resolveUiFont(preset, custom))
+}
+
+async function saveUiFont(preset, custom) {
+  await window.cascade.store.set('uiFont', JSON.stringify({ preset, custom }))
+  applyUiFont(preset, custom)
+}
+
+async function loadUiFont() {
+  let preset = 'system', custom = ''
+  try {
+    const raw = await window.cascade.store.get('uiFont')
+    if (raw) {
+      const f = JSON.parse(raw)
+      preset = f.preset
+      custom = f.custom
+    }
+  } catch {}
+  applyUiFont(preset, custom)
+  const presetSel = document.getElementById('tp-font-preset')
+  const customInput = document.getElementById('tp-font-custom')
+  // A stale preset id from an older build falls back to System in the UI too,
+  // not just in the resolved CSS value.
+  const validPreset = (preset === 'custom' || preset in CascadeCore.FONT_PRESETS) ? preset : 'system'
+  if (presetSel) presetSel.value = validPreset
+  if (customInput) {
+    customInput.value = typeof custom === 'string' ? custom : ''
+    customInput.hidden = validPreset !== 'custom'
+  }
+}
+
+document.getElementById('tp-font-preset').addEventListener('change', (e) => {
+  const preset = e.target.value
+  const customInput = document.getElementById('tp-font-custom')
+  customInput.hidden = preset !== 'custom'
+  if (preset === 'custom') customInput.focus()
+  saveUiFont(preset, customInput.value)
+})
+
+document.getElementById('tp-font-custom').addEventListener('input', (e) => {
+  saveUiFont('custom', e.target.value)
+})
 
 /** Album art accent mode overrides whatever gradient/preset is picked, so
  *  those controls do nothing while it's on - dim them and say why rather
