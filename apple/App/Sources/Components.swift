@@ -27,7 +27,7 @@ struct ArtworkView: View {
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: size * 0.05))
         .task(id: itemId) {
-            // The URL carries the api_key, so it can only be built once there
+            // The URL carries the token (ApiKey), so it can only be built once there
             // is a signed-in client.
             guard let itemId, let client = state.client else { return }
             url = await client.imageUrl(itemId: itemId, size: Int(size * 2))

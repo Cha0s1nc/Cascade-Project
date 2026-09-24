@@ -50,7 +50,7 @@ public enum QuickConnect {
     static func initiateRequest(serverUrl: String, appVersion: String, deviceId: String) throws -> URLRequest {
         var r = URLRequest(url: try url(serverUrl, "/QuickConnect/Initiate"))
         r.httpMethod = "POST"
-        r.setValue(authHeader(appVersion: appVersion, deviceId: deviceId), forHTTPHeaderField: "X-Emby-Authorization")
+        r.setValue(authHeader(appVersion: appVersion, deviceId: deviceId), forHTTPHeaderField: "Authorization")
         return r
     }
 
@@ -67,7 +67,7 @@ public enum QuickConnect {
         var r = URLRequest(url: try url(serverUrl, "/Users/AuthenticateWithQuickConnect"))
         r.httpMethod = "POST"
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        r.setValue(authHeader(appVersion: appVersion, deviceId: deviceId), forHTTPHeaderField: "X-Emby-Authorization")
+        r.setValue(authHeader(appVersion: appVersion, deviceId: deviceId), forHTTPHeaderField: "Authorization")
         r.httpBody = try JSONEncoder().encode(["Secret": secret])   // literal key, no strategy needed
         return r
     }

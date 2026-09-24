@@ -100,7 +100,7 @@ public let defaultMaxBitrate = 140_000_000
 public func universalStreamUrl(config: ServerConfig, itemId: String,
                                maxBitrate: Int = defaultMaxBitrate) -> URL? {
     URL(string: "\(config.url)/Audio/\(itemId)/universal"
-        + "?UserId=\(config.userId)&api_key=\(config.token)"
+        + "?UserId=\(config.userId)&ApiKey=\(config.token)"
         + "&Container=mp3,aac,flac,wav,alac"
         + "&TranscodingContainer=ts&TranscodingProtocol=hls&AudioCodec=aac"
         + "&MaxStreamingBitrate=\(maxBitrate)")
@@ -171,7 +171,7 @@ func directStreamUrl(config: ServerConfig, itemId: String, source: MediaSource,
         return nil
     }
     var items = [URLQueryItem(name: "static", value: "true"),
-                 URLQueryItem(name: "api_key", value: config.token)]
+                 URLQueryItem(name: "ApiKey", value: config.token)]
     if let id = source.id { items.append(URLQueryItem(name: "mediaSourceId", value: id)) }
     if let session = playSessionId { items.append(URLQueryItem(name: "PlaySessionId", value: session)) }
     components.queryItems = items

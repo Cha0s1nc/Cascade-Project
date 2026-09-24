@@ -32,9 +32,18 @@ func errorMessage(response: HTTPURLResponse, body: Data) -> String {
 }
 
 /// Identifies this client to Jellyfin.
-public func authHeader(appVersion: String, deviceId: String) -> String {
-    "MediaBrowser Client=\"Cascade\", Device=\"Cascade\", DeviceId=\"\(deviceId)\", Version=\"\(appVersion)\""
+/// The standard `Authorization: MediaBrowser ...` value, carrying the token when
+/// there is one. That header (or `ApiKey` in a URL) is the only way Jellyfin 12
+/// accepts a token by default: 12.0 turned off X-Emby-Token, X-Emby-Authorization
+/// and api_key on new and upgraded servers. Jellyfin 10.11 accepts this form too.
+public func authHeader(appVersion: String, deviceId: String, token: String? = nil) -> String {
+    let base = "MediaBrowser Client=\"Cascade\", Device=\"Cascade\", DeviceId=\"\(deviceId)\", Version=\"\(appVersion)\""
+    guard let token, !token.isEmpty else { return base }
+    return base + ", Token=\"\(token)\""
 }
+
+/// This build's version, as the server's device list shows it.
+let cascadeAppVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
 
 /// Authenticate against a server. Standalone rather than a client method
 /// because it runs before there is any config to construct a client with.
@@ -49,7 +58,7 @@ public func authenticate(serverUrl: String, username: String, password: String,
     request.httpMethod = "POST"
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.setValue(authHeader(appVersion: appVersion, deviceId: deviceId),
-                     forHTTPHeaderField: "X-Emby-Authorization")
+                     forHTTPHeaderField: "Authorization")
     request.httpBody = try JSONEncoder().encode(["Username": username, "Pw": password])  // literal keys, no strategy needed
 
     let (data, response) = try await session.data(for: request)
@@ -97,7 +106,8 @@ public actor JellyfinClient {
 
     private func send(_ request: URLRequest) async throws -> Data {
         var request = request
-        request.setValue(config.token, forHTTPHeaderField: "X-Emby-Token")
+        request.setValue(authHeader(appVersion: cascadeAppVersion, deviceId: config.deviceId, token: config.token),
+                         forHTTPHeaderField: "Authorization")
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw JellyfinError(status: 0, message: "No HTTP response")
@@ -155,7 +165,7 @@ public actor JellyfinClient {
 
     public func imageUrl(itemId: String, size: Int = 600) -> URL? {
         URL(string: "\(config.url)/Items/\(itemId)/Images/Primary"
-            + "?fillHeight=\(size)&fillWidth=\(size)&quality=90&api_key=\(config.token)")
+            + "?fillHeight=\(size)&fillWidth=\(size)&quality=90&ApiKey=\(config.token)")
     }
 }
 

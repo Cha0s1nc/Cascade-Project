@@ -10,7 +10,7 @@ struct QuickConnectTests {
         let r = try QuickConnect.initiateRequest(serverUrl: "https://jf.example/", appVersion: "1.0", deviceId: "dev-1")
         #expect(r.url?.absoluteString == "https://jf.example/QuickConnect/Initiate")
         #expect(r.httpMethod == "POST")
-        #expect(r.value(forHTTPHeaderField: "X-Emby-Authorization")?.contains("DeviceId=\"dev-1\"") == true)
+        #expect(r.value(forHTTPHeaderField: "Authorization")?.contains("DeviceId=\"dev-1\"") == true)
     }
 
     @Test func connectPassesTheSecretEscaped() throws {
@@ -25,7 +25,7 @@ struct QuickConnectTests {
         #expect(r.httpMethod == "POST")
         let body = try JSONSerialization.jsonObject(with: r.httpBody ?? Data()) as? [String: String]
         #expect(body == ["Secret": "s3"])
-        #expect(r.value(forHTTPHeaderField: "X-Emby-Authorization") != nil)
+        #expect(r.value(forHTTPHeaderField: "Authorization") != nil)
     }
 
     @Test func decodesTheServersPascalCaseResult() throws {
@@ -37,4 +37,10 @@ struct QuickConnectTests {
     @Test func aBadAddressIsAnErrorNotACrash() {
         #expect(throws: JellyfinError.self) { try QuickConnect.initiateRequest(serverUrl: "", appVersion: "1", deviceId: "d") }
     }
+}
+
+@Test func authHeaderCarriesTheTokenOnlyWhenGiven() {
+    // Jellyfin 12 accepts a token only in this header (or ApiKey in a URL).
+    #expect(!authHeader(appVersion: "1.0", deviceId: "d").contains("Token="))
+    #expect(authHeader(appVersion: "1.0", deviceId: "d", token: "T").hasSuffix(", Token=\"T\""))
 }
