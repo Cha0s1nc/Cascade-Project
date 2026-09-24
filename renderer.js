@@ -10,6 +10,7 @@ let jf = { url: '', token: '', userId: '' }
 let deviceId = 'cascade-app'
 let appVersion = '1.0.0'
 let queue = []
+let queueSource = null   // what the queue was started from, for "Up Next, from ..."; see playItems
 let queueIndex = -1
 let shuffle = false
 let repeatMode = 'none' // 'none' | 'all' | 'one'
@@ -1607,7 +1608,7 @@ async function loadRecentlyPlayed() {
     if (!items.length) { grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">No play history yet</div>'; return }
     grid.innerHTML = items.map(item => rpCard(item)).join('')
     grid.querySelectorAll('.rp-item').forEach((el, i) => {
-      el.addEventListener('click', () => playItems(items, i))
+      el.addEventListener('click', () => playItems(items, i, 'Recently played'))
     })
   } catch (e) {
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Could not load history</div>`
@@ -1848,7 +1849,7 @@ async function openArtist(artistId, name) {
 
     // Play all button
     document.getElementById('btn-play-artist-discography').onclick = () => {
-      if (songs.length) playItems(songs, 0)
+      if (songs.length) playItems(songs, 0, document.getElementById('artist-detail-name').textContent)
     }
 
     // Songs list
@@ -1857,7 +1858,7 @@ async function openArtist(artistId, name) {
 
     document.getElementById('artist-songs-rows').querySelectorAll('.track-row').forEach(el => {
       const idx = parseInt(el.dataset.idx)
-      wireTrackRow(el, songs[idx], songs, idx)
+      wireTrackRow(el, songs[idx], songs, idx, { source: document.getElementById('artist-detail-name').textContent })
     })
   } catch (e) {
     document.getElementById('artist-detail-meta').textContent = 'Could not load artist'
@@ -2074,7 +2075,7 @@ function renderSongRows() {
       const idx = parseInt(el.dataset.idx)
       if (e.target.closest('.track-thumb')) {
         e.stopPropagation()
-        playItems(allSongs, idx)
+        playItems(allSongs, idx, 'Songs')
         return
       }
       if (e.target.closest('[data-album-link]')) { e.stopPropagation(); openAlbumFromTrack(allSongs[idx]); return }
@@ -2086,7 +2087,7 @@ function renderSongRows() {
       if (e.target.closest('.row-link')) return
       const el = e.target.closest('.track-row')
       if (!el) return
-      playItems(allSongs, parseInt(el.dataset.idx))
+      playItems(allSongs, parseInt(el.dataset.idx), 'Songs')
     })
     rows.addEventListener('contextmenu', (e) => {
       const el = e.target.closest('.track-row')
@@ -2425,7 +2426,7 @@ function renderPlaylistDetailItems(items, entryIds) {
   const rowsEl = document.getElementById('pl-detail-rows')
   rowsEl.querySelectorAll('.track-row').forEach(el => {
     const idx = parseInt(el.dataset.idx)
-    wireTrackRow(el, items[idx], items, idx, { inPlaylist: entryIds })
+    wireTrackRow(el, items[idx], items, idx, { inPlaylist: entryIds, source: document.getElementById('pl-detail-name').textContent })
   })
   if (showCheck) {
     rowsEl.querySelectorAll('.tl-check input[type=checkbox]').forEach(cb => {
@@ -2579,10 +2580,10 @@ document.getElementById('pl-back-btn').addEventListener('click', () => {
 })
 
 document.getElementById('btn-play-playlist').addEventListener('click', () => {
-  if (currentPlaylistItems.length) playItems(currentPlaylistItems, 0)
+  if (currentPlaylistItems.length) playItems(currentPlaylistItems, 0, document.getElementById('pl-detail-name').textContent)
 })
 
-document.getElementById('btn-shuffle-playlist').addEventListener('click', () => shuffleAndPlay(currentPlaylistItems))
+document.getElementById('btn-shuffle-playlist').addEventListener('click', () => shuffleAndPlay(currentPlaylistItems, document.getElementById('pl-detail-name').textContent))
 
 // ── Universal track context menu ───────────────────────────────────────────────
 
@@ -2619,7 +2620,7 @@ function wireTrackRow(el, item, items, idx, opts = {}) {
   if (thumb) {
     thumb.addEventListener('click', e => {
       e.stopPropagation()
-      playItems(items, idx)
+      playItems(items, idx, opts.source)
     })
   }
   // Single click on rest of row - select (or play immediately in transient
@@ -2628,14 +2629,14 @@ function wireTrackRow(el, item, items, idx, opts = {}) {
     if (e.target.closest('.track-thumb')) return  // handled above
     if (e.target.closest('[data-album-link]')) { e.stopPropagation(); openAlbumFromTrack(item); return }
     if (e.target.closest('[data-artist-link]')) { e.stopPropagation(); openArtistFromTrack(item); return }
-    if (opts.clickToPlay) { playItems(items, idx); return }
+    if (opts.clickToPlay) { playItems(items, idx, opts.source); return }
     document.querySelectorAll('.track-row.selected').forEach(r => r.classList.remove('selected'))
     el.classList.add('selected')
   })
   // Double click anywhere - play, except on the album/artist links themselves
   el.addEventListener('dblclick', e => {
     if (e.target.closest('.row-link')) return
-    playItems(items, idx)
+    playItems(items, idx, opts.source)
   })
   // Right click - context menu
   el.addEventListener('contextmenu', e => {
@@ -2687,7 +2688,7 @@ async function instantMixAndPlay(itemId, label) {
   try {
     const data = await jfGet(`/Items/${itemId}/InstantMix`, { UserId: jf.userId, Limit: 50, Fields: 'AlbumId,AlbumPrimaryImageTag' })
     if (!data.Items?.length) { showNotice('Jellyfin did not return an instant mix for this.', 'Instant mix'); return }
-    playItems(data.Items, 0)
+    playItems(data.Items, 0, 'Instant mix')
     showToast(`Instant mix from "${label}"`)
   } catch (e) { showNotice('Could not build an instant mix.', 'Instant mix') }
 }
@@ -3383,6 +3384,7 @@ function playVideo(items, startIndex, startTicks) {
   _audioStreamIndexIsExplicit = false
   queue = [...items]
   queueIndex = startIndex
+  queueSource = null
   playCurrentTrack({ startTicks: startTicks || 0 })
 }
 
@@ -3398,7 +3400,9 @@ document.getElementById('show-back-btn').addEventListener('click', () => {
 
 // ── Playback ──────────────────────────────────────────────────────────────────
 
-function playItems(items, startIndex) {
+/** Start a new queue. `source` names it in the queue panel ("From Favorite
+ *  Songs"); without one, a single album's tracks are labelled with the album. */
+function playItems(items, startIndex, source) {
   // In a Waterfall room a guest follows the host - starting something locally
   // would silently fight the session until the next sync pulled it back.
   if (blocksLocalPlayback()) {
@@ -3420,6 +3424,7 @@ function playItems(items, startIndex) {
     queue = [...items]
     queueIndex = startIndex
   }
+  queueSource = source || CascadeCore.queueSourceFallback(items)
   playCurrentTrack()
 }
 
@@ -4062,7 +4067,7 @@ function stopPlayback() {
   audio.pause()
   _detachDeck(audio)
   audio.querySelectorAll('track').forEach(t => t.remove())
-  queue = []; queueIndex = -1
+  queue = []; queueIndex = -1; queueSource = null
   // Drop video mode after clearing the queue, so the class toggle sees an empty
   // queue and does not try to re-open the overlay.
   applyVideoMode(false)
@@ -4640,6 +4645,7 @@ const REPEAT_ICON_ALL_LG = `<svg width="18" height="18" viewBox="0 0 24 24" fill
 const REPEAT_ICON_ONE_LG = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/><path d="M11 10h1v4"/></svg>`
 
 function updateRepeatButtons() {
+  _renderQueueMeta()   // with repeat on, the queue has no end time
   const isOne = repeatMode === 'one'
   const active = repeatMode !== 'none'
   const btnR = document.getElementById('btn-repeat')
@@ -4880,13 +4886,13 @@ likeBtn.addEventListener('click', () => toggleLike())
 // button. playItems() does the shuffling and keeps items' own order as the
 // unshuffled queue; pre-shuffling here used to hand it an already random list,
 // so toggling shuffle off afterwards never restored the original order.
-function shuffleAndPlay(items) {
+function shuffleAndPlay(items, source) {
   if (!items.length) return
   shuffle = true
   document.getElementById('btn-shuffle').classList.add('active')
   document.getElementById('ov-shuffle').classList.add('active')
 
-  playItems(items, Math.floor(Math.random() * items.length))
+  playItems(items, Math.floor(Math.random() * items.length), source)
 }
 
 async function shuffleAllSongs() {
@@ -4895,7 +4901,7 @@ async function shuffleAllSongs() {
     // loadSongs() renders the table itself once the shared fetch lands, so there
     // is nothing to draw here.
   }
-  shuffleAndPlay(allSongs)
+  shuffleAndPlay(allSongs, 'Songs')
 }
 
 document.getElementById('btn-shuffle-songs').addEventListener('click', shuffleAllSongs)
@@ -6422,83 +6428,188 @@ let autoMixEnabled = false
 document.getElementById('btn-automix').addEventListener('click', () => {
   autoMixEnabled = !autoMixEnabled
   document.getElementById('btn-automix').classList.toggle('active', autoMixEnabled)
+  _renderQueueMeta()   // auto-mix means the queue never ends
   showToast(autoMixEnabled ? 'Auto-mix on - similar tracks will keep playing after the queue ends' : 'Auto-mix off')
 })
 
 function renderQueuePanel() {
   const container = document.getElementById('ov-queue-rows')
   const panel     = document.getElementById('ov-panel-queue')
-  if (!queue.length) { container.innerHTML = '<div class="empty-state" style="padding:40px 0">Queue is empty</div>'; return }
+  const follower  = isWaterfallFollower()
 
-  // Bind once - shifts the render window as the user scrolls, and when the
-  // panel resizes (a taller window shows more rows than were drawn, and the
-  // gap below them is just the spacer: blank).
+  // Bind once - shifts the Up Next render window as the user scrolls, and
+  // when the panel resizes (a taller window shows more rows than were drawn,
+  // and the gap below them is just the spacer: blank).
   if (!_queueScrollBound) {
     _queueScrollBound = true
     const rewindow = () => {
-      if (!queue.length) return
+      const base = queueIndex + 1
+      if (base >= queue.length) return
       const win = _queueWin(panel)
-      // container.offsetTop is the in-panel "Queue" header - scrollTop 0 is not row 0
-      const visStart = Math.max(0, Math.floor((panel.scrollTop - container.offsetTop) / QUEUE_ROW_H))
+      // Up Next's rows start at container.offsetTop inside the panel.
+      const visStart = base + Math.max(0, Math.floor((panel.scrollTop - container.offsetTop) / QUEUE_ROW_H))
       const visEnd   = visStart + Math.ceil(panel.clientHeight / QUEUE_ROW_H)
       const nearTop  = visStart < _queueWinStart + 3
       const nearBot  = visEnd   > _queueWinStart + win - 3
       if (nearTop || nearBot) {
-        // Only redraw on a real window change, otherwise the programmatic scroll in
-        // _drawQueueRows re-triggers this and fights it.
-        const next = Math.max(0, Math.min(visStart - 3, queue.length - win))
-        if (next !== _queueWinStart) { _queueWinStart = next; _drawQueueRows(container, false) }
+        // Only redraw on a real window change, or a redraw's own scroll
+        // re-triggers this and fights it.
+        const next = Math.max(base, Math.min(visStart - 3, queue.length - win))
+        if (next !== _queueWinStart) { _queueWinStart = next; _drawQueueRows(container) }
       }
     }
     panel.addEventListener('scroll', rewindow, { passive: true })
     new ResizeObserver(rewindow).observe(panel)
   }
 
-  // Re-centre window on the current track
-  _queueWinStart = Math.max(0, Math.min(queueIndex - QUEUE_BEFORE, queue.length - _queueWin(panel)))
-  _drawQueueRows(container, true)
+  // Now Playing, pinned.
+  const cur = queue[queueIndex]
+  const nowRow = document.getElementById('q-now-row')
+  nowRow.innerHTML = cur ? _queueRowHtml(cur, queueIndex, { current: true }) : '<div class="q-empty">Nothing playing</div>'
+  nowRow.querySelectorAll('.queue-row').forEach(el => _wireQueueRow(el, follower))
+
+  // History: the count always, the rows only while it is open.
+  document.getElementById('q-history-count').textContent = queueIndex > 0 ? queueIndex : ''
+  document.getElementById('q-history-head').hidden = queueIndex <= 0
+  // Positions in a Waterfall room are shared (and wfAddedBy is indexed by
+  // them), so the history is not this client's to clear there.
+  document.getElementById('q-history-clear').hidden =
+    typeof wfActive === 'function' && wfActive()
+  _renderQueueHistory()
+
+  // Up Next: where the queue came from, its position, and when it ends.
+  document.getElementById('q-next-source').textContent = queueSource ? `From ${queueSource}` : ''
+  _renderQueueMeta()
+
+  // The window starts at the first upcoming track. The panel opens at the
+  // top (the History toggle, then Now Playing); with History open, it opens
+  // just past it, on Now Playing. Measured from the element before the sticky
+  // row, since a sticky element's own offsetTop moves as it sticks.
+  _queueWinStart = queueIndex + 1
+  _drawQueueRows(container)
+  const hist = document.getElementById('q-history-rows')
+  panel.scrollTop = hist.hidden ? 0 : hist.offsetTop + hist.offsetHeight
 }
 
-/** Rows to keep drawn: a full panel's worth plus slack either side, never
- *  fewer than QUEUE_WIN. A fixed 20 left a maximized window (~23 rows tall)
- *  blank below the last drawn row. */
-function _queueWin(panel) {
-  return Math.max(QUEUE_WIN, Math.ceil(panel.clientHeight / QUEUE_ROW_H) + QUEUE_BEFORE + 6)
-}
-
-function _drawQueueRows(container, scrollToCurrent) {
-  const winEnd = Math.min(queue.length, _queueWinStart + _queueWin(document.getElementById('ov-panel-queue')))
-  const topH   = _queueWinStart * QUEUE_ROW_H
-  const botH   = (queue.length - winEnd) * QUEUE_ROW_H
-
-  // A guest mirrors the host's queue. Reordering or removing locally would
-  // desync it immediately, so those controls are not rendered at all.
-  const follower = isWaterfallFollower()
-
-  const rows = queue.slice(_queueWinStart, winEnd).map((item, idx) => {
-    const i     = _queueWinStart + idx
-    const art   = item.__wfUnavailable ? null
-      : artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
-    const thumb = art ? `<img src="${art}" alt="" loading="lazy" onerror="this.style.display='none'">` : '♪'
-    const dur   = fmtTime((item.RunTimeTicks || 0) / 10000000)
-    const by    = queueAddedBy(i)
-    const sub   = item.__wfUnavailable ? '' : esc(item.AlbumArtist || item.Artists?.[0] || '')
-
-    return `<div class="queue-row${i === queueIndex ? ' current' : ''}${item.__wfUnavailable ? ' unavailable' : ''}" data-qi="${i}"${follower ? '' : ' draggable="true"'}>
-      ${follower ? '' : `<div class="queue-row-drag" title="Drag to reorder">
+/** One queue row. `current` is the pinned Now Playing row; `editable` rows
+ *  (Up Next, for a client that owns the queue) get drag and remove. */
+function _queueRowHtml(item, i, { current = false, editable = false } = {}) {
+  const art   = item.__wfUnavailable ? null
+    : artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
+  const thumb = art ? `<img src="${art}" alt="" loading="lazy" onerror="this.style.display='none'">` : '♪'
+  const dur   = fmtTime((item.RunTimeTicks || 0) / 10000000)
+  const by    = queueAddedBy(i)
+  const sub   = item.__wfUnavailable ? '' : esc(item.AlbumArtist || item.Artists?.[0] || '')
+  return `<div class="queue-row${current ? ' current' : ''}${item.__wfUnavailable ? ' unavailable' : ''}" data-qi="${i}"${editable ? ' draggable="true"' : ''}>
+      ${editable ? `<div class="queue-row-drag" title="Drag to reorder">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="18" x2="16" y2="18"/></svg>
-      </div>`}
+      </div>` : ''}
       <div class="queue-row-art">${thumb}</div>
       <div style="min-width:0;flex:1">
         <div class="queue-row-title">${esc(item.Name)}</div>
         <div class="queue-row-artist">${sub}${by ? `<span class="queue-row-by">added by ${esc(by)}</span>` : ''}</div>
       </div>
       <div class="queue-row-dur">${dur}</div>
-      ${follower ? '' : `<button class="queue-row-remove" data-qi="${i}" title="Remove from queue">
+      ${editable ? `<button class="queue-row-remove" data-qi="${i}" title="Remove from queue">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-      </button>`}
+      </button>` : ''}
     </div>`
-  }).join('')
+}
+
+/** Click to jump to a row, right-click for the track menu: every section. */
+function _wireQueueRow(el, follower) {
+  const qi = parseInt(el.dataset.qi)
+  el.addEventListener('click', (e) => {
+    if (e.target.closest('.queue-row-drag, .queue-row-remove')) return
+    // A follower jumping tracks would move queueIndex out of alignment with
+    // the host until the next broadcast dragged it back.
+    if (follower) { if (typeof wfNotifyHostControls === 'function') wfNotifyHostControls(); return }
+    if (qi === queueIndex) return
+    queueIndex = qi
+    playCurrentTrack()
+    renderQueuePanel()
+  })
+  // Right click - reuse the same universal track menu as every other row of
+  // tracks in the app rather than a fourth hand-rolled menu.
+  el.addEventListener('contextmenu', (e) => {
+    e.preventDefault()
+    showTrackCtxMenu(queue[qi], el, e.clientX, e.clientY, false)
+  })
+}
+
+let _queueHistoryOpen = false
+
+/** History rows, drawn only while the section is open: a long session's
+ *  history is hundreds of rows nobody is looking at. */
+function _renderQueueHistory() {
+  const rows = document.getElementById('q-history-rows')
+  document.getElementById('q-history-toggle').setAttribute('aria-expanded', String(_queueHistoryOpen))
+  rows.hidden = !_queueHistoryOpen || queueIndex <= 0
+  if (rows.hidden) { rows.innerHTML = ''; return }
+  // ponytail: not virtualised like Up Next; fine for hundreds of rows, window
+  // it the same way if a history of thousands ever shows up.
+  const follower = isWaterfallFollower()
+  rows.innerHTML = queue.slice(0, queueIndex).map((item, i) => _queueRowHtml(item, i)).join('')
+  rows.querySelectorAll('.queue-row').forEach(el => _wireQueueRow(el, follower))
+}
+
+document.getElementById('q-history-toggle').addEventListener('click', () => {
+  _queueHistoryOpen = !_queueHistoryOpen
+  _renderQueueHistory()
+})
+
+document.getElementById('q-history-clear').addEventListener('click', () => {
+  if (queueIndex <= 0 || isWaterfallFollower()) return
+  // finishCrossfade() lands on an index captured before the fade started;
+  // shifting every index under it would land it on the wrong track.
+  if (_cfActive) { showToast('Clear the history once the crossfade finishes'); return }
+  const cleared = new Set(queue.splice(0, queueIndex))
+  queueIndex = 0
+  // Or turning shuffle off would bring the cleared tracks back.
+  if (_unshuffledQueue.length) _unshuffledQueue = _unshuffledQueue.filter(t => !cleared.has(t))
+  _queueHistoryOpen = false
+  _reprefetch()
+  renderQueuePanel()
+})
+
+/** "12 of 40 · 1h 5m · ends 10:12 PM". The end time moves while paused, so a
+ *  timer below refreshes it; with repeat or auto-mix on there is no end. */
+function _renderQueueMeta() {
+  const meta = document.getElementById('q-next-meta')
+  if (queueIndex < 0 || !queue.length) { meta.textContent = ''; return }
+  const parts = [`${queueIndex + 1} of ${queue.length}`]
+  if (repeatMode === 'none' && !autoMixEnabled) {
+    const left = CascadeCore.queueRemainingSec(queue, queueIndex, mediaPosition())
+    const end = new Date(Date.now() + left * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    parts.push(`${CascadeCore.formatQueueSpan(left)} · ends ${end}`)
+  }
+  meta.textContent = parts.join(' · ')
+}
+setInterval(() => { if (overlayOpen) _renderQueueMeta() }, 30_000)
+
+/** Rows kept drawn in Up Next: a full panel's worth plus slack either side,
+ *  never fewer than QUEUE_WIN. A fixed 20 left a maximized window (~23 rows
+ *  tall) blank below the last drawn row. */
+function _queueWin(panel) {
+  return Math.max(QUEUE_WIN, Math.ceil(panel.clientHeight / QUEUE_ROW_H) + QUEUE_BEFORE + 6)
+}
+
+/** Up Next, virtualised: rows from _queueWinStart, spacers for the rest. */
+function _drawQueueRows(container) {
+  const base   = queueIndex + 1
+  if (base >= queue.length) {
+    container.innerHTML = `<div class="q-empty">${queue.length ? 'Nothing up next' : 'Queue is empty'}</div>`
+    return
+  }
+  const winEnd = Math.min(queue.length, _queueWinStart + _queueWin(document.getElementById('ov-panel-queue')))
+  const topH   = (_queueWinStart - base) * QUEUE_ROW_H
+  const botH   = (queue.length - winEnd) * QUEUE_ROW_H
+
+  // A guest mirrors the host's queue. Reordering or removing locally would
+  // desync it immediately, so those controls are not rendered at all.
+  const follower = isWaterfallFollower()
+  const rows = queue.slice(_queueWinStart, winEnd)
+    .map((item, idx) => _queueRowHtml(item, _queueWinStart + idx, { editable: !follower })).join('')
 
   // Spacer divs preserve the panel's total scroll height
   container.innerHTML =
@@ -6506,28 +6617,11 @@ function _drawQueueRows(container, scrollToCurrent) {
     rows +
     `<div style="height:${botH}px;flex-shrink:0"></div>`
 
+  container.querySelectorAll('.queue-row').forEach(el => _wireQueueRow(el, follower))
+
   let dragSrc = null
 
   container.querySelectorAll('.queue-row').forEach(el => {
-    const qi = parseInt(el.dataset.qi)
-
-    el.addEventListener('click', (e) => {
-      if (e.target.closest('.queue-row-drag, .queue-row-remove')) return
-      // A follower jumping tracks would move queueIndex out of alignment with
-      // the host until the next broadcast dragged it back.
-      if (follower) { if (typeof wfNotifyHostControls === 'function') wfNotifyHostControls(); return }
-      queueIndex = qi
-      playCurrentTrack()
-      renderQueuePanel()
-    })
-
-    // Right click - reuse the same universal track menu as every other row of
-    // tracks in the app rather than a fourth hand-rolled menu.
-    el.addEventListener('contextmenu', (e) => {
-      e.preventDefault()
-      showTrackCtxMenu(queue[qi], el, e.clientX, e.clientY, false)
-    })
-
     // Absent for followers - see the row markup above.
     el.querySelector('.queue-row-remove')?.addEventListener('click', (e) => {
       e.stopPropagation()
@@ -6572,14 +6666,6 @@ function _drawQueueRows(container, scrollToCurrent) {
       renderQueuePanel()
     })
   })
-
-  if (scrollToCurrent) {
-    // Explicit scrollTop rather than scrollIntoView: 'nearest' moves the minimum
-    // distance, which parks the current row at the *bottom* edge and can never bring
-    // it to the top. container.offsetTop is the in-panel header height.
-    const panel = document.getElementById('ov-panel-queue')
-    panel.scrollTop = container.offsetTop + queueIndex * QUEUE_ROW_H
-  }
 }
 
 async function renderOverlayLyrics() {
@@ -7064,7 +7150,7 @@ document.getElementById('ctx-stop').addEventListener('click', () => stopPlayback
 
 // Clear queue
 document.getElementById('ctx-clear-queue').addEventListener('click', () => {
-  queue = []; queueIndex = -1
+  queue = []; queueIndex = -1; queueSource = null
   _clearStreamPrefetch()   // nothing left to prefetch for
 })
 
@@ -7077,7 +7163,7 @@ document.getElementById('ctx-instant-mix').addEventListener('click', async () =>
       UserId: jf.userId, Limit: 25,
       Fields: 'AlbumId,AlbumPrimaryImageTag'
     })
-    if (data.Items?.length) playItems(data.Items, 0)
+    if (data.Items?.length) playItems(data.Items, 0, 'Instant mix')
   } catch (e) { console.error('Instant mix failed', e) }
 })
 
@@ -7437,13 +7523,13 @@ document.getElementById('ictx-play').addEventListener('click', async () => {
   if (!_ictxItem) return
   if (_ictxKind === 'video') { playVideo([_ictxItem], 0, resumeTicks(_ictxItem) || 0); return }
   const tracks = await _ictxTracks()
-  if (tracks.length) playItems(tracks, 0)
+  if (tracks.length) playItems(tracks, 0, _ictxItem.Name)
 })
 
 document.getElementById('ictx-shuffle').addEventListener('click', async () => {
   hideItemCtxMenu()
   const tracks = await _ictxTracks()
-  if (tracks.length) shuffleAndPlay(tracks)
+  if (tracks.length) shuffleAndPlay(tracks, _ictxItem.Name)
 })
 
 // Play next/last, add to playlist: album, artist, playlist and smart-playlist

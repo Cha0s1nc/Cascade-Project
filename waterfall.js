@@ -370,6 +370,7 @@ async function wfApplyQueueNow(m) {
   // independently to every member, and dropping an entry would shift this
   // member's queueIndex out of alignment with the host for good.
   let unavailable = 0
+  queueSource = null   // the host's label is not sent; a stale local one would mislead
   queue = (m.trackIds || []).map(id => {
     const item = known.get(id)
     if (item) return item

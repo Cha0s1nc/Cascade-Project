@@ -91,3 +91,35 @@ export function nextQueueIndex(queueLength: number, queueIndex: number, repeatMo
   if (next >= queueLength) return repeatMode === 'all' ? 0 : null
   return next
 }
+
+/**
+ * Seconds left in the queue: what remains of the current track plus every
+ * track after it. A track with no RunTimeTicks counts as 0.
+ */
+export function queueRemainingSec(queue: readonly JfItem[], queueIndex: number, positionSec: number): number {
+  if (queueIndex < 0 || queueIndex >= queue.length) return 0
+  const len = (i: number) => (queue[i].RunTimeTicks || 0) / 10_000_000
+  let total = Math.max(0, len(queueIndex) - Math.max(0, positionSec || 0))
+  for (let i = queueIndex + 1; i < queue.length; i++) total += len(i)
+  return total
+}
+
+/** A long span as the queue panel shows it: "1d 1h", "2h 5m", "34m", "<1m". */
+export function formatQueueSpan(sec: number): string {
+  const m = Math.floor(Math.max(0, sec) / 60)
+  if (m < 1) return '<1m'
+  const d = Math.floor(m / 1440), h = Math.floor(m / 60) % 24, min = m % 60
+  if (d) return h ? `${d}d ${h}h` : `${d}d`
+  if (h) return min ? `${h}h ${min}m` : `${h}h`
+  return `${min}m`
+}
+
+/**
+ * What to call a queue in "Up Next, from ..." when the caller did not say:
+ * the album's name when every track is from one album, otherwise nothing.
+ */
+export function queueSourceFallback(items: readonly JfItem[]): string | null {
+  const first = items[0]
+  if (!first?.AlbumId || !first.Album) return null
+  return items.every(t => t.AlbumId === first.AlbumId) ? first.Album : null
+}

@@ -1143,6 +1143,28 @@
           <span style="font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.07em;">Queue</span>
           <button class="np-ov-ctrl" id="btn-automix" title="Auto-mix similar tracks when the queue ends" style="font-size:17px;font-weight:700;line-height:1;">∞</button>
         </div>
+        <!-- History (collapsed), the pinned current track, then Up Next: the
+             queue in three parts rather than one list scrolled to the middle.
+             Filled by renderQueuePanel() in renderer.js. -->
+        <div class="q-sect-head" id="q-history-head">
+          <button type="button" class="q-history-toggle" id="q-history-toggle" aria-expanded="false" aria-controls="q-history-rows">
+            <svg class="q-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+            History <span class="q-count" id="q-history-count"></span>
+          </button>
+          <button type="button" class="q-clear" id="q-history-clear">Clear</button>
+        </div>
+        <div id="q-history-rows" hidden></div>
+        <div class="q-now" id="q-now">
+          <div class="q-sect-title">Now Playing</div>
+          <div id="q-now-row"></div>
+        </div>
+        <div class="q-sect-head q-next-head">
+          <div>
+            <div class="q-sect-title">Up Next</div>
+            <div class="q-sub" id="q-next-source"></div>
+          </div>
+          <div class="q-next-meta" id="q-next-meta"></div>
+        </div>
         <div id="ov-queue-rows"></div>
       </div>
       <div id="ov-panel-lyrics">
