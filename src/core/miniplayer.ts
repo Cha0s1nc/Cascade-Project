@@ -36,6 +36,12 @@ export interface MiniplayerState {
   /** Upcoming tracks, from `queueStart` (their index in the main queue). */
   queue: MiniplayerQueueItem[]
   queueStart: number
+  /** The Up Next toggles: shuffle, and auto-mix (keep playing similar tracks
+   *  once the queue runs out). */
+  shuffle: boolean
+  autoMix: boolean
+  /** Repeat: off, the whole queue, or the current track. */
+  repeat: 'none' | 'all' | 'one'
   /** Whether the current track is a favorite, for the heart button. */
   isFavorite: boolean
   /** 0-1, the user's volume (not a mid-crossfade deck level). */
@@ -104,9 +110,9 @@ export function miniplayerSheet(lines: unknown, emphasis: boolean): MiniplayerSh
 /** The only actions the miniplayer window may ask the main window to take.
  *  Deliberately a closed set - anything else is a message this app does not
  *  understand and must be ignored rather than forwarded to `.click()`. */
-export type MiniplayerAction = 'playpause' | 'next' | 'prev' | 'like'
+export type MiniplayerAction = 'playpause' | 'next' | 'prev' | 'like' | 'shuffle' | 'automix' | 'repeat'
 
-const MINIPLAYER_ACTIONS: ReadonlySet<string> = new Set(['playpause', 'next', 'prev', 'like'])
+const MINIPLAYER_ACTIONS: ReadonlySet<string> = new Set(['playpause', 'next', 'prev', 'like', 'shuffle', 'automix', 'repeat'])
 
 export function isMiniplayerAction(value: unknown): value is MiniplayerAction {
   return typeof value === 'string' && MINIPLAYER_ACTIONS.has(value)
@@ -177,6 +183,7 @@ export function buildMiniplayerState(
     isFavorite?: boolean, volume?: number,
     credit?: { provider?: unknown, uploader?: { name?: unknown } | null, maker?: { name?: unknown } | null } | null,
     sheet?: MiniplayerSheet | null, queue?: MiniplayerQueueItem[], queueStart?: number, now?: number,
+    shuffle?: boolean, autoMix?: boolean, repeat?: unknown,
   } = {},
 ): MiniplayerState {
   const safePos = Number.isFinite(positionSec) && positionSec > 0 ? positionSec : 0
@@ -193,6 +200,9 @@ export function buildMiniplayerState(
     sheetId: Number.isInteger(sheetId) ? sheetId : 0,
     ...(extra.sheet ? { sheet: extra.sheet } : {}),
     sentAt: Number.isFinite(extra.now) ? extra.now as number : Date.now(),
+    shuffle: !!extra.shuffle,
+    autoMix: !!extra.autoMix,
+    repeat: extra.repeat === 'all' || extra.repeat === 'one' ? extra.repeat : 'none',
     queue: Array.isArray(extra.queue) ? extra.queue.slice(0, MINIPLAYER_QUEUE_MAX) : [],
     queueStart: Number.isInteger(extra.queueStart) && (extra.queueStart as number) >= 0 ? extra.queueStart as number : 0,
     isFavorite: !!extra.isFavorite,

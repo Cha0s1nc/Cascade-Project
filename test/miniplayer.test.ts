@@ -99,8 +99,8 @@ test('state: the sheet rides along only when given, queue is capped, sentAt is s
   assert.equal(buildMiniplayerState(t, true, 1, 10, 1.5 as number, { queueStart: -2 }).sheetId, 0)
 })
 
-test('parseMiniplayerCommand accepts the bare actions, like included', () => {
-  for (const a of ['playpause', 'next', 'prev', 'like']) assert.deepEqual(parseMiniplayerCommand(a), { type: a })
+test('parseMiniplayerCommand accepts the bare actions, like and the Up Next toggles included', () => {
+  for (const a of ['playpause', 'next', 'prev', 'like', 'shuffle', 'automix', 'repeat']) assert.deepEqual(parseMiniplayerCommand(a), { type: a })
 })
 
 test('parseMiniplayerCommand clamps seek to 0-1 and volume to one step', () => {
@@ -141,4 +141,12 @@ test('buildMiniplayerState carries the credit as names only', () => {
     { provider: 'Spicy Lyrics', uploader: 'spikerko', maker: null })
   assert.equal(buildMiniplayerState(track, true, 0, 0).credit, null)
   assert.equal(buildMiniplayerState(track, true, 0, 0, 0, { credit: { provider: '' } }).credit, null)
+})
+
+test('state: repeat is one of none, all, one', () => {
+  const t = { itemId: 'x', title: 't', subtitle: 's', artUrl: null }
+  assert.equal(buildMiniplayerState(t, true, 0, 0, 0, { repeat: 'one' }).repeat, 'one')
+  assert.equal(buildMiniplayerState(t, true, 0, 0, 0, { repeat: 'all' }).repeat, 'all')
+  assert.equal(buildMiniplayerState(t, true, 0, 0, 0, { repeat: 'sideways' }).repeat, 'none')
+  assert.equal(buildMiniplayerState(t, true, 0, 0, 0).repeat, 'none')
 })

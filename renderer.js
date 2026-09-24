@@ -3839,7 +3839,7 @@ function pushMiniplayerState() {
   // line of the script has executed.
   const isFavorite = !!document.getElementById('btn-like')?.classList.contains('liked')
   window.cascade.miniPlayer.updateState(CascadeCore.buildMiniplayerState(track, !audio.paused, mediaPosition(), mediaDuration(), _mpSheetId,
-    { isFavorite, volume, credit: lyricsCredit, sheet, queue: upNext, queueStart }))
+    { isFavorite, volume, credit: lyricsCredit, sheet, queue: upNext, queueStart, shuffle, autoMix: autoMixEnabled, repeat: repeatMode }))
 }
 
 // Derived from the DOM, never cached: _drawSongRows() replaces rows.innerHTML on every
@@ -4980,6 +4980,11 @@ window.cascade.miniPlayer.onControl(async (raw) => {
   else if (cmd.type === 'next') document.getElementById('btn-next').click()
   else if (cmd.type === 'prev') document.getElementById('btn-prev').click()
   else if (cmd.type === 'like') await toggleLike()
+  // Up Next's toggles: the transport bar's own buttons, so the main window's
+  // state and its button highlights stay the single source.
+  else if (cmd.type === 'shuffle') document.getElementById('btn-shuffle').click()
+  else if (cmd.type === 'automix') document.getElementById('btn-automix').click()
+  else if (cmd.type === 'repeat') document.getElementById('btn-repeat').click()
   else if (cmd.type === 'seek') { const dur = mediaDuration(); if (dur) await seekTo(cmd.fraction * dur) }
   // `volume`, not audio.volume: mid-crossfade the element is partway through
   // a fade (see openLyricsEditorFor).

@@ -236,10 +236,14 @@ body.away .close-btn { opacity: 0; }
     display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
     position: relative; z-index: 1;
   }
-  .tabs { display: flex; gap: 4px; padding: 12px 16px 2px; flex-shrink: 0; }
+  /* One switch across the full width, split in two halves. */
+  .tabs {
+    display: flex; flex-shrink: 0; margin: 12px 14px 4px; padding: 3px;
+    border-radius: 999px; background: rgba(255,255,255,0.08);
+  }
   .tab {
-    border: none; background: none; cursor: pointer; font: inherit;
-    font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px;
+    flex: 1; border: none; background: none; cursor: pointer; font: inherit;
+    font-size: 12px; font-weight: 700; padding: 5px 0; border-radius: 999px;
     color: rgba(255,255,255,0.45); transition: color 0.15s, background 0.15s;
   }
   .tab:hover { color: rgba(255,255,255,0.8); }
@@ -252,6 +256,25 @@ body.away .close-btn { opacity: 0; }
   }
   .pane::-webkit-scrollbar { display: none; }
   .pane[hidden] { display: none; }
+  /* Up Next: the two toggles stay put and only the song list scrolls. */
+  .queue { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  .queue[hidden] { display: none; }
+  .queue-controls {
+    display: flex; gap: 8px; flex-shrink: 0; padding: 8px 14px 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.12);
+  }
+  .qc-btn {
+    flex: 1; height: 34px; border: none; border-radius: 999px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.7);
+    transition: background 0.15s, color 0.15s;
+  }
+  .qc-btn:hover { background: rgba(255,255,255,0.16); color: #fff; }
+  .qc-btn.on { background: rgba(255,255,255,0.88); color: #111; }
+  .qc-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  .queue-list { padding-top: 10px; }
+  .qc-btn .repeat-one { display: none; }
+  .qc-btn.one .repeat-one { display: inline; }
   /* The side panel's class names (.lyrics-line, .lyric-word), so the shared
      karaoke rules in styles/karaoke.css apply here unchanged. Dimmed by
      opacity, as there: the words themselves are drawn white. */
@@ -371,7 +394,21 @@ body.away .close-btn { opacity: 0; }
       <button class="tab" id="tab-queue" role="tab" aria-selected="false" data-tab="queue">Up Next</button>
     </div>
     <div class="lyrics pane" id="lyrics"><div class="lyric-credit" id="lyric-credit" hidden></div><div class="lyric-list" id="lyric-list"></div></div>
-    <div class="queue pane" id="queue" hidden><div class="queue-list" id="queue-list"></div></div>
+    <div class="queue" id="queue" hidden>
+      <div class="queue-controls">
+        <button type="button" class="qc-btn" id="qc-automix" title="Autoplay: keep playing similar tracks when the queue ends" aria-label="Autoplay" aria-pressed="false">
+          <svg width="20" height="16" viewBox="0 0 30 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 12c-2.5-3.3-4.6-5-7-5a5 5 0 0 0 0 10c2.4 0 4.5-1.7 7-5s4.6-5 7-5a5 5 0 0 1 0 10c-2.4 0-4.5-1.7-7-5z"/></svg>
+        </button>
+        <button type="button" class="qc-btn" id="qc-shuffle" title="Shuffle" aria-label="Shuffle" aria-pressed="false">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
+        </button>
+        <!-- Cycles off, all, one, as the main window's button does. -->
+        <button type="button" class="qc-btn" id="qc-repeat" title="Repeat" aria-label="Repeat" aria-pressed="false">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/><path class="repeat-one" d="M11 10h1v4"/></svg>
+        </button>
+      </div>
+      <div class="queue-list pane" id="queue-list"></div>
+    </div>
   </div>
 </div>
 
@@ -447,6 +484,11 @@ window.miniPlayer.onState((state) => {
   takeSheet(state)
   if (!state.isPlaying) paintLyrics(clockTicks())   // a seek while paused
   renderQueue(state.queue || [], Number.isInteger(state.queueStart) ? state.queueStart : 0)
+  setToggle('qc-shuffle', state.shuffle)
+  setToggle('qc-automix', state.autoMix)
+  setToggle('qc-repeat', state.repeat === 'all' || state.repeat === 'one')
+  $('qc-repeat').classList.toggle('one', state.repeat === 'one')
+  $('qc-repeat').title = state.repeat === 'one' ? 'Repeat one' : state.repeat === 'all' ? 'Repeat all' : 'Repeat'
   renderCredit(state.credit)
 })
 
@@ -733,6 +775,15 @@ $('queue-list').addEventListener('click', (e) => {
   const row = e.target.closest('.queue-row')
   if (row) control({ type: 'jump', value: Number(row.dataset.i) })
 })
+
+function setToggle(id, on) {
+  const b = $(id)
+  b.classList.toggle('on', !!on)
+  b.setAttribute('aria-pressed', String(!!on))
+}
+$('qc-shuffle').addEventListener('click', () => control('shuffle'))
+$('qc-automix').addEventListener('click', () => control('automix'))
+$('qc-repeat').addEventListener('click', () => control('repeat'))
 
 function showTab(name) {
   for (const t of document.querySelectorAll('.tab')) {
