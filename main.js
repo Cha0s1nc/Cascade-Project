@@ -400,6 +400,9 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1100,
     height: 700,
+    // `npm run demo` (or `electron . --fullscreen`): opens straight into
+    // fullscreen, for demos and screen recordings.
+    fullscreen: process.argv.includes('--fullscreen'),
     minWidth: 800,
     // 560, not 500: the video overlay stacks a picture, a title, two button
     // rows, a scrubber and a volume slider into one column, and 500 was under
