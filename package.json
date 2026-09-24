@@ -1,6 +1,6 @@
 {
   "name": "cascade",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "A Jellyfin music client inspired by Cider",
   "main": "main.js",
   "scripts": {
