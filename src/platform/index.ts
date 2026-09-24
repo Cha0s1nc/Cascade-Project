@@ -188,6 +188,12 @@ export interface DesktopCapabilities {
     /** Opens System Settings at Language & Region. */
     openSettings(): Promise<void>
   }
+  /** Translated lyric lines on disk, as [cacheKey, english, translatedAtMs]
+   *  entries. `load` returns the file as parsed, unchecked. */
+  translationCache?: {
+    load(): Promise<unknown>
+    save(entries: [string, string, number][]): Promise<void>
+  }
   /** Download, inspect and remove the on-device lyric translation models.
    *  Keys are the manifest's: 'ja', 'ko', 'zh-Hans', 'zh-Hant'. */
   translationModels?: {
@@ -235,6 +241,7 @@ export interface ElectronPlatform extends Platform, DesktopCapabilities {
   lyricsEditor: NonNullable<DesktopCapabilities['lyricsEditor']>
   metadataEditor: NonNullable<DesktopCapabilities['metadataEditor']>
   appleTranslation: NonNullable<DesktopCapabilities['appleTranslation']>
+  translationCache: NonNullable<DesktopCapabilities['translationCache']>
   translationModels: NonNullable<DesktopCapabilities['translationModels']>
   miniPlayer: NonNullable<DesktopCapabilities['miniPlayer']>
 }

@@ -55,6 +55,10 @@ const cascade: ElectronPlatform = {
     translate:    (key, text) => ipcRenderer.invoke('apple-translation:translate', key, text),
     openSettings: () => ipcRenderer.invoke('apple-translation:open-settings'),
   },
+  translationCache: {
+    load: () => ipcRenderer.invoke('translation-cache:load'),
+    save: (entries) => ipcRenderer.invoke('translation-cache:save', entries),
+  },
   translationModels: {
     status:     () => ipcRenderer.invoke('translation-models:status'),
     download:   (key) => ipcRenderer.invoke('translation-models:download', key),

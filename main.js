@@ -1263,6 +1263,31 @@ ipcMain.handle('apple-translation:translate', async (_e, key, text) => {
   return english
 })
 
+// ── Lyric translation cache ─────────────────────────────────────────────────
+// Translated lyric lines, kept between sessions so a song translated once is
+// instant after a restart. The renderer owns expiry (25 days, see
+// src/core/translation-cache.ts) and cleans what it loads; this only reads and
+// writes the file. Written to a temp file and renamed, so a crash mid-write
+// never leaves half a file behind.
+const TRANSLATION_CACHE_MAX = 5000
+const translationCachePath = () => path.join(app.getPath('userData'), 'translation-cache.json')
+
+ipcMain.handle('translation-cache:load', () => {
+  try { return JSON.parse(fs.readFileSync(translationCachePath(), 'utf8')) } catch { return [] }
+})
+
+// Trust boundary: the entries come from the renderer. Only the expected shape,
+// and no more than the renderer ever keeps, reaches the disk.
+ipcMain.handle('translation-cache:save', (_e, entries) => {
+  const ok = Array.isArray(entries) && entries.length <= TRANSLATION_CACHE_MAX && entries.every(e =>
+    Array.isArray(e) && e.length === 3 && typeof e[0] === 'string' && e[0].length <= 4000 &&
+    typeof e[1] === 'string' && e[1].length <= 4000 && typeof e[2] === 'number')
+  if (!ok) throw new Error('Invalid translation cache')
+  const file = translationCachePath()
+  fs.writeFileSync(`${file}.tmp`, JSON.stringify(entries))
+  fs.renameSync(`${file}.tmp`, file)
+})
+
 // Translation Languages is a button inside Language & Region with no link of
 // its own, so this opens Language & Region and the prompt says where to click.
 ipcMain.handle('apple-translation:open-settings', () => shell.openExternal(APPLE_SETTINGS_URL))

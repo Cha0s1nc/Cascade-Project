@@ -6771,25 +6771,65 @@ const _translators = new Map()   // model key -> Bergamot.BatchTranslator
 let _translateBusy = 0
 let _translateIdleTimer = null
 
-// Translated lines, remembered for the rest of the session so going back to a
-// song, or a chorus shared across a sheet, costs nothing the second time. Keyed
-// by engine, model and exact line text ("apple|ja|..." - neither ever contains "|"),
-// least recently used dropped first. Memory only: translating a line takes a
-// fraction of a second, so a disk cache would be a second store of lyric text
-// for no noticeable gain.
-// ponytail: in-memory LRU; persist it if re-translating after a restart ever
-// measures as slow.
-const TRANSLATION_CACHE_LINES = 5000
-const _translatedLines = new Map()
+// Translated lines, remembered so going back to a song, or a chorus shared
+// across a sheet, costs nothing the second time. Keyed by engine, model and
+// exact line text ("apple|ja|..." - neither ever contains "|"), least recently
+// used dropped first.
+//
+// Kept on disk between sessions (main.js, translation-cache.json): a cold
+// translation of a whole sheet took a quarter of the song (YOASOBI's Idol),
+// and without this every restart paid it again. Each line expires 25 days
+// after it was translated, reading it does not extend that; the same limit
+// the Cascade Server plugin keeps SpicyLyrics lyrics under, since a
+// translation is derived from them. See src/core/translation-cache.ts.
+const TRANSLATION_CACHE_LINES = CascadeCore.TRANSLATION_CACHE_MAX
+const _translatedLines = new Map()   // cacheKey -> { text, at }
+let _translationCacheLoaded = false
+let _translationSaveTimer = null
+
 function _rememberedLine(cacheKey) {
-  const text = _translatedLines.get(cacheKey)
-  if (text !== undefined) { _translatedLines.delete(cacheKey); _translatedLines.set(cacheKey, text) }
-  return text
+  const hit = _translatedLines.get(cacheKey)
+  if (!hit) return undefined
+  _translatedLines.delete(cacheKey)
+  if (CascadeCore.translationExpired(hit.at, Date.now())) return undefined
+  _translatedLines.set(cacheKey, hit)   // most recently used goes last
+  return hit.text
 }
 function _rememberLine(cacheKey, text) {
-  _translatedLines.set(cacheKey, text)
+  _translatedLines.set(cacheKey, { text, at: Date.now() })
   if (_translatedLines.size > TRANSLATION_CACHE_LINES) _translatedLines.delete(_translatedLines.keys().next().value)
+  _saveTranslationCacheSoon()
 }
+
+// ponytail: debounced, so quitting within 3s of a translation loses those
+// lines; they are re-translated next time. Flush on quit if that ever matters.
+function _saveTranslationCacheSoon() {
+  if (!_translationCacheLoaded) return   // the load below merges and saves
+  clearTimeout(_translationSaveTimer)
+  _translationSaveTimer = setTimeout(() => {
+    const now = Date.now()
+    const entries = []
+    for (const [k, v] of _translatedLines) if (!CascadeCore.translationExpired(v.at, now)) entries.push([k, v.text, v.at])
+    window.cascade.translationCache.save(entries).catch(e => console.warn('[Translate] cache not saved:', e))
+  }, 3000)
+}
+
+window.cascade.translationCache.load().then(raw => {
+  const loaded = CascadeCore.liveTranslationEntries(raw, Date.now(), TRANSLATION_CACHE_LINES)
+  // Anything translated while the file was loading is newer: it goes last.
+  const fresh = [..._translatedLines]
+  _translatedLines.clear()
+  for (const [k, text, at] of loaded) _translatedLines.set(k, { text, at })
+  for (const [k, v] of fresh) { _translatedLines.delete(k); _translatedLines.set(k, v) }
+  while (_translatedLines.size > TRANSLATION_CACHE_LINES) _translatedLines.delete(_translatedLines.keys().next().value)
+  _translationCacheLoaded = true
+  // Rewrite the file when this session added lines, or when loading dropped
+  // expired ones: they must leave the disk too, not just memory.
+  if (fresh.length || (Array.isArray(raw) && raw.length !== loaded.length)) _saveTranslationCacheSoon()
+}).catch(e => {
+  console.warn('[Translate] cache not loaded:', e)
+  _translationCacheLoaded = true
+})
 
 function _retireTranslators() {
   _translateIdleTimer = null
