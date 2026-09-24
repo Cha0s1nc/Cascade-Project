@@ -283,6 +283,8 @@ body.away .close-btn { opacity: 0; }
     color: #fff; opacity: 0.32; transition: opacity 0.3s ease;
   }
   .lyrics-line.active { opacity: 1; }
+  .lyrics-line.seekable { cursor: pointer; }
+  .lyrics-line.seekable:not(.active):hover { opacity: 0.6; }
   .lyrics-line.gap { height: 6px; margin: 0; }
   .queue-row {
     display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px;
@@ -705,12 +707,29 @@ function setSheet(id, sheet) {
     ? sheet.lines.map((l, i) => {
         if (!l.Text && !l.Words) return `<div class="lyrics-line gap" data-idx="${i}"></div>`
         const content = l.Words ? lyricWordSpans(l, 'lyric-word', sheet.emphasis) : esc(l.Text)
-        return `<div class="lyrics-line" data-idx="${i}">${content}</div>`
+        const seek = l.Start != null ? ` seekable" data-start="${l.Start}` : ''
+        return `<div class="lyrics-line${seek}" data-idx="${i}">${content}</div>`
       }).join('')
     : '<div class="lyric-empty">No lyrics for this track</div>'
   $('lyrics').scrollTop = 0
   paintLyrics(clockTicks())
 }
+
+// Click a line to jump to it, as in the main window's lyric views. Sent as the
+// existing seek command (a fraction of the track), so nothing new crosses IPC.
+// The clock moves at once so the line lights before the next tick confirms it,
+// and following resumes right away: a click is not a scroll.
+$('lyric-list').addEventListener('click', (e) => {
+  const line = e.target.closest('.lyrics-line.seekable')
+  const dur = _state?.durationSec
+  if (!line || !(dur > 0)) return
+  const sec = Number(line.dataset.start) / 10_000_000
+  if (!Number.isFinite(sec)) return
+  control({ type: 'seek', value: Math.max(0, Math.min(1, sec / dur)) })
+  _clock = { pos: sec, at: Date.now(), playing: _clock.playing }
+  _userScrollAt = 0
+  paintLyrics(clockTicks())
+})
 
 function clockTicks() {
   const sec = _clock.pos + (_clock.playing ? (Date.now() - _clock.at) / 1000 : 0)
