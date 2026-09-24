@@ -183,8 +183,12 @@ test('activeLyricRange: a line starting inside the previous one keeps both lit u
   assert.deepEqual(activeLyricRange(lines, 1, 11 * SEC), [1, 1])   // no overlap into 'before'
 })
 
-test('activeLyricRange: chains through several overlapping lines, and ignores untimed ones', () => {
+test('activeLyricRange: only lines still sung when the current one began, not a chain', () => {
   const l = (s: number, e: number | null) => ({ Start: s * SEC, End: e == null ? null : e * SEC, Text: 'x', Words: null })
-  assert.deepEqual(activeLyricRange([l(0, 6), l(4, 9), l(8, 12)], 2, 10 * SEC), [0, 2])
+  // Each line runs into the next (Notion's background vocals). The first ended
+  // at 6s, before the third began at 8s: it is not lit with the third.
+  assert.deepEqual(activeLyricRange([l(0, 6), l(4, 9), l(8, 12)], 2, 10 * SEC), [1, 2])
+  // Two earlier lines both still going when the current one began: both lit.
+  assert.deepEqual(activeLyricRange([l(0, 12), l(4, 12), l(8, 12)], 2, 10 * SEC), [0, 2])
   assert.deepEqual(activeLyricRange([l(0, null), l(1, null)], 1, 2 * SEC), [1, 1])
 })

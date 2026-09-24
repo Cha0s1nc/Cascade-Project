@@ -64,19 +64,23 @@ export function lineEndTicks(line: LyricLine): number | null {
  * The lines to show as current, [first, last], around `idx` (currentLyricIndex).
  * When a line starts before the previous one has ended (a duet, a call and
  * response), Apple Music keeps both lit until the later one ends, instead of
- * dimming the first mid-word. So: walk back over each earlier line that the
- * next one starts inside, and keep the group lit until all of it is sung.
- * Background vocals count: a background part running into the next line makes
- * the two a group like any overlap. Lines with no end time (plain LRC) never
- * overlap, so this is [idx, idx].
+ * dimming the first mid-word. So: an earlier line joins the group when it was
+ * still being sung as the current line began, and the group stays lit until
+ * all of it is sung. Background vocals count as part of their line.
+ *
+ * Only lines that overlap the CURRENT line, not a chain of overlaps: in a verse
+ * where each line's background runs into the next ("Notion", The Rare
+ * Occasions), chaining lit the whole verse at once, including lines long done.
+ * Lines with no end time (plain LRC) never overlap, so this is [idx, idx].
  */
 export function activeLyricRange(lines: LyricLine[], idx: number, nowTicks: number): [number, number] {
-  if (!lines[idx]) return [idx, idx]
+  const cur = lines[idx]
+  if (!cur) return [idx, idx]
   let first = idx
-  let groupEnd = lineEndTicks(lines[idx]) ?? -Infinity
+  let groupEnd = lineEndTicks(cur) ?? -Infinity
   while (first > 0) {
     const prevEnd = lineEndTicks(lines[first - 1])
-    if (prevEnd == null || lines[first].Start >= prevEnd) break
+    if (prevEnd == null || cur.Start >= prevEnd) break
     first--
     groupEnd = Math.max(groupEnd, prevEnd)
   }
