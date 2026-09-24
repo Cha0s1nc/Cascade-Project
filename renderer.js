@@ -7972,6 +7972,7 @@ document.addEventListener('click', e => {
 function _reloadLyricsFor(itemId) {
   const cur = queue[queueIndex]
   _lyricsCache.delete(itemId ?? cur?.Id)
+  _lyricsInflight.delete(itemId ?? cur?.Id)   // a search from before the change must not be joined
   if (!cur || (itemId != null && itemId !== cur.Id)) return
   lyricsData = []; lastLyricsIdx = -1; lastOverlayLyricsIdx = -1; _lyricsScanIdx = 0; _ovLyricsScanIdx = 0
   fetchLyrics()
@@ -8552,7 +8553,24 @@ function _cachePut(id, result) {
 // Returns { lines, source, tried } | { instrumental: true } | null.
 const _isAbort = e => e?.name === 'AbortError' || e?.name === 'TimeoutError'
 
-async function fetchLyricsWaterfall(item) {
+// One search per song at a time. The side panel, the overlay and the
+// look-ahead for upcoming tracks can all ask for the same song before its
+// first search lands (the cache below is only filled at the end), and each
+// used to start its own: one track's Jellyfin /Lyrics 404 showed up ten times
+// in a row. Later askers now wait on the search already running.
+const _lyricsInflight = new Map()   // item id -> promise of the waterfall's result
+function fetchLyricsWaterfall(item) {
+  const forced = lyricsForcedSource && lyricsForcedSource !== 'auto'
+  if (forced || _lyricsCache.has(item.Id)) return _lyricsWaterfall(item)
+  let pending = _lyricsInflight.get(item.Id)
+  if (!pending) {
+    pending = _lyricsWaterfall(item).finally(() => _lyricsInflight.delete(item.Id))
+    _lyricsInflight.set(item.Id, pending)
+  }
+  return pending
+}
+
+async function _lyricsWaterfall(item) {
   const forced = lyricsForcedSource && lyricsForcedSource !== 'auto' ? lyricsForcedSource : null
 
   // Bypass cache when a source is forced so the user always gets a fresh fetch

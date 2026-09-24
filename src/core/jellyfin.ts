@@ -296,6 +296,10 @@ export class JellyfinClient {
       body: JSON.stringify(body),
     })
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+    // Some POSTs answer 204 with no body (/Sessions/Capabilities/Full does).
+    // Parsing that as JSON threw "Unexpected end of JSON input", which made
+    // remote-control registration fail on every start.
+    if (res.status === 204) return undefined as T
     return res.json() as Promise<T>
   }
 

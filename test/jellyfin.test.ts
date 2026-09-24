@@ -518,3 +518,16 @@ test('getMerged: asks for bitrates only for songs across libraries, and strips t
   const own = await clientFor(cfg).getMerged('/Items', { IncludeItemTypes: 'Audio', Fields: 'MediaSources' })
   assert.ok(own.Items!.some(i => i.MediaSources), 'kept when the caller asked for them')
 })
+
+test('post: an empty 204 resolves instead of throwing (Sessions/Capabilities/Full)', async () => {
+  globalThis.fetch = (async (input: any, init?: RequestInit) => {
+    calls.push({ url: String(input), init })
+    return { ok: true, status: 204, statusText: 'No Content', json: async () => { throw new SyntaxError('Unexpected end of JSON input') }, text: async () => '' }
+  }) as unknown as typeof fetch
+  assert.equal(await clientFor(baseConfig).post('/Sessions/Capabilities/Full', {}), undefined)
+})
+
+test('post: a JSON body still comes back parsed', async () => {
+  stubFetch(() => ({ Id: 'x' }))
+  assert.deepEqual(await clientFor(baseConfig).post('/Items', {}), { Id: 'x' })
+})
