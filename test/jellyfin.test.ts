@@ -4,7 +4,7 @@ import {
   JellyfinClient, authenticate, authHeader,
   quickConnectEnabled, quickConnectInitiate, quickConnectApproved, quickConnectAuthenticate,
   QUICK_CONNECT_POLL_MS, QUICK_CONNECT_TIMEOUT_MS, readErrorMessage,
-  splitVideoLibraryIds, effectiveLibraryIds, groupRecentlyWatched, isAnimatedImageType,
+  splitVideoLibraryIds, effectiveLibraryIds, groupRecentlyWatched, isAnimatedImageType, dedupeById,
 } from '../src/core/jellyfin.ts'
 import type { ServerConfig, JfItemsResponse, JfItem } from '../src/core/types.ts'
 
@@ -460,4 +460,33 @@ test('isAnimatedImageType tolerates charset params and casing', () => {
   assert.ok(isAnimatedImageType('image/gif; charset=binary'))
   assert.ok(isAnimatedImageType('  IMAGE/GIF  '))
   assert.ok(!isAnimatedImageType('image/jpeg; qs=0.9'))
+})
+
+test('dedupeById: the same song in two libraries appears once, first library kept', () => {
+  const song = (Id: string, Name: string, artist: string, sec: number) =>
+    ({ Id, Name, Type: 'Audio', Artists: [artist], RunTimeTicks: sec * 10_000_000 })
+  const libA = [song('a1', 'Mr. Brightside', 'The Killers', 222), song('a2', 'Sober', 'Letdown.', 216)]
+  const libB = [
+    song('b1', 'mr brightside', 'the killers', 223),     // same song, other library: dropped
+    song('b2', 'Mr. Brightside (Live)', 'The Killers', 240), // a different cut: kept
+    song('b3', 'Sober', 'Letdown.', 300),                // same title, 84s longer: kept
+  ]
+  assert.deepEqual(dedupeById([libA, libB]).Items!.map(i => i.Id), ['a1', 'a2', 'b2', 'b3'])
+})
+
+test('dedupeById: copies inside one library are left alone', () => {
+  const s = { Name: 'Home', Type: 'Audio', Artists: ['Phillip Phillips'], RunTimeTicks: 2_090_000_000 }
+  assert.equal(dedupeById([[{ ...s, Id: '1' }, { ...s, Id: '2' }]]).Items!.length, 2)
+})
+
+test('dedupeById: albums match on name and album artist across libraries', () => {
+  const album = (Id: string, Name: string, AlbumArtist: string) => ({ Id, Name, Type: 'MusicAlbum', AlbumArtist })
+  const res = dedupeById([[album('a', 'A Fever You Can’t Sweat Out', 'Panic! At The Disco')],
+    [album('b', "A Fever You Can't Sweat Out", 'Panic! at the Disco'), album('c', 'Pretty. Odd.', 'Panic! At The Disco')]])
+  assert.deepEqual(res.Items!.map(i => i.Id), ['a', 'c'])
+})
+
+test('dedupeById: other types only dedupe by Id', () => {
+  const pl = (Id: string) => ({ Id, Name: 'Road trip', Type: 'Playlist' })
+  assert.equal(dedupeById([[pl('1')], [pl('2'), pl('1')]]).Items!.length, 2)
 })

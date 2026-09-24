@@ -439,17 +439,58 @@ export class JellyfinClient {
 }
 
 /** Flatten item lists, keeping the first occurrence of each Id. */
-function dedupeById(lists: JfItem[][]): JfItemsResponse {
+/**
+ * Merges per-library results (in library order) into one list: the same item
+ * once by Id, and the same song or album found in two different libraries
+ * once too, the first library's copy kept. Shuffling three libraries that
+ * each hold the same album otherwise played every song three times.
+ *
+ * Songs match on title and artist, ignoring case and punctuation, with
+ * durations within DUPLICATE_DURATION_SEC (so a "(Live)" or extended cut,
+ * titled or timed differently, stays). Albums match on name and album artist.
+ * Copies inside one library are never merged: that is the library's own
+ * business, like a single kept next to its album.
+ */
+export function dedupeById(lists: JfItem[][]): JfItemsResponse {
   const seen = new Set<string>()
+  const byContent = new Map<string, { lib: number, sec: number | null }[]>()
   const items: JfItem[] = []
-  for (const list of lists) {
+  lists.forEach((list, lib) => {
     for (const item of list) {
       if (seen.has(item.Id)) continue
       seen.add(item.Id)
+      const key = contentKey(item)
+      if (key) {
+        const sec = item.RunTimeTicks ? item.RunTimeTicks / 10_000_000 : null
+        const copies = byContent.get(key) ?? []
+        const dupe = copies.some(c => c.lib !== lib &&
+          (item.Type !== 'Audio' || c.sec == null || sec == null || Math.abs(c.sec - sec) <= DUPLICATE_DURATION_SEC))
+        if (dupe) continue
+        copies.push({ lib, sec })
+        byContent.set(key, copies)
+      }
       items.push(item)
     }
-  }
+  })
   return { Items: items, TotalRecordCount: items.length }
+}
+
+export const DUPLICATE_DURATION_SEC = 3
+
+const normalise = (s: string | undefined | null) =>
+  (s || '').normalize('NFKC').toLowerCase().replace(/[\p{P}\p{S}\s]+/gu, '')
+
+/** What makes two songs or albums the same, or null for anything else. */
+function contentKey(item: JfItem): string | null {
+  if (item.Type === 'Audio') {
+    const title = normalise(item.Name)
+    return title ? `a|${title}|${normalise(item.Artists?.[0] || item.AlbumArtist)}` : null
+  }
+  if (item.Type === 'MusicAlbum') {
+    const name = normalise(item.Name)
+    return name ? `m|${name}|${normalise(item.AlbumArtist || item.Artists?.[0])}` : null
+  }
+  return null
 }
 
 /** Whether a Content-Type is a format that *can* carry animation.
