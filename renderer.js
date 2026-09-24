@@ -16,7 +16,7 @@ let repeatMode = 'none' // 'none' | 'all' | 'one'
 let _unshuffledQueue = []   // original order saved when shuffle is enabled
 
 // Queue panel virtualisation
-const QUEUE_WIN      = 20   // rows kept in DOM at once
+const QUEUE_WIN      = 20   // minimum rows kept in DOM at once; see _queueWin()
 const QUEUE_ROW_H    = 53   // px per row - .queue-row pins this exact height in CSS
 const QUEUE_BEFORE   = 5    // rows to show before current track when re-centering
 let _queueWinStart   = 0    // index of first rendered row
@@ -6430,32 +6430,44 @@ function renderQueuePanel() {
   const panel     = document.getElementById('ov-panel-queue')
   if (!queue.length) { container.innerHTML = '<div class="empty-state" style="padding:40px 0">Queue is empty</div>'; return }
 
-  // Bind scroll listener once - shifts the render window as the user scrolls
+  // Bind once - shifts the render window as the user scrolls, and when the
+  // panel resizes (a taller window shows more rows than were drawn, and the
+  // gap below them is just the spacer: blank).
   if (!_queueScrollBound) {
     _queueScrollBound = true
-    panel.addEventListener('scroll', () => {
+    const rewindow = () => {
       if (!queue.length) return
+      const win = _queueWin(panel)
       // container.offsetTop is the in-panel "Queue" header - scrollTop 0 is not row 0
       const visStart = Math.max(0, Math.floor((panel.scrollTop - container.offsetTop) / QUEUE_ROW_H))
       const visEnd   = visStart + Math.ceil(panel.clientHeight / QUEUE_ROW_H)
       const nearTop  = visStart < _queueWinStart + 3
-      const nearBot  = visEnd   > _queueWinStart + QUEUE_WIN - 3
+      const nearBot  = visEnd   > _queueWinStart + win - 3
       if (nearTop || nearBot) {
         // Only redraw on a real window change, otherwise the programmatic scroll in
         // _drawQueueRows re-triggers this and fights it.
-        const next = Math.max(0, Math.min(visStart - 3, queue.length - QUEUE_WIN))
+        const next = Math.max(0, Math.min(visStart - 3, queue.length - win))
         if (next !== _queueWinStart) { _queueWinStart = next; _drawQueueRows(container, false) }
       }
-    }, { passive: true })
+    }
+    panel.addEventListener('scroll', rewindow, { passive: true })
+    new ResizeObserver(rewindow).observe(panel)
   }
 
   // Re-centre window on the current track
-  _queueWinStart = Math.max(0, Math.min(queueIndex - QUEUE_BEFORE, queue.length - QUEUE_WIN))
+  _queueWinStart = Math.max(0, Math.min(queueIndex - QUEUE_BEFORE, queue.length - _queueWin(panel)))
   _drawQueueRows(container, true)
 }
 
+/** Rows to keep drawn: a full panel's worth plus slack either side, never
+ *  fewer than QUEUE_WIN. A fixed 20 left a maximized window (~23 rows tall)
+ *  blank below the last drawn row. */
+function _queueWin(panel) {
+  return Math.max(QUEUE_WIN, Math.ceil(panel.clientHeight / QUEUE_ROW_H) + QUEUE_BEFORE + 6)
+}
+
 function _drawQueueRows(container, scrollToCurrent) {
-  const winEnd = Math.min(queue.length, _queueWinStart + QUEUE_WIN)
+  const winEnd = Math.min(queue.length, _queueWinStart + _queueWin(document.getElementById('ov-panel-queue')))
   const topH   = _queueWinStart * QUEUE_ROW_H
   const botH   = (queue.length - winEnd) * QUEUE_ROW_H
 
