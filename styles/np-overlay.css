@@ -304,6 +304,13 @@ html[data-platform="linux"] .np-overlay.video.full #ov-full-exit {
 .np-ov-ctrl.active { color: var(--accent); }
 .np-ov-play { width: 48px; height: 48px; border-radius: 50%; background: var(--grad); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; color: white; transition: opacity 0.12s; }
 .np-ov-play:hover { opacity: 0.85; }
+/* The control rows grow with the window, as the art does (52vh above): full
+   size up to a 900px-tall window, then in step with its height, capped at
+   1.5x (a 1350px window). zoom rather than bigger icons, so icons, gaps and
+   hit areas scale together and keep their proportions; it also scales the
+   rows' own max-height (the idle fold above), so nothing clips. Needs
+   Chromium's typed division (100vh / 900px), which Electron 44 has. */
+.np-overlay-btns, .np-overlay-vol { zoom: clamp(1, 100vh / 900px, 1.5); }
 .np-overlay-prog { display: flex; align-items: center; gap: 10px; width: 100%; }
 .np-overlay-prog-bar { flex: 1; height: 4px; background: var(--border); border-radius: 2px; cursor: pointer; position: relative; }
 /* Was inline style="width:140px" - moved here verbatim. .np-overlay-prog-bar's
