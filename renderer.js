@@ -8046,6 +8046,10 @@ function _showLyricsFetchToast(result) {
 }
 
 function updateSourcePills() {
+  for (const id of ['lyrics-edit-btn', 'ov-lyrics-edit-btn']) {
+    const btn = document.getElementById(id)
+    if (btn) btn.title = lyricsCredit ? "Edit in Spicy Lyrics' TTML tool" : 'Edit lyrics'
+  }
   const forced   = lyricsForcedSource && lyricsForcedSource !== 'auto'
   const label    = forced
     ? (lyricsForcedSource === 'cascade-karaoke' ? 'Karaoke'
@@ -8166,11 +8170,26 @@ async function openLyricsEditorFor(item) {
   window.cascade.lyricsEditor.open({ item, jf, lyricsData: seed, volume, lyricsUrl: cascadeLyricsUrl(item.Id) })
 }
 
+// Spicy Lyrics' own sync editor, its fork of the AMLL TTML Tool, which its
+// guides (guides.spicylyrics.org) point makers to. No deep link to a song is
+// documented, so it opens on its start page; uploads go through Spicy
+// Lyrics' TTML Maker program, not through Cascade.
+const SPICY_TTML_TOOL_URL = 'https://tool.community.spicylyrics.org/'
+
+// The lyric views' edit buttons: with Spicy Lyrics on screen they open that
+// tool, since Cascade's editor never takes its lyrics (see above). The
+// context menu's Edit lyrics still opens Cascade's own editor, for a local
+// .slrc of the same song.
 ;['lyrics-edit-btn', 'ov-lyrics-edit-btn'].forEach(id => {
   const btn = document.getElementById(id)
   if (!btn) return
   btn.addEventListener('click', e => {
     e.stopPropagation()
+    if (lyricsCredit) {
+      window.cascade.shell.openExternal(SPICY_TTML_TOOL_URL)
+      showToast("Opened Spicy Lyrics' TTML tool in your browser")
+      return
+    }
     openLyricsEditorFor(queue[queueIndex])
   })
 })
@@ -9245,6 +9264,7 @@ updateNowPlaying = function(item) {
   _origUpdateNP(item)
   // Always clear stale lyrics so panels re-fetch for the new track
   lyricsData = []
+  lyricsCredit = null   // the old song's Spicy credit, until the new lyrics say otherwise
   lyricsTranslated = []
   lastLyricsIdx = -1
   _lyricsScanIdx = 0
