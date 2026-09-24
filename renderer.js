@@ -6008,9 +6008,16 @@ function pokeOverlayControls() {
 onDeck('play', pokeOverlayControls)
 onDeck('pause', pokeOverlayControls)
 
-// Only the left NP section (art + info) opens the overlay - everything else is a deadzone
-document.querySelector('.statusbar').addEventListener('click', (e) => {
-  if (!e.target.closest('.np') || e.target.closest('.np button')) return
+// Any empty part of the bar opens the overlay, not just the left section: the
+// right half used to be a dead zone. Controls keep their own clicks. A drag
+// that starts on a slider and is let go over empty bar still reports a click
+// on the bar, so where the press began decides, not where it ended.
+const _statusbarControls = 'button, a, input, select, [role="slider"]'
+let _statusbarPressOnControl = false
+const statusbar = document.querySelector('.statusbar')
+statusbar.addEventListener('pointerdown', (e) => { _statusbarPressOnControl = !!e.target.closest(_statusbarControls) })
+statusbar.addEventListener('click', (e) => {
+  if (_statusbarPressOnControl || e.target.closest(_statusbarControls)) return
   overlayOpen ? closeOverlay() : openOverlay()
 })
 
