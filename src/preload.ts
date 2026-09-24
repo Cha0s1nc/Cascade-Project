@@ -69,6 +69,7 @@ const cascade: ElectronPlatform = {
     open:        () => ipcRenderer.send('open-miniplayer'),
     updateState: (state) => ipcRenderer.send('miniplayer-state', state),
     onControl:   (cb) => { ipcRenderer.on('miniplayer-control', (_e, action) => cb(action)) },
+    onOpenChange: (cb) => { ipcRenderer.on('miniplayer-open-state', (_e, open) => cb(!!open)) },
   },
 }
 

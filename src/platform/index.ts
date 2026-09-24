@@ -214,6 +214,8 @@ export interface DesktopCapabilities {
      *  main window on a click there is handled entirely in the main process
      *  (BrowserWindow.restore()) - nothing for this window to do. */
     onControl(cb: (action: string) => void): void
+    /** The miniplayer window opened (true) or closed (false). */
+    onOpenChange(cb: (open: boolean) => void): void
   }
 }
 

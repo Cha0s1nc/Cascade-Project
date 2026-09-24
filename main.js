@@ -835,10 +835,14 @@ ipcMain.on('open-miniplayer', () => {
         }
       }, 400)
     })
+    // The renderer only fetches lyrics while something shows them; this is
+    // how it knows the miniplayer is one of those things.
+    if (win && !win.isDestroyed()) win.webContents.send('miniplayer-open-state', true)
     miniPlayerWindow.on('closed', () => {
       clearTimeout(resizeSaveTimer)
       clearInterval(miniHoverTimer); miniHoverTimer = null
       miniPlayerWindow = null
+      if (win && !win.isDestroyed()) win.webContents.send('miniplayer-open-state', false)
       // Restoring the main window belongs HERE, not only in the
       // miniplayer-restore handler below - this fires no matter how the
       // window closed (the close button, the OS window-menu Close Window

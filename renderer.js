@@ -3814,8 +3814,11 @@ function pushMiniplayerState() {
   const art = _currentHighResArtUrl || artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
   const track = { itemId: item.Id, title: item.Name || '', subtitle: secondaryLine(item), artUrl: art }
   // From the active line onward, so the miniplayer can render top-down with
-  // the current line pinned at the top without any scrolling of its own.
-  const lyricTail = CascadeCore.miniplayerLyricTail(lyricsData, lastLyricsIdx)
+  // the current line pinned at the top without any scrolling of its own. The
+  // line comes from the clock, not lastLyricsIdx: that one only moves while
+  // the main window's lyrics panel is open, which it usually is not while
+  // the miniplayer stands in for that window.
+  const lyricTail = CascadeCore.miniplayerLyricTail(lyricsData, _lyricLineAt(lyricsData, mediaPosition() * 10_000_000))
   // The heart's own class, same source of truth toggleLike() reads for the
   // current track. By id, not the likeBtn const: this can run before that
   // line of the script has executed.
@@ -4808,6 +4811,14 @@ window.cascade?.isPackaged?.().then(packaged => {
   btn.classList.add('needs-admin')            // the existing dimmed-but-visible treatment
   btn.setAttribute('data-tip', 'Miniplayer - coming soon')
   btn.title = 'Miniplayer - coming soon'
+})
+
+// Lyrics are fetched only while something shows them (see updateNowPlaying);
+// an open miniplayer counts. Fetched on open too, for the song already playing.
+let _miniplayerOpen = false
+window.cascade.miniPlayer.onOpenChange(open => {
+  _miniplayerOpen = open
+  if (open && !lyricsData.length && queue[queueIndex]) fetchLyrics()
 })
 
 document.getElementById('btn-miniplayer-open').addEventListener('click', () => {
@@ -9374,7 +9385,7 @@ updateNowPlaying = function(item) {
   lastLyricsIdx = -1
   _lyricsScanIdx = 0
   document.getElementById('ov-translate-btn').style.display = 'none'
-  if (lyricsPanelOpen()) fetchLyrics()
+  if (lyricsPanelOpen() || _miniplayerOpen) fetchLyrics()
   if (overlayOpen && overlayLyricsOpen) renderOverlayLyrics()
 }
 
