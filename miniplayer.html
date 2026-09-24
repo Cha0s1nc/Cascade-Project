@@ -473,6 +473,7 @@ function setArt(url) {
   }
   const img = new Image()
   img.alt = ''
+  img.draggable = false   // an <img> drags out as a file by default
   img.onload = () => {
     if (art.dataset.src !== url) return   // a newer track already replaced it
     art.querySelectorAll('img').forEach(old => { if (old !== img) old.remove() })
