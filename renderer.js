@@ -8232,6 +8232,8 @@ function _wordProgress(w, nowTicks) {
 }
 
 const _graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+// Scripts written without spaces between words (see lyricWordSpans).
+const _noSpaceScript = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u
 
 /** A karaoke line's word spans, shared by the side panel and the overlay.
  *  Background vocals (SpicyLyrics) get their own smaller row underneath,
@@ -8267,10 +8269,17 @@ function lyricWordSpans(line, cls) {
   // .emph span from the first syllable's start to the last one's end, so the
   // fill sweeps evenly across it. Per syllable, "Disturbi" filled in 0.6s and
   // then one held "a" crawled for 1.5s, and only the "a" swelled.
+  //
+  // Only for scripts that put spaces between words. Japanese, Chinese and
+  // Thai do not, so there the "word" up to a space is the whole line, and
+  // holding it together overflowed the panel; their syllables wrap as the
+  // script normally does. Over 30 characters is not a word either.
   const group = syls => {
     const whole = { Start: syls[0].Start, End: syls[syls.length - 1].End, Text: syls.map(w => w.Text).join('') }
     const held = emphasis && syls.length > 1 && syls.some(w => CascadeCore.isEmphasisWord(w)) && CascadeCore.isEmphasisWord(whole)
-    return `<span class="lyric-wordgroup">${(held ? [whole] : syls).map(span).join('')}</span>`
+    const html = (held ? [whole] : syls).map(span).join('')
+    const wordLike = !_noSpaceScript.test(whole.Text) && [...whole.Text.trim()].length <= 30
+    return wordLike ? `<span class="lyric-wordgroup">${html}</span>` : html
   }
   const spans = words => {
     let out = '', syls = []
