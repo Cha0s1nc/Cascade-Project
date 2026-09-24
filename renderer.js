@@ -3813,17 +3813,26 @@ function pushMiniplayerState() {
   if (!item) { window.cascade.miniPlayer.updateState(null); return }
   const art = _currentHighResArtUrl || artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
   const track = { itemId: item.Id, title: item.Name || '', subtitle: secondaryLine(item), artUrl: art }
-  // From the active line onward, so the miniplayer can render top-down with
-  // the current line pinned at the top without any scrolling of its own. The
-  // line comes from the clock, not lastLyricsIdx: that one only moves while
-  // the main window's lyrics panel is open, which it usually is not while
-  // the miniplayer stands in for that window.
-  const lyricTail = CascadeCore.miniplayerLyricTail(lyricsData, _lyricLineAt(lyricsData, mediaPosition() * 10_000_000))
+  // The whole sheet, so it can be scrolled back through, and the line being
+  // sung. The line comes from the clock, not lastLyricsIdx: that one only
+  // moves while the main window's lyrics panel is open, which it usually is
+  // not while the miniplayer stands in for that window. Untimed lyrics have
+  // no current line.
+  const lyrics = CascadeCore.miniplayerLyrics(lyricsData)
+  const lyricIndex = lyricsData.some(l => l.Start != null) ? _lyricLineAt(lyricsData, mediaPosition() * 10_000_000) : -1
+  // Up Next: what follows the current track.
+  const queueStart = queueIndex + 1
+  const upNext = queue.slice(queueStart, queueStart + CascadeCore.MINIPLAYER_QUEUE_MAX).map(q => ({
+    title: q.Name || '',
+    subtitle: secondaryLine(q),
+    artUrl: artUrl(q.AlbumId || q.Id, q.AlbumPrimaryImageTag || q.ImageTags?.Primary),
+  }))
   // The heart's own class, same source of truth toggleLike() reads for the
   // current track. By id, not the likeBtn const: this can run before that
   // line of the script has executed.
   const isFavorite = !!document.getElementById('btn-like')?.classList.contains('liked')
-  window.cascade.miniPlayer.updateState(CascadeCore.buildMiniplayerState(track, !audio.paused, mediaPosition(), mediaDuration(), lyricTail, { isFavorite, volume, credit: lyricsCredit }))
+  window.cascade.miniPlayer.updateState(CascadeCore.buildMiniplayerState(track, !audio.paused, mediaPosition(), mediaDuration(), lyrics,
+    { isFavorite, volume, credit: lyricsCredit, lyricIndex, queue: upNext, queueStart }))
 }
 
 // Derived from the DOM, never cached: _drawSongRows() replaces rows.innerHTML on every
@@ -4972,6 +4981,15 @@ window.cascade.miniPlayer.onControl(async (raw) => {
     const url = CascadeCore.safeCreditUrl(lyricsCredit?.[cmd.who]?.url)
     if (url) window.cascade.shell.openExternal(url)
     return
+  }
+  // Up Next: same as clicking the row in the main queue panel, a Waterfall
+  // guest included (it asks the host instead of moving its own queue).
+  else if (cmd.type === 'jump') {
+    if (cmd.index <= queueIndex || cmd.index >= queue.length) return
+    if (isWaterfallFollower()) { if (typeof wfNotifyHostControls === 'function') wfNotifyHostControls(); return }
+    queueIndex = cmd.index
+    playCurrentTrack()
+    renderQueuePanel()
   }
   // Paused, there is no timeupdate to carry the new state back.
   pushMiniplayerState()

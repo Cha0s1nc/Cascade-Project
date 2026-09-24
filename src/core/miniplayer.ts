@@ -23,10 +23,14 @@ export interface MiniplayerState {
   durationSec: number
   /** 0-100, always in range even when duration is unknown. */
   progressPct: number
-  /** Lyric lines from the CURRENT one onward, already trimmed. The miniplayer
-   *  renders them top-down and does no scrolling of its own: "current line at
-   *  the top" falls out of only ever sending the tail. */
+  /** The whole lyric sheet, cleaned (see miniplayerLyrics), so the lyrics
+   *  can be scrolled back through. */
   lyrics: string[]
+  /** The line being sung, an index into `lyrics`; -1 when none is. */
+  lyricIndex: number
+  /** Upcoming tracks, from `queueStart` (their index in the main queue). */
+  queue: MiniplayerQueueItem[]
+  queueStart: number
   /** Whether the current track is a favorite, for the heart button. */
   isFavorite: boolean
   /** 0-1, the user's volume (not a mid-crossfade deck level). */
@@ -39,29 +43,29 @@ export interface MiniplayerState {
 
 export interface MiniplayerCredit { provider: string, uploader: string | null, maker: string | null }
 
-/** How many upcoming lines to send. Enough to fill a very tall window, few
- *  enough that this can ride along on every progress tick without the IPC
- *  payload growing with the length of the song. */
-export const MINIPLAYER_LYRIC_LINES = 40
+export interface MiniplayerQueueItem { title: string, subtitle: string, artUrl: string | null }
+
+/** Most lyric lines sent. Far past any real song; a cap so a malformed sheet
+ *  cannot grow the payload that rides on every progress tick. */
+export const MINIPLAYER_LYRIC_MAX = 400
+
+/** Upcoming tracks sent for the miniplayer's Up Next. */
+export const MINIPLAYER_QUEUE_MAX = 50
 
 /**
- * Lyric lines from `activeIdx` onward, capped and cleaned.
+ * The lyric sheet as the miniplayer shows it: text only, capped.
  *
  * Blank lines are kept, not dropped: an instrumental gap is real spacing in a
- * lyric sheet, and collapsing it makes the next line arrive early against the
- * music. Only the trailing run is trimmed, so a song ending in padding does
- * not leave the window looking empty while the outro plays.
+ * lyric sheet, and dropping them would also shift every index after the gap
+ * off the line the clock says is current. Only the trailing run is trimmed,
+ * so a song ending in padding does not scroll into emptiness.
  */
-export function miniplayerLyricTail(
-  lines: { Text?: string | null }[] | null | undefined,
-  activeIdx: number,
-): string[] {
+export function miniplayerLyrics(lines: { Text?: string | null }[] | null | undefined): string[] {
   if (!Array.isArray(lines) || !lines.length) return []
-  const from = Math.max(0, Math.min(activeIdx, lines.length - 1))
-  const tail = lines.slice(from, from + MINIPLAYER_LYRIC_LINES).map(l => (l?.Text ?? '').trim())
-  let end = tail.length
-  while (end > 0 && tail[end - 1] === '') end--
-  return tail.slice(0, end)
+  const out = lines.slice(0, MINIPLAYER_LYRIC_MAX).map(l => (l?.Text ?? '').trim())
+  let end = out.length
+  while (end > 0 && out[end - 1] === '') end--
+  return out.slice(0, end)
 }
 
 /** The only actions the miniplayer window may ask the main window to take.
@@ -82,6 +86,7 @@ export type MiniplayerCommand =
   | { type: 'seek', fraction: number }
   | { type: 'volume', delta: number }
   | { type: 'credit', who: 'uploader' | 'maker' }
+  | { type: 'jump', index: number }
 
 /** Largest volume step one message may ask for. A wheel tick sends a few
  *  percent; anything bigger is a bug or a hostile page, not a gesture. */
@@ -104,6 +109,8 @@ export function parseMiniplayerCommand(raw: unknown): MiniplayerCommand | null {
     return { type: 'volume', delta: Math.max(-m, Math.min(m, value)) }
   }
   if (type === 'credit' && (value === 0 || value === 1)) return { type: 'credit', who: value === 0 ? 'uploader' : 'maker' }
+  // A queue position; whether it exists is the receiver's call, it owns the queue.
+  if (type === 'jump' && Number.isInteger(value) && value >= 0) return { type: 'jump', index: value }
   return null
 }
 
@@ -130,7 +137,11 @@ export function buildMiniplayerState(
   positionSec: number,
   durationSec: number,
   lyrics: string[] = [],
-  extra: { isFavorite?: boolean, volume?: number, credit?: { provider?: unknown, uploader?: { name?: unknown } | null, maker?: { name?: unknown } | null } | null } = {},
+  extra: {
+    isFavorite?: boolean, volume?: number,
+    credit?: { provider?: unknown, uploader?: { name?: unknown } | null, maker?: { name?: unknown } | null } | null,
+    lyricIndex?: number, queue?: MiniplayerQueueItem[], queueStart?: number,
+  } = {},
 ): MiniplayerState {
   const safePos = Number.isFinite(positionSec) && positionSec > 0 ? positionSec : 0
   const safeDur = Number.isFinite(durationSec) && durationSec > 0 ? durationSec : 0
@@ -144,6 +155,10 @@ export function buildMiniplayerState(
     durationSec: safeDur,
     progressPct: miniplayerProgressPct(safePos, safeDur),
     lyrics: Array.isArray(lyrics) ? lyrics : [],
+    lyricIndex: Number.isInteger(extra.lyricIndex) && Array.isArray(lyrics)
+      ? Math.max(-1, Math.min(lyrics.length - 1, extra.lyricIndex as number)) : -1,
+    queue: Array.isArray(extra.queue) ? extra.queue.slice(0, MINIPLAYER_QUEUE_MAX) : [],
+    queueStart: Number.isInteger(extra.queueStart) && (extra.queueStart as number) >= 0 ? extra.queueStart as number : 0,
     isFavorite: !!extra.isFavorite,
     volume: Number.isFinite(extra.volume) ? Math.max(0, Math.min(1, extra.volume as number)) : 1,
     credit: miniplayerCredit(extra.credit),

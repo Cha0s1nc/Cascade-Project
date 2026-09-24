@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { buildMiniplayerState, miniplayerProgressPct, isMiniplayerAction,
-  miniplayerLyricTail, parseMiniplayerCommand,
-  MINIPLAYER_LYRIC_LINES, MINIPLAYER_MAX_VOLUME_STEP,
+  miniplayerLyrics, parseMiniplayerCommand,
+  MINIPLAYER_LYRIC_MAX, MINIPLAYER_QUEUE_MAX, MINIPLAYER_MAX_VOLUME_STEP,
 } from '../src/core/miniplayer.ts'
 
 test('miniplayerProgressPct is 0 with no duration yet', () => {
@@ -52,30 +52,35 @@ test('isMiniplayerAction accepts only the closed set of control actions', () => 
   assert.ok(!isMiniplayerAction(42))
 })
 
-test('miniplayerLyricTail starts at the active line', () => {
-  const lines = [{ Text: 'one' }, { Text: 'two' }, { Text: 'three' }]
-  assert.deepEqual(miniplayerLyricTail(lines, 1), ['two', 'three'])
-  assert.deepEqual(miniplayerLyricTail(lines, 0), ['one', 'two', 'three'])
-})
-
-test('miniplayerLyricTail keeps interior blanks but trims trailing ones', () => {
-  // An instrumental gap is real spacing; collapsing it would make the next
-  // line arrive early against the music.
+test('miniplayerLyrics sends the whole sheet, blanks kept inside, trailing ones trimmed', () => {
+  // An interior gap is real spacing, and dropping it would shift every later
+  // index off the line the clock says is current.
   const lines = [{ Text: 'a' }, { Text: '' }, { Text: 'b' }, { Text: '' }, { Text: '  ' }]
-  assert.deepEqual(miniplayerLyricTail(lines, 0), ['a', '', 'b'])
+  assert.deepEqual(miniplayerLyrics(lines), ['a', '', 'b'])
 })
 
-test('miniplayerLyricTail survives junk input and out of range indexes', () => {
-  assert.deepEqual(miniplayerLyricTail(null, 0), [])
-  assert.deepEqual(miniplayerLyricTail([], 5), [])
-  assert.deepEqual(miniplayerLyricTail([{ Text: 'x' }], 99), ['x'])
-  assert.deepEqual(miniplayerLyricTail([{ Text: 'x' }], -3), ['x'])
-  assert.deepEqual(miniplayerLyricTail([{ Text: null }], 0), [])
+test('miniplayerLyrics survives junk input and caps a huge sheet', () => {
+  assert.deepEqual(miniplayerLyrics(null), [])
+  assert.deepEqual(miniplayerLyrics([{ Text: null }]), [])
+  const huge = Array.from({ length: MINIPLAYER_LYRIC_MAX + 50 }, (_, i) => ({ Text: `l${i}` }))
+  assert.equal(miniplayerLyrics(huge).length, MINIPLAYER_LYRIC_MAX)
 })
 
-test('miniplayerLyricTail caps the payload', () => {
-  const many = Array.from({ length: 200 }, (_, i) => ({ Text: `line ${i}` }))
-  assert.equal(miniplayerLyricTail(many, 0).length, MINIPLAYER_LYRIC_LINES)
+test('jump carries a queue position, and nothing that is not one', () => {
+  assert.deepEqual(parseMiniplayerCommand({ type: 'jump', value: 7 }), { type: 'jump', index: 7 })
+  for (const bad of [-1, 1.5, NaN, Infinity]) assert.equal(parseMiniplayerCommand({ type: 'jump', value: bad }), null)
+  assert.equal(parseMiniplayerCommand({ type: 'jump', value: '3' }), null)
+})
+
+test('state: the lyric index stays inside the sheet, queue is capped', () => {
+  const t = { itemId: 'x', title: 't', subtitle: 's', artUrl: null }
+  const q = Array.from({ length: MINIPLAYER_QUEUE_MAX + 5 }, () => ({ title: 'q', subtitle: '', artUrl: null }))
+  const st = buildMiniplayerState(t, true, 1, 10, ['a', 'b'], { lyricIndex: 9, queue: q, queueStart: 4 })
+  assert.equal(st.lyricIndex, 1)
+  assert.equal(st.queue.length, MINIPLAYER_QUEUE_MAX)
+  assert.equal(st.queueStart, 4)
+  assert.equal(buildMiniplayerState(t, true, 1, 10, [], { lyricIndex: 3 }).lyricIndex, -1)
+  assert.equal(buildMiniplayerState(t, true, 1, 10, ['a'], { lyricIndex: 1.5, queueStart: -2 }).lyricIndex, -1)
 })
 
 test('parseMiniplayerCommand accepts the bare actions, like included', () => {

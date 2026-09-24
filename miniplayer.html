@@ -183,7 +183,7 @@ body.away .close-btn { opacity: 0; }
 
 .controls { display: flex; align-items: center; gap: 4px; flex-shrink: 0; transition: opacity 0.25s ease; }
 
-.lyrics { display: none; }
+.panel { display: none; }
 
 @container (min-height: 180px) {
   .backdrop { opacity: 0.5; }
@@ -228,23 +228,51 @@ body.away .close-btn { opacity: 0; }
   .like { width: 30px; height: 30px; }
   .like svg { width: 18px; height: 18px; }
 
-  /* Everything below the square is lyrics. Grows with the window; the current
-     line is simply the first one sent, so no scrolling happens here at all.
-     The bottom fades out rather than cutting a line in half. */
-  .lyrics {
-    display: block; flex: 1 1 auto; min-height: 0; overflow: hidden;
-    padding: 16px 18px 18px; position: relative; z-index: 1;
-    -webkit-mask-image: linear-gradient(to bottom, #000 75%, transparent);
-            mask-image: linear-gradient(to bottom, #000 75%, transparent);
+  /* Everything below the square is the panel: lyrics or Up Next. Grows with
+     the window and scrolls; the lyrics follow the song on their own (see the
+     script) until you scroll them, then pick back up a few seconds later.
+     Both ends fade rather than cutting a line in half. */
+  .panel {
+    display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
+    position: relative; z-index: 1;
   }
+  .tabs { display: flex; gap: 4px; padding: 12px 16px 2px; flex-shrink: 0; }
+  .tab {
+    border: none; background: none; cursor: pointer; font: inherit;
+    font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px;
+    color: rgba(255,255,255,0.45); transition: color 0.15s, background 0.15s;
+  }
+  .tab:hover { color: rgba(255,255,255,0.8); }
+  .tab.active { color: #fff; background: rgba(255,255,255,0.14); }
+  .pane {
+    flex: 1 1 auto; min-height: 0; overflow-y: auto; position: relative;
+    padding: 14px 18px 40px; scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 14px, #000 80%, transparent);
+            mask-image: linear-gradient(to bottom, transparent, #000 14px, #000 80%, transparent);
+  }
+  .pane::-webkit-scrollbar { display: none; }
+  .pane[hidden] { display: none; }
   .lyric-line {
     font-size: 15px; font-weight: 700; line-height: 1.35; margin-bottom: 12px;
     color: rgba(255,255,255,0.32); transition: color 0.3s ease;
   }
-  .lyric-line.cur { color: #fff; font-size: 17px; }
+  .lyric-line.cur { color: #fff; }
   .lyric-line.gap { height: 6px; margin: 0; }
-  /* A new current line eases up into place instead of the list jumping. */
-  .lyrics.advanced .lyric-list { animation: lyric-in 0.32s cubic-bezier(0.2, 0.7, 0.2, 1); }
+  .queue-row {
+    display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px;
+    margin: 0 -6px; border: none; background: none; border-radius: 8px;
+    cursor: pointer; text-align: left; font: inherit; color: inherit;
+  }
+  .queue-row:hover { background: rgba(255,255,255,0.08); }
+  .queue-art {
+    width: 36px; height: 36px; border-radius: 5px; flex-shrink: 0; overflow: hidden;
+    background: rgba(255,255,255,0.08);
+  }
+  .queue-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .queue-text { min-width: 0; flex: 1; }
+  .queue-title, .queue-sub { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .queue-title { font-size: 13px; font-weight: 600; color: #fff; }
+  .queue-sub { font-size: 12px; color: rgba(255,255,255,0.55); margin-top: 1px; }
   .lyric-empty { font-size: 13px; color: rgba(255,255,255,0.35); }
   /* SpicyLyrics' terms want the credit on screen wherever its lyrics are.
      At the top, not the foot: the bottom of this area fades out. */
@@ -259,10 +287,6 @@ body.away .close-btn { opacity: 0; }
   }
   .lyric-credit button:hover { color: #fff; text-decoration: underline; }
 }
-@keyframes lyric-in {
-  from { transform: translateY(14px); opacity: 0.6; }
-  to   { transform: none; opacity: 1; }
-}
 
 /* Pill idle: fade the transport out and let the title have the room, which is
    the one thing worth reading at a glance at this size. */
@@ -271,8 +295,8 @@ body.away .close-btn { opacity: 0; }
 }
 
 /* ── Volume readout ──
-   The wheel changes volume anywhere over the window (there is nothing here
-   that scrolls), and this says what it did. */
+   The wheel changes volume over the cover (under it, the lyrics and Up Next
+   scroll instead), and this says what it did. */
 .vol-hud {
   position: absolute; left: 50%; top: 50%; z-index: 6;
   transform: translate(-50%, -50%) scale(0.96);
@@ -290,7 +314,7 @@ body.away .close-btn { opacity: 0; }
 
 @media (prefers-reduced-motion: reduce) {
   .stack, .controls, .art img, .prog-fill, .prog-track, .prog-knob, .icon-btn, .vol-hud, .lyric-line { transition: none; }
-  .lyrics.advanced .lyric-list { animation: none; }
+  .tab { transition: none; }
 }
 </style>
 </head>
@@ -335,7 +359,16 @@ body.away .close-btn { opacity: 0; }
       </button>
     </div>
   </div>
-  <div class="lyrics" id="lyrics"><div class="lyric-credit" id="lyric-credit" hidden></div><div class="lyric-list" id="lyric-list"></div></div>
+  <!-- Under the cover (tall layout only): lyrics or Up Next, one at a time.
+       The wheel scrolls here; over the cover it changes the volume. -->
+  <div class="panel" id="panel">
+    <div class="tabs" role="tablist" aria-label="Show">
+      <button class="tab active" id="tab-lyrics" role="tab" aria-selected="true" data-tab="lyrics">Lyrics</button>
+      <button class="tab" id="tab-queue" role="tab" aria-selected="false" data-tab="queue">Up Next</button>
+    </div>
+    <div class="lyrics pane" id="lyrics"><div class="lyric-credit" id="lyric-credit" hidden></div><div class="lyric-list" id="lyric-list"></div></div>
+    <div class="queue pane" id="queue" hidden><div class="queue-list" id="queue-list"></div></div>
+  </div>
 </div>
 
 <div class="vol-hud" id="vol-hud" aria-hidden="true">
@@ -401,7 +434,8 @@ window.miniPlayer.onState((state) => {
     setProgress(0, 0)
     setLike(false)
     setPlaying(false)
-    renderLyrics([])
+    renderLyrics([], -1)
+    renderQueue([], 0)
     renderCredit(null)
     return
   }
@@ -413,7 +447,8 @@ window.miniPlayer.onState((state) => {
   setLike(state.isFavorite)
   setPlaying(state.isPlaying)
   if (!_wheelActive && Number.isFinite(state.volume)) _volume = state.volume
-  renderLyrics(state.lyrics || [])
+  renderLyrics(state.lyrics || [], Number.isInteger(state.lyricIndex) ? state.lyricIndex : -1)
+  renderQueue(state.queue || [], Number.isInteger(state.queueStart) ? state.queueStart : 0)
   renderCredit(state.credit)
 })
 
@@ -533,7 +568,7 @@ $('prog-bar').addEventListener('pointerdown', (e) => {
   bar.addEventListener('pointercancel', up)
 })
 
-// ── Volume: wheel anywhere, arrows ───────────────────────────────────────────
+// ── Volume: wheel over the cover, arrows ─────────────────────────────────────
 // A mouse wheel notch is ~100 deltaY and a trackpad sends many small ones, so
 // the step scales with the delta: a notch is 5%, a trackpad swipe is smooth.
 
@@ -563,7 +598,16 @@ function nudgeVolume(delta) {
   showVolumeHud()
 }
 
+// Over the lyrics and Up Next panel the wheel scrolls it instead (and pauses
+// the lyrics following the song; see followLyrics). Everywhere else, the
+// cover included, it is volume.
 window.addEventListener('wheel', (e) => {
+  if (e.target.closest('#panel')) {
+    _userScrollAt = Date.now()
+    clearTimeout(_followTimer)
+    _followTimer = setTimeout(() => followLyrics(true), FOLLOW_AFTER_MS + 50)
+    return
+  }
   const d = Math.max(-0.1, Math.min(0.1, -e.deltaY / 2000))
   nudgeVolume(d)
 }, { passive: true })
@@ -579,38 +623,78 @@ window.addEventListener('keydown', (e) => {
   else if (e.key === 'ArrowDown') { e.preventDefault(); nudgeVolume(-0.05) }
 })
 
-// ── Lyrics ───────────────────────────────────────────────────────────────────
-// Lyrics are sent already starting at the current line (miniplayerLyricTail),
-// so rendering them top-down puts the current one at the top for free - there
-// is no scrolling, no measuring and no active-index tracking in this window.
-// When the current line changes, the list eases up into place.
+// ── Lyrics and Up Next ───────────────────────────────────────────────────────
+// The whole sheet arrives with the index of the line being sung. The pane
+// follows that line, keeping it a quarter of the way down, until you scroll
+// it yourself; then it leaves you alone until FOLLOW_AFTER_MS after your last
+// scroll, and eases back to the current line.
 
-let _lastLyricKey = ''
-let _lastFirst = null
-function renderLyrics(lines) {
-  const key = lines.join('\u0000')
-  if (key === _lastLyricKey) return   // same lines, nothing to repaint
-  _lastLyricKey = key
-  const box = $('lyrics')
+const FOLLOW_AFTER_MS = 3000
+let _lyricKey = null
+let _lyricIdx = -2
+let _userScrollAt = 0
+let _followTimer = null
+const _reduceMotion = matchMedia('(prefers-reduced-motion: reduce)')
+
+function renderLyrics(lines, idx) {
   const list = $('lyric-list')
-  if (!lines.length) {
-    _lastFirst = null
-    list.innerHTML = '<div class="lyric-empty">No lyrics for this track</div>'
-    return
+  const key = lines.join('\u0000')
+  if (key !== _lyricKey) {
+    _lyricKey = key
+    _lyricIdx = -2
+    list.innerHTML = lines.length
+      ? lines.map(t => t ? `<div class="lyric-line">${esc(t)}</div>` : '<div class="lyric-line gap"></div>').join('')
+      : '<div class="lyric-empty">No lyrics for this track</div>'
+    $('lyrics').scrollTop = 0
   }
-  // Advanced = the next line of the same song became current, which is
-  // exactly "the old second line is the new first line". A new song or a
-  // seek re-renders without the slide, since nothing moved up.
-  const advanced = _lastFirst !== null && list.children[1] && list.children[1].dataset.text === lines[0]
-  _lastFirst = lines[0]
-  list.innerHTML = lines
-    .map((t, i) => t
-      ? `<div class="lyric-line${i === 0 ? ' cur' : ''}" data-text="${esc(t)}">${esc(t)}</div>`
-      : `<div class="lyric-line gap" data-text=""></div>`)
-    .join('')
-  box.classList.remove('advanced')
-  if (advanced) { void box.offsetWidth; box.classList.add('advanced') }
+  if (idx === _lyricIdx) return
+  _lyricIdx = idx
+  list.querySelector('.lyric-line.cur')?.classList.remove('cur')
+  if (idx >= 0 && lines.length) list.children[idx]?.classList.add('cur')
+  followLyrics(true)
 }
+
+function followLyrics(smooth) {
+  if (Date.now() - _userScrollAt < FOLLOW_AFTER_MS) return
+  const box = $('lyrics')
+  const cur = $('lyric-list').querySelector('.lyric-line.cur')
+  if (!cur || box.hidden) return
+  box.scrollTo({ top: Math.max(0, cur.offsetTop - box.clientHeight * 0.25), behavior: smooth && !_reduceMotion.matches ? 'smooth' : 'auto' })
+}
+
+// Up Next. Clicking a row plays it; the main window checks the position is
+// still a real upcoming track before acting on it.
+let _queueKey = null
+function renderQueue(items, start) {
+  const key = start + '|' + items.map(q => q.title + '\u0001' + q.subtitle + '\u0001' + (q.artUrl || '')).join('\u0000')
+  if (key === _queueKey) return
+  _queueKey = key
+  $('queue-list').innerHTML = items.length
+    ? items.map((q, i) => `<button type="button" class="queue-row" data-i="${start + i}">
+        <span class="queue-art">${q.artUrl ? `<img src="${esc(q.artUrl)}" alt="" draggable="false" loading="lazy">` : ''}</span>
+        <span class="queue-text"><span class="queue-title">${esc(q.title)}</span><span class="queue-sub">${esc(q.subtitle)}</span></span>
+      </button>`).join('')
+    : '<div class="lyric-empty">Nothing up next</div>'
+}
+$('queue-list').addEventListener('click', (e) => {
+  const row = e.target.closest('.queue-row')
+  if (row) control({ type: 'jump', value: Number(row.dataset.i) })
+})
+
+function showTab(name) {
+  for (const t of document.querySelectorAll('.tab')) {
+    const on = t.dataset.tab === name
+    t.classList.toggle('active', on)
+    t.setAttribute('aria-selected', String(on))
+  }
+  $('lyrics').hidden = name !== 'lyrics'
+  $('queue').hidden = name !== 'queue'
+  if (name === 'lyrics') { _userScrollAt = 0; followLyrics(false) }
+}
+document.querySelector('.tabs').addEventListener('click', (e) => {
+  const t = e.target.closest('.tab')
+  if (t) showTab(t.dataset.tab)
+})
 
 function esc(str) {
   return String(str == null ? '' : str)
