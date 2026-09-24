@@ -1014,7 +1014,17 @@
            their place, visible only in full mode and faded with the rest of
            the cluster on idle. Escape (the third exit) works regardless. -->
       <button class="vid-only" id="ov-full-exit" title="Close now playing (Esc)" aria-label="Close now playing">×</button>
-      <div class="np-overlay-art" id="ov-art">♪</div>
+      <!-- #ov-art is rewritten wholesale on every art change, so the hover
+           actions sit beside it in the wrapper, not inside it. They repeat
+           rows of the More menu (#ctx-menu), which keeps its own. -->
+      <div class="np-overlay-art">
+        <div class="ov-art-media" id="ov-art">♪</div>
+        <div class="ov-art-actions">
+          <button class="ov-art-btn" id="ov-art-like" title="Favorite" aria-label="Favorite"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg></button>
+          <button class="ov-art-btn" id="ov-art-playlist" title="Add to playlist" aria-label="Add to playlist"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+          <button class="ov-art-btn" id="ov-art-album" title="View album" aria-label="View album"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg></button>
+        </div>
+      </div>
       <div class="np-overlay-info">
         <div class="np-overlay-track" id="ov-track">Nothing playing</div>
         <div class="np-overlay-artist" id="ov-artist"></div>

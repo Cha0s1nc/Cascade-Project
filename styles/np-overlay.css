@@ -37,6 +37,24 @@ html[data-platform="linux"] .np-overlay-header { padding-right: var(--caption-re
 .np-overlay-left { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: clamp(20px, 3.5vh, 48px) clamp(20px, 4vw, 56px); gap: clamp(14px, 2.5vh, 28px); }
 .np-overlay-art { width: min(clamp(240px, 52vh, 520px), calc(100% - 32px)); aspect-ratio: 1; border-radius: 12px; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 72px; flex-shrink: 0; transition: width 0.4s ease; }
 .np-overlay-art img { width: 100%; height: 100%; object-fit: cover; }
+/* Hover (or keyboard focus) dims the art and shows Favorite, Add to playlist
+   and View album over it: a second route to rows the More menu also has. */
+.np-overlay-art { position: relative; }
+.ov-art-media { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; transition: filter 0.2s ease; }
+.ov-art-actions { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 14px; opacity: 0; transition: opacity 0.2s ease; }
+.np-overlay-art:hover .ov-art-media, .np-overlay-art:focus-within .ov-art-media { filter: brightness(0.55) saturate(0.7); }
+.np-overlay-art:hover .ov-art-actions, .np-overlay-art:focus-within .ov-art-actions { opacity: 1; }
+.ov-art-btn {
+  width: 48px; height: 48px; border-radius: 50%; border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.16); color: #fff;
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+.ov-art-btn:hover { background: rgba(255,255,255,0.28); transform: scale(1.06); }
+.ov-art-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.ov-art-btn.liked { color: #ff6b8a; }
+.ov-art-btn.liked svg { fill: #ff6b8a; }
 .np-overlay-info { text-align: center; width: 100%; }
 
 /* ── Video mode ──
@@ -106,6 +124,7 @@ html[data-platform="linux"] .np-overlay-header { padding-right: var(--caption-re
 @media (prefers-reduced-motion: reduce) {
   .np-overlay.video.ambient .np-ambient { transition: none; }
   .np-overlay-btns, .np-overlay-vol, .np-overlay-art { transition: none; }
+  .ov-art-media, .ov-art-actions, .ov-art-btn { transition: none; }
   .np-overlay.video .np-overlay-left, .np-overlay.video .np-overlay-info { transition: none; }
   .np-overlay-prog-fill::after { transition: none; }
 }

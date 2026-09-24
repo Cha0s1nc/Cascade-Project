@@ -3648,6 +3648,7 @@ function updateNowPlaying(item) {
   // Sync like state from Jellyfin user data
   const liked = item.UserData?.IsFavorite || false
   document.getElementById('btn-like').classList.toggle('liked', liked)
+  document.getElementById('ov-art-like').classList.toggle('liked', liked)
 
   // Update Touch Bar track label
   window.cascade.touchbarUpdate({ title: `${item.Name}  -  ${item.AlbumArtist || item.Artists?.[0] || ''}` })
@@ -4799,6 +4800,7 @@ async function toggleLike(item) {
       // #ov-like (the overlay's own heart button) is gone - see Favorite
       // in #ctx-menu, whose label showCtxMenu() refreshes on open.
       likeBtn.classList.toggle('liked', !isLiked)
+      document.getElementById('ov-art-like').classList.toggle('liked', !isLiked)
       pushMiniplayerState()
     }
   } catch (e) {
@@ -7068,6 +7070,15 @@ document.getElementById('ctx-add-playlist').addEventListener('click', () => {
   _atpTargetItem = null  // use now-playing
   openAtpModal()
 })
+
+// The same three actions as buttons over the overlay's art (see #ov-art-like
+// in index.html); the More menu keeps its rows too.
+document.getElementById('ov-art-like').addEventListener('click', () => toggleLike())
+document.getElementById('ov-art-playlist').addEventListener('click', () => {
+  _atpTargetItem = null
+  openAtpModal()
+})
+document.getElementById('ov-art-album').addEventListener('click', () => openAlbumFromTrack(queue[queueIndex]))
 
 document.getElementById('atp-cancel').addEventListener('click', () => { _atpTargetItem = null; document.getElementById('atp-modal').classList.add('hidden') })
 
