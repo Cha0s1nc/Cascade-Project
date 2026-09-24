@@ -7823,6 +7823,7 @@ let _cascadePluginProbed = Promise.resolve()
 // What the plugin's Info route says it can do. 'syllable' means a SpicyLyrics
 // key is set on the server, so asking for SpicyLyrics is worth a request.
 let _cascadePluginCaps = new Set()
+let _spotifyLinkServerWide = true
 
 /** Full URL of the plugin's lyrics GET/POST route for an item. */
 function cascadeLyricsUrl(itemId) {
@@ -7853,8 +7854,12 @@ function probeCascadePlugin() {
       // still the presence answer, so a body that fails to parse costs nothing.
       if (r.ok) {
         try {
-          const caps = (await r.json())?.capabilities
+          const info = await r.json()
+          const caps = info?.capabilities
           if (Array.isArray(caps)) _cascadePluginCaps = new Set(caps.filter(c => typeof c === 'string'))
+          // Whether this user's Spotify links apply to the whole server. A plugin
+          // from before the setting existed sends nothing, and there any user could.
+          _spotifyLinkServerWide = info?.spotifyLinkServerWide !== false
         } catch {}
       }
       return r.status
@@ -7947,6 +7952,29 @@ function _linkSpotifyButton() {
 
 let _spotifyLinkItem = null
 
+// Links this user made for themselves, when the server does not let them link
+// songs for everyone: kept on this computer (store key spotifyLinks, item id to
+// Spotify id) and sent with each lyrics request, which the server uses for
+// that request only. Store values are untrusted, so each entry is re-checked.
+let _localSpotifyLinks = {}
+window.cascade.store.get('spotifyLinks').then(raw => {
+  try {
+    const obj = typeof raw === 'string' ? JSON.parse(raw) : raw
+    for (const [item, id] of Object.entries(obj || {})) {
+      const clean = CascadeCore.parseSpotifyTrackId(id)
+      if (/^[0-9a-f]{32}$/i.test(item) && clean) _localSpotifyLinks[item] = clean
+    }
+  } catch {}
+})
+function _saveLocalSpotifyLinks() {
+  window.cascade.store.set('spotifyLinks', JSON.stringify(_localSpotifyLinks))
+}
+/** `&spotifyId=...` for a song this user linked for themselves, or ''. */
+function _localSpotifyParam(itemId) {
+  const id = _localSpotifyLinks[itemId]
+  return id ? `&spotifyId=${encodeURIComponent(id)}` : ''
+}
+
 async function openSpotifyLinkModal() {
   document.getElementById('lyrics-source-dropdown').classList.remove('open')
   const item = queue[queueIndex]
@@ -7957,8 +7985,17 @@ async function openSpotifyLinkModal() {
   input.value = ''
   remove.hidden = true
   document.getElementById('spotify-link-error').textContent = ''
+  document.getElementById('spotify-link-desc').textContent = _spotifyLinkServerWide
+    ? "Paste this song's Spotify link and Cascade Server will look for Spicy Lyrics with it. The link is saved on the server, so it works for everyone there."
+    : "Paste this song's Spotify link and Cascade will look for Spicy Lyrics with it. The link is saved on this computer, for you only; a server admin can let you link songs for everyone."
   document.getElementById('spotify-link-modal').classList.remove('hidden')
   input.focus()
+  const mine = _localSpotifyLinks[item.Id]
+  if (mine) {
+    input.value = `https://open.spotify.com/track/${mine}`
+    remove.hidden = false
+  }
+  if (mine || !_spotifyLinkServerWide) return
   // What it is linked to now: a hand link can be removed, handing the song
   // back to the automatic lookup.
   try {
@@ -7999,13 +8036,27 @@ document.getElementById('spotify-link-save').addEventListener('click', () => {
     document.getElementById('spotify-link-error').textContent = 'That is not a Spotify track link. Copy it from Share → Copy Song Link.'
     return
   }
+  if (!_spotifyLinkServerWide) { _setLocalSpotifyLink(id); return }
   _spotifyLinkRequest('POST', { spotifyId: id })
 })
+
+function _setLocalSpotifyLink(id) {
+  const item = _spotifyLinkItem
+  if (id) _localSpotifyLinks[item.Id] = id
+  else delete _localSpotifyLinks[item.Id]
+  _saveLocalSpotifyLinks()
+  closeSpotifyLinkModal()
+  _reloadLyricsFor(item.Id)
+}
 document.getElementById('spotify-link-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') document.getElementById('spotify-link-save').click()
   if (e.key === 'Escape') closeSpotifyLinkModal()
 })
-document.getElementById('spotify-link-remove').addEventListener('click', () => _spotifyLinkRequest('DELETE'))
+document.getElementById('spotify-link-remove').addEventListener('click', () => {
+  // A personal link is removed here; a server-wide one on the server.
+  if (_localSpotifyLinks[_spotifyLinkItem?.Id] || !_spotifyLinkServerWide) _setLocalSpotifyLink(null)
+  else _spotifyLinkRequest('DELETE')
+})
 document.getElementById('spotify-link-cancel').addEventListener('click', closeSpotifyLinkModal)
 document.getElementById('lsd-spotify-link').addEventListener('click', e => { e.stopPropagation(); openSpotifyLinkModal() })
 document.addEventListener('click', e => {
@@ -8535,7 +8586,7 @@ async function _lyricsWaterfall(item) {
       // set and a Spotify id for the track, and otherwise falls through to its
       // own files. A forced karaoke/synced choice means exactly those files.
       const url = !wantType && _cascadePluginCaps.has('syllable')
-        ? `${cascadeLyricsUrl(item.Id)}?syllable=true` : cascadeLyricsUrl(item.Id)
+        ? `${cascadeLyricsUrl(item.Id)}?syllable=true${_localSpotifyParam(item.Id)}` : cascadeLyricsUrl(item.Id)
       const r = await fetch(url,
         { headers: { 'X-Emby-Token': jf.token }, signal: AbortSignal.timeout(8000) })
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
@@ -8654,7 +8705,7 @@ async function _lyricsWaterfall(item) {
   const spicyProm = (async () => {
     await _cascadePluginProbed
     if (_cascadePluginAbsent || !_cascadePluginCaps.has('syllable')) return null
-    const r = await fetch(`${cascadeLyricsUrl(item.Id)}?syllable=true&spicyOnly=true`, { headers: { 'X-Emby-Token': jf.token }, ...sig })
+    const r = await fetch(`${cascadeLyricsUrl(item.Id)}?syllable=true&spicyOnly=true${_localSpotifyParam(item.Id)}`, { headers: { 'X-Emby-Token': jf.token }, ...sig })
     if (!r.ok) return null
     const d = await r.json()
     if (d?.type !== 'syllable') return null
