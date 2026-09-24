@@ -84,8 +84,5 @@ input[type="range"]:disabled { opacity: 0.4; cursor: default; }
 @media (prefers-reduced-motion: reduce) {
   .skel::after { animation: none; }
   .ov-translate-btn.loading { animation-duration: 3s; }
-  /* Held notes and background rows (styles/lyrics.css): keep the glow and
-     the row, drop the swell and the easing. */
-  .emph-l, .lyric-bg, .lyric-word, .ov-lyric-word { transition: none; }
-  .lyrics-line.active .emph .emph-l.lit, .ov-lyric-line.active .emph .emph-l.lit { animation: none; }
+  /* Held notes and background rows: see styles/karaoke.css. */
 }

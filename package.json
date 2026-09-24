@@ -55,6 +55,7 @@
       "index.html",
       "styles/**/*",
       "renderer.js",
+      "lyric-karaoke.js",
       "waterfall.js",
       "build/core.js",
       "build/preload.js",
