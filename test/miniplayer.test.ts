@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { buildMiniplayerState, miniplayerProgressPct, isMiniplayerAction,
-  miniplayerLyrics, parseMiniplayerCommand,
+  miniplayerSheet, parseMiniplayerCommand,
   MINIPLAYER_LYRIC_MAX, MINIPLAYER_QUEUE_MAX, MINIPLAYER_MAX_VOLUME_STEP,
 } from '../src/core/miniplayer.ts'
 
@@ -52,18 +52,30 @@ test('isMiniplayerAction accepts only the closed set of control actions', () => 
   assert.ok(!isMiniplayerAction(42))
 })
 
-test('miniplayerLyrics sends the whole sheet, blanks kept inside, trailing ones trimmed', () => {
-  // An interior gap is real spacing, and dropping it would shift every later
-  // index off the line the clock says is current.
-  const lines = [{ Text: 'a' }, { Text: '' }, { Text: 'b' }, { Text: '' }, { Text: '  ' }]
-  assert.deepEqual(miniplayerLyrics(lines), ['a', '', 'b'])
+test('miniplayerSheet keeps timings, blanks inside, and trims trailing blanks', () => {
+  const sheet = miniplayerSheet([
+    { Start: 10, End: 20, Text: ' Hello ', Words: [{ Start: 10, End: 15, Text: 'Hel' }, { Start: 15, End: null, Text: 'lo' }], Background: [{ Start: 12, End: 18, Text: 'oh' }] },
+    { Start: 30, End: null, Text: '', Words: null },
+    { Start: 40, End: 50, Text: 'World', Words: null },
+    { Start: 60, End: null, Text: '  ', Words: null },
+  ], true)
+  assert.equal(sheet.emphasis, true)
+  assert.equal(sheet.lines.length, 3)
+  assert.deepEqual(sheet.lines[0], { Start: 10, End: 20, Text: 'Hello', Words: [{ Start: 10, End: 15, Text: 'Hel' }, { Start: 15, End: null, Text: 'lo' }], Background: [{ Start: 12, End: 18, Text: 'oh' }] })
+  assert.equal(sheet.lines[1].Text, '')
 })
 
-test('miniplayerLyrics survives junk input and caps a huge sheet', () => {
-  assert.deepEqual(miniplayerLyrics(null), [])
-  assert.deepEqual(miniplayerLyrics([{ Text: null }]), [])
-  const huge = Array.from({ length: MINIPLAYER_LYRIC_MAX + 50 }, (_, i) => ({ Text: `l${i}` }))
-  assert.equal(miniplayerLyrics(huge).length, MINIPLAYER_LYRIC_MAX)
+test('miniplayerSheet drops junk words and caps a huge sheet', () => {
+  assert.deepEqual(miniplayerSheet(null, false), { lines: [], emphasis: false })
+  const s = miniplayerSheet([{ Start: 1, Text: 'x', Words: [{ Start: NaN, Text: 'a' }, { Start: 2, Text: 5 }, { Start: 3, End: 4, Text: 'ok' }] }], false)
+  assert.deepEqual(s.lines[0].Words, [{ Start: 3, End: 4, Text: 'ok' }])
+  const huge = Array.from({ length: MINIPLAYER_LYRIC_MAX + 50 }, (_, i) => ({ Start: i, Text: `l${i}` }))
+  assert.equal(miniplayerSheet(huge, false).lines.length, MINIPLAYER_LYRIC_MAX)
+})
+
+test('sheet asks for the lyric sheet again, only as value 0', () => {
+  assert.deepEqual(parseMiniplayerCommand({ type: 'sheet', value: 0 }), { type: 'sheet' })
+  assert.equal(parseMiniplayerCommand({ type: 'sheet', value: 1 }), null)
 })
 
 test('jump carries a queue position, and nothing that is not one', () => {
@@ -72,15 +84,19 @@ test('jump carries a queue position, and nothing that is not one', () => {
   assert.equal(parseMiniplayerCommand({ type: 'jump', value: '3' }), null)
 })
 
-test('state: the lyric index stays inside the sheet, queue is capped', () => {
+test('state: the sheet rides along only when given, queue is capped, sentAt is set', () => {
   const t = { itemId: 'x', title: 't', subtitle: 's', artUrl: null }
   const q = Array.from({ length: MINIPLAYER_QUEUE_MAX + 5 }, () => ({ title: 'q', subtitle: '', artUrl: null }))
-  const st = buildMiniplayerState(t, true, 1, 10, ['a', 'b'], { lyricIndex: 9, queue: q, queueStart: 4 })
-  assert.equal(st.lyricIndex, 1)
-  assert.equal(st.queue.length, MINIPLAYER_QUEUE_MAX)
-  assert.equal(st.queueStart, 4)
-  assert.equal(buildMiniplayerState(t, true, 1, 10, [], { lyricIndex: 3 }).lyricIndex, -1)
-  assert.equal(buildMiniplayerState(t, true, 1, 10, ['a'], { lyricIndex: 1.5, queueStart: -2 }).lyricIndex, -1)
+  const sheet = miniplayerSheet([{ Start: 0, Text: 'a' }], false)
+  const withSheet = buildMiniplayerState(t, true, 1, 10, 7, { sheet, queue: q, queueStart: 4, now: 1234 })
+  assert.equal(withSheet.sheetId, 7)
+  assert.deepEqual(withSheet.sheet, sheet)
+  assert.equal(withSheet.sentAt, 1234)
+  assert.equal(withSheet.queue.length, MINIPLAYER_QUEUE_MAX)
+  assert.equal(withSheet.queueStart, 4)
+  const without = buildMiniplayerState(t, true, 1, 10, 7, {})
+  assert.equal('sheet' in without, false)
+  assert.equal(buildMiniplayerState(t, true, 1, 10, 1.5 as number, { queueStart: -2 }).sheetId, 0)
 })
 
 test('parseMiniplayerCommand accepts the bare actions, like included', () => {
@@ -105,11 +121,11 @@ test('parseMiniplayerCommand ignores anything else', () => {
 
 test('buildMiniplayerState carries favorite and a clamped volume', () => {
   const track = { itemId: 'a', title: 'T', subtitle: 'S', artUrl: null }
-  assert.equal(buildMiniplayerState(track, true, 0, 0, [], { isFavorite: true }).isFavorite, true)
+  assert.equal(buildMiniplayerState(track, true, 0, 0, 0, { isFavorite: true }).isFavorite, true)
   assert.equal(buildMiniplayerState(track, true, 0, 0).isFavorite, false)
-  assert.equal(buildMiniplayerState(track, true, 0, 0, [], { volume: 0.4 }).volume, 0.4)
-  assert.equal(buildMiniplayerState(track, true, 0, 0, [], { volume: 3 }).volume, 1)
-  assert.equal(buildMiniplayerState(track, true, 0, 0, [], { volume: NaN }).volume, 1)
+  assert.equal(buildMiniplayerState(track, true, 0, 0, 0, { volume: 0.4 }).volume, 0.4)
+  assert.equal(buildMiniplayerState(track, true, 0, 0, 0, { volume: 3 }).volume, 1)
+  assert.equal(buildMiniplayerState(track, true, 0, 0, 0, { volume: NaN }).volume, 1)
 })
 
 test('parseMiniplayerCommand: credit takes 0 (uploader) or 1 (maker) only', () => {
@@ -121,8 +137,8 @@ test('parseMiniplayerCommand: credit takes 0 (uploader) or 1 (maker) only', () =
 test('buildMiniplayerState carries the credit as names only', () => {
   const track = { itemId: 'a', title: 'T', subtitle: 'S', artUrl: null }
   const credit = { provider: 'Spicy Lyrics', uploader: { name: 'spikerko', url: 'https://x' }, maker: null }
-  assert.deepEqual(buildMiniplayerState(track, true, 0, 0, [], { credit }).credit,
+  assert.deepEqual(buildMiniplayerState(track, true, 0, 0, 0, { credit }).credit,
     { provider: 'Spicy Lyrics', uploader: 'spikerko', maker: null })
   assert.equal(buildMiniplayerState(track, true, 0, 0).credit, null)
-  assert.equal(buildMiniplayerState(track, true, 0, 0, [], { credit: { provider: '' } }).credit, null)
+  assert.equal(buildMiniplayerState(track, true, 0, 0, 0, { credit: { provider: '' } }).credit, null)
 })

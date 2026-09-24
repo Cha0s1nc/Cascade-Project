@@ -3807,19 +3807,26 @@ function updateNowPlaying(item) {
 // Bail before doing that work. Safe despite _miniplayerEnabled being declared
 // with let further down the file: every caller is event-driven or runs after
 // load, so none of them reaches here during module evaluation.
+let _mpSheetOf = null, _mpSheetEmphasis = false, _mpSheetId = 0, _mpSheetSent = false
+
 function pushMiniplayerState() {
   if (!_miniplayerEnabled) return
   const item = queue[queueIndex]
   if (!item) { window.cascade.miniPlayer.updateState(null); return }
   const art = _currentHighResArtUrl || artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
   const track = { itemId: item.Id, title: item.Name || '', subtitle: secondaryLine(item), artUrl: art }
-  // The whole sheet, so it can be scrolled back through, and the line being
-  // sung. The line comes from the clock, not lastLyricsIdx: that one only
-  // moves while the main window's lyrics panel is open, which it usually is
-  // not while the miniplayer stands in for that window. Untimed lyrics have
-  // no current line.
-  const lyrics = CascadeCore.miniplayerLyrics(lyricsData)
-  const lyricIndex = lyricsData.some(l => l.Start != null) ? _lyricLineAt(lyricsData, mediaPosition() * 10_000_000) : -1
+  // The timed lyric sheet, for the miniplayer's own karaoke: only when it
+  // changed (a new lyricsData array, or the Spicy credit that decides held
+  // notes) or the miniplayer asked for it again. Every tick carries the id.
+  const emphasis = !!lyricsCredit
+  if (lyricsData !== _mpSheetOf || emphasis !== _mpSheetEmphasis) {
+    _mpSheetOf = lyricsData
+    _mpSheetEmphasis = emphasis
+    _mpSheetId++
+    _mpSheetSent = false
+  }
+  const sheet = _mpSheetSent ? null : CascadeCore.miniplayerSheet(lyricsData, emphasis)
+  _mpSheetSent = true
   // Up Next: what follows the current track.
   const queueStart = queueIndex + 1
   const upNext = queue.slice(queueStart, queueStart + CascadeCore.MINIPLAYER_QUEUE_MAX).map(q => ({
@@ -3831,8 +3838,8 @@ function pushMiniplayerState() {
   // current track. By id, not the likeBtn const: this can run before that
   // line of the script has executed.
   const isFavorite = !!document.getElementById('btn-like')?.classList.contains('liked')
-  window.cascade.miniPlayer.updateState(CascadeCore.buildMiniplayerState(track, !audio.paused, mediaPosition(), mediaDuration(), lyrics,
-    { isFavorite, volume, credit: lyricsCredit, lyricIndex, queue: upNext, queueStart }))
+  window.cascade.miniPlayer.updateState(CascadeCore.buildMiniplayerState(track, !audio.paused, mediaPosition(), mediaDuration(), _mpSheetId,
+    { isFavorite, volume, credit: lyricsCredit, sheet, queue: upNext, queueStart }))
 }
 
 // Derived from the DOM, never cached: _drawSongRows() replaces rows.innerHTML on every
@@ -4982,6 +4989,8 @@ window.cascade.miniPlayer.onControl(async (raw) => {
     if (url) window.cascade.shell.openExternal(url)
     return
   }
+  // The miniplayer has a sheetId it holds no sheet for: send it on the push below.
+  else if (cmd.type === 'sheet') _mpSheetSent = false
   // Up Next: same as clicking the row in the main queue panel, a Waterfall
   // guest included (it asks the host instead of moving its own queue).
   else if (cmd.type === 'jump') {

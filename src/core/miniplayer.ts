@@ -23,11 +23,16 @@ export interface MiniplayerState {
   durationSec: number
   /** 0-100, always in range even when duration is unknown. */
   progressPct: number
-  /** The whole lyric sheet, cleaned (see miniplayerLyrics), so the lyrics
-   *  can be scrolled back through. */
-  lyrics: string[]
-  /** The line being sung, an index into `lyrics`; -1 when none is. */
-  lyricIndex: number
+  /** Identifies the lyric sheet the main window is showing. Sent every tick;
+   *  the sheet itself only when it changes (below), since a timed sheet is
+   *  tens of KB. A miniplayer holding another id asks for it again (the
+   *  `sheet` command), which covers a window that opened after it was sent. */
+  sheetId: number
+  /** The timed sheet, present only on the tick it changed or was asked for. */
+  sheet?: MiniplayerSheet
+  /** Date.now() when this state was built, so the miniplayer can run its own
+   *  clock between ticks: position + time since, while playing. */
+  sentAt: number
   /** Upcoming tracks, from `queueStart` (their index in the main queue). */
   queue: MiniplayerQueueItem[]
   queueStart: number
@@ -45,6 +50,12 @@ export interface MiniplayerCredit { provider: string, uploader: string | null, m
 
 export interface MiniplayerQueueItem { title: string, subtitle: string, artUrl: string | null }
 
+export interface MiniplayerWord { Start: number, End: number | null, Text: string }
+export interface MiniplayerLine { Start: number | null, End: number | null, Text: string, Words: MiniplayerWord[] | null, Background: MiniplayerWord[] | null }
+/** A lyric sheet as the miniplayer draws it: the same shape the main window
+ *  keeps (ticks), and whether held notes may swell (SpicyLyrics only). */
+export interface MiniplayerSheet { lines: MiniplayerLine[], emphasis: boolean }
+
 /** Most lyric lines sent. Far past any real song; a cap so a malformed sheet
  *  cannot grow the payload that rides on every progress tick. */
 export const MINIPLAYER_LYRIC_MAX = 400
@@ -52,20 +63,42 @@ export const MINIPLAYER_LYRIC_MAX = 400
 /** Upcoming tracks sent for the miniplayer's Up Next. */
 export const MINIPLAYER_QUEUE_MAX = 50
 
+/** Most words kept per line, a bound for the same reason. */
+export const MINIPLAYER_WORD_MAX = 300
+
+const tick = (v: unknown): number | null => typeof v === 'number' && Number.isFinite(v) ? v : null
+const words = (list: unknown): MiniplayerWord[] | null => {
+  if (!Array.isArray(list) || !list.length) return null
+  const out: MiniplayerWord[] = []
+  for (const w of list.slice(0, MINIPLAYER_WORD_MAX)) {
+    const start = tick(w?.Start)
+    if (start == null || typeof w?.Text !== 'string') continue
+    out.push({ Start: start, End: tick(w.End), Text: w.Text })
+  }
+  return out.length ? out : null
+}
+
 /**
- * The lyric sheet as the miniplayer shows it: text only, capped.
+ * The lyric sheet as the miniplayer draws it: the main window's lines with
+ * their word and background timings (for the karaoke fill), capped, and
+ * stripped to the fields the drawing code reads.
  *
- * Blank lines are kept, not dropped: an instrumental gap is real spacing in a
- * lyric sheet, and dropping them would also shift every index after the gap
- * off the line the clock says is current. Only the trailing run is trimmed,
- * so a song ending in padding does not scroll into emptiness.
+ * Blank lines are kept: an instrumental gap is real spacing, and dropping it
+ * would also shift every later line's index. Only the trailing run is
+ * trimmed, so a song ending in padding does not scroll into emptiness.
  */
-export function miniplayerLyrics(lines: { Text?: string | null }[] | null | undefined): string[] {
-  if (!Array.isArray(lines) || !lines.length) return []
-  const out = lines.slice(0, MINIPLAYER_LYRIC_MAX).map(l => (l?.Text ?? '').trim())
+export function miniplayerSheet(lines: unknown, emphasis: boolean): MiniplayerSheet {
+  const src = Array.isArray(lines) ? lines.slice(0, MINIPLAYER_LYRIC_MAX) : []
+  const out: MiniplayerLine[] = src.map(l => ({
+    Start: tick(l?.Start),
+    End: tick(l?.End),
+    Text: typeof l?.Text === 'string' ? l.Text.trim() : '',
+    Words: words(l?.Words),
+    Background: words(l?.Background),
+  }))
   let end = out.length
-  while (end > 0 && out[end - 1] === '') end--
-  return out.slice(0, end)
+  while (end > 0 && !out[end - 1].Text && !out[end - 1].Words) end--
+  return { lines: out.slice(0, end), emphasis: !!emphasis }
 }
 
 /** The only actions the miniplayer window may ask the main window to take.
@@ -87,6 +120,7 @@ export type MiniplayerCommand =
   | { type: 'volume', delta: number }
   | { type: 'credit', who: 'uploader' | 'maker' }
   | { type: 'jump', index: number }
+  | { type: 'sheet' }
 
 /** Largest volume step one message may ask for. A wheel tick sends a few
  *  percent; anything bigger is a bug or a hostile page, not a gesture. */
@@ -111,6 +145,8 @@ export function parseMiniplayerCommand(raw: unknown): MiniplayerCommand | null {
   if (type === 'credit' && (value === 0 || value === 1)) return { type: 'credit', who: value === 0 ? 'uploader' : 'maker' }
   // A queue position; whether it exists is the receiver's call, it owns the queue.
   if (type === 'jump' && Number.isInteger(value) && value >= 0) return { type: 'jump', index: value }
+  // "Send the lyric sheet again": the miniplayer holds a sheetId it has no sheet for.
+  if (type === 'sheet' && value === 0) return { type: 'sheet' }
   return null
 }
 
@@ -136,11 +172,11 @@ export function buildMiniplayerState(
   isPlaying: boolean,
   positionSec: number,
   durationSec: number,
-  lyrics: string[] = [],
+  sheetId = 0,
   extra: {
     isFavorite?: boolean, volume?: number,
     credit?: { provider?: unknown, uploader?: { name?: unknown } | null, maker?: { name?: unknown } | null } | null,
-    lyricIndex?: number, queue?: MiniplayerQueueItem[], queueStart?: number,
+    sheet?: MiniplayerSheet | null, queue?: MiniplayerQueueItem[], queueStart?: number, now?: number,
   } = {},
 ): MiniplayerState {
   const safePos = Number.isFinite(positionSec) && positionSec > 0 ? positionSec : 0
@@ -154,9 +190,9 @@ export function buildMiniplayerState(
     positionSec: safePos,
     durationSec: safeDur,
     progressPct: miniplayerProgressPct(safePos, safeDur),
-    lyrics: Array.isArray(lyrics) ? lyrics : [],
-    lyricIndex: Number.isInteger(extra.lyricIndex) && Array.isArray(lyrics)
-      ? Math.max(-1, Math.min(lyrics.length - 1, extra.lyricIndex as number)) : -1,
+    sheetId: Number.isInteger(sheetId) ? sheetId : 0,
+    ...(extra.sheet ? { sheet: extra.sheet } : {}),
+    sentAt: Number.isFinite(extra.now) ? extra.now as number : Date.now(),
     queue: Array.isArray(extra.queue) ? extra.queue.slice(0, MINIPLAYER_QUEUE_MAX) : [],
     queueStart: Number.isInteger(extra.queueStart) && (extra.queueStart as number) >= 0 ? extra.queueStart as number : 0,
     isFavorite: !!extra.isFavorite,

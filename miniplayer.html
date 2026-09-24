@@ -252,12 +252,15 @@ body.away .close-btn { opacity: 0; }
   }
   .pane::-webkit-scrollbar { display: none; }
   .pane[hidden] { display: none; }
-  .lyric-line {
+  /* The side panel's class names (.lyrics-line, .lyric-word), so the shared
+     karaoke rules in styles/karaoke.css apply here unchanged. Dimmed by
+     opacity, as there: the words themselves are drawn white. */
+  .lyrics-line {
     font-size: 15px; font-weight: 700; line-height: 1.35; margin-bottom: 12px;
-    color: rgba(255,255,255,0.32); transition: color 0.3s ease;
+    color: #fff; opacity: 0.32; transition: opacity 0.3s ease;
   }
-  .lyric-line.cur { color: #fff; }
-  .lyric-line.gap { height: 6px; margin: 0; }
+  .lyrics-line.active { opacity: 1; }
+  .lyrics-line.gap { height: 6px; margin: 0; }
   .queue-row {
     display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px;
     margin: 0 -6px; border: none; background: none; border-radius: 8px;
@@ -313,10 +316,11 @@ body.away .close-btn { opacity: 0; }
 .vol-hud-pct { min-width: 30px; text-align: right; }
 
 @media (prefers-reduced-motion: reduce) {
-  .stack, .controls, .art img, .prog-fill, .prog-track, .prog-knob, .icon-btn, .vol-hud, .lyric-line { transition: none; }
+  .stack, .controls, .art img, .prog-fill, .prog-track, .prog-knob, .icon-btn, .vol-hud, .lyrics-line { transition: none; }
   .tab { transition: none; }
 }
 </style>
+<link rel="stylesheet" href="styles/karaoke.css">
 </head>
 <body>
 
@@ -377,28 +381,19 @@ body.away .close-btn { opacity: 0; }
   <span class="vol-hud-pct" id="vol-hud-pct">100%</span>
 </div>
 
+<!-- The same karaoke drawing code as the main window (lyric-karaoke.js needs
+     CascadeCore from build/core.js). -->
+<script src="build/core.js"></script>
+<script src="lyric-karaoke.js"></script>
 <script>
-// Global font setting. This window doesn't load build/core.js, so this is a
-// small duplicate of CascadeCore.resolveUiFont() (src/core/font.ts) rather
-// than the real thing - keep the two in sync if either changes. Unsanitized
-// custom input never reaches --font: an invalid value there falls back to
-// nothing rather than to var(--font, ...)'s own fallback (that fallback only
-// applies when --font is unset, not when it's set-but-invalid).
+// Global font setting, through the same resolver the main window uses
+// (CascadeCore.resolveUiFont, src/core/font.ts), which sanitizes custom input.
 ;(async () => {
   try {
     const raw = await window.miniPlayer.uiFont()
     if (!raw) return
     const { preset, custom } = JSON.parse(raw)
-    const SYSTEM = "-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
-    const PRESETS = { system: SYSTEM, sans: 'Helvetica, Arial, sans-serif', serif: "Georgia, 'Times New Roman', serif", mono: "'SF Mono', 'Cascadia Code', 'Fira Code', monospace" }
-    let value = SYSTEM
-    if (preset === 'custom') {
-      const name = typeof custom === 'string' ? custom.trim().slice(0, 60).replace(/[^A-Za-z0-9 -]/g, '') : ''
-      value = name ? `"${name}", ${SYSTEM}` : SYSTEM
-    } else if (PRESETS[preset]) {
-      value = PRESETS[preset]
-    }
-    document.documentElement.style.setProperty('--font', value)
+    document.documentElement.style.setProperty('--font', CascadeCore.resolveUiFont(preset, custom))
   } catch {}
 })()
 
@@ -434,7 +429,8 @@ window.miniPlayer.onState((state) => {
     setProgress(0, 0)
     setLike(false)
     setPlaying(false)
-    renderLyrics([], -1)
+    _clock = { pos: 0, at: Date.now(), playing: false }
+    setSheet(-1, { lines: [], emphasis: false })
     renderQueue([], 0)
     renderCredit(null)
     return
@@ -447,7 +443,9 @@ window.miniPlayer.onState((state) => {
   setLike(state.isFavorite)
   setPlaying(state.isPlaying)
   if (!_wheelActive && Number.isFinite(state.volume)) _volume = state.volume
-  renderLyrics(state.lyrics || [], Number.isInteger(state.lyricIndex) ? state.lyricIndex : -1)
+  _clock = { pos: state.positionSec || 0, at: Number.isFinite(state.sentAt) ? state.sentAt : Date.now(), playing: !!state.isPlaying }
+  takeSheet(state)
+  if (!state.isPlaying) paintLyrics(clockTicks())   // a seek while paused
   renderQueue(state.queue || [], Number.isInteger(state.queueStart) ? state.queueStart : 0)
   renderCredit(state.credit)
 })
@@ -624,40 +622,95 @@ window.addEventListener('keydown', (e) => {
 })
 
 // ── Lyrics and Up Next ───────────────────────────────────────────────────────
-// The whole sheet arrives with the index of the line being sung. The pane
-// follows that line, keeping it a quarter of the way down, until you scroll
-// it yourself; then it leaves you alone until FOLLOW_AFTER_MS after your last
-// scroll, and eases back to the current line.
+// Karaoke with the main window's own code (lyric-karaoke.js, CascadeCore):
+// the main window sends the timed sheet when it changes, with its id on every
+// tick, and this window runs its own clock between ticks (position plus the
+// time since the main window measured it), repainting every frame while
+// playing. The pane follows the current line, keeping it a quarter of the way
+// down, until you scroll it yourself; then it leaves you alone until
+// FOLLOW_AFTER_MS after your last scroll, and eases back.
 
 const FOLLOW_AFTER_MS = 3000
-let _lyricKey = null
-let _lyricIdx = -2
+// The same lead the main window's word loop runs the clock ahead by, so all
+// three views change line together.
+const LEAD_SEC = 0.225
+let _sheetId = -1
+let _sheet = null
+let _sheetTimed = false
+let _askedFor = -1
+let _clock = { pos: 0, at: 0, playing: false }
+let _activeFirst = -2, _activeLast = -2
 let _userScrollAt = 0
 let _followTimer = null
 const _reduceMotion = matchMedia('(prefers-reduced-motion: reduce)')
 
-function renderLyrics(lines, idx) {
-  const list = $('lyric-list')
-  const key = lines.join('\u0000')
-  if (key !== _lyricKey) {
-    _lyricKey = key
-    _lyricIdx = -2
-    list.innerHTML = lines.length
-      ? lines.map(t => t ? `<div class="lyric-line">${esc(t)}</div>` : '<div class="lyric-line gap"></div>').join('')
-      : '<div class="lyric-empty">No lyrics for this track</div>'
-    $('lyrics').scrollTop = 0
+/** From each state tick: take a new sheet, or ask for one we do not have
+ *  (this window can open after the main window sent it). */
+function takeSheet(state) {
+  if (state.sheet) { setSheet(state.sheetId, state.sheet); return }
+  if (state.sheetId !== _sheetId && _askedFor !== state.sheetId) {
+    _askedFor = state.sheetId
+    control({ type: 'sheet', value: 0 })
   }
-  if (idx === _lyricIdx) return
-  _lyricIdx = idx
-  list.querySelector('.lyric-line.cur')?.classList.remove('cur')
-  if (idx >= 0 && lines.length) list.children[idx]?.classList.add('cur')
-  followLyrics(true)
 }
+
+function setSheet(id, sheet) {
+  _sheetId = id
+  _sheet = sheet
+  _sheetTimed = sheet.lines.some(l => l.Start != null)
+  _activeFirst = _activeLast = -2
+  $('lyric-list').innerHTML = sheet.lines.length
+    ? sheet.lines.map((l, i) => {
+        if (!l.Text && !l.Words) return `<div class="lyrics-line gap" data-idx="${i}"></div>`
+        const content = l.Words ? lyricWordSpans(l, 'lyric-word', sheet.emphasis) : esc(l.Text)
+        return `<div class="lyrics-line" data-idx="${i}">${content}</div>`
+      }).join('')
+    : '<div class="lyric-empty">No lyrics for this track</div>'
+  $('lyrics').scrollTop = 0
+  paintLyrics(clockTicks())
+}
+
+function clockTicks() {
+  const sec = _clock.pos + (_clock.playing ? (Date.now() - _clock.at) / 1000 : 0)
+  return (sec + LEAD_SEC) * 10_000_000
+}
+
+/** Lights the current line (or group, when lines overlap) and paints its
+ *  words' fill at `nowTicks`, exactly as the main window's lyric views do. */
+function paintLyrics(nowTicks) {
+  const lines = _sheet?.lines
+  if (!_sheetTimed || !lines?.length) return
+  let base = 0
+  for (let i = 0; i < lines.length; i++) {
+    const start = lines[i].Start
+    if (start == null) continue
+    if (start <= nowTicks) base = i
+    else break
+  }
+  const idx = CascadeCore.currentLyricIndex(lines, base, nowTicks)
+  const [first, last] = CascadeCore.activeLyricRange(lines, idx, nowTicks)
+  const list = $('lyric-list')
+  if (first !== _activeFirst || last !== _activeLast) {
+    list.querySelectorAll('.lyrics-line.active').forEach(el => el.classList.remove('active'))
+    for (let i = first; i <= last; i++) list.children[i]?.classList.add('active')
+    const moved = first !== _activeFirst
+    _activeFirst = first
+    _activeLast = last
+    if (moved) followLyrics(true)
+  }
+  for (let i = first; i <= last; i++) if (lines[i]?.Words) _paintWordSpans(list.children[i], nowTicks)
+}
+
+function lyricFrame() {
+  requestAnimationFrame(lyricFrame)
+  if (_clock.playing && !$('lyrics').hidden) paintLyrics(clockTicks())
+}
+requestAnimationFrame(lyricFrame)
 
 function followLyrics(smooth) {
   if (Date.now() - _userScrollAt < FOLLOW_AFTER_MS) return
   const box = $('lyrics')
-  const cur = $('lyric-list').querySelector('.lyric-line.cur')
+  const cur = $('lyric-list').querySelector('.lyrics-line.active')
   if (!cur || box.hidden) return
   box.scrollTo({ top: Math.max(0, cur.offsetTop - box.clientHeight * 0.25), behavior: smooth && !_reduceMotion.matches ? 'smooth' : 'auto' })
 }
