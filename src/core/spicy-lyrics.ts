@@ -185,3 +185,18 @@ export function convertSpicyLyrics(raw: unknown): SpicyConversion | null {
   else return null
   return lines.length ? { lines, credit: spicyCredit(body) } : null
 }
+
+/**
+ * The Spotify track id in whatever a user pastes: a share link
+ * (open.spotify.com/track/ID?si=..., with or without an /intl-xx/ segment),
+ * a spotify:track:ID URI, or the bare 22-character id. Null for anything
+ * else, including album, playlist and artist links.
+ */
+export function parseSpotifyTrackId(input: unknown): string | null {
+  if (typeof input !== 'string') return null
+  const s = input.trim()
+  const id = /^[A-Za-z0-9]{22}$/.test(s) ? s
+    : s.match(/^spotify:track:([A-Za-z0-9]{22})$/)?.[1]
+    ?? s.match(/^(?:https?:\/\/)?open\.spotify\.com\/(?:intl-[a-z-]+\/)?(?:embed\/)?track\/([A-Za-z0-9]{22})(?:[/?#].*)?$/i)?.[1]
+  return id ?? null
+}

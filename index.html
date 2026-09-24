@@ -1426,6 +1426,13 @@
     <span class="lsd-icon">◎</span>Synced Only
     <span class="lsd-hint">Server · line-synced</span>
   </div>
+  <!-- Not a source: opens the Spotify link dialog. Shown only when Cascade
+       Server offers it (the spotify-link capability). -->
+  <div class="lsd-sep lsd-spotify" style="display:none"></div>
+  <div class="lsd-item lsd-spotify" id="lsd-spotify-link" style="display:none">
+    <span class="lsd-icon">♫</span><span id="lsd-spotify-label">Link a Spotify track…</span>
+    <span class="lsd-hint">For Spicy Lyrics</span>
+  </div>
 </div>
 
 <!-- Lyrics panel -->
@@ -1485,6 +1492,21 @@
     <div class="modal-actions">
       <button class="modal-btn" id="pl-edit-cancel">Cancel</button>
       <button class="modal-btn modal-btn-accent" id="pl-edit-save">Save</button>
+    </div>
+  </div>
+</div>
+<!-- Link the playing song to a Spotify track, for Spicy Lyrics, when Cascade
+     Server's lookup found nothing or the wrong release. Server-wide. -->
+<div class="modal-overlay hidden" id="spotify-link-modal">
+  <div class="modal-card" style="max-height:none;">
+    <div class="modal-title">Link a Spotify track</div>
+    <div class="wf-note" id="spotify-link-desc">Paste this song's Spotify link and Cascade Server will look for Spicy Lyrics with it. The link is saved on the server, so it works for everyone there.</div>
+    <input class="modal-input" id="spotify-link-input" placeholder="https://open.spotify.com/track/…" spellcheck="false" autocomplete="off" style="width:100%;box-sizing:border-box;margin:12px 0 6px;" />
+    <div class="wf-note" id="spotify-link-error" style="color:var(--red);min-height:16px;"></div>
+    <div class="modal-actions" style="margin-top:10px;">
+      <button class="modal-btn" id="spotify-link-remove" hidden>Remove link</button>
+      <button class="modal-btn" id="spotify-link-cancel">Cancel</button>
+      <button class="modal-btn modal-btn-accent" id="spotify-link-save">Link</button>
     </div>
   </div>
 </div>

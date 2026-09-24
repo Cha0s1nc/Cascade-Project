@@ -6694,7 +6694,7 @@ async function renderOverlayLyrics() {
       lyricsSource = null
       lyricsCredit = null
       updateSourcePills()
-      body.innerHTML = '<div class="lyrics-empty" style="padding:40px 0;text-align:center">No lyrics available</div>'
+      body.innerHTML = `<div class="lyrics-empty" style="padding:40px 0;text-align:center">No lyrics available${_linkSpotifyButton()}</div>`
       return
     }
     lyricsData   = result.lines
@@ -6706,7 +6706,7 @@ async function renderOverlayLyrics() {
   }
 
   if (!lyricsData.length) {
-    body.innerHTML = '<div class="lyrics-empty" style="padding:40px 0;text-align:center">No lyrics available</div>'
+    body.innerHTML = `<div class="lyrics-empty" style="padding:40px 0;text-align:center">No lyrics available${_linkSpotifyButton()}</div>`
     return
   }
 
@@ -7887,6 +7887,88 @@ function _applyCascadePluginAvailability() {
 
 // Drop the cached fetch for a track and, if it is the one playing, reload the panel.
 // itemId defaults to the current track.
+// ── Link a Spotify track (Spicy Lyrics) ───────────────────────────────────────
+// Cascade Server finds a song's Spotify id itself (ListenBrainz); for the songs
+// it cannot, or where it picked the wrong release, a user pastes the link here.
+// Stored on the server for everyone, as saved lyrics are.
+
+function _canLinkSpotify() {
+  const item = queue[queueIndex]
+  return !!item && !isVideoItem(item) && !_cascadePluginAbsent && _cascadePluginCaps.has('spotify-link')
+}
+
+/** The empty lyrics state's way in, when linking is possible. */
+function _linkSpotifyButton() {
+  return _canLinkSpotify() ? '<div><button type="button" class="lyrics-link-spotify">Link a Spotify track</button></div>' : ''
+}
+
+let _spotifyLinkItem = null
+
+async function openSpotifyLinkModal() {
+  document.getElementById('lyrics-source-dropdown').classList.remove('open')
+  const item = queue[queueIndex]
+  if (!item || !_canLinkSpotify()) return
+  _spotifyLinkItem = item
+  const input = document.getElementById('spotify-link-input')
+  const remove = document.getElementById('spotify-link-remove')
+  input.value = ''
+  remove.hidden = true
+  document.getElementById('spotify-link-error').textContent = ''
+  document.getElementById('spotify-link-modal').classList.remove('hidden')
+  input.focus()
+  // What it is linked to now: a hand link can be removed, handing the song
+  // back to the automatic lookup.
+  try {
+    const r = await fetch(`${jf.url}/CascadeServer/SpotifyId/${item.Id}`, { headers: { 'X-Emby-Token': jf.token } })
+    const cur = r.ok ? await r.json() : null
+    if (_spotifyLinkItem !== item) return
+    if (cur?.spotifyId && !input.value) input.value = `https://open.spotify.com/track/${cur.spotifyId}`
+    remove.hidden = !cur?.manual
+  } catch {}
+}
+
+function closeSpotifyLinkModal() {
+  document.getElementById('spotify-link-modal').classList.add('hidden')
+  _spotifyLinkItem = null
+}
+
+async function _spotifyLinkRequest(method, body) {
+  const item = _spotifyLinkItem
+  const error = document.getElementById('spotify-link-error')
+  try {
+    const r = await fetch(`${jf.url}/CascadeServer/SpotifyId/${item.Id}`, {
+      method,
+      headers: { 'X-Emby-Token': jf.token, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    })
+    if (!r.ok) { error.textContent = await CascadeCore.readErrorMessage(r); return }
+  } catch {
+    error.textContent = 'Could not reach the server.'
+    return
+  }
+  closeSpotifyLinkModal()
+  _reloadLyricsFor(item.Id)
+}
+
+document.getElementById('spotify-link-save').addEventListener('click', () => {
+  const id = CascadeCore.parseSpotifyTrackId(document.getElementById('spotify-link-input').value)
+  if (!id) {
+    document.getElementById('spotify-link-error').textContent = 'That is not a Spotify track link. Copy it from Share → Copy Song Link.'
+    return
+  }
+  _spotifyLinkRequest('POST', { spotifyId: id })
+})
+document.getElementById('spotify-link-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('spotify-link-save').click()
+  if (e.key === 'Escape') closeSpotifyLinkModal()
+})
+document.getElementById('spotify-link-remove').addEventListener('click', () => _spotifyLinkRequest('DELETE'))
+document.getElementById('spotify-link-cancel').addEventListener('click', closeSpotifyLinkModal)
+document.getElementById('lsd-spotify-link').addEventListener('click', e => { e.stopPropagation(); openSpotifyLinkModal() })
+document.addEventListener('click', e => {
+  if (e.target.closest('.lyrics-link-spotify')) openSpotifyLinkModal()
+})
+
 function _reloadLyricsFor(itemId) {
   const cur = queue[queueIndex]
   _lyricsCache.delete(itemId ?? cur?.Id)
@@ -8091,6 +8173,11 @@ document.addEventListener('click', (e) => {
 
 function _openSourceDropdown(nearEl) {
   const dd   = document.getElementById('lyrics-source-dropdown')
+  // Link a Spotify track: only where Cascade Server offers it, and worded for
+  // whether Spicy Lyrics already matched (then it is a correction).
+  const canLink = _canLinkSpotify()
+  dd.querySelectorAll('.lsd-spotify').forEach(el => { el.style.display = canLink ? '' : 'none' })
+  document.getElementById('lsd-spotify-label').textContent = lyricsCredit ? 'Change Spotify track…' : 'Link a Spotify track…'
   const rect = nearEl.getBoundingClientRect()
   dd.style.left = `${Math.max(8, rect.left)}px`
   dd.style.top  = `${rect.bottom + 6}px`
@@ -8247,7 +8334,7 @@ window.cascade.metadataEditor.onSaved(async (itemId) => {
   })
 })
 
-document.getElementById('lyrics-source-dropdown').querySelectorAll('.lsd-item').forEach(item => {
+document.getElementById('lyrics-source-dropdown').querySelectorAll('.lsd-item[data-source]').forEach(item => {
   item.addEventListener('click', async e => {
     e.stopPropagation()
     lyricsForcedSource = item.dataset.source
@@ -8699,7 +8786,7 @@ async function fetchLyrics() {
     lyricsSource = null
     lyricsCredit = null
     updateSourcePills()
-    body.innerHTML = '<div class="lyrics-empty">No lyrics available for this track</div>'
+    body.innerHTML = `<div class="lyrics-empty">No lyrics available for this track${_linkSpotifyButton()}</div>`
     return
   }
   lyricsData   = result.lines

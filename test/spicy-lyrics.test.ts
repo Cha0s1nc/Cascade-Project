@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { convertSpicyLyrics, spicyCredit, safeCreditUrl, spicyFitsTrack } from '../src/core/spicy-lyrics.ts'
+import { convertSpicyLyrics, spicyCredit, safeCreditUrl, spicyFitsTrack, parseSpotifyTrackId } from '../src/core/spicy-lyrics.ts'
 
 // Fixtures follow the SpicyLyrics reference schema (times in seconds).
 const syllableBody = {
@@ -118,4 +118,17 @@ test('fits track: nothing to judge means it passes', () => {
   assert.equal(spicyFitsTrack({ Body: {} }, 186.6), true)
   assert.equal(spicyFitsTrack({ Body: { EndTime: 999 } }, 0), true)
   assert.equal(spicyFitsTrack(null, 186.6), true)
+})
+
+test('Spotify track ids come out of links, URIs and bare ids, and nothing else does', () => {
+  const id = '2VOomzT6VavJOGBeySqaMc'
+  for (const ok of [id, ` ${id} `, `spotify:track:${id}`, `https://open.spotify.com/track/${id}`,
+    `https://open.spotify.com/track/${id}?si=abc123`, `open.spotify.com/intl-de/track/${id}`,
+    `https://open.spotify.com/embed/track/${id}`]) {
+    assert.equal(parseSpotifyTrackId(ok), id, ok)
+  }
+  for (const bad of ['', 'nope', `https://open.spotify.com/album/${id}`, `https://open.spotify.com/playlist/${id}`,
+    `https://evil.example/open.spotify.com/track/${id}`, `${id}x`, 'spotify:track:short', null, 42]) {
+    assert.equal(parseSpotifyTrackId(bad), null, String(bad))
+  }
 })
