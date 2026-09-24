@@ -8342,11 +8342,13 @@ async function fetchLyricsWaterfall(item) {
   // only a SpicyLyrics body counts: the plugin's own files are server-only
   // mode's business, not this waterfall's. Outside `sources`, so it is not a
   // forceable choice and a miss is never reported as a failed source - most
-  // tracks will not have one.
+  // tracks will not have one. spicyOnly stops the plugin there on a miss
+  // instead of reading its files, or fetching Kugou and LRCLIB live, for an
+  // answer this ignores. A plugin older than the flag ignores it.
   const spicyProm = (async () => {
     await _cascadePluginProbed
     if (_cascadePluginAbsent || !_cascadePluginCaps.has('syllable')) return null
-    const r = await fetch(`${cascadeLyricsUrl(item.Id)}?syllable=true`, { headers: { 'X-Emby-Token': jf.token }, ...sig })
+    const r = await fetch(`${cascadeLyricsUrl(item.Id)}?syllable=true&spicyOnly=true`, { headers: { 'X-Emby-Token': jf.token }, ...sig })
     if (!r.ok) return null
     const d = await r.json()
     if (d?.type !== 'syllable') return null
