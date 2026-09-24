@@ -337,8 +337,9 @@ export class JellyfinClient {
     const ids = libraryIds ?? this.config.libraryIds ?? []
     if (!ids.length) return this.get<JfItemsResponse>(path, params)
 
-    const groups = await this.getGrouped(path, params, ids)
-    return dedupeById(groups.map(g => g.items))
+    const { query, strip } = withBitrates(params, ids)
+    const groups = await this.getGrouped(path, query, ids)
+    return strip(dedupeById(groups.map(g => g.items)))
   }
 
   /**
@@ -374,6 +375,8 @@ export class JellyfinClient {
     const configured = libraryIds ?? this.config.libraryIds
     const ids: (string | null)[] = configured?.length ? configured : [null]
     const pageSize = Number(params.Limit) || DEFAULT_PAGE_SIZE
+    const { query, strip } = withBitrates(params, configured ?? [])
+    params = query
 
     const perLibrary = await Promise.all(ids.map(async libId => {
       const baseParams = libId ? { ...params, ParentId: libId } : params
@@ -398,7 +401,7 @@ export class JellyfinClient {
       return items
     }))
 
-    return dedupeById(perLibrary)
+    return strip(dedupeById(perLibrary))
   }
 
   /** Primary image URL for an item. No tag means no art, so no URL.
@@ -442,18 +445,21 @@ export class JellyfinClient {
 /**
  * Merges per-library results (in library order) into one list: the same item
  * once by Id, and the same song or album found in two different libraries
- * once too, the first library's copy kept. Shuffling three libraries that
- * each hold the same album otherwise played every song three times.
+ * once too. Shuffling three libraries that each hold the same album otherwise
+ * played every song three times.
  *
  * Songs match on title and artist, ignoring case and punctuation, with
  * durations within DUPLICATE_DURATION_SEC (so a "(Live)" or extended cut,
- * titled or timed differently, stays). Albums match on name and album artist.
- * Copies inside one library are never merged: that is the library's own
- * business, like a single kept next to its album.
+ * titled or timed differently, stays), and the copy with the highest bitrate
+ * is kept, in the place the first copy held (bitrate from MediaSources, see
+ * withBitrates; without it the first library's copy stays). Albums match on
+ * name and album artist; they carry no bitrate, so the first library's copy
+ * is kept. Copies inside one library are never merged: that is the library's
+ * own business, like a single kept next to its album.
  */
 export function dedupeById(lists: JfItem[][]): JfItemsResponse {
   const seen = new Set<string>()
-  const byContent = new Map<string, { lib: number, sec: number | null }[]>()
+  const byContent = new Map<string, { lib: number, sec: number | null, pos: number }[]>()
   const items: JfItem[] = []
   lists.forEach((list, lib) => {
     for (const item of list) {
@@ -463,16 +469,38 @@ export function dedupeById(lists: JfItem[][]): JfItemsResponse {
       if (key) {
         const sec = item.RunTimeTicks ? item.RunTimeTicks / 10_000_000 : null
         const copies = byContent.get(key) ?? []
-        const dupe = copies.some(c => c.lib !== lib &&
+        const copy = copies.find(c => c.lib !== lib &&
           (item.Type !== 'Audio' || c.sec == null || sec == null || Math.abs(c.sec - sec) <= DUPLICATE_DURATION_SEC))
-        if (dupe) continue
-        copies.push({ lib, sec })
+        if (copy) {
+          if (bitrate(item) > bitrate(items[copy.pos])) { items[copy.pos] = item; copy.lib = lib; copy.sec = sec }
+          continue
+        }
+        copies.push({ lib, sec, pos: items.length })
         byContent.set(key, copies)
       }
       items.push(item)
     }
   })
   return { Items: items, TotalRecordCount: items.length }
+}
+
+const bitrate = (item: JfItem) => item.MediaSources?.[0]?.Bitrate ?? 0
+
+/**
+ * Songs need MediaSources for their bitrate, which more than doubles each
+ * item (1.4 KB to 3.7 KB measured), so it is asked for only when it can
+ * matter: two or more libraries, and songs in the query. `strip` takes it
+ * back off afterwards unless the caller asked for it itself.
+ */
+function withBitrates(params: JfParams, ids: readonly string[]): { query: JfParams, strip: (r: JfItemsResponse) => JfItemsResponse } {
+  const fields = String(params.Fields ?? '')
+  const needed = ids.length > 1 && /(^|,)Audio(,|$)/.test(String(params.IncludeItemTypes ?? '')) &&
+    !/(^|,)MediaSources(,|$)/.test(fields)
+  if (!needed) return { query: params, strip: r => r }
+  return {
+    query: { ...params, Fields: fields ? `${fields},MediaSources` : 'MediaSources' },
+    strip: r => { for (const i of r.Items ?? []) delete i.MediaSources; return r },
+  }
 }
 
 export const DUPLICATE_DURATION_SEC = 3

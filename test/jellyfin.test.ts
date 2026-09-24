@@ -490,3 +490,31 @@ test('dedupeById: other types only dedupe by Id', () => {
   const pl = (Id: string) => ({ Id, Name: 'Road trip', Type: 'Playlist' })
   assert.equal(dedupeById([[pl('1')], [pl('2'), pl('1')]]).Items!.length, 2)
 })
+
+test('dedupeById: the higher-bitrate copy wins, in the first copy\'s place', () => {
+  const song = (Id: string, kbps: number) => ({ Id, Name: 'Idol', Type: 'Audio', Artists: ['YOASOBI'],
+    RunTimeTicks: 2_130_000_000, MediaSources: [{ Bitrate: kbps * 1000 }] })
+  const other = { Id: 'x', Name: 'Other', Type: 'Audio', Artists: ['Someone'], RunTimeTicks: 1_000_000_000 }
+  const res = dedupeById([[song('mp3', 320), other], [song('flac', 1100)], [song('aac', 256)]])
+  assert.deepEqual(res.Items!.map(i => i.Id), ['flac', 'x'])
+})
+
+test('getMerged: asks for bitrates only for songs across libraries, and strips them after', async () => {
+  const cfg = { ...baseConfig, libraryIds: ['L1', 'L2'] }
+  stubFetch(() => ({ Items: [{ Id: new Date().getTime() + Math.random() + '', Type: 'Audio', Name: 'x', MediaSources: [{ Bitrate: 1 }] }] }))
+  const res = await clientFor(cfg).getMerged('/Items', { IncludeItemTypes: 'Audio', Fields: 'AlbumId' })
+  assert.equal(new URL(calls[0].url).searchParams.get('Fields'), 'AlbumId,MediaSources')
+  assert.ok(res.Items!.every(i => i.MediaSources === undefined), 'not left on the items')
+
+  calls.length = 0
+  await clientFor(cfg).getMerged('/Items', { IncludeItemTypes: 'MusicAlbum' })
+  assert.equal(new URL(calls[0].url).searchParams.has('Fields'), false, 'albums have no bitrate to ask for')
+
+  calls.length = 0
+  await clientFor({ ...baseConfig, libraryIds: ['L1'] }).getMerged('/Items', { IncludeItemTypes: 'Audio' })
+  assert.equal(new URL(calls[0].url).searchParams.has('Fields'), false, 'one library: nothing to choose between')
+
+  calls.length = 0
+  const own = await clientFor(cfg).getMerged('/Items', { IncludeItemTypes: 'Audio', Fields: 'MediaSources' })
+  assert.ok(own.Items!.some(i => i.MediaSources), 'kept when the caller asked for them')
+})

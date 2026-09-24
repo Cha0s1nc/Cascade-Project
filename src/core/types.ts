@@ -73,7 +73,7 @@ export interface JfItem {
   ParentIndexNumber?: number
   /** Populated with Fields=MediaStreams. Drives subtitle track selection. */
   MediaStreams?: JfMediaStream[]
-  MediaSources?: { Id?: string, Container?: string }[]
+  MediaSources?: { Id?: string, Container?: string, Bitrate?: number }[]
 
   /** Only on library views (/Users/{id}/Views) - 'music', 'musicvideos', etc.
    *  Used to filter the library picker down to music libraries. */
