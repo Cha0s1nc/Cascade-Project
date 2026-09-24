@@ -6860,38 +6860,60 @@ function dropTranslator(key) {
  *  the same length as the input and blank lines stay blank. Repeated lines are
  *  translated once, since a lyric sheet is mostly chorus. One line per call:
  *  lines are lyrics, not sentences, and batching them would let one line's
- *  context bleed into the next. It is also what keeps progress meaningful with
- *  Apple, whose own batch call returns everything at once.
+ *  context bleed into the next.
  *  `engine` is 'mozilla' (the bergamot translators here) or 'apple' (the macOS
- *  helper in main.js). */
-async function translateLines(lines, key, onProgress, engine = 'mozilla') {
+ *  helper in main.js).
+ *
+ *  Order follows the song: lines already cached come back at once, then the
+ *  line `startAt()` names (the one being sung), then onwards through the sheet,
+ *  re-asking `startAt` after every line so a seek re-aims it; lines before the
+ *  playhead come last. `onLine(indexes, english)` fires as each one lands, so
+ *  a cold sheet (105s for Idol with Apple) shows the current line in about a
+ *  second instead of all of it at the end. */
+async function translateLines(lines, key, onProgress, engine = 'mozilla', { startAt, onLine } = {}) {
   clearTimeout(_translateIdleTimer)
   _translateIdleTimer = null
   _translateBusy++
   try {
     const out = new Array(lines.length).fill('')
-    const unique = new Map()
+    const pending = new Map()   // line text -> the indexes it appears at
     lines.forEach((line, i) => {
       const text = line.trim()
       if (!text) return
-      if (!unique.has(text)) unique.set(text, [])
-      unique.get(text).push(i)
+      if (!pending.has(text)) pending.set(text, [])
+      pending.get(text).push(i)
     })
+    const total = pending.size
     const from = key.slice(0, 2)
+    // The engine is part of the key: both translate the same languages, and
+    // switching engines must not serve the other one's output from memory.
+    const cacheKey = text => `${engine}|${key}|${text}`
     let done = 0
-    for (const [text, indexes] of unique) {
-      // The engine is part of the key: both translate the same languages, and
-      // switching engines must not serve the other one's output from memory.
-      const cacheKey = `${engine}|${key}|${text}`
-      let english = _rememberedLine(cacheKey)
-      if (english === undefined) {
-        english = engine === 'apple'
-          ? await window.cascade.appleTranslation.translate(key, text)
-          : (await _translatorFor(key).translate({ from, to: 'en', text, html: false })).target.text
-        _rememberLine(cacheKey, english)
-      }
+    const land = (text, english) => {
+      const indexes = pending.get(text)
+      pending.delete(text)
       for (const i of indexes) out[i] = english
-      onProgress?.({ done: ++done, total: unique.size })
+      onLine?.(indexes, english)
+      onProgress?.({ done: ++done, total })
+    }
+    for (const text of [...pending.keys()]) {
+      const hit = _rememberedLine(cacheKey(text))
+      if (hit !== undefined) land(text, hit)
+    }
+    while (pending.size) {
+      // The first line still waiting at or after the playhead, else the first
+      // before it.
+      const cur = Math.max(0, Math.min(lines.length - 1, startAt?.() ?? 0))
+      let text = null
+      for (let n = 0; n < lines.length && text == null; n++) {
+        const t = lines[(cur + n) % lines.length].trim()
+        if (pending.has(t)) text = t
+      }
+      const english = engine === 'apple'
+        ? await window.cascade.appleTranslation.translate(key, text)
+        : (await _translatorFor(key).translate({ from, to: 'en', text, html: false })).target.text
+      _rememberLine(cacheKey(text), english)
+      land(text, english)
     }
     return out
   } catch (e) {
@@ -9056,9 +9078,31 @@ document.getElementById('translation-models-list').addEventListener('click', asy
 // remember. A line the model returned unchanged (English lines in a mixed song)
 // is not repeated under itself.
 function lyricTranslationFor(i) {
-  if (!lyricsTranslationEnabled || !lyricsTranslateOn || _lyricsTranslatedFor !== lyricsData) return ''
+  if (!lyricsTranslationEnabled || !lyricsTranslateOn) return ''
+  // Done, or still arriving line by line for this sheet.
+  if (_lyricsTranslatedFor !== lyricsData && _lyricsTranslating?.sheet !== lyricsData) return ''
   const t = (lyricsTranslated[i] || '').trim()
   return t && t.toLowerCase() !== (lyricsData[i]?.Text || '').trim().toLowerCase() ? t : ''
+}
+
+/** The line being sung at `nowTicks`: the last one that has started. */
+function _lyricLineAt(sheet, nowTicks) {
+  let at = 0
+  for (let i = 0; i < sheet.length; i++) if (sheet[i].Start != null && sheet[i].Start <= nowTicks) at = i
+  return at
+}
+
+/** Puts line `i`'s translation into whichever lyric views are showing it,
+ *  without re-rendering the sheet (which would restart the karaoke fill). */
+function _showLineTranslation(i) {
+  const text = lyricTranslationFor(i)
+  document.querySelectorAll(`.lyrics-line[data-idx="${i}"], .ov-lyric-line[data-idx="${i}"]`).forEach(el => {
+    const cls = el.classList.contains('ov-lyric-line') ? 'ov-lyric-trans' : 'lyric-trans'
+    let t = el.querySelector(`.${cls}`)
+    if (!text) { t?.remove(); return }
+    if (!t) { t = document.createElement('div'); t.className = cls; el.appendChild(t) }
+    t.textContent = text
+  })
 }
 
 function _flashTranslateStatus(label, ms) {
@@ -9159,14 +9203,22 @@ function ensureLyricsTranslation(userAsked = false) {
       }
 
       _flashTranslateStatus(engine === 'apple' ? 'Translating…' : 'Loading…', 0)
+      // Filled in line by line as translations land (see translateLines), and
+      // shown as they do: lyricTranslationFor reads it while this runs.
+      lyricsTranslated = new Array(lines.length).fill('')
       const out = await translateLines(lines, key, ({ done, total }) => {
         if (lyricsData === sheet) _flashTranslateStatus(`${Math.round(done / total * 100)}%`, 0)
-      }, engine)
+      }, engine, {
+        startAt: () => _lyricLineAt(sheet, mediaPosition() * 10_000_000),
+        onLine: (indexes, english) => {
+          if (lyricsData !== sheet) return
+          for (const i of indexes) { lyricsTranslated[i] = english; _showLineTranslation(i) }
+        },
+      })
       if (lyricsData !== sheet) { _flashTranslateStatus('', 0); return }
       lyricsTranslated = out
       _lyricsTranslatedFor = sheet
       _flashTranslateStatus('', 0)
-      rerenderLyricViews()
     } catch (e) {
       console.error('Translation failed', e)
       _flashTranslateStatus('Failed', 2500)
