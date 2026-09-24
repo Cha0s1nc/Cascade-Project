@@ -52,7 +52,7 @@ test('get: builds the URL, sends the token, and stringifies params', async () =>
   assert.equal(url.origin + url.pathname, 'https://jf.test/Items')
   assert.equal(url.searchParams.get('Limit'), '5')
   assert.equal(url.searchParams.get('Recursive'), 'true')
-  assert.equal((calls[0].init?.headers as Record<string, string>)['X-Emby-Token'], 'TOK')
+  assert.ok((calls[0].init?.headers as Record<string, string>).Authorization.includes('Token="TOK"'))
 })
 
 test('get: omits undefined params rather than sending "undefined"', async () => {
@@ -77,11 +77,11 @@ test('client reads config lazily, so reconnecting is picked up', async () => {
 
   stubFetch(() => items('a'))
   await client.get('/Items')
-  assert.equal((calls[0].init?.headers as Record<string, string>)['X-Emby-Token'], 'TOK')
+  assert.ok((calls[0].init?.headers as Record<string, string>).Authorization.includes('Token="TOK"'))
 
   cfg = { url: 'https://other.test', token: 'NEW', userId: 'U2' }
   await client.get('/Items')
-  assert.equal((calls[1].init?.headers as Record<string, string>)['X-Emby-Token'], 'NEW')
+  assert.ok((calls[1].init?.headers as Record<string, string>).Authorization.includes('Token="NEW"'))
   assert.ok(calls[1].url.startsWith('https://other.test'))
 })
 
@@ -188,7 +188,7 @@ test('authenticate: posts credentials and returns the auth result', async () => 
   assert.equal(res.User.Id, 'U9')
   assert.equal(calls[0].init?.method, 'POST')
   assert.deepEqual(JSON.parse(String(calls[0].init?.body)), { Username: 'user', Pw: 'pw' })
-  const auth = (calls[0].init?.headers as Record<string, string>)['X-Emby-Authorization']
+  const auth = (calls[0].init?.headers as Record<string, string>).Authorization
   assert.ok(auth.includes('Version="1.2.0"'))
   assert.ok(auth.includes('DeviceId="DEV-ABC"'))
 })
@@ -215,7 +215,7 @@ test('quickConnectInitiate: binds the request to this device', async () => {
 
   assert.deepEqual(start, { Code: '123456', Secret: 'SEKRIT' })
   assert.equal(calls[0].init?.method, 'POST')
-  const auth = (calls[0].init?.headers as Record<string, string>)['X-Emby-Authorization']
+  const auth = (calls[0].init?.headers as Record<string, string>).Authorization
   assert.ok(auth.includes('DeviceId="DEV-1"'), 'token ends up bound to this device id')
 })
 
@@ -247,7 +247,7 @@ test('quickConnectAuthenticate: trades the secret for a real token', async () =>
   assert.equal(auth.AccessToken, 'TOK')
   assert.equal(auth.User.Id, 'U9')
   assert.deepEqual(JSON.parse(String(calls[0].init?.body)), { Secret: 'SEKRIT' })
-  const hdr = (calls[0].init?.headers as Record<string, string>)['X-Emby-Authorization']
+  const hdr = (calls[0].init?.headers as Record<string, string>).Authorization
   assert.ok(hdr.includes('DeviceId="DEV-1"'), 'must match the device that initiated')
 })
 
@@ -421,12 +421,12 @@ test('ordinary requests identify the client version, not just the login calls', 
   assert.equal(calls.length, 3)
   for (const { init } of calls) {
     const headers = (init?.headers ?? {}) as Record<string, string>
-    assert.equal(headers['X-Emby-Token'], 'tok', 'token must still authenticate the request')
     assert.equal(
-      headers['X-Emby-Authorization'],
-      authHeader('2.0.1', 'device-abc'),
-      'every request must report the running version so Jellyfin can refresh it',
+      headers.Authorization,
+      authHeader('2.0.1', 'device-abc', 'tok'),
+      'every request carries the token and the running version in one Authorization header',
     )
+    assert.equal(headers['X-Emby-Token'], undefined, 'no legacy header: Jellyfin 12 rejects it by default')
   }
 })
 
@@ -435,14 +435,14 @@ test('a request without a known version falls back rather than sending "undefine
   stubFetch(() => ({ Items: [], TotalRecordCount: 0 }))
   await client.get('/Items')
   const headers = (calls[0].init?.headers ?? {}) as Record<string, string>
-  assert.ok(!headers['X-Emby-Authorization'].includes('undefined'))
+  assert.ok(!headers.Authorization.includes('undefined'))
 })
 
 test('originalArtUrl asks for no transformation, so animation survives', () => {
   const c = new JellyfinClient(() => ({ url: 'https://jf.example', token: 'tok' }) as never)
   const original = c.originalArtUrl('abc')
   assert.ok(!/fillHeight|fillWidth|quality/.test(original), 'no resize params - those re-encode')
-  assert.match(original, /^https:\/\/jf\.example\/Items\/abc\/Images\/Primary\?api_key=tok$/)
+  assert.match(original, /^https:\/\/jf\.example\/Items\/abc\/Images\/Primary\?ApiKey=tok$/)
   // The still path must keep its resize, or every grid tile pulls a full-size file.
   assert.match(c.artUrl('abc', 'tag')!, /fillHeight=600&fillWidth=600&quality=90/)
 })
@@ -530,4 +530,9 @@ test('post: an empty 204 resolves instead of throwing (Sessions/Capabilities/Ful
 test('post: a JSON body still comes back parsed', async () => {
   stubFetch(() => ({ Id: 'x' }))
   assert.deepEqual(await clientFor(baseConfig).post('/Items', {}), { Id: 'x' })
+})
+
+test('authHeader: the token goes inside the standard header, only when there is one', () => {
+  assert.equal(authHeader('1.0', 'd'), 'MediaBrowser Client="Cascade", Device="Cascade", DeviceId="d", Version="1.0"')
+  assert.equal(authHeader('1.0', 'd', 'T'), 'MediaBrowser Client="Cascade", Device="Cascade", DeviceId="d", Version="1.0", Token="T"')
 })

@@ -228,6 +228,10 @@ input:focus { outline: none; border-color: rgba(110,79,246,0.6); }
 
 let editorItem = null   // the FULL item fetched from the server
 let editorJf   = null   // { url, token, userId, isAdmin }
+// The token goes in the standard Authorization header (or ApiKey in a URL):
+// Jellyfin 12 turns off X-Emby-Token and api_key by default. Same value as
+// CascadeCore.authHeader in the main window; this page does not load core.
+const jfAuthorization = jf => `MediaBrowser Client="Cascade", Device="Cascade", DeviceId="${jf.deviceId || 'cascade-app'}", Version="${jf.appVersion || '0.0.0'}", Token="${jf.token}"`
 
 function fieldsToArray(str) {
   return str.split(',').map(s => s.trim()).filter(Boolean)
@@ -244,14 +248,14 @@ window.metadataEditor.onInit(async ({ item, jf }) => {
   document.getElementById('track-name').textContent = item.Name || 'Unknown item'
   document.getElementById('track-sub').textContent = [item.AlbumArtist || (item.Artists && item.Artists[0]) || '', item.Album || ''].filter(Boolean).join(' - ')
   const art = document.getElementById('track-art')
-  art.src = `${jf.url}/Items/${item.Id}/Images/Primary?api_key=${jf.token}&width=88&quality=90`
+  art.src = `${jf.url}/Items/${item.Id}/Images/Primary?ApiKey=${jf.token}&width=88&quality=90`
   art.onerror = () => { art.style.visibility = 'hidden' }
 
   const status = document.getElementById('load-status')
   try {
     // Fetch the full item - the row/queue object this window was opened with
     // may be a stripped-down DTO missing fields a partial save would blank.
-    const r = await fetch(`${jf.url}/Items/${item.Id}`, { headers: { 'X-Emby-Token': jf.token } })
+    const r = await fetch(`${jf.url}/Items/${item.Id}`, { headers: { Authorization: jfAuthorization(jf) } })
     if (!r.ok) throw new Error(`HTTP ${r.status}`)
     editorItem = await r.json()
 
@@ -306,7 +310,7 @@ document.getElementById('btn-save').addEventListener('click', async () => {
   try {
     const r = await fetch(`${editorJf.url}/Items/${editorItem.Id}`, {
       method: 'POST',
-      headers: { 'X-Emby-Token': editorJf.token, 'Content-Type': 'application/json' },
+      headers: { Authorization: jfAuthorization(editorJf), 'Content-Type': 'application/json' },
       body: JSON.stringify(updated),
     })
     if (!r.ok) throw new Error(`HTTP ${r.status}`)

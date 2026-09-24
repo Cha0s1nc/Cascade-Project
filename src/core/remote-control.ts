@@ -138,7 +138,7 @@ export class RemoteControl {
   private socketUrl(): string {
     const { url, token, deviceId } = this.getConfig()
     const base = url.replace(/^http/, 'ws')
-    return `${base}/socket?api_key=${encodeURIComponent(token)}&deviceId=${encodeURIComponent(deviceId || '')}`
+    return `${base}/socket?ApiKey=${encodeURIComponent(token)}&deviceId=${encodeURIComponent(deviceId || '')}`
   }
 
   private openSocket(): void {

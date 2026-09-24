@@ -866,7 +866,7 @@ document.getElementById('s-refresh-server').addEventListener('click', async () =
   // server call that would just 403 anyway.
   if (!jf.isAdmin) return
   try {
-    const res = await fetch(`${jf.url}/Library/Refresh`, { method: 'POST', headers: { 'X-Emby-Token': jf.token } })
+    const res = await fetch(`${jf.url}/Library/Refresh`, { method: 'POST', headers: CascadeCore.authHeaders(jf) })
     if (!res.ok) throw new Error(String(res.status))
     // Async on the server - it scans in the background and this response says
     // nothing about when it finishes, so there is nothing to await here.
@@ -2312,7 +2312,7 @@ async function savePlaylistIds(newItems, successMsg) {
   try {
     const res = await fetch(`${jf.url}/Playlists/${currentPlaylistId}`, {
       method: 'POST',
-      headers: { 'X-Emby-Token': jf.token, 'Content-Type': 'application/json' },
+      headers: CascadeCore.authHeaders(jf, { 'Content-Type': 'application/json' }),
       body: JSON.stringify({ Ids: newItems.map(i => i.Id) })
     })
     if (!res.ok) throw new Error(await CascadeCore.readErrorMessage(res))
@@ -2358,7 +2358,7 @@ document.getElementById('pl-edit-save').addEventListener('click', async () => {
   try {
     const res = await fetch(`${jf.url}/Playlists/${currentPlaylistId}`, {
       method: 'POST',
-      headers: { 'X-Emby-Token': jf.token, 'Content-Type': 'application/json' },
+      headers: CascadeCore.authHeaders(jf, { 'Content-Type': 'application/json' }),
       body: JSON.stringify({ Name: name, IsPublic: isPublic })
     })
     if (!res.ok) throw new Error(await CascadeCore.readErrorMessage(res))
@@ -2481,7 +2481,7 @@ function wirePlaylistRowDrag(rowsEl, items) {
       try {
         const entryId = moved.PlaylistItemId || moved.Id
         const res = await fetch(`${jf.url}/Playlists/${currentPlaylistId}/Items/${entryId}/Move/${to}`, {
-          method: 'POST', headers: { 'X-Emby-Token': jf.token }
+          method: 'POST', headers: CascadeCore.authHeaders(jf)
         })
         if (!res.ok) throw new Error(res.status)
       } catch (err) {
@@ -2498,7 +2498,7 @@ async function openPlaylist(playlistId, name) {
   document.getElementById('btn-edit-playlist').style.display = ''
   const artEl = document.getElementById('pl-detail-art')
   artEl.style.background = ''
-  const plArtUrl = `${jf.url}/Items/${playlistId}/Images/Primary?fillHeight=160&fillWidth=160&quality=80&api_key=${jf.token}`
+  const plArtUrl = `${jf.url}/Items/${playlistId}/Images/Primary?fillHeight=160&fillWidth=160&quality=80&ApiKey=${jf.token}`
   artEl.innerHTML = `<img src="${plArtUrl}" alt="" onerror="this.innerHTML='♪'">`
 
   try {
@@ -2723,14 +2723,14 @@ document.getElementById('tctx-media-info').addEventListener('click', () => {
 document.getElementById('tctx-download').addEventListener('click', () => {
   if (!_ctxItem) return
   closeTrackCtxMenu()
-  const url = `${jf.url}/Items/${_ctxItem.Id}/Download?api_key=${jf.token}`
+  const url = `${jf.url}/Items/${_ctxItem.Id}/Download?ApiKey=${jf.token}`
   const a = document.createElement('a'); a.href = url; a.download = _ctxItem.Name || 'track'; a.click()
 })
 
 document.getElementById('tctx-copy-url').addEventListener('click', () => {
   if (!_ctxItem) return
   closeTrackCtxMenu()
-  const url = `${jf.url}/Audio/${_ctxItem.Id}/universal?UserId=${jf.userId}&api_key=${jf.token}&Container=mp3,aac,ogg,flac`
+  const url = `${jf.url}/Audio/${_ctxItem.Id}/universal?UserId=${jf.userId}&ApiKey=${jf.token}&Container=mp3,aac,ogg,flac`
   navigator.clipboard.writeText(url).then(() => showToast('Stream URL copied'))
 })
 
@@ -2784,7 +2784,7 @@ async function refreshItemMetadata(item) {
   if (!item || !jf.isAdmin) return
   try {
     const res = await fetch(`${jf.url}/Items/${item.Id}/Refresh?MetadataRefreshMode=FullRefresh&ImageRefreshMode=FullRefresh&ReplaceAllMetadata=false&ReplaceAllImages=false`, {
-      method: 'POST', headers: { 'X-Emby-Token': jf.token }
+      method: 'POST', headers: CascadeCore.authHeaders(jf)
     })
     if (!res.ok) throw new Error(String(res.status))
     showToast('Metadata refresh queued')
@@ -2825,7 +2825,7 @@ document.getElementById('tctx-pl-remove').addEventListener('click', async () => 
   if (!entryId) { showNotice('This row is missing its playlist entry ID, so it cannot be removed.', 'Playlist'); return }
   try {
     const res = await fetch(`${jf.url}/Playlists/${currentPlaylistId}/Items?EntryIds=${encodeURIComponent(entryId)}`, {
-      method: 'DELETE', headers: { 'X-Emby-Token': jf.token }
+      method: 'DELETE', headers: CascadeCore.authHeaders(jf)
     })
     if (!res.ok) throw new Error(res.status)
     showToast('Removed from playlist')
@@ -3479,7 +3479,7 @@ function applySubtitles(item, resolved) {
     track.kind = 'subtitles'
     track.label = s.DisplayTitle || s.Language || `Track ${s.Index}`
     if (s.Language) track.srclang = s.Language
-    track.src = `${jf.url}/Videos/${item.Id}/${sourceId}/Subtitles/${s.Index}/Stream.vtt?api_key=${jf.token}`
+    track.src = `${jf.url}/Videos/${item.Id}/${sourceId}/Subtitles/${s.Index}/Stream.vtt?ApiKey=${jf.token}`
     audio.appendChild(track)
     // Mode is set after appending, and explicitly rather than via `default`,
     // because `default` only decides the *initial* pick - the picker needs a
@@ -3756,7 +3756,7 @@ function updateNowPlaying(item) {
   _syncRpcClock()
   updateDiscordPresence(item)
 
-  // Album art accent: fetch for canvas color extraction (api_key is in URL, no extra header needed)
+  // Album art accent: fetch for canvas color extraction (ApiKey is in URL, no extra header needed)
   // Skipped for video - the overlay shows the film, not a recoloured backdrop.
   if (themeAlbumArt && art && !video) {
     _currentBgArtUrl = art
@@ -4879,7 +4879,7 @@ async function toggleLike(item) {
   try {
     const res = await fetch(`${jf.url}/UserFavoriteItems/${item.Id}?userId=${encodeURIComponent(jf.userId)}`, {
       method: isLiked ? 'DELETE' : 'POST',
-      headers: { 'X-Emby-Token': jf.token }
+      headers: CascadeCore.authHeaders(jf)
     })
     // Read the response rather than assume success - see CODEMAP rule 1.
     if (!res.ok) throw new Error(String(res.status))
@@ -7320,7 +7320,7 @@ async function atpLoadPlaylists() {
           const ids = items.map(i => encodeURIComponent(i.Id)).join(',')
           const res = await fetch(`${jf.url}/Playlists/${el.dataset.id}/Items?Ids=${ids}&UserId=${encodeURIComponent(jf.userId)}`, {
             method: 'POST',
-            headers: { 'X-Emby-Token': jf.token }
+            headers: CascadeCore.authHeaders(jf)
           })
           if (!res.ok) {
             const errMsg = await CascadeCore.readErrorMessage(res)
@@ -7375,7 +7375,7 @@ async function atpCreatePlaylist() {
   try {
     const res = await fetch(`${jf.url}/Playlists?Name=${encodeURIComponent(name)}&Ids=${encodeURIComponent(item.Id)}&UserId=${encodeURIComponent(jf.userId)}&MediaType=Audio`, {
       method: 'POST',
-      headers: { 'X-Emby-Token': jf.token }
+      headers: CascadeCore.authHeaders(jf)
     })
     if (!res.ok) throw new Error(res.status)
     showToast(`Playlist "${name}" created`)
@@ -7397,7 +7397,7 @@ document.getElementById('atp-new-name').addEventListener('keydown', e => { if (e
 document.getElementById('ctx-download').addEventListener('click', () => {
   const item = queue[queueIndex]
   if (!item) return
-  const url = `${jf.url}/Items/${item.Id}/Download?api_key=${jf.token}`
+  const url = `${jf.url}/Items/${item.Id}/Download?ApiKey=${jf.token}`
   window.cascade.download(url, item.Name)
 })
 
@@ -7493,7 +7493,7 @@ async function deleteItemFromServer(item, { confirmMsg, onDeleted }) {
   if (!confirm(confirmMsg)) return
   try {
     const res = await fetch(`${jf.url}/Items/${item.Id}`, {
-      method: 'DELETE', headers: { 'X-Emby-Token': jf.token }
+      method: 'DELETE', headers: CascadeCore.authHeaders(jf)
     })
     // The response was never read, so a 403 (e.g. a library outside this
     // account's granted folders) reported success for a delete the server
@@ -7690,7 +7690,7 @@ document.getElementById('ictx-download').addEventListener('click', async () => {
   if (_ictxKind !== 'album' || !_ictxItem) return
   const tracks = await fetchAlbumTracks(_ictxItem.Id)
   for (const t of tracks) {
-    window.cascade.download(`${jf.url}/Items/${t.Id}/Download?api_key=${jf.token}`, t.Name)
+    window.cascade.download(`${jf.url}/Items/${t.Id}/Download?ApiKey=${jf.token}`, t.Name)
   }
 })
 
@@ -7724,7 +7724,7 @@ document.getElementById('ictx-view-detail').addEventListener('click', () => {
 async function setItemPlayed(item, played) {
   try {
     const res = await fetch(`${jf.url}/UserPlayedItems/${item.Id}?userId=${encodeURIComponent(jf.userId)}`, {
-      method: played ? 'POST' : 'DELETE', headers: { 'X-Emby-Token': jf.token }
+      method: played ? 'POST' : 'DELETE', headers: CascadeCore.authHeaders(jf)
     })
     if (!res.ok) throw new Error(String(res.status))
     // Keeps a re-opened menu on the same card showing the right toggle for the
@@ -7847,7 +7847,7 @@ function probeCascadePlugin() {
   const statusOf = async (path) => {
     try {
       const r = await fetch(`${jf.url}/${path}`, {
-        headers: { 'X-Emby-Token': jf.token },
+        headers: CascadeCore.authHeaders(jf),
         signal: AbortSignal.timeout(8000),
       })
       // The body is only read for the capability list; the status alone is
@@ -7999,7 +7999,7 @@ async function openSpotifyLinkModal() {
   // What it is linked to now: a hand link can be removed, handing the song
   // back to the automatic lookup.
   try {
-    const r = await fetch(`${jf.url}/CascadeServer/SpotifyId/${item.Id}`, { headers: { 'X-Emby-Token': jf.token } })
+    const r = await fetch(`${jf.url}/CascadeServer/SpotifyId/${item.Id}`, { headers: CascadeCore.authHeaders(jf) })
     const cur = r.ok ? await r.json() : null
     if (_spotifyLinkItem !== item) return
     if (cur?.spotifyId && !input.value) input.value = `https://open.spotify.com/track/${cur.spotifyId}`
@@ -8018,7 +8018,7 @@ async function _spotifyLinkRequest(method, body) {
   try {
     const r = await fetch(`${jf.url}/CascadeServer/SpotifyId/${item.Id}`, {
       method,
-      headers: { 'X-Emby-Token': jf.token, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      headers: CascadeCore.authHeaders(jf, body ? { 'Content-Type': 'application/json' } : {}),
       body: body ? JSON.stringify(body) : undefined,
     })
     if (!r.ok) { error.textContent = await CascadeCore.readErrorMessage(r); return }
@@ -8163,7 +8163,7 @@ window.cascadeDebug = {
     if (!spotifyId) spotifyId = await this.spotifyId(cur)
     if (!spotifyId) return
     const id = String(spotifyId || '').trim().replace(/^spotify:track:/, '').replace(/^https?:\/\/open\.spotify\.com\/track\//, '').split('?')[0]
-    const r = await fetch(`${jf.url}/CascadeServer/SpicyLyrics/${encodeURIComponent(id)}`, { headers: { 'X-Emby-Token': jf.token } })
+    const r = await fetch(`${jf.url}/CascadeServer/SpicyLyrics/${encodeURIComponent(id)}`, { headers: CascadeCore.authHeaders(jf) })
     const body = await r.json().catch(() => null)
     if (!r.ok) return console.error(`[cascadeDebug] HTTP ${r.status}`, body ?? '(no body; 404 with no body means the plugin is older than this route, 401/403 means not an admin)')
     const conv = CascadeCore.convertSpicyLyrics(body.spicy)
@@ -8588,7 +8588,7 @@ async function _lyricsWaterfall(item) {
       const url = !wantType && _cascadePluginCaps.has('syllable')
         ? `${cascadeLyricsUrl(item.Id)}?syllable=true${_localSpotifyParam(item.Id)}` : cascadeLyricsUrl(item.Id)
       const r = await fetch(url,
-        { headers: { 'X-Emby-Token': jf.token }, signal: AbortSignal.timeout(8000) })
+        { headers: CascadeCore.authHeaders(jf), signal: AbortSignal.timeout(8000) })
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       let d = await r.json()
       if (d.type === 'syllable') {
@@ -8606,7 +8606,7 @@ async function _lyricsWaterfall(item) {
         // Unusable SpicyLyrics body: ask again for the plugin's own files
         // rather than showing nothing when they exist.
         const r2 = await fetch(cascadeLyricsUrl(item.Id),
-          { headers: { 'X-Emby-Token': jf.token }, signal: AbortSignal.timeout(8000) })
+          { headers: CascadeCore.authHeaders(jf), signal: AbortSignal.timeout(8000) })
         if (!r2.ok) throw new Error(`HTTP ${r2.status}`)
         d = await r2.json()
       }
@@ -8664,7 +8664,7 @@ async function _lyricsWaterfall(item) {
     }],
     ['Jellyfin', async () => {
       const r = await fetch(`${jf.url}/Audio/${item.Id}/Lyrics`,
-        { headers: { 'X-Emby-Token': jf.token }, ...sig })
+        { headers: CascadeCore.authHeaders(jf), ...sig })
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       const d = await r.json()
       const lines = (d.Lyrics || [])
@@ -8705,7 +8705,7 @@ async function _lyricsWaterfall(item) {
   const spicyProm = (async () => {
     await _cascadePluginProbed
     if (_cascadePluginAbsent || !_cascadePluginCaps.has('syllable')) return null
-    const r = await fetch(`${cascadeLyricsUrl(item.Id)}?syllable=true&spicyOnly=true${_localSpotifyParam(item.Id)}`, { headers: { 'X-Emby-Token': jf.token }, ...sig })
+    const r = await fetch(`${cascadeLyricsUrl(item.Id)}?syllable=true&spicyOnly=true${_localSpotifyParam(item.Id)}`, { headers: CascadeCore.authHeaders(jf), ...sig })
     if (!r.ok) return null
     const d = await r.json()
     if (d?.type !== 'syllable') return null
@@ -9377,7 +9377,7 @@ function _syncRpcClock() {
 // Tailscale address or any private host never is, and the https check this used
 // to do could not tell the difference.
 //
-// It was also handing over a Jellyfin image URL, and those carry api_key, so
+// It was also handing over a Jellyfin image URL, and those carry the token (ApiKey), so
 // the user's server token went to a third party and ended up baked into the
 // proxied image URL that hangs off their presence. iTunes art is public,
 // keyless, needs no reachable server, and the app already fetches it elsewhere

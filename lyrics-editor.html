@@ -587,6 +587,10 @@ body {
 let _dragWord   = null   // { li, wi } of pill being dragged
 let editorItem  = null   // Jellyfin item object
 let editorJf    = null   // { url, token }
+// The token goes in the standard Authorization header (or ApiKey in a URL):
+// Jellyfin 12 turns off X-Emby-Token and api_key by default. Same value as
+// CascadeCore.authHeader in the main window; this page does not load core.
+const jfAuthorization = jf => `MediaBrowser Client="Cascade", Device="Cascade", DeviceId="${jf.deviceId || 'cascade-app'}", Version="${jf.appVersion || '0.0.0'}", Token="${jf.token}"`
 let editorLyricsUrl = null // Cascade Server plugin lyrics route for editorItem, from the main window
 let initLines   = []     // original lines passed at open (for re-import)
 let editorLines = []     // working copy: [{ start, text, words: [{start,end,text}]|null }]
@@ -661,11 +665,11 @@ window.lyricsEditor.onInit(({ item, jf, lyricsData, volume, lyricsUrl }) => {
   ].filter(Boolean).join(' - ')
 
   const art = document.getElementById('track-art')
-  art.src = `${jf.url}/Items/${item.Id}/Images/Primary?api_key=${jf.token}&width=96&quality=90`
+  art.src = `${jf.url}/Items/${item.Id}/Images/Primary?ApiKey=${jf.token}&width=96&quality=90`
   art.onerror = () => { art.style.visibility = 'hidden' }
 
   // Audio stream - same params as streamUrl() in renderer.js
-  audio.src = `${jf.url}/Audio/${item.Id}/universal?UserId=${jf.userId}&api_key=${jf.token}&Container=opus,mp3,aac,flac,wav,ogg&TranscodingContainer=ts&TranscodingProtocol=hls&AudioCodec=aac&MaxStreamingBitrate=140000000`
+  audio.src = `${jf.url}/Audio/${item.Id}/universal?UserId=${jf.userId}&ApiKey=${jf.token}&Container=opus,mp3,aac,flac,wav,ogg&TranscodingContainer=ts&TranscodingProtocol=hls&AudioCodec=aac&MaxStreamingBitrate=140000000`
   const durSec = (item.RunTimeTicks || 0) / 10_000_000
   scrubber.max = durSec || 100
   updateTimeDisp(0, durSec)
@@ -1460,7 +1464,7 @@ document.getElementById('btn-save').addEventListener('click', async () => {
     const r = await fetch(editorLyricsUrl || `${editorJf.url}/Audio/${editorItem.Id}/CascadeLyrics`, {
       method: 'POST',
       headers: {
-        'X-Emby-Token': editorJf.token,
+        Authorization: jfAuthorization(editorJf),
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ lrc: lrcText }),

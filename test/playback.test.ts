@@ -56,7 +56,7 @@ test('direct play: builds a static stream URL carrying the session', async () =>
   assert.equal(url.searchParams.get('static'), 'true')
   assert.equal(url.searchParams.get('mediaSourceId'), 'MS1')
   assert.equal(url.searchParams.get('PlaySessionId'), 'PS1')
-  assert.equal(url.searchParams.get('api_key'), 'TOK')
+  assert.equal(url.searchParams.get('ApiKey'), 'TOK')
 })
 
 test('transcoding: uses the server-supplied URL, made absolute', async () => {
@@ -106,7 +106,7 @@ test('universalStreamUrl keeps the pre-B1 shape', async () => {
   const url = new URL(universalStreamUrl(config, 'ITEM1'))
   assert.equal(url.pathname, '/Audio/ITEM1/universal')
   assert.equal(url.searchParams.get('UserId'), 'U1')
-  assert.equal(url.searchParams.get('api_key'), 'TOK')
+  assert.equal(url.searchParams.get('ApiKey'), 'TOK')
   assert.equal(url.searchParams.get('Container'), 'opus,mp3,aac,flac,wav,ogg')
   assert.equal(url.searchParams.get('AudioCodec'), 'aac')
   assert.equal(url.searchParams.get('MaxStreamingBitrate'), String(DEFAULT_MAX_BITRATE))

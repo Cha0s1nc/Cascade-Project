@@ -49,8 +49,26 @@ export async function readErrorMessage(res: Response): Promise<string> {
  * could not tell two clients apart, so remote control could not target one of
  * them and two instances collided in the session list.
  */
-export function authHeader(appVersion: string, deviceId: string): string {
-  return `MediaBrowser Client="Cascade", Device="Cascade", DeviceId="${deviceId}", Version="${appVersion}"`
+/**
+ * The standard `Authorization: MediaBrowser ...` value. With a token, it also
+ * carries the token: the one way to authenticate that Jellyfin 12 accepts by
+ * default. 12.0 turned off the legacy ways (the X-Emby-Token and
+ * X-Emby-Authorization headers, the api_key query parameter) on new and
+ * upgraded servers alike, so a client still using them simply stops working
+ * there. Jellyfin 10.11 already accepts this form, so it is safe on both.
+ */
+export function authHeader(appVersion: string, deviceId: string, token?: string): string {
+  const base = `MediaBrowser Client="Cascade", Device="Cascade", DeviceId="${deviceId}", Version="${appVersion}"`
+  return token ? `${base}, Token="${token}"` : base
+}
+
+/** Headers for an authenticated request, from the session config (`jf`). The
+ *  one place the token goes into a header; see authHeader. */
+export function authHeaders(
+  config: { token: string, appVersion?: string, deviceId?: string },
+  extra: Record<string, string> = {},
+): Record<string, string> {
+  return { Authorization: authHeader(config.appVersion ?? '0.0.0', config.deviceId ?? 'cascade-app', config.token), ...extra }
 }
 
 /**
@@ -141,7 +159,7 @@ export async function authenticate(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Emby-Authorization': authHeader(appVersion, deviceId),
+      Authorization: authHeader(appVersion, deviceId),
     },
     body: JSON.stringify({ Username: username, Pw: password }),
   })
@@ -192,7 +210,7 @@ export async function quickConnectInitiate(
 ): Promise<QuickConnectStart> {
   const res = await fetch(`${serverUrl}/QuickConnect/Initiate`, {
     method: 'POST',
-    headers: { 'X-Emby-Authorization': authHeader(appVersion, deviceId) },
+    headers: { Authorization: authHeader(appVersion, deviceId) },
   })
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
   return res.json() as Promise<QuickConnectStart>
@@ -219,7 +237,7 @@ export async function quickConnectAuthenticate(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Emby-Authorization': authHeader(appVersion, deviceId),
+      Authorization: authHeader(appVersion, deviceId),
     },
     body: JSON.stringify({ Secret: secret }),
   })
@@ -247,23 +265,16 @@ export class JellyfinClient {
   }
 
   /**
-   * Headers for an ordinary, already-authenticated request.
+   * Headers for an ordinary, already-authenticated request: the token inside
+   * the standard Authorization header (see authHeader).
    *
-   * X-Emby-Authorization is here and not just on the login calls because
-   * Jellyfin records a client's version from that header, and it was only ever
-   * sent while authenticating. Since a saved token is reused indefinitely, the
-   * dashboard's device list kept showing whatever version last actually signed
-   * in - a 1.2.0 beta, long after 2.x shipped - and only a sign-out and back in
-   * would correct it. Sending it alongside the token refreshes it on any
-   * request. The token still travels in X-Emby-Token; this header identifies.
+   * The client fields ride along on every request, not just the login calls,
+   * because Jellyfin records a client's version from them. Since a saved token
+   * is reused indefinitely, the dashboard's device list kept showing whatever
+   * version last actually signed in until a sign-out and back in.
    */
   private headers(extra: Record<string, string> = {}): Record<string, string> {
-    const { token, appVersion, deviceId } = this.config
-    return {
-      'X-Emby-Token': token,
-      'X-Emby-Authorization': authHeader(appVersion ?? '0.0.0', deviceId ?? 'cascade-app'),
-      ...extra,
-    }
+    return authHeaders(this.config, extra)
   }
 
   async get<T = JfItemsResponse>(path: string, params: JfParams = {}): Promise<T> {
@@ -426,7 +437,7 @@ export class JellyfinClient {
 
   private imageUrl(itemId: string): string {
     const { url, token } = this.config
-    return `${url}/Items/${itemId}/Images/Primary?fillHeight=600&fillWidth=600&quality=90&api_key=${token}`
+    return `${url}/Items/${itemId}/Images/Primary?fillHeight=600&fillWidth=600&quality=90&ApiKey=${token}`
   }
 
   /** The stored image with no transformation requested.
@@ -441,7 +452,7 @@ export class JellyfinClient {
    *  else. Grid tiles must keep using the resized still. */
   originalArtUrl(itemId: string): string {
     const { url, token } = this.config
-    return `${url}/Items/${itemId}/Images/Primary?api_key=${token}`
+    return `${url}/Items/${itemId}/Images/Primary?ApiKey=${token}`
   }
 }
 

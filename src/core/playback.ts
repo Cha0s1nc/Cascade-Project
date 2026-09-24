@@ -192,10 +192,10 @@ export function universalStreamUrl(
 ): string {
   const { url, userId, token } = config
   if (kind === 'Video') {
-    return `${url}/Videos/${itemId}/stream?static=true&api_key=${token}`
+    return `${url}/Videos/${itemId}/stream?static=true&ApiKey=${token}`
   }
   return `${url}/Audio/${itemId}/universal`
-    + `?UserId=${userId}&api_key=${token}`
+    + `?UserId=${userId}&ApiKey=${token}`
     + `&Container=opus,mp3,aac,flac,wav,ogg`
     + `&TranscodingContainer=ts&TranscodingProtocol=hls&AudioCodec=aac`
     + `&MaxStreamingBitrate=${maxBitrate}`
@@ -340,7 +340,7 @@ function directStreamUrl(
   playSessionId: string | null,
   kind: MediaKind,
 ): string {
-  const params = new URLSearchParams({ static: 'true', api_key: config.token })
+  const params = new URLSearchParams({ static: 'true', ApiKey: config.token })
   if (source.Id) params.set('mediaSourceId', source.Id)
   if (playSessionId) params.set('PlaySessionId', playSessionId)
 
