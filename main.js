@@ -397,12 +397,16 @@ let pendingDownload   = null
 
 function createWindow() {
   const isDarwin = process.platform === 'darwin'
+  // `npm run demo` (or `electron . --fullscreen`): opens straight into
+  // fullscreen, for demos and screen recordings, on an external monitor when
+  // one is connected. Fullscreen fills whichever display the window starts on.
+  const demo = process.argv.includes('--fullscreen')
+  const demoDisplay = demo ? screen.getAllDisplays().find(d => !d.internal) : null
   win = new BrowserWindow({
     width: 1100,
     height: 700,
-    // `npm run demo` (or `electron . --fullscreen`): opens straight into
-    // fullscreen, for demos and screen recordings.
-    fullscreen: process.argv.includes('--fullscreen'),
+    ...(demoDisplay ? { x: demoDisplay.bounds.x + 40, y: demoDisplay.bounds.y + 40 } : {}),
+    fullscreen: demo,
     minWidth: 800,
     // 560, not 500: the video overlay stacks a picture, a title, two button
     // rows, a scrubber and a volume slider into one column, and 500 was under
