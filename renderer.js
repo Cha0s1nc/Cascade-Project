@@ -1808,13 +1808,20 @@ async function loadArtists() {
 
 /** Songs query shared by the artist detail view and the artist context menu's
  *  Play all/Shuffle all actions. */
+// The artist page and "play artist" go through the library-aware merge like
+// every other view: a plain get ignored the library selection and listed an
+// album or song once per library that held it.
 async function fetchArtistSongs(artistId) {
-  const data = await jfGet(`/Users/${jf.userId}/Items`, {
+  const data = await jfGetMerged(`/Users/${jf.userId}/Items`, {
     ArtistIds: artistId, IncludeItemTypes: 'Audio', Recursive: true,
     SortBy: 'Album,ParentIndexNumber,IndexNumber',
     Fields: 'AlbumId,AlbumPrimaryImageTag'
   })
-  return data.Items || []
+  // Merged results arrive library by library; SortBy only held within each.
+  return (data.Items || []).sort((a, b) =>
+    (a.Album || '').localeCompare(b.Album || '') ||
+    (a.ParentIndexNumber ?? 0) - (b.ParentIndexNumber ?? 0) ||
+    (a.IndexNumber ?? 0) - (b.IndexNumber ?? 0))
 }
 
 async function openArtist(artistId, name) {
@@ -1831,14 +1838,16 @@ async function openArtist(artistId, name) {
 
   try {
     const [albumsData, songs] = await Promise.all([
-      jfGet(`/Users/${jf.userId}/Items`, {
+      jfGetMerged(`/Users/${jf.userId}/Items`, {
         ArtistIds: artistId, IncludeItemTypes: 'MusicAlbum', Recursive: true,
         SortBy: 'ProductionYear,SortName', SortOrder: 'Descending'
       }),
       fetchArtistSongs(artistId)
     ])
 
-    const albums = albumsData.Items || []
+    // Newest first, as SortBy asked; the merge only kept that within each library.
+    const albums = (albumsData.Items || []).sort((a, b) =>
+      (b.ProductionYear ?? 0) - (a.ProductionYear ?? 0) || (a.SortName || a.Name || '').localeCompare(b.SortName || b.Name || ''))
 
     document.getElementById('artist-detail-meta').textContent =
       `${albums.length} album${albums.length !== 1 ? 's' : ''} · ${songs.length} song${songs.length !== 1 ? 's' : ''}`

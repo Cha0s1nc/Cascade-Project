@@ -352,7 +352,7 @@ export class JellyfinClient {
     const ids = libraryIds ?? this.config.libraryIds ?? []
     if (!ids.length) return this.get<JfItemsResponse>(path, params)
 
-    const { query, strip } = withBitrates(params, ids)
+    const { query, strip } = withDedupeFields(params, ids)
     const groups = await this.getGrouped(path, query, ids)
     return strip(dedupeById(groups.map(g => g.items)))
   }
@@ -390,7 +390,7 @@ export class JellyfinClient {
     const configured = libraryIds ?? this.config.libraryIds
     const ids: (string | null)[] = configured?.length ? configured : [null]
     const pageSize = Number(params.Limit) || DEFAULT_PAGE_SIZE
-    const { query, strip } = withBitrates(params, configured ?? [])
+    const { query, strip } = withDedupeFields(params, configured ?? [])
     params = query
 
     const perLibrary = await Promise.all(ids.map(async libId => {
@@ -467,10 +467,14 @@ export class JellyfinClient {
  * durations within DUPLICATE_DURATION_SEC (so a "(Live)" or extended cut,
  * titled or timed differently, stays), and the copy with the highest bitrate
  * is kept, in the place the first copy held (bitrate from MediaSources, see
- * withBitrates; without it the first library's copy stays). Albums match on
- * name and album artist; they carry no bitrate, so the first library's copy
- * is kept. Copies inside one library are never merged: that is the library's
- * own business, like a single kept next to its album.
+ * withDedupeFields; without it the first library's copy stays). Albums match
+ * on name and album artist, and the copy with the most tracks is kept
+ * (ChildCount): the same album can be whole in one library and one song in
+ * another, and keeping the one-song copy hid the rest of the album. Artists
+ * match on name: Jellyfin 12 gives the same artist a different id in every
+ * library, so the id alone listed each one once per library. Copies inside
+ * one library are never merged: that is the library's own business, like a
+ * single kept next to its album.
  */
 export function dedupeById(lists: JfItem[][]): JfItemsResponse {
   const seen = new Set<string>()
@@ -487,7 +491,7 @@ export function dedupeById(lists: JfItem[][]): JfItemsResponse {
         const copy = copies.find(c => c.lib !== lib &&
           (item.Type !== 'Audio' || c.sec == null || sec == null || Math.abs(c.sec - sec) <= DUPLICATE_DURATION_SEC))
         if (copy) {
-          if (bitrate(item) > bitrate(items[copy.pos])) { items[copy.pos] = item; copy.lib = lib; copy.sec = sec }
+          if (better(item, items[copy.pos])) { items[copy.pos] = item; copy.lib = lib; copy.sec = sec }
           continue
         }
         copies.push({ lib, sec, pos: items.length })
@@ -500,21 +504,32 @@ export function dedupeById(lists: JfItem[][]): JfItemsResponse {
 }
 
 const bitrate = (item: JfItem) => item.MediaSources?.[0]?.Bitrate ?? 0
+/** Which of two copies of the same song or album to keep. */
+const better = (a: JfItem, b: JfItem) => a.Type === 'MusicAlbum'
+  ? (a.ChildCount ?? 0) > (b.ChildCount ?? 0)
+  : bitrate(a) > bitrate(b)
 
 /**
- * Songs need MediaSources for their bitrate, which more than doubles each
- * item (1.4 KB to 3.7 KB measured), so it is asked for only when it can
- * matter: two or more libraries, and songs in the query. `strip` takes it
- * back off afterwards unless the caller asked for it itself.
+ * The fields the cross-library merge compares copies by, asked for only when
+ * the query spans two or more libraries: MediaSources for a song's bitrate
+ * (which more than doubles each item, 1.4 KB to 3.7 KB measured) and
+ * ChildCount for an album's track count. `strip` takes them back off
+ * afterwards unless the caller asked for them itself.
  */
-function withBitrates(params: JfParams, ids: readonly string[]): { query: JfParams, strip: (r: JfItemsResponse) => JfItemsResponse } {
+function withDedupeFields(params: JfParams, ids: readonly string[]): { query: JfParams, strip: (r: JfItemsResponse) => JfItemsResponse } {
   const fields = String(params.Fields ?? '')
-  const needed = ids.length > 1 && /(^|,)Audio(,|$)/.test(String(params.IncludeItemTypes ?? '')) &&
-    !/(^|,)MediaSources(,|$)/.test(fields)
-  if (!needed) return { query: params, strip: r => r }
+  const types = String(params.IncludeItemTypes ?? '')
+  const has = (list: string, name: string) => new RegExp(`(^|,)${name}(,|$)`).test(list)
+  const add = ids.length > 1
+    ? [has(types, 'Audio') && 'MediaSources', has(types, 'MusicAlbum') && 'ChildCount'].filter((f): f is string => !!f && !has(fields, f))
+    : []
+  if (!add.length) return { query: params, strip: r => r }
   return {
-    query: { ...params, Fields: fields ? `${fields},MediaSources` : 'MediaSources' },
-    strip: r => { for (const i of r.Items ?? []) delete i.MediaSources; return r },
+    query: { ...params, Fields: [fields, ...add].filter(Boolean).join(',') },
+    strip: r => {
+      for (const i of r.Items ?? []) for (const f of add) delete (i as unknown as Record<string, unknown>)[f]
+      return r
+    },
   }
 }
 
@@ -532,6 +547,10 @@ function contentKey(item: JfItem): string | null {
   if (item.Type === 'MusicAlbum') {
     const name = normalise(item.Name)
     return name ? `m|${name}|${normalise(item.AlbumArtist || item.Artists?.[0])}` : null
+  }
+  if (item.Type === 'MusicArtist') {
+    const name = normalise(item.Name)
+    return name ? `r|${name}` : null
   }
   return null
 }

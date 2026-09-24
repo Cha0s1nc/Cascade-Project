@@ -508,7 +508,7 @@ test('getMerged: asks for bitrates only for songs across libraries, and strips t
 
   calls.length = 0
   await clientFor(cfg).getMerged('/Items', { IncludeItemTypes: 'MusicAlbum' })
-  assert.equal(new URL(calls[0].url).searchParams.has('Fields'), false, 'albums have no bitrate to ask for')
+  assert.equal(new URL(calls[0].url).searchParams.get('Fields'), 'ChildCount', 'albums compare by track count instead')
 
   calls.length = 0
   await clientFor({ ...baseConfig, libraryIds: ['L1'] }).getMerged('/Items', { IncludeItemTypes: 'Audio' })
@@ -535,4 +535,18 @@ test('post: a JSON body still comes back parsed', async () => {
 test('authHeader: the token goes inside the standard header, only when there is one', () => {
   assert.equal(authHeader('1.0', 'd'), 'MediaBrowser Client="Cascade", Device="Cascade", DeviceId="d", Version="1.0"')
   assert.equal(authHeader('1.0', 'd', 'T'), 'MediaBrowser Client="Cascade", Device="Cascade", DeviceId="d", Version="1.0", Token="T"')
+})
+
+test('dedupeById: of two copies of an album, the one with more tracks wins', () => {
+  // Real case from a Jellyfin test server: Night Drive whole in one library,
+  // one song of it in another; keeping the one-song copy hid the rest.
+  const album = (Id: string, ChildCount: number) => ({ Id, Name: 'Night Drive', Type: 'MusicAlbum', AlbumArtist: 'Aurora Lane', ChildCount })
+  assert.deepEqual(dedupeById([[album('partial', 1)], [album('whole', 3)]]).Items!.map(i => i.Id), ['whole'])
+  assert.deepEqual(dedupeById([[album('whole', 3)], [album('partial', 1)]]).Items!.map(i => i.Id), ['whole'])
+})
+
+test('dedupeById: an artist found in two libraries appears once (Jellyfin 12 gives it an id per library)', () => {
+  const artist = (Id: string, Name: string) => ({ Id, Name, Type: 'MusicArtist' })
+  const res = dedupeById([[artist('42585974', 'Aurora Lane')], [artist('98eed3bf', 'aurora lane'), artist('d15fdbee', 'Aurora Lane; Kite Echo')]])
+  assert.deepEqual(res.Items!.map(i => i.Id), ['42585974', 'd15fdbee'])
 })

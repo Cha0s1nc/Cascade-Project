@@ -320,6 +320,13 @@ controlServer.on('error', (err) => {
 
 const GITHUB_REPO = 'Cha0s1nc/Cascade-Project'
 
+// --user-data-dir (npm run dev:second, test instances) moves Chromium's own
+// data, but not app.getPath('userData'), which electron-store and every file
+// Cascade keeps (translation cache, models) are built from. Without this, a
+// "separate" instance read and wrote the real config.json, token included.
+const userDataDir = app.commandLine.getSwitchValue('user-data-dir')
+if (userDataDir) app.setPath('userData', userDataDir)
+
 const store = new Store()
 
 // The app's own .titlebar strip is 38px (index.html) - the Window Controls
