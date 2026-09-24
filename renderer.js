@@ -1490,6 +1490,69 @@ function showView(name) {
   if (name === 'settings') loadSettingsFields()
 }
 
+// ── Settings categories ──────────────────────────────────────────────────────
+// The bar across the top of Settings. Switching slides the panes by where the
+// new category sits relative to the old: moving right, the old pane leaves to
+// the left and the new one comes in from the right; moving left, the reverse.
+// Click to switch. As a tablist, a focused tab also takes the arrow keys.
+const _settingsTabs = [...document.querySelectorAll('.sn-item')]
+const _settingsPill = document.querySelector('.sn-pill')
+let _settingsTab = 0
+
+function placeSettingsPill(animate) {
+  const t = _settingsTabs[_settingsTab]
+  if (!t.offsetWidth) return   // view hidden; the observer below places it on show
+  if (!animate) _settingsPill.style.transition = 'none'
+  _settingsPill.style.width = `${t.offsetWidth}px`
+  _settingsPill.style.transform = `translateX(${t.offsetLeft}px)`
+  if (!animate) { _settingsPill.offsetWidth; _settingsPill.style.transition = '' }
+}
+
+function showSettingsTab(i) {
+  if (i < 0 || i >= _settingsTabs.length || i === _settingsTab) return
+  const dir = i > _settingsTab ? 1 : -1
+  const pane = n => document.getElementById(`section-${_settingsTabs[n].dataset.section}`)
+  const from = pane(_settingsTab), to = pane(i)
+  _settingsTabs.forEach((t, n) => {
+    t.classList.toggle('active', n === i)
+    t.setAttribute('aria-selected', String(n === i))
+    t.tabIndex = n === i ? 0 : -1
+  })
+  _settingsTab = i
+  placeSettingsPill(true)
+  document.querySelector('#view-settings .settings-view').scrollTop = 0
+
+  // A switch mid-slide snaps the running one to its end first.
+  for (const el of [from, to]) el.getAnimations().forEach(a => a.finish())
+  from.classList.remove('active')
+  to.classList.add('active')
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return
+
+  const timing = { duration: 320, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' }
+  from.classList.add('leaving')
+  const out = from.animate([
+    { transform: 'translateX(0)', opacity: 1 },
+    { transform: `translateX(${-dir * 100}%)`, opacity: 0 },
+  ], timing)
+  out.onfinish = out.oncancel = () => from.classList.remove('leaving')
+  to.animate([
+    { transform: `translateX(${dir * 100}%)`, opacity: 0 },
+    { transform: 'translateX(0)', opacity: 1 },
+  ], timing)
+}
+
+_settingsTabs.forEach((t, i) => t.addEventListener('click', () => showSettingsTab(i)))
+document.querySelector('.sn-tabs').addEventListener('keydown', e => {
+  const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0
+  if (!step) return
+  e.preventDefault()
+  showSettingsTab(_settingsTab + step)
+  _settingsTabs[_settingsTab].focus()
+})
+// Tab widths change when the view is first shown, the window resizes, or the
+// font setting changes; the observer catches all three.
+new ResizeObserver(() => placeSettingsPill(false)).observe(document.querySelector('.sn-tabs'))
+
 // Categories with an index/detail split - clicking the sidebar item again while
 // already on that category clicks its own back button, which returns to the
 // index. The back buttons are already idempotent (they just re-set the same

@@ -493,295 +493,323 @@
 
       <!-- Settings -->
       <div class="view" id="view-settings">
+        <!-- Categories across the top; the pill slides to the selected one and
+             the panes slide by direction of travel (see the settings tabs code
+             in renderer.js). The same design is planned for tvOS and Android TV. -->
+        <nav class="settings-nav">
+          <div class="sn-tabs" role="tablist" aria-label="Settings categories">
+            <div class="sn-pill" aria-hidden="true"></div>
+            <button type="button" class="sn-item active" role="tab" id="sn-library" aria-controls="section-library" aria-selected="true" tabindex="0" data-section="library"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Library</button>
+            <button type="button" class="sn-item" role="tab" id="sn-playback" aria-controls="section-playback" aria-selected="false" tabindex="-1" data-section="playback"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="5 3 19 12 5 21 5 3"/></svg>Playback</button>
+            <button type="button" class="sn-item" role="tab" id="sn-lyrics" aria-controls="section-lyrics" aria-selected="false" tabindex="-1" data-section="lyrics"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Lyrics</button>
+            <button type="button" class="sn-item" role="tab" id="sn-integrations" aria-controls="section-integrations" aria-selected="false" tabindex="-1" data-section="integrations"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.7s5.5 5.2 5.5 9.3a5.5 5.5 0 0 1-11 0C6.5 7.9 12 2.7 12 2.7z"/></svg>Integrations</button>
+            <button type="button" class="sn-item" role="tab" id="sn-account" aria-controls="section-account" aria-selected="false" tabindex="-1" data-section="account"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Account</button>
+            <button type="button" class="sn-item" role="tab" id="sn-about" aria-controls="section-about" aria-selected="false" tabindex="-1" data-section="about"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>About</button>
+          </div>
+        </nav>
         <div class="settings-view">
-          <div class="settings-group" id="s-library-group">
-            <div class="sg-title">Library</div>
-            <div class="setting-row" id="s-single-lib-row" style="display:none;">
-              <div class="setting-label">
-                <span class="setting-name">Single library mode</span>
-                <span class="setting-desc">Play from one library at a time instead of merging several.</span>
+          <div class="settings-panes">
+            <section class="settings-section active" id="section-library" role="tabpanel" aria-labelledby="sn-library">
+              <div class="settings-group" id="s-library-group">
+                <div class="sg-title">Library</div>
+                <div class="setting-row" id="s-single-lib-row" style="display:none;">
+                  <div class="setting-label">
+                    <span class="setting-name">Single library mode</span>
+                    <span class="setting-desc">Play from one library at a time instead of merging several.</span>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="s-single-lib-toggle">
+                    <span class="toggle-track"></span>
+                  </label>
+                </div>
+                <div class="setting-row" id="s-library-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;">
+                  <div class="setting-label">
+                    <span class="setting-name">Music libraries</span>
+                    <span class="setting-desc" id="s-library-desc">Changes apply immediately.</span>
+                  </div>
+                  <div id="s-library-list" style="width:260px;display:flex;flex-direction:column;gap:6px;">
+                    <span style="font-size:12px;color:var(--text3);">- connect to load libraries -</span>
+                  </div>
+                </div>
+                <!-- Kept separate from the music picker on purpose: these ids are
+                     never mixed into a music query, so browsing albums does not fan
+                     out across a movie library. -->
+                <div class="setting-row" id="s-video-library-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;display:none;">
+                  <div class="setting-label">
+                    <span class="setting-name">Movie &amp; TV libraries</span>
+                    <span class="setting-desc">Off by default. Turn one on to show Movies and TV Shows in the sidebar.</span>
+                  </div>
+                  <div id="s-video-library-list" style="width:260px;display:flex;flex-direction:column;gap:6px;"></div>
+                </div>
+                <!-- Scan talks to the server and only an admin account may call it;
+                     Refresh app is purely local and works for anyone. Kept as two
+                     separate rows so which is which is never ambiguous. -->
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Scan library on server</span>
+                    <span class="setting-desc">Looks for files added or removed outside Jellyfin. Runs in the background - results show up once it finishes, not right away.</span>
+                  </div>
+                  <span class="tip-host" id="s-refresh-server-tip" data-tip="Needs a Jellyfin admin account"><button class="btn btn-secondary" id="s-refresh-server" disabled>Scan server</button></span>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Refresh app</span>
+                    <span class="setting-desc">Reloads songs, albums, artists, playlists, movies, shows and Home from what the server has now. Works for any account.</span>
+                  </div>
+                  <button class="btn btn-secondary" id="s-refresh-local">Refresh now</button>
+                </div>
               </div>
-              <label class="toggle">
-                <input type="checkbox" id="s-single-lib-toggle">
-                <span class="toggle-track"></span>
-              </label>
-            </div>
-            <div class="setting-row" id="s-library-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;">
-              <div class="setting-label">
-                <span class="setting-name">Music libraries</span>
-                <span class="setting-desc" id="s-library-desc">Changes apply immediately.</span>
+            </section>
+            <section class="settings-section" id="section-playback" role="tabpanel" aria-labelledby="sn-playback">
+              <div class="settings-group">
+                <div class="sg-title">Playback</div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Crossfade</span>
+                    <span class="setting-desc">Fade into the next track instead of a hard cut. Off by default.</span>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="crossfade-toggle">
+                    <span class="toggle-track"></span>
+                  </label>
+                </div>
+                <div class="setting-row" id="crossfade-duration-row" style="display:none">
+                  <div class="setting-label">
+                    <span class="setting-name">Crossfade length</span>
+                  </div>
+                  <div class="setting-slider-row">
+                    <input type="range" id="crossfade-duration" min="1" max="15" step="1" value="6">
+                    <span class="eq-band-value" id="crossfade-duration-value">6s</span>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Streaming quality</span>
+                    <span class="setting-desc">Cap the bitrate and the server transcodes to fit. Original sends the file untouched.</span>
+                  </div>
+                  <div class="setting-slider-row">
+                    <input type="range" id="max-bitrate" min="0" max="4" step="1" value="0">
+                    <span class="eq-band-value" id="max-bitrate-value">Original</span>
+                  </div>
+                </div>
+                <!-- Equalizer lives under Playback rather than its own group - it is
+                     a playback setting, not a separate concern. Same collapsible-
+                     group heading style used for Movies/TV inside the library
+                     pickers, reused rather than inventing a second one. -->
+                <div class="lib-group-title" style="padding:0 14px;">Equalizer</div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Enable equalizer</span>
+                    <span class="setting-desc">Off leaves every band at 0 dB, so turning this back on never clicks.</span>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="eq-enable-toggle">
+                    <span class="toggle-track"></span>
+                  </label>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Editing profile</span>
+                    <span class="setting-desc">Music and video keep separate curves. This picks which one you are editing below, it does not change what is playing.</span>
+                  </div>
+                  <div class="eq-mode-switch">
+                    <button type="button" class="eq-mode-btn active" id="eq-edit-music">Music</button>
+                    <button type="button" class="eq-mode-btn" id="eq-edit-video">Video</button>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label"><span class="setting-name">Preset</span></div>
+                  <select class="setting-input" id="eq-preset"></select>
+                </div>
+                <div class="setting-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;">
+                  <div class="setting-label">
+                    <span class="setting-name">Preamp</span>
+                    <span class="setting-desc">Auto cuts to keep boosted bands from clipping. Uncheck to set it yourself.</span>
+                  </div>
+                  <div class="eq-preamp">
+                    <label class="eq-auto-label"><input type="checkbox" id="eq-preamp-auto"> Auto</label>
+                    <input type="range" id="eq-preamp-slider" min="-12" max="12" step="0.5" value="0">
+                    <span class="eq-band-value" id="eq-preamp-value">0.0 dB</span>
+                  </div>
+                </div>
+                <div class="setting-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;">
+                  <div class="setting-label">
+                    <span class="setting-name">Bands</span>
+                    <span class="setting-desc">Drag a point, or tab to one and use the arrow keys.</span>
+                  </div>
+                  <!-- Points and labels are built in renderer.js from CascadeCore.EQ_BANDS,
+                       not hardcoded here - that used to be a trap: changing a band
+                       frequency meant remembering to edit both this file and eq-profile.ts. -->
+                  <div class="eq-graph-wrap">
+                    <!-- No role="img" here: that would flatten the five focusable
+                         role="slider" points below out of the accessibility tree.
+                         The curve and zero line are purely decorative. -->
+                    <svg class="eq-graph" id="eq-graph" viewBox="0 0 260 140" width="260" height="140">
+                      <line class="eq-graph-zero" x1="0" y1="70" x2="260" y2="70"></line>
+                      <path class="eq-graph-curve" id="eq-graph-curve" d=""></path>
+                      <g id="eq-graph-points"></g>
+                    </svg>
+                    <div class="eq-graph-labels" id="eq-graph-labels"></div>
+                  </div>
+                </div>
               </div>
-              <div id="s-library-list" style="width:260px;display:flex;flex-direction:column;gap:6px;">
-                <span style="font-size:12px;color:var(--text3);">- connect to load libraries -</span>
+            </section>
+            <section class="settings-section" id="section-lyrics" role="tabpanel" aria-labelledby="sn-lyrics">
+              <!-- Server-only mode decides which lyrics sources are even offered
+                   below (see the lsd-server-only / lsd-non-server option classes),
+                   so the two live in one group with the setting that gates the
+                   other listed first. -->
+              <div class="settings-group">
+                <div class="sg-title">Lyrics &amp; Metadata</div>
+                <div class="setting-row" id="server-only-lyrics-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Server-only Mode</span>
+                    <span class="setting-desc">Use the Cascade Server Jellyfin plugin exclusively for lyrics and art. Requires the plugin to be installed on your server.</span>
+                    <span class="setting-desc" id="server-only-plugin-missing" style="display:none">Cascade Server plugin not found on this server. Install it through my Github page to use server-only mode and the lyrics editor.</span>
+                  </div>
+                  <label class="toggle" id="server-only-toggle-label">
+                    <input type="checkbox" id="server-only-lyrics-toggle">
+                    <span class="toggle-track"></span>
+                  </label>
+                </div>
+                <div class="setting-row" id="lyrics-source-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Lyrics Source</span>
+                    <span class="setting-desc">Preferred source. Auto tries each in order: Kugou → LRCLIB → Jellyfin.</span>
+                  </div>
+                  <select class="setting-input" id="s-lyrics-source">
+                    <option value="auto">Auto (waterfall)</option>
+                    <option value="Kugou" class="lsd-non-server">Kugou</option>
+                    <option value="LRCLIB" class="lsd-non-server">LRCLIB</option>
+                    <option value="Jellyfin" class="lsd-non-server">Jellyfin</option>
+                    <option value="cascade-karaoke" class="lsd-server-only" style="display:none">Karaoke Only</option>
+                    <option value="cascade-synced" class="lsd-server-only" style="display:none">Synced Only</option>
+                  </select>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Lyric Translation</span>
+                    <span class="setting-desc">Translates Japanese, Korean, Chinese and Spanish lyrics into English on this computer. Each language's model (about 35-70 MB, from Mozilla's Firefox Translations) downloads the first time it's needed, from Cascade's GitHub or Mozilla's servers. Your lyrics never leave your computer.</span>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="lyrics-translation-toggle">
+                    <span class="toggle-track"></span>
+                  </label>
+                </div>
+                <div class="setting-row" id="apple-translation-row" style="display:none">
+                  <div class="setting-label">
+                    <span class="setting-name">Use Apple Translation</span>
+                    <span class="setting-desc">Recommended on this Mac. Translates with the translation built into macOS instead of Cascade's downloadable models: more accurate, and nothing downloads through Cascade, though it is a little slower. Each language needs to be installed in macOS first, under Translation Languages in Language &amp; Region.</span>
+                    <span class="setting-desc" id="apple-translation-status"></span>
+                  </div>
+                  <div class="tm-actions">
+                    <button class="btn btn-secondary" id="apple-translation-reset" style="display:none">Ask again</button>
+                    <button class="btn btn-secondary" id="apple-translation-open">Language &amp; Region</button>
+                    <label class="toggle">
+                      <input type="checkbox" id="apple-translation-toggle">
+                      <span class="toggle-track"></span>
+                    </label>
+                  </div>
+                </div>
+                <div class="lib-group-title" style="padding:0 14px;">Translation Models</div>
+                <div id="translation-models-list"></div>
               </div>
-            </div>
-            <!-- Kept separate from the music picker on purpose: these ids are
-                 never mixed into a music query, so browsing albums does not fan
-                 out across a movie library. -->
-            <div class="setting-row" id="s-video-library-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;display:none;">
-              <div class="setting-label">
-                <span class="setting-name">Movie &amp; TV libraries</span>
-                <span class="setting-desc">Off by default. Turn one on to show Movies and TV Shows in the sidebar.</span>
+            </section>
+            <section class="settings-section" id="section-integrations" role="tabpanel" aria-labelledby="sn-integrations">
+              <div class="settings-group">
+                <div class="sg-title">Integrations</div>
+                <div class="lib-group-title" style="padding:0 14px;">Discord</div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Rich Presence</span>
+                    <span class="setting-desc">Show current track in Discord. Requires a Discord Application ID.</span>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="discord-rpc-toggle">
+                    <span class="toggle-track"></span>
+                  </label>
+                </div>
+                <div style="display:none">
+                  <input id="discord-client-id" type="hidden" />
+                  <a id="discord-dev-link" href="#"></a>
+                </div>
+                <div class="setting-row" style="justify-content:flex-start;gap:8px;">
+                  <div class="ws-dot" id="discord-rpc-dot"></div>
+                  <span style="font-size:11px;color:var(--text3)" id="discord-rpc-status-label">Not connected</span>
+                </div>
+                <div class="lib-group-title" style="padding:0 14px;">Waterfall <span class="wf-beta">BETA</span></div>
+                <div class="setting-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;">
+                  <div class="setting-label">
+                    <span class="setting-name">Relay server</span>
+                    <span class="setting-desc">Handles room codes and keeps listeners in sync. It only ever carries small control messages, never audio. Leave blank for the default, or point it at your own if you would rather not use someone else's.</span>
+                  </div>
+                  <input class="setting-input" id="s-wf-relay" type="text" placeholder="Default" spellcheck="false" />
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Guests can add to the queue</span>
+                    <span class="setting-desc">Members of a room you host can append tracks. They cannot reorder or remove anything.</span>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="s-wf-guest-adds">
+                    <span class="toggle-track"></span>
+                  </label>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Guests can control playback</span>
+                    <span class="setting-desc">Lets members play, pause, skip and seek for the whole room. Off by default — with it on, anyone in the room can interrupt everyone else.</span>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="s-wf-guest-control">
+                    <span class="toggle-track"></span>
+                  </label>
+                </div>
               </div>
-              <div id="s-video-library-list" style="width:260px;display:flex;flex-direction:column;gap:6px;"></div>
-            </div>
-            <!-- Scan talks to the server and only an admin account may call it;
-                 Refresh app is purely local and works for anyone. Kept as two
-                 separate rows so which is which is never ambiguous. -->
-            <div class="setting-row">
-              <div class="setting-label">
-                <span class="setting-name">Scan library on server</span>
-                <span class="setting-desc">Looks for files added or removed outside Jellyfin. Runs in the background - results show up once it finishes, not right away.</span>
+            </section>
+            <section class="settings-section" id="section-account" role="tabpanel" aria-labelledby="sn-account">
+              <div class="settings-group">
+                <div class="sg-title">Account</div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Server URL</span>
+                    <span class="setting-desc">e.g. http://192.168.1.10:8096</span>
+                  </div>
+                  <input class="setting-input" id="s-url" type="text" placeholder="http://localhost:8096" />
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label"><span class="setting-name">Username</span></div>
+                  <input class="setting-input" id="s-user" type="text" placeholder="Username" />
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label"><span class="setting-name">Password</span></div>
+                  <input class="setting-input" id="s-pass" type="password" placeholder="Password" />
+                </div>
               </div>
-              <span class="tip-host" id="s-refresh-server-tip" data-tip="Needs a Jellyfin admin account"><button class="btn btn-secondary" id="s-refresh-server" disabled>Scan server</button></span>
-            </div>
-            <div class="setting-row">
-              <div class="setting-label">
-                <span class="setting-name">Refresh app</span>
-                <span class="setting-desc">Reloads songs, albums, artists, playlists, movies, shows and Home from what the server has now. Works for any account.</span>
+              <div class="settings-actions">
+                <span class="save-status" id="save-status">Saved ✓</span>
+                <button class="btn btn-danger" id="btn-logout">Sign out</button>
+                <button class="btn btn-primary" id="btn-save-settings">Save &amp; reconnect</button>
               </div>
-              <button class="btn btn-secondary" id="s-refresh-local">Refresh now</button>
-            </div>
-          </div>
-          <div class="settings-group">
-            <div class="sg-title">Playback</div>
-            <div class="setting-row">
-              <div class="setting-label">
-                <span class="setting-name">Crossfade</span>
-                <span class="setting-desc">Fade into the next track instead of a hard cut. Off by default.</span>
+            </section>
+            <section class="settings-section" id="section-about" role="tabpanel" aria-labelledby="sn-about">
+              <div class="settings-group settings-about">
+                <div>
+                  <div style="font-size:13px;font-weight:500;color:var(--text);">Cascade</div>
+                  <div style="font-size:11px;color:var(--text3);" id="app-version">v1.0.0</div>
+                </div>
+                <div style="display:flex;align-items:center;gap:12px;">
+                  <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text3);">
+                    <span>Beta updates</span>
+                    <label class="toggle">
+                      <input type="checkbox" id="beta-updates-toggle">
+                      <span class="toggle-track"></span>
+                    </label>
+                  </div>
+                  <button class="btn btn-secondary" id="btn-check-updates" style="font-size:12px;padding:5px 14px;">Check for updates</button>
+                </div>
               </div>
-              <label class="toggle">
-                <input type="checkbox" id="crossfade-toggle">
-                <span class="toggle-track"></span>
-              </label>
-            </div>
-            <div class="setting-row" id="crossfade-duration-row" style="display:none">
-              <div class="setting-label">
-                <span class="setting-name">Crossfade length</span>
-              </div>
-              <div class="setting-slider-row">
-                <input type="range" id="crossfade-duration" min="1" max="15" step="1" value="6">
-                <span class="eq-band-value" id="crossfade-duration-value">6s</span>
-              </div>
-            </div>
-            <div class="setting-row">
-              <div class="setting-label">
-                <span class="setting-name">Streaming quality</span>
-                <span class="setting-desc">Cap the bitrate and the server transcodes to fit. Original sends the file untouched.</span>
-              </div>
-              <div class="setting-slider-row">
-                <input type="range" id="max-bitrate" min="0" max="4" step="1" value="0">
-                <span class="eq-band-value" id="max-bitrate-value">Original</span>
-              </div>
-            </div>
-            <!-- Equalizer lives under Playback rather than its own group - it is
-                 a playback setting, not a separate concern. Same collapsible-
-                 group heading style used for Movies/TV inside the library
-                 pickers, reused rather than inventing a second one. -->
-            <div class="lib-group-title" style="padding:0 14px;">Equalizer</div>
-            <div class="setting-row">
-              <div class="setting-label">
-                <span class="setting-name">Enable equalizer</span>
-                <span class="setting-desc">Off leaves every band at 0 dB, so turning this back on never clicks.</span>
-              </div>
-              <label class="toggle">
-                <input type="checkbox" id="eq-enable-toggle">
-                <span class="toggle-track"></span>
-              </label>
-            </div>
-            <div class="setting-row">
-              <div class="setting-label">
-                <span class="setting-name">Editing profile</span>
-                <span class="setting-desc">Music and video keep separate curves. This picks which one you are editing below, it does not change what is playing.</span>
-              </div>
-              <div class="eq-mode-switch">
-                <button type="button" class="eq-mode-btn active" id="eq-edit-music">Music</button>
-                <button type="button" class="eq-mode-btn" id="eq-edit-video">Video</button>
-              </div>
-            </div>
-            <div class="setting-row">
-              <div class="setting-label"><span class="setting-name">Preset</span></div>
-              <select class="setting-input" id="eq-preset"></select>
-            </div>
-            <div class="setting-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;">
-              <div class="setting-label">
-                <span class="setting-name">Preamp</span>
-                <span class="setting-desc">Auto cuts to keep boosted bands from clipping. Uncheck to set it yourself.</span>
-              </div>
-              <div class="eq-preamp">
-                <label class="eq-auto-label"><input type="checkbox" id="eq-preamp-auto"> Auto</label>
-                <input type="range" id="eq-preamp-slider" min="-12" max="12" step="0.5" value="0">
-                <span class="eq-band-value" id="eq-preamp-value">0.0 dB</span>
-              </div>
-            </div>
-            <div class="setting-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;">
-              <div class="setting-label">
-                <span class="setting-name">Bands</span>
-                <span class="setting-desc">Drag a point, or tab to one and use the arrow keys.</span>
-              </div>
-              <!-- Points and labels are built in renderer.js from CascadeCore.EQ_BANDS,
-                   not hardcoded here - that used to be a trap: changing a band
-                   frequency meant remembering to edit both this file and eq-profile.ts. -->
-              <div class="eq-graph-wrap">
-                <!-- No role="img" here: that would flatten the five focusable
-                     role="slider" points below out of the accessibility tree.
-                     The curve and zero line are purely decorative. -->
-                <svg class="eq-graph" id="eq-graph" viewBox="0 0 260 140" width="260" height="140">
-                  <line class="eq-graph-zero" x1="0" y1="70" x2="260" y2="70"></line>
-                  <path class="eq-graph-curve" id="eq-graph-curve" d=""></path>
-                  <g id="eq-graph-points"></g>
-                </svg>
-                <div class="eq-graph-labels" id="eq-graph-labels"></div>
-              </div>
-            </div>
-          </div>
-          <!-- Server-only mode decides which lyrics sources are even offered
-               below (see the lsd-server-only / lsd-non-server option classes),
-               so the two live in one group with the setting that gates the
-               other listed first. -->
-          <div class="settings-group">
-            <div class="sg-title">Lyrics &amp; Metadata</div>
-            <div class="setting-row" id="server-only-lyrics-row">
-              <div class="setting-label">
-                <span class="setting-name">Server-only Mode</span>
-                <span class="setting-desc">Use the Cascade Server Jellyfin plugin exclusively for lyrics and art. Requires the plugin to be installed on your server.</span>
-                <span class="setting-desc" id="server-only-plugin-missing" style="display:none">Cascade Server plugin not found on this server. Install it through my Github page to use server-only mode and the lyrics editor.</span>
-              </div>
-              <label class="toggle" id="server-only-toggle-label">
-                <input type="checkbox" id="server-only-lyrics-toggle">
-                <span class="toggle-track"></span>
-              </label>
-            </div>
-            <div class="setting-row" id="lyrics-source-row">
-              <div class="setting-label">
-                <span class="setting-name">Lyrics Source</span>
-                <span class="setting-desc">Preferred source. Auto tries each in order: Kugou → LRCLIB → Jellyfin.</span>
-              </div>
-              <select class="setting-input" id="s-lyrics-source">
-                <option value="auto">Auto (waterfall)</option>
-                <option value="Kugou" class="lsd-non-server">Kugou</option>
-                <option value="LRCLIB" class="lsd-non-server">LRCLIB</option>
-                <option value="Jellyfin" class="lsd-non-server">Jellyfin</option>
-                <option value="cascade-karaoke" class="lsd-server-only" style="display:none">Karaoke Only</option>
-                <option value="cascade-synced" class="lsd-server-only" style="display:none">Synced Only</option>
-              </select>
-            </div>
-            <div class="setting-row">
-              <div class="setting-label">
-                <span class="setting-name">Lyric Translation</span>
-                <span class="setting-desc">Translates Japanese, Korean, Chinese and Spanish lyrics into English on this computer. Each language's model (about 35-70 MB, from Mozilla's Firefox Translations) downloads the first time it's needed, from Cascade's GitHub or Mozilla's servers. Your lyrics never leave your computer.</span>
-              </div>
-              <label class="toggle">
-                <input type="checkbox" id="lyrics-translation-toggle">
-                <span class="toggle-track"></span>
-              </label>
-            </div>
-            <div class="setting-row" id="apple-translation-row" style="display:none">
-              <div class="setting-label">
-                <span class="setting-name">Use Apple Translation</span>
-                <span class="setting-desc">Recommended on this Mac. Translates with the translation built into macOS instead of Cascade's downloadable models: more accurate, and nothing downloads through Cascade, though it is a little slower. Each language needs to be installed in macOS first, under Translation Languages in Language &amp; Region.</span>
-                <span class="setting-desc" id="apple-translation-status"></span>
-              </div>
-              <div class="tm-actions">
-                <button class="btn btn-secondary" id="apple-translation-reset" style="display:none">Ask again</button>
-                <button class="btn btn-secondary" id="apple-translation-open">Language &amp; Region</button>
-                <label class="toggle">
-                  <input type="checkbox" id="apple-translation-toggle">
-                  <span class="toggle-track"></span>
-                </label>
-              </div>
-            </div>
-            <div class="lib-group-title" style="padding:0 14px;">Translation Models</div>
-            <div id="translation-models-list"></div>
-          </div>
-          <div class="settings-group">
-            <div class="sg-title">Integrations</div>
-            <div class="lib-group-title" style="padding:0 14px;">Discord</div>
-            <div class="setting-row">
-              <div class="setting-label">
-                <span class="setting-name">Rich Presence</span>
-                <span class="setting-desc">Show current track in Discord. Requires a Discord Application ID.</span>
-              </div>
-              <label class="toggle">
-                <input type="checkbox" id="discord-rpc-toggle">
-                <span class="toggle-track"></span>
-              </label>
-            </div>
-            <div style="display:none">
-              <input id="discord-client-id" type="hidden" />
-              <a id="discord-dev-link" href="#"></a>
-            </div>
-            <div class="setting-row" style="justify-content:flex-start;gap:8px;">
-              <div class="ws-dot" id="discord-rpc-dot"></div>
-              <span style="font-size:11px;color:var(--text3)" id="discord-rpc-status-label">Not connected</span>
-            </div>
-            <div class="lib-group-title" style="padding:0 14px;">Waterfall <span class="wf-beta">BETA</span></div>
-            <div class="setting-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;">
-              <div class="setting-label">
-                <span class="setting-name">Relay server</span>
-                <span class="setting-desc">Handles room codes and keeps listeners in sync. It only ever carries small control messages, never audio. Leave blank for the default, or point it at your own if you would rather not use someone else's.</span>
-              </div>
-              <input class="setting-input" id="s-wf-relay" type="text" placeholder="Default" spellcheck="false" />
-            </div>
-            <div class="setting-row">
-              <div class="setting-label">
-                <span class="setting-name">Guests can add to the queue</span>
-                <span class="setting-desc">Members of a room you host can append tracks. They cannot reorder or remove anything.</span>
-              </div>
-              <label class="toggle">
-                <input type="checkbox" id="s-wf-guest-adds">
-                <span class="toggle-track"></span>
-              </label>
-            </div>
-            <div class="setting-row">
-              <div class="setting-label">
-                <span class="setting-name">Guests can control playback</span>
-                <span class="setting-desc">Lets members play, pause, skip and seek for the whole room. Off by default — with it on, anyone in the room can interrupt everyone else.</span>
-              </div>
-              <label class="toggle">
-                <input type="checkbox" id="s-wf-guest-control">
-                <span class="toggle-track"></span>
-              </label>
-            </div>
-          </div>
-          <div class="settings-group">
-            <div class="sg-title">Account</div>
-            <div class="setting-row">
-              <div class="setting-label">
-                <span class="setting-name">Server URL</span>
-                <span class="setting-desc">e.g. http://192.168.1.10:8096</span>
-              </div>
-              <input class="setting-input" id="s-url" type="text" placeholder="http://localhost:8096" />
-            </div>
-            <div class="setting-row">
-              <div class="setting-label"><span class="setting-name">Username</span></div>
-              <input class="setting-input" id="s-user" type="text" placeholder="Username" />
-            </div>
-            <div class="setting-row">
-              <div class="setting-label"><span class="setting-name">Password</span></div>
-              <input class="setting-input" id="s-pass" type="password" placeholder="Password" />
-            </div>
-          </div>
-          <div class="settings-actions">
-            <span class="save-status" id="save-status">Saved ✓</span>
-            <button class="btn btn-danger" id="btn-logout">Sign out</button>
-            <button class="btn btn-primary" id="btn-save-settings">Save &amp; reconnect</button>
-          </div>
-          <div style="margin-top:24px;padding-top:20px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
-            <div>
-              <div style="font-size:13px;font-weight:500;color:var(--text);">Cascade</div>
-              <div style="font-size:11px;color:var(--text3);" id="app-version">v1.0.0</div>
-            </div>
-            <div style="display:flex;align-items:center;gap:12px;">
-              <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text3);">
-                <span>Beta updates</span>
-                <label class="toggle">
-                  <input type="checkbox" id="beta-updates-toggle">
-                  <span class="toggle-track"></span>
-                </label>
-              </div>
-              <button class="btn btn-secondary" id="btn-check-updates" style="font-size:12px;padding:5px 14px;">Check for updates</button>
-            </div>
+            </section>
           </div>
         </div>
       </div>
