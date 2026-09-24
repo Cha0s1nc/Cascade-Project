@@ -394,6 +394,10 @@ html[data-platform="linux"] .np-overlay.video.full #ov-full-exit {
    line. */
 #ov-panel-lyrics.browsing .ov-lyric-line { opacity: 0.8; filter: none; color: white; text-shadow: 0 1px 4px rgba(0,0,0,0.55); pointer-events: auto; }
 #ov-panel-lyrics.browsing .ov-lyric-line.active { opacity: 1; color: white; }
+/* Not on karaoke words: their fill is see-through (0.4 white unsung, and the
+   gradient's text-fill is transparent), so the shadow showed through the
+   glyphs as a muddy doubled outline. */
+#ov-panel-lyrics.browsing .ov-lyric-word { text-shadow: none; }
 
 /* Light theme: everything above assumes a dark backdrop and hardcodes
    white/near-white, which is fine under album-art-theme's dark blobs but
