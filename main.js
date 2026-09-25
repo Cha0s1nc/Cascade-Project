@@ -605,6 +605,14 @@ ipcMain.on('set-titlebar-overlay', (_e, { mode } = {}) => {
   try { win.setTitleBarOverlay(titleBarOverlayColors(mode)) } catch {}
 })
 
+// IPC: the video player hides its controls after a still moment, and the
+// traffic lights over the picture go with them. macOS only; elsewhere the
+// caption buttons are the OS's and stay.
+ipcMain.on('set-window-buttons-visible', (_e, visible) => {
+  if (process.platform !== 'darwin' || !win || win.isDestroyed()) return
+  win.setWindowButtonVisibility(visible !== false)
+})
+
 // IPC: store
 ipcMain.handle('store-get', (_e, key) => store.get(key))
 ipcMain.handle('store-set', (_e, key, value) => store.set(key, value))

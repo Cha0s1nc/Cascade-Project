@@ -148,6 +148,9 @@ export interface DesktopCapabilities {
   /** Recolours the OS-drawn Windows/Linux caption buttons to match the active
    *  theme. No-op on macOS, where the traffic lights are not ours to colour. */
   setTitleBarOverlay?(mode: 'light' | 'dark'): void
+  /** Shows or hides the macOS traffic lights, so they can fade with the video
+   *  player's controls. No-op elsewhere. */
+  setWindowButtonsVisible?(visible: boolean): void
 
   discord?: {
     connect(clientId: string): void
@@ -238,6 +241,7 @@ export interface ElectronPlatform extends Platform, DesktopCapabilities {
   nowPlayingUpdate: NonNullable<DesktopCapabilities['nowPlayingUpdate']>
   jellyfinCredentialsUpdate: NonNullable<DesktopCapabilities['jellyfinCredentialsUpdate']>
   setTitleBarOverlay: NonNullable<DesktopCapabilities['setTitleBarOverlay']>
+  setWindowButtonsVisible: NonNullable<DesktopCapabilities['setWindowButtonsVisible']>
   discord: NonNullable<DesktopCapabilities['discord']>
   kugouGetLyrics: NonNullable<DesktopCapabilities['kugouGetLyrics']>
   lyricsEditor: NonNullable<DesktopCapabilities['lyricsEditor']>

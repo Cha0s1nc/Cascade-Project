@@ -32,6 +32,7 @@ const cascade: ElectronPlatform = {
   platform:        process.platform,
   touchbarUpdate:  (data) => ipcRenderer.send('touchbar-update', data),
   setTitleBarOverlay: (mode) => ipcRenderer.send('set-titlebar-overlay', { mode }),
+  setWindowButtonsVisible: (visible) => ipcRenderer.send('set-window-buttons-visible', !!visible),
   discord: {
     connect:  (clientId) => ipcRenderer.send('discord-rpc-connect', clientId),
     update:   (activity) => ipcRenderer.send('discord-rpc-update', activity),

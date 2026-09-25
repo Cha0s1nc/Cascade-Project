@@ -5582,6 +5582,19 @@ const npOverlay = document.getElementById('np-overlay')
 let overlayOpen = false
 let overlayLyricsOpen = false
 
+// The traffic lights fade with the video controls. Watching the overlay's own
+// class list keeps this in one place: idle, open and video are each set from
+// several paths, and all of them end up here.
+let _windowButtonsHidden = false
+function syncWindowButtons() {
+  const hide = overlayOpen && npOverlay.classList.contains('video')
+    && npOverlay.classList.contains('idle') && !npOverlay.matches(':has(:focus-visible)')
+  if (hide === _windowButtonsHidden) return
+  _windowButtonsHidden = hide
+  window.cascade.setWindowButtonsVisible?.(!hide)
+}
+new MutationObserver(syncWindowButtons).observe(npOverlay, { attributes: true, attributeFilter: ['class'] })
+
 // ── Beat-reactive background ───────────────────────────────────────────────
 let _currentBgArtUrl = null  // current track's art URL for overlay background
 let _beatRafId = null
