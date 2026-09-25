@@ -92,6 +92,9 @@ public struct JfItem: Codable, Sendable, Identifiable, Hashable {
     /// merges copies from different libraries.
     public var sourceLibrary: Int?
 
+    /// The name Jellyfin sorts by ("Killers, The"), with Fields=SortName.
+    public var sortName: String?
+
     public init(id: String, name: String? = nil, type: String? = nil,
                 runTimeTicks: Int? = nil, userData: JfUserData? = nil) {
         self.id = id

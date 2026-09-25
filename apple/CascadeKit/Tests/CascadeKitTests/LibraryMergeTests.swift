@@ -101,4 +101,27 @@ struct LibraryMergeTests {
         ]
         #expect(ids(mergeLibraryCopies(mergeLibraryCopies(items))) == ids(mergeLibraryCopies(items)))
     }
+
+    @Test func librariesArePutBackInOneOrder() {
+        func named(_ id: String, _ name: String, sortName: String? = nil, library: Int) -> JfItem {
+            var item = JfItem(id: id, name: name, type: "MusicAlbum"); item.sortName = sortName; item.sourceLibrary = library; return item
+        }
+        // Each library arrives sorted on its own, one after the other.
+        let joined = [named("1", "Daybreak", library: 0), named("2", "Night Drive", library: 0),
+                      named("3", "Only Here", library: 1), named("4", "The Album", sortName: "Album", library: 1)]
+        #expect(ids(sortedLikeServer(joined, sortBy: "SortName")) == ["4", "1", "2", "3"])
+        #expect(ids(sortedLikeServer(joined, sortBy: "SortName", sortOrder: "Descending")) == ["3", "2", "1", "4"])
+    }
+
+    @Test func anOrderItCannotReproduceIsLeftAlone() {
+        let items = [JfItem(id: "b", name: "B"), JfItem(id: "a", name: "A")]
+        #expect(ids(sortedLikeServer(items, sortBy: "ParentIndexNumber,IndexNumber")) == ["b", "a"])
+        #expect(ids(sortedLikeServer(items, sortBy: nil)) == ["b", "a"])
+    }
+
+    @Test func newestFirstByDateCreated() {
+        func added(_ id: String, _ date: String) -> JfItem { var item = JfItem(id: id); item.dateCreated = date; return item }
+        let items = [added("old", "2026-01-01T00:00:00Z"), added("new", "2026-09-01T00:00:00Z")]
+        #expect(ids(sortedLikeServer(items, sortBy: "DateCreated", sortOrder: "Descending")) == ["new", "old"])
+    }
 }

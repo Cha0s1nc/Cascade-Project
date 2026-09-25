@@ -57,6 +57,38 @@ public func mergeLibraryCopies(_ items: [JfItem]) -> [JfItem] {
     return out
 }
 
+/// Puts results from several libraries back in the order one query would
+/// have returned them in. Each library comes back sorted on its own and they
+/// are joined library by library, so without this a second library's albums
+/// all landed after the first's. Handles the keys this app sorts by; any other
+/// `sortBy` (track order, search relevance) keeps the order it was given.
+public func sortedLikeServer(_ items: [JfItem], sortBy: String?, sortOrder: String? = nil) -> [JfItem] {
+    let key = (sortBy ?? "").split(separator: ",").first.map(String.init) ?? ""
+    let descending = sortOrder == "Descending"
+    func text(_ item: JfItem) -> String? {
+        switch key {
+        case "SortName", "Name": return item.sortName ?? item.name ?? ""
+        case "DateCreated": return item.dateCreated ?? ""
+        case "DatePlayed": return item.userData?.lastPlayedDate ?? ""
+        default: return nil
+        }
+    }
+    let ordered: (JfItem, JfItem) -> Bool
+    if key == "PlayCount" {
+        ordered = { ($0.userData?.playCount ?? 0) < ($1.userData?.playCount ?? 0) }
+    } else if ["SortName", "Name", "DateCreated", "DatePlayed"].contains(key) {
+        ordered = { text($0)!.localizedStandardCompare(text($1)!) == .orderedAscending }
+    } else {
+        return items
+    }
+    // Stable: enumerated offsets break ties, so equal keys keep their order.
+    return items.enumerated().sorted { a, b in
+        if ordered(a.element, b.element) { return !descending }
+        if ordered(b.element, a.element) { return descending }
+        return a.offset < b.offset
+    }.map(\.element)
+}
+
 private func isBetter(_ a: JfItem, than b: JfItem) -> Bool {
     if a.type == "MusicAlbum" { return (a.childCount ?? 0) > (b.childCount ?? 0) }
     return (a.mediaSources?.first?.bitrate ?? 0) > (b.mediaSources?.first?.bitrate ?? 0)

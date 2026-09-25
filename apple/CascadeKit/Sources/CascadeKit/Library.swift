@@ -39,23 +39,35 @@ public extension JellyfinClient {
     /// library genuinely is more than one request; they used to run one after
     /// another, which is most of why a multi-library screen felt slow.
     func itemsAcrossLibraries(_ params: [String: String?], path: String = "/Items") async throws -> [JfItem] {
-        let libraries = currentConfig.libraryIds
-        guard !libraries.isEmpty else {
-            let response: JfItemsResponse = try await get(path, params: params)
-            return response.items ?? []
+        var libraries = currentConfig.libraryIds
+        // Nothing picked means the whole server, and one unscoped query covers
+        // that, but it cannot say which library an item came from, so an album
+        // in two music libraries showed twice. With two or more, ask each one.
+        // ponytail: one /UserViews request per call; cache it if Home's three
+        // queries ever show up as slow.
+        if libraries.isEmpty, let music = try? await views().filter({ $0.collectionType == "music" }), music.count > 1 {
+            libraries = music.map(\.id)
         }
-
+        var params = params
+        var fields = [(params["fields"] ?? nil)].compactMap { $0 }
+        // What sortedLikeServer needs to put several libraries back in one
+        // order, and what the paged screens re-sort by. Cheap, so always.
+        let sortBy = (params["sortBy"] ?? nil) ?? ""
+        if sortBy.hasPrefix("SortName") { fields.append("SortName") }
+        if sortBy.hasPrefix("DateCreated") { fields.append("DateCreated") }
         // What mergeLibraryCopies compares copies by: a song's bitrate, an
         // album's track count. Only worth the bigger response when there is
         // more than one library to choose between.
-        var params = params
         if libraries.count > 1 {
             let types = (params["includeItemTypes"] ?? nil) ?? ""
-            let extra = [types.contains("Audio") ? "MediaSources" : nil,
-                         types.contains("MusicAlbum") ? "ChildCount" : nil].compactMap { $0 }
-            if !extra.isEmpty {
-                params["fields"] = ([(params["fields"] ?? nil)].compactMap { $0 } + extra).joined(separator: ",")
-            }
+            if types.contains("Audio") { fields.append("MediaSources") }
+            if types.contains("MusicAlbum") { fields.append("ChildCount") }
+        }
+        if !fields.isEmpty { params["fields"] = fields.joined(separator: ",") }
+
+        guard !libraries.isEmpty else {
+            let response: JfItemsResponse = try await get(path, params: params)
+            return response.items ?? []
         }
 
         let pages = await withTaskGroup(of: (Int, [JfItem]).self) { group in
@@ -77,7 +89,10 @@ public extension JellyfinClient {
             for await page in group { byLibrary.append(page) }
             return byLibrary.sorted { $0.0 < $1.0 }.flatMap(\.1)
         }
-        return mergeLibraryCopies(pages)
+        let merged = mergeLibraryCopies(pages)
+        return libraries.count > 1
+            ? sortedLikeServer(merged, sortBy: params["sortBy"] ?? nil, sortOrder: params["sortOrder"] ?? nil)
+            : merged
     }
 
     private var baseParams: [String: String?] {
@@ -99,6 +114,9 @@ public extension JellyfinClient {
     func artists(limit: Int = 500, startIndex: Int = 0) async throws -> [JfItem] {
         try await itemsAcrossLibraries([
             "userId": currentConfig.userId,
+            // The server's default for this route, stated so the libraries
+            // can be put back in the same order after merging.
+            "sortBy": "SortName",
             "limit": String(limit),
             "startIndex": String(startIndex),
         ], path: "/Artists/AlbumArtists")

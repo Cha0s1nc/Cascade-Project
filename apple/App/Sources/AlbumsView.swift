@@ -19,7 +19,7 @@ struct AlbumsView: View {
             isLoading = true
             error = nil
             do {
-                try await loadPaged(fetch: { try await client.albums(limit: $0, startIndex: $1) }) {
+                try await loadPaged(sortBy: "SortName", fetch: { try await client.albums(limit: $0, startIndex: $1) }) {
                     items = $0
                     isLoading = false
                 }
