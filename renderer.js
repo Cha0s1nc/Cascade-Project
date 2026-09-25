@@ -8635,6 +8635,10 @@ const _isAbort = e => e?.name === 'AbortError' || e?.name === 'TimeoutError'
 // in a row. Later askers now wait on the search already running.
 const _lyricsInflight = new Map()   // item id -> promise of the waterfall's result
 function fetchLyricsWaterfall(item) {
+  // Films and episodes have no lyrics. Guarded here, where every caller
+  // routes, because only updateNowPlaying() checked: the lyrics panel and the
+  // overlay still sent a movie's title to LRCLIB, Kugou and the plugin.
+  if (isVideoItem(item)) return Promise.resolve(null)
   const forced = lyricsForcedSource && lyricsForcedSource !== 'auto'
   if (forced || _lyricsCache.has(item.Id)) return _lyricsWaterfall(item)
   let pending = _lyricsInflight.get(item.Id)
