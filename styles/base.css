@@ -10,6 +10,11 @@
   --green: #32d74b; --red: #ff453a; --yellow: #ffd60a;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
+/* Keyboard focus, for anything without a ring of its own. Chromium's default
+   is an orange outline:auto that matches nothing here. :where() keeps this at
+   zero specificity so every component's own :focus-visible rule still wins,
+   and text fields are left out because they already show focus. */
+:where(:not(input, textarea, select, [contenteditable])):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; height: 100vh; overflow: hidden; -webkit-font-smoothing: antialiased; }
 .app { display: flex; flex-direction: column; height: 100vh; }
 

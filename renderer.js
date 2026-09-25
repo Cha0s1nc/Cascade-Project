@@ -157,6 +157,18 @@ function playingVideo() {
   return isVideoItem(queue[queueIndex])
 }
 
+// A button clicked with the mouse keeps focus, and the next key pressed for
+// any reason makes Chromium draw its keyboard focus ring around it (an orange
+// box, before base.css gave it the accent). It also meant Space re-pressed
+// whatever was clicked last. So a pointer click lets go of focus; detail is 0
+// for a click made with Enter or Space, which keeps focus where keyboard
+// navigation put it.
+document.addEventListener('click', (e) => {
+  if (e.detail === 0) return
+  const control = e.target instanceof Element && e.target.closest('button, [role="button"], [role="tab"], [role="slider"]')
+  if (control && control === document.activeElement) control.blur()
+})
+
 // ── Portable core ─────────────────────────────────────────────────────────────
 // src/core/*.ts, bundled to build/core.js and loaded by index.html before this
 // file. Everything here is DOM-free and Electron-free on purpose: it is the part
