@@ -100,6 +100,12 @@ interface PlaybackInfoResponse {
  * first resolve handed over is still valid, and re-negotiating just to change a
  * number puts a whole extra round trip in front of every scrub.
  */
+/** An HLS playlist, as opposed to a progressive stream. A playlist covers the
+ *  whole item, so the element can seek anywhere in it without a new stream. */
+export function isHlsUrl(url: string): boolean {
+  return /\.m3u8(\?|$)/i.test(url)
+}
+
 export function withStartTicks(url: string, ticks: number): string {
   if (ticks <= 0) return url
   const [base, query = ''] = url.split('?')
@@ -302,14 +308,18 @@ export async function resolveStream(
     const playSessionId = info.PlaySessionId ?? null
 
     if (source.TranscodingUrl) {
+      // Only a progressive stream needs the offset baked in. An HLS playlist
+      // spans the whole item, so like direct play it starts at 0 and the
+      // caller seeks the element.
+      const offset = isHlsUrl(source.TranscodingUrl) ? 0 : startTicks
       return {
-        url: withStartTicks(`${config.url}${source.TranscodingUrl}`, startTicks),
+        url: withStartTicks(`${config.url}${source.TranscodingUrl}`, offset),
         // TranscodingUrl already carries the audio index the server settled on,
         // so nothing is appended here.
         playSessionId,
         mediaSourceId: source.Id ?? null,
         direct: false,
-        startTicks,
+        startTicks: offset,
       }
     }
 

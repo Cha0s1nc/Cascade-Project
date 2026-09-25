@@ -3847,9 +3847,11 @@ function adoptResolvedStream(resolved) {
   _mediaSourceId = resolved.mediaSourceId
   _playMethod = resolved.direct ? 'DirectPlay' : 'Transcode'
   _streamOffsetSec = (resolved.startTicks || 0) / 10_000_000
-  // Only a transcoded video can be re-pointed by swapping the offset. Direct
-  // play seeks on the element, and music never gets here at all.
-  _transcodeUrl = (!resolved.direct && isVideoItem(queue[queueIndex])) ? resolved.url : null
+  // Only a progressive video transcode can be re-pointed by swapping the
+  // offset. Direct play and HLS seek on the element, and music never gets
+  // here at all.
+  _transcodeUrl = (!resolved.direct && isVideoItem(queue[queueIndex]) && !CascadeCore.isHlsUrl(resolved.url))
+    ? resolved.url : null
 }
 
 // ── Position and duration ─────────────────────────────────────────────────────
@@ -3885,16 +3887,18 @@ function mediaDuration() {
 /**
  * Seek to a position in the item, in seconds.
  *
- * Direct play can move the element's own clock. A transcode cannot: the bytes
- * past the encoded point do not exist yet, so the only way there is to ask the
- * server for a fresh stream starting at that offset.
+ * Direct play and HLS can move the element's own clock. A progressive
+ * transcode cannot: the bytes past the encoded point do not exist yet, so the
+ * only way there is to ask the server for a fresh stream starting at that
+ * offset. Video transcodes are HLS now; the progressive path is kept for a
+ * server that answers with one anyway.
  */
 async function seekTo(sec) {
   const item = queue[queueIndex]
   const dur = mediaDuration()
   const target = Math.max(0, Math.min(dur || sec, sec))
 
-  if (_playMethod === 'Transcode' && isVideoItem(item)) {
+  if (_transcodeUrl) {
     await restartStreamAt(target)
     return
   }
@@ -6200,7 +6204,7 @@ function skipBy(delta) {
   const dur = mediaDuration()
   if (!dur) return
 
-  if (!(_playMethod === 'Transcode' && playingVideo())) {
+  if (!_transcodeUrl) {
     seekTo(mediaPosition() + delta)
     return
   }

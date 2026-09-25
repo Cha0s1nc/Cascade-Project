@@ -180,22 +180,21 @@ export const ELECTRON_PROFILE: DeviceProfile = {
       Context: 'Streaming',
       MaxAudioChannels: '2',
     },
-    // ponytail: progressive http, not hls - Chromium plays an mp4 URL with no
-    // player library, and this app has two runtime deps total.
-    //
-    // The predicted ceiling arrived: a progressive body only exposes the part
-    // the server has already encoded, so the scrubber could neither show the
-    // real duration nor seek past it. Fixed without hls.js by requesting a new
-    // stream at an offset instead - see withStartTicks() in playback.ts. What
-    // remains is that a seek costs a request, so it lands in about a second
-    // rather than instantly. Revisit hls.js only if that latency is the
-    // complaint.
+    // HLS, which Chromium now plays natively (no hls.js). This used to be a
+    // progressive mp4 because Chromium could not, and that had a cost the
+    // comment here never mentioned: the server writes a progressive transcode
+    // as ONE file, remuxing at ~80x with no throttling and no segment
+    // deletion (both are HLS-only in Jellyfin), so a whole film landed in the
+    // transcode directory. On a 4 GB tmpfs a two-hour movie filled it and
+    // died 53 minutes in. HLS segments are throttled and deleted as you
+    // watch, and the playlist spans the whole item, so seeking and resume
+    // happen on the element instead of by restarting the stream.
     {
       Type: 'Video',
-      Container: 'mp4',
+      Container: 'ts',
       VideoCodec: 'h264',
       AudioCodec: 'aac',
-      Protocol: 'http',
+      Protocol: 'hls',
       Context: 'Streaming',
       MaxAudioChannels: '2',
     },

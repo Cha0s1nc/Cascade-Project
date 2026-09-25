@@ -1,7 +1,7 @@
 import { test, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { JellyfinClient } from '../src/core/jellyfin.ts'
-import { resolveStream, universalStreamUrl, stopActiveEncoding, DEFAULT_MAX_BITRATE, resumeTicks, neededAudioStreamIndex, withoutAudioCodecs
+import { resolveStream, isHlsUrl, universalStreamUrl, stopActiveEncoding, DEFAULT_MAX_BITRATE, resumeTicks, neededAudioStreamIndex, withoutAudioCodecs
 } from '../src/core/playback.ts'
 import { ELECTRON_PROFILE, buildElectronProfile } from '../src/core/profiles/electron.ts'
 import type { ServerConfig, JfMediaStream } from '../src/core/types.ts'
@@ -166,15 +166,14 @@ test('video transcode uses the server URL like audio does', async () => {
   assert.equal(out.url, 'https://jf.test/Videos/ITEM1/stream.mp4?foo=1')
 })
 
-test('video transcoding profile is progressive http, not hls', () => {
-  // Chromium cannot play an .m3u8 and this app ships no HLS player. If someone
-  // flips this to 'hls' to match the audio profile, video silently stops
-  // playing whenever the server decides to transcode - which is most of the
-  // time. Add hls.js in the same change or leave this alone.
+test('video transcoding profile is hls, not progressive http', () => {
+  // Progressive made the server write the whole film into its transcode
+  // directory as one file, unthrottled and never trimmed, which filled a
+  // 4 GB tmpfs partway through a movie. Chromium plays HLS natively now.
   const video = ELECTRON_PROFILE.TranscodingProfiles.find(p => p.Type === 'Video')
   assert.ok(video, 'video transcoding profile must exist')
-  assert.equal(video.Protocol, 'http')
-  assert.equal(video.Container, 'mp4')
+  assert.equal(video.Protocol, 'hls')
+  assert.equal(video.Container, 'ts')
   assert.equal(video.VideoCodec, 'h264')
 })
 
@@ -290,6 +289,21 @@ test('seeking twice replaces the offset rather than appending a second one', asy
 
   const url = new URL(out.url)
   assert.deepEqual(url.searchParams.getAll('StartTimeTicks'), [String(TEN_MIN)])
+})
+
+test('an hls transcode seeks on the element, so no offset is baked in', async () => {
+  stubFetch(() => ({
+    PlaySessionId: 'PS1',
+    MediaSources: [{ Id: 'MS1', Container: 'mkv', TranscodingUrl: '/videos/ITEM1/master.m3u8?PlaySessionId=PS1' }],
+  }))
+  const out = await resolveStream(
+    client, config, 'ITEM1', ELECTRON_PROFILE, DEFAULT_MAX_BITRATE, 'Video',
+    { startTicks: TEN_MIN })
+
+  assert.equal(out.direct, false)
+  assert.equal(out.startTicks, 0, 'the playlist spans the whole item')
+  assert.ok(!out.url.includes('StartTimeTicks'))
+  assert.ok(isHlsUrl(out.url))
 })
 
 test('direct play reports no offset, because it seeks on the element instead', async () => {
