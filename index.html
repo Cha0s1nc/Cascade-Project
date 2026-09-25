@@ -1108,6 +1108,10 @@
           <button class="np-ov-ctrl vid-only" id="ov-audio-track" title="Audio track">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>
           </button>
+          <!-- Shown by renderChapterMarks() only when the film has chapters. -->
+          <button class="np-ov-ctrl vid-only" id="ov-chapters" title="Chapters" aria-label="Chapters" style="display:none">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+          </button>
           <button class="np-ov-ctrl vid-only" id="ov-fullscreen" data-tip="Fullscreen (F)" title="Fullscreen (F)">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
           </button>
@@ -1190,6 +1194,7 @@
 <!-- Subtitle and audio track pickers. Both filled at play time from the item's
      MediaStreams, so the markup is just the shell. -->
 <div class="ov-dropdown" id="subs-dropdown"></div>
+<div class="ov-dropdown" id="chapters-dropdown"></div>
 <div class="ov-dropdown" id="audio-track-dropdown"></div>
 
 <!-- Scrim behind the now-playing overlay's "more options" menu -->

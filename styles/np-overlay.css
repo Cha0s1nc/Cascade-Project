@@ -116,6 +116,10 @@ html[data-platform="linux"] .np-overlay.video .np-overlay-info { padding-right: 
 .np-overlay.video .np-overlay-btns-secondary { grid-area: tools; }
 .np-overlay.video #ov-vol-bar { width: 110px; }
 .np-overlay.video .np-overlay-vol > svg { display: none; } /* the mute button already is the speaker */
+/* The clip on these rows exists for music's idle collapse, which video does
+   not use, and it cut off the volume knob that hangs past the slider's end. */
+.np-overlay.video .np-overlay-btns,
+.np-overlay.video .np-overlay-vol { overflow: visible; max-height: none; }
 .np-overlay.video .np-ov-play { width: 40px; height: 40px; }
 .np-overlay.video .np-ov-ctrl,
 .np-overlay.video .np-overlay-time { color: rgba(255,255,255,0.78); }
@@ -388,3 +392,13 @@ html[data-theme="light"] .ov-lyric-line.active .ov-lyric-word, html[data-theme="
 }
 html[data-theme="light"] #ov-panel-lyrics.browsing .ov-lyric-line { color: #1c1c1e; text-shadow: 0 1px 3px rgba(255,255,255,0.6); }
 html[data-theme="light"] #ov-panel-lyrics.browsing .ov-lyric-line.active { color: #1c1c1e; }
+/* ── Chapters ── */
+/* A gap in the scrubber at each chapter start, over the fill as well as the
+   track, the way YouTube segments its bar. Under the knob. */
+.ov-chapter-mark {
+  position: absolute; top: -1px; bottom: -1px; width: 3px; margin-left: -1.5px;
+  background: rgba(0,0,0,0.7); pointer-events: none; z-index: 1;
+}
+.np-overlay-prog-fill::after { z-index: 2; }
+#chapters-dropdown { max-height: min(60vh, 420px); overflow-y: auto; min-width: 240px; }
+.ov-dd-time { margin-left: auto; padding-left: 18px; color: var(--text3); font-variant-numeric: tabular-nums; }

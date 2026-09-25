@@ -3425,9 +3425,48 @@ function applyVideoMode(on) {
   const bar = document.querySelector('.statusbar')
   bar.classList.toggle('video', !!on)
   bar.classList.toggle('single', !!on && queue.length <= 1)
+  loadChapters(on ? queue[queueIndex] : null)
   // A movie playing behind the library grid with no picture is confusing, so
   // opening the overlay is part of starting video, not a separate step.
   if (on) openOverlay()
+}
+
+// ── Chapters ──
+//
+// Fetched once when a video starts rather than added to every query that can
+// put one in the queue (grids, Home, episodes) - one small request per film.
+
+/** The current video's chapters, from CascadeCore.chapterList(). */
+let _chapters = []
+
+async function loadChapters(item) {
+  _chapters = []
+  renderChapterMarks()
+  if (!item || !isVideoItem(item)) return
+  try {
+    const full = await jfGet(`/Users/${jf.userId}/Items/${item.Id}`, { Fields: 'Chapters' })
+    // Skipped past it while the request was out: these are someone else's.
+    if (queue[queueIndex]?.Id !== item.Id) return
+    _chapters = CascadeCore.chapterList(full.Chapters, item.RunTimeTicks)
+  } catch { /* no chapters is the same as none */ }
+  renderChapterMarks()
+}
+
+/** Ticks on the scrubber at each chapter start, and the Chapters button only
+ *  when there is something to pick from. */
+function renderChapterMarks() {
+  const bar = document.getElementById('ov-prog-bar')
+  bar.querySelectorAll('.ov-chapter-mark').forEach(m => m.remove())
+  document.getElementById('ov-chapters').style.display = _chapters.length ? '' : 'none'
+  const dur = mediaDuration()
+  if (!dur) return
+  for (const c of _chapters) {
+    if (c.sec <= 0) continue
+    const mark = document.createElement('span')
+    mark.className = 'ov-chapter-mark'
+    mark.style.left = `${(c.sec / dur) * 100}%`
+    bar.appendChild(mark)
+  }
 }
 
 // Attach text subtitles as native <track> elements.
@@ -6130,6 +6169,7 @@ sleepTimerDropdown.querySelectorAll('[data-sleep-mins]').forEach(btn => {
 const OV_DROPDOWNS = [
   ['sleep-timer-dropdown',  'ctx-sleep-timer'],
   ['subs-dropdown',         'ov-subs'],
+  ['chapters-dropdown',     'ov-chapters'],
   ['audio-track-dropdown',  'ov-audio-track'],
 ]
 
@@ -6297,6 +6337,28 @@ document.getElementById('ov-subs').addEventListener('click', (e) => {
   })
 
   toggleDropdownUnder(subsDropdown, e.currentTarget)
+})
+
+// ── Chapter picker ──
+
+const chaptersDropdown = document.getElementById('chapters-dropdown')
+
+document.getElementById('ov-chapters').addEventListener('click', (e) => {
+  e.stopPropagation()
+  const current = CascadeCore.chapterAt(_chapters, mediaPosition())
+  chaptersDropdown.innerHTML = ['<div class="ov-dd-head">Chapters</div>',
+    ..._chapters.map((c, i) =>
+      `<button class="ov-dd-item${i === current ? ' checked' : ''}" data-chapter="${i}">${esc(c.name)}<span class="ov-dd-time">${fmtTime(c.sec)}</span></button>`),
+  ].join('')
+  chaptersDropdown.querySelectorAll('[data-chapter]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      chaptersDropdown.classList.remove('open')
+      seekTo(_chapters[Number(/** @type {HTMLElement} */ (btn).dataset.chapter)].sec)
+    })
+  })
+  toggleDropdownUnder(chaptersDropdown, e.currentTarget)
+  // Long films have dozens: land on the one playing, not the top of the list.
+  chaptersDropdown.querySelector('.checked')?.scrollIntoView({ block: 'nearest' })
 })
 
 // ── Audio track picker ──

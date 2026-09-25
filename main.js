@@ -413,7 +413,11 @@ function createWindow() {
     width: 1100,
     height: 700,
     ...(demoDisplay ? { x: demoDisplay.bounds.x + 40, y: demoDisplay.bounds.y + 40 } : {}),
-    fullscreen: demo,
+    // Only ever passed as true. An explicit `fullscreen: false` is not "start
+    // windowed" on macOS, it makes the window non-fullscreenable: the video
+    // player's Fullscreen button, F and double-click still told the page it
+    // was fullscreen, but the window stayed its normal size.
+    ...(demo ? { fullscreen: true } : {}),
     minWidth: 800,
     // 560, not 500: the video overlay stacks a picture, a title, two button
     // rows, a scrubber and a volume slider into one column, and 500 was under

@@ -161,6 +161,37 @@ export const DEFAULT_MAX_BITRATE = 140_000_000
  *  resuming 90 seconds before the credits is nobody's intent. */
 export const RESUME_COMPLETE_RATIO = 0.95
 
+/** A chapter as the player uses it: where it starts, in seconds, and what to
+ *  call it. */
+export interface Chapter { sec: number; name: string }
+
+/**
+ * Jellyfin's Chapters array, cleaned up for seeking: sorted, deduplicated by
+ * start, anything past the end of the item dropped, and a name for the ones
+ * that have none. Fewer than two leaves nothing worth offering, since one
+ * chapter is just "the film".
+ */
+export function chapterList(
+  raw: { StartPositionTicks?: number; Name?: string | null }[] | undefined,
+  runTimeTicks?: number,
+): Chapter[] {
+  const seen = new Set<number>()
+  const list = (raw || [])
+    .filter(c => typeof c.StartPositionTicks === 'number' && c.StartPositionTicks >= 0
+      && (!runTimeTicks || c.StartPositionTicks < runTimeTicks))
+    .sort((a, b) => a.StartPositionTicks! - b.StartPositionTicks!)
+    .filter(c => !seen.has(c.StartPositionTicks!) && seen.add(c.StartPositionTicks!))
+    .map((c, i) => ({ sec: c.StartPositionTicks! / 10_000_000, name: c.Name?.trim() || `Chapter ${i + 1}` }))
+  return list.length > 1 ? list : []
+}
+
+/** Index of the chapter playing at `sec`, or -1 before the first one. */
+export function chapterAt(chapters: Chapter[], sec: number): number {
+  let at = -1
+  for (let i = 0; i < chapters.length && chapters[i].sec <= sec; i++) at = i
+  return at
+}
+
 /**
  * Where playback should pick up, in ticks. 0 means "start from the beginning".
  *

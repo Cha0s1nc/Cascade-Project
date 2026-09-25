@@ -1,7 +1,7 @@
 import { test, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { JellyfinClient } from '../src/core/jellyfin.ts'
-import { resolveStream, isHlsUrl, universalStreamUrl, stopActiveEncoding, DEFAULT_MAX_BITRATE, resumeTicks, neededAudioStreamIndex, withoutAudioCodecs
+import { resolveStream, isHlsUrl, chapterList, chapterAt, universalStreamUrl, stopActiveEncoding, DEFAULT_MAX_BITRATE, resumeTicks, neededAudioStreamIndex, withoutAudioCodecs
 } from '../src/core/playback.ts'
 import { ELECTRON_PROFILE, buildElectronProfile } from '../src/core/profiles/electron.ts'
 import type { ServerConfig, JfMediaStream } from '../src/core/types.ts'
@@ -549,4 +549,30 @@ test('withoutAudioCodecs is case insensitive and returns the original when nothi
   const profile = { DirectPlayProfiles: [{ Type: 'Video', AudioCodec: 'AAC,AC3' }] } as any
   assert.equal(withoutAudioCodecs(profile, ['ac3']).DirectPlayProfiles[0].AudioCodec, 'AAC')
   assert.equal(withoutAudioCodecs(profile, []), profile)
+})
+
+test('chapterList sorts, dedupes, names and drops chapters past the end', () => {
+  const T = 10_000_000
+  const list = chapterList([
+    { StartPositionTicks: 600 * T, Name: 'Middle' },
+    { StartPositionTicks: 0, Name: '' },
+    { StartPositionTicks: 600 * T, Name: 'Duplicate' },
+    { StartPositionTicks: 9_000 * T, Name: 'Past the end' },
+    { Name: 'No start' },
+  ], 7_200 * T)
+  assert.deepEqual(list, [{ sec: 0, name: 'Chapter 1' }, { sec: 600, name: 'Middle' }])
+})
+
+test('chapterList offers nothing for a single chapter', () => {
+  assert.deepEqual(chapterList([{ StartPositionTicks: 0, Name: 'Film' }]), [])
+  assert.deepEqual(chapterList(undefined), [])
+})
+
+test('chapterAt finds the chapter playing at a position', () => {
+  const ch = [{ sec: 0, name: 'a' }, { sec: 60, name: 'b' }, { sec: 120, name: 'c' }]
+  assert.equal(chapterAt(ch, 0), 0)
+  assert.equal(chapterAt(ch, 59.9), 0)
+  assert.equal(chapterAt(ch, 60), 1)
+  assert.equal(chapterAt(ch, 5000), 2)
+  assert.equal(chapterAt([{ sec: 10, name: 'x' }, { sec: 20, name: 'y' }], 5), -1)
 })
