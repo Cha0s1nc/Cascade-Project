@@ -177,9 +177,6 @@ html[data-platform="linux"] #ov-video-close { right: calc(var(--caption-reserve,
    queue length and not on the media kind. */
 .np-overlay.video.single #ov-prev,
 .np-overlay.video.single #ov-next { display: none; }
-/* Real fullscreen: the titlebar and the app chrome are not part of a film. */
-.np-overlay:fullscreen { background: #000; }
-.np-overlay:fullscreen .np-overlay-close { opacity: 0.5; }
 .ov-dd-item.checked { color: var(--text); font-weight: 600; }
 .ov-dd-item.checked::before { content: '✓'; margin-right: -2px; }
 .ov-dd-item:not(.checked)::before { content: ''; width: 10px; }

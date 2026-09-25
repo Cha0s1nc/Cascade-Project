@@ -6064,6 +6064,9 @@ function closeOverlay() {
   overlayOpen = false
   npOverlay.classList.remove('open')
   stopBeatLoop()
+  // Fullscreen is for the film. Closing the player with it still on would
+  // leave the library filling the screen.
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
 }
 
 // Idle fade for the overlay controls. They get out of the way of the artwork
@@ -6305,12 +6308,15 @@ document.getElementById('ov-back10').addEventListener('click', () => skipBy(-SKI
 document.getElementById('ov-fwd10').addEventListener('click', () => skipBy(SKIP_SECONDS))
 
 // ── Fullscreen ──
-// The overlay goes fullscreen, not the <video>: the transport controls live in
-// the overlay, and handing the element to the browser would take them away and
-// leave the native ones in their place.
+// The whole page goes fullscreen, not the <video> and not the overlay. The
+// <video> would trade our controls for the browser's. The overlay was the
+// choice until it turned out that element fullscreen draws only that element:
+// the More menu, the subtitle, audio and chapter pickers and every dialog
+// live outside it and opened invisibly. The overlay already covers the page,
+// so it looks the same, and everything layered above it still shows.
 function toggleVideoFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
-  else npOverlay.requestFullscreen().catch(() => {})
+  else document.documentElement.requestFullscreen().catch(() => {})
 }
 
 document.getElementById('ov-fullscreen').addEventListener('click', toggleVideoFullscreen)
