@@ -3407,6 +3407,11 @@ function playItems(items, startIndex, source) {
 // Flip the overlay between the music layout (art + lyrics/queue columns) and the
 // single-column video layout. Purely a class toggle: the CSS in index.html owns
 // what actually shows, so there is one place to change if the layout moves.
+/** Playback speed for video, set with < and >. Kept across videos for the
+ *  session, like YouTube's, and never applied to music - applyVideoMode()
+ *  puts both decks back to 1x for a song. */
+let _videoRate = 1
+
 function applyVideoMode(on) {
   // Music and video keep separate saved EQ curves - this is the one place
   // playback knows which is active, so it is also where the live graph
@@ -3417,6 +3422,8 @@ function applyVideoMode(on) {
   ov.classList.toggle('video', !!on)
   // Only the current deck may show a picture - the other is mid-crossfade or idle.
   DECKS.forEach(d => d.classList.toggle('deck-hidden', d !== audio))
+  // A film keeps the session's speed (< and >); a song is always 1x.
+  DECKS.forEach(d => { d.playbackRate = d.defaultPlaybackRate = on ? _videoRate : 1 })
   // A film opened on its own is a queue of one, so prev and next have nowhere
   // to go. A season is not - that queue is the whole point of next-episode.
   ov.classList.toggle('single', !!on && queue.length <= 1)
@@ -6075,7 +6082,12 @@ document.getElementById('np-overlay-close').addEventListener('click', closeOverl
 // one small x in the corner, which on Windows and Linux sat under the OS
 // caption buttons and could not be clicked at all.
 document.getElementById('np-overlay-collapse').addEventListener('click', closeOverlay)
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && overlayOpen) closeOverlay() })
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !overlayOpen) return
+  // The shortcut list closes first, the player on the next press.
+  if (document.getElementById('ov-keys').classList.contains('open')) { toggleKeysPanel(false); return }
+  closeOverlay()
+})
 
 // Lyrics toggle - queue slides left out, lyrics slides right in (and vice versa)
 document.getElementById('ov-lyrics-toggle').addEventListener('click', () => {
@@ -6285,6 +6297,87 @@ onDeck('dblclick', () => { if (playingVideo()) toggleVideoFullscreen() })
 // Restores the exit the hidden header would otherwise have provided.
 document.getElementById('ov-video-close').addEventListener('click', closeOverlay)
 
+// ── Keyboard ──
+//
+// YouTube's player keys, as far as they map onto this one. VIDEO_KEYS is only
+// the list the ? panel shows; the handler below is what they do.
+const VIDEO_KEYS = [
+  ['Space  or  K', 'Play or pause'],
+  ['J  /  L', 'Back or forward 10 seconds'],
+  ['←  /  →', 'Back or forward 5 seconds'],
+  ['↑  /  ↓', 'Volume up or down'],
+  ['M', 'Mute'],
+  ['F', 'Fullscreen'],
+  ['C', 'Subtitles on or off'],
+  ['0 – 9', 'Jump to 0% – 90%'],
+  ['Home  /  End', 'Start or end'],
+  [',  /  .', 'Previous or next frame (while paused)'],
+  ['<  /  >', 'Slower or faster'],
+  ['Shift+P  /  Shift+N', 'Previous or next episode'],
+  [window.cascade.platform === 'darwin' ? '⌥←  /  ⌥→' : 'Ctrl+←  /  Ctrl+→', 'Previous or next chapter'],
+  ['?', 'This list'],
+  ['Esc', 'Close'],
+]
+const ARROW_SECONDS = 5
+const PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
+/** The subtitle track C turns back on, so on/off returns to your pick. */
+let _lastSubtitleIndex = 0
+
+const osd = document.getElementById('ov-osd')
+let _osdTimer = null
+/** A second of feedback in the middle of the picture. */
+function videoOsd(text) {
+  osd.textContent = text
+  osd.classList.add('show')
+  clearTimeout(_osdTimer)
+  _osdTimer = setTimeout(() => osd.classList.remove('show'), 900)
+}
+
+const keysPanel = document.getElementById('ov-keys')
+function toggleKeysPanel(open = !keysPanel.classList.contains('open')) {
+  if (open && !keysPanel.childElementCount) {
+    keysPanel.innerHTML = '<div class="ov-keys-head">Keyboard shortcuts</div>'
+      + VIDEO_KEYS.map(([k, what]) => `<kbd>${esc(k)}</kbd><span>${esc(what)}</span>`).join('')
+  }
+  keysPanel.classList.toggle('open', open)
+}
+
+function setVideoRate(rate) {
+  _videoRate = rate
+  audio.playbackRate = audio.defaultPlaybackRate = rate
+  videoOsd(`Speed ${rate}×`)
+}
+
+function toggleSubtitles() {
+  const tracks = [...audio.querySelectorAll('track')]
+  if (!tracks.length) { videoOsd('No subtitles'); return }
+  const showing = tracks.findIndex(t => t.track.mode === 'showing')
+  if (showing >= 0) {
+    _lastSubtitleIndex = showing
+    selectSubtitleTrack(null)
+    videoOsd('Subtitles off')
+  } else {
+    const i = Math.min(_lastSubtitleIndex, tracks.length - 1)
+    selectSubtitleTrack(i)
+    videoOsd(tracks[i].label || 'Subtitles on')
+  }
+}
+
+function jumpChapter(dir) {
+  const target = CascadeCore.chapterTarget(_chapters, mediaPosition(), dir)
+  if (target == null) return
+  seekTo(target)
+  videoOsd(_chapters[CascadeCore.chapterAt(_chapters, target)].name)
+}
+
+/** One frame, at the film's own rate when the server told us it. */
+function stepFrame(dir) {
+  if (!audio.paused) return
+  const v = (queue[queueIndex]?.MediaStreams || []).find(s => s.Type === 'Video')
+  const fps = v?.RealFrameRate || v?.AverageFrameRate || 24
+  seekTo(mediaPosition() + dir / fps)
+}
+
 // Escape is handled by the browser, which exits fullscreen without telling the
 // overlay - so closing on Escape has to wait until it is no longer fullscreen,
 // otherwise one press would both exit fullscreen and close the overlay.
@@ -6292,14 +6385,43 @@ document.addEventListener('keydown', (e) => {
   if (!overlayOpen || !playingVideo()) return
   const t = /** @type {HTMLElement} */ (e.target)
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+  const arrow = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0
 
-  if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleVideoFullscreen() }
-  else if (e.key === 'ArrowLeft')     { e.preventDefault(); skipBy(-SKIP_SECONDS) }
-  else if (e.key === 'ArrowRight')    { e.preventDefault(); skipBy(SKIP_SECONDS) }
-  else if (e.key === ' ')             { e.preventDefault(); document.getElementById('btn-play').click() }
-  else if (e.key === 'ArrowUp')       { e.preventDefault(); nudgeVolume(0.05) }
-  else if (e.key === 'ArrowDown')     { e.preventDefault(); nudgeVolume(-0.05) }
-  else if (e.key === 'm' || e.key === 'M') { e.preventDefault(); document.getElementById('btn-mute').click() }
+  // Chapters are YouTube's Ctrl+arrows, plus Option+arrows because macOS
+  // keeps Ctrl+arrows for switching desktops and never delivers them.
+  if (arrow && (e.ctrlKey || e.altKey) && !e.metaKey) { e.preventDefault(); jumpChapter(arrow); return }
+  // Anything else with Cmd/Ctrl/Option belongs to the app or the OS (Cmd+K
+  // search, Cmd+F), not to the player.
+  if (e.metaKey || e.ctrlKey || e.altKey) return
+
+  const dur = mediaDuration()
+  const key = e.key.length === 1 && !e.shiftKey ? e.key.toLowerCase() : e.key
+  let handled = true
+  if (key === ' ' || key === 'k') document.getElementById('btn-play').click()
+  else if (key === 'j') skipBy(-SKIP_SECONDS)
+  else if (key === 'l') skipBy(SKIP_SECONDS)
+  else if (arrow) skipBy(arrow * ARROW_SECONDS)
+  else if (key === 'ArrowUp' || key === 'ArrowDown') {
+    nudgeVolume(key === 'ArrowUp' ? 0.05 : -0.05)
+    videoOsd(`Volume ${Math.round(audio.volume * 100)}%`)
+  }
+  else if (key === 'm') { document.getElementById('btn-mute').click(); videoOsd(audio.muted ? 'Muted' : 'Unmuted') }
+  else if (key === 'f') toggleVideoFullscreen()
+  else if (key === 'c') toggleSubtitles()
+  else if (/^[0-9]$/.test(key) && dur) seekTo(dur * Number(key) / 10)
+  else if (key === 'Home') seekTo(0)
+  else if (key === 'End' && dur) seekTo(dur)
+  else if (key === ',' || key === '.') stepFrame(key === '.' ? 1 : -1)
+  else if (key === '<' || key === '>') {
+    const i = PLAYBACK_RATES.indexOf(_videoRate)
+    const next = PLAYBACK_RATES[Math.max(0, Math.min(PLAYBACK_RATES.length - 1, (i < 0 ? 3 : i) + (key === '>' ? 1 : -1)))]
+    setVideoRate(next)
+  }
+  else if (key === 'N' && queueIndex < queue.length - 1) document.getElementById('btn-next').click()
+  else if (key === 'P' && queue.length > 1) document.getElementById('btn-prev').click()
+  else if (key === '?') toggleKeysPanel()
+  else handled = false
+  if (handled) e.preventDefault()
 })
 
 /** Change volume by `delta`. Thin wrapper for the video overlay's own arrow-key

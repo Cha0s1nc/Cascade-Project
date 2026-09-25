@@ -1026,6 +1026,12 @@
       <!-- Video hides .np-overlay-header, and with it the collapse chevron
            and close x. This floats in their place and fades with the rest
            of the video chrome. Escape works regardless. -->
+      <!-- What a keyboard shortcut just did ("Speed 1.5x", "Subtitles off"),
+           inside the overlay because a toast outside it is not drawn while
+           the overlay is fullscreen. -->
+      <div class="vid-only" id="ov-osd" aria-live="polite"></div>
+      <!-- The shortcut list, opened with ?. Filled from VIDEO_KEYS. -->
+      <div class="vid-only" id="ov-keys" role="dialog" aria-label="Keyboard shortcuts"></div>
       <button class="vid-only" id="ov-video-close" title="Close now playing (Esc)" aria-label="Close now playing">×</button>
       <!-- #ov-art is rewritten wholesale on every art change, so the hover
            actions sit beside it in the wrapper, not inside it. They repeat
@@ -1061,7 +1067,7 @@
           <button class="np-ov-ctrl" id="ov-prev" title="Previous">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg>
           </button>
-          <button class="np-ov-ctrl vid-only" id="ov-back10" title="Back 10 seconds (←)">
+          <button class="np-ov-ctrl vid-only" id="ov-back10" title="Back 10 seconds (J)">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4A8 8 0 1 1 4 12"/><polyline points="4 4 4 9 9 9"/><text x="12" y="16" font-size="8" font-family="inherit" fill="currentColor" stroke="none" text-anchor="middle">10</text></svg>
           </button>
           <button class="np-ov-play" id="ov-play">
@@ -1071,7 +1077,7 @@
           <!-- Skip sits inside prev/next, not outside it: the pair either side
                of play is the arrangement every video player uses, and the one
                the arrow keys imply. -->
-          <button class="np-ov-ctrl vid-only" id="ov-fwd10" title="Forward 10 seconds (→)">
+          <button class="np-ov-ctrl vid-only" id="ov-fwd10" title="Forward 10 seconds (L)">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 4a8 8 0 1 0 7 8"/><polyline points="20 4 20 9 15 9"/><text x="12" y="16" font-size="8" font-family="inherit" fill="currentColor" stroke="none" text-anchor="middle">10</text></svg>
           </button>
           <button class="np-ov-ctrl" id="ov-next" title="Next">
@@ -1102,7 +1108,7 @@
           </button>
           <!-- Video-only. Hidden by the same .np-overlay.video rules that hide
                shuffle, repeat and lyrics for a film. -->
-          <button class="np-ov-ctrl vid-only" id="ov-subs" title="Subtitles">
+          <button class="np-ov-ctrl vid-only" id="ov-subs" title="Subtitles (C)">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="6" y1="14" x2="11" y2="14"/><line x1="14" y1="14" x2="18" y2="14"/></svg>
           </button>
           <button class="np-ov-ctrl vid-only" id="ov-audio-track" title="Audio track">

@@ -1,7 +1,7 @@
 import { test, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { JellyfinClient } from '../src/core/jellyfin.ts'
-import { resolveStream, isHlsUrl, chapterList, chapterAt, universalStreamUrl, stopActiveEncoding, DEFAULT_MAX_BITRATE, resumeTicks, neededAudioStreamIndex, withoutAudioCodecs
+import { resolveStream, isHlsUrl, chapterList, chapterAt, chapterTarget, universalStreamUrl, stopActiveEncoding, DEFAULT_MAX_BITRATE, resumeTicks, neededAudioStreamIndex, withoutAudioCodecs
 } from '../src/core/playback.ts'
 import { ELECTRON_PROFILE, buildElectronProfile } from '../src/core/profiles/electron.ts'
 import type { ServerConfig, JfMediaStream } from '../src/core/types.ts'
@@ -575,4 +575,14 @@ test('chapterAt finds the chapter playing at a position', () => {
   assert.equal(chapterAt(ch, 60), 1)
   assert.equal(chapterAt(ch, 5000), 2)
   assert.equal(chapterAt([{ sec: 10, name: 'x' }, { sec: 20, name: 'y' }], 5), -1)
+})
+
+test('chapterTarget: forward to the next start, back like a previous button', () => {
+  const ch = [{ sec: 0, name: 'a' }, { sec: 60, name: 'b' }, { sec: 120, name: 'c' }]
+  assert.equal(chapterTarget(ch, 30, 1), 60)
+  assert.equal(chapterTarget(ch, 130, 1), null, 'nothing after the last chapter')
+  assert.equal(chapterTarget(ch, 90, -1), 60, 'well into b: back to its start')
+  assert.equal(chapterTarget(ch, 61, -1), 0, 'just started b: back to a')
+  assert.equal(chapterTarget(ch, 1, -1), 0, 'the first chapter restarts itself')
+  assert.equal(chapterTarget([{ sec: 10, name: 'x' }, { sec: 20, name: 'y' }], 5, -1), null)
 })

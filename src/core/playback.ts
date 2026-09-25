@@ -193,6 +193,21 @@ export function chapterAt(chapters: Chapter[], sec: number): number {
 }
 
 /**
+ * Where a chapter jump from `sec` lands, in seconds, or null for nowhere to go.
+ *
+ * Forward is the next chapter's start. Back works like a CD player's previous
+ * button (and YouTube's): more than `restartWithin` seconds into a chapter
+ * goes to its own start, closer than that goes to the chapter before.
+ */
+export function chapterTarget(chapters: Chapter[], sec: number, dir: 1 | -1, restartWithin = 3): number | null {
+  const cur = chapterAt(chapters, sec)
+  if (dir > 0) return chapters[cur + 1]?.sec ?? null
+  if (cur < 0) return null
+  if (sec - chapters[cur].sec > restartWithin) return chapters[cur].sec
+  return chapters[cur - 1]?.sec ?? chapters[cur].sec
+}
+
+/**
  * Where playback should pick up, in ticks. 0 means "start from the beginning".
  *
  * Jellyfin fills UserData.PlaybackPositionTicks from the PositionTicks we
