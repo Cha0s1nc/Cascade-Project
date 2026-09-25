@@ -181,3 +181,8 @@ body.mode-music #home-resume-section, body.mode-music #home-continue-section { d
 .ep-overview { font-size: 12px; line-height: 1.5; color: var(--text3); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .ep-time { font-size: 11px; color: var(--text3); font-variant-numeric: tabular-nums; padding-top: 2px; }
 .ep-watched { color: var(--accent); }
+/* Grouped by library, each group carries its own heading, and the page's
+   "TV Shows" above a library also called "TV Shows" read twice. The
+   sidebar already says which page this is. */
+#movies-index:has(.lib-grouped) > .sect-header,
+#shows-index:has(.lib-grouped) > .sect-header { display: none; }

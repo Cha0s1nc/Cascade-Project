@@ -30,3 +30,6 @@
 .track-row.selected { background: rgba(255,255,255,0.05); }
 .ctx-sep { height: 1px; background: var(--border); margin: 4px 0; }
 .ctx-sep.hidden { display: none; }
+/* Rows that only mean something for a song: showCtxMenu() marks the menu
+   .video while a film or episode is playing. */
+#ctx-menu.video .music-only { display: none; }

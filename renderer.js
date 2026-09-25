@@ -175,7 +175,7 @@ const {
   buildElectronProfile, DEFAULT_MAX_BITRATE,
   resumeTicks, neededAudioStreamIndex,
   entryIdOf, removeSelected, moveSelectedToTop, moveSelectedToBottom,
-  groupRecentlyWatched,
+  onePerSeries,
 } = CascadeCore
 
 // Passed as a getter, not as `jf` itself: connect() replaces the whole object,
@@ -186,9 +186,11 @@ const jfClient = new CascadeCore.JellyfinClient(() => jf)
 
 function fmtTime(sec) {
   if (!sec || isNaN(sec)) return '0:00'
-  const m = Math.floor(sec / 60)
-  const s = Math.floor(sec % 60)
-  return `${m}:${s.toString().padStart(2, '0')}`
+  // Hours only once there are any: a film read "143:21" without them.
+  const h = Math.floor(sec / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  const s = Math.floor(sec % 60).toString().padStart(2, '0')
+  return h ? `${h}:${m.toString().padStart(2, '0')}:${s}` : `${m}:${s}`
 }
 
 function greeting() {
@@ -1104,6 +1106,14 @@ let _browseMode = 'music'
  *  writing it back there would overwrite a saved "video" choice with "music"
  *  the instant the last video library is removed, losing the choice for good
  *  even if a video library is added back later. */
+// Search covers music and video either way; this just names what you are
+// browsing.
+function setSearchPlaceholder(mode) {
+  const what = mode === 'video' ? 'movies and shows' : 'songs, albums, artists'
+  const key = window.cascade.platform === 'darwin' ? '⌘K' : 'Ctrl+K'
+  document.getElementById('search-input').placeholder = `Search ${what}… (${key})`
+}
+
 function setBrowseMode(mode, opts = {}) {
   _browseMode = mode
   document.body.classList.toggle('mode-video', mode === 'video')
@@ -1114,6 +1124,7 @@ function setBrowseMode(mode, opts = {}) {
   videoBtn?.classList.toggle('active', mode === 'video')
   musicBtn?.setAttribute('aria-pressed', String(mode === 'music'))
   videoBtn?.setAttribute('aria-pressed', String(mode === 'video'))
+  setSearchPlaceholder(mode)
   if (!opts.skipSave) window.cascade.store.set('browseMode', mode)
 }
 
@@ -1430,7 +1441,6 @@ async function applyVideoLibrarySelection(category, ids) {
   applyVideoNavVisibility()
   renderVideoLibraryPicker()
   loadContinueWatching()
-  loadRecentlyWatched()
 }
 
 document.getElementById('s-single-lib-toggle').addEventListener('change', async e => {
@@ -1583,7 +1593,6 @@ async function loadHome() {
   loadRecentlyPlayed()
   loadRecentlyAdded()
   loadContinueWatching()
-  loadRecentlyWatched()
 }
 
 async function loadRecentlyPlayed() {
@@ -2904,8 +2913,8 @@ function fmtRuntime(ticks) {
 }
 
 // `opts` lets a caller show a different item's art/name than the one the card
-// is `data-id`'d and clicked on - used to fold a recently-watched episode into
-// its series' poster and name (see groupRecentlyWatched) without changing
+// is `data-id`'d and clicked on - used to show a Continue watching episode as
+// its series' poster and name (see onePerSeries) without changing
 // which item wirePosterCards resolves the click to.
 function posterCard(item, sub, opts = {}) {
   const art = artUrl(opts.artId || item.Id, 'artTag' in opts ? opts.artTag : item.ImageTags?.Primary)
@@ -3123,42 +3132,51 @@ const loadShows = () => loadPosterGrid(
 
 // ── Continue watching (Home) ──
 //
-// Distinct from Recently watched below it: this is specifically what's
-// partway through (Filters: IsResumable), not play history - a movie or
-// episode watched to the end never appears here even though it does there.
+// The one video shelf on Home: what is partway through, then the next
+// episode of each show being followed (Jellyfin's Next Up). It replaced a
+// separate "Recently watched" shelf that mostly repeated this one.
 // Horizontal, matching Jellyfin's own webui, via the shared hshelf component;
-// same hide-when-empty rule as every other video shelf.
+// hidden when empty, so a music-only user never sees it.
 async function loadContinueWatching() {
   const section = document.getElementById('home-resume-section')
-  const videoLibIds = [...(jf.movieLibraryIds || []), ...(jf.showLibraryIds || [])]
-  if (!videoLibIds.length) { section.style.display = 'none'; return }
+  const movieIds = jf.movieLibraryIds || [], showIds = jf.showLibraryIds || []
+  if (!movieIds.length && !showIds.length) { section.style.display = 'none'; return }
+  const Fields = 'UserData,ProductionYear,SeriesPrimaryImageTag'
   try {
-    const data = await jfClient.getMerged(`/Users/${jf.userId}/Items`, {
-      SortBy: 'DatePlayed',
-      SortOrder: 'Descending',
-      IncludeItemTypes: 'Movie,Episode',
-      Filters: 'IsResumable',
-      Recursive: true,
-      Fields: 'UserData,ProductionYear',
-      Limit: 24
-    }, videoLibIds)
-    // Same reasoning as Recently watched below: getMerged concatenates
-    // per-library results, so the server's DatePlayed order only holds within
-    // one library - re-sort across the merge.
-    const items = (data.Items || [])
+    const [resume, nextUp] = await Promise.all([
+      jfClient.getMerged(`/Users/${jf.userId}/Items`, {
+        SortBy: 'DatePlayed', SortOrder: 'Descending',
+        IncludeItemTypes: 'Movie,Episode', Filters: 'IsResumable',
+        Recursive: true, Fields, Limit: 24,
+      }, [...movieIds, ...showIds]),
+      // Best effort: a failed Next Up still leaves the resume list.
+      showIds.length
+        ? jfClient.getMerged('/Shows/NextUp', { UserId: jf.userId, Fields, Limit: 24, EnableResumable: false }, showIds)
+            .catch(() => ({ Items: [] }))
+        : { Items: [] },
+    ])
+    // getMerged concatenates per-library results, so the server's DatePlayed
+    // order only holds within one library - re-sort across the merge before
+    // onePerSeries picks each show's card.
+    const partway = (resume.Items || [])
       .sort((a, b) => new Date(b.UserData?.LastPlayedDate || 0) - new Date(a.UserData?.LastPlayedDate || 0))
+    const items = onePerSeries([...partway, ...(nextUp.Items || [])]).slice(0, 24)
     if (!items.length) { section.style.display = 'none'; return }
     section.style.display = ''
     const grid = document.getElementById('home-resume-grid')
-    // posterCard's own resumeTicks-driven .poster-progress bar is exactly the
-    // "how far in" signal this shelf is about - nothing extra to build here.
-    grid.innerHTML = hshelfHTML(items.map(item => posterCard(item, recentVideoSub(item))).join(''))
+    // An episode shows its series' poster and name with "S2E6" underneath: an
+    // episode still is widescreen and cropped badly into a poster card. One
+    // with no SeriesId has no series art to borrow, so it keeps its own.
+    grid.innerHTML = hshelfHTML(items.map(item =>
+      item.Type === 'Episode' && item.SeriesId
+        ? posterCard(item, episodeCode(item), { artId: item.SeriesId, artTag: item.SeriesPrimaryImageTag, title: item.SeriesName || item.Name })
+        : posterCard(item, recentVideoSub(item))
+    ).join(''))
     wireHShelf(grid)
-    // kind is 'video' either way - a Movie or Episode card here is the real
-    // item (its own UserData/resume position), just like the grids Movies/TV
-    // browsing use. "Go to details" reuses this same onPick, which already
-    // knows to land an episode on its series (there is no per-episode detail
-    // view in this app).
+    // The card is the real Movie or Episode underneath (its own UserData and
+    // resume position), so 'video' is the right menu kind even for a card
+    // wearing its series' poster. There is no per-episode detail view, so an
+    // episode lands on its series.
     wirePosterCards(grid, items, item => {
       if (item.Type === 'Movie') { showView('movies'); openMovie(item.Id) }
       else { showView('shows'); openSeries(item.SeriesId) }
@@ -3167,13 +3185,6 @@ async function loadContinueWatching() {
     section.style.display = 'none'
   }
 }
-
-// ── Recently watched (Home) ──
-//
-// Movies and episodes played across both video categories, merged and
-// re-sorted by when they were last watched. Only shown when there's actually
-// a video library configured and some play history - a music-only user (or
-// one who hasn't watched anything yet) never sees the section at all.
 
 function recentVideoSub(item) {
   if (item.Type === 'Movie') return item.ProductionYear || ''
@@ -3187,52 +3198,6 @@ function recentVideoSub(item) {
 function episodeCode(item) {
   const s = item.ParentIndexNumber, e = item.IndexNumber
   return (s != null && e != null) ? `S${s}E${e}` : (item.Name || '')
-}
-
-async function loadRecentlyWatched() {
-  const section = document.getElementById('home-continue-section')
-  const videoLibIds = [...(jf.movieLibraryIds || []), ...(jf.showLibraryIds || [])]
-  if (!videoLibIds.length) { section.style.display = 'none'; return }
-  try {
-    const data = await jfClient.getMerged(`/Users/${jf.userId}/Items`, {
-      SortBy: 'DatePlayed',
-      SortOrder: 'Descending',
-      IncludeItemTypes: 'Movie,Episode',
-      Filters: 'IsPlayed',
-      Recursive: true,
-      Fields: 'UserData,ProductionYear,SeriesPrimaryImageTag',
-      Limit: 24
-    }, videoLibIds)
-    // getMerged concatenates per-library results, so the server's DatePlayed
-    // ordering only holds within a library - re-sort across the merge. Fold
-    // binged episodes down to one card per series AFTER that re-sort, so the
-    // kept episode is the actually-most-recent one, not an arbitrary one from
-    // whichever library happened to be fetched first.
-    const items = groupRecentlyWatched(
-      (data.Items || [])
-        .sort((a, b) => new Date(b.UserData?.LastPlayedDate || 0) - new Date(a.UserData?.LastPlayedDate || 0))
-    )
-    if (!items.length) { section.style.display = 'none'; return }
-    section.style.display = ''
-    const grid = document.getElementById('home-continue-grid')
-    grid.innerHTML = items.map(item =>
-      // A grouped episode shows the series' own poster and name, with the
-      // episode itself demoted to the subtitle. An episode with no SeriesId
-      // (never grouped - see groupRecentlyWatched) has no series art to show,
-      // so it keeps the plain episode card it always had.
-      item.Type === 'Episode' && item.SeriesId
-        ? posterCard(item, episodeCode(item), { artId: item.SeriesId, artTag: item.SeriesPrimaryImageTag, title: item.SeriesName || item.Name })
-        : posterCard(item, recentVideoSub(item))
-    ).join('')
-    wirePosterCards(grid, items, item => {
-      // Same detail views Movies/TV browsing already opens - no separate
-      // playback path for a Home entry.
-      if (item.Type === 'Movie') { showView('movies'); openMovie(item.Id) }
-      else { showView('shows'); openSeries(item.SeriesId) }
-    }, 'video') // real per-episode item underneath the grouped series card too
-  } catch {
-    section.style.display = 'none'
-  }
 }
 
 // ── Movie detail ──
@@ -3455,16 +3420,14 @@ function applyVideoMode(on) {
   // A film opened on its own is a queue of one, so prev and next have nowhere
   // to go. A season is not - that queue is the whole point of next-episode.
   ov.classList.toggle('single', !!on && queue.length <= 1)
-  // Full mode only ever means anything over a picture - applied here so a
-  // saved preference from the last video takes effect on this one too,
-  // without also being live (and misleading) while music is playing.
-  ov.classList.toggle('full', !!on && videoFullMode)
-  document.getElementById('ov-full-mode')?.classList.toggle('active', !!on && videoFullMode)
+  // The bottom bar gets the same treatment: shuffle, repeat, lyrics and the
+  // miniplayer are song controls, and prev/next only apply to a season.
+  const bar = document.querySelector('.statusbar')
+  bar.classList.toggle('video', !!on)
+  bar.classList.toggle('single', !!on && queue.length <= 1)
   // A movie playing behind the library grid with no picture is confusing, so
   // opening the overlay is part of starting video, not a separate step.
   if (on) openOverlay()
-  // Covers the other direction too: going back to music must stop the sampler.
-  else refreshAmbient()
 }
 
 // Attach text subtitles as native <track> elements.
@@ -5492,7 +5455,7 @@ async function init() {
   }
 
   document.documentElement.setAttribute('data-platform', window.cascade.platform)
-  searchInput.placeholder = `Search songs, albums, artists… (${window.cascade.platform === 'darwin' ? '⌘K' : 'Ctrl+K'})`
+  setSearchPlaceholder(_browseMode)
   await window.cascade.getVersion().then(v => {
     appVersion = v
     const el = document.getElementById('app-version')
@@ -5525,8 +5488,6 @@ async function init() {
   eqEnabled = (await window.cascade.store.get('eqEnabled')) === true
   eqMusicProfile = await _loadEqProfile('eqMusic')
   eqVideoProfile = await _loadEqProfile('eqVideo')
-
-  videoFullMode = (await window.cascade.store.get('videoFullMode')) === true
 
   // Restore saved volume
   const savedVol = await window.cascade.store.get('volume')
@@ -5570,9 +5531,6 @@ async function init() {
 const npOverlay = document.getElementById('np-overlay')
 let overlayOpen = false
 let overlayLyricsOpen = false
-// Persisted, video only - see applyVideoMode() for where it gets applied and
-// the .np-overlay.video.full CSS for what it actually changes.
-let videoFullMode = false
 
 // ── Beat-reactive background ───────────────────────────────────────────────
 let _currentBgArtUrl = null  // current track's art URL for overlay background
@@ -5598,8 +5556,7 @@ function randomizeDrift() {
 // behind them and skip a write that was actually needed.
 //
 // One cache for one element: every caller passes #np-overlay (the drift loop
-// and clearAlbumArtTheme look it up locally, refreshAmbient uses the npOverlay
-// const). Passing a second element here would make them share a cache and
+// and clearAlbumArtTheme look it up locally). Passing a second element here would make them share a cache and
 // suppress each other's writes, and #np-overlay must not be replaced in the
 // DOM either - a fresh element would start blank behind a stale cache.
 let _lastOverlayBgCss = null
@@ -6023,18 +5980,15 @@ function openOverlay() {
     }
   }
 
-  // A film supplies its own colour, so the art-derived gradient steps aside and
-  // ambient takes over from the beat loop.
+  // A film supplies its own colour, so the art-derived gradient steps aside.
   if (playingVideo()) npOverlay.classList.remove('art-theme')
   else startBeatLoop()
-  refreshAmbient()
 }
 
 function closeOverlay() {
   overlayOpen = false
   npOverlay.classList.remove('open')
   stopBeatLoop()
-  stopAmbient()
 }
 
 // Idle fade for the overlay controls. They get out of the way of the artwork
@@ -6224,51 +6178,6 @@ document.getElementById('ov-repeat').addEventListener('click', () => {
 // Overlay progress bar - shares wireProgressBar() with the statusbar one.
 wireProgressBar('ov-prog-bar', 'ov-prog-fill', 'ov-cur')
 
-// ── Ambient mode ──────────────────────────────────────────────────────────────
-//
-// The picture's own colours bled out around the frame, like YouTube's ambient
-// mode. A frame is copied into a 32x18 canvas a few times a second and CSS does
-// the rest - the blur is what makes the resolution irrelevant, so sampling any
-// larger would be work thrown away.
-//
-// Gated on the existing album-art accent toggle rather than a new setting: that
-// switch already means "let what is playing colour the UI", and this is the
-// same idea with frames instead of cover art.
-
-const AMBIENT_MS = 250
-const ambientCanvas = document.getElementById('ov-ambient')
-const ambientCtx = ambientCanvas.getContext('2d')
-let _ambientTimer = null
-
-function ambientShouldRun() {
-  return themeAlbumArt && overlayOpen && playingVideo()
-}
-
-function startAmbient() {
-  if (_ambientTimer) return
-  npOverlay.classList.add('ambient')
-  _ambientTimer = setInterval(() => {
-    // readyState < 2 means there is no current frame to copy - during a seek
-    // or a stream swap, drawing would either throw or smear the last frame.
-    if (audio.readyState < 2) return
-    try {
-      ambientCtx.drawImage(audio, 0, 0, ambientCanvas.width, ambientCanvas.height)
-    } catch { /* frame not decodable yet; the next tick will do */ }
-  }, AMBIENT_MS)
-}
-
-function stopAmbient() {
-  if (_ambientTimer) { clearInterval(_ambientTimer); _ambientTimer = null }
-  npOverlay.classList.remove('ambient')
-  ambientCtx.clearRect(0, 0, ambientCanvas.width, ambientCanvas.height)
-}
-
-/** Single entry point, so every caller stops having to know the conditions. */
-function refreshAmbient() {
-  if (ambientShouldRun()) startAmbient()
-  else stopAmbient()
-}
-
 // ── Video controls ────────────────────────────────────────────────────────────
 //
 // Everything here is video-only and hidden by CSS while music plays, so none of
@@ -6329,36 +6238,8 @@ document.getElementById('ov-fullscreen').addEventListener('click', toggleVideoFu
 document.getElementById('ov-mute').addEventListener('click', () => document.getElementById('btn-mute').click())
 onDeck('dblclick', () => { if (playingVideo()) toggleVideoFullscreen() })
 
-// ── Full mode ──
-// Independent of real OS fullscreen above - full mode is about the overlay's
-// own chrome (header, docked vs floating controls), fullscreen is about
-// whether the OS gives the window the whole screen. Either can be on without
-// the other, same as VLC lets you keep on-screen controls in fullscreen.
-async function setVideoFullMode(on) {
-  videoFullMode = on
-  npOverlay.classList.toggle('full', on && playingVideo())
-  const btn = document.getElementById('ov-full-mode')
-  btn.classList.toggle('active', on)
-  btn.setAttribute('aria-pressed', String(!!on))
-  await window.cascade.store.set('videoFullMode', on)
-}
-
-document.getElementById('ov-full-mode').addEventListener('click', () => setVideoFullMode(!videoFullMode))
-
-// Shift+F, deliberately next to F for real fullscreen: the two are related and
-// easy to confuse, so their shortcuts should look related too. Plain F is the
-// OS giving the window the screen; Shift+F is Cascade hiding its own chrome.
-// Guarded against firing while typing, same as every other single-key shortcut
-// in this file.
-document.addEventListener('keydown', (e) => {
-  if (e.key !== 'F' || !e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return
-  if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable) return
-  if (!overlayOpen || !playingVideo()) return
-  e.preventDefault()
-  setVideoFullMode(!videoFullMode)
-})
 // Restores the exit the hidden header would otherwise have provided.
-document.getElementById('ov-full-exit').addEventListener('click', closeOverlay)
+document.getElementById('ov-video-close').addEventListener('click', closeOverlay)
 
 // Escape is handled by the browser, which exits fullscreen without telling the
 // overlay - so closing on Escape has to wait until it is no longer fullscreen,
@@ -7237,6 +7118,8 @@ function showCtxMenu(x, y) {
   // whether UserData ever loaded for this item.
   const favLabel = document.getElementById('ctx-favorite-label')
   if (favLabel) favLabel.textContent = likeBtn.classList.contains('liked') ? 'Unfavorite' : 'Favorite'
+  // A film has no album, lyrics or instant mix, and belongs in no playlist.
+  ctxMenu.classList.toggle('video', playingVideo())
   ctxMenu.style.left = `${x}px`
   ctxMenu.style.top = `${y}px`
   ctxMenu.classList.add('open')
@@ -10095,8 +9978,6 @@ function setAlbumArtAccent(enabled) {
   themeAlbumArt = enabled
   document.getElementById('toggle-album-art').checked = enabled
   updateAccentLock()
-  // The same switch drives ambient mode during a film - see refreshAmbient().
-  refreshAmbient()
   if (themeAlbumArt) {
     // Apply immediately from current art
     const img = document.querySelector('#ov-art img') || document.querySelector('#np-art img')

@@ -312,7 +312,7 @@ audio on the live deck. Recorded so these are not rebuilt on a hunch.
 - `.hshelf` `styles/layout.css` **131** (the horizontal shelf with edge arrows,
   used by Home shelves and grouped library rows). `.lib-grouped` **113**.
 - Now-playing overlay: markup index.html **988**; CSS `styles/np-overlay.css`,
-  header at **4**, video full mode at **200**. The header and
+  header at **4**, the full-bleed video layout at **60**. The header and
   the column divider have no borders on purpose - they cut through the album
   art background, which bleeds across both halves.
 - Settings `#view-settings` index.html **495**, five groups from **497**: Library,

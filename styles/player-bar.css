@@ -63,3 +63,10 @@ button svg, .ctrl-btn svg, .play-pause-btn svg, .vol-icon svg { pointer-events: 
 .prog-bar:focus-visible, .vol-bar:focus-visible, .np-overlay-prog-bar:focus-visible {
   outline: none; box-shadow: 0 0 0 3px var(--accent-glow);
 }
+/* While a film or episode plays - set by applyVideoMode(). */
+.statusbar.video #btn-shuffle,
+.statusbar.video #btn-repeat,
+.statusbar.video #btn-lyrics-open,
+.statusbar.video #btn-miniplayer-open,
+.statusbar.video.single #btn-prev,
+.statusbar.video.single #btn-next { display: none; }

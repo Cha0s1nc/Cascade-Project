@@ -240,24 +240,13 @@
             <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
           </div>
         </div>
-        <!-- Hidden until loadContinueWatching() confirms there's a video library
-             configured and something actually partway-through - music-only
-             users, and anyone with nothing paused mid-episode, never see this.
-             Horizontal (matches Jellyfin's own webui), distinct from Recently
-             watched below it: this is Filters:IsResumable, not play history. -->
+        <!-- Hidden until loadContinueWatching() finds something partway
+             through or a next episode - music-only users never see this. -->
         <div id="home-resume-section" style="display:none">
           <div class="sect-header">
             <span class="sect-title">Continue watching</span>
           </div>
           <div id="home-resume-grid"></div>
-        </div>
-        <!-- Hidden until loadRecentlyWatched() confirms there's a video library
-             configured and actual play history - music-only users never see this. -->
-        <div id="home-continue-section" style="display:none">
-          <div class="sect-header">
-            <span class="sect-title">Recently watched</span>
-          </div>
-          <div class="poster-grid" id="home-continue-grid"></div>
         </div>
       </div>
 
@@ -1032,17 +1021,12 @@
            (same HTMLMediaElement API). `audio` in renderer.js is a `let` that
            points at whichever deck is current; only that one is visible
            (deck-hidden on the other). -->
-      <!-- Ambient glow. 32x18 on purpose: it is blurred into a wash, so any
-           more resolution is thrown away. Drawn to, never read from, so the
-           canvas being CORS-tainted by the video does not matter. -->
-      <canvas class="np-ambient" id="ov-ambient" width="32" height="18" aria-hidden="true"></canvas>
       <video class="np-overlay-video" id="media" crossorigin="anonymous" playsinline></video>
       <video class="np-overlay-video deck-hidden" id="media-b" crossorigin="anonymous" playsinline></video>
-      <!-- Full mode hides .np-overlay-header, which costs the collapse chevron
-           and the close x - two of the overlay's three exits. This floats in
-           their place, visible only in full mode and faded with the rest of
-           the cluster on idle. Escape (the third exit) works regardless. -->
-      <button class="vid-only" id="ov-full-exit" title="Close now playing (Esc)" aria-label="Close now playing">×</button>
+      <!-- Video hides .np-overlay-header, and with it the collapse chevron
+           and close x. This floats in their place and fades with the rest
+           of the video chrome. Escape works regardless. -->
+      <button class="vid-only" id="ov-video-close" title="Close now playing (Esc)" aria-label="Close now playing">×</button>
       <!-- #ov-art is rewritten wholesale on every art change, so the hover
            actions sit beside it in the wrapper, not inside it. They repeat
            rows of the More menu (#ctx-menu), which keeps its own. -->
@@ -1126,13 +1110,6 @@
           </button>
           <button class="np-ov-ctrl vid-only" id="ov-fullscreen" data-tip="Fullscreen (F)" title="Fullscreen (F)">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
-          </button>
-          <!-- Full mode: hides the header and floats the transport over the
-               picture, like VLC/YouTube/Netflix (see .np-overlay.video.full
-               in the CSS). Independent of real OS fullscreen (ov-fullscreen
-               above) - either can be on without the other. -->
-          <button class="np-ov-ctrl vid-only" id="ov-full-mode" data-tip="Hide the app chrome (Shift+F)" title="Hide the app chrome (Shift+F)" aria-pressed="false">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V5a1 1 0 0 1 1-1h4"/><path d="M20 9V5a1 1 0 0 0-1-1h-4"/><path d="M4 15v4a1 1 0 0 0 1 1h4"/><path d="M20 15v4a1 1 0 0 1-1 1h-4"/></svg>
           </button>
         </div>
       </div>
@@ -1223,10 +1200,10 @@
   <div class="ctx-item" id="ctx-stop">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>Stop playback
   </div>
-  <div class="ctx-item" id="ctx-clear-queue">
+  <div class="ctx-item music-only" id="ctx-clear-queue">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>Clear queue
   </div>
-  <div class="ctx-item" id="ctx-instant-mix">
+  <div class="ctx-item music-only" id="ctx-instant-mix">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>Instant mix
   </div>
   <div class="ctx-item" id="ctx-favorite">
@@ -1236,7 +1213,7 @@
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>Sleep timer
   </div>
   <div class="ctx-sep"></div>
-  <div class="ctx-item" id="ctx-add-playlist">
+  <div class="ctx-item music-only" id="ctx-add-playlist">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add to playlist
   </div>
   <div class="ctx-item" id="ctx-download">
@@ -1259,17 +1236,17 @@
   <div class="ctx-item" id="ctx-edit-images">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>Edit images<span class="ctx-item-note" id="ctx-edit-images-note" hidden>Admin only</span>
   </div>
-  <div class="ctx-item" id="ctx-edit-lyrics">
+  <div class="ctx-item music-only" id="ctx-edit-lyrics">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>Edit lyrics
   </div>
-  <div class="ctx-sep"></div>
-  <div class="ctx-item" id="ctx-view-album">
+  <div class="ctx-sep music-only"></div>
+  <div class="ctx-item music-only" id="ctx-view-album">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>View album
   </div>
-  <div class="ctx-item" id="ctx-view-artist">
+  <div class="ctx-item music-only" id="ctx-view-artist">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>View album artist
   </div>
-  <div class="ctx-item" id="ctx-view-lyrics">
+  <div class="ctx-item music-only" id="ctx-view-lyrics">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>View lyrics
   </div>
   <div class="ctx-sep"></div>

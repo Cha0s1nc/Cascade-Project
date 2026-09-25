@@ -114,21 +114,21 @@ export function effectiveLibraryIds(
 }
 
 /**
- * Fold Home's "recently watched" list so a binged series shows once instead
- * of once per episode.
+ * One card per series for Home's Continue watching, so a binged show appears
+ * once instead of once per episode.
  *
- * `items` must already be in most-recently-watched-first order - getMerged
- * concatenates each library's results, so the server's own DatePlayed sort
- * only holds within one library, and the caller re-sorts across the merge
- * before this runs. Grouping first would pick an arbitrary episode per
- * series instead of the actual most recent one.
+ * Keeps the first episode seen for each SeriesId and drops the rest, so the
+ * caller's order decides which one wins. Continue watching passes what is
+ * partway through (re-sorted most recent first, since getMerged concatenates
+ * each library's results and the server's DatePlayed sort only holds within
+ * one) followed by Next Up, which means a show's half-watched episode beats
+ * the Next Up entry for the same show.
  *
- * Only Episodes are grouped, keyed by SeriesId, keeping the first (most
- * recent) one seen and dropping the rest. An episode with no SeriesId is
- * never dropped and never merged with another SeriesId-less episode - each
- * one is its own entry, same as a Movie. Movies pass through unchanged.
+ * An episode with no SeriesId is never dropped and never merged with another
+ * SeriesId-less episode - each one is its own entry, same as a Movie. Movies
+ * pass through unchanged.
  */
-export function groupRecentlyWatched(items: JfItem[]): JfItem[] {
+export function onePerSeries(items: JfItem[]): JfItem[] {
   const seenSeries = new Set<string>()
   const result: JfItem[] = []
   for (const item of items) {

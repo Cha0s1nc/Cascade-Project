@@ -11,7 +11,7 @@ Cascade is a Jellyfin streaming app, originally prioritized for music streaming.
 ## Features
 
 - **Jellyfin playback** - browse and play from your library. Cascade negotiates every stream with the server (`PlaybackInfo` plus a device profile), so it direct plays what it can and only transcodes what it has to
-- **Movies and TV** - separate movie and TV libraries with season and episode browsing, resume, subtitle and audio track selection, and an ambient blurred backdrop. Off by default, turned on per library in Settings
+- **Movies and TV** - separate movie and TV libraries with season and episode browsing, resume, subtitle and audio track selection, in a full-bleed player. Off by default, turned on per library in Settings
 - **Crossfade** - real two-deck crossfade with an equal-power curve, ramped on the audio thread. The next track is prefetched onto the idle deck so a change does not stall
 - **5-band equalizer** - 60/250/1k/4k/12k peaking filters with separate music and video curves, five presets (Flat, Bass Boost, Vocal, Treble, Loudness) and an automatic preamp that stops a boost clipping
 - **Search** - songs, albums, artists, movies and series, with results grouped by type
