@@ -43,6 +43,9 @@ public struct JfImageTags: Codable, Sendable {
 public struct JfMediaSourceRef: Codable, Sendable {
     public var id: String?
     public var container: String?
+    /// Bits per second. How mergeLibraryCopies picks between two copies of a
+    /// song, so it is only asked for when more than one library is browsed.
+    public var bitrate: Int?
 }
 
 /// A track, album, artist or playlist. Jellyfin returns one shape for all of
@@ -83,6 +86,11 @@ public struct JfItem: Codable, Sendable, Identifiable, Hashable {
     public var mediaSources: [JfMediaSourceRef]?
 
     public var userData: JfUserData?
+
+    /// Which selected library this came from, by position. Set by
+    /// itemsAcrossLibraries, never sent by the server; mergeLibraryCopies only
+    /// merges copies from different libraries.
+    public var sourceLibrary: Int?
 
     public init(id: String, name: String? = nil, type: String? = nil,
                 runTimeTicks: Int? = nil, userData: JfUserData? = nil) {

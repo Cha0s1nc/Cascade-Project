@@ -118,9 +118,14 @@ tap-to-seek), the favourite button sticking server-side, and the Playlists
 tab. tvOS: builds and reaches the Quick Connect screen; signed-in use not
 checked yet.
 
-Never exercised by a person: every browsing screen. They compile for both
-platforms and the queries behind them are covered by live tests, but nobody has
-scrolled a thousand songs, run a search, or opened an album on a device yet.
-That is the largest untested surface in the project.
+Browsing screens: first used by a person on the iPhone 16 on 2026-09-23, and
+59bcb5e fixed what that found (artist counts, doubled back buttons, paging
+Songs and Albums in 200s).
+
+Cross-library copies (`LibraryMerge.swift`, 2026-09-24): the same song,
+album or artist in two selected libraries shows once, ported from the
+desktop's dedupeById with its tests. `itemsAcrossLibraries` tags each item
+with `sourceLibrary` and merges; `loadPaged` re-merges everything loaded so
+far, because copies can land on different pages.
 
 Out of scope for v1: EQ, crossfade, offline downloads, video.

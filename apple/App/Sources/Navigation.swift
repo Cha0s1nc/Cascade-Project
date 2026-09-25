@@ -98,7 +98,10 @@ func loadPaged(pageSize: Int = 200,
         let fresh = try await fetch(pageSize, start).filter { seen.insert($0.id).inserted }
         if fresh.isEmpty { break }
         all += fresh
-        apply(all)
+        // Merged over everything loaded so far, not page by page: each page
+        // takes the same offset from every library, and a song sits at a
+        // different offset in each, so its copies can arrive pages apart.
+        apply(mergeLibraryCopies(all))
         start += pageSize
     }
 }

@@ -31,7 +31,8 @@ public extension JellyfinClient {
     }
 
     /// One query per selected library, run in parallel, merged in library
-    /// order and de-duplicated by id. With no library selected this is a
+    /// order, with the same song, album or artist found in two libraries shown
+    /// once (see mergeLibraryCopies). With no library selected this is a
     /// single unscoped query.
     ///
     /// Jellyfin has no "these parents" parameter, so scoping to more than one
@@ -44,6 +45,19 @@ public extension JellyfinClient {
             return response.items ?? []
         }
 
+        // What mergeLibraryCopies compares copies by: a song's bitrate, an
+        // album's track count. Only worth the bigger response when there is
+        // more than one library to choose between.
+        var params = params
+        if libraries.count > 1 {
+            let types = (params["includeItemTypes"] ?? nil) ?? ""
+            let extra = [types.contains("Audio") ? "MediaSources" : nil,
+                         types.contains("MusicAlbum") ? "ChildCount" : nil].compactMap { $0 }
+            if !extra.isEmpty {
+                params["fields"] = ([(params["fields"] ?? nil)].compactMap { $0 } + extra).joined(separator: ",")
+            }
+        }
+
         let pages = await withTaskGroup(of: (Int, [JfItem]).self) { group in
             for (index, library) in libraries.enumerated() {
                 var scoped = params
@@ -52,15 +66,18 @@ public extension JellyfinClient {
                     // One failing library must not sink the whole screen, so
                     // it yields nothing rather than throwing.
                     let response: JfItemsResponse? = try? await self.get(path, params: scoped)
-                    return (index, response?.items ?? [])
+                    return (index, (response?.items ?? []).map { item in
+                        var item = item
+                        item.sourceLibrary = index
+                        return item
+                    })
                 }
             }
             var byLibrary: [(Int, [JfItem])] = []
             for await page in group { byLibrary.append(page) }
             return byLibrary.sorted { $0.0 < $1.0 }.flatMap(\.1)
         }
-        var seen = Set<String>()
-        return pages.filter { seen.insert($0.id).inserted }
+        return mergeLibraryCopies(pages)
     }
 
     private var baseParams: [String: String?] {
