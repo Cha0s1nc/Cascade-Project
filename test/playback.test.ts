@@ -173,7 +173,8 @@ test('video transcoding profile is hls, not progressive http', () => {
   const video = ELECTRON_PROFILE.TranscodingProfiles.find(p => p.Type === 'Video')
   assert.ok(video, 'video transcoding profile must exist')
   assert.equal(video.Protocol, 'hls')
-  assert.equal(video.Container, 'ts')
+  // fmp4 segments: HEVC copied into TS segments played as a black picture.
+  assert.equal(video.Container, 'mp4')
   assert.equal(video.VideoCodec, 'h264')
 })
 

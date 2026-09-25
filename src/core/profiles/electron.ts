@@ -189,9 +189,15 @@ export const ELECTRON_PROFILE: DeviceProfile = {
     // died 53 minutes in. HLS segments are throttled and deleted as you
     // watch, and the playlist spans the whole item, so seeking and resume
     // happen on the element instead of by restarting the stream.
+    //
+    // Segments are fragmented MP4 (Jellyfin writes fmp4 HLS for an mp4
+    // container), not MPEG-TS. When the host decodes HEVC the server may copy
+    // the video instead of encoding it (see buildElectronProfile), and the HEVC
+    // probe only vouches for ISO-BMFF: in TS segments an HEVC film played its
+    // audio over a black picture. Measured on a Dolby Vision 8.1 HEVC film.
     {
       Type: 'Video',
-      Container: 'ts',
+      Container: 'mp4',
       VideoCodec: 'h264',
       AudioCodec: 'aac',
       Protocol: 'hls',
