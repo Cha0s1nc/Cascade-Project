@@ -58,3 +58,24 @@ targets:
         DEVELOPMENT_TEAM: 8SF895GF9C
         CODE_SIGN_STYLE: Automatic
         SWIFT_VERSION: "6.0"
+    scheme:
+      testTargets:
+        - CascadetvOSUITests
+
+  # Presses Siri Remote buttons from a script, so the TV app can be exercised
+  # without a person at the simulator. See UITests/tvOS/RemoteScript.swift.
+  CascadetvOSUITests:
+    type: bundle.ui-testing
+    platform: tvOS
+    deploymentTarget: "18.0"
+    sources:
+      - UITests/tvOS
+    dependencies:
+      - target: CascadetvOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: xyz.chaosinc.cascade.tvos.uitests
+        DEVELOPMENT_TEAM: 8SF895GF9C
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: YES

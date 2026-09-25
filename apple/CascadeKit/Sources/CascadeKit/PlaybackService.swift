@@ -28,6 +28,10 @@ public final class PlaybackService {
     public private(set) var queue = QueueOrder()
     public var repeatMode: RepeatMode = .none
     public private(set) var shuffle = false
+    /// Counts plays a person started, as opposed to the queue moving on by
+    /// itself. tvOS watches it to bring the player forward on a pick without
+    /// yanking you back to it every time a song ends.
+    public private(set) var playRequests = 0
     public private(set) var isPaused = true
     /// Between a play() call landing and its stream actually resolving, so a
     /// view can show "loading" rather than a stale track.
@@ -95,6 +99,7 @@ public final class PlaybackService {
         guard items.indices.contains(startIndex) else { return }
         queue = QueueOrder(items: items, index: startIndex, unshuffled: nil)
         shuffle = false
+        playRequests += 1
         await load(items[startIndex])
     }
 

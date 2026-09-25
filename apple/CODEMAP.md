@@ -128,4 +128,21 @@ desktop's dedupeById with its tests. `itemsAcrossLibraries` tags each item
 with `sourceLibrary` and merges; `loadPaged` re-merges everything loaded so
 far, because copies can land on different pages.
 
+tvOS, signed in, first exercised 2026-09-24 in the Apple TV (1080p)
+simulator, tvOS 26.5, against a throwaway Jellyfin 10.11.11 with two music
+libraries sharing an album: Quick Connect sign-in, every tab, album detail,
+playback (confirmed server-side), Now Playing with synced lyrics, Settings.
+That run found and fixed: no way to reach Now Playing on tvOS at all (it is
+now a tab, and starting playback switches to it; a tab inserted and selected
+in one update was never built, so it is always present), "1 tracks", and
+merged libraries not in server order. The tab bar is wider than its glass:
+Search and Settings sit past the right edge until focus scrolls to them.
+
+Driving tvOS without a person: the CascadetvOSUITests target
+(UITests/tvOS/RemoteScript.swift) presses Siri Remote buttons from a
+TEST_RUNNER_SCRIPT, screenshots to TEST_RUNNER_OUT_DIR, and can approve
+Quick Connect itself. xcodebuild sometimes never exits after the test
+passes; wait for "Test Suite 'Selected tests' passed" in its output instead
+of its exit.
+
 Out of scope for v1: EQ, crossfade, offline downloads, video.

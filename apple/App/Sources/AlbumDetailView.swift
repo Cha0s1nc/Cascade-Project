@@ -80,7 +80,7 @@ struct AlbumDetailView: View {
     private var subtitle: String {
         var parts: [String] = []
         if let year = album.productionYear { parts.append(String(year)) }
-        parts.append("\(tracks.count) tracks")
+        parts.append(tracks.count == 1 ? "1 track" : "\(tracks.count) tracks")
         return parts.joined(separator: " \u{00b7} ")
     }
 

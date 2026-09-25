@@ -3,12 +3,15 @@ import CascadeKit
 
 /// The signed-in shell: tabs, and a mini player pinned above them on iOS.
 ///
-/// tvOS gets no mini player. The remote has no room for one and the platform
-/// convention is a full screen player you push to, so the tab bar is the only
-/// persistent chrome there.
+/// tvOS gets no mini player. The remote has no room for one, so the player is
+/// a Now Playing tab instead, and picking something to play switches to it. Before this the tvOS player could not be
+/// reached at all: nothing opened it.
 struct MainView: View {
     @Environment(AppState.self) private var state
     @State private var showingNowPlaying = false
+    @State private var tab: AppTab = .home
+
+    enum AppTab: Hashable { case nowPlaying, home, albums, artists, songs, playlists, search, settings }
 
     var body: some View {
         #if os(tvOS)
@@ -29,17 +32,30 @@ struct MainView: View {
     }
 
     private var tabs: some View {
-        TabView {
-            Tab("Home", systemImage: "house") { stack { HomeView() } }
-            Tab("Albums", systemImage: "square.stack") { stack { AlbumsView() } }
-            Tab("Artists", systemImage: "music.mic") { stack { ArtistsView() } }
-            Tab("Songs", systemImage: "music.note.list") { stack { SongsView() } }
-            Tab("Playlists", systemImage: "music.note.square.stack") { stack { PlaylistsView() } }
+        TabView(selection: $tab) {
             #if os(tvOS)
-            Tab("Search", systemImage: "magnifyingglass", role: .search) { stack { SearchView() } }
-            Tab("Settings", systemImage: "gear") { stack { SettingsView() } }
+            // Always there rather than added when playback starts: a tab
+            // inserted and selected in the same update was never built, and
+            // showed an empty screen. Idle, it says "Nothing playing".
+            Tab("Now Playing", systemImage: "play.circle", value: AppTab.nowPlaying) {
+                if let player = state.player {
+                    NowPlayingView(player: player)
+                }
+            }
+            #endif
+            Tab("Home", systemImage: "house", value: AppTab.home) { stack { HomeView() } }
+            Tab("Albums", systemImage: "square.stack", value: AppTab.albums) { stack { AlbumsView() } }
+            Tab("Artists", systemImage: "music.mic", value: AppTab.artists) { stack { ArtistsView() } }
+            Tab("Songs", systemImage: "music.note.list", value: AppTab.songs) { stack { SongsView() } }
+            Tab("Playlists", systemImage: "music.note.square.stack", value: AppTab.playlists) { stack { PlaylistsView() } }
+            #if os(tvOS)
+            Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .search) { stack { SearchView() } }
+            Tab("Settings", systemImage: "gear", value: AppTab.settings) { stack { SettingsView() } }
             #endif
         }
+        #if os(tvOS)
+        .onChange(of: state.player?.playRequests ?? 0) { tab = .nowPlaying }
+        #endif
     }
 
     /// One stack per tab, with the shared routes and (on iOS) the search and
