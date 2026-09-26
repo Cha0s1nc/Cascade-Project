@@ -224,6 +224,24 @@ export function expectedPositionMs(state: WfStateMessage, now: number = Date.now
   return (state.positionMs || 0) + (state.paused ? 0 : latency)
 }
 
+/** The most a guest will lead a seek by, however slow the last one was. */
+export const WF_MAX_SEEK_LEAD_MS = 5000
+
+/**
+ * Where a guest should seek to so it comes out level with the host.
+ *
+ * A seek into a remote stream takes a while to resume, and the host keeps
+ * playing meanwhile. Seeking to where the host is *now* therefore lands the
+ * guest behind by the seek time: 1.3-2.2s against a remote Jellyfin, right at
+ * the 1.5s drift threshold, so the next heartbeat re-seeks, lands late again,
+ * and the guest stutters forever. Leading by the last measured seek time
+ * breaks that loop. A paused host is not moving, so there is nothing to lead.
+ */
+export function seekTargetMs(expectedMs: number, lastSeekMs: number, paused: boolean): number {
+  if (paused) return Math.max(0, expectedMs)
+  return Math.max(0, expectedMs + Math.min(Math.max(0, lastSeekMs), WF_MAX_SEEK_LEAD_MS))
+}
+
 /** How many recent state messages `clockOffsetMs` looks at: two minutes of heartbeats. */
 export const WF_SKEW_WINDOW = 30
 

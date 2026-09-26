@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  buildStateMessage, expectedPositionMs, clockOffsetMs, shouldReseek, isForeignServer, roomSocketUrl,
+  buildStateMessage, expectedPositionMs, clockOffsetMs, seekTargetMs, WF_MAX_SEEK_LEAD_MS, shouldReseek, isForeignServer, roomSocketUrl,
   buildQueueMessage, buildEnqueueMessage, buildEnqueueRejected,
   buildControlMessage, isControlAction,
   isStaleQueue, missingTrackIds,
@@ -40,6 +40,16 @@ test('clockOffsetMs cancels a skewed clock out of expectedPositionMs', () => {
   const now = 1_000_000 + skew + 100
   assert.equal(expectedPositionMs(msg, now), 13_100, 'uncorrected: 3s ahead of the host')
   assert.equal(expectedPositionMs(msg, now, offset), 10_060, 'behind by only the fastest trip')
+})
+
+test('seekTargetMs leads a playing host by the last seek time', () => {
+  // The last seek took 1.8s, so aiming at the host's current position would
+  // land 1.8s behind: over the 1.5s drift threshold, and it would re-seek.
+  assert.equal(seekTargetMs(60_000, 1800, false), 61_800)
+  assert.ok(!shouldReseek(61_800, 60_000 + 1800), 'lands level with the host')
+  assert.equal(seekTargetMs(60_000, 1800, true), 60_000, 'a paused host is not moving')
+  assert.equal(seekTargetMs(60_000, 60_000, false), 60_000 + WF_MAX_SEEK_LEAD_MS, 'capped')
+  assert.equal(seekTargetMs(60_000, -50, false), 60_000, 'no negative lead')
 })
 
 test('clockOffsetMs is zero with nothing measured yet', () => {
