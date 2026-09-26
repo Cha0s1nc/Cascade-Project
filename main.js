@@ -1276,17 +1276,27 @@ app.on('will-quit', () => { _appleHelper?.proc.kill() })
 
 ipcMain.handle('apple-translation:supported', () => appleTranslationSupported())
 
-// Status of every language Cascade translates, straight from macOS.
-ipcMain.handle('apple-translation:availability', async () => {
+// A language code as Apple's framework takes it: 'uk', 'zh-Hant'. Checked
+// rather than matched against a list here, so the list of languages to ask
+// about lives in one place (APPLE_TRANSLATION_KEYS in the core) and macOS
+// itself answers "unsupported" for anything it cannot do.
+const isAppleLanguageCode = c => typeof c === 'string' && /^[a-z]{2,3}(-[A-Z][a-z]{3})?$/.test(c)
+
+// Status of the languages the renderer asks about, straight from macOS.
+// Trust boundary: the list comes from the renderer, so every code is checked
+// and the list is capped.
+ipcMain.handle('apple-translation:availability', async (_e, languages) => {
   if (!appleTranslationSupported()) return {}
-  const { status } = await appleRequest({ op: 'availability', languages: Object.keys(TRANSLATION_MANIFEST.models) })
+  const codes = Array.isArray(languages) && languages.length <= 40 && languages.every(isAppleLanguageCode)
+    ? languages : Object.keys(TRANSLATION_MANIFEST.models)
+  const { status } = await appleRequest({ op: 'availability', languages: codes })
   return status
 })
 
-// Trust boundary: both arguments come from the renderer. Only a language
-// Cascade itself offers, and a single lyric line of sane length, go to macOS.
+// Trust boundary: both arguments come from the renderer. Only a well-formed
+// language code and a single lyric line of sane length go to macOS.
 ipcMain.handle('apple-translation:translate', async (_e, key, text) => {
-  translationModel(key)
+  if (!isAppleLanguageCode(key)) throw new Error('Invalid language')
   if (typeof text !== 'string' || text.length > 2000) throw new Error('Invalid text to translate')
   if (!appleTranslationSupported()) throw new Error('Apple Translation is not available on this Mac')
   const { text: english } = await appleRequest({ op: 'translate', source: key, text })

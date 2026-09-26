@@ -52,7 +52,7 @@ const cascade: ElectronPlatform = {
   },
   appleTranslation: {
     supported:    () => ipcRenderer.invoke('apple-translation:supported'),
-    availability: () => ipcRenderer.invoke('apple-translation:availability'),
+    availability: (languages) => ipcRenderer.invoke('apple-translation:availability', languages),
     translate:    (key, text) => ipcRenderer.invoke('apple-translation:translate', key, text),
     openSettings: () => ipcRenderer.invoke('apple-translation:open-settings'),
   },

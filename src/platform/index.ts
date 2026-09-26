@@ -185,7 +185,8 @@ export interface DesktopCapabilities {
   appleTranslation?: {
     supported(): Promise<boolean>
     /** Per model key: installed in macOS, installable, or not offered by Apple. */
-    availability(): Promise<Record<string, 'installed' | 'supported' | 'unsupported'>>
+    /** Status per language code, for the codes given (Cascade's own five if none). */
+    availability(languages?: readonly string[]): Promise<Record<string, 'installed' | 'supported' | 'unsupported'>>
     /** One line into English. Rejects if the language is not installed. */
     translate(key: string, text: string): Promise<string>
     /** Opens System Settings at Language & Region. */

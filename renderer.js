@@ -5555,6 +5555,7 @@ async function init() {
     }
   }
   syncTranslateButtons()
+  refreshAppleLanguageStatus()
   crossfadeSeconds = parseInt(await window.cascade.store.get('crossfadeSeconds'), 10) || 6
   maxStreamingBitrate = parseInt(await window.cascade.store.get('maxStreamingBitrate'), 10) || DEFAULT_MAX_BITRATE
 
@@ -7115,12 +7116,13 @@ function lyricsPlainLines() {
   return lyricsData.map(l => l.Text || '')
 }
 
-// Only a sheet one of the downloadable models can translate gets a Translate
-// button: offering one for, say, Spanish would be a button that can only fail.
+// Only a sheet something on this Mac can translate gets a Translate button:
+// one Cascade has a model for, or one Apple Translation takes. Offering one
+// for anything else would be a button that can only fail.
 function detectOverlayLyricsLanguage() {
   syncTranslateButtons()
   document.getElementById('ov-translate-btn').style.display =
-    lyricsTranslationEnabled && CascadeCore.translationModelFor(lyricsPlainLines()) ? 'flex' : 'none'
+    lyricsTranslationEnabled && _canTranslate(CascadeCore.translationLanguageFor(lyricsPlainLines())) ? 'flex' : 'none'
 }
 
 document.getElementById('ov-translate-btn').addEventListener('click', () => onTranslateButton())
@@ -8943,7 +8945,8 @@ async function fetchLyrics() {
 function detectAndShowTranslateBar() {
   // The whole sheet, not the first line: a song opening on an English title line
   // must still read as the language the rest of it is in.
-  const key = lyricsTranslationEnabled && CascadeCore.translationModelFor(lyricsPlainLines())
+  const lang = lyricsTranslationEnabled && CascadeCore.translationLanguageFor(lyricsPlainLines())
+  const key = _canTranslate(lang) ? lang : null
   document.getElementById('lyrics-translate-bar').classList.toggle('visible', !!key)
   document.getElementById('lyrics-translate-label').textContent = key ? `${_translationModelName(key)} lyrics` : ''
 }
@@ -9060,7 +9063,13 @@ let _translateStatusTimer = null
 // so the renderer never keeps its own copy to drift. Kept current from progress
 // events; the key itself shows only if a label renders before the first read.
 let _translationModels = {}
-const _translationModelName = key => _translationModels[key]?.name || key
+// Languages only Apple takes have no manifest entry, so their name comes from
+// the platform's own list ("Ukrainian", "Thai").
+const _languageNames = new Intl.DisplayNames(['en'], { type: 'language' })
+const _translationModelName = key => {
+  if (_translationModels[key]?.name) return _translationModels[key].name
+  try { return _languageNames.of(key) || key } catch { return key }
+}
 
 window.cascade.translationModels.status().then(s => { _translationModels = s }).catch(() => {})
 
@@ -9101,14 +9110,37 @@ let _pendingInstallKey = null   // the sheet's language, while it waits on macOS
 
 const _appleInUse = () => _appleTranslationSupported && appleTranslationEnabled
 
-async function _translationEngineFor(key) {
-  if (!_appleInUse()) return 'mozilla'
-  const status = await window.cascade.appleTranslation.availability()
+// macOS's last answer per language, so the Translate button can be decided
+// without a round trip on every sheet. Refreshed at startup, when Apple
+// Translation is switched, and whenever the settings row or a translation
+// asks again - the last one catches a language installed since.
+let _appleLanguageStatus = {}
+
+async function refreshAppleLanguageStatus() {
+  if (!_appleTranslationSupported) return _appleLanguageStatus
+  try {
+    _appleLanguageStatus = await window.cascade.appleTranslation.availability(CascadeCore.APPLE_TRANSLATION_KEYS)
+  } catch { /* keep the last answer */ }
+  detectOverlayLyricsLanguage()
+  detectAndShowTranslateBar()
+  return _appleLanguageStatus
+}
+
+function _engineFor(key, status) {
   return CascadeCore.pickTranslationEngine({
-    appleEnabled: true,
-    appleStatus: status[key],
+    appleEnabled: _appleInUse(),
+    appleStatus: _appleInUse() ? status[key] : undefined,
+    hasModel: CascadeCore.isModelKey(key),
     mozillaChosen: _appleMozillaChosen.has(key),
   })
+}
+
+/** Whether anything on this Mac could translate a sheet in `key`, from the cached answer. */
+const _canTranslate = key => !!key && _engineFor(key, _appleLanguageStatus) !== 'none'
+
+async function _translationEngineFor(key) {
+  if (!_appleInUse()) return _engineFor(key, {})
+  return _engineFor(key, await refreshAppleLanguageStatus())
 }
 
 function openAppleInstallPrompt(key) {
@@ -9118,8 +9150,10 @@ function openAppleInstallPrompt(key) {
   modal.dataset.key = key
   document.getElementById('apple-install-title').textContent = `Install ${name} in macOS?`
   document.getElementById('apple-install-lang').textContent = name
-  document.getElementById('apple-install-mozilla').textContent =
-    `Use Cascade's model${m ? ` (${Math.round(m.bytes / 1e6)} MB)` : ''}`
+  const mozillaBtn = document.getElementById('apple-install-mozilla')
+  mozillaBtn.textContent = `Use Cascade's model${m ? ` (${Math.round(m.bytes / 1e6)} MB)` : ''}`
+  // Most languages Apple takes have no Cascade model to fall back on.
+  mozillaBtn.style.display = CascadeCore.isModelKey(key) ? '' : 'none'
   modal.classList.remove('hidden')
 }
 
@@ -9182,13 +9216,16 @@ async function renderAppleTranslationRow() {
   document.getElementById('apple-translation-reset').style.display = _appleMozillaChosen.size ? '' : 'none'
   const statusEl = document.getElementById('apple-translation-status')
   try {
-    const status = await window.cascade.appleTranslation.availability()
-    const names = keys => keys.map(_translationModelName).join(', ')
-    const keys = CascadeCore.TRANSLATION_MODEL_KEYS
+    const status = await refreshAppleLanguageStatus()
+    // Every language Apple takes, not only the five Cascade has models for:
+    // System Settings undercounts too, since macOS 27's multilingual model
+    // covers languages it never lists as downloaded.
+    const byName = keys => keys.map(_translationModelName).sort((a, b) => a.localeCompare(b))
+    const keys = CascadeCore.APPLE_TRANSLATION_KEYS
     const installed = keys.filter(k => status[k] === 'installed')
     const missing = keys.filter(k => status[k] === 'supported')
     const parts = []
-    if (installed.length) parts.push(`Installed in macOS: ${names(installed)}.`)
+    if (installed.length) parts.push(`Installed in macOS (${installed.length}): ${byName(installed).join(', ')}.`)
     if (missing.length) {
       parts.push(`Not installed: ${missing.map(k => _translationModelName(k) + (_appleMozillaChosen.has(k) ? ' (using Cascade’s model)' : '')).join(', ')}.`)
     }
@@ -9412,7 +9449,8 @@ function ensureLyricsTranslation(userAsked = false) {
   if (_lyricsTranslating?.sheet === sheet) return _lyricsTranslating.promise
 
   const lines = lyricsPlainLines()
-  const key = CascadeCore.translationModelFor(lines)
+  const lang = CascadeCore.translationLanguageFor(lines)
+  const key = _canTranslate(lang) ? lang : null
   // A new sheet in another language (or none) is no longer waiting on the old one.
   if (_pendingInstallKey && _pendingInstallKey !== key) {
     _pendingInstallKey = null
@@ -9427,7 +9465,7 @@ function ensureLyricsTranslation(userAsked = false) {
     await null
     try {
       const engine = await _translationEngineFor(key)
-      if (lyricsData !== sheet) { _flashTranslateStatus('', 0); return }
+      if (lyricsData !== sheet || engine === 'none') { _flashTranslateStatus('', 0); return }
       if (engine === 'needs-install') {
         _pendingInstallKey = key
         _flashTranslateStatus(`Install ${_translationModelName(key)}…`, 0)

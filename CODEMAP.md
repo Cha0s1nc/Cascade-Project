@@ -179,9 +179,13 @@ literals. Renaming an id is a silent break that typecheck will not catch.
     retired after `TRANSLATE_IDLE_MS` (**6586**); one line per call; an
     in-memory LRU of translated lines for the session.
     `ensureLyricsTranslation()` - **8564** downloads a missing model before
-    translating. `CascadeCore.translationModelFor()` decides which model (or
-    none, so no Translate button) a sheet gets, telling the Chinese scripts
-    apart by characters written differently in each.
+    translating. `CascadeCore.translationLanguageFor()` names a sheet's
+    language (Chinese scripts told apart by characters written differently in
+    each, Russian and Ukrainian by their own letters), and
+    `pickTranslationEngine()` picks Apple, Mozilla, an install prompt, or
+    none (no Translate button). Mozilla covers `TRANSLATION_MODEL_KEYS`;
+    Apple is asked about `APPLE_TRANSLATION_KEYS`, and the renderer caches its
+    answer in `_appleLanguageStatus` so the button needs no round trip.
   - Two switches, on purpose: `lyricsTranslationEnabled` (Settings/wizard,
     default on) is whether the feature exists; `lyricsTranslateOn` (the
     Translate button, default off) is whether translations are showing.
