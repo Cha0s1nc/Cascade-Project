@@ -42,8 +42,8 @@
   },
   "license": "SEE LICENSE IN LICENSE",
   "allowScripts": {
-    "electron@44.3.0": true,
-    "sharp@0.33.5": true
+    "electron": true,
+    "sharp": true
   },
   "build": {
     "appId": "xyz.chaosinc.cascade",
