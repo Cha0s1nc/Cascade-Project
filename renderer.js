@@ -8212,6 +8212,7 @@ async function _reloadLyricsFor(itemId) {
   // own renderer, so a Spotify link saved from there kept showing the old
   // lyrics until the view was closed and reopened. After the fetch, not
   // alongside it: both bump _lyricsFetchGen, and the later one wins.
+  if (queue[queueIndex] !== cur) return   // the song changed meanwhile
   if (overlayOpen && overlayLyricsOpen) renderOverlayLyrics()
 }
 
@@ -9539,7 +9540,17 @@ updateNowPlaying = function(item) {
   lastLyricsIdx = -1
   _lyricsScanIdx = 0
   document.getElementById('ov-translate-btn').style.display = 'none'
-  if (lyricsPanelOpen() || _miniplayerOpen) fetchLyrics()
+  _refetchLyricViews(item)
+}
+
+// One fetch, then Now Playing draws from it. Started together, both bumped
+// _lyricsFetchGen, the side panel's result was thrown away, and with both
+// views open it sat on its loading placeholder after every song change.
+async function _refetchLyricViews(item) {
+  if (lyricsPanelOpen() || _miniplayerOpen) await fetchLyrics()
+  // Another song since: its own call draws it, and fetching here would
+  // supersede that one's fetch in turn.
+  if (queue[queueIndex] !== item) return
   if (overlayOpen && overlayLyricsOpen) renderOverlayLyrics()
 }
 
