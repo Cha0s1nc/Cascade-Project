@@ -358,13 +358,8 @@ async function wfApplyQueueNow(m) {
   const known = new Map(queue.filter(t => t && !t.__wfUnavailable).map(t => [t.Id, t]))
   const missing = missingTrackIds(m.trackIds || [], known.keys())
 
-  if (missing.length) {
-    // One batched lookup rather than one per track.
-    try {
-      const res = await jfGet(`/Users/${jf.userId}/Items`, { Ids: missing.join(','), Fields: WF_ITEM_FIELDS })
-      for (const it of res.Items || []) known.set(it.Id, it)
-    } catch { /* leave them as placeholders below */ }
-  }
+  // One batched (chunked) lookup rather than one per track.
+  if (missing.length) for (const it of await jfItemsByIds(missing, WF_ITEM_FIELDS)) known.set(it.Id, it)
 
   // Placeholders rather than omissions: per-user library permissions apply
   // independently to every member, and dropping an entry would shift this
