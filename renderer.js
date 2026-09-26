@@ -6917,7 +6917,7 @@ function renderOverlayLyricLines() {
     // spring centres on) and its click-to-seek both cover the pair.
     const content = line.Words ? lyricWordSpans(line, 'ov-lyric-word', !!lyricsCredit) : esc(line.Text || '')
     const trans = lyricTranslationFor(i)
-    return `<div class="ov-lyric-line${hasTimestamp ? ' seekable' : ''}" data-idx="${i}"${hasTimestamp ? ` data-start="${line.Start}"` : ''}>${content}${trans ? `<div class="ov-lyric-trans">${esc(trans)}</div>` : ''}</div>`
+    return `<div class="ov-lyric-line${hasTimestamp ? ' seekable' : ''}${line.Opposite ? ' opposite' : ''}" data-idx="${i}"${hasTimestamp ? ` data-start="${line.Start}"` : ''}>${content}${trans ? `<div class="ov-lyric-trans">${esc(trans)}</div>` : ''}</div>`
   }).join('')
   body.querySelectorAll('.ov-lyric-line.seekable').forEach(el => {
     el.addEventListener('click', () => {
@@ -8961,7 +8961,7 @@ function renderLyrics() {
     // every translation twice and the original not at all.
     const content = line.Words ? lyricWordSpans(line, 'lyric-word', !!lyricsCredit) : esc(line.Text || '')
     const trans = lyricTranslationFor(i)
-    return `<div class="lyrics-line${hasTimestamp ? ' seekable' : ''}" data-idx="${i}"${hasTimestamp ? ` data-start="${line.Start}"` : ''}>${content}${trans ? `<div class="lyric-trans">${esc(trans)}</div>` : ''}</div>`
+    return `<div class="lyrics-line${hasTimestamp ? ' seekable' : ''}${line.Opposite ? ' opposite' : ''}" data-idx="${i}"${hasTimestamp ? ` data-start="${line.Start}"` : ''}>${content}${trans ? `<div class="lyric-trans">${esc(trans)}</div>` : ''}</div>`
   }).join('')
 
   // Wrap in a translateY-driven inner div - position is spring-animated in JS

@@ -8,9 +8,12 @@
 //   Body.Type 'Static'   -> Lines[] of { Text }            (Lines, not Content)
 // Every time is SECONDS as a float; Cascade keeps ticks (1s = 10,000,000).
 //
-// Deliberately not used: OppositeAligned (no renderer home for a second
-// singer's side), TranslatedText and TransliteratedText (Cascade has its own
-// on-device translation; mixing two would disagree line by line).
+// OppositeAligned marks a duet's second voice; it becomes LyricLine.Opposite.
+// Deliberately not used: TranslatedText and TransliteratedText (Cascade has
+// its own on-device translation; mixing two would disagree line by line).
+
+/** The duet flag, only when set, so ordinary lines keep their old shape. */
+const opposite = (c: Record<string, unknown>) => c.OppositeAligned === true ? { Opposite: true } : {}
 
 import type { LyricLine, LyricWord } from './lyrics.ts'
 
@@ -123,7 +126,7 @@ function syllableLines(content: unknown[]): LyricLine[] {
     const start = ticks(lead.StartTime) ?? words[0].Start
     const end = ticks(lead.EndTime) ?? words[words.length - 1].End
     const text = words.map(w => w.Text).join('').trim()
-    if (text) lines.push({ Start: start, End: end, Text: text, Words: words, ...(background.length ? { Background: background } : {}) })
+    if (text) lines.push({ Start: start, End: end, Text: text, Words: words, ...(background.length ? { Background: background } : {}), ...opposite(c) })
   }
   return lines
 }
@@ -134,7 +137,7 @@ function lineLines(content: unknown[]): LyricLine[] {
     if (!isObj(c)) continue
     const text = str(c.Text).trim()
     const start = ticks(c.StartTime)
-    if (text && start != null) lines.push({ Start: start, End: ticks(c.EndTime), Text: text, Words: null })
+    if (text && start != null) lines.push({ Start: start, End: ticks(c.EndTime), Text: text, Words: null, ...opposite(c) })
   }
   return lines
 }

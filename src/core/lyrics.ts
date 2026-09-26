@@ -22,6 +22,10 @@ export interface LyricLine {
    *  way Apple Music and SpicyLyrics do. Only SpicyLyrics' syllable syncs
    *  carry them separately; every other source leaves this out. */
   Background?: LyricWord[] | null
+  /** Sung by the second voice in a duet, drawn on the right as Apple Music and
+   *  SpicyLyrics do. Only SpicyLyrics marks it (OppositeAligned); every other
+   *  source leaves it out, and every line then sits on the usual side. */
+  Opposite?: boolean
 }
 
 const lastEnd = (words: LyricWord[] | null | undefined): number | null =>

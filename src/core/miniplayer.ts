@@ -57,7 +57,7 @@ export interface MiniplayerCredit { provider: string, uploader: string | null, m
 export interface MiniplayerQueueItem { title: string, subtitle: string, artUrl: string | null }
 
 export interface MiniplayerWord { Start: number, End: number | null, Text: string }
-export interface MiniplayerLine { Start: number | null, End: number | null, Text: string, Words: MiniplayerWord[] | null, Background: MiniplayerWord[] | null }
+export interface MiniplayerLine { Start: number | null, End: number | null, Text: string, Words: MiniplayerWord[] | null, Background: MiniplayerWord[] | null, Opposite?: boolean }
 /** A lyric sheet as the miniplayer draws it: the same shape the main window
  *  keeps (ticks), and whether held notes may swell (SpicyLyrics only). */
 export interface MiniplayerSheet { lines: MiniplayerLine[], emphasis: boolean }
@@ -101,6 +101,7 @@ export function miniplayerSheet(lines: unknown, emphasis: boolean): MiniplayerSh
     Text: typeof l?.Text === 'string' ? l.Text.trim() : '',
     Words: words(l?.Words),
     Background: words(l?.Background),
+    ...(l?.Opposite === true ? { Opposite: true } : {}),
   }))
   let end = out.length
   while (end > 0 && !out[end - 1].Text && !out[end - 1].Words) end--

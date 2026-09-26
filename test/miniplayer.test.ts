@@ -150,3 +150,12 @@ test('state: repeat is one of none, all, one', () => {
   assert.equal(buildMiniplayerState(t, true, 0, 0, 0, { repeat: 'sideways' }).repeat, 'none')
   assert.equal(buildMiniplayerState(t, true, 0, 0, 0).repeat, 'none')
 })
+
+test('miniplayerSheet carries the duet side, and only when set', () => {
+  const sheet = miniplayerSheet([
+    { Start: 0, End: 10, Text: 'first voice', Words: null },
+    { Start: 10, End: 20, Text: 'second voice', Words: null, Opposite: true },
+    { Start: 20, End: 30, Text: 'not a boolean', Words: null, Opposite: 'yes' },
+  ], false)
+  assert.deepEqual(sheet.lines.map(l => l.Opposite), [undefined, true, undefined])
+})

@@ -132,3 +132,23 @@ test('Spotify track ids come out of links, URIs and bare ids, and nothing else d
     assert.equal(parseSpotifyTrackId(bad), null, String(bad))
   }
 })
+
+test('a duet keeps which voice sings each line (OppositeAligned)', () => {
+  // Shaped like the real "Dracula (JENNIE Remix)" sync: the second voice's
+  // lines carry OppositeAligned true, the first voice's false.
+  const vocal = (text: string, t: number, opposite: boolean) => ({
+    Type: 'Vocal', OppositeAligned: opposite,
+    Lead: { StartTime: t, EndTime: t + 1, Syllables: [{ Text: text, StartTime: t, EndTime: t + 1 }] },
+  })
+  const out = convertSpicyLyrics({ Type: 'Syllable', source: 'spicy_lyrics', Content: [vocal('Tame', 1, false), vocal('Jennie', 3, true)] })
+  assert.ok(out)
+  assert.equal(out.lines[0].Opposite, undefined, 'the first voice keeps the ordinary line shape')
+  assert.equal(out.lines[1].Opposite, true)
+
+  const lineSync = convertSpicyLyrics({
+    Type: 'Line', source: 'spicy_lyrics',
+    Content: [{ Text: 'first voice', StartTime: 1, EndTime: 2, OppositeAligned: false }, { Text: 'second voice', StartTime: 3, EndTime: 4, OppositeAligned: true }],
+  })
+  assert.ok(lineSync)
+  assert.deepEqual(lineSync.lines.map(l => !!l.Opposite), [false, true])
+})

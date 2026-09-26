@@ -708,7 +708,8 @@ function setSheet(id, sheet) {
         if (!l.Text && !l.Words) return `<div class="lyrics-line gap" data-idx="${i}"></div>`
         const content = l.Words ? lyricWordSpans(l, 'lyric-word', sheet.emphasis) : esc(l.Text)
         const seek = l.Start != null ? ` seekable" data-start="${l.Start}` : ''
-        return `<div class="lyrics-line${seek}" data-idx="${i}">${content}</div>`
+        const side = l.Opposite ? ' opposite' : ''
+        return `<div class="lyrics-line${side}${seek}" data-idx="${i}">${content}</div>`
       }).join('')
     : '<div class="lyric-empty">No lyrics for this track</div>'
   $('lyrics').scrollTop = 0

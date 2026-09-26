@@ -23,6 +23,11 @@
   transition: max-height 0.4s ease, opacity 0.4s ease, margin-top 0.4s ease;
 }
 .lyrics-line.active .lyric-bg, .ov-lyric-line.active .lyric-bg { max-height: 4em; opacity: 0.85; margin-top: 0.3em; }
+/* Duets: the second voice's lines sit on the right, background row and
+   translation with them, as Apple Music and SpicyLyrics draw them. Now
+   Playing lines are narrower than their column, so they also move over. */
+.lyrics-line.opposite, .ov-lyric-line.opposite { text-align: right; }
+.ov-lyric-line.opposite { margin-left: auto; }
 /* Sung words lift a little and stay up until the line changes, as in Apple
    Music: measured from a 60fps recording, each word rises ~0.04em (2px at
    ~52px text) over ~0.6s once the fill reaches it; unsung words stay put.
