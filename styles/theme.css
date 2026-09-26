@@ -21,15 +21,12 @@
 .np-overlay.art-theme .np-overlay-header { background: rgba(0,0,0,0.28); }
 /* Force all overlay control buttons white + black outline */
 .np-overlay.art-theme .np-ov-ctrl,
-.np-overlay.art-theme .np-ov-ctrl.active,
-.np-overlay.art-theme .np-overlay-close { color: white !important; filter: drop-shadow(0 1px 3px rgba(0,0,0,0.8)); }
+.np-overlay.art-theme .np-ov-ctrl.active { color: white !important; filter: drop-shadow(0 1px 3px rgba(0,0,0,0.8)); }
 /* Force SVG stroke directly so active-state accent can't bleed through */
 .np-overlay.art-theme .np-ov-ctrl svg,
-.np-overlay.art-theme .np-ov-ctrl.active svg,
-.np-overlay.art-theme .np-overlay-close svg { stroke: white !important; }
+.np-overlay.art-theme .np-ov-ctrl.active svg { stroke: white !important; }
 .np-overlay.art-theme .np-ov-ctrl:hover,
-.np-overlay.art-theme .np-ov-ctrl.active:hover,
-.np-overlay.art-theme .np-overlay-close:hover { color: rgba(255,255,255,0.75) !important; }
+.np-overlay.art-theme .np-ov-ctrl.active:hover { color: rgba(255,255,255,0.75) !important; }
 .np-overlay.art-theme .np-ov-ctrl:hover svg,
 .np-overlay.art-theme .np-ov-ctrl.active:hover svg { stroke: rgba(255,255,255,0.75) !important; }
 /* Active buttons: white with full opacity, dimmed when inactive */

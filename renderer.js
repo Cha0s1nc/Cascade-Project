@@ -647,6 +647,18 @@ function showToast(msg, duration = 2200) {
 // the strict types.
 /** @type {(path: string, params?: Record<string, any>) => Promise<any>} */
 const jfGet  = (path, params = {}) => jfClient.get(path, params)
+
+// Items by id, in chunks: past roughly 240 ids the URL outgrows the server's
+// request line limit and Jellyfin answers 414, failing the whole lookup. A
+// failed chunk is skipped rather than failing the rest. Server order, not `ids`
+// order.
+async function jfItemsByIds(ids, fields) {
+  const chunks = []
+  for (let i = 0; i < ids.length; i += 100) chunks.push(ids.slice(i, i + 100))
+  const pages = await Promise.all(chunks.map(c =>
+    jfGet(`/Users/${jf.userId}/Items`, { Ids: c.join(','), Fields: fields }).catch(() => null)))
+  return pages.flatMap(p => p?.Items || [])
+}
 const jfAuth = (serverUrl, username, password) =>
   CascadeCore.authenticate(serverUrl, username, password, appVersion, deviceId)
 
@@ -751,14 +763,10 @@ function startRemoteControl() {
     // send all three.
     async play(itemIds, startIndex, playCommand) {
       if (!itemIds.length) return
-      const res = await jfGet(`/Users/${jf.userId}/Items`, {
-        Ids: itemIds.join(','),
-        // MediaStreams/MediaSources are what applySubtitles() needs. Without
-        // them a movie pushed from Jellyfin's "Play On" would play with no
-        // subtitles even when the file has them.
-        Fields: 'AlbumId,AlbumPrimaryImageTag,UserData,MediaStreams,MediaSources',
-      }).catch(() => null)
-      const items = res?.Items || []
+      // MediaStreams/MediaSources are what applySubtitles() needs. Without
+      // them a movie pushed from Jellyfin's "Play On" would play with no
+      // subtitles even when the file has them.
+      const items = await jfItemsByIds(itemIds, 'AlbumId,AlbumPrimaryImageTag,UserData,MediaStreams,MediaSources')
       if (!items.length) return
       // Jellyfin returns items in its own order, so re-sort to what was sent.
       const byId = new Map(items.map(i => [i.Id, i]))
@@ -6140,10 +6148,8 @@ statusbar.addEventListener('click', (e) => {
   overlayOpen ? closeOverlay() : openOverlay()
 })
 
-document.getElementById('np-overlay-close').addEventListener('click', closeOverlay)
-// The chevron on the left of the header closes it too. Two targets rather than
-// one small x in the corner, which on Windows and Linux sat under the OS
-// caption buttons and could not be clicked at all.
+// The centered chevron is the only close target. A corner x sat right next to
+// the Windows and Linux caption buttons, which read as two close buttons.
 document.getElementById('np-overlay-collapse').addEventListener('click', closeOverlay)
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || !overlayOpen) return

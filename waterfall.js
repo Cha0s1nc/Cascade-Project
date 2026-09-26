@@ -26,7 +26,8 @@ const WF_DEFAULT_RELAY = 'https://cascade-waterfall-signaling.cha0s-netw0rks.wor
 // interception.
 const {
   WF_HEARTBEAT_MS, WF_DRIFT_MS,
-  buildStateMessage, expectedPositionMs, shouldReseek, isForeignServer, roomSocketUrl,
+  buildStateMessage, expectedPositionMs, clockOffsetMs, WF_SKEW_WINDOW, seekTargetMs,
+  shouldReseek, isForeignServer, roomSocketUrl,
   buildQueueMessage, buildEnqueueMessage, buildEnqueueRejected,
   buildControlMessage, isControlAction,
   isStaleQueue, missingTrackIds,
@@ -189,7 +190,52 @@ function wfOnRelay(from, p) {
   if (p.k === 'control' && wfIsHost) { wfHandleControl(p); return }
   if (p.k === 'enqueue-rejected' && !wfIsHost) { showNotice(p.reason || 'The host refused that addition.', 'Waterfall'); return }
   if (p.k === 'queue' && !wfIsHost) { wfApplyQueue(p); return }
-  if (p.k === 'state' && !wfIsHost) wfApplyState(p)
+  if (p.k === 'state' && !wfIsHost) { wfNoteSkew(p); wfApplyState(p) }
+}
+
+// Arrival minus send time of the host's recent states, for clockOffsetMs.
+// Sampled here on receipt rather than in the serial apply chain, where waiting
+// behind a slow queue apply would inflate it.
+let _wfSkewSamples = []
+
+// How long the guest's last seek took to resume, which the next one leads by
+// (see seekTargetMs). ponytail: last sample, not an average; seek times on one
+// connection are steady enough, and the next seek re-measures anyway.
+let _wfSeekLagMs = 0
+
+/**
+ * Whether `sec` is inside what `el` has already buffered, with a little to spare.
+ *
+ * Only catches the sure cases: `buffered` covers what has been demuxed, about
+ * 2s ahead of the playhead, while Chromium's cache often holds far more, so a
+ * seek reported as unbuffered can still come back in milliseconds. That
+ * overshoots once, and the fast seek resets the measured lag, so the next
+ * correction lands.
+ */
+function wfIsBuffered(el, sec) {
+  for (let i = 0; i < el.buffered.length; i++) {
+    if (sec >= el.buffered.start(i) && sec < el.buffered.end(i) - 0.5) return true
+  }
+  return false
+}
+
+/** Seek `el` to where the host will be once the seek has finished loading. */
+function wfSeekToHost(el, s) {
+  const expected = expectedPositionMs(s, Date.now(), clockOffsetMs(_wfSkewSamples))
+  // A seek inside what is already buffered resumes almost at once, so there is
+  // nothing to lead by, and timing it would teach the next lead the wrong
+  // thing: measured under 1.5s of added latency, a 3s network seek followed by
+  // a 2ms buffered one overshot the host by 3s and cost two extra seeks.
+  if (wfIsBuffered(el, expected / 1000)) { el.currentTime = expected / 1000; return }
+  const started = performance.now()
+  el.addEventListener('seeked', () => { _wfSeekLagMs = performance.now() - started }, { once: true })
+  el.currentTime = seekTargetMs(expected, _wfSeekLagMs, s.paused) / 1000
+}
+
+function wfNoteSkew(s) {
+  if (!Number.isFinite(s.sentAt)) return
+  _wfSkewSamples.push(Date.now() - s.sentAt)
+  if (_wfSkewSamples.length > WF_SKEW_WINDOW) _wfSkewSamples.shift()
 }
 
 // ── Host: announce what is playing ───────────────────────────────────────────
@@ -358,13 +404,8 @@ async function wfApplyQueueNow(m) {
   const known = new Map(queue.filter(t => t && !t.__wfUnavailable).map(t => [t.Id, t]))
   const missing = missingTrackIds(m.trackIds || [], known.keys())
 
-  if (missing.length) {
-    // One batched lookup rather than one per track.
-    try {
-      const res = await jfGet(`/Users/${jf.userId}/Items`, { Ids: missing.join(','), Fields: WF_ITEM_FIELDS })
-      for (const it of res.Items || []) known.set(it.Id, it)
-    } catch { /* leave them as placeholders below */ }
-  }
+  // One batched (chunked) lookup rather than one per track.
+  if (missing.length) for (const it of await jfItemsByIds(missing, WF_ITEM_FIELDS)) known.set(it.Id, it)
 
   // Placeholders rather than omissions: per-user library permissions apply
   // independently to every member, and dropping an entry would shift this
@@ -418,7 +459,6 @@ function wfRequestEnqueue(items) {
 
 async function wfApplyStateNow(s) {
   if (!s.trackId) return
-  const expected = expectedPositionMs(s)
   let justLoaded = false
 
   // Follow the host's index when it sends one; fall back to locating the track,
@@ -463,7 +503,10 @@ async function wfApplyStateNow(s) {
     // looks like it is running while no audio comes out. Nothing below re-issued
     // play() because `audio.paused` was already false - which is exactly why a
     // manual pause/resume was needed to get sound.
-    const startAt = Math.max(0, expected / 1000)
+    //
+    // The target is worked out when the seek happens, not up front: the load in
+    // between takes real time, and the host keeps playing through it.
+    //
     // Guarded by a local flag, not wfLoadedTrackId: that is only assigned after
     // the await below, so this listener - which fires *during* the load - would
     // always see a stale value and skip the seek entirely.
@@ -472,7 +515,7 @@ async function wfApplyStateNow(s) {
     // in a prefetched deck, so the one `audio` points at right now is not
     // necessarily the one that ends up playing.
     let seekCancelled = false
-    const seekOnMetadata = e => { if (!seekCancelled && e.target === audio) audio.currentTime = startAt }
+    const seekOnMetadata = e => { if (!seekCancelled && e.target === audio) wfSeekToHost(audio, s) }
     const dropSeek = keep => DECKS.forEach(d => { if (d !== keep) d.removeEventListener('loadedmetadata', seekOnMetadata) })
     DECKS.forEach(d => d.addEventListener('loadedmetadata', seekOnMetadata, { once: true }))
 
@@ -499,7 +542,7 @@ async function wfApplyStateNow(s) {
     // back to this stale position.
     if (audio.readyState > 0) {
       dropSeek()
-      audio.currentTime = startAt
+      wfSeekToHost(audio, s)
     } else {
       dropSeek(audio)
     }
@@ -517,8 +560,11 @@ async function wfApplyStateNow(s) {
   //   (1.5s). Without this the next heartbeat sees the pre-seek position, fires
   //   another seek, and the guest stutters through endless re-buffers instead of
   //   settling.
+  // Measured now, not when this state arrived: a track load above can take
+  // seconds, and the host kept playing through it.
+  const expected = expectedPositionMs(s, Date.now(), clockOffsetMs(_wfSkewSamples))
   if (audio.readyState > 0 && !audio.seeking && shouldReseek(audio.currentTime * 1000, expected)) {
-    audio.currentTime = expected / 1000
+    wfSeekToHost(audio, s)
   }
 
   _wfApplying = true
@@ -638,7 +684,7 @@ function wfTeardown(reason, unexpected = true) {
   // Shared-queue state is per room; a stale rev would make the next room's
   // first broadcast look older than what we already applied and be dropped.
   wfQueueRev = 0; wfLastQueueRev = -1; wfAddedBy = []; _wfQueueSig = ''
-  wfLoadedTrackId = null; _wfLastResync = 0; _wfPendingState = null
+  wfLoadedTrackId = null; _wfLastResync = 0; _wfPendingState = null; _wfSkewSamples = []; _wfSeekLagMs = 0
   // A guest's mirrored permissions reset; the host's own are reloaded from
   // Settings when it next creates a room.
   wfGuestAddsAllowed = true

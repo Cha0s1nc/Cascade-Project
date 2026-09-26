@@ -102,7 +102,7 @@ select.setting-input { cursor: pointer; }
 }
 .setup-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 32px 36px; width: 420px; }
 .setup-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; }
-.setup-logo-dot { width: 28px; height: 28px; border-radius: 7px; background: var(--grad); }
+.setup-logo-dot { width: 28px; height: 28px; border-radius: 7px; }
 .setup-logo-name { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
 .setup-subtitle { font-size: 13px; color: var(--text2); margin-bottom: 24px; line-height: 1.5; }
 .setup-field { margin-bottom: 14px; }

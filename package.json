@@ -42,8 +42,8 @@
   },
   "license": "SEE LICENSE IN LICENSE",
   "allowScripts": {
-    "electron@44.3.0": true,
-    "sharp@0.33.5": true
+    "electron": true,
+    "sharp": true
   },
   "build": {
     "appId": "xyz.chaosinc.cascade",
@@ -73,6 +73,7 @@
       "translation-models.json",
       "LICENSE",
       "assets/LICENSE",
+      "assets/linux-icons/128x128.png",
       "node_modules/**/*",
       "!node_modules/@img/**"
     ],

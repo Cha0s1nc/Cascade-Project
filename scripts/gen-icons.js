@@ -43,6 +43,8 @@ const ICO_SIZES = [16, 32, 48, 64, 128, 256]
 // icon.png instead, it installed it into hicolor/0x0, a folder no icon theme
 // looks in, and the menu entry had no icon. 1024 is left out on purpose:
 // hicolor has no 1024x1024 folder either.
+// The 128 also doubles as the logo on the sign-in and first-run screens
+// (index.html), which is why package.json ships it inside the app.
 const LINUX_SIZES = [16, 24, 32, 48, 64, 128, 256, 512]
 
 function q(p) { return `"${p}"` }
