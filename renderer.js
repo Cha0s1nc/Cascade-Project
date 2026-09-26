@@ -8201,13 +8201,18 @@ document.addEventListener('click', e => {
   if (e.target.closest('.lyrics-link-spotify')) openSpotifyLinkModal()
 })
 
-function _reloadLyricsFor(itemId) {
+async function _reloadLyricsFor(itemId) {
   const cur = queue[queueIndex]
   _lyricsCache.delete(itemId ?? cur?.Id)
   _lyricsInflight.delete(itemId ?? cur?.Id)   // a search from before the change must not be joined
   if (!cur || (itemId != null && itemId !== cur.Id)) return
   lyricsData = []; lastLyricsIdx = -1; lastOverlayLyricsIdx = -1; _lyricsScanIdx = 0; _ovLyricsScanIdx = 0
-  fetchLyrics()
+  await fetchLyrics()
+  // fetchLyrics() only redraws the side panel. Now Playing's lyrics have their
+  // own renderer, so a Spotify link saved from there kept showing the old
+  // lyrics until the view was closed and reopened. After the fetch, not
+  // alongside it: both bump _lyricsFetchGen, and the later one wins.
+  if (overlayOpen && overlayLyricsOpen) renderOverlayLyrics()
 }
 
 // The editor writes straight to the server from its own window, so without this the
