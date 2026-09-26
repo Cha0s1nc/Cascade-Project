@@ -215,13 +215,33 @@ export function missingTrackIds(trackIds: string[], knownIds: Iterable<string>):
 /**
  * Where the host should be *now*, accounting for time spent in transit.
  *
- * ponytail: one-way latency is approximated as the full elapsed time since
- * `sentAt` and never re-estimated. Good to a few hundred ms, which is fine for
- * people in different rooms. Swap in a clock-offset handshake if it matters.
+ * `sentAt` is the host's clock and `now` is this member's, so any difference
+ * between the two machines' clocks lands straight in the result. Pass the
+ * estimate from `clockOffsetMs` as `offsetMs` to take it back out.
  */
-export function expectedPositionMs(state: WfStateMessage, now: number = Date.now()): number {
-  const latency = Math.max(0, now - (state.sentAt || now))
+export function expectedPositionMs(state: WfStateMessage, now: number = Date.now(), offsetMs: number = 0): number {
+  const latency = Math.max(0, now - (state.sentAt || now) - offsetMs)
   return (state.positionMs || 0) + (state.paused ? 0 : latency)
+}
+
+/** How many recent state messages `clockOffsetMs` looks at: two minutes of heartbeats. */
+export const WF_SKEW_WINDOW = 30
+
+/**
+ * This member's clock minus the host's, from `receivedAt - sentAt` of recent
+ * state messages.
+ *
+ * Every sample is the clock difference plus that message's trip through the
+ * relay, so the smallest is the difference plus the fastest trip. Measured
+ * between two VMs on one PC the clocks were 413ms apart, and a guest was
+ * running that far ahead of the host; real machines can be seconds apart.
+ *
+ * ponytail: min over a window, no handshake, so it works against hosts that
+ * predate it. The guest ends up behind by the fastest one-way relay trip
+ * (tens of ms). A ping/pong round trip would remove that if it ever matters.
+ */
+export function clockOffsetMs(samples: number[]): number {
+  return samples.length ? Math.min(...samples) : 0
 }
 
 /**

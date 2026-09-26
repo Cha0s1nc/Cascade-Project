@@ -26,7 +26,8 @@ const WF_DEFAULT_RELAY = 'https://cascade-waterfall-signaling.cha0s-netw0rks.wor
 // interception.
 const {
   WF_HEARTBEAT_MS, WF_DRIFT_MS,
-  buildStateMessage, expectedPositionMs, shouldReseek, isForeignServer, roomSocketUrl,
+  buildStateMessage, expectedPositionMs, clockOffsetMs, WF_SKEW_WINDOW,
+  shouldReseek, isForeignServer, roomSocketUrl,
   buildQueueMessage, buildEnqueueMessage, buildEnqueueRejected,
   buildControlMessage, isControlAction,
   isStaleQueue, missingTrackIds,
@@ -189,7 +190,17 @@ function wfOnRelay(from, p) {
   if (p.k === 'control' && wfIsHost) { wfHandleControl(p); return }
   if (p.k === 'enqueue-rejected' && !wfIsHost) { showNotice(p.reason || 'The host refused that addition.', 'Waterfall'); return }
   if (p.k === 'queue' && !wfIsHost) { wfApplyQueue(p); return }
-  if (p.k === 'state' && !wfIsHost) wfApplyState(p)
+  if (p.k === 'state' && !wfIsHost) { wfNoteSkew(p); wfApplyState(p) }
+}
+
+// Arrival minus send time of the host's recent states, for clockOffsetMs.
+// Sampled here on receipt rather than in the serial apply chain, where waiting
+// behind a slow queue apply would inflate it.
+let _wfSkewSamples = []
+function wfNoteSkew(s) {
+  if (!Number.isFinite(s.sentAt)) return
+  _wfSkewSamples.push(Date.now() - s.sentAt)
+  if (_wfSkewSamples.length > WF_SKEW_WINDOW) _wfSkewSamples.shift()
 }
 
 // ── Host: announce what is playing ───────────────────────────────────────────
@@ -413,7 +424,7 @@ function wfRequestEnqueue(items) {
 
 async function wfApplyStateNow(s) {
   if (!s.trackId) return
-  const expected = expectedPositionMs(s)
+  const expected = expectedPositionMs(s, Date.now(), clockOffsetMs(_wfSkewSamples))
   let justLoaded = false
 
   // Follow the host's index when it sends one; fall back to locating the track,
@@ -633,7 +644,7 @@ function wfTeardown(reason, unexpected = true) {
   // Shared-queue state is per room; a stale rev would make the next room's
   // first broadcast look older than what we already applied and be dropped.
   wfQueueRev = 0; wfLastQueueRev = -1; wfAddedBy = []; _wfQueueSig = ''
-  wfLoadedTrackId = null; _wfLastResync = 0; _wfPendingState = null
+  wfLoadedTrackId = null; _wfLastResync = 0; _wfPendingState = null; _wfSkewSamples = []
   // A guest's mirrored permissions reset; the host's own are reloaded from
   // Settings when it next creates a room.
   wfGuestAddsAllowed = true

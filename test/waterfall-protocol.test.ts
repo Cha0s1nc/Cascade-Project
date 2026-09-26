@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  buildStateMessage, expectedPositionMs, shouldReseek, isForeignServer, roomSocketUrl,
+  buildStateMessage, expectedPositionMs, clockOffsetMs, shouldReseek, isForeignServer, roomSocketUrl,
   buildQueueMessage, buildEnqueueMessage, buildEnqueueRejected,
   buildControlMessage, isControlAction,
   isStaleQueue, missingTrackIds,
@@ -23,6 +23,27 @@ test('expectedPositionMs ages a playing position by time in transit', () => {
   })
   // 300ms later the host has moved on by 300ms.
   assert.equal(expectedPositionMs(msg, 1_000_300), 10_300)
+})
+
+test('clockOffsetMs cancels a skewed clock out of expectedPositionMs', () => {
+  // This member's clock runs 3s ahead of the host's; trips take 40-200ms.
+  const skew = 3000
+  const trips = [120, 40, 200, 75]
+  const samples = trips.map(t => skew + t)
+  const offset = clockOffsetMs(samples)
+  assert.equal(offset, skew + 40)
+
+  const msg = buildStateMessage({
+    serverId: 'S1', trackId: 'T1', positionMs: 10_000, paused: false, now: 1_000_000,
+  })
+  // Arrives after a 100ms trip, read on this member's (skewed) clock.
+  const now = 1_000_000 + skew + 100
+  assert.equal(expectedPositionMs(msg, now), 13_100, 'uncorrected: 3s ahead of the host')
+  assert.equal(expectedPositionMs(msg, now, offset), 10_060, 'behind by only the fastest trip')
+})
+
+test('clockOffsetMs is zero with nothing measured yet', () => {
+  assert.equal(clockOffsetMs([]), 0)
 })
 
 test('expectedPositionMs does not age a paused position', () => {
