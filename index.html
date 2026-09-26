@@ -603,49 +603,59 @@
                      and every control is found inside its data-eq panel. -->
                 <div class="eq-panels">
                   <div class="eq-panel" data-eq="music">
-                    <div class="eq-panel-title">Music</div>
-                    <select class="setting-input eq-preset" aria-label="Music preset"></select>
-                    <div class="eq-graph-wrap">
-                      <!-- No role="img": that would flatten the five focusable
-                           role="slider" points out of the accessibility tree. -->
-                      <svg class="eq-graph" viewBox="0 0 260 140" width="260" height="140">
-                        <line class="eq-graph-zero" x1="0" y1="70" x2="260" y2="70"></line>
-                        <path class="eq-graph-curve" d=""></path>
-                        <g class="eq-graph-points"></g>
-                      </svg>
-                      <div class="eq-graph-labels"></div>
+                    <div class="eq-panel-head">
+                      <span class="eq-panel-title">Music</span>
+                      <label class="toggle"><input type="checkbox" class="eq-profile-toggle" aria-label="Music equalizer"><span class="toggle-track"></span></label>
                     </div>
-                    <div class="eq-preamp">
-                      <span class="eq-preamp-name">Preamp</span>
-                      <input type="range" class="eq-preamp-slider" min="-12" max="12" step="0.5" value="0" aria-label="Music preamp">
-                      <span class="eq-band-value eq-preamp-value">0.0 dB</span>
-                      <label class="eq-auto" title="Auto lowers the preamp so boosted bands cannot clip. Off lets you set it yourself.">
-                        <span>Auto</span>
-                        <span class="toggle"><input type="checkbox" class="eq-preamp-auto" aria-label="Music automatic preamp"><span class="toggle-track"></span></span>
-                      </label>
+                    <div class="eq-panel-body">
+                      <select class="setting-input eq-preset" aria-label="Music preset"></select>
+                      <div class="eq-graph-wrap">
+                        <!-- No role="img": that would flatten the five focusable
+                             role="slider" points out of the accessibility tree. -->
+                        <svg class="eq-graph" viewBox="0 0 260 140" width="260" height="140">
+                          <line class="eq-graph-zero" x1="0" y1="70" x2="260" y2="70"></line>
+                          <path class="eq-graph-curve" d=""></path>
+                          <g class="eq-graph-points"></g>
+                        </svg>
+                        <div class="eq-graph-labels"></div>
+                      </div>
+                      <div class="eq-preamp">
+                        <span class="eq-preamp-name">Preamp</span>
+                        <input type="range" class="eq-preamp-slider" min="-12" max="12" step="0.5" value="0" aria-label="Music preamp">
+                        <span class="eq-band-value eq-preamp-value">0.0 dB</span>
+                        <label class="eq-auto" title="Auto lowers the preamp so boosted bands cannot clip. Off lets you set it yourself.">
+                          <span>Auto</span>
+                          <span class="toggle"><input type="checkbox" class="eq-preamp-auto" aria-label="Music automatic preamp"><span class="toggle-track"></span></span>
+                        </label>
+                      </div>
                     </div>
                   </div>
                   <div class="eq-panel" data-eq="video">
-                    <div class="eq-panel-title">Video</div>
-                    <select class="setting-input eq-preset" aria-label="Video preset"></select>
-                    <div class="eq-graph-wrap">
-                      <!-- No role="img": that would flatten the five focusable
-                           role="slider" points out of the accessibility tree. -->
-                      <svg class="eq-graph" viewBox="0 0 260 140" width="260" height="140">
-                        <line class="eq-graph-zero" x1="0" y1="70" x2="260" y2="70"></line>
-                        <path class="eq-graph-curve" d=""></path>
-                        <g class="eq-graph-points"></g>
-                      </svg>
-                      <div class="eq-graph-labels"></div>
+                    <div class="eq-panel-head">
+                      <span class="eq-panel-title">Video</span>
+                      <label class="toggle"><input type="checkbox" class="eq-profile-toggle" aria-label="Video equalizer"><span class="toggle-track"></span></label>
                     </div>
-                    <div class="eq-preamp">
-                      <span class="eq-preamp-name">Preamp</span>
-                      <input type="range" class="eq-preamp-slider" min="-12" max="12" step="0.5" value="0" aria-label="Video preamp">
-                      <span class="eq-band-value eq-preamp-value">0.0 dB</span>
-                      <label class="eq-auto" title="Auto lowers the preamp so boosted bands cannot clip. Off lets you set it yourself.">
-                        <span>Auto</span>
-                        <span class="toggle"><input type="checkbox" class="eq-preamp-auto" aria-label="Video automatic preamp"><span class="toggle-track"></span></span>
-                      </label>
+                    <div class="eq-panel-body">
+                      <select class="setting-input eq-preset" aria-label="Video preset"></select>
+                      <div class="eq-graph-wrap">
+                        <!-- No role="img": that would flatten the five focusable
+                             role="slider" points out of the accessibility tree. -->
+                        <svg class="eq-graph" viewBox="0 0 260 140" width="260" height="140">
+                          <line class="eq-graph-zero" x1="0" y1="70" x2="260" y2="70"></line>
+                          <path class="eq-graph-curve" d=""></path>
+                          <g class="eq-graph-points"></g>
+                        </svg>
+                        <div class="eq-graph-labels"></div>
+                      </div>
+                      <div class="eq-preamp">
+                        <span class="eq-preamp-name">Preamp</span>
+                        <input type="range" class="eq-preamp-slider" min="-12" max="12" step="0.5" value="0" aria-label="Video preamp">
+                        <span class="eq-band-value eq-preamp-value">0.0 dB</span>
+                        <label class="eq-auto" title="Auto lowers the preamp so boosted bands cannot clip. Off lets you set it yourself.">
+                          <span>Auto</span>
+                          <span class="toggle"><input type="checkbox" class="eq-preamp-auto" aria-label="Video automatic preamp"><span class="toggle-track"></span></span>
+                        </label>
+                      </div>
                     </div>
                   </div>
                 </div>

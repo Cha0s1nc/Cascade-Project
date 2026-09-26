@@ -8,6 +8,8 @@ export const EQ_BANDS = [60, 250, 1000, 4000, 12000]
 export const EQ_GAIN_LIMIT = 12
 
 export interface EQProfile {
+  /** This profile's own switch, under the master one: off plays it flat. */
+  enabled: boolean
   preamp: number | null   // null means "use the auto value"
   bands: number[]         // one gain in dB per entry of EQ_BANDS
 }
@@ -54,7 +56,9 @@ export function normalizeProfile(raw: unknown): EQProfile {
     return isFiniteNumber(v) ? clampGain(v) : 0
   })
   const preamp = isFiniteNumber(r.preamp) ? clampGain(r.preamp) : null
-  return { preamp, bands }
+  // On unless explicitly off: profiles saved before this switch existed had
+  // only the master one, and on is what that meant for them.
+  return { enabled: r.enabled !== false, preamp, bands }
 }
 
 // ── Response-graph geometry ──────────────────────────────────────────────────

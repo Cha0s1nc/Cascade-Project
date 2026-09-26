@@ -9,7 +9,17 @@
   background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
 }
 .eq-panel { display: flex; flex-direction: column; gap: 10px; width: 260px; }
-.eq-panel-title { font-size: 13px; font-weight: 600; color: var(--text); text-align: center; }
+.eq-panel-head { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.eq-panel-title { font-size: 13px; font-weight: 600; color: var(--text); }
+.eq-panel-body { display: flex; flex-direction: column; gap: 10px; }
+/* Off reads as off: the whole side with the master switch off, the curve
+   and its controls with the side's own switch off. renderer.js also makes
+   them inert, so a grayed control cannot be changed by accident. Never both
+   at once, or the curve would fade to near nothing. */
+.eq-panel, .eq-panel-body { transition: opacity 0.2s ease, filter 0.2s ease; }
+.eq-panels.master-off .eq-panel,
+.eq-panels:not(.master-off) .eq-panel.off .eq-panel-body { opacity: 0.4; filter: grayscale(1); }
+@media (prefers-reduced-motion: reduce) { .eq-panel, .eq-panel-body { transition: none; } }
 .eq-panel .eq-preset { width: 100%; }
 .eq-preamp { display: flex; align-items: center; gap: 8px; width: 260px; }
 .eq-preamp-name { font-size: 12px; color: var(--text2); }

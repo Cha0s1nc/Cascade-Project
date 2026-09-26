@@ -5201,12 +5201,21 @@ async function loadSettingsFields() {
     eqEnabled = eqEnableToggle.checked
     await window.cascade.store.set('eqEnabled', eqEnabled)
     _applyEqToGraph()
+    _refreshEqUI('music')
+    _refreshEqUI('video')
   }
 
   // One editor per profile, side by side. Each finds its controls inside its
   // own data-eq panel, so the two cannot write to each other's curve.
   for (const mode of ['music', 'video']) {
     const panel = _eqPanel(mode)
+    const profileToggle = panel.querySelector('.eq-profile-toggle')
+    profileToggle.onchange = async () => {
+      _eqProfile(mode).enabled = profileToggle.checked
+      _refreshEqUI(mode)
+      await _saveEqProfile(mode)
+    }
+
     const presetSel = panel.querySelector('.eq-preset')
     presetSel.innerHTML = '<option value="">Custom</option>' +
       Object.keys(CascadeCore.EQ_PRESETS).map(name => `<option value="${name}">${name}</option>`).join('')
@@ -5818,7 +5827,9 @@ function _currentEqProfile() {
 function _applyEqToGraph() {
   if (!_audioCtx || !_eqPreamp || !_eqBandNodes) return
   const now = _audioCtx.currentTime
-  if (!eqEnabled) {
+  // Flat when the master switch is off, or when the profile for what is
+  // playing has its own switch off.
+  if (!eqEnabled || !_currentEqProfile().enabled) {
     _eqPreamp.gain.setTargetAtTime(1, now, EQ_RAMP_SEC)
     _eqBandNodes.forEach(band => band.gain.setTargetAtTime(0, now, EQ_RAMP_SEC))
     return
@@ -5965,6 +5976,16 @@ function _refreshEqUI(mode) {
   preampSlider.value = String(shownPreamp)
   panel.querySelector('.eq-preamp-value').textContent = `${shownPreamp.toFixed(1)} dB`
   panel.querySelector('.eq-preset').value = _eqMatchingPreset(profile.bands)
+
+  // Grayed out and out of reach whenever it would do nothing: its own switch
+  // is off, or the master one is. With the master off the side's own switch
+  // goes too, since it could not change anything either.
+  const profileToggle = panel.querySelector('.eq-profile-toggle')
+  profileToggle.checked = profile.enabled
+  profileToggle.disabled = !eqEnabled
+  panel.classList.toggle('off', !profile.enabled)
+  panel.querySelector('.eq-panel-body').inert = !eqEnabled || !profile.enabled
+  panel.closest('.eq-panels').classList.toggle('master-off', !eqEnabled)
 }
 
 function startEqLoop() {
