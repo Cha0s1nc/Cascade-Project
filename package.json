@@ -109,8 +109,8 @@
       ]
     },
     "linux": {
-      "icon": "assets/icon.png",
-      "category": "Audio",
+      "icon": "assets/linux-icons",
+      "category": "AudioVideo;Audio;Player",
       "target": [
         {
           "target": "AppImage",

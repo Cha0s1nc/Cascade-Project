@@ -37,6 +37,14 @@ const MAC_RADIUS = 185.4 / 824
 // shipping the small ones keeps the taskbar and Explorer crisp.
 const ICO_SIZES = [16, 32, 48, 64, 128, 256]
 
+// Linux icon theme sizes, one file each in assets/linux-icons named
+// <size>x<size>.png, which electron-builder installs into
+// /usr/share/icons/hicolor/<size>x<size>/apps. Given the single 1024px
+// icon.png instead, it installed it into hicolor/0x0, a folder no icon theme
+// looks in, and the menu entry had no icon. 1024 is left out on purpose:
+// hicolor has no 1024x1024 folder either.
+const LINUX_SIZES = [16, 24, 32, 48, 64, 128, 256, 512]
+
 function q(p) { return `"${p}"` }
 
 /** The artwork as a rounded square PNG of `size` px. `radius` is a fraction of
@@ -171,6 +179,14 @@ async function run() {
   // icon.png (Linux)
   await sharp(await roundedPng(SRC, MAX_SIZE, ICON_RADIUS)).toFile(path.join(OUT, 'icon.png'))
   console.log('  icon.png')
+
+  // Linux icon theme sizes (see LINUX_SIZES)
+  const linuxDir = path.join(OUT, 'linux-icons')
+  fs.mkdirSync(linuxDir, { recursive: true })
+  for (const size of LINUX_SIZES) {
+    fs.writeFileSync(path.join(linuxDir, `${size}x${size}.png`), await roundedPng(SRC, size, ICON_RADIUS))
+  }
+  console.log(`  linux-icons/ (${LINUX_SIZES.join(', ')})`)
 
   // icon.icns (macOS) via iconutil, on Apple's grid rather than full bleed
   if (process.platform === 'darwin') {
