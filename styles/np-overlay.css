@@ -1,22 +1,22 @@
 /* ── Full-screen now-playing overlay ── */
 .np-overlay { position: fixed; inset: 0; background: var(--bg); z-index: 300; display: flex; flex-direction: column; transform: translateY(100%); transition: transform 0.38s cubic-bezier(0.4,0,0.2,1); pointer-events: none; overflow: hidden; }
 .np-overlay.open { transform: translateY(0); pointer-events: all; }
-.np-overlay-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; flex-shrink: 0; -webkit-app-region: drag; }
-/* 80px is the macOS traffic lights, which used to be padded for on every
-   platform. */
-html[data-platform="darwin"] .np-overlay-header { padding-left: 80px; }
+.np-overlay-header { display: flex; align-items: center; justify-content: center; min-height: 44px; padding: 12px 20px; flex-shrink: 0; -webkit-app-region: drag; }
+/* Reserved on both sides so the chevron centers on the window, not on
+   whatever is left beside the traffic lights or caption buttons. */
+html[data-platform="darwin"] .np-overlay-header { padding-inline: 80px; }
 html[data-platform="win32"] .np-overlay-header,
-html[data-platform="linux"] .np-overlay-header { padding-right: var(--caption-reserve); }
+html[data-platform="linux"] .np-overlay-header { padding-inline: var(--caption-reserve); }
 /* A real button, not a label: the whole header cannot be the close target
    because it is also the window's only drag handle while the overlay is up
    (the overlay covers the titlebar), and -webkit-app-region: drag swallows
-   clicks anyway. This gives a big obvious target on the left - where Spotify
-   and Apple Music put the same control - while the rest of the bar stays
+   clicks anyway. A centered chevron is the same control Spotify and Apple
+   Music use to collapse their players, and the rest of the bar stays
    draggable. */
 .np-overlay-title {
   -webkit-app-region: no-drag; display: flex; align-items: center; gap: 7px;
   font-family: var(--font); font-size: 12px; font-weight: 600; color: var(--text3);
-  text-transform: uppercase; letter-spacing: 0.07em;
+  letter-spacing: 0.01em;
   background: none; border: none; cursor: pointer; padding: 6px 10px;
   margin: -6px -10px; border-radius: 7px; transition: background 0.12s, color 0.12s;
 }
@@ -25,8 +25,6 @@ html[data-platform="linux"] .np-overlay-header { padding-right: var(--caption-re
 .np-overlay-title svg { width: 15px; height: 15px; transition: transform 0.12s; }
 .np-overlay-title:hover svg { transform: translateY(2px); }
 @media (prefers-reduced-motion: reduce) { .np-overlay-title:hover svg { transform: none; } }
-.np-overlay-close { -webkit-app-region: no-drag; background: none; border: none; color: var(--text3); cursor: pointer; font-size: 20px; line-height: 1; padding: 0 4px; transition: color 0.12s; }
-.np-overlay-close:hover { color: var(--text); }
 .np-overlay-body { flex: 1; display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; }
 /* Left: big art + info + controls */
 /* No divider between this column and the queue/lyrics panel. A hard 1px
@@ -338,6 +336,10 @@ html[data-theme="light"] .q-now { background: rgba(255,255,255,0.72); }
    saveNpTuning()/loadNpTuning()) - a multiplier on the shipped clamp so a
    stored size never has to duplicate its min/preferred/max, just scale them. */
 .ov-lyric-line { text-align: left; font-size: calc(clamp(22px, 3vw, 50px) * var(--np-lyric-scale, 1)); font-weight: 800; letter-spacing: -0.015em; color: white; padding: 12px 56px; line-height: 1.25; cursor: default; max-width: min(900px, 92%); opacity: 0; filter: blur(6px); transition: opacity 0.55s cubic-bezier(0.16,1,0.3,1), filter 0.55s cubic-bezier(0.16,1,0.3,1); }
+/* Segoe UI has no 800, so CSS font matching rounds up to 900 (Segoe UI
+   Black) and Windows lyrics came out far heavier than SF Pro's Heavy on the
+   Mac. 700 is Segoe UI Bold, the closest match. */
+html[data-platform="win32"] .ov-lyric-line { font-weight: 700; }
 .ov-lyric-line.seekable { cursor: pointer; }
 .ov-lyric-line.past { opacity: 0; pointer-events: none; }
 .ov-lyric-line.near-3 { opacity: 0.12; filter: blur(4px); }

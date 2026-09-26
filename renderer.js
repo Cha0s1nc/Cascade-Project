@@ -6148,10 +6148,8 @@ statusbar.addEventListener('click', (e) => {
   overlayOpen ? closeOverlay() : openOverlay()
 })
 
-document.getElementById('np-overlay-close').addEventListener('click', closeOverlay)
-// The chevron on the left of the header closes it too. Two targets rather than
-// one small x in the corner, which on Windows and Linux sat under the OS
-// caption buttons and could not be clicked at all.
+// The centered chevron is the only close target. A corner x sat right next to
+// the Windows and Linux caption buttons, which read as two close buttons.
 document.getElementById('np-overlay-collapse').addEventListener('click', closeOverlay)
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || !overlayOpen) return
