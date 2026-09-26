@@ -5625,7 +5625,8 @@ function syncWindowButtons() {
   _windowButtonsHidden = hide
   window.cascade.setWindowButtonsVisible?.(!hide)
 }
-new MutationObserver(syncWindowButtons).observe(npOverlay, { attributes: true, attributeFilter: ['class'] })
+new MutationObserver(() => { syncWindowButtons(); syncCaptionButtons() })
+  .observe(npOverlay, { attributes: true, attributeFilter: ['class'] })
 
 // ── Beat-reactive background ───────────────────────────────────────────────
 let _currentBgArtUrl = null  // current track's art URL for overlay background
@@ -9902,7 +9903,20 @@ function setThemeMode(mode) {
   document.getElementById('seg-light').classList.toggle('active', mode === 'light')
   // Recolour the OS-drawn Windows/Linux caption buttons to match. No-op on
   // macOS (main.js checks platform), so this is safe to call unconditionally.
-  window.cascade.setTitleBarOverlay(mode === 'light' ? 'light' : 'dark')
+  syncCaptionButtons()
+}
+
+// The Windows/Linux caption buttons' symbols: the theme's, except over a film,
+// where they are light in either theme so they stay visible on the picture.
+// Also run by the overlay's class observer (syncWindowButtons), which sees a
+// video open or close.
+let _captionMode = null
+function syncCaptionButtons() {
+  const overVideo = overlayOpen && npOverlay.classList.contains('video')
+  const mode = overVideo || document.documentElement.getAttribute('data-theme') !== 'light' ? 'dark' : 'light'
+  if (mode === _captionMode) return
+  _captionMode = mode
+  window.cascade.setTitleBarOverlay(mode)
 }
 
 function buildPresets() {
