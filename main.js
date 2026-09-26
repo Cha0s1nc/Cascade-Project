@@ -379,10 +379,15 @@ function showWhenReady(w, after) {
   setTimeout(() => showOnce('window never became ready, showing it anyway'), 10000)
 }
 
+// The buttons sit on a transparent backing, so whatever is behind them shows
+// through: the app's own titlebar normally, the Now Playing art or a film
+// when that view is open. A solid block in the titlebar color sat pasted
+// over the art there. Only the symbols follow the theme; the renderer asks
+// for 'dark' (light symbols) over video in either theme.
 function titleBarOverlayColors(mode) {
   return mode === 'light'
-    ? { color: '#ffffff', symbolColor: '#1c1c1e' }
-    : { color: '#1c1c1e', symbolColor: '#f5f5f7' }
+    ? { color: '#00000000', symbolColor: '#1c1c1e' }
+    : { color: '#00000000', symbolColor: '#f5f5f7' }
 }
 
 function storedThemeMode() {
@@ -596,7 +601,7 @@ ipcMain.handle('get-version', () => app.getVersion())
 // IPC: whether this is a packaged (production) build vs. run from the command line
 ipcMain.handle('is-packaged', () => app.isPackaged)
 
-// IPC: theme switched in the renderer - recolour the OS-drawn caption buttons
+// IPC: theme switched in the renderer - recolor the OS-drawn caption buttons
 // to match. No-op on macOS: setTitleBarOverlay only applies to a window
 // created with titleBarOverlay set, which createWindow() only does elsewhere.
 ipcMain.on('set-titlebar-overlay', (_e, { mode } = {}) => {

@@ -324,7 +324,7 @@ async function wfHandleEnqueue(from, p) {
 // this file from having to know how playback is triggered - next/prev, a queue
 // row, a media key and the mini player all surface here as the same events.
 ;['play', 'pause', 'seeked', 'loadedmetadata'].forEach(ev =>
-  audio.addEventListener(ev, () => { if (wfIsHost) wfBroadcastState() })
+  onDeck(ev, () => { if (wfIsHost) wfBroadcastState() })
 )
 
 // ── Guest: follow the host ───────────────────────────────────────────────────
@@ -467,9 +467,14 @@ async function wfApplyStateNow(s) {
     // Guarded by a local flag, not wfLoadedTrackId: that is only assigned after
     // the await below, so this listener - which fires *during* the load - would
     // always see a stale value and skip the seek entirely.
+    //
+    // Bound on both decks and filtered at event time: playCurrentTrack may swap
+    // in a prefetched deck, so the one `audio` points at right now is not
+    // necessarily the one that ends up playing.
     let seekCancelled = false
-    const seekOnMetadata = () => { if (!seekCancelled) audio.currentTime = startAt }
-    audio.addEventListener('loadedmetadata', seekOnMetadata, { once: true })
+    const seekOnMetadata = e => { if (!seekCancelled && e.target === audio) audio.currentTime = startAt }
+    const dropSeek = keep => DECKS.forEach(d => { if (d !== keep) d.removeEventListener('loadedmetadata', seekOnMetadata) })
+    DECKS.forEach(d => d.addEventListener('loadedmetadata', seekOnMetadata, { once: true }))
 
     // playCurrentTrack can bail without loading anything - it re-checks the
     // queue after its own PlaybackInfo round-trip, and a queue broadcast landing
@@ -484,9 +489,19 @@ async function wfApplyStateNow(s) {
 
     if (audio.src === srcBefore) {
       seekCancelled = true
-      audio.removeEventListener('loadedmetadata', seekOnMetadata)
+      dropSeek()
       wfLoadedTrackId = null   // let the next heartbeat retry
       return
+    }
+    // A prefetched deck already has its metadata, so the event never fires for
+    // it: seek now. Otherwise leave the listener only on the deck that plays, or
+    // a later prefetch into the idle one would fire it and yank the live deck
+    // back to this stale position.
+    if (audio.readyState > 0) {
+      dropSeek()
+      audio.currentTime = startAt
+    } else {
+      dropSeek(audio)
     }
     wfLoadedTrackId = s.trackId
   }

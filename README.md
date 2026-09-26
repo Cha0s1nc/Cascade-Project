@@ -4,26 +4,26 @@
 
 ## What it is
 
-Cascade is a Jellyfin streaming app, originally prioritized for music streaming. Video is in the beta builds now - movies and TV shows alongside the music library, in one app (think iTunes). It is not in a stable release yet (sorry about that, I've been biting off more than I can chew lmao), so for the moment it lives on the beta channel.
+Cascade is a Jellyfin streaming app, originally prioritized for music streaming. It plays movies and TV shows too, alongside the music library, in one app (think iTunes).
 
 ---
 
 ## Features
 
 - **Jellyfin playback** - browse and play from your library. Cascade negotiates every stream with the server (`PlaybackInfo` plus a device profile), so it direct plays what it can and only transcodes what it has to
-- **Movies and TV** - separate movie and TV libraries with season and episode browsing, resume, subtitle and audio track selection, in a full-bleed player. Off by default, turned on per library in Settings
+- **Movies and TV** - separate movie and TV libraries with season and episode browsing, resume, subtitle and audio track selection, in a full-bleed player with chapters and YouTube-style keyboard shortcuts (press `?` while a video plays to see them). Continue Watching on Home includes the next episode of shows you're following. Off by default, turned on per library in Settings
 - **Crossfade** - real two-deck crossfade with an equal-power curve, ramped on the audio thread. The next track is prefetched onto the idle deck so a change does not stall
-- **5-band equalizer** - 60/250/1k/4k/12k peaking filters with separate music and video curves, five presets (Flat, Bass Boost, Vocal, Treble, Loudness) and an automatic preamp that stops a boost clipping
+- **5-band equalizer** - 60/250/1k/4k/12k peaking filters with separate music and video curves shown side by side, each with its own switch, five presets (Flat, Bass Boost, Vocal, Treble, Loudness) and an automatic preamp that stops a boost clipping
 - **Search** - songs, albums, artists, movies and series, with results grouped by type
 - **Playlists** - smart playlists (Favorites, Most Played) generated from your Jellyfin play data, plus an edit mode on real playlists for renaming, bulk removal, moving a selection, and the public/private toggle
 - **Streaming quality** - cap the bitrate (Original, 320, 192, 128 or 96 kbps) and the server transcodes to fit
-- **Quick Connect** - sign in by approving a code in Jellyfin on another device instead of typing a password. No password is stored for accounts signed in this way
+- **Quick Connect** - sign in by approving a code in Jellyfin on another device instead of typing a password
 - **Remote control target** - Cascade appears in Jellyfin's "Play On" list, so you can drive it from the web UI or your phone
 - **Waterfall (beta)** - synced listening rooms. Everyone streams the same track from the same Jellyfin server, and the room shares a queue. Guests can add tracks, and optionally control playback. No audio crosses the wire
-- **Full-screen now-playing overlay** - click the player bar to expand a full-screen view with large album art, controls, a live queue panel, and synced lyrics. Lyrics scale up automatically when the window is maximised or fullscreened
-- **Synced lyrics** - timestamp-synced lyrics from Jellyfin with click-to-seek. Opens as a slide-in panel or in the full-screen overlay. A globe button in the overlay lyrics panel auto-detects non-English tracks and translates to English with one tap, on-device (Pulled from a couple sources when online, pulled from sidecar `.slrc` files on "Server Only Mode" - "Server Only Mode" and the built-in lyrics editor need the Cascade Server plugin for Jellyfin, which is not publicly released yet. Cascade detects whether it is installed and greys those controls out with an explanation when it is not, so nothing silently fails)
-- **Lyrics translation** - Japanese, Korean, Chinese (Simplified and Traditional) and Spanish lyrics get a Translate button everywhere, and on macOS 26 or newer so do French, German, Italian, Portuguese, Dutch, Polish, Russian, Ukrainian, Turkish, Arabic, Hindi, Thai, Vietnamese and Indonesian, and translations appear under each line in English. Detection and translation both run **entirely on your machine**: no lyric, and no record of what you are playing, ever leaves it. Language detection is trigram matching (`franc`); translation runs Mozilla's [Firefox Translations](https://github.com/mozilla/firefox-translations-models) models on the bergamot WebAssembly runtime. Each language's model (about 35-70 MB) downloads the first time you translate a song in it, from Cascade's GitHub releases or Mozilla's servers, and is checked against a pinned SHA-256 before use. Models can be removed or redownloaded in Settings, and translation can be switched off entirely. On macOS 26 or newer, Cascade uses **Apple's built-in translation** instead by default, for any language installed in macOS: it is more accurate, downloads nothing through Cascade, and runs on-device (verified with the network off). The extra languages above are Apple-only, so they need it on. If a song's language is not installed in macOS, Cascade offers to open System Settings to install it (recommended) or to use its own model for that language
-- **Album art accent mode** - toggle in the theme picker to automatically match the gradient and full-screen overlay background to the dominant colour of the current album art, updating on every track change
+- **Full-screen now-playing overlay** - click the player bar to expand a full-screen view with large album art, controls, a live queue panel, and synced lyrics. Lyrics scale up automatically when the window is maximized or full screen
+- **Synced lyrics** - line-synced and word-by-word karaoke lyrics with click-to-seek, from your Jellyfin server, LRCLIB and Kugou. Opens as a slide-in panel or in the full-screen overlay. With the [Cascade Server](https://github.com/Cha0s1nc/CascadeServer) plugin, and a SpicyLyrics key set on the server, you also get SpicyLyrics' word-synced lyrics with background vocals, held notes and duets (the second singer's lines sit on the right). A song SpicyLyrics can't match on its own can be linked to its Spotify track by hand. "Server Only Mode" (lyrics only from your server) and the built-in lyrics editor need the plugin too. Cascade detects whether it is installed and grays those controls out with an explanation when it is not, so nothing silently fails
+- **Lyrics translation** - Japanese, Korean, Chinese (Simplified and Traditional) and Spanish lyrics get a Translate button everywhere, and on macOS 26 or newer so do French, German, Italian, Portuguese, Dutch, Polish, Russian, Ukrainian, Turkish, Arabic, Hindi, Thai, Vietnamese and Indonesian, and translations appear under each line in English. Detection and translation both run **entirely on your machine**: no lyric, and no record of what you are playing, ever leaves it. Language detection is trigram matching (`franc`); translation runs Mozilla's [Firefox Translations](https://github.com/mozilla/firefox-translations-models) models on the bergamot WebAssembly runtime. Each language's model (about 35-70 MB) downloads the first time you translate a song in it, from Cascade's GitHub releases or Mozilla's servers, and is checked against a pinned SHA-256 before use. Models can be removed or redownloaded in Settings, and translation can be switched off entirely. On macOS 26 or newer, Cascade uses **Apple's built-in translation** instead by default, for any language installed in macOS: it is more accurate, downloads nothing through Cascade, and runs on-device (verified with the network off). The extra languages above are Apple-only, so they need it on. If a song's language is not installed in macOS, Cascade offers to open System Settings to install it (recommended) or, for the five languages it has its own models for, to use that instead
+- **Album art accent mode** - toggle in the theme picker to automatically match the gradient and full-screen overlay background to the dominant color of the current album art, updating on every track change
 - **Discord Rich Presence** - shows the current track in Discord as "Listening to Cascade", or "Watching Cascade" for a movie or episode. Enable in Settings with one toggle - no setup required
 - **Touch Bar** - actually has support for MacBooks with a Touch Bar
 - **Cha0s Stream integration** - exposes a local control server (`127.0.0.1:47847`) so [Cha0s Stream](https://github.com/Cha0s1nc/cha0s-stream) (my other tool) can control playback directly without OS key simulation or Jellyfin session API calls
@@ -41,7 +41,7 @@ Download the latest release for your platform from the [Releases](https://github
 - **Windows** - run the `.exe` installer
 - **Linux** - run the `.AppImage` directly, or install the `.deb` / `.rpm`
 
-On first launch, enter your Jellyfin server URL, username, and password. Cascade authenticates, saves your credentials, and loads your library automatically.
+On first launch, enter your Jellyfin server URL, username, and password. Cascade signs in, keeps only the session token Jellyfin gives it (never your password), and loads your library automatically.
 
 If your server has Quick Connect enabled, a **Sign in with a code instead** button appears once you've entered the server URL. Approve the code in Jellyfin on a device you're already signed in on (Settings > Quick Connect) and Cascade signs in without ever handling your password.
 
@@ -67,25 +67,25 @@ On first launch, a setup card appears. Fill in:
 
 Or skip the password entirely with **Sign in with a code instead**, if your server has Quick Connect turned on.
 
-Credentials are stored locally using `electron-store`. Signing in with a code stores no password at all. You can update any of this from the **Settings** view (gear icon in the sidebar).
+Cascade stores only the session token Jellyfin issues, locally using `electron-store`. Your password is never saved, whichever way you sign in. If the token is revoked (for example, you sign Cascade out from the Jellyfin dashboard), Cascade goes back to the sign-in screen. You can update any of this from the **Settings** view (gear icon in the sidebar).
 
 ### Music libraries
 
-After connecting, open **Settings** to choose which Jellyfin music libraries Cascade uses. Multiple libraries can be selected - their contents are merged into a single view, or turn on **Single library mode** to browse one at a time. Changes apply immediately: which libraries you browse has nothing to do with your credentials, so nothing reconnects and you are never asked to sign in again.
+After connecting, open **Settings** to choose which Jellyfin music libraries Cascade uses. Multiple libraries can be selected - their contents are merged into a single view, and a song, album or artist found in more than one of them shows once (keeping the higher-bitrate copy of a song). Or turn on **Single library mode** to browse one at a time. Changes apply immediately: which libraries you browse has nothing to do with your credentials, so nothing reconnects and you are never asked to sign in again.
 
 Movie and TV libraries are chosen separately in the same place and are off by default. Turning one on adds Movies and TV Shows to the sidebar; turning them all off removes video from the app entirely.
 
-**Scan library on server** asks Jellyfin to look for files added or removed outside it, and needs a Jellyfin *admin* account - it is greyed out with an explanation otherwise. **Refresh app** is local, works on any account, and just re-reads everything from the server.
+**Scan library on server** asks Jellyfin to look for files added or removed outside it, and needs a Jellyfin *admin* account - it is grayed out with an explanation otherwise. **Refresh app** is local, works on any account, and just re-reads everything from the server.
 
 ---
 
 ## Lyrics
 
-Click the chat-bubble icon in the player bar to open the lyrics panel. If Jellyfin has lyrics for the current track they will load and scroll in sync with playback. Click any line to jump to that timestamp.
+Click the chat-bubble icon in the player bar to open the lyrics panel. Cascade finds lyrics for the current track (from your server, LRCLIB, Kugou, or SpicyLyrics through the Cascade Server plugin), and they scroll in sync with playback. Click any line to jump to that timestamp.
 
-If the track is detected as non-English, a translate bar appears. Pick a target language and click **Translate** to show translated lines inline below each original line.
+If the lyrics are in a language Cascade can translate, a translate bar appears. Click **Translate** to show an English translation below each original line.
 
-In the full-screen overlay, toggle lyrics with the lyrics button in the secondary controls. The overlay shows lyrics in a centered clock-scroll style - the current line is large and centered, with adjacent lines scaled down.
+In the full-screen overlay, toggle lyrics with the lyrics button in the secondary controls. The current line stays in the middle of the view and fills in word by word as it is sung, while the lines around it fade and blur. In a duet, the second singer's lines sit on the right.
 
 ---
 
@@ -102,7 +102,7 @@ refused.
 
 The host owns the queue. Guests see all of it and can append to it, with each
 addition labelled with who added it. Two host settings under **Settings >
-Waterfall** control the rest:
+Integrations > Waterfall** control the rest:
 
 | Setting | Default | Effect |
 |---------|---------|--------|
@@ -110,7 +110,7 @@ Waterfall** control the rest:
 | Guests can control playback | Off | Guests may play, pause, skip and seek for the whole room |
 
 Rooms run through a Cloudflare Worker relay, which only ever forwards small
-control messages. Point it at your own instance in **Settings > Waterfall** if
+control messages. Point it at your own instance in **Settings > Integrations > Waterfall** if
 you'd rather not use the default - the Worker source is in `signaling/`.
 
 ---
@@ -124,16 +124,21 @@ Right-click the album art in the player bar (or click the **···** button in t
 | Stop playback | Stops audio and clears the current track |
 | Clear queue | Empties the queue without stopping |
 | Instant mix | Generates a Jellyfin instant mix from the current track |
+| Favorite | Favorites or unfavorites the current track |
+| Sleep timer | Stops playback after a set time, or at the end of the track |
 | Add to playlist | Pick a playlist to add the track to |
 | Download | Downloads the file via Electron's native download |
 | Copy stream URL | Copies the direct stream URL to clipboard |
 | Media info | Shows codec, bitrate, sample rate, file size, and play count |
-| Refresh metadata | Fires a full metadata refresh on the server. Needs an admin account, and is greyed out otherwise |
-| Edit metadata / images | Opens the item in the Jellyfin web UI |
+| Refresh metadata | Fires a full metadata refresh on the server. Needs an admin account, and is grayed out otherwise |
+| Edit metadata | Opens Cascade's built-in metadata editor |
+| Edit images | Opens the item in the Jellyfin web UI |
 | Edit lyrics | Opens Cascade's built-in lyrics editor |
 | View album / artist | Navigates to the album or artist view |
 | View lyrics | Opens the lyrics panel |
 | Delete media | Deletes the file from the server (with confirmation). Needs an account Jellyfin has granted deletion rights |
+
+While a movie or episode plays, the rows that only make sense for a song (clear queue, instant mix, playlists, lyrics, album and artist) are hidden. Songs, albums, artists, playlists, movies and shows elsewhere in the app have right-click menus of their own.
 
 ---
 
@@ -176,6 +181,8 @@ npm run build:ts    # bundle src/ to build/ on its own
 To run a second instance side by side (useful for testing Waterfall), use
 `npm run dev:second` - it uses a separate user data directory so it gets its own
 Jellyfin session.
+
+`npm run demo` opens Cascade in full screen for demos and screen recordings, on an external monitor when one is connected.
 
 ### Generate icons
 
@@ -234,9 +241,9 @@ The artwork in `assets/` (the app icon and everything else in that folder) is **
 Click the gradient dot in the top-right of the titlebar to open the theme picker:
 
 - **Dark / Light mode** - switches the entire UI between dark and light
-- **Gradient** - pick start and end colours for the accent gradient used throughout the app (active controls, nav bar, buttons)
+- **Gradient** - pick start and end colors for the accent gradient used throughout the app (active controls, nav bar, buttons)
 - **Presets** - eight built-in gradient presets (Default, Sunset, Ocean, Rose, Gold, Mint, Candy, Fire)
-- **Album art accent** - when enabled, the gradient and full-screen overlay background automatically shift to match the dominant colour of the current album art on every track change. While it is on, the gradient pickers and presets are greyed out, since the artwork overrides them anyway. Toggle off to restore your manual gradient
+- **Album art accent** - when enabled, the gradient and full-screen overlay background automatically shift to match the dominant color of the current album art on every track change. While it is on, the gradient pickers and presets are grayed out, since the artwork overrides them anyway. Toggle off to restore your manual gradient
 
 All theme settings are saved and restored on next launch.
 
@@ -244,9 +251,9 @@ All theme settings are saved and restored on next launch.
 
 ## Discord Rich Presence
 
-Enable in **Settings → Discord**. Cascade shows "Listening to Cascade" in Discord with the current track name and artist. Playing a movie or episode switches it to "Watching Cascade", with the year or the series and episode number in place of the artist. No Discord application setup is required - a shared application ID is bundled with the app.
+Enable in **Settings → Integrations → Discord**. Cascade shows "Listening to Cascade" in Discord with the current track name and artist. Playing a movie or episode switches it to "Watching Cascade", with the year or the series and episode number in place of the artist. No Discord application setup is required - a shared application ID is bundled with the app.
 
-Album art is looked up from the iTunes catalogue by artist and album, so it works no matter how your server is reachable - a LAN address, a tailnet address, or nothing public at all. Your Jellyfin URL and token are never sent to Discord. A track with no match in that catalogue shows text only, and video presence is text only by design.
+Album art is looked up from the iTunes catalog by artist and album, so it works no matter how your server is reachable - a LAN address, a tailnet address, or nothing public at all. Your Jellyfin URL and token are never sent to Discord. A track with no match in that catalog shows text only, and video presence is text only by design.
 
 ---
 

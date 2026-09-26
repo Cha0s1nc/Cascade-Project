@@ -4233,6 +4233,10 @@ onDeck('ended', () => {
   const item = queue[queueIndex]
   if (item) reportPlaybackStopped(item.Id, Math.round(audio.duration * 10000000))
 
+  // A Waterfall guest waits for the host's next state instead of advancing on
+  // its own clock, which would start the next track out of step with the room.
+  if (blocksLocalPlayback()) return
+
   if (sleepAtTrackEnd) {
     sleepAtTrackEnd = false
     document.getElementById('ctx-sleep-timer').classList.remove('active')
@@ -4309,6 +4313,10 @@ function _resolveCrossfadeTarget() {
 
 onDeck('timeupdate', () => {
   if (!crossfadeEnabled || !_cfArmed || _cfActive) return
+  // The host owns track changes in a Waterfall room. A guest fading on its own
+  // leaves `audio` on the outgoing deck while the incoming one is what plays,
+  // so the room's drift correction would seek a deck nobody is hearing.
+  if (blocksLocalPlayback()) return
   // No Web Audio graph means no GainNode to ramp on. There is deliberately no
   // second, element-.volume-based fallback ramp. Note this is the hard failure
   // only: an analyser that reads nothing (_eqNoSignal) stands the bars down but
@@ -5617,7 +5625,8 @@ function syncWindowButtons() {
   _windowButtonsHidden = hide
   window.cascade.setWindowButtonsVisible?.(!hide)
 }
-new MutationObserver(syncWindowButtons).observe(npOverlay, { attributes: true, attributeFilter: ['class'] })
+new MutationObserver(() => { syncWindowButtons(); syncCaptionButtons() })
+  .observe(npOverlay, { attributes: true, attributeFilter: ['class'] })
 
 // ── Beat-reactive background ───────────────────────────────────────────────
 let _currentBgArtUrl = null  // current track's art URL for overlay background
@@ -9894,7 +9903,20 @@ function setThemeMode(mode) {
   document.getElementById('seg-light').classList.toggle('active', mode === 'light')
   // Recolour the OS-drawn Windows/Linux caption buttons to match. No-op on
   // macOS (main.js checks platform), so this is safe to call unconditionally.
-  window.cascade.setTitleBarOverlay(mode === 'light' ? 'light' : 'dark')
+  syncCaptionButtons()
+}
+
+// The Windows/Linux caption buttons' symbols: the theme's, except over a film,
+// where they are light in either theme so they stay visible on the picture.
+// Also run by the overlay's class observer (syncWindowButtons), which sees a
+// video open or close.
+let _captionMode = null
+function syncCaptionButtons() {
+  const overVideo = overlayOpen && npOverlay.classList.contains('video')
+  const mode = overVideo || document.documentElement.getAttribute('data-theme') !== 'light' ? 'dark' : 'light'
+  if (mode === _captionMode) return
+  _captionMode = mode
+  window.cascade.setTitleBarOverlay(mode)
 }
 
 function buildPresets() {
