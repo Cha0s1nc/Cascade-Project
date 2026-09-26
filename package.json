@@ -73,6 +73,7 @@
       "translation-models.json",
       "LICENSE",
       "assets/LICENSE",
+      "assets/linux-icons/128x128.png",
       "node_modules/**/*",
       "!node_modules/@img/**"
     ],
