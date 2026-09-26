@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, clipboard, shell, Menu, globalShortcut, TouchBar, protocol, net } = require('electron')
+const { app, BrowserWindow, ipcMain, clipboard, shell, Menu, globalShortcut, TouchBar, protocol, net, screen } = require('electron')
 
 // A main-process throw before the window is shown means no window and, for a
 // rejection, not even a message: Electron shows a dialog for an uncaught
@@ -92,19 +92,68 @@ const RPC_TYPE_LISTENING = 2
 const RPC_TYPE_WATCHING  = 3
 let rpcActivityType = RPC_TYPE_LISTENING
 
+// Reconnect on login failure or on Discord restarting - discord-rpc has no
+// retry of its own, so without this a Discord not running at startup, or
+// quit and relaunched later, killed presence for the rest of the session.
+// Backoff (not the fixed interval RemoteControl uses for its own reconnect
+// in remote-control.ts) because "Discord is not running" is commonly a long
+// wait, not a blip on a LAN link.
+const RPC_RECONNECT_MIN_MS = 15000
+const RPC_RECONNECT_MAX_MS = 60000
+let rpcClientId = null       // desired client id; null means RPC should be off
+let rpcReconnectTimer = null
+let rpcReconnectDelay = RPC_RECONNECT_MIN_MS
+
+function cancelRpcReconnect() {
+  if (rpcReconnectTimer) { clearTimeout(rpcReconnectTimer); rpcReconnectTimer = null }
+  rpcReconnectDelay = RPC_RECONNECT_MIN_MS
+}
+
+// destroy() rejects rather than throws when the socket never connected or
+// already closed itself (discord-rpc's IPC transport reads this.socket,
+// which is null or already ended), so a plain try/catch around the call
+// misses it and leaves an unhandled rejection. Also the one place a
+// superseded client (replaced before login finished, or a stale success
+// arriving after a newer attempt took over) gets told to let go of its
+// socket - without this it sits connected to Discord forever, unused.
+function closeRpcClient(client) {
+  try { Promise.resolve(client.destroy()).catch(() => {}) } catch {}
+}
+
+function scheduleRpcReconnect() {
+  if (rpcReconnectTimer || !rpcClientId) return
+  const delay = rpcReconnectDelay
+  rpcReconnectDelay = Math.min(rpcReconnectDelay * 2, RPC_RECONNECT_MAX_MS)
+  rpcReconnectTimer = setTimeout(() => {
+    rpcReconnectTimer = null
+    connectDiscordRpc(rpcClientId)
+  }, delay)
+}
+
 async function connectDiscordRpc(clientId) {
   if (!clientId) return
+  rpcClientId = clientId
+  // A fresh Client every attempt - discord-rpc caches a connect promise
+  // internally and cannot be reused after a failed or closed login.
+  let client = null
   try {
     const { Client } = require('discord-rpc')
-    rpcClient = new Client({ transport: 'ipc' })
-    rpcClient.on('ready', () => {
+    client = new Client({ transport: 'ipc' })
+    rpcClient = client
+    client.on('ready', () => {
+      // A late READY from a client a newer attempt already replaced - close
+      // it rather than leave it connected and unused. This and the check
+      // below are what keep a stale client's events from clobbering the
+      // current one's state.
+      if (client !== rpcClient) { closeRpcClient(client); return }
       rpcReady = true
+      cancelRpcReconnect()  // connected, so the next outage starts backoff fresh
       // Patch request() to inject the activity type into every SET_ACTIVITY call.
       // setActivity() strips the type field, so we add it back at the protocol
       // level - which is also why the renderer's choice arrives via
       // rpcActivityType rather than on the activity object itself.
-      const _origRequest = rpcClient.request.bind(rpcClient)
-      rpcClient.request = function(cmd, args, ...rest) {
+      const _origRequest = client.request.bind(client)
+      client.request = function(cmd, args, ...rest) {
         if (cmd === 'SET_ACTIVITY' && args?.activity) {
           args.activity.type = rpcActivityType
           args.activity.status_display_type = 1  // show state (artist/series) in member list sidebar
@@ -113,22 +162,51 @@ async function connectDiscordRpc(clientId) {
       }
       if (win && !win.isDestroyed()) win.webContents.send('discord-rpc-status', true)
     })
-    rpcClient.on('disconnected', () => {
+    client.on('disconnected', () => {
+      if (client !== rpcClient) return
       rpcReady = false
       rpcClient = null
       if (win && !win.isDestroyed()) win.webContents.send('discord-rpc-status', false)
+      // Discord quit, crashed, or is restarting for an update. There is no
+      // event for "Discord came back", so retrying on a timer is the only way
+      // to notice - the renderer already treats a true status as a fresh
+      // reconnect and re-sends the current presence.
+      scheduleRpcReconnect()
     })
-    await rpcClient.login({ clientId })
+    await client.login({ clientId })
   } catch (e) {
     console.warn('[discord-rpc] connect failed:', e.message)
-    rpcClient = null
-    rpcReady  = false
+    // A timed-out login (RPC_CONNECTION_TIMEOUT) can leave the socket itself
+    // still open even though the promise rejected - close it regardless of
+    // whether this attempt is still current.
+    if (client) closeRpcClient(client)
+    // Only touch shared state if this attempt is still the current one - a
+    // disable or a client id change in the meantime already moved rpcClient
+    // on, and clearing it here would null out a newer, live client.
+    if (client && client === rpcClient) {
+      rpcClient = null
+      rpcReady  = false
+      scheduleRpcReconnect()
+    }
   }
 }
 
 function destroyRpc() {
-  if (rpcClient) { try { rpcClient.destroy() } catch {} rpcClient = null; rpcReady = false }
+  rpcClientId = null
+  cancelRpcReconnect()
+  if (rpcClient) {
+    const client = rpcClient
+    rpcClient = null
+    rpcReady = false
+    closeRpcClient(client)
+  }
 }
+
+// Cover a programmatic app.quit() (the updater's silent-install paths) as
+// well as window-all-closed, which already calls destroyRpc() itself.
+// Separate listener, not folded into the existing will-quit handler above,
+// so this stays inside the Discord section.
+app.on('will-quit', destroyRpc)
 
 ipcMain.on('discord-rpc-connect', async (_e, clientId) => {
   destroyRpc()
@@ -242,6 +320,13 @@ controlServer.on('error', (err) => {
 
 const GITHUB_REPO = 'Cha0s1nc/Cascade-Project'
 
+// --user-data-dir (npm run dev:second, test instances) moves Chromium's own
+// data, but not app.getPath('userData'), which electron-store and every file
+// Cascade keeps (translation cache, models) are built from. Without this, a
+// "separate" instance read and wrote the real config.json, token included.
+const userDataDir = app.commandLine.getSwitchValue('user-data-dir')
+if (userDataDir) app.setPath('userData', userDataDir)
+
 const store = new Store()
 
 // The app's own .titlebar strip is 38px (index.html) - the Window Controls
@@ -319,9 +404,20 @@ let pendingDownload   = null
 
 function createWindow() {
   const isDarwin = process.platform === 'darwin'
+  // `npm run demo` (or `electron . --fullscreen`): opens straight into
+  // fullscreen, for demos and screen recordings, on an external monitor when
+  // one is connected. Fullscreen fills whichever display the window starts on.
+  const demo = process.argv.includes('--fullscreen')
+  const demoDisplay = demo ? screen.getAllDisplays().find(d => !d.internal) : null
   win = new BrowserWindow({
     width: 1100,
     height: 700,
+    ...(demoDisplay ? { x: demoDisplay.bounds.x + 40, y: demoDisplay.bounds.y + 40 } : {}),
+    // Only ever passed as true. An explicit `fullscreen: false` is not "start
+    // windowed" on macOS, it makes the window non-fullscreenable: the video
+    // player's Fullscreen button, F and double-click still told the page it
+    // was fullscreen, but the window stayed its normal size.
+    ...(demo ? { fullscreen: true } : {}),
     minWidth: 800,
     // 560, not 500: the video overlay stacks a picture, a title, two button
     // rows, a scrubber and a volume slider into one column, and 500 was under
@@ -509,6 +605,14 @@ ipcMain.on('set-titlebar-overlay', (_e, { mode } = {}) => {
   try { win.setTitleBarOverlay(titleBarOverlayColors(mode)) } catch {}
 })
 
+// IPC: the video player hides its controls after a still moment, and the
+// traffic lights over the picture go with them. macOS only; elsewhere the
+// caption buttons are the OS's and stay.
+ipcMain.on('set-window-buttons-visible', (_e, visible) => {
+  if (process.platform !== 'darwin' || !win || win.isDestroyed()) return
+  win.setWindowButtonVisibility(visible !== false)
+})
+
 // IPC: store
 ipcMain.handle('store-get', (_e, key) => store.get(key))
 ipcMain.handle('store-set', (_e, key, value) => store.set(key, value))
@@ -518,7 +622,13 @@ ipcMain.handle('store-delete', (_e, key) => store.delete(key))
 ipcMain.handle('clipboard-write', (_e, text) => clipboard.writeText(text))
 
 // IPC: shell
-ipcMain.handle('shell-open', (_e, url) => shell.openExternal(url))
+// Web links only. Some of what reaches this comes from third parties (a
+// SpicyLyrics credit link), and openExternal will just as happily launch a
+// file:// path or a custom app scheme.
+ipcMain.handle('shell-open', (_e, url) => {
+  if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return
+  return shell.openExternal(url)
+})
 
 // IPC: download - uses Electron's session download API
 ipcMain.handle('download-file', (_e, url, filename) => {
@@ -727,6 +837,8 @@ ipcMain.on('open-miniplayer', () => {
       },
       show: false,
     })
+    // Hidden until the pointer is over the window (miniplayer-hover below).
+    if (process.platform === 'darwin') miniPlayerWindow.setWindowButtonVisibility(false)
     miniPlayerWindow.loadFile('miniplayer.html')
     // Same show:false + ready-to-show pattern as every other secondary window -
     // ready-to-show alone can simply never fire on Windows.
@@ -742,9 +854,14 @@ ipcMain.on('open-miniplayer', () => {
         }
       }, 400)
     })
+    // The renderer only fetches lyrics while something shows them; this is
+    // how it knows the miniplayer is one of those things.
+    if (win && !win.isDestroyed()) win.webContents.send('miniplayer-open-state', true)
     miniPlayerWindow.on('closed', () => {
       clearTimeout(resizeSaveTimer)
+      clearInterval(miniHoverTimer); miniHoverTimer = null
       miniPlayerWindow = null
+      if (win && !win.isDestroyed()) win.webContents.send('miniplayer-open-state', false)
       // Restoring the main window belongs HERE, not only in the
       // miniplayer-restore handler below - this fires no matter how the
       // window closed (the close button, the OS window-menu Close Window
@@ -764,6 +881,33 @@ ipcMain.on('open-miniplayer', () => {
 
 ipcMain.on('miniplayer-state', (_e, state) => {
   if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) miniPlayerWindow.webContents.send('miniplayer-state', state)
+})
+
+// Traffic lights only while the pointer is over the miniplayer. The page's
+// mouseleave is not trusted to hide them: the lights are native buttons drawn
+// over the page, so pointing AT them can read as leaving the page, and hiding
+// them then would pull the close button out from under the pointer. On a
+// leave, the real cursor position decides, re-checked until it is outside.
+let miniHoverTimer = null
+ipcMain.on('miniplayer-hover', (_e, on) => {
+  if (process.platform !== 'darwin') return
+  clearInterval(miniHoverTimer); miniHoverTimer = null
+  if (!miniPlayerWindow || miniPlayerWindow.isDestroyed()) return
+  if (on === true) { miniPlayerWindow.setWindowButtonVisibility(true); return }
+  // True once there is nothing left to watch: window gone, or pointer out
+  // and the lights hidden.
+  const settled = () => {
+    if (!miniPlayerWindow || miniPlayerWindow.isDestroyed()) return true
+    const p = screen.getCursorScreenPoint()
+    const b = miniPlayerWindow.getBounds()
+    if (p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height) return false
+    miniPlayerWindow.setWindowButtonVisibility(false)
+    return true
+  }
+  if (settled()) return
+  miniHoverTimer = setInterval(() => {
+    if (settled()) { clearInterval(miniHoverTimer); miniHoverTimer = null }
+  }, 250)
 })
 
 ipcMain.on('miniplayer-control', (_e, action) => {
@@ -1132,21 +1276,56 @@ app.on('will-quit', () => { _appleHelper?.proc.kill() })
 
 ipcMain.handle('apple-translation:supported', () => appleTranslationSupported())
 
-// Status of every language Cascade translates, straight from macOS.
-ipcMain.handle('apple-translation:availability', async () => {
+// A language code as Apple's framework takes it: 'uk', 'zh-Hant'. Checked
+// rather than matched against a list here, so the list of languages to ask
+// about lives in one place (APPLE_TRANSLATION_KEYS in the core) and macOS
+// itself answers "unsupported" for anything it cannot do.
+const isAppleLanguageCode = c => typeof c === 'string' && /^[a-z]{2,3}(-[A-Z][a-z]{3})?$/.test(c)
+
+// Status of the languages the renderer asks about, straight from macOS.
+// Trust boundary: the list comes from the renderer, so every code is checked
+// and the list is capped.
+ipcMain.handle('apple-translation:availability', async (_e, languages) => {
   if (!appleTranslationSupported()) return {}
-  const { status } = await appleRequest({ op: 'availability', languages: Object.keys(TRANSLATION_MANIFEST.models) })
+  const codes = Array.isArray(languages) && languages.length <= 40 && languages.every(isAppleLanguageCode)
+    ? languages : Object.keys(TRANSLATION_MANIFEST.models)
+  const { status } = await appleRequest({ op: 'availability', languages: codes })
   return status
 })
 
-// Trust boundary: both arguments come from the renderer. Only a language
-// Cascade itself offers, and a single lyric line of sane length, go to macOS.
+// Trust boundary: both arguments come from the renderer. Only a well-formed
+// language code and a single lyric line of sane length go to macOS.
 ipcMain.handle('apple-translation:translate', async (_e, key, text) => {
-  translationModel(key)
+  if (!isAppleLanguageCode(key)) throw new Error('Invalid language')
   if (typeof text !== 'string' || text.length > 2000) throw new Error('Invalid text to translate')
   if (!appleTranslationSupported()) throw new Error('Apple Translation is not available on this Mac')
   const { text: english } = await appleRequest({ op: 'translate', source: key, text })
   return english
+})
+
+// ── Lyric translation cache ─────────────────────────────────────────────────
+// Translated lyric lines, kept between sessions so a song translated once is
+// instant after a restart. The renderer owns expiry (25 days, see
+// src/core/translation-cache.ts) and cleans what it loads; this only reads and
+// writes the file. Written to a temp file and renamed, so a crash mid-write
+// never leaves half a file behind.
+const TRANSLATION_CACHE_MAX = 5000
+const translationCachePath = () => path.join(app.getPath('userData'), 'translation-cache.json')
+
+ipcMain.handle('translation-cache:load', () => {
+  try { return JSON.parse(fs.readFileSync(translationCachePath(), 'utf8')) } catch { return [] }
+})
+
+// Trust boundary: the entries come from the renderer. Only the expected shape,
+// and no more than the renderer ever keeps, reaches the disk.
+ipcMain.handle('translation-cache:save', (_e, entries) => {
+  const ok = Array.isArray(entries) && entries.length <= TRANSLATION_CACHE_MAX && entries.every(e =>
+    Array.isArray(e) && e.length === 3 && typeof e[0] === 'string' && e[0].length <= 4000 &&
+    typeof e[1] === 'string' && e[1].length <= 4000 && typeof e[2] === 'number')
+  if (!ok) throw new Error('Invalid translation cache')
+  const file = translationCachePath()
+  fs.writeFileSync(`${file}.tmp`, JSON.stringify(entries))
+  fs.renameSync(`${file}.tmp`, file)
 })
 
 // Translation Languages is a button inside Language & Region with no link of

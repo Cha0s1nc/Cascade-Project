@@ -1,0 +1,108 @@
+/* ── Equalizer ── */
+/* Music and video side by side in one box, each with its own preset, curve
+   and preamp. Wraps to a column rather than squeezing the graphs: they are
+   drawn 1:1 with their viewBox (see EQ_GRAPH_W in renderer.js), so they
+   cannot shrink. */
+.eq-panels {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 12px 28px;
+  margin: 4px 14px 14px; padding: 16px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+}
+.eq-panel { display: flex; flex-direction: column; gap: 10px; width: 260px; }
+.eq-panel-head { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.eq-panel-title { font-size: 13px; font-weight: 600; color: var(--text); }
+.eq-panel-body { display: flex; flex-direction: column; gap: 10px; }
+/* Off reads as off: the whole side with the master switch off, the curve
+   and its controls with the side's own switch off. renderer.js also makes
+   them inert, so a grayed control cannot be changed by accident. Never both
+   at once, or the curve would fade to near nothing. */
+.eq-panel, .eq-panel-body { transition: opacity 0.2s ease, filter 0.2s ease; }
+.eq-panels.master-off .eq-panel,
+.eq-panels:not(.master-off) .eq-panel.off .eq-panel-body { opacity: 0.4; filter: grayscale(1); }
+@media (prefers-reduced-motion: reduce) { .eq-panel, .eq-panel-body { transition: none; } }
+.eq-panel .eq-preset { width: 100%; }
+.eq-preamp { display: flex; align-items: center; gap: 8px; width: 260px; }
+.eq-preamp-name { font-size: 12px; color: var(--text2); }
+.eq-preamp input[type="range"] { flex: 1; min-width: 0; }
+.eq-auto { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text2); cursor: pointer; }
+.eq-band-value { font-size: 11px; color: var(--text3); min-width: 46px; text-align: right; flex-shrink: 0; }
+/* Response graph replacing the old five-slider stack. Colours are all
+   existing theme tokens (accent/border/text3/surface) - this draws with
+   the current theme, it does not carry any styling of its own to swap. */
+.eq-graph-wrap { width: 260px; }
+.eq-graph { display: block; width: 260px; height: 140px; touch-action: none; }
+.eq-graph-zero { stroke: var(--border); stroke-width: 1; }
+.eq-graph-curve { fill: none; stroke: var(--accent); stroke-width: 2; }
+.eq-graph-point { fill: var(--accent); stroke: var(--surface); stroke-width: 2; cursor: grab; }
+.eq-graph-point:hover { fill: var(--text); }
+.eq-graph-point.dragging { cursor: grabbing; }
+.eq-graph-point:focus-visible { outline: none; stroke: var(--accent-glow); stroke-width: 6; }
+.eq-graph-labels { display: flex; justify-content: space-between; margin-top: 4px; }
+.eq-graph-label { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 11px; color: var(--text3); }
+.eq-graph-label .eq-band-value { min-width: 0; text-align: center; }
+input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 18px; background: none; cursor: pointer; }
+input[type="range"]::-webkit-slider-runnable-track { height: 3px; background: var(--border); border-radius: 2px; }
+input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; margin-top: -5.5px; border-radius: 50%; background: var(--text); transition: background 0.12s; }
+input[type="range"]:hover::-webkit-slider-thumb { background: var(--accent); }
+input[type="range"]::-moz-range-track { height: 3px; background: var(--border); border-radius: 2px; }
+input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: none; border-radius: 50%; background: var(--text); }
+input[type="range"]:focus-visible { outline: none; }
+input[type="range"]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--accent-glow); }
+input[type="range"]:disabled { opacity: 0.4; cursor: default; }
+
+/* ── Search bar (persistent, top of main content) ── */
+.top-search-bar { position: relative; flex-shrink: 0; padding: 10px 22px 0; }
+.search-input-wrap { position: relative; display: flex; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 0 10px; max-width: 340px; margin: 0 auto; transition: border-color 0.15s, box-shadow 0.15s; }
+.search-input-wrap:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.search-icon-inline { color: var(--text3); flex-shrink: 0; }
+.search-input-field { flex: 1; background: none; border: none; outline: none; font-family: var(--font); font-size: 13px; color: var(--text); padding: 7px 8px; }
+.search-input-field::placeholder { color: var(--text3); }
+.search-clear-btn { background: none; border: none; color: var(--text3); cursor: pointer; padding: 4px; display: flex; align-items: center; border-radius: 4px; transition: color 0.12s; flex-shrink: 0; }
+.search-clear-btn:hover { color: var(--text); }
+.search-dropdown { display: none; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); width: 100%; max-height: min(70vh, 560px); overflow-y: auto; margin-top: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; box-shadow: 0 12px 32px rgba(0,0,0,0.4); z-index: 400; }
+.search-dropdown.open { display: block; }
+.search-empty-state { color: var(--text3); font-size: 13px; text-align: center; padding: 40px 0; }
+.search-section { margin-bottom: 20px; }
+.search-section:last-child { margin-bottom: 0; }
+.search-section-title { font-size: 10px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 8px; }
+.search-no-results { color: var(--text3); font-size: 13px; text-align: center; padding: 30px 0; }
+
+/* ── Overlay translate button ── */
+.ov-translate-btn { position: sticky; bottom: 16px; float: right; margin: -44px 16px 16px 0; width: 38px; height: 38px; border-radius: 50%; background: rgba(255,255,255,0.12); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.2); color: var(--text); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s, transform 0.15s, opacity 0.2s; z-index: 10; box-shadow: 0 2px 12px rgba(0,0,0,0.3); }
+.ov-translate-btn:hover { background: rgba(255,255,255,0.22); transform: scale(1.1); }
+.ov-translate-btn.translated { background: var(--accent); border-color: transparent; color: white; }
+.ov-translate-btn.loading { opacity: 0.6; pointer-events: none; animation: spin 1s linear infinite; }
+
+/* ── Shuffle all button ── */
+.shuffle-all-btn { display: flex; align-items: center; gap: 5px; font-family: var(--font); font-size: 11px; font-weight: 600; background: none; border: 1px solid var(--border); border-radius: 6px; color: var(--text2); padding: 4px 10px; cursor: pointer; transition: background 0.12s, color 0.12s, border-color 0.12s; }
+.shuffle-all-btn:hover { background: var(--surface2); color: var(--text); border-color: var(--accent); }
+.shuffle-all-btn:disabled { opacity: 0.4; cursor: default; pointer-events: none; }
+.shuffle-all-btn svg { flex-shrink: 0; }
+
+/* ── States ── */
+.empty-state { display: flex; align-items: center; justify-content: center; color: var(--text3); font-size: 13px; padding: 40px 0; }
+
+/* ── Skeleton loaders ── */
+.skel-card { pointer-events: none; }
+.skel-card:hover { background: var(--surface) !important; }
+.skel { position: relative; overflow: hidden; background: var(--surface2) !important; color: transparent !important; }
+.skel::after {
+  content: ''; position: absolute; inset: 0; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
+  animation: skel-shimmer 1.4s ease-in-out infinite;
+}
+.skel-text { height: 10px; border-radius: 4px; background: var(--surface2); }
+@keyframes skel-shimmer { 100% { transform: translateX(100%); } }
+
+/* The remaining two never-ending animations. They live here, at the end,
+   rather than in the reduced-motion block above, because both of their
+   rules are defined after that block and a media query adds no specificity
+   - an override up there loses on source order and does nothing at all.
+   The shimmer stops outright (it is decorative, and its original rule is
+   the `animation` shorthand, which resets any duration override anyway);
+   the translate spinner only slows, so it still reads as working. */
+@media (prefers-reduced-motion: reduce) {
+  .skel::after { animation: none; }
+  .ov-translate-btn.loading { animation-duration: 3s; }
+  /* Held notes and background rows: see styles/karaoke.css. */
+}

@@ -1,0 +1,420 @@
+/* ── Full-screen now-playing overlay ── */
+.np-overlay { position: fixed; inset: 0; background: var(--bg); z-index: 300; display: flex; flex-direction: column; transform: translateY(100%); transition: transform 0.38s cubic-bezier(0.4,0,0.2,1); pointer-events: none; overflow: hidden; }
+.np-overlay.open { transform: translateY(0); pointer-events: all; }
+.np-overlay-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; flex-shrink: 0; -webkit-app-region: drag; }
+/* 80px is the macOS traffic lights, which used to be padded for on every
+   platform. */
+html[data-platform="darwin"] .np-overlay-header { padding-left: 80px; }
+html[data-platform="win32"] .np-overlay-header,
+html[data-platform="linux"] .np-overlay-header { padding-right: var(--caption-reserve); }
+/* A real button, not a label: the whole header cannot be the close target
+   because it is also the window's only drag handle while the overlay is up
+   (the overlay covers the titlebar), and -webkit-app-region: drag swallows
+   clicks anyway. This gives a big obvious target on the left - where Spotify
+   and Apple Music put the same control - while the rest of the bar stays
+   draggable. */
+.np-overlay-title {
+  -webkit-app-region: no-drag; display: flex; align-items: center; gap: 7px;
+  font-family: var(--font); font-size: 12px; font-weight: 600; color: var(--text3);
+  text-transform: uppercase; letter-spacing: 0.07em;
+  background: none; border: none; cursor: pointer; padding: 6px 10px;
+  margin: -6px -10px; border-radius: 7px; transition: background 0.12s, color 0.12s;
+}
+.np-overlay-title:hover { background: var(--surface2); color: var(--text); }
+.np-overlay-title:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); }
+.np-overlay-title svg { width: 15px; height: 15px; transition: transform 0.12s; }
+.np-overlay-title:hover svg { transform: translateY(2px); }
+@media (prefers-reduced-motion: reduce) { .np-overlay-title:hover svg { transform: none; } }
+.np-overlay-close { -webkit-app-region: no-drag; background: none; border: none; color: var(--text3); cursor: pointer; font-size: 20px; line-height: 1; padding: 0 4px; transition: color 0.12s; }
+.np-overlay-close:hover { color: var(--text); }
+.np-overlay-body { flex: 1; display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; }
+/* Left: big art + info + controls */
+/* No divider between this column and the queue/lyrics panel. A hard 1px
+   line was doing nothing the whitespace and the panel's own background did
+   not already do, and it fought the album-art background, which bleeds
+   across both halves. Video mode had already dropped it for the same
+   reason. */
+.np-overlay-left { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: clamp(20px, 3.5vh, 48px) clamp(20px, 4vw, 56px); gap: clamp(14px, 2.5vh, 28px); }
+.np-overlay-art { width: min(clamp(240px, 52vh, 520px), calc(100% - 32px)); aspect-ratio: 1; border-radius: 12px; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 72px; flex-shrink: 0; transition: width 0.4s ease; }
+.np-overlay-art img { width: 100%; height: 100%; object-fit: cover; }
+/* Hover (or keyboard focus) dims the art and shows Favorite, Add to playlist
+   and View album over it: a second route to rows the More menu also has. */
+.np-overlay-art { position: relative; }
+.ov-art-media { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; transition: filter 0.2s ease; }
+.ov-art-actions { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 14px; opacity: 0; transition: opacity 0.2s ease; }
+.np-overlay-art:hover .ov-art-media, .np-overlay-art:focus-within .ov-art-media { filter: brightness(0.55) saturate(0.7); }
+.np-overlay-art:hover .ov-art-actions, .np-overlay-art:focus-within .ov-art-actions { opacity: 1; }
+.ov-art-btn {
+  width: 48px; height: 48px; border-radius: 50%; border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.16); color: #fff;
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+.ov-art-btn:hover { background: rgba(255,255,255,0.28); transform: scale(1.06); }
+.ov-art-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.ov-art-btn.liked { color: #ff6b8a; }
+.ov-art-btn.liked svg { fill: #ff6b8a; }
+.np-overlay-info { text-align: center; width: 100%; }
+
+/* ── Video mode ──
+   Full bleed, the only video layout: the picture fills the overlay edge to
+   edge, and the title and one control bar float over it on scrims, the way
+   every video player does it. Both hide together when idle. The boxed
+   layout that used to be the default here was the music overlay with the
+   cover swapped for a picture, and an opt-in "full mode" button existed to
+   escape it - two layouts and a button to choose between them, now one.
+   Both decks (see `DECKS` in renderer.js) are always in the DOM, so audio
+   playback just keeps them hidden rather than swapping elements. */
+.np-overlay-video { display: none; }
+.np-overlay.video .np-overlay-header,
+.np-overlay.video .np-overlay-right,
+.np-overlay.video .np-overlay-art { display: none; }
+.np-overlay.video .np-overlay-body { grid-template-columns: 1fr; }
+.np-overlay.video .np-overlay-left { position: relative; display: block; padding: 0; min-height: 0; }
+.np-overlay.video .np-overlay-video {
+  display: block; position: absolute; inset: 0; width: 100%; height: 100%;
+  background: #000; object-fit: contain;
+}
+/* Two decks share this class, but only the current one may show a
+   picture - the other is mid-fade or idle. !important wins over the
+   .video rule above for whichever deck is not current. */
+.np-overlay-video.deck-hidden { display: none !important; }
+.np-overlay.video .np-overlay-info,
+.np-overlay.video .np-overlay-controls {
+  position: absolute; left: 0; right: 0; z-index: 2;
+  transition: opacity 0.3s ease;
+}
+/* The header is gone, and with it the window's drag handle, so the title
+   scrim takes that job: drag anywhere across the top, click the title
+   itself to go to it. */
+.np-overlay.video .np-overlay-info {
+  top: 0; text-align: left; -webkit-app-region: drag;
+  padding: 16px clamp(20px, 3vw, 48px) 56px;
+  background: linear-gradient(to bottom, rgba(0,0,0,0.72), rgba(0,0,0,0));
+}
+/* Clear of the macOS traffic lights, and of the Windows/Linux caption
+   buttons plus the close button beside them. */
+html[data-platform="darwin"] .np-overlay.video .np-overlay-info { padding-left: 88px; }
+html[data-platform="win32"] .np-overlay.video .np-overlay-info,
+html[data-platform="linux"] .np-overlay.video .np-overlay-info { padding-right: calc(var(--caption-reserve, 138px) + 56px); }
+.np-overlay.video .np-overlay-track,
+.np-overlay.video .np-overlay-artist { white-space: normal; width: fit-content; max-width: 100%; -webkit-app-region: no-drag; }
+/* One bar: scrubber across the top, then transport and volume on the left
+   and the video tools on the right. Grid areas rather than new markup, so
+   music keeps the same elements stacked in its own column. */
+.np-overlay.video .np-overlay-controls {
+  bottom: 0; display: grid; align-items: center; gap: 10px 24px;
+  grid-template-columns: auto auto 1fr auto;
+  grid-template-areas: "prog prog prog prog" "transport vol . tools";
+  padding: 56px clamp(20px, 3vw, 48px) 18px;
+  background: linear-gradient(to top, rgba(0,0,0,0.82), rgba(0,0,0,0.35) 60%, rgba(0,0,0,0));
+}
+.np-overlay.video .np-overlay-prog { grid-area: prog; }
+.np-overlay.video .np-overlay-btns-transport { grid-area: transport; gap: 18px; }
+.np-overlay.video .np-overlay-vol { grid-area: vol; margin-top: 0; }
+.np-overlay.video .np-overlay-btns-secondary { grid-area: tools; }
+.np-overlay.video #ov-vol-bar { width: 110px; }
+.np-overlay.video .np-overlay-vol > svg { display: none; } /* the mute button already is the speaker */
+/* The clip on these rows exists for music's idle collapse, which video does
+   not use, and it cut off the volume knob that hangs past the slider's end. */
+.np-overlay.video .np-overlay-btns,
+.np-overlay.video .np-overlay-vol { overflow: visible; max-height: none; }
+.np-overlay.video .np-ov-play { width: 40px; height: 40px; }
+.np-overlay.video .np-ov-ctrl,
+.np-overlay.video .np-overlay-time { color: rgba(255,255,255,0.78); }
+.np-overlay.video .np-ov-ctrl:hover { color: #fff; }
+.np-overlay.video .np-ov-ctrl.active { color: var(--accent); }
+/* Idle hides everything but the picture, cursor included. Keyboard focus
+   holds it up, but only focus-visible: a mouse click leaves focus on the
+   button it pressed, and :focus-within kept the bar pinned on screen for
+   the rest of the film after one click on Subtitles. */
+.np-overlay.video.idle:not(:has(:focus-visible)) { cursor: none; }
+.np-overlay.video.idle:not(:has(:focus-visible)) .np-overlay-info,
+.np-overlay.video.idle:not(:has(:focus-visible)) .np-overlay-controls,
+.np-overlay.video.idle:not(:has(:focus-visible)) #ov-video-close { opacity: 0; pointer-events: none; }
+/* The header's close x went with the header. Escape still works; this puts
+   a pointer exit back, fading with the rest of the chrome. */
+#ov-video-close {
+  display: none; position: absolute; top: 14px; right: 16px; z-index: 3;
+  width: 34px; height: 34px; border-radius: 50%;
+  background: rgba(0,0,0,0.45); border: none; color: #fff;
+  font-size: 18px; line-height: 1; cursor: pointer;
+  align-items: center; justify-content: center;
+  transition: opacity 0.3s ease; -webkit-app-region: no-drag;
+}
+.np-overlay.video #ov-video-close { display: flex; }
+/* Windows and Linux draw the OS caption buttons OVER the page in that exact
+   corner, so at right:16px this sat underneath them and could not be
+   clicked - the same way the overlay's close x was unreachable until
+   a0b996c. */
+html[data-platform="win32"] #ov-video-close,
+html[data-platform="linux"] #ov-video-close { right: calc(var(--caption-reserve, 138px) + 8px); }
+@media (prefers-reduced-motion: reduce) {
+  .np-overlay.video .np-overlay-info,
+  .np-overlay.video .np-overlay-controls,
+  #ov-video-close { transition: none; }
+  .np-overlay-btns, .np-overlay-vol, .np-overlay-art { transition: none; }
+  .ov-art-media, .ov-art-actions, .ov-art-btn { transition: none; }
+  .np-overlay-prog-fill::after { transition: none; }
+}
+.np-overlay-controls > * { flex: 0 0 auto; }
+.np-overlay-vol { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+/* Lyrics, shuffle and repeat are meaningless for a movie. Hiding rather
+   than removing keeps one set of transport controls for both modes. */
+.np-overlay.video #ov-lyrics-toggle,
+.np-overlay.video #ov-shuffle,
+.np-overlay.video #ov-repeat { display: none; }
+/* The mirror of the above: video-only controls, hidden while music plays. */
+/* Hide the video-only controls for music. Scoped through .np-overlay so it
+   outranks .np-ov-ctrl's own display:flex, which sits later in this file and
+   used to win on source order, leaving subtitles, audio track and the two
+   seek buttons on screen for every song. Nothing to re-show on the video
+   side: the buttons keep their own display when the overlay is in video. */
+.np-overlay:not(.video) .vid-only { display: none; }
+/* A standalone film is a queue of one, so prev and next have nowhere to go.
+   Set by applyVideoMode() rather than by CSS, because it depends on the
+   queue length and not on the media kind. */
+.np-overlay.video.single #ov-prev,
+.np-overlay.video.single #ov-next { display: none; }
+.ov-dd-item.checked { color: var(--text); font-weight: 600; }
+.ov-dd-item.checked::before { content: '✓'; margin-right: -2px; }
+.ov-dd-item:not(.checked)::before { content: ''; width: 10px; }
+.ov-dd-head { padding: 6px 10px 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text3); }
+.np-overlay.video video::cue { font-size: clamp(16px, 2.4vh, 28px); background: rgba(0,0,0,0.62); }
+.np-overlay-track { font-size: clamp(17px, 2.4vh, 26px); font-weight: 600; letter-spacing: -0.02em; color: var(--text); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.np-overlay-track:hover { text-decoration: underline; }
+.np-overlay-artist { font-size: clamp(13px, 1.7vh, 17px); color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.np-overlay-artist:hover { color: var(--text); text-decoration: underline; }
+/* Applied by applyMarquee() only while text is actually scrolling. Both of these
+   fight a marquee: centred overflow clips at both ends, and the ellipsis would
+   paint mid-scroll. Must sit after the two rules above - equal specificity. */
+.marquee-on { text-align: left; text-overflow: clip; }
+.np-overlay-controls { display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%; position: relative; }
+/* Idle fade: after a few still seconds the controls step out of the way of
+   the artwork. The progress row deliberately stays, so you can still see
+   where you are in the track without moving the mouse. :focus-within keeps
+   the whole row up for anyone driving this from the keyboard, who gets no
+   mousemove to bring it back with.
+   Fading these to opacity:0 alone left their layout box behind - a block
+   of dead space where the buttons used to be, with the art no bigger for
+   it. Collapsing max-height too reclaims that space; the art grow rule
+   below (also idle-gated) is what actually grows into it. In video mode
+   .np-overlay-left is a grid with the picture on a 1fr row, so shrinking
+   these auto-sized rows hands the same reclaimed space to the picture for
+   free, no separate rule needed there. */
+.np-overlay-btns, .np-overlay-vol { max-height: 56px; overflow: hidden; transition: opacity 0.4s ease, max-height 0.4s ease; }
+.np-overlay:not(.video).idle:not(:focus-within) .np-overlay-btns,
+.np-overlay:not(.video).idle:not(:focus-within) .np-overlay-vol { opacity: 0; max-height: 0; pointer-events: none; }
+/* Same idle gate, grown into the space the rows above just gave up. */
+.np-overlay.idle:not(:focus-within) .np-overlay-art { width: min(clamp(240px, 58vh, 540px), calc(100% - 32px)); }
+
+/* Reversible fade/grow, same 140ms popup easing as the context menu below -
+   display stays block always so opacity/transform/visibility can animate;
+   visibility keeps a closed dropdown out of hit-testing and the a11y tree. */
+.ov-dropdown { position: fixed; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 4px; min-width: 210px; z-index: 400; box-shadow: 0 8px 32px rgba(0,0,0,0.5); opacity: 0; visibility: hidden; pointer-events: none; transform: scale(0.98); transform-origin: top left; transition: opacity 140ms cubic-bezier(0.2,0.7,0.3,1), transform 140ms cubic-bezier(0.2,0.7,0.3,1), visibility 140ms; }
+.ov-dropdown.open { opacity: 1; visibility: visible; pointer-events: auto; transform: none; }
+.ov-dd-item { display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; color: var(--text2); transition: background 0.1s; white-space: nowrap; border: none; background: none; width: 100%; text-align: left; font-family: var(--font); }
+.ov-dd-item:hover { background: rgba(255,255,255,0.07); color: var(--text); }
+.ov-dd-item.danger { color: var(--red); }
+.ov-dd-item.danger:hover { background: rgba(255,69,58,0.12); }
+.ov-dd-sep { height: 1px; background: var(--border); margin: 4px 0; }
+.ov-dd-item.active { color: var(--text); }
+.dd-check { display: inline-block; width: 12px; flex-shrink: 0; color: var(--accent1, var(--accent)); }
+.ov-dd-item.active .dd-check::before { content: '✓'; }
+.np-overlay-btns { display: flex; align-items: center; gap: 20px; }
+/* Two rows share .np-overlay-btns' base but need their own gap - was inline
+   style= on each, moved here so index.html markup carries no layout of its
+   own for either. */
+.np-overlay-btns-transport { gap: 24px; }
+.np-overlay-btns-secondary { gap: 28px; margin-top: 2px; }
+.np-ov-ctrl { background: none; border: none; color: var(--text3); cursor: pointer; padding: 0; display: flex; align-items: center; transition: color 0.12s; }
+.np-ov-ctrl:hover { color: var(--text); }
+.np-ov-ctrl.active { color: var(--accent); }
+.np-ov-play { width: 48px; height: 48px; border-radius: 50%; background: var(--grad); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; color: white; transition: opacity 0.12s; }
+.np-ov-play:hover { opacity: 0.85; }
+/* The control rows grow with the window, as the art does (52vh above): full
+   size up to a 900px-tall window, then in step with its height, capped at
+   1.5x (a 1350px window). zoom rather than bigger icons, so icons, gaps and
+   hit areas scale together and keep their proportions; it also scales the
+   rows' own max-height (the idle fold above), so nothing clips. Needs
+   Chromium's typed division (100vh / 900px), which Electron 44 has. */
+.np-overlay-btns, .np-overlay-vol { zoom: clamp(1, 100vh / 900px, 1.5); }
+.np-overlay-prog { display: flex; align-items: center; gap: 10px; width: 100%; }
+.np-overlay-prog-bar { flex: 1; height: 4px; background: var(--border); border-radius: 2px; cursor: pointer; position: relative; }
+/* Was inline style="width:140px" - moved here verbatim. .np-overlay-prog-bar's
+   flex:1 sets flex-basis:0%, but with no min-width:0 override a flex item's
+   width still acts as its automatic minimum size, and .np-overlay-vol itself
+   is shrink-to-fit (no flex:1 of its own), so this is what actually fixes the
+   bar's width rather than the flex-basis. Verified in a browser, not assumed. */
+#ov-vol-bar { width: 140px; }
+.np-overlay-prog-fill { height: 100%; background: var(--accent); border-radius: 2px; width: 0%; position: relative; }
+/* Drag handle. Both bars already drag, nothing said so - a bar with no grip
+   reads as a readout you tap, not something you can take hold of. It fades
+   in on hover and stays up for the whole drag, since the pointer leaves the
+   bar constantly while scrubbing. background:inherit picks up whatever the
+   fill is, so the accent, the art-theme white and the volume bar's dimmer
+   fill all get a matching grip without three separate rules. */
+.np-overlay-prog-fill::after {
+  content: ''; position: absolute; right: 0; top: 50%; margin-right: -6px;
+  width: 12px; height: 12px; border-radius: 50%; background: inherit;
+  transform: translateY(-50%) scale(0); transition: transform 0.15s ease;
+}
+.np-overlay-prog-bar:hover .np-overlay-prog-fill::after,
+.np-overlay-prog-bar.dragging .np-overlay-prog-fill::after,
+.np-overlay-prog-bar:focus-visible .np-overlay-prog-fill::after { transform: translateY(-50%) scale(1); }
+.np-overlay-time { font-size: 11px; color: var(--text3); font-variant-numeric: tabular-nums; min-width: 32px; }
+.np-overlay-time.right { text-align: right; }
+/* Right: queue / lyrics tabs */
+.np-overlay-right { display: flex; flex-direction: column; overflow: hidden; }
+.np-overlay-tabs { display: flex; padding: 0 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.np-ov-tab { font-family: var(--font); font-size: 12px; font-weight: 500; color: var(--text3); background: none; border: none; padding: 12px 14px; cursor: pointer; position: relative; transition: color 0.12s; }
+.np-ov-tab:hover { color: var(--text2); }
+.np-ov-tab.active { color: var(--text); }
+.np-ov-tab.active::after { content: ''; position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; background: var(--grad); border-radius: 2px 2px 0 0; }
+.np-ov-panel { display: none; flex: 1; overflow-y: auto; }
+.np-ov-panel::-webkit-scrollbar { width: 4px; }
+.np-ov-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.np-ov-panel.active { display: block; }
+/* Queue panel */
+#ov-panel-queue { transition: transform 0.3s cubic-bezier(0.4,0,0.2,1); }
+/* Height is pinned so it matches QUEUE_ROW_H exactly - the virtualiser's spacer
+   heights and scroll indices are all computed from that constant. */
+/* Same rounded hover highlight as .track-row (styles/library.css), drawn on
+   ::before so corners can round without a visible seam between rows. */
+.queue-row { display: flex; align-items: center; gap: 10px; padding: 8px 16px; cursor: pointer; height: 53px; box-sizing: border-box; position: relative; isolation: isolate; }
+.queue-row::before { content: ''; position: absolute; inset: 0; border-radius: 6px; background: rgba(255,255,255,0.05); opacity: 0; transition: opacity var(--hover-out) ease-out; pointer-events: none; z-index: -1; }
+.queue-row:hover::before { opacity: 1; transition-duration: var(--hover-in); }
+.queue-row.current { background: rgba(110,79,246,0.1); border-radius: 6px; }
+.queue-row.current .queue-row-title { color: #a78bfa; font-weight: 500; }
+/* Queue sections: History (collapsed by default), Now Playing pinned while
+   Up Next scrolls under it, then Up Next with its source and end time. */
+.q-sect-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; padding: 12px 16px 6px; }
+.q-sect-title { font-size: 15px; font-weight: 700; color: var(--text); }
+.q-sub { font-size: 11px; color: var(--text3); margin-top: 1px; }
+.q-history-toggle { display: flex; align-items: center; gap: 6px; background: none; border: none; padding: 0; cursor: pointer; font-family: var(--font); font-size: 15px; font-weight: 700; color: var(--text); }
+.q-chevron { transition: transform 0.2s ease; color: var(--text3); }
+.q-history-toggle[aria-expanded="true"] .q-chevron { transform: rotate(90deg); }
+.q-count { font-size: 11px; font-weight: 500; color: var(--text3); }
+.q-clear { background: none; border: none; cursor: pointer; font-family: var(--font); font-size: 12px; font-weight: 600; color: var(--red); padding: 0; }
+.q-clear:hover { text-decoration: underline; }
+.q-now { position: sticky; top: 0; z-index: 2; padding: 10px 8px 8px; margin: 4px 0; background: rgba(20,20,24,0.72); backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%); border-bottom: 1px solid var(--border); }
+.q-now .q-sect-title { padding: 0 8px 6px; }
+html[data-theme="light"] .q-now { background: rgba(255,255,255,0.72); }
+.q-next-meta { font-size: 11px; color: var(--text3); text-align: right; font-variant-numeric: tabular-nums; }
+.q-empty { font-size: 12px; color: var(--text3); padding: 10px 16px 20px; }
+@media (prefers-reduced-motion: reduce) { .q-chevron { transition: none; } }
+.queue-row-art { width: 36px; height: 36px; border-radius: 4px; background: var(--surface2); overflow: hidden; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 16px; }
+.queue-row-art img { width: 100%; height: 100%; object-fit: cover; }
+.queue-row-title { font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.queue-row-artist { font-size: 11px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.queue-row-by { margin-left: 8px; color: var(--accent, var(--text3)); opacity: 0.85; }
+.queue-row.unavailable { opacity: 0.45; }
+.queue-row.unavailable .queue-row-title { font-style: italic; }
+.wf-guest-adds { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text2, var(--text3)); margin: 10px 0 4px; }
+.queue-row-dur { font-size: 11px; color: var(--text3); flex-shrink: 0; }
+.queue-row-drag { color: var(--text3); cursor: grab; padding: 0 4px; opacity: 0; transition: opacity 0.12s; flex-shrink: 0; display: flex; align-items: center; }
+.queue-row:hover .queue-row-drag { opacity: 1; }
+.queue-row-remove { background: none; border: none; color: var(--text3); cursor: pointer; padding: 0 2px; opacity: 0; transition: opacity 0.12s, color 0.12s; flex-shrink: 0; display: flex; align-items: center; margin-left: 4px; }
+.queue-row:hover .queue-row-remove { opacity: 1; }
+.queue-row-remove:hover { color: var(--red); }
+.queue-row.dragging { opacity: 0.4; background: rgba(110,79,246,0.08); }
+.queue-row.drag-over { border-top: 2px solid var(--accent); }
+.track-row[draggable="true"].dragging { opacity: 0.4; background: rgba(110,79,246,0.08); }
+.track-row[draggable="true"].drag-over { border-top: 2px solid var(--accent); }
+/* Overlay lyrics - GPU-accelerated clock-scroll */
+/* Was inline style= (position/background/transform/transition) - the open/
+   closed slide itself is still driven from renderer.js, which sets
+   .style.transform directly on toggle (see the queue/lyrics tab switch) and
+   so always overrides this rule's transform when the panel actually opens or
+   closes; this is only the default (closed) state and the transition that
+   animates those JS-driven changes. */
+#ov-panel-lyrics { position: absolute; inset: 0; background: var(--surface); overflow: hidden; transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.4,0,0.2,1); }
+.ov-lyrics-scroll { display: flex; flex-direction: column; align-items: flex-start; will-change: transform; }
+/* Left-aligned and full size. Lines around the active one step back by
+   fading and blurring rather than shrinking, so nothing reflows or shifts
+   sideways as the active line moves. */
+/* --np-lyric-scale is the Now Playing lyric size setting (renderer.js
+   saveNpTuning()/loadNpTuning()) - a multiplier on the shipped clamp so a
+   stored size never has to duplicate its min/preferred/max, just scale them. */
+.ov-lyric-line { text-align: left; font-size: calc(clamp(22px, 3vw, 50px) * var(--np-lyric-scale, 1)); font-weight: 800; letter-spacing: -0.015em; color: white; padding: 12px 56px; line-height: 1.25; cursor: default; max-width: min(900px, 92%); opacity: 0; filter: blur(6px); transition: opacity 0.55s cubic-bezier(0.16,1,0.3,1), filter 0.55s cubic-bezier(0.16,1,0.3,1); }
+.ov-lyric-line.seekable { cursor: pointer; }
+.ov-lyric-line.past { opacity: 0; pointer-events: none; }
+.ov-lyric-line.near-3 { opacity: 0.12; filter: blur(4px); }
+.ov-lyric-line.near-2 { opacity: 0.22; filter: blur(3px); }
+.ov-lyric-line.near-1 { opacity: 0.35; filter: blur(2px); }
+.ov-lyric-line.active { opacity: 1; filter: none; }
+.ov-lyric-trans { font-size: clamp(14px, 1.35vw, 22px); font-weight: 500; letter-spacing: 0; line-height: 1.3; margin-top: 6px; color: rgba(255,255,255,0.72); -webkit-text-fill-color: currentColor; }
+/* Unsung words stay readable, not ghosted: the fill is the progress cue. */
+.ov-lyric-word { -webkit-text-fill-color: rgba(255,255,255,0.4); }
+.ov-lyric-line.active .ov-lyric-word, .ov-lyric-line.active .emph-l {
+  --p: -0.3em;   /* unsung: the soft edge sits wholly before the word */
+  background: linear-gradient(to right, white calc(var(--p) - 0.3em), rgba(255,255,255,0.4) calc(var(--p) + 0.3em));
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+#ov-panel-lyrics:hover .ov-lyric-line.past { opacity: 0.18; filter: blur(2px); pointer-events: auto; }
+#ov-panel-lyrics:hover .ov-lyric-line.past.near-past { opacity: 0.3; filter: blur(1px); }
+/* Scrolling by hand means you want to read, and the karaoke fade hides
+   exactly what you are scrolling toward - past lines and anything beyond
+   near-3 sit at opacity 0. Bring the whole lyric up while browsing. The
+   line's existing transition does the fade both ways, so it settles back
+   into the karaoke look on its own when the spring returns to the active
+   line. */
+#ov-panel-lyrics.browsing .ov-lyric-line { opacity: 0.8; filter: none; color: white; text-shadow: 0 1px 4px rgba(0,0,0,0.55); pointer-events: auto; }
+#ov-panel-lyrics.browsing .ov-lyric-line.active { opacity: 1; color: white; }
+/* Not on karaoke words: their fill is see-through (0.4 white unsung, and the
+   gradient's text-fill is transparent), so the shadow showed through the
+   glyphs as a muddy doubled outline. */
+#ov-panel-lyrics.browsing .ov-lyric-word { text-shadow: none; }
+
+/* Light theme: everything above assumes a dark backdrop and hardcodes
+   white/near-white, which is fine under album-art-theme's dark blobs but
+   reads as white-on-white once #ov-panel-lyrics falls back to its own
+   background (var(--surface), i.e. white in light theme) or sits over
+   light theme's pale blobs (see the art-theme note further down - those
+   are pale too, not the dark ones this file was tuned against). Same bug
+   dd975bd already fixed for the active line under album-art-theme, in
+   the opposite direction; this extends that fix to the base word fill
+   (the actual cause of "browsing lines wash out" - word spans override
+   the line's own themed color) and to the active/browsing states here.
+   Deliberately left alone: .near-1/.near-2/.near-3/.past, which fade to
+   near-zero opacity on purpose and are not meant to be read. Selectors
+   are scoped to [data-theme="light"] so dark theme is untouched. */
+html[data-theme="light"] .ov-lyric-word { -webkit-text-fill-color: rgba(28,28,30,0.4); }
+html[data-theme="light"] .ov-lyric-line { color: #1c1c1e; }
+html[data-theme="light"] .ov-lyric-trans { color: rgba(28,28,30,0.7); }
+html[data-theme="light"] .ov-lyric-line.active .ov-lyric-word, html[data-theme="light"] .ov-lyric-line.active .emph-l {
+  background: linear-gradient(to right, #1c1c1e calc(var(--p) - 0.3em), rgba(28,28,30,0.4) calc(var(--p) + 0.3em));
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+html[data-theme="light"] #ov-panel-lyrics.browsing .ov-lyric-line { color: #1c1c1e; text-shadow: 0 1px 3px rgba(255,255,255,0.6); }
+html[data-theme="light"] #ov-panel-lyrics.browsing .ov-lyric-line.active { color: #1c1c1e; }
+/* ── Chapters ── */
+/* A gap in the scrubber at each chapter start, over the fill as well as the
+   track, the way YouTube segments its bar. Under the knob. */
+.ov-chapter-mark {
+  position: absolute; top: -1px; bottom: -1px; width: 3px; margin-left: -1.5px;
+  background: rgba(0,0,0,0.7); pointer-events: none; z-index: 1;
+}
+.np-overlay-prog-fill::after { z-index: 2; }
+#chapters-dropdown { max-height: min(60vh, 420px); overflow-y: auto; min-width: 240px; }
+.ov-dd-time { margin-left: auto; padding-left: 18px; color: var(--text3); font-variant-numeric: tabular-nums; }
+/* ── Keyboard feedback and the shortcut list ── */
+#ov-osd {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 4;
+  padding: 10px 18px; border-radius: 10px; background: rgba(0,0,0,0.62); color: #fff;
+  font-size: 15px; font-weight: 600; pointer-events: none;
+  opacity: 0; transition: opacity 0.2s ease;
+}
+#ov-osd.show { opacity: 1; }
+#ov-keys {
+  display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 5;
+  grid-template-columns: auto auto; gap: 8px 28px; align-items: center;
+  padding: 20px 26px; border-radius: 12px; max-height: 80%; overflow-y: auto;
+  background: rgba(20,20,22,0.92); border: 1px solid rgba(255,255,255,0.1); color: #fff; font-size: 13px;
+}
+#ov-keys.open { display: grid; }
+.ov-keys-head { grid-column: 1 / -1; font-size: 11px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: rgba(255,255,255,0.55); margin-bottom: 4px; }
+#ov-keys kbd { font-family: var(--font); font-weight: 600; white-space: pre; color: #fff; }
+#ov-keys span { color: rgba(255,255,255,0.75); }
+@media (prefers-reduced-motion: reduce) { #ov-osd { transition: none; } }

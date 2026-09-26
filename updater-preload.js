@@ -10,4 +10,7 @@ contextBridge.exposeInMainWorld('updaterAPI', {
   onDone:     (cb) => ipcRenderer.on('updater:done',     (_, d) => cb(d)),
   onError:    (cb) => ipcRenderer.on('updater:error',    (_, d) => cb(d)),
   onLog:      (cb) => ipcRenderer.on('updater:log',      (_, d) => cb(d)),
+  // The global --font setting, read on load. Only this one key: a generic
+  // store getter here would hand this window the Jellyfin token too.
+  uiFont: () => ipcRenderer.invoke('store-get', 'uiFont'),
 })

@@ -148,6 +148,9 @@ export interface DesktopCapabilities {
   /** Recolours the OS-drawn Windows/Linux caption buttons to match the active
    *  theme. No-op on macOS, where the traffic lights are not ours to colour. */
   setTitleBarOverlay?(mode: 'light' | 'dark'): void
+  /** Shows or hides the macOS traffic lights, so they can fade with the video
+   *  player's controls. No-op elsewhere. */
+  setWindowButtonsVisible?(visible: boolean): void
 
   discord?: {
     connect(clientId: string): void
@@ -182,11 +185,18 @@ export interface DesktopCapabilities {
   appleTranslation?: {
     supported(): Promise<boolean>
     /** Per model key: installed in macOS, installable, or not offered by Apple. */
-    availability(): Promise<Record<string, 'installed' | 'supported' | 'unsupported'>>
+    /** Status per language code, for the codes given (Cascade's own five if none). */
+    availability(languages?: readonly string[]): Promise<Record<string, 'installed' | 'supported' | 'unsupported'>>
     /** One line into English. Rejects if the language is not installed. */
     translate(key: string, text: string): Promise<string>
     /** Opens System Settings at Language & Region. */
     openSettings(): Promise<void>
+  }
+  /** Translated lyric lines on disk, as [cacheKey, english, translatedAtMs]
+   *  entries. `load` returns the file as parsed, unchecked. */
+  translationCache?: {
+    load(): Promise<unknown>
+    save(entries: [string, string, number][]): Promise<void>
   }
   /** Download, inspect and remove the on-device lyric translation models.
    *  Keys are the manifest's: 'ja', 'ko', 'zh-Hans', 'zh-Hant'. */
@@ -208,6 +218,8 @@ export interface DesktopCapabilities {
      *  main window on a click there is handled entirely in the main process
      *  (BrowserWindow.restore()) - nothing for this window to do. */
     onControl(cb: (action: string) => void): void
+    /** The miniplayer window opened (true) or closed (false). */
+    onOpenChange(cb: (open: boolean) => void): void
   }
 }
 
@@ -230,11 +242,13 @@ export interface ElectronPlatform extends Platform, DesktopCapabilities {
   nowPlayingUpdate: NonNullable<DesktopCapabilities['nowPlayingUpdate']>
   jellyfinCredentialsUpdate: NonNullable<DesktopCapabilities['jellyfinCredentialsUpdate']>
   setTitleBarOverlay: NonNullable<DesktopCapabilities['setTitleBarOverlay']>
+  setWindowButtonsVisible: NonNullable<DesktopCapabilities['setWindowButtonsVisible']>
   discord: NonNullable<DesktopCapabilities['discord']>
   kugouGetLyrics: NonNullable<DesktopCapabilities['kugouGetLyrics']>
   lyricsEditor: NonNullable<DesktopCapabilities['lyricsEditor']>
   metadataEditor: NonNullable<DesktopCapabilities['metadataEditor']>
   appleTranslation: NonNullable<DesktopCapabilities['appleTranslation']>
+  translationCache: NonNullable<DesktopCapabilities['translationCache']>
   translationModels: NonNullable<DesktopCapabilities['translationModels']>
   miniPlayer: NonNullable<DesktopCapabilities['miniPlayer']>
 }

@@ -1,0 +1,39 @@
+/* ── Library checklist ── */
+.lib-check-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 3px 0; }
+.lib-check-label { font-size: 12px; color: var(--text2); user-select: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The last enabled library can't be switched off - there'd be nothing to play */
+.lib-check-row.locked .toggle { opacity: 0.45; pointer-events: none; }
+/* A setting-row whose control depends on a plugin that isn't installed. */
+.setting-row.locked .toggle { opacity: 0.45; pointer-events: none; }
+/* A control that is off needs to say why, and the disabled state alone does
+   not. Tips sit below their host on purpose: the lyrics panel clips its own
+   overflow, and the buttons that need one are at the top of it. */
+/* One shared element on <body>, positioned by JS (see wireTooltips in
+   renderer.js), NOT a ::after on the host.
+   A pseudo-element cannot escape its host: it is clipped by any ancestor
+   with overflow hidden, and trapped inside any ancestor that creates a
+   stacking context (a transform, an opacity, a filter), where no z-index
+   can lift it out. That is why tips vanished behind the player bar and
+   inside Settings. Living on <body> it has no ancestor to be trapped by,
+   so one z-index above everything is enough. */
+#tooltip {
+  position: fixed; z-index: 10000; pointer-events: none;
+  background: var(--surface2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 4px 8px; font-size: 11px; font-weight: 500;
+  white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+  opacity: 0; transition: opacity 0.12s;
+  left: 0; top: 0;
+}
+#tooltip.show { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { #tooltip { transition: none; } }
+/* Both hosts kill pointer events while disabled, which also kills hover, so
+   the tip would never show. Handing them back is safe: the toggle's input
+   is disabled (a label does nothing for a disabled control) and the button
+   is wrapped, so the wrapper hovers while the button itself stays inert. */
+.setting-row.locked .toggle[data-tip] { pointer-events: auto; cursor: not-allowed; }
+.tip-host { display: inline-flex; }
+.tip-host[data-tip] { cursor: not-allowed; }
+/* Groups the movie/TV toggles under a heading when both categories have a
+   real choice to make. */
+.lib-group-title { font-size: 11px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.03em; margin: 10px 0 4px; }
+.lib-group-title:first-child { margin-top: 0; }

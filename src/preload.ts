@@ -32,6 +32,7 @@ const cascade: ElectronPlatform = {
   platform:        process.platform,
   touchbarUpdate:  (data) => ipcRenderer.send('touchbar-update', data),
   setTitleBarOverlay: (mode) => ipcRenderer.send('set-titlebar-overlay', { mode }),
+  setWindowButtonsVisible: (visible) => ipcRenderer.send('set-window-buttons-visible', !!visible),
   discord: {
     connect:  (clientId) => ipcRenderer.send('discord-rpc-connect', clientId),
     update:   (activity) => ipcRenderer.send('discord-rpc-update', activity),
@@ -51,9 +52,13 @@ const cascade: ElectronPlatform = {
   },
   appleTranslation: {
     supported:    () => ipcRenderer.invoke('apple-translation:supported'),
-    availability: () => ipcRenderer.invoke('apple-translation:availability'),
+    availability: (languages) => ipcRenderer.invoke('apple-translation:availability', languages),
     translate:    (key, text) => ipcRenderer.invoke('apple-translation:translate', key, text),
     openSettings: () => ipcRenderer.invoke('apple-translation:open-settings'),
+  },
+  translationCache: {
+    load: () => ipcRenderer.invoke('translation-cache:load'),
+    save: (entries) => ipcRenderer.invoke('translation-cache:save', entries),
   },
   translationModels: {
     status:     () => ipcRenderer.invoke('translation-models:status'),
@@ -65,6 +70,7 @@ const cascade: ElectronPlatform = {
     open:        () => ipcRenderer.send('open-miniplayer'),
     updateState: (state) => ipcRenderer.send('miniplayer-state', state),
     onControl:   (cb) => { ipcRenderer.on('miniplayer-control', (_e, action) => cb(action)) },
+    onOpenChange: (cb) => { ipcRenderer.on('miniplayer-open-state', (_e, open) => cb(!!open)) },
   },
 }
 

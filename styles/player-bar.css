@@ -1,0 +1,72 @@
+/* ── Statusbar player ── */
+.statusbar { cursor: pointer; height: 48px; flex-shrink: 0; background: var(--surface); border-top: 1px solid var(--border); display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 0 16px; gap: 16px; }
+.np { display: flex; align-items: center; gap: 9px; min-width: 0; cursor: pointer; }
+.np-art { width: 30px; height: 30px; border-radius: 4px; background: var(--surface2); flex-shrink: 0; overflow: visible; display: flex; align-items: center; justify-content: center; font-size: 13px; transition: transform 0.18s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.18s ease; cursor: pointer; }
+.np-art:hover { transform: scale(1.18); box-shadow: 0 4px 16px rgba(0,0,0,0.5); }
+.np-art img { width: 100%; height: 100%; object-fit: cover; border-radius: 4px; }
+#np-info { overflow: hidden; min-width: 0; }
+.np-scroll-inner { display: inline-block; white-space: nowrap; }
+.np-title { font-size: 12px; font-weight: 500; color: var(--text); }
+.np-artist { font-size: 11px; color: var(--text3); }
+.np-sep { color: var(--text3); font-size: 11px; margin: 0 2px; }
+@keyframes np-marquee {
+  0%, 12%   { transform: translateX(0); }
+  45%, 55%  { transform: translateX(var(--marquee-dist, 0px)); }
+  88%, 100% { transform: translateX(0); }
+}
+.np-empty { font-size: 11px; color: var(--text3); }
+.np-like-btn { background: none; border: none; color: var(--text3); cursor: pointer; padding: 0; margin-left: 8px; display: flex; align-items: center; transition: color 0.15s, transform 0.1s; flex-shrink: 0; }
+.np-like-btn:hover { color: #ff6b8a; }
+.np-like-btn.liked { color: #ff6b8a; }
+.np-like-btn.liked svg { fill: #ff6b8a; stroke: #ff6b8a; }
+.np-like-btn:active { transform: scale(1.25); }
+/* Center: all controls + progress in one horizontal row */
+.player-center { display: flex; align-items: center; gap: 10px; }
+.player-controls { display: flex; align-items: center; gap: 12px; }
+.ctrl-btn { background: none; border: none; color: var(--text3); cursor: pointer; padding: 0; transition: color 0.12s; display: flex; align-items: center; }
+button svg, .ctrl-btn svg, .play-pause-btn svg, .vol-icon svg { pointer-events: none; cursor: inherit; }
+.ctrl-btn:hover { color: var(--text); }
+.ctrl-btn.active { color: var(--accent); }
+.play-pause-btn { width: 28px; height: 28px; border-radius: 50%; background: var(--grad); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; color: white; transition: opacity 0.12s; flex-shrink: 0; }
+.play-pause-btn svg { fill: var(--play-btn-fg, white) !important; }
+.np-ov-play svg { fill: var(--play-btn-fg, white); }
+.play-pause-btn:hover { opacity: 0.85; }
+.prog-row { display: flex; align-items: center; gap: 6px; }
+.prog-time { font-size: 10px; color: var(--text3); font-variant-numeric: tabular-nums; min-width: 26px; }
+.prog-time.right { text-align: right; }
+.prog-bar { width: 180px; height: 3px; background: var(--border); border-radius: 2px; position: relative; cursor: pointer; }
+/* A 3px bar is a hard target, and a near miss now opens Now Playing (any empty
+   part of the bar does). The same 14px hit height the volume bar has. */
+.prog-bar::before { content: ''; position: absolute; left: 0; right: 0; top: -6px; bottom: -5px; }
+.prog-fill { height: 100%; background: var(--accent); border-radius: 2px; width: 0%; position: relative; transition: width 0.5s linear; }
+.vol-area { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.vol-icon { background: none; border: none; color: var(--text3); cursor: pointer; transition: color 0.12s; display: flex; align-items: center; }
+.vol-icon:hover { color: var(--text); }
+.vol-bar { width: 80px; height: 14px; display: flex; align-items: center; cursor: pointer; position: relative; }
+.vol-bar::before { content: ''; position: absolute; left: 0; right: 0; height: 3px; background: var(--border); border-radius: 2px; }
+.vol-fill { height: 3px; background: var(--text2); border-radius: 2px; width: 75%; position: relative; transition: background 0.12s; }
+.vol-bar:hover .vol-fill { background: var(--text); }
+/* Same drag handle as the overlay bars (see .np-overlay-prog-fill::after below),
+   sized down for the statusbar's 3px-tall bars - the overlay's 12px would swamp
+   them. Kept as two selectors rather than a shared class since the progress and
+   volume bars here already have their own distinct classnames. */
+.prog-fill::after, .vol-fill::after {
+  content: ''; position: absolute; right: 0; top: 50%; margin-right: -4px;
+  width: 8px; height: 8px; border-radius: 50%; background: inherit;
+  transform: translateY(-50%) scale(0); transition: transform 0.15s ease;
+}
+.prog-bar:hover .prog-fill::after, .prog-bar.dragging .prog-fill::after, .prog-bar:focus-visible .prog-fill::after,
+.vol-bar:hover .vol-fill::after, .vol-bar.dragging .vol-fill::after, .vol-bar:focus-visible .vol-fill::after {
+  transform: translateY(-50%) scale(1);
+}
+/* Keyboard focus ring, matching .lib-group-header:focus-visible elsewhere. */
+.prog-bar:focus-visible, .vol-bar:focus-visible, .np-overlay-prog-bar:focus-visible {
+  outline: none; box-shadow: 0 0 0 3px var(--accent-glow);
+}
+/* While a film or episode plays - set by applyVideoMode(). */
+.statusbar.video #btn-shuffle,
+.statusbar.video #btn-repeat,
+.statusbar.video #btn-lyrics-open,
+.statusbar.video #btn-miniplayer-open,
+.statusbar.video.single #btn-prev,
+.statusbar.video.single #btn-next { display: none; }

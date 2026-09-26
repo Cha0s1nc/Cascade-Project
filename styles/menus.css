@@ -1,0 +1,35 @@
+/* ── Context menu ── */
+/* Same reversible fade/grow as .ov-dropdown. transform-origin defaults to
+   the corner nearest a cursor-anchored menu; the overlay's "more options"
+   button overrides it inline so that menu grows out of the button instead. */
+.ctx-menu { position: fixed; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 4px; min-width: 200px; z-index: 1000; box-shadow: 0 8px 32px rgba(0,0,0,0.5); opacity: 0; visibility: hidden; pointer-events: none; transform: scale(0.98); transform-origin: top left; transition: opacity 140ms cubic-bezier(0.2,0.7,0.3,1), transform 140ms cubic-bezier(0.2,0.7,0.3,1), visibility 140ms; }
+.ctx-menu.open { opacity: 1; visibility: visible; pointer-events: auto; transform: none; }
+/* Scrim behind the overlay's "more options" menu - lighter than a modal's,
+   just enough to pull focus onto the menu without dimming the app. */
+.ov-more-scrim { position: fixed; inset: 0; z-index: 900; background: rgba(0,0,0,0.3); opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 140ms cubic-bezier(0.2,0.7,0.3,1), visibility 140ms; }
+.ov-more-scrim.show { opacity: 1; visibility: visible; pointer-events: auto; }
+.ctx-item { display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; color: var(--text2); transition: background 0.1s, color 0.1s; white-space: nowrap; }
+.ctx-item:hover { background: rgba(255,255,255,0.07); color: var(--text); }
+.ctx-item.danger { color: var(--red); }
+.ctx-item.danger:hover { background: rgba(255,69,58,0.12); }
+.ctx-item.hidden { display: none; }
+/* Admin-only entries stay visible but inert, so it is clear the feature
+   exists and why it is unavailable, rather than the menu silently
+   changing shape depending on who is signed in. */
+.ctx-item.needs-admin { opacity: 0.4; cursor: default; }
+.ctx-item.needs-admin:hover { background: none; color: var(--text2); }
+.ctx-item-note { margin-left: auto; padding-left: 12px; font-size: 10px; color: var(--text3); }
+.ctx-item svg { flex-shrink: 0; opacity: 0.6; }
+.ctx-item:hover svg { opacity: 1; }
+/* Sleep timer's only "it's running" indicator now that it lives here instead
+   of its own overlay button (which used .np-ov-ctrl.active for the same
+   thing) - renderer.js still just toggles .active on set/clear/fire. */
+.ctx-item.active { color: var(--accent); }
+.ctx-item.active svg { opacity: 1; }
+.track-row { cursor: default; }
+.track-row.selected { background: rgba(255,255,255,0.05); }
+.ctx-sep { height: 1px; background: var(--border); margin: 4px 0; }
+.ctx-sep.hidden { display: none; }
+/* Rows that only mean something for a song: showCtxMenu() marks the menu
+   .video while a film or episode is playing. */
+#ctx-menu.video .music-only { display: none; }

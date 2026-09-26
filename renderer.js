@@ -10,13 +10,14 @@ let jf = { url: '', token: '', userId: '' }
 let deviceId = 'cascade-app'
 let appVersion = '1.0.0'
 let queue = []
+let queueSource = null   // what the queue was started from, for "Up Next, from ..."; see playItems
 let queueIndex = -1
 let shuffle = false
 let repeatMode = 'none' // 'none' | 'all' | 'one'
 let _unshuffledQueue = []   // original order saved when shuffle is enabled
 
 // Queue panel virtualisation
-const QUEUE_WIN      = 20   // rows kept in DOM at once
+const QUEUE_WIN      = 20   // minimum rows kept in DOM at once; see _queueWin()
 const QUEUE_ROW_H    = 53   // px per row - .queue-row pins this exact height in CSS
 const QUEUE_BEFORE   = 5    // rows to show before current track when re-centering
 let _queueWinStart   = 0    // index of first rendered row
@@ -70,7 +71,6 @@ let eqEnabled = false
 let eqActiveMode = 'music'   // which saved profile is wired into the live graph right now
 let eqMusicProfile = { preamp: null, bands: [0, 0, 0, 0, 0] }
 let eqVideoProfile = { preamp: null, bands: [0, 0, 0, 0, 0] }   // all overridden from the store in init()
-let _eqEditTarget = 'music'   // which saved profile the settings panel is editing right now
 
 // Two permanent "deck" media elements (A/B), so a crossfade is two real
 // elements overlapping instead of one element having its src handed back and
@@ -115,8 +115,13 @@ function setDeckMuted(m) { DECKS.forEach(d => d.muted = m) }
  * other), and the persisted setting. Every volume-changing input - drag, keyboard,
  * the remote-control API, and the saved-value restore on launch - goes through
  * this so none of them can drift from the others.
+ *
+ * `sourceBar`, when given, is the bar the user is actively working (dragging or
+ * has focused via keyboard) - the one whose tooltip should live-update. Both
+ * bars always get the refreshed data-tip text either way, so a later plain
+ * hover on the other one shows the current value too.
  */
-function setVolumeRatio(ratio) {
+function setVolumeRatio(ratio, sourceBar) {
   ratio = Math.max(0, Math.min(1, ratio))
   volume = ratio
   setDeckVolume(ratio)
@@ -124,8 +129,16 @@ function setVolumeRatio(ratio) {
   document.getElementById('vol-fill').style.width = pct
   document.getElementById('ov-vol-fill').style.width = pct
   const now = String(Math.round(ratio * 100))
-  document.getElementById('vol-bar').setAttribute('aria-valuenow', now)
-  document.getElementById('ov-vol-bar').setAttribute('aria-valuenow', now)
+  const volBar = document.getElementById('vol-bar')
+  const ovVolBar = document.getElementById('ov-vol-bar')
+  volBar.setAttribute('aria-valuenow', now)
+  ovVolBar.setAttribute('aria-valuenow', now)
+  const tip = `Volume ${now}%`
+  volBar.setAttribute('data-tip', tip)
+  ovVolBar.setAttribute('data-tip', tip)
+  if (sourceBar && (sourceBar.classList.contains('dragging') || document.activeElement === sourceBar)) {
+    _positionTooltip(sourceBar)
+  }
   window.cascade.store.set('volume', ratio)
 }
 
@@ -142,6 +155,18 @@ function isVideoItem(item) {
 function playingVideo() {
   return isVideoItem(queue[queueIndex])
 }
+
+// A button clicked with the mouse keeps focus, and the next key pressed for
+// any reason makes Chromium draw its keyboard focus ring around it (an orange
+// box, before base.css gave it the accent). It also meant Space re-pressed
+// whatever was clicked last. So a pointer click lets go of focus; detail is 0
+// for a click made with Enter or Space, which keeps focus where keyboard
+// navigation put it.
+document.addEventListener('click', (e) => {
+  if (e.detail === 0) return
+  const control = e.target instanceof Element && e.target.closest('button, [role="button"], [role="tab"], [role="slider"]')
+  if (control && control === document.activeElement) control.blur()
+})
 
 // ── Portable core ─────────────────────────────────────────────────────────────
 // src/core/*.ts, bundled to build/core.js and loaded by index.html before this
@@ -161,7 +186,7 @@ const {
   buildElectronProfile, DEFAULT_MAX_BITRATE,
   resumeTicks, neededAudioStreamIndex,
   entryIdOf, removeSelected, moveSelectedToTop, moveSelectedToBottom,
-  groupRecentlyWatched,
+  onePerSeries,
 } = CascadeCore
 
 // Passed as a getter, not as `jf` itself: connect() replaces the whole object,
@@ -172,9 +197,11 @@ const jfClient = new CascadeCore.JellyfinClient(() => jf)
 
 function fmtTime(sec) {
   if (!sec || isNaN(sec)) return '0:00'
-  const m = Math.floor(sec / 60)
-  const s = Math.floor(sec % 60)
-  return `${m}:${s.toString().padStart(2, '0')}`
+  // Hours only once there are any: a film read "143:21" without them.
+  const h = Math.floor(sec / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  const s = Math.floor(sec % 60).toString().padStart(2, '0')
+  return h ? `${h}:${m.toString().padStart(2, '0')}:${s}` : `${m}:${s}`
 }
 
 function greeting() {
@@ -809,7 +836,7 @@ function invalidateVideoViews() {
 }
 
 /** Greys out the server library scan button when the account is not an admin,
- *  using the same disabled+data-tip pattern as the CascadeSLRC gating below.
+ *  using the same disabled+data-tip pattern as the Cascade Server plugin gating below.
  *  Safe to call anytime, including before connect() has run (jf.isAdmin is
  *  then undefined, which reads as "not admin" - the safe default). */
 function _applyAdminGating() {
@@ -827,17 +854,18 @@ function _applyAdminGating() {
   // anything. All admin-only. These say why inline rather than with a
   // [data-tip]: a context menu item is a row in a list, and a tip floating
   // over the row below it would cover the next thing you were about to read.
-  for (const id of ['ctx-refresh-meta', 'tctx-refresh-meta', 'ictx-refresh-meta', 'ctx-edit-meta', 'ctx-edit-images', 'tctx-edit-meta', 'ictx-edit-meta']) {
+  for (const id of ['ctx-refresh-meta', 'tctx-refresh-meta', 'ictx-refresh-meta', 'ctx-edit-meta', 'ctx-edit-images', 'tctx-edit-meta', 'tctx-edit-images', 'ictx-edit-meta']) {
     const item = document.getElementById(id)
     if (item) item.classList.toggle('needs-admin', !jf.isAdmin)
     const note = document.getElementById(id + '-note')
     if (note) note.hidden = !!jf.isAdmin
   }
-  // Delete media (now-playing) and delete playlist (playlist card menu) are both
-  // gated on the actual deletion right (see canDeleteMedia), not admin - an admin
-  // always has it, but a non-admin can be granted it too, and gating on isAdmin
-  // would hide the feature from someone who has it.
-  for (const id of ['ctx-delete', 'ictx-delete']) {
+  // Delete media (now-playing and track rows) and delete playlist (playlist
+  // card menu) are all gated on the actual deletion right (see
+  // canDeleteMedia), not admin - an admin always has it, but a non-admin can
+  // be granted it too, and gating on isAdmin would hide the feature from
+  // someone who has it.
+  for (const id of ['ctx-delete', 'tctx-delete', 'ictx-delete']) {
     const item = document.getElementById(id)
     if (item) item.classList.toggle('needs-admin', !jf.canDelete)
     const note = document.getElementById(id + '-note')
@@ -851,7 +879,7 @@ document.getElementById('s-refresh-server').addEventListener('click', async () =
   // server call that would just 403 anyway.
   if (!jf.isAdmin) return
   try {
-    const res = await fetch(`${jf.url}/Library/Refresh`, { method: 'POST', headers: { 'X-Emby-Token': jf.token } })
+    const res = await fetch(`${jf.url}/Library/Refresh`, { method: 'POST', headers: CascadeCore.authHeaders(jf) })
     if (!res.ok) throw new Error(String(res.status))
     // Async on the server - it scans in the background and this response says
     // nothing about when it finishes, so there is nothing to await here.
@@ -1089,6 +1117,14 @@ let _browseMode = 'music'
  *  writing it back there would overwrite a saved "video" choice with "music"
  *  the instant the last video library is removed, losing the choice for good
  *  even if a video library is added back later. */
+// Search covers music and video either way; this just names what you are
+// browsing.
+function setSearchPlaceholder(mode) {
+  const what = mode === 'video' ? 'movies and shows' : 'songs, albums, artists'
+  const key = window.cascade.platform === 'darwin' ? '⌘K' : 'Ctrl+K'
+  document.getElementById('search-input').placeholder = `Search ${what}… (${key})`
+}
+
 function setBrowseMode(mode, opts = {}) {
   _browseMode = mode
   document.body.classList.toggle('mode-video', mode === 'video')
@@ -1099,6 +1135,7 @@ function setBrowseMode(mode, opts = {}) {
   videoBtn?.classList.toggle('active', mode === 'video')
   musicBtn?.setAttribute('aria-pressed', String(mode === 'music'))
   videoBtn?.setAttribute('aria-pressed', String(mode === 'video'))
+  setSearchPlaceholder(mode)
   if (!opts.skipSave) window.cascade.store.set('browseMode', mode)
 }
 
@@ -1415,7 +1452,6 @@ async function applyVideoLibrarySelection(category, ids) {
   applyVideoNavVisibility()
   renderVideoLibraryPicker()
   loadContinueWatching()
-  loadRecentlyWatched()
 }
 
 document.getElementById('s-single-lib-toggle').addEventListener('change', async e => {
@@ -1476,6 +1512,69 @@ function showView(name) {
   if (name === 'settings') loadSettingsFields()
 }
 
+// ── Settings categories ──────────────────────────────────────────────────────
+// The bar across the top of Settings. Switching slides the panes by where the
+// new category sits relative to the old: moving right, the old pane leaves to
+// the left and the new one comes in from the right; moving left, the reverse.
+// Click to switch. As a tablist, a focused tab also takes the arrow keys.
+const _settingsTabs = [...document.querySelectorAll('.sn-item')]
+const _settingsPill = document.querySelector('.sn-pill')
+let _settingsTab = 0
+
+function placeSettingsPill(animate) {
+  const t = _settingsTabs[_settingsTab]
+  if (!t.offsetWidth) return   // view hidden; the observer below places it on show
+  if (!animate) _settingsPill.style.transition = 'none'
+  _settingsPill.style.width = `${t.offsetWidth}px`
+  _settingsPill.style.transform = `translateX(${t.offsetLeft}px)`
+  if (!animate) { _settingsPill.offsetWidth; _settingsPill.style.transition = '' }
+}
+
+function showSettingsTab(i) {
+  if (i < 0 || i >= _settingsTabs.length || i === _settingsTab) return
+  const dir = i > _settingsTab ? 1 : -1
+  const pane = n => document.getElementById(`section-${_settingsTabs[n].dataset.section}`)
+  const from = pane(_settingsTab), to = pane(i)
+  _settingsTabs.forEach((t, n) => {
+    t.classList.toggle('active', n === i)
+    t.setAttribute('aria-selected', String(n === i))
+    t.tabIndex = n === i ? 0 : -1
+  })
+  _settingsTab = i
+  placeSettingsPill(true)
+  document.querySelector('#view-settings .settings-view').scrollTop = 0
+
+  // A switch mid-slide snaps the running one to its end first.
+  for (const el of [from, to]) el.getAnimations().forEach(a => a.finish())
+  from.classList.remove('active')
+  to.classList.add('active')
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return
+
+  const timing = { duration: 320, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' }
+  from.classList.add('leaving')
+  const out = from.animate([
+    { transform: 'translateX(0)', opacity: 1 },
+    { transform: `translateX(${-dir * 100}%)`, opacity: 0 },
+  ], timing)
+  out.onfinish = out.oncancel = () => from.classList.remove('leaving')
+  to.animate([
+    { transform: `translateX(${dir * 100}%)`, opacity: 0 },
+    { transform: 'translateX(0)', opacity: 1 },
+  ], timing)
+}
+
+_settingsTabs.forEach((t, i) => t.addEventListener('click', () => showSettingsTab(i)))
+document.querySelector('.sn-tabs').addEventListener('keydown', e => {
+  const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0
+  if (!step) return
+  e.preventDefault()
+  showSettingsTab(_settingsTab + step)
+  _settingsTabs[_settingsTab].focus()
+})
+// Tab widths change when the view is first shown, the window resizes, or the
+// font setting changes; the observer catches all three.
+new ResizeObserver(() => placeSettingsPill(false)).observe(document.querySelector('.sn-tabs'))
+
 // Categories with an index/detail split - clicking the sidebar item again while
 // already on that category clicks its own back button, which returns to the
 // index. The back buttons are already idempotent (they just re-set the same
@@ -1505,7 +1604,6 @@ async function loadHome() {
   loadRecentlyPlayed()
   loadRecentlyAdded()
   loadContinueWatching()
-  loadRecentlyWatched()
 }
 
 async function loadRecentlyPlayed() {
@@ -1530,7 +1628,7 @@ async function loadRecentlyPlayed() {
     if (!items.length) { grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">No play history yet</div>'; return }
     grid.innerHTML = items.map(item => rpCard(item)).join('')
     grid.querySelectorAll('.rp-item').forEach((el, i) => {
-      el.addEventListener('click', () => playItems(items, i))
+      el.addEventListener('click', () => playItems(items, i, 'Recently played'))
     })
   } catch (e) {
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Could not load history</div>`
@@ -1730,13 +1828,20 @@ async function loadArtists() {
 
 /** Songs query shared by the artist detail view and the artist context menu's
  *  Play all/Shuffle all actions. */
+// The artist page and "play artist" go through the library-aware merge like
+// every other view: a plain get ignored the library selection and listed an
+// album or song once per library that held it.
 async function fetchArtistSongs(artistId) {
-  const data = await jfGet(`/Users/${jf.userId}/Items`, {
+  const data = await jfGetMerged(`/Users/${jf.userId}/Items`, {
     ArtistIds: artistId, IncludeItemTypes: 'Audio', Recursive: true,
     SortBy: 'Album,ParentIndexNumber,IndexNumber',
     Fields: 'AlbumId,AlbumPrimaryImageTag'
   })
-  return data.Items || []
+  // Merged results arrive library by library; SortBy only held within each.
+  return (data.Items || []).sort((a, b) =>
+    (a.Album || '').localeCompare(b.Album || '') ||
+    (a.ParentIndexNumber ?? 0) - (b.ParentIndexNumber ?? 0) ||
+    (a.IndexNumber ?? 0) - (b.IndexNumber ?? 0))
 }
 
 async function openArtist(artistId, name) {
@@ -1753,14 +1858,16 @@ async function openArtist(artistId, name) {
 
   try {
     const [albumsData, songs] = await Promise.all([
-      jfGet(`/Users/${jf.userId}/Items`, {
+      jfGetMerged(`/Users/${jf.userId}/Items`, {
         ArtistIds: artistId, IncludeItemTypes: 'MusicAlbum', Recursive: true,
         SortBy: 'ProductionYear,SortName', SortOrder: 'Descending'
       }),
       fetchArtistSongs(artistId)
     ])
 
-    const albums = albumsData.Items || []
+    // Newest first, as SortBy asked; the merge only kept that within each library.
+    const albums = (albumsData.Items || []).sort((a, b) =>
+      (b.ProductionYear ?? 0) - (a.ProductionYear ?? 0) || (a.SortName || a.Name || '').localeCompare(b.SortName || b.Name || ''))
 
     document.getElementById('artist-detail-meta').textContent =
       `${albums.length} album${albums.length !== 1 ? 's' : ''} · ${songs.length} song${songs.length !== 1 ? 's' : ''}`
@@ -1771,7 +1878,7 @@ async function openArtist(artistId, name) {
 
     // Play all button
     document.getElementById('btn-play-artist-discography').onclick = () => {
-      if (songs.length) playItems(songs, 0)
+      if (songs.length) playItems(songs, 0, document.getElementById('artist-detail-name').textContent)
     }
 
     // Songs list
@@ -1780,7 +1887,7 @@ async function openArtist(artistId, name) {
 
     document.getElementById('artist-songs-rows').querySelectorAll('.track-row').forEach(el => {
       const idx = parseInt(el.dataset.idx)
-      wireTrackRow(el, songs[idx], songs, idx)
+      wireTrackRow(el, songs[idx], songs, idx, { source: document.getElementById('artist-detail-name').textContent })
     })
   } catch (e) {
     document.getElementById('artist-detail-meta').textContent = 'Could not load artist'
@@ -1997,7 +2104,7 @@ function renderSongRows() {
       const idx = parseInt(el.dataset.idx)
       if (e.target.closest('.track-thumb')) {
         e.stopPropagation()
-        playItems(allSongs, idx)
+        playItems(allSongs, idx, 'Songs')
         return
       }
       if (e.target.closest('[data-album-link]')) { e.stopPropagation(); openAlbumFromTrack(allSongs[idx]); return }
@@ -2009,7 +2116,7 @@ function renderSongRows() {
       if (e.target.closest('.row-link')) return
       const el = e.target.closest('.track-row')
       if (!el) return
-      playItems(allSongs, parseInt(el.dataset.idx))
+      playItems(allSongs, parseInt(el.dataset.idx), 'Songs')
     })
     rows.addEventListener('contextmenu', (e) => {
       const el = e.target.closest('.track-row')
@@ -2234,7 +2341,7 @@ async function savePlaylistIds(newItems, successMsg) {
   try {
     const res = await fetch(`${jf.url}/Playlists/${currentPlaylistId}`, {
       method: 'POST',
-      headers: { 'X-Emby-Token': jf.token, 'Content-Type': 'application/json' },
+      headers: CascadeCore.authHeaders(jf, { 'Content-Type': 'application/json' }),
       body: JSON.stringify({ Ids: newItems.map(i => i.Id) })
     })
     if (!res.ok) throw new Error(await CascadeCore.readErrorMessage(res))
@@ -2280,7 +2387,7 @@ document.getElementById('pl-edit-save').addEventListener('click', async () => {
   try {
     const res = await fetch(`${jf.url}/Playlists/${currentPlaylistId}`, {
       method: 'POST',
-      headers: { 'X-Emby-Token': jf.token, 'Content-Type': 'application/json' },
+      headers: CascadeCore.authHeaders(jf, { 'Content-Type': 'application/json' }),
       body: JSON.stringify({ Name: name, IsPublic: isPublic })
     })
     if (!res.ok) throw new Error(await CascadeCore.readErrorMessage(res))
@@ -2348,7 +2455,7 @@ function renderPlaylistDetailItems(items, entryIds) {
   const rowsEl = document.getElementById('pl-detail-rows')
   rowsEl.querySelectorAll('.track-row').forEach(el => {
     const idx = parseInt(el.dataset.idx)
-    wireTrackRow(el, items[idx], items, idx, { inPlaylist: entryIds })
+    wireTrackRow(el, items[idx], items, idx, { inPlaylist: entryIds, source: document.getElementById('pl-detail-name').textContent })
   })
   if (showCheck) {
     rowsEl.querySelectorAll('.tl-check input[type=checkbox]').forEach(cb => {
@@ -2403,7 +2510,7 @@ function wirePlaylistRowDrag(rowsEl, items) {
       try {
         const entryId = moved.PlaylistItemId || moved.Id
         const res = await fetch(`${jf.url}/Playlists/${currentPlaylistId}/Items/${entryId}/Move/${to}`, {
-          method: 'POST', headers: { 'X-Emby-Token': jf.token }
+          method: 'POST', headers: CascadeCore.authHeaders(jf)
         })
         if (!res.ok) throw new Error(res.status)
       } catch (err) {
@@ -2420,7 +2527,7 @@ async function openPlaylist(playlistId, name) {
   document.getElementById('btn-edit-playlist').style.display = ''
   const artEl = document.getElementById('pl-detail-art')
   artEl.style.background = ''
-  const plArtUrl = `${jf.url}/Items/${playlistId}/Images/Primary?fillHeight=160&fillWidth=160&quality=80&api_key=${jf.token}`
+  const plArtUrl = `${jf.url}/Items/${playlistId}/Images/Primary?fillHeight=160&fillWidth=160&quality=80&ApiKey=${jf.token}`
   artEl.innerHTML = `<img src="${plArtUrl}" alt="" onerror="this.innerHTML='♪'">`
 
   try {
@@ -2502,10 +2609,10 @@ document.getElementById('pl-back-btn').addEventListener('click', () => {
 })
 
 document.getElementById('btn-play-playlist').addEventListener('click', () => {
-  if (currentPlaylistItems.length) playItems(currentPlaylistItems, 0)
+  if (currentPlaylistItems.length) playItems(currentPlaylistItems, 0, document.getElementById('pl-detail-name').textContent)
 })
 
-document.getElementById('btn-shuffle-playlist').addEventListener('click', () => shuffleAndPlay(currentPlaylistItems))
+document.getElementById('btn-shuffle-playlist').addEventListener('click', () => shuffleAndPlay(currentPlaylistItems, document.getElementById('pl-detail-name').textContent))
 
 // ── Universal track context menu ───────────────────────────────────────────────
 
@@ -2518,6 +2625,8 @@ function showTrackCtxMenu(item, el, x, y, inPlaylist = false) {
   _ctxItem = item; _ctxEl = el; _ctxInPl = inPlaylist
   // Show/hide playlist-only items
   trackCtxMenu.querySelectorAll('.tctx-pl-only').forEach(n => n.classList.toggle('hidden', !inPlaylist))
+  const favLabel = document.getElementById('tctx-favorite-label')
+  if (favLabel) favLabel.textContent = item?.UserData?.IsFavorite ? 'Unfavorite' : 'Favorite'
   trackCtxMenu.style.left = `${x}px`
   trackCtxMenu.style.top  = `${y}px`
   trackCtxMenu.classList.add('open')
@@ -2540,7 +2649,7 @@ function wireTrackRow(el, item, items, idx, opts = {}) {
   if (thumb) {
     thumb.addEventListener('click', e => {
       e.stopPropagation()
-      playItems(items, idx)
+      playItems(items, idx, opts.source)
     })
   }
   // Single click on rest of row - select (or play immediately in transient
@@ -2549,14 +2658,14 @@ function wireTrackRow(el, item, items, idx, opts = {}) {
     if (e.target.closest('.track-thumb')) return  // handled above
     if (e.target.closest('[data-album-link]')) { e.stopPropagation(); openAlbumFromTrack(item); return }
     if (e.target.closest('[data-artist-link]')) { e.stopPropagation(); openArtistFromTrack(item); return }
-    if (opts.clickToPlay) { playItems(items, idx); return }
+    if (opts.clickToPlay) { playItems(items, idx, opts.source); return }
     document.querySelectorAll('.track-row.selected').forEach(r => r.classList.remove('selected'))
     el.classList.add('selected')
   })
   // Double click anywhere - play, except on the album/artist links themselves
   el.addEventListener('dblclick', e => {
     if (e.target.closest('.row-link')) return
-    playItems(items, idx)
+    playItems(items, idx, opts.source)
   })
   // Right click - context menu
   el.addEventListener('contextmenu', e => {
@@ -2578,7 +2687,10 @@ function wireTrackRow(el, item, items, idx, opts = {}) {
 document.getElementById('tctx-play').addEventListener('click', () => {
   if (!_ctxEl) return
   closeTrackCtxMenu()
-  _ctxEl.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+  // Every row plays on dblclick except a queue row, which only ever listens
+  // for a plain click (see _drawQueueRows) - a dblclick here would do nothing.
+  const evt = _ctxEl.classList.contains('queue-row') ? 'click' : 'dblclick'
+  _ctxEl.dispatchEvent(new MouseEvent(evt, { bubbles: true }))
 })
 
 document.getElementById('tctx-play-next').addEventListener('click', () => {
@@ -2605,7 +2717,7 @@ async function instantMixAndPlay(itemId, label) {
   try {
     const data = await jfGet(`/Items/${itemId}/InstantMix`, { UserId: jf.userId, Limit: 50, Fields: 'AlbumId,AlbumPrimaryImageTag' })
     if (!data.Items?.length) { showNotice('Jellyfin did not return an instant mix for this.', 'Instant mix'); return }
-    playItems(data.Items, 0)
+    playItems(data.Items, 0, 'Instant mix')
     showToast(`Instant mix from "${label}"`)
   } catch (e) { showNotice('Could not build an instant mix.', 'Instant mix') }
 }
@@ -2616,6 +2728,12 @@ document.getElementById('tctx-instant-mix').addEventListener('click', () => {
   instantMixAndPlay(_ctxItem.Id, _ctxItem.Name)
 })
 
+document.getElementById('tctx-favorite').addEventListener('click', () => {
+  if (!_ctxItem) return
+  closeTrackCtxMenu()
+  toggleLike(_ctxItem)
+})
+
 document.getElementById('tctx-add-playlist').addEventListener('click', () => {
   if (!_ctxItem) return
   closeTrackCtxMenu()
@@ -2624,17 +2742,24 @@ document.getElementById('tctx-add-playlist').addEventListener('click', () => {
   openAtpModal()
 })
 
+// Media info - openMediaInfoFor() defined with the now-playing context menu above.
+document.getElementById('tctx-media-info').addEventListener('click', () => {
+  if (!_ctxItem) return
+  closeTrackCtxMenu()
+  openMediaInfoFor(_ctxItem)
+})
+
 document.getElementById('tctx-download').addEventListener('click', () => {
   if (!_ctxItem) return
   closeTrackCtxMenu()
-  const url = `${jf.url}/Items/${_ctxItem.Id}/Download?api_key=${jf.token}`
+  const url = `${jf.url}/Items/${_ctxItem.Id}/Download?ApiKey=${jf.token}`
   const a = document.createElement('a'); a.href = url; a.download = _ctxItem.Name || 'track'; a.click()
 })
 
 document.getElementById('tctx-copy-url').addEventListener('click', () => {
   if (!_ctxItem) return
   closeTrackCtxMenu()
-  const url = `${jf.url}/Audio/${_ctxItem.Id}/universal?UserId=${jf.userId}&api_key=${jf.token}&Container=mp3,aac,ogg,flac`
+  const url = `${jf.url}/Audio/${_ctxItem.Id}/universal?UserId=${jf.userId}&ApiKey=${jf.token}&Container=mp3,aac,ogg,flac`
   navigator.clipboard.writeText(url).then(() => showToast('Stream URL copied'))
 })
 
@@ -2688,7 +2813,7 @@ async function refreshItemMetadata(item) {
   if (!item || !jf.isAdmin) return
   try {
     const res = await fetch(`${jf.url}/Items/${item.Id}/Refresh?MetadataRefreshMode=FullRefresh&ImageRefreshMode=FullRefresh&ReplaceAllMetadata=false&ReplaceAllImages=false`, {
-      method: 'POST', headers: { 'X-Emby-Token': jf.token }
+      method: 'POST', headers: CascadeCore.authHeaders(jf)
     })
     if (!res.ok) throw new Error(String(res.status))
     showToast('Metadata refresh queued')
@@ -2707,6 +2832,21 @@ document.getElementById('tctx-edit-meta').addEventListener('click', () => {
   openMetadataEditorFor(_ctxItem)
 })
 
+// openInJellyfinWeb() and openLyricsEditorFor() are defined with the
+// now-playing context menu / lyrics editor below - same functions, no second
+// copy hardwired to queue[queueIndex].
+document.getElementById('tctx-edit-images').addEventListener('click', () => {
+  if (!_ctxItem) return
+  closeTrackCtxMenu()
+  openInJellyfinWeb(_ctxItem)
+})
+
+document.getElementById('tctx-edit-lyrics').addEventListener('click', () => {
+  if (!_ctxItem) return
+  closeTrackCtxMenu()
+  openLyricsEditorFor(_ctxItem)
+})
+
 document.getElementById('tctx-pl-remove').addEventListener('click', async () => {
   if (!_ctxEl || !currentPlaylistId) return
   closeTrackCtxMenu()
@@ -2714,7 +2854,7 @@ document.getElementById('tctx-pl-remove').addEventListener('click', async () => 
   if (!entryId) { showNotice('This row is missing its playlist entry ID, so it cannot be removed.', 'Playlist'); return }
   try {
     const res = await fetch(`${jf.url}/Playlists/${currentPlaylistId}/Items?EntryIds=${encodeURIComponent(entryId)}`, {
-      method: 'DELETE', headers: { 'X-Emby-Token': jf.token }
+      method: 'DELETE', headers: CascadeCore.authHeaders(jf)
     })
     if (!res.ok) throw new Error(res.status)
     showToast('Removed from playlist')
@@ -2722,6 +2862,42 @@ document.getElementById('tctx-pl-remove').addEventListener('click', async () => 
     // (what Play/Shuffle use) still holding the removed track.
     await playlistMutated(currentPlaylistId)
   } catch (e) { showNotice(`Could not remove this track from the playlist.\n\n${e.message}`, 'Playlist') }
+})
+
+// Delete media - deleteItemFromServer() is defined with the now-playing
+// context menu below (shared with "Delete media" there and "Delete playlist"
+// on the item context menu), made to take an item instead of always reading
+// queue[queueIndex]. Unlike Remove from playlist above, this deletes the file
+// from the server, so it can turn up in Songs, an album, an artist or search -
+// invalidating the lazy caches and reloading whatever's on screen is the same
+// "re-fetch, don't hand-patch" reasoning as playlistMutated's comment above.
+document.getElementById('tctx-delete').addEventListener('click', () => {
+  if (!_ctxItem) return
+  const item = _ctxItem
+  closeTrackCtxMenu()
+  deleteItemFromServer(item, {
+    confirmMsg: `Delete "${item.Name}" from your server? This cannot be undone.`,
+    onDeleted: () => {
+      invalidateLibraryViews()
+      showView(_currentView)
+      const qIdx = queue.findIndex(q => q.Id === item.Id)
+      if (qIdx !== -1) {
+        const wasCurrent = qIdx === queueIndex
+        if (wasCurrent) { audio.pause(); _detachDeck(audio) }
+        queue.splice(qIdx, 1)
+        if (qIdx < queueIndex) queueIndex--
+        else if (wasCurrent) queueIndex = Math.min(queueIndex, queue.length - 1)
+        // Same cleanup the queue panel's own remove button does - without it
+        // every row after this one keeps the data-qi it had before the splice,
+        // so the next click on one of them plays the wrong track, and a
+        // deleted "next" track stays prefetched.
+        _reprefetch()
+        renderQueuePanel()
+        if (wasCurrent) { if (queue.length) playCurrentTrack(); else _clearStreamPrefetch() }
+      }
+      showToast('Deleted from server')
+    }
+  })
 })
 
 // ── Movies & TV ───────────────────────────────────────────────────────────────
@@ -2748,8 +2924,8 @@ function fmtRuntime(ticks) {
 }
 
 // `opts` lets a caller show a different item's art/name than the one the card
-// is `data-id`'d and clicked on - used to fold a recently-watched episode into
-// its series' poster and name (see groupRecentlyWatched) without changing
+// is `data-id`'d and clicked on - used to show a Continue watching episode as
+// its series' poster and name (see onePerSeries) without changing
 // which item wirePosterCards resolves the click to.
 function posterCard(item, sub, opts = {}) {
   const art = artUrl(opts.artId || item.Id, 'artTag' in opts ? opts.artTag : item.ImageTags?.Primary)
@@ -2967,42 +3143,51 @@ const loadShows = () => loadPosterGrid(
 
 // ── Continue watching (Home) ──
 //
-// Distinct from Recently watched below it: this is specifically what's
-// partway through (Filters: IsResumable), not play history - a movie or
-// episode watched to the end never appears here even though it does there.
+// The one video shelf on Home: what is partway through, then the next
+// episode of each show being followed (Jellyfin's Next Up). It replaced a
+// separate "Recently watched" shelf that mostly repeated this one.
 // Horizontal, matching Jellyfin's own webui, via the shared hshelf component;
-// same hide-when-empty rule as every other video shelf.
+// hidden when empty, so a music-only user never sees it.
 async function loadContinueWatching() {
   const section = document.getElementById('home-resume-section')
-  const videoLibIds = [...(jf.movieLibraryIds || []), ...(jf.showLibraryIds || [])]
-  if (!videoLibIds.length) { section.style.display = 'none'; return }
+  const movieIds = jf.movieLibraryIds || [], showIds = jf.showLibraryIds || []
+  if (!movieIds.length && !showIds.length) { section.style.display = 'none'; return }
+  const Fields = 'UserData,ProductionYear,SeriesPrimaryImageTag'
   try {
-    const data = await jfClient.getMerged(`/Users/${jf.userId}/Items`, {
-      SortBy: 'DatePlayed',
-      SortOrder: 'Descending',
-      IncludeItemTypes: 'Movie,Episode',
-      Filters: 'IsResumable',
-      Recursive: true,
-      Fields: 'UserData,ProductionYear',
-      Limit: 24
-    }, videoLibIds)
-    // Same reasoning as Recently watched below: getMerged concatenates
-    // per-library results, so the server's DatePlayed order only holds within
-    // one library - re-sort across the merge.
-    const items = (data.Items || [])
+    const [resume, nextUp] = await Promise.all([
+      jfClient.getMerged(`/Users/${jf.userId}/Items`, {
+        SortBy: 'DatePlayed', SortOrder: 'Descending',
+        IncludeItemTypes: 'Movie,Episode', Filters: 'IsResumable',
+        Recursive: true, Fields, Limit: 24,
+      }, [...movieIds, ...showIds]),
+      // Best effort: a failed Next Up still leaves the resume list.
+      showIds.length
+        ? jfClient.getMerged('/Shows/NextUp', { UserId: jf.userId, Fields, Limit: 24, EnableResumable: false }, showIds)
+            .catch(() => ({ Items: [] }))
+        : { Items: [] },
+    ])
+    // getMerged concatenates per-library results, so the server's DatePlayed
+    // order only holds within one library - re-sort across the merge before
+    // onePerSeries picks each show's card.
+    const partway = (resume.Items || [])
       .sort((a, b) => new Date(b.UserData?.LastPlayedDate || 0) - new Date(a.UserData?.LastPlayedDate || 0))
+    const items = onePerSeries([...partway, ...(nextUp.Items || [])]).slice(0, 24)
     if (!items.length) { section.style.display = 'none'; return }
     section.style.display = ''
     const grid = document.getElementById('home-resume-grid')
-    // posterCard's own resumeTicks-driven .poster-progress bar is exactly the
-    // "how far in" signal this shelf is about - nothing extra to build here.
-    grid.innerHTML = hshelfHTML(items.map(item => posterCard(item, recentVideoSub(item))).join(''))
+    // An episode shows its series' poster and name with "S2E6" underneath: an
+    // episode still is widescreen and cropped badly into a poster card. One
+    // with no SeriesId has no series art to borrow, so it keeps its own.
+    grid.innerHTML = hshelfHTML(items.map(item =>
+      item.Type === 'Episode' && item.SeriesId
+        ? posterCard(item, episodeCode(item), { artId: item.SeriesId, artTag: item.SeriesPrimaryImageTag, title: item.SeriesName || item.Name })
+        : posterCard(item, recentVideoSub(item))
+    ).join(''))
     wireHShelf(grid)
-    // kind is 'video' either way - a Movie or Episode card here is the real
-    // item (its own UserData/resume position), just like the grids Movies/TV
-    // browsing use. "Go to details" reuses this same onPick, which already
-    // knows to land an episode on its series (there is no per-episode detail
-    // view in this app).
+    // The card is the real Movie or Episode underneath (its own UserData and
+    // resume position), so 'video' is the right menu kind even for a card
+    // wearing its series' poster. There is no per-episode detail view, so an
+    // episode lands on its series.
     wirePosterCards(grid, items, item => {
       if (item.Type === 'Movie') { showView('movies'); openMovie(item.Id) }
       else { showView('shows'); openSeries(item.SeriesId) }
@@ -3011,13 +3196,6 @@ async function loadContinueWatching() {
     section.style.display = 'none'
   }
 }
-
-// ── Recently watched (Home) ──
-//
-// Movies and episodes played across both video categories, merged and
-// re-sorted by when they were last watched. Only shown when there's actually
-// a video library configured and some play history - a music-only user (or
-// one who hasn't watched anything yet) never sees the section at all.
 
 function recentVideoSub(item) {
   if (item.Type === 'Movie') return item.ProductionYear || ''
@@ -3031,52 +3209,6 @@ function recentVideoSub(item) {
 function episodeCode(item) {
   const s = item.ParentIndexNumber, e = item.IndexNumber
   return (s != null && e != null) ? `S${s}E${e}` : (item.Name || '')
-}
-
-async function loadRecentlyWatched() {
-  const section = document.getElementById('home-continue-section')
-  const videoLibIds = [...(jf.movieLibraryIds || []), ...(jf.showLibraryIds || [])]
-  if (!videoLibIds.length) { section.style.display = 'none'; return }
-  try {
-    const data = await jfClient.getMerged(`/Users/${jf.userId}/Items`, {
-      SortBy: 'DatePlayed',
-      SortOrder: 'Descending',
-      IncludeItemTypes: 'Movie,Episode',
-      Filters: 'IsPlayed',
-      Recursive: true,
-      Fields: 'UserData,ProductionYear,SeriesPrimaryImageTag',
-      Limit: 24
-    }, videoLibIds)
-    // getMerged concatenates per-library results, so the server's DatePlayed
-    // ordering only holds within a library - re-sort across the merge. Fold
-    // binged episodes down to one card per series AFTER that re-sort, so the
-    // kept episode is the actually-most-recent one, not an arbitrary one from
-    // whichever library happened to be fetched first.
-    const items = groupRecentlyWatched(
-      (data.Items || [])
-        .sort((a, b) => new Date(b.UserData?.LastPlayedDate || 0) - new Date(a.UserData?.LastPlayedDate || 0))
-    )
-    if (!items.length) { section.style.display = 'none'; return }
-    section.style.display = ''
-    const grid = document.getElementById('home-continue-grid')
-    grid.innerHTML = items.map(item =>
-      // A grouped episode shows the series' own poster and name, with the
-      // episode itself demoted to the subtitle. An episode with no SeriesId
-      // (never grouped - see groupRecentlyWatched) has no series art to show,
-      // so it keeps the plain episode card it always had.
-      item.Type === 'Episode' && item.SeriesId
-        ? posterCard(item, episodeCode(item), { artId: item.SeriesId, artTag: item.SeriesPrimaryImageTag, title: item.SeriesName || item.Name })
-        : posterCard(item, recentVideoSub(item))
-    ).join('')
-    wirePosterCards(grid, items, item => {
-      // Same detail views Movies/TV browsing already opens - no separate
-      // playback path for a Home entry.
-      if (item.Type === 'Movie') { showView('movies'); openMovie(item.Id) }
-      else { showView('shows'); openSeries(item.SeriesId) }
-    }, 'video') // real per-episode item underneath the grouped series card too
-  } catch {
-    section.style.display = 'none'
-  }
 }
 
 // ── Movie detail ──
@@ -3237,6 +3369,7 @@ function playVideo(items, startIndex, startTicks) {
   _audioStreamIndexIsExplicit = false
   queue = [...items]
   queueIndex = startIndex
+  queueSource = null
   playCurrentTrack({ startTicks: startTicks || 0 })
 }
 
@@ -3252,7 +3385,9 @@ document.getElementById('show-back-btn').addEventListener('click', () => {
 
 // ── Playback ──────────────────────────────────────────────────────────────────
 
-function playItems(items, startIndex) {
+/** Start a new queue. `source` names it in the queue panel ("From Favorite
+ *  Songs"); without one, a single album's tracks are labelled with the album. */
+function playItems(items, startIndex, source) {
   // In a Waterfall room a guest follows the host - starting something locally
   // would silently fight the session until the next sync pulled it back.
   if (blocksLocalPlayback()) {
@@ -3274,6 +3409,7 @@ function playItems(items, startIndex) {
     queue = [...items]
     queueIndex = startIndex
   }
+  queueSource = source || CascadeCore.queueSourceFallback(items)
   playCurrentTrack()
 }
 
@@ -3282,6 +3418,11 @@ function playItems(items, startIndex) {
 // Flip the overlay between the music layout (art + lyrics/queue columns) and the
 // single-column video layout. Purely a class toggle: the CSS in index.html owns
 // what actually shows, so there is one place to change if the layout moves.
+/** Playback speed for video, set with < and >. Kept across videos for the
+ *  session, like YouTube's, and never applied to music - applyVideoMode()
+ *  puts both decks back to 1x for a song. */
+let _videoRate = 1
+
 function applyVideoMode(on) {
   // Music and video keep separate saved EQ curves - this is the one place
   // playback knows which is active, so it is also where the live graph
@@ -3292,19 +3433,58 @@ function applyVideoMode(on) {
   ov.classList.toggle('video', !!on)
   // Only the current deck may show a picture - the other is mid-crossfade or idle.
   DECKS.forEach(d => d.classList.toggle('deck-hidden', d !== audio))
+  // A film keeps the session's speed (< and >); a song is always 1x.
+  DECKS.forEach(d => { d.playbackRate = d.defaultPlaybackRate = on ? _videoRate : 1 })
   // A film opened on its own is a queue of one, so prev and next have nowhere
   // to go. A season is not - that queue is the whole point of next-episode.
   ov.classList.toggle('single', !!on && queue.length <= 1)
-  // Full mode only ever means anything over a picture - applied here so a
-  // saved preference from the last video takes effect on this one too,
-  // without also being live (and misleading) while music is playing.
-  ov.classList.toggle('full', !!on && videoFullMode)
-  document.getElementById('ov-full-mode')?.classList.toggle('active', !!on && videoFullMode)
+  // The bottom bar gets the same treatment: shuffle, repeat, lyrics and the
+  // miniplayer are song controls, and prev/next only apply to a season.
+  const bar = document.querySelector('.statusbar')
+  bar.classList.toggle('video', !!on)
+  bar.classList.toggle('single', !!on && queue.length <= 1)
+  loadChapters(on ? queue[queueIndex] : null)
   // A movie playing behind the library grid with no picture is confusing, so
   // opening the overlay is part of starting video, not a separate step.
   if (on) openOverlay()
-  // Covers the other direction too: going back to music must stop the sampler.
-  else refreshAmbient()
+}
+
+// ── Chapters ──
+//
+// Fetched once when a video starts rather than added to every query that can
+// put one in the queue (grids, Home, episodes) - one small request per film.
+
+/** The current video's chapters, from CascadeCore.chapterList(). */
+let _chapters = []
+
+async function loadChapters(item) {
+  _chapters = []
+  renderChapterMarks()
+  if (!item || !isVideoItem(item)) return
+  try {
+    const full = await jfGet(`/Users/${jf.userId}/Items/${item.Id}`, { Fields: 'Chapters' })
+    // Skipped past it while the request was out: these are someone else's.
+    if (queue[queueIndex]?.Id !== item.Id) return
+    _chapters = CascadeCore.chapterList(full.Chapters, item.RunTimeTicks)
+  } catch { /* no chapters is the same as none */ }
+  renderChapterMarks()
+}
+
+/** Ticks on the scrubber at each chapter start, and the Chapters button only
+ *  when there is something to pick from. */
+function renderChapterMarks() {
+  const bar = document.getElementById('ov-prog-bar')
+  bar.querySelectorAll('.ov-chapter-mark').forEach(m => m.remove())
+  document.getElementById('ov-chapters').style.display = _chapters.length ? '' : 'none'
+  const dur = mediaDuration()
+  if (!dur) return
+  for (const c of _chapters) {
+    if (c.sec <= 0) continue
+    const mark = document.createElement('span')
+    mark.className = 'ov-chapter-mark'
+    mark.style.left = `${(c.sec / dur) * 100}%`
+    bar.appendChild(mark)
+  }
 }
 
 // Attach text subtitles as native <track> elements.
@@ -3328,7 +3508,7 @@ function applySubtitles(item, resolved) {
     track.kind = 'subtitles'
     track.label = s.DisplayTitle || s.Language || `Track ${s.Index}`
     if (s.Language) track.srclang = s.Language
-    track.src = `${jf.url}/Videos/${item.Id}/${sourceId}/Subtitles/${s.Index}/Stream.vtt?api_key=${jf.token}`
+    track.src = `${jf.url}/Videos/${item.Id}/${sourceId}/Subtitles/${s.Index}/Stream.vtt?ApiKey=${jf.token}`
     audio.appendChild(track)
     // Mode is set after appending, and explicitly rather than via `default`,
     // because `default` only decides the *initial* pick - the picker needs a
@@ -3565,6 +3745,7 @@ function updateNowPlaying(item) {
   // Sync like state from Jellyfin user data
   const liked = item.UserData?.IsFavorite || false
   document.getElementById('btn-like').classList.toggle('liked', liked)
+  document.getElementById('ov-art-like').classList.toggle('liked', liked)
 
   // Update Touch Bar track label
   window.cascade.touchbarUpdate({ title: `${item.Name}  -  ${item.AlbumArtist || item.Artists?.[0] || ''}` })
@@ -3604,7 +3785,7 @@ function updateNowPlaying(item) {
   _syncRpcClock()
   updateDiscordPresence(item)
 
-  // Album art accent: fetch for canvas color extraction (api_key is in URL, no extra header needed)
+  // Album art accent: fetch for canvas color extraction (ApiKey is in URL, no extra header needed)
   // Skipped for video - the overlay shows the film, not a recoloured backdrop.
   if (themeAlbumArt && art && !video) {
     _currentBgArtUrl = art
@@ -3655,16 +3836,39 @@ function updateNowPlaying(item) {
 // Bail before doing that work. Safe despite _miniplayerEnabled being declared
 // with let further down the file: every caller is event-driven or runs after
 // load, so none of them reaches here during module evaluation.
+let _mpSheetOf = null, _mpSheetEmphasis = false, _mpSheetId = 0, _mpSheetSent = false
+
 function pushMiniplayerState() {
   if (!_miniplayerEnabled) return
   const item = queue[queueIndex]
   if (!item) { window.cascade.miniPlayer.updateState(null); return }
   const art = _currentHighResArtUrl || artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
   const track = { itemId: item.Id, title: item.Name || '', subtitle: secondaryLine(item), artUrl: art }
-  // From the active line onward, so the miniplayer can render top-down with
-  // the current line pinned at the top without any scrolling of its own.
-  const lyricTail = CascadeCore.miniplayerLyricTail(lyricsData, lastLyricsIdx)
-  window.cascade.miniPlayer.updateState(CascadeCore.buildMiniplayerState(track, !audio.paused, mediaPosition(), mediaDuration(), lyricTail))
+  // The timed lyric sheet, for the miniplayer's own karaoke: only when it
+  // changed (a new lyricsData array, or the Spicy credit that decides held
+  // notes) or the miniplayer asked for it again. Every tick carries the id.
+  const emphasis = !!lyricsCredit
+  if (lyricsData !== _mpSheetOf || emphasis !== _mpSheetEmphasis) {
+    _mpSheetOf = lyricsData
+    _mpSheetEmphasis = emphasis
+    _mpSheetId++
+    _mpSheetSent = false
+  }
+  const sheet = _mpSheetSent ? null : CascadeCore.miniplayerSheet(lyricsData, emphasis)
+  _mpSheetSent = true
+  // Up Next: what follows the current track.
+  const queueStart = queueIndex + 1
+  const upNext = queue.slice(queueStart, queueStart + CascadeCore.MINIPLAYER_QUEUE_MAX).map(q => ({
+    title: q.Name || '',
+    subtitle: secondaryLine(q),
+    artUrl: artUrl(q.AlbumId || q.Id, q.AlbumPrimaryImageTag || q.ImageTags?.Primary),
+  }))
+  // The heart's own class, same source of truth toggleLike() reads for the
+  // current track. By id, not the likeBtn const: this can run before that
+  // line of the script has executed.
+  const isFavorite = !!document.getElementById('btn-like')?.classList.contains('liked')
+  window.cascade.miniPlayer.updateState(CascadeCore.buildMiniplayerState(track, !audio.paused, mediaPosition(), mediaDuration(), _mpSheetId,
+    { isFavorite, volume, credit: lyricsCredit, sheet, queue: upNext, queueStart, shuffle, autoMix: autoMixEnabled, repeat: repeatMode }))
 }
 
 // Derived from the DOM, never cached: _drawSongRows() replaces rows.innerHTML on every
@@ -3700,9 +3904,11 @@ function adoptResolvedStream(resolved) {
   _mediaSourceId = resolved.mediaSourceId
   _playMethod = resolved.direct ? 'DirectPlay' : 'Transcode'
   _streamOffsetSec = (resolved.startTicks || 0) / 10_000_000
-  // Only a transcoded video can be re-pointed by swapping the offset. Direct
-  // play seeks on the element, and music never gets here at all.
-  _transcodeUrl = (!resolved.direct && isVideoItem(queue[queueIndex])) ? resolved.url : null
+  // Only a progressive video transcode can be re-pointed by swapping the
+  // offset. Direct play and HLS seek on the element, and music never gets
+  // here at all.
+  _transcodeUrl = (!resolved.direct && isVideoItem(queue[queueIndex]) && !CascadeCore.isHlsUrl(resolved.url))
+    ? resolved.url : null
 }
 
 // ── Position and duration ─────────────────────────────────────────────────────
@@ -3738,16 +3944,18 @@ function mediaDuration() {
 /**
  * Seek to a position in the item, in seconds.
  *
- * Direct play can move the element's own clock. A transcode cannot: the bytes
- * past the encoded point do not exist yet, so the only way there is to ask the
- * server for a fresh stream starting at that offset.
+ * Direct play and HLS can move the element's own clock. A progressive
+ * transcode cannot: the bytes past the encoded point do not exist yet, so the
+ * only way there is to ask the server for a fresh stream starting at that
+ * offset. Video transcodes are HLS now; the progressive path is kept for a
+ * server that answers with one anyway.
  */
 async function seekTo(sec) {
   const item = queue[queueIndex]
   const dur = mediaDuration()
   const target = Math.max(0, Math.min(dur || sec, sec))
 
-  if (_playMethod === 'Transcode' && isVideoItem(item)) {
+  if (_transcodeUrl) {
     await restartStreamAt(target)
     return
   }
@@ -3911,7 +4119,7 @@ function stopPlayback() {
   audio.pause()
   _detachDeck(audio)
   audio.querySelectorAll('track').forEach(t => t.remove())
-  queue = []; queueIndex = -1
+  queue = []; queueIndex = -1; queueSource = null
   // Drop video mode after clearing the queue, so the class toggle sees an empty
   // queue and does not try to re-open the overlay.
   applyVideoMode(false)
@@ -4027,7 +4235,7 @@ onDeck('ended', () => {
 
   if (sleepAtTrackEnd) {
     sleepAtTrackEnd = false
-    document.getElementById('ov-sleep-timer').classList.remove('active')
+    document.getElementById('ctx-sleep-timer').classList.remove('active')
     showToast('Sleep timer: playback paused')
     return
   }
@@ -4489,6 +4697,7 @@ const REPEAT_ICON_ALL_LG = `<svg width="18" height="18" viewBox="0 0 24 24" fill
 const REPEAT_ICON_ONE_LG = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/><path d="M11 10h1v4"/></svg>`
 
 function updateRepeatButtons() {
+  _renderQueueMeta()   // with repeat on, the queue has no end time
   const isOne = repeatMode === 'one'
   const active = repeatMode !== 'none'
   const btnR = document.getElementById('btn-repeat')
@@ -4540,6 +4749,12 @@ function wireBar(bar, { getRatio, onChange, onCommit, step, bigStep }) {
     bar.classList.remove('dragging')
     document.removeEventListener('mousemove', onMove)
     document.removeEventListener('mouseup', onUp)
+    // The pointer usually ends the drag outside the bar's rect, so mouseout
+    // never fires there to hide a live tooltip (see the document-level
+    // mouseout listener, which skips hiding while .dragging is set). Close it
+    // here instead, unless the pointer happens to still be over the bar, in
+    // which case the ordinary hover state should keep it open.
+    if (!bar.matches(':hover')) _hideTooltip()
     if (onCommit) onCommit(ratioAt(e))
   }
   bar.addEventListener('mousedown', (e) => {
@@ -4611,11 +4826,12 @@ function wireProgressBar(barId, fillId, curId) {
 /** Wires a volume bar (statusbar or overlay) through the shared setVolumeRatio(),
  *  which is what keeps the two mirrored. */
 function wireVolumeBar(barId) {
-  wireBar(document.getElementById(barId), {
+  const bar = document.getElementById(barId)
+  wireBar(bar, {
     getRatio: () => audio.volume,
     step:     () => 0.05,
     bigStep:  () => 0.2,
-    onChange: (ratio) => setVolumeRatio(ratio),
+    onChange: (ratio) => setVolumeRatio(ratio, bar),
   })
 }
 
@@ -4646,6 +4862,14 @@ window.cascade?.isPackaged?.().then(packaged => {
   btn.title = 'Miniplayer - coming soon'
 })
 
+// Lyrics are fetched only while something shows them (see updateNowPlaying);
+// an open miniplayer counts. Fetched on open too, for the song already playing.
+let _miniplayerOpen = false
+window.cascade.miniPlayer.onOpenChange(open => {
+  _miniplayerOpen = open
+  if (open && !lyricsData.length && queue[queueIndex]) fetchLyrics()
+})
+
 document.getElementById('btn-miniplayer-open').addEventListener('click', () => {
   if (!_miniplayerEnabled) { showToast('Miniplayer is coming soon'); return }
   pushMiniplayerState()
@@ -4655,21 +4879,66 @@ document.getElementById('btn-miniplayer-open').addEventListener('click', () => {
 // Like / favourite
 const likeBtn = document.getElementById('btn-like')
 
-async function toggleLike() {
-  const item = queue[queueIndex]
+/** POST/DELETE /UserFavoriteItems/{id} - shared by the transport bar's heart
+ *  button, the overlay's, and the Favorite/Unfavorite row every context menu
+ *  that offers one (now playing, track rows, albums, artists) reuses. `item`
+ *  defaults to whatever is currently playing, which is what the two heart
+ *  buttons pass nothing and get.
+ *
+ *  NOT /Users/{userId}/FavoriteItems/{id} - checked against this server's own
+ *  OpenAPI spec (10.11.11), where /UserFavoriteItems is the only favorites
+ *  path, same userId-as-query-param shape as /UserPlayedItems (see
+ *  setItemPlayed). The old route would have 404'd on every heart click,
+ *  silently, since nothing here read the response before this function
+ *  started doing that (CODEMAP rule 1).
+ *
+ *  For the current track, "liked" is read off the button's own class rather
+ *  than item.UserData - that DOM state is already kept in sync by
+ *  updateNowPlaying() and is right even when UserData never loaded. Any other
+ *  item (a menu's target, not necessarily playing) has no button to read, so
+ *  it falls back to item.UserData?.IsFavorite, which is what the menu that
+ *  opened on it used to decide the row's own Favorite/Unfavorite label.
+ *
+ *  Compared by Id, not by reference: a Songs/album/artist row and
+ *  queue[queueIndex] are frequently different objects for the same track
+ *  (the row came from its own list fetch), so favoriting the playing song
+ *  from a row still has to find and update the one the heart buttons read. */
+async function toggleLike(item) {
+  const current = queue[queueIndex]
+  const isCurrent = !item || (!!current && item.Id === current.Id)
+  item = item || current
   if (!item) return
-  const isLiked = likeBtn.classList.contains('liked')
+  const isLiked = isCurrent ? likeBtn.classList.contains('liked') : !!item.UserData?.IsFavorite
   try {
-    await fetch(`${jf.url}/Users/${jf.userId}/FavoriteItems/${item.Id}`, {
+    const res = await fetch(`${jf.url}/UserFavoriteItems/${item.Id}?userId=${encodeURIComponent(jf.userId)}`, {
       method: isLiked ? 'DELETE' : 'POST',
-      headers: { 'X-Emby-Token': jf.token }
+      headers: CascadeCore.authHeaders(jf)
     })
-    likeBtn.classList.toggle('liked', !isLiked)
-    document.getElementById('ov-like').classList.toggle('liked', !isLiked)
-  } catch (e) { console.error('Like failed', e) }
+    // Read the response rather than assume success - see CODEMAP rule 1.
+    if (!res.ok) throw new Error(String(res.status))
+    if (!item.UserData) item.UserData = {}
+    item.UserData.IsFavorite = !isLiked
+    if (isCurrent) {
+      // item may be a different object than queue[queueIndex] holding the
+      // same track (see above) - patch both so a later ctx-menu/showCtxMenu
+      // read of queue[queueIndex] sees the change too.
+      if (current && current !== item) {
+        if (!current.UserData) current.UserData = {}
+        current.UserData.IsFavorite = !isLiked
+      }
+      // #ov-like (the overlay's own heart button) is gone - see Favorite
+      // in #ctx-menu, whose label showCtxMenu() refreshes on open.
+      likeBtn.classList.toggle('liked', !isLiked)
+      document.getElementById('ov-art-like').classList.toggle('liked', !isLiked)
+      pushMiniplayerState()
+    }
+  } catch (e) {
+    console.error('Favorite failed', e)
+    showNotice('Could not update favorite status on the server.', 'Favorite')
+  }
 }
 
-likeBtn.addEventListener('click', toggleLike)
+likeBtn.addEventListener('click', () => toggleLike())
 
 // ── Shuffle All ───────────────────────────────────────────────────────────────
 
@@ -4677,13 +4946,13 @@ likeBtn.addEventListener('click', toggleLike)
 // button. playItems() does the shuffling and keeps items' own order as the
 // unshuffled queue; pre-shuffling here used to hand it an already random list,
 // so toggling shuffle off afterwards never restored the original order.
-function shuffleAndPlay(items) {
+function shuffleAndPlay(items, source) {
   if (!items.length) return
   shuffle = true
   document.getElementById('btn-shuffle').classList.add('active')
   document.getElementById('ov-shuffle').classList.add('active')
 
-  playItems(items, Math.floor(Math.random() * items.length))
+  playItems(items, Math.floor(Math.random() * items.length), source)
 }
 
 async function shuffleAllSongs() {
@@ -4692,7 +4961,7 @@ async function shuffleAllSongs() {
     // loadSongs() renders the table itself once the shared fetch lands, so there
     // is nothing to draw here.
   }
-  shuffleAndPlay(allSongs)
+  shuffleAndPlay(allSongs, 'Songs')
 }
 
 document.getElementById('btn-shuffle-songs').addEventListener('click', shuffleAllSongs)
@@ -4733,12 +5002,44 @@ onDeck('pause', () => {
   pushMiniplayerState()
 })
 
-// Miniplayer control -> the exact same buttons onMediaKey above already
-// drives, not a second playback path.
-window.cascade.miniPlayer.onControl((action) => {
-  if (action === 'playpause') document.getElementById('btn-play').click()
-  else if (action === 'next')  document.getElementById('btn-next').click()
-  else if (action === 'prev')  document.getElementById('btn-prev').click()
+// Miniplayer control -> the exact same buttons and functions the main window
+// already uses, not a second playback path. The message comes from another
+// page, so it is parsed and clamped (parseMiniplayerCommand) before anything
+// acts on it; an unknown message is dropped.
+window.cascade.miniPlayer.onControl(async (raw) => {
+  const cmd = CascadeCore.parseMiniplayerCommand(raw)
+  if (!cmd) return
+  if (cmd.type === 'playpause') document.getElementById('btn-play').click()
+  else if (cmd.type === 'next') document.getElementById('btn-next').click()
+  else if (cmd.type === 'prev') document.getElementById('btn-prev').click()
+  else if (cmd.type === 'like') await toggleLike()
+  // Up Next's toggles: the transport bar's own buttons, so the main window's
+  // state and its button highlights stay the single source.
+  else if (cmd.type === 'shuffle') document.getElementById('btn-shuffle').click()
+  else if (cmd.type === 'automix') document.getElementById('btn-automix').click()
+  else if (cmd.type === 'repeat') document.getElementById('btn-repeat').click()
+  else if (cmd.type === 'seek') { const dur = mediaDuration(); if (dur) await seekTo(cmd.fraction * dur) }
+  // `volume`, not audio.volume: mid-crossfade the element is partway through
+  // a fade (see openLyricsEditorFor).
+  else if (cmd.type === 'volume') setVolumeRatio(volume + cmd.delta)
+  else if (cmd.type === 'credit') {
+    const url = CascadeCore.safeCreditUrl(lyricsCredit?.[cmd.who]?.url)
+    if (url) window.cascade.shell.openExternal(url)
+    return
+  }
+  // The miniplayer has a sheetId it holds no sheet for: send it on the push below.
+  else if (cmd.type === 'sheet') _mpSheetSent = false
+  // Up Next: same as clicking the row in the main queue panel, a Waterfall
+  // guest included (it asks the host instead of moving its own queue).
+  else if (cmd.type === 'jump') {
+    if (cmd.index <= queueIndex || cmd.index >= queue.length) return
+    if (isWaterfallFollower()) { if (typeof wfNotifyHostControls === 'function') wfNotifyHostControls(); return }
+    queueIndex = cmd.index
+    playCurrentTrack()
+    renderQueuePanel()
+  }
+  // Paused, there is no timeupdate to carry the new state back.
+  pushMiniplayerState()
 })
 
 // ── Settings ──────────────────────────────────────────────────────────────────
@@ -4900,38 +5201,50 @@ async function loadSettingsFields() {
     eqEnabled = eqEnableToggle.checked
     await window.cascade.store.set('eqEnabled', eqEnabled)
     _applyEqToGraph()
+    _refreshEqUI('music')
+    _refreshEqUI('video')
   }
 
-  document.getElementById('eq-edit-music').onclick = () => { _eqEditTarget = 'music'; _refreshEqUI() }
-  document.getElementById('eq-edit-video').onclick = () => { _eqEditTarget = 'video'; _refreshEqUI() }
+  // One editor per profile, side by side. Each finds its controls inside its
+  // own data-eq panel, so the two cannot write to each other's curve.
+  for (const mode of ['music', 'video']) {
+    const panel = _eqPanel(mode)
+    const profileToggle = panel.querySelector('.eq-profile-toggle')
+    profileToggle.onchange = async () => {
+      _eqProfile(mode).enabled = profileToggle.checked
+      _refreshEqUI(mode)
+      await _saveEqProfile(mode)
+    }
 
-  const eqPresetSel = document.getElementById('eq-preset')
-  eqPresetSel.innerHTML = '<option value="">Custom</option>' +
-    Object.keys(CascadeCore.EQ_PRESETS).map(name => `<option value="${name}">${name}</option>`).join('')
-  eqPresetSel.onchange = async () => {
-    if (!eqPresetSel.value) return
-    _eqEditProfile().bands = [...CascadeCore.EQ_PRESETS[eqPresetSel.value]]
-    _refreshEqUI()
-    await _saveEqProfile()
+    const presetSel = panel.querySelector('.eq-preset')
+    presetSel.innerHTML = '<option value="">Custom</option>' +
+      Object.keys(CascadeCore.EQ_PRESETS).map(name => `<option value="${name}">${name}</option>`).join('')
+    presetSel.onchange = async () => {
+      if (!presetSel.value) return
+      _eqProfile(mode).bands = [...CascadeCore.EQ_PRESETS[presetSel.value]]
+      _refreshEqUI(mode)
+      await _saveEqProfile(mode)
+    }
+
+    _buildEqGraphPoints(mode)
+
+    const preampAuto = panel.querySelector('.eq-preamp-auto')
+    preampAuto.onchange = async () => {
+      const profile = _eqProfile(mode)
+      // Seed manual mode with the current auto value instead of jumping to 0.
+      profile.preamp = preampAuto.checked ? null : CascadeCore.autoPreamp(profile.bands)
+      _refreshEqUI(mode)
+      await _saveEqProfile(mode)
+    }
+    const preampSlider = panel.querySelector('.eq-preamp-slider')
+    preampSlider.oninput = async () => {
+      _eqProfile(mode).preamp = parseFloat(preampSlider.value)
+      _refreshEqUI(mode)
+      await _saveEqProfile(mode)
+    }
+
+    _refreshEqUI(mode)
   }
-
-  _buildEqGraphPoints()
-
-  document.getElementById('eq-preamp-auto').onchange = async () => {
-    const profile = _eqEditProfile()
-    const isAuto = document.getElementById('eq-preamp-auto').checked
-    // Seed manual mode with the current auto value instead of jumping to 0.
-    profile.preamp = isAuto ? null : CascadeCore.autoPreamp(profile.bands)
-    _refreshEqUI()
-    await _saveEqProfile()
-  }
-  document.getElementById('eq-preamp-slider').oninput = async () => {
-    _eqEditProfile().preamp = parseFloat(document.getElementById('eq-preamp-slider').value)
-    _refreshEqUI()
-    await _saveEqProfile()
-  }
-
-  _refreshEqUI()
 }
 
 document.getElementById('btn-save-settings').addEventListener('click', async () => {
@@ -4946,11 +5259,10 @@ document.getElementById('btn-save-settings').addEventListener('click', async () 
   await window.cascade.store.set('username', user)
 
   try {
-    // An account signed in with a code has no stored password, and sending an
-    // empty one just 401s. If the existing token still works against this URL,
-    // there is nothing to re-authenticate - keep the session and save.
-    const effectivePass = pass || await window.cascade.store.get('password') || ''
-    if (!effectivePass) {
+    // No password is ever stored (the token is the session), so an empty field
+    // means "keep the current session": sending an empty password just 401s.
+    // If the existing token still works against this URL, keep it and save.
+    if (!pass) {
       const token = await window.cascade.store.get('token')
       const userId = await window.cascade.store.get('userId')
       if (!token || !userId) { promptReauth('Sign in again to change these.'); return }
@@ -4961,10 +5273,10 @@ document.getElementById('btn-save-settings').addEventListener('click', async () 
       return
     }
 
-    const auth = await jfAuth(url, user, effectivePass)
+    const auth = await jfAuth(url, user, pass)
     await window.cascade.store.set('token', auth.AccessToken)
     await window.cascade.store.set('userId', auth.User.Id)
-    if (pass) await window.cascade.store.set('password', pass)
+    await window.cascade.store.set('deviceIdMigrated', true)  // fresh login, current device id
 
     const status = document.getElementById('save-status')
     status.classList.add('visible')
@@ -5012,19 +5324,16 @@ document.getElementById('btn-logout').addEventListener('click', async () => {
 // Sign in by approving a code on a device you're already logged in on, instead
 // of typing a password. Protocol lives in src/core/jellyfin.ts.
 //
-// Worth having beyond convenience: it means Cascade never has to store a
-// password. The device-id migration falls back to the stored one, so an account
-// signed in this way simply keeps its existing token.
+// Cascade stores no password for any sign-in method; the token is the session.
 
 let _qcAbort = null   // set while a request is live; calling it stops the poll
 
 /**
  * Drop back to the sign-in screen because the session is no longer usable.
  *
- * Signing in with a code stores no password, so those accounts have nothing to
- * re-authenticate with silently - without this they would land on a form asking
- * for a password they never had. probeQuickConnect() re-runs so the code option
- * is showing by the time they read the message.
+ * No password is stored for any account, so there is nothing to re-authenticate
+ * with silently. probeQuickConnect() re-runs so the code option is showing by
+ * the time they read the message, for accounts that never had a password here.
  */
 function promptReauth(message) {
   document.getElementById('setup-overlay').classList.remove('hidden')
@@ -5133,9 +5442,10 @@ document.getElementById('setup-connect').addEventListener('click', async () => {
     const auth = await jfAuth(url, user, pass)
     await window.cascade.store.set('serverUrl', url)
     await window.cascade.store.set('username', user)
-    await window.cascade.store.set('password', pass)
     await window.cascade.store.set('token', auth.AccessToken)
     await window.cascade.store.set('userId', auth.User.Id)
+    // A fresh login is already bound to the current device id.
+    await window.cascade.store.set('deviceIdMigrated', true)
 
     document.getElementById('setup-overlay').classList.add('hidden')
     await connect(url, auth.AccessToken, auth.User.Id)
@@ -5180,10 +5490,11 @@ document.getElementById('btn-check-updates').addEventListener('click', async () 
 // control could not target a specific client. The device id in the auth header
 // only takes effect on a fresh login, so retiring it means re-authenticating.
 //
-// Runs once, needs a stored password, and only swaps the token on success -
-// a failed re-auth must leave the working token untouched rather than logging
-// the user out. If there is no stored password the flag is not set, so this
-// retries on a later launch once there is one.
+// Runs once, needs the password an install saved before 2.2.0 (read once in
+// init() and then deleted), and only swaps the token on success - a failed
+// re-auth must leave the working token untouched rather than logging the user
+// out. Without that password it cannot run; the old token keeps working, and
+// the next real sign-in (which always sets the flag) retires the old id.
 // Returns the credentials to connect with - the refreshed pair on success, the
 // existing ones otherwise - so the new identity applies on this launch rather
 // than the next one.
@@ -5217,7 +5528,7 @@ async function init() {
   }
 
   document.documentElement.setAttribute('data-platform', window.cascade.platform)
-  searchInput.placeholder = `Search songs, albums, artists… (${window.cascade.platform === 'darwin' ? '⌘K' : 'Ctrl+K'})`
+  setSearchPlaceholder(_browseMode)
   await window.cascade.getVersion().then(v => {
     appVersion = v
     const el = document.getElementById('app-version')
@@ -5226,6 +5537,8 @@ async function init() {
 
   await loadTheme()
   buildPresets()
+  await loadUiFont()
+  await loadNpTuning()
   await initDiscordRpc()
 
   crossfadeEnabled = (await window.cascade.store.get('crossfadeEnabled')) === true
@@ -5242,6 +5555,7 @@ async function init() {
     }
   }
   syncTranslateButtons()
+  refreshAppleLanguageStatus()
   crossfadeSeconds = parseInt(await window.cascade.store.get('crossfadeSeconds'), 10) || 6
   maxStreamingBitrate = parseInt(await window.cascade.store.get('maxStreamingBitrate'), 10) || DEFAULT_MAX_BITRATE
 
@@ -5249,48 +5563,38 @@ async function init() {
   eqMusicProfile = await _loadEqProfile('eqMusic')
   eqVideoProfile = await _loadEqProfile('eqVideo')
 
-  videoFullMode = (await window.cascade.store.get('videoFullMode')) === true
-
   // Restore saved volume
   const savedVol = await window.cascade.store.get('volume')
   if (savedVol !== undefined && savedVol !== null) setVolumeRatio(parseFloat(savedVol))
 
   const serverUrl = await window.cascade.store.get('serverUrl')
   const username  = await window.cascade.store.get('username')
-  const password  = await window.cascade.store.get('password')
+  // Only ever read to finish migrateDeviceId() for an install that still has
+  // one saved from before 2.2.0, then deleted. Jellyfin tokens do not expire
+  // on their own, so the token is the session and a password on disk is only
+  // a plaintext liability.
+  const legacyPassword = await window.cascade.store.get('password')
   let token       = await window.cascade.store.get('token')
   let userId      = await window.cascade.store.get('userId')
 
   // Always pre-fill the setup form so the user never has to retype from scratch
   if (serverUrl) document.getElementById('setup-url').value      = serverUrl
   if (username)  document.getElementById('setup-username').value  = username
-  if (password)  document.getElementById('setup-password').value  = password
   // The probe normally runs as the user types; a pre-filled URL never fires that.
   if (serverUrl) probeQuickConnect()
 
-  ;({ token, userId } = await migrateDeviceId(serverUrl, username, password, token, userId))
+  ;({ token, userId } = await migrateDeviceId(serverUrl, username, legacyPassword, token, userId))
+  if (legacyPassword !== undefined) await window.cascade.store.delete('password')
 
   if (serverUrl && token && userId) {
     document.getElementById('setup-overlay').classList.add('hidden')
     try {
       await connect(serverUrl, token, userId)
     } catch (e) {
-      // Token stale - silently re-auth with stored credentials before giving up
-      if (serverUrl && username && password) {
-        try {
-          const auth = await jfAuth(serverUrl, username, password)
-          await window.cascade.store.set('token', auth.AccessToken)
-          await window.cascade.store.set('userId', auth.User.Id)
-          await connect(serverUrl, auth.AccessToken, auth.User.Id)
-          return
-        } catch {}
-      }
-      // Nothing to retry with. An account set up via Quick Connect has no stored
-      // password by design, so say what actually happened rather than presenting
-      // a blank password field.
-      promptReauth(password
-        ? 'Your session expired. Sign in again.'
-        : 'Your session expired. Sign in again with a code, or enter your password.')
+      // The token was rejected: Jellyfin tokens only die when revoked (signed
+      // out, device removed in the dashboard), so this is a real sign-in, not a
+      // refresh. There is no stored password to retry with, by design.
+      promptReauth('Your session expired. Sign in again with a code, or enter your password.')
     }
   }
   // else setup overlay stays visible (fields already pre-filled above)
@@ -5301,9 +5605,19 @@ async function init() {
 const npOverlay = document.getElementById('np-overlay')
 let overlayOpen = false
 let overlayLyricsOpen = false
-// Persisted, video only - see applyVideoMode() for where it gets applied and
-// the .np-overlay.video.full CSS for what it actually changes.
-let videoFullMode = false
+
+// The traffic lights fade with the video controls. Watching the overlay's own
+// class list keeps this in one place: idle, open and video are each set from
+// several paths, and all of them end up here.
+let _windowButtonsHidden = false
+function syncWindowButtons() {
+  const hide = overlayOpen && npOverlay.classList.contains('video')
+    && npOverlay.classList.contains('idle') && !npOverlay.matches(':has(:focus-visible)')
+  if (hide === _windowButtonsHidden) return
+  _windowButtonsHidden = hide
+  window.cascade.setWindowButtonsVisible?.(!hide)
+}
+new MutationObserver(syncWindowButtons).observe(npOverlay, { attributes: true, attributeFilter: ['class'] })
 
 // ── Beat-reactive background ───────────────────────────────────────────────
 let _currentBgArtUrl = null  // current track's art URL for overlay background
@@ -5329,8 +5643,7 @@ function randomizeDrift() {
 // behind them and skip a write that was actually needed.
 //
 // One cache for one element: every caller passes #np-overlay (the drift loop
-// and clearAlbumArtTheme look it up locally, refreshAmbient uses the npOverlay
-// const). Passing a second element here would make them share a cache and
+// and clearAlbumArtTheme look it up locally). Passing a second element here would make them share a cache and
 // suppress each other's writes, and #np-overlay must not be replaced in the
 // DOM either - a fresh element would start blank behind a stale cache.
 let _lastOverlayBgCss = null
@@ -5492,9 +5805,19 @@ function _ensureEqGraph() {
   }
 }
 
+/** A saved EQ profile by mode, 'music' or 'video'. */
+function _eqProfile(mode) {
+  return mode === 'video' ? eqVideoProfile : eqMusicProfile
+}
+
+/** The settings panel that edits one profile. */
+function _eqPanel(mode) {
+  return document.querySelector(`.eq-panel[data-eq="${mode}"]`)
+}
+
 // Which saved profile is currently wired into the live graph.
 function _currentEqProfile() {
-  return eqActiveMode === 'video' ? eqVideoProfile : eqMusicProfile
+  return _eqProfile(eqActiveMode)
 }
 
 // Pushes eqEnabled + the active profile onto the actual filter nodes. Always
@@ -5505,7 +5828,9 @@ function _currentEqProfile() {
 function _applyEqToGraph() {
   if (!_audioCtx || !_eqPreamp || !_eqBandNodes) return
   const now = _audioCtx.currentTime
-  if (!eqEnabled) {
+  // Flat when the master switch is off, or when the profile for what is
+  // playing has its own switch off.
+  if (!eqEnabled || !_currentEqProfile().enabled) {
     _eqPreamp.gain.setTargetAtTime(1, now, EQ_RAMP_SEC)
     _eqBandNodes.forEach(band => band.gain.setTargetAtTime(0, now, EQ_RAMP_SEC))
     return
@@ -5525,12 +5850,6 @@ async function _loadEqProfile(key) {
   return CascadeCore.normalizeProfile(raw)
 }
 
-// The profile the settings panel is currently editing - not necessarily the
-// one wired into the live graph, see eqActiveMode/_currentEqProfile above.
-function _eqEditProfile() {
-  return _eqEditTarget === 'video' ? eqVideoProfile : eqMusicProfile
-}
-
 // Preset name whose gains match a profile's bands exactly, or '' (Custom).
 function _eqMatchingPreset(bands) {
   for (const name in CascadeCore.EQ_PRESETS) {
@@ -5539,12 +5858,11 @@ function _eqMatchingPreset(bands) {
   return ''
 }
 
-async function _saveEqProfile() {
-  const key = _eqEditTarget === 'video' ? 'eqVideo' : 'eqMusic'
-  await window.cascade.store.set(key, JSON.stringify(_eqEditProfile()))
+async function _saveEqProfile(mode) {
+  await window.cascade.store.set(mode === 'video' ? 'eqVideo' : 'eqMusic', JSON.stringify(_eqProfile(mode)))
   // Only ramp the live graph if the profile just edited is the one actually
   // playing - editing Video while music plays should not be audible yet.
-  if (_eqEditTarget === eqActiveMode) _applyEqToGraph()
+  if (mode === eqActiveMode) _applyEqToGraph()
 }
 
 // Builds the graph's five draggable points and their frequency labels from
@@ -5552,10 +5870,11 @@ async function _saveEqProfile() {
 // re-runs every time the view is shown, so this rebuilds from scratch each
 // time rather than trying to detect "already built" - five small elements is
 // nothing to redo, and it sidesteps ever going stale).
-function _buildEqGraphPoints() {
+function _buildEqGraphPoints(mode) {
   const SVG_NS = 'http://www.w3.org/2000/svg'
-  const pointsG = document.getElementById('eq-graph-points')
-  const labelsWrap = document.getElementById('eq-graph-labels')
+  const panel = _eqPanel(mode)
+  const pointsG = panel.querySelector('.eq-graph-points')
+  const labelsWrap = panel.querySelector('.eq-graph-labels')
   pointsG.innerHTML = ''
   labelsWrap.innerHTML = ''
 
@@ -5568,10 +5887,10 @@ function _buildEqGraphPoints() {
     circle.setAttribute('cx', String(CascadeCore.eqBandX(i, CascadeCore.EQ_BANDS.length, EQ_GRAPH_W)))
     circle.setAttribute('tabindex', '0')
     circle.setAttribute('role', 'slider')
-    circle.setAttribute('aria-label', `${label} gain`)
+    circle.setAttribute('aria-label', `${mode === 'video' ? 'Video' : 'Music'} ${label} gain`)
     circle.setAttribute('aria-valuemin', String(-CascadeCore.EQ_GAIN_LIMIT))
     circle.setAttribute('aria-valuemax', String(CascadeCore.EQ_GAIN_LIMIT))
-    _wireEqPoint(circle, i)
+    _wireEqPoint(circle, i, mode)
     pointsG.appendChild(circle)
 
     const labelEl = document.createElement('div')
@@ -5585,14 +5904,14 @@ function _buildEqGraphPoints() {
 // drag via document-level move/up, arrow keys as a real role="slider") but
 // vertical and in dB rather than horizontal and in a 0..1 ratio - the two
 // don't share enough shape to reuse the same function.
-function _wireEqPoint(circle, i) {
+function _wireEqPoint(circle, i, mode) {
   const apply = async (db) => {
-    _eqEditProfile().bands[i] = db
-    _refreshEqUI()
-    await _saveEqProfile()
+    _eqProfile(mode).bands[i] = db
+    _refreshEqUI(mode)
+    await _saveEqProfile(mode)
   }
   const dbAt = (e) => {
-    const rect = document.getElementById('eq-graph').getBoundingClientRect()
+    const rect = circle.ownerSVGElement.getBoundingClientRect()
     return CascadeCore.eqYToDb(e.clientY - rect.top, rect.height)
   }
 
@@ -5616,7 +5935,7 @@ function _wireEqPoint(circle, i) {
   })
 
   circle.addEventListener('keydown', (e) => {
-    const cur = _eqEditProfile().bands[i]
+    const cur = _eqProfile(mode).bands[i]
     let next
     if (e.key === 'ArrowUp' || e.key === 'ArrowRight') next = cur + 0.5
     else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') next = cur - 0.5
@@ -5634,32 +5953,40 @@ function _wireEqPoint(circle, i) {
   })
 }
 
-// Syncs the settings-panel EQ controls to _eqEditProfile(). Called after
-// every edit so the preset dropdown, the preamp's auto value, the curve and
-// the band labels never drift from the numbers actually in play.
-function _refreshEqUI() {
-  const profile = _eqEditProfile()
-  document.getElementById('eq-graph-curve').setAttribute('d', CascadeCore.eqCurvePath(profile.bands, EQ_GRAPH_W, EQ_GRAPH_H))
-  document.querySelectorAll('#eq-graph-points .eq-graph-point').forEach((circle, i) => {
+// Syncs one panel's EQ controls to its profile. Called after every edit so
+// the preset dropdown, the preamp's auto value, the curve and the band labels
+// never drift from the numbers actually in play.
+function _refreshEqUI(mode) {
+  const profile = _eqProfile(mode)
+  const panel = _eqPanel(mode)
+  panel.querySelector('.eq-graph-curve').setAttribute('d', CascadeCore.eqCurvePath(profile.bands, EQ_GRAPH_W, EQ_GRAPH_H))
+  panel.querySelectorAll('.eq-graph-point').forEach((circle, i) => {
     const db = profile.bands[i]
     circle.setAttribute('cy', String(CascadeCore.eqDbToY(db, EQ_GRAPH_H)))
     circle.setAttribute('aria-valuenow', db.toFixed(1))
     circle.setAttribute('aria-valuetext', `${db.toFixed(1)} dB`)
   })
-  document.querySelectorAll('#eq-graph-labels .eq-band-value').forEach((el, i) => {
+  panel.querySelectorAll('.eq-graph-labels .eq-band-value').forEach((el, i) => {
     el.textContent = `${profile.bands[i].toFixed(1)} dB`
   })
   const auto = profile.preamp === null
-  const preampAuto = document.getElementById('eq-preamp-auto')
-  const preampSlider = document.getElementById('eq-preamp-slider')
+  const preampSlider = panel.querySelector('.eq-preamp-slider')
   const shownPreamp = auto ? CascadeCore.autoPreamp(profile.bands) : profile.preamp
-  preampAuto.checked = auto
+  panel.querySelector('.eq-preamp-auto').checked = auto
   preampSlider.disabled = auto
   preampSlider.value = String(shownPreamp)
-  document.getElementById('eq-preamp-value').textContent = `${shownPreamp.toFixed(1)} dB${auto ? ' (auto)' : ''}`
-  document.getElementById('eq-preset').value = _eqMatchingPreset(profile.bands)
-  document.getElementById('eq-edit-music').classList.toggle('active', _eqEditTarget === 'music')
-  document.getElementById('eq-edit-video').classList.toggle('active', _eqEditTarget === 'video')
+  panel.querySelector('.eq-preamp-value').textContent = `${shownPreamp.toFixed(1)} dB`
+  panel.querySelector('.eq-preset').value = _eqMatchingPreset(profile.bands)
+
+  // Grayed out and out of reach whenever it would do nothing: its own switch
+  // is off, or the master one is. With the master off the side's own switch
+  // goes too, since it could not change anything either.
+  const profileToggle = panel.querySelector('.eq-profile-toggle')
+  profileToggle.checked = profile.enabled
+  profileToggle.disabled = !eqEnabled
+  panel.classList.toggle('off', !profile.enabled)
+  panel.querySelector('.eq-panel-body').inert = !eqEnabled || !profile.enabled
+  panel.closest('.eq-panels').classList.toggle('master-off', !eqEnabled)
 }
 
 function startEqLoop() {
@@ -5754,18 +6081,18 @@ function openOverlay() {
     }
   }
 
-  // A film supplies its own colour, so the art-derived gradient steps aside and
-  // ambient takes over from the beat loop.
+  // A film supplies its own colour, so the art-derived gradient steps aside.
   if (playingVideo()) npOverlay.classList.remove('art-theme')
   else startBeatLoop()
-  refreshAmbient()
 }
 
 function closeOverlay() {
   overlayOpen = false
   npOverlay.classList.remove('open')
   stopBeatLoop()
-  stopAmbient()
+  // Fullscreen is for the film. Closing the player with it still on would
+  // leave the library filling the screen.
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
 }
 
 // Idle fade for the overlay controls. They get out of the way of the artwork
@@ -5791,9 +6118,16 @@ function pokeOverlayControls() {
 onDeck('play', pokeOverlayControls)
 onDeck('pause', pokeOverlayControls)
 
-// Only the left NP section (art + info) opens the overlay - everything else is a deadzone
-document.querySelector('.statusbar').addEventListener('click', (e) => {
-  if (!e.target.closest('.np') || e.target.closest('.np button')) return
+// Any empty part of the bar opens the overlay, not just the left section: the
+// right half used to be a dead zone. Controls keep their own clicks. A drag
+// that starts on a slider and is let go over empty bar still reports a click
+// on the bar, so where the press began decides, not where it ended.
+const _statusbarControls = 'button, a, input, select, [role="slider"]'
+let _statusbarPressOnControl = false
+const statusbar = document.querySelector('.statusbar')
+statusbar.addEventListener('pointerdown', (e) => { _statusbarPressOnControl = !!e.target.closest(_statusbarControls) })
+statusbar.addEventListener('click', (e) => {
+  if (_statusbarPressOnControl || e.target.closest(_statusbarControls)) return
   overlayOpen ? closeOverlay() : openOverlay()
 })
 
@@ -5802,7 +6136,12 @@ document.getElementById('np-overlay-close').addEventListener('click', closeOverl
 // one small x in the corner, which on Windows and Linux sat under the OS
 // caption buttons and could not be clicked at all.
 document.getElementById('np-overlay-collapse').addEventListener('click', closeOverlay)
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && overlayOpen) closeOverlay() })
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !overlayOpen) return
+  // The shortcut list closes first, the player on the next press.
+  if (document.getElementById('ov-keys').classList.contains('open')) { toggleKeysPanel(false); return }
+  closeOverlay()
+})
 
 // Lyrics toggle - queue slides left out, lyrics slides right in (and vice versa)
 document.getElementById('ov-lyrics-toggle').addEventListener('click', () => {
@@ -5821,7 +6160,7 @@ let sleepAtTrackEnd = false  // true when "End of current track" is selected
 function clearSleepTimer() {
   if (sleepTimerId) { clearTimeout(sleepTimerId); sleepTimerId = null }
   sleepAtTrackEnd = false
-  document.getElementById('ov-sleep-timer').classList.remove('active')
+  document.getElementById('ctx-sleep-timer').classList.remove('active')
 }
 
 function setSleepTimerMinutes(mins) {
@@ -5829,17 +6168,17 @@ function setSleepTimerMinutes(mins) {
   sleepTimerId = setTimeout(() => {
     audio.pause()
     sleepTimerId = null
-    document.getElementById('ov-sleep-timer').classList.remove('active')
+    document.getElementById('ctx-sleep-timer').classList.remove('active')
     showToast('Sleep timer: playback paused')
   }, mins * 60 * 1000)
-  document.getElementById('ov-sleep-timer').classList.add('active')
+  document.getElementById('ctx-sleep-timer').classList.add('active')
   showToast(`Sleep timer set for ${mins} minutes`)
 }
 
 function setSleepTimerAtTrackEnd() {
   clearSleepTimer()
   sleepAtTrackEnd = true
-  document.getElementById('ov-sleep-timer').classList.add('active')
+  document.getElementById('ctx-sleep-timer').classList.add('active')
   showToast('Playback will pause after this track')
 }
 
@@ -5869,9 +6208,14 @@ function toggleDropdownUnder(dd, btnEl) {
   return true
 }
 
-document.getElementById('ov-sleep-timer').addEventListener('click', (e) => {
+// Sleep timer moved from its own overlay button into the More menu (see
+// #ctx-menu). hideCtxMenu() first, unlike this menu's other rows (CODEMAP
+// notes they deliberately never close themselves) - leaving it open behind
+// the dropdown this opens would look broken, not deliberate.
+document.getElementById('ctx-sleep-timer').addEventListener('click', (e) => {
   e.stopPropagation()
-  toggleDropdownUnder(sleepTimerDropdown, e.currentTarget)
+  hideCtxMenu()
+  toggleDropdownUnder(sleepTimerDropdown, document.getElementById('ov-more-btn'))
 })
 
 sleepTimerDropdown.querySelectorAll('[data-sleep-mins]').forEach(btn => {
@@ -5889,8 +6233,9 @@ sleepTimerDropdown.querySelectorAll('[data-sleep-mins]').forEach(btn => {
 // button that opens it. A per-menu copy is how the third one ends up staying
 // open behind the second.
 const OV_DROPDOWNS = [
-  ['sleep-timer-dropdown',  'ov-sleep-timer'],
+  ['sleep-timer-dropdown',  'ctx-sleep-timer'],
   ['subs-dropdown',         'ov-subs'],
+  ['chapters-dropdown',     'ov-chapters'],
   ['audio-track-dropdown',  'ov-audio-track'],
 ]
 
@@ -5940,55 +6285,8 @@ document.getElementById('ov-shuffle').addEventListener('click', () => {
 document.getElementById('ov-repeat').addEventListener('click', () => {
   document.getElementById('btn-repeat').click()
 })
-document.getElementById('ov-like').addEventListener('click', toggleLike)
-
 // Overlay progress bar - shares wireProgressBar() with the statusbar one.
 wireProgressBar('ov-prog-bar', 'ov-prog-fill', 'ov-cur')
-
-// ── Ambient mode ──────────────────────────────────────────────────────────────
-//
-// The picture's own colours bled out around the frame, like YouTube's ambient
-// mode. A frame is copied into a 32x18 canvas a few times a second and CSS does
-// the rest - the blur is what makes the resolution irrelevant, so sampling any
-// larger would be work thrown away.
-//
-// Gated on the existing album-art accent toggle rather than a new setting: that
-// switch already means "let what is playing colour the UI", and this is the
-// same idea with frames instead of cover art.
-
-const AMBIENT_MS = 250
-const ambientCanvas = document.getElementById('ov-ambient')
-const ambientCtx = ambientCanvas.getContext('2d')
-let _ambientTimer = null
-
-function ambientShouldRun() {
-  return themeAlbumArt && overlayOpen && playingVideo()
-}
-
-function startAmbient() {
-  if (_ambientTimer) return
-  npOverlay.classList.add('ambient')
-  _ambientTimer = setInterval(() => {
-    // readyState < 2 means there is no current frame to copy - during a seek
-    // or a stream swap, drawing would either throw or smear the last frame.
-    if (audio.readyState < 2) return
-    try {
-      ambientCtx.drawImage(audio, 0, 0, ambientCanvas.width, ambientCanvas.height)
-    } catch { /* frame not decodable yet; the next tick will do */ }
-  }, AMBIENT_MS)
-}
-
-function stopAmbient() {
-  if (_ambientTimer) { clearInterval(_ambientTimer); _ambientTimer = null }
-  npOverlay.classList.remove('ambient')
-  ambientCtx.clearRect(0, 0, ambientCanvas.width, ambientCanvas.height)
-}
-
-/** Single entry point, so every caller stops having to know the conditions. */
-function refreshAmbient() {
-  if (ambientShouldRun()) startAmbient()
-  else stopAmbient()
-}
 
 // ── Video controls ────────────────────────────────────────────────────────────
 //
@@ -6012,7 +6310,7 @@ function skipBy(delta) {
   const dur = mediaDuration()
   if (!dur) return
 
-  if (!(_playMethod === 'Transcode' && playingVideo())) {
+  if (!_transcodeUrl) {
     seekTo(mediaPosition() + delta)
     return
   }
@@ -6036,12 +6334,15 @@ document.getElementById('ov-back10').addEventListener('click', () => skipBy(-SKI
 document.getElementById('ov-fwd10').addEventListener('click', () => skipBy(SKIP_SECONDS))
 
 // ── Fullscreen ──
-// The overlay goes fullscreen, not the <video>: the transport controls live in
-// the overlay, and handing the element to the browser would take them away and
-// leave the native ones in their place.
+// The whole page goes fullscreen, not the <video> and not the overlay. The
+// <video> would trade our controls for the browser's. The overlay was the
+// choice until it turned out that element fullscreen draws only that element:
+// the More menu, the subtitle, audio and chapter pickers and every dialog
+// live outside it and opened invisibly. The overlay already covers the page,
+// so it looks the same, and everything layered above it still shows.
 function toggleVideoFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
-  else npOverlay.requestFullscreen().catch(() => {})
+  else document.documentElement.requestFullscreen().catch(() => {})
 }
 
 document.getElementById('ov-fullscreen').addEventListener('click', toggleVideoFullscreen)
@@ -6050,36 +6351,89 @@ document.getElementById('ov-fullscreen').addEventListener('click', toggleVideoFu
 document.getElementById('ov-mute').addEventListener('click', () => document.getElementById('btn-mute').click())
 onDeck('dblclick', () => { if (playingVideo()) toggleVideoFullscreen() })
 
-// ── Full mode ──
-// Independent of real OS fullscreen above - full mode is about the overlay's
-// own chrome (header, docked vs floating controls), fullscreen is about
-// whether the OS gives the window the whole screen. Either can be on without
-// the other, same as VLC lets you keep on-screen controls in fullscreen.
-async function setVideoFullMode(on) {
-  videoFullMode = on
-  npOverlay.classList.toggle('full', on && playingVideo())
-  const btn = document.getElementById('ov-full-mode')
-  btn.classList.toggle('active', on)
-  btn.setAttribute('aria-pressed', String(!!on))
-  await window.cascade.store.set('videoFullMode', on)
+// Restores the exit the hidden header would otherwise have provided.
+document.getElementById('ov-video-close').addEventListener('click', closeOverlay)
+
+// ── Keyboard ──
+//
+// YouTube's player keys, as far as they map onto this one. VIDEO_KEYS is only
+// the list the ? panel shows; the handler below is what they do.
+const VIDEO_KEYS = [
+  ['Space  or  K', 'Play or pause'],
+  ['J  /  L', 'Back or forward 10 seconds'],
+  ['←  /  →', 'Back or forward 5 seconds'],
+  ['↑  /  ↓', 'Volume up or down'],
+  ['M', 'Mute'],
+  ['F', 'Fullscreen'],
+  ['C', 'Subtitles on or off'],
+  ['0 – 9', 'Jump to 0% – 90%'],
+  ['Home  /  End', 'Start or end'],
+  [',  /  .', 'Previous or next frame (while paused)'],
+  ['<  /  >', 'Slower or faster'],
+  ['Shift+P  /  Shift+N', 'Previous or next episode'],
+  [window.cascade.platform === 'darwin' ? '⌥←  /  ⌥→' : 'Ctrl+←  /  Ctrl+→', 'Previous or next chapter'],
+  ['?', 'This list'],
+  ['Esc', 'Close'],
+]
+const ARROW_SECONDS = 5
+const PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
+/** The subtitle track C turns back on, so on/off returns to your pick. */
+let _lastSubtitleIndex = 0
+
+const osd = document.getElementById('ov-osd')
+let _osdTimer = null
+/** A second of feedback in the middle of the picture. */
+function videoOsd(text) {
+  osd.textContent = text
+  osd.classList.add('show')
+  clearTimeout(_osdTimer)
+  _osdTimer = setTimeout(() => osd.classList.remove('show'), 900)
 }
 
-document.getElementById('ov-full-mode').addEventListener('click', () => setVideoFullMode(!videoFullMode))
+const keysPanel = document.getElementById('ov-keys')
+function toggleKeysPanel(open = !keysPanel.classList.contains('open')) {
+  if (open && !keysPanel.childElementCount) {
+    keysPanel.innerHTML = '<div class="ov-keys-head">Keyboard shortcuts</div>'
+      + VIDEO_KEYS.map(([k, what]) => `<kbd>${esc(k)}</kbd><span>${esc(what)}</span>`).join('')
+  }
+  keysPanel.classList.toggle('open', open)
+}
 
-// Shift+F, deliberately next to F for real fullscreen: the two are related and
-// easy to confuse, so their shortcuts should look related too. Plain F is the
-// OS giving the window the screen; Shift+F is Cascade hiding its own chrome.
-// Guarded against firing while typing, same as every other single-key shortcut
-// in this file.
-document.addEventListener('keydown', (e) => {
-  if (e.key !== 'F' || !e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return
-  if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable) return
-  if (!overlayOpen || !playingVideo()) return
-  e.preventDefault()
-  setVideoFullMode(!videoFullMode)
-})
-// Restores the exit the hidden header would otherwise have provided.
-document.getElementById('ov-full-exit').addEventListener('click', closeOverlay)
+function setVideoRate(rate) {
+  _videoRate = rate
+  audio.playbackRate = audio.defaultPlaybackRate = rate
+  videoOsd(`Speed ${rate}×`)
+}
+
+function toggleSubtitles() {
+  const tracks = [...audio.querySelectorAll('track')]
+  if (!tracks.length) { videoOsd('No subtitles'); return }
+  const showing = tracks.findIndex(t => t.track.mode === 'showing')
+  if (showing >= 0) {
+    _lastSubtitleIndex = showing
+    selectSubtitleTrack(null)
+    videoOsd('Subtitles off')
+  } else {
+    const i = Math.min(_lastSubtitleIndex, tracks.length - 1)
+    selectSubtitleTrack(i)
+    videoOsd(tracks[i].label || 'Subtitles on')
+  }
+}
+
+function jumpChapter(dir) {
+  const target = CascadeCore.chapterTarget(_chapters, mediaPosition(), dir)
+  if (target == null) return
+  seekTo(target)
+  videoOsd(_chapters[CascadeCore.chapterAt(_chapters, target)].name)
+}
+
+/** One frame, at the film's own rate when the server told us it. */
+function stepFrame(dir) {
+  if (!audio.paused) return
+  const v = (queue[queueIndex]?.MediaStreams || []).find(s => s.Type === 'Video')
+  const fps = v?.RealFrameRate || v?.AverageFrameRate || 24
+  seekTo(mediaPosition() + dir / fps)
+}
 
 // Escape is handled by the browser, which exits fullscreen without telling the
 // overlay - so closing on Escape has to wait until it is no longer fullscreen,
@@ -6088,14 +6442,43 @@ document.addEventListener('keydown', (e) => {
   if (!overlayOpen || !playingVideo()) return
   const t = /** @type {HTMLElement} */ (e.target)
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+  const arrow = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0
 
-  if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleVideoFullscreen() }
-  else if (e.key === 'ArrowLeft')     { e.preventDefault(); skipBy(-SKIP_SECONDS) }
-  else if (e.key === 'ArrowRight')    { e.preventDefault(); skipBy(SKIP_SECONDS) }
-  else if (e.key === ' ')             { e.preventDefault(); document.getElementById('btn-play').click() }
-  else if (e.key === 'ArrowUp')       { e.preventDefault(); nudgeVolume(0.05) }
-  else if (e.key === 'ArrowDown')     { e.preventDefault(); nudgeVolume(-0.05) }
-  else if (e.key === 'm' || e.key === 'M') { e.preventDefault(); document.getElementById('btn-mute').click() }
+  // Chapters are YouTube's Ctrl+arrows, plus Option+arrows because macOS
+  // keeps Ctrl+arrows for switching desktops and never delivers them.
+  if (arrow && (e.ctrlKey || e.altKey) && !e.metaKey) { e.preventDefault(); jumpChapter(arrow); return }
+  // Anything else with Cmd/Ctrl/Option belongs to the app or the OS (Cmd+K
+  // search, Cmd+F), not to the player.
+  if (e.metaKey || e.ctrlKey || e.altKey) return
+
+  const dur = mediaDuration()
+  const key = e.key.length === 1 && !e.shiftKey ? e.key.toLowerCase() : e.key
+  let handled = true
+  if (key === ' ' || key === 'k') document.getElementById('btn-play').click()
+  else if (key === 'j') skipBy(-SKIP_SECONDS)
+  else if (key === 'l') skipBy(SKIP_SECONDS)
+  else if (arrow) skipBy(arrow * ARROW_SECONDS)
+  else if (key === 'ArrowUp' || key === 'ArrowDown') {
+    nudgeVolume(key === 'ArrowUp' ? 0.05 : -0.05)
+    videoOsd(`Volume ${Math.round(audio.volume * 100)}%`)
+  }
+  else if (key === 'm') { document.getElementById('btn-mute').click(); videoOsd(audio.muted ? 'Muted' : 'Unmuted') }
+  else if (key === 'f') toggleVideoFullscreen()
+  else if (key === 'c') toggleSubtitles()
+  else if (/^[0-9]$/.test(key) && dur) seekTo(dur * Number(key) / 10)
+  else if (key === 'Home') seekTo(0)
+  else if (key === 'End' && dur) seekTo(dur)
+  else if (key === ',' || key === '.') stepFrame(key === '.' ? 1 : -1)
+  else if (key === '<' || key === '>') {
+    const i = PLAYBACK_RATES.indexOf(_videoRate)
+    const next = PLAYBACK_RATES[Math.max(0, Math.min(PLAYBACK_RATES.length - 1, (i < 0 ? 3 : i) + (key === '>' ? 1 : -1)))]
+    setVideoRate(next)
+  }
+  else if (key === 'N' && queueIndex < queue.length - 1) document.getElementById('btn-next').click()
+  else if (key === 'P' && queue.length > 1) document.getElementById('btn-prev').click()
+  else if (key === '?') toggleKeysPanel()
+  else handled = false
+  if (handled) e.preventDefault()
 })
 
 /** Change volume by `delta`. Thin wrapper for the video overlay's own arrow-key
@@ -6133,6 +6516,28 @@ document.getElementById('ov-subs').addEventListener('click', (e) => {
   })
 
   toggleDropdownUnder(subsDropdown, e.currentTarget)
+})
+
+// ── Chapter picker ──
+
+const chaptersDropdown = document.getElementById('chapters-dropdown')
+
+document.getElementById('ov-chapters').addEventListener('click', (e) => {
+  e.stopPropagation()
+  const current = CascadeCore.chapterAt(_chapters, mediaPosition())
+  chaptersDropdown.innerHTML = ['<div class="ov-dd-head">Chapters</div>',
+    ..._chapters.map((c, i) =>
+      `<button class="ov-dd-item${i === current ? ' checked' : ''}" data-chapter="${i}">${esc(c.name)}<span class="ov-dd-time">${fmtTime(c.sec)}</span></button>`),
+  ].join('')
+  chaptersDropdown.querySelectorAll('[data-chapter]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      chaptersDropdown.classList.remove('open')
+      seekTo(_chapters[Number(/** @type {HTMLElement} */ (btn).dataset.chapter)].sec)
+    })
+  })
+  toggleDropdownUnder(chaptersDropdown, e.currentTarget)
+  // Long films have dozens: land on the one playing, not the top of the list.
+  chaptersDropdown.querySelector('.checked')?.scrollIntoView({ block: 'nearest' })
 })
 
 // ── Audio track picker ──
@@ -6198,9 +6603,6 @@ function syncOverlayState() {
   document.getElementById('ov-artist').innerHTML = `<span class="np-scroll-inner">${esc(item.AlbumArtist || item.Artists?.[0] || '')}</span>`
   refreshMarquees()
 
-  // Like state
-  document.getElementById('ov-like').classList.toggle('liked', item.UserData?.IsFavorite || false)
-
   // Shuffle / repeat state
   document.getElementById('ov-shuffle').classList.toggle('active', shuffle)
   updateRepeatButtons()
@@ -6211,71 +6613,188 @@ let autoMixEnabled = false
 document.getElementById('btn-automix').addEventListener('click', () => {
   autoMixEnabled = !autoMixEnabled
   document.getElementById('btn-automix').classList.toggle('active', autoMixEnabled)
+  _renderQueueMeta()   // auto-mix means the queue never ends
   showToast(autoMixEnabled ? 'Auto-mix on - similar tracks will keep playing after the queue ends' : 'Auto-mix off')
 })
 
 function renderQueuePanel() {
   const container = document.getElementById('ov-queue-rows')
   const panel     = document.getElementById('ov-panel-queue')
-  if (!queue.length) { container.innerHTML = '<div class="empty-state" style="padding:40px 0">Queue is empty</div>'; return }
+  const follower  = isWaterfallFollower()
 
-  // Bind scroll listener once - shifts the render window as the user scrolls
+  // Bind once - shifts the Up Next render window as the user scrolls, and
+  // when the panel resizes (a taller window shows more rows than were drawn,
+  // and the gap below them is just the spacer: blank).
   if (!_queueScrollBound) {
     _queueScrollBound = true
-    panel.addEventListener('scroll', () => {
-      if (!queue.length) return
-      // container.offsetTop is the in-panel "Queue" header - scrollTop 0 is not row 0
-      const visStart = Math.max(0, Math.floor((panel.scrollTop - container.offsetTop) / QUEUE_ROW_H))
+    const rewindow = () => {
+      const base = queueIndex + 1
+      if (base >= queue.length) return
+      const win = _queueWin(panel)
+      // Up Next's rows start at container.offsetTop inside the panel.
+      const visStart = base + Math.max(0, Math.floor((panel.scrollTop - container.offsetTop) / QUEUE_ROW_H))
       const visEnd   = visStart + Math.ceil(panel.clientHeight / QUEUE_ROW_H)
       const nearTop  = visStart < _queueWinStart + 3
-      const nearBot  = visEnd   > _queueWinStart + QUEUE_WIN - 3
+      const nearBot  = visEnd   > _queueWinStart + win - 3
       if (nearTop || nearBot) {
-        // Only redraw on a real window change, otherwise the programmatic scroll in
-        // _drawQueueRows re-triggers this and fights it.
-        const next = Math.max(0, Math.min(visStart - 3, queue.length - QUEUE_WIN))
-        if (next !== _queueWinStart) { _queueWinStart = next; _drawQueueRows(container, false) }
+        // Only redraw on a real window change, or a redraw's own scroll
+        // re-triggers this and fights it.
+        const next = Math.max(base, Math.min(visStart - 3, queue.length - win))
+        if (next !== _queueWinStart) { _queueWinStart = next; _drawQueueRows(container) }
       }
-    }, { passive: true })
+    }
+    panel.addEventListener('scroll', rewindow, { passive: true })
+    new ResizeObserver(rewindow).observe(panel)
   }
 
-  // Re-centre window on the current track
-  _queueWinStart = Math.max(0, Math.min(queueIndex - QUEUE_BEFORE, queue.length - QUEUE_WIN))
-  _drawQueueRows(container, true)
+  // Now Playing, pinned.
+  const cur = queue[queueIndex]
+  const nowRow = document.getElementById('q-now-row')
+  nowRow.innerHTML = cur ? _queueRowHtml(cur, queueIndex, { current: true }) : '<div class="q-empty">Nothing playing</div>'
+  nowRow.querySelectorAll('.queue-row').forEach(el => _wireQueueRow(el, follower))
+
+  // History: the count always, the rows only while it is open.
+  document.getElementById('q-history-count').textContent = queueIndex > 0 ? queueIndex : ''
+  document.getElementById('q-history-head').hidden = queueIndex <= 0
+  // Positions in a Waterfall room are shared (and wfAddedBy is indexed by
+  // them), so the history is not this client's to clear there.
+  document.getElementById('q-history-clear').hidden =
+    typeof wfActive === 'function' && wfActive()
+  _renderQueueHistory()
+
+  // Up Next: where the queue came from, its position, and when it ends.
+  document.getElementById('q-next-source').textContent = queueSource ? `From ${queueSource}` : ''
+  _renderQueueMeta()
+
+  // The window starts at the first upcoming track. The panel opens at the
+  // top (the History toggle, then Now Playing); with History open, it opens
+  // just past it, on Now Playing. Measured from the element before the sticky
+  // row, since a sticky element's own offsetTop moves as it sticks.
+  _queueWinStart = queueIndex + 1
+  _drawQueueRows(container)
+  const hist = document.getElementById('q-history-rows')
+  panel.scrollTop = hist.hidden ? 0 : hist.offsetTop + hist.offsetHeight
 }
 
-function _drawQueueRows(container, scrollToCurrent) {
-  const winEnd = Math.min(queue.length, _queueWinStart + QUEUE_WIN)
-  const topH   = _queueWinStart * QUEUE_ROW_H
-  const botH   = (queue.length - winEnd) * QUEUE_ROW_H
-
-  // A guest mirrors the host's queue. Reordering or removing locally would
-  // desync it immediately, so those controls are not rendered at all.
-  const follower = isWaterfallFollower()
-
-  const rows = queue.slice(_queueWinStart, winEnd).map((item, idx) => {
-    const i     = _queueWinStart + idx
-    const art   = item.__wfUnavailable ? null
-      : artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
-    const thumb = art ? `<img src="${art}" alt="" loading="lazy" onerror="this.style.display='none'">` : '♪'
-    const dur   = fmtTime((item.RunTimeTicks || 0) / 10000000)
-    const by    = queueAddedBy(i)
-    const sub   = item.__wfUnavailable ? '' : esc(item.AlbumArtist || item.Artists?.[0] || '')
-
-    return `<div class="queue-row${i === queueIndex ? ' current' : ''}${item.__wfUnavailable ? ' unavailable' : ''}" data-qi="${i}"${follower ? '' : ' draggable="true"'}>
-      ${follower ? '' : `<div class="queue-row-drag" title="Drag to reorder">
+/** One queue row. `current` is the pinned Now Playing row; `editable` rows
+ *  (Up Next, for a client that owns the queue) get drag and remove. */
+function _queueRowHtml(item, i, { current = false, editable = false } = {}) {
+  const art   = item.__wfUnavailable ? null
+    : artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
+  const thumb = art ? `<img src="${art}" alt="" loading="lazy" onerror="this.style.display='none'">` : '♪'
+  const dur   = fmtTime((item.RunTimeTicks || 0) / 10000000)
+  const by    = queueAddedBy(i)
+  const sub   = item.__wfUnavailable ? '' : esc(item.AlbumArtist || item.Artists?.[0] || '')
+  return `<div class="queue-row${current ? ' current' : ''}${item.__wfUnavailable ? ' unavailable' : ''}" data-qi="${i}"${editable ? ' draggable="true"' : ''}>
+      ${editable ? `<div class="queue-row-drag" title="Drag to reorder">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="18" x2="16" y2="18"/></svg>
-      </div>`}
+      </div>` : ''}
       <div class="queue-row-art">${thumb}</div>
       <div style="min-width:0;flex:1">
         <div class="queue-row-title">${esc(item.Name)}</div>
         <div class="queue-row-artist">${sub}${by ? `<span class="queue-row-by">added by ${esc(by)}</span>` : ''}</div>
       </div>
       <div class="queue-row-dur">${dur}</div>
-      ${follower ? '' : `<button class="queue-row-remove" data-qi="${i}" title="Remove from queue">
+      ${editable ? `<button class="queue-row-remove" data-qi="${i}" title="Remove from queue">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-      </button>`}
+      </button>` : ''}
     </div>`
-  }).join('')
+}
+
+/** Click to jump to a row, right-click for the track menu: every section. */
+function _wireQueueRow(el, follower) {
+  const qi = parseInt(el.dataset.qi)
+  el.addEventListener('click', (e) => {
+    if (e.target.closest('.queue-row-drag, .queue-row-remove')) return
+    // A follower jumping tracks would move queueIndex out of alignment with
+    // the host until the next broadcast dragged it back.
+    if (follower) { if (typeof wfNotifyHostControls === 'function') wfNotifyHostControls(); return }
+    if (qi === queueIndex) return
+    queueIndex = qi
+    playCurrentTrack()
+    renderQueuePanel()
+  })
+  // Right click - reuse the same universal track menu as every other row of
+  // tracks in the app rather than a fourth hand-rolled menu.
+  el.addEventListener('contextmenu', (e) => {
+    e.preventDefault()
+    showTrackCtxMenu(queue[qi], el, e.clientX, e.clientY, false)
+  })
+}
+
+let _queueHistoryOpen = false
+
+/** History rows, drawn only while the section is open: a long session's
+ *  history is hundreds of rows nobody is looking at. */
+function _renderQueueHistory() {
+  const rows = document.getElementById('q-history-rows')
+  document.getElementById('q-history-toggle').setAttribute('aria-expanded', String(_queueHistoryOpen))
+  rows.hidden = !_queueHistoryOpen || queueIndex <= 0
+  if (rows.hidden) { rows.innerHTML = ''; return }
+  // ponytail: not virtualised like Up Next; fine for hundreds of rows, window
+  // it the same way if a history of thousands ever shows up.
+  const follower = isWaterfallFollower()
+  rows.innerHTML = queue.slice(0, queueIndex).map((item, i) => _queueRowHtml(item, i)).join('')
+  rows.querySelectorAll('.queue-row').forEach(el => _wireQueueRow(el, follower))
+}
+
+document.getElementById('q-history-toggle').addEventListener('click', () => {
+  _queueHistoryOpen = !_queueHistoryOpen
+  _renderQueueHistory()
+})
+
+document.getElementById('q-history-clear').addEventListener('click', () => {
+  if (queueIndex <= 0 || isWaterfallFollower()) return
+  // finishCrossfade() lands on an index captured before the fade started;
+  // shifting every index under it would land it on the wrong track.
+  if (_cfActive) { showToast('Clear the history once the crossfade finishes'); return }
+  const cleared = new Set(queue.splice(0, queueIndex))
+  queueIndex = 0
+  // Or turning shuffle off would bring the cleared tracks back.
+  if (_unshuffledQueue.length) _unshuffledQueue = _unshuffledQueue.filter(t => !cleared.has(t))
+  _queueHistoryOpen = false
+  _reprefetch()
+  renderQueuePanel()
+})
+
+/** "12 of 40 · 1h 5m · ends 10:12 PM". The end time moves while paused, so a
+ *  timer below refreshes it; with repeat or auto-mix on there is no end. */
+function _renderQueueMeta() {
+  const meta = document.getElementById('q-next-meta')
+  if (queueIndex < 0 || !queue.length) { meta.textContent = ''; return }
+  const parts = [`${queueIndex + 1} of ${queue.length}`]
+  if (repeatMode === 'none' && !autoMixEnabled) {
+    const left = CascadeCore.queueRemainingSec(queue, queueIndex, mediaPosition())
+    const end = new Date(Date.now() + left * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    parts.push(`${CascadeCore.formatQueueSpan(left)} · ends ${end}`)
+  }
+  meta.textContent = parts.join(' · ')
+}
+setInterval(() => { if (overlayOpen) _renderQueueMeta() }, 30_000)
+
+/** Rows kept drawn in Up Next: a full panel's worth plus slack either side,
+ *  never fewer than QUEUE_WIN. A fixed 20 left a maximized window (~23 rows
+ *  tall) blank below the last drawn row. */
+function _queueWin(panel) {
+  return Math.max(QUEUE_WIN, Math.ceil(panel.clientHeight / QUEUE_ROW_H) + QUEUE_BEFORE + 6)
+}
+
+/** Up Next, virtualised: rows from _queueWinStart, spacers for the rest. */
+function _drawQueueRows(container) {
+  const base   = queueIndex + 1
+  if (base >= queue.length) {
+    container.innerHTML = `<div class="q-empty">${queue.length ? 'Nothing up next' : 'Queue is empty'}</div>`
+    return
+  }
+  const winEnd = Math.min(queue.length, _queueWinStart + _queueWin(document.getElementById('ov-panel-queue')))
+  const topH   = (_queueWinStart - base) * QUEUE_ROW_H
+  const botH   = (queue.length - winEnd) * QUEUE_ROW_H
+
+  // A guest mirrors the host's queue. Reordering or removing locally would
+  // desync it immediately, so those controls are not rendered at all.
+  const follower = isWaterfallFollower()
+  const rows = queue.slice(_queueWinStart, winEnd)
+    .map((item, idx) => _queueRowHtml(item, _queueWinStart + idx, { editable: !follower })).join('')
 
   // Spacer divs preserve the panel's total scroll height
   container.innerHTML =
@@ -6283,21 +6802,11 @@ function _drawQueueRows(container, scrollToCurrent) {
     rows +
     `<div style="height:${botH}px;flex-shrink:0"></div>`
 
+  container.querySelectorAll('.queue-row').forEach(el => _wireQueueRow(el, follower))
+
   let dragSrc = null
 
   container.querySelectorAll('.queue-row').forEach(el => {
-    const qi = parseInt(el.dataset.qi)
-
-    el.addEventListener('click', (e) => {
-      if (e.target.closest('.queue-row-drag, .queue-row-remove')) return
-      // A follower jumping tracks would move queueIndex out of alignment with
-      // the host until the next broadcast dragged it back.
-      if (follower) { if (typeof wfNotifyHostControls === 'function') wfNotifyHostControls(); return }
-      queueIndex = qi
-      playCurrentTrack()
-      renderQueuePanel()
-    })
-
     // Absent for followers - see the row markup above.
     el.querySelector('.queue-row-remove')?.addEventListener('click', (e) => {
       e.stopPropagation()
@@ -6342,14 +6851,6 @@ function _drawQueueRows(container, scrollToCurrent) {
       renderQueuePanel()
     })
   })
-
-  if (scrollToCurrent) {
-    // Explicit scrollTop rather than scrollIntoView: 'nearest' moves the minimum
-    // distance, which parks the current row at the *bottom* edge and can never bring
-    // it to the top. container.offsetTop is the in-panel header height.
-    const panel = document.getElementById('ov-panel-queue')
-    panel.scrollTop = container.offsetTop + queueIndex * QUEUE_ROW_H
-  }
 }
 
 async function renderOverlayLyrics() {
@@ -6369,19 +6870,21 @@ async function renderOverlayLyrics() {
     _showLyricsFetchToast(result)
     if (!result) {
       lyricsSource = null
+      lyricsCredit = null
       updateSourcePills()
-      body.innerHTML = '<div class="lyrics-empty" style="padding:40px 0;text-align:center">No lyrics available</div>'
+      body.innerHTML = `<div class="lyrics-empty" style="padding:40px 0;text-align:center">No lyrics available${_linkSpotifyButton()}</div>`
       return
     }
     lyricsData   = result.lines
     lyricsSource = result.source
+    lyricsCredit = result.credit || null
     updateSourcePills()
     _stopWordLoop()
     if (!audio.paused) _startWordLoop()
   }
 
   if (!lyricsData.length) {
-    body.innerHTML = '<div class="lyrics-empty" style="padding:40px 0;text-align:center">No lyrics available</div>'
+    body.innerHTML = `<div class="lyrics-empty" style="padding:40px 0;text-align:center">No lyrics available${_linkSpotifyButton()}</div>`
     return
   }
 
@@ -6412,13 +6915,9 @@ function renderOverlayLyricLines() {
     // The original always stays, karaoke fill included; a translation sits
     // under it inside the same element, so the line's height (which the scroll
     // spring centres on) and its click-to-seek both cover the pair.
-    const content = line.Words
-      ? line.Words.map(w =>
-          `<span class="ov-lyric-word" data-ws="${w.Start}" data-we="${w.End ?? ''}">${esc(w.Text)}</span>`
-        ).join('')
-      : esc(line.Text || '')
+    const content = line.Words ? lyricWordSpans(line, 'ov-lyric-word', !!lyricsCredit) : esc(line.Text || '')
     const trans = lyricTranslationFor(i)
-    return `<div class="ov-lyric-line${hasTimestamp ? ' seekable' : ''}" data-idx="${i}"${hasTimestamp ? ` data-start="${line.Start}"` : ''}>${content}${trans ? `<div class="ov-lyric-trans">${esc(trans)}</div>` : ''}</div>`
+    return `<div class="ov-lyric-line${hasTimestamp ? ' seekable' : ''}${line.Opposite ? ' opposite' : ''}" data-idx="${i}"${hasTimestamp ? ` data-start="${line.Start}"` : ''}>${content}${trans ? `<div class="ov-lyric-trans">${esc(trans)}</div>` : ''}</div>`
   }).join('')
   body.querySelectorAll('.ov-lyric-line.seekable').forEach(el => {
     el.addEventListener('click', () => {
@@ -6457,25 +6956,65 @@ const _translators = new Map()   // model key -> Bergamot.BatchTranslator
 let _translateBusy = 0
 let _translateIdleTimer = null
 
-// Translated lines, remembered for the rest of the session so going back to a
-// song, or a chorus shared across a sheet, costs nothing the second time. Keyed
-// by engine, model and exact line text ("apple|ja|..." - neither ever contains "|"),
-// least recently used dropped first. Memory only: translating a line takes a
-// fraction of a second, so a disk cache would be a second store of lyric text
-// for no noticeable gain.
-// ponytail: in-memory LRU; persist it if re-translating after a restart ever
-// measures as slow.
-const TRANSLATION_CACHE_LINES = 5000
-const _translatedLines = new Map()
+// Translated lines, remembered so going back to a song, or a chorus shared
+// across a sheet, costs nothing the second time. Keyed by engine, model and
+// exact line text ("apple|ja|..." - neither ever contains "|"), least recently
+// used dropped first.
+//
+// Kept on disk between sessions (main.js, translation-cache.json): a cold
+// translation of a whole sheet took a quarter of the song (YOASOBI's Idol),
+// and without this every restart paid it again. Each line expires 25 days
+// after it was translated, reading it does not extend that; the same limit
+// the Cascade Server plugin keeps SpicyLyrics lyrics under, since a
+// translation is derived from them. See src/core/translation-cache.ts.
+const TRANSLATION_CACHE_LINES = CascadeCore.TRANSLATION_CACHE_MAX
+const _translatedLines = new Map()   // cacheKey -> { text, at }
+let _translationCacheLoaded = false
+let _translationSaveTimer = null
+
 function _rememberedLine(cacheKey) {
-  const text = _translatedLines.get(cacheKey)
-  if (text !== undefined) { _translatedLines.delete(cacheKey); _translatedLines.set(cacheKey, text) }
-  return text
+  const hit = _translatedLines.get(cacheKey)
+  if (!hit) return undefined
+  _translatedLines.delete(cacheKey)
+  if (CascadeCore.translationExpired(hit.at, Date.now())) return undefined
+  _translatedLines.set(cacheKey, hit)   // most recently used goes last
+  return hit.text
 }
 function _rememberLine(cacheKey, text) {
-  _translatedLines.set(cacheKey, text)
+  _translatedLines.set(cacheKey, { text, at: Date.now() })
   if (_translatedLines.size > TRANSLATION_CACHE_LINES) _translatedLines.delete(_translatedLines.keys().next().value)
+  _saveTranslationCacheSoon()
 }
+
+// ponytail: debounced, so quitting within 3s of a translation loses those
+// lines; they are re-translated next time. Flush on quit if that ever matters.
+function _saveTranslationCacheSoon() {
+  if (!_translationCacheLoaded) return   // the load below merges and saves
+  clearTimeout(_translationSaveTimer)
+  _translationSaveTimer = setTimeout(() => {
+    const now = Date.now()
+    const entries = []
+    for (const [k, v] of _translatedLines) if (!CascadeCore.translationExpired(v.at, now)) entries.push([k, v.text, v.at])
+    window.cascade.translationCache.save(entries).catch(e => console.warn('[Translate] cache not saved:', e))
+  }, 3000)
+}
+
+window.cascade.translationCache.load().then(raw => {
+  const loaded = CascadeCore.liveTranslationEntries(raw, Date.now(), TRANSLATION_CACHE_LINES)
+  // Anything translated while the file was loading is newer: it goes last.
+  const fresh = [..._translatedLines]
+  _translatedLines.clear()
+  for (const [k, text, at] of loaded) _translatedLines.set(k, { text, at })
+  for (const [k, v] of fresh) { _translatedLines.delete(k); _translatedLines.set(k, v) }
+  while (_translatedLines.size > TRANSLATION_CACHE_LINES) _translatedLines.delete(_translatedLines.keys().next().value)
+  _translationCacheLoaded = true
+  // Rewrite the file when this session added lines, or when loading dropped
+  // expired ones: they must leave the disk too, not just memory.
+  if (fresh.length || (Array.isArray(raw) && raw.length !== loaded.length)) _saveTranslationCacheSoon()
+}).catch(e => {
+  console.warn('[Translate] cache not loaded:', e)
+  _translationCacheLoaded = true
+})
 
 function _retireTranslators() {
   _translateIdleTimer = null
@@ -6506,38 +7045,60 @@ function dropTranslator(key) {
  *  the same length as the input and blank lines stay blank. Repeated lines are
  *  translated once, since a lyric sheet is mostly chorus. One line per call:
  *  lines are lyrics, not sentences, and batching them would let one line's
- *  context bleed into the next. It is also what keeps progress meaningful with
- *  Apple, whose own batch call returns everything at once.
+ *  context bleed into the next.
  *  `engine` is 'mozilla' (the bergamot translators here) or 'apple' (the macOS
- *  helper in main.js). */
-async function translateLines(lines, key, onProgress, engine = 'mozilla') {
+ *  helper in main.js).
+ *
+ *  Order follows the song: lines already cached come back at once, then the
+ *  line `startAt()` names (the one being sung), then onwards through the sheet,
+ *  re-asking `startAt` after every line so a seek re-aims it; lines before the
+ *  playhead come last. `onLine(indexes, english)` fires as each one lands, so
+ *  a cold sheet (105s for Idol with Apple) shows the current line in about a
+ *  second instead of all of it at the end. */
+async function translateLines(lines, key, onProgress, engine = 'mozilla', { startAt, onLine } = {}) {
   clearTimeout(_translateIdleTimer)
   _translateIdleTimer = null
   _translateBusy++
   try {
     const out = new Array(lines.length).fill('')
-    const unique = new Map()
+    const pending = new Map()   // line text -> the indexes it appears at
     lines.forEach((line, i) => {
       const text = line.trim()
       if (!text) return
-      if (!unique.has(text)) unique.set(text, [])
-      unique.get(text).push(i)
+      if (!pending.has(text)) pending.set(text, [])
+      pending.get(text).push(i)
     })
+    const total = pending.size
     const from = key.slice(0, 2)
+    // The engine is part of the key: both translate the same languages, and
+    // switching engines must not serve the other one's output from memory.
+    const cacheKey = text => `${engine}|${key}|${text}`
     let done = 0
-    for (const [text, indexes] of unique) {
-      // The engine is part of the key: both translate the same languages, and
-      // switching engines must not serve the other one's output from memory.
-      const cacheKey = `${engine}|${key}|${text}`
-      let english = _rememberedLine(cacheKey)
-      if (english === undefined) {
-        english = engine === 'apple'
-          ? await window.cascade.appleTranslation.translate(key, text)
-          : (await _translatorFor(key).translate({ from, to: 'en', text, html: false })).target.text
-        _rememberLine(cacheKey, english)
-      }
+    const land = (text, english) => {
+      const indexes = pending.get(text)
+      pending.delete(text)
       for (const i of indexes) out[i] = english
-      onProgress?.({ done: ++done, total: unique.size })
+      onLine?.(indexes, english)
+      onProgress?.({ done: ++done, total })
+    }
+    for (const text of [...pending.keys()]) {
+      const hit = _rememberedLine(cacheKey(text))
+      if (hit !== undefined) land(text, hit)
+    }
+    while (pending.size) {
+      // The first line still waiting at or after the playhead, else the first
+      // before it.
+      const cur = Math.max(0, Math.min(lines.length - 1, startAt?.() ?? 0))
+      let text = null
+      for (let n = 0; n < lines.length && text == null; n++) {
+        const t = lines[(cur + n) % lines.length].trim()
+        if (pending.has(t)) text = t
+      }
+      const english = engine === 'apple'
+        ? await window.cascade.appleTranslation.translate(key, text)
+        : (await _translatorFor(key).translate({ from, to: 'en', text, html: false })).target.text
+      _rememberLine(cacheKey(text), english)
+      land(text, english)
     }
     return out
   } catch (e) {
@@ -6555,12 +7116,13 @@ function lyricsPlainLines() {
   return lyricsData.map(l => l.Text || '')
 }
 
-// Only a sheet one of the downloadable models can translate gets a Translate
-// button: offering one for, say, Spanish would be a button that can only fail.
+// Only a sheet something on this Mac can translate gets a Translate button:
+// one Cascade has a model for, or one Apple Translation takes. Offering one
+// for anything else would be a button that can only fail.
 function detectOverlayLyricsLanguage() {
   syncTranslateButtons()
   document.getElementById('ov-translate-btn').style.display =
-    lyricsTranslationEnabled && CascadeCore.translationModelFor(lyricsPlainLines()) ? 'flex' : 'none'
+    lyricsTranslationEnabled && _canTranslate(CascadeCore.translationLanguageFor(lyricsPlainLines())) ? 'flex' : 'none'
 }
 
 document.getElementById('ov-translate-btn').addEventListener('click', () => onTranslateButton())
@@ -6571,8 +7133,20 @@ document.getElementById('ov-translate-btn').addEventListener('click', () => onTr
 // keeps moving from its current speed toward the new target instead of
 // restarting from a standstill, which is what makes back-to-back line changes
 // read as one continuous glide instead of a stutter-restart.
-function createSpring(onUpdate, stiffness = 210, damping = 26) {
+// Lyric motion, shared by both lyric springs and tunable live from DevTools
+// (cascadeDebug.lyricMotion). Tuned by eye against Apple Music, 2026-09-23:
+// overdamped (critical damping for 250 would be ~31.6), so lines ease in and
+// never overshoot, where the old 210/26 bounced slightly; and a longer ripple,
+// so the lines below trail a little more.
+const LYRIC_MOTION = { stiffness: 250, damping: 50, ripple: 90 }
+
+function createSpring(onUpdate, motion = LYRIC_MOTION) {
   let pos = 0, vel = 0, target = 0
+  // A target can be a function, re-read every frame while the spring runs.
+  // The lyric views pass one: a line's background-vocal row opens and closes
+  // over 0.4s, which moves every line under a target measured once, so the
+  // "centred" line drifted off centre with no easing at all.
+  let targetFn = null
   let raf = null
   let lastTs = null
 
@@ -6580,8 +7154,9 @@ function createSpring(onUpdate, stiffness = 210, damping = 26) {
     if (lastTs == null) lastTs = ts
     const dt = Math.min((ts - lastTs) / 1000, 0.05)  // clamp so a stalled tab doesn't fling on resume
     lastTs = ts
+    if (targetFn) target = targetFn()
 
-    const accel = (target - pos) * stiffness - vel * damping
+    const accel = (target - pos) * motion.stiffness - vel * motion.damping
     vel += accel * dt
     pos += vel * dt
 
@@ -6598,13 +7173,19 @@ function createSpring(onUpdate, stiffness = 210, damping = 26) {
   }
 
   return {
-    setTarget(t) { target = t; ensureRunning() },
+    setTarget(t) {
+      targetFn = typeof t === 'function' ? t : null
+      target = targetFn ? targetFn() : t
+      ensureRunning()
+    },
     jumpTo(t) {
+      targetFn = null
       target = t; pos = t; vel = 0
       if (raf) { cancelAnimationFrame(raf); raf = null; lastTs = null }
       onUpdate(pos)
     },
     setPos(p) {   // direct 1:1 tracking (manual drag) - no physics involved
+      targetFn = null
       pos = p; vel = 0; target = p
       if (raf) { cancelAnimationFrame(raf); raf = null; lastTs = null }
       onUpdate(pos)
@@ -6622,12 +7203,19 @@ const sideLyricsSpring = createSpring(pos => {
   if (el) el.style.transform = `translateY(${pos}px)`
 })
 
-function updateOverlayLyricsActive(activeIdx, instant) {
+// First line of the overlay's current group; lastOverlayLyricsIdx is the last.
+// They differ only while lines overlap (see activeLyricRange).
+let ovActiveFirst = -1
+
+function updateOverlayLyricsActive(activeIdx, instant, first = activeIdx) {
   const body = document.getElementById('ov-lyrics-body')
   const panel = document.getElementById('ov-panel-lyrics')
+  ovActiveFirst = first
   body.querySelectorAll('.ov-lyric-line').forEach(el => {
     const idx = parseInt(el.dataset.idx)
-    const dist = idx - activeIdx  // signed: negative = past, positive = upcoming
+    // Signed distance from the current group: negative = past, positive =
+    // upcoming, 0 = any line in the group.
+    const dist = idx < first ? idx - first : idx > activeIdx ? idx - activeIdx : 0
     el.classList.remove('active', 'near-1', 'near-2', 'near-3', 'past', 'near-past')
     if (dist === 0) el.classList.add('active')
     else if (dist === 1) el.classList.add('near-1')
@@ -6639,28 +7227,30 @@ function updateOverlayLyricsActive(activeIdx, instant) {
     }
     // Ripple: lines further from the active one settle in slightly later,
     // so the stack cascades outward instead of moving as one rigid block.
-    el.style.transitionDelay = dist > 0 ? `${Math.min(dist, 3) * 65}ms` : '0ms'
+    el.style.transitionDelay = dist > 0 ? `${Math.min(dist, 3) * LYRIC_MOTION.ripple}ms` : '0ms'
   })
   // GPU-accelerated: translate the container so active line sits at panel center
-  _scrollOverlayLyricsTo(activeIdx, instant)
+  _scrollOverlayLyricsTo(activeIdx, instant, first)
 }
 
 // Centers the given line in the overlay lyrics panel. `instant` skips the
 // spring animation - used when snap-scrolling right as a karaoke line's last
 // word finishes, so the jump isn't a glide disconnected from the vocal.
-function _scrollOverlayLyricsTo(idx, instant) {
+function _scrollOverlayLyricsTo(idx, instant, first = idx) {
   const body = document.getElementById('ov-lyrics-body')
   const panel = document.getElementById('ov-panel-lyrics')
   const el = body.querySelector(`.ov-lyric-line[data-idx="${idx}"]`)
   if (!el) return
-  const panelMid = panel.clientHeight / 2
-  const activeMid = el.offsetTop + el.offsetHeight / 2
-  ovLyricsBaseY = panelMid - activeMid
+  // A group of overlapping lines is centred as one block, top of the first to
+  // the bottom of the last; a single line is the same with top === el.
+  const top = body.querySelector(`.ov-lyric-line[data-idx="${first}"]`) || el
+  const centreOn = () => (ovLyricsBaseY = panel.clientHeight / 2 - (top.offsetTop + el.offsetTop + el.offsetHeight) / 2)
+  centreOn()
   // While the user is manually scrolling, leave the spring alone - it gets
   // redirected (base + their offset) from the wheel handler instead.
   if (ovLyricsUserScrolling) return
   if (instant) ovLyricsSpring.jumpTo(ovLyricsBaseY)
-  else ovLyricsSpring.setTarget(ovLyricsBaseY)
+  else ovLyricsSpring.setTarget(centreOn)   // re-measured per frame, see createSpring
 }
 
 // lyricsData is sorted by Start time, and playback only moves forward except on
@@ -6741,21 +7331,20 @@ onDeck('timeupdate', () => {
   const baseIdx = _scanLyricsBaseIdx(nowSec, _ovLyricsScanIdx)
   _ovLyricsScanIdx = baseIdx
 
-  // Karaoke lines: promote to the next line (position AND highlight together)
-  // the instant the current line's last word finishes, instead of waiting for
-  // the next line's own start - otherwise the view snaps into place early but
-  // sits dim/inactive for a beat, which reads as stuck.
-  let activeIdx = baseIdx
-  const words = lyricsData[baseIdx]?.Words
-  if (words?.length && lyricsData[baseIdx + 1]) {
-    const lastWordEnd = words[words.length - 1].End
-    if (lastWordEnd != null && nowSec >= lastWordEnd / 10_000_000) activeIdx = baseIdx + 1
-  }
+  // Karaoke: promote early once a line (background vocals included) is sung,
+  // and hold a line while its background vocals run into the next one. Shared
+  // with the side panel; see currentLyricIndex in src/core/lyrics.ts.
+  const activeIdx = CascadeCore.currentLyricIndex(lyricsData, baseIdx, nowSec * 10_000_000)
+  // Overlapping lines (a duet, a call and response) stay lit together until
+  // the later one ends: activeLyricRange in src/core/lyrics.ts.
+  const [first] = CascadeCore.activeLyricRange(lyricsData, activeIdx, nowSec * 10_000_000)
 
-  if (activeIdx === lastOverlayLyricsIdx) return
-  const advancedEarly = activeIdx > baseIdx
+  if (activeIdx === lastOverlayLyricsIdx && first === ovActiveFirst) return
   lastOverlayLyricsIdx = activeIdx
-  updateOverlayLyricsActive(activeIdx, advancedEarly)
+  // Always a glide. An early promotion (a karaoke line sung before the next
+  // one's start) used to jump there instantly, and SpicyLyrics' syncs make
+  // nearly every change early, so every line change was a snap.
+  updateOverlayLyricsActive(activeIdx, false, first)
 })
 
 // Update overlay when track changes
@@ -6770,6 +7359,13 @@ updateNowPlaying = function(item) {
 const ctxMenu = document.getElementById('ctx-menu')
 
 function showCtxMenu(x, y) {
+  // Same source of truth as toggleLike() uses for the current track: the
+  // button's own class, kept live by updateNowPlaying() regardless of
+  // whether UserData ever loaded for this item.
+  const favLabel = document.getElementById('ctx-favorite-label')
+  if (favLabel) favLabel.textContent = likeBtn.classList.contains('liked') ? 'Unfavorite' : 'Favorite'
+  // A film has no album, lyrics or instant mix, and belongs in no playlist.
+  ctxMenu.classList.toggle('video', playingVideo())
   ctxMenu.style.left = `${x}px`
   ctxMenu.style.top = `${y}px`
   ctxMenu.classList.add('open')
@@ -6804,7 +7400,7 @@ document.getElementById('ctx-stop').addEventListener('click', () => stopPlayback
 
 // Clear queue
 document.getElementById('ctx-clear-queue').addEventListener('click', () => {
-  queue = []; queueIndex = -1
+  queue = []; queueIndex = -1; queueSource = null
   _clearStreamPrefetch()   // nothing left to prefetch for
 })
 
@@ -6817,9 +7413,14 @@ document.getElementById('ctx-instant-mix').addEventListener('click', async () =>
       UserId: jf.userId, Limit: 25,
       Fields: 'AlbumId,AlbumPrimaryImageTag'
     })
-    if (data.Items?.length) playItems(data.Items, 0)
+    if (data.Items?.length) playItems(data.Items, 0, 'Instant mix')
   } catch (e) { console.error('Instant mix failed', e) }
 })
+
+// Favorite / unfavorite - toggleLike() defined with the transport bar's heart
+// button above. No hideCtxMenu() call, matching every other row in this menu
+// (see the "known gap" note in CODEMAP: #ctx-menu never closes itself on click).
+document.getElementById('ctx-favorite').addEventListener('click', () => toggleLike())
 
 // Add to playlist
 // Set by a context menu before opening the modal; falls back to now-playing.
@@ -6857,7 +7458,7 @@ async function atpLoadPlaylists() {
           const ids = items.map(i => encodeURIComponent(i.Id)).join(',')
           const res = await fetch(`${jf.url}/Playlists/${el.dataset.id}/Items?Ids=${ids}&UserId=${encodeURIComponent(jf.userId)}`, {
             method: 'POST',
-            headers: { 'X-Emby-Token': jf.token }
+            headers: CascadeCore.authHeaders(jf)
           })
           if (!res.ok) {
             const errMsg = await CascadeCore.readErrorMessage(res)
@@ -6881,6 +7482,15 @@ document.getElementById('ctx-add-playlist').addEventListener('click', () => {
   openAtpModal()
 })
 
+// The same three actions as buttons over the overlay's art (see #ov-art-like
+// in index.html); the More menu keeps its rows too.
+document.getElementById('ov-art-like').addEventListener('click', () => toggleLike())
+document.getElementById('ov-art-playlist').addEventListener('click', () => {
+  _atpTargetItem = null
+  openAtpModal()
+})
+document.getElementById('ov-art-album').addEventListener('click', () => openAlbumFromTrack(queue[queueIndex]))
+
 document.getElementById('atp-cancel').addEventListener('click', () => { _atpTargetItem = null; document.getElementById('atp-modal').classList.add('hidden') })
 
 // New playlist inline form
@@ -6903,7 +7513,7 @@ async function atpCreatePlaylist() {
   try {
     const res = await fetch(`${jf.url}/Playlists?Name=${encodeURIComponent(name)}&Ids=${encodeURIComponent(item.Id)}&UserId=${encodeURIComponent(jf.userId)}&MediaType=Audio`, {
       method: 'POST',
-      headers: { 'X-Emby-Token': jf.token }
+      headers: CascadeCore.authHeaders(jf)
     })
     if (!res.ok) throw new Error(res.status)
     showToast(`Playlist "${name}" created`)
@@ -6925,7 +7535,7 @@ document.getElementById('atp-new-name').addEventListener('keydown', e => { if (e
 document.getElementById('ctx-download').addEventListener('click', () => {
   const item = queue[queueIndex]
   if (!item) return
-  const url = `${jf.url}/Items/${item.Id}/Download?api_key=${jf.token}`
+  const url = `${jf.url}/Items/${item.Id}/Download?ApiKey=${jf.token}`
   window.cascade.download(url, item.Name)
 })
 
@@ -6936,9 +7546,9 @@ document.getElementById('ctx-copy-url').addEventListener('click', () => {
   window.cascade.clipboard.write(streamUrl(item.Id, isVideoItem(item) ? 'Video' : 'Audio'))
 })
 
-// Media info
-document.getElementById('ctx-media-info').addEventListener('click', async () => {
-  const item = queue[queueIndex]
+// Media info - shared by the now-playing and track context menus, so there is
+// one fetch-and-render instead of a second copy hardwired to queue[queueIndex].
+async function openMediaInfoFor(item) {
   if (!item) return
   const modal = document.getElementById('mi-modal')
   const grid = document.getElementById('mi-grid')
@@ -6966,7 +7576,8 @@ document.getElementById('ctx-media-info').addEventListener('click', async () => 
       `<span class="mi-key">${k}</span><span class="mi-val">${esc(String(v))}</span>`
     ).join('')
   } catch { grid.innerHTML = '<span class="mi-key">Error</span><span class="mi-val">Could not load</span>' }
-})
+}
+document.getElementById('ctx-media-info').addEventListener('click', () => openMediaInfoFor(queue[queueIndex]))
 document.getElementById('mi-close').addEventListener('click', () => document.getElementById('mi-modal').classList.add('hidden'))
 
 // Refresh metadata - refreshItemMetadata() defined with the track context
@@ -7020,7 +7631,7 @@ async function deleteItemFromServer(item, { confirmMsg, onDeleted }) {
   if (!confirm(confirmMsg)) return
   try {
     const res = await fetch(`${jf.url}/Items/${item.Id}`, {
-      method: 'DELETE', headers: { 'X-Emby-Token': jf.token }
+      method: 'DELETE', headers: CascadeCore.authHeaders(jf)
     })
     // The response was never read, so a 403 (e.g. a library outside this
     // account's granted folders) reported success for a delete the server
@@ -7077,6 +7688,7 @@ let _ictxOnDetail = null   // "View detail"/"Go to artist page" handler - the
 const ICTX_FLAG_IDS = {
   play: 'ictx-play', playNext: 'ictx-play-next', playLast: 'ictx-play-last',
   shuffle: 'ictx-shuffle', instantMix: 'ictx-instant-mix', addPlaylist: 'ictx-add-playlist',
+  download: 'ictx-download', favorite: 'ictx-favorite',
   markPlayed: 'ictx-mark-played', markUnplayed: 'ictx-mark-unplayed',
   goArtist: 'ictx-go-artist', viewDetail: 'ictx-view-detail',
   rename: 'ictx-rename', deleteItem: 'ictx-delete',
@@ -7125,6 +7737,8 @@ function showItemCtxMenu(kind, item, el, x, y, onDetail) {
   if (shuffleLabel) shuffleLabel.textContent = kind === 'artist' ? 'Shuffle all' : 'Shuffle'
   const detailLabel = document.getElementById('ictx-view-detail-label')
   if (detailLabel) detailLabel.textContent = kind === 'artist' ? 'Go to artist page' : 'Go to details'
+  const favLabel = document.getElementById('ictx-favorite-label')
+  if (favLabel) favLabel.textContent = item?.UserData?.IsFavorite ? 'Unfavorite' : 'Favorite'
 
   _reflowItemCtxSeparators()
 
@@ -7159,45 +7773,71 @@ document.getElementById('ictx-play').addEventListener('click', async () => {
   if (!_ictxItem) return
   if (_ictxKind === 'video') { playVideo([_ictxItem], 0, resumeTicks(_ictxItem) || 0); return }
   const tracks = await _ictxTracks()
-  if (tracks.length) playItems(tracks, 0)
+  if (tracks.length) playItems(tracks, 0, _ictxItem.Name)
 })
 
 document.getElementById('ictx-shuffle').addEventListener('click', async () => {
   hideItemCtxMenu()
   const tracks = await _ictxTracks()
-  if (tracks.length) shuffleAndPlay(tracks)
+  if (tracks.length) shuffleAndPlay(tracks, _ictxItem.Name)
 })
 
-// Play next/last are album-only (see menuItemsForKind) - same ownership guard
-// as the track menu's tctx-play-next/tctx-add-queue, not a relaxed copy of it.
+// Play next/last, add to playlist: album, artist, playlist and smart-playlist
+// (see menuItemsForKind) - same ownership guard as the track menu's
+// tctx-play-next/tctx-add-queue, not a relaxed copy of it. _ictxTracks()
+// fetches whichever container's tracks the current kind needs.
+const ICTX_QUEUEABLE_KINDS = ['album', 'artist', 'playlist', 'smart-playlist']
+
 document.getElementById('ictx-play-next').addEventListener('click', async () => {
   hideItemCtxMenu()
-  if (_ictxKind !== 'album' || !_ictxItem) return
+  if (!ICTX_QUEUEABLE_KINDS.includes(_ictxKind) || !_ictxItem) return
   if (isWaterfallFollower()) { showToast('Only the host can choose what plays next'); return }
-  const tracks = await fetchAlbumTracks(_ictxItem.Id)
-  playNextTracks(tracks, `"${_ictxItem.Name}"`)
+  const tracks = await _ictxTracks()
+  if (tracks.length) playNextTracks(tracks, `"${_ictxItem.Name}"`)
 })
 
 document.getElementById('ictx-play-last').addEventListener('click', async () => {
   hideItemCtxMenu()
-  if (_ictxKind !== 'album' || !_ictxItem) return
-  const tracks = await fetchAlbumTracks(_ictxItem.Id)
+  if (!ICTX_QUEUEABLE_KINDS.includes(_ictxKind) || !_ictxItem) return
+  const tracks = await _ictxTracks()
   if (tracks.length) enqueueTracks(tracks, `"${_ictxItem.Name}"`)
 })
 
+// Instant mix: album and artist (see menuItemsForKind) - the endpoint takes
+// any item id, so seeding it from an album works exactly like from a track.
 document.getElementById('ictx-instant-mix').addEventListener('click', () => {
   hideItemCtxMenu()
-  if (_ictxKind !== 'artist' || !_ictxItem) return
+  if (!['album', 'artist'].includes(_ictxKind) || !_ictxItem) return
   instantMixAndPlay(_ictxItem.Id, _ictxItem.Name)
 })
 
 document.getElementById('ictx-add-playlist').addEventListener('click', async () => {
   hideItemCtxMenu()
-  if (_ictxKind !== 'album' || !_ictxItem) return
-  const tracks = await fetchAlbumTracks(_ictxItem.Id)
+  if (!ICTX_QUEUEABLE_KINDS.includes(_ictxKind) || !_ictxItem) return
+  const tracks = await _ictxTracks()
   if (!tracks.length) return
   _atpTargetItem = tracks   // array - atpLoadPlaylists() POSTs every id at once
   openAtpModal()
+})
+
+// Download: album-only (see menuItemsForKind) - there is no single file to
+// hand window.cascade.download for a whole album, so this queues one download
+// per track the same way tctx-download does for a single one.
+document.getElementById('ictx-download').addEventListener('click', async () => {
+  hideItemCtxMenu()
+  if (_ictxKind !== 'album' || !_ictxItem) return
+  const tracks = await fetchAlbumTracks(_ictxItem.Id)
+  for (const t of tracks) {
+    window.cascade.download(`${jf.url}/Items/${t.Id}/Download?ApiKey=${jf.token}`, t.Name)
+  }
+})
+
+// Favorite/unfavorite: album and artist (see menuItemsForKind) - toggleLike()
+// defined with the transport bar's heart button.
+document.getElementById('ictx-favorite').addEventListener('click', () => {
+  hideItemCtxMenu()
+  if (!['album', 'artist'].includes(_ictxKind) || !_ictxItem) return
+  toggleLike(_ictxItem)
 })
 
 document.getElementById('ictx-go-artist').addEventListener('click', () => {
@@ -7222,7 +7862,7 @@ document.getElementById('ictx-view-detail').addEventListener('click', () => {
 async function setItemPlayed(item, played) {
   try {
     const res = await fetch(`${jf.url}/UserPlayedItems/${item.Id}?userId=${encodeURIComponent(jf.userId)}`, {
-      method: played ? 'POST' : 'DELETE', headers: { 'X-Emby-Token': jf.token }
+      method: played ? 'POST' : 'DELETE', headers: CascadeCore.authHeaders(jf)
     })
     if (!res.ok) throw new Error(String(res.status))
     // Keeps a re-opened menu on the same card showing the right toggle for the
@@ -7293,46 +7933,89 @@ document.getElementById('ictx-edit-meta').addEventListener('click', () => {
 
 // ── Lyrics panel ──────────────────────────────────────────────────────────────
 
-let lyricsSource        = null   // source that was actually used: 'Kugou' | 'LRCLIB' | 'LRCLIB (plain)' | 'Jellyfin' | 'Karaoke' | 'Synced'
+let lyricsSource        = null   // source that was actually used: 'Kugou' | 'LRCLIB' | 'LRCLIB (plain)' | 'Jellyfin' | 'Karaoke' | 'Synced' | a SpicyLyrics provider
+// SpicyLyrics' credit for the lyrics on screen ({ provider, uploader, maker },
+// see src/core/spicy-lyrics.ts), or null for every other source. Its terms
+// require it wherever the lyrics show: the side panel, the overlay and the
+// miniplayer. Non-null also means these lines must never be saved anywhere
+// permanent (see openLyricsEditorFor).
+let lyricsCredit        = null
 let lyricsForcedSource  = 'auto' // 'auto' | 'Kugou' | 'LRCLIB' | 'Jellyfin' | 'cascade-karaoke' | 'cascade-synced'
 let serverOnlyMode    = false  // fetch exclusively from Cascade plugin when true
 
 // Valid lyrics source keys - any stored value not in this set is stale and gets reset
 const VALID_LYRICS_SOURCES = new Set(['auto', 'Kugou', 'LRCLIB', 'Jellyfin', 'cascade-karaoke', 'cascade-synced'])
 
-// ── CascadeSLRC plugin detection ────────────────────────────────────────────
+// ── Cascade Server plugin detection ─────────────────────────────────────────
 // Whether the connected server has the plugin at all. Probed once per
 // connection (see probeCascadePlugin, called from connect()) and cached here
 // for the session - not worth a round trip per track.
 let _cascadePluginAbsent = false
-const NO_PLUGIN_TIP = 'No SLRC Plugin'
+const NO_PLUGIN_TIP = 'No Cascade Server plugin'
+// Which route family answered: 'server' (CascadeServer/*, 2.0.0.0+) or
+// 'legacy' (the plugin's pre-rename CascadeLyrics routes). The lyrics fetch
+// awaits _cascadePluginProbed so a track loaded during connect does not hit
+// the wrong route.
+let _cascadePluginApi = 'server'
+let _cascadePluginProbed = Promise.resolve()
+// What the plugin's Info route says it can do. 'syllable' means a SpicyLyrics
+// key is set on the server, so asking for SpicyLyrics is worth a request.
+let _cascadePluginCaps = new Set()
+let _spotifyLinkServerWide = true
+
+/** Full URL of the plugin's lyrics GET/POST route for an item. */
+function cascadeLyricsUrl(itemId) {
+  return `${jf.url}/${CascadeCore.cascadeLyricsPath(_cascadePluginApi, itemId)}`
+}
 
 /**
- * GET {jf.url}/CascadeLyrics/Info with the normal auth header. The plugin
- * exposes that route for exactly this question, so reaching it is the answer
- * and the body is not read here.
+ * GET {jf.url}/CascadeServer/Info with the normal auth header, and on a 404
+ * the pre-rename CascadeLyrics/Info. The plugin exposes that route for
+ * exactly this question, so reaching it is the answer and the body is not
+ * read here.
  *
  * Neither of the obvious alternatives works. Jellyfin's own /Plugins needs
  * elevation and Cascade signs in as a normal user, and the lyrics route
  * cannot answer either, since a server without the plugin and a track with
  * genuinely no lyrics both return a bare 404.
  */
-async function probeCascadePlugin() {
-  let status = null
-  try {
-    const r = await fetch(`${jf.url}/CascadeLyrics/Info`, {
-      headers: { 'X-Emby-Token': jf.token },
-      signal: AbortSignal.timeout(8000),
-    })
-    status = r.status
-  } catch {
-    // Network failure - status stays null, which reads as 'unknown' below.
+function probeCascadePlugin() {
+  _cascadePluginApi = 'server'
+  _cascadePluginCaps = new Set()
+  const statusOf = async (path) => {
+    try {
+      const r = await fetch(`${jf.url}/${path}`, {
+        headers: CascadeCore.authHeaders(jf),
+        signal: AbortSignal.timeout(8000),
+      })
+      // The body is only read for the capability list; the status alone is
+      // still the presence answer, so a body that fails to parse costs nothing.
+      if (r.ok) {
+        try {
+          const info = await r.json()
+          const caps = info?.capabilities
+          if (Array.isArray(caps)) _cascadePluginCaps = new Set(caps.filter(c => typeof c === 'string'))
+          // Whether this user's Spotify links apply to the whole server. A plugin
+          // from before the setting existed sends nothing, and there any user could.
+          _spotifyLinkServerWide = info?.spotifyLinkServerWide !== false
+        } catch {}
+      }
+      return r.status
+    } catch {
+      return null  // network failure reads as 'unknown'
+    }
   }
-  const verdict = CascadeCore.interpretCascadePluginProbe(status)
-  // 'unknown' (401, 5xx, network failure) is treated as present: never grey
-  // out a working feature because the network hiccuped.
-  _cascadePluginAbsent = verdict === 'absent'
-  _applyCascadePluginAvailability()
+  _cascadePluginProbed = (async () => {
+    const serverStatus = await statusOf('CascadeServer/Info')
+    const legacyStatus = serverStatus === 404 ? await statusOf('CascadeLyrics/Info') : null
+    const { probe, api } = CascadeCore.resolveCascadePluginProbe(serverStatus, legacyStatus)
+    _cascadePluginApi = api
+    // 'unknown' (401, 5xx, network failure) is treated as present: never grey
+    // out a working feature because the network hiccuped.
+    _cascadePluginAbsent = probe === 'absent'
+    _applyCascadePluginAvailability()
+  })()
+  return _cascadePluginProbed
 }
 
 /** Disables what depends on the plugin once probeCascadePlugin() has found it
@@ -7370,7 +8053,7 @@ function _applyCascadePluginAvailability() {
     window.cascade.store.set('serverOnlyMode', false)
     if (toggle) toggle.checked = false
     _applyServerOnlyMode(false)
-    showToast('Server-only lyrics mode turned off - the CascadeSLRC plugin was not found on this server')
+    showToast('Server-only lyrics mode turned off - the Cascade Server plugin was not found on this server')
   }
 }
 
@@ -7390,17 +8073,259 @@ function _applyCascadePluginAvailability() {
 
 // Drop the cached fetch for a track and, if it is the one playing, reload the panel.
 // itemId defaults to the current track.
-function _reloadLyricsFor(itemId) {
+// ── Link a Spotify track (Spicy Lyrics) ───────────────────────────────────────
+// Cascade Server finds a song's Spotify id itself (ListenBrainz); for the songs
+// it cannot, or where it picked the wrong release, a user pastes the link here.
+// Stored on the server for everyone, as saved lyrics are.
+
+function _canLinkSpotify() {
+  const item = queue[queueIndex]
+  return !!item && !isVideoItem(item) && !_cascadePluginAbsent && _cascadePluginCaps.has('spotify-link')
+}
+
+/** The empty lyrics state's way in, when linking is possible. */
+function _linkSpotifyButton() {
+  return _canLinkSpotify() ? '<div><button type="button" class="lyrics-link-spotify">Link a Spotify track</button></div>' : ''
+}
+
+let _spotifyLinkItem = null
+
+// Links this user made for themselves, when the server does not let them link
+// songs for everyone: kept on this computer (store key spotifyLinks, item id to
+// Spotify id) and sent with each lyrics request, which the server uses for
+// that request only. Store values are untrusted, so each entry is re-checked.
+let _localSpotifyLinks = {}
+window.cascade.store.get('spotifyLinks').then(raw => {
+  try {
+    const obj = typeof raw === 'string' ? JSON.parse(raw) : raw
+    for (const [item, id] of Object.entries(obj || {})) {
+      const clean = CascadeCore.parseSpotifyTrackId(id)
+      if (/^[0-9a-f]{32}$/i.test(item) && clean) _localSpotifyLinks[item] = clean
+    }
+  } catch {}
+})
+function _saveLocalSpotifyLinks() {
+  window.cascade.store.set('spotifyLinks', JSON.stringify(_localSpotifyLinks))
+}
+/** `&spotifyId=...` for a song this user linked for themselves, or ''. */
+function _localSpotifyParam(itemId) {
+  const id = _localSpotifyLinks[itemId]
+  return id ? `&spotifyId=${encodeURIComponent(id)}` : ''
+}
+
+async function openSpotifyLinkModal() {
+  document.getElementById('lyrics-source-dropdown').classList.remove('open')
+  const item = queue[queueIndex]
+  if (!item || !_canLinkSpotify()) return
+  _spotifyLinkItem = item
+  const input = document.getElementById('spotify-link-input')
+  const remove = document.getElementById('spotify-link-remove')
+  input.value = ''
+  remove.hidden = true
+  document.getElementById('spotify-link-error').textContent = ''
+  document.getElementById('spotify-link-desc').textContent = _spotifyLinkServerWide
+    ? "Paste this song's Spotify link and Cascade Server will look for Spicy Lyrics with it. The link is saved on the server, so it works for everyone there."
+    : "Paste this song's Spotify link and Cascade will look for Spicy Lyrics with it. The link is saved on this computer, for you only; a server admin can let you link songs for everyone."
+  document.getElementById('spotify-link-modal').classList.remove('hidden')
+  input.focus()
+  const mine = _localSpotifyLinks[item.Id]
+  if (mine) {
+    input.value = `https://open.spotify.com/track/${mine}`
+    remove.hidden = false
+  }
+  if (mine || !_spotifyLinkServerWide) return
+  // What it is linked to now: a hand link can be removed, handing the song
+  // back to the automatic lookup.
+  try {
+    const r = await fetch(`${jf.url}/CascadeServer/SpotifyId/${item.Id}`, { headers: CascadeCore.authHeaders(jf) })
+    const cur = r.ok ? await r.json() : null
+    if (_spotifyLinkItem !== item) return
+    if (cur?.spotifyId && !input.value) input.value = `https://open.spotify.com/track/${cur.spotifyId}`
+    remove.hidden = !cur?.manual
+  } catch {}
+}
+
+function closeSpotifyLinkModal() {
+  document.getElementById('spotify-link-modal').classList.add('hidden')
+  _spotifyLinkItem = null
+}
+
+async function _spotifyLinkRequest(method, body) {
+  const item = _spotifyLinkItem
+  const error = document.getElementById('spotify-link-error')
+  try {
+    const r = await fetch(`${jf.url}/CascadeServer/SpotifyId/${item.Id}`, {
+      method,
+      headers: CascadeCore.authHeaders(jf, body ? { 'Content-Type': 'application/json' } : {}),
+      body: body ? JSON.stringify(body) : undefined,
+    })
+    if (!r.ok) { error.textContent = await CascadeCore.readErrorMessage(r); return }
+  } catch {
+    error.textContent = 'Could not reach the server.'
+    return
+  }
+  closeSpotifyLinkModal()
+  _reloadLyricsFor(item.Id)
+}
+
+document.getElementById('spotify-link-save').addEventListener('click', () => {
+  const id = CascadeCore.parseSpotifyTrackId(document.getElementById('spotify-link-input').value)
+  if (!id) {
+    document.getElementById('spotify-link-error').textContent = 'That is not a Spotify track link. Copy it from Share → Copy Song Link.'
+    return
+  }
+  if (!_spotifyLinkServerWide) { _setLocalSpotifyLink(id); return }
+  _spotifyLinkRequest('POST', { spotifyId: id })
+})
+
+function _setLocalSpotifyLink(id) {
+  const item = _spotifyLinkItem
+  if (id) _localSpotifyLinks[item.Id] = id
+  else delete _localSpotifyLinks[item.Id]
+  _saveLocalSpotifyLinks()
+  closeSpotifyLinkModal()
+  _reloadLyricsFor(item.Id)
+}
+document.getElementById('spotify-link-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('spotify-link-save').click()
+  if (e.key === 'Escape') closeSpotifyLinkModal()
+})
+document.getElementById('spotify-link-remove').addEventListener('click', () => {
+  // A personal link is removed here; a server-wide one on the server.
+  if (_localSpotifyLinks[_spotifyLinkItem?.Id] || !_spotifyLinkServerWide) _setLocalSpotifyLink(null)
+  else _spotifyLinkRequest('DELETE')
+})
+document.getElementById('spotify-link-cancel').addEventListener('click', closeSpotifyLinkModal)
+document.getElementById('lsd-spotify-link').addEventListener('click', e => { e.stopPropagation(); openSpotifyLinkModal() })
+document.addEventListener('click', e => {
+  if (e.target.closest('.lyrics-link-spotify')) openSpotifyLinkModal()
+})
+
+async function _reloadLyricsFor(itemId) {
   const cur = queue[queueIndex]
   _lyricsCache.delete(itemId ?? cur?.Id)
+  _lyricsInflight.delete(itemId ?? cur?.Id)   // a search from before the change must not be joined
   if (!cur || (itemId != null && itemId !== cur.Id)) return
   lyricsData = []; lastLyricsIdx = -1; lastOverlayLyricsIdx = -1; _lyricsScanIdx = 0; _ovLyricsScanIdx = 0
-  fetchLyrics()
+  await fetchLyrics()
+  // fetchLyrics() only redraws the side panel. Now Playing's lyrics have their
+  // own renderer, so a Spotify link saved from there kept showing the old
+  // lyrics until the view was closed and reopened. After the fetch, not
+  // alongside it: both bump _lyricsFetchGen, and the later one wins.
+  if (queue[queueIndex] !== cur) return   // the song changed meanwhile
+  if (overlayOpen && overlayLyricsOpen) renderOverlayLyrics()
 }
 
 // The editor writes straight to the server from its own window, so without this the
 // cache below keeps handing back the copy from before the edit.
 window.cascade.lyricsEditor.onSaved(itemId => _reloadLyricsFor(itemId))
+
+// DevTools helper for testing SpicyLyrics before the plugin can match tracks to
+// Spotify ids on its own:  cascadeDebug.spicy('<spotify track id>')
+// Asks Cascade Server's admin-only test route (the plugin fetches with the
+// server's key; the key never comes near this window), runs the real
+// converter, and shows the result as the playing track's lyrics, credit and
+// all, exactly as the real path would. Session only: the next track, or a
+// reload of this one, goes back to normal. Needs an admin account.
+//   cascadeDebug.spicy()           no id: look the playing track up on MusicBrainz first
+//   cascadeDebug.spotifyId()       just the lookup, for the playing track
+window.cascadeDebug = {
+  // Tune the lyric motion live:  cascadeDebug.lyricMotion({ stiffness: 150 })
+  // stiffness: how hard lines are pulled to centre (higher = quicker).
+  // damping: how much the movement is resisted (2 * sqrt(stiffness) = settles
+  // with no overshoot; less bounces, more crawls). ripple: ms each following
+  // line lags behind the one above it in the overlay's fade. Session only;
+  // tell Claude the numbers you like and they become the defaults.
+  // Held notes (styles/lyrics.css): emphLift (em) and emphScale are the PEAK
+  // rise and swell of each letter (0.1, 1.08); emphHold is the fraction of the
+  // peak it settles to and holds until the line ends (0.6); emphRise is the
+  // whole rise-and-settle in seconds (1.7, peak at 65% of it). Every sung
+  // word: wordLift (em, 0.04) and wordLiftTime (s, 0.6). Defaults were
+  // measured from a 60fps recording of Apple Music.
+  lyricMotion(opts = {}) {
+    for (const k of ['stiffness', 'damping', 'ripple']) {
+      if (Number.isFinite(opts[k]) && opts[k] >= 0) LYRIC_MOTION[k] = opts[k]
+    }
+    const root = document.documentElement.style
+    if (Number.isFinite(opts.emphLift)) root.setProperty('--emph-lift', `${opts.emphLift}em`)
+    if (Number.isFinite(opts.emphScale) && opts.emphScale > 0) root.setProperty('--emph-scale', String(opts.emphScale))
+    if (Number.isFinite(opts.emphHold) && opts.emphHold >= 0) root.setProperty('--emph-hold', String(opts.emphHold))
+    if (Number.isFinite(opts.emphRise) && opts.emphRise > 0) root.setProperty('--emph-rise', `${opts.emphRise}s`)
+    if (Number.isFinite(opts.wordLift)) root.setProperty('--word-lift', `${opts.wordLift}em`)
+    if (Number.isFinite(opts.wordLiftTime) && opts.wordLiftTime >= 0) root.setProperty('--word-lift-time', `${opts.wordLiftTime}s`)
+    LYRIC_MOTION.wordLift = parseFloat(root.getPropertyValue('--word-lift')) || 0.04
+    LYRIC_MOTION.wordLiftTime = parseFloat(root.getPropertyValue('--word-lift-time')) || 0.6
+    LYRIC_MOTION.emphLift = parseFloat(root.getPropertyValue('--emph-lift')) || 0.1
+    LYRIC_MOTION.emphScale = parseFloat(root.getPropertyValue('--emph-scale')) || 1.08
+    LYRIC_MOTION.emphHold = parseFloat(root.getPropertyValue('--emph-hold')) || 0.6
+    LYRIC_MOTION.emphRise = parseFloat(root.getPropertyValue('--emph-rise')) || 1.7
+    const critical = 2 * Math.sqrt(LYRIC_MOTION.stiffness)
+    console.log(`[cascadeDebug] lyric motion`, { ...LYRIC_MOTION }, `(no-overshoot damping for this stiffness: ${critical.toFixed(1)})`)
+    return { ...LYRIC_MOTION }
+  },
+
+  // Port of scripts/test-spotify-id.js: search MusicBrainz for the recording,
+  // check up to 10 candidates for a Spotify link, and pick the one closest in
+  // length to what is playing (the top hit is often a remaster with no link;
+  // "I Write Sins Not Tragedies" had it on the 6th). 1.1s between lookups,
+  // per MusicBrainz's 1 request/second rule, so a miss can take ~12s.
+  // ponytail: debug-only, and a browser cannot set MusicBrainz's requested
+  // User-Agent. The real resolver belongs in the plugin (or SpicyLyrics'
+  // coming search), where it can.
+  async spotifyId(item = queue[queueIndex]) {
+    if (!item) return console.warn('[cascadeDebug] Nothing playing.')
+    const title = item.Name || ''
+    const artist = item.AlbumArtist || item.Artists?.[0] || ''
+    const durationMs = (item.RunTimeTicks || 0) / 10_000
+    const q = s => `"${s.replace(/["\\]/g, '\\$&')}"`
+    const mb = async url => {
+      const r = await fetch(url)
+      if (!r.ok) throw new Error(`MusicBrainz HTTP ${r.status}`)
+      return r.json()
+    }
+    console.log(`[cascadeDebug] Looking up "${title}" by ${artist} on MusicBrainz (up to ~12s)...`)
+    const search = await mb(`https://musicbrainz.org/ws/2/recording/?query=${encodeURIComponent(`recording:${q(title)} AND artist:${q(artist)}`)}&fmt=json&limit=10`)
+    const candidates = search.recordings || []
+    if (!candidates.length) { console.warn('[cascadeDebug] No MusicBrainz recording matched.'); return null }
+    const hits = []
+    for (const c of candidates) {
+      await new Promise(r => setTimeout(r, 1100))
+      const rec = await mb(`https://musicbrainz.org/ws/2/recording/${c.id}?inc=url-rels&fmt=json`).catch(() => null)
+      const rel = (rec?.relations || []).find(r => r.url?.resource?.includes('open.spotify.com/track/'))
+      if (rel) hits.push({ spotifyId: rel.url.resource.split('/track/')[1].split(/[?/]/)[0], mbid: c.id, lengthMs: c.length ?? null })
+    }
+    if (!hits.length) { console.warn(`[cascadeDebug] Checked ${candidates.length} recordings; none has a Spotify link.`); return null }
+    // Closest length wins; a candidate with no length sorts last.
+    hits.sort((a, b) => (a.lengthMs == null) - (b.lengthMs == null) || Math.abs(a.lengthMs - durationMs) - Math.abs(b.lengthMs - durationMs))
+    console.log(`[cascadeDebug] Spotify id ${hits[0].spotifyId} (MusicBrainz recording ${hits[0].mbid}; ${hits.length} of ${candidates.length} candidates had a link)`)
+    return hits[0].spotifyId
+  },
+
+  async spicy(spotifyId) {
+    const cur = queue[queueIndex]
+    if (!jf || !cur) return console.warn('[cascadeDebug] Play something first; the lyrics go on the current track.')
+    if (!spotifyId) spotifyId = await this.spotifyId(cur)
+    if (!spotifyId) return
+    const id = String(spotifyId || '').trim().replace(/^spotify:track:/, '').replace(/^https?:\/\/open\.spotify\.com\/track\//, '').split('?')[0]
+    const r = await fetch(`${jf.url}/CascadeServer/SpicyLyrics/${encodeURIComponent(id)}`, { headers: CascadeCore.authHeaders(jf) })
+    const body = await r.json().catch(() => null)
+    if (!r.ok) return console.error(`[cascadeDebug] HTTP ${r.status}`, body ?? '(no body; 404 with no body means the plugin is older than this route, 401/403 means not an admin)')
+    const conv = CascadeCore.convertSpicyLyrics(body.spicy)
+    console.log('[cascadeDebug] raw SpicyLyrics response:', body.spicy)
+    if (!conv) return console.error('[cascadeDebug] The converter produced nothing from that response. That is a converter bug worth reporting, with the raw response above.')
+    const durationSec = (cur.RunTimeTicks || 0) / 10_000_000
+    if (!CascadeCore.spicyFitsTrack(body.spicy, durationSec)) {
+      console.warn(`[cascadeDebug] Version mismatch: this sync runs to ${body.spicy?.Body?.EndTime}s but the file is ${durationSec.toFixed(1)}s, so it is for another release and will drift. Loaded anyway so you can see it; normal playback rejects it and falls back to Kugou/LRCLIB. Try the id from Spotify's Share link for the matching release.`)
+    }
+    const words = conv.lines.reduce((n, l) => n + (l.Words?.length || 0), 0)
+    console.log(`[cascadeDebug] ${body.spicy?.Body?.Type} sync, ${conv.lines.length} lines, ${words} timed words`, conv.credit)
+    if (lyricsForcedSource && lyricsForcedSource !== 'auto') console.warn('[cascadeDebug] A lyrics source is forced in the pill; set it to Auto or this is overridden on the next fetch.')
+    _cachePut(cur.Id, { lines: conv.lines, source: conv.credit.provider, credit: conv.credit, tried: {} })
+    lyricsData = []; lastLyricsIdx = -1; lastOverlayLyricsIdx = -1; _lyricsScanIdx = 0; _ovLyricsScanIdx = 0
+    fetchLyrics()
+    return conv
+  },
+}
 
 function _applyServerOnlyMode(on) {
   // Dropdown: hide external sources and sep, show/hide server-only items; Auto always visible
@@ -7442,6 +8367,10 @@ function _showLyricsFetchToast(result) {
 }
 
 function updateSourcePills() {
+  for (const id of ['lyrics-edit-btn', 'ov-lyrics-edit-btn']) {
+    const btn = document.getElementById(id)
+    if (btn) btn.title = lyricsCredit ? "Edit in Spicy Lyrics' TTML tool" : 'Edit lyrics'
+  }
   const forced   = lyricsForcedSource && lyricsForcedSource !== 'auto'
   const label    = forced
     ? (lyricsForcedSource === 'cascade-karaoke' ? 'Karaoke'
@@ -7452,10 +8381,42 @@ function updateSourcePills() {
     p.textContent = label
     p.classList.toggle('forced', forced)
   })
+  renderLyricsCredit()
 }
+
+/** The always-visible credit line at the foot of each lyrics panel, for
+ *  SpicyLyrics lyrics: the provider, then the uploader and maker of a
+ *  community sync. Not left to the source pill, which only shows on hover -
+ *  the terms want it on screen, not tucked away. Links are https only
+ *  (safeCreditUrl) and open in the browser. */
+function renderLyricsCredit() {
+  const c = lyricsCredit
+  const people = c ? [['Uploaded by', c.uploader], ['Synced by', c.maker]].filter(([, p]) => p) : []
+  const html = c ? [esc(c.provider), ...people.map(([role, p]) => p.url
+    ? `${role} <a href="#" class="lyrics-credit-link" data-url="${esc(p.url)}">${esc(p.name)}</a>`
+    : `${role} ${esc(p.name)}`)].join(' · ') : ''
+  document.querySelectorAll('.lyrics-credit').forEach(el => {
+    el.innerHTML = html
+    el.hidden = !html
+  })
+  pushMiniplayerState()
+}
+
+document.addEventListener('click', (e) => {
+  const a = e.target.closest?.('.lyrics-credit-link')
+  if (!a) return
+  e.preventDefault()
+  const url = CascadeCore.safeCreditUrl(a.dataset.url)
+  if (url) window.cascade.shell.openExternal(url)
+})
 
 function _openSourceDropdown(nearEl) {
   const dd   = document.getElementById('lyrics-source-dropdown')
+  // Link a Spotify track: only where Cascade Server offers it, and worded for
+  // whether Spicy Lyrics already matched (then it is a correction).
+  const canLink = _canLinkSpotify()
+  dd.querySelectorAll('.lsd-spotify').forEach(el => { el.style.display = canLink ? '' : 'none' })
+  document.getElementById('lsd-spotify-label').textContent = lyricsCredit ? 'Change Spotify track…' : 'Link a Spotify track…'
   const rect = nearEl.getBoundingClientRect()
   dd.style.left = `${Math.max(8, rect.left)}px`
   dd.style.top  = `${rect.bottom + 6}px`
@@ -7485,7 +8446,7 @@ function _openSourceDropdown(nearEl) {
   })
 }
 
-// ── CascadeSLRC plugin one-time info modal ────────────────────────────────────
+// ── Cascade Server plugin one-time info modal ────────────────────────────────
 // Resolves true if user clicks "Continue", false if they click "Cancel".
 // After first "Continue" the modal is never shown again (persisted in store).
 async function _ensureCascadePluginNotice() {
@@ -7515,26 +8476,46 @@ async function openLyricsEditorFor(item) {
   if (!item || !jf) return
   // Root-cause gate: every entry point (both buttons and the context menu
   // item) routes through here, so this is the one place that needs to know
-  // the plugin is missing.
+  // the plugin is missing. Wait for the probe first so the verdict and the
+  // route it picked are both settled.
+  await _cascadePluginProbed
   if (_cascadePluginAbsent) {
-    showToast('The lyrics editor needs the CascadeSLRC plugin, which was not found on this server')
+    showToast('The lyrics editor needs the Cascade Server plugin, which was not found on this server')
     return
   }
   const proceed = await _ensureCascadePluginNotice()
   if (!proceed) return
   // lyricsData holds the playing track's lines - only seed the editor with it when
   // that is actually the track being edited, otherwise let the editor fetch its own.
-  const seed = item.Id === queue[queueIndex]?.Id ? (lyricsData || []) : []
+  // Never from SpicyLyrics (lyricsCredit set): saving writes a permanent .slrc,
+  // and its terms allow keeping that data 30 days at most and forbid building
+  // an archive of it. The editor then fetches its own, which never asks for it.
+  const seed = item.Id === queue[queueIndex]?.Id && !lyricsCredit ? (lyricsData || []) : []
   // Pass `volume`, not audio.volume: mid-crossfade the element is partway
   // through a fade and would hand the editor whatever that transient value is.
-  window.cascade.lyricsEditor.open({ item, jf, lyricsData: seed, volume })
+  window.cascade.lyricsEditor.open({ item, jf, lyricsData: seed, volume, lyricsUrl: cascadeLyricsUrl(item.Id) })
 }
 
+// Spicy Lyrics' own sync editor, its fork of the AMLL TTML Tool, which its
+// guides (guides.spicylyrics.org) point makers to. No deep link to a song is
+// documented, so it opens on its start page; uploads go through Spicy
+// Lyrics' TTML Maker program, not through Cascade.
+const SPICY_TTML_TOOL_URL = 'https://tool.community.spicylyrics.org/'
+
+// The lyric views' edit buttons: with Spicy Lyrics on screen they open that
+// tool, since Cascade's editor never takes its lyrics (see above). The
+// context menu's Edit lyrics still opens Cascade's own editor, for a local
+// .slrc of the same song.
 ;['lyrics-edit-btn', 'ov-lyrics-edit-btn'].forEach(id => {
   const btn = document.getElementById(id)
   if (!btn) return
   btn.addEventListener('click', e => {
     e.stopPropagation()
+    if (lyricsCredit) {
+      window.cascade.shell.openExternal(SPICY_TTML_TOOL_URL)
+      showToast("Opened Spicy Lyrics' TTML tool in your browser")
+      return
+    }
     openLyricsEditorFor(queue[queueIndex])
   })
 })
@@ -7592,7 +8573,7 @@ window.cascade.metadataEditor.onSaved(async (itemId) => {
   })
 })
 
-document.getElementById('lyrics-source-dropdown').querySelectorAll('.lsd-item').forEach(item => {
+document.getElementById('lyrics-source-dropdown').querySelectorAll('.lsd-item[data-source]').forEach(item => {
   item.addEventListener('click', async e => {
     e.stopPropagation()
     lyricsForcedSource = item.dataset.source
@@ -7616,31 +8597,8 @@ document.addEventListener('click', () => {
 
 let _wordRafId = null
 
-function _wordProgress(w, nowTicks) {
-  const ws = parseInt(w.dataset.ws)
-  const we = w.dataset.we ? parseInt(w.dataset.we) : null
-  if (nowTicks < ws) return 0
-  if (!we || nowTicks >= we) return 100
-  return (nowTicks - ws) / (we - ws) * 100
-}
-
-// Paint the karaoke fill across one line's word spans. Both callers below had
-// this body byte for byte, differing only in element ids and class names.
-//
-// The --p write is skipped when the value has not changed: _wordProgress pins a
-// word to 0 before it starts and 100 once it ends, so on any given frame every
-// span but one is being rewritten with what it already holds - and each write
-// invalidates a background-clip: text gradient sitting under a drop-shadow,
-// which is the most expensive text paint in index.html.
-function _paintWordSpans(line, nowTicks) {
-  line?.querySelectorAll('.lyric-word, .ov-lyric-word').forEach(w => {
-    const p = `${_wordProgress(w, nowTicks).toFixed(2)}%`
-    if (w.style.getPropertyValue('--p') !== p) w.style.setProperty('--p', p)
-    const ws = parseInt(w.dataset.ws)
-    const we = w.dataset.we ? parseInt(w.dataset.we) : null
-    w.classList.toggle('active', nowTicks >= ws && (!we || nowTicks < we))
-  })
-}
+// lyricWordSpans and _paintWordSpans live in lyric-karaoke.js, shared with
+// the miniplayer.
 
 function _wordHighlightFrame() {
   _wordRafId = requestAnimationFrame(_wordHighlightFrame)
@@ -7653,19 +8611,18 @@ function _wordHighlightFrame() {
   // getElementById('view-lyrics') until 2026-09-15; no such element has ever
   // existed (the only match is #ctx-view-lyrics, a context menu item), so the
   // optional chain yielded undefined and this branch never ran once.
-  const panelIdx = lastLyricsIdx
-  if (lyricsPanelOpen() && lyricsData[panelIdx]?.Words) {
-    _paintWordSpans(document.getElementById('lyrics-inner')
-      ?.querySelector(`.lyrics-line[data-idx="${panelIdx}"]`), nowTicks)
+  // Every line of the current group: more than one while lines overlap.
+  const paintGroup = (container, sel, first, last) => {
+    if (!container || last < 0) return
+    for (let i = first >= 0 && first <= last ? first : last; i <= last; i++) {
+      if (lyricsData[i]?.Words) _paintWordSpans(container.querySelector(`${sel}[data-idx="${i}"]`), nowTicks)
+    }
   }
+  if (lyricsPanelOpen()) paintGroup(document.getElementById('lyrics-inner'), '.lyrics-line', lyricsActiveFirst, lastLyricsIdx)
 
   // Overlay - same: CSS scoping handles inactive lines automatically
   if (overlayOpen && overlayLyricsOpen) {
-    const ovIdx = lastOverlayLyricsIdx
-    if (lyricsData[ovIdx]?.Words) {
-      _paintWordSpans(document.getElementById('ov-lyrics-body')
-        ?.querySelector(`.ov-lyric-line[data-idx="${ovIdx}"]`), nowTicks)
-    }
+    paintGroup(document.getElementById('ov-lyrics-body'), '.ov-lyric-line', ovActiveFirst, lastOverlayLyricsIdx)
   }
 }
 
@@ -7722,7 +8679,28 @@ function _cachePut(id, result) {
 // Returns { lines, source, tried } | { instrumental: true } | null.
 const _isAbort = e => e?.name === 'AbortError' || e?.name === 'TimeoutError'
 
-async function fetchLyricsWaterfall(item) {
+// One search per song at a time. The side panel, the overlay and the
+// look-ahead for upcoming tracks can all ask for the same song before its
+// first search lands (the cache below is only filled at the end), and each
+// used to start its own: one track's Jellyfin /Lyrics 404 showed up ten times
+// in a row. Later askers now wait on the search already running.
+const _lyricsInflight = new Map()   // item id -> promise of the waterfall's result
+function fetchLyricsWaterfall(item) {
+  // Films and episodes have no lyrics. Guarded here, where every caller
+  // routes, because only updateNowPlaying() checked: the lyrics panel and the
+  // overlay still sent a movie's title to LRCLIB, Kugou and the plugin.
+  if (isVideoItem(item)) return Promise.resolve(null)
+  const forced = lyricsForcedSource && lyricsForcedSource !== 'auto'
+  if (forced || _lyricsCache.has(item.Id)) return _lyricsWaterfall(item)
+  let pending = _lyricsInflight.get(item.Id)
+  if (!pending) {
+    pending = _lyricsWaterfall(item).finally(() => _lyricsInflight.delete(item.Id))
+    _lyricsInflight.set(item.Id, pending)
+  }
+  return pending
+}
+
+async function _lyricsWaterfall(item) {
   const forced = lyricsForcedSource && lyricsForcedSource !== 'auto' ? lyricsForcedSource : null
 
   // Bypass cache when a source is forced so the user always gets a fresh fetch
@@ -7751,10 +8729,35 @@ async function fetchLyricsWaterfall(item) {
                    : null   // auto = accept either (plugin returns karaoke first)
     const tried = { Cascade: null }
     try {
-      const r = await fetch(`${jf.url}/Audio/${item.Id}/CascadeLyrics`,
-        { headers: { 'X-Emby-Token': jf.token }, signal: AbortSignal.timeout(8000) })
+      await _cascadePluginProbed
+      // Auto asks for SpicyLyrics first; the plugin answers it only with a key
+      // set and a Spotify id for the track, and otherwise falls through to its
+      // own files. A forced karaoke/synced choice means exactly those files.
+      const url = !wantType && _cascadePluginCaps.has('syllable')
+        ? `${cascadeLyricsUrl(item.Id)}?syllable=true${_localSpotifyParam(item.Id)}` : cascadeLyricsUrl(item.Id)
+      const r = await fetch(url,
+        { headers: CascadeCore.authHeaders(jf), signal: AbortSignal.timeout(8000) })
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
-      const d = await r.json()
+      let d = await r.json()
+      if (d.type === 'syllable') {
+        // A sync for a longer version drifts against this file; the plugin's
+        // own files beat that (spicyFitsTrack).
+        const conv = CascadeCore.spicyFitsTrack(d.spicy, (item.RunTimeTicks || 0) / 10_000_000)
+          ? CascadeCore.convertSpicyLyrics(d.spicy) : null
+        if (conv) {
+          tried.Cascade = 'ok'
+          _lastFetchStatus = tried
+          const out = { lines: conv.lines, source: conv.credit.provider, credit: conv.credit, tried }
+          _cachePut(item.Id, out)
+          return out
+        }
+        // Unusable SpicyLyrics body: ask again for the plugin's own files
+        // rather than showing nothing when they exist.
+        const r2 = await fetch(cascadeLyricsUrl(item.Id),
+          { headers: CascadeCore.authHeaders(jf), signal: AbortSignal.timeout(8000) })
+        if (!r2.ok) throw new Error(`HTTP ${r2.status}`)
+        d = await r2.json()
+      }
       if (!d.lrc || (wantType && d.type !== wantType)) {
         tried.Cascade = 'fail'; _lastFetchStatus = tried; return null
       }
@@ -7809,7 +8812,7 @@ async function fetchLyricsWaterfall(item) {
     }],
     ['Jellyfin', async () => {
       const r = await fetch(`${jf.url}/Audio/${item.Id}/Lyrics`,
-        { headers: { 'X-Emby-Token': jf.token }, ...sig })
+        { headers: CascadeCore.authHeaders(jf), ...sig })
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       const d = await r.json()
       const lines = (d.Lyrics || [])
@@ -7839,13 +8842,34 @@ async function fetchLyricsWaterfall(item) {
     }
   }
 
+  // SpicyLyrics through the plugin, ahead of everything else when it answers.
+  // Only asked when the plugin reports a key (the 'syllable' capability), and
+  // only a SpicyLyrics body counts: the plugin's own files are server-only
+  // mode's business, not this waterfall's. Outside `sources`, so it is not a
+  // forceable choice and a miss is never reported as a failed source - most
+  // tracks will not have one. spicyOnly stops the plugin there on a miss
+  // instead of reading its files, or fetching Kugou and LRCLIB live, for an
+  // answer this ignores. A plugin older than the flag ignores it.
+  const spicyProm = (async () => {
+    await _cascadePluginProbed
+    if (_cascadePluginAbsent || !_cascadePluginCaps.has('syllable')) return null
+    const r = await fetch(`${cascadeLyricsUrl(item.Id)}?syllable=true&spicyOnly=true${_localSpotifyParam(item.Id)}`, { headers: CascadeCore.authHeaders(jf), ...sig })
+    if (!r.ok) return null
+    const d = await r.json()
+    if (d?.type !== 'syllable') return null
+    // Another version's sync drifts against this file: let the others win.
+    if (!CascadeCore.spicyFitsTrack(d.spicy, (item.RunTimeTicks || 0) / 10_000_000)) return null
+    const conv = CascadeCore.convertSpicyLyrics(d.spicy)
+    return conv ? { lines: conv.lines, source: conv.credit.provider, credit: conv.credit } : null
+  })().catch(err => { if (!_isAbort(err)) console.error('[Lyrics] SpicyLyrics error:', err); return null })
+
   // Fire all sources simultaneously
   const [kugouProm, lrcProm, jfProm] = sources.map(([name, fn]) =>
     fn().then(r => ({ name, result: r }))
       .catch(err => { if (!_isAbort(err)) console.error(`[Lyrics] ${name} error:`, err); return { name, result: null } })
   )
 
-  const [kugouRes, lrcRes, jfRes] = await Promise.all([kugouProm, lrcProm, jfProm])
+  const [kugouRes, lrcRes, jfRes, spicyRes] = await Promise.all([kugouProm, lrcProm, jfProm, spicyProm])
 
   // Instrumental check (any source can flag it)
   for (const { result } of [kugouRes, lrcRes, jfRes]) {
@@ -7860,7 +8884,7 @@ async function fetchLyricsWaterfall(item) {
   tried['LRCLIB']   = lrcRes.result   ? 'ok' : 'fail'
   tried['Jellyfin'] = jfRes.result    ? 'ok' : 'fail'
 
-  const winner = kugouRes.result || lrcRes.result || jfRes.result
+  const winner = spicyRes || kugouRes.result || lrcRes.result || jfRes.result
   if (winner) {
     _lastFetchStatus = tried
     const out = { ...winner, tried }
@@ -7908,12 +8932,14 @@ async function fetchLyrics() {
   _showLyricsFetchToast(result)
   if (!result) {
     lyricsSource = null
+    lyricsCredit = null
     updateSourcePills()
-    body.innerHTML = '<div class="lyrics-empty">No lyrics available for this track</div>'
+    body.innerHTML = `<div class="lyrics-empty">No lyrics available for this track${_linkSpotifyButton()}</div>`
     return
   }
   lyricsData   = result.lines
   lyricsSource = result.source
+  lyricsCredit = result.credit || null
   updateSourcePills()
   renderLyrics()
   detectAndShowTranslateBar()
@@ -7925,7 +8951,8 @@ async function fetchLyrics() {
 function detectAndShowTranslateBar() {
   // The whole sheet, not the first line: a song opening on an English title line
   // must still read as the language the rest of it is in.
-  const key = lyricsTranslationEnabled && CascadeCore.translationModelFor(lyricsPlainLines())
+  const lang = lyricsTranslationEnabled && CascadeCore.translationLanguageFor(lyricsPlainLines())
+  const key = _canTranslate(lang) ? lang : null
   document.getElementById('lyrics-translate-bar').classList.toggle('visible', !!key)
   document.getElementById('lyrics-translate-label').textContent = key ? `${_translationModelName(key)} lyrics` : ''
 }
@@ -7938,13 +8965,9 @@ function renderLyrics() {
     // nested under it. This used to replace the line's text with the translation
     // AND append the translation again as a sibling, so a translated sheet showed
     // every translation twice and the original not at all.
-    const content = line.Words
-      ? line.Words.map(w =>
-          `<span class="lyric-word" data-ws="${w.Start}" data-we="${w.End ?? ''}">${esc(w.Text)}</span>`
-        ).join('')
-      : esc(line.Text || '')
+    const content = line.Words ? lyricWordSpans(line, 'lyric-word', !!lyricsCredit) : esc(line.Text || '')
     const trans = lyricTranslationFor(i)
-    return `<div class="lyrics-line${hasTimestamp ? ' seekable' : ''}" data-idx="${i}"${hasTimestamp ? ` data-start="${line.Start}"` : ''}>${content}${trans ? `<div class="lyric-trans">${esc(trans)}</div>` : ''}</div>`
+    return `<div class="lyrics-line${hasTimestamp ? ' seekable' : ''}${line.Opposite ? ' opposite' : ''}" data-idx="${i}"${hasTimestamp ? ` data-start="${line.Start}"` : ''}>${content}${trans ? `<div class="lyric-trans">${esc(trans)}</div>` : ''}</div>`
   }).join('')
 
   // Wrap in a translateY-driven inner div - position is spring-animated in JS
@@ -7989,40 +9012,42 @@ onDeck('timeupdate', () => {
   const baseIdx = _scanLyricsBaseIdx(nowSec, _lyricsScanIdx)
   _lyricsScanIdx = baseIdx
 
-  // For karaoke lines, promote to the next line (highlight AND scroll together)
-  // the instant its last word finishes, instead of waiting for the next line's
-  // own start - otherwise the view snaps into place early but sits dim/inactive
-  // for a beat, which reads as stuck.
-  let activeIdx = baseIdx
-  const words = lyricsData[baseIdx]?.Words
-  if (words?.length && lyricsData[baseIdx + 1]) {
-    const lastWordEnd = words[words.length - 1].End
-    if (lastWordEnd != null && nowSec >= lastWordEnd / 10_000_000) activeIdx = baseIdx + 1
-  }
+  // Karaoke: promote early once a line (background vocals included) is sung,
+  // and hold a line while its background vocals run into the next one. Shared
+  // with the overlay; see currentLyricIndex in src/core/lyrics.ts.
+  const activeIdx = CascadeCore.currentLyricIndex(lyricsData, baseIdx, nowSec * 10_000_000)
+  // Overlapping lines stay lit together, as in the overlay above.
+  const [first] = CascadeCore.activeLyricRange(lyricsData, activeIdx, nowSec * 10_000_000)
 
-  if (activeIdx === lastLyricsIdx) return
-  _applySideLyricsActive(activeIdx, activeIdx > baseIdx)
+  if (activeIdx === lastLyricsIdx && first === lyricsActiveFirst) return
+  _applySideLyricsActive(activeIdx, false, first)   // always a glide, as in the overlay above
 })
 
 // Highlight and centre one line in the side panel. Split out of the timeupdate
 // handler so a re-render (a translation arriving, say) can put the highlight
 // back straight away - while paused, no timeupdate would come to do it.
-function _applySideLyricsActive(activeIdx, instant) {
+// First line of the side panel's current group; lastLyricsIdx is the last.
+// They differ only while lines overlap (see activeLyricRange).
+let lyricsActiveFirst = -1
+
+function _applySideLyricsActive(activeIdx, instant, first = activeIdx) {
   lastLyricsIdx = activeIdx
+  lyricsActiveFirst = first
   const body = document.getElementById('lyrics-body')
   body.querySelectorAll('.lyrics-line[data-idx]').forEach(el => {
-    el.classList.toggle('active', parseInt(el.dataset.idx) === activeIdx)
+    const idx = parseInt(el.dataset.idx)
+    el.classList.toggle('active', idx >= first && idx <= activeIdx)
   })
 
   if (!lyricsScrollSuppressed) {
     const inner = document.getElementById('lyrics-inner')
     const target = inner?.querySelector(`.lyrics-line[data-idx="${activeIdx}"]`)
     if (target) {
-      const panelMid  = body.clientHeight / 2
-      const activeMid = target.offsetTop + target.offsetHeight / 2
-      const y = panelMid - activeMid
-      if (instant) sideLyricsSpring.jumpTo(y)
-      else sideLyricsSpring.setTarget(y)
+      // A group of overlapping lines is centred as one block.
+      const top = inner.querySelector(`.lyrics-line[data-idx="${first}"]`) || target
+      const centreOn = () => body.clientHeight / 2 - (top.offsetTop + target.offsetTop + target.offsetHeight) / 2
+      if (instant) sideLyricsSpring.jumpTo(centreOn())
+      else sideLyricsSpring.setTarget(centreOn)   // re-measured per frame, see createSpring
     }
   }
 }
@@ -8044,7 +9069,13 @@ let _translateStatusTimer = null
 // so the renderer never keeps its own copy to drift. Kept current from progress
 // events; the key itself shows only if a label renders before the first read.
 let _translationModels = {}
-const _translationModelName = key => _translationModels[key]?.name || key
+// Languages only Apple takes have no manifest entry, so their name comes from
+// the platform's own list ("Ukrainian", "Thai").
+const _languageNames = new Intl.DisplayNames(['en'], { type: 'language' })
+const _translationModelName = key => {
+  if (_translationModels[key]?.name) return _translationModels[key].name
+  try { return _languageNames.of(key) || key } catch { return key }
+}
 
 window.cascade.translationModels.status().then(s => { _translationModels = s }).catch(() => {})
 
@@ -8085,14 +9116,37 @@ let _pendingInstallKey = null   // the sheet's language, while it waits on macOS
 
 const _appleInUse = () => _appleTranslationSupported && appleTranslationEnabled
 
-async function _translationEngineFor(key) {
-  if (!_appleInUse()) return 'mozilla'
-  const status = await window.cascade.appleTranslation.availability()
+// macOS's last answer per language, so the Translate button can be decided
+// without a round trip on every sheet. Refreshed at startup, when Apple
+// Translation is switched, and whenever the settings row or a translation
+// asks again - the last one catches a language installed since.
+let _appleLanguageStatus = {}
+
+async function refreshAppleLanguageStatus() {
+  if (!_appleTranslationSupported) return _appleLanguageStatus
+  try {
+    _appleLanguageStatus = await window.cascade.appleTranslation.availability(CascadeCore.APPLE_TRANSLATION_KEYS)
+  } catch { /* keep the last answer */ }
+  detectOverlayLyricsLanguage()
+  detectAndShowTranslateBar()
+  return _appleLanguageStatus
+}
+
+function _engineFor(key, status) {
   return CascadeCore.pickTranslationEngine({
-    appleEnabled: true,
-    appleStatus: status[key],
+    appleEnabled: _appleInUse(),
+    appleStatus: _appleInUse() ? status[key] : undefined,
+    hasModel: CascadeCore.isModelKey(key),
     mozillaChosen: _appleMozillaChosen.has(key),
   })
+}
+
+/** Whether anything on this Mac could translate a sheet in `key`, from the cached answer. */
+const _canTranslate = key => !!key && _engineFor(key, _appleLanguageStatus) !== 'none'
+
+async function _translationEngineFor(key) {
+  if (!_appleInUse()) return _engineFor(key, {})
+  return _engineFor(key, await refreshAppleLanguageStatus())
 }
 
 function openAppleInstallPrompt(key) {
@@ -8102,8 +9156,10 @@ function openAppleInstallPrompt(key) {
   modal.dataset.key = key
   document.getElementById('apple-install-title').textContent = `Install ${name} in macOS?`
   document.getElementById('apple-install-lang').textContent = name
-  document.getElementById('apple-install-mozilla').textContent =
-    `Use Cascade's model${m ? ` (${Math.round(m.bytes / 1e6)} MB)` : ''}`
+  const mozillaBtn = document.getElementById('apple-install-mozilla')
+  mozillaBtn.textContent = `Use Cascade's model${m ? ` (${Math.round(m.bytes / 1e6)} MB)` : ''}`
+  // Most languages Apple takes have no Cascade model to fall back on.
+  mozillaBtn.style.display = CascadeCore.isModelKey(key) ? '' : 'none'
   modal.classList.remove('hidden')
 }
 
@@ -8166,13 +9222,16 @@ async function renderAppleTranslationRow() {
   document.getElementById('apple-translation-reset').style.display = _appleMozillaChosen.size ? '' : 'none'
   const statusEl = document.getElementById('apple-translation-status')
   try {
-    const status = await window.cascade.appleTranslation.availability()
-    const names = keys => keys.map(_translationModelName).join(', ')
-    const keys = CascadeCore.TRANSLATION_MODEL_KEYS
+    const status = await refreshAppleLanguageStatus()
+    // Every language Apple takes, not only the five Cascade has models for:
+    // System Settings undercounts too, since macOS 27's multilingual model
+    // covers languages it never lists as downloaded.
+    const byName = keys => keys.map(_translationModelName).sort((a, b) => a.localeCompare(b))
+    const keys = CascadeCore.APPLE_TRANSLATION_KEYS
     const installed = keys.filter(k => status[k] === 'installed')
     const missing = keys.filter(k => status[k] === 'supported')
     const parts = []
-    if (installed.length) parts.push(`Installed in macOS: ${names(installed)}.`)
+    if (installed.length) parts.push(`Installed in macOS (${installed.length}): ${byName(installed).join(', ')}.`)
     if (missing.length) {
       parts.push(`Not installed: ${missing.map(k => _translationModelName(k) + (_appleMozillaChosen.has(k) ? ' (using Cascade’s model)' : '')).join(', ')}.`)
     }
@@ -8315,9 +9374,31 @@ document.getElementById('translation-models-list').addEventListener('click', asy
 // remember. A line the model returned unchanged (English lines in a mixed song)
 // is not repeated under itself.
 function lyricTranslationFor(i) {
-  if (!lyricsTranslationEnabled || !lyricsTranslateOn || _lyricsTranslatedFor !== lyricsData) return ''
+  if (!lyricsTranslationEnabled || !lyricsTranslateOn) return ''
+  // Done, or still arriving line by line for this sheet.
+  if (_lyricsTranslatedFor !== lyricsData && _lyricsTranslating?.sheet !== lyricsData) return ''
   const t = (lyricsTranslated[i] || '').trim()
   return t && t.toLowerCase() !== (lyricsData[i]?.Text || '').trim().toLowerCase() ? t : ''
+}
+
+/** The line being sung at `nowTicks`: the last one that has started. */
+function _lyricLineAt(sheet, nowTicks) {
+  let at = 0
+  for (let i = 0; i < sheet.length; i++) if (sheet[i].Start != null && sheet[i].Start <= nowTicks) at = i
+  return at
+}
+
+/** Puts line `i`'s translation into whichever lyric views are showing it,
+ *  without re-rendering the sheet (which would restart the karaoke fill). */
+function _showLineTranslation(i) {
+  const text = lyricTranslationFor(i)
+  document.querySelectorAll(`.lyrics-line[data-idx="${i}"], .ov-lyric-line[data-idx="${i}"]`).forEach(el => {
+    const cls = el.classList.contains('ov-lyric-line') ? 'ov-lyric-trans' : 'lyric-trans'
+    let t = el.querySelector(`.${cls}`)
+    if (!text) { t?.remove(); return }
+    if (!t) { t = document.createElement('div'); t.className = cls; el.appendChild(t) }
+    t.textContent = text
+  })
 }
 
 function _flashTranslateStatus(label, ms) {
@@ -8374,7 +9455,8 @@ function ensureLyricsTranslation(userAsked = false) {
   if (_lyricsTranslating?.sheet === sheet) return _lyricsTranslating.promise
 
   const lines = lyricsPlainLines()
-  const key = CascadeCore.translationModelFor(lines)
+  const lang = CascadeCore.translationLanguageFor(lines)
+  const key = _canTranslate(lang) ? lang : null
   // A new sheet in another language (or none) is no longer waiting on the old one.
   if (_pendingInstallKey && _pendingInstallKey !== key) {
     _pendingInstallKey = null
@@ -8389,7 +9471,7 @@ function ensureLyricsTranslation(userAsked = false) {
     await null
     try {
       const engine = await _translationEngineFor(key)
-      if (lyricsData !== sheet) { _flashTranslateStatus('', 0); return }
+      if (lyricsData !== sheet || engine === 'none') { _flashTranslateStatus('', 0); return }
       if (engine === 'needs-install') {
         _pendingInstallKey = key
         _flashTranslateStatus(`Install ${_translationModelName(key)}…`, 0)
@@ -8418,14 +9500,22 @@ function ensureLyricsTranslation(userAsked = false) {
       }
 
       _flashTranslateStatus(engine === 'apple' ? 'Translating…' : 'Loading…', 0)
+      // Filled in line by line as translations land (see translateLines), and
+      // shown as they do: lyricTranslationFor reads it while this runs.
+      lyricsTranslated = new Array(lines.length).fill('')
       const out = await translateLines(lines, key, ({ done, total }) => {
         if (lyricsData === sheet) _flashTranslateStatus(`${Math.round(done / total * 100)}%`, 0)
-      }, engine)
+      }, engine, {
+        startAt: () => _lyricLineAt(sheet, mediaPosition() * 10_000_000),
+        onLine: (indexes, english) => {
+          if (lyricsData !== sheet) return
+          for (const i of indexes) { lyricsTranslated[i] = english; _showLineTranslation(i) }
+        },
+      })
       if (lyricsData !== sheet) { _flashTranslateStatus('', 0); return }
       lyricsTranslated = out
       _lyricsTranslatedFor = sheet
       _flashTranslateStatus('', 0)
-      rerenderLyricViews()
     } catch (e) {
       console.error('Translation failed', e)
       _flashTranslateStatus('Failed', 2500)
@@ -8445,11 +9535,22 @@ updateNowPlaying = function(item) {
   _origUpdateNP(item)
   // Always clear stale lyrics so panels re-fetch for the new track
   lyricsData = []
+  lyricsCredit = null   // the old song's Spicy credit, until the new lyrics say otherwise
   lyricsTranslated = []
   lastLyricsIdx = -1
   _lyricsScanIdx = 0
   document.getElementById('ov-translate-btn').style.display = 'none'
-  if (lyricsPanelOpen()) fetchLyrics()
+  _refetchLyricViews(item)
+}
+
+// One fetch, then Now Playing draws from it. Started together, both bumped
+// _lyricsFetchGen, the side panel's result was thrown away, and with both
+// views open it sat on its loading placeholder after every song change.
+async function _refetchLyricViews(item) {
+  if (lyricsPanelOpen() || _miniplayerOpen) await fetchLyrics()
+  // Another song since: its own call draws it, and fetching here would
+  // supersede that one's fetch in turn.
+  if (queue[queueIndex] !== item) return
   if (overlayOpen && overlayLyricsOpen) renderOverlayLyrics()
 }
 
@@ -8470,7 +9571,7 @@ function _syncRpcClock() {
 // Tailscale address or any private host never is, and the https check this used
 // to do could not tell the difference.
 //
-// It was also handing over a Jellyfin image URL, and those carry api_key, so
+// It was also handing over a Jellyfin image URL, and those carry the token (ApiKey), so
 // the user's server token went to a third party and ended up baked into the
 // proxied image URL that hangs off their presence. iTunes art is public,
 // keyless, needs no reachable server, and the app already fetches it elsewhere
@@ -8854,6 +9955,125 @@ async function loadTheme() {
   updateAccentLock()
 }
 
+// ── UI font ───────────────────────────────────────────────────────────────────
+// Same store-then-apply shape as theme above, kept in its own key (uiFont)
+// rather than folded into 'theme' - font family and colour theme are
+// unrelated settings that happen to share a popover for now.
+
+/** The one place that writes --font (styles/base.css). CascadeCore.resolveUiFont()
+ *  is the one place that turns a stored (preset, custom name) pair into a safe
+ *  value - see src/core/font.ts for why an unsanitized custom name can't go
+ *  straight into a CSS custom property with no fallback downstream. */
+function applyUiFont(preset, custom) {
+  document.documentElement.style.setProperty('--font', CascadeCore.resolveUiFont(preset, custom))
+}
+
+async function saveUiFont(preset, custom) {
+  await window.cascade.store.set('uiFont', JSON.stringify({ preset, custom }))
+  applyUiFont(preset, custom)
+}
+
+async function loadUiFont() {
+  let preset = 'system', custom = ''
+  try {
+    const raw = await window.cascade.store.get('uiFont')
+    if (raw) {
+      const f = JSON.parse(raw)
+      preset = f.preset
+      custom = f.custom
+    }
+  } catch {}
+  applyUiFont(preset, custom)
+  const presetSel = document.getElementById('tp-font-preset')
+  const customInput = document.getElementById('tp-font-custom')
+  // A stale preset id from an older build falls back to System in the UI too,
+  // not just in the resolved CSS value.
+  const validPreset = (preset === 'custom' || preset in CascadeCore.FONT_PRESETS) ? preset : 'system'
+  if (presetSel) presetSel.value = validPreset
+  if (customInput) {
+    customInput.value = typeof custom === 'string' ? custom : ''
+    customInput.hidden = validPreset !== 'custom'
+  }
+}
+
+document.getElementById('tp-font-preset').addEventListener('change', (e) => {
+  const preset = e.target.value
+  const customInput = document.getElementById('tp-font-custom')
+  customInput.hidden = preset !== 'custom'
+  if (preset === 'custom') customInput.focus()
+  saveUiFont(preset, customInput.value)
+})
+
+document.getElementById('tp-font-custom').addEventListener('input', (e) => {
+  saveUiFont('custom', e.target.value)
+})
+
+// ── Now Playing tuning ───────────────────────────────────────────────────────
+// Lyric size, background dim and background blend: persisted, user-facing
+// versions of the same CSS custom properties initLightTuningPanel() (below)
+// exposes as session-only debug sliders - --np-lyric-scale drives
+// .ov-lyric-line's font-size, --np-scrim-left/right/header and --np-blend
+// drive the light-theme art-accent scrims (styles/theme.css's "four custom
+// properties" block). One dim knob sets all three scrims identically, since
+// they already share one shipped default (see src/core/np-tuning.ts) and the
+// debug panel's per-scrim split exists for tuning, not for a normal setting
+// to expose. setOverlayBackgroundImage() stays the only writer of the
+// overlay's actual background image - none of this touches it, only the
+// blend/scrim painted on top of whatever that set.
+//
+// CascadeCore's clamp*() functions are the one place a corrupted stored
+// number gets turned into something safe before it can reach a CSS value -
+// same "store values are untrusted" rule as everywhere else.
+function applyNpTuning(lyricScale, bgDim, bgBlend) {
+  const root = document.documentElement
+  root.style.setProperty('--np-lyric-scale', String(CascadeCore.clampLyricScale(lyricScale)))
+  const dim = String(CascadeCore.clampBgDim(bgDim))
+  root.style.setProperty('--np-scrim-left', dim)
+  root.style.setProperty('--np-scrim-right', dim)
+  root.style.setProperty('--np-scrim-header', dim)
+  root.style.setProperty('--np-blend', CascadeCore.clampBgBlend(bgBlend) ? 'multiply' : 'normal')
+}
+
+async function saveNpTuning(lyricScale, bgDim, bgBlend) {
+  await window.cascade.store.set('npTuning', JSON.stringify({ lyricScale, bgDim, bgBlend }))
+  applyNpTuning(lyricScale, bgDim, bgBlend)
+}
+
+async function loadNpTuning() {
+  let lyricScale, bgDim, bgBlend
+  try {
+    const raw = await window.cascade.store.get('npTuning')
+    if (raw) {
+      const t = JSON.parse(raw)
+      lyricScale = t.lyricScale; bgDim = t.bgDim; bgBlend = t.bgBlend
+    }
+  } catch {}
+  lyricScale = CascadeCore.clampLyricScale(lyricScale)
+  bgDim = CascadeCore.clampBgDim(bgDim)
+  bgBlend = CascadeCore.clampBgBlend(bgBlend)
+  applyNpTuning(lyricScale, bgDim, bgBlend)
+  const scaleInput = document.getElementById('tp-lyric-scale')
+  const dimInput = document.getElementById('tp-bg-dim')
+  const blendInput = document.getElementById('tp-bg-blend')
+  if (scaleInput) scaleInput.value = String(lyricScale)
+  if (dimInput) dimInput.value = String(bgDim)
+  if (blendInput) blendInput.checked = bgBlend
+}
+
+/** Reads all three controls' current values, so any one changing saves and
+ *  applies the whole set together - matches how they are stored (one key). */
+function _npTuningInputValues() {
+  return [
+    parseFloat(document.getElementById('tp-lyric-scale').value),
+    parseFloat(document.getElementById('tp-bg-dim').value),
+    document.getElementById('tp-bg-blend').checked,
+  ]
+}
+
+document.getElementById('tp-lyric-scale').addEventListener('input', () => saveNpTuning(..._npTuningInputValues()))
+document.getElementById('tp-bg-dim').addEventListener('input', () => saveNpTuning(..._npTuningInputValues()))
+document.getElementById('tp-bg-blend').addEventListener('change', () => saveNpTuning(..._npTuningInputValues()))
+
 /** Album art accent mode overrides whatever gradient/preset is picked, so
  *  those controls do nothing while it's on - dim them and say why rather
  *  than leaving them clickable but inert. */
@@ -9060,8 +10280,6 @@ function setAlbumArtAccent(enabled) {
   themeAlbumArt = enabled
   document.getElementById('toggle-album-art').checked = enabled
   updateAccentLock()
-  // The same switch drives ambient mode during a film - see refreshAmbient().
-  refreshAmbient()
   if (themeAlbumArt) {
     // Apply immediately from current art
     const img = document.querySelector('#ov-art img') || document.querySelector('#np-art img')
@@ -9124,7 +10342,12 @@ document.addEventListener('mouseover', (e) => {
   if (host) _positionTooltip(host)
 })
 document.addEventListener('mouseout', (e) => {
-  if (e.target.closest?.('[data-tip]')) _hideTooltip()
+  const host = e.target.closest?.('[data-tip]')
+  // A drag routinely carries the pointer outside the bar's rect (dragging the
+  // volume handle past its ends, for one), which fires this same mouseout -
+  // wireBar's .dragging class is what tells a live drag from an actual leave.
+  // wireBar hides the tip itself once the drag ends.
+  if (host && !host.classList.contains('dragging')) _hideTooltip()
 })
 // Keyboard parity with the old :focus-visible rule.
 document.addEventListener('focusin', (e) => {
@@ -9336,7 +10559,7 @@ function debugPanelText() {
     '── resources ──',
     ...debugResourceLines(),
     '',
-    `CascadeSLRC plugin absent: ${_cascadePluginAbsent}`,
+    `Cascade Server plugin absent: ${_cascadePluginAbsent}`,
   ].join('\n')
 }
 
@@ -9348,7 +10571,7 @@ function initDebugPanel() {
     + 'border-radius:6px;background:rgba(0,0,0,0.82);color:#7CFC7C;'
     + 'font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;'
     + 'word-break:break-all;user-select:text;cursor:pointer;'
-  el.title = 'Cascade debug panel - click to collapse, Shift-click to copy. Force CascadeSLRC absent: Alt-click.'
+  el.title = 'Cascade debug panel - click to collapse, Shift-click to copy. Force Cascade Server plugin absent: Alt-click.'
 
   let collapsed = false
   function render() {

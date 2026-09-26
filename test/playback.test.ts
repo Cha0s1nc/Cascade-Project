@@ -1,7 +1,7 @@
 import { test, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { JellyfinClient } from '../src/core/jellyfin.ts'
-import { resolveStream, universalStreamUrl, stopActiveEncoding, DEFAULT_MAX_BITRATE, resumeTicks, neededAudioStreamIndex, withoutAudioCodecs
+import { resolveStream, isHlsUrl, chapterList, chapterAt, chapterTarget, universalStreamUrl, stopActiveEncoding, DEFAULT_MAX_BITRATE, resumeTicks, neededAudioStreamIndex, withoutAudioCodecs
 } from '../src/core/playback.ts'
 import { ELECTRON_PROFILE, buildElectronProfile } from '../src/core/profiles/electron.ts'
 import type { ServerConfig, JfMediaStream } from '../src/core/types.ts'
@@ -56,7 +56,7 @@ test('direct play: builds a static stream URL carrying the session', async () =>
   assert.equal(url.searchParams.get('static'), 'true')
   assert.equal(url.searchParams.get('mediaSourceId'), 'MS1')
   assert.equal(url.searchParams.get('PlaySessionId'), 'PS1')
-  assert.equal(url.searchParams.get('api_key'), 'TOK')
+  assert.equal(url.searchParams.get('ApiKey'), 'TOK')
 })
 
 test('transcoding: uses the server-supplied URL, made absolute', async () => {
@@ -106,7 +106,7 @@ test('universalStreamUrl keeps the pre-B1 shape', async () => {
   const url = new URL(universalStreamUrl(config, 'ITEM1'))
   assert.equal(url.pathname, '/Audio/ITEM1/universal')
   assert.equal(url.searchParams.get('UserId'), 'U1')
-  assert.equal(url.searchParams.get('api_key'), 'TOK')
+  assert.equal(url.searchParams.get('ApiKey'), 'TOK')
   assert.equal(url.searchParams.get('Container'), 'opus,mp3,aac,flac,wav,ogg')
   assert.equal(url.searchParams.get('AudioCodec'), 'aac')
   assert.equal(url.searchParams.get('MaxStreamingBitrate'), String(DEFAULT_MAX_BITRATE))
@@ -166,14 +166,14 @@ test('video transcode uses the server URL like audio does', async () => {
   assert.equal(out.url, 'https://jf.test/Videos/ITEM1/stream.mp4?foo=1')
 })
 
-test('video transcoding profile is progressive http, not hls', () => {
-  // Chromium cannot play an .m3u8 and this app ships no HLS player. If someone
-  // flips this to 'hls' to match the audio profile, video silently stops
-  // playing whenever the server decides to transcode - which is most of the
-  // time. Add hls.js in the same change or leave this alone.
+test('video transcoding profile is hls, not progressive http', () => {
+  // Progressive made the server write the whole film into its transcode
+  // directory as one file, unthrottled and never trimmed, which filled a
+  // 4 GB tmpfs partway through a movie. Chromium plays HLS natively now.
   const video = ELECTRON_PROFILE.TranscodingProfiles.find(p => p.Type === 'Video')
   assert.ok(video, 'video transcoding profile must exist')
-  assert.equal(video.Protocol, 'http')
+  assert.equal(video.Protocol, 'hls')
+  // fmp4 segments: HEVC copied into TS segments played as a black picture.
   assert.equal(video.Container, 'mp4')
   assert.equal(video.VideoCodec, 'h264')
 })
@@ -290,6 +290,21 @@ test('seeking twice replaces the offset rather than appending a second one', asy
 
   const url = new URL(out.url)
   assert.deepEqual(url.searchParams.getAll('StartTimeTicks'), [String(TEN_MIN)])
+})
+
+test('an hls transcode seeks on the element, so no offset is baked in', async () => {
+  stubFetch(() => ({
+    PlaySessionId: 'PS1',
+    MediaSources: [{ Id: 'MS1', Container: 'mkv', TranscodingUrl: '/videos/ITEM1/master.m3u8?PlaySessionId=PS1' }],
+  }))
+  const out = await resolveStream(
+    client, config, 'ITEM1', ELECTRON_PROFILE, DEFAULT_MAX_BITRATE, 'Video',
+    { startTicks: TEN_MIN })
+
+  assert.equal(out.direct, false)
+  assert.equal(out.startTicks, 0, 'the playlist spans the whole item')
+  assert.ok(!out.url.includes('StartTimeTicks'))
+  assert.ok(isHlsUrl(out.url))
 })
 
 test('direct play reports no offset, because it seeks on the element instead', async () => {
@@ -535,4 +550,40 @@ test('withoutAudioCodecs is case insensitive and returns the original when nothi
   const profile = { DirectPlayProfiles: [{ Type: 'Video', AudioCodec: 'AAC,AC3' }] } as any
   assert.equal(withoutAudioCodecs(profile, ['ac3']).DirectPlayProfiles[0].AudioCodec, 'AAC')
   assert.equal(withoutAudioCodecs(profile, []), profile)
+})
+
+test('chapterList sorts, dedupes, names and drops chapters past the end', () => {
+  const T = 10_000_000
+  const list = chapterList([
+    { StartPositionTicks: 600 * T, Name: 'Middle' },
+    { StartPositionTicks: 0, Name: '' },
+    { StartPositionTicks: 600 * T, Name: 'Duplicate' },
+    { StartPositionTicks: 9_000 * T, Name: 'Past the end' },
+    { Name: 'No start' },
+  ], 7_200 * T)
+  assert.deepEqual(list, [{ sec: 0, name: 'Chapter 1' }, { sec: 600, name: 'Middle' }])
+})
+
+test('chapterList offers nothing for a single chapter', () => {
+  assert.deepEqual(chapterList([{ StartPositionTicks: 0, Name: 'Film' }]), [])
+  assert.deepEqual(chapterList(undefined), [])
+})
+
+test('chapterAt finds the chapter playing at a position', () => {
+  const ch = [{ sec: 0, name: 'a' }, { sec: 60, name: 'b' }, { sec: 120, name: 'c' }]
+  assert.equal(chapterAt(ch, 0), 0)
+  assert.equal(chapterAt(ch, 59.9), 0)
+  assert.equal(chapterAt(ch, 60), 1)
+  assert.equal(chapterAt(ch, 5000), 2)
+  assert.equal(chapterAt([{ sec: 10, name: 'x' }, { sec: 20, name: 'y' }], 5), -1)
+})
+
+test('chapterTarget: forward to the next start, back like a previous button', () => {
+  const ch = [{ sec: 0, name: 'a' }, { sec: 60, name: 'b' }, { sec: 120, name: 'c' }]
+  assert.equal(chapterTarget(ch, 30, 1), 60)
+  assert.equal(chapterTarget(ch, 130, 1), null, 'nothing after the last chapter')
+  assert.equal(chapterTarget(ch, 90, -1), 60, 'well into b: back to its start')
+  assert.equal(chapterTarget(ch, 61, -1), 0, 'just started b: back to a')
+  assert.equal(chapterTarget(ch, 1, -1), 0, 'the first chapter restarts itself')
+  assert.equal(chapterTarget([{ sec: 10, name: 'x' }, { sec: 20, name: 'y' }], 5, -1), null)
 })

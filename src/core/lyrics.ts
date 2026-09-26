@@ -18,6 +18,95 @@ export interface LyricLine {
   Text: string
   /** null for plain LRC lines; populated for karaoke (word-level) formats. */
   Words: LyricWord[] | null
+  /** Background vocals sung over this line, drawn smaller underneath it the
+   *  way Apple Music and SpicyLyrics do. Only SpicyLyrics' syllable syncs
+   *  carry them separately; every other source leaves this out. */
+  Background?: LyricWord[] | null
+  /** Sung by the second voice in a duet, drawn on the right as Apple Music and
+   *  SpicyLyrics do. Only SpicyLyrics marks it (OppositeAligned); every other
+   *  source leaves it out, and every line then sits on the usual side. */
+  Opposite?: boolean
+}
+
+const lastEnd = (words: LyricWord[] | null | undefined): number | null =>
+  words?.length ? words[words.length - 1].End : null
+
+/**
+ * Which line to show as current, given `baseIdx` (the last line whose Start has
+ * passed). Shared by the side panel and the overlay, which used to carry this
+ * logic twice.
+ *
+ * Promote early: once a karaoke line is completely sung, move to the next one
+ * rather than sitting dim until the next line's own start. "Completely"
+ * includes its background vocals: promoting on the lead alone closed the
+ * background row the moment those vocals began, so they were never seen.
+ *
+ * Background vocals that run on into the next line are not handled here: that
+ * is an overlap like any other, and activeLyricRange lights both lines as a
+ * group. (A hold that kept the earlier line current did this before, and left
+ * the next line dark while it was being sung.)
+ */
+export function currentLyricIndex(lines: LyricLine[], baseIdx: number, nowTicks: number): number {
+  const cur = lines[baseIdx]
+  if (cur?.Words?.length && lines[baseIdx + 1]) {
+    const leadEnd = lastEnd(cur.Words)
+    const bgEnd = lastEnd(cur.Background)
+    const end = leadEnd == null ? null : Math.max(leadEnd, bgEnd ?? leadEnd)
+    if (end != null && nowTicks >= end) return baseIdx + 1
+  }
+  return baseIdx
+}
+
+/** When a line is sung to: the latest of its own End, its last word's and
+ *  its last background word's. Null when nothing says (plain LRC). */
+export function lineEndTicks(line: LyricLine): number | null {
+  const ends = [line.End, lastEnd(line.Words), lastEnd(line.Background)].filter((t): t is number => t != null)
+  return ends.length ? Math.max(...ends) : null
+}
+
+/**
+ * The lines to show as current, [first, last], around `idx` (currentLyricIndex).
+ * When a line starts before the previous one has ended (a duet, a call and
+ * response), Apple Music keeps both lit until the later one ends, instead of
+ * dimming the first mid-word. So: an earlier line joins the group when it was
+ * still being sung as the current line began, and the group stays lit until
+ * all of it is sung. Background vocals count as part of their line.
+ *
+ * Only lines that overlap the CURRENT line, not a chain of overlaps: in a verse
+ * where each line's background runs into the next ("Notion", The Rare
+ * Occasions), chaining lit the whole verse at once, including lines long done.
+ * Lines with no end time (plain LRC) never overlap, so this is [idx, idx].
+ */
+export function activeLyricRange(lines: LyricLine[], idx: number, nowTicks: number): [number, number] {
+  const cur = lines[idx]
+  if (!cur) return [idx, idx]
+  let first = idx
+  let groupEnd = lineEndTicks(cur) ?? -Infinity
+  while (first > 0) {
+    const prevEnd = lineEndTicks(lines[first - 1])
+    if (prevEnd == null || cur.Start >= prevEnd) break
+    first--
+    groupEnd = Math.max(groupEnd, prevEnd)
+  }
+  // Lit until every line in the group is sung, background vocals included:
+  // an earlier line's background can outlast the line that overlapped it.
+  return first < idx && nowTicks < groupEnd ? [first, idx] : [idx, idx]
+}
+
+/** A word held at least this long gets the emphasis glow. */
+export const EMPHASIS_MIN_TICKS = 10_000_000   // 1s
+
+/**
+ * Whether a karaoke word is held long enough to be emphasised (a glow and a
+ * slight lift while it is sung), after Apple Music's and SpicyLyrics' look:
+ * held notes stand out from the syllables that pass quickly. Short enough
+ * words only: a long word stretched over a second is not a held note, it is
+ * just a long word.
+ */
+export function isEmphasisWord(w: LyricWord): boolean {
+  if (w.End == null || w.End - w.Start < EMPHASIS_MIN_TICKS) return false
+  const letters = w.Text.replace(/[^\p{L}\p{N}]/gu, '')
+  return letters.length > 0 && letters.length <= 12
 }
 
 const TICKS_PER_MS = 10_000

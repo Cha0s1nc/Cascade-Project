@@ -1,6 +1,6 @@
 {
   "name": "cascade",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "A Jellyfin music client inspired by Cider",
   "main": "main.js",
   "scripts": {
@@ -12,6 +12,7 @@
     "test": "node --test \"test/**/*.test.ts\"",
     "start": "npm run build:ts && electron .",
     "dev": "npm run build:ts && electron . --inspect",
+    "demo": "npm run build:ts && electron . --fullscreen",
     "dev:second": "npm run build:ts && electron . --user-data-dir=/tmp/cascade-second-instance",
     "build": "npm run build:ts && electron-builder",
     "build:mac": "npm run build:ts && electron-builder --mac --publish never",
@@ -52,7 +53,9 @@
       "main.js",
       "mac-update.js",
       "index.html",
+      "styles/**/*",
       "renderer.js",
+      "lyric-karaoke.js",
       "waterfall.js",
       "build/core.js",
       "build/preload.js",

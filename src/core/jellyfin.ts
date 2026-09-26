@@ -49,8 +49,26 @@ export async function readErrorMessage(res: Response): Promise<string> {
  * could not tell two clients apart, so remote control could not target one of
  * them and two instances collided in the session list.
  */
-export function authHeader(appVersion: string, deviceId: string): string {
-  return `MediaBrowser Client="Cascade", Device="Cascade", DeviceId="${deviceId}", Version="${appVersion}"`
+/**
+ * The standard `Authorization: MediaBrowser ...` value. With a token, it also
+ * carries the token: the one way to authenticate that Jellyfin 12 accepts by
+ * default. 12.0 turned off the legacy ways (the X-Emby-Token and
+ * X-Emby-Authorization headers, the api_key query parameter) on new and
+ * upgraded servers alike, so a client still using them simply stops working
+ * there. Jellyfin 10.11 already accepts this form, so it is safe on both.
+ */
+export function authHeader(appVersion: string, deviceId: string, token?: string): string {
+  const base = `MediaBrowser Client="Cascade", Device="Cascade", DeviceId="${deviceId}", Version="${appVersion}"`
+  return token ? `${base}, Token="${token}"` : base
+}
+
+/** Headers for an authenticated request, from the session config (`jf`). The
+ *  one place the token goes into a header; see authHeader. */
+export function authHeaders(
+  config: { token: string, appVersion?: string, deviceId?: string },
+  extra: Record<string, string> = {},
+): Record<string, string> {
+  return { Authorization: authHeader(config.appVersion ?? '0.0.0', config.deviceId ?? 'cascade-app', config.token), ...extra }
 }
 
 /**
@@ -96,21 +114,21 @@ export function effectiveLibraryIds(
 }
 
 /**
- * Fold Home's "recently watched" list so a binged series shows once instead
- * of once per episode.
+ * One card per series for Home's Continue watching, so a binged show appears
+ * once instead of once per episode.
  *
- * `items` must already be in most-recently-watched-first order - getMerged
- * concatenates each library's results, so the server's own DatePlayed sort
- * only holds within one library, and the caller re-sorts across the merge
- * before this runs. Grouping first would pick an arbitrary episode per
- * series instead of the actual most recent one.
+ * Keeps the first episode seen for each SeriesId and drops the rest, so the
+ * caller's order decides which one wins. Continue watching passes what is
+ * partway through (re-sorted most recent first, since getMerged concatenates
+ * each library's results and the server's DatePlayed sort only holds within
+ * one) followed by Next Up, which means a show's half-watched episode beats
+ * the Next Up entry for the same show.
  *
- * Only Episodes are grouped, keyed by SeriesId, keeping the first (most
- * recent) one seen and dropping the rest. An episode with no SeriesId is
- * never dropped and never merged with another SeriesId-less episode - each
- * one is its own entry, same as a Movie. Movies pass through unchanged.
+ * An episode with no SeriesId is never dropped and never merged with another
+ * SeriesId-less episode - each one is its own entry, same as a Movie. Movies
+ * pass through unchanged.
  */
-export function groupRecentlyWatched(items: JfItem[]): JfItem[] {
+export function onePerSeries(items: JfItem[]): JfItem[] {
   const seenSeries = new Set<string>()
   const result: JfItem[] = []
   for (const item of items) {
@@ -141,7 +159,7 @@ export async function authenticate(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Emby-Authorization': authHeader(appVersion, deviceId),
+      Authorization: authHeader(appVersion, deviceId),
     },
     body: JSON.stringify({ Username: username, Pw: password }),
   })
@@ -192,7 +210,7 @@ export async function quickConnectInitiate(
 ): Promise<QuickConnectStart> {
   const res = await fetch(`${serverUrl}/QuickConnect/Initiate`, {
     method: 'POST',
-    headers: { 'X-Emby-Authorization': authHeader(appVersion, deviceId) },
+    headers: { Authorization: authHeader(appVersion, deviceId) },
   })
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
   return res.json() as Promise<QuickConnectStart>
@@ -219,7 +237,7 @@ export async function quickConnectAuthenticate(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Emby-Authorization': authHeader(appVersion, deviceId),
+      Authorization: authHeader(appVersion, deviceId),
     },
     body: JSON.stringify({ Secret: secret }),
   })
@@ -247,23 +265,16 @@ export class JellyfinClient {
   }
 
   /**
-   * Headers for an ordinary, already-authenticated request.
+   * Headers for an ordinary, already-authenticated request: the token inside
+   * the standard Authorization header (see authHeader).
    *
-   * X-Emby-Authorization is here and not just on the login calls because
-   * Jellyfin records a client's version from that header, and it was only ever
-   * sent while authenticating. Since a saved token is reused indefinitely, the
-   * dashboard's device list kept showing whatever version last actually signed
-   * in - a 1.2.0 beta, long after 2.x shipped - and only a sign-out and back in
-   * would correct it. Sending it alongside the token refreshes it on any
-   * request. The token still travels in X-Emby-Token; this header identifies.
+   * The client fields ride along on every request, not just the login calls,
+   * because Jellyfin records a client's version from them. Since a saved token
+   * is reused indefinitely, the dashboard's device list kept showing whatever
+   * version last actually signed in until a sign-out and back in.
    */
   private headers(extra: Record<string, string> = {}): Record<string, string> {
-    const { token, appVersion, deviceId } = this.config
-    return {
-      'X-Emby-Token': token,
-      'X-Emby-Authorization': authHeader(appVersion ?? '0.0.0', deviceId ?? 'cascade-app'),
-      ...extra,
-    }
+    return authHeaders(this.config, extra)
   }
 
   async get<T = JfItemsResponse>(path: string, params: JfParams = {}): Promise<T> {
@@ -296,6 +307,10 @@ export class JellyfinClient {
       body: JSON.stringify(body),
     })
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+    // Some POSTs answer 204 with no body (/Sessions/Capabilities/Full does).
+    // Parsing that as JSON threw "Unexpected end of JSON input", which made
+    // remote-control registration fail on every start.
+    if (res.status === 204) return undefined as T
     return res.json() as Promise<T>
   }
 
@@ -337,8 +352,9 @@ export class JellyfinClient {
     const ids = libraryIds ?? this.config.libraryIds ?? []
     if (!ids.length) return this.get<JfItemsResponse>(path, params)
 
-    const groups = await this.getGrouped(path, params, ids)
-    return dedupeById(groups.map(g => g.items))
+    const { query, strip } = withDedupeFields(params, ids)
+    const groups = await this.getGrouped(path, query, ids)
+    return strip(dedupeById(groups.map(g => g.items)))
   }
 
   /**
@@ -374,6 +390,8 @@ export class JellyfinClient {
     const configured = libraryIds ?? this.config.libraryIds
     const ids: (string | null)[] = configured?.length ? configured : [null]
     const pageSize = Number(params.Limit) || DEFAULT_PAGE_SIZE
+    const { query, strip } = withDedupeFields(params, configured ?? [])
+    params = query
 
     const perLibrary = await Promise.all(ids.map(async libId => {
       const baseParams = libId ? { ...params, ParentId: libId } : params
@@ -398,7 +416,7 @@ export class JellyfinClient {
       return items
     }))
 
-    return dedupeById(perLibrary)
+    return strip(dedupeById(perLibrary))
   }
 
   /** Primary image URL for an item. No tag means no art, so no URL.
@@ -419,7 +437,7 @@ export class JellyfinClient {
 
   private imageUrl(itemId: string): string {
     const { url, token } = this.config
-    return `${url}/Items/${itemId}/Images/Primary?fillHeight=600&fillWidth=600&quality=90&api_key=${token}`
+    return `${url}/Items/${itemId}/Images/Primary?fillHeight=600&fillWidth=600&quality=90&ApiKey=${token}`
   }
 
   /** The stored image with no transformation requested.
@@ -434,22 +452,107 @@ export class JellyfinClient {
    *  else. Grid tiles must keep using the resized still. */
   originalArtUrl(itemId: string): string {
     const { url, token } = this.config
-    return `${url}/Items/${itemId}/Images/Primary?api_key=${token}`
+    return `${url}/Items/${itemId}/Images/Primary?ApiKey=${token}`
   }
 }
 
 /** Flatten item lists, keeping the first occurrence of each Id. */
-function dedupeById(lists: JfItem[][]): JfItemsResponse {
+/**
+ * Merges per-library results (in library order) into one list: the same item
+ * once by Id, and the same song or album found in two different libraries
+ * once too. Shuffling three libraries that each hold the same album otherwise
+ * played every song three times.
+ *
+ * Songs match on title and artist, ignoring case and punctuation, with
+ * durations within DUPLICATE_DURATION_SEC (so a "(Live)" or extended cut,
+ * titled or timed differently, stays), and the copy with the highest bitrate
+ * is kept, in the place the first copy held (bitrate from MediaSources, see
+ * withDedupeFields; without it the first library's copy stays). Albums match
+ * on name and album artist, and the copy with the most tracks is kept
+ * (ChildCount): the same album can be whole in one library and one song in
+ * another, and keeping the one-song copy hid the rest of the album. Artists
+ * match on name: Jellyfin 12 gives the same artist a different id in every
+ * library, so the id alone listed each one once per library. Copies inside
+ * one library are never merged: that is the library's own business, like a
+ * single kept next to its album.
+ */
+export function dedupeById(lists: JfItem[][]): JfItemsResponse {
   const seen = new Set<string>()
+  const byContent = new Map<string, { lib: number, sec: number | null, pos: number }[]>()
   const items: JfItem[] = []
-  for (const list of lists) {
+  lists.forEach((list, lib) => {
     for (const item of list) {
       if (seen.has(item.Id)) continue
       seen.add(item.Id)
+      const key = contentKey(item)
+      if (key) {
+        const sec = item.RunTimeTicks ? item.RunTimeTicks / 10_000_000 : null
+        const copies = byContent.get(key) ?? []
+        const copy = copies.find(c => c.lib !== lib &&
+          (item.Type !== 'Audio' || c.sec == null || sec == null || Math.abs(c.sec - sec) <= DUPLICATE_DURATION_SEC))
+        if (copy) {
+          if (better(item, items[copy.pos])) { items[copy.pos] = item; copy.lib = lib; copy.sec = sec }
+          continue
+        }
+        copies.push({ lib, sec, pos: items.length })
+        byContent.set(key, copies)
+      }
       items.push(item)
     }
-  }
+  })
   return { Items: items, TotalRecordCount: items.length }
+}
+
+const bitrate = (item: JfItem) => item.MediaSources?.[0]?.Bitrate ?? 0
+/** Which of two copies of the same song or album to keep. */
+const better = (a: JfItem, b: JfItem) => a.Type === 'MusicAlbum'
+  ? (a.ChildCount ?? 0) > (b.ChildCount ?? 0)
+  : bitrate(a) > bitrate(b)
+
+/**
+ * The fields the cross-library merge compares copies by, asked for only when
+ * the query spans two or more libraries: MediaSources for a song's bitrate
+ * (which more than doubles each item, 1.4 KB to 3.7 KB measured) and
+ * ChildCount for an album's track count. `strip` takes them back off
+ * afterwards unless the caller asked for them itself.
+ */
+function withDedupeFields(params: JfParams, ids: readonly string[]): { query: JfParams, strip: (r: JfItemsResponse) => JfItemsResponse } {
+  const fields = String(params.Fields ?? '')
+  const types = String(params.IncludeItemTypes ?? '')
+  const has = (list: string, name: string) => new RegExp(`(^|,)${name}(,|$)`).test(list)
+  const add = ids.length > 1
+    ? [has(types, 'Audio') && 'MediaSources', has(types, 'MusicAlbum') && 'ChildCount'].filter((f): f is string => !!f && !has(fields, f))
+    : []
+  if (!add.length) return { query: params, strip: r => r }
+  return {
+    query: { ...params, Fields: [fields, ...add].filter(Boolean).join(',') },
+    strip: r => {
+      for (const i of r.Items ?? []) for (const f of add) delete (i as unknown as Record<string, unknown>)[f]
+      return r
+    },
+  }
+}
+
+export const DUPLICATE_DURATION_SEC = 3
+
+const normalise = (s: string | undefined | null) =>
+  (s || '').normalize('NFKC').toLowerCase().replace(/[\p{P}\p{S}\s]+/gu, '')
+
+/** What makes two songs or albums the same, or null for anything else. */
+function contentKey(item: JfItem): string | null {
+  if (item.Type === 'Audio') {
+    const title = normalise(item.Name)
+    return title ? `a|${title}|${normalise(item.Artists?.[0] || item.AlbumArtist)}` : null
+  }
+  if (item.Type === 'MusicAlbum') {
+    const name = normalise(item.Name)
+    return name ? `m|${name}|${normalise(item.AlbumArtist || item.Artists?.[0])}` : null
+  }
+  if (item.Type === 'MusicArtist') {
+    const name = normalise(item.Name)
+    return name ? `r|${name}` : null
+  }
+  return null
 }
 
 /** Whether a Content-Type is a format that *can* carry animation.

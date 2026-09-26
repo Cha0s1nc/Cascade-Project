@@ -4,7 +4,7 @@ import {
   JellyfinClient, authenticate, authHeader,
   quickConnectEnabled, quickConnectInitiate, quickConnectApproved, quickConnectAuthenticate,
   QUICK_CONNECT_POLL_MS, QUICK_CONNECT_TIMEOUT_MS, readErrorMessage,
-  splitVideoLibraryIds, effectiveLibraryIds, groupRecentlyWatched, isAnimatedImageType,
+  splitVideoLibraryIds, effectiveLibraryIds, onePerSeries, isAnimatedImageType, dedupeById,
 } from '../src/core/jellyfin.ts'
 import type { ServerConfig, JfItemsResponse, JfItem } from '../src/core/types.ts'
 
@@ -52,7 +52,7 @@ test('get: builds the URL, sends the token, and stringifies params', async () =>
   assert.equal(url.origin + url.pathname, 'https://jf.test/Items')
   assert.equal(url.searchParams.get('Limit'), '5')
   assert.equal(url.searchParams.get('Recursive'), 'true')
-  assert.equal((calls[0].init?.headers as Record<string, string>)['X-Emby-Token'], 'TOK')
+  assert.ok((calls[0].init?.headers as Record<string, string>).Authorization.includes('Token="TOK"'))
 })
 
 test('get: omits undefined params rather than sending "undefined"', async () => {
@@ -77,11 +77,11 @@ test('client reads config lazily, so reconnecting is picked up', async () => {
 
   stubFetch(() => items('a'))
   await client.get('/Items')
-  assert.equal((calls[0].init?.headers as Record<string, string>)['X-Emby-Token'], 'TOK')
+  assert.ok((calls[0].init?.headers as Record<string, string>).Authorization.includes('Token="TOK"'))
 
   cfg = { url: 'https://other.test', token: 'NEW', userId: 'U2' }
   await client.get('/Items')
-  assert.equal((calls[1].init?.headers as Record<string, string>)['X-Emby-Token'], 'NEW')
+  assert.ok((calls[1].init?.headers as Record<string, string>).Authorization.includes('Token="NEW"'))
   assert.ok(calls[1].url.startsWith('https://other.test'))
 })
 
@@ -188,7 +188,7 @@ test('authenticate: posts credentials and returns the auth result', async () => 
   assert.equal(res.User.Id, 'U9')
   assert.equal(calls[0].init?.method, 'POST')
   assert.deepEqual(JSON.parse(String(calls[0].init?.body)), { Username: 'user', Pw: 'pw' })
-  const auth = (calls[0].init?.headers as Record<string, string>)['X-Emby-Authorization']
+  const auth = (calls[0].init?.headers as Record<string, string>).Authorization
   assert.ok(auth.includes('Version="1.2.0"'))
   assert.ok(auth.includes('DeviceId="DEV-ABC"'))
 })
@@ -215,7 +215,7 @@ test('quickConnectInitiate: binds the request to this device', async () => {
 
   assert.deepEqual(start, { Code: '123456', Secret: 'SEKRIT' })
   assert.equal(calls[0].init?.method, 'POST')
-  const auth = (calls[0].init?.headers as Record<string, string>)['X-Emby-Authorization']
+  const auth = (calls[0].init?.headers as Record<string, string>).Authorization
   assert.ok(auth.includes('DeviceId="DEV-1"'), 'token ends up bound to this device id')
 })
 
@@ -247,7 +247,7 @@ test('quickConnectAuthenticate: trades the secret for a real token', async () =>
   assert.equal(auth.AccessToken, 'TOK')
   assert.equal(auth.User.Id, 'U9')
   assert.deepEqual(JSON.parse(String(calls[0].init?.body)), { Secret: 'SEKRIT' })
-  const hdr = (calls[0].init?.headers as Record<string, string>)['X-Emby-Authorization']
+  const hdr = (calls[0].init?.headers as Record<string, string>).Authorization
   assert.ok(hdr.includes('DeviceId="DEV-1"'), 'must match the device that initiated')
 })
 
@@ -377,30 +377,30 @@ const ep = (id: string, seriesId: string | undefined) =>
   ({ Id: id, Type: 'Episode', SeriesId: seriesId }) as JfItem
 const movie = (id: string) => ({ Id: id, Type: 'Movie' }) as JfItem
 
-test('groupRecentlyWatched: keeps only the most recent episode per series', () => {
+test('onePerSeries: keeps only the most recent episode per series', () => {
   // Already sorted most-recent-first, same as the caller's re-sort across getMerged.
   const items = [ep('e4', 's1'), ep('e3', 's1'), ep('e2', 's1'), ep('e1', 's1')]
-  assert.deepEqual(groupRecentlyWatched(items).map(i => i.Id), ['e4'])
+  assert.deepEqual(onePerSeries(items).map(i => i.Id), ['e4'])
 })
 
-test('groupRecentlyWatched: leaves movies alone and does not group them with anything', () => {
+test('onePerSeries: leaves movies alone and does not group them with anything', () => {
   const items = [movie('m1'), ep('e1', 's1'), movie('m2'), ep('e2', 's1')]
-  assert.deepEqual(groupRecentlyWatched(items).map(i => i.Id), ['m1', 'e1', 'm2'])
+  assert.deepEqual(onePerSeries(items).map(i => i.Id), ['m1', 'e1', 'm2'])
 })
 
-test('groupRecentlyWatched: different series are kept separate, most recent first', () => {
+test('onePerSeries: different series are kept separate, most recent first', () => {
   const items = [ep('a2', 'showA'), ep('b2', 'showB'), ep('a1', 'showA'), ep('b1', 'showB')]
-  assert.deepEqual(groupRecentlyWatched(items).map(i => i.Id), ['a2', 'b2'])
+  assert.deepEqual(onePerSeries(items).map(i => i.Id), ['a2', 'b2'])
 })
 
-test('groupRecentlyWatched: an episode with no SeriesId is kept, never dropped', () => {
+test('onePerSeries: an episode with no SeriesId is kept, never dropped', () => {
   const items = [ep('e1', undefined), ep('e2', undefined), ep('e3', 's1')]
-  assert.deepEqual(groupRecentlyWatched(items).map(i => i.Id), ['e1', 'e2', 'e3'])
+  assert.deepEqual(onePerSeries(items).map(i => i.Id), ['e1', 'e2', 'e3'])
 })
 
-test('groupRecentlyWatched: several unrelated no-SeriesId episodes never collapse into one', () => {
+test('onePerSeries: several unrelated no-SeriesId episodes never collapse into one', () => {
   const items = [ep('e1', ''), ep('e2', undefined), ep('e3', '')]
-  assert.deepEqual(groupRecentlyWatched(items).map(i => i.Id), ['e1', 'e2', 'e3'])
+  assert.deepEqual(onePerSeries(items).map(i => i.Id), ['e1', 'e2', 'e3'])
 })
 
 // The dashboard's device list showed a long-dead version because the client
@@ -421,12 +421,12 @@ test('ordinary requests identify the client version, not just the login calls', 
   assert.equal(calls.length, 3)
   for (const { init } of calls) {
     const headers = (init?.headers ?? {}) as Record<string, string>
-    assert.equal(headers['X-Emby-Token'], 'tok', 'token must still authenticate the request')
     assert.equal(
-      headers['X-Emby-Authorization'],
-      authHeader('2.0.1', 'device-abc'),
-      'every request must report the running version so Jellyfin can refresh it',
+      headers.Authorization,
+      authHeader('2.0.1', 'device-abc', 'tok'),
+      'every request carries the token and the running version in one Authorization header',
     )
+    assert.equal(headers['X-Emby-Token'], undefined, 'no legacy header: Jellyfin 12 rejects it by default')
   }
 })
 
@@ -435,14 +435,14 @@ test('a request without a known version falls back rather than sending "undefine
   stubFetch(() => ({ Items: [], TotalRecordCount: 0 }))
   await client.get('/Items')
   const headers = (calls[0].init?.headers ?? {}) as Record<string, string>
-  assert.ok(!headers['X-Emby-Authorization'].includes('undefined'))
+  assert.ok(!headers.Authorization.includes('undefined'))
 })
 
 test('originalArtUrl asks for no transformation, so animation survives', () => {
   const c = new JellyfinClient(() => ({ url: 'https://jf.example', token: 'tok' }) as never)
   const original = c.originalArtUrl('abc')
   assert.ok(!/fillHeight|fillWidth|quality/.test(original), 'no resize params - those re-encode')
-  assert.match(original, /^https:\/\/jf\.example\/Items\/abc\/Images\/Primary\?api_key=tok$/)
+  assert.match(original, /^https:\/\/jf\.example\/Items\/abc\/Images\/Primary\?ApiKey=tok$/)
   // The still path must keep its resize, or every grid tile pulls a full-size file.
   assert.match(c.artUrl('abc', 'tag')!, /fillHeight=600&fillWidth=600&quality=90/)
 })
@@ -460,4 +460,93 @@ test('isAnimatedImageType tolerates charset params and casing', () => {
   assert.ok(isAnimatedImageType('image/gif; charset=binary'))
   assert.ok(isAnimatedImageType('  IMAGE/GIF  '))
   assert.ok(!isAnimatedImageType('image/jpeg; qs=0.9'))
+})
+
+test('dedupeById: the same song in two libraries appears once, first library kept', () => {
+  const song = (Id: string, Name: string, artist: string, sec: number) =>
+    ({ Id, Name, Type: 'Audio', Artists: [artist], RunTimeTicks: sec * 10_000_000 })
+  const libA = [song('a1', 'Mr. Brightside', 'The Killers', 222), song('a2', 'Sober', 'Letdown.', 216)]
+  const libB = [
+    song('b1', 'mr brightside', 'the killers', 223),     // same song, other library: dropped
+    song('b2', 'Mr. Brightside (Live)', 'The Killers', 240), // a different cut: kept
+    song('b3', 'Sober', 'Letdown.', 300),                // same title, 84s longer: kept
+  ]
+  assert.deepEqual(dedupeById([libA, libB]).Items!.map(i => i.Id), ['a1', 'a2', 'b2', 'b3'])
+})
+
+test('dedupeById: copies inside one library are left alone', () => {
+  const s = { Name: 'Home', Type: 'Audio', Artists: ['Phillip Phillips'], RunTimeTicks: 2_090_000_000 }
+  assert.equal(dedupeById([[{ ...s, Id: '1' }, { ...s, Id: '2' }]]).Items!.length, 2)
+})
+
+test('dedupeById: albums match on name and album artist across libraries', () => {
+  const album = (Id: string, Name: string, AlbumArtist: string) => ({ Id, Name, Type: 'MusicAlbum', AlbumArtist })
+  const res = dedupeById([[album('a', 'A Fever You Can’t Sweat Out', 'Panic! At The Disco')],
+    [album('b', "A Fever You Can't Sweat Out", 'Panic! at the Disco'), album('c', 'Pretty. Odd.', 'Panic! At The Disco')]])
+  assert.deepEqual(res.Items!.map(i => i.Id), ['a', 'c'])
+})
+
+test('dedupeById: other types only dedupe by Id', () => {
+  const pl = (Id: string) => ({ Id, Name: 'Road trip', Type: 'Playlist' })
+  assert.equal(dedupeById([[pl('1')], [pl('2'), pl('1')]]).Items!.length, 2)
+})
+
+test('dedupeById: the higher-bitrate copy wins, in the first copy\'s place', () => {
+  const song = (Id: string, kbps: number) => ({ Id, Name: 'Idol', Type: 'Audio', Artists: ['YOASOBI'],
+    RunTimeTicks: 2_130_000_000, MediaSources: [{ Bitrate: kbps * 1000 }] })
+  const other = { Id: 'x', Name: 'Other', Type: 'Audio', Artists: ['Someone'], RunTimeTicks: 1_000_000_000 }
+  const res = dedupeById([[song('mp3', 320), other], [song('flac', 1100)], [song('aac', 256)]])
+  assert.deepEqual(res.Items!.map(i => i.Id), ['flac', 'x'])
+})
+
+test('getMerged: asks for bitrates only for songs across libraries, and strips them after', async () => {
+  const cfg = { ...baseConfig, libraryIds: ['L1', 'L2'] }
+  stubFetch(() => ({ Items: [{ Id: new Date().getTime() + Math.random() + '', Type: 'Audio', Name: 'x', MediaSources: [{ Bitrate: 1 }] }] }))
+  const res = await clientFor(cfg).getMerged('/Items', { IncludeItemTypes: 'Audio', Fields: 'AlbumId' })
+  assert.equal(new URL(calls[0].url).searchParams.get('Fields'), 'AlbumId,MediaSources')
+  assert.ok(res.Items!.every(i => i.MediaSources === undefined), 'not left on the items')
+
+  calls.length = 0
+  await clientFor(cfg).getMerged('/Items', { IncludeItemTypes: 'MusicAlbum' })
+  assert.equal(new URL(calls[0].url).searchParams.get('Fields'), 'ChildCount', 'albums compare by track count instead')
+
+  calls.length = 0
+  await clientFor({ ...baseConfig, libraryIds: ['L1'] }).getMerged('/Items', { IncludeItemTypes: 'Audio' })
+  assert.equal(new URL(calls[0].url).searchParams.has('Fields'), false, 'one library: nothing to choose between')
+
+  calls.length = 0
+  const own = await clientFor(cfg).getMerged('/Items', { IncludeItemTypes: 'Audio', Fields: 'MediaSources' })
+  assert.ok(own.Items!.some(i => i.MediaSources), 'kept when the caller asked for them')
+})
+
+test('post: an empty 204 resolves instead of throwing (Sessions/Capabilities/Full)', async () => {
+  globalThis.fetch = (async (input: any, init?: RequestInit) => {
+    calls.push({ url: String(input), init })
+    return { ok: true, status: 204, statusText: 'No Content', json: async () => { throw new SyntaxError('Unexpected end of JSON input') }, text: async () => '' }
+  }) as unknown as typeof fetch
+  assert.equal(await clientFor(baseConfig).post('/Sessions/Capabilities/Full', {}), undefined)
+})
+
+test('post: a JSON body still comes back parsed', async () => {
+  stubFetch(() => ({ Id: 'x' }))
+  assert.deepEqual(await clientFor(baseConfig).post('/Items', {}), { Id: 'x' })
+})
+
+test('authHeader: the token goes inside the standard header, only when there is one', () => {
+  assert.equal(authHeader('1.0', 'd'), 'MediaBrowser Client="Cascade", Device="Cascade", DeviceId="d", Version="1.0"')
+  assert.equal(authHeader('1.0', 'd', 'T'), 'MediaBrowser Client="Cascade", Device="Cascade", DeviceId="d", Version="1.0", Token="T"')
+})
+
+test('dedupeById: of two copies of an album, the one with more tracks wins', () => {
+  // Real case from a Jellyfin test server: Night Drive whole in one library,
+  // one song of it in another; keeping the one-song copy hid the rest.
+  const album = (Id: string, ChildCount: number) => ({ Id, Name: 'Night Drive', Type: 'MusicAlbum', AlbumArtist: 'Aurora Lane', ChildCount })
+  assert.deepEqual(dedupeById([[album('partial', 1)], [album('whole', 3)]]).Items!.map(i => i.Id), ['whole'])
+  assert.deepEqual(dedupeById([[album('whole', 3)], [album('partial', 1)]]).Items!.map(i => i.Id), ['whole'])
+})
+
+test('dedupeById: an artist found in two libraries appears once (Jellyfin 12 gives it an id per library)', () => {
+  const artist = (Id: string, Name: string) => ({ Id, Name, Type: 'MusicArtist' })
+  const res = dedupeById([[artist('42585974', 'Aurora Lane')], [artist('98eed3bf', 'aurora lane'), artist('d15fdbee', 'Aurora Lane; Kite Echo')]])
+  assert.deepEqual(res.Items!.map(i => i.Id), ['42585974', 'd15fdbee'])
 })

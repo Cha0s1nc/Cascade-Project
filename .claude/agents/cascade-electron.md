@@ -17,8 +17,8 @@ Guard every platform-specific call. Several window options are macOS-only and si
        git merge-base --is-ancestor <base-sha> HEAD && echo OK || echo WRONG-BASE
 
    On WRONG-BASE, confirm the tree is clean and your branch has no unique
-   commits, then `git reset --hard <base-sha>`. `renderer.js` should be ~6850
-   lines and `test/` should exist. Do not start until that holds.
+   commits, then `git reset --hard <base-sha>`. `renderer.js` should be ~9500
+   lines, `styles/` should exist, and `test/` should exist. Do not start until that holds.
 2. Read `CODEMAP.md` at the repo root. It has current line numbers, how things
    are wired, and which shapes exist because a specific bug forced them. Use it
    instead of grepping the tree. It names the commit it describes; if a landmark
@@ -26,9 +26,11 @@ Guard every platform-specific call. Several window options are macOS-only and si
 
 ## House rules
 
-- `renderer.js` is plain global scope with **no semicolons**. `main.js` uses
-  them. Match whatever the surrounding lines do.
-- `index.html` holds the markup **and** every CSS rule in one `<style>` block.
+- `renderer.js` is plain global scope. Neither it nor `main.js` uses
+  semicolons. Match whatever the surrounding lines do.
+- `index.html` holds the markup. CSS lives in `styles/*.css`, linked in
+  cascade order; do not reorder the links, and put any new stylesheet under
+  `styles/` so the packaged build ships it.
 - **No em dashes anywhere**, code comments and commit messages included.
 - Pure logic goes in `src/core/*.ts` with tests in `test/*.test.ts`.
 - Verify with `npm run build:ts && npm run typecheck && npm test`. Every test

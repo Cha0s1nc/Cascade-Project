@@ -1,15 +1,19 @@
-// Installs a downloaded macOS update in place: the new Cascade.app replaces the
-// running one and relaunches, instead of leaving a DMG open to drag.
+// Installs a downloaded macOS update in place: the new .app replaces the running
+// one and relaunches, instead of leaving a DMG open to drag.
+//
+// Shared verbatim by Cascade and Cha0s Stream (electron/mac-update.js there).
+// Nothing in it names either app, so keep the two copies byte-identical: change
+// one, copy it to the other.
 //
 // Apple's own updater (Squirrel.Mac) refuses to apply updates to an app that is
-// not signed with a Developer ID, and Cascade is ad-hoc signed on purpose, so
+// not signed with a Developer ID, and both apps are ad-hoc signed on purpose, so
 // this does the same job by hand:
 //
-//   1. Mount the DMG out of sight and copy Cascade.app into a staging bundle
+//   1. Mount the DMG out of sight and copy the new .app into a staging bundle
 //      beside the installed one. Same directory, so the final swap is a
 //      rename on one volume, not a copy that a quit could interrupt halfway.
 //   2. Check the staged copy before touching anything: its signature verifies,
-//      its bundle id is Cascade's, and its version is the one being installed.
+//      its bundle id is the app's own, and its version is the one being installed.
 //   3. Hand off to a small shell script and quit. The script waits for this
 //      process to exit, moves the old app aside, moves the new one into place,
 //      deletes the old one and relaunches. If moving the new one in fails, it
@@ -20,12 +24,13 @@
 // or from macOS's read-only App Translocation copy, a folder this account
 // cannot write to, or a staged copy that fails its checks.
 //
-// What this does not do is re-run Gatekeeper. Files Cascade downloads itself
+// What this does not do is re-run Gatekeeper. Files the app downloads itself
 // are not quarantined, so macOS does not re-assess the new version; trust rests
 // on the HTTPS download and the release digest main.js verifies before this
 // runs. That catches corruption, not a malicious release uploaded to the repo.
 //
-// Uses semicolon-free style to match the updater code in main.js it serves.
+// Semicolon-free, like Cascade's main.js. Stream's main.js uses semicolons; the
+// file stays as it is there too, because identical beats locally consistent.
 
 const { execFile, spawn } = require('child_process')
 const fs = require('fs')
@@ -39,13 +44,13 @@ const run = (cmd, args) => new Promise((resolve, reject) => {
   })
 })
 
-// The script that performs the swap once Cascade has quit. Kept to POSIX sh and
-// stock macOS tools. It gives up after a minute if Cascade never exits, leaving
+// The script that performs the swap once the app has quit. Kept to POSIX sh and
+// stock macOS tools. It gives up after a minute if the app never exits, leaving
 // the installed app untouched.
 const SWAP_SCRIPT = `#!/bin/sh
 PID="$1"; TARGET="$2"; STAGED="$3"; BACKUP="$4"; LOG="$5"
 exec >>"$LOG" 2>&1
-echo "$(date) waiting for Cascade (pid $PID) to quit"
+echo "$(date) waiting for pid $PID to quit"
 tries=0
 while kill -0 "$PID" 2>/dev/null; do
   tries=$((tries + 1))
@@ -76,7 +81,7 @@ open "$TARGET"
 /**
  * @param {object} o
  * @param {string} o.dmgPath         the downloaded, digest-verified DMG
- * @param {string} o.appBundle       the running app, e.g. /Applications/Cascade.app
+ * @param {string} o.appBundle       the running app, e.g. /Applications/Name.app
  * @param {string} o.expectedVersion version the DMG must contain, e.g. "2.1.1"
  * @param {string} o.bundleId        the bundle id it must carry
  * @param {number} o.pid             the process the swap waits on
@@ -86,10 +91,13 @@ open "$TARGET"
  */
 async function installInPlace({ dmgPath, appBundle, expectedVersion, bundleId, pid, log = () => {} }) {
   if (!appBundle.endsWith('.app')) throw new Error(`not running from an app bundle (${appBundle})`)
+  const name = path.basename(appBundle, '.app')
+  // For temp file names only: "Cha0s Stream" -> "cha0s-stream".
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-')
   if (appBundle.includes('/AppTranslocation/')) {
-    throw new Error('Cascade is running from a temporary copy macOS made; move it to Applications first')
+    throw new Error(`${name} is running from a temporary copy macOS made; move it to Applications first`)
   }
-  if (appBundle.startsWith('/Volumes/')) throw new Error('Cascade is running from a mounted disk image')
+  if (appBundle.startsWith('/Volumes/')) throw new Error(`${name} is running from a mounted disk image`)
   const parent = path.dirname(appBundle)
   try {
     fs.accessSync(parent, fs.constants.W_OK)
@@ -97,10 +105,9 @@ async function installInPlace({ dmgPath, appBundle, expectedVersion, bundleId, p
     throw new Error(`this account cannot write to ${parent}`)
   }
 
-  const name = path.basename(appBundle, '.app')
   const staged = path.join(parent, `.${name}-update-${expectedVersion}.app`)
   const backup = path.join(parent, `.${name}-previous.app`)
-  const mount = fs.mkdtempSync(path.join(os.tmpdir(), 'cascade-update-mount-'))
+  const mount = fs.mkdtempSync(path.join(os.tmpdir(), `${slug}-update-mount-`))
 
   fs.rmSync(staged, { recursive: true, force: true })
   try {
@@ -130,8 +137,8 @@ async function installInPlace({ dmgPath, appBundle, expectedVersion, bundleId, p
     throw err
   }
 
-  const scriptPath = path.join(os.tmpdir(), `cascade-update-${process.pid}.sh`)
-  const logPath = path.join(os.tmpdir(), 'cascade-update.log')
+  const scriptPath = path.join(os.tmpdir(), `${slug}-update-${process.pid}.sh`)
+  const logPath = path.join(os.tmpdir(), `${slug}-update.log`)
   fs.writeFileSync(scriptPath, SWAP_SCRIPT, { mode: 0o755 })
   const child = spawn('/bin/sh', [scriptPath, String(pid), appBundle, staged, backup, logPath], {
     detached: true,

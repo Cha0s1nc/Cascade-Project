@@ -10,13 +10,15 @@
 
 import { franc } from 'franc-min'
 
-/** franc speaks ISO 639-3; the lyrics picker and the Marian target tokens speak
- *  ISO 639-1. Only the languages the UI can actually act on are mapped - for
- *  everything else the caller only needs "not English", and an unmapped code
- *  answers that just as well. */
+/** franc speaks ISO 639-3; the lyrics picker, the Marian target tokens and
+ *  Apple's Translation framework speak ISO 639-1. Only the languages the UI can
+ *  act on are mapped (every language Apple Translation takes, which covers
+ *  Cascade's own models too) - for everything else the caller only needs "not
+ *  English", and an unmapped code answers that just as well. */
 const ISO3_TO_ISO1: Record<string, string> = {
   eng: 'en', spa: 'es', fra: 'fr', deu: 'de', jpn: 'ja', kor: 'ko',
   cmn: 'zh', por: 'pt', ita: 'it', rus: 'ru', arb: 'ar', hin: 'hi',
+  ind: 'id', nld: 'nl', pol: 'pl', tha: 'th', tur: 'tr', ukr: 'uk', vie: 'vi',
 }
 
 /** Below this, trigram matching is guessing. A two-word line is not enough to

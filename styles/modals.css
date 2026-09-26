@@ -1,0 +1,43 @@
+/* ── Add-to-playlist modal ── */
+/* Same reversible fade/rise as #setup-overlay, just quicker since these
+   are lighter popups rather than the first-run flow. Shared by every
+   .modal-overlay instance (add-to-playlist, notice, waterfall, plugin,
+   media info). */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 500; display: flex; align-items: center; justify-content: center; opacity: 1; visibility: visible; transition: opacity 140ms cubic-bezier(0.2,0.7,0.3,1), visibility 140ms; }
+.modal-overlay.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+.modal-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; width: 320px; max-height: 480px; display: flex; flex-direction: column; transition: opacity 140ms cubic-bezier(0.2,0.7,0.3,1), transform 140ms cubic-bezier(0.2,0.7,0.3,1); }
+.modal-overlay.hidden .modal-card { opacity: 0; transform: translateY(8px) scale(0.98); }
+.modal-title { font-size: 14px; font-weight: 600; margin-bottom: 14px; color: var(--text); }
+.modal-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; margin-bottom: 14px; }
+.modal-list::-webkit-scrollbar { width: 4px; }
+.modal-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.modal-pl-item { padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; color: var(--text2); transition: background 0.1s; }
+.modal-pl-item:hover { background: var(--surface2); color: var(--text); }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.modal-btn { font-family: var(--font); font-size: 12px; font-weight: 500; padding: 5px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2); color: var(--text2); cursor: pointer; transition: all 0.12s; }
+.modal-btn:hover { color: var(--text); border-color: var(--accent); }
+.modal-btn-accent { background: var(--accent); border-color: var(--accent); color: #fff; }
+.modal-btn-accent:hover { background: var(--accent); border-color: var(--accent); color: #fff; opacity: 0.85; }
+/* Waterfall (beta) */
+.wf-beta { font-size: 9px; font-weight: 700; letter-spacing: 0.08em; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 1px 4px; vertical-align: middle; margin-left: 6px; }
+.wf-note { font-size: 11px; color: var(--text3); line-height: 1.5; }
+/* A notice's message can be arbitrary server text - scroll it rather than
+   letting it grow the modal past the screen. */
+#notice-body { max-height: 40vh; overflow-y: auto; overflow-wrap: anywhere; }
+.wf-join-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.wf-room-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 20px; font-weight: 600; letter-spacing: 0.18em; color: var(--text); }
+.wf-members { margin: 12px 0; display: flex; flex-direction: column; gap: 4px; }
+.wf-member { font-size: 12px; color: var(--text2); padding: 4px 8px; background: var(--surface2); border-radius: 5px; }
+.modal-input { font-family: var(--font); font-size: 12px; flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; color: var(--text); outline: none; transition: border-color 0.12s; }
+.modal-input:focus { border-color: var(--accent); }
+.modal-create-row { display: none; gap: 6px; margin-bottom: 10px; align-items: center; }
+.modal-create-row.visible { display: flex; }
+#toast { position: fixed; bottom: 76px; left: 50%; transform: translateX(-50%); background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 7px 16px; font-size: 12px; color: var(--text); z-index: 600; opacity: 0; transition: opacity 0.2s; pointer-events: none; white-space: nowrap; }
+
+/* ── Media info modal ── */
+.media-info-card { width: 420px; max-height: 540px; }
+.media-info-grid { display: grid; grid-template-columns: 100px 1fr; gap: 6px 12px; font-size: 12px; overflow-y: auto; max-height: 360px; }
+.media-info-grid::-webkit-scrollbar { width: 4px; }
+.media-info-grid::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.mi-key { color: var(--text3); text-align: right; line-height: 1.6; }
+.mi-val { color: var(--text2); word-break: break-all; line-height: 1.6; }

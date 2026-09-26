@@ -1,0 +1,44 @@
+:root {
+  /* Hover highlight timing for rows and cards: a quick fade in, a slower fade
+     out, so the highlight trails the pointer the way Apple Music's does. */
+  --hover-in: 0.12s; --hover-out: 0.35s;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --bg: #111113; --surface: #1c1c1e; --surface2: #2c2c2e; --border: #3a3a3c;
+  --accent: #6e4ff6; --accent-glow: rgba(110,79,246,0.25);
+  --text: #f5f5f7; --text2: #aeaeb2; --text3: #636366;
+  --grad: linear-gradient(160deg, #4ade80 0%, #7c3aed 100%);
+  --green: #32d74b; --red: #ff453a; --yellow: #ffd60a;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+/* Keyboard focus, for anything without a ring of its own. Chromium's default
+   is an orange outline:auto that matches nothing here. :where() keeps this at
+   zero specificity so every component's own :focus-visible rule still wins,
+   and text fields are left out because they already show focus. */
+:where(:not(input, textarea, select, [contenteditable])):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; height: 100vh; overflow: hidden; -webkit-font-smoothing: antialiased; }
+.app { display: flex; flex-direction: column; height: 100vh; }
+
+/* ── Titlebar ── */
+.titlebar { height: 38px; flex-shrink: 0; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 16px; -webkit-app-region: drag; user-select: none; }
+html[data-platform="darwin"] .titlebar { padding-left: 80px; }
+/* Windows/Linux draw real caption buttons into this strip via
+   titleBarOverlay (main.js createWindow()) instead of stacking their own
+   title bar on top of ours. env(titlebar-area-width) is the width of the
+   drag area Chromium left after reserving the overlay, so subtracting it
+   from the viewport gives the overlay's own width - falls back to a fixed
+   138px guess (three ~46px Windows caption buttons) where the env var
+   is not supported. */
+/* Plus 14px: reserving exactly the overlay's width leaves the last control
+   touching the minimise button, which reads as a mistake even though
+   nothing overlaps. Defined once because more than one bar sits under those
+   buttons - see .np-overlay-header, whose close button was rendered
+   underneath them and could not be clicked at all. */
+html[data-platform="win32"], html[data-platform="linux"] {
+  --caption-reserve: calc(100vw - env(titlebar-area-width, calc(100vw - 138px)) + 14px);
+}
+html[data-platform="win32"] .titlebar,
+html[data-platform="linux"] .titlebar { padding-right: var(--caption-reserve); }
+.tb-right { display: flex; align-items: center; gap: 8px; -webkit-app-region: no-drag; }
+.tb-title { font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
+.ws-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--red); transition: background 0.3s, box-shadow 0.3s; }
+.ws-dot.connected { background: var(--green); box-shadow: 0 0 6px var(--green); }

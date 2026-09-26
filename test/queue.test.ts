@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   songSortValue, sortSongs, shuffleInPlace, shuffled, nextQueueIndex, insertAfterCurrent,
+  queueRemainingSec, formatQueueSpan, queueSourceFallback,
 } from '../src/core/queue.ts'
 import type { JfItem } from '../src/core/types.ts'
 
@@ -127,4 +128,31 @@ test('insertAfterCurrent: does not mutate the input queue', () => {
   const copy = [...original]
   insertAfterCurrent(original, 0, ['x'])
   assert.deepEqual(original, copy)
+})
+
+test('queue remaining: rest of the current track plus everything after it', () => {
+  const t = (sec: number) => ({ Id: String(sec), Name: '', RunTimeTicks: sec * 10_000_000 })
+  const q = [t(100), t(200), t(300), { Id: 'x', Name: '' }]
+  assert.equal(queueRemainingSec(q, 1, 50), 150 + 300)
+  assert.equal(queueRemainingSec(q, 1, 999), 300)        // past the end of the current track
+  assert.equal(queueRemainingSec(q, 3, 0), 0)            // no RunTimeTicks counts as 0
+  assert.equal(queueRemainingSec(q, -1, 0), 0)
+  assert.equal(queueRemainingSec([], 0, 0), 0)
+})
+
+test('queue span formatting, up to days', () => {
+  assert.equal(formatQueueSpan(30), '<1m')
+  assert.equal(formatQueueSpan(34 * 60 + 59), '34m')
+  assert.equal(formatQueueSpan(2 * 3600 + 5 * 60), '2h 5m')
+  assert.equal(formatQueueSpan(3 * 3600), '3h')
+  assert.equal(formatQueueSpan(25 * 3600 + 10 * 60), '1d 1h')
+  assert.equal(formatQueueSpan(48 * 3600), '2d')
+})
+
+test('queue source fallback: the album name only when every track shares it', () => {
+  const a = { Id: '1', Name: '', AlbumId: 'A', Album: 'Fever' }
+  assert.equal(queueSourceFallback([a, { ...a, Id: '2' }]), 'Fever')
+  assert.equal(queueSourceFallback([a, { ...a, Id: '2', AlbumId: 'B' }]), null)
+  assert.equal(queueSourceFallback([{ Id: '1', Name: '' }]), null)
+  assert.equal(queueSourceFallback([]), null)
 })

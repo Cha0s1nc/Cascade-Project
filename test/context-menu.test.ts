@@ -2,30 +2,35 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { menuItemsForKind, clampMenuPosition } from '../src/core/context-menu.ts'
 
-test('album: play family, add to playlist, go to artist, metadata - no track-only rows', () => {
+test('album: play family, add to playlist, go to artist, metadata, download, favorite, instant mix', () => {
   const v = menuItemsForKind('album')
   assert.equal(v.play, true)
   assert.equal(v.playNext, true)
   assert.equal(v.playLast, true)
   assert.equal(v.shuffle, true)
+  assert.equal(v.instantMix, true)
   assert.equal(v.addPlaylist, true)
+  assert.equal(v.download, true)
+  assert.equal(v.favorite, true)
   assert.equal(v.goArtist, true)
   assert.equal(v.refreshMeta, true)
   assert.equal(v.editMeta, true)
-  assert.equal(v.instantMix, false)
   assert.equal(v.rename, false)
   assert.equal(v.deleteItem, false)
   assert.equal(v.markPlayed, false)
 })
 
-test('artist: play all, shuffle all, instant mix, view page - nothing else', () => {
+test('artist: play all, shuffle all, instant mix, view page, queue actions, favorite', () => {
   const v = menuItemsForKind('artist')
   assert.equal(v.play, true)
   assert.equal(v.shuffle, true)
   assert.equal(v.instantMix, true)
   assert.equal(v.viewDetail, true)
-  assert.equal(v.playNext, false)
-  assert.equal(v.addPlaylist, false)
+  assert.equal(v.playNext, true)
+  assert.equal(v.playLast, true)
+  assert.equal(v.addPlaylist, true)
+  assert.equal(v.favorite, true)
+  assert.equal(v.download, false)
   assert.equal(v.refreshMeta, false)
 })
 
@@ -55,20 +60,25 @@ test('series: no direct play - it is a container, not playable media', () => {
   assert.equal(v.markPlayed, true)
 })
 
-test('playlist: play, shuffle, rename, delete', () => {
+test('playlist: play, shuffle, rename, delete, queue actions', () => {
   const v = menuItemsForKind('playlist')
   assert.equal(v.play, true)
   assert.equal(v.shuffle, true)
   assert.equal(v.rename, true)
   assert.equal(v.deleteItem, true)
-  assert.equal(v.addPlaylist, false)
+  assert.equal(v.playNext, true)
+  assert.equal(v.playLast, true)
+  assert.equal(v.addPlaylist, true)
   assert.equal(v.viewDetail, false)
 })
 
-test('smart playlist: play and shuffle only - not a real playlist to rename or delete', () => {
+test('smart playlist: play, shuffle, queue actions - not a real playlist to rename or delete', () => {
   const v = menuItemsForKind('smart-playlist')
   assert.equal(v.play, true)
   assert.equal(v.shuffle, true)
+  assert.equal(v.playNext, true)
+  assert.equal(v.playLast, true)
+  assert.equal(v.addPlaylist, true)
   assert.equal(v.rename, false)
   assert.equal(v.deleteItem, false)
 })

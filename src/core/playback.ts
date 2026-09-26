@@ -100,6 +100,12 @@ interface PlaybackInfoResponse {
  * first resolve handed over is still valid, and re-negotiating just to change a
  * number puts a whole extra round trip in front of every scrub.
  */
+/** An HLS playlist, as opposed to a progressive stream. A playlist covers the
+ *  whole item, so the element can seek anywhere in it without a new stream. */
+export function isHlsUrl(url: string): boolean {
+  return /\.m3u8(\?|$)/i.test(url)
+}
+
 export function withStartTicks(url: string, ticks: number): string {
   if (ticks <= 0) return url
   const [base, query = ''] = url.split('?')
@@ -155,6 +161,52 @@ export const DEFAULT_MAX_BITRATE = 140_000_000
  *  resuming 90 seconds before the credits is nobody's intent. */
 export const RESUME_COMPLETE_RATIO = 0.95
 
+/** A chapter as the player uses it: where it starts, in seconds, and what to
+ *  call it. */
+export interface Chapter { sec: number; name: string }
+
+/**
+ * Jellyfin's Chapters array, cleaned up for seeking: sorted, deduplicated by
+ * start, anything past the end of the item dropped, and a name for the ones
+ * that have none. Fewer than two leaves nothing worth offering, since one
+ * chapter is just "the film".
+ */
+export function chapterList(
+  raw: { StartPositionTicks?: number; Name?: string | null }[] | undefined,
+  runTimeTicks?: number,
+): Chapter[] {
+  const seen = new Set<number>()
+  const list = (raw || [])
+    .filter(c => typeof c.StartPositionTicks === 'number' && c.StartPositionTicks >= 0
+      && (!runTimeTicks || c.StartPositionTicks < runTimeTicks))
+    .sort((a, b) => a.StartPositionTicks! - b.StartPositionTicks!)
+    .filter(c => !seen.has(c.StartPositionTicks!) && seen.add(c.StartPositionTicks!))
+    .map((c, i) => ({ sec: c.StartPositionTicks! / 10_000_000, name: c.Name?.trim() || `Chapter ${i + 1}` }))
+  return list.length > 1 ? list : []
+}
+
+/** Index of the chapter playing at `sec`, or -1 before the first one. */
+export function chapterAt(chapters: Chapter[], sec: number): number {
+  let at = -1
+  for (let i = 0; i < chapters.length && chapters[i].sec <= sec; i++) at = i
+  return at
+}
+
+/**
+ * Where a chapter jump from `sec` lands, in seconds, or null for nowhere to go.
+ *
+ * Forward is the next chapter's start. Back works like a CD player's previous
+ * button (and YouTube's): more than `restartWithin` seconds into a chapter
+ * goes to its own start, closer than that goes to the chapter before.
+ */
+export function chapterTarget(chapters: Chapter[], sec: number, dir: 1 | -1, restartWithin = 3): number | null {
+  const cur = chapterAt(chapters, sec)
+  if (dir > 0) return chapters[cur + 1]?.sec ?? null
+  if (cur < 0) return null
+  if (sec - chapters[cur].sec > restartWithin) return chapters[cur].sec
+  return chapters[cur - 1]?.sec ?? chapters[cur].sec
+}
+
 /**
  * Where playback should pick up, in ticks. 0 means "start from the beginning".
  *
@@ -192,10 +244,10 @@ export function universalStreamUrl(
 ): string {
   const { url, userId, token } = config
   if (kind === 'Video') {
-    return `${url}/Videos/${itemId}/stream?static=true&api_key=${token}`
+    return `${url}/Videos/${itemId}/stream?static=true&ApiKey=${token}`
   }
   return `${url}/Audio/${itemId}/universal`
-    + `?UserId=${userId}&api_key=${token}`
+    + `?UserId=${userId}&ApiKey=${token}`
     + `&Container=opus,mp3,aac,flac,wav,ogg`
     + `&TranscodingContainer=ts&TranscodingProtocol=hls&AudioCodec=aac`
     + `&MaxStreamingBitrate=${maxBitrate}`
@@ -302,14 +354,18 @@ export async function resolveStream(
     const playSessionId = info.PlaySessionId ?? null
 
     if (source.TranscodingUrl) {
+      // Only a progressive stream needs the offset baked in. An HLS playlist
+      // spans the whole item, so like direct play it starts at 0 and the
+      // caller seeks the element.
+      const offset = isHlsUrl(source.TranscodingUrl) ? 0 : startTicks
       return {
-        url: withStartTicks(`${config.url}${source.TranscodingUrl}`, startTicks),
+        url: withStartTicks(`${config.url}${source.TranscodingUrl}`, offset),
         // TranscodingUrl already carries the audio index the server settled on,
         // so nothing is appended here.
         playSessionId,
         mediaSourceId: source.Id ?? null,
         direct: false,
-        startTicks,
+        startTicks: offset,
       }
     }
 
@@ -340,7 +396,7 @@ function directStreamUrl(
   playSessionId: string | null,
   kind: MediaKind,
 ): string {
-  const params = new URLSearchParams({ static: 'true', api_key: config.token })
+  const params = new URLSearchParams({ static: 'true', ApiKey: config.token })
   if (source.Id) params.set('mediaSourceId', source.Id)
   if (playSessionId) params.set('PlaySessionId', playSessionId)
 

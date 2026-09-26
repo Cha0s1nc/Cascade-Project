@@ -35,8 +35,15 @@ test('normalizeProfile on garbage input always yields a valid in-range profile',
 })
 
 test('normalizeProfile passes a valid profile through unchanged', () => {
-  const p = normalizeProfile({ preamp: -3, bands: [1, 2, 3, 4, 5] })
-  assert.deepEqual(p, { preamp: -3, bands: [1, 2, 3, 4, 5] })
+  const p = normalizeProfile({ enabled: false, preamp: -3, bands: [1, 2, 3, 4, 5] })
+  assert.deepEqual(p, { enabled: false, preamp: -3, bands: [1, 2, 3, 4, 5] })
+})
+
+test('normalizeProfile keeps a profile on unless it was explicitly switched off', () => {
+  assert.equal(normalizeProfile({ bands: [0, 0, 0, 0, 0] }).enabled, true, 'saved before the switch existed')
+  assert.equal(normalizeProfile(null).enabled, true)
+  assert.equal(normalizeProfile({ enabled: 'no', bands: [] }).enabled, true, 'only false turns it off')
+  assert.equal(normalizeProfile({ enabled: false, bands: [] }).enabled, false)
 })
 
 test('normalizeProfile treats a missing or explicit-null preamp as auto', () => {

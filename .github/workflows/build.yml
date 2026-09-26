@@ -35,7 +35,7 @@ jobs:
       prerelease: ${{ steps.resolve.outputs.prerelease }}
       should_release: ${{ steps.resolve.outputs.should_release }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -88,14 +88,42 @@ jobs:
             echo "should_release=false" >> $GITHUB_OUTPUT
           fi
 
+  # ── Test and typecheck ────────────────────────────────────────────────────
+  # Gates every build job below: a red test or a type error must never reach
+  # a packaged build, let alone a release draft.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # build:apple no-ops off macOS, and build:bergamot only unpacks files
+      # already fetched by npm ci, so the full build:ts is safe and free on
+      # Linux - no point splitting it just to run on ubuntu.
+      - name: Build TypeScript
+        run: npm run build:ts
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm test
+
   # ── Windows ────────────────────────────────────────────────────────────────
   build-windows:
-    needs: setup
+    needs: [setup, test]
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -110,7 +138,7 @@ jobs:
         run: npm run build:win
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist-windows
           path: dist/*.exe
@@ -118,15 +146,15 @@ jobs:
 
   # ── macOS ──────────────────────────────────────────────────────────────────
   build-mac:
-    needs: setup
+    needs: [setup, test]
     # Pinned rather than macos-latest: the Apple Translation helper needs the
     # macOS 26 SDK, and a runner rollback would fail the build in a way that
     # looks unrelated to the label.
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -165,7 +193,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist-mac
           path: dist/*.dmg
@@ -173,12 +201,12 @@ jobs:
 
   # ── Linux (AppImage + RPM) ─────────────────────────────────────────────────
   build-linux:
-    needs: setup
+    needs: [setup, test]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -198,21 +226,21 @@ jobs:
         run: npm run build:linux
 
       - name: Upload AppImage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist-linux-appimage
           path: dist/*.AppImage
           retention-days: 7
 
       - name: Upload RPM (Fedora)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist-linux-rpm
           path: dist/*.rpm
           retention-days: 7
 
       - name: Upload DEB (Debian/Ubuntu)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist-linux-deb
           path: dist/*.deb
@@ -225,13 +253,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.setup.outputs.tag }}
           # Without this the draft carries no commitish, so publishing it creates
