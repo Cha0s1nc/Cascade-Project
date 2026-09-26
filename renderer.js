@@ -4233,6 +4233,10 @@ onDeck('ended', () => {
   const item = queue[queueIndex]
   if (item) reportPlaybackStopped(item.Id, Math.round(audio.duration * 10000000))
 
+  // A Waterfall guest waits for the host's next state instead of advancing on
+  // its own clock, which would start the next track out of step with the room.
+  if (blocksLocalPlayback()) return
+
   if (sleepAtTrackEnd) {
     sleepAtTrackEnd = false
     document.getElementById('ctx-sleep-timer').classList.remove('active')
@@ -4309,6 +4313,10 @@ function _resolveCrossfadeTarget() {
 
 onDeck('timeupdate', () => {
   if (!crossfadeEnabled || !_cfArmed || _cfActive) return
+  // The host owns track changes in a Waterfall room. A guest fading on its own
+  // leaves `audio` on the outgoing deck while the incoming one is what plays,
+  // so the room's drift correction would seek a deck nobody is hearing.
+  if (blocksLocalPlayback()) return
   // No Web Audio graph means no GainNode to ramp on. There is deliberately no
   // second, element-.volume-based fallback ramp. Note this is the hard failure
   // only: an analyser that reads nothing (_eqNoSignal) stands the bars down but
