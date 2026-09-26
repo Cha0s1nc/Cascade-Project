@@ -71,7 +71,6 @@ let eqEnabled = false
 let eqActiveMode = 'music'   // which saved profile is wired into the live graph right now
 let eqMusicProfile = { preamp: null, bands: [0, 0, 0, 0, 0] }
 let eqVideoProfile = { preamp: null, bands: [0, 0, 0, 0, 0] }   // all overridden from the store in init()
-let _eqEditTarget = 'music'   // which saved profile the settings panel is editing right now
 
 // Two permanent "deck" media elements (A/B), so a crossfade is two real
 // elements overlapping instead of one element having its src handed back and
@@ -5204,36 +5203,39 @@ async function loadSettingsFields() {
     _applyEqToGraph()
   }
 
-  document.getElementById('eq-edit-music').onclick = () => { _eqEditTarget = 'music'; _refreshEqUI() }
-  document.getElementById('eq-edit-video').onclick = () => { _eqEditTarget = 'video'; _refreshEqUI() }
+  // One editor per profile, side by side. Each finds its controls inside its
+  // own data-eq panel, so the two cannot write to each other's curve.
+  for (const mode of ['music', 'video']) {
+    const panel = _eqPanel(mode)
+    const presetSel = panel.querySelector('.eq-preset')
+    presetSel.innerHTML = '<option value="">Custom</option>' +
+      Object.keys(CascadeCore.EQ_PRESETS).map(name => `<option value="${name}">${name}</option>`).join('')
+    presetSel.onchange = async () => {
+      if (!presetSel.value) return
+      _eqProfile(mode).bands = [...CascadeCore.EQ_PRESETS[presetSel.value]]
+      _refreshEqUI(mode)
+      await _saveEqProfile(mode)
+    }
 
-  const eqPresetSel = document.getElementById('eq-preset')
-  eqPresetSel.innerHTML = '<option value="">Custom</option>' +
-    Object.keys(CascadeCore.EQ_PRESETS).map(name => `<option value="${name}">${name}</option>`).join('')
-  eqPresetSel.onchange = async () => {
-    if (!eqPresetSel.value) return
-    _eqEditProfile().bands = [...CascadeCore.EQ_PRESETS[eqPresetSel.value]]
-    _refreshEqUI()
-    await _saveEqProfile()
+    _buildEqGraphPoints(mode)
+
+    const preampAuto = panel.querySelector('.eq-preamp-auto')
+    preampAuto.onchange = async () => {
+      const profile = _eqProfile(mode)
+      // Seed manual mode with the current auto value instead of jumping to 0.
+      profile.preamp = preampAuto.checked ? null : CascadeCore.autoPreamp(profile.bands)
+      _refreshEqUI(mode)
+      await _saveEqProfile(mode)
+    }
+    const preampSlider = panel.querySelector('.eq-preamp-slider')
+    preampSlider.oninput = async () => {
+      _eqProfile(mode).preamp = parseFloat(preampSlider.value)
+      _refreshEqUI(mode)
+      await _saveEqProfile(mode)
+    }
+
+    _refreshEqUI(mode)
   }
-
-  _buildEqGraphPoints()
-
-  document.getElementById('eq-preamp-auto').onchange = async () => {
-    const profile = _eqEditProfile()
-    const isAuto = document.getElementById('eq-preamp-auto').checked
-    // Seed manual mode with the current auto value instead of jumping to 0.
-    profile.preamp = isAuto ? null : CascadeCore.autoPreamp(profile.bands)
-    _refreshEqUI()
-    await _saveEqProfile()
-  }
-  document.getElementById('eq-preamp-slider').oninput = async () => {
-    _eqEditProfile().preamp = parseFloat(document.getElementById('eq-preamp-slider').value)
-    _refreshEqUI()
-    await _saveEqProfile()
-  }
-
-  _refreshEqUI()
 }
 
 document.getElementById('btn-save-settings').addEventListener('click', async () => {
@@ -5793,9 +5795,19 @@ function _ensureEqGraph() {
   }
 }
 
+/** A saved EQ profile by mode, 'music' or 'video'. */
+function _eqProfile(mode) {
+  return mode === 'video' ? eqVideoProfile : eqMusicProfile
+}
+
+/** The settings panel that edits one profile. */
+function _eqPanel(mode) {
+  return document.querySelector(`.eq-panel[data-eq="${mode}"]`)
+}
+
 // Which saved profile is currently wired into the live graph.
 function _currentEqProfile() {
-  return eqActiveMode === 'video' ? eqVideoProfile : eqMusicProfile
+  return _eqProfile(eqActiveMode)
 }
 
 // Pushes eqEnabled + the active profile onto the actual filter nodes. Always
@@ -5826,12 +5838,6 @@ async function _loadEqProfile(key) {
   return CascadeCore.normalizeProfile(raw)
 }
 
-// The profile the settings panel is currently editing - not necessarily the
-// one wired into the live graph, see eqActiveMode/_currentEqProfile above.
-function _eqEditProfile() {
-  return _eqEditTarget === 'video' ? eqVideoProfile : eqMusicProfile
-}
-
 // Preset name whose gains match a profile's bands exactly, or '' (Custom).
 function _eqMatchingPreset(bands) {
   for (const name in CascadeCore.EQ_PRESETS) {
@@ -5840,12 +5846,11 @@ function _eqMatchingPreset(bands) {
   return ''
 }
 
-async function _saveEqProfile() {
-  const key = _eqEditTarget === 'video' ? 'eqVideo' : 'eqMusic'
-  await window.cascade.store.set(key, JSON.stringify(_eqEditProfile()))
+async function _saveEqProfile(mode) {
+  await window.cascade.store.set(mode === 'video' ? 'eqVideo' : 'eqMusic', JSON.stringify(_eqProfile(mode)))
   // Only ramp the live graph if the profile just edited is the one actually
   // playing - editing Video while music plays should not be audible yet.
-  if (_eqEditTarget === eqActiveMode) _applyEqToGraph()
+  if (mode === eqActiveMode) _applyEqToGraph()
 }
 
 // Builds the graph's five draggable points and their frequency labels from
@@ -5853,10 +5858,11 @@ async function _saveEqProfile() {
 // re-runs every time the view is shown, so this rebuilds from scratch each
 // time rather than trying to detect "already built" - five small elements is
 // nothing to redo, and it sidesteps ever going stale).
-function _buildEqGraphPoints() {
+function _buildEqGraphPoints(mode) {
   const SVG_NS = 'http://www.w3.org/2000/svg'
-  const pointsG = document.getElementById('eq-graph-points')
-  const labelsWrap = document.getElementById('eq-graph-labels')
+  const panel = _eqPanel(mode)
+  const pointsG = panel.querySelector('.eq-graph-points')
+  const labelsWrap = panel.querySelector('.eq-graph-labels')
   pointsG.innerHTML = ''
   labelsWrap.innerHTML = ''
 
@@ -5869,10 +5875,10 @@ function _buildEqGraphPoints() {
     circle.setAttribute('cx', String(CascadeCore.eqBandX(i, CascadeCore.EQ_BANDS.length, EQ_GRAPH_W)))
     circle.setAttribute('tabindex', '0')
     circle.setAttribute('role', 'slider')
-    circle.setAttribute('aria-label', `${label} gain`)
+    circle.setAttribute('aria-label', `${mode === 'video' ? 'Video' : 'Music'} ${label} gain`)
     circle.setAttribute('aria-valuemin', String(-CascadeCore.EQ_GAIN_LIMIT))
     circle.setAttribute('aria-valuemax', String(CascadeCore.EQ_GAIN_LIMIT))
-    _wireEqPoint(circle, i)
+    _wireEqPoint(circle, i, mode)
     pointsG.appendChild(circle)
 
     const labelEl = document.createElement('div')
@@ -5886,14 +5892,14 @@ function _buildEqGraphPoints() {
 // drag via document-level move/up, arrow keys as a real role="slider") but
 // vertical and in dB rather than horizontal and in a 0..1 ratio - the two
 // don't share enough shape to reuse the same function.
-function _wireEqPoint(circle, i) {
+function _wireEqPoint(circle, i, mode) {
   const apply = async (db) => {
-    _eqEditProfile().bands[i] = db
-    _refreshEqUI()
-    await _saveEqProfile()
+    _eqProfile(mode).bands[i] = db
+    _refreshEqUI(mode)
+    await _saveEqProfile(mode)
   }
   const dbAt = (e) => {
-    const rect = document.getElementById('eq-graph').getBoundingClientRect()
+    const rect = circle.ownerSVGElement.getBoundingClientRect()
     return CascadeCore.eqYToDb(e.clientY - rect.top, rect.height)
   }
 
@@ -5917,7 +5923,7 @@ function _wireEqPoint(circle, i) {
   })
 
   circle.addEventListener('keydown', (e) => {
-    const cur = _eqEditProfile().bands[i]
+    const cur = _eqProfile(mode).bands[i]
     let next
     if (e.key === 'ArrowUp' || e.key === 'ArrowRight') next = cur + 0.5
     else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') next = cur - 0.5
@@ -5935,32 +5941,30 @@ function _wireEqPoint(circle, i) {
   })
 }
 
-// Syncs the settings-panel EQ controls to _eqEditProfile(). Called after
-// every edit so the preset dropdown, the preamp's auto value, the curve and
-// the band labels never drift from the numbers actually in play.
-function _refreshEqUI() {
-  const profile = _eqEditProfile()
-  document.getElementById('eq-graph-curve').setAttribute('d', CascadeCore.eqCurvePath(profile.bands, EQ_GRAPH_W, EQ_GRAPH_H))
-  document.querySelectorAll('#eq-graph-points .eq-graph-point').forEach((circle, i) => {
+// Syncs one panel's EQ controls to its profile. Called after every edit so
+// the preset dropdown, the preamp's auto value, the curve and the band labels
+// never drift from the numbers actually in play.
+function _refreshEqUI(mode) {
+  const profile = _eqProfile(mode)
+  const panel = _eqPanel(mode)
+  panel.querySelector('.eq-graph-curve').setAttribute('d', CascadeCore.eqCurvePath(profile.bands, EQ_GRAPH_W, EQ_GRAPH_H))
+  panel.querySelectorAll('.eq-graph-point').forEach((circle, i) => {
     const db = profile.bands[i]
     circle.setAttribute('cy', String(CascadeCore.eqDbToY(db, EQ_GRAPH_H)))
     circle.setAttribute('aria-valuenow', db.toFixed(1))
     circle.setAttribute('aria-valuetext', `${db.toFixed(1)} dB`)
   })
-  document.querySelectorAll('#eq-graph-labels .eq-band-value').forEach((el, i) => {
+  panel.querySelectorAll('.eq-graph-labels .eq-band-value').forEach((el, i) => {
     el.textContent = `${profile.bands[i].toFixed(1)} dB`
   })
   const auto = profile.preamp === null
-  const preampAuto = document.getElementById('eq-preamp-auto')
-  const preampSlider = document.getElementById('eq-preamp-slider')
+  const preampSlider = panel.querySelector('.eq-preamp-slider')
   const shownPreamp = auto ? CascadeCore.autoPreamp(profile.bands) : profile.preamp
-  preampAuto.checked = auto
+  panel.querySelector('.eq-preamp-auto').checked = auto
   preampSlider.disabled = auto
   preampSlider.value = String(shownPreamp)
-  document.getElementById('eq-preamp-value').textContent = `${shownPreamp.toFixed(1)} dB${auto ? ' (auto)' : ''}`
-  document.getElementById('eq-preset').value = _eqMatchingPreset(profile.bands)
-  document.getElementById('eq-edit-music').classList.toggle('active', _eqEditTarget === 'music')
-  document.getElementById('eq-edit-video').classList.toggle('active', _eqEditTarget === 'video')
+  panel.querySelector('.eq-preamp-value').textContent = `${shownPreamp.toFixed(1)} dB`
+  panel.querySelector('.eq-preset').value = _eqMatchingPreset(profile.bands)
 }
 
 function startEqLoop() {

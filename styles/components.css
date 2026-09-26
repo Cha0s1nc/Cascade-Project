@@ -1,10 +1,20 @@
 /* ── Equalizer ── */
-.eq-mode-switch { display: flex; gap: 6px; }
-.eq-mode-btn { padding: 5px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2); color: var(--text2); font-family: var(--font); font-size: 12px; cursor: pointer; transition: background 0.12s, color 0.12s; }
-.eq-mode-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
-.eq-preamp { display: flex; align-items: center; gap: 10px; width: 260px; }
-.eq-auto-label { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text2); white-space: nowrap; }
-.eq-preamp input[type="range"] { flex: 1; }
+/* Music and video side by side in one box, each with its own preset, curve
+   and preamp. Wraps to a column rather than squeezing the graphs: they are
+   drawn 1:1 with their viewBox (see EQ_GRAPH_W in renderer.js), so they
+   cannot shrink. */
+.eq-panels {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 12px 28px;
+  margin: 4px 14px 14px; padding: 16px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+}
+.eq-panel { display: flex; flex-direction: column; gap: 10px; width: 260px; }
+.eq-panel-title { font-size: 13px; font-weight: 600; color: var(--text); text-align: center; }
+.eq-panel .eq-preset { width: 100%; }
+.eq-preamp { display: flex; align-items: center; gap: 8px; width: 260px; }
+.eq-preamp-name { font-size: 12px; color: var(--text2); }
+.eq-preamp input[type="range"] { flex: 1; min-width: 0; }
+.eq-auto { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text2); cursor: pointer; }
 .eq-band-value { font-size: 11px; color: var(--text3); min-width: 46px; text-align: right; flex-shrink: 0; }
 /* Response graph replacing the old five-slider stack. Colours are all
    existing theme tokens (accent/border/text3/surface) - this draws with

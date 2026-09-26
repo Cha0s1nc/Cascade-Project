@@ -597,49 +597,56 @@
                     <span class="toggle-track"></span>
                   </label>
                 </div>
-                <div class="setting-row">
-                  <div class="setting-label">
-                    <span class="setting-name">Editing profile</span>
-                    <span class="setting-desc">Music and video keep separate curves. This picks which one you are editing below, it does not change what is playing.</span>
+                <!-- Both curves side by side, so there is nothing to switch
+                     between: music and video each keep their own. Points and
+                     labels are built in renderer.js from CascadeCore.EQ_BANDS,
+                     and every control is found inside its data-eq panel. -->
+                <div class="eq-panels">
+                  <div class="eq-panel" data-eq="music">
+                    <div class="eq-panel-title">Music</div>
+                    <select class="setting-input eq-preset" aria-label="Music preset"></select>
+                    <div class="eq-graph-wrap">
+                      <!-- No role="img": that would flatten the five focusable
+                           role="slider" points out of the accessibility tree. -->
+                      <svg class="eq-graph" viewBox="0 0 260 140" width="260" height="140">
+                        <line class="eq-graph-zero" x1="0" y1="70" x2="260" y2="70"></line>
+                        <path class="eq-graph-curve" d=""></path>
+                        <g class="eq-graph-points"></g>
+                      </svg>
+                      <div class="eq-graph-labels"></div>
+                    </div>
+                    <div class="eq-preamp">
+                      <span class="eq-preamp-name">Preamp</span>
+                      <input type="range" class="eq-preamp-slider" min="-12" max="12" step="0.5" value="0" aria-label="Music preamp">
+                      <span class="eq-band-value eq-preamp-value">0.0 dB</span>
+                      <label class="eq-auto" title="Auto lowers the preamp so boosted bands cannot clip. Off lets you set it yourself.">
+                        <span>Auto</span>
+                        <span class="toggle"><input type="checkbox" class="eq-preamp-auto" aria-label="Music automatic preamp"><span class="toggle-track"></span></span>
+                      </label>
+                    </div>
                   </div>
-                  <div class="eq-mode-switch">
-                    <button type="button" class="eq-mode-btn active" id="eq-edit-music">Music</button>
-                    <button type="button" class="eq-mode-btn" id="eq-edit-video">Video</button>
-                  </div>
-                </div>
-                <div class="setting-row">
-                  <div class="setting-label"><span class="setting-name">Preset</span></div>
-                  <select class="setting-input" id="eq-preset"></select>
-                </div>
-                <div class="setting-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;">
-                  <div class="setting-label">
-                    <span class="setting-name">Preamp</span>
-                    <span class="setting-desc">Auto cuts to keep boosted bands from clipping. Uncheck to set it yourself.</span>
-                  </div>
-                  <div class="eq-preamp">
-                    <label class="eq-auto-label"><input type="checkbox" id="eq-preamp-auto"> Auto</label>
-                    <input type="range" id="eq-preamp-slider" min="-12" max="12" step="0.5" value="0">
-                    <span class="eq-band-value" id="eq-preamp-value">0.0 dB</span>
-                  </div>
-                </div>
-                <div class="setting-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;">
-                  <div class="setting-label">
-                    <span class="setting-name">Bands</span>
-                    <span class="setting-desc">Drag a point, or tab to one and use the arrow keys.</span>
-                  </div>
-                  <!-- Points and labels are built in renderer.js from CascadeCore.EQ_BANDS,
-                       not hardcoded here - that used to be a trap: changing a band
-                       frequency meant remembering to edit both this file and eq-profile.ts. -->
-                  <div class="eq-graph-wrap">
-                    <!-- No role="img" here: that would flatten the five focusable
-                         role="slider" points below out of the accessibility tree.
-                         The curve and zero line are purely decorative. -->
-                    <svg class="eq-graph" id="eq-graph" viewBox="0 0 260 140" width="260" height="140">
-                      <line class="eq-graph-zero" x1="0" y1="70" x2="260" y2="70"></line>
-                      <path class="eq-graph-curve" id="eq-graph-curve" d=""></path>
-                      <g id="eq-graph-points"></g>
-                    </svg>
-                    <div class="eq-graph-labels" id="eq-graph-labels"></div>
+                  <div class="eq-panel" data-eq="video">
+                    <div class="eq-panel-title">Video</div>
+                    <select class="setting-input eq-preset" aria-label="Video preset"></select>
+                    <div class="eq-graph-wrap">
+                      <!-- No role="img": that would flatten the five focusable
+                           role="slider" points out of the accessibility tree. -->
+                      <svg class="eq-graph" viewBox="0 0 260 140" width="260" height="140">
+                        <line class="eq-graph-zero" x1="0" y1="70" x2="260" y2="70"></line>
+                        <path class="eq-graph-curve" d=""></path>
+                        <g class="eq-graph-points"></g>
+                      </svg>
+                      <div class="eq-graph-labels"></div>
+                    </div>
+                    <div class="eq-preamp">
+                      <span class="eq-preamp-name">Preamp</span>
+                      <input type="range" class="eq-preamp-slider" min="-12" max="12" step="0.5" value="0" aria-label="Video preamp">
+                      <span class="eq-band-value eq-preamp-value">0.0 dB</span>
+                      <label class="eq-auto" title="Auto lowers the preamp so boosted bands cannot clip. Off lets you set it yourself.">
+                        <span>Auto</span>
+                        <span class="toggle"><input type="checkbox" class="eq-preamp-auto" aria-label="Video automatic preamp"><span class="toggle-track"></span></span>
+                      </label>
+                    </div>
                   </div>
                 </div>
               </div>
