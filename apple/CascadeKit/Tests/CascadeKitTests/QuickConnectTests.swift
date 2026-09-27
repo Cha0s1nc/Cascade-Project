@@ -44,3 +44,17 @@ struct QuickConnectTests {
     #expect(!authHeader(appVersion: "1.0", deviceId: "d").contains("Token="))
     #expect(authHeader(appVersion: "1.0", deviceId: "d", token: "T").hasSuffix(", Token=\"T\""))
 }
+
+struct QuickConnectApprovalTests {
+    @Test func codesAreSixDigitsWithSpacingForgiven() {
+        #expect(QuickConnect.normalizedCode("123456") == "123456")
+        #expect(QuickConnect.normalizedCode(" 123 456 ") == "123456")
+        #expect(QuickConnect.normalizedCode("123-456") == "123456")
+        #expect(QuickConnect.normalizedCode("12345") == nil)
+        #expect(QuickConnect.normalizedCode("1234567") == nil)
+        #expect(QuickConnect.normalizedCode("12a456") == nil)
+        // Non-ASCII digits are numbers to Swift and not to the server.
+        #expect(QuickConnect.normalizedCode("١٢٣٤٥٦") == nil)
+        #expect(QuickConnect.normalizedCode("") == nil)
+    }
+}

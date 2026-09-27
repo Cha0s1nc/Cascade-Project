@@ -120,3 +120,36 @@ public enum QuickConnect {
         return data
     }
 }
+
+// MARK: - Approving another device
+//
+// The other side of the flow above: this app is signed in, another device
+// shows a code, and entering it here signs that device in as this user.
+//   POST /QuickConnect/Authorize?code=   -> Bool (10.11.11 spec), 404 for a
+//   code that is not pending (checked against the server: "Error processing
+//   request.", which is no use to show as is).
+
+public extension QuickConnect {
+    /// The code as the server wants it, or nil when it cannot be one. Codes
+    /// are six digits; people paste them with spaces or a dash in the middle.
+    static func normalizedCode(_ raw: String) -> String? {
+        let digits = raw.filter { !$0.isWhitespace && $0 != "-" }
+        guard digits.count == 6, digits.allSatisfy(\.isASCII), digits.allSatisfy(\.isNumber) else { return nil }
+        return digits
+    }
+}
+
+public extension JellyfinClient {
+    /// Approve another device's Quick Connect code as the signed-in user.
+    func authorizeQuickConnect(code: String) async throws {
+        do {
+            let data = try await postRaw("/QuickConnect/Authorize", body: Optional<EmptyBody>.none,
+                                         params: ["code": code])
+            let approved = (try? JSON.decoder.decode(Bool.self, from: data)) ?? false
+            // A 200 that says false is still a refusal (CODEMAP rule 1).
+            guard approved else { throw JellyfinError(status: 200, message: "The server did not approve that code.") }
+        } catch let error as JellyfinError where error.status == 404 {
+            throw JellyfinError(status: 404, message: "No device is waiting with that code. Check it, or start again on the other device.")
+        }
+    }
+}
