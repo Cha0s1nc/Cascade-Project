@@ -24,8 +24,10 @@ private struct TrackContextMenu: ViewModifier {
     /// Local, because the row's item is a snapshot the server's answer does
     /// not update. Nil until toggled here.
     @State private var favorite: Bool?
+    @State private var played: Bool?
 
     private var isFavorite: Bool { favorite ?? track.userData?.isFavorite ?? false }
+    private var isPlayed: Bool { played ?? track.userData?.played ?? false }
     private var artist: JfNameId? { track.albumArtists?.first ?? track.artistItems?.first }
 
     func body(content: Content) -> some View {
@@ -44,6 +46,10 @@ private struct TrackContextMenu: ViewModifier {
             Section {
                 Button(isFavorite ? "Unfavorite" : "Favorite", systemImage: isFavorite ? "heart.slash" : "heart") {
                     toggleFavorite()
+                }
+                Button(isPlayed ? "Mark as Unplayed" : "Mark as Played",
+                       systemImage: isPlayed ? "circle" : "checkmark.circle") {
+                    togglePlayed()
                 }
             }
             if openItem != nil {
@@ -67,6 +73,18 @@ private struct TrackContextMenu: ViewModifier {
             do {
                 try await client.setFavorite(target, itemId: track.id)
                 favorite = target
+            } catch {}
+        }
+    }
+
+    /// Same rule as the favorite: only once the server has said yes.
+    private func togglePlayed() {
+        guard let client = state.client else { return }
+        let target = !isPlayed
+        Task {
+            do {
+                try await client.setPlayed(target, itemId: track.id)
+                played = target
             } catch {}
         }
     }
