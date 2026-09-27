@@ -119,7 +119,11 @@ final class AppState {
         self.client = client
         // Rebuilt with the client so the player never holds a stale token or a
         // stale library selection.
-        self.player = PlaybackService(client: client, config: config)
+        let player = PlaybackService(client: client, config: config)
+        player.setStreamingQuality(
+            wifi: StreamingQuality(stored: UserDefaults.standard.object(forKey: StreamingQuality.wifiKey)),
+            cellular: StreamingQuality(stored: UserDefaults.standard.object(forKey: StreamingQuality.cellularKey)))
+        self.player = player
         cascadePluginApi = nil
         Task {
             let (probe, api) = await client.probeCascadePlugin()

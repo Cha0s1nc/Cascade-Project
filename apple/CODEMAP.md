@@ -177,3 +177,10 @@ playNext / addToQueue / moveQueueItems / removeQueueItems / jump apply it and
 re-sync the gapless preload. iOS Now Playing has a Queue button opening
 `QueueView`: tap to jump, drag to reorder, swipe or Edit to remove (never the
 playing row).
+
+Streaming quality (2026-09-27): Settings > Playback, Original / 320 / 256 /
+192 / 128 / 96 kbps (`StreamingQuality.swift`), with a separate cellular
+setting on iOS that applies while Network reports the path as expensive.
+PlaybackService caps the device profile per resolve (`currentProfile`).
+Stored values go through `StreamingQuality(stored:)`, so garbage reads as
+Original.

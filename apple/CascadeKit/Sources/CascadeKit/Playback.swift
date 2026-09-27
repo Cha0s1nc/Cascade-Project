@@ -151,7 +151,9 @@ public func resolveStream(client: JellyfinClient, config: ServerConfig, itemId: 
         return ResolvedStream(url: url, playSessionId: info.playSessionId,
                               mediaSourceId: source.id, direct: true, startTicks: 0)
     } catch {
-        guard let url = universalStreamUrl(config: config, itemId: itemId) else {
+        // The same cap as the negotiated request, so the fallback does not
+        // quietly ignore the quality setting.
+        guard let url = universalStreamUrl(config: config, itemId: itemId, maxBitrate: maxBitrate) else {
             // Nothing left to fall back to; the caller sees a URL it cannot use
             // rather than a crash.
             return ResolvedStream(url: URL(string: "about:blank")!, playSessionId: nil,

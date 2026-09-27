@@ -36,6 +36,29 @@ struct SettingsView: View {
                      : "Showing \(selected.count) of \(libraries.count) libraries.")
             }
 
+            if let player = state.player {
+                Section {
+                    Picker(qualityTitle, selection: Binding(
+                        get: { player.streamingQuality },
+                        set: { setQuality(wifi: $0, cellular: player.cellularQuality) }
+                    )) {
+                        ForEach(StreamingQuality.allCases) { Text($0.label).tag($0) }
+                    }
+                    #if os(iOS)
+                    Picker("On Cellular", selection: Binding(
+                        get: { player.cellularQuality },
+                        set: { setQuality(wifi: player.streamingQuality, cellular: $0) }
+                    )) {
+                        ForEach(StreamingQuality.allCases) { Text($0.label).tag($0) }
+                    }
+                    #endif
+                } header: {
+                    Text("Playback")
+                } footer: {
+                    Text("Below the original, the server converts to AAC at that rate. Applies from the next track.")
+                }
+            }
+
             Section {
                 Button("Sign Out", role: .destructive) {
                     confirmingSignOut = true
@@ -68,6 +91,18 @@ struct SettingsView: View {
             catch { self.error = error.localizedDescription }
             isLoading = false
         }
+    }
+
+    #if os(iOS)
+    private let qualityTitle = "On Wi-Fi"
+    #else
+    private let qualityTitle = "Streaming Quality"
+    #endif
+
+    private func setQuality(wifi: StreamingQuality, cellular: StreamingQuality) {
+        UserDefaults.standard.set(wifi.rawValue, forKey: StreamingQuality.wifiKey)
+        UserDefaults.standard.set(cellular.rawValue, forKey: StreamingQuality.cellularKey)
+        state.player?.setStreamingQuality(wifi: wifi, cellular: cellular)
     }
 
     // Stored as the libraries to show, with EMPTY meaning all of them, so a

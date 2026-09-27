@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import Observation
+import Network
 
 #if canImport(MediaPlayer)
 import MediaPlayer
@@ -53,6 +54,15 @@ public final class PlaybackService {
     private let config: ServerConfig
     private let profile: DeviceProfile
 
+    /// Settings > Streaming quality. Set through setStreamingQuality so a
+    /// preload resolved at the old rate is thrown away.
+    public private(set) var streamingQuality: StreamingQuality = .original
+    public private(set) var cellularQuality: StreamingQuality = .original
+    /// Cellular or a personal hotspot, as Network reports it. The cellular
+    /// quality applies while this is true.
+    public private(set) var onExpensiveNetwork = false
+    private let pathMonitor = NWPathMonitor()
+
     /// A queue player so the next track can be handed over without a gap:
     /// it is resolved and enqueued while this one plays, and AVFoundation
     /// switches to it at the exact end (trimming AAC and MP3 priming as it
@@ -90,6 +100,37 @@ public final class PlaybackService {
         configureAudioSession()
         observePlayer()
         configureRemoteCommands()
+        pathMonitor.pathUpdateHandler = Self.pathHandler { [weak self] expensive in
+            self?.onExpensiveNetwork = expensive
+        }
+        pathMonitor.start(queue: DispatchQueue(label: "cascade.path"))
+    }
+
+    /// Built outside main-actor isolation for the same reason as the lock
+    /// screen artwork: Network calls this on its own queue, and a closure
+    /// written in this @MainActor class would trap there. It hops to main
+    /// explicitly instead.
+    nonisolated private static func pathHandler(
+        _ apply: @escaping @MainActor @Sendable (Bool) -> Void
+    ) -> @Sendable (NWPath) -> Void {
+        { path in
+            let expensive = path.isExpensive
+            Task { @MainActor in apply(expensive) }
+        }
+    }
+
+    /// Takes effect from the next stream resolved. What is playing keeps
+    /// playing; the preloaded next track is re-resolved at the new rate.
+    public func setStreamingQuality(wifi: StreamingQuality, cellular: StreamingQuality) {
+        streamingQuality = wifi
+        cellularQuality = cellular
+        dropPreload()
+        syncPreload()
+    }
+
+    /// The profile to negotiate with right now.
+    private var currentProfile: DeviceProfile {
+        profile.capped(at: onExpensiveNetwork ? cellularQuality : streamingQuality)
     }
 
     // ponytail: no deinit. Swift 6 will not let one touch main-actor state, and
@@ -223,7 +264,7 @@ public final class PlaybackService {
 
         let startTicks = resumeTicks(for: item)
         let stream = await resolveStream(client: client, config: config,
-                                        itemId: item.id, profile: profile, startTicks: startTicks)
+                                        itemId: item.id, profile: currentProfile, startTicks: startTicks)
         // A later play() or stop() won the race; its result is the real one.
         guard token == loadToken else { return }
 
@@ -322,7 +363,7 @@ public final class PlaybackService {
         let token = nextToken()
         abandonEncode()
         let stream = await resolveStream(client: client, config: config, itemId: item.id,
-                                         profile: profile, startTicks: ticks(fromSeconds: target))
+                                         profile: currentProfile, startTicks: ticks(fromSeconds: target))
         guard token == loadToken else { return }
 
         adopt(stream)
@@ -465,7 +506,7 @@ public final class PlaybackService {
     }
 
     private func fetchPreload(_ index: Int, _ next: JfItem, _ token: Int) async {
-        let stream = await resolveStream(client: client, config: config, itemId: next.id, profile: profile)
+        let stream = await resolveStream(client: client, config: config, itemId: next.id, profile: currentProfile)
         guard token == preloadToken else { return abandon(stream) }
         let playerItem = AVPlayerItem(url: stream.url)
         // Loading the duration is also what proves the stream decodes. One
