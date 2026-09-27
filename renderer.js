@@ -826,6 +826,224 @@ function applyRemoteMute(muted) {
   setDeckMuted(muted)
 }
 
+// ── Device picker (drive OTHER Jellyfin sessions) ────────────────────────────
+// The other half of remote control: RemoteControl above makes Cascade a cast
+// TARGET; this makes Cascade a controller, same as Jellyfin's own web UI.
+// Session filtering and request shapes are pure and live in
+// src/core/session-control.ts; everything here is the HTTP calls, polling
+// and DOM that file's comment says stay out of it.
+
+let _dpSessions = []      // last poll's controllable sessions
+let _dpSelectedId = null  // session Id being driven, or null
+let _dpPollTimer = null
+let _dpLastPolledAt = 0
+let _dpSeekDragging = false  // suppress the poll's write to the bar mid-drag
+let _dpVolDragging = false
+
+const devicesPanel = document.getElementById('devices-panel')
+
+function dpIsOpen() { return devicesPanel.classList.contains('open') }
+
+async function openDevicesPanel() {
+  devicesPanel.classList.add('open')
+  const btn = document.getElementById('btn-devices-open')
+  const r = btn.getBoundingClientRect()
+  const pr = devicesPanel.getBoundingClientRect()
+  // Anchored above the button, right-aligned, clamped on screen - same
+  // measure-after-open-then-clamp recipe as showCtxMenu.
+  const { left, top } = CascadeCore.clampMenuPosition(
+    r.right - pr.width, r.top - pr.height - 8, pr.width, pr.height, window.innerWidth, window.innerHeight)
+  devicesPanel.style.left = `${left}px`
+  devicesPanel.style.top = `${top}px`
+  await _dpPoll()
+  _dpSchedulePoll()
+}
+
+function closeDevicesPanel() {
+  devicesPanel.classList.remove('open')
+  if (_dpPollTimer) { clearTimeout(_dpPollTimer); _dpPollTimer = null }
+}
+
+document.getElementById('btn-devices-open').addEventListener('click', (e) => {
+  e.stopPropagation()
+  if (dpIsOpen()) closeDevicesPanel(); else openDevicesPanel()
+})
+document.getElementById('dp-close').addEventListener('click', () => closeDevicesPanel())
+document.addEventListener('mousedown', (e) => {
+  if (dpIsOpen() && !devicesPanel.contains(e.target) && e.target.id !== 'btn-devices-open') closeDevicesPanel()
+})
+
+/** Poll only while the panel is open - a background poll nobody can see
+ *  would just be load on the server for no benefit. */
+async function _dpPoll() {
+  try {
+    const sessions = await jfGet('/Sessions', { controllableByUserId: jf.userId })
+    _dpSessions = CascadeCore.filterControllableSessions(Array.isArray(sessions) ? sessions : [], deviceId)
+  } catch {
+    _dpSessions = []
+  }
+  _dpLastPolledAt = Date.now()
+  _dpRenderList()
+  if (_dpSelectedId) _dpRenderNowPlaying()
+}
+
+function _dpSchedulePoll() {
+  if (_dpPollTimer) clearTimeout(_dpPollTimer)
+  if (!dpIsOpen()) return
+  _dpPollTimer = setTimeout(async () => { await _dpPoll(); _dpSchedulePoll() }, 3000)
+}
+
+function _dpRenderList() {
+  const list = document.getElementById('dp-list')
+  const empty = document.getElementById('dp-empty')
+  if (!_dpSessions.length) {
+    list.classList.add('hidden')
+    empty.classList.remove('hidden')
+    list.innerHTML = ''
+  } else {
+    empty.classList.add('hidden')
+    list.classList.remove('hidden')
+    list.innerHTML = _dpSessions.map(s => `
+      <button class="dp-device${s.Id === _dpSelectedId ? ' active' : ''}" data-session-id="${esc(s.Id)}">
+        <svg class="dp-device-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="18" x2="12" y2="21"/></svg>
+        <span class="dp-device-info">
+          <span class="dp-device-name">${esc(s.DeviceName || s.Client || 'Device')}</span>
+          <span class="dp-device-sub">${esc(s.NowPlayingItem?.Name || s.Client || '')}</span>
+        </span>
+      </button>`).join('')
+    list.querySelectorAll('.dp-device').forEach(btn => {
+      btn.addEventListener('click', () => _dpSelect(btn.dataset.sessionId))
+    })
+  }
+  // A device that vanished from the list (closed socket, signed out) cannot
+  // stay selected - its now-playing panel would be driving a dead session.
+  if (_dpSelectedId && !_dpSessions.some(s => s.Id === _dpSelectedId)) {
+    _dpSelectedId = null
+    document.getElementById('dp-now').classList.add('hidden')
+    _dpUpdateCtxVisibility()
+  }
+}
+
+function _dpSelect(sessionId) {
+  // Clicking the already-selected device disconnects, same as clicking an
+  // active output in most casting UIs.
+  _dpSelectedId = (_dpSelectedId === sessionId) ? null : sessionId
+  _dpRenderList()
+  document.getElementById('dp-now').classList.toggle('hidden', !_dpSelectedId)
+  if (_dpSelectedId) _dpRenderNowPlaying()
+  _dpUpdateCtxVisibility()
+}
+
+function _dpCurrentSession() {
+  return _dpSessions.find(s => s.Id === _dpSelectedId) || null
+}
+
+function _dpRenderNowPlaying() {
+  const s = _dpCurrentSession()
+  if (!s) return
+  document.getElementById('dp-now-name').textContent = s.DeviceName || s.Client || 'Device'
+  const item = s.NowPlayingItem
+  const ps = s.PlayState || {}
+  document.getElementById('dp-now-track').textContent = item
+    ? `${item.Name}${item.AlbumArtist ? ' — ' + item.AlbumArtist : ''}`
+    : 'Nothing playing'
+  document.getElementById('dp-icon-play').style.display  = ps.IsPaused === false ? 'none' : ''
+  document.getElementById('dp-icon-pause').style.display = ps.IsPaused === false ? '' : 'none'
+
+  const durTicks = item?.RunTimeTicks || 0
+  if (!_dpSeekDragging) {
+    const posTicks = CascadeCore.interpolatedPositionTicks(ps, _dpLastPolledAt, Date.now())
+    const seek = document.getElementById('dp-seek')
+    const durSec = Math.max(1, Math.round(durTicks / 10_000_000))
+    seek.max = String(durSec)
+    seek.value = String(Math.min(durSec, Math.round(posTicks / 10_000_000)))
+    document.getElementById('dp-time-cur').textContent = fmtTime(posTicks / 10_000_000)
+    document.getElementById('dp-time-dur').textContent = fmtTime(durTicks / 10_000_000)
+  }
+  if (!_dpVolDragging && typeof ps.VolumeLevel === 'number') {
+    document.getElementById('dp-vol').value = String(ps.VolumeLevel)
+  }
+}
+
+/** `command` is a PlaystateCommand (PlayPause, Seek, NextTrack, ...) - see
+ *  the PlaystateCommand enum in the server's own OpenAPI spec. No body: this
+ *  route takes seekPositionTicks and controllingUserId as query params only. */
+async function _dpSendPlaystate(command, params = {}) {
+  const s = _dpCurrentSession()
+  if (!s) return
+  try {
+    await jfClient.post(`/Sessions/${s.Id}/Playing/${command}`, null, params)
+  } catch (err) {
+    console.warn('[cascade] device command failed:', err?.message || err)
+  }
+  // The target's own state (paused/position/volume) only changes once it has
+  // actually acted on the command - re-poll shortly after rather than
+  // optimistically flipping the UI and risking it disagreeing with reality.
+  setTimeout(_dpPoll, 500)
+}
+
+/** `body` is a GeneralCommand ({Name, Arguments}) - the full route, since the
+ *  path-only /Command/{command} route has nowhere to carry a value. */
+async function _dpSendGeneralCommand(body) {
+  const s = _dpCurrentSession()
+  if (!s) return
+  try {
+    await jfClient.post(`/Sessions/${s.Id}/Command`, body)
+  } catch (err) {
+    console.warn('[cascade] device command failed:', err?.message || err)
+  }
+  setTimeout(_dpPoll, 500)
+}
+
+/** "Play this on <device>" - the one guard `playItems()` needs for a remote
+ *  target, added here rather than threading a device check through every
+ *  play entry point (context menus, album/artist pages, playlists all
+ *  already funnel into playItems() or here directly). */
+async function _dpPlayItemsOnDevice(items, startIndex = 0) {
+  const s = _dpCurrentSession()
+  if (!s) return
+  const params = CascadeCore.buildPlayOnDeviceParams((items || []).map(i => i.Id), 'PlayNow', startIndex)
+  if (!params) return
+  const label = s.DeviceName || s.Client || 'device'
+  try {
+    await jfClient.post(`/Sessions/${s.Id}/Playing`, null, params)
+    showToast(`Playing on ${label}`)
+  } catch (err) {
+    console.warn('[cascade] play on device failed:', err?.message || err)
+    showToast('Could not start playback on that device')
+  }
+  setTimeout(_dpPoll, 500)
+}
+
+function _dpUpdateCtxVisibility() {
+  const row = document.getElementById('tctx-play-on-device')
+  if (!row) return
+  const s = _dpCurrentSession()
+  row.classList.toggle('hidden', !s)
+  if (s) document.getElementById('tctx-play-on-device-label').textContent = `Play on ${s.DeviceName || s.Client || 'device'}`
+}
+
+document.getElementById('dp-playpause').addEventListener('click', () => _dpSendPlaystate('PlayPause'))
+document.getElementById('dp-prev').addEventListener('click', () => _dpSendPlaystate('PreviousTrack'))
+document.getElementById('dp-next').addEventListener('click', () => _dpSendPlaystate('NextTrack'))
+document.getElementById('dp-send-queue-btn').addEventListener('click', () => {
+  if (queue.length) _dpPlayItemsOnDevice(queue, Math.max(0, queueIndex))
+})
+
+const dpSeekInput = document.getElementById('dp-seek')
+dpSeekInput.addEventListener('input', () => { _dpSeekDragging = true })
+dpSeekInput.addEventListener('change', () => {
+  _dpSeekDragging = false
+  _dpSendPlaystate('Seek', { seekPositionTicks: CascadeCore.secondsToTicks(Number(dpSeekInput.value)) })
+})
+
+const dpVolInput = document.getElementById('dp-vol')
+dpVolInput.addEventListener('input', () => { _dpVolDragging = true })
+dpVolInput.addEventListener('change', () => {
+  _dpVolDragging = false
+  _dpSendGeneralCommand(CascadeCore.buildSetVolumeCommand(Number(dpVolInput.value)))
+})
+
 // The library selection may have changed - force every lazy view to refetch.
 // allSongs must be cleared too: shuffleAllSongs() short-circuits when it is
 // non-empty and would keep queueing tracks from deselected libraries.
@@ -2719,6 +2937,15 @@ document.getElementById('tctx-add-queue').addEventListener('click', () => {
   if (!_ctxItem) return
   closeTrackCtxMenu()
   enqueueTracks([_ctxItem], `"${_ctxItem.Name}"`)
+})
+
+// Row is hidden unless a device is selected in the Devices panel - see
+// _dpUpdateCtxVisibility(). No visibility check needed here beyond _ctxItem:
+// a hidden row cannot be clicked.
+document.getElementById('tctx-play-on-device').addEventListener('click', () => {
+  if (!_ctxItem) return
+  closeTrackCtxMenu()
+  _dpPlayItemsOnDevice([_ctxItem])
 })
 
 /** InstantMix seeded from any item that supports it (track, artist, ...) -
