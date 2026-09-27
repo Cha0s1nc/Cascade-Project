@@ -602,6 +602,17 @@
                     <option value="album">Album</option>
                   </select>
                 </div>
+                <!-- Hidden by default and shown by _refreshOutputDeviceSelect() only
+                     when this build's AudioContext actually has setSinkId. -->
+                <div class="setting-row" id="output-device-row" style="display:none">
+                  <div class="setting-label">
+                    <span class="setting-name">Output device</span>
+                    <span class="setting-desc">Which speakers or headphones Cascade plays to. Falls back to the system default if this device disappears.</span>
+                  </div>
+                  <select class="setting-input" id="output-device">
+                    <option value="default">System default</option>
+                  </select>
+                </div>
                 <!-- Equalizer lives under Playback rather than its own group - it is
                      a playback setting, not a separate concern. Same collapsible-
                      group heading style used for Movies/TV inside the library

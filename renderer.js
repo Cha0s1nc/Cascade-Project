@@ -88,6 +88,16 @@ async function setNormalizationSource(source) {
   _reapplyNormalizationToLiveDecks()
 }
 
+// 'default' means the system's own default output, same as never having
+// called setSinkId at all - not a real device id, so it is never looked up
+// against the enumerated list, only ever compared against by name.
+let outputDeviceId = 'default'
+async function setOutputDeviceId(deviceId) {
+  outputDeviceId = typeof deviceId === 'string' && deviceId ? deviceId : 'default'
+  await window.cascade.store.set('outputDeviceId', outputDeviceId)
+  await _applyOutputDevice()
+}
+
 let eqEnabled = false
 let eqActiveMode = 'music'   // which saved profile is wired into the live graph right now
 let eqMusicProfile = { preamp: null, bands: [0, 0, 0, 0, 0] }
@@ -5202,6 +5212,14 @@ async function loadSettingsFields() {
     await setNormalizationSource(normalizeSourceSelect.value)
   }
 
+  // Output device. The row hides itself when setSinkId is not available, so
+  // this always runs - it is the one thing deciding whether to show it.
+  const outputDeviceSelect = document.getElementById('output-device')
+  _refreshOutputDeviceSelect()
+  outputDeviceSelect.onchange = async () => {
+    await setOutputDeviceId(outputDeviceSelect.value)
+  }
+
   // Waterfall relay. Blank means the default, so clearing the box is the reset.
   const wfRelayInput = document.getElementById('s-wf-relay')
   wfRelayInput.value = (await window.cascade.store.get('waterfallRelay')) || ''
@@ -5661,6 +5679,10 @@ async function init() {
     const savedSource = await window.cascade.store.get('normalizationSource')
     normalizationSource = savedSource === 'album' ? 'album' : 'track'
   }
+  {
+    const savedDevice = await window.cascade.store.get('outputDeviceId')
+    outputDeviceId = typeof savedDevice === 'string' && savedDevice ? savedDevice : 'default'
+  }
 
   eqEnabled = (await window.cascade.store.get('eqEnabled')) === true
   eqMusicProfile = await _loadEqProfile('eqMusic')
@@ -5911,6 +5933,10 @@ function _ensureEqGraph() {
     // is re-run here rather than trusted to have already landed. Apply it
     // now for whatever is actually on `audio` at this point.
     if (queue[queueIndex]) _applyNormalizationToDeck(audio, queue[queueIndex])
+    // setSinkId lives on the context, which also does not exist until now -
+    // apply whatever was loaded from the store at init() the first chance
+    // there is a context to apply it to.
+    _applyOutputDevice()
   } catch (e) {
     console.error('EQ graph setup failed, falling back to the CSS animation', e)
     _eqGraphFailed = true
@@ -6010,6 +6036,73 @@ function _reapplyNormalizationToLiveDecks() {
   if (_cfOtherDeck && nextItem) _applyNormalizationToDeck(_cfOtherDeck, nextItem)
   if (_streamPrefetch && nextItem) _applyNormalizationToDeck(_streamPrefetch.deck, nextItem)
 }
+
+// ── Output device ─────────────────────────────────────────────────────────
+// All audio leaves through the one shared AudioContext (see _ensureEqGraph),
+// never through the deck elements directly - so AudioContext.setSinkId() is
+// the single lever that moves every deck's output at once. Nothing here
+// touches the elements themselves.
+
+/** True once this build's AudioContext actually has setSinkId - an older
+ *  Electron/Chromium simply lacks the method, and the picker hides itself
+ *  rather than offering a control that would silently do nothing. */
+function _outputDeviceSupported() {
+  return typeof (window.AudioContext || window.webkitAudioContext).prototype.setSinkId === 'function'
+}
+
+/** Point the shared AudioContext at outputDeviceId, falling back to the
+ *  system default cleanly if the device is gone or the call fails - a device
+ *  can be unplugged between when the list was built and when this runs. */
+async function _applyOutputDevice() {
+  if (!_audioCtx || !_outputDeviceSupported()) return
+  const target = outputDeviceId === 'default' ? '' : outputDeviceId
+  try {
+    await _audioCtx.setSinkId(target)
+  } catch (e) {
+    console.warn('[cascade] output device unavailable, falling back to system default', e)
+    outputDeviceId = 'default'
+    await window.cascade.store.set('outputDeviceId', 'default')
+    try { await _audioCtx.setSinkId('') } catch { /* nothing left to fall back to */ }
+    _refreshOutputDeviceSelect()
+  }
+}
+
+/**
+ * Enumerate audiooutput devices and rebuild the Settings dropdown, keeping
+ * the current selection if it still exists. Called on Settings load and on
+ * every 'devicechange' - a device can appear or disappear at any time, not
+ * just while Settings is open.
+ */
+async function _refreshOutputDeviceSelect() {
+  const row = document.getElementById('output-device-row')
+  const select = document.getElementById('output-device')
+  if (!row || !select) return
+  if (!_outputDeviceSupported()) { row.style.display = 'none'; return }
+  row.style.display = ''
+  let devices = []
+  try {
+    devices = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audiooutput')
+  } catch (e) {
+    console.warn('[cascade] could not enumerate audio output devices', e)
+  }
+  // The saved device no longer exists (unplugged, or a config carried over
+  // from another machine) - fall back rather than silently pointing at
+  // nothing until the next play() fails.
+  if (outputDeviceId !== 'default' && !devices.some(d => d.deviceId === outputDeviceId)) {
+    outputDeviceId = 'default'
+    await window.cascade.store.set('outputDeviceId', 'default')
+    await _applyOutputDevice()
+  }
+  // Chromium lists its own 'default' alias alongside the real device it
+  // currently points at - "System default" above is that same concept, so
+  // the real per-device entries are enough without the duplicate.
+  const real = devices.filter(d => d.deviceId && d.deviceId !== 'default')
+  select.innerHTML = '<option value="default">System default</option>' +
+    real.map((d, i) => `<option value="${esc(d.deviceId)}">${esc(d.label || `Speaker ${i + 1}`)}</option>`).join('')
+  select.value = outputDeviceId
+}
+
+navigator.mediaDevices?.addEventListener?.('devicechange', () => { _refreshOutputDeviceSelect() })
 
 /** A saved EQ profile by mode, 'music' or 'video'. */
 function _eqProfile(mode) {
