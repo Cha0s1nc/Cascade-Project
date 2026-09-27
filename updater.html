@@ -226,7 +226,7 @@
     appendLog(`Update available: v${d.currentVersion} → v${d.newVersion}`, 'info')
   })
 
-  window.updaterAPI.onLog((msg) => appendLog(msg))
+  window.updaterAPI.onLog((d) => typeof d === 'string' ? appendLog(d) : appendLog(d.text, d.cls))
 
   window.updaterAPI.onProgress((d) => {
     if (state !== 'downloading') {
@@ -255,10 +255,16 @@
     btnAction.onclick = () => {
       btnAction.disabled = true
       appendLog('Installing…', 'info')
-      // A failure here used to vanish, leaving "Installing…" on screen forever.
-      window.updaterAPI.install().catch(err => {
-        appendLog(`Could not install: ${err?.message || err}. Use View on GitHub to download it instead.`, 'error')
-        btnAction.disabled = false
+      // Last resort if the app neither quits nor reports back. The main
+      // process has its own, shorter timeouts, so this only fires when
+      // something is stuck there, which is exactly how 2.1.0 and 2.2.0 hung.
+      const watchdog = setTimeout(() => stuck('nothing has happened for 90 seconds'), 90_000)
+      window.updaterAPI.install().then((r) => {
+        // Staying open with a fallback on screen is the expected outcome here.
+        if (r?.fallback) { clearTimeout(watchdog); offerRelease() }
+      }, (err) => {
+        clearTimeout(watchdog)
+        stuck(err?.message || String(err))
       })
     }
   })
@@ -278,7 +284,25 @@
     appendLog('Starting download…', 'info')
     btnAction.disabled = true
     btnAction.innerHTML = '<span class="spinner"></span>Downloading…'
-    window.updaterAPI.download()
+    window.updaterAPI.download().catch((err) => {
+      appendLog(`Download failed: ${err?.message || err}`, 'error')
+      btnAction.disabled = false
+      btnAction.textContent = 'Retry Download'
+    })
+  }
+
+  // The way out when installing in place did not work: the release page, where
+  // the installer can be downloaded and run by hand.
+  function offerRelease() {
+    btnAction.disabled = false
+    btnAction.className = 'btn btn-primary'
+    btnAction.textContent = 'Open Release Page'
+    btnAction.onclick = () => window.updaterAPI.openLink(releaseUrl)
+  }
+
+  function stuck(why) {
+    appendLog(`The update did not install (${why}). Download it from the release page instead.`, 'error')
+    offerRelease()
   }
 
   btnAction.onclick = startDownload

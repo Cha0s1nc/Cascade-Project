@@ -1018,13 +1018,20 @@ async function checkForUpdates() {
 
 // ── File downloader ────────────────────────────────────────────────────────────
 
+const DOWNLOAD_STALL_MS = 60_000
+
+/** A line in the update window's output. `cls` is 'info', 'ok' or 'error'. */
+function updaterLog(text, cls = '') {
+  if (updaterWindow && !updaterWindow.isDestroyed()) updaterWindow.webContents.send('updater:log', { text, cls })
+}
+
 function downloadFile(url, destPath, onProgress) {
   return new Promise((resolve, reject) => {
     let lastBytes = 0, lastTime = Date.now()
     function request(url, redirects) {
       if (redirects > 10) { reject(new Error('Too many redirects')); return }
       const lib = url.startsWith('https') ? https : http
-      lib.get(url, { headers: { 'User-Agent': 'cascade-updater' } }, (res) => {
+      const req = lib.get(url, { headers: { 'User-Agent': 'cascade-updater' } }, (res) => {
         if ([301, 302, 307, 308].includes(res.statusCode)) { res.resume(); request(res.headers.location, redirects + 1); return }
         if (res.statusCode !== 200) { res.resume(); reject(new Error(`HTTP ${res.statusCode}`)); return }
         const total = parseInt(res.headers['content-length'] || '0', 10)
@@ -1041,7 +1048,11 @@ function downloadFile(url, destPath, onProgress) {
         file.on('finish', () => file.close(resolve))
         file.on('error', err => { try { fs.unlinkSync(destPath) } catch {} reject(err) })
         res.on('error', err => { try { fs.unlinkSync(destPath) } catch {} reject(err) })
-      }).on('error', reject)
+      })
+      req.on('error', err => { try { fs.unlinkSync(destPath) } catch {} reject(err) })
+      // A connection that goes quiet never errors on its own: without this the
+      // progress bar just stops and the window waits forever.
+      req.setTimeout(DOWNLOAD_STALL_MS, () => req.destroy(new Error('the download stalled for a minute')))
     }
     request(url, 0)
   })
@@ -1364,13 +1375,13 @@ ipcMain.handle('check-for-updates', async () => {
 ipcMain.handle('updater:download', async () => {
   if (!pendingDownload) return { ok: false }
   if (!pendingDownload.downloadUrl) {
+    updaterLog('This release has no installer for this computer, so the release page is opening instead.', 'error')
     if (pendingDownload.releaseUrl) shell.openExternal(pendingDownload.releaseUrl)
     return { ok: true }
   }
   const destPath = path.join(os.tmpdir(), pendingDownload.assetName)
   try {
-    if (updaterWindow && !updaterWindow.isDestroyed())
-      updaterWindow.webContents.send('updater:log', `Downloading to ${destPath}...`)
+    updaterLog(`Downloading to ${destPath}...`)
     await downloadFile(pendingDownload.downloadUrl, destPath, (progress) => {
       if (!updaterWindow || updaterWindow.isDestroyed()) return
       const percent = progress.total > 0 ? Math.round((progress.transferred / progress.total) * 100) : 0
@@ -1383,6 +1394,7 @@ ipcMain.handle('updater:download', async () => {
         logLine: `${percent}% - ${transferred} / ${total} MB  (${mbps} MB/s)`
       })
     })
+    if (!pendingDownload.digest) updaterLog('GitHub published no checksum for this file, so it could not be verified.', 'error')
     if (pendingDownload.digest) {
       const verified = await verifyDigest(destPath, pendingDownload.digest)
       if (!verified) {
@@ -1416,16 +1428,46 @@ function installSilentlyWindows(installerPath) {
   return child
 }
 
+// How long the Mac in-place install may take before falling back to the DMG,
+// and how long the app may take to quit once an installer is waiting on it.
+const INSTALL_TIMEOUT_MS = 60_000
+const QUIT_TIMEOUT_MS = 10_000
+
+// Quit so the installer can replace this app. A quit that something blocks
+// would leave the installer waiting until it gives up, so after a while this
+// stops asking.
+function quitForInstaller() {
+  app.quit()
+  setTimeout(() => app.exit(0), QUIT_TIMEOUT_MS).unref()
+}
+
+// Resolves with what happened, so the update window knows whether to expect
+// the app to quit ({ quitting }) or to stay open with a fallback on screen.
 ipcMain.handle('updater:install', () => {
   if (!pendingDownload?.destPath) {
+    updaterLog('Nothing has been downloaded to install, so the release page is opening instead.', 'error')
     if (pendingDownload?.releaseUrl) shell.openExternal(pendingDownload.releaseUrl)
-    return
+    return { fallback: true }
   }
 
-  const handOver = () => shell.openPath(pendingDownload.destPath).then(() => {
+  // Open the downloaded installer for the user to run by hand. shell.openPath
+  // reports failure as a message rather than throwing, and that used to be
+  // dropped, so a DMG or installer that would not open looked like nothing.
+  const handOver = () => shell.openPath(pendingDownload.destPath).then((err) => {
+    if (err) {
+      updaterLog(`Could not open the installer (${err}). Opening the release page instead.`, 'error')
+      if (pendingDownload.releaseUrl) shell.openExternal(pendingDownload.releaseUrl)
+      return { fallback: true }
+    }
     // macOS still needs the drag to Applications, so it stays open. Everything
     // else is handing off to an installer that has to replace a running binary.
-    if (process.platform !== 'darwin') setTimeout(() => app.quit(), 1500)
+    if (process.platform === 'darwin') {
+      updaterLog('Opened the installer. Drag Cascade into Applications to finish.', 'info')
+      return { fallback: true }
+    }
+    updaterLog('Opened the installer. Cascade will close so it can finish.', 'info')
+    setTimeout(quitForInstaller, 1500)
+    return { quitting: true }
   })
 
   // macOS replaces the app in place and relaunches; see mac-update.js. Any
@@ -1435,20 +1477,34 @@ ipcMain.handle('updater:install', () => {
   // An unpackaged dev run has no Cascade.app of its own to replace.
   if (process.platform === 'darwin') {
     if (!app.isPackaged) return handOver()
-    const log = (line) => {
-      if (updaterWindow && !updaterWindow.isDestroyed()) updaterWindow.webContents.send('updater:log', line)
-    }
-    return installInPlace({
+    // Raced against a timeout: a hung hdiutil or ditto should cost a minute,
+    // not leave "Installing…" on screen for good. If it does finish after
+    // that, its swap script waits up to a minute for this process to quit
+    // and then gives up, leaving the installed app as it was.
+    let timedOut = false
+    let timer = null
+    const inPlace = installInPlace({
       dmgPath: pendingDownload.destPath,
       appBundle: path.resolve(process.execPath, '..', '..', '..'),
       expectedVersion: pendingDownload.version,
       pid: process.pid,
-      log,
-    }).then(() => {
-      setTimeout(() => app.quit(), 300)
+      log: (line) => updaterLog(line),
+    })
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        timedOut = true
+        reject(new Error('it took over a minute'))
+      }, INSTALL_TIMEOUT_MS)
+    })
+    inPlace.finally(() => clearTimeout(timer)).then(() => {
+      if (timedOut) updaterLog('The update finished preparing late. Quitting Cascade within a minute applies it; otherwise use the installer that opened.', 'info')
+    }, () => {})
+    return Promise.race([inPlace, timeout]).then(() => {
+      setTimeout(quitForInstaller, 300)
+      return { quitting: true }
     }).catch((err) => {
       console.error('[updater] In-place update failed, opening the installer:', err.message)
-      log(`Could not update in place (${err.message}). Opening the installer instead.`)
+      updaterLog(`Could not update in place (${err.message}). Opening the installer instead.`, 'error')
       return handOver()
     })
   }
@@ -1456,20 +1512,27 @@ ipcMain.handle('updater:install', () => {
   if (process.platform !== 'win32') return handOver()
 
   try {
-    let quitTimer = null
     const child = installSilentlyWindows(pendingDownload.destPath)
     // spawn reports a missing or unrunnable installer asynchronously, so the
     // quit waits long enough to hear about it. Quitting first would leave the
     // user with no app and no installer.
-    child.on('error', (err) => {
-      console.error('[updater] Silent install failed, opening the installer:', err.message)
-      clearTimeout(quitTimer)
-      handOver()
+    return new Promise((resolve) => {
+      const quitTimer = setTimeout(() => {
+        updaterLog('Installing. Cascade will close and reopen when it is done.', 'info')
+        quitForInstaller()
+        resolve({ quitting: true })
+      }, 1000)
+      child.on('error', (err) => {
+        console.error('[updater] Silent install failed, opening the installer:', err.message)
+        clearTimeout(quitTimer)
+        updaterLog(`Could not start the silent install (${err.message}). Opening the installer instead.`, 'error')
+        resolve(handOver())
+      })
     })
-    quitTimer = setTimeout(() => app.quit(), 1000)
   } catch (err) {
     console.error('[updater] Silent install failed, opening the installer:', err.message)
-    handOver()
+    updaterLog(`Could not start the silent install (${err.message}). Opening the installer instead.`, 'error')
+    return handOver()
   }
 })
 
