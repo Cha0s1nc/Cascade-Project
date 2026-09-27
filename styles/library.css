@@ -9,6 +9,17 @@
 .artist-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .artist-name { font-size: 12px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+/* Artist bio: clamped to a few lines with a "More" toggle rather than either
+   dumping a full MusicBrainz paragraph into the page or truncating with no
+   way to read the rest. .expanded lifts the clamp; the section itself stays
+   display:none (set inline) when the artist has no Overview at all, so a bare
+   artist never shows an empty box. */
+.artist-bio { margin-bottom: 20px; }
+.artist-bio-text { font-size: 13px; line-height: 1.5; color: var(--text2); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.artist-bio-text.expanded { -webkit-line-clamp: unset; overflow: visible; }
+.artist-bio-more { margin-top: 6px; background: none; border: none; padding: 0; font-family: var(--font); font-size: 12px; font-weight: 600; color: var(--accent); cursor: pointer; }
+.artist-bio-more:hover { text-decoration: underline; }
+
 /* Songs / track list */
 /* Column widths shared by every flavour of the track table (plain, playlist,
    playlist with the extra Added/Plays column, playlist edit mode with the

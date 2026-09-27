@@ -367,6 +367,22 @@
               <div class="pl-detail-meta" id="artist-detail-meta"></div>
             </div>
           </div>
+          <!-- Hidden until a bio actually loads: Jellyfin only fills Overview
+               from MusicBrainz/TheAudioDB when the server is online and has
+               matched the artist, so plenty of artists have none. -->
+          <div id="artist-bio-section" class="artist-bio" style="display:none">
+            <div class="artist-bio-text" id="artist-bio-text"></div>
+            <button class="artist-bio-more" id="artist-bio-more" style="display:none">More</button>
+          </div>
+          <div id="artist-top-songs-section" style="margin-bottom:20px;display:none">
+            <div class="sect-title" style="margin-bottom:8px">Top Songs</div>
+            <div class="track-list">
+              <div class="tl-head">
+                <span>#</span><span></span><span>Title</span><span>Album</span><span style="text-align:right">Time</span>
+              </div>
+              <div id="artist-top-songs-rows"></div>
+            </div>
+          </div>
           <div id="artist-albums-section" style="margin-bottom:20px">
             <div class="sect-header" style="margin-bottom:9px">
               <span class="sect-title">Albums</span>
@@ -376,6 +392,10 @@
               </button>
             </div>
             <div class="album-grid" id="artist-albums-grid"></div>
+          </div>
+          <div id="artist-similar-section" style="margin-bottom:20px;display:none">
+            <div class="sect-title" style="margin-bottom:9px">Similar Artists</div>
+            <div class="artist-grid" id="artist-similar-grid"></div>
           </div>
           <div class="sect-title" style="margin-bottom:8px">Songs</div>
           <div class="track-list">

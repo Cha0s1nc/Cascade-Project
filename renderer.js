@@ -1855,26 +1855,97 @@ async function fetchArtistSongs(artistId) {
     (a.IndexNumber ?? 0) - (b.IndexNumber ?? 0))
 }
 
+/** Overview is empty for most fake/untagged artists and for any artist
+ *  Jellyfin hasn't matched against MusicBrainz/TheAudioDB (needs the server
+ *  online). Hides the whole section rather than showing an empty card - an
+ *  artist with no bio should look like it simply has no bio section, not like
+ *  a broken box. */
+function renderArtistBio(overview) {
+  const section = document.getElementById('artist-bio-section')
+  const text = document.getElementById('artist-bio-text')
+  const more = document.getElementById('artist-bio-more')
+  const trimmed = (overview || '').trim()
+  if (!trimmed) { section.style.display = 'none'; return }
+  section.style.display = ''
+  text.textContent = trimmed
+  text.classList.remove('expanded')
+  // scrollHeight > clientHeight only once the clamp has actually cut something -
+  // checked after the text is in the DOM so the clamped height is real, not the
+  // pre-layout 0 a synchronous check right after assignment would read.
+  requestAnimationFrame(() => {
+    more.style.display = text.scrollHeight > text.clientHeight + 1 ? '' : 'none'
+  })
+  more.textContent = 'More'
+  more.onclick = () => {
+    const expanded = text.classList.toggle('expanded')
+    more.textContent = expanded ? 'Less' : 'More'
+  }
+}
+
+/** Scoped to the user's libraries the same way every other artist/album query
+ *  here is: passing UserId is what makes Jellyfin filter results (and attach
+ *  UserData) to what that user can actually see. Hidden entirely when there is
+ *  nothing similar, rather than an empty "Similar Artists" heading over nothing. */
+async function fetchSimilarArtists(artistId) {
+  try {
+    const [data, libArtists] = await Promise.all([
+      jfGet(`/Artists/${artistId}/Similar`, { UserId: jf.userId, Limit: 24 }),
+      // /Artists/{id}/Similar has no library-scoping parameter of its own
+      // (checked the OpenAPI spec: UserId there only applies server-side
+      // permissions, not Cascade's own library selection). The same merged
+      // /Artists call loadArtists uses is what actually knows which artists
+      // are in the libraries this user picked in Cascade, so intersecting
+      // with it is what "scoped to the user's libraries" has to mean here.
+      jfGetAllPaged(`/Artists`, { UserId: jf.userId, Limit: 500 })
+    ])
+    const libIds = new Set((libArtists.Items || []).map(a => a.Id))
+    return (data.Items || []).filter(a => libIds.has(a.Id)).slice(0, 12)
+  } catch (e) {
+    return []
+  }
+}
+
+function renderSimilarArtists(items) {
+  const section = document.getElementById('artist-similar-section')
+  const grid = document.getElementById('artist-similar-grid')
+  if (!items.length) { section.style.display = 'none'; grid.innerHTML = ''; return }
+  section.style.display = ''
+  grid.innerHTML = items.map(item => artistCardHtml(item)).join('')
+  wireArtistCards(grid, items, item => openArtist(item.Id, item.Name))
+}
+
 async function openArtist(artistId, name) {
+  // A similar-artist click from further down the page must not leave the new
+  // artist's page scrolled to wherever the old one was.
+  document.getElementById('view-artists').scrollTop = 0
   document.getElementById('artist-index').style.display = 'none'
   const detail = document.getElementById('artist-detail')
   detail.style.display = ''
   document.getElementById('artist-detail-name').textContent = name
   document.getElementById('artist-detail-meta').innerHTML = '<span class="skel skel-text" style="display:inline-block;width:120px"></span>'
+  document.getElementById('artist-bio-section').style.display = 'none'
+  document.getElementById('artist-top-songs-section').style.display = 'none'
+  document.getElementById('artist-similar-section').style.display = 'none'
   document.getElementById('artist-albums-grid').innerHTML = skeletonHTML('album', 6)
   document.getElementById('artist-songs-rows').innerHTML = skeletonHTML('track', 6)
 
   const art = artistArtUrl(artistId)
-  document.getElementById('artist-detail-art').innerHTML = `<img src="${art}" alt="" onerror="this.innerHTML='♪'" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`
+  // Falls back to the note glyph on a 404 - onerror fires on the <img> itself,
+  // which has no children, so the glyph has to replace it via the parent.
+  document.getElementById('artist-detail-art').innerHTML = `<img src="${art}" alt="" onerror="this.parentNode.innerHTML='♪'" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`
 
   try {
-    const [albumsData, songs] = await Promise.all([
+    const [artistItem, albumsData, songs, similar] = await Promise.all([
+      jfGet(`/Users/${jf.userId}/Items/${artistId}`, { Fields: 'Overview' }).catch(() => null),
       jfGetMerged(`/Users/${jf.userId}/Items`, {
         ArtistIds: artistId, IncludeItemTypes: 'MusicAlbum', Recursive: true,
         SortBy: 'ProductionYear,SortName', SortOrder: 'Descending'
       }),
-      fetchArtistSongs(artistId)
+      fetchArtistSongs(artistId),
+      fetchSimilarArtists(artistId)
     ])
+
+    renderArtistBio(artistItem?.Overview)
 
     // Newest first, as SortBy asked; the merge only kept that within each library.
     const albums = (albumsData.Items || []).sort((a, b) =>
@@ -1891,6 +1962,24 @@ async function openArtist(artistId, name) {
     document.getElementById('btn-play-artist-discography').onclick = () => {
       if (songs.length) playItems(songs, 0, document.getElementById('artist-detail-name').textContent)
     }
+
+    // Top songs shelf - a ranked subset of the same songs, not a separate fetch.
+    const topSongs = CascadeCore.topSongsOf(songs)
+    const topSection = document.getElementById('artist-top-songs-section')
+    if (topSongs.length) {
+      topSection.style.display = ''
+      const topRows = document.getElementById('artist-top-songs-rows')
+      topRows.innerHTML = topSongs.map((item, i) => trackRowHtml(item, i)).join('')
+      highlightPlayingRow()
+      topRows.querySelectorAll('.track-row').forEach(el => {
+        const idx = parseInt(el.dataset.idx)
+        wireTrackRow(el, topSongs[idx], topSongs, idx, { source: document.getElementById('artist-detail-name').textContent })
+      })
+    } else {
+      topSection.style.display = 'none'
+    }
+
+    renderSimilarArtists(similar)
 
     // Songs list
     document.getElementById('artist-songs-rows').innerHTML = songs.map((item, i) => trackRowHtml(item, i)).join('')
