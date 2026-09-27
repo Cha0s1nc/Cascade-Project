@@ -105,6 +105,36 @@ struct NowPlayingView: View {
         .padding(60)
     }
     #else
+    /// The desktop's sleep timer choices. Filled and tinted while one is set.
+    private var sleepMenu: some View {
+        Menu {
+            switch player.sleepTimer {
+            case .at(let date):
+                Text("Pauses at \(date.formatted(date: .omitted, time: .shortened))")
+            case .endOfTrack:
+                Text("Pauses after this track")
+            case .off:
+                EmptyView()
+            }
+            ForEach([15, 30, 45, 60], id: \.self) { minutes in
+                Button("\(minutes) Minutes") { player.setSleepTimer(minutes: minutes) }
+            }
+            #if DEBUG
+            // So the timed path can be checked without waiting 15 minutes.
+            Button("1 Minute (Debug)") { player.setSleepTimer(minutes: 1) }
+            #endif
+            Button("End of Current Track") { player.setSleepTimerAtEndOfTrack() }
+            if player.sleepTimer != .off {
+                Button("Turn Off", role: .destructive) { player.cancelSleepTimer() }
+            }
+        } label: {
+            Image(systemName: player.sleepTimer == .off ? "moon.zzz" : "moon.zzz.fill")
+                .font(.title3)
+        }
+        .foregroundStyle(player.sleepTimer == .off ? Color.secondary : Color.accentColor)
+        .accessibilityLabel("Sleep Timer")
+    }
+
     private var iosBody: some View {
         VStack(spacing: 24) {
             HStack {
@@ -167,6 +197,8 @@ struct NowPlayingView: View {
 
                 RoutePicker()
                     .frame(width: 30, height: 30)
+
+                sleepMenu
             }
             .sheet(isPresented: $showingQueue) {
                 QueueView(player: player)

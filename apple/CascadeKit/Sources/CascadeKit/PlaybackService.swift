@@ -241,7 +241,66 @@ public final class PlaybackService {
         }
     }
 
-    private func load(_ item: JfItem) async {
+    // MARK: - Sleep timer
+    //
+    // The desktop's: after N minutes, or at the end of the current track.
+    // Either one pauses rather than stops, so the queue is still there in the
+    // morning.
+
+    public enum SleepTimer: Equatable, Sendable {
+        case off
+        case at(Date)
+        case endOfTrack
+    }
+    public private(set) var sleepTimer: SleepTimer = .off
+    private var sleepTask: Task<Void, Never>?
+
+    public func setSleepTimer(minutes: Int) {
+        // Only the menu's fixed choices reach here, but a zero or negative
+        // count would pause at once and a huge one would overflow the clock.
+        let minutes = min(max(minutes, 1), 24 * 60)
+        cancelSleepTimer()
+        sleepTimer = .at(Date().addingTimeInterval(Double(minutes) * 60))
+        sleepTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(minutes * 60))
+            guard !Task.isCancelled, let self else { return }
+            self.sleepTimer = .off
+            self.pause()
+        }
+    }
+
+    public func setSleepTimerAtEndOfTrack() {
+        cancelSleepTimer()
+        sleepTimer = .endOfTrack
+        // Nothing may be queued to start by itself once this track ends.
+        syncPreload()
+    }
+
+    public func cancelSleepTimer() {
+        sleepTask?.cancel()
+        sleepTask = nil
+        guard sleepTimer != .off else { return }
+        sleepTimer = .off
+        syncPreload()
+    }
+
+    /// End-of-track sleep: stop at the end, but with the next track loaded
+    /// and paused, so play in the morning carries on from where the queue was.
+    private func sleepAtTrackEnd() async {
+        sleepTimer = .off
+        switch advanceOnEnd(length: queue.items.count, index: queue.index, repeatMode: repeatMode) {
+        case .stop:
+            await stop()
+        case .restart:
+            await seek(to: 0)
+            pause()
+        case .play(let index):
+            queue.index = index
+            await load(queue.items[index], autoplay: false)
+        }
+    }
+
+    private func load(_ item: JfItem, autoplay: Bool = true) async {
         // Whatever was playing is finished as far as the server is concerned,
         // and its transcode, if any, is now waste.
         if self.item != nil { await reportStopped() }
@@ -253,7 +312,7 @@ public final class PlaybackService {
 
         let token = nextToken()
         self.item = item
-        isPaused = false
+        isPaused = !autoplay
         isLoading = true
         error = nil
         positionSeconds = 0
@@ -301,7 +360,7 @@ public final class PlaybackService {
         }
 
         guard token == loadToken else { return }
-        player.play()
+        if autoplay { player.play() }
         updateNowPlaying()
         Task { await loadArtwork() }
         syncPreload()
@@ -425,6 +484,7 @@ public final class PlaybackService {
         // Only the end of the item we are playing counts. A late one from a
         // track already skipped past would otherwise skip this one too.
         guard let ended, let currentPlayerItem, ended == ObjectIdentifier(currentPlayerItem) else { return }
+        if sleepTimer == .endOfTrack { return await sleepAtTrackEnd() }
         #if DEBUG
         measureHandover(from: ended)
         #endif
@@ -481,7 +541,7 @@ public final class PlaybackService {
     /// track with a resume point (load() seeks into it, which a queued item
     /// cannot do before it starts).
     private func expectedNext() -> (index: Int, item: JfItem)? {
-        guard item != nil,
+        guard item != nil, sleepTimer != .endOfTrack,
               case .play(let index) = advanceOnEnd(length: queue.items.count, index: queue.index,
                                                   repeatMode: repeatMode) else { return nil }
         let next = queue.items[index]
