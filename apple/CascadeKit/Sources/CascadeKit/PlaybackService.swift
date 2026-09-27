@@ -26,7 +26,7 @@ public final class PlaybackService {
     /// The queue and where we are in it. Views read `queue.items` to draw an
     /// up-next list and `queue.index` to highlight the current row.
     public private(set) var queue = QueueOrder()
-    public var repeatMode: RepeatMode = .none
+    public private(set) var repeatMode: RepeatMode = .none
     public private(set) var shuffle = false
     /// Counts plays a person started, as opposed to the queue moving on by
     /// itself. tvOS watches it to bring the player forward on a pick without
@@ -53,7 +53,16 @@ public final class PlaybackService {
     private let config: ServerConfig
     private let profile: DeviceProfile
 
-    private let player = AVPlayer()
+    /// A queue player so the next track can be handed over without a gap:
+    /// it is resolved and enqueued while this one plays, and AVFoundation
+    /// switches to it at the exact end (trimming AAC and MP3 priming as it
+    /// goes). See syncPreload.
+    private let player = AVQueuePlayer()
+    /// The AVPlayerItem that belongs to `item`. Tracked here rather than read
+    /// from player.currentItem, because a queue player moves that on its own,
+    /// and an end notification from any other item (a track already skipped
+    /// past, a preload) must not move the queue.
+    private var currentPlayerItem: AVPlayerItem?
     private var timeObserver: Any?
     private var progressTask: Task<Void, Never>?
     private var eventTask: Task<Void, Never>?
@@ -125,6 +134,7 @@ public final class PlaybackService {
 
     public func cycleRepeat() {
         repeatMode = repeatMode.next
+        syncPreload()
     }
 
     /// Reorders the queue around whatever is playing. The track keeps playing
@@ -132,6 +142,7 @@ public final class PlaybackService {
     public func toggleShuffle() {
         shuffle.toggle()
         queue = setShuffle(queue, on: shuffle)
+        syncPreload()
     }
 
     private func load(_ item: JfItem) async {
@@ -140,6 +151,9 @@ public final class PlaybackService {
         if self.item != nil { await reportStopped() }
         abandonEncode()
         stopReporting()
+        dropPreload()
+        // From here the old item's end, if it lands, is not ours to act on.
+        currentPlayerItem = nil
 
         let token = nextToken()
         self.item = item
@@ -161,7 +175,7 @@ public final class PlaybackService {
         adopt(stream)
 
         let playerItem = AVPlayerItem(url: stream.url)
-        player.replaceCurrentItem(with: playerItem)
+        setPlayerItem(playerItem)
 
         // Direct play hands over the whole file, so the server ignored
         // startTicks and a resume position has to be seeked locally. That can
@@ -194,8 +208,19 @@ public final class PlaybackService {
         player.play()
         updateNowPlaying()
         Task { await loadArtwork() }
+        syncPreload()
         await PlaybackReporter.start(client, state())
         startReporting()
+    }
+
+    /// Make `playerItem` the only thing the queue player holds. Not
+    /// replaceCurrentItem: on a queue player that leaves whatever was queued
+    /// behind it in place.
+    private func setPlayerItem(_ playerItem: AVPlayerItem) {
+        dropPreload()
+        player.removeAllItems()
+        player.insert(playerItem, after: nil)
+        currentPlayerItem = playerItem
     }
 
     public func pause() {
@@ -246,11 +271,12 @@ public final class PlaybackService {
         guard token == loadToken else { return }
 
         adopt(stream)
-        player.replaceCurrentItem(with: AVPlayerItem(url: stream.url))
+        setPlayerItem(AVPlayerItem(url: stream.url))
         player.play()
         positionSeconds = target
         updateNowPlaying()
         reportNow()
+        syncPreload()
     }
 
     /// 0-1, clamped. Persisting it is the app's business, not this service's.
@@ -271,7 +297,9 @@ public final class PlaybackService {
         abandonEncode()
         stopReporting()
         _ = nextToken()          // invalidates anything still resolving
-        player.replaceCurrentItem(with: nil)
+        dropPreload()
+        player.removeAllItems()
+        currentPlayerItem = nil
         resolved = nil
         streamStartTicks = 0
         item = nil
@@ -297,17 +325,189 @@ public final class PlaybackService {
     }
 
     /// A track finishing on its own, which is not the same as pressing next.
-    private func handleTrackEnded() async {
+    private func handleTrackEnded(_ ended: ObjectIdentifier?) async {
+        // Only the end of the item we are playing counts. A late one from a
+        // track already skipped past would otherwise skip this one too.
+        guard let ended, let currentPlayerItem, ended == ObjectIdentifier(currentPlayerItem) else { return }
+        #if DEBUG
+        measureHandover(from: ended)
+        #endif
         switch advanceOnEnd(length: queue.items.count, index: queue.index, repeatMode: repeatMode) {
         case .stop:
             await stop()
         case .restart:
+            // Explicit play: the item paused at its end, and a seek alone
+            // left repeat-one sitting silent at 0:00 while showing "playing".
             await seek(to: 0)
+            if !isPaused { player.play() }
         case .play(let index):
-            queue.index = index
-            await load(queue.items[index])
+            if let preload, preload.index == index, preload.itemId == queue.items[index].id,
+               player.items().contains(preload.playerItem) {
+                await handOver(to: preload)
+            } else {
+                queue.index = index
+                await load(queue.items[index])
+            }
         }
     }
+
+    // MARK: - Gapless handover
+    //
+    // The next track is resolved (PlaybackInfo) and enqueued on the queue
+    // player while this one plays, so the end of a track costs no round trip
+    // and AVFoundation starts the next one at the exact end of this one. Before
+    // this, every track change was a stopped report, a PlaybackInfo request
+    // and a fresh item, a few hundred ms of silence even on a LAN.
+    //
+    // What is enqueued has to be exactly what advanceOnEnd would pick, because
+    // the player moves onto it by itself. So every change that could alter
+    // that (queue edits, shuffle, repeat, a seek that swaps the item) calls
+    // syncPreload, which drops a stale preload and fetches the right one.
+
+    private struct Preload {
+        let index: Int
+        let itemId: String
+        let stream: ResolvedStream
+        let playerItem: AVPlayerItem
+        let duration: Double
+    }
+    private var preload: Preload?
+    /// What the in-flight preload is fetching, so a sync that wants the same
+    /// thing leaves it alone instead of starting over.
+    private var preloadTarget: (index: Int, itemId: String)?
+    private var preloadTask: Task<Void, Never>?
+    /// Separate from loadToken: shuffle, repeat and queue edits invalidate a
+    /// preload without touching what is playing.
+    private var preloadToken = 0
+
+    /// The track that plays when this one ends on its own, if it can be
+    /// handed over gaplessly. Not for repeat-one (a seek replays it) or a
+    /// track with a resume point (load() seeks into it, which a queued item
+    /// cannot do before it starts).
+    private func expectedNext() -> (index: Int, item: JfItem)? {
+        guard item != nil,
+              case .play(let index) = advanceOnEnd(length: queue.items.count, index: queue.index,
+                                                  repeatMode: repeatMode) else { return nil }
+        let next = queue.items[index]
+        guard resumeTicks(for: next) == 0 else { return nil }
+        return (index, next)
+    }
+
+    /// Bring the enqueued next item in line with what should play next.
+    private func syncPreload() {
+        let want = expectedNext()
+        if let want {
+            if let preload, preload.index == want.index, preload.itemId == want.item.id,
+               player.items().contains(preload.playerItem) { return }
+            if preload == nil, let target = preloadTarget,
+               target.index == want.index, target.itemId == want.item.id { return }
+        }
+        dropPreload()
+        guard let want, currentPlayerItem != nil else { return }
+        let token = preloadToken
+        preloadTarget = (want.index, want.item.id)
+        preloadTask = Task { [weak self] in await self?.fetchPreload(want.index, want.item, token) }
+    }
+
+    private func fetchPreload(_ index: Int, _ next: JfItem, _ token: Int) async {
+        let stream = await resolveStream(client: client, config: config, itemId: next.id, profile: profile)
+        guard token == preloadToken else { return abandon(stream) }
+        let playerItem = AVPlayerItem(url: stream.url)
+        // Loading the duration is also what proves the stream decodes. One
+        // that does not is left out, and the end of this track falls back to
+        // load(), which reports the failure properly.
+        guard let duration = try? await playerItem.asset.load(.duration).seconds,
+              duration.isFinite, duration > 0 else {
+            if token == preloadToken { preloadTarget = nil }
+            return abandon(stream)
+        }
+        // Still wanted, and the current item has not ended while this was
+        // resolving. If it has, load() is already on it.
+        guard token == preloadToken, let current = currentPlayerItem,
+              player.items().last === current else { return abandon(stream) }
+        player.insert(playerItem, after: current)
+        player.actionAtItemEnd = .advance
+        preload = Preload(index: index, itemId: next.id, stream: stream,
+                          playerItem: playerItem, duration: duration)
+        preloadTarget = nil
+    }
+
+    /// Take the enqueued item out of the player and forget it.
+    private func dropPreload() {
+        preloadToken += 1
+        preloadTask?.cancel()
+        preloadTask = nil
+        preloadTarget = nil
+        // Pause at the end rather than advance whenever nothing we chose is
+        // queued, which is what a plain AVPlayer did: repeat-one and the
+        // load() fallback both expect the finished item to still be there.
+        player.actionAtItemEnd = .pause
+        guard let preload else { return }
+        self.preload = nil
+        player.remove(preload.playerItem)
+        abandon(preload.stream)
+    }
+
+    /// The player has already moved onto the preloaded item by itself; bring
+    /// this object's state, the server and the lock screen along with it.
+    private func handOver(to next: Preload) async {
+        // Snapshot BEFORE swapping `resolved`: a stopped report carrying the
+        // new item's PlaySessionId would tell the server to kill the stream
+        // that is now playing. The old track ran to its end, so it reports
+        // its full length.
+        var finished = state()
+        finished.positionTicks = ticks(fromSeconds: durationSeconds)
+        stopReporting()
+        _ = nextToken()   // a seek or load still resolving for the old track is void
+
+        preload = nil
+        preloadTarget = nil
+        player.actionAtItemEnd = .pause
+        queue.index = next.index
+        item = queue.items[next.index]
+        currentPlayerItem = next.playerItem
+        adopt(next.stream)
+        durationSeconds = next.duration
+        let t = player.currentTime().seconds
+        positionSeconds = t.isFinite ? t : 0
+        error = nil
+        updateNowPlaying()
+        Task { await loadArtwork() }
+        syncPreload()
+
+        await PlaybackReporter.stopped(client, finished)
+        await PlaybackReporter.start(client, state())
+        startReporting()
+    }
+
+    #if DEBUG
+    /// How long the timeline sat between one track ending and the next one
+    /// producing audio: time since the end notification, minus how far the
+    /// new item's clock has already run. Near zero means the next item was
+    /// already playing when we heard the old one end. This is the player's
+    /// timeline, not a sample-level check of the audio. Read it with
+    /// `log show --predicate 'eventMessage CONTAINS "HANDOVER"'`.
+    private func measureHandover(from ended: ObjectIdentifier) {
+        let start = ContinuousClock.now
+        let from = item?.name ?? "?"
+        Task { [weak self] in
+            while start.duration(to: .now) < .seconds(15) {
+                guard let self else { return }
+                if let current = self.player.currentItem, ObjectIdentifier(current) != ended,
+                   self.player.timeControlStatus == .playing {
+                    let t = self.player.currentTime().seconds
+                    if t.isFinite, t > 0 {
+                        let waited = start.duration(to: .now)
+                        let ms = (Double(waited.components.attoseconds) / 1e15 + Double(waited.components.seconds) * 1000) - t * 1000
+                        NSLog("HANDOVER %@ -> %@: %.0f ms", from, self.item?.name ?? "?", ms)
+                        return
+                    }
+                }
+                try? await Task.sleep(for: .milliseconds(5))
+            }
+        }
+    }
+    #endif
 
     // MARK: - Wiring
 
@@ -351,10 +551,11 @@ public final class PlaybackService {
         eventTask = Task { [weak self] in
             await withTaskGroup(of: Void.self) { group in
                 group.addTask {
-                    for await _ in NotificationCenter.default.notifications(
+                    for await note in NotificationCenter.default.notifications(
                         named: AVPlayerItem.didPlayToEndTimeNotification) {
                         guard let self else { return }
-                        await self.handleTrackEnded()
+                        let ended = note.object.map { ObjectIdentifier($0 as AnyObject) }
+                        await self.handleTrackEnded(ended)
                     }
                 }
                 group.addTask {
@@ -364,14 +565,26 @@ public final class PlaybackService {
                         named: AVPlayerItem.failedToPlayToEndTimeNotification) {
                         guard let self else { return }
                         let underlying = note.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
-                        await MainActor.run {
-                            self.error = underlying?.localizedDescription ?? "Playback failed"
-                            self.isLoading = false
-                        }
+                        let message = underlying?.localizedDescription ?? "Playback failed"
+                        let failed = note.object.map { ObjectIdentifier($0 as AnyObject) }
+                        await self.handleItemFailed(failed, message)
                     }
                 }
             }
         }
+    }
+
+    /// Only the playing item's failure is the user's problem. A preload that
+    /// dies while buffering is just dropped, and the end of this track falls
+    /// back to load(), which reports properly if it fails again.
+    private func handleItemFailed(_ failed: ObjectIdentifier?, _ message: String) {
+        if let preload, failed == ObjectIdentifier(preload.playerItem) {
+            dropPreload()
+            return
+        }
+        guard let currentPlayerItem, failed == ObjectIdentifier(currentPlayerItem) else { return }
+        error = message
+        isLoading = false
     }
 
     /// Without this the app is silent when the screen locks, and on iOS it also
@@ -439,7 +652,11 @@ public final class PlaybackService {
     /// A few scrubs becomes several ffmpegs fighting over the same cores, which
     /// looks exactly like "transcoding got slow" while being self-inflicted.
     private func abandonEncode() {
-        guard let resolved, !resolved.direct, let session = resolved.playSessionId else { return }
+        if let resolved { abandon(resolved) }
+    }
+
+    private func abandon(_ stream: ResolvedStream) {
+        guard !stream.direct, let session = stream.playSessionId else { return }
         let client = self.client
         let config = self.config
         // Never awaited: a seek should feel instant, and a server that never

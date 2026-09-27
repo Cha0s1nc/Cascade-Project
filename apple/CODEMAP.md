@@ -157,3 +157,12 @@ Driving iOS without a person: the CascadeiOSUITests target
 (UITests/iOS/TapScript.swift) taps, long-presses, drags, locks and
 screenshots from a TEST_RUNNER_SCRIPT, the phone's counterpart of the tvOS
 RemoteScript. Steps are separated by `|`; see the file's header.
+
+Gapless (2026-09-27): PlaybackService plays through an AVQueuePlayer. While a
+track plays, the one advanceOnEnd would pick is resolved and enqueued behind
+it (syncPreload), and at the end the player moves onto it by itself; the
+service only catches up its bookkeeping and reports (handOver). Anything that
+changes what plays next must call syncPreload. Measured in the simulator
+against a local server, from the end notification to the next item's clock
+running: 180 to 445 ms before, -36 to +21 ms after (flac, m4a, mp3 and an
+HLS transcode). DEBUG builds log it as HANDOVER.
