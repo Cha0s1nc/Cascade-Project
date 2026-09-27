@@ -286,6 +286,84 @@ literals. Renaming an id is a silent break that typecheck will not catch.
 - Updater: main.js `parseVersion()` **608**, `checkForUpdates()` **898**,
   `installSilentlyWindows()` **1299**.
 
+## Added on overnight-2026-09-27 (line numbers at 8b57f2c)
+
+Everything above still describes edd2fad. This section covers what the
+overnight batch added, with line numbers re-derived at 8b57f2c. Every item was
+checked against a throwaway Jellyfin 10.11.11, not only by tests.
+
+### Crossfade: the two bugs behind "restarts when the crossfade ends"
+- `onDeck('pause', ...)` - **5468**. Skips `cancelCrossfade()` when
+  `audio.ended` is true. The spec fires `pause` just before `ended` when a
+  track runs out, and treating that as a manual pause tore down fades that
+  were finishing normally, so `ended` cold-started the next track at 0:00.
+  Intermittent because the fade's own handoff timer often lands within
+  milliseconds of the natural end. **This was the longstanding bug.**
+- `_prefetchNext()` - **5886**. Bails while `_cfOtherDeck` is set, and
+  rechecks the target deck after its await. Mid-fade, "the deck that is not
+  `audio`" is the INCOMING deck, so any queue mutation (`_reprefetch()`)
+  reloaded the fading-in track onto itself.
+- Gapless was measured, not rebuilt: on a prefetch hit the `ended` handoff
+  takes under 1 ms and flac is seamless; mp3 carries ~16 ms of LAME priming.
+  Do not build an MSE/early-start pipeline without new evidence.
+
+### Playback additions
+- Normalization: `src/core/normalization.ts` (clamped +12/-24 dB, unity for
+  anything non-finite). A per-deck `GainNode` sits `source -> norm -> fade
+  gain` inside `_ensureEqGraph()` **7140**, which re-applies it because the
+  graph is built on the first `play`, AFTER the first track asked for it.
+  `_applyNormalizationToDeck()` **7267**. Default off.
+- Output device: `AudioContext.setSinkId` (not the elements, everything
+  routes through the context). `_outputDeviceSupported()` **7304**. A
+  vanished device falls back to the system default and says so.
+- m4a: `src/core/profiles/electron.ts` claims `m4a,mp4` only for
+  aac/mp3/flac/opus. ALAC shares the container and Chromium has no decoder
+  for it (`canPlayType` answers ""), so it must keep transcoding.
+
+### Library browsing
+- `registerLibView()` **2142** / `setLibItems()` **2157**: one shared sort and
+  filter dropdown pair for Albums, Artists, Playlists, Movies and Shows.
+  Sorting and filtering re-render and never refetch. Pure logic in
+  `src/core/library-browse.ts`. Prefs are one JSON blob per view.
+- There is no "recently played" sort on albums: Jellyfin 10.11 never sets
+  `LastPlayedDate` on a `MusicAlbum`, only on its tracks.
+- Genres `loadGenres()` **3668**, `openGenre()` **3726**. Queries by
+  `GenreIds`, never the pipe-delimited `Genres` name filter.
+- History `loadHistory()` **3787**. One `LastPlayedDate` per track is all
+  Jellyfin keeps; a true per-play log needs the Playback Reporting plugin.
+
+### Artists, smart playlists, Quick Connect
+- `openArtist()` **2582**: bio (`Overview`), similar artists
+  (`/Artists/{id}/Similar`, intersected with the merged `/Artists` list,
+  since its UserId does NOT apply Cascade's library selection), top songs by
+  the user's own PlayCount (`src/core/artist-page.ts`). Marking an item played
+  does not raise PlayCount; only real playback does.
+- User smart playlists: definitions live only in the local store
+  (`smartPlaylists`), validated on every read by
+  `CascadeCore.parseSmartPlaylists`. `src/core/smart-playlist.ts` turns rules
+  into an Items query as a prefilter, then re-checks every rule client-side.
+  **Never merge two "genre is" rules into one `Genres` param**: Jellyfin ORs
+  its values. Ids are `user:<uuid>`; `smartPlaylistEntry()` is the one lookup.
+  `showItemCtxMenu()` now sets `ictx-delete`'s gating on every open, since
+  that element is shared by real and smart playlists.
+- Quick Connect approvals: `_applyQuickConnectGating()` **1146**. A server
+  feature check, not a permission, so it is not in `_applyAdminGating()`.
+
+### Devices and radio
+- Driving other sessions: `#btn-devices-open` (index.html **887**),
+  `src/core/session-control.ts`, `_dpPlayItemsOnDevice()` **1040**. Polls
+  every 3 s only while the panel is open. Excludes our own DeviceId.
+- Radio is Jellyfin Live TV channels, opt-in (Settings > Library), because
+  an M3U tuner cannot mark a channel as radio and `/LiveTv/Channels?type=`
+  is ignored. `applyRadioNavVisibility()` **1439**, `loadRadio()` **1445**,
+  `playRadioStation()` **1496**, `src/core/radio.ts`. Kept out of
+  `playCurrentTrack()` on purpose: a channel is an infinite stream with a
+  LiveStreamId to close, and prefetch, lyrics, played reports and the
+  progress math all guard on it.
+- `.strm` files in a music library do NOT work for radio: Jellyfin only
+  follows a `.strm` for Video items, and feeds the text file itself to
+  ffmpeg for Audio. Verified against Jellyfin's source and the server.
+
 ## Measured, not worth building
 
 Taken with the debug panel's resources section on Apple Silicon, playing real
