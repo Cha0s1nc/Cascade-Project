@@ -83,6 +83,18 @@ test('smart playlist: play, shuffle, queue actions - not a real playlist to rena
   assert.equal(v.deleteItem, false)
 })
 
+test('user smart playlist: play, shuffle, queue actions, and unlike a real playlist reuses rename/delete for its own local definition', () => {
+  const v = menuItemsForKind('user-smart-playlist')
+  assert.equal(v.play, true)
+  assert.equal(v.shuffle, true)
+  assert.equal(v.playNext, true)
+  assert.equal(v.playLast, true)
+  assert.equal(v.addPlaylist, true)
+  assert.equal(v.rename, true)
+  assert.equal(v.deleteItem, true)
+  assert.equal(v.viewDetail, false)
+})
+
 test('clampMenuPosition: leaves a menu that fits alone', () => {
   const { left, top } = clampMenuPosition(100, 100, 200, 300, 1920, 1080)
   assert.equal(left, 100)

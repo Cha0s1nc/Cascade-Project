@@ -44,6 +44,11 @@ export interface JfItem {
   AlbumId?: string
   AlbumArtist?: string
   Artists?: string[]
+  /** Needs Fields=Genres. Used by smart playlist genre rules. */
+  Genres?: string[]
+  /** The name Jellyfin actually sorts by (articles stripped, etc). Needs
+   *  Fields=SortName; falls back to Name everywhere it's read. */
+  SortName?: string
 
   /** Art tags. Presence means art exists; the value is not used in image URLs. */
   AlbumPrimaryImageTag?: string

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   JellyfinClient, authenticate, authHeader,
   quickConnectEnabled, quickConnectInitiate, quickConnectApproved, quickConnectAuthenticate,
+  quickConnectAuthorize,
   QUICK_CONNECT_POLL_MS, QUICK_CONNECT_TIMEOUT_MS, readErrorMessage,
   splitVideoLibraryIds, effectiveLibraryIds, onePerSeries, isAnimatedImageType, dedupeById,
 } from '../src/core/jellyfin.ts'
@@ -267,6 +268,36 @@ test('quickConnectAuthenticate: trades the secret for a real token', async () =>
 test('quickConnectAuthenticate: surfaces a rejection', async () => {
   stubFetch(() => undefined)
   await assert.rejects(() => quickConnectAuthenticate('https://jf.test', 'BAD', '1.2.0', 'DEV-1'))
+})
+
+test('quickConnectAuthorize: true on success, and sends the signed-in user id', async () => {
+  const config: ServerConfig = { url: 'https://jf.test', token: 'TOK', userId: 'U9', appVersion: '1.2.0', deviceId: 'DEV-1' }
+  stubFetch(() => true)
+  const ok = await quickConnectAuthorize(config, '123456')
+  assert.equal(ok, true)
+  assert.ok(calls[0].url.includes('code=123456'))
+  assert.ok(calls[0].url.includes('userId=U9'))
+  const hdr = (calls[0].init?.headers as Record<string, string>).Authorization
+  assert.ok(hdr.includes('Token="TOK"'))
+})
+
+test('quickConnectAuthorize: a wrong code answers false, not a throw', async () => {
+  const config: ServerConfig = { url: 'https://jf.test', token: 'TOK', userId: 'U9' }
+  stubFetch(() => false)
+  assert.equal(await quickConnectAuthorize(config, '000000'), false)
+})
+
+test('quickConnectAuthorize: a failed request still throws (e.g. an unknown/expired code, 404)', async () => {
+  const config: ServerConfig = { url: 'https://jf.test', token: 'TOK', userId: 'U9' }
+  stubFetch(() => undefined)
+  await assert.rejects(() => quickConnectAuthorize(config, '000000'))
+})
+
+test('quickConnectAuthorize: escapes the code into the query', async () => {
+  const config: ServerConfig = { url: 'https://jf.test', token: 'TOK', userId: 'U9' }
+  stubFetch(() => true)
+  await quickConnectAuthorize(config, 'a b&c=d')
+  assert.ok(calls[0].url.includes('code=a%20b%26c%3Dd'))
 })
 
 test('quick connect timings are sane', () => {
