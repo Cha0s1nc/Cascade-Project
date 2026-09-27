@@ -111,3 +111,19 @@
 .pl-edit-toolbar { display: none; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
 .pl-edit-toolbar.visible { display: flex; }
 .pl-edit-count { font-size: 11px; color: var(--text3); margin-right: auto; }
+
+/* Genre tile: the generated fallback (a gradient plus the genre's initial)
+   sits underneath always, not swapped out like album/playlist art - Jellyfin
+   usually does have genre art (a collage of its albums), but when it doesn't
+   this is what shows instead of nothing. The <img>, when it loads, simply
+   covers the tile; onerror hides it back to the tile rather than leaving a
+   broken image icon. */
+.genre-tile { position: relative; }
+.genre-tile-letter { font-size: 32px; font-weight: 700; color: var(--text2); }
+.genre-tile img { position: absolute; inset: 0; }
+
+/* History: a plain label between day groups, inside the same #history-rows
+   list as the track rows - not a .tl-head (that's the one column header at
+   the top; see index.html), just a section break. */
+.history-day-header { font-size: 11px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; padding: 14px 12px 6px; }
+.history-day-header:first-child { padding-top: 4px; }

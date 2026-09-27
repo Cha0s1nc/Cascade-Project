@@ -832,7 +832,7 @@ function applyRemoteMute(muted) {
 function invalidateLibraryViews() {
   allSongs = []
   _songsFetch = null
-  for (const id of ['albums-grid', 'artists-grid', 'songs-rows', 'playlists-grid'])
+  for (const id of ['albums-grid', 'artists-grid', 'songs-rows', 'playlists-grid', 'genres-grid'])
     delete document.getElementById(id).dataset.loaded
 }
 
@@ -1515,6 +1515,10 @@ function showView(name) {
   if (name === 'artists' && !document.getElementById('artists-grid').dataset.loaded) loadArtists()
   if (name === 'songs' && !document.getElementById('songs-rows').dataset.loaded) loadSongs()
   if (name === 'playlists' && !document.getElementById('playlists-grid').dataset.loaded) loadPlaylists()
+  if (name === 'genres' && !document.getElementById('genres-grid').dataset.loaded) loadGenres()
+  // No dataset.loaded gate: history must reflect whatever was just played, so
+  // it reloads every time it's shown rather than caching a stale fetch.
+  if (name === 'history') loadHistory()
   if (name === 'movies' && !document.getElementById('movies-grid').dataset.loaded) loadMovies()
   if (name === 'shows' && !document.getElementById('shows-grid').dataset.loaded) loadShows()
   if (name === 'settings') loadSettingsFields()
@@ -1591,6 +1595,7 @@ const CATEGORY_BACK_BTN = {
   albums: 'album-back-btn',
   artists: 'artist-back-btn',
   playlists: 'pl-back-btn',
+  genres: 'genre-back-btn',
   movies: 'movie-back-btn',
   shows: 'show-back-btn'
 }
@@ -2882,6 +2887,186 @@ document.getElementById('btn-play-playlist').addEventListener('click', () => {
 })
 
 document.getElementById('btn-shuffle-playlist').addEventListener('click', () => shuffleAndPlay(currentPlaylistItems, document.getElementById('pl-detail-name').textContent))
+
+// ── Genres ────────────────────────────────────────────────────────────────────
+
+function genreCardHtml(item) {
+  const art = artUrl(item.Id, item.ImageTags?.Primary)
+  const initial = (item.Name || '?').trim().charAt(0).toUpperCase() || '?'
+  // The tile (initial letter) is the base, drawn whether or not there's real
+  // art - Jellyfin usually generates a genre collage, but onerror still needs
+  // something sane to fall back to for a genre that has none. See
+  // .genre-tile in library.css.
+  return `<div class="album-card" data-id="${item.Id}">
+    <div class="album-art genre-tile"><span class="genre-tile-letter">${esc(initial)}</span>${art ? `<img src="${art}" alt="" loading="lazy" onerror="this.style.display='none'">` : ''}</div>
+    <div class="album-body">
+      <div class="album-name">${esc(item.Name)}</div>
+    </div>
+  </div>`
+}
+
+// A plain A-Z grid, no sort/filter header - there's only a name to sort by
+// and nothing on a genre itself worth filtering on, so this skips the
+// registerLibView machinery the other grids use.
+async function loadGenres() {
+  const grid = document.getElementById('genres-grid')
+  grid.dataset.loaded = '1'
+  try {
+    // getMerged narrows to the selected music libraries via ParentId, same as
+    // every other music fetch - a genre's albums/songs are scoped the same
+    // way once you're inside it (fetchGenreAlbums/fetchGenreSongs below).
+    const data = await jfGetMerged('/MusicGenres', { UserId: jf.userId })
+    const items = (data.Items || []).sort(bySortName)
+    if (!items.length) { grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">No genres found</div>`; return }
+    grid.innerHTML = items.map(genreCardHtml).join('')
+    const byId = new Map(items.map(i => [i.Id, i]))
+    grid.querySelectorAll('.album-card').forEach(el => {
+      const item = byId.get(el.dataset.id)
+      if (item) el.addEventListener('click', () => openGenre(item.Id, item.Name))
+    })
+  } catch (e) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Could not load genres</div>`
+  }
+}
+
+async function fetchGenreAlbums(genreId) {
+  const data = await jfGetAllPaged(`/Users/${jf.userId}/Items`, {
+    // GenreIds, not Genres (a name) - a genre name containing '|' would break
+    // the pipe-delimited Genres filter.
+    GenreIds: genreId, IncludeItemTypes: 'MusicAlbum', Recursive: true,
+    Fields: 'SortName,ProductionYear,UserData', SortBy: 'SortName', SortOrder: 'Ascending', Limit: 500,
+  })
+  data.Items.sort(bySortName)   // the merge only kept SortBy within each library
+  return data.Items
+}
+
+async function fetchGenreSongs(genreId) {
+  const data = await jfGetAllPaged(`/Users/${jf.userId}/Items`, {
+    GenreIds: genreId, IncludeItemTypes: 'Audio', Recursive: true,
+    Fields: 'AlbumId,AlbumPrimaryImageTag,UserData,DateCreated,SortName', SortBy: 'SortName', SortOrder: 'Ascending', Limit: 500,
+  })
+  data.Items.sort(bySortName)
+  return data.Items
+}
+
+let currentGenreSongs = []
+let _genreSongsShown = 0
+const GENRE_SONGS_PAGE = 300   // rows aren't virtualized here; a genre this wide is rare, so paint in chunks instead
+
+function renderGenreSongRows() {
+  const rows = document.getElementById('genre-songs-rows')
+  if (!currentGenreSongs.length) { rows.innerHTML = `<div class="empty-state">No songs</div>`; return }
+  _genreSongsShown = Math.min(currentGenreSongs.length, _genreSongsShown + GENRE_SONGS_PAGE)
+  rows.innerHTML = currentGenreSongs.slice(0, _genreSongsShown).map((item, i) => trackRowHtml(item, i)).join('')
+  highlightPlayingRow()
+  rows.querySelectorAll('.track-row').forEach(el => {
+    const idx = parseInt(el.dataset.idx)
+    wireTrackRow(el, currentGenreSongs[idx], currentGenreSongs, idx)
+  })
+  document.getElementById('btn-genre-show-more').style.display = _genreSongsShown < currentGenreSongs.length ? '' : 'none'
+}
+
+async function openGenre(genreId, name) {
+  document.getElementById('genres-index').style.display = 'none'
+  const detail = document.getElementById('genre-detail')
+  detail.style.display = ''
+  document.getElementById('genre-detail-name').textContent = name
+  document.getElementById('genre-detail-letter').textContent = (name || '?').trim().charAt(0).toUpperCase() || '?'
+  document.getElementById('genre-detail-art').querySelector('img')?.remove()
+  document.getElementById('genre-detail-meta').innerHTML = '<span class="skel skel-text" style="display:inline-block;width:120px"></span>'
+  document.getElementById('genre-albums-grid').innerHTML = skeletonHTML('album', 6)
+  document.getElementById('genre-songs-rows').innerHTML = skeletonHTML('track', 6)
+  document.getElementById('btn-genre-show-more').style.display = 'none'
+  currentGenreSongs = []
+  _genreSongsShown = 0
+
+  try {
+    const [genre, albums, songs] = await Promise.all([
+      jfGet(`/Users/${jf.userId}/Items/${genreId}`).catch(() => null),
+      fetchGenreAlbums(genreId),
+      fetchGenreSongs(genreId),
+    ])
+    currentGenreSongs = songs
+
+    const art = artUrl(genreId, genre?.ImageTags?.Primary)
+    if (art) document.getElementById('genre-detail-art').insertAdjacentHTML('beforeend', `<img src="${art}" alt="" onerror="this.remove()">`)
+    document.getElementById('genre-detail-meta').textContent =
+      `${albums.length} album${albums.length !== 1 ? 's' : ''} · ${songs.length} song${songs.length !== 1 ? 's' : ''}`
+
+    document.getElementById('genre-albums-grid').innerHTML = albums.length
+      ? albums.map(item => albumCard(item)).join('')
+      : `<div class="empty-state" style="grid-column:1/-1">No albums</div>`
+    wireAlbumCards(document.getElementById('genre-albums-grid'), albums, item => { showView('albums'); openAlbum(item.Id) })
+
+    renderGenreSongRows()
+  } catch (e) {
+    document.getElementById('genre-detail-meta').textContent = 'Could not load genre'
+  }
+}
+
+document.getElementById('btn-genre-show-more').addEventListener('click', renderGenreSongRows)
+
+document.getElementById('genre-back-btn').addEventListener('click', () => {
+  document.getElementById('genre-detail').style.display = 'none'
+  document.getElementById('genres-index').style.display = ''
+})
+
+document.getElementById('btn-play-genre').addEventListener('click', () => {
+  if (currentGenreSongs.length) playItems(currentGenreSongs, 0, document.getElementById('genre-detail-name').textContent)
+})
+
+document.getElementById('btn-shuffle-genre').addEventListener('click', () => shuffleAndPlay(currentGenreSongs, document.getElementById('genre-detail-name').textContent))
+
+// ── History ───────────────────────────────────────────────────────────────────
+//
+// Jellyfin keeps one LastPlayedDate per item (UserData), not a log of every
+// play - a track played three times today still just has one date. This view
+// is therefore "which tracks have I played and when most recently", grouped
+// by day, not a true per-play log. A true log needs the Playback Reporting
+// plugin's own (non-standard) API; this server doesn't have it (checked
+// /Plugins), so nothing here depends on it.
+let currentHistoryItems = []
+
+async function loadHistory() {
+  const rows = document.getElementById('history-rows')
+  rows.innerHTML = skeletonHTML('track', 6)
+  try {
+    // getAllPaged pages each library to the end, but StartIndex paging within
+    // a library is only meaningful sorted by that library's own order - with
+    // more than one library merged, only a client-side re-sort by
+    // LastPlayedDate afterward gives a correct global newest-first order.
+    const data = await jfGetAllPaged(`/Users/${jf.userId}/Items`, {
+      SortBy: 'DatePlayed', SortOrder: 'Descending',
+      IncludeItemTypes: 'Audio', Filters: 'IsPlayed', Recursive: true,
+      Fields: 'AlbumId,AlbumPrimaryImageTag,UserData,SortName', Limit: 500,
+    })
+    const items = (data.Items || []).sort((a, b) =>
+      new Date(b.UserData?.LastPlayedDate || 0) - new Date(a.UserData?.LastPlayedDate || 0))
+    currentHistoryItems = items
+    if (!items.length) { rows.innerHTML = `<div class="empty-state">No play history yet</div>`; return }
+
+    const groups = CascadeCore.groupByDay(items)
+    let idx = 0
+    rows.innerHTML = groups.map(g => {
+      const dayRows = g.items.map(item => {
+        // data-idx must index the flat list, not the position within a day,
+        // so clicking a row plays onward through the rest of history rather
+        // than restarting the count at zero for every day.
+        const html = trackRowHtml(item, idx)
+        idx++
+        return html
+      }).join('')
+      return `<div class="history-day-header">${esc(g.label)}</div>${dayRows}`
+    }).join('')
+    highlightPlayingRow()
+    rows.querySelectorAll('.track-row').forEach(el => {
+      const i = parseInt(el.dataset.idx)
+      wireTrackRow(el, items[i], items, i)
+    })
+  } catch (e) {
+    rows.innerHTML = `<div class="empty-state">Could not load history</div>`
+  }
+}
 
 // ── Universal track context menu ───────────────────────────────────────────────
 
