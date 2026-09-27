@@ -145,6 +145,61 @@ public final class PlaybackService {
         syncPreload()
     }
 
+    // MARK: - Queue edits
+    //
+    // The order logic is in QueueActions.swift. Each of these re-syncs the
+    // gapless preload, because each can change what plays next.
+
+    /// Right after the current track. With nothing playing, plays them.
+    public func playNext(_ items: [JfItem]) async {
+        guard !items.isEmpty else { return }
+        guard item != nil else { return await play(items) }
+        queue = playingNext(queue, items)
+        syncPreload()
+    }
+
+    /// At the end of the queue. With nothing playing, plays them.
+    public func addToQueue(_ items: [JfItem]) async {
+        guard !items.isEmpty else { return }
+        guard item != nil else { return await play(items) }
+        queue = appending(queue, items)
+        syncPreload()
+    }
+
+    /// Offsets as SwiftUI's onMove reports them.
+    public func moveQueueItems(from offsets: IndexSet, to destination: Int) {
+        queue = moving(queue, from: offsets, to: destination)
+        syncPreload()
+    }
+
+    /// Never removes the current track; see removing(_:at:).
+    public func removeQueueItems(at offsets: IndexSet) {
+        queue = removing(queue, at: offsets)
+        syncPreload()
+    }
+
+    /// Play a queue row, keeping the queue as it is.
+    public func jump(to index: Int) async {
+        guard queue.items.indices.contains(index) else { return }
+        queue.index = index
+        await load(queue.items[index])
+    }
+
+    /// Replace the queue with Jellyfin's instant mix seeded from a track,
+    /// album or artist. A failure lands in `error`, where Now Playing shows it.
+    public func playInstantMix(from seedId: String) async {
+        do {
+            let mix = try await client.instantMix(seedId: seedId)
+            guard !mix.isEmpty else {
+                error = "Jellyfin returned no instant mix for this."
+                return
+            }
+            await play(mix)
+        } catch {
+            self.error = "Could not build an instant mix: \(error.localizedDescription)"
+        }
+    }
+
     private func load(_ item: JfItem) async {
         // Whatever was playing is finished as far as the server is concerned,
         // and its transcode, if any, is now waste.

@@ -40,6 +40,8 @@ struct ArtworkView: View {
 struct TrackRow: View {
     let track: JfItem
     var showsArtwork = true
+    /// The long-press menu (TrackMenu.swift). Off in the queue itself.
+    var showsMenu = true
 
     var body: some View {
         HStack(spacing: 12) {
@@ -61,6 +63,17 @@ struct TrackRow: View {
                     .foregroundStyle(.secondary)
             }
         }
+        // The whole row answers a long press, not just its text.
+        .contentShape(Rectangle())
+        .modifier(OptionalTrackMenu(track: track, enabled: showsMenu))
+    }
+}
+
+private struct OptionalTrackMenu: ViewModifier {
+    let track: JfItem
+    let enabled: Bool
+    func body(content: Content) -> some View {
+        if enabled { content.trackContextMenu(track) } else { content }
     }
 }
 

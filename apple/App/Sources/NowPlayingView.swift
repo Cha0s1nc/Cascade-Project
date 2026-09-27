@@ -21,6 +21,7 @@ struct NowPlayingView: View {
     // yank the thumb back under the finger.
     @State private var isScrubbing = false
     @State private var scrubPosition: Double = 0
+    @State private var showingQueue = false
     #endif
 
     var body: some View {
@@ -151,6 +152,18 @@ struct NowPlayingView: View {
                 .foregroundStyle(showLyrics ? Color.accentColor : Color.secondary)
                 .disabled(lyrics.lines == nil)
                 .accessibilityLabel(showLyrics ? "Hide lyrics" : "Show lyrics")
+
+                Button {
+                    showingQueue = true
+                } label: {
+                    Image(systemName: "list.bullet")
+                        .font(.title3)
+                }
+                .foregroundStyle(Color.secondary)
+                .accessibilityLabel("Queue")
+            }
+            .sheet(isPresented: $showingQueue) {
+                QueueView(player: player)
             }
 
             if let error = player.error {

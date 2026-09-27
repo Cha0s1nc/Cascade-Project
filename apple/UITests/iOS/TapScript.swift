@@ -16,7 +16,9 @@ import XCTest
 ///   press:text      long-press it (opens a context menu)
 ///   tapat:x,y       tap at a point, as fractions of the screen (0-1)
 ///   drag:a>b        drag element a onto element b (reorder handles)
-///   swipeup / swipedown / swipeleft / swiperight   on the app
+///   dragat:x,y>x,y  drag between two points, as fractions of the screen
+///   swipeup / swipedown / swipeleft / swiperight   on the app, or
+///                   swipeleft:text on one element (swipe to delete)
 ///   type:text       type into whatever has focus
 ///   lock            press the side button (the lock screen)
 ///   home            press home
@@ -52,10 +54,15 @@ final class TapScript: XCTestCase {
                 let ends = arg.split(separator: ">").map(String.init)
                 let from = try find(app, ends[0]), to = try find(app, ends[1])
                 from.press(forDuration: 1.0, thenDragTo: to)
-            case "swipeup": app.swipeUp()
-            case "swipedown": app.swipeDown()
-            case "swipeleft": app.swipeLeft()
-            case "swiperight": app.swipeRight()
+            case "dragat":
+                let ends = arg.split(separator: ">").map { $0.split(separator: ",").compactMap { Double($0) } }
+                let from = app.coordinate(withNormalizedOffset: CGVector(dx: ends[0][0], dy: ends[0][1]))
+                let to = app.coordinate(withNormalizedOffset: CGVector(dx: ends[1][0], dy: ends[1][1]))
+                from.press(forDuration: 1.0, thenDragTo: to)
+            case "swipeup": try (arg.isEmpty ? app : find(app, arg)).swipeUp()
+            case "swipedown": try (arg.isEmpty ? app : find(app, arg)).swipeDown()
+            case "swipeleft": try (arg.isEmpty ? app : find(app, arg)).swipeLeft()
+            case "swiperight": try (arg.isEmpty ? app : find(app, arg)).swipeRight()
             case "type": app.typeText(arg)
             case "lock":
                 // No public API for the side button. This selector is what

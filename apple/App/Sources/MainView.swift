@@ -61,11 +61,7 @@ struct MainView: View {
     /// One stack per tab, with the shared routes and (on iOS) the search and
     /// settings buttons.
     private func stack<Content: View>(@ViewBuilder _ root: () -> Content) -> some View {
-        NavigationStack {
-            root()
-                .libraryToolbar()
-                .appNavigation()
-        }
+        TabStack { root() }
     }
 }
 

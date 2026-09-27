@@ -95,6 +95,11 @@ public struct JfItem: Codable, Sendable, Identifiable, Hashable {
     /// The name Jellyfin sorts by ("Killers, The"), with Fields=SortName.
     public var sortName: String?
 
+    /// Artists with their ids, which Go to Artist needs; `artists` is names
+    /// only. Both come back on track lists without asking.
+    public var artistItems: [JfNameId]?
+    public var albumArtists: [JfNameId]?
+
     public init(id: String, name: String? = nil, type: String? = nil,
                 runTimeTicks: Int? = nil, userData: JfUserData? = nil) {
         self.id = id
@@ -110,6 +115,12 @@ public struct JfItem: Codable, Sendable, Identifiable, Hashable {
     // navigationDestination(for:) and NavigationPath can carry one.
     public static func == (a: JfItem, b: JfItem) -> Bool { a.id == b.id }
     public func hash(into hasher: inout Hasher) { hasher.combine(id) }
+}
+
+/// A name with the id it refers to, as Jellyfin nests artists in an item.
+public struct JfNameId: Codable, Sendable, Hashable {
+    public var id: String
+    public var name: String?
 }
 
 /// Standard envelope for Jellyfin list endpoints.

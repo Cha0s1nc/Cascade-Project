@@ -166,3 +166,14 @@ changes what plays next must call syncPreload. Measured in the simulator
 against a local server, from the end notification to the next item's clock
 running: 180 to 445 ms before, -36 to +21 ms after (flac, m4a, mp3 and an
 HLS transcode). DEBUG builds log it as HANDOVER.
+
+Queue actions (2026-09-27): long-press any track row (TrackRow, and album
+detail rows) for Play Next, Add to Queue, Instant Mix, Favorite, Go to Album
+and Go to Artist (`TrackMenu.swift`; the menu is in sections, and Add to
+Playlist belongs next to Favorite). Go to pushes through `openItem`, an
+environment action set by `TabStack`, each tab's NavigationStack with a path.
+The order logic is `QueueActions.swift` (pure, tested); PlaybackService's
+playNext / addToQueue / moveQueueItems / removeQueueItems / jump apply it and
+re-sync the gapless preload. iOS Now Playing has a Queue button opening
+`QueueView`: tap to jump, drag to reorder, swipe or Edit to remove (never the
+playing row).
