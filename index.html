@@ -582,6 +582,26 @@
                     <span class="eq-band-value" id="max-bitrate-value">Original</span>
                   </div>
                 </div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Volume normalization</span>
+                    <span class="setting-desc">Evens out loud and quiet tracks using the server's loudness scan. Off by default; tracks the server has not scanned play unchanged.</span>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="normalize-toggle">
+                    <span class="toggle-track"></span>
+                  </label>
+                </div>
+                <div class="setting-row" id="normalize-source-row" style="display:none">
+                  <div class="setting-label">
+                    <span class="setting-name">Normalize by</span>
+                    <span class="setting-desc">Track evens out each song. Album keeps a record's own dynamics and evens out between records instead.</span>
+                  </div>
+                  <select class="setting-input" id="normalize-source">
+                    <option value="track">Track</option>
+                    <option value="album">Album</option>
+                  </select>
+                </div>
                 <!-- Equalizer lives under Playback rather than its own group - it is
                      a playback setting, not a separate concern. Same collapsible-
                      group heading style used for Movies/TV inside the library

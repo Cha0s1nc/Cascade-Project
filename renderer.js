@@ -67,6 +67,27 @@ async function setMaxStreamingBitrate(bitrateValue) {
   await window.cascade.store.set('maxStreamingBitrate', maxStreamingBitrate)
 }
 
+// Off by default: a loudness-evening feature shipping in an update should not
+// silently change how an existing library sounds the moment someone updates.
+// It is opt-in, same reasoning as crossfade above.
+let normalizationEnabled = false
+// 'track' evens out each song; 'album' keeps a record's own dynamics and
+// evens out between records instead. Track is the finer-grained, more common
+// choice - offered as an option because it is free (same lookup, different id).
+let normalizationSource = 'track'
+async function setNormalizationEnabled(enabled) {
+  normalizationEnabled = enabled
+  await window.cascade.store.set('normalizationEnabled', normalizationEnabled)
+  _reapplyNormalizationToLiveDecks()
+}
+async function setNormalizationSource(source) {
+  // Stored/UI value is untrusted - anything else falls back to 'track'.
+  normalizationSource = source === 'album' ? 'album' : 'track'
+  await window.cascade.store.set('normalizationSource', normalizationSource)
+  _normGainCache.clear()   // a cached track-keyed value is wrong once keyed by album, and vice versa
+  _reapplyNormalizationToLiveDecks()
+}
+
 let eqEnabled = false
 let eqActiveMode = 'music'   // which saved profile is wired into the live graph right now
 let eqMusicProfile = { preamp: null, bands: [0, 0, 0, 0, 0] }
@@ -3623,6 +3644,11 @@ async function playCurrentTrack(opts = {}) {
     adoptResolvedStream(opts.resolved)
   }
 
+  // By now `audio` is whichever deck is actually carrying `item`, on every
+  // path above (cold load, prefetched swap, or a crossfade's own handoff
+  // already having pointed it here). Cached and idempotent for the prefetch
+  // and crossfade cases; a fresh fetch only for a cold load with no prefetch.
+  _applyNormalizationToDeck(audio, item)
   updateNowPlaying(item)
   highlightPlayingRow()
   reportPlaybackStart(item.Id)
@@ -4407,6 +4433,11 @@ async function startCrossfade(nextIndex) {
     inGain.gain.cancelScheduledValues(_audioCtx.currentTime)
     inGain.gain.setValueAtTime(0, _audioCtx.currentTime)
   }
+  // The incoming deck carries ITS OWN track's normalization gain into the
+  // fade, not whatever the outgoing deck was set to - a prefetch hit usually
+  // already has this applied (see _prefetchNext), so this is a cache hit and
+  // near-instant most of the time.
+  _applyNormalizationToDeck(incoming, nextItem)
 
   incoming.play().catch(() => {})
 
@@ -4656,6 +4687,10 @@ async function _prefetchNext() {
   deck.src = resolved.url
   deck.load()
   _streamPrefetch = { itemId: nextItem.Id, resolved, deck }
+  // Pre-warm the gain too, so a crossfade or a prefetched advance into this
+  // deck already has the right level rather than fetching it at the moment
+  // it is needed.
+  _applyNormalizationToDeck(deck, nextItem)
 }
 
 onDeck('playing', _schedulePrefetch)
@@ -5152,6 +5187,21 @@ async function loadSettingsFields() {
     await setMaxStreamingBitrate(MAX_BITRATE_STEPS[Number(maxBitrateSlider.value)].value)
   }
 
+  // Volume normalization
+  const normalizeToggle = document.getElementById('normalize-toggle')
+  const normalizeSourceRow = document.getElementById('normalize-source-row')
+  const normalizeSourceSelect = document.getElementById('normalize-source')
+  normalizeToggle.checked = normalizationEnabled
+  normalizeSourceRow.style.display = normalizationEnabled ? '' : 'none'
+  normalizeSourceSelect.value = normalizationSource
+  normalizeToggle.onchange = async () => {
+    normalizeSourceRow.style.display = normalizeToggle.checked ? '' : 'none'
+    await setNormalizationEnabled(normalizeToggle.checked)
+  }
+  normalizeSourceSelect.onchange = async () => {
+    await setNormalizationSource(normalizeSourceSelect.value)
+  }
+
   // Waterfall relay. Blank means the default, so clearing the box is the reset.
   const wfRelayInput = document.getElementById('s-wf-relay')
   wfRelayInput.value = (await window.cascade.store.get('waterfallRelay')) || ''
@@ -5606,6 +5656,11 @@ async function init() {
   refreshAppleLanguageStatus()
   crossfadeSeconds = parseInt(await window.cascade.store.get('crossfadeSeconds'), 10) || 6
   maxStreamingBitrate = parseInt(await window.cascade.store.get('maxStreamingBitrate'), 10) || DEFAULT_MAX_BITRATE
+  normalizationEnabled = (await window.cascade.store.get('normalizationEnabled')) === true
+  {
+    const savedSource = await window.cascade.store.get('normalizationSource')
+    normalizationSource = savedSource === 'album' ? 'album' : 'track'
+  }
 
   eqEnabled = (await window.cascade.store.get('eqEnabled')) === true
   eqMusicProfile = await _loadEqProfile('eqMusic')
@@ -5747,6 +5802,7 @@ let _audioCtx = null
 let _mediaSrc = null    // MediaElementAudioSourceNode for the CURRENT deck, kept
                          // updated at every crossfade handoff.
 const _deckSourceNodes = new Map()   // deck element -> its permanent MediaElementAudioSourceNode
+const _deckNormGainNodes = new Map() // deck element -> its permanent GainNode (volume normalization only)
 const _deckGainNodes = new Map()     // deck element -> its permanent GainNode (crossfade envelope only)
 let _eqPreamp = null     // shared GainNode, auto or manual makeup gain for the bands below
 let _eqBandNodes = null  // shared array of 5 BiquadFilterNodes, one per EQ_BANDS entry
@@ -5790,6 +5846,15 @@ function _deckGain(deck) {
   return _deckGainNodes.get(deck) || null
 }
 
+/** The permanent volume-normalization GainNode for a deck, or null if the
+ *  graph was never built. Separate from _deckGain: that one is the crossfade
+ *  envelope (0..1, ramped per handoff), this one is a static per-track
+ *  multiplier - keeping them as two nodes means a crossfade's ramp never has
+ *  to know or care what normalization last set, and vice versa. */
+function _deckNormGain(deck) {
+  return _deckNormGainNodes.get(deck) || null
+}
+
 // Builds ctx -> {deckA, deckB source+gain} -> preamp -> band[0..4] -> analyser
 // -> destination, once, lazily. Only ever called from startEqLoop() (which
 // only runs from the `play` handler below, so ctx.resume() always lands
@@ -5823,15 +5888,29 @@ function _ensureEqGraph() {
 
     // Routing a deck through Web Audio replaces its normal output path -
     // without a connection all the way to destination, that deck goes silent.
+    // Each deck's chain is source -> normGain -> crossfade gain -> preamp, so
+    // normalization survives a crossfade the same way the CODEMAP says it
+    // must: the incoming deck carries its OWN track's gain into the fade
+    // rather than inheriting whatever the outgoing deck was set to.
     DECKS.forEach(d => {
+      const normGain = _audioCtx.createGain()
       const gain = _audioCtx.createGain()
-      _deckSource(d).connect(gain)
+      _deckSource(d).connect(normGain)
+      normGain.connect(gain)
       gain.connect(_eqPreamp)
+      _deckNormGainNodes.set(d, normGain)
       _deckGainNodes.set(d, gain)
     })
     _eqAnalyser.connect(_audioCtx.destination)
     _mediaSrc = _deckSource(audio)
     _applyEqToGraph()
+    // The graph is built lazily on the first 'play' event (see startEqLoop
+    // below), which is AFTER playCurrentTrack's own call to
+    // _applyNormalizationToDeck for the very first track of a session - that
+    // call found no graph yet and was a no-op, same reason _applyEqToGraph
+    // is re-run here rather than trusted to have already landed. Apply it
+    // now for whatever is actually on `audio` at this point.
+    if (queue[queueIndex]) _applyNormalizationToDeck(audio, queue[queueIndex])
   } catch (e) {
     console.error('EQ graph setup failed, falling back to the CSS animation', e)
     _eqGraphFailed = true
@@ -5852,6 +5931,84 @@ function _ensureEqGraph() {
     _eqPreamp = null
     _eqBandNodes = null
   }
+}
+
+// ── Volume normalization ─────────────────────────────────────────────────────
+// Jellyfin's NormalizationGain (dB), applied on the per-deck GainNode built
+// above so it survives a crossfade: each deck carries its OWN track's gain
+// into a fade rather than inheriting whatever the outgoing deck had.
+//
+// Fetched lazily per track (or album), same reasoning as loadChapters(): the
+// list/search/playlist queries that populate the queue are owned by several
+// other views and none of them request this field, so asking here - once per
+// track, cached - beats adding it everywhere a queue can be built from.
+
+const _normGainCache = new Map()   // 'track:<id>' or 'album:<id>' -> linear gain already fetched
+
+/** Which id and cache key normalization keys off, given the track/album choice. */
+function _normGainKey(item) {
+  if (normalizationSource === 'album' && item?.AlbumId) return { id: item.AlbumId, key: `album:${item.AlbumId}` }
+  return { id: item?.Id, key: `track:${item?.Id}` }
+}
+
+/** Resolve (and cache) the linear gain for one item, honoring the track/album
+ *  setting. Missing or corrupt NormalizationGain means unity - see
+ *  CascadeCore.normalizationGainLinear, which also clamps a real value into
+ *  the safe range. */
+async function _fetchNormalizationGain(item) {
+  const { id, key } = _normGainKey(item)
+  if (!id) return 1
+  if (_normGainCache.has(key)) return _normGainCache.get(key)
+  try {
+    const full = await jfGet(`/Users/${jf.userId}/Items/${id}`, {})
+    const gain = CascadeCore.normalizationGainLinear(full?.NormalizationGain)
+    _normGainCache.set(key, gain)
+    return gain
+  } catch {
+    return 1
+  }
+}
+
+// Which item id a deck's in-flight normalization fetch is currently for -
+// guards against the deck moving on to a different track before the fetch
+// lands, same shape as loadChapters' own queue check.
+const _deckNormGainTarget = new Map()
+
+/**
+ * Set a deck's normalization gain for `item`, or leave it at unity when the
+ * feature is off or the item is unknown. Always snaps to unity first: a deck
+ * is reused across tracks, and this must never leave it at whatever the
+ * PREVIOUS track's gain was while the fetch for the new one is in flight.
+ * Ramps to the real value with setTargetAtTime once it lands (click-free,
+ * same time constant the EQ bands use), and is a no-op before the graph
+ * exists - _deckNormGain returns null until _ensureEqGraph has run.
+ */
+async function _applyNormalizationToDeck(deck, item) {
+  const node = _deckNormGain(deck)
+  if (!node || !_audioCtx) return
+  node.gain.cancelScheduledValues(_audioCtx.currentTime)
+  node.gain.setValueAtTime(1, _audioCtx.currentTime)
+  if (!normalizationEnabled || !item?.Id) return
+  _deckNormGainTarget.set(deck, item.Id)
+  const gain = await _fetchNormalizationGain(item)
+  if (_deckNormGainTarget.get(deck) !== item.Id) return   // deck moved on while this was in flight
+  const target = _deckNormGain(deck)
+  if (!target || !_audioCtx) return
+  target.gain.setTargetAtTime(gain, _audioCtx.currentTime, EQ_RAMP_SEC)
+}
+
+/**
+ * Re-applies normalization to whatever is actually loaded on the decks right
+ * now - used when the user flips the setting or the track/album choice
+ * mid-playback, so the change is heard immediately rather than only from the
+ * next track change.
+ */
+function _reapplyNormalizationToLiveDecks() {
+  if (audio && queue[queueIndex]) _applyNormalizationToDeck(audio, queue[queueIndex])
+  const nextIndex = _resolveCrossfadeTarget()
+  const nextItem = nextIndex >= 0 ? queue[nextIndex] : null
+  if (_cfOtherDeck && nextItem) _applyNormalizationToDeck(_cfOtherDeck, nextItem)
+  if (_streamPrefetch && nextItem) _applyNormalizationToDeck(_streamPrefetch.deck, nextItem)
 }
 
 /** A saved EQ profile by mode, 'music' or 'video'. */
