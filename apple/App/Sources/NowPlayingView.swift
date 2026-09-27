@@ -174,7 +174,7 @@ struct NowPlayingView: View {
                         .font(.title3)
                 }
                 .foregroundStyle(isFavorite ? Color.pink : Color.secondary)
-                .accessibilityLabel(isFavorite ? "Unfavourite" : "Favourite")
+                .accessibilityLabel(isFavorite ? "Unfavorite" : "Favorite")
 
                 Button {
                     withAnimation { showLyrics.toggle() }
@@ -251,6 +251,9 @@ struct NowPlayingView: View {
                     Image(systemName: "shuffle")
                 }
                 .foregroundStyle(player.shuffle ? Color.accentColor : Color.secondary)
+                // The state is only a color otherwise, which VoiceOver cannot see.
+                .accessibilityLabel("Shuffle")
+                .accessibilityValue(player.shuffle ? "On" : "Off")
 
                 Button {
                     Task { await player.previous() }
@@ -279,6 +282,9 @@ struct NowPlayingView: View {
                     Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
                 }
                 .foregroundStyle(player.repeatMode == .none ? Color.secondary : Color.accentColor)
+                // Without these VoiceOver read the repeat-one symbol as "Go Forward".
+                .accessibilityLabel("Repeat")
+                .accessibilityValue(player.repeatMode == .one ? "One" : player.repeatMode == .all ? "All" : "Off")
             }
 
             Spacer()
