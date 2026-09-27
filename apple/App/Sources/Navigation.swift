@@ -90,6 +90,7 @@ enum RecentPlaylists {
 @MainActor
 func loadPaged(pageSize: Int = 200,
                sortBy: String? = nil,
+               sortOrder: String? = nil,
                fetch: (_ limit: Int, _ startIndex: Int) async throws -> [JfItem],
                apply: ([JfItem]) -> Void) async throws {
     var all: [JfItem] = []
@@ -104,7 +105,8 @@ func loadPaged(pageSize: Int = 200,
         // different offset in each, so its copies can arrive pages apart.
         // Sorted over everything too, for the same reason: a later page from
         // one library can hold items that belong ahead of this one's.
-        apply(sortedLikeServer(mergeLibraryCopies(all), sortBy: sortBy))
+        // The order goes too: without it a Descending sort came back ascending.
+        apply(sortedLikeServer(mergeLibraryCopies(all), sortBy: sortBy, sortOrder: sortOrder))
         start += pageSize
     }
 }

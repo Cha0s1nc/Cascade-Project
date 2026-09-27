@@ -6,19 +6,25 @@ struct SongsView: View {
     @State private var items: [JfItem] = []
     @State private var isLoading = true
     @State private var error: String?
-    @State private var sortField: SongSortField = .name
-    @State private var sortDirection: SortDirection = .ascending
-
-    private var sorted: [JfItem] {
-        sortSongs(items, by: sortField, sortDirection)
-    }
+    @AppStorage("cascade.songs.sort") private var sortField: SongSortField = .name
+    @AppStorage("cascade.songs.order") private var sortDirection: SortDirection = .ascending
+    @AppStorage("cascade.songs.favorites") private var favoritesOnly = false
 
     var body: some View {
         List {
+            HStack {
+                SortMenu(fields: [(SongSortField.name, "Title"), (.artist, "Artist"), (.album, "Album"),
+                                  (.added, "Date Added"), (.played, "Date Last Played")],
+                         field: $sortField, direction: $sortDirection, favoritesOnly: $favoritesOnly)
+                Spacer()
+            }
+            // Borderless, or the List makes the whole row one button and a
+            // tap anywhere on it fires every control in it.
+            .buttonStyle(.borderless)
             LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty)
-            ForEach(Array(sorted.enumerated()), id: \.element.id) { index, song in
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, song in
                 Button {
-                    Task { await state.player?.play(sorted, startIndex: index) }
+                    Task { await state.player?.play(items, startIndex: index) }
                 } label: {
                     TrackRow(track: song)
                 }
@@ -26,66 +32,31 @@ struct SongsView: View {
             }
         }
         .navigationTitle("Songs")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                sortControl
-            }
-        }
-        // Keyed on the library selection, so changing it in Settings reloads.
-        .task(id: state.config?.libraryIds) {
+        .onChange(of: sortField) { sortDirection = sortField.defaultDirection }
+        // The server sorts, not this view. Sorting here (sortSongs) only
+        // sorted the pages loaded so far, so the first rows were wrong until
+        // the last page landed. sortSongs' plain lowercase compare also
+        // disagrees with Jellyfin's SortName collation, so re-sorting the
+        // server's pages with it made rows jump as pages arrived.
+        .task(id: BrowseKey(libraries: state.config?.libraryIds, sort: sortField.rawValue,
+                            direction: sortDirection, favoritesOnly: favoritesOnly)) {
             guard let client = state.client else { return }
             isLoading = true
             error = nil
+            items = []
+            let (sortBy, order, favorites) = (sortField.serverSortBy, sortDirection.serverValue, favoritesOnly)
             do {
-                try await loadPaged(fetch: { try await client.songs(limit: $0, startIndex: $1) }) {
+                try await loadPaged(sortBy: sortBy, sortOrder: order, fetch: {
+                    try await client.songs(limit: $0, startIndex: $1, sortBy: sortBy,
+                                           sortOrder: order, favoritesOnly: favorites)
+                }) {
                     items = $0
                     isLoading = false
                 }
-            } catch { self.error = error.localizedDescription }
-            isLoading = false
-        }
-    }
-
-    // Menu reads fine on iOS; tvOS focus handles Menu poorly for compact
-    // controls, so it gets a Picker instead.
-    @ViewBuilder
-    private var sortControl: some View {
-        #if os(tvOS)
-        HStack {
-            Picker("Sort", selection: $sortField) {
-                ForEach(SongSortField.allCases, id: \.self) { field in
-                    Text(label(for: field)).tag(field)
-                }
+            } catch {
+                if !Task.isCancelled { self.error = error.localizedDescription }
             }
-            Picker("Direction", selection: $sortDirection) {
-                Text("Ascending").tag(SortDirection.ascending)
-                Text("Descending").tag(SortDirection.descending)
-            }
-        }
-        #else
-        Menu {
-            Picker("Sort by", selection: $sortField) {
-                ForEach(SongSortField.allCases, id: \.self) { field in
-                    Text(label(for: field)).tag(field)
-                }
-            }
-            Picker("Direction", selection: $sortDirection) {
-                Text("Ascending").tag(SortDirection.ascending)
-                Text("Descending").tag(SortDirection.descending)
-            }
-        } label: {
-            Image(systemName: "arrow.up.arrow.down")
-        }
-        #endif
-    }
-
-    private func label(for field: SongSortField) -> String {
-        switch field {
-        case .name: return "Name"
-        case .artist: return "Artist"
-        case .album: return "Album"
-        case .added: return "Date Added"
-        case .played: return "Last Played"
+            if !Task.isCancelled { isLoading = false }
         }
     }
 }

@@ -8,17 +8,31 @@ struct PlaylistsView: View {
     @State private var items: [JfItem] = []
     @State private var isLoading = true
     @State private var error: String?
+    @AppStorage("cascade.playlists.sort") private var sortField: PlaylistSortField = .name
+    @AppStorage("cascade.playlists.order") private var sortDirection: SortDirection = .ascending
 
     var body: some View {
         ScrollView {
+            HStack {
+                SortMenu(fields: [(PlaylistSortField.name, "Name"), (.added, "Date Added")],
+                         field: $sortField, direction: $sortDirection)
+                Spacer()
+            }
+            .padding(.horizontal)
             LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty)
             ItemGrid(items: items)
         }
         .navigationTitle("Playlists")
-        .task {
+        .onChange(of: sortField) { sortDirection = sortField.defaultDirection }
+        .task(id: BrowseKey(sort: sortField.rawValue, direction: sortDirection)) {
             guard let client = state.client else { return }
-            do { items = try await client.playlists() }
-            catch { self.error = error.localizedDescription }
+            do {
+                items = try await client.playlists(sortBy: sortField.serverSortBy,
+                                                   sortOrder: sortDirection.serverValue)
+                error = nil
+            } catch {
+                if !Task.isCancelled { self.error = error.localizedDescription }
+            }
             isLoading = false
         }
     }
