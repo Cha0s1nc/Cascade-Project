@@ -62,6 +62,7 @@
       "build/bergamot/**/*",
       "build/apple-translate/**/*",
       "updater.html",
+      "release-notes.js",
       "updater-preload.js",
       "lyrics-editor.html",
       "lyrics-editor-preload.js",

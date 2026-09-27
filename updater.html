@@ -49,7 +49,12 @@
   }
   .changelog h1, .changelog h2, .changelog h3 { color: var(--text); font-size: 13px; margin: 8px 0 4px; }
   .changelog h1:first-child, .changelog h2:first-child, .changelog h3:first-child { margin-top: 0; }
-  .changelog ul { padding-left: 18px; margin: 4px 0; }
+  .changelog ul, .changelog ol { padding-left: 18px; margin: 4px 0; }
+  .changelog li > ul, .changelog li > ol { margin: 2px 0; }
+  .changelog h4, .changelog h5, .changelog h6 { color: var(--text); font-size: 12px; margin: 6px 0 2px; }
+  .changelog a { color: #a78bfa; text-decoration: none; cursor: pointer; }
+  .changelog a:hover { text-decoration: underline; }
+  .changelog hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
   .changelog li { margin: 2px 0; }
   .changelog code { background: var(--surface2); border-radius: 4px; padding: 1px 5px; font-size: 12px; font-family: 'SF Mono', monospace; }
   .changelog strong { color: var(--text); }
@@ -139,6 +144,7 @@
   <button class="btn btn-primary" id="btn-action">Download Update</button>
 </div>
 
+<script src="release-notes.js"></script>
 <script>
   // Global font setting. This window doesn't load build/core.js, so this is a
   // small duplicate of CascadeCore.resolveUiFont() (src/core/font.ts) rather
@@ -195,23 +201,14 @@
     return b + ' B'
   }
 
-  function simpleMarkdown(raw) {
-    if (!raw) return '<span class="changelog-empty">No release notes available.</span>'
-    const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    const lines = raw.split('\n')
-    let html = '', inList = false
-    for (const line of lines) {
-      const t = line.trimEnd()
-      if (/^### (.+)/.test(t)) { if (inList) { html += '</ul>'; inList = false } html += `<h3>${esc(t.replace(/^### /,''))}</h3>` }
-      else if (/^## (.+)/.test(t)) { if (inList) { html += '</ul>'; inList = false } html += `<h2>${esc(t.replace(/^## /,''))}</h2>` }
-      else if (/^# (.+)/.test(t)) { if (inList) { html += '</ul>'; inList = false } html += `<h1>${esc(t.replace(/^# /,''))}</h1>` }
-      else if (/^[-*] (.+)/.test(t)) { if (!inList) { html += '<ul>'; inList = true } html += `<li>${esc(t.replace(/^[-*] /,''))}</li>` }
-      else if (t === '') { if (inList) { html += '</ul>'; inList = false } }
-      else { if (inList) { html += '</ul>'; inList = false } html += `<p>${esc(t)}</p>` }
-    }
-    if (inList) html += '</ul>'
-    return html || '<span class="changelog-empty">No release notes available.</span>'
-  }
+  // Links in the notes open in the browser. Left alone, a click would navigate
+  // this window itself away to GitHub.
+  elChangelog.addEventListener('click', (e) => {
+    const link = e.target.closest('a[href]')
+    if (!link) return
+    e.preventDefault()
+    window.updaterAPI.openLink(link.href)
+  })
 
   window.updaterAPI.onInit((d) => {
     elVerCurrent.textContent = `v${d.currentVersion}`
@@ -223,9 +220,9 @@
     if (d.releaseUrl) {
       releaseUrl = d.releaseUrl
       elReleaseLink.style.display = ''
-      elReleaseLink.onclick = (e) => { e.preventDefault() }
+      elReleaseLink.onclick = (e) => { e.preventDefault(); window.updaterAPI.openLink(releaseUrl) }
     }
-    elChangelog.innerHTML = simpleMarkdown(d.releaseNotes)
+    elChangelog.innerHTML = renderReleaseNotes(d.releaseNotes)
     appendLog(`Update available: v${d.currentVersion} → v${d.newVersion}`, 'info')
   })
 

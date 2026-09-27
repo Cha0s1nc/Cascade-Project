@@ -4,6 +4,8 @@ contextBridge.exposeInMainWorld('updaterAPI', {
   download: () => ipcRenderer.invoke('updater:download'),
   install:  () => ipcRenderer.invoke('updater:install'),
   dismiss:  () => ipcRenderer.invoke('updater:dismiss'),
+  // Through main's shell-open, which only opens http(s) URLs.
+  openLink: (url) => ipcRenderer.invoke('shell-open', url),
 
   onInit:     (cb) => ipcRenderer.on('updater:init',     (_, d) => cb(d)),
   onProgress: (cb) => ipcRenderer.on('updater:progress', (_, d) => cb(d)),
