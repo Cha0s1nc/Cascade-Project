@@ -166,6 +166,16 @@ public extension JellyfinClient {
         ]) { _, new in new })
     }
 
+    /// A random selection of songs, for Shuffle All. One request, so the
+    /// first track starts without waiting for the whole library; capped,
+    /// because a queue past a thousand songs is days of music and a big
+    /// response on a phone. Shuffled again after merging: each library comes
+    /// back in its own random order, joined one library after the other.
+    func randomSongs(limit: Int = 1000, favoritesOnly: Bool = false) async throws -> [JfItem] {
+        Array(try await songs(limit: limit, sortBy: "Random", favoritesOnly: favoritesOnly)
+            .shuffled().prefix(limit))
+    }
+
     /// An album's tracks in playing order. Disc number first, because a
     /// two-disc album sorted on track number alone interleaves the discs.
     func tracks(inAlbum albumId: String) async throws -> [JfItem] {

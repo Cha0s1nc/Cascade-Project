@@ -79,6 +79,16 @@ struct BrowseKey: Equatable {
     var favoritesOnly = false
 }
 
+/// Plays a list shuffled, the way the player's own shuffle does it: a random
+/// first track, then shuffle turned on around it. Playing index 0 and then
+/// shuffling always started on the list's first song.
+@MainActor
+func playShuffled(_ items: [JfItem], on player: PlaybackService?) async {
+    guard let player, !items.isEmpty else { return }
+    await player.play(items, startIndex: Int.random(in: items.indices))
+    player.toggleShuffle()
+}
+
 extension View {
     /// The row of controls above a browsing screen's list. On tvOS it is a
     /// focus section: its button sits at the left edge, and moving up from
