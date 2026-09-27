@@ -45,6 +45,11 @@ export interface JfItem {
   AlbumArtist?: string
   Artists?: string[]
 
+  /** Needs Fields=Genres. Album/movie/show genres; usually empty on artists. */
+  Genres?: string[]
+  /** Needs Fields=SortName. Falls back to Name when absent (older servers). */
+  SortName?: string
+
   /** Art tags. Presence means art exists; the value is not used in image URLs. */
   AlbumPrimaryImageTag?: string
   ImageTags?: { Primary?: string }

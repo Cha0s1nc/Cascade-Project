@@ -220,6 +220,13 @@ html[data-platform="linux"] #ov-video-close { right: calc(var(--caption-reserve,
 .ov-dd-item.active { color: var(--text); }
 .dd-check { display: inline-block; width: 12px; flex-shrink: 0; color: var(--accent1, var(--accent)); }
 .ov-dd-item.active .dd-check::before { content: '✓'; }
+/* Genre/decade lists can run to hundreds of entries on a large library -
+   these two are the only .ov-dropdowns that need a scroll cap. */
+#lib-sort-dropdown, #lib-filter-dropdown { max-height: 70vh; overflow-y: auto; }
+.lib-filter-panel { display: flex; flex-direction: column; gap: 8px; padding: 6px 8px; min-width: 220px; }
+.lib-filter-label { font-size: 11px; color: var(--text3); margin-top: 2px; }
+.lib-filter-panel select.setting-input { width: 100%; }
+.lib-filter-btn.active { color: var(--text); border-color: var(--accent); background: var(--accent-glow); }
 .np-overlay-btns { display: flex; align-items: center; gap: 20px; }
 /* Two rows share .np-overlay-btns' base but need their own gap - was inline
    style= on each, moved here so index.html markup carries no layout of its

@@ -256,10 +256,20 @@
         <div id="albums-index">
           <div class="sect-header" style="margin-bottom:14px">
             <span class="sect-title">All Albums</span>
-            <button class="shuffle-all-btn" id="btn-shuffle-albums">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
-              Shuffle All
-            </button>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button class="shuffle-all-btn lib-sort-btn" data-lib-view="albums">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/></svg>
+                <span class="lib-sort-label">Name</span>
+              </button>
+              <button class="shuffle-all-btn lib-filter-btn" data-lib-view="albums">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                Filter
+              </button>
+              <button class="shuffle-all-btn" id="btn-shuffle-albums">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
+                Shuffle All
+              </button>
+            </div>
           </div>
           <div class="album-grid" id="albums-grid">
             <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
@@ -303,6 +313,16 @@
         <div id="movies-index">
           <div class="sect-header" style="margin-bottom:14px">
             <span class="sect-title">Movies</span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button class="shuffle-all-btn lib-sort-btn" data-lib-view="movies">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/></svg>
+                <span class="lib-sort-label">Name</span>
+              </button>
+              <button class="shuffle-all-btn lib-filter-btn" data-lib-view="movies">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                Filter
+              </button>
+            </div>
           </div>
           <div class="poster-grid" id="movies-grid"></div>
         </div>
@@ -320,6 +340,16 @@
         <div id="shows-index">
           <div class="sect-header" style="margin-bottom:14px">
             <span class="sect-title">TV Shows</span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button class="shuffle-all-btn lib-sort-btn" data-lib-view="shows">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/></svg>
+                <span class="lib-sort-label">Name</span>
+              </button>
+              <button class="shuffle-all-btn lib-filter-btn" data-lib-view="shows">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                Filter
+              </button>
+            </div>
           </div>
           <div class="poster-grid" id="shows-grid"></div>
         </div>
@@ -338,10 +368,20 @@
         <div id="artist-index">
           <div class="sect-header" style="margin-bottom:14px">
             <span class="sect-title">All Artists</span>
-            <button class="shuffle-all-btn" id="btn-shuffle-artists">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
-              Shuffle All
-            </button>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button class="shuffle-all-btn lib-sort-btn" data-lib-view="artists">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/></svg>
+                <span class="lib-sort-label">Name</span>
+              </button>
+              <button class="shuffle-all-btn lib-filter-btn" data-lib-view="artists">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                Filter
+              </button>
+              <button class="shuffle-all-btn" id="btn-shuffle-artists">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
+                Shuffle All
+              </button>
+            </div>
           </div>
           <div class="artist-grid" id="artists-grid">
             <div class="artist-card skel-card"><div class="artist-avatar skel"></div><div class="skel skel-text" style="width:70%;margin:0 auto"></div></div>
@@ -425,6 +465,16 @@
         <div id="playlist-index">
           <div class="sect-header" style="margin-bottom:14px">
             <span class="sect-title">Playlists</span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button class="shuffle-all-btn lib-sort-btn" data-lib-view="playlists">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/></svg>
+                <span class="lib-sort-label">Name</span>
+              </button>
+              <button class="shuffle-all-btn lib-filter-btn" data-lib-view="playlists">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                Filter
+              </button>
+            </div>
           </div>
           <div class="playlist-grid" id="playlists-grid">
             <div class="playlist-card skel-card"><div class="playlist-art skel"></div><div class="playlist-body"><div class="skel skel-text" style="width:75%"></div><div class="skel skel-text" style="width:40%;height:9px;margin-top:6px"></div></div></div>
@@ -1205,6 +1255,13 @@
     <span id="songs-sort-dir-label">Ascending</span>
   </button>
 </div>
+
+<!-- Shared sort/filter dropdowns for Albums, Artists, Playlists, Movies and
+     TV Shows (fixed-positioned, outside layout tree). One pair reused by
+     every view rather than one per view - see the "Library sort & filter"
+     block in renderer.js. Content is rebuilt each time they open. -->
+<div class="ov-dropdown" id="lib-sort-dropdown"></div>
+<div class="ov-dropdown" id="lib-filter-dropdown"></div>
 
 <!-- Sleep timer dropdown (fixed-positioned, outside layout tree) -->
 <div class="ov-dropdown" id="sleep-timer-dropdown">

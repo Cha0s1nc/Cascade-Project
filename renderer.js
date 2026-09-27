@@ -1683,15 +1683,236 @@ const jfGetMerged   = (path, params = {}) => jfClient.getMerged(path, params)
 const jfGetAllPaged = (path, params = {}) => jfClient.getAllPaged(path, params)
 const bySortName = (a, b) => (a.SortName || a.Name || '').localeCompare(b.SortName || b.Name || '')
 
+// ── Library sort & filter (Albums, Artists, Playlists, Movies, TV Shows) ─────
+//
+// Songs already has its own sort control (loadSongsSortPrefs/updateSongsSortUI
+// below); this is the same idea generalized to every other grid, sharing ONE
+// dropdown pair instead of one per view. Only one of these grids is ever
+// visible at a time (showView hides the rest), and .ov-dropdown already
+// repositions itself from the clicked button's rect on every open, so nothing
+// about the shared elements needs to be view-specific - just their contents,
+// rebuilt from whichever view's button was last clicked.
+//
+// Each view calls setLibItems() with its raw fetch (already sorted server-side
+// A-Z, same as before) whenever it loads or the library selection changes;
+// sort/filter changes then only ever re-render that cached fetch, never
+// refetch - the whole point, per the brief, is that the full list is already
+// in memory.
+const libSortDropdown   = document.getElementById('lib-sort-dropdown')
+const libFilterDropdown = document.getElementById('lib-filter-dropdown')
+let _libDropdownView = null   // which view's button opened whichever dropdown is currently open
+
+const LIB_VIEWS = {}
+
+/** `fields`: field -> menu label, in menu order. `hasGenre`/`hasDecade`/
+ *  `hasPlayed` pick which filter rows the view offers - a playlist has no
+ *  genre or year, a song library has no played/unplayed. `render(items,
+ *  prefs)` gets the RAW fetch (flat array, or for a grouped video grid the
+ *  raw {grouped, groups} shape) plus the current prefs, and is responsible
+ *  for filtering/sorting and drawing - kept in the view's own code since a
+ *  grouped grid must filter/sort each library's group separately rather than
+ *  as one merged list. */
+function registerLibView(name, opts) {
+  LIB_VIEWS[name] = { rawItems: [], prefs: null, ...opts }
+}
+
+async function loadLibPrefs(name) {
+  const v = LIB_VIEWS[name]
+  const raw = await window.cascade.store.get(`${name}Prefs`)
+  v.prefs = CascadeCore.normalizeLibraryPrefs(raw, Object.keys(v.fields))
+}
+
+function saveLibPrefs(name) {
+  window.cascade.store.set(`${name}Prefs`, JSON.stringify(LIB_VIEWS[name].prefs))
+}
+
+/** The one path a fresh fetch and a library-selection change both go through. */
+function setLibItems(name, items) {
+  LIB_VIEWS[name].rawItems = items
+  rerenderLibView(name)
+}
+
+function rerenderLibView(name) {
+  const v = LIB_VIEWS[name]
+  if (!v.prefs) return   // prefs load in flight; setLibItems runs again once loadLibPrefs resolves
+  v.render(v.rawItems, v.prefs)
+  updateLibButtons(name)
+}
+
+function updateLibButtons(name) {
+  const v = LIB_VIEWS[name]
+  const sortBtn = document.querySelector(`.lib-sort-btn[data-lib-view="${name}"] .lib-sort-label`)
+  if (sortBtn) sortBtn.textContent = v.fields[v.prefs.field]
+  const active = v.prefs.favorite || !!v.prefs.genre || v.prefs.decade != null || !!v.prefs.played
+  document.querySelector(`.lib-filter-btn[data-lib-view="${name}"]`)?.classList.toggle('active', active)
+}
+
+/** Positions any .ov-dropdown just under `btn`, clamped to the viewport - the
+ *  same math #songs-sort-dropdown uses inline, pulled out here because six
+ *  more buttons across five views now share it. */
+function positionOvDropdown(dropdown, btn) {
+  const r = btn.getBoundingClientRect()
+  dropdown.style.left = `${r.left}px`
+  dropdown.style.top = `${r.bottom + 6}px`
+  const dr = dropdown.getBoundingClientRect()
+  if (dr.right > window.innerWidth - 8) dropdown.style.left = `${window.innerWidth - dropdown.offsetWidth - 8}px`
+  if (dr.bottom > window.innerHeight - 8) dropdown.style.top = `${r.top - dropdown.offsetHeight - 6}px`
+}
+
+function openLibSortDropdown(name, btn) {
+  const v = LIB_VIEWS[name]
+  _libDropdownView = name
+  libSortDropdown.innerHTML = Object.entries(v.fields).map(([field, label]) =>
+    `<button class="ov-dd-item${field === v.prefs.field ? ' active' : ''}" data-lib-sort-field="${field}"><span class="dd-check"></span>${esc(label)}</button>`
+  ).join('') + `<div class="ov-dd-sep"></div>
+    <button class="ov-dd-item" data-lib-sort-dir-toggle>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform:${v.prefs.dir === 'desc' ? 'rotate(180deg)' : ''}"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+      <span>${v.prefs.dir === 'desc' ? 'Descending' : 'Ascending'}</span>
+    </button>`
+  positionOvDropdown(libSortDropdown, btn)
+  libSortDropdown.classList.add('open')
+}
+
+function libOptionHtml(value, label, selected) {
+  return `<option value="${esc(String(value))}"${selected ? ' selected' : ''}>${esc(label)}</option>`
+}
+
+function openLibFilterDropdown(name, btn) {
+  const v = LIB_VIEWS[name]
+  _libDropdownView = name
+  const opts = CascadeCore.libraryFilterOptions(v.rawItems.groups
+    ? v.rawItems.groups.flatMap(g => g.items) : v.rawItems)
+  // An active genre/decade must survive even if the currently loaded items no
+  // longer include it (the library selection just changed) - otherwise there
+  // would be no way to clear it back out of the dropdown.
+  const genres  = v.prefs.genre && !opts.genres.includes(v.prefs.genre) ? [v.prefs.genre, ...opts.genres] : opts.genres
+  const decades = v.prefs.decade != null && !opts.decades.includes(v.prefs.decade) ? [v.prefs.decade, ...opts.decades] : opts.decades
+
+  const rows = [`<div class="lib-check-row">
+    <span class="lib-check-label">Favorites only</span>
+    <label class="toggle"><input type="checkbox" id="lib-filter-favorite"${v.prefs.favorite ? ' checked' : ''}><span class="toggle-track"></span></label>
+  </div>`]
+  if (v.hasGenre) rows.push(`<div class="lib-filter-label">Genre</div>
+    <select class="setting-input" id="lib-filter-genre" style="width:100%">
+      ${libOptionHtml('', 'All genres', !v.prefs.genre)}
+      ${genres.map(g => libOptionHtml(g, g, g === v.prefs.genre)).join('')}
+    </select>`)
+  if (v.hasDecade) rows.push(`<div class="lib-filter-label">Decade</div>
+    <select class="setting-input" id="lib-filter-decade" style="width:100%">
+      ${libOptionHtml('', 'All years', v.prefs.decade == null)}
+      ${decades.map(d => libOptionHtml(d, `${d}s`, d === v.prefs.decade)).join('')}
+    </select>`)
+  if (v.hasPlayed) rows.push(`<div class="lib-filter-label">Played</div>
+    <select class="setting-input" id="lib-filter-played" style="width:100%">
+      ${libOptionHtml('', 'Any', !v.prefs.played)}
+      ${libOptionHtml('unplayed', 'Unplayed', v.prefs.played === 'unplayed')}
+      ${libOptionHtml('played', 'Played', v.prefs.played === 'played')}
+    </select>`)
+  rows.push(`<div class="ov-dd-sep"></div><button class="ov-dd-item" id="lib-filter-clear">Clear filters</button>`)
+  libFilterDropdown.innerHTML = `<div class="lib-filter-panel">${rows.join('')}</div>`
+
+  document.getElementById('lib-filter-favorite').addEventListener('change', e => {
+    v.prefs.favorite = e.target.checked
+    saveLibPrefs(name); rerenderLibView(name)
+  })
+  document.getElementById('lib-filter-genre')?.addEventListener('change', e => {
+    v.prefs.genre = e.target.value || null
+    saveLibPrefs(name); rerenderLibView(name)
+  })
+  document.getElementById('lib-filter-decade')?.addEventListener('change', e => {
+    const n = Number(e.target.value)
+    v.prefs.decade = e.target.value !== '' && Number.isFinite(n) ? n : null
+    saveLibPrefs(name); rerenderLibView(name)
+  })
+  document.getElementById('lib-filter-played')?.addEventListener('change', e => {
+    v.prefs.played = e.target.value || null
+    saveLibPrefs(name); rerenderLibView(name)
+  })
+  document.getElementById('lib-filter-clear').addEventListener('click', () => {
+    Object.assign(v.prefs, { favorite: false, genre: null, decade: null, played: null })
+    saveLibPrefs(name); rerenderLibView(name)
+    openLibFilterDropdown(name, btn)   // rebuild with the cleared state, stays open
+  })
+
+  positionOvDropdown(libFilterDropdown, btn)
+  libFilterDropdown.classList.add('open')
+}
+
+document.querySelectorAll('.lib-sort-btn').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation()
+    const name = btn.dataset.libView
+    const wasOpen = libSortDropdown.classList.contains('open') && _libDropdownView === name
+    libFilterDropdown.classList.remove('open')
+    libSortDropdown.classList.toggle('open', !wasOpen)
+    if (!wasOpen) openLibSortDropdown(name, btn)
+  })
+})
+
+document.querySelectorAll('.lib-filter-btn').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation()
+    const name = btn.dataset.libView
+    const wasOpen = libFilterDropdown.classList.contains('open') && _libDropdownView === name
+    libSortDropdown.classList.remove('open')
+    libFilterDropdown.classList.toggle('open', !wasOpen)
+    if (!wasOpen) openLibFilterDropdown(name, btn)
+  })
+})
+
+libSortDropdown.addEventListener('click', (e) => {
+  e.stopPropagation()
+  const name = _libDropdownView
+  if (!name) return
+  const v = LIB_VIEWS[name]
+  const btn = document.querySelector(`.lib-sort-btn[data-lib-view="${name}"]`)
+  const fieldBtn = e.target.closest('[data-lib-sort-field]')
+  if (fieldBtn) {
+    v.prefs.field = fieldBtn.dataset.libSortField
+    saveLibPrefs(name); rerenderLibView(name)
+    openLibSortDropdown(name, btn)
+    return
+  }
+  if (e.target.closest('[data-lib-sort-dir-toggle]')) {
+    v.prefs.dir = v.prefs.dir === 'desc' ? 'asc' : 'desc'
+    saveLibPrefs(name); rerenderLibView(name)
+    openLibSortDropdown(name, btn)
+  }
+})
+
+document.addEventListener('mousedown', (e) => {
+  if (!libSortDropdown.contains(e.target) && !e.target.closest('.lib-sort-btn')) libSortDropdown.classList.remove('open')
+  if (!libFilterDropdown.contains(e.target) && !e.target.closest('.lib-filter-btn')) libFilterDropdown.classList.remove('open')
+})
+
+// No "Recently played" here: checked against the test server, and a
+// MusicAlbum's own UserData.LastPlayedDate never gets set even after its
+// tracks are marked played (Played stays false, PlayCount stays 0 - Jellyfin
+// does not roll play state up from tracks to the album). Offering that sort
+// would silently do nothing (every album ties at 0, falling back to the name
+// tiebreak), so it's left out rather than shipped as a dead menu item.
+registerLibView('albums', {
+  fields: { name: 'Name', artist: 'Artist', year: 'Year', added: 'Date added', random: 'Random' },
+  hasGenre: true, hasDecade: true, hasPlayed: false,
+  render(items, prefs) {
+    const grid = document.getElementById('albums-grid')
+    if (!items.length) { grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">No albums found</div>`; return }
+    const shown = CascadeCore.sortLibraryItems(CascadeCore.filterLibraryItems(items, prefs), prefs.field, prefs.dir)
+    if (!shown.length) { grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">No albums match these filters</div>`; return }
+    grid.innerHTML = shown.map(item => albumCard(item)).join('')
+    wireAlbumCards(grid, shown, item => { showView('albums'); openAlbum(item.Id) })
+  }
+})
+
 async function loadAlbums() {
   const grid = document.getElementById('albums-grid')
   grid.dataset.loaded = '1'
+  await loadLibPrefs('albums')
   try {
-    const params = { SortBy: 'SortName', SortOrder: 'Ascending', IncludeItemTypes: 'MusicAlbum', Recursive: true, Fields: 'SortName', Limit: 500 }
+    const params = { SortBy: 'SortName', SortOrder: 'Ascending', IncludeItemTypes: 'MusicAlbum', Recursive: true, Fields: 'SortName,Genres,ProductionYear,UserData', Limit: 500 }
     const data = await jfGetAllPaged(`/Users/${jf.userId}/Items`, params)
     data.Items.sort(bySortName)   // the merge only kept SortBy within each library
-    grid.innerHTML = data.Items.map(item => albumCard(item)).join('')
-    wireAlbumCards(grid, data.Items, item => { showView('albums'); openAlbum(item.Id) })
+    setLibItems('albums', data.Items)
   } catch (e) {
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Could not load albums</div>`
   }
@@ -1823,15 +2044,32 @@ document.getElementById('btn-play-album').addEventListener('click', () => {
 
 // ── Artists ───────────────────────────────────────────────────────────────────
 
+// No genre/year fields here: Jellyfin doesn't populate those on the artist
+// item itself (they live on the album/track), so offering that filter would
+// just show an empty list. Favorites still works - IsFavorite is a real
+// per-artist UserData flag.
+registerLibView('artists', {
+  fields: { name: 'Name', added: 'Date added', random: 'Random' },
+  hasGenre: false, hasDecade: false, hasPlayed: false,
+  render(items, prefs) {
+    const grid = document.getElementById('artists-grid')
+    if (!items.length) { grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">No artists found</div>`; return }
+    const shown = CascadeCore.sortLibraryItems(CascadeCore.filterLibraryItems(items, prefs), prefs.field, prefs.dir)
+    if (!shown.length) { grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">No artists match these filters</div>`; return }
+    grid.innerHTML = shown.map(item => artistCardHtml(item)).join('')
+    wireArtistCards(grid, shown, item => openArtist(item.Id, item.Name))
+  }
+})
+
 async function loadArtists() {
   const grid = document.getElementById('artists-grid')
   grid.dataset.loaded = '1'
+  await loadLibPrefs('artists')
   try {
-    const params = { UserId: jf.userId, SortBy: 'SortName', SortOrder: 'Ascending', Fields: 'SortName', Limit: 500 }
+    const params = { UserId: jf.userId, SortBy: 'SortName', SortOrder: 'Ascending', Fields: 'SortName,DateCreated,UserData', Limit: 500 }
     const data = await jfGetAllPaged(`/Artists`, params)
     data.Items.sort(bySortName)   // the merge only kept SortBy within each library
-    grid.innerHTML = data.Items.map(item => artistCardHtml(item)).join('')
-    wireArtistCards(grid, data.Items, item => openArtist(item.Id, item.Name))
+    setLibItems('artists', data.Items)
   } catch (e) {
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Could not load artists</div>`
   }
@@ -2163,33 +2401,53 @@ function _drawSongRows(rows) {
 
 // ── Playlists ─────────────────────────────────────────────────────────────────
 
+function playlistCardHtml(item) {
+  const art = artUrl(item.Id, item.ImageTags?.Primary)
+  const img = art ? `<img src="${art}" alt="" loading="lazy" onerror="this.style.display='none'">` : '♪'
+  const count = item.ChildCount != null ? `${item.ChildCount} songs` : ''
+  return `<div class="playlist-card" data-id="${item.Id}" data-name="${esc(item.Name)}">
+    <div class="playlist-art">${img}</div>
+    <div class="playlist-body">
+      <div class="playlist-name">${esc(item.Name)}</div>
+      <div class="playlist-count">${count}</div>
+    </div>
+  </div>`
+}
+
+// Sort/filter only - the playlist views themselves (rule builder, editing)
+// are the artists agent's item, per the overnight brief's ownership table.
+// Smart cards (Favorites, Most Played) always stay pinned first: they are
+// generated, not part of the sorted/filtered set.
+registerLibView('playlists', {
+  fields: { name: 'Name', added: 'Date added', count: 'Song count' },
+  hasGenre: false, hasDecade: false, hasPlayed: false,
+  render(items, prefs) {
+    const grid = document.getElementById('playlists-grid')
+    const smartHtml = smartPlaylistCardHtml('favorites') + smartPlaylistCardHtml('most-played')
+    const shown = CascadeCore.sortLibraryItems(CascadeCore.filterLibraryItems(items, prefs), prefs.field, prefs.dir)
+    const emptyHtml = !shown.length && items.length
+      ? `<div class="empty-state" style="grid-column:1/-1">No playlists match these filters</div>` : ''
+    grid.innerHTML = smartHtml + shown.map(playlistCardHtml).join('') + emptyHtml
+    wirePlaylistCards(grid)
+    wireSmartPlaylistCards(grid)
+  }
+})
+
 async function loadPlaylists() {
   const grid = document.getElementById('playlists-grid')
   grid.dataset.loaded = '1'
-  const smartHtml = smartPlaylistCardHtml('favorites') + smartPlaylistCardHtml('most-played')
+  await loadLibPrefs('playlists')
   try {
     const data = await jfGet(`/Users/${jf.userId}/Items`, {
       SortBy: 'SortName',
       SortOrder: 'Ascending',
       IncludeItemTypes: 'Playlist',
       Recursive: true,
-      Fields: 'ChildCount'
+      Fields: 'ChildCount,DateCreated,UserData'
     })
-    grid.innerHTML = smartHtml + (data.Items || []).map(item => {
-      const art = artUrl(item.Id, item.ImageTags?.Primary)
-      const img = art ? `<img src="${art}" alt="" loading="lazy" onerror="this.style.display='none'">` : '♪'
-      const count = item.ChildCount != null ? `${item.ChildCount} songs` : ''
-      return `<div class="playlist-card" data-id="${item.Id}" data-name="${esc(item.Name)}">
-        <div class="playlist-art">${img}</div>
-        <div class="playlist-body">
-          <div class="playlist-name">${esc(item.Name)}</div>
-          <div class="playlist-count">${count}</div>
-        </div>
-      </div>`
-    }).join('')
-    wirePlaylistCards(grid)
-    wireSmartPlaylistCards(grid)
+    setLibItems('playlists', data.Items || [])
   } catch (e) {
+    const smartHtml = smartPlaylistCardHtml('favorites') + smartPlaylistCardHtml('most-played')
     grid.innerHTML = smartHtml + `<div class="empty-state" style="grid-column:1/-1">Could not load playlists</div>`
     wireSmartPlaylistCards(grid)
   }
@@ -3079,7 +3337,52 @@ function wireLibGroupHeaders(grid) {
 // across its own category's libraries, paging each to the end -
 // with more than one selected, the grid renders one collapsible group per
 // library instead of a single merged pile.
-async function loadPosterGrid(gridId, itemType, sub, onPick, libs, ids) {
+/** Draws either the grouped-by-library layout or a single flat grid from
+ *  `raw` (the {grouped, groups|items} shape loadPosterGrid fetched), applying
+ *  the current sort/filter prefs. Shared by the initial load and every
+ *  sort/filter re-render, which is why the network fetch itself lives only in
+ *  loadPosterGrid - this never refetches. A grouped grid filters/sorts each
+ *  library's own items separately rather than as one merged list, so
+ *  changing sort/filter on a two-library grid re-sorts each shelf on its own. */
+function renderPosterGridView(gridId, sub, onPick, kind, libs, raw, prefs) {
+  const grid = document.getElementById(gridId)
+  const filterSort = arr => CascadeCore.sortLibraryItems(CascadeCore.filterLibraryItems(arr, prefs), prefs.field, prefs.dir)
+  if (raw.grouped) {
+    if (!raw.groups.some(g => g.items.length)) {
+      grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Nothing here yet</div>`
+      return
+    }
+    const groups = raw.groups.map(g => ({ ...g, items: filterSort(g.items) }))
+    // The container is itself a .poster-grid, so without this its groups
+    // become grid cells rather than stacked sections. See .lib-grouped.
+    grid.classList.add('lib-grouped')
+    grid.innerHTML = groups.map(g => {
+      const lib = libs.find(l => l.Id === g.libraryId)
+      return posterGroupHTML(g.libraryId, lib ? lib.Name : g.libraryId, g.items, sub)
+    }).join('')
+    grid.querySelectorAll('.lib-group').forEach((section, i) => {
+      wirePosterCards(section, groups[i].items, onPick, kind)
+    })
+    wireLibGroupHeaders(grid)
+    wireHShelf(grid)
+  } else {
+    // Single library: the container goes back to being a real poster grid.
+    grid.classList.remove('lib-grouped')
+    if (!raw.items.length) {
+      grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Nothing here yet</div>`
+      return
+    }
+    const shown = filterSort(raw.items)
+    if (!shown.length) {
+      grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Nothing matches these filters</div>`
+      return
+    }
+    grid.innerHTML = shown.map(i => posterCard(i, sub(i))).join('')
+    wirePosterCards(grid, shown, onPick, kind)
+  }
+}
+
+async function loadPosterGrid(name, gridId, itemType, sub, onPick, libs, ids) {
   const grid = document.getElementById(gridId)
   grid.dataset.loaded = '1'
   // A movie has its own playable media; a series is a container of episodes
@@ -3090,43 +3393,26 @@ async function loadPosterGrid(gridId, itemType, sub, onPick, libs, ids) {
   // skeletons stack into a full-width column instead of a grid.
   grid.classList.remove('lib-grouped')
   grid.innerHTML = skeletonHTML('poster', 8)
+  registerLibView(name, {
+    fields: { name: 'Name', year: 'Year', added: 'Date added', random: 'Random' },
+    hasGenre: true, hasDecade: true, hasPlayed: true,
+    render: (raw, prefs) => renderPosterGridView(gridId, sub, onPick, kind, libs, raw, prefs),
+  })
+  await loadLibPrefs(name)
   const path = `/Users/${jf.userId}/Items`
   const params = {
     SortBy: 'SortName', SortOrder: 'Ascending',
     IncludeItemTypes: itemType, Recursive: true,
-    Fields: 'UserData,ProductionYear',
+    Fields: 'UserData,ProductionYear,Genres',
     Limit: 500,
   }
   try {
     if ((ids || []).length > 1) {
       const groups = await jfClient.getAllGrouped(path, params, ids)
-      if (!groups.some(g => g.items.length)) {
-        grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Nothing here yet</div>`
-        return
-      }
-      // The container is itself a .poster-grid, so without this its groups
-      // become grid cells rather than stacked sections. See .lib-grouped.
-      grid.classList.add('lib-grouped')
-      grid.innerHTML = groups.map(g => {
-        const lib = libs.find(l => l.Id === g.libraryId)
-        return posterGroupHTML(g.libraryId, lib ? lib.Name : g.libraryId, g.items, sub)
-      }).join('')
-      grid.querySelectorAll('.lib-group').forEach((section, i) => {
-        wirePosterCards(section, groups[i].items, onPick, kind)
-      })
-      wireLibGroupHeaders(grid)
-      wireHShelf(grid)
+      setLibItems(name, { grouped: true, groups })
     } else {
-      // Single library: the container goes back to being a real poster grid.
-      grid.classList.remove('lib-grouped')
       const data = await jfClient.getAllPaged(path, params, ids)
-      const items = data.Items || []
-      if (!items.length) {
-        grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Nothing here yet</div>`
-        return
-      }
-      grid.innerHTML = items.map(i => posterCard(i, sub(i))).join('')
-      wirePosterCards(grid, items, onPick, kind)
+      setLibItems(name, { grouped: false, items: data.Items || [] })
     }
   } catch {
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Could not load this library</div>`
@@ -3134,12 +3420,12 @@ async function loadPosterGrid(gridId, itemType, sub, onPick, libs, ids) {
 }
 
 const loadMovies = () => loadPosterGrid(
-  'movies-grid', 'Movie',
+  'movies', 'movies-grid', 'Movie',
   m => m.ProductionYear || '',
   m => openMovie(m.Id), _movieLibs, jf.movieLibraryIds || [])
 
 const loadShows = () => loadPosterGrid(
-  'shows-grid', 'Series',
+  'shows', 'shows-grid', 'Series',
   s => s.ProductionYear || '',
   s => openSeries(s.Id), _showLibs, jf.showLibraryIds || [])
 
