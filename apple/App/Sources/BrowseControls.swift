@@ -8,15 +8,41 @@ import CascadeKit
 /// behind one button.
 ///
 /// Placed at the top of each screen's content rather than in the toolbar, on
-/// both platforms: tvOS does not show toolbar items on these screens, and a
-/// Menu in the content is an ordinary focus target there.
+/// both platforms: tvOS does not show toolbar items on these screens.
+///
+/// tvOS gets a dialog instead of a Menu. A Menu there takes focus but never
+/// opened on select (tvOS 26.5 simulator, driven by the Siri Remote script),
+/// while a confirmation dialog is a plain list of focusable buttons.
 struct SortMenu<Field: Hashable>: View {
     let fields: [(Field, String)]
     @Binding var field: Field
     @Binding var direction: SortDirection
     var favoritesOnly: Binding<Bool>?
+    #if os(tvOS)
+    @State private var isChoosing = false
+    #endif
 
     var body: some View {
+        #if os(tvOS)
+        Button { isChoosing = true } label: {
+            Label(summary, systemImage: "arrow.up.arrow.down")
+        }
+        .confirmationDialog("Sort", isPresented: $isChoosing) {
+            if fields.count > 1 {
+                ForEach(fields, id: \.0) { option in
+                    Button(option.0 == field ? "\(option.1) \u{2713}" : option.1) { field = option.0 }
+                }
+            }
+            Button(direction == .ascending ? "Order: Ascending" : "Order: Descending") {
+                direction = direction == .ascending ? .descending : .ascending
+            }
+            if let favoritesOnly {
+                Button(favoritesOnly.wrappedValue ? "Favorites Only: On" : "Favorites Only: Off") {
+                    favoritesOnly.wrappedValue.toggle()
+                }
+            }
+        }
+        #else
         Menu {
             // One field (Artists) needs no picker, only the direction.
             if fields.count > 1 {
@@ -34,6 +60,7 @@ struct SortMenu<Field: Hashable>: View {
         } label: {
             Label(summary, systemImage: "arrow.up.arrow.down")
         }
+        #endif
     }
 
     private var summary: String {
@@ -50,4 +77,19 @@ struct BrowseKey: Equatable {
     var sort: String
     var direction: SortDirection
     var favoritesOnly = false
+}
+
+extension View {
+    /// The row of controls above a browsing screen's list. On tvOS it is a
+    /// focus section: its button sits at the left edge, and moving up from
+    /// the grid only looks straight up, so without this focus skipped the
+    /// row and landed on the tab bar.
+    @ViewBuilder
+    func browseHeader() -> some View {
+        #if os(tvOS)
+        focusSection()
+        #else
+        self
+        #endif
+    }
 }

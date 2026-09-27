@@ -21,6 +21,7 @@ struct AlbumsView: View {
                 Spacer()
             }
             .padding(.horizontal)
+            .browseHeader()
             LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty)
             ItemGrid(items: items)
         }
