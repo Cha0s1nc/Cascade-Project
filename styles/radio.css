@@ -1,0 +1,6 @@
+/* Radio nav row: hidden until Settings > Library > "Show Live TV as Radio" is
+   on and the account can see Live TV at all - see applyRadioNavVisibility()
+   in renderer.js. Same one-class-on-body pattern as .has-movies/.has-shows
+   in styles/layout.css; kept in its own file rather than appended there so
+   this feature's CSS stays in one place a later diff can find in one look. */
+body:not(.has-radio) .nav-radio { display: none; }
