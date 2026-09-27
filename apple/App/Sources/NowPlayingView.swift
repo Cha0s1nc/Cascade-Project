@@ -1,5 +1,8 @@
 import SwiftUI
 import CascadeKit
+#if os(iOS)
+import AVKit
+#endif
 
 /// Full screen player. iOS gets a sheet with a scrub slider and transport
 /// buttons; tvOS gets the chrome-less Apple Music style screen: artwork as the
@@ -161,6 +164,9 @@ struct NowPlayingView: View {
                 }
                 .foregroundStyle(Color.secondary)
                 .accessibilityLabel("Queue")
+
+                RoutePicker()
+                    .frame(width: 30, height: 30)
             }
             .sheet(isPresented: $showingQueue) {
                 QueueView(player: player)
@@ -249,3 +255,20 @@ struct NowPlayingView: View {
     }
     #endif
 }
+
+#if os(iOS)
+/// The system AirPlay button. Apple's own picker rather than a custom list:
+/// it knows the routes, the permissions and the current output, and SwiftUI
+/// has no equivalent.
+private struct RoutePicker: UIViewRepresentable {
+    func makeUIView(context: Context) -> AVRoutePickerView {
+        let view = AVRoutePickerView()
+        view.tintColor = .secondaryLabel
+        view.activeTintColor = .tintColor
+        view.accessibilityLabel = "AirPlay"
+        return view
+    }
+
+    func updateUIView(_ view: AVRoutePickerView, context: Context) {}
+}
+#endif
