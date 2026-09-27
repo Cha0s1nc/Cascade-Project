@@ -1442,7 +1442,6 @@ ipcMain.handle('updater:install', () => {
       dmgPath: pendingDownload.destPath,
       appBundle: path.resolve(process.execPath, '..', '..', '..'),
       expectedVersion: pendingDownload.version,
-      bundleId: require('./package.json').build.appId,
       pid: process.pid,
       log,
     }).then(() => {

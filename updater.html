@@ -255,7 +255,15 @@
     btnAction.disabled = false
     btnAction.className = 'btn btn-success'
     btnAction.textContent = '🔄  Restart & Install'
-    btnAction.onclick = () => { btnAction.disabled = true; appendLog('Installing…', 'info'); window.updaterAPI.install() }
+    btnAction.onclick = () => {
+      btnAction.disabled = true
+      appendLog('Installing…', 'info')
+      // A failure here used to vanish, leaving "Installing…" on screen forever.
+      window.updaterAPI.install().catch(err => {
+        appendLog(`Could not install: ${err?.message || err}. Use View on GitHub to download it instead.`, 'error')
+        btnAction.disabled = false
+      })
+    }
   })
 
   window.updaterAPI.onError((d) => {
