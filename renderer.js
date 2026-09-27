@@ -4216,7 +4216,23 @@ onDeck('pause', () => {
   document.getElementById('icon-pause').style.display = 'none'
   // A manual pause mid-crossfade abandons it rather than trying to keep the
   // two decks' pause state in sync - simplest behavior, least surprising.
-  cancelCrossfade()
+  //
+  // BUT the browser fires this same 'pause' event as part of reaching the end
+  // of a media resource, immediately before 'ended' - and audio.ended is
+  // already true by the time this handler runs (spec order: paused state set,
+  // then 'pause', then 'ended'). Cancelling here on THAT pause tore down a
+  // crossfade that was completing normally: it detached the deck that had
+  // already faded in correctly and cleared _cfActive, so the 'ended' handler
+  // firing right behind this one no longer saw the fade as active and cold-
+  // restarted the next track on the deck that just naturally ended, throwing
+  // away the deck that was already playing it. This is the "restarts when
+  // crossfade ends" bug - reproduced over CDP by forcing a prefetch miss (a
+  // slow cold resolve narrows the fade to end at almost exactly the outgoing
+  // track's true duration, so the native end-of-media pause+ended pair
+  // usually wins the race against the crossfade's own setTimeout handoff).
+  // A genuine manual pause never has audio.ended true, so this only skips the
+  // cancel for the natural-end case.
+  if (!audio.ended) cancelCrossfade()
 
   // Discord has no paused state. Its timestamps are wall-clock, so a presence
   // left up while paused either runs the progress bar on without us or, with
