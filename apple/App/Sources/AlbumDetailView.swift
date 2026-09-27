@@ -8,6 +8,7 @@ struct AlbumDetailView: View {
     @State private var tracks: [JfItem] = []
     @State private var isLoading = true
     @State private var error: String?
+    @State private var addingToPlaylist = false
 
     var body: some View {
         ScrollView {
@@ -34,6 +35,7 @@ struct AlbumDetailView: View {
             }
         }
         .navigationTitle(album.name ?? "Album")
+        .sheet(isPresented: $addingToPlaylist) { AddToPlaylistSheet(tracks: tracks) }
         .task {
             guard let client = state.client else { return }
             do { tracks = try await client.tracks(inAlbum: album.id) }
@@ -63,13 +65,16 @@ struct AlbumDetailView: View {
                     Label("Play", systemImage: "play.fill")
                 }
                 Button {
-                    Task {
-                        await state.player?.play(tracks, startIndex: 0)
-                        state.player?.toggleShuffle()
-                    }
+                    Task { await playShuffled(tracks, on: state.player) }
                 } label: {
                     Label("Shuffle", systemImage: "shuffle")
                 }
+                Button {
+                    addingToPlaylist = true
+                } label: {
+                    Label("Add to Playlist", systemImage: "text.badge.plus").labelStyle(.iconOnly)
+                }
+                .disabled(tracks.isEmpty)
             }
             .buttonStyle(.borderedProminent)
         }

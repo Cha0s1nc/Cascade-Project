@@ -77,6 +77,8 @@ struct BrowseKey: Equatable {
     var sort: String
     var direction: SortDirection
     var favoritesOnly = false
+    /// Bumped to reload after a write the screen made itself.
+    var generation = 0
 }
 
 /// Plays a list shuffled, the way the player's own shuffle does it: a random
@@ -101,5 +103,18 @@ extension View {
         #else
         self
         #endif
+    }
+}
+
+extension View {
+    /// The alert every write failure shows. A refused write must never look
+    /// like a saved one (CODEMAP rule 1), so the server's reason is shown.
+    func writeErrorAlert(_ message: Binding<String?>) -> some View {
+        alert("Could not save", isPresented: Binding(get: { message.wrappedValue != nil },
+                                                     set: { if !$0 { message.wrappedValue = nil } })) {
+            Button("OK") {}
+        } message: {
+            Text(message.wrappedValue ?? "")
+        }
     }
 }
