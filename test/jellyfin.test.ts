@@ -166,6 +166,19 @@ test('getAllPaged: stops when the first page is everything', async () => {
   assert.equal(res.TotalRecordCount, 2)
 })
 
+test('getAllGrouped: pages each library to the end, kept separate', async () => {
+  const cfg = { ...baseConfig, libraryIds: ['L1', 'L2'] }
+  stubFetch(url => {
+    const q = new URL(url).searchParams
+    const all = q.get('ParentId') === 'L1' ? ['a', 'b', 'c'] : ['d']
+    const start = Number(q.get('StartIndex'))
+    return { Items: all.slice(start, start + 2).map(Id => ({ Id })), TotalRecordCount: all.length } satisfies JfItemsResponse
+  })
+
+  const groups = await clientFor(cfg).getAllGrouped('/Items', { Limit: 2 })
+  assert.deepEqual(groups.map(g => g.items.map(i => i.Id)), [['a', 'b', 'c'], ['d']])
+})
+
 test('artUrl: no tag means no art', () => {
   const c = clientFor(baseConfig)
   assert.equal(c.artUrl('X', undefined), null)

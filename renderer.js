@@ -1681,13 +1681,15 @@ async function loadRecentlyAdded() {
 // `getAllPaged` is the same thing but keeps paging past params.Limit.
 const jfGetMerged   = (path, params = {}) => jfClient.getMerged(path, params)
 const jfGetAllPaged = (path, params = {}) => jfClient.getAllPaged(path, params)
+const bySortName = (a, b) => (a.SortName || a.Name || '').localeCompare(b.SortName || b.Name || '')
 
 async function loadAlbums() {
   const grid = document.getElementById('albums-grid')
   grid.dataset.loaded = '1'
   try {
-    const params = { SortBy: 'SortName', SortOrder: 'Ascending', IncludeItemTypes: 'MusicAlbum', Recursive: true, Limit: 200 }
-    const data = await jfGetMerged(`/Users/${jf.userId}/Items`, params)
+    const params = { SortBy: 'SortName', SortOrder: 'Ascending', IncludeItemTypes: 'MusicAlbum', Recursive: true, Fields: 'SortName', Limit: 500 }
+    const data = await jfGetAllPaged(`/Users/${jf.userId}/Items`, params)
+    data.Items.sort(bySortName)   // the merge only kept SortBy within each library
     grid.innerHTML = data.Items.map(item => albumCard(item)).join('')
     wireAlbumCards(grid, data.Items, item => { showView('albums'); openAlbum(item.Id) })
   } catch (e) {
@@ -1825,8 +1827,9 @@ async function loadArtists() {
   const grid = document.getElementById('artists-grid')
   grid.dataset.loaded = '1'
   try {
-    const params = { UserId: jf.userId, SortBy: 'SortName', SortOrder: 'Ascending', Limit: 200 }
-    const data = await jfGetMerged(`/Artists`, params)
+    const params = { UserId: jf.userId, SortBy: 'SortName', SortOrder: 'Ascending', Fields: 'SortName', Limit: 500 }
+    const data = await jfGetAllPaged(`/Artists`, params)
+    data.Items.sort(bySortName)   // the merge only kept SortBy within each library
     grid.innerHTML = data.Items.map(item => artistCardHtml(item)).join('')
     wireArtistCards(grid, data.Items, item => openArtist(item.Id, item.Name))
   } catch (e) {
@@ -2914,15 +2917,6 @@ document.getElementById('tctx-delete').addEventListener('click', () => {
 // queue and hand it to playItems(), which is what makes next-episode autoplay
 // fall out for free rather than needing a second player.
 
-/** Like jfGetMerged, but against the movie libraries only, so browsing movies
- *  never fans out across TV libraries. */
-const jfGetMovies = (path, params = {}) =>
-  jfClient.getMerged(path, params, jf.movieLibraryIds || [])
-
-/** Same, against the TV libraries only. */
-const jfGetShows = (path, params = {}) =>
-  jfClient.getMerged(path, params, jf.showLibraryIds || [])
-
 /** Runtime as "1h 47m" / "47m". Distinct from fmtTime, which is for a scrubber. */
 function fmtRuntime(ticks) {
   if (!ticks) return ''
@@ -3080,12 +3074,12 @@ function wireLibGroupHeaders(grid) {
 }
 
 // Both grids are the same shape, so they share one loader. `sub` picks what goes
-// under each title; `getVideo` is jfGetMovies or jfGetShows, so each grid only
-// ever fans out across its own category's libraries. `libs`/`ids` are that
-// category's known libraries and its currently selected ids (in fetch order) -
+// under each title. `libs`/`ids` are that category's known libraries and its
+// currently selected ids (in fetch order), so each grid only ever fans out
+// across its own category's libraries, paging each to the end -
 // with more than one selected, the grid renders one collapsible group per
 // library instead of a single merged pile.
-async function loadPosterGrid(gridId, itemType, sub, onPick, getVideo, libs, ids) {
+async function loadPosterGrid(gridId, itemType, sub, onPick, libs, ids) {
   const grid = document.getElementById(gridId)
   grid.dataset.loaded = '1'
   // A movie has its own playable media; a series is a container of episodes
@@ -3105,7 +3099,7 @@ async function loadPosterGrid(gridId, itemType, sub, onPick, getVideo, libs, ids
   }
   try {
     if ((ids || []).length > 1) {
-      const groups = await jfClient.getGrouped(path, params, ids)
+      const groups = await jfClient.getAllGrouped(path, params, ids)
       if (!groups.some(g => g.items.length)) {
         grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Nothing here yet</div>`
         return
@@ -3125,7 +3119,7 @@ async function loadPosterGrid(gridId, itemType, sub, onPick, getVideo, libs, ids
     } else {
       // Single library: the container goes back to being a real poster grid.
       grid.classList.remove('lib-grouped')
-      const data = await getVideo(path, params)
+      const data = await jfClient.getAllPaged(path, params, ids)
       const items = data.Items || []
       if (!items.length) {
         grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Nothing here yet</div>`
@@ -3142,12 +3136,12 @@ async function loadPosterGrid(gridId, itemType, sub, onPick, getVideo, libs, ids
 const loadMovies = () => loadPosterGrid(
   'movies-grid', 'Movie',
   m => m.ProductionYear || '',
-  m => openMovie(m.Id), jfGetMovies, _movieLibs, jf.movieLibraryIds || [])
+  m => openMovie(m.Id), _movieLibs, jf.movieLibraryIds || [])
 
 const loadShows = () => loadPosterGrid(
   'shows-grid', 'Series',
   s => s.ProductionYear || '',
-  s => openSeries(s.Id), jfGetShows, _showLibs, jf.showLibraryIds || [])
+  s => openSeries(s.Id), _showLibs, jf.showLibraryIds || [])
 
 // ── Continue watching (Home) ──
 //

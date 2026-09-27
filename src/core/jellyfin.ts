@@ -389,34 +389,46 @@ export class JellyfinClient {
   async getAllPaged(path: string, params: JfParams = {}, libraryIds?: string[]): Promise<JfItemsResponse> {
     const configured = libraryIds ?? this.config.libraryIds
     const ids: (string | null)[] = configured?.length ? configured : [null]
-    const pageSize = Number(params.Limit) || DEFAULT_PAGE_SIZE
     const { query, strip } = withDedupeFields(params, configured ?? [])
-    params = query
 
-    const perLibrary = await Promise.all(ids.map(async libId => {
-      const baseParams = libId ? { ...params, ParentId: libId } : params
-
-      const first = await this.get<JfItemsResponse>(path, { ...baseParams, StartIndex: 0 })
-        .catch(() => EMPTY_RESPONSE)
-
-      const items = [...(first.Items || [])]
-      const total = first.TotalRecordCount ?? items.length
-
-      if (total > items.length) {
-        const starts: number[] = []
-        for (let start = items.length; start < total; start += pageSize) starts.push(start)
-
-        const pages = await Promise.all(starts.map(start =>
-          this.get<JfItemsResponse>(path, { ...baseParams, StartIndex: start })
-            .catch(() => EMPTY_RESPONSE)
-        ))
-        for (const p of pages) items.push(...(p.Items || []))
-      }
-
-      return items
-    }))
+    const perLibrary = await Promise.all(ids.map(libId =>
+      this.getAll(path, libId ? { ...query, ParentId: libId } : query)))
 
     return strip(dedupeById(perLibrary))
+  }
+
+  /** `getGrouped`, but paging each library to the end like `getAllPaged`. */
+  async getAllGrouped(path: string, params: JfParams = {}, libraryIds?: string[]): Promise<{ libraryId: string, items: JfItem[] }[]> {
+    const ids = libraryIds ?? this.config.libraryIds ?? []
+    if (!ids.length) return [{ libraryId: '', items: await this.getAll(path, params) }]
+
+    const results = await Promise.all(ids.map(libId => this.getAll(path, { ...params, ParentId: libId })))
+    return ids.map((libId, i) => ({ libraryId: libId, items: results[i] }))
+  }
+
+  /** Every item one query matches, paged by params.Limit. The pages after the
+   *  first are fetched in parallel once it reveals TotalRecordCount. A failed
+   *  page is dropped rather than rejecting the whole call. */
+  private async getAll(path: string, params: JfParams): Promise<JfItem[]> {
+    const pageSize = Number(params.Limit) || DEFAULT_PAGE_SIZE
+    const first = await this.get<JfItemsResponse>(path, { ...params, StartIndex: 0 })
+      .catch(() => EMPTY_RESPONSE)
+
+    const items = [...(first.Items || [])]
+    const total = first.TotalRecordCount ?? items.length
+
+    if (total > items.length) {
+      const starts: number[] = []
+      for (let start = items.length; start < total; start += pageSize) starts.push(start)
+
+      const pages = await Promise.all(starts.map(start =>
+        this.get<JfItemsResponse>(path, { ...params, StartIndex: start })
+          .catch(() => EMPTY_RESPONSE)
+      ))
+      for (const p of pages) items.push(...(p.Items || []))
+    }
+
+    return items
   }
 
   /** Primary image URL for an item. No tag means no art, so no URL.
