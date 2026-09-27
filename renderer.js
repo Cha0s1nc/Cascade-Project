@@ -881,6 +881,62 @@ function _applyAdminGating() {
   }
 }
 
+// Greys out "Approve a device" (Settings > Account) when the server itself has
+// Quick Connect switched off - same disabled+data-tip pattern as the admin
+// gating above, but a server feature check rather than a permission check, so
+// it is its own function rather than folded into _applyAdminGating(). Not
+// admin-only: any signed-in account can approve its own Quick Connect codes.
+let _qcApproveEnabled = false   // read by the click handler too, not just the button's look
+async function _applyQuickConnectGating() {
+  const enabled = await CascadeCore.quickConnectEnabled(jf.url)
+  _qcApproveEnabled = enabled
+  const btn = document.getElementById('qc-approve-btn')
+  const code = document.getElementById('qc-approve-code')
+  const host = document.getElementById('qc-approve-tip')
+  if (btn) btn.disabled = !enabled
+  if (code) code.disabled = !enabled
+  if (host) {
+    if (!enabled) host.setAttribute('data-tip', 'Quick Connect is turned off on this server')
+    else host.removeAttribute('data-tip')
+  }
+}
+
+function _showQcApproveStatus(message, isError) {
+  const row = document.getElementById('qc-approve-status-row')
+  const span = document.getElementById('qc-approve-status')
+  row.style.display = ''
+  span.textContent = message
+  span.style.color = isError ? 'var(--red)' : 'var(--text3)'
+}
+
+document.getElementById('qc-approve-btn').addEventListener('click', async () => {
+  // Guarded here too, not just via the disabled button - a disabled-looking
+  // control can still be triggered programmatically (CODEMAP house rule).
+  if (!_qcApproveEnabled) return
+  const input = document.getElementById('qc-approve-code')
+  const code = input.value.trim()
+  if (!code) { _showQcApproveStatus('Enter the code shown on the other device.', true); return }
+  const btn = document.getElementById('qc-approve-btn')
+  btn.disabled = true
+  try {
+    const ok = await CascadeCore.quickConnectAuthorize(jf, code)
+    if (ok) {
+      _showQcApproveStatus('Device approved.', false)
+      input.value = ''
+    } else {
+      // The server answered the request but the code itself did not check out -
+      // most likely already used, or typed with a slip.
+      _showQcApproveStatus('That code was not accepted. Check it and try again.', true)
+    }
+  } catch (e) {
+    // A genuinely failed request (unknown/expired code returns 404 on this
+    // server - checked directly) - show the server's own short message rather
+    // than inventing one.
+    _showQcApproveStatus(e.message || 'Could not reach the server.', true)
+  }
+  btn.disabled = !_qcApproveEnabled
+})
+
 document.getElementById('s-refresh-server').addEventListener('click', async () => {
   // The button is disabled for a non-admin, but a disabled button can still
   // be clicked programmatically - don't trust the DOM state alone against a
@@ -5392,6 +5448,9 @@ async function loadSettingsFields() {
   document.getElementById('s-url').value  = await window.cascade.store.get('serverUrl') || ''
   document.getElementById('s-user').value = await window.cascade.store.get('username') || ''
   document.getElementById('s-pass').value = ''
+
+  document.getElementById('qc-approve-status-row').style.display = 'none'
+  _applyQuickConnectGating()
 
   // Beta updates toggle - defaults on for a beta build itself, same rule main.js
   // uses for the actual update check, unless the user has explicitly chosen otherwise.

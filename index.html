@@ -821,6 +821,26 @@
                   <input class="setting-input" id="s-pass" type="password" placeholder="Password" />
                 </div>
               </div>
+              <!-- Approve another device's Quick Connect code for this signed-in
+                   account. Greyed out (same disabled+data-tip pattern as the
+                   admin-only server scan above) when the server itself has
+                   Quick Connect switched off - see _applyQuickConnectGating(). -->
+              <div class="settings-group">
+                <div class="sg-title">Quick Connect</div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Approve a device</span>
+                    <span class="setting-desc">Enter the code shown on another device signed in with Quick Connect.</span>
+                  </div>
+                  <div style="display:flex;gap:8px;align-items:center">
+                    <input class="setting-input" id="qc-approve-code" type="text" placeholder="Code" maxlength="6" style="width:90px;text-align:center;letter-spacing:0.08em;" autocomplete="off" spellcheck="false" />
+                    <span class="tip-host" id="qc-approve-tip"><button class="btn btn-secondary" id="qc-approve-btn">Approve</button></span>
+                  </div>
+                </div>
+                <div class="setting-row" id="qc-approve-status-row" style="display:none;justify-content:flex-start;">
+                  <span class="setting-desc" id="qc-approve-status"></span>
+                </div>
+              </div>
               <div class="settings-actions">
                 <span class="save-status" id="save-status">Saved ✓</span>
                 <button class="btn btn-danger" id="btn-logout">Sign out</button>

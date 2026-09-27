@@ -245,6 +245,26 @@ export async function quickConnectAuthenticate(
   return res.json() as Promise<JfAuthResult>
 }
 
+/**
+ * Approve another device's pending QuickConnect code, from inside an already
+ * signed-in Cascade session (Settings > Account). userId is passed explicitly
+ * rather than left for the server to infer, so this always authorizes the
+ * signed-in account, not whatever the token would default to.
+ *
+ * A wrong or expired code is a normal, expected outcome (checked against the
+ * test server: it answers with a 404 and a short plain-text body, not JSON),
+ * not an exceptional one - only a request that fails for some other reason
+ * throws. The boolean return is the real answer either way.
+ */
+export async function quickConnectAuthorize(config: ServerConfig, code: string): Promise<boolean> {
+  const res = await fetch(
+    `${config.url}/QuickConnect/Authorize?code=${encodeURIComponent(code)}&userId=${encodeURIComponent(config.userId)}`,
+    { method: 'POST', headers: authHeaders(config) },
+  )
+  if (!res.ok) throw new Error(await readErrorMessage(res))
+  return await res.json() === true
+}
+
 export class JellyfinClient {
   // Written out longhand rather than as a constructor parameter property:
   // Node's strip-only TypeScript mode (what `npm test` uses) rejects those,
