@@ -1,0 +1,56 @@
+/* ── Device picker (drive another Jellyfin session) ──────────────────────── */
+/* Same fixed-popover recipe as .theme-picker / .ctx-menu: display stays flex
+   always, opacity/transform/visibility animate. Never toggle display - see
+   CODEMAP "Popups keep display fixed". */
+.devices-panel {
+  position: fixed; z-index: 1000; width: 260px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 13px;
+  padding: 12px 14px 14px; box-shadow: 0 10px 40px rgba(0,0,0,0.45);
+  display: flex; flex-direction: column; gap: 10px;
+  max-height: calc(100vh - 60px); overflow-y: auto;
+  opacity: 0; visibility: hidden; pointer-events: none; transform: scale(0.98); transform-origin: bottom right;
+  transition: opacity 140ms cubic-bezier(0.2,0.7,0.3,1), transform 140ms cubic-bezier(0.2,0.7,0.3,1), visibility 140ms;
+}
+.devices-panel.open { opacity: 1; visibility: visible; pointer-events: auto; transform: none; }
+.dp-row { display: flex; align-items: center; justify-content: space-between; }
+.dp-title { font-size: 12px; font-weight: 600; color: var(--text); }
+.dp-divider { height: 1px; background: var(--border); margin: 0 -14px; }
+.dp-empty { font-size: 11px; color: var(--text3); padding: 4px 0; }
+.dp-empty.hidden, .dp-list.hidden { display: none; }
+.dp-list { display: flex; flex-direction: column; gap: 2px; }
+.dp-device {
+  display: flex; align-items: center; gap: 9px; padding: 7px 8px; border-radius: 8px;
+  cursor: pointer; border: none; background: none; text-align: left; width: 100%;
+  color: var(--text2); font-family: var(--font); transition: background 0.12s;
+}
+.dp-device:hover { background: var(--surface2); }
+.dp-device.active { background: var(--surface2); color: var(--text); }
+.dp-device-icon { width: 16px; height: 16px; flex-shrink: 0; color: var(--text3); }
+.dp-device.active .dp-device-icon { color: var(--accent); }
+.dp-device-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.dp-device-name { font-size: 12px; font-weight: 500; color: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dp-device-sub { font-size: 10px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.dp-now.hidden { display: none; }
+.dp-now-name { font-size: 10px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.07em; }
+.dp-now-track { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dp-now-transport { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 2px 0; }
+.dp-seek-row, .dp-vol-row { display: flex; align-items: center; gap: 8px; }
+.dp-time { font-size: 10px; color: var(--text3); min-width: 26px; }
+.dp-vol-row svg { flex-shrink: 0; color: var(--text3); }
+/* Native range input, not the custom drag bar the player bar uses - this is
+   a secondary control in a popover, and <input type="range"> gets keyboard,
+   drag and accessibility for free. */
+input[type="range"].dp-range {
+  flex: 1; accent-color: var(--accent); height: 4px; cursor: pointer;
+}
+.dp-send-queue {
+  width: 100%; padding: 7px 0; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--surface2); color: var(--text2); font-family: var(--font);
+  font-size: 11px; font-weight: 500; cursor: pointer; transition: background 0.12s, color 0.12s;
+}
+.dp-send-queue:hover { background: var(--surface); color: var(--text); }
+
+@media (prefers-reduced-motion: reduce) {
+  .devices-panel { transition: none; }
+}

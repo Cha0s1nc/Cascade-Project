@@ -732,6 +732,13 @@ async function connect(serverUrl, token, userId) {
   // canDeleteMedia). Gates the "Delete media" entry, kept apart from
   // _applyAdminGating's admin-only entries below.
   jf.canDelete = CascadeCore.canDeleteMedia(userInfo?.Policy)
+  // Same free response again - whether the account can see Live TV at all,
+  // which the Radio nav row is gated on (see applyRadioNavVisibility). A
+  // server with no Live TV access denied would otherwise show a Radio tab
+  // that 403s on first click.
+  jf.hasLiveTv = !!userInfo?.Policy?.EnableLiveTvAccess
+  radioEnabled = (await window.cascade.store.get('radioEnabled')) === true
+  applyRadioNavVisibility()
   _applyAdminGating()
 
   startRemoteControl()
@@ -825,6 +832,224 @@ function applyRemoteMute(muted) {
   if (!remoteVolumeAllowed()) return
   setDeckMuted(muted)
 }
+
+// ── Device picker (drive OTHER Jellyfin sessions) ────────────────────────────
+// The other half of remote control: RemoteControl above makes Cascade a cast
+// TARGET; this makes Cascade a controller, same as Jellyfin's own web UI.
+// Session filtering and request shapes are pure and live in
+// src/core/session-control.ts; everything here is the HTTP calls, polling
+// and DOM that file's comment says stay out of it.
+
+let _dpSessions = []      // last poll's controllable sessions
+let _dpSelectedId = null  // session Id being driven, or null
+let _dpPollTimer = null
+let _dpLastPolledAt = 0
+let _dpSeekDragging = false  // suppress the poll's write to the bar mid-drag
+let _dpVolDragging = false
+
+const devicesPanel = document.getElementById('devices-panel')
+
+function dpIsOpen() { return devicesPanel.classList.contains('open') }
+
+async function openDevicesPanel() {
+  devicesPanel.classList.add('open')
+  const btn = document.getElementById('btn-devices-open')
+  const r = btn.getBoundingClientRect()
+  const pr = devicesPanel.getBoundingClientRect()
+  // Anchored above the button, right-aligned, clamped on screen - same
+  // measure-after-open-then-clamp recipe as showCtxMenu.
+  const { left, top } = CascadeCore.clampMenuPosition(
+    r.right - pr.width, r.top - pr.height - 8, pr.width, pr.height, window.innerWidth, window.innerHeight)
+  devicesPanel.style.left = `${left}px`
+  devicesPanel.style.top = `${top}px`
+  await _dpPoll()
+  _dpSchedulePoll()
+}
+
+function closeDevicesPanel() {
+  devicesPanel.classList.remove('open')
+  if (_dpPollTimer) { clearTimeout(_dpPollTimer); _dpPollTimer = null }
+}
+
+document.getElementById('btn-devices-open').addEventListener('click', (e) => {
+  e.stopPropagation()
+  if (dpIsOpen()) closeDevicesPanel(); else openDevicesPanel()
+})
+document.getElementById('dp-close').addEventListener('click', () => closeDevicesPanel())
+document.addEventListener('mousedown', (e) => {
+  if (dpIsOpen() && !devicesPanel.contains(e.target) && e.target.id !== 'btn-devices-open') closeDevicesPanel()
+})
+
+/** Poll only while the panel is open - a background poll nobody can see
+ *  would just be load on the server for no benefit. */
+async function _dpPoll() {
+  try {
+    const sessions = await jfGet('/Sessions', { controllableByUserId: jf.userId })
+    _dpSessions = CascadeCore.filterControllableSessions(Array.isArray(sessions) ? sessions : [], deviceId)
+  } catch {
+    _dpSessions = []
+  }
+  _dpLastPolledAt = Date.now()
+  _dpRenderList()
+  if (_dpSelectedId) _dpRenderNowPlaying()
+}
+
+function _dpSchedulePoll() {
+  if (_dpPollTimer) clearTimeout(_dpPollTimer)
+  if (!dpIsOpen()) return
+  _dpPollTimer = setTimeout(async () => { await _dpPoll(); _dpSchedulePoll() }, 3000)
+}
+
+function _dpRenderList() {
+  const list = document.getElementById('dp-list')
+  const empty = document.getElementById('dp-empty')
+  if (!_dpSessions.length) {
+    list.classList.add('hidden')
+    empty.classList.remove('hidden')
+    list.innerHTML = ''
+  } else {
+    empty.classList.add('hidden')
+    list.classList.remove('hidden')
+    list.innerHTML = _dpSessions.map(s => `
+      <button class="dp-device${s.Id === _dpSelectedId ? ' active' : ''}" data-session-id="${esc(s.Id)}">
+        <svg class="dp-device-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="18" x2="12" y2="21"/></svg>
+        <span class="dp-device-info">
+          <span class="dp-device-name">${esc(s.DeviceName || s.Client || 'Device')}</span>
+          <span class="dp-device-sub">${esc(s.NowPlayingItem?.Name || s.Client || '')}</span>
+        </span>
+      </button>`).join('')
+    list.querySelectorAll('.dp-device').forEach(btn => {
+      btn.addEventListener('click', () => _dpSelect(btn.dataset.sessionId))
+    })
+  }
+  // A device that vanished from the list (closed socket, signed out) cannot
+  // stay selected - its now-playing panel would be driving a dead session.
+  if (_dpSelectedId && !_dpSessions.some(s => s.Id === _dpSelectedId)) {
+    _dpSelectedId = null
+    document.getElementById('dp-now').classList.add('hidden')
+    _dpUpdateCtxVisibility()
+  }
+}
+
+function _dpSelect(sessionId) {
+  // Clicking the already-selected device disconnects, same as clicking an
+  // active output in most casting UIs.
+  _dpSelectedId = (_dpSelectedId === sessionId) ? null : sessionId
+  _dpRenderList()
+  document.getElementById('dp-now').classList.toggle('hidden', !_dpSelectedId)
+  if (_dpSelectedId) _dpRenderNowPlaying()
+  _dpUpdateCtxVisibility()
+}
+
+function _dpCurrentSession() {
+  return _dpSessions.find(s => s.Id === _dpSelectedId) || null
+}
+
+function _dpRenderNowPlaying() {
+  const s = _dpCurrentSession()
+  if (!s) return
+  document.getElementById('dp-now-name').textContent = s.DeviceName || s.Client || 'Device'
+  const item = s.NowPlayingItem
+  const ps = s.PlayState || {}
+  document.getElementById('dp-now-track').textContent = item
+    ? `${item.Name}${item.AlbumArtist ? ' — ' + item.AlbumArtist : ''}`
+    : 'Nothing playing'
+  document.getElementById('dp-icon-play').style.display  = ps.IsPaused === false ? 'none' : ''
+  document.getElementById('dp-icon-pause').style.display = ps.IsPaused === false ? '' : 'none'
+
+  const durTicks = item?.RunTimeTicks || 0
+  if (!_dpSeekDragging) {
+    const posTicks = CascadeCore.interpolatedPositionTicks(ps, _dpLastPolledAt, Date.now())
+    const seek = document.getElementById('dp-seek')
+    const durSec = Math.max(1, Math.round(durTicks / 10_000_000))
+    seek.max = String(durSec)
+    seek.value = String(Math.min(durSec, Math.round(posTicks / 10_000_000)))
+    document.getElementById('dp-time-cur').textContent = fmtTime(posTicks / 10_000_000)
+    document.getElementById('dp-time-dur').textContent = fmtTime(durTicks / 10_000_000)
+  }
+  if (!_dpVolDragging && typeof ps.VolumeLevel === 'number') {
+    document.getElementById('dp-vol').value = String(ps.VolumeLevel)
+  }
+}
+
+/** `command` is a PlaystateCommand (PlayPause, Seek, NextTrack, ...) - see
+ *  the PlaystateCommand enum in the server's own OpenAPI spec. No body: this
+ *  route takes seekPositionTicks and controllingUserId as query params only. */
+async function _dpSendPlaystate(command, params = {}) {
+  const s = _dpCurrentSession()
+  if (!s) return
+  try {
+    await jfClient.post(`/Sessions/${s.Id}/Playing/${command}`, null, params)
+  } catch (err) {
+    console.warn('[cascade] device command failed:', err?.message || err)
+  }
+  // The target's own state (paused/position/volume) only changes once it has
+  // actually acted on the command - re-poll shortly after rather than
+  // optimistically flipping the UI and risking it disagreeing with reality.
+  setTimeout(_dpPoll, 500)
+}
+
+/** `body` is a GeneralCommand ({Name, Arguments}) - the full route, since the
+ *  path-only /Command/{command} route has nowhere to carry a value. */
+async function _dpSendGeneralCommand(body) {
+  const s = _dpCurrentSession()
+  if (!s) return
+  try {
+    await jfClient.post(`/Sessions/${s.Id}/Command`, body)
+  } catch (err) {
+    console.warn('[cascade] device command failed:', err?.message || err)
+  }
+  setTimeout(_dpPoll, 500)
+}
+
+/** "Play this on <device>" - the one guard `playItems()` needs for a remote
+ *  target, added here rather than threading a device check through every
+ *  play entry point (context menus, album/artist pages, playlists all
+ *  already funnel into playItems() or here directly). */
+async function _dpPlayItemsOnDevice(items, startIndex = 0) {
+  const s = _dpCurrentSession()
+  if (!s) return
+  const params = CascadeCore.buildPlayOnDeviceParams((items || []).map(i => i.Id), 'PlayNow', startIndex)
+  if (!params) return
+  const label = s.DeviceName || s.Client || 'device'
+  try {
+    await jfClient.post(`/Sessions/${s.Id}/Playing`, null, params)
+    showToast(`Playing on ${label}`)
+  } catch (err) {
+    console.warn('[cascade] play on device failed:', err?.message || err)
+    showToast('Could not start playback on that device')
+  }
+  setTimeout(_dpPoll, 500)
+}
+
+function _dpUpdateCtxVisibility() {
+  const row = document.getElementById('tctx-play-on-device')
+  if (!row) return
+  const s = _dpCurrentSession()
+  row.classList.toggle('hidden', !s)
+  if (s) document.getElementById('tctx-play-on-device-label').textContent = `Play on ${s.DeviceName || s.Client || 'device'}`
+}
+
+document.getElementById('dp-playpause').addEventListener('click', () => _dpSendPlaystate('PlayPause'))
+document.getElementById('dp-prev').addEventListener('click', () => _dpSendPlaystate('PreviousTrack'))
+document.getElementById('dp-next').addEventListener('click', () => _dpSendPlaystate('NextTrack'))
+document.getElementById('dp-send-queue-btn').addEventListener('click', () => {
+  if (queue.length) _dpPlayItemsOnDevice(queue, Math.max(0, queueIndex))
+})
+
+const dpSeekInput = document.getElementById('dp-seek')
+dpSeekInput.addEventListener('input', () => { _dpSeekDragging = true })
+dpSeekInput.addEventListener('change', () => {
+  _dpSeekDragging = false
+  _dpSendPlaystate('Seek', { seekPositionTicks: CascadeCore.secondsToTicks(Number(dpSeekInput.value)) })
+})
+
+const dpVolInput = document.getElementById('dp-vol')
+dpVolInput.addEventListener('input', () => { _dpVolDragging = true })
+dpVolInput.addEventListener('change', () => {
+  _dpVolDragging = false
+  _dpSendGeneralCommand(CascadeCore.buildSetVolumeCommand(Number(dpVolInput.value)))
+})
 
 // The library selection may have changed - force every lazy view to refetch.
 // allSongs must be cleared too: shuffleAllSongs() short-circuits when it is
@@ -969,6 +1194,7 @@ let _movieLibs        = []     // movies libraries, same caching reason
 let _showLibs         = []     // tvshows libraries, kept apart from _movieLibs so a movie query
                                 // never fans out across TV libraries or vice versa
 let singleLibraryMode = false  // one library at a time (dropdown) instead of merging several
+let radioEnabled = false       // user has confirmed their Live TV channels are radio stations
 
 /** `prefetched` is the in-flight /Views request connect() started in parallel
  *  with the token ping. It resolves to null if that request failed, in which
@@ -1164,6 +1390,109 @@ function applyVideoNavVisibility() {
   // Same trigger drives the Music/Video mode toggle's own visibility and
   // forces Music mode once no video library is left - one mechanism, not two.
   refreshBrowseMode()
+}
+
+// ── Radio (Live TV channels shown as stations) ───────────────────────────────
+// Jellyfin has no reliable per-channel way to tell an internet-radio channel
+// apart from a real TV one: an M3U tuner's channels always come back
+// ChannelType=TV (verified against a real 10.11 server and its own
+// M3uParser.cs, which never touches that field), and the server's own
+// `type=Radio` filter on /LiveTv/Channels is a no-op regardless of value
+// (verified: an invalid type still returns everything, unfiltered). So this
+// is opt-in rather than auto-detected - see the Settings toggle above.
+
+/** Same no-dead-nav-row rule as applyVideoNavVisibility, for the same reason:
+ *  a user who has not confirmed their Live TV is radio, or whose account
+ *  cannot see Live TV at all, must never see a Radio tab that leads nowhere
+ *  or 403s. */
+function applyRadioNavVisibility() {
+  const show = radioEnabled && !!jf.hasLiveTv
+  document.body.classList.toggle('has-radio', show)
+  if (!show && _currentView === 'radio') showView('home')
+}
+
+async function loadRadio() {
+  const grid = document.getElementById('radio-grid')
+  const empty = document.getElementById('radio-empty')
+  grid.dataset.loaded = '1'
+  let channels = []
+  try {
+    const res = await jfGet('/LiveTv/Channels', { userId: jf.userId })
+    channels = res.Items || []
+  } catch (e) {
+    console.error('[cascade] could not load radio channels:', e)
+  }
+  grid.style.display = channels.length ? '' : 'none'
+  empty.style.display = channels.length ? 'none' : ''
+  if (!channels.length) { grid.innerHTML = ''; return }
+  // albumCard()/wireAlbumCards() are the exact right shape already: a name,
+  // an image and a click handler matched back to the item by id - no reason
+  // to invent a second card renderer for what is, visually, the same card.
+  grid.innerHTML = channels.map(ch => albumCard(ch)).join('')
+  wireAlbumCards(grid, channels, ch => playRadioStation(ch))
+}
+
+/** The server-side tuner/ffmpeg session behind whichever station is
+ *  currently open, if any - closed before switching stations or leaving
+ *  Radio so it never lingers past the point anyone is listening to it. */
+let _radioLiveStreamId = null
+
+async function _closeRadioStreamIfAny() {
+  if (!_radioLiveStreamId) return
+  const id = _radioLiveStreamId
+  _radioLiveStreamId = null
+  await CascadeCore.closeRadioStream(jfClient, id)
+}
+
+/**
+ * Plays a Live TV channel as a radio station.
+ *
+ * Deliberately its own function rather than routing through
+ * playCurrentTrack(): that function's prefetch, resume-position and
+ * crossfade-handoff logic all assume an ordinary finite Audio/Video item, and
+ * bending it around a channel's shape (no RunTimeTicks, no MediaSources until
+ * PlaybackInfo actually opens the tuner, a LiveStreamId to close afterwards)
+ * risked breaking the finite-item path it already handles correctly for
+ * everyone else - see CascadeCore.resolveRadioStream's own comment for why
+ * the resolve step needed to differ too.
+ *
+ * The shared choke points a continuous stream would otherwise trip -
+ * crossfade, prefetch, lyrics lookup, the progress bar, session progress
+ * reporting - are guarded at their own sites (search this file for
+ * CascadeCore.isRadioItem and audio.duration/isFinite) rather than
+ * duplicated here.
+ */
+async function playRadioStation(channel) {
+  if (blocksLocalPlayback()) return
+  cancelCrossfade()
+  abandonCurrentEncoding()
+  await _closeRadioStreamIfAny()
+  queue = [channel]
+  queueIndex = 0
+  queueSource = 'Radio'
+  applyVideoMode(false)
+
+  let resolved
+  try {
+    resolved = await CascadeCore.resolveRadioStream(
+      jfClient, jf, channel.Id, currentDeviceProfile(), maxStreamingBitrate)
+  } catch (e) {
+    console.error('[cascade] could not resolve radio stream:', e)
+    showToast('Could not play that station')
+    return
+  }
+  // The user could have navigated to a different station (or away from
+  // Radio entirely) while PlaybackInfo was in flight.
+  if (queue[queueIndex]?.Id !== channel.Id) {
+    CascadeCore.closeRadioStream(jfClient, resolved.liveStreamId)
+    return
+  }
+  _radioLiveStreamId = resolved.liveStreamId
+  audio.src = resolved.url
+  audio.play().catch(() => {})
+  updateNowPlaying(channel)
+  highlightPlayingRow()
+  if (overlayOpen) renderQueuePanel()
 }
 
 // ── Music / Video mode toggle ─────────────────────────────────────────────
@@ -1582,6 +1911,7 @@ function showView(name) {
   if (name === 'history') loadHistory()
   if (name === 'movies' && !document.getElementById('movies-grid').dataset.loaded) loadMovies()
   if (name === 'shows' && !document.getElementById('shows-grid').dataset.loaded) loadShows()
+  if (name === 'radio' && !document.getElementById('radio-grid').dataset.loaded) loadRadio()
   if (name === 'settings') loadSettingsFields()
 }
 
@@ -3560,6 +3890,15 @@ document.getElementById('tctx-add-queue').addEventListener('click', () => {
   enqueueTracks([_ctxItem], `"${_ctxItem.Name}"`)
 })
 
+// Row is hidden unless a device is selected in the Devices panel - see
+// _dpUpdateCtxVisibility(). No visibility check needed here beyond _ctxItem:
+// a hidden row cannot be clicked.
+document.getElementById('tctx-play-on-device').addEventListener('click', () => {
+  if (!_ctxItem) return
+  closeTrackCtxMenu()
+  _dpPlayItemsOnDevice([_ctxItem])
+})
+
 /** InstantMix seeded from any item that supports it (track, artist, ...) -
  *  shared by the track context menu and the artist context menu, so a second
  *  copy of this fetch+play+toast never had to exist. */
@@ -4572,8 +4911,11 @@ function updateNowPlaying(item) {
 
   // Warm the cache for the current song and the next 5 in queue. Movies have no
   // lyrics, and asking LRCLIB and Kugou about one wastes two round-trips per
-  // title and pollutes the cache with misses.
-  if (item?.Id && !video) {
+  // title and pollutes the cache with misses. A radio station is the same
+  // problem for a different reason: its "title" is a station name, and
+  // sending that to LRCLIB/Kugou on every tune-in is a lookup that can only
+  // ever miss.
+  if (item?.Id && !video && !CascadeCore.isRadioItem(item)) {
     fetchLyricsWaterfall(item).catch(() => {})
     _prefetchUpcoming()
   }
@@ -4980,10 +5322,12 @@ function reportPlaybackProgress() {
 // this app is no longer holding.
 function stopPlayback() {
   const item = queue[queueIndex]
+  const radio = CascadeCore.isRadioItem(item)
   // Read the position before clearing src, which resets currentTime to 0.
   const positionTicks = Math.round(mediaPosition() * 10_000_000)
   abandonCurrentEncoding()
   _clearStreamPrefetch()
+  if (radio) _closeRadioStreamIfAny()
 
   audio.pause()
   _detachDeck(audio)
@@ -4993,7 +5337,9 @@ function stopPlayback() {
   // queue and does not try to re-open the overlay.
   applyVideoMode(false)
 
-  if (item) reportPlaybackStopped(item.Id, positionTicks)
+  // A channel has no finite position to report and Jellyfin has nothing
+  // meaningful to do with a played-state update against a TvChannel item.
+  if (item && !radio) reportPlaybackStopped(item.Id, positionTicks)
 
   window.cascade.discord.clear()
   document.getElementById('np-art').innerHTML = '♪'
@@ -5036,10 +5382,15 @@ onDeck('seeked', () => {
 function syncProgressUI() {
   const cur = mediaPosition()
   const dur = mediaDuration()
-  const pct = dur ? `${Math.min(100, (cur / dur) * 100)}%` : '0%'
+  // A live radio stream reports audio.duration as Infinity - fmtTime would
+  // render that as a literal "Infinity:00" rather than failing loudly, so it
+  // needs its own label, and the bar stays at 0% rather than NaN%.
+  const live = !isFinite(dur)
+  const durText = live ? 'LIVE' : fmtTime(dur)
+  const pct = !live && dur ? `${Math.min(100, (cur / dur) * 100)}%` : '0%'
 
   document.getElementById('prog-cur').textContent = fmtTime(cur)
-  document.getElementById('prog-dur').textContent = fmtTime(dur)
+  document.getElementById('prog-dur').textContent = durText
   document.getElementById('prog-fill').style.width = pct
   setBarAriaNow(document.getElementById('prog-bar'), cur, dur, fmtTime(cur))
 
@@ -5047,7 +5398,7 @@ function syncProgressUI() {
 
   if (!overlayOpen) return
   document.getElementById('ov-cur').textContent = fmtTime(cur)
-  document.getElementById('ov-dur').textContent = fmtTime(dur)
+  document.getElementById('ov-dur').textContent = durText
   document.getElementById('ov-prog-fill').style.width = pct
   setBarAriaNow(document.getElementById('ov-prog-bar'), cur, dur, fmtTime(cur))
 }
@@ -5062,7 +5413,7 @@ onDeck('timeupdate', () => {
   const dur = mediaDuration()
   window.cascade.nowPlayingUpdate?.({
     positionMs: Math.round(mediaPosition() * 1000),
-    durationMs: dur ? Math.round(dur * 1000) : null,
+    durationMs: dur && isFinite(dur) ? Math.round(dur * 1000) : null,
   })
 })
 
@@ -5095,6 +5446,13 @@ onDeck('pause', () => {
 })
 
 onDeck('ended', () => {
+  // A live stream "ending" almost always means the connection dropped, not
+  // that the station finished - retry the same channel rather than reporting
+  // a position built from audio.duration (Infinity for a live stream, which
+  // would send a garbage tick count to the server) or running the queue
+  // -advance logic below, which assumes a finite item.
+  if (CascadeCore.isRadioItem(queue[queueIndex])) { audio.play().catch(() => {}); return }
+
   // Crossfade already handles this transition on its own timeline (driven by
   // wall-clock time, not this event) - let it finish rather than double-advance.
   if (_cfActive) return
@@ -5473,7 +5831,11 @@ async function _prefetchNext() {
   if (playingVideo()) return
   const nextIndex = _resolveCrossfadeTarget()
   const nextItem = nextIndex >= 0 ? queue[nextIndex] : null
-  if (!nextItem || isVideoItem(nextItem)) return
+  // A radio queue is always a single channel, but repeat-all can make
+  // _resolveCrossfadeTarget() name it as its own "next" - prefetching it
+  // through the ordinary track resolver would hit the same static=true
+  // shortcoming resolveRadioStream() exists to avoid.
+  if (!nextItem || isVideoItem(nextItem) || CascadeCore.isRadioItem(nextItem)) return
   if (_streamPrefetch?.itemId === nextItem.Id) return   // already have it
 
   _clearStreamPrefetch()
@@ -5533,12 +5895,18 @@ document.getElementById('btn-play').addEventListener('click', () => {
 })
 
 document.getElementById('btn-prev').addEventListener('click', () => {
+  // A radio queue is always a single channel - "previous" has nowhere to go
+  // and a seek-to-0 makes no sense against a live stream (there is no
+  // position 0 to go back to). Reconnecting the same channel is the
+  // sensible reading of the same button press.
+  if (CascadeCore.isRadioItem(queue[queueIndex])) { playRadioStation(queue[queueIndex]); return }
   if (mediaPosition() > 3) { seekTo(0); return }
   queueIndex = Math.max(0, queueIndex - 1)
   playCurrentTrack()
 })
 
 document.getElementById('btn-next').addEventListener('click', () => {
+  if (CascadeCore.isRadioItem(queue[queueIndex])) { playRadioStation(queue[queueIndex]); return }
   queueIndex = Math.min(queue.length - 1, queueIndex + 1)
   playCurrentTrack()
 })
@@ -5687,16 +6055,21 @@ function setBarAriaNow(bar, now, max, text) {
 function wireProgressBar(barId, fillId, curId) {
   const bar = document.getElementById(barId)
   wireBar(bar, {
-    getRatio: () => { const dur = mediaDuration(); return dur ? mediaPosition() / dur : 0 },
-    step:     () => { const dur = mediaDuration(); return dur ? 5 / dur : 0.05 },
-    bigStep:  () => { const dur = mediaDuration(); return dur ? 30 / dur : 0.1 },
+    // A live radio stream's duration is Infinity - never a seekable target,
+    // so every callback here treats it exactly like "no duration yet" rather
+    // than computing with it (ratio*Infinity is NaN or Infinity depending on
+    // ratio, and audio.currentTime = Infinity is not a real seek).
+    getRatio: () => { const dur = mediaDuration(); return dur && isFinite(dur) ? mediaPosition() / dur : 0 },
+    step:     () => { const dur = mediaDuration(); return dur && isFinite(dur) ? 5 / dur : 0.05 },
+    bigStep:  () => { const dur = mediaDuration(); return dur && isFinite(dur) ? 30 / dur : 0.1 },
     onChange: (ratio) => {
       const dur = mediaDuration()
+      if (!isFinite(dur)) return
       document.getElementById(fillId).style.width = `${ratio * 100}%`
       if (dur) document.getElementById(curId).textContent = fmtTime(ratio * dur)
       setBarAriaNow(bar, ratio * dur, dur, fmtTime(ratio * dur))
     },
-    onCommit: (ratio) => { const dur = mediaDuration(); if (dur) seekTo(ratio * dur) },
+    onCommit: (ratio) => { const dur = mediaDuration(); if (dur && isFinite(dur)) seekTo(ratio * dur) },
   })
 }
 
@@ -5933,6 +6306,18 @@ async function loadSettingsFields() {
 
   document.getElementById('qc-approve-status-row').style.display = 'none'
   _applyQuickConnectGating()
+  // Radio (Live TV channels shown as stations) - see applyRadioNavVisibility.
+  // The row itself only appears for an account Jellyfin already lets see Live
+  // TV; the toggle inside it is the user confirming those channels are radio.
+  const radioRow = document.getElementById('s-radio-row')
+  const radioToggle = document.getElementById('s-radio-toggle')
+  radioRow.style.display = jf.hasLiveTv ? '' : 'none'
+  radioToggle.checked = radioEnabled
+  radioToggle.onchange = async () => {
+    radioEnabled = radioToggle.checked
+    await window.cascade.store.set('radioEnabled', radioEnabled)
+    applyRadioNavVisibility()
+  }
 
   // Beta updates toggle - defaults on for a beta build itself, same rule main.js
   // uses for the actual update check, unless the user has explicitly chosen otherwise.
