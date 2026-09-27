@@ -3,7 +3,7 @@ import CascadeKit
 
 /// Screens that are not a library item.
 enum AppRoute: Hashable {
-    case search, settings
+    case search, settings, genres
 }
 
 /// Where tapping an album, artist or playlist goes, decided by its type.
@@ -14,6 +14,7 @@ struct ItemDestination: View {
         switch item.type {
         case "MusicArtist": ArtistDetailView(artist: item)
         case "Playlist": PlaylistDetailView(playlist: item)
+        case "MusicGenre": GenreDetailView(genre: item)
         default: AlbumDetailView(album: item)
         }
     }
@@ -32,6 +33,7 @@ extension View {
                 switch route {
                 case .search: SearchView()
                 case .settings: SettingsView()
+                case .genres: GenresView()
                 }
             }
     }

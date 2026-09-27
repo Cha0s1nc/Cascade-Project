@@ -19,6 +19,9 @@ struct AlbumsView: View {
                                   (.added, "Date Added"), (.played, "Recently Played")],
                          field: $sortField, direction: $sortDirection, favoritesOnly: $favoritesOnly)
                 Spacer()
+                NavigationLink(value: AppRoute.genres) {
+                    Label("Genres", systemImage: "guitars")
+                }
             }
             .padding(.horizontal)
             .browseHeader()

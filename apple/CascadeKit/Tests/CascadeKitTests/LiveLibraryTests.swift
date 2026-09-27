@@ -142,4 +142,20 @@ struct LiveLibraryTests {
         #expect(all.count >= paged.count)
         #expect(all.prefix(5).map(\.id) == paged.prefix(5).map(\.id))
     }
+
+    @Test func aGenreScopesItsAlbumsAndSongs() async throws {
+        let client = try await client()
+        let genres = try await client.genres()
+        #expect(!genres.isEmpty)
+        #expect(genres.allSatisfy { $0.type == "MusicGenre" })
+        #expect(Set(genres.map(\.id)).count == genres.count, "a genre listed twice")
+        let genre = try #require(genres.first)
+        let albums = try await client.albums(genreId: genre.id)
+        let songs = try await client.songs(inGenre: genre.id)
+        let everything = try await client.songs(limit: nil)
+        #expect(!albums.isEmpty && !songs.isEmpty)
+        // The filter reached the server: a genre is not the whole library.
+        #expect(songs.count < everything.count)
+        #expect(try await client.randomSongs(genreId: genre.id).count == songs.count)
+    }
 }

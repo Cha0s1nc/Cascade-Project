@@ -102,12 +102,14 @@ public extension JellyfinClient {
     /// `favoritesOnly` is sent as nil rather than "false" when off: false
     /// would mean "only non-favorites" to the server.
     func albums(limit: Int = 500, startIndex: Int = 0, sortBy: String = "SortName",
-                sortOrder: String = "Ascending", favoritesOnly: Bool = false) async throws -> [JfItem] {
+                sortOrder: String = "Ascending", favoritesOnly: Bool = false,
+                genreId: String? = nil) async throws -> [JfItem] {
         try await itemsAcrossLibraries(baseParams.merging([
             "includeItemTypes": "MusicAlbum",
             "sortBy": sortBy,
             "sortOrder": sortOrder,
             "isFavorite": favoritesOnly ? "true" : nil,
+            "genreIds": genreId,
             "limit": String(limit),
             "startIndex": String(startIndex),
         ]) { _, new in new })
@@ -154,12 +156,14 @@ public extension JellyfinClient {
 
     /// A nil `limit` means every song, in one response.
     func songs(limit: Int? = 500, startIndex: Int = 0, sortBy: String = "SortName",
-               sortOrder: String = "Ascending", favoritesOnly: Bool = false) async throws -> [JfItem] {
+               sortOrder: String = "Ascending", favoritesOnly: Bool = false,
+               genreId: String? = nil) async throws -> [JfItem] {
         try await itemsAcrossLibraries(baseParams.merging([
             "includeItemTypes": "Audio",
             "sortBy": sortBy,
             "sortOrder": sortOrder,
             "isFavorite": favoritesOnly ? "true" : nil,
+            "genreIds": genreId,
             "fields": trackFields,
             "limit": limit.map(String.init),
             "startIndex": String(startIndex),
@@ -171,9 +175,24 @@ public extension JellyfinClient {
     /// because a queue past a thousand songs is days of music and a big
     /// response on a phone. Shuffled again after merging: each library comes
     /// back in its own random order, joined one library after the other.
-    func randomSongs(limit: Int = 1000, favoritesOnly: Bool = false) async throws -> [JfItem] {
-        Array(try await songs(limit: limit, sortBy: "Random", favoritesOnly: favoritesOnly)
+    func randomSongs(limit: Int = 1000, favoritesOnly: Bool = false,
+                     genreId: String? = nil) async throws -> [JfItem] {
+        Array(try await songs(limit: limit, sortBy: "Random", favoritesOnly: favoritesOnly, genreId: genreId)
             .shuffled().prefix(limit))
+    }
+
+    /// The music genres in the chosen libraries. Jellyfin gives a genre one
+    /// id across libraries, so the merge's id check is what dedupes them.
+    func genres() async throws -> [JfItem] {
+        try await itemsAcrossLibraries([
+            "userId": currentConfig.userId,
+            "sortBy": "SortName",
+        ], path: "/MusicGenres")
+    }
+
+    /// A genre's songs in album order, for its Play button.
+    func songs(inGenre genreId: String) async throws -> [JfItem] {
+        try await songs(limit: nil, sortBy: "AlbumArtist,Album,ParentIndexNumber,IndexNumber", genreId: genreId)
     }
 
     /// An album's tracks in playing order. Disc number first, because a
