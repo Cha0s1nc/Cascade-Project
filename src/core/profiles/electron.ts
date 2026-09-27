@@ -11,6 +11,10 @@ import type { CodecProfile, DeviceProfile, DirectPlayProfile } from '../playback
  *  switching to PlaybackInfo does not silently change which files direct-play. */
 const DIRECT_PLAY_CONTAINERS = 'opus,mp3,aac,flac,wav,ogg,webm'
 
+/** Codecs Chromium decodes inside an m4a/mp4 audio file. ALAC is deliberately
+ *  absent; see directPlayProfiles(). */
+const M4A_AUDIO_CODECS = 'aac,mp3,flac,opus'
+
 // Video containers and codecs Chromium decodes without help.
 //
 // What is deliberately NOT here is the important half - claiming a codec we
@@ -139,6 +143,14 @@ function directPlayProfiles(hevc: boolean, ac3: boolean, eac3: boolean): DirectP
   const AudioCodec = join(VIDEO_AUDIO_CODECS, ac3 && 'ac3', eac3 && 'eac3')
   return [
     { Type: 'Audio', Container: DIRECT_PLAY_CONTAINERS },
+    // m4a/mp4 audio is its own entry because the container says nothing about
+    // the codec inside, and ALAC shares it. Chromium decodes AAC, MP3, FLAC and
+    // Opus in MP4 (canPlayType "probably" for each in this Electron) but not
+    // ALAC ("" - no decoder), so ALAC must stay out and keep transcoding.
+    // Without this entry every m4a in a library transcoded to HLS, the whole
+    // iTunes-era collection included: ContainerNotSupported, then a ~67 ms
+    // HLS startup at each track change where direct play hands over in <1 ms.
+    { Type: 'Audio', Container: 'm4a,mp4', AudioCodec: M4A_AUDIO_CODECS },
     // Two video entries, because HEVC support is per *container*, not global.
     //
     // The probe asks about `video/mp4; codecs="hvc1..."`, and that is exactly

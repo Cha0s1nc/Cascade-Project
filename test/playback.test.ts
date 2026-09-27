@@ -125,6 +125,17 @@ test('electron profile does not claim codecs a TV would lack', () => {
   assert.equal(ELECTRON_PROFILE.TranscodingProfiles[0].AudioCodec, 'aac')
 })
 
+test('m4a direct-plays AAC but never claims ALAC', () => {
+  // Same m4a container for both; the codec is the only thing that tells them
+  // apart, and Chromium has no ALAC decoder.
+  const m4a = ELECTRON_PROFILE.DirectPlayProfiles.find(p => p.Type === 'Audio' && p.Container.split(',').includes('m4a'))
+  assert.ok(m4a, 'm4a must direct-play, or every AAC file transcodes')
+  const codecs = m4a.AudioCodec?.split(',') ?? []
+  assert.ok(codecs.includes('aac'))
+  assert.ok(!codecs.includes('alac'), 'must not claim alac')
+  assert.ok(codecs.length > 0, 'an empty AudioCodec means "any codec" to the server, ALAC included')
+})
+
 // ── Video ────────────────────────────────────────────────────────────────────
 
 test('video direct play uses /Videos, not /Audio', async () => {
