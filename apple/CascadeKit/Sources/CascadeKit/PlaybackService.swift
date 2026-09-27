@@ -193,6 +193,7 @@ public final class PlaybackService {
         guard token == loadToken else { return }
         player.play()
         updateNowPlaying()
+        Task { await loadArtwork() }
         await PlaybackReporter.start(client, state())
         startReporting()
     }
@@ -484,16 +485,48 @@ public final class PlaybackService {
         #endif
     }
 
-    // Album art is deliberately NOT sent to the lock screen.
+    // MARK: - Lock screen art
     //
-    // Adding it via MPMediaItemArtwork made MediaPlayer trap inside its own
-    // queue plumbing (dispatch_assert_queue_fail), first as a debugger stop and
-    // then as an outright crash. Two attempts at it, routing the write to the
-    // main queue and honouring the request handler's size contract, moved the
-    // trap around without removing it. Everything else on the lock screen works
-    // and a crash is worse than a missing thumbnail, so it is out until someone
-    // can reproduce it against a minimal MediaPlayer sample and find the real
-    // cause. Title, artist, album, duration and position are unaffected.
+    // This once trapped in dispatch_assert_queue_fail and was taken out. The
+    // cause was Swift 6 isolation, not MediaPlayer: a closure written inside a
+    // @MainActor method is itself main-actor isolated, Swift 6 inserts a
+    // runtime check that it really runs on main, and MediaPlayer calls the
+    // artwork request handler on its own background queue. The check fails
+    // and traps. Routing the nowPlayingInfo write to main and honoring the
+    // size contract, the two earlier attempts, could not help because the
+    // closure itself was the problem. makeArtwork is nonisolated, so the
+    // closure it builds carries no isolation and no check.
+    // https://developer.apple.com/forums/thread/764874
+
+    #if canImport(MediaPlayer) && canImport(UIKit)
+    /// Artwork for whatever is playing, kept so a position update does not
+    /// download it again. Keyed by the art's item id (the album, usually), so
+    /// the next track on the same album reuses it.
+    private var artwork: (itemId: String, image: MPMediaItemArtwork)?
+
+    nonisolated private static func makeArtwork(_ image: UIImage) -> MPMediaItemArtwork {
+        MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+    }
+    #endif
+
+    /// Fetch the current item's art for the lock screen. Separate from
+    /// updateNowPlaying because that runs on every transport change and this
+    /// is a download. The art lands a moment after the track, as it does in
+    /// every other music app. Not awaited by callers: decoration only.
+    private func loadArtwork() async {
+        #if canImport(MediaPlayer) && canImport(UIKit)
+        guard let item else { return }
+        let artId = item.albumId ?? item.id
+        guard artwork?.itemId != artId,
+              let url = await client.imageUrl(itemId: artId, size: 600),
+              let (data, _) = try? await URLSession.shared.data(from: url),
+              let image = UIImage(data: data) else { return }
+        // A slow download must not land on a track the user has skipped past.
+        guard (self.item?.albumId ?? self.item?.id) == artId else { return }
+        artwork = (artId, Self.makeArtwork(image))
+        updateNowPlaying()
+        #endif
+    }
 
     private func updateNowPlaying() {
         #if canImport(MediaPlayer)
@@ -508,6 +541,11 @@ public final class PlaybackService {
             // lock screen's scrubber running on its own after a pause.
             MPNowPlayingInfoPropertyPlaybackRate: isPaused ? 0.0 : 1.0,
         ]
+        #if canImport(UIKit)
+        if let artwork, artwork.itemId == (item.albumId ?? item.id) {
+            info[MPMediaItemPropertyArtwork] = artwork.image
+        }
+        #endif
         // A NaN or infinite duration reaches MediaPlayer as a corrupt payload
         // rather than an error. A live stream and an asset whose duration is
         // still indefinite both produce one.

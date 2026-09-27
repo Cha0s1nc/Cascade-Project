@@ -67,10 +67,16 @@ Built: skeleton, device profile, auth, PlaybackInfo, AVPlayer playback with
 seek, audio session, now playing and remote commands. The whole build order in
 the original brief is done.
 
-Lock screen art is deliberately absent. MPMediaItemArtwork made MediaPlayer
-trap inside its own queue plumbing and then crash outright; two fixes moved the
-trap without removing it. Everything else on the lock screen works. See the
-comment in PlaybackService.swift before trying to add it back.
+Lock screen art is back (2026-09-27). The old trap was Swift 6 isolation: the
+MPMediaItemArtwork request handler was written inside a @MainActor method, so
+it inherited main-actor isolation and a runtime check, and MediaPlayer calls it
+on a background queue. Reproduced in the simulator by calling the handler off
+main (SIGTRAP with the old closure, returns fine when built in a nonisolated
+function). Rule: any closure handed to MediaPlayer or AVFoundation that they
+may call on their own queue must be built outside main-actor isolation. See
+"Lock screen art" in PlaybackService.swift. The iOS 26.5 simulator shows no
+Now Playing on its lock screen or Control Center, so the art itself still
+wants a look on a real phone.
 
 Verified against the live server: FLAC direct plays (no transcode), the stream
 URL serves bytes, AVFoundation decodes it to the duration Jellyfin reports, and
@@ -146,3 +152,8 @@ passes; wait for "Test Suite 'Selected tests' passed" in its output instead
 of its exit.
 
 Out of scope for v1: EQ, crossfade, offline downloads, video.
+
+Driving iOS without a person: the CascadeiOSUITests target
+(UITests/iOS/TapScript.swift) taps, long-presses, drags, locks and
+screenshots from a TEST_RUNNER_SCRIPT, the phone's counterpart of the tvOS
+RemoteScript. Steps are separated by `|`; see the file's header.
