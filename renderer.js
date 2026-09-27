@@ -4604,6 +4604,20 @@ function _schedulePrefetch() {
 async function _prefetchNext() {
   // Movies/episodes are large, and crossfade already skips video for the same reason.
   if (playingVideo()) return
+  // A crossfade claims the idle deck as its incoming track from the moment it
+  // calls incoming.play() through the handoff in finishCrossfade. This used to
+  // run mid-fade too - every queue mutation (add, reorder, remove, shuffle and
+  // repeat toggles) calls _reprefetch() -> _prefetchNext() regardless of
+  // whether a fade is in progress - and it would resolve the SAME track that
+  // was already fading in and hand its src back to it, restarting the incoming
+  // deck from 0 while it was mid-fade. finishCrossfade's own
+  // _clearStreamPrefetch() then detached that exact deck right after swapping
+  // `audio` onto it, leaving playback stuck silent at 0:00 with the queue
+  // still pointed at the "now playing" track. Reproduced over CDP: firing a
+  // queue mutation during an active fade left both decks at readyState 0 with
+  // playback frozen. _cfOtherDeck is non-null for that whole window, so
+  // bailing here is the single guard every mutation path needs.
+  if (_cfOtherDeck) return
   const nextIndex = _resolveCrossfadeTarget()
   const nextItem = nextIndex >= 0 ? queue[nextIndex] : null
   if (!nextItem || isVideoItem(nextItem)) return
@@ -4613,9 +4627,12 @@ async function _prefetchNext() {
   const token = _prefetchToken
   const deck = DECKS.find(d => d !== audio)
   const resolved = await resolveTrackStream(nextItem.Id)
-  // Invalidated (track changed, queue mutated) while the round trip was in
-  // flight - the deck we would have loaded may not even be idle any more.
-  if (token !== _prefetchToken || playingVideo()) {
+  // Invalidated (track changed, queue mutated, or a crossfade claimed the deck)
+  // while the round trip was in flight - the deck we would have loaded may not
+  // even be idle any more. deck === audio covers a fade that started AND
+  // finished entirely during this await, which moves what "idle" means out
+  // from under the captured `deck` without ever setting _cfOtherDeck again.
+  if (token !== _prefetchToken || playingVideo() || deck === audio || deck === _cfOtherDeck) {
     if (!resolved.direct) stopActiveEncoding(jfClient, jf, resolved.playSessionId)
     return
   }
