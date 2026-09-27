@@ -511,10 +511,17 @@ function createWindow() {
   win.webContents.once('did-finish-load', () => {
     if (app.isPackaged) setTimeout(checkForUpdates, 5000)
 
-    const send = (key) => { if (win && !win.isDestroyed()) win.webContents.send('media-key', key) }
-    globalShortcut.register('MediaPlayPause',     () => send('playpause'))
-    globalShortcut.register('MediaNextTrack',     () => send('next'))
-    globalShortcut.register('MediaPreviousTrack', () => send('prev'))
+    // Not on Windows: registering the media keys as global shortcuts makes
+    // Chromium drop its Windows media integration, so Cascade vanished from
+    // Quick Settings, the volume flyout and the lock screen. There the keys
+    // already reach the renderer's navigator.mediaSession handlers through
+    // that same integration.
+    if (process.platform !== 'win32') {
+      const send = (key) => { if (win && !win.isDestroyed()) win.webContents.send('media-key', key) }
+      globalShortcut.register('MediaPlayPause',     () => send('playpause'))
+      globalShortcut.register('MediaNextTrack',     () => send('next'))
+      globalShortcut.register('MediaPreviousTrack', () => send('prev'))
+    }
     win.webContents.on('before-input-event', (_e, input) => {
       if (input.type === 'keyDown' && input.key === 'F12') win.webContents.toggleDevTools()
     })

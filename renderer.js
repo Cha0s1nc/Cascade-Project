@@ -4986,9 +4986,14 @@ document.getElementById('btn-shuffle-artists').addEventListener('click', shuffle
 
 // ── Native media session (OS media keys + lock screen / taskbar integration) ──
 
+// Play and pause go through the play button like next and previous do, not
+// straight to the element, so whatever the button enforces applies here too:
+// a Waterfall guest's transport stays with the host. On Windows these are the
+// media keys' only route (see the globalShortcut note in main.js).
 if ('mediaSession' in navigator) {
-  navigator.mediaSession.setActionHandler('play',          () => { if (audio.paused) audio.play() })
-  navigator.mediaSession.setActionHandler('pause',         () => { if (!audio.paused) audio.pause() })
+  const playButton = () => document.getElementById('btn-play').click()
+  navigator.mediaSession.setActionHandler('play',          () => { if (audio.paused) playButton() })
+  navigator.mediaSession.setActionHandler('pause',         () => { if (!audio.paused) playButton() })
   navigator.mediaSession.setActionHandler('stop',          () => stopPlayback())
   navigator.mediaSession.setActionHandler('nexttrack',     () => document.getElementById('btn-next').click())
   navigator.mediaSession.setActionHandler('previoustrack', () => document.getElementById('btn-prev').click())
@@ -4997,7 +5002,7 @@ if ('mediaSession' in navigator) {
   })
 }
 
-// IPC fallback for Windows globalShortcut (covers cases where mediaSession alone isn't enough)
+// Media keys registered as global shortcuts on macOS and Linux (see main.js)
 window.cascade.onMediaKey((key) => {
   if (key === 'playpause') document.getElementById('btn-play').click()
   else if (key === 'next')  document.getElementById('btn-next').click()
