@@ -209,8 +209,8 @@ struct NowPlayingView: View {
                     .font(.caption)
                     .foregroundStyle(.red)
             }
-            // On this library the device profile and server always agree, so
-            // seeing this means something is off worth noticing.
+            // Expected under a streaming quality cap; at Original it means the
+            // device profile and the server disagree, which is worth noticing.
             if player.isTranscoding {
                 Text("Transcoding")
                     .font(.caption)

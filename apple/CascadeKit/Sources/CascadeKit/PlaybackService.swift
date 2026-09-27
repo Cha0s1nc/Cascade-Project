@@ -44,8 +44,9 @@ public final class PlaybackService {
     public private(set) var volume: Float = 1
     public private(set) var isMuted = false
     /// True when the server chose to transcode rather than hand over the file.
-    /// Worth surfacing: on this library it should essentially never happen, so
-    /// seeing it means the device profile and the server disagree.
+    /// Expected when Settings caps the streaming quality. At Original it
+    /// should essentially never happen, so seeing it then means the device
+    /// profile and the server disagree.
     public private(set) var isTranscoding = false
 
     // MARK: - Internals
