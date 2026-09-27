@@ -70,7 +70,8 @@ struct AddToPlaylistSheet: View {
     }
 
     private func add(to playlistId: String) async {
-        guard !isSaving, let client = state.client else { return }
+        // Also guarded here, not only by the disabled list.
+        guard !isSaving, !tracks.isEmpty, let client = state.client else { return }
         isSaving = true
         defer { isSaving = false }
         do {
