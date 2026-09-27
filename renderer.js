@@ -1509,6 +1509,11 @@ function showView(name) {
   document.querySelector(`[data-view="${name}"]`)?.classList.add('active')
   sidenav.classList.remove('expanded')
   backdrop.classList.remove('dim')
+  // Both are position:fixed, so left open they'd float over whatever view
+  // comes next instead of disappearing with the one that opened them -
+  // found by screenshotting a navigation away from an open filter panel.
+  libSortDropdown.classList.remove('open')
+  libFilterDropdown.classList.remove('open')
   _currentView = name
 
   if (name === 'albums' && !document.getElementById('albums-grid').dataset.loaded) loadAlbums()
