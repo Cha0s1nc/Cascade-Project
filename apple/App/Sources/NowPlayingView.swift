@@ -1,5 +1,8 @@
 import SwiftUI
 import CascadeKit
+#if os(iOS)
+import AVKit
+#endif
 
 /// Full screen player. iOS gets a sheet with a scrub slider and transport
 /// buttons; tvOS gets the chrome-less Apple Music style screen: artwork as the
@@ -21,6 +24,7 @@ struct NowPlayingView: View {
     // yank the thumb back under the finger.
     @State private var isScrubbing = false
     @State private var scrubPosition: Double = 0
+    @State private var showingQueue = false
     #endif
 
     var body: some View {
@@ -101,6 +105,36 @@ struct NowPlayingView: View {
         .padding(60)
     }
     #else
+    /// The desktop's sleep timer choices. Filled and tinted while one is set.
+    private var sleepMenu: some View {
+        Menu {
+            switch player.sleepTimer {
+            case .at(let date):
+                Text("Pauses at \(date.formatted(date: .omitted, time: .shortened))")
+            case .endOfTrack:
+                Text("Pauses after this track")
+            case .off:
+                EmptyView()
+            }
+            ForEach([15, 30, 45, 60], id: \.self) { minutes in
+                Button("\(minutes) Minutes") { player.setSleepTimer(minutes: minutes) }
+            }
+            #if DEBUG
+            // So the timed path can be checked without waiting 15 minutes.
+            Button("1 Minute (Debug)") { player.setSleepTimer(minutes: 1) }
+            #endif
+            Button("End of Current Track") { player.setSleepTimerAtEndOfTrack() }
+            if player.sleepTimer != .off {
+                Button("Turn Off", role: .destructive) { player.cancelSleepTimer() }
+            }
+        } label: {
+            Image(systemName: player.sleepTimer == .off ? "moon.zzz" : "moon.zzz.fill")
+                .font(.title3)
+        }
+        .foregroundStyle(player.sleepTimer == .off ? Color.secondary : Color.accentColor)
+        .accessibilityLabel("Sleep Timer")
+    }
+
     private var iosBody: some View {
         VStack(spacing: 24) {
             HStack {
@@ -140,7 +174,7 @@ struct NowPlayingView: View {
                         .font(.title3)
                 }
                 .foregroundStyle(isFavorite ? Color.pink : Color.secondary)
-                .accessibilityLabel(isFavorite ? "Unfavourite" : "Favourite")
+                .accessibilityLabel(isFavorite ? "Unfavorite" : "Favorite")
 
                 Button {
                     withAnimation { showLyrics.toggle() }
@@ -151,6 +185,23 @@ struct NowPlayingView: View {
                 .foregroundStyle(showLyrics ? Color.accentColor : Color.secondary)
                 .disabled(lyrics.lines == nil)
                 .accessibilityLabel(showLyrics ? "Hide lyrics" : "Show lyrics")
+
+                Button {
+                    showingQueue = true
+                } label: {
+                    Image(systemName: "list.bullet")
+                        .font(.title3)
+                }
+                .foregroundStyle(Color.secondary)
+                .accessibilityLabel("Queue")
+
+                RoutePicker()
+                    .frame(width: 30, height: 30)
+
+                sleepMenu
+            }
+            .sheet(isPresented: $showingQueue) {
+                QueueView(player: player)
             }
 
             if let error = player.error {
@@ -158,8 +209,8 @@ struct NowPlayingView: View {
                     .font(.caption)
                     .foregroundStyle(.red)
             }
-            // On this library the device profile and server always agree, so
-            // seeing this means something is off worth noticing.
+            // Expected under a streaming quality cap; at Original it means the
+            // device profile and the server disagree, which is worth noticing.
             if player.isTranscoding {
                 Text("Transcoding")
                     .font(.caption)
@@ -200,6 +251,9 @@ struct NowPlayingView: View {
                     Image(systemName: "shuffle")
                 }
                 .foregroundStyle(player.shuffle ? Color.accentColor : Color.secondary)
+                // The state is only a color otherwise, which VoiceOver cannot see.
+                .accessibilityLabel("Shuffle")
+                .accessibilityValue(player.shuffle ? "On" : "Off")
 
                 Button {
                     Task { await player.previous() }
@@ -228,6 +282,9 @@ struct NowPlayingView: View {
                     Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
                 }
                 .foregroundStyle(player.repeatMode == .none ? Color.secondary : Color.accentColor)
+                // Without these VoiceOver read the repeat-one symbol as "Go Forward".
+                .accessibilityLabel("Repeat")
+                .accessibilityValue(player.repeatMode == .one ? "One" : player.repeatMode == .all ? "All" : "Off")
             }
 
             Spacer()
@@ -236,3 +293,20 @@ struct NowPlayingView: View {
     }
     #endif
 }
+
+#if os(iOS)
+/// The system AirPlay button. Apple's own picker rather than a custom list:
+/// it knows the routes, the permissions and the current output, and SwiftUI
+/// has no equivalent.
+private struct RoutePicker: UIViewRepresentable {
+    func makeUIView(context: Context) -> AVRoutePickerView {
+        let view = AVRoutePickerView()
+        view.tintColor = .secondaryLabel
+        view.activeTintColor = .tintColor
+        view.accessibilityLabel = "AirPlay"
+        return view
+    }
+
+    func updateUIView(_ view: AVRoutePickerView, context: Context) {}
+}
+#endif

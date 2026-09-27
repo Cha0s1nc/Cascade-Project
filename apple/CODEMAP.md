@@ -67,10 +67,16 @@ Built: skeleton, device profile, auth, PlaybackInfo, AVPlayer playback with
 seek, audio session, now playing and remote commands. The whole build order in
 the original brief is done.
 
-Lock screen art is deliberately absent. MPMediaItemArtwork made MediaPlayer
-trap inside its own queue plumbing and then crash outright; two fixes moved the
-trap without removing it. Everything else on the lock screen works. See the
-comment in PlaybackService.swift before trying to add it back.
+Lock screen art is back (2026-09-27). The old trap was Swift 6 isolation: the
+MPMediaItemArtwork request handler was written inside a @MainActor method, so
+it inherited main-actor isolation and a runtime check, and MediaPlayer calls it
+on a background queue. Reproduced in the simulator by calling the handler off
+main (SIGTRAP with the old closure, returns fine when built in a nonisolated
+function). Rule: any closure handed to MediaPlayer or AVFoundation that they
+may call on their own queue must be built outside main-actor isolation. See
+"Lock screen art" in PlaybackService.swift. The iOS 26.5 simulator shows no
+Now Playing on its lock screen or Control Center, so the art itself still
+wants a look on a real phone.
 
 Verified against the live server: FLAC direct plays (no transcode), the stream
 URL serves bytes, AVFoundation decodes it to the duration Jellyfin reports, and
@@ -166,3 +172,35 @@ Browsing and playlists (branch `overnight/swift-browse`, 2026-09-27):
   works when the simulator tap tool is not granted.
 
 Out of scope for v1: EQ, crossfade, offline downloads, video.
+
+Driving iOS without a person: the CascadeiOSUITests target
+(UITests/iOS/TapScript.swift) taps, long-presses, drags, locks and
+screenshots from a TEST_RUNNER_SCRIPT, the phone's counterpart of the tvOS
+RemoteScript. Steps are separated by `|`; see the file's header.
+
+Gapless (2026-09-27): PlaybackService plays through an AVQueuePlayer. While a
+track plays, the one advanceOnEnd would pick is resolved and enqueued behind
+it (syncPreload), and at the end the player moves onto it by itself; the
+service only catches up its bookkeeping and reports (handOver). Anything that
+changes what plays next must call syncPreload. Measured in the simulator
+against a local server, from the end notification to the next item's clock
+running: 180 to 445 ms before, -36 to +21 ms after (flac, m4a, mp3 and an
+HLS transcode). DEBUG builds log it as HANDOVER.
+
+Queue actions (2026-09-27): long-press any track row (TrackRow, and album
+detail rows) for Play Next, Add to Queue, Instant Mix, Favorite, Go to Album
+and Go to Artist (`TrackMenu.swift`; the menu is in sections, and Add to
+Playlist belongs next to Favorite). Go to pushes through `openItem`, an
+environment action set by `TabStack`, each tab's NavigationStack with a path.
+The order logic is `QueueActions.swift` (pure, tested); PlaybackService's
+playNext / addToQueue / moveQueueItems / removeQueueItems / jump apply it and
+re-sync the gapless preload. iOS Now Playing has a Queue button opening
+`QueueView`: tap to jump, drag to reorder, swipe or Edit to remove (never the
+playing row).
+
+Streaming quality (2026-09-27): Settings > Playback, Original / 320 / 256 /
+192 / 128 / 96 kbps (`StreamingQuality.swift`), with a separate cellular
+setting on iOS that applies while Network reports the path as expensive.
+PlaybackService caps the device profile per resolve (`currentProfile`).
+Stored values go through `StreamingQuality(stored:)`, so garbage reads as
+Original.

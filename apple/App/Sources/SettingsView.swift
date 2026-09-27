@@ -9,6 +9,10 @@ struct SettingsView: View {
     @State private var error: String?
     @State private var confirmingSignOut = false
     @State private var username: String?
+    @State private var quickConnectEnabled = false
+    @State private var approveCode = ""
+    @State private var isApproving = false
+    @State private var approveStatus: (ok: Bool, message: String)?
 
     var body: some View {
         List {
@@ -34,6 +38,52 @@ struct SettingsView: View {
                 Text(selected.isEmpty
                      ? "Showing all libraries."
                      : "Showing \(selected.count) of \(libraries.count) libraries.")
+            }
+
+            if let player = state.player {
+                Section {
+                    Picker(qualityTitle, selection: Binding(
+                        get: { player.streamingQuality },
+                        set: { setQuality(wifi: $0, cellular: player.cellularQuality) }
+                    )) {
+                        ForEach(StreamingQuality.allCases) { Text($0.label).tag($0) }
+                    }
+                    #if os(iOS)
+                    Picker("On Cellular", selection: Binding(
+                        get: { player.cellularQuality },
+                        set: { setQuality(wifi: player.streamingQuality, cellular: $0) }
+                    )) {
+                        ForEach(StreamingQuality.allCases) { Text($0.label).tag($0) }
+                    }
+                    #endif
+                } header: {
+                    Text("Playback")
+                } footer: {
+                    Text("Below the original, the server converts to AAC at that rate. Applies from the next track.")
+                }
+            }
+
+            if quickConnectEnabled {
+                Section {
+                    TextField("Code", text: $approveCode)
+                        #if os(iOS)
+                        .keyboardType(.numberPad)
+                        #endif
+                        .textContentType(.oneTimeCode)
+                        .accessibilityIdentifier("approveCode")
+                        .onSubmit { approve() }
+                    Button(isApproving ? "Approving\u{2026}" : "Approve") { approve() }
+                        .disabled(isApproving || QuickConnect.normalizedCode(approveCode) == nil)
+                    if let approveStatus {
+                        Text(approveStatus.message)
+                            .font(.caption)
+                            .foregroundStyle(approveStatus.ok ? Color.green : Color.red)
+                    }
+                } header: {
+                    Text("Approve a Device")
+                } footer: {
+                    Text("Signs another device in as you. Enter the Quick Connect code it shows.")
+                }
             }
 
             Section {
@@ -64,10 +114,44 @@ struct SettingsView: View {
             // Every music library, not musicLibraries(): that one is filtered
             // to the current selection, so after picking one library the
             // others vanished from this list and could never be picked again.
+            if let url = state.config?.url {
+                quickConnectEnabled = await QuickConnect.isEnabled(serverUrl: url)
+            }
             do { libraries = try await client.views().filter { $0.collectionType == "music" } }
             catch { self.error = error.localizedDescription }
             isLoading = false
         }
+    }
+
+    /// Guarded here as well as disabled: a disabled button is not the only
+    /// way in (return key, accessibility actions).
+    private func approve() {
+        guard !isApproving, let code = QuickConnect.normalizedCode(approveCode),
+              let client = state.client else { return }
+        isApproving = true
+        approveStatus = nil
+        Task {
+            do {
+                try await client.authorizeQuickConnect(code: code)
+                approveStatus = (true, "Approved. The other device is signing in.")
+                approveCode = ""
+            } catch {
+                approveStatus = (false, error.localizedDescription)
+            }
+            isApproving = false
+        }
+    }
+
+    #if os(iOS)
+    private let qualityTitle = "On Wi-Fi"
+    #else
+    private let qualityTitle = "Streaming Quality"
+    #endif
+
+    private func setQuality(wifi: StreamingQuality, cellular: StreamingQuality) {
+        UserDefaults.standard.set(wifi.rawValue, forKey: StreamingQuality.wifiKey)
+        UserDefaults.standard.set(cellular.rawValue, forKey: StreamingQuality.cellularKey)
+        state.player?.setStreamingQuality(wifi: wifi, cellular: cellular)
     }
 
     // Stored as the libraries to show, with EMPTY meaning all of them, so a

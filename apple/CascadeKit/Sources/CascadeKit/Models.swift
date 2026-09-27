@@ -99,6 +99,10 @@ public struct JfItem: Codable, Sendable, Identifiable, Hashable {
     /// remove or move by. Jellyfin 10.11 sets it to the track's own id and
     /// refuses to add a track twice; use `entryId`, which falls back to `id`.
     public var playlistItemId: String?
+    /// Artists with their ids, which Go to Artist needs; `artists` is names
+    /// only. Both come back on track lists without asking.
+    public var artistItems: [JfNameId]?
+    public var albumArtists: [JfNameId]?
 
     public init(id: String, name: String? = nil, type: String? = nil,
                 runTimeTicks: Int? = nil, userData: JfUserData? = nil) {
@@ -115,6 +119,12 @@ public struct JfItem: Codable, Sendable, Identifiable, Hashable {
     // navigationDestination(for:) and NavigationPath can carry one.
     public static func == (a: JfItem, b: JfItem) -> Bool { a.id == b.id }
     public func hash(into hasher: inout Hasher) { hasher.combine(id) }
+}
+
+/// A name with the id it refers to, as Jellyfin nests artists in an item.
+public struct JfNameId: Codable, Sendable, Hashable {
+    public var id: String
+    public var name: String?
 }
 
 /// Standard envelope for Jellyfin list endpoints.

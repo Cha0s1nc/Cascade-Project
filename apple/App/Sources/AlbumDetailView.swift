@@ -117,5 +117,6 @@ struct AlbumDetailView: View {
             }
         }
         .buttonStyle(.plain)
+        .trackContextMenu(track)
     }
 }
