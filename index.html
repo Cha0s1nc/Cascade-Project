@@ -156,6 +156,20 @@
         </div>
         <div class="nav-info"><span class="nav-label">Playlists</span></div>
       </div>
+      <div class="nav-item nav-music" data-view="genres">
+        <div class="nav-bar"></div>
+        <div class="nav-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2.41 12.4A2 2 0 0 1 2 11V4a2 2 0 0 1 2-2h7c.55 0 1.05.22 1.41.59l8.18 8.18a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.5" fill="currentColor" stroke="none"/></svg>
+        </div>
+        <div class="nav-info"><span class="nav-label">Genres</span></div>
+      </div>
+      <div class="nav-item nav-music" data-view="history">
+        <div class="nav-bar"></div>
+        <div class="nav-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </div>
+        <div class="nav-info"><span class="nav-label">History</span></div>
+      </div>
       <!-- Video. Hidden until a movie or TV library is selected in Settings, so
            a pure music setup never sees two dead nav rows. -->
       <div class="nav-item nav-movies" data-view="movies">
@@ -209,7 +223,7 @@
         <div id="home-music-shelves">
           <div class="sect-header">
             <span class="sect-title">Recently played</span>
-            <button class="sect-more" onclick="showView('songs')">See all</button>
+            <button class="sect-more" onclick="showView('history')">See all</button>
           </div>
           <div class="rp-grid" id="rp-grid">
             <div class="rp-item skel-card"><div class="rp-art skel"></div><div style="min-width:0;flex:1"><div class="skel skel-text" style="width:85%"></div><div class="skel skel-text" style="width:55%;height:9px;margin-top:5px"></div></div></div>
@@ -256,10 +270,20 @@
         <div id="albums-index">
           <div class="sect-header" style="margin-bottom:14px">
             <span class="sect-title">All Albums</span>
-            <button class="shuffle-all-btn" id="btn-shuffle-albums">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
-              Shuffle All
-            </button>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button class="shuffle-all-btn lib-sort-btn" data-lib-view="albums">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/></svg>
+                <span class="lib-sort-label">Name</span>
+              </button>
+              <button class="shuffle-all-btn lib-filter-btn" data-lib-view="albums">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                Filter
+              </button>
+              <button class="shuffle-all-btn" id="btn-shuffle-albums">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
+                Shuffle All
+              </button>
+            </div>
           </div>
           <div class="album-grid" id="albums-grid">
             <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div><div class="skel skel-text" style="width:50%;height:9px;margin-top:6px"></div></div></div>
@@ -303,6 +327,16 @@
         <div id="movies-index">
           <div class="sect-header" style="margin-bottom:14px">
             <span class="sect-title">Movies</span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button class="shuffle-all-btn lib-sort-btn" data-lib-view="movies">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/></svg>
+                <span class="lib-sort-label">Name</span>
+              </button>
+              <button class="shuffle-all-btn lib-filter-btn" data-lib-view="movies">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                Filter
+              </button>
+            </div>
           </div>
           <div class="poster-grid" id="movies-grid"></div>
         </div>
@@ -320,6 +354,16 @@
         <div id="shows-index">
           <div class="sect-header" style="margin-bottom:14px">
             <span class="sect-title">TV Shows</span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button class="shuffle-all-btn lib-sort-btn" data-lib-view="shows">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/></svg>
+                <span class="lib-sort-label">Name</span>
+              </button>
+              <button class="shuffle-all-btn lib-filter-btn" data-lib-view="shows">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                Filter
+              </button>
+            </div>
           </div>
           <div class="poster-grid" id="shows-grid"></div>
         </div>
@@ -338,10 +382,20 @@
         <div id="artist-index">
           <div class="sect-header" style="margin-bottom:14px">
             <span class="sect-title">All Artists</span>
-            <button class="shuffle-all-btn" id="btn-shuffle-artists">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
-              Shuffle All
-            </button>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button class="shuffle-all-btn lib-sort-btn" data-lib-view="artists">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/></svg>
+                <span class="lib-sort-label">Name</span>
+              </button>
+              <button class="shuffle-all-btn lib-filter-btn" data-lib-view="artists">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                Filter
+              </button>
+              <button class="shuffle-all-btn" id="btn-shuffle-artists">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
+                Shuffle All
+              </button>
+            </div>
           </div>
           <div class="artist-grid" id="artists-grid">
             <div class="artist-card skel-card"><div class="artist-avatar skel"></div><div class="skel skel-text" style="width:70%;margin:0 auto"></div></div>
@@ -445,10 +499,20 @@
         <div id="playlist-index">
           <div class="sect-header" style="margin-bottom:14px">
             <span class="sect-title">Playlists</span>
-            <button class="shuffle-all-btn" id="btn-new-smart-playlist">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              New Smart Playlist
-            </button>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button class="shuffle-all-btn" id="btn-new-smart-playlist">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                New Smart Playlist
+              </button>
+              <button class="shuffle-all-btn lib-sort-btn" data-lib-view="playlists">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/></svg>
+                <span class="lib-sort-label">Name</span>
+              </button>
+              <button class="shuffle-all-btn lib-filter-btn" data-lib-view="playlists">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                Filter
+              </button>
+            </div>
           </div>
           <div class="playlist-grid" id="playlists-grid">
             <div class="playlist-card skel-card"><div class="playlist-art skel"></div><div class="playlist-body"><div class="skel skel-text" style="width:75%"></div><div class="skel skel-text" style="width:40%;height:9px;margin-top:6px"></div></div></div>
@@ -505,6 +569,79 @@
               <span style="text-align:right">Time</span>
             </div>
             <div id="pl-detail-rows"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Genres -->
+      <div class="view" id="view-genres">
+        <div id="genres-index">
+          <div class="sect-header" style="margin-bottom:14px">
+            <span class="sect-title">Genres</span>
+          </div>
+          <div class="album-grid" id="genres-grid">
+            <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div></div></div>
+            <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div></div></div>
+            <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div></div></div>
+            <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div></div></div>
+            <div class="album-card skel-card"><div class="album-art skel"></div><div class="album-body"><div class="skel skel-text" style="width:80%"></div></div></div>
+          </div>
+        </div>
+        <!-- Genre detail -->
+        <div id="genre-detail" style="display:none">
+          <button class="pl-back-btn" id="genre-back-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            Back to Genres
+          </button>
+          <div class="pl-detail-header">
+            <div class="pl-detail-art genre-tile" id="genre-detail-art"><span class="genre-tile-letter" id="genre-detail-letter"></span></div>
+            <div>
+              <div class="pl-detail-name" id="genre-detail-name"></div>
+              <div class="pl-detail-meta" id="genre-detail-meta"></div>
+            </div>
+            <div style="margin-left:auto;display:flex;gap:8px">
+              <button class="shuffle-all-btn" id="btn-shuffle-genre">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
+                Shuffle
+              </button>
+              <button class="shuffle-all-btn" id="btn-play-genre">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                Play
+              </button>
+            </div>
+          </div>
+          <div id="genre-albums-section" style="margin-bottom:20px">
+            <div class="sect-title" style="margin-bottom:9px">Albums</div>
+            <div class="album-grid" id="genre-albums-grid"></div>
+          </div>
+          <div class="sect-title" style="margin-bottom:8px">Songs</div>
+          <div class="track-list">
+            <div class="tl-head">
+              <span>#</span><span></span><span>Title</span><span>Album</span><span style="text-align:right">Time</span>
+            </div>
+            <div id="genre-songs-rows"></div>
+          </div>
+          <button class="shuffle-all-btn" id="btn-genre-show-more" style="margin-top:12px;display:none">Show more</button>
+        </div>
+      </div>
+
+      <!-- History: every track with a LastPlayedDate, newest first, grouped by
+           day. Jellyfin keeps one LastPlayedDate per item, not a log of every
+           play (that needs the Playback Reporting plugin, which this server
+           doesn't have) - so a track played twice today shows once, under
+           Today. See loadHistory() for the caveat this implies. -->
+      <div class="view" id="view-history">
+        <div class="sect-header" style="margin-bottom:14px">
+          <span class="sect-title">History</span>
+        </div>
+        <div class="track-list">
+          <div class="tl-head">
+            <span>#</span><span></span><span>Title</span><span>Album</span><span style="text-align:right">Time</span>
+          </div>
+          <div id="history-rows">
+            <div class="track-row skel-card"><div class="skel skel-text" style="width:14px;height:11px;margin:0 auto"></div><div class="track-thumb skel"></div><div style="min-width:0"><div class="skel skel-text" style="width:60%"></div><div class="skel skel-text" style="width:35%;height:9px;margin-top:5px"></div></div><div class="skel skel-text" style="width:70%"></div><div class="skel skel-text" style="width:34px;height:9px;margin-left:auto"></div></div>
+            <div class="track-row skel-card"><div class="skel skel-text" style="width:14px;height:11px;margin:0 auto"></div><div class="track-thumb skel"></div><div style="min-width:0"><div class="skel skel-text" style="width:60%"></div><div class="skel skel-text" style="width:35%;height:9px;margin-top:5px"></div></div><div class="skel skel-text" style="width:70%"></div><div class="skel skel-text" style="width:34px;height:9px;margin-left:auto"></div></div>
+            <div class="track-row skel-card"><div class="skel skel-text" style="width:14px;height:11px;margin:0 auto"></div><div class="track-thumb skel"></div><div style="min-width:0"><div class="skel skel-text" style="width:60%"></div><div class="skel skel-text" style="width:35%;height:9px;margin-top:5px"></div></div><div class="skel skel-text" style="width:70%"></div><div class="skel skel-text" style="width:34px;height:9px;margin-left:auto"></div></div>
           </div>
         </div>
       </div>
@@ -1253,6 +1390,13 @@
     <span id="songs-sort-dir-label">Ascending</span>
   </button>
 </div>
+
+<!-- Shared sort/filter dropdowns for Albums, Artists, Playlists, Movies and
+     TV Shows (fixed-positioned, outside layout tree). One pair reused by
+     every view rather than one per view - see the "Library sort & filter"
+     block in renderer.js. Content is rebuilt each time they open. -->
+<div class="ov-dropdown" id="lib-sort-dropdown"></div>
+<div class="ov-dropdown" id="lib-filter-dropdown"></div>
 
 <!-- Sleep timer dropdown (fixed-positioned, outside layout tree) -->
 <div class="ov-dropdown" id="sleep-timer-dropdown">

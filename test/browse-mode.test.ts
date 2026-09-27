@@ -7,6 +7,8 @@ test('sectionMode classifies music and video views correctly', () => {
   assert.equal(sectionMode('artists'), 'music')
   assert.equal(sectionMode('songs'), 'music')
   assert.equal(sectionMode('playlists'), 'music')
+  assert.equal(sectionMode('genres'), 'music')
+  assert.equal(sectionMode('history'), 'music')
   assert.equal(sectionMode('movies'), 'video')
   assert.equal(sectionMode('shows'), 'video')
 })
