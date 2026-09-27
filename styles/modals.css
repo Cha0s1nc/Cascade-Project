@@ -34,6 +34,22 @@
 .modal-create-row.visible { display: flex; }
 #toast { position: fixed; bottom: 76px; left: 50%; transform: translateX(-50%); background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 7px 16px; font-size: 12px; color: var(--text); z-index: 600; opacity: 0; transition: opacity 0.2s; pointer-events: none; white-space: nowrap; }
 
+/* ── Smart playlist rule builder ── */
+/* Each rule is a field select up top and a row of field-specific value
+   controls below it (a genre needs one text input, a year range needs two,
+   played/favorite need none but a select) - varying enough per field that a
+   fixed grid would need as many column templates as fields. Two stacked flex
+   rows instead. */
+.smart-pl-rule { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 8px; }
+.smart-pl-rule-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.smart-pl-rule-top select { flex: 1; }
+.smart-pl-rule-remove { background: none; border: none; color: var(--text3); font-size: 15px; line-height: 1; cursor: pointer; padding: 2px 6px; border-radius: 4px; }
+.smart-pl-rule-remove:hover { color: var(--red); }
+.smart-pl-rule-value { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; color: var(--text2); }
+.smart-pl-rule-value input, .smart-pl-rule-value select { font-family: var(--font); font-size: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; color: var(--text); outline: none; }
+.smart-pl-rule-value input[type="number"] { width: 64px; }
+.smart-pl-rule-value input[type="text"] { flex: 1; min-width: 100px; }
+
 /* ── Media info modal ── */
 .media-info-card { width: 420px; max-height: 540px; }
 .media-info-grid { display: grid; grid-template-columns: 100px 1fr; gap: 6px 12px; font-size: 12px; overflow-y: auto; max-height: 360px; }

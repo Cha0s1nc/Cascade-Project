@@ -9,7 +9,7 @@
 /** What a right-clicked card actually is. 'video' covers both a standalone
  *  movie and an episode - both have their own playable media and their own
  *  UserData.Played, unlike a series, which is a container with neither. */
-export type MenuItemKind = 'album' | 'artist' | 'video' | 'series' | 'playlist' | 'smart-playlist'
+export type MenuItemKind = 'album' | 'artist' | 'video' | 'series' | 'playlist' | 'smart-playlist' | 'user-smart-playlist'
 
 export interface MenuItemOptions {
   /** Only meaningful for 'video'/'series'. Undefined (no known played state,
@@ -68,6 +68,14 @@ export function menuItemsForKind(kind: MenuItemKind, opts: MenuItemOptions = {})
         addPlaylist: true, rename: true, deleteItem: true }
     case 'smart-playlist':
       return { ...NONE, play: true, playNext: true, playLast: true, shuffle: true, addPlaylist: true }
+    // Reuses the rename/delete rows (renderer.js relabels them "Edit rules…"/
+    // "Delete smart playlist") rather than adding two rows that would only
+    // ever apply to this one kind - it is a local definition, not a real
+    // Jellyfin item, so deleteItem here is never gated on server delete
+    // permission the way a real playlist's is.
+    case 'user-smart-playlist':
+      return { ...NONE, play: true, playNext: true, playLast: true, shuffle: true, addPlaylist: true,
+        rename: true, deleteItem: true }
   }
 }
 

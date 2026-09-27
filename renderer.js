@@ -2255,7 +2255,9 @@ function _drawSongRows(rows) {
 async function loadPlaylists() {
   const grid = document.getElementById('playlists-grid')
   grid.dataset.loaded = '1'
-  const smartHtml = smartPlaylistCardHtml('favorites') + smartPlaylistCardHtml('most-played')
+  await loadUserSmartPlaylists()
+  const smartHtml = smartPlaylistCardHtml('favorites') + smartPlaylistCardHtml('most-played') +
+    userSmartPlaylists.map(userSmartPlaylistCardHtml).join('')
   try {
     const data = await jfGet(`/Users/${jf.userId}/Items`, {
       SortBy: 'SortName',
@@ -2294,15 +2296,19 @@ function wirePlaylistCards(grid) {
   })
 }
 
-/** Favorites/Most Played: click opens it, right-click offers Play/Shuffle only -
- *  not real Jellyfin playlists, so no rename/delete. */
+/** Favorites/Most Played/user smart playlists: click opens it, right-click
+ *  offers Play/Shuffle (built-ins) or Play/Shuffle/Edit rules/Delete (a user
+ *  definition - it's only ever local storage, so there is always something to
+ *  edit or delete, unlike a real playlist's ownership-gated delete). */
 function wireSmartPlaylistCards(grid) {
   grid.querySelectorAll('[data-smart]').forEach(el => {
     el.addEventListener('click', () => openSmartPlaylist(el.dataset.smart))
     el.addEventListener('contextmenu', e => {
       e.preventDefault()
-      const sp = SMART_PLAYLISTS[el.dataset.smart]
-      showItemCtxMenu('smart-playlist', { smartKind: el.dataset.smart, Name: sp.name }, el, e.clientX, e.clientY)
+      const sp = smartPlaylistEntry(el.dataset.smart)
+      if (!sp) return
+      const kind = sp.isUser ? 'user-smart-playlist' : 'smart-playlist'
+      showItemCtxMenu(kind, { smartKind: el.dataset.smart, Name: sp.name }, el, e.clientX, e.clientY)
     })
   })
 }
@@ -2341,7 +2347,8 @@ async function refreshPlaylistDetail() {
   const scrollTop = scrollEl.scrollTop
   try {
     if (currentSmartKind) {
-      renderPlaylistDetailItems(await SMART_PLAYLISTS[currentSmartKind].fetch(), false)
+      const sp = smartPlaylistEntry(currentSmartKind)
+      renderPlaylistDetailItems(sp ? await sp.fetch() : [], false)
     } else {
       renderPlaylistDetailItems(await fetchPlaylistTracks(currentPlaylistId), true)
     }
@@ -2405,7 +2412,15 @@ function exitPlEditMode(silent) {
 
 document.getElementById('btn-edit-playlist').addEventListener('click', async () => {
   if (plEditMode) { exitPlEditMode(); return }
-  if (!currentPlaylistId) return // smart playlists hide this button; nothing to edit
+  // A user smart playlist repurposes this same button for its rule editor -
+  // guarded here too, not just by the button's visibility, since a disabled-
+  // looking element can still be triggered programmatically.
+  if (currentSmartKind) {
+    const sp = smartPlaylistEntry(currentSmartKind)
+    if (sp?.isUser) openSmartPlaylistEditor(sp.def)
+    return
+  }
+  if (!currentPlaylistId) return // built-in smart playlists hide this button; nothing to edit
   // Ownership: Jellyfin has no dedicated "do you own this playlist" field, but
   // item DTOs carry CanDelete - the same permission Jellyfin itself uses to
   // gate deleting/managing an item, computed server-side for the current user.
@@ -2685,14 +2700,75 @@ function smartPlaylistCardHtml(kind) {
   </div>`
 }
 
+// ── User smart playlists ─────────────────────────────────────────────────────
+// Jellyfin has no concept of these, so the definitions live only in Cascade's
+// local store (parsed/clamped on every read - see CascadeCore.parseSmartPlaylists,
+// CODEMAP rule "stored values are untrusted"). currentSmartKind holds a def's id
+// (`user:<uuid>`) exactly the way it already holds 'favorites'/'most-played',
+// so every place that dispatches on it goes through smartPlaylistEntry() below
+// instead of caring which kind of smart playlist it is.
+
+let userSmartPlaylists = []   // SmartPlaylistDef[], reloaded each time Playlists is shown
+
+async function loadUserSmartPlaylists() {
+  userSmartPlaylists = CascadeCore.parseSmartPlaylists(await window.cascade.store.get('smartPlaylists'))
+}
+
+async function saveUserSmartPlaylists() {
+  await window.cascade.store.set('smartPlaylists', CascadeCore.serializeSmartPlaylists(userSmartPlaylists))
+}
+
+const USER_SMART_GRADIENT = 'linear-gradient(135deg,#a78bfa,#7c3aed)'
+const USER_SMART_ICON = '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>'
+
+function userSmartPlaylistCardHtml(def) {
+  return `<div class="playlist-card" data-smart="${def.id}">
+    <div class="playlist-art" style="background:${USER_SMART_GRADIENT};color:#fff;">${USER_SMART_ICON}</div>
+    <div class="playlist-body">
+      <div class="playlist-name">${esc(def.name)}</div>
+      <div class="playlist-count">Smart playlist</div>
+    </div>
+  </div>`
+}
+
+/** Runs a user def's query (best-effort prefilter - see toItemsQuery's own
+ *  comment) then re-applies the full rule set client-side, which is what
+ *  actually decides membership, sort and limit. */
+async function fetchUserSmartPlaylist(def) {
+  const query = CascadeCore.toItemsQuery(def)
+  const data = await jfGetAllPaged(`/Users/${jf.userId}/Items`, {
+    IncludeItemTypes: 'Audio', Recursive: true,
+    Fields: 'AlbumId,AlbumPrimaryImageTag,Genres,DateCreated,SortName',
+    ...query
+  })
+  return CascadeCore.applySmartPlaylistRules(data.Items || [], def, Date.now())
+}
+
+/** The one lookup every card, the context menu and the refresh/fetch paths go
+ *  through, so none of them need to know whether a `smart` kind is one of the
+ *  two built-ins or a user definition. Returns null for a user playlist that
+ *  was deleted out from under something still pointing at its id (a stale
+ *  currentSmartKind, e.g.) rather than throwing. */
+function smartPlaylistEntry(kind) {
+  const builtin = SMART_PLAYLISTS[kind]
+  if (builtin) return { name: builtin.name, icon: builtin.icon, gradient: builtin.gradient, fetch: builtin.fetch, isUser: false, def: null }
+  const def = userSmartPlaylists.find(d => d.id === kind)
+  if (!def) return null
+  return { name: def.name, icon: USER_SMART_ICON, gradient: USER_SMART_GRADIENT, fetch: () => fetchUserSmartPlaylist(def), isUser: true, def }
+}
+
 async function openSmartPlaylist(kind) {
-  const sp = SMART_PLAYLISTS[kind]
+  const sp = smartPlaylistEntry(kind)
   if (!sp) return
   currentPlaylistId = null
   currentSmartKind = kind
   showPlaylistDetailShell(sp.name)
-  // Not a real Jellyfin playlist - nothing for Edit mode to write to.
-  document.getElementById('btn-edit-playlist').style.display = 'none'
+  // Not a real Jellyfin playlist - nothing for Edit mode (built-ins) to write
+  // to. A user definition repurposes the same button to open the rule editor
+  // instead (see btn-edit-playlist's handler below).
+  document.getElementById('btn-edit-playlist').style.display = sp.isUser ? '' : 'none'
+  document.getElementById('btn-edit-playlist').textContent = sp.isUser ? 'Edit Rules' : 'Edit'
+  document.getElementById('btn-save-as-playlist').style.display = sp.isUser ? '' : 'none'
   document.getElementById('pl-detail-art').style.background = sp.gradient
   document.getElementById('pl-detail-art').innerHTML = sp.icon
 
@@ -2713,6 +2789,170 @@ document.getElementById('btn-play-playlist').addEventListener('click', () => {
 })
 
 document.getElementById('btn-shuffle-playlist').addEventListener('click', () => shuffleAndPlay(currentPlaylistItems, document.getElementById('pl-detail-name').textContent))
+
+// Snapshots whatever is currently showing into a real Jellyfin playlist - a
+// smart playlist has nothing on the server to point at, so "save" here means
+// "create one with today's matching tracks", not "keep this in sync".
+document.getElementById('btn-save-as-playlist').addEventListener('click', async () => {
+  if (!currentSmartKind || !currentPlaylistItems.length) return
+  const sp = smartPlaylistEntry(currentSmartKind)
+  if (!sp?.isUser) return   // guard the handler too, not just the button's visibility
+  const name = sp.name
+  try {
+    const ids = currentPlaylistItems.map(i => encodeURIComponent(i.Id)).join(',')
+    const res = await fetch(`${jf.url}/Playlists?Name=${encodeURIComponent(name)}&Ids=${ids}&UserId=${encodeURIComponent(jf.userId)}&MediaType=Audio`, {
+      method: 'POST',
+      headers: CascadeCore.authHeaders(jf)
+    })
+    if (!res.ok) throw new Error(await CascadeCore.readErrorMessage(res))
+    showToast(`Saved as playlist "${name}"`)
+    delete document.getElementById('playlists-grid').dataset.loaded
+  } catch (e) {
+    showNotice(`Could not save this as a playlist.\n\n${e.message}`, 'Playlist')
+  }
+})
+
+// ── Smart playlist rule builder ──────────────────────────────────────────────
+
+/** One entry per rule field: the label for the field picker, and how to read/
+ *  write that field's value controls. Kept as a table rather than a switch
+ *  spread across render/serialize so adding a field only ever touches one
+ *  place. */
+const SMART_RULE_FIELDS = {
+  genre: {
+    label: 'Genre',
+    render: (r) => `
+      <select class="spl-op">
+        <option value="is"${r?.op !== 'isNot' ? ' selected' : ''}>is</option>
+        <option value="isNot"${r?.op === 'isNot' ? ' selected' : ''}>is not</option>
+      </select>
+      <input type="text" class="spl-val" placeholder="Genre name" value="${esc(r?.value || '')}">`,
+    read: (row) => ({ field: 'genre', op: row.querySelector('.spl-op').value, value: row.querySelector('.spl-val').value.trim() })
+  },
+  artist: {
+    label: 'Artist',
+    render: (r) => `<span>is</span><input type="text" class="spl-val" placeholder="Artist name" value="${esc(r?.value || '')}">`,
+    read: (row) => ({ field: 'artist', op: 'is', value: row.querySelector('.spl-val').value.trim() })
+  },
+  year: {
+    label: 'Year',
+    render: (r) => `<span>between</span>
+      <input type="number" class="spl-min" value="${r?.min ?? 1970}">
+      <span>and</span>
+      <input type="number" class="spl-max" value="${r?.max ?? 1979}">`,
+    read: (row) => ({ field: 'year', op: 'between', min: parseInt(row.querySelector('.spl-min').value, 10), max: parseInt(row.querySelector('.spl-max').value, 10) })
+  },
+  addedWithinDays: {
+    label: 'Added',
+    render: (r) => `<span>within the last</span><input type="number" class="spl-days" value="${r?.days ?? 30}"><span>days</span>`,
+    read: (row) => ({ field: 'addedWithinDays', op: 'lte', days: parseInt(row.querySelector('.spl-days').value, 10) })
+  },
+  played: {
+    label: 'Played',
+    render: (r) => `<select class="spl-val">
+      <option value="true"${r?.value !== false ? ' selected' : ''}>Played</option>
+      <option value="false"${r?.value === false ? ' selected' : ''}>Never played</option>
+    </select>`,
+    read: (row) => ({ field: 'played', op: 'is', value: row.querySelector('.spl-val').value === 'true' })
+  },
+  playCount: {
+    label: 'Play count',
+    render: (r) => `<span>at least</span><input type="number" class="spl-val" min="0" value="${r?.value ?? 1}">`,
+    read: (row) => ({ field: 'playCount', op: 'gte', value: parseInt(row.querySelector('.spl-val').value, 10) })
+  },
+  favorite: {
+    label: 'Favorite',
+    render: (r) => `<select class="spl-val">
+      <option value="true"${r?.value !== false ? ' selected' : ''}>Is a favorite</option>
+      <option value="false"${r?.value === false ? ' selected' : ''}>Not a favorite</option>
+    </select>`,
+    read: (row) => ({ field: 'favorite', op: 'is', value: row.querySelector('.spl-val').value === 'true' })
+  }
+}
+
+function smartRuleRowHtml(rule) {
+  const field = rule?.field && SMART_RULE_FIELDS[rule.field] ? rule.field : 'genre'
+  const options = Object.entries(SMART_RULE_FIELDS).map(([k, f]) => `<option value="${k}"${k === field ? ' selected' : ''}>${f.label}</option>`).join('')
+  return `<div class="smart-pl-rule">
+    <div class="smart-pl-rule-top">
+      <select class="spl-field">${options}</select>
+      <button type="button" class="smart-pl-rule-remove" title="Remove rule">×</button>
+    </div>
+    <div class="smart-pl-rule-value">${SMART_RULE_FIELDS[field].render(rule)}</div>
+  </div>`
+}
+
+function wireSmartRuleRow(row, rule) {
+  row.querySelector('.spl-field').addEventListener('change', (e) => {
+    const field = e.target.value
+    row.querySelector('.smart-pl-rule-value').innerHTML = SMART_RULE_FIELDS[field].render(null)
+  })
+  row.querySelector('.smart-pl-rule-remove').addEventListener('click', () => row.remove())
+}
+
+function addSmartRuleRow(rule) {
+  const container = document.getElementById('smart-pl-rules')
+  const wrap = document.createElement('div')
+  wrap.innerHTML = smartRuleRowHtml(rule)
+  const row = wrap.firstElementChild
+  container.appendChild(row)
+  wireSmartRuleRow(row, rule)
+}
+
+document.getElementById('smart-pl-add-rule').addEventListener('click', () => addSmartRuleRow(null))
+
+let _smartPlEditingId = null   // set while the modal edits an existing def, null while creating one
+
+function openSmartPlaylistEditor(def) {
+  _smartPlEditingId = def ? def.id : null
+  document.getElementById('smart-pl-modal-title').textContent = def ? 'Edit smart playlist' : 'New smart playlist'
+  document.getElementById('smart-pl-name').value = def?.name || ''
+  document.getElementById('smart-pl-match').value = def?.match || 'all'
+  document.getElementById('smart-pl-sort-by').value = def?.sortBy || 'name'
+  document.getElementById('smart-pl-sort-dir').value = def?.sortDir || 'asc'
+  document.getElementById('smart-pl-limit').value = String(def?.limit ?? 100)
+  const rulesEl = document.getElementById('smart-pl-rules')
+  rulesEl.innerHTML = ''
+  const rules = def?.rules?.length ? def.rules : [null]
+  rules.forEach(r => addSmartRuleRow(r))
+  document.getElementById('smart-pl-modal').classList.remove('hidden')
+}
+
+document.getElementById('btn-new-smart-playlist').addEventListener('click', () => openSmartPlaylistEditor(null))
+
+document.getElementById('smart-pl-cancel').addEventListener('click', () => {
+  document.getElementById('smart-pl-modal').classList.add('hidden')
+})
+
+document.getElementById('smart-pl-save').addEventListener('click', async () => {
+  const name = document.getElementById('smart-pl-name').value.trim()
+  if (!name) { showNotice('Give this smart playlist a name.', 'Smart Playlist'); return }
+  const rules = [...document.querySelectorAll('#smart-pl-rules .smart-pl-rule')].map(row => {
+    const field = row.querySelector('.spl-field').value
+    return SMART_RULE_FIELDS[field].read(row)
+  })
+  const raw = {
+    id: _smartPlEditingId || `user:${crypto.randomUUID()}`,
+    name,
+    match: document.getElementById('smart-pl-match').value,
+    rules,
+    sortBy: document.getElementById('smart-pl-sort-by').value,
+    sortDir: document.getElementById('smart-pl-sort-dir').value,
+    limit: parseInt(document.getElementById('smart-pl-limit').value, 10)
+  }
+  // Round-tripped through the same parse/validate/clamp used on every load
+  // from the store, rather than trusting the form's own values - it is one
+  // code path either way, and this is the untrusted-input boundary just as
+  // much as reading a stale store value back is.
+  const others = userSmartPlaylists.filter(d => d.id !== raw.id)
+  const merged = CascadeCore.parseSmartPlaylists(JSON.stringify([...others, raw]))
+  userSmartPlaylists = merged
+  await saveUserSmartPlaylists()
+  document.getElementById('smart-pl-modal').classList.add('hidden')
+  delete document.getElementById('playlists-grid').dataset.loaded
+  showToast(_smartPlEditingId ? 'Smart playlist updated' : 'Smart playlist created')
+  if (currentSmartKind === raw.id) await refreshPlaylistDetail()
+})
 
 // ── Universal track context menu ───────────────────────────────────────────────
 
@@ -7842,6 +8082,25 @@ function showItemCtxMenu(kind, item, el, x, y, onDetail) {
   if (detailLabel) detailLabel.textContent = kind === 'artist' ? 'Go to artist page' : 'Go to details'
   const favLabel = document.getElementById('ictx-favorite-label')
   if (favLabel) favLabel.textContent = item?.UserData?.IsFavorite ? 'Unfavorite' : 'Favorite'
+  // A user smart playlist repurposes the rename/delete rows (its own
+  // definition, never gated on server delete permission the way a real
+  // playlist is - see menuItemsForKind) rather than adding two more rows that
+  // would only ever apply to one kind.
+  const renameLabel = document.getElementById('ictx-rename-label')
+  if (renameLabel) renameLabel.textContent = kind === 'user-smart-playlist' ? 'Edit rules…' : 'Rename…'
+  const deleteLabel = document.getElementById('ictx-delete-label')
+  if (deleteLabel) deleteLabel.textContent = kind === 'user-smart-playlist' ? 'Delete smart playlist' : 'Delete playlist'
+  // _applyAdminGating() gates ictx-delete on jf.canDelete for a real playlist's
+  // server-side delete - a user smart playlist has nothing server-side to gate,
+  // it's deleting a local definition, so this open of the menu is the one place
+  // that decides which rule applies and re-asserts it every time, rather than
+  // leaving whatever _applyAdminGating last set (which knows nothing about
+  // `kind`) stuck on from a previous menu of the other kind.
+  const deleteEl = document.getElementById('ictx-delete')
+  const deleteNote = document.getElementById('ictx-delete-note')
+  const deleteGated = kind === 'playlist' && !jf.canDelete
+  if (deleteEl) deleteEl.classList.toggle('needs-admin', deleteGated)
+  if (deleteNote) deleteNote.hidden = !deleteGated
 
   _reflowItemCtxSeparators()
 
@@ -7867,7 +8126,10 @@ async function _ictxTracks() {
   if (_ictxKind === 'album') return fetchAlbumTracks(_ictxItem.Id)
   if (_ictxKind === 'artist') return fetchArtistSongs(_ictxItem.Id)
   if (_ictxKind === 'playlist') return fetchPlaylistTracks(_ictxItem.Id)
-  if (_ictxKind === 'smart-playlist') return SMART_PLAYLISTS[_ictxItem.smartKind].fetch()
+  if (_ictxKind === 'smart-playlist' || _ictxKind === 'user-smart-playlist') {
+    const sp = smartPlaylistEntry(_ictxItem.smartKind)
+    return sp ? sp.fetch() : []
+  }
   return []
 }
 
@@ -7990,6 +8252,11 @@ document.getElementById('ictx-mark-unplayed').addEventListener('click', () => {
 // btn-edit-playlist's handler does, since this card was never opened.
 document.getElementById('ictx-rename').addEventListener('click', async () => {
   hideItemCtxMenu()
+  if (_ictxKind === 'user-smart-playlist' && _ictxItem) {
+    const sp = smartPlaylistEntry(_ictxItem.smartKind)
+    if (sp?.isUser) openSmartPlaylistEditor(sp.def)
+    return
+  }
   if (_ictxKind !== 'playlist' || !_ictxItem) return
   currentPlaylistId = _ictxItem.Id
   currentSmartKind = null
@@ -8004,8 +8271,26 @@ document.getElementById('ictx-rename').addEventListener('click', async () => {
 
 // Delete reuses deleteItemFromServer (defined with "Delete media" above) - a
 // Jellyfin playlist is an Item like any other, so the same DELETE applies.
+// A user smart playlist has no server item at all: "delete" just drops it
+// from the local store (see saveUserSmartPlaylists) and is never gated on
+// server delete permission (see showItemCtxMenu's deleteGated above).
 document.getElementById('ictx-delete').addEventListener('click', () => {
   hideItemCtxMenu()
+  if (_ictxKind === 'user-smart-playlist' && _ictxItem) {
+    const kindId = _ictxItem.smartKind
+    if (!confirm(`Delete the smart playlist "${_ictxItem.Name}"? This cannot be undone.`)) return
+    userSmartPlaylists = userSmartPlaylists.filter(d => d.id !== kindId)
+    saveUserSmartPlaylists()
+    _ictxEl?.remove()
+    delete document.getElementById('playlists-grid').dataset.loaded
+    if (currentSmartKind === kindId) {
+      document.getElementById('playlist-detail').classList.remove('active')
+      document.getElementById('playlist-index').style.display = ''
+      currentSmartKind = null
+    }
+    showToast('Smart playlist deleted')
+    return
+  }
   if (_ictxKind !== 'playlist' || !_ictxItem) return
   deleteItemFromServer(_ictxItem, {
     confirmMsg: `Delete the playlist "${_ictxItem.Name}"? This cannot be undone.`,

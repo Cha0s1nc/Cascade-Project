@@ -445,6 +445,10 @@
         <div id="playlist-index">
           <div class="sect-header" style="margin-bottom:14px">
             <span class="sect-title">Playlists</span>
+            <button class="shuffle-all-btn" id="btn-new-smart-playlist">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              New Smart Playlist
+            </button>
           </div>
           <div class="playlist-grid" id="playlists-grid">
             <div class="playlist-card skel-card"><div class="playlist-art skel"></div><div class="playlist-body"><div class="skel skel-text" style="width:75%"></div><div class="skel skel-text" style="width:40%;height:9px;margin-top:6px"></div></div></div>
@@ -469,6 +473,10 @@
             </div>
             <button id="pl-detail-refresh" title="Refresh this playlist" style="background:none;border:none;color:var(--text3);cursor:pointer;padding:2px 4px;font-size:14px;line-height:1;border-radius:4px;transition:color 0.15s;" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--text3)'">↻</button>
             <div style="margin-left:auto;display:flex;gap:8px">
+              <!-- User smart playlists only: snapshots the current track list
+                   into a real Jellyfin playlist, since a smart playlist itself
+                   has nothing on the server to point at. -->
+              <button class="shuffle-all-btn" id="btn-save-as-playlist" style="display:none">Save as a Playlist</button>
               <button class="shuffle-all-btn" id="btn-edit-playlist">Edit</button>
               <button class="shuffle-all-btn" id="btn-shuffle-playlist">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
@@ -1413,7 +1421,7 @@
   </div>
   <div class="ctx-sep"></div>
   <div class="ctx-item" id="ictx-rename">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Rename…
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg><span id="ictx-rename-label">Rename…</span>
   </div>
   <div class="ctx-sep"></div>
   <div class="ctx-item" id="ictx-refresh-meta">
@@ -1424,7 +1432,7 @@
   </div>
   <div class="ctx-sep"></div>
   <div class="ctx-item danger" id="ictx-delete">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Delete playlist<span class="ctx-item-note" id="ictx-delete-note" hidden>Needs delete permission</span>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg><span id="ictx-delete-label">Delete playlist</span><span class="ctx-item-note" id="ictx-delete-note" hidden>Needs delete permission</span>
   </div>
 </div>
 
@@ -1521,6 +1529,47 @@
     <div class="modal-actions">
       <button class="modal-btn" id="pl-edit-cancel">Cancel</button>
       <button class="modal-btn modal-btn-accent" id="pl-edit-save">Save</button>
+    </div>
+  </div>
+</div>
+<!-- Smart playlist rule builder: create or edit a locally-stored definition
+     (see CascadeCore.parseSmartPlaylists/toItemsQuery/applySmartPlaylistRules
+     in src/core/smart-playlist.ts). Reuses .modal-overlay/.modal-card/
+     .modal-input/.modal-btn verbatim; rule rows are built in renderer.js
+     since which value controls show depends on the field picked. -->
+<div class="modal-overlay hidden" id="smart-pl-modal">
+  <div class="modal-card" style="width:420px;max-height:80vh;overflow-y:auto;">
+    <div class="modal-title" id="smart-pl-modal-title">New smart playlist</div>
+    <input class="modal-input" id="smart-pl-name" placeholder="Playlist name…" maxlength="100" style="width:100%;box-sizing:border-box;margin-bottom:14px;" />
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:12px;color:var(--text2)">
+      <span>Match</span>
+      <select class="setting-input" id="smart-pl-match" style="width:auto;padding:4px 8px;">
+        <option value="all">all</option>
+        <option value="any">any</option>
+      </select>
+      <span>of these rules</span>
+    </div>
+    <div id="smart-pl-rules"></div>
+    <button class="shuffle-all-btn" id="smart-pl-add-rule" style="margin:4px 0 16px;">+ Add rule</button>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:18px;font-size:12px;color:var(--text2)">
+      <span>Sort by</span>
+      <select class="setting-input" id="smart-pl-sort-by" style="width:auto;padding:4px 8px;">
+        <option value="name">Title</option>
+        <option value="artist">Artist</option>
+        <option value="album">Album</option>
+        <option value="dateAdded">Date added</option>
+        <option value="playCount">Play count</option>
+      </select>
+      <select class="setting-input" id="smart-pl-sort-dir" style="width:auto;padding:4px 8px;">
+        <option value="asc">Ascending</option>
+        <option value="desc">Descending</option>
+      </select>
+      <span style="margin-left:auto">Limit</span>
+      <input class="setting-input" id="smart-pl-limit" type="number" min="1" max="500" style="width:64px;padding:4px 8px;" />
+    </div>
+    <div class="modal-actions">
+      <button class="modal-btn" id="smart-pl-cancel">Cancel</button>
+      <button class="modal-btn modal-btn-accent" id="smart-pl-save">Save</button>
     </div>
   </div>
 </div>
