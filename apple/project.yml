@@ -38,6 +38,9 @@ targets:
         DEVELOPMENT_TEAM: 8SF895GF9C
         CODE_SIGN_STYLE: Automatic
         SWIFT_VERSION: "6.0"
+    scheme:
+      testTargets:
+        - CascadeiOSUITests
 
   CascadetvOS:
     type: application
@@ -75,6 +78,24 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: xyz.chaosinc.cascade.tvos.uitests
+        DEVELOPMENT_TEAM: 8SF895GF9C
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: YES
+
+  # The phone's counterpart: taps, long-presses and screenshots from a script.
+  # See UITests/iOS/TapScript.swift.
+  CascadeiOSUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - UITests/iOS
+    dependencies:
+      - target: CascadeiOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: xyz.chaosinc.cascade.ios.uitests
         DEVELOPMENT_TEAM: 8SF895GF9C
         CODE_SIGN_STYLE: Automatic
         SWIFT_VERSION: "6.0"
