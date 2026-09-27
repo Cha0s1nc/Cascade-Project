@@ -145,4 +145,24 @@ Quick Connect itself. xcodebuild sometimes never exits after the test
 passes; wait for "Test Suite 'Selected tests' passed" in its output instead
 of its exit.
 
+
+Browsing and playlists (branch `overnight/swift-browse`, 2026-09-27):
+- Sorting: `BrowseSort.swift` maps each screen's choice to a server sortBy;
+  `sortedLikeServer` must handle every key used (a test enforces it), or
+  several libraries come back concatenated. `loadPaged` takes sortOrder.
+  `SortMenu` (App/Sources/BrowseControls.swift) is a Menu on iOS and a
+  confirmation dialog on tvOS, where a Menu took focus but never opened.
+  Albums "Recently Played" comes from played tracks: Jellyfin keeps no
+  album play date.
+- Songs Play All / Shuffle: whole library. Shuffle is `randomSongs`
+  (SortBy=Random, capped at 1,000). Play waits for one full fetch until
+  PlaybackService can extend a queue.
+- Genres: under Albums (`GenresView.swift`), not a tab.
+- Playlist editing: `PlaylistEditing.swift` (routes checked on 10.11.11),
+  `AddToPlaylistSheet(tracks:)` for any screen to present. 10.11 sets
+  PlaylistItemId to the track id and refuses duplicates.
+- Driving the iOS simulator with nobody there: a throwaway XCUITest target
+  like the tvOS one (tap by accessibility label, screenshot to a folder)
+  works when the simulator tap tool is not granted.
+
 Out of scope for v1: EQ, crossfade, offline downloads, video.

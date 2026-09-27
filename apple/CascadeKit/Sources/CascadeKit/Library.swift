@@ -99,37 +99,100 @@ public extension JellyfinClient {
         ["userId": currentConfig.userId, "recursive": "true"]
     }
 
-    func albums(limit: Int = 500, startIndex: Int = 0) async throws -> [JfItem] {
+    /// `favoritesOnly` is sent as nil rather than "false" when off: false
+    /// would mean "only non-favorites" to the server.
+    func albums(limit: Int = 500, startIndex: Int = 0, sortBy: String = "SortName",
+                sortOrder: String = "Ascending", favoritesOnly: Bool = false,
+                genreId: String? = nil) async throws -> [JfItem] {
         try await itemsAcrossLibraries(baseParams.merging([
             "includeItemTypes": "MusicAlbum",
-            "sortBy": "SortName",
+            "sortBy": sortBy,
+            "sortOrder": sortOrder,
+            "isFavorite": favoritesOnly ? "true" : nil,
+            "genreIds": genreId,
             "limit": String(limit),
             "startIndex": String(startIndex),
         ]) { _, new in new })
+    }
+
+    /// Albums whose tracks were played most recently, newest first. Jellyfin
+    /// keeps no play date on an album itself, so this reads the played tracks
+    /// and then fetches their albums. Capped: past a few hundred albums
+    /// "recently" has stopped meaning anything, and the ids go in the URL.
+    func recentlyPlayedAlbums(favoritesOnly: Bool = false, maxAlbums: Int = 200) async throws -> [JfItem] {
+        let played = try await itemsAcrossLibraries(baseParams.merging([
+            "includeItemTypes": "Audio",
+            "sortBy": "DatePlayed",
+            "sortOrder": "Descending",
+            "filters": "IsPlayed",
+            "limit": "1000",
+        ]) { _, new in new })
+        let ids = Array(recentlyPlayedAlbumIds(played).prefix(maxAlbums))
+        guard !ids.isEmpty else { return [] }
+        let albums = try await itemsAcrossLibraries(baseParams.merging([
+            "includeItemTypes": "MusicAlbum",
+            "ids": ids.joined(separator: ","),
+            "isFavorite": favoritesOnly ? "true" : nil,
+        ]) { _, new in new })
+        return albumsByRecentPlay(playedTracks: played, albums: albums)
     }
 
     /// Album artists rather than every credited artist, which is the list a
     /// music app means by "Artists". A separate endpoint, not an item type; it
     /// takes one parentId, so several libraries are queried per library too.
-    func artists(limit: Int = 500, startIndex: Int = 0) async throws -> [JfItem] {
+    func artists(limit: Int = 500, startIndex: Int = 0, sortOrder: String = "Ascending",
+                 favoritesOnly: Bool = false) async throws -> [JfItem] {
         try await itemsAcrossLibraries([
             "userId": currentConfig.userId,
             // The server's default for this route, stated so the libraries
             // can be put back in the same order after merging.
             "sortBy": "SortName",
+            "sortOrder": sortOrder,
+            "isFavorite": favoritesOnly ? "true" : nil,
             "limit": String(limit),
             "startIndex": String(startIndex),
         ], path: "/Artists/AlbumArtists")
     }
 
-    func songs(limit: Int = 500, startIndex: Int = 0) async throws -> [JfItem] {
+    /// A nil `limit` means every song, in one response.
+    func songs(limit: Int? = 500, startIndex: Int = 0, sortBy: String = "SortName",
+               sortOrder: String = "Ascending", favoritesOnly: Bool = false,
+               genreId: String? = nil) async throws -> [JfItem] {
         try await itemsAcrossLibraries(baseParams.merging([
             "includeItemTypes": "Audio",
-            "sortBy": "SortName",
+            "sortBy": sortBy,
+            "sortOrder": sortOrder,
+            "isFavorite": favoritesOnly ? "true" : nil,
+            "genreIds": genreId,
             "fields": trackFields,
-            "limit": String(limit),
+            "limit": limit.map(String.init),
             "startIndex": String(startIndex),
         ]) { _, new in new })
+    }
+
+    /// A random selection of songs, for Shuffle All. One request, so the
+    /// first track starts without waiting for the whole library; capped,
+    /// because a queue past a thousand songs is days of music and a big
+    /// response on a phone. Shuffled again after merging: each library comes
+    /// back in its own random order, joined one library after the other.
+    func randomSongs(limit: Int = 1000, favoritesOnly: Bool = false,
+                     genreId: String? = nil) async throws -> [JfItem] {
+        Array(try await songs(limit: limit, sortBy: "Random", favoritesOnly: favoritesOnly, genreId: genreId)
+            .shuffled().prefix(limit))
+    }
+
+    /// The music genres in the chosen libraries. Jellyfin gives a genre one
+    /// id across libraries, so the merge's id check is what dedupes them.
+    func genres() async throws -> [JfItem] {
+        try await itemsAcrossLibraries([
+            "userId": currentConfig.userId,
+            "sortBy": "SortName",
+        ], path: "/MusicGenres")
+    }
+
+    /// A genre's songs in album order, for its Play button.
+    func songs(inGenre genreId: String) async throws -> [JfItem] {
+        try await songs(limit: nil, sortBy: "AlbumArtist,Album,ParentIndexNumber,IndexNumber", genreId: genreId)
     }
 
     /// An album's tracks in playing order. Disc number first, because a
@@ -147,12 +210,13 @@ public extension JellyfinClient {
     /// The user's playlists. Not scoped to the chosen music libraries:
     /// playlists live in Jellyfin's own playlists collection, so the library
     /// filter would hide every one of them.
-    func playlists() async throws -> [JfItem] {
+    func playlists(sortBy: String = "SortName", sortOrder: String = "Ascending") async throws -> [JfItem] {
         let response: JfItemsResponse = try await get("/Items", params: [
             "userId": currentConfig.userId,
             "includeItemTypes": "Playlist",
             "recursive": "true",
-            "sortBy": "SortName",
+            "sortBy": sortBy,
+            "sortOrder": sortOrder,
             "fields": "ChildCount",
         ])
         return response.items ?? []

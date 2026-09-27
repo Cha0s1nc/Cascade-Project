@@ -70,13 +70,17 @@ public func sortedLikeServer(_ items: [JfItem], sortBy: String?, sortOrder: Stri
         case "SortName", "Name": return item.sortName ?? item.name ?? ""
         case "DateCreated": return item.dateCreated ?? ""
         case "DatePlayed": return item.userData?.lastPlayedDate ?? ""
+        case "AlbumArtist": return item.albumArtist ?? item.artists?.first ?? ""
+        case "Album": return item.album ?? ""
         default: return nil
         }
     }
     let ordered: (JfItem, JfItem) -> Bool
     if key == "PlayCount" {
         ordered = { ($0.userData?.playCount ?? 0) < ($1.userData?.playCount ?? 0) }
-    } else if ["SortName", "Name", "DateCreated", "DatePlayed"].contains(key) {
+    } else if key == "ProductionYear" {
+        ordered = { ($0.productionYear ?? 0) < ($1.productionYear ?? 0) }
+    } else if ["SortName", "Name", "DateCreated", "DatePlayed", "AlbumArtist", "Album"].contains(key) {
         ordered = { text($0)!.localizedStandardCompare(text($1)!) == .orderedAscending }
     } else {
         return items

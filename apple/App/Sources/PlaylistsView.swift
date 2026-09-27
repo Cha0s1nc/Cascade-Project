@@ -1,92 +1,255 @@
 import SwiftUI
 import CascadeKit
 
-/// Read-only for now: browse and play. Editing (add, remove, reorder) comes
-/// later; the server facts it will need are in the desktop's CODEMAP.
+/// The user's playlists, and a button to make a new one. Editing a playlist
+/// happens on its own page.
 struct PlaylistsView: View {
     @Environment(AppState.self) private var state
     @State private var items: [JfItem] = []
     @State private var isLoading = true
     @State private var error: String?
+    @AppStorage("cascade.playlists.sort") private var sortField: PlaylistSortField = .name
+    @AppStorage("cascade.playlists.order") private var sortDirection: SortDirection = .ascending
+    @State private var creating = false
+    @State private var newName = ""
+    @State private var writeError: String?
+    /// Bumped after a create so the list reloads with the new playlist.
+    @State private var generation = 0
 
     var body: some View {
         ScrollView {
+            HStack {
+                SortMenu(fields: [(PlaylistSortField.name, "Name"), (.added, "Date Added")],
+                         field: $sortField, direction: $sortDirection)
+                Spacer()
+                Button {
+                    newName = ""
+                    creating = true
+                } label: {
+                    Label("New Playlist", systemImage: "plus")
+                }
+            }
+            .padding(.horizontal)
+            .browseHeader()
             LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty)
             ItemGrid(items: items)
         }
         .navigationTitle("Playlists")
-        .task {
+        .onChange(of: sortField) { sortDirection = sortField.defaultDirection }
+        .alert("New Playlist", isPresented: $creating) {
+            TextField("Name", text: $newName)
+            Button("Cancel", role: .cancel) {}
+            Button("Create") { Task { await create() } }
+        }
+        .writeErrorAlert($writeError)
+        // Runs again on every return to this screen, so a playlist renamed
+        // or deleted on its own page is current here too.
+        .task(id: BrowseKey(sort: sortField.rawValue, direction: sortDirection, generation: generation)) {
             guard let client = state.client else { return }
-            do { items = try await client.playlists() }
-            catch { self.error = error.localizedDescription }
+            do {
+                items = try await client.playlists(sortBy: sortField.serverSortBy,
+                                                   sortOrder: sortDirection.serverValue)
+                error = nil
+            } catch {
+                if !Task.isCancelled { self.error = error.localizedDescription }
+            }
             isLoading = false
+        }
+    }
+
+    private func create() async {
+        let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, let client = state.client else { return }
+        do {
+            _ = try await client.createPlaylist(name: name)
+            generation += 1
+        } catch {
+            writeError = error.localizedDescription
         }
     }
 }
 
+/// A playlist's songs, with play, shuffle, rename and delete, and editing of
+/// its contents: on iOS swipe to remove and Edit to drag into a new order; on
+/// tvOS, where neither exists, press and hold a song for Move Up, Move Down
+/// and Remove.
+///
+/// Every edit is sent to the server first and only then shown, except a
+/// drag, which SwiftUI has already drawn; a refused move or remove reloads
+/// the playlist from the server so the screen never shows an order that was
+/// not saved.
 struct PlaylistDetailView: View {
     let playlist: JfItem
 
     @Environment(AppState.self) private var state
+    @Environment(\.dismiss) private var dismiss
+    @State private var name: String
     @State private var tracks: [JfItem] = []
     @State private var isLoading = true
     @State private var error: String?
+    @State private var writeError: String?
+    @State private var renaming = false
+    @State private var newName = ""
+    @State private var confirmingDelete = false
+
+    init(playlist: JfItem) {
+        self.playlist = playlist
+        _name = State(initialValue: playlist.name ?? "Playlist")
+    }
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 12) {
-                VStack(spacing: 12) {
-                    ArtworkView(itemId: playlist.id, size: 200)
-                    Text(playlist.name ?? "Playlist")
-                        .font(.title2.bold())
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
-                    Text("\(tracks.count) songs")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    HStack(spacing: 16) {
-                        Button {
-                            RecentPlaylists.touch(playlist.id)
-                            Task { await state.player?.play(tracks, startIndex: 0) }
-                        } label: {
-                            Label("Play", systemImage: "play.fill")
-                        }
-                        Button {
-                            RecentPlaylists.touch(playlist.id)
-                            Task {
-                                await state.player?.play(tracks, startIndex: 0)
-                                state.player?.toggleShuffle()
-                            }
-                        } label: {
-                            Label("Shuffle", systemImage: "shuffle")
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(tracks.isEmpty)
+        List {
+            header
+            ForEach(Array(tracks.enumerated()), id: \.element.entryId) { index, track in
+                Button {
+                    RecentPlaylists.touch(playlist.id)
+                    Task { await state.player?.play(tracks, startIndex: index) }
+                } label: {
+                    TrackRow(track: track)
                 }
-                .frame(maxWidth: .infinity)
-                .padding()
+                .buttonStyle(.plain)
+                #if os(tvOS)
+                .contextMenu {
+                    if index > 0 {
+                        Button("Move Up", systemImage: "arrow.up") { Task { await move(index, to: index - 1) } }
+                    }
+                    if index < tracks.count - 1 {
+                        Button("Move Down", systemImage: "arrow.down") { Task { await move(index, to: index + 1) } }
+                    }
+                    Button("Remove from Playlist", systemImage: "trash", role: .destructive) {
+                        Task { await remove(IndexSet(integer: index)) }
+                    }
+                }
+                #endif
+            }
+            #if os(iOS)
+            .onDelete { offsets in Task { await remove(offsets) } }
+            .onMove { from, offset in
+                guard let source = from.first else { return }
+                Task { await move(source, to: playlistMoveIndex(from: source, toOffset: offset)) }
+            }
+            #endif
+            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: tracks.isEmpty)
+        }
+        .navigationTitle(name)
+        #if os(iOS)
+        .toolbar { EditButton() }
+        #endif
+        .alert("Rename Playlist", isPresented: $renaming) {
+            TextField("Name", text: $newName)
+            Button("Cancel", role: .cancel) {}
+            Button("Save") { Task { await rename() } }
+        }
+        .confirmationDialog("Delete \u{201C}\(name)\u{201D}?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button("Delete Playlist", role: .destructive) { Task { await deletePlaylist() } }
+        } message: {
+            Text("The songs stay in your library.")
+        }
+        .writeErrorAlert($writeError)
+        .task { await load() }
+    }
 
-                ForEach(Array(tracks.enumerated()), id: \.offset) { index, track in
-                    Button {
-                        RecentPlaylists.touch(playlist.id)
-                        Task { await state.player?.play(tracks, startIndex: index) }
-                    } label: {
-                        TrackRow(track: track)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal)
+    private var header: some View {
+        VStack(spacing: 12) {
+            ArtworkView(itemId: playlist.id, size: 200)
+            Text(name)
+                .font(.title2.bold())
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+            Text(tracks.count == 1 ? "1 song" : "\(tracks.count) songs")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 16) {
+                Button {
+                    RecentPlaylists.touch(playlist.id)
+                    Task { await state.player?.play(tracks, startIndex: 0) }
+                } label: {
+                    Label("Play", systemImage: "play.fill").labelStyle(.titleAndIcon).fixedSize(horizontal: true, vertical: false)
                 }
-                LoadingOverlay(isLoading: isLoading, error: error, isEmpty: tracks.isEmpty)
-                    .padding(.horizontal)
+                .buttonStyle(.borderedProminent)
+                .disabled(tracks.isEmpty)
+                Button {
+                    RecentPlaylists.touch(playlist.id)
+                    Task { await playShuffled(tracks, on: state.player) }
+                } label: {
+                    Label("Shuffle", systemImage: "shuffle").labelStyle(.titleAndIcon).fixedSize(horizontal: true, vertical: false)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(tracks.isEmpty)
+                Button {
+                    newName = name
+                    renaming = true
+                } label: {
+                    Label("Rename", systemImage: "pencil").labelStyle(.iconOnly)
+                }
+                .buttonStyle(.bordered)
+                Button(role: .destructive) {
+                    confirmingDelete = true
+                } label: {
+                    Label("Delete", systemImage: "trash").labelStyle(.iconOnly)
+                }
+                .buttonStyle(.bordered)
             }
         }
-        .navigationTitle(playlist.name ?? "Playlist")
-        .task {
-            guard let client = state.client else { return }
-            do { tracks = try await client.tracks(inPlaylist: playlist.id) }
-            catch { self.error = error.localizedDescription }
-            isLoading = false
+        .frame(maxWidth: .infinity)
+        .padding(.vertical)
+        .browseHeader()
+    }
+
+    private func load() async {
+        guard let client = state.client else { return }
+        do {
+            tracks = try await client.tracks(inPlaylist: playlist.id)
+            error = nil
+        } catch { self.error = error.localizedDescription }
+        isLoading = false
+    }
+
+    private func remove(_ offsets: IndexSet) async {
+        guard let client = state.client else { return }
+        let entries = offsets.map { tracks[$0].entryId }
+        do {
+            try await client.removeFromPlaylist(playlist.id, entryIds: entries)
+            tracks.removeAll { entries.contains($0.entryId) }
+        } catch {
+            writeError = error.localizedDescription
+            await load()
+        }
+    }
+
+    /// `index` is the final position, which is what the server counts in.
+    private func move(_ source: Int, to index: Int) async {
+        guard let client = state.client, tracks.indices.contains(source),
+              tracks.indices.contains(index), source != index else { return }
+        let entry = tracks[source].entryId
+        // Shown straight away: on iOS the drag has already put it there.
+        tracks.insert(tracks.remove(at: source), at: index)
+        do {
+            try await client.movePlaylistEntry(playlist.id, entryId: entry, to: index)
+        } catch {
+            writeError = error.localizedDescription
+            await load()
+        }
+    }
+
+    private func rename() async {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != name, let client = state.client else { return }
+        do {
+            try await client.renamePlaylist(playlist.id, to: trimmed)
+            name = trimmed
+        } catch {
+            writeError = error.localizedDescription
+        }
+    }
+
+    private func deletePlaylist() async {
+        guard let client = state.client else { return }
+        do {
+            try await client.deletePlaylist(playlist.id)
+            dismiss()
+        } catch {
+            writeError = error.localizedDescription
         }
     }
 }

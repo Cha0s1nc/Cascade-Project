@@ -118,4 +118,44 @@ struct LiveLibraryTests {
         try await client.setPlayed(!wasPlayed, itemId: track.id)
         try await client.setPlayed(wasPlayed, itemId: track.id)
     }
+
+    @Test func shuffleAllGetsARandomCappedSelectionOfSongs() async throws {
+        let client = try await client()
+        let all = try await client.songs(limit: nil)
+        let random = try await client.randomSongs(limit: 10)
+        #expect(random.count == min(10, all.count))
+        #expect(random.allSatisfy { $0.type == "Audio" })
+        // Random is an order the server really applies: two draws of the
+        // whole library in title order would be identical.
+        let a = try await client.randomSongs(limit: all.count).map(\.id)
+        let b = try await client.randomSongs(limit: all.count).map(\.id)
+        #expect(Set(a) == Set(all.map(\.id)), "a draw as big as the library is the whole library")
+        #expect(a != b || all.count < 3)
+    }
+
+    @Test func playAllFetchesEverySongInOneRequest() async throws {
+        let client = try await client()
+        let paged = try await client.songs(limit: 5)
+        let all = try await client.songs(limit: nil)
+        // limit is per library, so with several libraries only the first
+        // five overall are sure to be in both.
+        #expect(all.count >= paged.count)
+        #expect(all.prefix(5).map(\.id) == paged.prefix(5).map(\.id))
+    }
+
+    @Test func aGenreScopesItsAlbumsAndSongs() async throws {
+        let client = try await client()
+        let genres = try await client.genres()
+        #expect(!genres.isEmpty)
+        #expect(genres.allSatisfy { $0.type == "MusicGenre" })
+        #expect(Set(genres.map(\.id)).count == genres.count, "a genre listed twice")
+        let genre = try #require(genres.first)
+        let albums = try await client.albums(genreId: genre.id)
+        let songs = try await client.songs(inGenre: genre.id)
+        let everything = try await client.songs(limit: nil)
+        #expect(!albums.isEmpty && !songs.isEmpty)
+        // The filter reached the server: a genre is not the whole library.
+        #expect(songs.count < everything.count)
+        #expect(try await client.randomSongs(genreId: genre.id).count == songs.count)
+    }
 }

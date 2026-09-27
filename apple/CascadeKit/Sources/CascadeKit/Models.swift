@@ -95,6 +95,11 @@ public struct JfItem: Codable, Sendable, Identifiable, Hashable {
     /// The name Jellyfin sorts by ("Killers, The"), with Fields=SortName.
     public var sortName: String?
 
+    /// Which entry of a playlist this is, on /Playlists/{id}/Items. The id to
+    /// remove or move by. Jellyfin 10.11 sets it to the track's own id and
+    /// refuses to add a track twice; use `entryId`, which falls back to `id`.
+    public var playlistItemId: String?
+
     public init(id: String, name: String? = nil, type: String? = nil,
                 runTimeTicks: Int? = nil, userData: JfUserData? = nil) {
         self.id = id
