@@ -5,9 +5,12 @@ import CascadeKit
 /// happens on its own page.
 struct PlaylistsView: View {
     @Environment(AppState.self) private var state
-    @State private var items: [JfItem] = []
-    @State private var isLoading = true
-    @State private var error: String?
+    /// Loaded and kept by AppState (see browseList), so it survives leaving
+    /// this screen and keeps filling while it is off screen.
+    @State private var list: BrowseList?
+    private var items: [JfItem] { list?.items ?? [] }
+    private var isLoading: Bool { list?.isLoading ?? true }
+    private var error: String? { list?.error }
     @AppStorage("cascade.playlists.sort") private var sortField: PlaylistSortField = .name
     @AppStorage("cascade.playlists.order") private var sortDirection: SortDirection = .ascending
     @State private var creating = false
@@ -42,18 +45,17 @@ struct PlaylistsView: View {
             Button("Create") { Task { await create() } }
         }
         .writeErrorAlert($writeError)
-        // Runs again on every return to this screen, so a playlist renamed
-        // or deleted on its own page is current here too.
+        .refreshable { state.dropBrowseCache(.playlists); generation += 1 }
+        // Kept by AppState, and dropped by every playlist write
+        // (dropBrowseCache), so a playlist renamed or deleted on its own page
+        // is still current when this screen comes back.
         .task(id: BrowseKey(sort: sortField.rawValue, direction: sortDirection, generation: generation)) {
             guard let client = state.client else { return }
-            do {
-                items = try await client.playlists(sortBy: sortField.serverSortBy,
-                                                   sortOrder: sortDirection.serverValue)
-                error = nil
-            } catch {
-                if !Task.isCancelled { self.error = error.localizedDescription }
+            let (sortBy, order) = (sortField.serverSortBy, sortDirection.serverValue)
+            list = state.browseList(.playlists, BrowseKey(sort: sortField.rawValue, direction: sortDirection,
+                                                          generation: generation)) { list in
+                list.items = try await client.playlists(sortBy: sortBy, sortOrder: order)
             }
-            isLoading = false
         }
     }
 
@@ -210,6 +212,7 @@ struct PlaylistDetailView: View {
         let entries = offsets.map { tracks[$0].entryId }
         do {
             try await client.removeFromPlaylist(playlist.id, entryIds: entries)
+            state.dropBrowseCache(.playlists)   // its song count changed
             tracks.removeAll { entries.contains($0.entryId) }
         } catch {
             writeError = error.localizedDescription
@@ -237,6 +240,7 @@ struct PlaylistDetailView: View {
         guard !trimmed.isEmpty, trimmed != name, let client = state.client else { return }
         do {
             try await client.renamePlaylist(playlist.id, to: trimmed)
+            state.dropBrowseCache(.playlists)
             name = trimmed
         } catch {
             writeError = error.localizedDescription
@@ -247,6 +251,7 @@ struct PlaylistDetailView: View {
         guard let client = state.client else { return }
         do {
             try await client.deletePlaylist(playlist.id)
+            state.dropBrowseCache(.playlists)
             dismiss()
         } catch {
             writeError = error.localizedDescription

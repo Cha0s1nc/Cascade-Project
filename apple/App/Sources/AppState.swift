@@ -19,6 +19,52 @@ final class AppState {
 
     var isSignedIn: Bool { client != nil }
 
+    /// Each browse screen's list, owned here rather than by the screen. A
+    /// screen's own .task is cancelled the moment it disappears (a tab switch,
+    /// or opening a detail page), so a library that takes a while to page in
+    /// never finished while the user moved around, and every return started
+    /// again from an empty screen. Loaded here, a list keeps filling in the
+    /// background and coming back shows whatever has arrived. Keyed by the
+    /// screen and everything its list depends on (library selection, sort,
+    /// filter). Memory only, for this session: pull to refresh drops a
+    /// screen's lists, a playlist write drops Playlists', and signing out
+    /// drops them all. Ignored by observation: screens observe the BrowseList
+    /// they are handed, not this dictionary.
+    @ObservationIgnored private var browseLists: [BrowseCacheKey: BrowseList] = [:]
+
+    /// The list for this screen and key, starting its load if there is none
+    /// yet or the last one failed. Asking for a new key cancels the screen's
+    /// other unfinished loads, so flicking through sorts does not leave a
+    /// queue of whole-library fetches running.
+    func browseList(_ screen: BrowseScreen, _ key: BrowseKey,
+                    load: @escaping @MainActor (BrowseList) async throws -> Void) -> BrowseList {
+        let cacheKey = BrowseCacheKey(screen: screen, key: key)
+        if let list = browseLists[cacheKey], list.error == nil { return list }
+        for (other, list) in browseLists where other.screen == screen && !list.isComplete {
+            list.task?.cancel()
+            browseLists[other] = nil
+        }
+        let list = BrowseList()
+        browseLists[cacheKey] = list
+        list.task = Task {
+            do {
+                try await load(list)
+                list.isComplete = !Task.isCancelled
+            } catch {
+                if !Task.isCancelled { list.error = error.localizedDescription }
+            }
+            list.isLoading = false
+        }
+        return list
+    }
+
+    func dropBrowseCache(_ screen: BrowseScreen) {
+        for (key, list) in browseLists where key.screen == screen {
+            list.task?.cancel()
+            browseLists[key] = nil
+        }
+    }
+
     /// Unique per install. A constant here would make every Cascade look like
     /// the same device to the server, so remote control could not target one of
     /// them and two installs would collide in the session list.
@@ -94,6 +140,8 @@ final class AppState {
         client = nil
         player = nil
         cascadePluginApi = nil
+        for list in browseLists.values { list.task?.cancel() }
+        browseLists = [:]
     }
 
     /// Which music libraries to browse. Empty means all of them.

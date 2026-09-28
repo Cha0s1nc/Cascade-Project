@@ -72,13 +72,34 @@ struct SortMenu<Field: Hashable>: View {
 /// Everything a browsing screen's list depends on. The screen's `.task(id:)`
 /// is keyed on this, so changing the library selection, the sort or the filter
 /// cancels a load still paging in and starts over.
-struct BrowseKey: Equatable {
+struct BrowseKey: Hashable {
     var libraries: [String]?
     var sort: String
     var direction: SortDirection
     var favoritesOnly = false
     /// Bumped to reload after a write the screen made itself.
     var generation = 0
+}
+
+/// The browse screens whose lists AppState keeps; see AppState.browseList.
+enum BrowseScreen: Hashable { case albums, artists, songs, playlists }
+
+/// One browse screen's list as AppState loads it. Observable, so a screen
+/// showing it updates as pages arrive, including the ones that arrived while
+/// it was off screen.
+@MainActor @Observable
+final class BrowseList {
+    var items: [JfItem] = []
+    var isLoading = true
+    var error: String?
+    /// Every page is in, not just the ones so far.
+    var isComplete = false
+    @ObservationIgnored var task: Task<Void, Never>?
+}
+
+struct BrowseCacheKey: Hashable {
+    let screen: BrowseScreen
+    let key: BrowseKey
 }
 
 /// Plays a list shuffled, the way the player's own shuffle does it: a random

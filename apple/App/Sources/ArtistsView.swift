@@ -3,11 +3,21 @@ import CascadeKit
 
 struct ArtistsView: View {
     @Environment(AppState.self) private var state
-    @State private var items: [JfItem] = []
-    @State private var isLoading = true
-    @State private var error: String?
+    /// Loaded and kept by AppState (see browseList), so it survives leaving
+    /// this screen and keeps filling while it is off screen.
+    @State private var list: BrowseList?
+    private var items: [JfItem] { list?.items ?? [] }
+    private var isLoading: Bool { list?.isLoading ?? true }
+    private var error: String? { list?.error }
     @AppStorage("cascade.artists.order") private var sortDirection: SortDirection = .ascending
     @AppStorage("cascade.artists.favorites") private var favoritesOnly = false
+    /// Bumped by pull to refresh, so the reload misses the cache.
+    @State private var refreshes = 0
+
+    private var browseKey: BrowseKey {
+        BrowseKey(libraries: state.config?.libraryIds, sort: "SortName",
+                  direction: sortDirection, favoritesOnly: favoritesOnly, generation: refreshes)
+    }
 
     var body: some View {
         ScrollView {
@@ -25,24 +35,18 @@ struct ArtistsView: View {
         }
         .navigationTitle("Artists")
         // Keyed on the library selection and the sort, so changing either reloads.
-        .task(id: BrowseKey(libraries: state.config?.libraryIds, sort: "SortName",
-                            direction: sortDirection, favoritesOnly: favoritesOnly)) {
+        .refreshable { state.dropBrowseCache(.artists); refreshes += 1 }
+        .task(id: browseKey) {
             guard let client = state.client else { return }
-            isLoading = true
-            error = nil
-            items = []
             let (order, favorites) = (sortDirection.serverValue, favoritesOnly)
-            do {
+            list = state.browseList(.artists, browseKey) { list in
                 try await loadPaged(sortBy: "SortName", sortOrder: order, fetch: {
                     try await client.artists(limit: $0, startIndex: $1, sortOrder: order, favoritesOnly: favorites)
                 }) {
-                    items = $0
-                    isLoading = false
+                    list.items = $0
+                    list.isLoading = false
                 }
-            } catch {
-                if !Task.isCancelled { self.error = error.localizedDescription }
             }
-            if !Task.isCancelled { isLoading = false }
         }
     }
 }

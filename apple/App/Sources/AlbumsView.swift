@@ -3,14 +3,24 @@ import CascadeKit
 
 struct AlbumsView: View {
     @Environment(AppState.self) private var state
-    @State private var items: [JfItem] = []
-    @State private var isLoading = true
-    @State private var error: String?
+    /// Loaded and kept by AppState (see browseList), so it survives leaving
+    /// this screen and keeps filling while it is off screen.
+    @State private var list: BrowseList?
+    private var items: [JfItem] { list?.items ?? [] }
+    private var isLoading: Bool { list?.isLoading ?? true }
+    private var error: String? { list?.error }
     // Remembered between launches. A stored value that no longer names a
     // case falls back to the default rather than reaching the server.
     @AppStorage("cascade.albums.sort") private var sortField: AlbumSortField = .name
     @AppStorage("cascade.albums.order") private var sortDirection: SortDirection = .ascending
     @AppStorage("cascade.albums.favorites") private var favoritesOnly = false
+    /// Bumped by pull to refresh, so the reload misses the cache.
+    @State private var refreshes = 0
+
+    private var browseKey: BrowseKey {
+        BrowseKey(libraries: state.config?.libraryIds, sort: sortField.rawValue,
+                  direction: sortDirection, favoritesOnly: favoritesOnly, generation: refreshes)
+    }
 
     var body: some View {
         ScrollView {
@@ -32,35 +42,26 @@ struct AlbumsView: View {
         .onChange(of: sortField) { sortDirection = sortField.defaultDirection }
         // Keyed on the library selection and the sort, so changing either
         // reloads from the server rather than re-sorting a partial list.
-        .task(id: BrowseKey(libraries: state.config?.libraryIds, sort: sortField.rawValue,
-                            direction: sortDirection, favoritesOnly: favoritesOnly)) {
+        .refreshable { state.dropBrowseCache(.albums); refreshes += 1 }
+        .task(id: browseKey) {
             guard let client = state.client else { return }
-            isLoading = true
-            error = nil
-            // Cleared first: an empty result (no favorites) never calls apply,
-            // and would otherwise leave the previous list up.
-            items = []
-            let (field, order, favorites) = (sortField, sortDirection.serverValue, favoritesOnly)
-            do {
+            let (field, direction, favorites) = (sortField, sortDirection, favoritesOnly)
+            list = state.browseList(.albums, browseKey) { list in
                 if let sortBy = field.serverSortBy {
-                    try await loadPaged(sortBy: sortBy, sortOrder: order, fetch: {
+                    try await loadPaged(sortBy: sortBy, sortOrder: direction.serverValue, fetch: {
                         try await client.albums(limit: $0, startIndex: $1, sortBy: sortBy,
-                                                sortOrder: order, favoritesOnly: favorites)
+                                                sortOrder: direction.serverValue, favoritesOnly: favorites)
                     }) {
-                        items = $0
-                        isLoading = false
+                        list.items = $0
+                        list.isLoading = false
                     }
                 } else {
                     // Recently played comes back newest first, which is
                     // Descending, like Date Added.
                     let recent = try await client.recentlyPlayedAlbums(favoritesOnly: favorites)
-                    items = sortDirection == .descending ? recent : recent.reversed()
+                    list.items = direction == .descending ? recent : recent.reversed()
                 }
-            } catch {
-                // A superseded load's cancellation is not an error to show.
-                if !Task.isCancelled { self.error = error.localizedDescription }
             }
-            if !Task.isCancelled { isLoading = false }
         }
     }
 }
