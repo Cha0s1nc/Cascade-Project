@@ -228,7 +228,10 @@ public final class PlaybackService {
         defer { isLoadingMoreQueue = false }
         let size = Self.queuePageSize
         // A few tries, not one: a page that only repeats what is already
-        // queued (overlapping libraries) should not end the feed early.
+        // queued (overlapping libraries, or a random draw) should not end the
+        // feed early. Five in a row with nothing new does end it: a random
+        // feed never runs dry by itself, and by then nearly every song is in.
+        var added = false
         for _ in 0..<5 {
             guard let page = try? await feed.fetch(feed.next, size) else { return }   // kept; the next top-up retries
             // Replaced (a new play) or stopped while that was in flight.
@@ -243,7 +246,12 @@ public final class PlaybackService {
             } else {
                 queueFeed = feed
             }
-            if queue.items.count > before || page.isEmpty { break }
+            if queue.items.count > before { added = true }
+            if added || page.isEmpty { break }
+        }
+        if !added, queueFeed != nil {
+            queueFeed = nil
+            hasMoreQueue = false
         }
         syncPreload()
     }

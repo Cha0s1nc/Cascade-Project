@@ -113,9 +113,10 @@ struct SongsView: View {
     /// one page fetched now), and the player pulls in the rest 200 at a time
     /// as the queue nears its end, from where the list left off.
     ///
-    /// Shuffle asks the server for a random draw instead (one request,
-    /// capped at 1,000), since shuffling only the loaded pages would never
-    /// reach the rest of the library.
+    /// Shuffle works the same way with random pages: 200 random songs now,
+    /// then another random 200 each time the queue runs low, minus anything
+    /// already queued, since shuffling only the loaded pages would never reach
+    /// the rest of the library. With the whole list in, it just shuffles that.
     private func playAll(shuffled: Bool) async {
         guard !isStarting, let client = state.client, let player = state.player else { return }
         isStarting = true
@@ -123,8 +124,22 @@ struct SongsView: View {
         do {
             debugLog("Songs \(shuffled ? "Shuffle" : "Play"): list \(loadedAll ? "complete" : "partial"), \(items.count) loaded")
             if shuffled {
-                let list = loadedAll ? items : try await client.randomSongs(favoritesOnly: favoritesOnly)
-                await playShuffled(list, on: player)
+                if loadedAll {
+                    await playShuffled(items, on: player)
+                    return
+                }
+                let favorites = favoritesOnly
+                // The offset means nothing to a random draw; each page is a
+                // fresh one, and the player drops songs it already has.
+                let random: PlaybackService.QueuePageFetch = { _, limit in
+                    try await client.randomSongs(limit: limit, favoritesOnly: favorites)
+                }
+                let first = try await random(0, PlaybackService.queuePageSize)
+                guard !first.isEmpty else { return }
+                await player.play(first, more: random)
+                // Shows as shuffled, like the whole-list path; the page is
+                // already random, so this only sets the mode.
+                player.toggleShuffle()
                 return
             }
             if loadedAll {
