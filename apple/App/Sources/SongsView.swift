@@ -121,6 +121,7 @@ struct SongsView: View {
         isStarting = true
         defer { isStarting = false }
         do {
+            debugLog("Songs \(shuffled ? "Shuffle" : "Play"): list \(loadedAll ? "complete" : "partial"), \(items.count) loaded")
             if shuffled {
                 let list = loadedAll ? items : try await client.randomSongs(favoritesOnly: favoritesOnly)
                 await playShuffled(list, on: player)

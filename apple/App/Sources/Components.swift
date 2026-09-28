@@ -58,11 +58,26 @@ struct ArtworkView: View {
                 return
             }
             guard let url = await client.imageUrl(itemId: itemId, size: pixels),
-                  let (data, response) = try? await URLSession.shared.data(from: url),
-                  (response as? HTTPURLResponse)?.statusCode == 200,
-                  let decoded = UIImage(data: data) else { return }
+                  let (data, response) = try? await URLSession.shared.data(from: url) else { return }
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            // 404 is the normal "this item has no art"; anything else is worth knowing.
+            guard status == 200 else {
+                if status != 404 { debugLog("cover for item \(itemId): HTTP \(status)") }
+                return
+            }
+            guard let decoded = UIImage(data: data) else {
+                debugLog("cover for item \(itemId) did not decode: \(data.count) bytes, \(response.mimeType ?? "no type")")
+                return
+            }
             // Decoded off the main thread now rather than on it at first draw.
-            let ready = await decoded.byPreparingForDisplay() ?? decoded
+            // Nil here is ImageIO failing on the pixel data itself (the
+            // "-17102 decompressing image, possibly corrupt" case): the header
+            // parsed, the image did not.
+            let prepared = await decoded.byPreparingForDisplay()
+            if prepared == nil {
+                debugLog("cover for item \(itemId) failed to decode its pixels: \(data.count) bytes, \(response.mimeType ?? "no type")")
+            }
+            let ready = prepared ?? decoded
             ArtworkCache.images.setObject(ready, forKey: key,
                                           cost: Int(ready.size.width * ready.size.height * ready.scale * ready.scale * 4))
             loaded = (key, ready)

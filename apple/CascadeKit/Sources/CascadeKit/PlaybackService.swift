@@ -159,6 +159,7 @@ public final class PlaybackService {
     public func play(_ items: [JfItem], startIndex: Int = 0,
                      more: QueuePageFetch? = nil, moreFrom: Int = 0) async {
         guard items.indices.contains(startIndex) else { return }
+        debugLog("play \(items.count) tracks from #\(startIndex)" + (more == nil ? "" : ", more from offset \(moreFrom)"))
         queueFeed = more.map { QueueFeed(fetch: $0, next: moreFrom) }
         hasMoreQueue = more != nil
         queue = QueueOrder(items: items, index: startIndex, unshuffled: nil)
@@ -235,6 +236,7 @@ public final class PlaybackService {
             feed.next += size
             let before = queue.items.count
             queue = appendingPage(queue, shuffle ? page.shuffled() : page)
+            debugLog("queue page at offset \(feed.next - size): \(page.count) fetched, \(queue.items.count - before) new, \(queue.items.count) queued")
             if page.isEmpty {
                 queueFeed = nil
                 hasMoreQueue = false
@@ -543,6 +545,7 @@ public final class PlaybackService {
     /// usually more specific than the thrown error alone.
     private func reportLoadFailure(_ playerItem: AVPlayerItem, _ thrown: Error) {
         let detail = (playerItem.error ?? thrown).localizedDescription
+        debugLog("load failed for \(item?.name ?? "?") (\(item?.id ?? "?")): \(playerItem.error ?? thrown)")
         error = "Could not play this track: \(detail)"
         isLoading = false
         isPaused = true
@@ -679,6 +682,7 @@ public final class PlaybackService {
     /// The player has already moved onto the preloaded item by itself; bring
     /// this object's state, the server and the lock screen along with it.
     private func handOver(to next: Preload) async {
+        debugLog("gapless handover to #\(next.index + 1)")
         // Snapshot BEFORE swapping `resolved`: a stopped report carrying the
         // new item's PlaySessionId would tell the server to kill the stream
         // that is now playing. The old track ran to its end, so it reports
@@ -745,6 +749,7 @@ public final class PlaybackService {
     }
 
     private func adopt(_ stream: ResolvedStream) {
+        debugLog("now \(item?.name ?? "?") (\(item?.id ?? "?")), \(stream.direct ? "direct" : "transcode"), #\(queue.index + 1) of \(queue.items.count)")
         resolved = stream
         streamStartTicks = stream.startTicks
         isTranscoding = !stream.direct
@@ -822,11 +827,23 @@ public final class PlaybackService {
         #if os(iOS) || os(tvOS)
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-            try AVAudioSession.sharedInstance().setActive(true)
         } catch {
             // Not fatal: audio still plays in the foreground, so this is worth
             // surfacing rather than trapping.
             self.error = "Audio session: \(error.localizedDescription)"
+        }
+        // Activating can block while iOS settles the session with other audio
+        // apps, and Xcode's hang checker flagged it on the main actor. Off it,
+        // it cannot stall the UI; the player activates the session itself if
+        // playback starts first. (activate(options:) is the async form, but
+        // only from iOS 27.)
+        Task.detached {
+            do {
+                try AVAudioSession.sharedInstance().setActive(true)
+            } catch {
+                debugLog("audio session did not activate: \(error)")
+                await MainActor.run { self.error = "Audio session: \(error.localizedDescription)" }
+            }
         }
         #endif
     }
@@ -964,8 +981,19 @@ public final class PlaybackService {
         let artId = item.albumId ?? item.id
         guard artwork?.itemId != artId,
               let url = await client.imageUrl(itemId: artId, size: 600),
-              let (data, _) = try? await URLSession.shared.data(from: url),
-              let image = UIImage(data: data) else { return }
+              let (data, response) = try? await URLSession.shared.data(from: url) else { return }
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard status == 200 else {
+            if status != 404 { debugLog("lock screen art for item \(artId): HTTP \(status)") }
+            return
+        }
+        // Decoded here, off the main thread, rather than by MediaPlayer at
+        // draw time, where a damaged file only surfaced as ImageIO's
+        // anonymous "decompressing image -- possibly corrupt".
+        guard let parsed = UIImage(data: data), let image = await parsed.byPreparingForDisplay() else {
+            debugLog("lock screen art for item \(artId) (\(item.album ?? item.name ?? "?")) did not decode: \(data.count) bytes, \(response.mimeType ?? "no type")")
+            return
+        }
         // A slow download must not land on a track the user has skipped past.
         guard (self.item?.albumId ?? self.item?.id) == artId else { return }
         artwork = (artId, Self.makeArtwork(image))
