@@ -84,7 +84,7 @@ async function setNormalizationSource(source) {
   // Stored/UI value is untrusted - anything else falls back to 'track'.
   normalizationSource = source === 'album' ? 'album' : 'track'
   await window.cascade.store.set('normalizationSource', normalizationSource)
-  _normGainCache.clear()   // a cached track-keyed value is wrong once keyed by album, and vice versa
+  _normGainCache.clear()   // stale either way once the source changes; cheap to refetch
   _reapplyNormalizationToLiveDecks()
 }
 
@@ -7224,27 +7224,34 @@ function _ensureEqGraph() {
 // other views and none of them request this field, so asking here - once per
 // track, cached - beats adding it everywhere a queue can be built from.
 
-const _normGainCache = new Map()   // 'track:<id>' or 'album:<id>' -> linear gain already fetched
+const _normGainCache = new Map()   // 'track:<id>' or 'album:<id>' -> NormalizationGain in dB, or null when the server has none
 
-/** Which id and cache key normalization keys off, given the track/album choice. */
-function _normGainKey(item) {
-  if (normalizationSource === 'album' && item?.AlbumId) return { id: item.AlbumId, key: `album:${item.AlbumId}` }
-  return { id: item?.Id, key: `track:${item?.Id}` }
+/** One item's NormalizationGain in dB, fetched once and cached; null when the
+ *  server has none for it. */
+async function _normalizationDb(id, key) {
+  if (_normGainCache.has(key)) return _normGainCache.get(key)
+  const full = await jfGet(`/Users/${jf.userId}/Items/${id}`, {})
+  const db = Number.isFinite(full?.NormalizationGain) ? full.NormalizationGain : null
+  _normGainCache.set(key, db)
+  return db
 }
 
-/** Resolve (and cache) the linear gain for one item, honoring the track/album
- *  setting. Missing or corrupt NormalizationGain means unity - see
+/** Resolve the linear gain for one item, honoring the track/album setting.
+ *  Missing or corrupt NormalizationGain means unity - see
  *  CascadeCore.normalizationGainLinear, which also clamps a real value into
- *  the safe range. */
+ *  the safe range.
+ *
+ *  Album mode falls back to the track's own gain when the album has none.
+ *  Jellyfin 10.11 writes a gain onto far fewer albums than tracks: on the
+ *  user's own server 300 of 300 sampled tracks had one and 17 of 200 albums,
+ *  so without the fallback Album mode left nine albums in ten un-normalized. */
 async function _fetchNormalizationGain(item) {
-  const { id, key } = _normGainKey(item)
-  if (!id) return 1
-  if (_normGainCache.has(key)) return _normGainCache.get(key)
+  if (!item?.Id) return 1
   try {
-    const full = await jfGet(`/Users/${jf.userId}/Items/${id}`, {})
-    const gain = CascadeCore.normalizationGainLinear(full?.NormalizationGain)
-    _normGainCache.set(key, gain)
-    return gain
+    let db = null
+    if (normalizationSource === 'album' && item.AlbumId) db = await _normalizationDb(item.AlbumId, `album:${item.AlbumId}`)
+    if (db === null) db = await _normalizationDb(item.Id, `track:${item.Id}`)
+    return CascadeCore.normalizationGainLinear(db)
   } catch {
     return 1
   }
