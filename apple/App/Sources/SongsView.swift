@@ -88,7 +88,7 @@ struct SongsView: View {
             guard let client = state.client else { return }
             let (sortBy, order, favorites) = (sortField.serverSortBy, sortDirection.serverValue, favoritesOnly)
             list = state.browseList(.songs, browseKey) { list in
-                try await loadPaged(sortBy: sortBy, sortOrder: order, fetch: {
+                try await loadPaged(sortBy: sortBy, sortOrder: order, nextStart: { list.nextStart = $0 }, fetch: {
                     try await client.songs(limit: $0, startIndex: $1, sortBy: sortBy,
                                            sortOrder: order, favoritesOnly: favorites)
                 }) {
@@ -108,30 +108,41 @@ struct SongsView: View {
     /// Play All and Shuffle All cover the whole library (in the current sort
     /// and filter), not just the pages loaded so far.
     ///
-    /// Once every page is in, that is the list on screen and nothing waits.
-    /// Before then, Shuffle asks the server for a random order (one request,
-    /// capped at 1,000), and Play fetches every song in one request rather
-    /// than paging, which is far quicker than the 200-at-a-time list load.
-    /// ponytail: Play still waits for that one full fetch on a big library.
-    /// Starting on the first page needs a way to extend the player's queue
-    /// afterwards, which PlaybackService does not have yet.
+    /// Play starts at once. Once every page is in, the queue is the list on
+    /// screen. Before that it is whatever has loaded (or, with nothing yet,
+    /// one page fetched now), and the player pulls in the rest 200 at a time
+    /// as the queue nears its end, from where the list left off.
+    ///
+    /// Shuffle asks the server for a random draw instead (one request,
+    /// capped at 1,000), since shuffling only the loaded pages would never
+    /// reach the rest of the library.
     private func playAll(shuffled: Bool) async {
-        guard !isStarting, let client = state.client else { return }
+        guard !isStarting, let client = state.client, let player = state.player else { return }
         isStarting = true
         defer { isStarting = false }
         do {
-            var list = items
-            if !loadedAll {
-                list = shuffled
-                    ? try await client.randomSongs(favoritesOnly: favoritesOnly)
-                    : try await client.songs(limit: nil, sortBy: sortField.serverSortBy,
-                                             sortOrder: sortDirection.serverValue, favoritesOnly: favoritesOnly)
-            }
             if shuffled {
-                await playShuffled(list, on: state.player)
-            } else if !list.isEmpty {
-                await state.player?.play(list, startIndex: 0)
+                let list = loadedAll ? items : try await client.randomSongs(favoritesOnly: favoritesOnly)
+                await playShuffled(list, on: player)
+                return
             }
+            if loadedAll {
+                if !items.isEmpty { await player.play(items) }
+                return
+            }
+            let (sortBy, order, favorites) = (sortField.serverSortBy, sortDirection.serverValue, favoritesOnly)
+            let more: PlaybackService.QueuePageFetch = { start, limit in
+                try await client.songs(limit: limit, startIndex: start, sortBy: sortBy,
+                                       sortOrder: order, favoritesOnly: favorites)
+            }
+            var first = items
+            var from = list?.nextStart ?? 0
+            if first.isEmpty {
+                first = try await more(0, PlaybackService.queuePageSize)
+                from = PlaybackService.queuePageSize
+            }
+            guard !first.isEmpty else { return }
+            await player.play(first, more: more, moreFrom: from)
         } catch {
             playError = error.localizedDescription
         }

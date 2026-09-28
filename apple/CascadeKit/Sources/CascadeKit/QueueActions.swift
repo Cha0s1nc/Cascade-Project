@@ -26,6 +26,15 @@ public func playingNext(_ state: QueueOrder, _ items: [JfItem]) -> QueueOrder {
 }
 
 /// Append to the end ("Add to Queue").
+/// A further page of a list the queue was started from (see
+/// PlaybackService.loadMoreQueue), at the end, minus anything already queued:
+/// with several libraries selected, pages taken at the same offset from each
+/// can overlap what came before.
+public func appendingPage(_ state: QueueOrder, _ page: [JfItem]) -> QueueOrder {
+    let queued = Set(state.items.map(\.id))
+    return appending(state, page.filter { !queued.contains($0.id) })
+}
+
 public func appending(_ state: QueueOrder, _ items: [JfItem]) -> QueueOrder {
     var out = state
     out.items += items

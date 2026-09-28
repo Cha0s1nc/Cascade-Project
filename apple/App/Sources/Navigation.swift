@@ -93,22 +93,41 @@ enum RecentPlaylists {
 func loadPaged(pageSize: Int = 200,
                sortBy: String? = nil,
                sortOrder: String? = nil,
+               nextStart: ((Int) -> Void)? = nil,
                fetch: (_ limit: Int, _ startIndex: Int) async throws -> [JfItem],
                apply: ([JfItem]) -> Void) async throws {
     var all: [JfItem] = []
     var seen = Set<String>()
+    var libraries = Set<Int>()
     var start = 0
     while !Task.isCancelled {
         let fresh = try await fetch(pageSize, start).filter { seen.insert($0.id).inserted }
         if fresh.isEmpty { break }
         all += fresh
-        // Merged over everything loaded so far, not page by page: each page
-        // takes the same offset from every library, and a song sits at a
-        // different offset in each, so its copies can arrive pages apart.
-        // Sorted over everything too, for the same reason: a later page from
-        // one library can hold items that belong ahead of this one's.
-        // The order goes too: without it a Descending sort came back ascending.
-        apply(sortedLikeServer(mergeLibraryCopies(all), sortBy: sortBy, sortOrder: sortOrder))
+        libraries.formUnion(fresh.map { $0.sourceLibrary ?? -1 })
+        if libraries.count <= 1 {
+            // One library: the server's pages already arrive in order and
+            // without copies, so there is nothing to merge or sort. Re-sorting
+            // the whole list on every page (localizedStandardCompare, on the
+            // main actor) stalled a large library's load for seconds at a
+            // time, and Play started from Songs waited behind every stall.
+            apply(all)
+        } else {
+            // Merged over everything loaded so far, not page by page: each page
+            // takes the same offset from every library, and a song sits at a
+            // different offset in each, so its copies can arrive pages apart.
+            // Sorted over everything too, for the same reason: a later page from
+            // one library can hold items that belong ahead of this one's.
+            // The order goes too: without it a Descending sort came back ascending.
+            // Off the main actor, since it grows with the whole list.
+            let loaded = all
+            apply(await Task.detached(priority: .userInitiated) {
+                sortedLikeServer(mergeLibraryCopies(loaded), sortBy: sortBy, sortOrder: sortOrder)
+            }.value)
+        }
         start += pageSize
+        // A server offset, applied per library, so not the same thing as the
+        // merged count once more than one library is selected.
+        nextStart?(start)
     }
 }

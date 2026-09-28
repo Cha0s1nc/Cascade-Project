@@ -25,6 +25,13 @@ import Testing
         #expect(setShuffle(q, on: false).current?.id == "c")
     }
 
+    @Test func aPageSkipsWhatIsAlreadyQueued() {
+        // Overlapping libraries can hand back a song the last page already had.
+        let q = appendingPage(QueueOrder(items: items("a", "b"), index: 0), items("b", "c", "d"))
+        #expect(ids(q) == "abcd")
+        #expect(q.current?.id == "a")
+    }
+
     @Test func appendingAddsToBothOrders() {
         let q = appending(QueueOrder(items: items("b", "a"), index: 0, unshuffled: items("a", "b")), items("x"))
         #expect(ids(q) == "bax")

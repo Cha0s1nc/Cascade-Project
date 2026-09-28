@@ -33,6 +33,11 @@ public final class PlaybackService {
     /// itself. tvOS watches it to bring the player forward on a pick without
     /// yanking you back to it every time a song ends.
     public private(set) var playRequests = 0
+    /// The queue was started from a list too long to fetch before playing
+    /// (Play on a whole library) and more of it is still on the server.
+    /// The queue view's "Add Next 200 Songs" shows while this is true.
+    public private(set) var hasMoreQueue = false
+    public private(set) var isLoadingMoreQueue = false
     public private(set) var isPaused = true
     /// Between a play() call landing and its stream actually resolving, so a
     /// view can show "loading" rather than a stale track.
@@ -146,8 +151,16 @@ public final class PlaybackService {
     /// Play a list of tracks starting at one of them. This is the entry point
     /// every screen uses: tapping a song in an album plays the whole album from
     /// that song, which is why there is no single-track version.
-    public func play(_ items: [JfItem], startIndex: Int = 0) async {
+    ///
+    /// `more`, when given, fetches the rest of the list a page at a time: the
+    /// queue starts at once with `items`, and each further page is appended as
+    /// the queue nears its end (see loadMoreQueue). `moreFrom` is the server
+    /// offset of the first page `items` does not cover.
+    public func play(_ items: [JfItem], startIndex: Int = 0,
+                     more: QueuePageFetch? = nil, moreFrom: Int = 0) async {
         guard items.indices.contains(startIndex) else { return }
+        queueFeed = more.map { QueueFeed(fetch: $0, next: moreFrom) }
+        hasMoreQueue = more != nil
         queue = QueueOrder(items: items, index: startIndex, unshuffled: nil)
         shuffle = false
         playRequests += 1
@@ -185,6 +198,59 @@ public final class PlaybackService {
         shuffle.toggle()
         queue = setShuffle(queue, on: shuffle)
         syncPreload()
+    }
+
+    // MARK: - Paged queue
+    //
+    // Play on a whole library used to wait for every song to be fetched before
+    // the first one started. Now it starts with what is at hand and pulls the
+    // rest in 200 at a time, so a 10,000-song library starts as fast as a
+    // 20-song album.
+
+    /// Fetches `limit` items of the list the queue came from, starting at a
+    /// server offset.
+    public typealias QueuePageFetch = @Sendable (_ startIndex: Int, _ limit: Int) async throws -> [JfItem]
+    public static let queuePageSize = 200
+
+    private struct QueueFeed {
+        let fetch: QueuePageFetch
+        var next: Int
+    }
+    private var queueFeed: QueueFeed?
+
+    /// Append the next page of the list the queue came from. Runs by itself
+    /// when the queue is down to its last two tracks (so the gapless preload
+    /// always has a next track to take), and from the queue view's button.
+    public func loadMoreQueue() async {
+        guard var feed = queueFeed, !isLoadingMoreQueue else { return }
+        isLoadingMoreQueue = true
+        defer { isLoadingMoreQueue = false }
+        let size = Self.queuePageSize
+        // A few tries, not one: a page that only repeats what is already
+        // queued (overlapping libraries) should not end the feed early.
+        for _ in 0..<5 {
+            guard let page = try? await feed.fetch(feed.next, size) else { return }   // kept; the next top-up retries
+            // Replaced (a new play) or stopped while that was in flight.
+            guard queueFeed?.next == feed.next else { return }
+            feed.next += size
+            let before = queue.items.count
+            queue = appendingPage(queue, shuffle ? page.shuffled() : page)
+            if page.isEmpty {
+                queueFeed = nil
+                hasMoreQueue = false
+            } else {
+                queueFeed = feed
+            }
+            if queue.items.count > before || page.isEmpty { break }
+        }
+        syncPreload()
+    }
+
+    /// Nearly out of queue, with more on the server: fetch it now.
+    private func topUpQueueIfNeeded() {
+        guard hasMoreQueue, !isLoadingMoreQueue, item != nil,
+              queue.items.count - queue.index <= 2 else { return }
+        Task { await loadMoreQueue() }
     }
 
     // MARK: - Queue edits
@@ -460,6 +526,8 @@ public final class PlaybackService {
         streamStartTicks = 0
         item = nil
         queue = QueueOrder()
+        queueFeed = nil
+        hasMoreQueue = false
         // Repeat and shuffle survive: they are the user's settings, not part of
         // what happens to be playing, and a queue running out should not
         // silently switch them off.
@@ -552,6 +620,9 @@ public final class PlaybackService {
 
     /// Bring the enqueued next item in line with what should play next.
     private func syncPreload() {
+        // Every track change and queue edit lands here, which makes it the
+        // one place that notices the queue running low.
+        topUpQueueIfNeeded()
         let want = expectedNext()
         if let want {
             if let preload, preload.index == want.index, preload.itemId == want.item.id,

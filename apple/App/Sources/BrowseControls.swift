@@ -94,6 +94,9 @@ final class BrowseList {
     var error: String?
     /// Every page is in, not just the ones so far.
     var isComplete = false
+    /// The server offset of the first page not fetched yet, for screens that
+    /// hand the rest of their list to the player (Songs' Play).
+    var nextStart = 0
     @ObservationIgnored var task: Task<Void, Never>?
 }
 

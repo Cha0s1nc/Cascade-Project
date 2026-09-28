@@ -30,6 +30,17 @@ struct QueueView: View {
                 }
                 .onMove { player.moveQueueItems(from: $0, to: $1) }
                 .onDelete { player.removeQueueItems(at: $0) }
+                // The queue also tops itself up near its end; this is for
+                // wanting more in it now (see PlaybackService.loadMoreQueue).
+                if player.hasMoreQueue {
+                    Button {
+                        Task { await player.loadMoreQueue() }
+                    } label: {
+                        Label(player.isLoadingMoreQueue ? "Adding…" : "Add Next \(PlaybackService.queuePageSize) Songs",
+                              systemImage: "text.badge.plus")
+                    }
+                    .disabled(player.isLoadingMoreQueue)
+                }
             }
             .navigationTitle("Queue")
             .navigationBarTitleDisplayMode(.inline)
