@@ -3,37 +3,58 @@ import CascadeKit
 
 struct SongsView: View {
     @Environment(AppState.self) private var state
-    @State private var items: [JfItem] = []
-    @State private var isLoading = true
-    @State private var error: String?
+    /// Loaded and kept by AppState (see browseList), so it survives leaving
+    /// this screen and keeps filling while it is off screen.
+    @State private var list: BrowseList?
+    private var items: [JfItem] { list?.items ?? [] }
+    private var isLoading: Bool { list?.isLoading ?? true }
+    private var error: String? { list?.error }
     /// True once every page is in, so Play All and Shuffle All can use the
     /// list on screen instead of asking the server again.
-    @State private var loadedAll = false
+    private var loadedAll: Bool { list?.isComplete ?? false }
     @State private var isStarting = false
     @State private var playError: String?
     @AppStorage("cascade.songs.sort") private var sortField: SongSortField = .name
     @AppStorage("cascade.songs.order") private var sortDirection: SortDirection = .ascending
     @AppStorage("cascade.songs.favorites") private var favoritesOnly = false
+    /// Bumped by pull to refresh, so the reload misses the cache.
+    @State private var refreshes = 0
+
+    private var browseKey: BrowseKey {
+        BrowseKey(libraries: state.config?.libraryIds, sort: sortField.rawValue,
+                  direction: sortDirection, favoritesOnly: favoritesOnly, generation: refreshes)
+    }
 
     var body: some View {
         List {
-            HStack(spacing: 20) {
+            // Two equal-width buttons of their own, like Apple Music's Songs
+            // screen; sort lives in the toolbar on iOS (see below).
+            HStack(spacing: 12) {
                 Button { Task { await playAll(shuffled: false) } } label: {
-                    Label("Play All", systemImage: "play.fill").labelStyle(.titleAndIcon).fixedSize(horizontal: true, vertical: false)
+                    Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity)
                 }
                 Button { Task { await playAll(shuffled: true) } } label: {
-                    Label("Shuffle", systemImage: "shuffle").labelStyle(.titleAndIcon).fixedSize(horizontal: true, vertical: false)
+                    Label("Shuffle", systemImage: "shuffle").frame(maxWidth: .infinity)
                 }
-                Spacer()
-                SortMenu(fields: [(SongSortField.name, "Title"), (.artist, "Artist"), (.album, "Album"),
-                                  (.added, "Date Added"), (.played, "Date Last Played")],
-                         field: $sortField, direction: $sortDirection, favoritesOnly: $favoritesOnly)
             }
+            // Bordered, not the List's default, or the List makes the whole
+            // row one button and a tap anywhere fires both.
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.capsule)
+            .controlSize(.large)
+            .fontWeight(.semibold)
             .disabled(isStarting)
+            #if os(iOS)
+            .listRowSeparator(.hidden)
+            #endif
             .browseHeader()
-            // Borderless, or the List makes the whole row one button and a
-            // tap anywhere on it fires every control in it.
-            .buttonStyle(.borderless)
+            #if os(tvOS)
+            // tvOS shows no toolbar items on these screens, so sort stays in
+            // the list there.
+            sortMenu
+                .browseHeader()
+                .buttonStyle(.borderless)
+            #endif
             LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty)
             ForEach(Array(items.enumerated()), id: \.element.id) { index, song in
                 Button {
@@ -45,6 +66,11 @@ struct SongsView: View {
             }
         }
         .navigationTitle("Songs")
+        #if os(iOS)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { sortMenu }
+        }
+        #endif
         .alert("Could not play", isPresented: Binding(get: { playError != nil },
                                                       set: { if !$0 { playError = nil } })) {
             Button("OK") {}
@@ -52,34 +78,31 @@ struct SongsView: View {
             Text(playError ?? "")
         }
         .onChange(of: sortField) { sortDirection = sortField.defaultDirection }
+        .refreshable { state.dropBrowseCache(.songs); refreshes += 1 }
         // The server sorts, not this view. Sorting here (sortSongs) only
         // sorted the pages loaded so far, so the first rows were wrong until
         // the last page landed. sortSongs' plain lowercase compare also
         // disagrees with Jellyfin's SortName collation, so re-sorting the
         // server's pages with it made rows jump as pages arrived.
-        .task(id: BrowseKey(libraries: state.config?.libraryIds, sort: sortField.rawValue,
-                            direction: sortDirection, favoritesOnly: favoritesOnly)) {
+        .task(id: browseKey) {
             guard let client = state.client else { return }
-            isLoading = true
-            error = nil
-            items = []
-            loadedAll = false
             let (sortBy, order, favorites) = (sortField.serverSortBy, sortDirection.serverValue, favoritesOnly)
-            do {
+            list = state.browseList(.songs, browseKey) { list in
                 try await loadPaged(sortBy: sortBy, sortOrder: order, fetch: {
                     try await client.songs(limit: $0, startIndex: $1, sortBy: sortBy,
                                            sortOrder: order, favoritesOnly: favorites)
                 }) {
-                    items = $0
-                    isLoading = false
+                    list.items = $0
+                    list.isLoading = false
                 }
-                // loadPaged returns quietly when cancelled, with a partial list.
-                loadedAll = !Task.isCancelled
-            } catch {
-                if !Task.isCancelled { self.error = error.localizedDescription }
             }
-            if !Task.isCancelled { isLoading = false }
         }
+    }
+
+    private var sortMenu: some View {
+        SortMenu(fields: [(SongSortField.name, "Title"), (.artist, "Artist"), (.album, "Album"),
+                          (.added, "Date Added"), (.played, "Date Last Played")],
+                 field: $sortField, direction: $sortDirection, favoritesOnly: $favoritesOnly)
     }
 
     /// Play All and Shuffle All cover the whole library (in the current sort
