@@ -26,6 +26,10 @@ struct MainView: View {
         .sheet(isPresented: $showingNowPlaying) {
             if let player = state.player {
                 NowPlayingView(player: player)
+                    .presentationDragIndicator(.visible)
+                    // Solid, so the sheet's default glass does not show the
+                    // library through the album-art background.
+                    .presentationBackground(.black)
             }
         }
         #endif
