@@ -71,6 +71,11 @@ struct HomeView: View {
                                 ArtworkView(itemId: album.id, size: 150)
                                 Text(album.name ?? "Unknown").font(.caption).lineLimit(1)
                             }
+                            // Pinned to the art: a horizontal ScrollView offers
+                            // its children unlimited width, so lineLimit(1)
+                            // never truncated and a long title widened its
+                            // whole tile, leaving a gap in the shelf.
+                            .frame(width: 150, alignment: .leading)
                         }
                         .buttonStyle(.plain)
                     }
@@ -99,6 +104,7 @@ struct HomeView: View {
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                             }
+                            .frame(width: 150, alignment: .leading)   // see the album row
                         }
                         .buttonStyle(.plain)
                     }
