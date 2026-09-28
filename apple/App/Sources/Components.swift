@@ -4,20 +4,43 @@ import CascadeKit
 // The pieces every browsing screen shares, so artwork loading and row layout
 // are written and fixed in one place rather than per screen.
 
+/// Decoded covers kept in memory for the session, keyed by item and pixel
+/// size. AsyncImage kept nothing: a cover coming back on screen (a tab
+/// switch, scrolling back up, returning from an album) waited for its URL,
+/// re-read the bytes and decoded them again, and flashed the gray placeholder
+/// every time. NSCache gives memory back on its own under pressure.
+@MainActor
+enum ArtworkCache {
+    static let images: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.totalCostLimit = 96 << 20   // bytes of decoded pixels
+        return cache
+    }()
+}
+
 /// Album art with a placeholder that keeps the same square footprint, so a grid
-/// does not reflow as images arrive.
+/// does not reflow as images arrive. A cover already in ArtworkCache draws on
+/// the first frame, with no placeholder at all.
 struct ArtworkView: View {
     let itemId: String?
     var size: CGFloat = 160
 
     @Environment(AppState.self) private var state
-    @State private var url: URL?
+    /// Tagged with its key: the same view can be handed a different item, and
+    /// must not keep showing the last one's cover while the new one loads.
+    @State private var loaded: (key: NSString, image: UIImage)?
+
+    private var key: NSString? { itemId.map { "\($0)|\(pixels)" as NSString } }
+    private var pixels: Int { Int(size * 2) }
 
     var body: some View {
-        AsyncImage(url: url) { image in
-            image.resizable().aspectRatio(contentMode: .fill)
-        } placeholder: {
-            ZStack {
+        let image = key.flatMap { key in
+            loaded?.key == key ? loaded?.image : ArtworkCache.images.object(forKey: key)
+        }
+        ZStack {
+            if let image {
+                Image(uiImage: image).resizable().aspectRatio(contentMode: .fill)
+            } else {
                 Rectangle().fill(.quaternary)
                 Image(systemName: "music.note")
                     .font(.system(size: size * 0.3))
@@ -27,10 +50,22 @@ struct ArtworkView: View {
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: size * 0.05))
         .task(id: itemId) {
-            // The URL carries the token (ApiKey), so it can only be built once there
-            // is a signed-in client.
-            guard let itemId, let client = state.client else { return }
-            url = await client.imageUrl(itemId: itemId, size: Int(size * 2))
+            // The URL carries the token (ApiKey), so it can only be built once
+            // there is a signed-in client.
+            guard let itemId, let key, let client = state.client else { return }
+            if let hit = ArtworkCache.images.object(forKey: key) {
+                loaded = (key, hit)
+                return
+            }
+            guard let url = await client.imageUrl(itemId: itemId, size: pixels),
+                  let (data, response) = try? await URLSession.shared.data(from: url),
+                  (response as? HTTPURLResponse)?.statusCode == 200,
+                  let decoded = UIImage(data: data) else { return }
+            // Decoded off the main thread now rather than on it at first draw.
+            let ready = await decoded.byPreparingForDisplay() ?? decoded
+            ArtworkCache.images.setObject(ready, forKey: key,
+                                          cost: Int(ready.size.width * ready.size.height * ready.scale * ready.scale * 4))
+            loaded = (key, ready)
         }
     }
 }
