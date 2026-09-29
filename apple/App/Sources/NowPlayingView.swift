@@ -119,8 +119,11 @@ struct NowPlayingView: View {
             }
 
             if let lines = lyrics.lines {
-                LyricsView(lines: lines, player: player)
-                    .frame(maxWidth: 900)
+                VStack(spacing: 8) {
+                    LyricsView(lines: lines, player: player, emphasis: lyrics.credit != nil)
+                    if let credit = lyrics.credit { LyricsCreditView(credit: credit) }
+                }
+                .frame(maxWidth: 900)
             } else if !player.queue.items.isEmpty {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
@@ -287,7 +290,10 @@ struct NowPlayingView: View {
                 TrackMenuItems(track: track, favorite: $favoriteOverride, played: $playedOverride,
                                addingToPlaylist: $addingToPlaylist)
             }
-            Section { sleepMenu }
+            Section {
+                sleepMenu
+                lyricsTimingMenu
+            }
             #if DEBUG && os(iOS)
             Button("Style Tuning", systemImage: "slider.horizontal.3") { tuning = true }
             #endif
@@ -295,6 +301,27 @@ struct NowPlayingView: View {
             circleLabel("ellipsis")
         }
         .accessibilityLabel("More")
+    }
+
+    /// Nudges the lyrics against the audio, for a song or an output (Bluetooth
+    /// especially) where they run early or late. One setting for every song,
+    /// kept between launches; also a slider in Style Tuning.
+    private var lyricsTimingMenu: some View {
+        let delay = StyleTuning.shared.values.lyricsDelay
+        func nudge(_ by: Double) {
+            StyleTuning.shared.values.lyricsDelay = ((delay + by) * 20).rounded() / 20
+        }
+        return Menu {
+            Text(delay == 0 ? "In time with the audio"
+                 : "\(abs(delay), format: .number.precision(.fractionLength(2))) s \(delay > 0 ? "later" : "earlier")")
+            Button("Later by 0.1 s", systemImage: "plus") { nudge(0.1) }
+            Button("Earlier by 0.1 s", systemImage: "minus") { nudge(-0.1) }
+            if delay != 0 {
+                Button("Reset", systemImage: "arrow.counterclockwise") { StyleTuning.shared.values.lyricsDelay = 0 }
+            }
+        } label: {
+            Label("Lyrics Timing", systemImage: "timer")
+        }
     }
 
     /// The desktop's sleep timer choices, as a submenu of ···.
@@ -511,10 +538,15 @@ struct NowPlayingView: View {
 
     @ViewBuilder private var lyricsPanel: some View {
         if let lines = lyrics.lines {
-            LyricsView(lines: lines, player: player)
-                // A new song's lyrics start from their own top, not scrolled
-                // to wherever the last song's were.
-                .id(player.item?.id)
+            VStack(spacing: 8) {
+                LyricsView(lines: lines, player: player, emphasis: lyrics.credit != nil)
+                    // A new song's lyrics start from their own top, not scrolled
+                    // to wherever the last song's were.
+                    .id(player.item?.id)
+                // Pinned under the lyrics, on screen with the controls or
+                // without: SpicyLyrics' terms want it visible, not tucked away.
+                if let credit = lyrics.credit { LyricsCreditView(credit: credit) }
+            }
         } else if lyrics.isLoading {
             ProgressView()
                 .tint(.white)

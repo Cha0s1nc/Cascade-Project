@@ -119,6 +119,42 @@ public enum Lyrics {
         return (1...12).contains(letters)
     }
 
+    /// Scripts written without spaces between words, where the "word" up to
+    /// a space is the whole line.
+    private nonisolated(unsafe) static let noSpaceScript = try! Regex(
+        #"[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]"#)
+
+    /// A line's karaoke words in the units they are laid out in: each unit
+    /// stays on one row, so a word never wraps mid-way ("y / eah"). The
+    /// desktop's lyricWordSpans (lyric-karaoke.js), rule for rule:
+    /// - syllables up to a trailing space are one unit;
+    /// - with `emphasis`, a word holding a held syllable is held as a whole,
+    ///   one word from its first start to its last end, so the fill sweeps
+    ///   it evenly (per syllable, "Disturbi" filled in 0.6 s and then one "a"
+    ///   crawled for 1.5 s);
+    /// - scripts without spaces, and "words" over 30 characters, are not held
+    ///   together: each syllable is its own unit and wraps as the script does.
+    public static func wordUnits(_ words: [LyricWord], emphasis: Bool) -> [[LyricWord]] {
+        var units: [[LyricWord]] = []
+        var syllables: [LyricWord] = []
+        func flush() {
+            guard let first = syllables.first, let last = syllables.last else { return }
+            let whole = LyricWord(start: first.start, end: last.end, text: syllables.map(\.text).joined())
+            let held = emphasis && syllables.count > 1 && syllables.contains(where: isEmphasisWord) && isEmphasisWord(whole)
+            let parts = held ? [whole] : syllables
+            let wordLike = whole.text.firstMatch(of: noSpaceScript) == nil
+                && whole.text.trimmingCharacters(in: .whitespaces).count <= 30
+            if wordLike { units.append(parts) } else { units += parts.map { [$0] } }
+            syllables = []
+        }
+        for w in words {
+            syllables.append(w)
+            if w.text.last?.isWhitespace == true { flush() }
+        }
+        flush()
+        return units
+    }
+
     /// How far through a karaoke word the fill is at `positionTicks`, 0 to 1.
     /// The desktop's _wordProgress (lyric-karaoke.js).
     public static func wordProgress(_ word: LyricWord, at positionTicks: Int) -> Double {

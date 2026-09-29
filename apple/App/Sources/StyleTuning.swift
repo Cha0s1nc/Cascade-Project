@@ -38,10 +38,18 @@ final class StyleTuning {
         var wordLift = 0.04
         var fadeSeconds = 0.55
         var rippleSeconds = 0.09
-        var heldRiseSeconds = 1.7
+        /// A held note swells across its own length, and more the longer it
+        /// is: a note held this long or longer gets the full swell.
+        var heldFullSeconds = 3.0
+        /// The share of the full swell a note held just 1 s gets.
+        var heldMinStrength = 0.3
         var heldLift = 0.1
         var heldScale = 1.08
+        /// What is kept of the peak once the note ends, until the line does.
         var heldSettle = 0.6
+        var heldSettleSeconds = 0.6
+        /// Lyrics drawn this much later than the audio clock (negative: earlier).
+        var lyricsDelay = 0.0
         var backgroundVocalSize = 0.64
         var backgroundVocalOpacity = 0.85
         var bgSaturation = 1.0
@@ -64,6 +72,7 @@ final class StyleTuning {
     }
 
     static let knobs: [Knob] = [
+        Knob(section: "Lyrics layout", label: "Lyrics delay (s)", path: \.lyricsDelay, range: -2...2, step: 0.05, key: "lyricsDelay"),
         Knob(section: "Lyrics layout", label: "Text size", path: \.lyricSize, range: 18...60, step: 1, key: "lyricSize"),
         Knob(section: "Lyrics layout", label: "Current line position", path: \.currentLinePosition, range: 0...0.6, step: 0.01, key: "currentLinePosition"),
         Knob(section: "Lyrics layout", label: "Line gap", path: \.lineGap, range: 0...40, step: 1, key: "lineGap"),
@@ -81,10 +90,12 @@ final class StyleTuning {
         Knob(section: "Upcoming lines", label: "Browsing opacity", path: \.browsingOpacity, range: 0...1, step: 0.01, key: "browsingOpacity"),
         Knob(section: "Karaoke", label: "Unsung word opacity", path: \.unsungOpacity, range: 0...1, step: 0.01, key: "unsungOpacity"),
         Knob(section: "Karaoke", label: "Word lift (em)", path: \.wordLift, range: 0...0.2, step: 0.005, key: "wordLift"),
-        Knob(section: "Karaoke", label: "Held note rise (s)", path: \.heldRiseSeconds, range: 0.3...4, step: 0.05, key: "heldRiseSeconds"),
+        Knob(section: "Karaoke", label: "Held note: full swell at (s)", path: \.heldFullSeconds, range: 1...8, step: 0.1, key: "heldFullSeconds"),
+        Knob(section: "Karaoke", label: "Held note: 1 s strength", path: \.heldMinStrength, range: 0...1, step: 0.05, key: "heldMinStrength"),
         Knob(section: "Karaoke", label: "Held note lift (em)", path: \.heldLift, range: 0...0.4, step: 0.01, key: "heldLift"),
         Knob(section: "Karaoke", label: "Held note swell", path: \.heldScale, range: 1...1.4, step: 0.01, key: "heldScale"),
         Knob(section: "Karaoke", label: "Held note settle", path: \.heldSettle, range: 0...1, step: 0.05, key: "heldSettle"),
+        Knob(section: "Karaoke", label: "Held note settle time (s)", path: \.heldSettleSeconds, range: 0...2, step: 0.05, key: "heldSettleSeconds"),
         Knob(section: "Karaoke", label: "Background vocal size", path: \.backgroundVocalSize, range: 0.4...1, step: 0.01, key: "backgroundVocalSize"),
         Knob(section: "Karaoke", label: "Background vocal opacity", path: \.backgroundVocalOpacity, range: 0...1, step: 0.01, key: "backgroundVocalOpacity"),
         Knob(section: "Motion", label: "Line fade (s)", path: \.fadeSeconds, range: 0...2, step: 0.05, key: "fadeSeconds"),

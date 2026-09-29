@@ -139,4 +139,26 @@ struct SpicyLyricsTests {
         #expect(!Lyrics.isEmphasisWord(LyricWord(start: 0, end: 2 * sec, text: "...")))
         #expect(!Lyrics.isEmphasisWord(LyricWord(start: 0, end: 2 * sec, text: "supercalifragilistic")))
     }
+
+    @Test func syllablesOfAWordStayTogether() {
+        let words = [LyricWord(start: 0, end: 1, text: "Hel"), LyricWord(start: 1, end: 2, text: "lo "),
+                     LyricWord(start: 2, end: 3, text: "world")]
+        #expect(Lyrics.wordUnits(words, emphasis: true).map { $0.map(\.text) } == [["Hel", "lo "], ["world"]])
+    }
+
+    @Test func aWordWithAHeldSyllableIsHeldWhole() {
+        let words = [LyricWord(start: 0, end: 3 * sec / 10, text: "y"), LyricWord(start: 3 * sec / 10, end: 2 * sec, text: "eah ")]
+        let held = Lyrics.wordUnits(words, emphasis: true)
+        #expect(held.map { $0.map(\.text) } == [["yeah "]])
+        #expect(held[0][0].start == 0 && held[0][0].end == 2 * sec)
+        // Without emphasis (not SpicyLyrics) nothing is merged.
+        #expect(Lyrics.wordUnits(words, emphasis: false).map(\.count) == [2])
+    }
+
+    @Test func noSpaceScriptsAndLongRunsAreNotHeldTogether() {
+        let japanese = [LyricWord(start: 0, end: 1, text: "こん"), LyricWord(start: 1, end: 2, text: "にちは")]
+        #expect(Lyrics.wordUnits(japanese, emphasis: true).map(\.count) == [1, 1])
+        let long = (0..<16).map { LyricWord(start: $0, end: $0 + 1, text: "ab") }
+        #expect(Lyrics.wordUnits(long, emphasis: false).count == 16)
+    }
 }

@@ -157,6 +157,37 @@ private enum LyricStyle {
     /// Half of the fill's soft edge (0.3 em each side of its centre).
     static var edge: CGFloat { 0.3 * size }
 
+    /// The lyric clock: the audio's position less the user's lyrics delay.
+    static func nowTicks(_ player: PlaybackService) -> Int {
+        Int((player.livePositionSeconds - v.lyricsDelay) * Double(Lyrics.ticksPerSecond))
+    }
+
+    static var heldLift: CGFloat { v.heldLift * size }
+    static var heldScale: CGFloat { v.heldScale }
+    static var backgroundSize: CGFloat { v.backgroundVocalSize * size }
+    static var backgroundOpacity: Double { v.backgroundVocalOpacity }
+
+    /// How swollen a held note's letter is, 0 to 1 of the full swell.
+    ///
+    /// Apple Music swells a held note more the longer it is: a short hold
+    /// barely, a long one slowly more and more until it ends. So the swell's
+    /// strength comes from the note's length (a 1 s hold gets
+    /// heldMinStrength, heldFullSeconds or longer gets it all), and each
+    /// letter rises from when the fill reaches it until the note ends, then
+    /// settles to heldSettle of its peak until the line changes. A letter
+    /// reached near the end still rises over at least 0.35 s rather than
+    /// popping. Tunable live; a guess at the curve until it is measured
+    /// against a recording, as the desktop's fixed 1.7 s swell was.
+    static func swell(sinceLit: Double, untilEnd: Double, held: Double) -> Double {
+        guard sinceLit >= 0 else { return 0 }
+        let reach = v.heldFullSeconds > 1 ? min(1, max(0, (held - 1) / (v.heldFullSeconds - 1))) : 1
+        let strength = v.heldMinStrength + (1 - v.heldMinStrength) * reach
+        let rise = max(untilEnd, 0.35)
+        if sinceLit < rise { return strength * UnitCurve.easeInOut.value(at: sinceLit / rise) }
+        let settle = v.heldSettleSeconds > 0 ? min(1, (sinceLit - rise) / v.heldSettleSeconds) : 1
+        return strength * (1 - (1 - v.heldSettle) * UnitCurve.easeInOut.value(at: settle))
+    }
+
     /// Opacity, blur and size (as a share of `size`) for a line `distance`
     /// from the current one.
     static func look(distance: Int, browsing: Bool) -> (opacity: Double, blur: CGFloat, scale: CGFloat) {
@@ -177,6 +208,9 @@ private enum LyricStyle {
 struct LyricsView: View {
     let lines: [LyricLine]
     let player: PlaybackService
+    /// Held notes swell: only for SpicyLyrics, whose syllables carry real end
+    /// times (see Lyrics.isEmphasisWord).
+    var emphasis = false
 
     /// The current line, from a clock of its own rather than the player's
     /// half-second position, so a line changes on its beat.
@@ -192,12 +226,13 @@ struct LyricsView: View {
                         ForEach(lines.indices, id: \.self) { index in
                             LyricLineView(line: lines[index],
                                           distance: Lyrics.lineDistance(index, active: active),
-                                          browsing: browsing, player: player)
+                                          browsing: browsing, emphasis: emphasis, player: player)
                                 .id(index)
                                 #if !os(tvOS)
                                 .contentShape(Rectangle())
                                 .onTapGesture {
-                                    Task { await player.seek(to: Double(lines[index].start) / Double(Lyrics.ticksPerSecond)) }
+                                    let start = Double(lines[index].start) / Double(Lyrics.ticksPerSecond)
+                                    Task { await player.seek(to: start + StyleTuning.shared.values.lyricsDelay) }
                                 }
                                 #endif
                         }
@@ -244,7 +279,7 @@ struct LyricsView: View {
     }
 
     private func currentIndex() -> Int? {
-        Lyrics.activeLineIndex(lines, at: Int(player.livePositionSeconds * Double(Lyrics.ticksPerSecond)))
+        Lyrics.activeLineIndex(lines, at: LyricStyle.nowTicks(player))
     }
 }
 
@@ -252,17 +287,20 @@ private struct LyricLineView: View {
     let line: LyricLine
     let distance: Int
     let browsing: Bool
+    let emphasis: Bool
     let player: PlaybackService
 
     var body: some View {
         let look = LyricStyle.look(distance: distance, browsing: browsing)
         let karaoke = !(line.words ?? []).isEmpty
+        // A duet's second voice sits on the right, background row with it.
+        let side: Alignment = line.opposite ? .trailing : .leading
         ShrinkWithoutRewrap(scale: look.scale) {
             content(karaoke: karaoke)
                 .font(.system(size: LyricStyle.size, weight: LyricStyle.weight))
                 .tracking(LyricStyle.tracking * LyricStyle.size)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .scaleEffect(look.scale, anchor: .topLeading)
+                .frame(maxWidth: .infinity, alignment: side)
+                .scaleEffect(look.scale, anchor: line.opposite ? .topTrailing : .topLeading)
         }
         .padding(.vertical, LyricStyle.lineGap * look.scale)
             // Browsing lines get a shadow to read over the blobs; karaoke words
@@ -288,16 +326,53 @@ private struct LyricLineView: View {
             // moment it became current. Only the current line's timeline
             // runs; the rest sit unsung, as on the desktop.
             TimelineView(.animation(minimumInterval: 1.0 / 60, paused: distance != 0 || player.isPaused)) { _ in
-                let now = distance == 0 ? Int(player.livePositionSeconds * Double(Lyrics.ticksPerSecond)) : Int.min
-                WordFlow {
-                    ForEach(words.indices, id: \.self) { i in
-                        KaraokeWord(text: words[i].text, progress: Lyrics.wordProgress(words[i], at: now),
-                                    sung: now >= words[i].start)
+                let now = distance == 0 ? LyricStyle.nowTicks(player) : Int.min
+                VStack(alignment: line.opposite ? .trailing : .leading, spacing: 0) {
+                    wordFlow(words, now: now)
+                    if let background = line.background {
+                        // Background vocals: a smaller, quieter row that opens
+                        // under the line while it is current and closes after,
+                        // as in Apple Music (karaoke.css .lyric-bg).
+                        ShrinkWithoutRewrap(scale: distance == 0 ? 1 : 0) {
+                            wordFlow(background, now: now)
+                                .font(.system(size: LyricStyle.backgroundSize, weight: .semibold))
+                                .tracking(LyricStyle.tracking * LyricStyle.backgroundSize)
+                                .padding(.top, 0.3 * LyricStyle.backgroundSize)
+                        }
+                        .clipped()
+                        .opacity(distance == 0 ? LyricStyle.backgroundOpacity : 0)
+                        .animation(.easeInOut(duration: 0.4), value: distance == 0)
                     }
                 }
             }
         } else {
-            Text(line.text).foregroundStyle(.white)
+            // Right alignment only here: on a karaoke word it drew the letters
+            // flush right with the word's trailing space in front of them
+            // ("theright"). WordFlow right-aligns karaoke rows itself.
+            Text(line.text)
+                .foregroundStyle(.white)
+                .multilineTextAlignment(line.opposite ? .trailing : .leading)
+        }
+    }
+
+    /// Words in their layout units (Lyrics.wordUnits): a unit never wraps
+    /// inside itself, and a held note swells letter by letter.
+    private func wordFlow(_ words: [LyricWord], now: Int) -> some View {
+        let units = Lyrics.wordUnits(words, emphasis: emphasis)
+        return WordFlow(trailing: line.opposite) {
+            ForEach(units.indices, id: \.self) { u in
+                HStack(spacing: 0) {
+                    ForEach(units[u].indices, id: \.self) { i in
+                        let word = units[u][i]
+                        if emphasis, Lyrics.isEmphasisWord(word) {
+                            HeldWord(word: word, now: now, standalone: units[u].count == 1)
+                        } else {
+                            KaraokeWord(text: word.text, progress: Lyrics.wordProgress(word, at: now),
+                                        sung: now >= word.start)
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -305,7 +380,9 @@ private struct LyricLineView: View {
 /// Shrinks a line as a picture rather than re-laying it out: the text wraps
 /// exactly as at full size, and only its height follows the shrink, so no gap
 /// opens around a past line. Resizing the font instead rewrapped lines as they
-/// moved into the past, which read as jitter.
+/// moved into the past, which read as jitter. Also opens and closes the
+/// background vocal row: content drawn unscaled, clipped to a share of its
+/// height.
 private struct ShrinkWithoutRewrap: Layout {
     var scale: CGFloat
     nonisolated var animatableData: CGFloat {
@@ -357,10 +434,76 @@ private struct KaraokeWord: View {
     }
 }
 
+/// A held note, letter by letter as Apple Music draws it: the fill sweeps the
+/// letters in turn, and each one rises, swells and glows from when the fill
+/// reaches it (LyricStyle.swell). Held notes skip the ordinary word lift;
+/// their letters do their own, larger one.
+private struct HeldWord: View {
+    let word: LyricWord
+    let now: Int
+    /// On its own rather than one syllable of a word: gets room each side to
+    /// swell into, so it never overlaps its neighbours.
+    let standalone: Bool
+
+    var body: some View {
+        let tps = Double(Lyrics.ticksPerSecond)
+        let letters = Array(word.text.trimmingCharacters(in: .whitespaces))
+        let n = Double(max(letters.count, 1))
+        let progress = Lyrics.wordProgress(word, at: now)
+        let start = Double(word.start) / tps
+        let held = Double((word.end ?? word.start) - word.start) / tps
+        let seconds = Double(now) / tps
+        HStack(spacing: 0) {
+            ForEach(letters.indices, id: \.self) { i in
+                let litAt = start + held * Double(i) / n
+                let s = now == Int.min ? 0 : LyricStyle.swell(sinceLit: seconds - litAt, untilEnd: start + held - litAt, held: held)
+                KaraokeWord(text: String(letters[i]), progress: min(1, max(0, progress * n - Double(i))), sung: false)
+                    .shadow(color: .white.opacity(0.7 * s), radius: 0.35 * LyricStyle.size * s)
+                    .scaleEffect(1 + (LyricStyle.heldScale - 1) * s, anchor: UnitPoint(x: 0.5, y: 0.75))
+                    .offset(y: -LyricStyle.heldLift * s)
+            }
+            if word.text.last?.isWhitespace == true { Text(" ") }
+        }
+        .padding(.horizontal, standalone ? 0.06 * LyricStyle.size : 0)
+    }
+}
+
+/// Credit for SpicyLyrics lyrics, which their terms want on screen wherever
+/// they show: the provider, then the uploader and maker of a community sync.
+/// Names link to their https pages on iOS.
+struct LyricsCreditView: View {
+    let credit: SpicyCredit
+
+    var body: some View {
+        Text(text)
+            .font(.caption2)
+            .foregroundStyle(.white.opacity(0.6))
+            .tint(.white.opacity(0.85))
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var text: AttributedString {
+        var out = AttributedString(credit.provider)
+        for (role, person) in [("Uploaded by", credit.uploader), ("Synced by", credit.maker)] {
+            guard let person else { continue }
+            out += AttributedString(" · \(role) ")
+            var name = AttributedString(person.name)
+            #if os(iOS)
+            name.link = person.url
+            #endif
+            out += name
+        }
+        return out
+    }
+}
+
 /// Words laid out left to right, wrapping like text. A line of karaoke words
 /// has to be one view per word for each to fill on its own, and SwiftUI's
 /// stacks do not wrap.
 private struct WordFlow: Layout {
+    /// Rows flush right, for a duet's second voice.
+    var trailing = false
+
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let rows = arrange(width: proposal.width ?? .infinity, subviews: subviews)
         return CGSize(width: rows.map(\.width).max() ?? 0, height: rows.reduce(0) { $0 + $1.height })
@@ -369,7 +512,7 @@ private struct WordFlow: Layout {
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         var y = bounds.minY
         for row in arrange(width: bounds.width, subviews: subviews) {
-            var x = bounds.minX
+            var x = trailing ? bounds.maxX - row.width : bounds.minX
             for index in row.indices {
                 let size = subviews[index].sizeThatFits(.unspecified)
                 subviews[index].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
