@@ -78,6 +78,7 @@ struct HomeView: View {
                             .frame(width: 150, alignment: .leading)
                         }
                         .buttonStyle(.plain)
+                        .itemContextMenu(album)
                     }
                 }
                 .padding(.horizontal)
@@ -107,6 +108,7 @@ struct HomeView: View {
                             .frame(width: 150, alignment: .leading)   // see the album row
                         }
                         .buttonStyle(.plain)
+                        .trackContextMenu(track)
                     }
                 }
                 .padding(.horizontal)

@@ -177,6 +177,7 @@ struct ItemGrid: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    .itemContextMenu(item)
                 }
             }
             .padding()
