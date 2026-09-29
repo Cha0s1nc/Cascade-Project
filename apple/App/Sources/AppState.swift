@@ -220,6 +220,8 @@ final class AppState {
         player.setStreamingQuality(
             wifi: StreamingQuality(stored: UserDefaults.standard.object(forKey: StreamingQuality.wifiKey)),
             cellular: StreamingQuality(stored: UserDefaults.standard.object(forKey: StreamingQuality.cellularKey)))
+        player.normalization = Normalization.Mode(
+            rawValue: UserDefaults.standard.string(forKey: "cascade.normalization") ?? "") ?? .off
         self.player = player
         cascadePluginApi = nil
         cascadePluginInfo = .init()

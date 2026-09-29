@@ -80,6 +80,9 @@ public struct JfItem: Codable, Sendable, Identifiable, Hashable {
     public var productionYear: Int?
     /// Only sent when asked for (Fields=Genres).
     public var genres: [String]?
+    /// Jellyfin's loudness scan, in dB: on a single item (not in lists), and
+    /// on far fewer albums than tracks.
+    public var normalizationGain: Double?
     public var childCount: Int?
     /// An artist's biography or an album's notes. Only sent for a single item
     /// (or a list asked for Fields=Overview).

@@ -56,10 +56,21 @@ struct SettingsView: View {
                         ForEach(StreamingQuality.allCases) { Text($0.label).tag($0) }
                     }
                     #endif
+                    Picker("Volume Normalization", selection: Binding(
+                        get: { player.normalization },
+                        set: {
+                            player.normalization = $0
+                            UserDefaults.standard.set($0.rawValue, forKey: "cascade.normalization")
+                        }
+                    )) {
+                        Text("Off").tag(Normalization.Mode.off)
+                        Text("By Track").tag(Normalization.Mode.track)
+                        Text("By Album").tag(Normalization.Mode.album)
+                    }
                 } header: {
                     Text("Playback")
                 } footer: {
-                    Text("Below the original, the server converts to AAC at that rate. Applies from the next track.")
+                    Text("Below the original, the server converts to AAC at that rate. Applies from the next track.\n\nNormalization evens out loudness using the server's scan (Jellyfin's LUFS scan has to be on). By Album keeps an album's own dynamics. Loud tracks are turned down; quiet ones are not turned up yet.")
                 }
             }
 

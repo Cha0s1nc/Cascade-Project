@@ -417,6 +417,7 @@ public final class PlaybackService {
 
         let playerItem = makePlayerItem(stream)
         setPlayerItem(playerItem)
+        Task { await applyNormalization(for: item) }
 
         // Direct play hands over the whole file, so the server ignored
         // startTicks and a resume position has to be seeked locally. That can
@@ -523,8 +524,59 @@ public final class PlaybackService {
     /// 0-1, clamped. Persisting it is the app's business, not this service's.
     public func setVolume(_ v: Float) {
         volume = min(1, max(0, v))
-        player.volume = volume
+        player.volume = volume * normalizationVolume
         reportNow()
+    }
+
+    // MARK: - Volume normalization
+    //
+    // The desktop's: each track's NormalizationGain from the server, or its
+    // album's in album mode (the track's own when the album has none: 10.11
+    // writes one on far fewer albums than tracks). Fetched per item, since no
+    // list query asks for the field, and cached. The next track's is fetched
+    // while it preloads, so a gapless handover switches level on the spot.
+
+    /// Off, by track or by album. Applied to what is playing at once.
+    public var normalization: Normalization.Mode = .off {
+        didSet { if normalization != oldValue, let item { Task { await applyNormalization(for: item) } } }
+    }
+
+    /// The current track's multiplier, times the user's volume.
+    private var normalizationVolume: Float = 1
+    /// "track:<id>" or "album:<id>" to its gain in dB, nil when it has none.
+    private var gainCache: [String: Double?] = [:]
+
+    private func gainDb(id: String, key: String) async -> Double? {
+        if let hit = gainCache[key] { return hit }
+        let db = (try? await client.item(id: id))?.normalizationGain
+        gainCache[key] = db
+        return db
+    }
+
+    private func normalizationDb(for item: JfItem) async -> Double? {
+        guard normalization != .off else { return nil }
+        if normalization == .album, let albumId = item.albumId,
+           let db = await gainDb(id: albumId, key: "album:\(albumId)") {
+            return db
+        }
+        return await gainDb(id: item.id, key: "track:\(item.id)")
+    }
+
+    /// Unity first, so a track never plays at the last one's level while its
+    /// own is fetched, then the real value if the track is still the one
+    /// playing when it lands.
+    private func applyNormalization(for item: JfItem) async {
+        setNormalizationVolume(1)
+        guard normalization != .off else { return }
+        let db = await normalizationDb(for: item)
+        guard self.item?.id == item.id else { return }
+        setNormalizationVolume(Normalization.playerVolume(db: db))
+        debugLog("normalization \(normalization.rawValue): \(db.map { String(format: "%+.1f dB", $0) } ?? "none") for \(item.name ?? item.id)")
+    }
+
+    private func setNormalizationVolume(_ v: Float) {
+        normalizationVolume = v
+        player.volume = volume * v
     }
 
     public func setMuted(_ muted: Bool) {
@@ -660,6 +712,8 @@ public final class PlaybackService {
     private func fetchPreload(_ index: Int, _ next: JfItem, _ token: Int) async {
         let stream = await resolveStream(client: client, config: config, itemId: next.id, profile: currentProfile)
         guard token == preloadToken else { return abandon(stream) }
+        // Warms the gain cache, so the handover applies it without a wait.
+        _ = await normalizationDb(for: next)
         let playerItem = makePlayerItem(stream)
         // Loading the duration is also what proves the stream decodes. One
         // that does not is left out, and the end of this track falls back to
@@ -722,6 +776,8 @@ public final class PlaybackService {
         error = nil
         updateNowPlaying()
         Task { await loadArtwork() }
+        let current = queue.items[next.index]
+        Task { await applyNormalization(for: current) }
         syncPreload()
 
         await PlaybackReporter.stopped(client, finished)
