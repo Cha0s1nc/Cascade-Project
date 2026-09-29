@@ -8,7 +8,8 @@ import Foundation
 //   Body.Type 'Syllable' -> Content[] of { Lead: {Syllables[]}, Background?: [...] }
 //   Body.Type 'Line'     -> Content[] of { Text, StartTime, EndTime }
 //   Body.Type 'Static'   -> Lines[] of { Text }
-// Every time is SECONDS as a float; Cascade keeps ticks.
+// Every time is SECONDS as a float; Cascade keeps ticks. A Static sync has
+// none, and comes back marked unsynced.
 //
 // OppositeAligned marks a duet's second voice. Deliberately not used:
 // TranslatedText and TransliteratedText.
@@ -30,6 +31,8 @@ public struct SpicyCredit: Sendable, Equatable {
 public struct SpicyConversion: Sendable, Equatable {
     public var lines: [LyricLine]
     public var credit: SpicyCredit
+    /// False for a Static sync: lines with no times, shown as a still page.
+    public var synced = true
 }
 
 public enum SpicyLyrics {
@@ -136,18 +139,25 @@ public enum SpicyLyrics {
         }
     }
 
+    /// Untimed lines, from Lines rather than Content.
+    private static func staticLines(_ list: [Any]) -> [LyricLine] {
+        list.compactMap { raw in
+            let text = ((raw as? Obj)?["Text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? nil : LyricLine(start: 0, text: text, words: nil)
+        }
+    }
+
     /// Lines plus the credit to show, or nil when there is nothing usable, so
-    /// the caller falls back to the plugin's own files.
-    ///
-    /// ponytail: 'Static' (untimed) bodies come back nil, since LyricLine has
-    /// no untimed form yet; the plugin's own files are asked instead. Add them
-    /// with the rest of the lyric waterfall, which has LRCLIB's plain lyrics.
+    /// the caller falls back to its other sources.
     public static func convert(_ raw: Any?) -> SpicyConversion? {
         guard let b = body(raw) else { return nil }
         let lines: [LyricLine]
         switch b["Type"] as? String {
         case "Syllable": lines = syllableLines(b["Content"] as? [Any] ?? [])
         case "Line": lines = lineLines(b["Content"] as? [Any] ?? [])
+        case "Static":
+            let lines = staticLines(b["Lines"] as? [Any] ?? [])
+            return lines.isEmpty ? nil : SpicyConversion(lines: lines, credit: credit(b), synced: false)
         default: return nil
         }
         return lines.isEmpty ? nil : SpicyConversion(lines: lines, credit: credit(b))

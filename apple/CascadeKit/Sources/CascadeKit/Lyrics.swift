@@ -225,39 +225,27 @@ public struct PluginLyrics: Decodable, Sendable {
 
 /// The lyrics for a track, and the SpicyLyrics credit when that is where
 /// they came from (which the lyrics UI must show).
-public struct ServerLyrics: Sendable, Equatable {
-    public var lines: [LyricLine]
-    public var credit: SpicyCredit?
-}
-
-/// What the plugin's Info route says it can do. "syllable" means a
-/// SpicyLyrics key is set on the server, so asking for them is worth it.
-private struct PluginInfo: Decodable {
-    var capabilities: [String]?
-}
-
 public extension JellyfinClient {
     /// Which plugin build the server runs, asked once per session: the new
     /// Info route, then the pre-rename one on a 404. rogserver still runs
-    /// Cascade Lyrics 1.0.0.0, which only answers the legacy routes.
-    /// Also returns the capabilities it reports; a plugin too old to send
-    /// them reports none.
-    func probeCascadePlugin() async -> (probe: CascadePluginProbe, api: CascadePluginApi, capabilities: Set<String>) {
-        func status(_ path: String) async -> (Int?, Set<String>) {
+    /// Cascade Lyrics 1.0.0.0, which only answers the legacy routes. Also
+    /// what its Info says (a plugin too old to say reports nothing).
+    func probeCascadePlugin() async -> (probe: CascadePluginProbe, api: CascadePluginApi, info: CascadePluginInfo) {
+        func status(_ path: String) async -> (Int?, CascadePluginInfo) {
             do {
-                let info: PluginInfo = try await get(path)
-                return (200, Set(info.capabilities ?? []))
+                let info: CascadePluginInfo = try await get(path)
+                return (200, info)
             }
-            catch let e as JellyfinError { return (e.status == 0 ? nil : e.status, []) }
-            catch { return (nil, []) }
+            catch let e as JellyfinError { return (e.status == 0 ? nil : e.status, .init()) }
+            catch { return (nil, .init()) }
         }
         let server: Int?
-        var capabilities: Set<String>
-        (server, capabilities) = await status("/CascadeServer/Info")
+        var info: CascadePluginInfo
+        (server, info) = await status("/CascadeServer/Info")
         var legacy: Int?
-        if server == 404 { (legacy, capabilities) = await status("/CascadeLyrics/Info") }
+        if server == 404 { (legacy, info) = await status("/CascadeLyrics/Info") }
         let (probe, api) = CascadePlugin.resolve(serverStatus: server, legacyStatus: legacy)
-        return (probe, api, capabilities)
+        return (probe, api, info)
     }
 
     /// The plugin's lyrics for a track, parsed. Nil when it has none: the
@@ -269,25 +257,30 @@ public extension JellyfinClient {
     /// same reply. A SpicyLyrics sync that is for another release of the song
     /// (SpicyLyrics.fitsTrack), or that will not convert, is set aside and the
     /// plugin's own files asked for instead, as on the desktop: better those
-    /// than nothing.
-    func serverLyrics(itemId: String, api: CascadePluginApi, spicy: Bool,
-                      durationSeconds: Double) async throws -> ServerLyrics? {
+    /// than nothing. `spicyOnly` stops there instead, for the waterfall,
+    /// which has other sources. `spotifyId` is a link this user made on this
+    /// device, used for this request only.
+    func serverLyrics(itemId: String, api: CascadePluginApi, spicy: Bool, durationSeconds: Double,
+                      spotifyId: String? = nil, spicyOnly: Bool = false) async throws -> LyricsResult? {
         let path = CascadePlugin.lyricsPath(api, itemId: itemId)
-        func parsed(_ lrc: String?) -> ServerLyrics? {
+        func parsed(_ lrc: String?) -> LyricsResult? {
             let lines = Lyrics.parseLRC(lrc ?? "")
-            return lines.isEmpty ? nil : ServerLyrics(lines: lines, credit: nil)
+            return lines.isEmpty ? nil : LyricsResult(lines: lines, source: "Cascade")
         }
         do {
             if spicy {
-                let data = try await getData(path, params: ["syllable": "true"])
+                let data = try await getData(path, params: ["syllable": "true", "spicyOnly": spicyOnly ? "true" : nil,
+                                                            "spotifyId": spotifyId])
                 let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
                 if reply?["type"] as? String == "syllable" {
                     if SpicyLyrics.fitsTrack(reply?["spicy"], durationSeconds: durationSeconds),
                        let conv = SpicyLyrics.convert(reply?["spicy"]) {
-                        return ServerLyrics(lines: conv.lines, credit: conv.credit)
+                        return LyricsResult(lines: conv.lines, credit: conv.credit, synced: conv.synced,
+                                            source: conv.credit.provider)
                     }
+                    if spicyOnly { return nil }
                 } else if let reply {
-                    return parsed(reply["lrc"] as? String)
+                    return spicyOnly ? nil : parsed(reply["lrc"] as? String)
                 }
             }
             let reply: PluginLyrics = try await get(path)
