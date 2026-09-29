@@ -128,6 +128,12 @@ public actor JellyfinClient {
         return try JSON.decoder.decode(T.self, from: data)
     }
 
+    /// GET returning the raw body, for a reply whose shape belongs to a third
+    /// party (SpicyLyrics, passed through by the plugin).
+    public func getData(_ path: String, params: [String: String?] = [:]) async throws -> Data {
+        try await send(URLRequest(url: try makeURL(path, params)))
+    }
+
     /// POST with a JSON body, decoding the reply.
     public func post<Body: Encodable, T: Decodable>(_ path: String, body: Body,
                                                     params: [String: String?] = [:],

@@ -16,6 +16,8 @@ final class AppState {
     /// Which route family the server's Cascade plugin answers on, once probed.
     /// Nil until then, and stays nil when the plugin is absent: no lyrics.
     private(set) var cascadePluginApi: CascadePluginApi?
+    /// The plugin has a SpicyLyrics key (its "syllable" capability).
+    private(set) var cascadePluginSpicy = false
 
     var isSignedIn: Bool { client != nil }
 
@@ -174,10 +176,13 @@ final class AppState {
         self.player = player
         cascadePluginApi = nil
         Task {
-            let (probe, api) = await client.probeCascadePlugin()
+            let (probe, api, capabilities) = await client.probeCascadePlugin()
             // 'unknown' counts as present: a network hiccup must not hide
             // lyrics for the whole session. A wrong guess just 404s per track.
-            if probe != .absent, self.client === client { cascadePluginApi = api }
+            if probe != .absent, self.client === client {
+                cascadePluginApi = api
+                cascadePluginSpicy = capabilities.contains("syllable")
+            }
         }
     }
 

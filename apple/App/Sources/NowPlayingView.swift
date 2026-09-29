@@ -64,10 +64,12 @@ struct NowPlayingView: View {
         // White on the blobs whatever the rest of the app is using. Not
         // preferredColorScheme: from inside a sheet that flips the whole app.
         .environment(\.colorScheme, .dark)
-        .task(id: "\(player.item?.id ?? "")|\(String(describing: state.cascadePluginApi))") {
+        .task(id: "\(player.item?.id ?? "")|\(String(describing: state.cascadePluginApi))|\(state.cascadePluginSpicy)") {
             favoriteOverride = nil
             playedOverride = nil
-            await lyrics.load(itemId: player.item?.id, client: state.client, api: state.cascadePluginApi)
+            await lyrics.load(itemId: player.item?.id, client: state.client, api: state.cascadePluginApi,
+                              spicy: state.cascadePluginSpicy,
+                              durationSeconds: Double(player.item?.runTimeTicks ?? 0) / Double(Lyrics.ticksPerSecond))
         }
     }
 

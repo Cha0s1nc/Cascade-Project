@@ -3,11 +3,13 @@ import CascadeKit
 
 /// Loads the current track's lyrics from the server's Cascade plugin, for the
 /// Now Playing screen. Views read `lines`: nil while loading or when the track
-/// has none, which `isLoading` tells apart.
+/// has none, which `isLoading` tells apart. `credit` is set when they came
+/// from SpicyLyrics, whose terms want it on screen with them.
 @MainActor
 @Observable
 final class LyricsModel {
     private(set) var lines: [LyricLine]?
+    private(set) var credit: SpicyCredit?
     /// True from a track change until its lyrics are in (or known missing).
     /// Without it, the brief nil between two tracks read as "this song has no
     /// lyrics", and Now Playing left lyrics mode on every skip.
@@ -16,14 +18,23 @@ final class LyricsModel {
     /// probe can finish after Now Playing opens, and then it is worth asking.
     private var loadedKey: String?
 
-    func load(itemId: String?, client: JellyfinClient?, api: CascadePluginApi?) async {
-        let key = "\(itemId ?? "")|\(String(describing: api))"
+    func load(itemId: String?, client: JellyfinClient?, api: CascadePluginApi?,
+              spicy: Bool, durationSeconds: Double) async {
+        let key = "\(itemId ?? "")|\(String(describing: api))|\(spicy)"
         guard key != loadedKey else { return }
         lines = nil
+        credit = nil
         loadedKey = key
         #if DEBUG
-        // Launch with -cascade.debugLyrics YES to style-check lyrics against a
-        // server with no Cascade plugin (the local test server has none).
+        // Launch with -cascade.debugLyrics YES (Enhanced LRC) or
+        // -cascade.debugSpicy YES (a SpicyLyrics reply, through the real
+        // converter) to style-check lyrics against a server with no Cascade
+        // plugin (the local test server has none).
+        if UserDefaults.standard.bool(forKey: "cascade.debugSpicy"), let conv = SpicyLyrics.convert(Self.debugSpicyFixture) {
+            lines = conv.lines
+            credit = conv.credit
+            return
+        }
         if UserDefaults.standard.bool(forKey: "cascade.debugLyrics") {
             lines = Lyrics.parseLRC(Self.debugFixture)
             return
@@ -31,10 +42,12 @@ final class LyricsModel {
         #endif
         guard let itemId, let client, let api else { return }
         isLoading = true
-        let fetched = try? await client.serverLyrics(itemId: itemId, api: api)
+        let fetched = try? await client.serverLyrics(itemId: itemId, api: api, spicy: spicy,
+                                                     durationSeconds: durationSeconds)
         // A newer track may have started while this one was in flight.
         guard loadedKey == key else { return }
-        lines = fetched
+        lines = fetched?.lines
+        credit = fetched?.credit
         isLoading = false
     }
 }
@@ -64,6 +77,39 @@ extension LyricsModel {
             t += 5
             return out
         }.joined(separator: "\n")
+    }()
+
+    /// A SpicyLyrics community sync, 4 s a line from 0:02: a word held over
+    /// two syllables, a duet's second voice, background vocals under both
+    /// voices, a long held "oh", and an uploader and maker to credit.
+    static let debugSpicyFixture: [String: Any] = {
+        func syl(_ text: String, _ start: Double, _ end: Double, joined: Bool = false) -> [String: Any] {
+            ["Text": text, "StartTime": start, "EndTime": end, "IsPartOfWord": joined]
+        }
+        func line(_ syls: [[String: Any]], opposite: Bool = false, background: [[String: Any]]? = nil) -> [String: Any] {
+            var out: [String: Any] = ["Type": "Vocal", "OppositeAligned": opposite,
+                                      "Lead": ["StartTime": syls.first!["StartTime"]!, "EndTime": syls.last!["EndTime"]!,
+                                               "Syllables": syls]]
+            if let background { out["Background"] = [["Syllables": background]] }
+            return out
+        }
+        return ["Type": "Syllable", "source": "spicy_lyrics", "EndTime": 26.0,
+                "UploadAttribution": ["Uploader": ["username": "cascade-debug", "url": "https://example.com/uploader"],
+                                      "Maker": ["username": "fixture-maker"]],
+                "Content": [
+                    line([syl("Wait", 2, 2.4), syl("for", 2.4, 2.7), syl("it,", 2.7, 3.0), syl("hold", 3.0, 3.3),
+                          syl("the", 3.3, 3.5), syl("wai", 3.5, 3.8, joined: true), syl("ting", 3.8, 5.6)]),
+                    line([syl("The", 6, 6.3), syl("second", 6.3, 6.8), syl("voice", 6.8, 7.2), syl("answers", 7.2, 7.8),
+                          syl("from", 7.8, 8.1), syl("the", 8.1, 8.3), syl("right", 8.3, 9.2)], opposite: true),
+                    line([syl("Back", 10, 10.4), syl("to", 10.4, 10.6), syl("the", 10.6, 10.8), syl("lead", 10.8, 11.3),
+                          syl("with", 11.3, 11.6), syl("an", 11.6, 11.8), syl("echo", 11.8, 12.6)],
+                         background: [syl("(echo,", 11.2, 11.9), syl("echo)", 12.0, 12.8)]),
+                    line([syl("Both", 14, 14.4), syl("sides", 14.4, 14.9), syl("answer", 14.9, 15.6), syl("back", 15.6, 16.2)],
+                         opposite: true, background: [syl("(back", 15.0, 15.6), syl("again)", 15.6, 16.4)]),
+                    line([syl("And", 18, 18.3), syl("one", 18.3, 18.6), syl("long", 18.6, 19.0), syl("held", 19.0, 19.4),
+                          syl("oh", 19.4, 22.0)]),
+                    line([syl("Then", 22, 22.4), syl("a", 22.4, 22.5), syl("quiet", 22.5, 23.1), syl("close", 23.1, 24.0)]),
+                ]]
     }()
 }
 #endif
