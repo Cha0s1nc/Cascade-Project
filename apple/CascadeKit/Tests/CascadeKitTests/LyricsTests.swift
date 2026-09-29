@@ -98,4 +98,20 @@ struct CascadePluginTests {
         #expect(CascadePlugin.lyricsPath(.legacy, itemId: "x") == "/Audio/x/CascadeLyrics")
         #expect(CascadePlugin.lyricsPath(.server, itemId: "x") == "/CascadeServer/Lyrics/x")
     }
+
+    @Test func wordProgressFillsAcrossTheWord() {
+        let w = LyricWord(start: 100, end: 200, text: "word ")
+        #expect(Lyrics.wordProgress(w, at: 50) == 0)
+        #expect(Lyrics.wordProgress(w, at: 150) == 0.5)
+        #expect(Lyrics.wordProgress(w, at: 200) == 1)
+        // No end means "sung once started", never a division by zero.
+        #expect(Lyrics.wordProgress(LyricWord(start: 100, end: nil, text: "x"), at: 101) == 1)
+    }
+
+    @Test func linesBeforeTheFirstAreAllUpcoming() {
+        #expect(Lyrics.lineDistance(0, active: nil) == 1)
+        #expect(Lyrics.lineDistance(3, active: 3) == 0)
+        #expect(Lyrics.lineDistance(1, active: 3) == -2)
+        #expect(Lyrics.lineDistance(5, active: 3) == 2)
+    }
 }

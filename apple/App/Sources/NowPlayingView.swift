@@ -34,6 +34,16 @@ struct NowPlayingView: View {
     @State private var scrubPosition: Double = 0
     @State private var addingToPlaylist = false
     @State private var routeName = ""
+    /// Lyrics mode tucks the controls away after a few idle seconds, as
+    /// Apple Music does, leaving a button to bring them back.
+    @State private var controlsHidden = false
+    /// Bumped by any touch on the controls, which restarts the idle timer.
+    /// Zero until the first touch in this visit to lyrics mode.
+    @State private var controlsWake = 0
+    /// Quick on entering lyrics mode; longer once the controls are wanted,
+    /// since 4 s after bringing them back was gone before you could use them.
+    private static let controlsIdleSeconds = 4.0
+    private static let controlsWokenIdleSeconds = 8.0
     #endif
 
     private var artId: String? { player.item?.albumId ?? player.item?.id }
@@ -164,10 +174,22 @@ struct NowPlayingView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.top, 6)
                     }
-                    scrubber.padding(.top, 20)
-                    transport.padding(.vertical, 18)
-                    volume
-                    bottomBar.padding(.top, 18)
+                    if mode == .lyrics && controlsHidden {
+                        showControlsButton
+                            .padding(.top, 12)
+                            .transition(.opacity)
+                    } else {
+                        VStack(spacing: 0) {
+                            scrubber.padding(.top, 20)
+                            transport.padding(.vertical, 18)
+                            volume
+                            bottomBar.padding(.top, 18)
+                        }
+                        // Any touch on them counts as using them.
+                        .simultaneousGesture(TapGesture().onEnded { controlsWake += 1 })
+                        .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in controlsWake += 1 })
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    }
                 }
                 .padding(.horizontal, 28)
                 .padding(.bottom, 8)
@@ -181,9 +203,19 @@ struct NowPlayingView: View {
                 AddToPlaylistSheet(track: track).environment(state)
             }
         }
-        .onChange(of: lyrics.lines == nil) { _, missing in
-            // A track without lyrics started while they were showing.
-            if missing && mode == .lyrics { setMode(.artwork) }
+        // Lyrics mode stays put across skips: the next song's lyrics load in
+        // place, and one without any says so rather than bouncing back to
+        // the artwork.
+        .task(id: "\(mode)|\(controlsWake)") {
+            guard mode == .lyrics else {
+                controlsHidden = false
+                controlsWake = 0
+                return
+            }
+            let idle = controlsWake == 0 ? Self.controlsIdleSeconds : Self.controlsWokenIdleSeconds
+            try? await Task.sleep(for: .seconds(idle))
+            guard !Task.isCancelled, mode == .lyrics else { return }
+            withAnimation(.easeInOut(duration: 0.35)) { controlsHidden = true }
         }
         .onAppear(perform: updateRouteName)
         .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)) { _ in
@@ -400,9 +432,12 @@ struct NowPlayingView: View {
 
     private var bottomBar: some View {
         HStack(alignment: .top) {
+            // Enabled while lyrics are showing (or loading), so it can always
+            // close them again.
+            let noLyrics = lyrics.lines == nil && !lyrics.isLoading && mode != .lyrics
             modeButton(.lyrics, symbol: "quote.bubble", label: "Lyrics")
-                .disabled(lyrics.lines == nil)
-                .opacity(lyrics.lines == nil ? 0.35 : 1)
+                .disabled(noLyrics)
+                .opacity(noLyrics ? 0.35 : 1)
             Spacer()
             VStack(spacing: 3) {
                 RoutePicker().frame(width: 30, height: 30)
@@ -445,9 +480,33 @@ struct NowPlayingView: View {
         withAnimation(.spring(duration: 0.4, bounce: 0.08)) { mode = target }
     }
 
+    /// Where the controls went: one centred button that brings them back.
+    private var showControlsButton: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.35)) { controlsHidden = false }
+            controlsWake += 1
+        } label: {
+            Image(systemName: "chevron.compact.up")
+                .font(.title2.weight(.semibold))
+                .frame(width: 64, height: 36)
+                .background(Capsule().fill(.white.opacity(0.14)))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .accessibilityLabel("Show controls")
+    }
+
     @ViewBuilder private var lyricsPanel: some View {
         if let lines = lyrics.lines {
             LyricsView(lines: lines, player: player)
+                // A new song's lyrics start from their own top, not scrolled
+                // to wherever the last song's were.
+                .id(player.item?.id)
+        } else if lyrics.isLoading {
+            ProgressView()
+                .tint(.white)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             Text("No lyrics for this song")
                 .foregroundStyle(.white.opacity(0.5))

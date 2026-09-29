@@ -43,6 +43,15 @@ public final class PlaybackService {
     /// view can show "loading" rather than a stale track.
     public private(set) var isLoading = false
     public private(set) var positionSeconds: Double = 0
+    /// The position right now, read from the player rather than from the
+    /// half-second observer behind `positionSeconds`: for the lyrics' word
+    /// fill, which needs it every frame. Not observed; read it from a
+    /// TimelineView or a clock of your own.
+    public var livePositionSeconds: Double {
+        let t = player.currentTime().seconds
+        guard t.isFinite else { return positionSeconds }
+        return CascadeKit.seconds(fromTicks: streamStartTicks) + t
+    }
     public private(set) var durationSeconds: Double = 0
     public private(set) var error: String?
     /// 0-1, the scale AVPlayer takes. Jellyfin talks in 0-100.

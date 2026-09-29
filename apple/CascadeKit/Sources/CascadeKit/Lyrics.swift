@@ -99,6 +99,22 @@ public enum Lyrics {
         lines.lastIndex { $0.start <= positionTicks }
     }
 
+    /// How far through a karaoke word the fill is at `positionTicks`, 0 to 1.
+    /// The desktop's _wordProgress (lyric-karaoke.js).
+    public static func wordProgress(_ word: LyricWord, at positionTicks: Int) -> Double {
+        if positionTicks < word.start { return 0 }
+        guard let end = word.end, positionTicks < end, end > word.start else { return 1 }
+        return Double(positionTicks - word.start) / Double(end - word.start)
+    }
+
+    /// A line's signed distance from the current one: 0 is current, positive
+    /// is upcoming, negative is past. Before the first line starts, every line
+    /// counts as upcoming from an imaginary line -1, as on the desktop, so the
+    /// first line waits one step away rather than looking already past.
+    public static func lineDistance(_ index: Int, active: Int?) -> Int {
+        index - (active ?? -1)
+    }
+
     private static func trimEnd(_ s: String) -> String {
         String(s.reversed().drop { $0.isWhitespace }.reversed())
     }
