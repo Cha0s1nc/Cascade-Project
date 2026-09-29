@@ -18,6 +18,11 @@ public struct LyricLine: Sendable, Equatable {
     public var text: String
     /// Nil for plain LRC; set for karaoke (word-level) formats.
     public var words: [LyricWord]?
+    /// Background vocals (SpicyLyrics), a smaller row under the lead with
+    /// timings of their own.
+    public var background: [LyricWord]? = nil
+    /// A duet's second voice (SpicyLyrics' OppositeAligned), drawn on the right.
+    public var opposite = false
 }
 
 public enum Lyrics {
@@ -97,6 +102,21 @@ public enum Lyrics {
     /// Lines are in time order, so the answer is the last one already started.
     public static func activeLineIndex(_ lines: [LyricLine], at positionTicks: Int) -> Int? {
         lines.lastIndex { $0.start <= positionTicks }
+    }
+
+    /// A held note is at least this long.
+    public static let emphasisMinTicks = ticksPerSecond
+
+    /// Whether a word is a held note, to swell as it is sung: a second or
+    /// longer, and short enough (1 to 12 letters or digits) to be one sung
+    /// word rather than a run-on syllable. Only meaningful for SpicyLyrics,
+    /// whose syllables carry real end times; parseLRC's end is the next
+    /// word's start, so any word before a pause would look held. The
+    /// desktop's isEmphasisWord (src/core/lyrics.ts).
+    public static func isEmphasisWord(_ w: LyricWord) -> Bool {
+        guard let end = w.end, end - w.start >= emphasisMinTicks else { return false }
+        let letters = w.text.unicodeScalars.filter { $0.properties.isAlphabetic || $0.properties.numericType != nil }.count
+        return (1...12).contains(letters)
     }
 
     /// How far through a karaoke word the fill is at `positionTicks`, 0 to 1.
