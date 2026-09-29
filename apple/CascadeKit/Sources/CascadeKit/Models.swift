@@ -18,7 +18,9 @@ public struct JfUserData: Codable, Sendable {
     public var playbackPositionTicks: Int?
     public var played: Bool?
 
-    public init(playbackPositionTicks: Int? = nil, played: Bool? = nil, isFavorite: Bool? = nil) {
+    public init(playbackPositionTicks: Int? = nil, played: Bool? = nil, isFavorite: Bool? = nil,
+                playCount: Int? = nil) {
+        self.playCount = playCount
         self.playbackPositionTicks = playbackPositionTicks
         self.played = played
         self.isFavorite = isFavorite
@@ -77,6 +79,9 @@ public struct JfItem: Codable, Sendable, Identifiable, Hashable {
     public var parentIndexNumber: Int?
     public var productionYear: Int?
     public var childCount: Int?
+    /// An artist's biography or an album's notes. Only sent for a single item
+    /// (or a list asked for Fields=Overview).
+    public var overview: String?
 
     /// Only on library views (/UserViews) - "music", "movies", etc.
     public var collectionType: String?

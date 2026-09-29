@@ -149,6 +149,16 @@ private struct OptionalTrackMenu: ViewModifier {
 struct ItemGrid: View {
     let items: [JfItem]
 
+    var body: some View {
+        ScrollView { ItemTiles(items: items) }
+    }
+}
+
+/// ItemGrid's tiles without the scroll view, for a page that scrolls as a
+/// whole (the artist page: its albums sit under its other sections).
+struct ItemTiles: View {
+    let items: [JfItem]
+
     #if os(tvOS)
     private let tile: CGFloat = 220
     #else
@@ -156,32 +166,30 @@ struct ItemGrid: View {
     #endif
 
     var body: some View {
-        ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: tile), spacing: 16)], spacing: 20) {
-                ForEach(items) { item in
-                    NavigationLink(value: item) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            ArtworkView(itemId: item.id, size: tile)
-                            Text(item.name ?? "Unknown")
-                                .font(.caption)
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: tile), spacing: 16)], spacing: 20) {
+            ForEach(items) { item in
+                NavigationLink(value: item) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ArtworkView(itemId: item.id, size: tile)
+                        Text(item.name ?? "Unknown")
+                            .font(.caption)
+                            .lineLimit(1)
+                        // Only what the server actually sent: artists come
+                        // without a count, and "0 tracks" under every one
+                        // of them was a made-up number.
+                        if let subtitle = subtitle(item) {
+                            Text(subtitle)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
                                 .lineLimit(1)
-                            // Only what the server actually sent: artists come
-                            // without a count, and "0 tracks" under every one
-                            // of them was a made-up number.
-                            if let subtitle = subtitle(item) {
-                                Text(subtitle)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
                         }
                     }
-                    .buttonStyle(.plain)
-                    .itemContextMenu(item)
                 }
+                .buttonStyle(.plain)
+                .itemContextMenu(item)
             }
-            .padding()
         }
+        .padding()
     }
 
     private func subtitle(_ item: JfItem) -> String? {

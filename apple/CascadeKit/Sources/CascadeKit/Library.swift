@@ -243,6 +243,22 @@ public extension JellyfinClient {
     }
 
     /// Every track by an artist, for the artist page's play button.
+    /// Artists Jellyfin rates similar, kept to the ones in the selected
+    /// libraries: /Artists/{id}/Similar has no library scope of its own (its
+    /// userId only applies permissions), so it is intersected with the album
+    /// artists the Artists tab lists, which also means every one has albums
+    /// to show. The desktop's fetchSimilarArtists, which intersects with all
+    /// artists instead.
+    func similarArtists(to artistId: String, limit: Int = 12) async throws -> [JfItem] {
+        async let similar: JfItemsResponse = get("/Artists/\(artistId)/Similar",
+                                                  params: ["userId": currentConfig.userId, "limit": "24"])
+        async let inLibraries = itemsAcrossLibraries([
+            "userId": currentConfig.userId, "enableImages": "false", "enableUserData": "false",
+        ], path: "/Artists/AlbumArtists")
+        let ids = Set(try await inLibraries.map(\.id))
+        return Array((try await similar).items?.filter { ids.contains($0.id) }.prefix(limit) ?? [])
+    }
+
     func tracks(byArtist artistId: String, limit: Int = 500) async throws -> [JfItem] {
         try await itemsAcrossLibraries(baseParams.merging([
             "artistIds": artistId,
@@ -327,5 +343,25 @@ public extension JellyfinClient {
         } else {
             try await delete(path, params: params)
         }
+    }
+}
+
+public enum ArtistPage {
+    /// How many songs the Top Songs shelf shows.
+    public static let topSongsMax = 10
+
+    /// The artist's songs this user has played most, ties by name so the
+    /// order is stable. Jellyfin's only popularity figure is this user's own
+    /// play count, so a song never played is not a top song: without the
+    /// filter, an artist nobody has played got the whole track list again,
+    /// alphabetized. The desktop's topSongsOf (src/core/artist-page.ts).
+    public static func topSongs(_ songs: [JfItem], max: Int = topSongsMax) -> [JfItem] {
+        songs.filter { ($0.userData?.playCount ?? 0) > 0 }
+            .sorted {
+                let (a, b) = ($0.userData?.playCount ?? 0, $1.userData?.playCount ?? 0)
+                return a != b ? a > b : ($0.name ?? "").localizedStandardCompare($1.name ?? "") == .orderedAscending
+            }
+            .prefix(max)
+            .map { $0 }
     }
 }
