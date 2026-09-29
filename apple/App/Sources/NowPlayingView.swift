@@ -127,35 +127,53 @@ struct NowPlayingView: View {
 
     private var iosBody: some View {
         GeometryReader { geo in
-            VStack(spacing: 0) {
-                if mode == .artwork {
-                    Spacer(minLength: 16)
-                    bigArtwork(side: min(geo.size.width - 56, geo.size.height * 0.46))
-                    Spacer(minLength: 24)
-                    titleRow(compact: false)
-                } else {
-                    compactHeader
+            let bigSide = min(geo.size.width - 56, geo.size.height * 0.46)
+            ZStack(alignment: .topLeading) {
+                VStack(spacing: 0) {
+                    if mode == .artwork {
+                        Spacer(minLength: 16)
+                        artworkSlot(side: bigSide)
+                            .frame(maxWidth: .infinity)
+                        Spacer(minLength: 24)
+                        titleRow(compact: false)
+                            .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 24)),
+                                                    removal: .opacity.animation(.easeOut(duration: 0.12))))
+                    } else {
+                        HStack(spacing: 14) {
+                            artworkSlot(side: 64)
+                            // Gone within the first frames, as Apple's is: it would
+                            // otherwise sit under the growing artwork.
+                            titleRow(compact: true)
+                                .transition(.asymmetric(insertion: .opacity,
+                                                        removal: .opacity.animation(.easeOut(duration: 0.12))))
+                        }
                         .padding(.top, 20)
-                    Group {
-                        if mode == .lyrics { lyricsPanel } else { queuePanel }
+                        Group {
+                            if mode == .lyrics { lyricsPanel } else { queuePanel }
+                        }
+                        .frame(maxHeight: .infinity)
+                        // Slides down and away under the growing artwork, and up
+                        // into place as it shrinks.
+                        .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 40)),
+                                                removal: .opacity.combined(with: .offset(y: 80))))
                     }
-                    .frame(maxHeight: .infinity)
-                    .transition(.opacity)
+                    if let error = player.error {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.top, 6)
+                    }
+                    scrubber.padding(.top, 20)
+                    transport.padding(.vertical, 18)
+                    volume
+                    bottomBar.padding(.top, 18)
                 }
-                if let error = player.error {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 6)
-                }
-                scrubber.padding(.top, 20)
-                transport.padding(.vertical, 18)
-                volume
-                bottomBar.padding(.top, 18)
+                .padding(.horizontal, 28)
+                .padding(.bottom, 8)
+
+                movingArtwork(resolution: bigSide)
             }
-            .padding(.horizontal, 28)
-            .padding(.bottom, 8)
             .foregroundStyle(.white)
         }
         .sheet(isPresented: $addingToPlaylist) {
@@ -165,7 +183,7 @@ struct NowPlayingView: View {
         }
         .onChange(of: lyrics.lines == nil) { _, missing in
             // A track without lyrics started while they were showing.
-            if missing && mode == .lyrics { withAnimation(.spring(duration: 0.4)) { mode = .artwork } }
+            if missing && mode == .lyrics { setMode(.artwork) }
         }
         .onAppear(perform: updateRouteName)
         .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)) { _ in
@@ -173,26 +191,32 @@ struct NowPlayingView: View {
         }
     }
 
-    /// Apple's artwork breathes with playback: full size while playing, eased
-    /// back a little when paused.
-    private func bigArtwork(side: CGFloat) -> some View {
-        ArtworkView(itemId: artId, size: side)
-            .matchedGeometryEffect(id: "artwork", in: artworkSpace)
-            .shadow(color: .black.opacity(0.35), radius: 24, y: 12)
-            .scaleEffect(player.isPaused ? 0.86 : 1)
-            .animation(.spring(duration: 0.45, bounce: 0.25), value: player.isPaused)
-            .frame(maxWidth: .infinity)
+    /// Where the artwork should be: the big spot or the header thumbnail.
+    /// Empty; the one artwork view follows whichever is on screen (see
+    /// movingArtwork).
+    private func artworkSlot(side: CGFloat) -> some View {
+        Color.clear
+            .frame(width: side, height: side)
+            .matchedGeometryEffect(id: "artwork", in: artworkSpace, isSource: true)
     }
 
-    private var compactHeader: some View {
-        HStack(spacing: 14) {
-            ArtworkView(itemId: artId, size: 64)
-                .matchedGeometryEffect(id: "artwork", in: artworkSpace)
-                .onTapGesture { setMode(.artwork) }
-                .accessibilityAddTraits(.isButton)
-                .accessibilityLabel("Show artwork")
-            titleRow(compact: true)
-        }
+    /// One artwork view for both places, following the slot on screen, so a
+    /// mode change moves and resizes a single sharp image the way Apple's
+    /// does, instead of crossfading a thumbnail with a separate big copy
+    /// (which also reloaded at the other size and snapped when the frame
+    /// animated around a fixed-size view). Loaded once at the big size.
+    private func movingArtwork(resolution: CGFloat) -> some View {
+        let big = mode == .artwork
+        return ArtworkView(itemId: artId, size: resolution, fillsFrame: true)
+            .shadow(color: .black.opacity(big ? 0.35 : 0.2), radius: big ? 24 : 6, y: big ? 12 : 3)
+            // Apple's artwork breathes with playback: full size while playing,
+            // eased back a little when paused. Only the big one does.
+            .scaleEffect(big && player.isPaused ? 0.86 : 1)
+            .animation(.spring(duration: 0.45, bounce: 0.25), value: player.isPaused)
+            .matchedGeometryEffect(id: "artwork", in: artworkSpace, properties: .frame, isSource: false)
+            .onTapGesture { if !big { setMode(.artwork) } }
+            .accessibilityAddTraits(big ? [] : .isButton)
+            .accessibilityLabel(big ? "Artwork" : "Show artwork")
     }
 
     private func titleRow(compact: Bool) -> some View {
@@ -414,8 +438,11 @@ struct NowPlayingView: View {
         .accessibilityValue(mode == target ? "Showing" : "")
     }
 
+    /// Quick out, soft landing, no visible bounce: measured off Apple
+    /// Music's own transition (a screen recording at 60 fps), which settles
+    /// in about 0.35 to 0.4 s.
     private func setMode(_ target: Mode) {
-        withAnimation(.spring(duration: 0.45, bounce: 0.15)) { mode = target }
+        withAnimation(.spring(duration: 0.4, bounce: 0.08)) { mode = target }
     }
 
     @ViewBuilder private var lyricsPanel: some View {

@@ -24,6 +24,11 @@ enum ArtworkCache {
 struct ArtworkView: View {
     let itemId: String?
     var size: CGFloat = 160
+    /// Fill whatever square the parent proposes rather than a fixed `size`
+    /// one, still loading the image for `size`. For artwork whose frame
+    /// animates (Now Playing's grows from a header thumbnail), so one sharp
+    /// image scales smoothly instead of two copies crossfading.
+    var fillsFrame = false
 
     @Environment(AppState.self) private var state
     /// Tagged with its key: the same view can be handed a different item, and
@@ -47,8 +52,9 @@ struct ArtworkView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: size * 0.05))
+        .frame(width: fillsFrame ? nil : size, height: fillsFrame ? nil : size)
+        .aspectRatio(1, contentMode: .fit)
+        .clipShape(ProportionalRoundedRectangle())
         .task(id: itemId) {
             // The URL carries the token (ApiKey), so it can only be built once
             // there is a signed-in client.
@@ -82,6 +88,17 @@ struct ArtworkView: View {
                                           cost: Int(ready.size.width * ready.size.height * ready.scale * ready.scale * 4))
             loaded = (key, ready)
         }
+    }
+}
+
+/// Rounded corners that scale with the shape, so an artwork frame that
+/// animates between sizes keeps the same look at every step instead of its
+/// corners being fixed at one size's radius.
+struct ProportionalRoundedRectangle: Shape {
+    var ratio: CGFloat = 0.05
+
+    func path(in rect: CGRect) -> Path {
+        RoundedRectangle(cornerRadius: min(rect.width, rect.height) * ratio, style: .continuous).path(in: rect)
     }
 }
 
