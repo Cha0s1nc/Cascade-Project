@@ -4,6 +4,8 @@ import CascadeKit
 /// Screens that are not a library item.
 enum AppRoute: Hashable {
     case search, settings, genres, history
+    /// "favorites", "most-played", or a user smart playlist's id.
+    case smartPlaylist(String)
 }
 
 /// Where tapping an album, artist or playlist goes, decided by its type.
@@ -35,6 +37,7 @@ extension View {
                 case .settings: SettingsView()
                 case .genres: GenresView()
                 case .history: HistoryView()
+                case .smartPlaylist(let kind): SmartPlaylistView(kind: kind)
                 }
             }
     }

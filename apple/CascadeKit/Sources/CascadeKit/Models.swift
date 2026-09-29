@@ -78,6 +78,8 @@ public struct JfItem: Codable, Sendable, Identifiable, Hashable {
     /// which sorts ahead of anything explicitly numbered.
     public var parentIndexNumber: Int?
     public var productionYear: Int?
+    /// Only sent when asked for (Fields=Genres).
+    public var genres: [String]?
     public var childCount: Int?
     /// An artist's biography or an album's notes. Only sent for a single item
     /// (or a list asked for Fields=Overview).

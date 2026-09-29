@@ -34,6 +34,7 @@ struct PlaylistsView: View {
             }
             .padding(.horizontal)
             .browseHeader()
+            SmartPlaylistShelf()
             LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty)
             ItemGrid(items: items)
         }

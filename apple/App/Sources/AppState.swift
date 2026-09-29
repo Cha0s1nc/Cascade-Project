@@ -41,6 +41,26 @@ final class AppState {
         UserDefaults.standard.set(localSpotifyLinks, forKey: "cascade.spotifyLinks")
     }
 
+    /// Smart playlists made on this device (the desktop keeps them locally
+    /// too: Jellyfin has no such thing). Validated when read back.
+    private(set) var smartPlaylists = SmartPlaylist.decodeList(UserDefaults.standard.data(forKey: "cascade.smartPlaylists"))
+
+    /// Adds the playlist, or replaces the one with its id.
+    func saveSmartPlaylist(_ playlist: SmartPlaylist) {
+        guard let playlist = playlist.validated() else { return }
+        if let i = smartPlaylists.firstIndex(where: { $0.id == playlist.id }) {
+            smartPlaylists[i] = playlist
+        } else {
+            smartPlaylists.append(playlist)
+        }
+        UserDefaults.standard.set(SmartPlaylist.encodeList(smartPlaylists), forKey: "cascade.smartPlaylists")
+    }
+
+    func deleteSmartPlaylist(id: String) {
+        smartPlaylists.removeAll { $0.id == id }
+        UserDefaults.standard.set(SmartPlaylist.encodeList(smartPlaylists), forKey: "cascade.smartPlaylists")
+    }
+
     /// Bumped when a song's lyrics are worth asking for again (a Spotify link
     /// changed on the server).
     var lyricsRevision = 0
