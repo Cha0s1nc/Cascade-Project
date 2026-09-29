@@ -1,7 +1,8 @@
 import SwiftUI
 import CascadeKit
 
-/// The signed-in shell: tabs, and a mini player pinned above them on iOS.
+/// The signed-in shell: tabs, and on iOS the mini player as Apple Music's glass
+/// pill over the tab bar.
 ///
 /// tvOS gets no mini player. The remote has no room for one, so the player is
 /// a Now Playing tab instead, and picking something to play switches to it. Before this the tvOS player could not be
@@ -17,12 +18,7 @@ struct MainView: View {
         #if os(tvOS)
         tabs
         #else
-        VStack(spacing: 0) {
-            tabs
-            if let player = state.player, player.item != nil {
-                MiniPlayer(player: player) { showingNowPlaying = true }
-            }
-        }
+        tabsWithPlayer
         .sheet(isPresented: $showingNowPlaying) {
             if let player = state.player {
                 NowPlayingView(player: player)
@@ -62,6 +58,33 @@ struct MainView: View {
         #endif
     }
 
+    #if !os(tvOS)
+    /// The mini player as the tab view's bottom accessory: the glass pill that
+    /// sits over the tab bar and folds in beside it when the tab bar shrinks on
+    /// scroll, as in Apple Music. isEnabled needs iOS 26.1 (without it the
+    /// pill shows empty when nothing plays); older systems keep the bar under
+    /// the tabs.
+    @ViewBuilder private var tabsWithPlayer: some View {
+        let player = state.player
+        if #available(iOS 26.1, *) {
+            tabs
+                .tabViewBottomAccessory(isEnabled: player?.item != nil) {
+                    if let player {
+                        AccessoryMiniPlayer(player: player) { showingNowPlaying = true }
+                    }
+                }
+                .tabBarMinimizeBehavior(.onScrollDown)
+        } else {
+            VStack(spacing: 0) {
+                tabs
+                if let player, player.item != nil {
+                    MiniPlayer(player: player, style: .bar) { showingNowPlaying = true }
+                }
+            }
+        }
+    }
+    #endif
+
     /// One stack per tab, with the shared routes and (on iOS) the search and
     /// settings buttons.
     private func stack<Content: View>(@ViewBuilder _ root: () -> Content) -> some View {
@@ -70,39 +93,81 @@ struct MainView: View {
 }
 
 #if !os(tvOS)
-/// The always-there strip on iOS. Tapping it opens the full player; the button
-/// on it does not, so play/pause never costs a screen transition.
-struct MiniPlayer: View {
+/// The pill's contents follow where the system has put it: full width over the
+/// tab bar, or squeezed inline beside a minimized tab bar.
+@available(iOS 26.0, *)
+private struct AccessoryMiniPlayer: View {
     let player: PlaybackService
+    let onTap: () -> Void
+    @Environment(\.tabViewBottomAccessoryPlacement) private var placement
+
+    var body: some View {
+        MiniPlayer(player: player, style: placement == .inline ? .inline : .pill, onTap: onTap)
+    }
+}
+
+/// What is playing, always one tap from the full player. Tapping it opens Now
+/// Playing; its buttons do not, so play/pause never costs a screen transition.
+struct MiniPlayer: View {
+    enum Style {
+        /// In the glass pill over the tab bar, which draws its own background.
+        case pill
+        /// The pill folded in beside a minimized tab bar: no room for next.
+        case inline
+        /// The bar under the tabs, before iOS 26.1.
+        case bar
+    }
+
+    let player: PlaybackService
+    var style: Style = .bar
     let onTap: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
-            ArtworkView(itemId: player.item?.albumId ?? player.item?.id, size: 40)
+        HStack(spacing: style == .bar ? 12 : 10) {
+            ArtworkView(itemId: player.item?.albumId ?? player.item?.id, size: style == .bar ? 40 : 32)
             VStack(alignment: .leading, spacing: 1) {
-                Text(player.item?.name ?? "").font(.callout).lineLimit(1)
-                Text(player.item?.albumArtist ?? "").font(.caption2)
-                    .foregroundStyle(.secondary).lineLimit(1)
+                Text(player.item?.name ?? "")
+                    .font(style == .bar ? .callout : .subheadline.weight(.medium))
+                    .lineLimit(1)
+                if style != .inline {
+                    Text(player.item?.albumArtist ?? player.item?.artists?.first ?? "")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
             Spacer(minLength: 4)
             Button {
                 player.togglePlayPause()
             } label: {
-                Image(systemName: player.isPaused ? "play.fill" : "pause.fill").font(.title3)
+                Image(systemName: player.isPaused ? "play.fill" : "pause.fill")
+                    .font(.title3)
+                    .contentTransition(.symbolEffect(.replace))
+                    .frame(width: 32, height: 32)
             }
             .buttonStyle(.plain)
-            Button {
-                Task { await player.next() }
-            } label: {
-                Image(systemName: "forward.fill").font(.title3)
+            .accessibilityLabel(player.isPaused ? "Play" : "Pause")
+            if style != .inline {
+                Button {
+                    Task { await player.next() }
+                } label: {
+                    Image(systemName: "forward.fill")
+                        .font(.title3)
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Next")
             }
-            .buttonStyle(.plain)
         }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
-        .background(.regularMaterial)
+        .padding(.horizontal, style == .bar ? 16 : 12)
+        .padding(.vertical, style == .bar ? 8 : 0)
+        .background {
+            if style == .bar { Rectangle().fill(.regularMaterial) }
+        }
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
+        .accessibilityElement(children: .contain)
+        .accessibilityAction(named: "Open Now Playing", onTap)
     }
 }
 #endif
