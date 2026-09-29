@@ -78,47 +78,50 @@ extension LyricsModel {
 // - those changes ease over 0.55 s on cubic-bezier(0.16, 1, 0.3, 1), and each
 //   upcoming line starts 90 ms after the one before (up to three), so the
 //   stack cascades instead of moving as one block;
-// - the current line is centred by a spring of stiffness 250, damping 50;
+// - the current line is moved into place by a spring of stiffness 250,
+//   damping 50, and held high (12% down) as in Apple Music, not centred as
+//   on the desktop;
 // - karaoke words sit at 40% white and fill with white behind a soft edge
 //   0.6 em wide, and a word the fill has reached lifts 0.04 em over 0.6 s;
 // - scrolling by hand shows every line full size at 0.8 with a shadow, until the
 //   scroll settles, then it springs back to the current line.
-// Only the size differs: the desktop's clamp(22px, 3vw, 50px) is sized for
-// a window, and on a phone it would sit at its 22 px floor.
+// The size differs too: the desktop's clamp(22px, 3vw, 50px) is sized for
+// a window, and on a phone it would sit at its 22 px floor. Every value here
+// is live in StyleTuning (the debug panel), under the defaults above.
 
+/// The values live in StyleTuning, so the debug panel can move them; these
+/// are the shapes that read them.
+@MainActor
 private enum LyricStyle {
-    #if os(tvOS)
-    static let size: CGFloat = 44
-    #else
-    static let size: CGFloat = 30
-    #endif
+    private static var v: StyleTuning.Values { StyleTuning.shared.values }
+    static var size: CGFloat { v.lyricSize }
     static let weight: Font.Weight = .heavy          // 800
-    static let tracking = -0.015 * size              // letter-spacing: -0.015em
-    static let lineGap: CGFloat = 12                 // padding: 12px, above and below
-    static let unsung = Color.white.opacity(0.4)
+    static let tracking = -0.015                     // letter-spacing, in em
+    static var lineGap: CGFloat { v.lineGap }        // padding: 12px, above and below
+    static var unsung: Color { .white.opacity(v.unsungOpacity) }
     /// cubic-bezier(0.16, 1, 0.3, 1) over 0.55 s, the line fade and blur.
-    static let fade = Animation.timingCurve(0.16, 1, 0.3, 1, duration: 0.55)
-    static let ripple = 0.09
+    static var fade: Animation { .timingCurve(0.16, 1, 0.3, 1, duration: v.fadeSeconds) }
+    static var ripple: Double { v.rippleSeconds }
     static let scroll = Animation.interpolatingSpring(stiffness: 250, damping: 50)
+    /// Where the current line is held: a share of the lyrics area's height.
+    static var anchor: UnitPoint { UnitPoint(x: 0, y: v.currentLinePosition) }
     /// The word lift: cubic-bezier(0.25, 0.8, 0.25, 1) over 0.6 s.
     static let lift = Animation.timingCurve(0.25, 0.8, 0.25, 1, duration: 0.6)
-    static let liftDistance = 0.04 * size
+    static var liftDistance: CGFloat { v.wordLift * size }
     /// Half of the fill's soft edge (0.3 em each side of its centre).
-    static let edge = 0.3 * size
-
-    static let pastScale: CGFloat = 0.75
+    static var edge: CGFloat { 0.3 * size }
 
     /// Opacity, blur and size (as a share of `size`) for a line `distance`
     /// from the current one.
     static func look(distance: Int, browsing: Bool) -> (opacity: Double, blur: CGFloat, scale: CGFloat) {
-        if browsing { return (distance == 0 ? 1 : 0.8, 0, 1) }
+        if browsing { return (distance == 0 ? 1 : v.browsingOpacity, distance == 0 ? 0 : v.browsingBlur, 1) }
         switch distance {
-        case ..<0: return (0.3, 0, pastScale)
+        case ..<0: return (v.pastOpacity, v.pastBlur, v.pastScale)
         case 0: return (1, 0, 1)
-        case 1: return (0.35, 2, 1)
-        case 2: return (0.22, 3, 1)
-        case 3: return (0.12, 4, 1)
-        default: return (0, 6, 1)
+        case 1: return (v.next1Opacity, v.next1Blur, 1)
+        case 2: return (v.next2Opacity, v.next2Blur, 1)
+        case 3: return (v.next3Opacity, v.next3Blur, 1)
+        default: return (0, v.farBlur, 1)
         }
     }
 }
@@ -153,8 +156,10 @@ struct LyricsView: View {
                                 #endif
                         }
                     }
-                    // Room for the first and last lines to reach the centre.
-                    .padding(.vertical, geo.size.height / 2)
+                    // Room for the first and last lines to reach the current
+                    // line's spot, wherever the tuning puts it.
+                    .padding(.top, geo.size.height / 2)
+                    .padding(.bottom, geo.size.height)
                 }
                 .scrollIndicators(.hidden)
                 .onScrollPhaseChange { _, phase in
@@ -167,17 +172,17 @@ struct LyricsView: View {
                             try? await Task.sleep(for: .seconds(2.5))
                             guard !Task.isCancelled else { return }
                             withAnimation(LyricStyle.fade) { browsing = false }
-                            withAnimation(LyricStyle.scroll) { proxy.scrollTo(active ?? 0, anchor: .center) }
+                            withAnimation(LyricStyle.scroll) { proxy.scrollTo(active ?? 0, anchor: LyricStyle.anchor) }
                         }
                     }
                 }
                 .onChange(of: active) { _, index in
                     guard !browsing else { return }
-                    withAnimation(LyricStyle.scroll) { proxy.scrollTo(index ?? 0, anchor: .center) }
+                    withAnimation(LyricStyle.scroll) { proxy.scrollTo(index ?? 0, anchor: LyricStyle.anchor) }
                 }
                 .onAppear {
                     active = currentIndex()
-                    proxy.scrollTo(active ?? 0, anchor: .center)
+                    proxy.scrollTo(active ?? 0, anchor: LyricStyle.anchor)
                 }
             }
         }
@@ -259,7 +264,7 @@ private struct LyricFont: ViewModifier, Animatable {
     func body(content: Content) -> some View {
         content
             .font(.system(size: LyricStyle.size * scale, weight: LyricStyle.weight))
-            .tracking(LyricStyle.tracking * scale)
+            .tracking(LyricStyle.tracking * LyricStyle.size * scale)
     }
 }
 

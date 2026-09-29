@@ -35,15 +35,18 @@ struct NowPlayingView: View {
     @State private var addingToPlaylist = false
     @State private var routeName = ""
     /// Lyrics mode tucks the controls away after a few idle seconds, as
-    /// Apple Music does, leaving a button to bring them back.
+    /// Apple Music does, leaving a button to bring them back. The wait is
+    /// StyleTuning's: quick on entering lyrics mode (4 s), longer once the
+    /// controls are wanted (8 s), since 4 s after bringing them back was gone
+    /// before you could use them.
     @State private var controlsHidden = false
     /// Bumped by any touch on the controls, which restarts the idle timer.
     /// Zero until the first touch in this visit to lyrics mode.
     @State private var controlsWake = 0
-    /// Quick on entering lyrics mode; longer once the controls are wanted,
-    /// since 4 s after bringing them back was gone before you could use them.
-    private static let controlsIdleSeconds = 4.0
-    private static let controlsWokenIdleSeconds = 8.0
+    #if DEBUG && os(iOS)
+    /// The Style Tuning panel, from the ··· menu.
+    @State private var tuning = false
+    #endif
     #endif
 
     private var artId: String? { player.item?.albumId ?? player.item?.id }
@@ -203,6 +206,9 @@ struct NowPlayingView: View {
                 AddToPlaylistSheet(track: track).environment(state)
             }
         }
+        #if DEBUG && os(iOS)
+        .sheet(isPresented: $tuning) { StyleTuningSheet() }
+        #endif
         // Lyrics mode stays put across skips: the next song's lyrics load in
         // place, and one without any says so rather than bouncing back to
         // the artwork.
@@ -212,7 +218,8 @@ struct NowPlayingView: View {
                 controlsWake = 0
                 return
             }
-            let idle = controlsWake == 0 ? Self.controlsIdleSeconds : Self.controlsWokenIdleSeconds
+            let t = StyleTuning.shared.values
+            let idle = controlsWake == 0 ? t.controlsIdleSeconds : t.controlsWokenIdleSeconds
             try? await Task.sleep(for: .seconds(idle))
             guard !Task.isCancelled, mode == .lyrics else { return }
             withAnimation(.easeInOut(duration: 0.35)) { controlsHidden = true }
@@ -279,6 +286,9 @@ struct NowPlayingView: View {
                                addingToPlaylist: $addingToPlaylist)
             }
             Section { sleepMenu }
+            #if DEBUG && os(iOS)
+            Button("Style Tuning", systemImage: "slider.horizontal.3") { tuning = true }
+            #endif
         } label: {
             circleLabel("ellipsis")
         }

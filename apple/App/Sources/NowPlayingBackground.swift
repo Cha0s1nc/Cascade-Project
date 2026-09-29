@@ -97,9 +97,10 @@ struct NowPlayingBackground: View {
     var body: some View {
         let backdrop = CoverBackdrop.shared
         let (colors, drift, previous, changedAt) = (backdrop.colors, backdrop.drift, backdrop.previous, backdrop.changedAt)
+        let tune = StyleTuning.shared.values
         TimelineView(.animation(minimumInterval: AlbumColors.frameInterval, paused: reduceMotion)) { timeline in
             let now = timeline.date
-            let t = reduceMotion ? 0 : now.timeIntervalSinceReferenceDate
+            let t = reduceMotion ? 0 : now.timeIntervalSinceReferenceDate * tune.bgSpeed
             // Under Reduce Motion the timeline is paused and its date stale,
             // so a fade measured against it could sit at zero forever.
             let fade = reduceMotion ? 1 : min(1, max(0, now.timeIntervalSince(changedAt) / Self.fadeSeconds))
@@ -109,10 +110,15 @@ struct NowPlayingBackground: View {
                                                 blue: AlbumColors.base.b)))
                 if fade < 1 {
                     draw(AlbumColors.driftedBlobs(previous.colors, drift: previous.drift, at: t),
-                         weight: 1 - fade, in: context, size: size)
+                         weight: (1 - fade) * tune.bgIntensity, in: context, size: size)
                 }
-                draw(AlbumColors.driftedBlobs(colors, drift: drift, at: t), weight: fade, in: context, size: size)
+                draw(AlbumColors.driftedBlobs(colors, drift: drift, at: t), weight: fade * tune.bgIntensity,
+                     in: context, size: size)
             }
+            // The tuning panel's colour knobs; at their defaults, no-ops.
+            .saturation(tune.bgSaturation)
+            .brightness(tune.bgBrightness)
+            .blur(radius: tune.bgBlur, opaque: true)
         }
         .ignoresSafeArea()
         .accessibilityHidden(true)
@@ -133,7 +139,7 @@ struct NowPlayingBackground: View {
             layer.translateBy(x: blob.x / 100 * size.width, y: blob.y / 100 * size.height)
             layer.scaleBy(x: 1, y: ry / rx)
             let color = Color(.sRGB, red: blob.color.r / 255, green: blob.color.g / 255,
-                              blue: blob.color.b / 255, opacity: blob.alpha * weight)
+                              blue: blob.color.b / 255, opacity: min(1, blob.alpha * weight))
             let gradient = Gradient(stops: [
                 .init(color: color, location: 0),
                 .init(color: color, location: 0.42),
