@@ -38,29 +38,71 @@ enum CoverPalettes {
     }
 }
 
+/// What the Now Playing background is showing: the current cover's colours,
+/// their drift, and what they are crossfading from. Shared and long-lived
+/// rather than @State in the background view, because the sheet is rebuilt on
+/// every presentation: kept per view, a reopened player started from nothing,
+/// and the palette could land on a copy of the view that was no longer the
+/// one on screen, which left the background blank. Now a reopened player
+/// draws its colours on the first frame.
+@MainActor
+@Observable
+final class CoverBackdrop {
+    static let shared = CoverBackdrop()
+
+    private(set) var itemId: String?
+    private(set) var colors: [BlobColor] = []
+    private(set) var drift = AlbumColors.randomizeDrift()
+    /// What was showing before the last change, faded out under the new one.
+    private(set) var previous: (colors: [BlobColor], drift: [DriftParams]) = ([], [])
+    private(set) var changedAt = Date.distantPast
+    @ObservationIgnored private var requested: String?
+
+    /// Show this cover's colours, crossfading from whatever is up.
+    func show(itemId: String?, client: JellyfinClient?) async {
+        guard itemId != self.itemId || colors.isEmpty else { return }
+        requested = itemId
+        let fresh: [BlobColor]
+        if let itemId, let client {
+            fresh = await CoverPalettes.palette(for: itemId, client: client)
+        } else {
+            fresh = []
+        }
+        // A newer track asked while this one was loading.
+        guard requested == itemId else { return }
+        self.itemId = itemId
+        guard fresh != colors else { return }
+        previous = (colors, drift)
+        colors = fresh
+        // Re-rolled only when the colours change, so the next track of the
+        // same album keeps drifting along the same path.
+        drift = AlbumColors.randomizeDrift()
+        changedAt = .now
+    }
+}
+
 /// The desktop's album-art background: the cover's vivid colours as soft
 /// blobs drifting slowly over near-black, at the desktop's ~15 fps. A new
-/// cover crossfades in over a second rather than cutting. Still under Reduce
-/// Motion.
+/// cover crossfades in over a second rather than cutting. Still, and switched
+/// without the crossfade, under Reduce Motion.
 struct NowPlayingBackground: View {
     /// The album (or track) whose cover sets the colours.
     let itemId: String?
 
     @Environment(AppState.self) private var state
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var colors: [BlobColor] = []
-    @State private var drift = AlbumColors.randomizeDrift()
-    /// What was showing before the last change, faded out under the new one.
-    @State private var previous: (colors: [BlobColor], drift: [DriftParams]) = ([], [])
-    @State private var changedAt = Date.distantPast
 
     private static let fadeSeconds = 1.0
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: AlbumColors.frameInterval, paused: reduceMotion && !isFading)) { timeline in
+        let backdrop = CoverBackdrop.shared
+        let (colors, drift, previous, changedAt) = (backdrop.colors, backdrop.drift, backdrop.previous, backdrop.changedAt)
+        TimelineView(.animation(minimumInterval: AlbumColors.frameInterval, paused: reduceMotion)) { timeline in
             let now = timeline.date
             let t = reduceMotion ? 0 : now.timeIntervalSinceReferenceDate
-            let fade = min(1, max(0, now.timeIntervalSince(changedAt) / Self.fadeSeconds))
+            // Under Reduce Motion the timeline is paused and its date stale,
+            // so a fade measured against it could sit at zero forever.
+            let fade = reduceMotion ? 1 : min(1, max(0, now.timeIntervalSince(changedAt) / Self.fadeSeconds))
             Canvas { context, size in
                 context.fill(Path(CGRect(origin: .zero, size: size)),
                              with: .color(Color(.sRGB, red: AlbumColors.base.r, green: AlbumColors.base.g,
@@ -75,19 +117,9 @@ struct NowPlayingBackground: View {
         .ignoresSafeArea()
         .accessibilityHidden(true)
         .task(id: itemId) {
-            guard let itemId, let client = state.client else { return }
-            let fresh = await CoverPalettes.palette(for: itemId, client: client)
-            guard !Task.isCancelled, fresh != colors else { return }
-            previous = (colors, drift)
-            colors = fresh
-            // Re-rolled only when the colours change, so the next track of the
-            // same album keeps drifting along the same path.
-            drift = AlbumColors.randomizeDrift()
-            changedAt = .now
+            await CoverBackdrop.shared.show(itemId: itemId, client: state.client)
         }
     }
-
-    private var isFading: Bool { Date.now.timeIntervalSince(changedAt) < Self.fadeSeconds }
 
     /// Each blob as the desktop paints it: an ellipse whose radial gradient
     /// holds its colour solid to 42% before falling off to nothing.
