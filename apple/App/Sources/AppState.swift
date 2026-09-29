@@ -16,8 +16,34 @@ final class AppState {
     /// Which route family the server's Cascade plugin answers on, once probed.
     /// Nil until then, and stays nil when the plugin is absent: no lyrics.
     private(set) var cascadePluginApi: CascadePluginApi?
-    /// The plugin has a SpicyLyrics key (its "syllable" capability).
-    private(set) var cascadePluginSpicy = false
+    /// What the plugin's Info says it can do (SpicyLyrics, Spotify links).
+    private(set) var cascadePluginInfo = CascadePluginInfo()
+
+    /// Lyrics from Cascade Server alone (SpicyLyrics, then lyrics saved on
+    /// the server), never Kugou, LRCLIB or Jellyfin. On unless turned off:
+    /// it is how this app always fetched, and how the desktop is set up here.
+    /// Ignored while the plugin is absent, when it would mean no lyrics.
+    var serverOnlyLyrics = UserDefaults.standard.object(forKey: "cascade.serverOnlyLyrics") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(serverOnlyLyrics, forKey: "cascade.serverOnlyLyrics") }
+    }
+
+    /// Songs this user linked to a Spotify track on this device only (item id
+    /// to Spotify id), for a server that does not let them link songs for
+    /// everyone. Sent with each lyrics request. Read back through
+    /// Spotify.trackId, since stored values are not trusted.
+    private(set) var localSpotifyLinks: [String: String] = {
+        let raw = UserDefaults.standard.dictionary(forKey: "cascade.spotifyLinks") as? [String: String] ?? [:]
+        return raw.compactMapValues(Spotify.trackId)
+    }()
+
+    func setLocalSpotifyLink(itemId: String, spotifyId: String?) {
+        localSpotifyLinks[itemId] = spotifyId
+        UserDefaults.standard.set(localSpotifyLinks, forKey: "cascade.spotifyLinks")
+    }
+
+    /// Bumped when a song's lyrics are worth asking for again (a Spotify link
+    /// changed on the server).
+    var lyricsRevision = 0
 
     var isSignedIn: Bool { client != nil }
 
@@ -142,6 +168,7 @@ final class AppState {
         client = nil
         player = nil
         cascadePluginApi = nil
+        cascadePluginInfo = .init()
         for list in browseLists.values { list.task?.cancel() }
         browseLists = [:]
     }
@@ -175,13 +202,14 @@ final class AppState {
             cellular: StreamingQuality(stored: UserDefaults.standard.object(forKey: StreamingQuality.cellularKey)))
         self.player = player
         cascadePluginApi = nil
+        cascadePluginInfo = .init()
         Task {
-            let (probe, api, capabilities) = await client.probeCascadePlugin()
+            let (probe, api, info) = await client.probeCascadePlugin()
             // 'unknown' counts as present: a network hiccup must not hide
             // lyrics for the whole session. A wrong guess just 404s per track.
             if probe != .absent, self.client === client {
                 cascadePluginApi = api
-                cascadePluginSpicy = capabilities.contains("syllable")
+                cascadePluginInfo = info
             }
         }
     }

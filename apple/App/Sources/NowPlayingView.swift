@@ -33,6 +33,9 @@ struct NowPlayingView: View {
     @State private var isScrubbing = false
     @State private var scrubPosition: Double = 0
     @State private var addingToPlaylist = false
+    #if os(iOS)
+    @State private var linkingSpotify = false
+    #endif
     @State private var routeName = ""
     /// Lyrics mode tucks the controls away after a few idle seconds, as
     /// Apple Music does, leaving a button to bring them back. The wait is
@@ -64,12 +67,16 @@ struct NowPlayingView: View {
         // White on the blobs whatever the rest of the app is using. Not
         // preferredColorScheme: from inside a sheet that flips the whole app.
         .environment(\.colorScheme, .dark)
-        .task(id: "\(player.item?.id ?? "")|\(String(describing: state.cascadePluginApi))|\(state.cascadePluginSpicy)") {
+        .task(id: player.item?.id) {
             favoriteOverride = nil
             playedOverride = nil
-            await lyrics.load(itemId: player.item?.id, client: state.client, api: state.cascadePluginApi,
-                              spicy: state.cascadePluginSpicy,
-                              durationSeconds: Double(player.item?.runTimeTicks ?? 0) / Double(Lyrics.ticksPerSecond))
+        }
+        // Everything that changes which lyrics a song gets: the plugin
+        // turning up, server-only, a Spotify link made here or on the server.
+        .task(id: [player.item?.id ?? "", String(describing: state.cascadePluginApi),
+                   "\(state.cascadePluginInfo.capabilities.sorted())", "\(state.serverOnlyLyrics)",
+                   state.localSpotifyLinks[player.item?.id ?? ""] ?? "", "\(state.lyricsRevision)"]) {
+            await lyrics.load(item: player.item, state: state)
         }
     }
 
@@ -120,7 +127,7 @@ struct NowPlayingView: View {
 
             if let lines = lyrics.lines {
                 VStack(spacing: 8) {
-                    LyricsView(lines: lines, player: player, emphasis: lyrics.credit != nil)
+                    LyricsView(lines: lines, player: player, emphasis: lyrics.credit != nil, synced: lyrics.synced)
                     if let credit = lyrics.credit { LyricsCreditView(credit: credit) }
                 }
                 .frame(maxWidth: 900)
@@ -214,6 +221,13 @@ struct NowPlayingView: View {
         #if DEBUG && os(iOS)
         .sheet(isPresented: $tuning) { StyleTuningSheet() }
         #endif
+        #if os(iOS)
+        .sheet(isPresented: $linkingSpotify) {
+            if let track = player.item {
+                SpotifyLinkSheet(track: track).environment(state)
+            }
+        }
+        #endif
         // Lyrics mode stays put across skips: the next song's lyrics load in
         // place, and one without any says so rather than bouncing back to
         // the artwork.
@@ -293,6 +307,11 @@ struct NowPlayingView: View {
             Section {
                 sleepMenu
                 lyricsTimingMenu
+                #if os(iOS)
+                if state.cascadePluginInfo.spotifyLink {
+                    Button("Link Spotify Track\u{2026}", systemImage: "link") { linkingSpotify = true }
+                }
+                #endif
             }
             #if DEBUG && os(iOS)
             Button("Style Tuning", systemImage: "slider.horizontal.3") { tuning = true }
@@ -539,7 +558,7 @@ struct NowPlayingView: View {
     @ViewBuilder private var lyricsPanel: some View {
         if let lines = lyrics.lines {
             VStack(spacing: 8) {
-                LyricsView(lines: lines, player: player, emphasis: lyrics.credit != nil)
+                LyricsView(lines: lines, player: player, emphasis: lyrics.credit != nil, synced: lyrics.synced)
                     // A new song's lyrics start from their own top, not scrolled
                     // to wherever the last song's were.
                     .id(player.item?.id)
@@ -552,9 +571,19 @@ struct NowPlayingView: View {
                 .tint(.white)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            Text("No lyrics for this song")
-                .foregroundStyle(.white.opacity(0.5))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VStack(spacing: 14) {
+                Text(lyrics.instrumental ? "This track is instrumental" : "No lyrics for this song")
+                    .foregroundStyle(.white.opacity(0.5))
+                #if os(iOS)
+                // The way in when SpicyLyrics could not find the song itself.
+                if !lyrics.instrumental, state.cascadePluginInfo.spotifyLink {
+                    Button("Link a Spotify Track") { linkingSpotify = true }
+                        .buttonStyle(.bordered)
+                        .tint(.white)
+                }
+                #endif
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

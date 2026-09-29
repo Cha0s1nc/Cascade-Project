@@ -63,6 +63,21 @@ struct SettingsView: View {
                 }
             }
 
+            // Only with the plugin: without it, server-only would mean no
+            // lyrics at all, so the waterfall runs whatever this says.
+            if state.cascadePluginApi != nil {
+                @Bindable var state = state
+                Section {
+                    Toggle("Server-Only Lyrics", isOn: $state.serverOnlyLyrics)
+                } header: {
+                    Text("Lyrics")
+                } footer: {
+                    Text(state.serverOnlyLyrics
+                         ? "Lyrics come only from Cascade Server: Spicy Lyrics, then lyrics saved on the server."
+                         : "Cascade also asks Kugou, LRCLIB and Jellyfin, which sends each song's title and artist to Kugou and LRCLIB.")
+                }
+            }
+
             if quickConnectEnabled {
                 Section {
                     TextField("Code", text: $approveCode)

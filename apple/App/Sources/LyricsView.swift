@@ -1,29 +1,40 @@
 import SwiftUI
 import CascadeKit
 
-/// Loads the current track's lyrics from the server's Cascade plugin, for the
-/// Now Playing screen. Views read `lines`: nil while loading or when the track
-/// has none, which `isLoading` tells apart. `credit` is set when they came
-/// from SpicyLyrics, whose terms want it on screen with them.
+/// Loads the current track's lyrics for the Now Playing screen, from Cascade
+/// Server alone or the whole waterfall (LyricsWaterfall). Views read
+/// `lines`: nil while loading or when the track has none, which `isLoading`
+/// and `instrumental` tell apart. `credit` is set when they came from
+/// SpicyLyrics, whose terms want it on screen with them.
 @MainActor
 @Observable
 final class LyricsModel {
     private(set) var lines: [LyricLine]?
     private(set) var credit: SpicyCredit?
+    /// False for untimed lyrics, drawn as a still page.
+    private(set) var synced = true
+    private(set) var instrumental = false
     /// True from a track change until its lyrics are in (or known missing).
     /// Without it, the brief nil between two tracks read as "this song has no
     /// lyrics", and Now Playing left lyrics mode on every skip.
     private(set) var isLoading = false
-    /// Track and route last loaded. The route is part of it because the plugin
-    /// probe can finish after Now Playing opens, and then it is worth asking.
+    /// What was asked for last: the track and everything that changes the
+    /// answer (the plugin, server-only, a Spotify link).
     private var loadedKey: String?
 
-    func load(itemId: String?, client: JellyfinClient?, api: CascadePluginApi?,
-              spicy: Bool, durationSeconds: Double) async {
-        let key = "\(itemId ?? "")|\(String(describing: api))|\(spicy)"
+    /// Answers this session, misses included, keyed as loadedKey. The sheet
+    /// is rebuilt on every opening, and without this each one asked all four
+    /// sources again; a miss is kept too, or an instrumental album re-ran the
+    /// whole waterfall on every track, as the desktop once did.
+    private static var cache: [String: LyricsResult?] = [:]
+
+    func load(item: JfItem?, state: AppState) async {
+        let plugin = state.cascadePluginApi.map { (api: $0, info: state.cascadePluginInfo) }
+        let spotifyId = item.flatMap { state.localSpotifyLinks[$0.id] }
+        let key = [item?.id ?? "", String(describing: plugin?.api), "\(plugin?.info.capabilities.sorted() ?? [])",
+                   "\(state.serverOnlyLyrics)", spotifyId ?? "", "\(state.lyricsRevision)"].joined(separator: "|")
         guard key != loadedKey else { return }
-        lines = nil
-        credit = nil
+        show(nil)
         loadedKey = key
         #if DEBUG
         // Launch with -cascade.debugLyrics YES (Enhanced LRC) or
@@ -31,23 +42,37 @@ final class LyricsModel {
         // converter) to style-check lyrics against a server with no Cascade
         // plugin (the local test server has none).
         if UserDefaults.standard.bool(forKey: "cascade.debugSpicy"), let conv = SpicyLyrics.convert(Self.debugSpicyFixture) {
-            lines = conv.lines
-            credit = conv.credit
+            show(LyricsResult(lines: conv.lines, credit: conv.credit, source: conv.credit.provider))
             return
         }
         if UserDefaults.standard.bool(forKey: "cascade.debugLyrics") {
-            lines = Lyrics.parseLRC(Self.debugFixture)
+            show(LyricsResult(lines: Lyrics.parseLRC(Self.debugFixture), source: "Debug"))
             return
         }
         #endif
-        guard let itemId, let client, let api else { return }
+        guard let item, let client = state.client else { return }
+        if let hit = Self.cache[key] {
+            show(hit)
+            return
+        }
         isLoading = true
-        let fetched = try? await client.serverLyrics(itemId: itemId, api: api, spicy: spicy,
-                                                     durationSeconds: durationSeconds)
+        let track = LyricsWaterfall.Track(id: item.id, title: item.name ?? "",
+                                          artist: item.albumArtist ?? item.artists?.first ?? "", album: item.album ?? "",
+                                          durationSeconds: Double(item.runTimeTicks ?? 0) / Double(Lyrics.ticksPerSecond))
+        let result = await LyricsWaterfall.fetch(track, client: client, plugin: plugin,
+                                                 serverOnly: state.serverOnlyLyrics, spotifyId: spotifyId,
+                                                 userAgent: "Cascade/\(state.appVersion) (iOS; Jellyfin music client)")
+        Self.cache[key] = result
         // A newer track may have started while this one was in flight.
         guard loadedKey == key else { return }
-        lines = fetched?.lines
-        credit = fetched?.credit
+        show(result)
+    }
+
+    private func show(_ result: LyricsResult?) {
+        lines = result.flatMap { $0.lines.isEmpty ? nil : $0.lines }
+        credit = result?.credit
+        synced = result?.synced ?? true
+        instrumental = result?.instrumental ?? false
         isLoading = false
     }
 }
@@ -211,6 +236,9 @@ struct LyricsView: View {
     /// Held notes swell: only for SpicyLyrics, whose syllables carry real end
     /// times (see Lyrics.isEmphasisWord).
     var emphasis = false
+    /// False for lyrics with no timings: a still page to scroll, every line
+    /// lit, with nothing to follow.
+    var synced = true
 
     /// The current line, from a clock of its own rather than the player's
     /// half-second position, so a line changes on its beat.
@@ -219,6 +247,27 @@ struct LyricsView: View {
     @State private var settleTask: Task<Void, Never>?
 
     var body: some View {
+        if synced { syncedBody } else { stillPage }
+    }
+
+    private var stillPage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(lines.indices, id: \.self) { index in
+                    Text(lines[index].text)
+                        .font(.system(size: LyricStyle.size, weight: LyricStyle.weight))
+                        .tracking(LyricStyle.tracking * LyricStyle.size)
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, LyricStyle.lineGap)
+                }
+            }
+            .padding(.vertical, 24)
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    private var syncedBody: some View {
         GeometryReader { geo in
             ScrollViewReader { proxy in
                 ScrollView {
