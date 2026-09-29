@@ -46,7 +46,7 @@ struct NowPlayingView: View {
     /// Bumped by any touch on the controls, which restarts the idle timer.
     /// Zero until the first touch in this visit to lyrics mode.
     @State private var controlsWake = 0
-    #if DEBUG && os(iOS)
+    #if os(iOS)
     /// The Style Tuning panel, from the ··· menu.
     @State private var tuning = false
     #endif
@@ -227,7 +227,7 @@ struct NowPlayingView: View {
                 AddToPlaylistSheet(track: track).environment(state)
             }
         }
-        #if DEBUG && os(iOS)
+        #if os(iOS)
         .sheet(isPresented: $tuning) { StyleTuningSheet() }
         #endif
         #if os(iOS)
@@ -322,7 +322,7 @@ struct NowPlayingView: View {
                 }
                 #endif
             }
-            #if DEBUG && os(iOS)
+            #if os(iOS)
             Button("Style Tuning", systemImage: "slider.horizontal.3") { tuning = true }
             #endif
         } label: {
@@ -335,17 +335,21 @@ struct NowPlayingView: View {
     /// especially) where they run early or late. One setting for every song,
     /// kept between launches; also a slider in Style Tuning.
     private var lyricsTimingMenu: some View {
+        // Counted from the default, which already leads a little: "in time"
+        // means as shipped, and Reset goes back there, not to zero.
         let delay = StyleTuning.shared.values.lyricsDelay
+        let standard = StyleTuning.Values().lyricsDelay
+        let offset = delay - standard
         func nudge(_ by: Double) {
             StyleTuning.shared.values.lyricsDelay = ((delay + by) * 20).rounded() / 20
         }
         return Menu {
-            Text(delay == 0 ? "In time with the audio"
-                 : "\(abs(delay), format: .number.precision(.fractionLength(2))) s \(delay > 0 ? "later" : "earlier")")
+            Text(abs(offset) < 0.001 ? "In time with the audio"
+                 : "\(abs(offset), format: .number.precision(.fractionLength(2))) s \(offset > 0 ? "later" : "earlier")")
             Button("Later by 0.1 s", systemImage: "plus") { nudge(0.1) }
             Button("Earlier by 0.1 s", systemImage: "minus") { nudge(-0.1) }
-            if delay != 0 {
-                Button("Reset", systemImage: "arrow.counterclockwise") { StyleTuning.shared.values.lyricsDelay = 0 }
+            if abs(offset) >= 0.001 {
+                Button("Reset", systemImage: "arrow.counterclockwise") { StyleTuning.shared.values.lyricsDelay = standard }
             }
         } label: {
             Label("Lyrics Timing", systemImage: "timer")

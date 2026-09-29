@@ -4,8 +4,9 @@ import SwiftUI
 /// cascadeDebug.lyricMotion: every lyric and background value that is a
 /// matter of taste, read by LyricStyle and NowPlayingBackground, so a slider
 /// shows its effect on the next frame. Saved between launches. The panel is
-/// DEBUG only; the values are read in every build, so a tuning worth keeping
-/// is baked in by making it the default here.
+/// in every build, from Now Playing's ··· menu. The defaults are Jon's own
+/// tuning from 2026-09-29 (Copy Changes, pasted back): quieter upcoming
+/// lines, a slower fade, a faster ripple, and lyrics 0.35 s ahead.
 @MainActor
 @Observable
 final class StyleTuning {
@@ -21,23 +22,23 @@ final class StyleTuning {
         /// from its top. Apple Music keeps it high, a line or so below the
         /// header, with only the last line or two showing above.
         var currentLinePosition = 0.12
-        var lineGap = 12.0
+        var lineGap = 8.0
         var pastScale = 0.75
         var pastOpacity = 0.3
-        var pastBlur = 0.0
-        var next1Opacity = 0.35
-        var next1Blur = 2.0
-        var next2Opacity = 0.22
-        var next2Blur = 3.0
-        var next3Opacity = 0.12
+        var pastBlur = 3.5
+        var next1Opacity = 0.11
+        var next1Blur = 2.5
+        var next2Opacity = 0.15
+        var next2Blur = 4.0
+        var next3Opacity = 0.1
         var next3Blur = 4.0
         var farBlur = 6.0
         var browsingOpacity = 0.8
-        var browsingBlur = 0.0
+        var browsingBlur = 1.0
         var unsungOpacity = 0.4
         var wordLift = 0.04
-        var fadeSeconds = 0.55
-        var rippleSeconds = 0.09
+        var fadeSeconds = 1.0
+        var rippleSeconds = 0.04
         /// A held note swells across its own length, and more the longer it
         /// is: a note held this long or longer gets the full swell.
         var heldFullSeconds = 3.0
@@ -49,7 +50,9 @@ final class StyleTuning {
         var heldSettle = 0.6
         var heldSettleSeconds = 0.6
         /// Lyrics drawn this much later than the audio clock (negative: earlier).
-        var lyricsDelay = 0.0
+        /// A little early by default: a line takes its fade to light up, so
+        /// one that starts on the beat reads as late. Apple Music leads too.
+        var lyricsDelay = -0.35
         var backgroundVocalSize = 0.64
         var backgroundVocalOpacity = 0.85
         var bgSaturation = 1.0
@@ -146,7 +149,7 @@ final class StyleTuning {
     }
 }
 
-#if DEBUG && os(iOS)
+#if os(iOS)
 /// The tuning panel, from Now Playing's ··· menu. A short sheet the player
 /// stays live behind, so each change shows as it is made.
 struct StyleTuningSheet: View {
