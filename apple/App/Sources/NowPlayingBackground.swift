@@ -88,6 +88,9 @@ final class CoverBackdrop {
 struct NowPlayingBackground: View {
     /// The album (or track) whose cover sets the colours.
     let itemId: String?
+    /// Lyrics are in front, so darken: more for a bright cover, whose light
+    /// blobs otherwise swallow the faint upcoming lines.
+    var behindLyrics = false
 
     @Environment(AppState.self) private var state
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -120,11 +123,23 @@ struct NowPlayingBackground: View {
             .brightness(tune.bgBrightness)
             .blur(radius: tune.bgBlur, opaque: true)
         }
+        .overlay {
+            Color.black
+                .opacity(behindLyrics ? Self.lyricsDim(colors, tune) : 0)
+                .animation(.easeInOut(duration: 0.6), value: behindLyrics)
+                .animation(.easeInOut(duration: Self.fadeSeconds), value: colors)
+        }
         .ignoresSafeArea()
         .accessibilityHidden(true)
         .task(id: itemId) {
             await CoverBackdrop.shared.show(itemId: itemId, client: state.client)
         }
+    }
+
+    static func lyricsDim(_ colors: [BlobColor], _ tune: StyleTuning.Values) -> Double {
+        let span = max(0.82 - tune.lyricsDimFrom, 0.01)
+        let bright = min(1, max(0, (AlbumColors.brightness(colors) - tune.lyricsDimFrom) / span))
+        return min(1, tune.lyricsDimBase + tune.lyricsDimBright * bright)
     }
 
     /// Each blob as the desktop paints it: an ellipse whose radial gradient

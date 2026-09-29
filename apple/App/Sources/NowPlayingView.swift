@@ -53,6 +53,15 @@ struct NowPlayingView: View {
     #endif
 
     private var artId: String? { player.item?.albumId ?? player.item?.id }
+
+    /// Lyrics are on screen, so the background dims under them.
+    private var lyricsShowing: Bool {
+        #if os(tvOS)
+        lyrics.lines != nil
+        #else
+        mode == .lyrics
+        #endif
+    }
     private var isFavorite: Bool { favoriteOverride ?? player.item?.userData?.isFavorite ?? false }
 
     var body: some View {
@@ -63,7 +72,7 @@ struct NowPlayingView: View {
             iosBody
             #endif
         }
-        .background { NowPlayingBackground(itemId: artId) }
+        .background { NowPlayingBackground(itemId: artId, behindLyrics: lyricsShowing) }
         // White on the blobs whatever the rest of the app is using. Not
         // preferredColorScheme: from inside a sheet that flips the whole app.
         .environment(\.colorScheme, .dark)

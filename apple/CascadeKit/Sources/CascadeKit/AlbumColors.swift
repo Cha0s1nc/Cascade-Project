@@ -244,6 +244,15 @@ public enum AlbumColors {
         (12, 18, 58, 58, 0.55),
     ]
 
+    /// How light the background reads, 0 to 1: the blobs' Oklab lightness,
+    /// weighted by how much of the screen each covers (its slot's size and
+    /// opacity). 0 with no colours, when the near-black base is all there is.
+    public static func brightness(_ colors: [BlobColor]) -> Double {
+        let weighted = zip(colors, slots).map { c, s in (oklab(r: c.r, g: c.g, b: c.b).L, s.w * s.h * s.alpha) }
+        let total = weighted.reduce(0) { $0 + $1.1 }
+        return total > 0 ? weighted.reduce(0) { $0 + $1.0 * $1.1 } / total : 0
+    }
+
     /// Where the blobs are at time `t` in seconds. Pure: a host drives it from a
     /// clock, a test from a constant.
     public static func driftedBlobs(_ colors: [BlobColor], drift: [DriftParams], at t: Double) -> [Blob] {

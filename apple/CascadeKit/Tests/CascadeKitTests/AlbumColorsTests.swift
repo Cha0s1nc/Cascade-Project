@@ -79,4 +79,16 @@ import Testing
             }
         }
     }
+
+    @Test func brightCoversReadBrighterThanDarkOnes() {
+        let salmon = BlobColor(r: 225, g: 110, b: 85, hue: 0)
+        let navy = BlobColor(r: 40, g: 50, b: 110, hue: 0)
+        let bright = AlbumColors.brightness([salmon, salmon, salmon])
+        let dark = AlbumColors.brightness([navy, navy, navy])
+        #expect(bright > 0.6 && bright < 0.75)
+        #expect(dark < 0.4)
+        #expect(AlbumColors.brightness([]) == 0)
+        // The big blobs count for more than the small one.
+        #expect(AlbumColors.brightness([salmon, salmon, navy]) > AlbumColors.brightness([navy, navy, salmon]))
+    }
 }

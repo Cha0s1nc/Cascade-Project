@@ -57,6 +57,13 @@ final class StyleTuning {
         var bgIntensity = 1.0
         var bgSpeed = 1.0
         var bgBlur = 0.0
+        /// Behind lyrics the background darkens by this much, plus up to
+        /// lyricsDimBright more for a bright cover (Oklab lightness from
+        /// lyricsDimFrom up to the palette's 0.82 ceiling), so the faint
+        /// upcoming lines still read over a light salmon or yellow.
+        var lyricsDimBase = 0.12
+        var lyricsDimBright = 0.45
+        var lyricsDimFrom = 0.5
         var controlsIdleSeconds = 4.0
         var controlsWokenIdleSeconds = 8.0
     }
@@ -105,6 +112,9 @@ final class StyleTuning {
         Knob(section: "Background colors", label: "Intensity", path: \.bgIntensity, range: 0...2, step: 0.05, key: "bgIntensity"),
         Knob(section: "Background colors", label: "Drift speed", path: \.bgSpeed, range: 0...5, step: 0.1, key: "bgSpeed"),
         Knob(section: "Background colors", label: "Blur", path: \.bgBlur, range: 0...80, step: 1, key: "bgBlur"),
+        Knob(section: "Background colors", label: "Dim behind lyrics", path: \.lyricsDimBase, range: 0...0.8, step: 0.01, key: "lyricsDimBase"),
+        Knob(section: "Background colors", label: "Extra dim, bright covers", path: \.lyricsDimBright, range: 0...0.8, step: 0.01, key: "lyricsDimBright"),
+        Knob(section: "Background colors", label: "Bright from (lightness)", path: \.lyricsDimFrom, range: 0.3...0.82, step: 0.01, key: "lyricsDimFrom"),
         Knob(section: "Controls", label: "Hide after (s)", path: \.controlsIdleSeconds, range: 1...20, step: 0.5, key: "controlsIdleSeconds"),
         Knob(section: "Controls", label: "Hide after a touch (s)", path: \.controlsWokenIdleSeconds, range: 1...30, step: 0.5, key: "controlsWokenIdleSeconds"),
     ]
