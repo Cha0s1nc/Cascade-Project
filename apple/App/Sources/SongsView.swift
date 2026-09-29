@@ -16,13 +16,13 @@ struct SongsView: View {
     @State private var playError: String?
     @AppStorage("cascade.songs.sort") private var sortField: SongSortField = .name
     @AppStorage("cascade.songs.order") private var sortDirection: SortDirection = .ascending
-    @AppStorage("cascade.songs.favorites") private var favoritesOnly = false
+    @AppStorage("cascade.songs.filter") private var filter = BrowseFilter()
     /// Bumped by pull to refresh, so the reload misses the cache.
     @State private var refreshes = 0
 
     private var browseKey: BrowseKey {
         BrowseKey(libraries: state.config?.libraryIds, sort: sortField.rawValue,
-                  direction: sortDirection, favoritesOnly: favoritesOnly, generation: refreshes)
+                  direction: sortDirection, filter: filter, generation: refreshes)
     }
 
     var body: some View {
@@ -51,9 +51,12 @@ struct SongsView: View {
             #if os(tvOS)
             // tvOS shows no toolbar items on these screens, so sort stays in
             // the list there.
-            sortMenu
-                .browseHeader()
-                .buttonStyle(.borderless)
+            HStack {
+                sortMenu
+                FilterMenu(filter: $filter, itemType: "Audio")
+            }
+            .browseHeader()
+            .buttonStyle(.borderless)
             #endif
             LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty)
             ForEach(Array(items.enumerated()), id: \.element.id) { index, song in
@@ -69,6 +72,7 @@ struct SongsView: View {
         #if os(iOS)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) { sortMenu }
+            ToolbarItem(placement: .topBarTrailing) { FilterMenu(filter: $filter, itemType: "Audio") }
         }
         #endif
         .alert("Could not play", isPresented: Binding(get: { playError != nil },
@@ -86,11 +90,11 @@ struct SongsView: View {
         // server's pages with it made rows jump as pages arrived.
         .task(id: browseKey) {
             guard let client = state.client else { return }
-            let (sortBy, order, favorites) = (sortField.serverSortBy, sortDirection.serverValue, favoritesOnly)
+            let (sortBy, order, filterNow) = (sortField.serverSortBy, sortDirection.serverValue, filter)
             list = state.browseList(.songs, browseKey) { list in
                 try await loadPaged(sortBy: sortBy, sortOrder: order, nextStart: { list.nextStart = $0 }, fetch: {
                     try await client.songs(limit: $0, startIndex: $1, sortBy: sortBy,
-                                           sortOrder: order, favoritesOnly: favorites)
+                                           sortOrder: order, filter: filterNow)
                 }) {
                     list.items = $0
                     list.isLoading = false
@@ -102,7 +106,7 @@ struct SongsView: View {
     private var sortMenu: some View {
         SortMenu(fields: [(SongSortField.name, "Title"), (.artist, "Artist"), (.album, "Album"),
                           (.added, "Date Added"), (.played, "Date Last Played")],
-                 field: $sortField, direction: $sortDirection, favoritesOnly: $favoritesOnly)
+                 field: $sortField, direction: $sortDirection)
     }
 
     /// Play All and Shuffle All cover the whole library (in the current sort
@@ -128,11 +132,11 @@ struct SongsView: View {
                     await playShuffled(items, on: player)
                     return
                 }
-                let favorites = favoritesOnly
+                let filterNow = filter
                 // The offset means nothing to a random draw; each page is a
                 // fresh one, and the player drops songs it already has.
                 let random: PlaybackService.QueuePageFetch = { _, limit in
-                    try await client.randomSongs(limit: limit, favoritesOnly: favorites)
+                    try await client.randomSongs(limit: limit, filter: filterNow)
                 }
                 let first = try await random(0, PlaybackService.queuePageSize)
                 guard !first.isEmpty else { return }
@@ -146,10 +150,10 @@ struct SongsView: View {
                 if !items.isEmpty { await player.play(items) }
                 return
             }
-            let (sortBy, order, favorites) = (sortField.serverSortBy, sortDirection.serverValue, favoritesOnly)
+            let (sortBy, order, filterNow) = (sortField.serverSortBy, sortDirection.serverValue, filter)
             let more: PlaybackService.QueuePageFetch = { start, limit in
                 try await client.songs(limit: limit, startIndex: start, sortBy: sortBy,
-                                       sortOrder: order, favoritesOnly: favorites)
+                                       sortOrder: order, filter: filterNow)
             }
             var first = items
             var from = list?.nextStart ?? 0

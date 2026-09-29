@@ -69,6 +69,116 @@ struct SortMenu<Field: Hashable>: View {
     }
 }
 
+/// Favorites, genre, decade and played behind one button, filled in while
+/// any is on: the desktop's filter dropdown. Genres and decades are the ones
+/// in the selected libraries, so nothing offered comes back empty.
+///
+/// tvOS gets a dialog, as SortMenu does, where each press of Genre or Decade
+/// steps to the next choice: a genre list is too long for a dialog of its own.
+struct FilterMenu: View {
+    @Binding var filter: BrowseFilter
+    /// What the decade list is read from: "MusicAlbum" or "Audio".
+    let itemType: String
+    var showsDecade = true
+    var showsPlayed = true
+
+    @Environment(AppState.self) private var state
+    @State private var genres: [JfItem] = []
+    @State private var decades: [Int] = []
+    #if os(tvOS)
+    @State private var isChoosing = false
+    #endif
+
+    var body: some View {
+        menu
+            .task(id: state.config?.libraryIds) {
+                guard let client = state.client else { return }
+                async let foundGenres = try? client.genres()
+                async let years = showsDecade ? (try? client.years(of: itemType)) : []
+                genres = await foundGenres ?? []
+                decades = BrowseFilter.decades(await years ?? [])
+            }
+    }
+
+    private var genreName: String? {
+        filter.genreId.flatMap { id in genres.first { $0.id == id }?.name }
+    }
+
+    private var label: some View {
+        Label(filter.isActive ? "Filtered" : "Filter",
+              systemImage: filter.isActive ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+    }
+
+    #if os(tvOS)
+    private var menu: some View {
+        Button { isChoosing = true } label: { label }
+            .confirmationDialog("Filter", isPresented: $isChoosing) {
+                Button(filter.favoritesOnly ? "Favorites Only: On" : "Favorites Only: Off") { filter.favoritesOnly.toggle() }
+                if !genres.isEmpty {
+                    Button("Genre: \(genreName ?? "Any")") { filter.genreId = next(filter.genreId, in: genres.map(\.id)) }
+                }
+                if showsDecade, !decades.isEmpty {
+                    Button("Decade: \(filter.decade.map { "\(String($0))s" } ?? "Any")") {
+                        filter.decade = next(filter.decade, in: decades)
+                    }
+                }
+                if showsPlayed {
+                    Button("Played: \(playedName(filter.played))") {
+                        let all = BrowseFilter.Played.allCases
+                        filter.played = all[(all.firstIndex(of: filter.played)! + 1) % all.count]
+                    }
+                }
+                if filter.isActive { Button("Clear Filters", role: .destructive) { filter = .init() } }
+            }
+    }
+
+    /// Any, then each choice in turn, then back to any.
+    private func next<T: Equatable>(_ current: T?, in all: [T]) -> T? {
+        guard let current, let i = all.firstIndex(of: current) else { return all.first }
+        return i + 1 < all.count ? all[i + 1] : nil
+    }
+    #else
+    private var menu: some View {
+        Menu {
+            Toggle("Favorites Only", isOn: $filter.favoritesOnly)
+            if !genres.isEmpty {
+                Picker("Genre", selection: $filter.genreId) {
+                    Text("Any Genre").tag(String?.none)
+                    ForEach(genres) { Text($0.name ?? "").tag(Optional($0.id)) }
+                }
+                .pickerStyle(.menu)
+            }
+            if showsDecade, !decades.isEmpty {
+                Picker("Decade", selection: $filter.decade) {
+                    Text("Any Decade").tag(Int?.none)
+                    ForEach(decades, id: \.self) { Text("\(String($0))s").tag(Optional($0)) }
+                }
+                .pickerStyle(.menu)
+            }
+            if showsPlayed {
+                Picker("Played", selection: $filter.played) {
+                    ForEach(BrowseFilter.Played.allCases, id: \.self) { Text(playedName($0)).tag($0) }
+                }
+                .pickerStyle(.menu)
+            }
+            if filter.isActive {
+                Button("Clear Filters", systemImage: "xmark.circle", role: .destructive) { filter = .init() }
+            }
+        } label: {
+            label
+        }
+    }
+    #endif
+
+    private func playedName(_ played: BrowseFilter.Played) -> String {
+        switch played {
+        case .any: "Played or Not"
+        case .played: "Played"
+        case .unplayed: "Unplayed"
+        }
+    }
+}
+
 /// Everything a browsing screen's list depends on. The screen's `.task(id:)`
 /// is keyed on this, so changing the library selection, the sort or the filter
 /// cancels a load still paging in and starts over.
@@ -76,7 +186,7 @@ struct BrowseKey: Hashable {
     var libraries: [String]?
     var sort: String
     var direction: SortDirection
-    var favoritesOnly = false
+    var filter = BrowseFilter()
     /// Bumped to reload after a write the screen made itself.
     var generation = 0
 }

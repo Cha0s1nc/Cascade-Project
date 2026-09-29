@@ -103,7 +103,7 @@ public extension JellyfinClient {
     /// would mean "only non-favorites" to the server.
     func albums(limit: Int = 500, startIndex: Int = 0, sortBy: String = "SortName",
                 sortOrder: String = "Ascending", favoritesOnly: Bool = false,
-                genreId: String? = nil) async throws -> [JfItem] {
+                genreId: String? = nil, filter: BrowseFilter = .init()) async throws -> [JfItem] {
         try await itemsAcrossLibraries(baseParams.merging([
             "includeItemTypes": "MusicAlbum",
             "sortBy": sortBy,
@@ -112,14 +112,15 @@ public extension JellyfinClient {
             "genreIds": genreId,
             "limit": String(limit),
             "startIndex": String(startIndex),
-        ]) { _, new in new })
+        ]) { _, new in new }.applying(filter))
     }
 
     /// Albums whose tracks were played most recently, newest first. Jellyfin
     /// keeps no play date on an album itself, so this reads the played tracks
     /// and then fetches their albums. Capped: past a few hundred albums
     /// "recently" has stopped meaning anything, and the ids go in the URL.
-    func recentlyPlayedAlbums(favoritesOnly: Bool = false, maxAlbums: Int = 200) async throws -> [JfItem] {
+    func recentlyPlayedAlbums(favoritesOnly: Bool = false, maxAlbums: Int = 200,
+                              filter: BrowseFilter = .init()) async throws -> [JfItem] {
         let played = try await itemsAcrossLibraries(baseParams.merging([
             "includeItemTypes": "Audio",
             "sortBy": "DatePlayed",
@@ -133,7 +134,7 @@ public extension JellyfinClient {
             "includeItemTypes": "MusicAlbum",
             "ids": ids.joined(separator: ","),
             "isFavorite": favoritesOnly ? "true" : nil,
-        ]) { _, new in new })
+        ]) { _, new in new }.applying(filter))
         return albumsByRecentPlay(playedTracks: played, albums: albums)
     }
 
@@ -141,7 +142,7 @@ public extension JellyfinClient {
     /// music app means by "Artists". A separate endpoint, not an item type; it
     /// takes one parentId, so several libraries are queried per library too.
     func artists(limit: Int = 500, startIndex: Int = 0, sortOrder: String = "Ascending",
-                 favoritesOnly: Bool = false) async throws -> [JfItem] {
+                 favoritesOnly: Bool = false, filter: BrowseFilter = .init()) async throws -> [JfItem] {
         try await itemsAcrossLibraries([
             "userId": currentConfig.userId,
             // The server's default for this route, stated so the libraries
@@ -151,13 +152,13 @@ public extension JellyfinClient {
             "isFavorite": favoritesOnly ? "true" : nil,
             "limit": String(limit),
             "startIndex": String(startIndex),
-        ], path: "/Artists/AlbumArtists")
+        ].applying(filter), path: "/Artists/AlbumArtists")
     }
 
     /// A nil `limit` means every song, in one response.
     func songs(limit: Int? = 500, startIndex: Int = 0, sortBy: String = "SortName",
                sortOrder: String = "Ascending", favoritesOnly: Bool = false,
-               genreId: String? = nil) async throws -> [JfItem] {
+               genreId: String? = nil, filter: BrowseFilter = .init()) async throws -> [JfItem] {
         try await itemsAcrossLibraries(baseParams.merging([
             "includeItemTypes": "Audio",
             "sortBy": sortBy,
@@ -167,7 +168,7 @@ public extension JellyfinClient {
             "fields": trackFields,
             "limit": limit.map(String.init),
             "startIndex": String(startIndex),
-        ]) { _, new in new })
+        ]) { _, new in new }.applying(filter))
     }
 
     /// A random selection of songs, for Shuffle All. One request, so the
@@ -176,8 +177,9 @@ public extension JellyfinClient {
     /// response on a phone. Shuffled again after merging: each library comes
     /// back in its own random order, joined one library after the other.
     func randomSongs(limit: Int = 1000, favoritesOnly: Bool = false,
-                     genreId: String? = nil) async throws -> [JfItem] {
-        Array(try await songs(limit: limit, sortBy: "Random", favoritesOnly: favoritesOnly, genreId: genreId)
+                     genreId: String? = nil, filter: BrowseFilter = .init()) async throws -> [JfItem] {
+        Array(try await songs(limit: limit, sortBy: "Random", favoritesOnly: favoritesOnly, genreId: genreId,
+                              filter: filter)
             .shuffled().prefix(limit))
     }
 
@@ -188,6 +190,23 @@ public extension JellyfinClient {
             "userId": currentConfig.userId,
             "sortBy": "SortName",
         ], path: "/MusicGenres")
+    }
+
+    /// The years that have items of this type in the chosen libraries, for
+    /// the decade filter: only decades that exist are offered, as on the
+    /// desktop. /Items/Filters takes one parentId, so it is asked per library.
+    func years(of itemType: String) async throws -> [Int] {
+        struct Filters: Decodable { var years: [Int]? }
+        let libraries = currentConfig.libraryIds
+        var years = Set<Int>()
+        for parent in libraries.isEmpty ? [nil] : libraries.map(Optional.some) {
+            let found: Filters = try await get("/Items/Filters", params: [
+                "userId": currentConfig.userId, "parentId": parent,
+                "includeItemTypes": itemType, "recursive": "true",
+            ])
+            years.formUnion(found.years ?? [])
+        }
+        return years.sorted()
     }
 
     /// A genre's songs in album order, for its Play button.
@@ -363,5 +382,12 @@ public enum ArtistPage {
             }
             .prefix(max)
             .map { $0 }
+    }
+}
+
+extension Dictionary where Key == String, Value == String? {
+    /// These parameters with a filter's on top, where it sets them.
+    func applying(_ filter: BrowseFilter) -> [String: String?] {
+        merging(filter.params.mapValues { Optional($0) }) { _, new in new }
     }
 }

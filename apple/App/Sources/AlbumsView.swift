@@ -13,13 +13,13 @@ struct AlbumsView: View {
     // case falls back to the default rather than reaching the server.
     @AppStorage("cascade.albums.sort") private var sortField: AlbumSortField = .name
     @AppStorage("cascade.albums.order") private var sortDirection: SortDirection = .ascending
-    @AppStorage("cascade.albums.favorites") private var favoritesOnly = false
+    @AppStorage("cascade.albums.filter") private var filter = BrowseFilter()
     /// Bumped by pull to refresh, so the reload misses the cache.
     @State private var refreshes = 0
 
     private var browseKey: BrowseKey {
         BrowseKey(libraries: state.config?.libraryIds, sort: sortField.rawValue,
-                  direction: sortDirection, favoritesOnly: favoritesOnly, generation: refreshes)
+                  direction: sortDirection, filter: filter, generation: refreshes)
     }
 
     var body: some View {
@@ -27,7 +27,8 @@ struct AlbumsView: View {
             HStack {
                 SortMenu(fields: [(AlbumSortField.name, "Name"), (.artist, "Artist"), (.year, "Year"),
                                   (.added, "Date Added"), (.played, "Recently Played")],
-                         field: $sortField, direction: $sortDirection, favoritesOnly: $favoritesOnly)
+                         field: $sortField, direction: $sortDirection)
+                FilterMenu(filter: $filter, itemType: "MusicAlbum")
                 Spacer()
                 NavigationLink(value: AppRoute.genres) {
                     Label("Genres", systemImage: "guitars")
@@ -45,12 +46,12 @@ struct AlbumsView: View {
         .refreshable { state.dropBrowseCache(.albums); refreshes += 1 }
         .task(id: browseKey) {
             guard let client = state.client else { return }
-            let (field, direction, favorites) = (sortField, sortDirection, favoritesOnly)
+            let (field, direction, filter) = (sortField, sortDirection, filter)
             list = state.browseList(.albums, browseKey) { list in
                 if let sortBy = field.serverSortBy {
                     try await loadPaged(sortBy: sortBy, sortOrder: direction.serverValue, fetch: {
                         try await client.albums(limit: $0, startIndex: $1, sortBy: sortBy,
-                                                sortOrder: direction.serverValue, favoritesOnly: favorites)
+                                                sortOrder: direction.serverValue, filter: filter)
                     }) {
                         list.items = $0
                         list.isLoading = false
@@ -58,7 +59,7 @@ struct AlbumsView: View {
                 } else {
                     // Recently played comes back newest first, which is
                     // Descending, like Date Added.
-                    let recent = try await client.recentlyPlayedAlbums(favoritesOnly: favorites)
+                    let recent = try await client.recentlyPlayedAlbums(filter: filter)
                     list.items = direction == .descending ? recent : recent.reversed()
                 }
             }

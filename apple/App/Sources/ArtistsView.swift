@@ -10,13 +10,13 @@ struct ArtistsView: View {
     private var isLoading: Bool { list?.isLoading ?? true }
     private var error: String? { list?.error }
     @AppStorage("cascade.artists.order") private var sortDirection: SortDirection = .ascending
-    @AppStorage("cascade.artists.favorites") private var favoritesOnly = false
+    @AppStorage("cascade.artists.filter") private var filter = BrowseFilter()
     /// Bumped by pull to refresh, so the reload misses the cache.
     @State private var refreshes = 0
 
     private var browseKey: BrowseKey {
         BrowseKey(libraries: state.config?.libraryIds, sort: "SortName",
-                  direction: sortDirection, favoritesOnly: favoritesOnly, generation: refreshes)
+                  direction: sortDirection, filter: filter, generation: refreshes)
     }
 
     var body: some View {
@@ -25,7 +25,10 @@ struct ArtistsView: View {
                 // Name is the only order the album artists route is worth
                 // sorting by, so this is direction and the filter.
                 SortMenu(fields: [("name", "Name")], field: .constant("name"),
-                         direction: $sortDirection, favoritesOnly: $favoritesOnly)
+                         direction: $sortDirection)
+                // Genre and favorites: an artist has no one year, and "played"
+                // means nothing for an artist.
+                FilterMenu(filter: $filter, itemType: "MusicArtist", showsDecade: false, showsPlayed: false)
                 Spacer()
             }
             .padding(.horizontal)
@@ -38,10 +41,10 @@ struct ArtistsView: View {
         .refreshable { state.dropBrowseCache(.artists); refreshes += 1 }
         .task(id: browseKey) {
             guard let client = state.client else { return }
-            let (order, favorites) = (sortDirection.serverValue, favoritesOnly)
+            let (order, filter) = (sortDirection.serverValue, filter)
             list = state.browseList(.artists, browseKey) { list in
                 try await loadPaged(sortBy: "SortName", sortOrder: order, fetch: {
-                    try await client.artists(limit: $0, startIndex: $1, sortOrder: order, favoritesOnly: favorites)
+                    try await client.artists(limit: $0, startIndex: $1, sortOrder: order, filter: filter)
                 }) {
                     list.items = $0
                     list.isLoading = false
