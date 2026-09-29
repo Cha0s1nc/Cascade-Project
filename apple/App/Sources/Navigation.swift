@@ -48,23 +48,43 @@ extension View {
     @ViewBuilder
     func libraryToolbar() -> some View {
         #if os(iOS)
-        toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                NavigationLink(value: AppRoute.search) {
-                    Image(systemName: "magnifyingglass")
-                }
-                .accessibilityLabel("Search")
-                NavigationLink(value: AppRoute.settings) {
-                    Image(systemName: "gear")
-                }
-                .accessibilityLabel("Settings")
-            }
-        }
+        modifier(LibraryToolbar())
         #else
         self
         #endif
     }
 }
+
+#if os(iOS)
+/// Search, other devices and Settings, on every tab. Devices is here and not
+/// only in Now Playing, which can only be opened while something plays here:
+/// the moment you want to drive another device is often when nothing does.
+private struct LibraryToolbar: ViewModifier {
+    @Environment(AppState.self) private var state
+    @State private var controllingDevices = false
+
+    func body(content: Content) -> some View {
+        content
+            .toolbar {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    NavigationLink(value: AppRoute.search) {
+                        Image(systemName: "magnifyingglass")
+                    }
+                    .accessibilityLabel("Search")
+                    Button { controllingDevices = true } label: {
+                        Image(systemName: state.controlledDevice == nil ? "hifispeaker.2" : "hifispeaker.2.fill")
+                    }
+                    .accessibilityLabel("Control Devices")
+                    NavigationLink(value: AppRoute.settings) {
+                        Image(systemName: "gear")
+                    }
+                    .accessibilityLabel("Settings")
+                }
+            }
+            .sheet(isPresented: $controllingDevices) { DevicesSheet().environment(state) }
+    }
+}
+#endif
 
 /// Playlists played from, most recent first, for Home's row. Kept on the
 /// device: Jellyfin records plays per track, not per playlist.

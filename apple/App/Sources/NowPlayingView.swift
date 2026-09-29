@@ -35,6 +35,7 @@ struct NowPlayingView: View {
     @State private var addingToPlaylist = false
     #if os(iOS)
     @State private var linkingSpotify = false
+    @State private var controllingDevices = false
     #endif
     @State private var routeName = ""
     /// Lyrics mode tucks the controls away after a few idle seconds, as
@@ -231,6 +232,7 @@ struct NowPlayingView: View {
         .sheet(isPresented: $tuning) { StyleTuningSheet() }
         #endif
         #if os(iOS)
+        .sheet(isPresented: $controllingDevices) { DevicesSheet().environment(state) }
         .sheet(isPresented: $linkingSpotify) {
             if let track = player.item {
                 SpotifyLinkSheet(track: track).environment(state)
@@ -317,6 +319,7 @@ struct NowPlayingView: View {
                 sleepMenu
                 lyricsTimingMenu
                 #if os(iOS)
+                Button("Control Devices\u{2026}", systemImage: "hifispeaker.2") { controllingDevices = true }
                 if state.cascadePluginInfo.spotifyLink {
                     Button("Link Spotify Track\u{2026}", systemImage: "link") { linkingSpotify = true }
                 }

@@ -16,6 +16,13 @@ final class AppState {
     /// Which route family the server's Cascade plugin answers on, once probed.
     /// Nil until then, and stays nil when the plugin is absent: no lyrics.
     private(set) var cascadePluginApi: CascadePluginApi?
+    /// Makes this app a target for "play on" from other Jellyfin clients.
+    private var remoteControl: RemoteControl?
+
+    /// The other device picked in the Devices sheet: song menus offer
+    /// "Play on" it while one is picked.
+    var controlledDevice: (id: String, name: String)?
+
     /// What the plugin's Info says it can do (SpicyLyrics, Spotify links).
     private(set) var cascadePluginInfo = CascadePluginInfo()
 
@@ -187,6 +194,9 @@ final class AppState {
         config = nil
         client = nil
         player = nil
+        remoteControl?.stop()
+        remoteControl = nil
+        controlledDevice = nil
         cascadePluginApi = nil
         cascadePluginInfo = .init()
         for list in browseLists.values { list.task?.cancel() }
@@ -223,6 +233,10 @@ final class AppState {
         player.normalization = Normalization.Mode(
             rawValue: UserDefaults.standard.string(forKey: "cascade.normalization") ?? "") ?? .off
         self.player = player
+        // Castable from other Jellyfin clients for as long as this player lives.
+        remoteControl?.stop()
+        remoteControl = RemoteControl(client: client, player: player)
+        remoteControl?.start()
         cascadePluginApi = nil
         cascadePluginInfo = .init()
         Task {

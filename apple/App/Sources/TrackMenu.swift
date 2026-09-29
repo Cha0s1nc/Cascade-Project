@@ -68,6 +68,12 @@ struct TrackMenuItems: View {
             Button("Instant Mix", systemImage: "wand.and.stars") {
                 Task { await state.player?.playInstantMix(from: track.id) }
             }
+            // Picked in Control Devices; the desktop's "Play on <device>".
+            if let device = state.controlledDevice {
+                Button("Play on \(device.name)", systemImage: "hifispeaker") {
+                    Task { try? await state.client?.play([track.id], on: device.id) }
+                }
+            }
         }
         Section {
             Button(isFavorite ? "Unfavorite" : "Favorite", systemImage: isFavorite ? "heart.slash" : "heart") {
