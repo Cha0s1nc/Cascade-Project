@@ -313,6 +313,10 @@ struct LyricsView: View {
                 .onAppear {
                     active = currentIndex()
                     proxy.scrollTo(active ?? 0, anchor: LyricStyle.anchor)
+                    // Again after the first layout: the scroll above can land
+                    // before the lines have sizes, and while paused nothing
+                    // moves them again, which left the current line low.
+                    DispatchQueue.main.async { proxy.scrollTo(active ?? 0, anchor: LyricStyle.anchor) }
                 }
             }
         }
