@@ -415,7 +415,7 @@ public final class PlaybackService {
 
         adopt(stream)
 
-        let playerItem = AVPlayerItem(url: stream.url)
+        let playerItem = makePlayerItem(stream)
         setPlayerItem(playerItem)
 
         // Direct play hands over the whole file, so the server ignored
@@ -512,7 +512,7 @@ public final class PlaybackService {
         guard token == loadToken else { return }
 
         adopt(stream)
-        setPlayerItem(AVPlayerItem(url: stream.url))
+        setPlayerItem(makePlayerItem(stream))
         player.play()
         positionSeconds = target
         updateNowPlaying()
@@ -660,7 +660,7 @@ public final class PlaybackService {
     private func fetchPreload(_ index: Int, _ next: JfItem, _ token: Int) async {
         let stream = await resolveStream(client: client, config: config, itemId: next.id, profile: currentProfile)
         guard token == preloadToken else { return abandon(stream) }
-        let playerItem = AVPlayerItem(url: stream.url)
+        let playerItem = makePlayerItem(stream)
         // Loading the duration is also what proves the stream decodes. One
         // that does not is left out, and the end of this track falls back to
         // load(), which reports the failure properly.
@@ -771,6 +771,21 @@ public final class PlaybackService {
         streamStartTicks = stream.startTicks
         isTranscoding = !stream.direct
         isLoading = false
+    }
+
+    /// A player item for a stream. A direct stream is the file itself, and
+    /// without PreferPreciseDurationAndTiming AVFoundation seeks in one by
+    /// guessing a byte offset from the average bitrate, then reports the time
+    /// it was asked for rather than where it landed. For a FLAC with no
+    /// SEEKTABLE (common: ffmpeg writes none) and cover art ahead of the
+    /// audio, that guess was 1 to 4 s out, different on every seek, so
+    /// lyrics ran early or late after tapping a line, scrubbing or resuming.
+    /// Measured on such a file: default seeks landed -3.4 to +3.9 s from the
+    /// reported time; precise ones all within 10 ms of each other, with no
+    /// slower start. A transcode (HLS) is seeked by the server instead.
+    private func makePlayerItem(_ stream: ResolvedStream) -> AVPlayerItem {
+        let options: [String: Any]? = stream.direct ? [AVURLAssetPreferPreciseDurationAndTimingKey: true] : nil
+        return AVPlayerItem(asset: AVURLAsset(url: stream.url, options: options))
     }
 
     private func seekPlayer(to seconds: Double) async {
