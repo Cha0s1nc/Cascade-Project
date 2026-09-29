@@ -211,10 +211,14 @@ private struct LyricLineView: View {
     var body: some View {
         let look = LyricStyle.look(distance: distance, browsing: browsing)
         let karaoke = !(line.words ?? []).isEmpty
-        content(karaoke: karaoke)
-            .modifier(LyricFont(scale: look.scale))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, LyricStyle.lineGap * look.scale)
+        ShrinkWithoutRewrap(scale: look.scale) {
+            content(karaoke: karaoke)
+                .font(.system(size: LyricStyle.size, weight: LyricStyle.weight))
+                .tracking(LyricStyle.tracking * LyricStyle.size)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .scaleEffect(look.scale, anchor: .topLeading)
+        }
+        .padding(.vertical, LyricStyle.lineGap * look.scale)
             // Browsing lines get a shadow to read over the blobs; karaoke words
             // do not, since their see-through fill showed it as a muddy outline.
             .shadow(color: .black.opacity(browsing && !karaoke ? 0.55 : 0), radius: 2, y: 1)
@@ -231,10 +235,14 @@ private struct LyricLineView: View {
 
     @ViewBuilder
     private func content(karaoke: Bool) -> some View {
-        if karaoke, distance == 0, let words = line.words {
-            // Only the current line redraws every frame.
-            TimelineView(.animation(minimumInterval: 1.0 / 60, paused: player.isPaused)) { _ in
-                let now = Int(player.livePositionSeconds * Double(Lyrics.ticksPerSecond))
+        if karaoke, let words = line.words {
+            // Every karaoke line is laid out word by word, current or not, so
+            // it wraps the same way throughout. Drawn as one Text while
+            // waiting and as words once current, a line could rewrap the
+            // moment it became current. Only the current line's timeline
+            // runs; the rest sit unsung, as on the desktop.
+            TimelineView(.animation(minimumInterval: 1.0 / 60, paused: distance != 0 || player.isPaused)) { _ in
+                let now = distance == 0 ? Int(player.livePositionSeconds * Double(Lyrics.ticksPerSecond)) : Int.min
                 WordFlow {
                     ForEach(words.indices, id: \.self) { i in
                         KaraokeWord(text: words[i].text, progress: Lyrics.wordProgress(words[i], at: now),
@@ -242,29 +250,31 @@ private struct LyricLineView: View {
                     }
                 }
             }
-        } else if karaoke {
-            Text(line.text).foregroundStyle(LyricStyle.unsung)
         } else {
             Text(line.text).foregroundStyle(.white)
         }
     }
 }
 
-/// The lyric font at a share of full size, animatable so a line shrinking into
-/// the past resizes smoothly and rewraps as it goes. A scaleEffect would look
-/// the same mid-line but keep the full-size height, leaving gaps above the
-/// current line.
-private struct LyricFont: ViewModifier, Animatable {
+/// Shrinks a line as a picture rather than re-laying it out: the text wraps
+/// exactly as at full size, and only its height follows the shrink, so no gap
+/// opens around a past line. Resizing the font instead rewrapped lines as they
+/// moved into the past, which read as jitter.
+private struct ShrinkWithoutRewrap: Layout {
     var scale: CGFloat
     nonisolated var animatableData: CGFloat {
         get { scale }
         set { scale = newValue }
     }
 
-    func body(content: Content) -> some View {
-        content
-            .font(.system(size: LyricStyle.size * scale, weight: LyricStyle.weight))
-            .tracking(LyricStyle.tracking * LyricStyle.size * scale)
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let size = subviews.first?.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil)) ?? .zero
+        return CGSize(width: size.width, height: size.height * scale)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, anchor: .topLeading,
+                              proposal: ProposedViewSize(width: bounds.width, height: nil))
     }
 }
 
