@@ -3,7 +3,7 @@ import CascadeKit
 
 /// Screens that are not a library item.
 enum AppRoute: Hashable {
-    case search, settings, genres
+    case search, settings, genres, history
 }
 
 /// Where tapping an album, artist or playlist goes, decided by its type.
@@ -34,6 +34,7 @@ extension View {
                 case .search: SearchView()
                 case .settings: SettingsView()
                 case .genres: GenresView()
+                case .history: HistoryView()
                 }
             }
     }

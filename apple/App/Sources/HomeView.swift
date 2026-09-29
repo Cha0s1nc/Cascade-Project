@@ -25,7 +25,7 @@ struct HomeView: View {
                     row("Recently Added", albums: recentAlbums)
                 }
                 if !recentTracks.isEmpty {
-                    row("Recently Played", tracks: recentTracks)
+                    row("Recently Played", tracks: recentTracks, more: .history)
                 }
                 if !playlists.isEmpty {
                     // "Recent" only once something has been played from one;
@@ -88,9 +88,17 @@ struct HomeView: View {
 
     // Tapping a track plays this row's list starting from that track, per the
     // brief: it is a queue, not a single song.
-    private func row(_ title: String, tracks: [JfItem]) -> some View {
+    /// `more` is where the row's full list lives (Recently Played's is History).
+    private func row(_ title: String, tracks: [JfItem], more: AppRoute? = nil) -> some View {
         VStack(alignment: .leading) {
-            Text(title).font(.headline).padding(.horizontal)
+            HStack {
+                Text(title).font(.headline)
+                Spacer()
+                if let more {
+                    NavigationLink("See All", value: more).font(.callout)
+                }
+            }
+            .padding(.horizontal)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 16) {
                     ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
