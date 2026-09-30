@@ -19,6 +19,8 @@ const fs    = require('fs')
 const os    = require('os')
 const { spawn } = require('child_process')
 const { installInPlace } = require('./mac-update')
+// Pure release logic from src/core/update-release.ts, bundled by build:main.
+const UpdateRelease = require('./build/update-release')
 const crypto = require('crypto')
 const { pathToFileURL } = require('url')
 const Store = require('electron-store')
@@ -647,24 +649,6 @@ ipcMain.handle('download-file', (_e, url, filename) => {
   win.webContents.downloadURL(url)
 })
 
-// ── Version helpers ────────────────────────────────────────────────────────────
-
-function parseVersion(v) {
-  const s = String(v).replace(/^v/, '')
-  const betaMatch = s.match(/-b(\d+)$/i)
-  const betaNum = betaMatch ? parseInt(betaMatch[1], 10) : Infinity
-  const [major, minor, patch] = s.replace(/[-+][a-zA-Z0-9._]*$/, '').split('.').map(n => parseInt(n, 10) || 0)
-  return [major, minor, patch, betaNum]
-}
-function isNewer(latest, current) {
-  const [la, lb, lc, ld] = parseVersion(latest)
-  const [ca, cb, cc, cd] = parseVersion(current)
-  if (la !== ca) return la > ca
-  if (lb !== cb) return lb > cb
-  if (lc !== cc) return lc > cc
-  return ld > cd
-}
-
 // ── Updater window ─────────────────────────────────────────────────────────────
 
 function openUpdaterWindow(updateInfo) {
@@ -947,30 +931,26 @@ function linuxPackageKind() {
   return null
 }
 
-// Returns the asset matching this exact platform/arch/format, or undefined.
-// Deliberately no "close enough" fallback: handing someone an installer that
-// cannot run on their machine is worse than sending them to the releases page.
-function pickAsset(assets = []) {
-  const byExt = re => assets.filter(a => re.test(a.name))
-
-  if (process.platform === 'win32') return byExt(/\.exe$/i)[0]
-
-  // Apple Silicon only. An Intel Mac gets undefined and is sent to the release
-  // page rather than handed a build it cannot run. The arm64 build carries its
-  // arch in the filename, so the match stays explicit even though it is now the
-  // only dmg published; older releases still have an unsuffixed x64 one.
-  if (process.platform === 'darwin') {
-    return process.arch === 'arm64' ? byExt(/\.dmg$/i).find(a => /arm64/i.test(a.name)) : undefined
+// The release's versions.json, as text, or null when it has none or it could
+// not be read. Its contents are checked by UpdateRelease, not here; this only
+// refuses to download anything that is plainly not that small file.
+async function fetchVersionsFile(release) {
+  const asset = UpdateRelease.findVersionsAsset(release)
+  if (!asset || typeof asset.browser_download_url !== 'string') return null
+  if (typeof asset.size === 'number' && asset.size > UpdateRelease.VERSIONS_MAX_BYTES) return null
+  try {
+    const res = await fetch(asset.browser_download_url, {
+      headers: { 'User-Agent': 'cascade-updater' },
+      signal: AbortSignal.timeout(15_000),
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    if (Number(res.headers.get('content-length')) > UpdateRelease.VERSIONS_MAX_BYTES) return null
+    const text = await res.text()
+    return text.length > UpdateRelease.VERSIONS_MAX_BYTES ? null : text
+  } catch (err) {
+    console.error('[updater] Could not read versions.json:', err.message)
+    return null
   }
-
-  if (process.platform === 'linux') {
-    const kind = linuxPackageKind()
-    if (kind === 'AppImage') return byExt(/\.AppImage$/i)[0]
-    if (kind === 'deb')      return byExt(/\.deb$/i)[0]
-    if (kind === 'rpm')      return byExt(/\.rpm$/i)[0]
-  }
-
-  return undefined
 }
 
 async function checkForUpdates() {
@@ -979,29 +959,46 @@ async function checkForUpdates() {
     // the user has explicitly chosen otherwise, that choice always wins.
     const isBetaBuild = /-b\d*$/.test(app.getVersion())
     const betaUpdates = store.get('betaUpdates', isBetaBuild)
-    let release
+    let candidates
     if (betaUpdates) {
       const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=10`, {
         headers: { 'User-Agent': 'cascade-updater' }
       })
       if (!res.ok) throw new Error(`GitHub API ${res.status}`)
       const releases = await res.json()
-      release = releases.find(r => !r.draft)
+      candidates = Array.isArray(releases) ? releases.filter(r => r && !r.draft) : []
     } else {
       const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
         headers: { 'User-Agent': 'cascade-updater' }
       })
       if (!res.ok) throw new Error(`GitHub API ${res.status}`)
-      release = await res.json()
+      candidates = [await res.json()]
     }
-    if (!release) return { hasUpdate: false }
-    const latestVersion = release.tag_name.replace(/^v/, '')
-    if (!isNewer(latestVersion, app.getVersion())) return { hasUpdate: false }
 
-    const asset = pickAsset(release.assets)
+    // The desktop version comes from each release's versions.json, falling
+    // back to its tag; see src/core/update-release.ts. The beta channel walks
+    // on past a release with no desktop build in it (a beta made for another
+    // platform only) to the newest one that has one, rather than stopping.
+    let release, build
+    for (const r of candidates) {
+      if (!r || typeof r !== 'object') continue
+      build = UpdateRelease.desktopBuildOf(r, await fetchVersionsFile(r))
+      if (build) { release = r; break }
+    }
+    if (!build) return { hasUpdate: false }
+    if (!UpdateRelease.isNewerVersion(build.version, app.getVersion())) return { hasUpdate: false }
+    console.log(`[updater] ${release.tag_name} holds desktop ${build.version} (from ${build.source})`)
 
+    const asset = UpdateRelease.pickInstaller(release, build.version, {
+      platform: process.platform,
+      arch: process.arch,
+      linuxKind: process.platform === 'linux' ? linuxPackageKind() : null,
+    })
+
+    // The version here is the desktop one, not the tag: it is what the update
+    // window shows and what mac-update.js requires the new app to report.
     openUpdaterWindow({
-      version:      latestVersion,
+      version:      build.version,
       releaseNotes: release.body         || '',
       releaseDate:  release.published_at || '',
       releaseUrl:   release.html_url     || '',
