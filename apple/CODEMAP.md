@@ -23,6 +23,12 @@ reflections of it, so the phone runs the same compiled code the Apple TV will.
   - `SmartPlaylists.swift`, `PlayHistory.swift`, `Normalization.swift`,
     `RemoteControl.swift` - ported from the desktop's `src/core` with its tests.
   - `OfflineIndex.swift` (pure, tested) and `OfflineLibrary.swift` - downloads.
+  - `Equalizer.swift` (pure, tested) and `AudioTap.swift` - the EQ and the
+    normalization boost, in an MTAudioProcessingTap per player item.
+  - `Crossfade.swift` - the equal-power envelope; the decks are in
+    PlaybackService.
+  - `WaterfallProtocol.swift` (pure, tested) and `WaterfallSession.swift` -
+    listen-together rooms.
 - `App/Sources/` - both app targets build these same files. SwiftUI covers most
   of the platform difference; where it does not (tvOS has no `Slider`, and focus
   replaces touch) the views branch on `#if os(tvOS)` rather than forking.
@@ -177,8 +183,8 @@ Browsing and playlists (branch `overnight/swift-browse`, 2026-09-27):
   like the tvOS one (tap by accessibility label, screenshot to a folder)
   works when the simulator tap tool is not granted.
 
-Once out of scope for v1: EQ, crossfade, offline downloads, video. Offline
-downloads are built (below); the other three are the remaining port work.
+Once out of scope for v1: EQ, crossfade, offline downloads, video. All but
+video are built (below).
 
 Driving iOS without a person: the CascadeiOSUITests target
 (UITests/iOS/TapScript.swift) taps, long-presses, drags, locks and
@@ -266,3 +272,56 @@ Offline downloads (2026-09-29, iOS only; tvOS storage is a purgeable cache):
   the server URL with `xcrun simctl spawn <udid> defaults write
   <container>/Library/Preferences/xyz.chaosinc.cascade.ios cascade.serverUrl
   <url>`. Editing the plist file directly is silently undone.
+
+Equalizer (2026-09-29): the desktop's five peaking bands (60 Hz to 12 kHz,
+Q 1, +-12 dB), presets and automatic preamp, Settings > Playback >
+Equalizer. `AudioTap.attach` puts an MTAudioProcessingTap (post-effects)
+on a player item; `TapContext` holds the settings behind a lock the audio
+thread only try-takes, and filters without allocating. The tap also
+carries the normalization gain, so boosts work there (AVPlayer's volume
+stops at 1). Tested by pushing sine waves through `TapContext.process`.
+- Taps cost the gapless handover, so items are tapped only while the EQ is
+  on. Measured on the player's clock (not a recording: nothing here can
+  capture the simulator's output): 58-78 ms untapped, 422/430 ms with
+  pre-effects taps, 256/262 ms with post-effects ones. The screen says so.
+- An HLS transcode cannot be tapped: a capped streaming quality plays flat,
+  with attenuation-only normalization through the player's volume.
+
+Crossfade (2026-09-29): 1 to 15 s, Settings > Playback, off by default.
+PlaybackService has two decks (`player`, `otherDeck`); `player` is always
+the deck playing `item`. With a crossfade set, the next track is resolved
+as usual but parked (`Preload.parked`) instead of queued, and a boundary
+observer at the end minus the fade starts it on the other deck, swaps the
+decks and runs the handover at once; the old deck plays on as `tail`,
+ramped under Crossfade.gains every 20 ms. Seek, skip, pause and stop cut
+the tail (`endCrossfade`, which never re-arms: arming inside the window
+starts a fade on the spot). Re-armed by a finished fade, a landed seek and
+a resume. A fade with too little left is skipped and the parked track
+follows at the end. Off keeps the gapless path; measured 57 and 116 ms
+after the deck change.
+
+Waterfall (2026-09-29): the desktop's listen-together rooms through the
+same relay (`Waterfall.defaultRelay`, overridable in the room screen) and
+the same messages, so phones and desktops share rooms. Settings >
+Waterfall, and Listen Together in the Devices sheet.
+- The host polls rather than hooks: `hostTick` (1 s) publishes the queue
+  when its ids change and the state on a pause, skip, index change or
+  jump of more than 1.5 s, plus a 4 s heartbeat.
+- A guest mirrors the queue (`PlaybackService.adoptQueue`, placeholders for
+  songs its account cannot see), loads the host's track and seeks with a
+  lead, corrects drift past 1.5 s, and follows pause. Its buttons, lock
+  screen and remote commands go through `PlaybackService.transportGate`,
+  which sends them to the host (or explains why not); the session's own
+  calls pass because it sets `applying`.
+- Checked against scripted Node peers on the live relay (a script that
+  hosts, one that joins). Not handled, as on the desktop: a guest is not
+  told when the host leaves (the relay drops the idle socket after a while
+  and it then sees "The room closed"). Expected on a phone but not yet
+  seen: hosting with the screen locked or the app in the background will
+  likely lose the socket when iOS suspends the app.
+
+Waiting on the phone (things the simulator could not settle): background
+downloads with the app suspended and killed; whether gapless is audible
+with the EQ off and on; crossfade by ear (a dip mid-fade, pause and seek
+during one); Waterfall hosting with the phone locked; lock screen
+controls as a guest going to the host.
