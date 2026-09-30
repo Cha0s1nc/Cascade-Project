@@ -1077,11 +1077,17 @@ function downloadFile(url, destPath, onProgress) {
         const total = parseInt(res.headers['content-length'] || '0', 10)
         let transferred = 0
         const file = fs.createWriteStream(destPath)
+        // Progress goes out twice a second and on the last chunk, with the
+        // speed over that half second. Sent per chunk, a 125 MB download was
+        // thousands of update window log lines, nearly all reading 0.00 MB/s
+        // because the speed was only measured every half second.
         res.on('data', chunk => {
           transferred += chunk.length
           const now = Date.now(), elapsed = (now - lastTime) / 1000
-          let bps = 0
-          if (elapsed >= 0.5) { bps = (transferred - lastBytes) / elapsed; lastBytes = transferred; lastTime = now }
+          const last = total > 0 && transferred >= total
+          if (elapsed < 0.5 && !last) return
+          const bps = elapsed > 0 ? (transferred - lastBytes) / elapsed : 0
+          lastBytes = transferred; lastTime = now
           if (onProgress) onProgress({ transferred, total, bytesPerSecond: bps })
         })
         res.pipe(file)
