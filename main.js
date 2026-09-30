@@ -984,10 +984,11 @@ async function desktopReleaseNotes(release, version) {
       const entries = await load()
       if (!entries) throw new Error('malformed')
       const notes = Changelog.notesBetween(entries, 'desktop', app.getVersion(), version)
-      if (notes) return notes
-      // The file is fine but has nothing for this range: the release notes
-      // will say more than the other copy of the same changelog would.
-      return fallback
+      // null: this copy predates the release (the website lags a publish),
+      // so try the next one. Empty: it knows the release but has nothing
+      // for the desktop in the range, and the release notes say more.
+      if (notes === null) throw new Error(`does not list ${version} yet`)
+      return notes || fallback
     } catch (err) {
       console.error(`[updater] Changelog from the ${name} unavailable:`, err.message)
     }

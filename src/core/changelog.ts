@@ -191,11 +191,16 @@ export function changelogFromJson(data: unknown): ChangelogEntry[] | null {
 
 /**
  * What changed for one platform after `current`, up to and including
- * `target`, newest first, each version under its own `##` heading. Empty
- * when the changelog has nothing for that platform in the range (then the
- * caller shows the release's own notes instead).
+ * `target`, newest first, each version under its own `##` heading.
+ *
+ * null when the changelog does not list `target` at all: that copy is older
+ * than the release (the website updates after it), so the caller tries
+ * another copy rather than show notes missing the version on offer. Empty
+ * when it lists `target` but has nothing for this platform in the range;
+ * then the release's own notes say more.
  */
-export function notesBetween(entries: readonly ChangelogEntry[], platform: ChangelogPlatform, current: string, target: string): string {
+export function notesBetween(entries: readonly ChangelogEntry[], platform: ChangelogPlatform, current: string, target: string): string | null {
+  if (!entries.some(e => e.version === target)) return null
   return entries
     .filter(e => e.platforms[platform] !== undefined && isNewerVersion(e.version, current) && !isNewerVersion(e.version, target))
     .sort((a, b) => (isNewerVersion(a.version, b.version) ? -1 : 1))

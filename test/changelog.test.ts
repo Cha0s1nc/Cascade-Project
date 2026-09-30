@@ -143,6 +143,8 @@ test('notesBetween lists one platform after the current version up to the target
   const entries = [e('2.3.2', { apple: '- a' }), e('2.3.1', { desktop: '- d1' }), e('2.3.0', { desktop: '- d0' }), e('2.2.0', { desktop: '- old' }), e('2.4.0', { desktop: '- future' })]
   assert.equal(notesBetween(entries, 'desktop', '2.2.0', '2.3.2'), '## 2.3.1 (2026-10-01)\n\n- d1\n\n## 2.3.0 (2026-10-01)\n\n- d0')
   assert.equal(notesBetween(entries, 'desktop', '2.3.1', '2.3.2'), '')
+  // A copy that does not know the target yet is stale, not empty.
+  assert.equal(notesBetween(entries, 'desktop', '2.2.0', '2.3.3'), null)
   // A beta of the target's base counts as older than it.
-  assert.match(notesBetween(entries, 'desktop', '2.3.0-b2', '2.3.0'), /^## 2\.3\.0 /)
+  assert.match(notesBetween(entries, 'desktop', '2.3.0-b2', '2.3.0') ?? '', /^## 2\.3\.0 /)
 })
