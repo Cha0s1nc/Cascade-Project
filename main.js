@@ -960,7 +960,7 @@ async function fetchVersionsFile(release) {
 // shows what 2.3.1 changed. Read from the website's changelog.json, then from
 // CHANGELOG.md at the release's tag on GitHub, then the release's own notes.
 // Betas are not in the changelog, so a beta shows its release notes.
-const CHANGELOG_JSON_URL = 'https://chaosinc.xyz/github/projects/cascade/changelog.json'
+const CHANGELOG_JSON_URL = 'https://www.chaosinc.xyz/github/projects/cascade/changelog.json'
 const CHANGELOG_MAX_BYTES = 2_000_000
 
 async function fetchChangelogText(url) {

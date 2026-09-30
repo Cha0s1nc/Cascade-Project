@@ -182,7 +182,7 @@ A separate workflow triggered by `release: published`:
     `MIRROR_HOST`, `MIRROR_URL`.
 - **In the app:** the update window shows every desktop changelog section
   after the installed version up to the offered one, from
-  `https://chaosinc.xyz/github/projects/cascade/changelog.json`, then
+  `https://www.chaosinc.xyz/github/projects/cascade/changelog.json`, then
   `CHANGELOG.md` at the release's tag on GitHub, then the release body
   (`desktopReleaseNotes` in `main.js`, logic in `src/core/changelog.ts`).
 - **Website content:** the releases page shows every release and beta with
