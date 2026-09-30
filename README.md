@@ -144,6 +144,8 @@ While a movie or episode plays, the rows that only make sense for a song (clear 
 
 ## Building from source
 
+This builds the desktop app at the repo root. The native iOS and tvOS app, still in development, lives in [`apple/`](apple/); see [`apple/CODEMAP.md`](apple/CODEMAP.md) for building and running it with Xcode.
+
 ### Prerequisites
 
 - Node.js v22.18 or newer (or v23.6+). The tests run TypeScript directly

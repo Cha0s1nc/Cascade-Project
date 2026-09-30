@@ -9,6 +9,9 @@ on:
     # was of a completely different commit. Use workflow_dispatch for manual
     # builds instead.
     branches: ['stable']
+    # The other apps live in this repo too. A push that only touches them
+    # must not build a desktop release.
+    paths-ignore: ['apple/**', 'android/**']
   # Manual runs build any branch. Leave prerelease off for a test build (installers
   # on the run page, no release); turn it on to publish a -bN beta draft.
   workflow_dispatch:

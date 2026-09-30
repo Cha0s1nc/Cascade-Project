@@ -1,5 +1,9 @@
 # Cascade code map
 
+This map covers the desktop app at the repo root. The iOS and tvOS app lives
+in `apple/` and has its own map, `apple/CODEMAP.md`. The release and repo
+plan is in `docs/release-pipeline-plan.md`.
+
 **Describes `dev` at `edd2fad`. Every line number below was
 re-derived at that state, not carried over. Line numbers rot fast: if
 a landmark is not where this says, re-grep and fix the line here rather than

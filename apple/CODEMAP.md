@@ -1,6 +1,8 @@
 # Cascade Swift: map
 
-Native Jellyfin music client for iOS and tvOS. New project, not a port of the
+Native Jellyfin music client for iOS and tvOS. Lives in `apple/` of the
+Cascade-Project repo (it was its own repo, Cascade-Swift, until
+2026-09-30); run every command below from `apple/`. New project, not a port of the
 Electron desktop app, which keeps shipping untouched.
 
 Everything pure and testable lives in `CascadeKit`. The app targets are thin
