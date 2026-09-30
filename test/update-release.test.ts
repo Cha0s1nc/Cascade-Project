@@ -144,6 +144,8 @@ test('pickInstaller picks the carried-over installer by its own version', () => 
   assert.equal(pickInstaller(r, '2.3.1', { platform: 'linux', arch: 'x64', linuxKind: 'deb' })?.name, 'cascade_2.3.1_amd64.deb')
   assert.equal(pickInstaller(r, '2.3.1', { platform: 'linux', arch: 'x64', linuxKind: 'rpm' })?.name, 'cascade-2.3.1.x86_64.rpm')
   assert.equal(pickInstaller(r, '2.3.1', { platform: 'linux', arch: 'x64', linuxKind: 'AppImage' })?.name, 'Cascade-2.3.1.AppImage')
+  // No arm64 Linux build exists, so an arm64 machine gets nothing, not the amd64 package.
+  assert.equal(pickInstaller(r, '2.3.1', { platform: 'linux', arch: 'arm64', linuxKind: 'deb' }), undefined)
 })
 
 test('pickInstaller never hands over an installer of another version', () => {

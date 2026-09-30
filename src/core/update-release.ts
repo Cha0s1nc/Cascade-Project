@@ -186,7 +186,10 @@ export function pickInstaller(release: ReleaseLike, version: string, target: Ins
     return target.arch === 'arm64' ? byExt(/\.dmg$/i).find(a => /arm64/i.test(a.name)) : undefined
   }
 
+  // x64 only: no arm64 Linux build is published, and handing an arm64
+  // machine the amd64 package only fails at install time.
   if (target.platform === 'linux') {
+    if (target.arch !== 'x64') return undefined
     if (target.linuxKind === 'AppImage') return byExt(/\.AppImage$/i)[0]
     if (target.linuxKind === 'deb')      return byExt(/\.deb$/i)[0]
     if (target.linuxKind === 'rpm')      return byExt(/\.rpm$/i)[0]
