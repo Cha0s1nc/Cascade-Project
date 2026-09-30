@@ -1,7 +1,99 @@
 # Contributing to Cascade
 
-Thanks for helping. This file is short on purpose; it grows as the build and
-release flow settles.
+Thanks for helping. Cascade is a Jellyfin client for desktop (macOS, Windows,
+Linux), with iPhone, iPad and Apple TV apps on the way, maintained by one
+person in their spare time. Everyone taking part is expected to follow the
+[Code of Conduct](CODE_OF_CONDUCT.md).
+
+**Found a security problem?** Don't open an issue; see [SECURITY.md](SECURITY.md).
+
+## Ways to help
+
+- **Report a bug** with the bug report form under Issues. The version,
+  platform and Jellyfin server version matter more than anything else.
+- **Suggest a feature** with the feature request form. Say what you are
+  trying to do, not only the button you want.
+- **Try betas.** Settings, About, Beta updates. Betas break more often;
+  that's what they're for, and reports from them are the most useful kind.
+- **Send code.** For anything bigger than a small fix, open an issue first so
+  nobody spends a weekend on something that won't be merged.
+
+Issues about the Jellyfin server plugin (lyrics sidecars, Spicy Lyrics) go to
+[CascadeServer](https://github.com/Cha0s1nc/CascadeServer).
+
+## Where things are
+
+| Path | What |
+|---|---|
+| repo root | The desktop app (Electron): `main.js`, `renderer.js`, `index.html`, `styles/` |
+| `src/core/` | Typed, tested logic shared by the desktop app, in TypeScript |
+| `test/` | Desktop tests (`node --test`) |
+| `apple/` | The native iOS and tvOS app (SwiftUI), with `CascadeKit`, its tested core |
+| `docs/` | Plans and setup notes, e.g. the release pipeline |
+| `assets/` | Artwork under its own license, see below |
+
+Start with [CODEMAP.md](CODEMAP.md) for the desktop code and
+[apple/CODEMAP.md](apple/CODEMAP.md) for the Apple app. They say where each
+feature lives, so you don't have to search the whole tree.
+
+## Setting up
+
+**Desktop** needs Node.js 22.18 or newer (see the README for why) and npm:
+
+```bash
+npm install
+npm run dev          # build and run with the inspector attached
+npm run dev:second   # a second copy with its own profile, e.g. to test Waterfall
+```
+
+**Apple** needs a Mac with Xcode 27 and [XcodeGen](https://github.com/yonaskolb/XcodeGen).
+The Xcode project is generated, not committed:
+
+```bash
+brew install xcodegen
+cd apple
+xcodegen generate
+open Cascade.xcodeproj
+```
+
+To run on your own device, pick your team in Xcode's Signing settings, and
+don't commit that change to `project.yml`.
+
+## Before you open a pull request
+
+Run the checks for what you touched. CI runs the same ones, on every
+platform.
+
+```bash
+npm test                 # desktop unit tests
+npm run typecheck        # TypeScript, strict
+cd apple/CascadeKit && swift test   # Apple core tests
+```
+
+For Apple UI changes, build both the `CascadeiOS` and `CascadetvOS` schemes;
+most views are shared, and a change for the phone can break the TV.
+
+## How code is written here
+
+- **Match the code around you**: its naming, its comment density, its idioms.
+- **Logic that can be tested goes in `src/core/` (or `CascadeKit`) with a
+  test.** Anything decided from data (versions, parsing, queue rules) belongs
+  there, not in the UI.
+- **Comments explain why**, not what the next line does.
+- **No new dependencies** without asking first in an issue.
+- **Say what leaves the machine.** If a change makes Cascade contact a new
+  server, say so in the pull request. The README and the website say which
+  outside services the app talks to, and that has to stay true.
+- **Writing:** American English, and no em dashes, in code, comments and
+  docs alike.
+
+## Commits and pull requests
+
+- Open pull requests against `dev`, one change per pull request.
+- Explain the why in the commit message, not only the what.
+- Don't put `[BETA]` or `Release (...)` in a commit's first line. Those are
+  release triggers (see below), and only the maintainer uses them.
+- Screenshots or a short clip help a lot for anything visual.
 
 ## Licensing of contributions
 
@@ -44,22 +136,12 @@ count only in a commit's **first line**.
   branch instead, and only works once `publish.yml` is on `stable` (GitHub
   runs manual workflows from the default branch).
 - **Beta:** a commit on `dev` whose first line contains `[BETA]` (and
-  optionally a platform list) publishes a `x.y.z-bN` prerelease.
+  optionally a platform list) publishes a `x.y.z-bN` prerelease. Once the
+  paid Apple account exists, it also goes to TestFlight; see
+  `docs/testflight.md`.
 - **Manual run** (Actions, Build, Run workflow): never publishes. No bump
   makes a test build; a bump or the beta box makes a draft.
 
 Each release holds every platform's newest files: platforms not rebuilt
 are copied from the last published release under their own version, and
 `versions.json` records which version each platform really is.
-
-## Before you open a pull request
-
-```
-npm install
-npm test            # unit tests
-npm run typecheck   # TypeScript, strict
-npm run dev         # run the app with the inspector attached
-```
-
-Keep changes focused, and explain the why in the commit message, not only
-the what.

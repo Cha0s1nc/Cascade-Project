@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security problem
+    url: https://github.com/Cha0s1nc/Cascade-Project/security/advisories/new
+    about: Privately, so it can be fixed before it's public.
+  - name: CascadeServer plugin (lyrics sidecars, Spicy Lyrics)
+    url: https://github.com/Cha0s1nc/CascadeServer/issues
+    about: Problems with the Jellyfin server plugin belong in its own repository.
+  - name: Releases and changelog
+    url: https://www.chaosinc.xyz/github/projects/cascade/releases/
+    about: What changed in each version, and downloads.

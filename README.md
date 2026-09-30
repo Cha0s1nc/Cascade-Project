@@ -226,6 +226,14 @@ Output goes to `dist/`.
 
 Builds are attached to [GitHub Releases](https://github.com/Cha0s1nc/Cascade-Project/releases). The built-in auto-updater checks for new releases on startup and will prompt you to download and install.
 
+Every release and beta, with its notes and downloads, is also listed on [chaosinc.xyz](https://www.chaosinc.xyz/github/projects/cascade/releases/), which mirrors the last 20 versions of each app.
+
+---
+
+## Contributing
+
+Bug reports, ideas and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers setting up, where the code lives and how changes get in, and everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md). Security problems go through [private reporting](SECURITY.md), not public issues.
+
 ---
 
 ## License
