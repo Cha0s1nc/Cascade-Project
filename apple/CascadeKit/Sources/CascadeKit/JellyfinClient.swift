@@ -37,10 +37,31 @@ func errorMessage(response: HTTPURLResponse, body: Data) -> String {
 /// accepts a token by default: 12.0 turned off X-Emby-Token, X-Emby-Authorization
 /// and api_key on new and upgraded servers. Jellyfin 10.11 accepts this form too.
 public func authHeader(appVersion: String, deviceId: String, token: String? = nil) -> String {
-    let base = "MediaBrowser Client=\"Cascade\", Device=\"Cascade\", DeviceId=\"\(deviceId)\", Version=\"\(appVersion)\""
+    let base = "MediaBrowser Client=\"Cascade\", Device=\"\(cascadeDeviceName)\", DeviceId=\"\(deviceId)\", Version=\"\(appVersion)\""
     guard let token, !token.isEmpty else { return base }
     return base + ", Token=\"\(token)\""
 }
+
+/// What the server's device list and cast menus call this device, so a phone
+/// and a desktop signed in to one account are told apart. Fixed words rather
+/// than the user's device name: iOS hands that out only with an entitlement,
+/// and fixed ASCII needs no escaping inside the quoted header value.
+let cascadeDeviceName: String = {
+    #if os(tvOS)
+    return "Apple TV"
+    #elseif os(iOS)
+    // The simulator's own machine is "arm64"; it names the one it models.
+    var info = utsname()
+    uname(&info)
+    let hardware = withUnsafeBytes(of: info.machine) { bytes in
+        String(decoding: bytes.prefix { $0 != 0 }, as: UTF8.self)
+    }
+    let machine = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] ?? hardware
+    return machine.hasPrefix("iPad") ? "iPad" : "iPhone"
+    #else
+    return "Cascade"
+    #endif
+}()
 
 /// This build's version, as the server's device list shows it.
 let cascadeAppVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
