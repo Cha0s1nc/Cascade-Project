@@ -1561,7 +1561,10 @@ ipcMain.handle('updater:install', () => {
   // actually launches never changed. The new file goes beside the old one and
   // is renamed over it (this process keeps the old one open, so that is safe),
   // then starts once this process is gone: while it runs, the single instance
-  // lock would make the new copy quit at once.
+  // lock would make the new copy quit at once. The relaunch closes the files
+  // it inherits first: Chromium keeps its resources open across exec on
+  // purpose, and passed on they pin the old AppImage's mount (and its old
+  // file) until the updated app quits. Bash, since sh can only close fds 0-9.
   if (process.platform === 'linux' && process.env.APPIMAGE) {
     const target = process.env.APPIMAGE
     try {
@@ -1569,7 +1572,9 @@ ipcMain.handle('updater:install', () => {
       fs.copyFileSync(pendingDownload.destPath, staged)
       fs.chmodSync(staged, 0o755)
       fs.renameSync(staged, target)
-      spawn('/bin/sh', ['-c', 'while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; exec "$2"', 'relaunch', String(process.pid), target], {
+      const relaunch = 'while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; '
+        + 'for f in /proc/$$/fd/*; do n=${f##*/}; [ "$n" -gt 2 ] && eval "exec $n>&-"; done 2>/dev/null; exec "$2"'
+      spawn('/bin/bash', ['-c', relaunch, 'relaunch', String(process.pid), target], {
         detached: true, stdio: 'ignore',
       }).unref()
       updaterLog('Installed. Cascade will close and reopen.', 'info')
