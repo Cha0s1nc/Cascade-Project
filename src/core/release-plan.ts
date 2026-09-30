@@ -94,7 +94,7 @@ export interface PlanInput {
   event: 'push' | 'workflow_dispatch'
   /** The branch pushed or run on, without refs/heads/. */
   branch: string
-  /** Commit messages in the pushed range (empty for a manual run). */
+  /** Whole commit messages in the pushed range (empty for a manual run); only first lines are read for markers. */
   messages: readonly string[]
   /** Files changed in the pushed range (empty for a manual run). */
   files: readonly string[]
@@ -124,6 +124,13 @@ export interface Plan {
 const none = (reason: string): Plan =>
   ({ mode: 'none', version: '', tag: '', platforms: [], prerelease: false, publish: false, reason })
 
+/**
+ * Markers count only in a commit's first line. A body that explains the
+ * rules ("a [BETA] commit publishes...") once published a prerelease by
+ * accident; trigger commits are one-liners anyway.
+ */
+export const subjectsOf = (messages: readonly string[]): string[] => messages.map(m => m.trim().split('\n')[0])
+
 export function planRelease(input: PlanInput): Plan {
   const available = (p: Platform[]) => p.filter(x => input.available.includes(x))
   const release = (mode: 'release' | 'beta', version: string, platforms: Platform[], publish: boolean, reason: string): Plan =>
@@ -149,8 +156,9 @@ export function planRelease(input: PlanInput): Plan {
       : none('manual run for platforms that do not exist in the repo')
   }
 
-  const bump = bumpOf(input.messages)
-  const list = platformListOf(input.messages)
+  const subjects = subjectsOf(input.messages)
+  const bump = bumpOf(subjects)
+  const list = platformListOf(subjects)
   // A marker with no platform list and no changed app files (an empty trigger
   // commit on its own) means everything.
   const chosen = list ?? (platformsFromFiles(input.files).length ? platformsFromFiles(input.files) : [...PLATFORMS])
@@ -163,7 +171,7 @@ export function planRelease(input: PlanInput): Plan {
       : none('no release marker and no app files changed')
   }
 
-  if (input.branch === 'dev' && isBeta(input.messages)) {
+  if (input.branch === 'dev' && isBeta(subjects)) {
     return release('beta', betaVersion(bump), available(chosen), true, '[BETA] marker on dev')
   }
 

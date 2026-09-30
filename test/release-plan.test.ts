@@ -121,3 +121,11 @@ test('versionsFor takes the new version for rebuilt apps and the old one for car
   // A garbage entry is dropped, not copied.
   assert.deepEqual(versionsFor({ version: '2.3.1', rebuilt: [], carried: ['apple'], previous: { apple: '../x' }, previousVersion: '2.3.0' }), {})
 })
+
+test('markers in a commit body do nothing: only the first line counts', () => {
+  const explained = 'Rework the release workflow\n\ndev: a [BETA] commit publishes a prerelease; a Release (x.x.X) [desktop] marker releases.'
+  assert.equal(planRelease(base({ branch: 'dev', messages: [explained], files: ['renderer.js'] })).mode, 'none')
+  const stable = planRelease(base({ messages: [explained], files: ['renderer.js'] }))
+  assert.equal(stable.mode, 'build')
+  assert.equal(planRelease(base({ branch: 'dev', messages: ['Try the queue [BETA]\n\nbody'] })).mode, 'beta')
+})

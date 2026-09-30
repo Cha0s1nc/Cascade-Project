@@ -121,6 +121,8 @@ by `workflow_dispatch` (its `prerelease` input makes a `-bN` beta draft).
 Target:
 - **Release trigger:** the maintainer pushes an empty commit
   `Release (x.x.X) [android, desktop]` on `dev`, then `dev` to `stable`.
+  Markers count ONLY in a commit's first line (a marker quoted in a body
+  once published a beta by accident).
   `(X.0.0)`, `(x.X.0)`, `(x.x.X)` bump major, minor, patch. CI scans every
   commit in `github.event.before..github.event.after` and takes the biggest
   bump. No marker: build only, no release.
