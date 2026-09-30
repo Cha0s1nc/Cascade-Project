@@ -1,7 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import {
   bumpOf, isBeta, platformListOf, platformsFromFiles, bumpVersion, nextBetaNumber, planRelease, versionsFor,
+  PLATFORM_FILES, platformOfFile,
 } from '../src/core/release-plan.ts'
 import type { PlanInput } from '../src/core/release-plan.ts'
 
@@ -128,4 +130,21 @@ test('markers in a commit body do nothing: only the first line counts', () => {
   const stable = planRelease(base({ messages: [explained], files: ['renderer.js'] }))
   assert.equal(stable.mode, 'build')
   assert.equal(planRelease(base({ branch: 'dev', messages: ['Try the queue [BETA]\n\nbody'] })).mode, 'beta')
+})
+
+test('platformOfFile sorts release files by platform and ignores the rest', () => {
+  assert.equal(platformOfFile('Cascade-2.3.1-arm64.dmg'), 'desktop')
+  assert.equal(platformOfFile('Cascade-2.3.1-tvOS.ipa'), 'apple')
+  assert.equal(platformOfFile('Cascade-2.3.1-iOS.xcarchive.zip'), 'apple')
+  assert.equal(platformOfFile('versions.json'), null)
+  assert.equal(platformOfFile('Cascade-2.3.1.dmg.blockmap'), null)
+})
+
+test("build.yml's carry-over patterns match PLATFORM_FILES", () => {
+  const yml = readFileSync(new URL('../.github/workflows/build.yml', import.meta.url), 'utf8')
+  for (const [p, patterns] of Object.entries(PLATFORM_FILES)) {
+    const m = yml.match(new RegExp(`${p}\\)\\s+PATTERNS=\\(([^)]*)\\)`))
+    assert.ok(m, `no PATTERNS line for ${p} in build.yml`)
+    assert.deepEqual(m[1].split(/\s+/).filter(Boolean).map(s => s.replace(/'/g, '')), patterns)
+  }
 })

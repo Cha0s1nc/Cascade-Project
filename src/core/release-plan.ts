@@ -7,6 +7,22 @@
 export type Platform = 'desktop' | 'apple' | 'android'
 export const PLATFORMS: readonly Platform[] = ['desktop', 'apple', 'android']
 
+/**
+ * Which release files belong to which platform, as `gh release download`
+ * patterns. build.yml's carry-over step spells the same lists out in bash;
+ * test/release-plan.test.ts fails if the two drift apart.
+ */
+export const PLATFORM_FILES: Record<Platform, readonly string[]> = {
+  desktop: ['*.exe', '*.dmg', '*.AppImage', '*.deb', '*.rpm'],
+  apple: ['*.ipa', '*.xcarchive.zip'],
+  android: ['*.apk', '*.aab'],
+}
+
+/** The platform a release file belongs to, or null (versions.json, blockmaps, anything else). */
+export function platformOfFile(name: string): Platform | null {
+  return PLATFORMS.find(p => PLATFORM_FILES[p].some(pat => name.endsWith(pat.slice(1)))) ?? null
+}
+
 export type Bump = 'major' | 'minor' | 'patch'
 export type Mode = 'release' | 'beta' | 'build' | 'none'
 

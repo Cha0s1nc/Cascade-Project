@@ -47,7 +47,7 @@ handoff brief for anyone (human or agent) picking up a phase.
 | **4** | **Updater reads `versions.json`** | cloud agent |
 | **5** | **`CHANGELOG.md` format, parser, backfill** | cloud agent |
 | 6 | `build.yml` rework: markers, platforms, carry-over, Apple job | done (`d520dbb`, `9d979d4`, tested with manual drafts) |
-| 7 | Publish workflow: website data, OCI mirror, in-app "what's new" | after 6 |
+| 7 | Publish workflow: website data, OCI mirror, in-app "what's new" | built (`publish.yml`); website pages on the `cascade-releases` branch of the site |
 | 8 | Apple signing, TestFlight | once the paid developer program exists |
 | 9 | Android | when the app exists |
 
@@ -180,10 +180,17 @@ A separate workflow triggered by `release: published`:
   - GitHub: secrets `MIRROR_SSH_KEY`, `MIRROR_KNOWN_HOSTS`,
     `WEBSITE_DEPLOY_KEY` (write deploy key on `cha0sserverpage`); variables
     `MIRROR_HOST`, `MIRROR_URL`.
-- **In the app:** desktop fetches
-  `https://chaosinc.xyz/github/projects/cascade/changelog.json` and shows
-  "what's new since your version" for its own platform, falling back to the
-  GitHub release notes.
+- **In the app:** the update window shows every desktop changelog section
+  after the installed version up to the offered one, from
+  `https://chaosinc.xyz/github/projects/cascade/changelog.json`, then
+  `CHANGELOG.md` at the release's tag on GitHub, then the release body
+  (`desktopReleaseNotes` in `main.js`, logic in `src/core/changelog.ts`).
+- **Built as:** `.github/workflows/publish.yml` (mirror job, then website
+  job), `scripts/site-data.mjs` and `src/core/site-data.ts`. The website's
+  `main` is written only by the `release` event; a manual run writes to
+  `cascade-releases` unless told otherwise. A manual run needs the workflow
+  file on the default branch (`stable`), so it only works once a release
+  has carried it there.
 
 ## Reference numbers
 

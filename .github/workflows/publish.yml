@@ -1,0 +1,118 @@
+# After a stable release is published by hand: copy the platforms it built to
+# the download mirror, and refresh the website's releases.json and
+# changelog.json. See docs/release-pipeline-plan.md, phase 7.
+#
+# The website's main branch deploys live, so only the release event writes
+# there. A manual run writes to a preview branch (default cascade-releases).
+name: Publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish, e.g. v2.3.0
+        required: true
+      site_branch:
+        description: Website branch to write to (main deploys live)
+        default: cascade-releases
+      mirror:
+        description: Upload to the download mirror
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+  SITE_BRANCH: ${{ github.event_name == 'release' && 'main' || inputs.site_branch || 'cascade-releases' }}
+  GH_TOKEN: ${{ github.token }}
+  GH_REPO: ${{ github.repository }}
+
+jobs:
+  mirror:
+    # Betas are not mirrored and do not change the website.
+    if: (github.event_name != 'release' || !github.event.release.prerelease) && (github.event_name == 'release' || inputs.mirror)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Download the platforms this release built
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Not a stable release tag: $TAG"; exit 1; }
+          # versions.json says which platforms are at this release's version;
+          # the rest were carried over and are mirrored under their own release.
+          if gh release download "$TAG" -p versions.json -D meta 2>/dev/null; then
+            BUILT=$(jq -r --arg v "$VERSION" 'to_entries[] | select(.value == $v) | .key' meta/versions.json)
+          else
+            BUILT=desktop   # releases before versions.json were desktop only
+          fi
+          for p in $BUILT; do
+            ARGS=(); while read -r pat; do ARGS+=(-p "$pat"); done < <(node scripts/release-plan.mjs files "$p")
+            gh release download "$TAG" "${ARGS[@]}" -D "up/$p/$VERSION"
+          done
+          find up -type f | sort
+
+      - name: Upload to the mirror
+        env:
+          MIRROR_SSH_KEY: ${{ secrets.MIRROR_SSH_KEY }}
+          MIRROR_KNOWN_HOSTS: ${{ secrets.MIRROR_KNOWN_HOSTS }}
+          MIRROR_HOST: ${{ vars.MIRROR_HOST }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$MIRROR_SSH_KEY" > ~/.ssh/mirror && chmod 600 ~/.ssh/mirror
+          printf '%s\n' "$MIRROR_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          # The key is locked to rrsync in the mirror folder on the server.
+          # Additive only: never --delete; the server prunes old versions.
+          rsync -rt -e "ssh -i $HOME/.ssh/mirror -o IdentitiesOnly=yes" up/ "cascade-mirror@$MIRROR_HOST:"
+
+  website:
+    needs: mirror
+    # Runs even if the mirror failed or was skipped: the data then simply has
+    # no mirror links for this release.
+    if: always() && (github.event_name != 'release' || !github.event.release.prerelease)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Build releases.json and changelog.json
+        env:
+          REPO: ${{ github.repository }}
+          MIRROR_URL: ${{ vars.MIRROR_URL }}
+        run: OUT_DIR=site-data node scripts/site-data.mjs
+
+      - name: Push them to the website
+        env:
+          WEBSITE_DEPLOY_KEY: ${{ secrets.WEBSITE_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$WEBSITE_DEPLOY_KEY" > ~/.ssh/website && chmod 600 ~/.ssh/website
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/website -o IdentitiesOnly=yes"
+          git clone --depth 1 --branch "$SITE_BRANCH" git@github.com:Cha0s1nc/cha0sserverpage.git site
+          cp site-data/releases.json site-data/changelog.json site/github/projects/cascade/
+          cd site
+          git add github/projects/cascade/releases.json github/projects/cascade/changelog.json
+          if git diff --cached --quiet; then echo "Website data unchanged"; exit 0; fi
+          git -c user.name="Cascade release bot" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "Update Cascade release data for $TAG"
+          # One retry if a hand-made commit landed in the meantime.
+          git push origin "HEAD:$SITE_BRANCH" || { git pull -q --rebase origin "$SITE_BRANCH" && git push origin "HEAD:$SITE_BRANCH"; }

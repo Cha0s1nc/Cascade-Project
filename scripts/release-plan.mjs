@@ -2,6 +2,7 @@
 //
 //   node scripts/release-plan.mjs plan       what this push or manual run does
 //   node scripts/release-plan.mjs versions   the versions.json for a release
+//   node scripts/release-plan.mjs files P    platform P's file patterns, one per line
 //
 // Everything comes in through environment variables, never through the
 // workflow's ${{ }} expressions: commit messages are read from git here, so
@@ -22,7 +23,7 @@ process.removeAllListeners('warning')
 process.on('warning', w => {
   if (w.code !== 'MODULE_TYPELESS_PACKAGE_JSON') for (const print of printWarning) print(w)
 })
-const { PLATFORMS, planRelease, versionsFor } = await import('../src/core/release-plan.ts')
+const { PLATFORMS, PLATFORM_FILES, planRelease, versionsFor } = await import('../src/core/release-plan.ts')
 
 const env = process.env
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8' })
@@ -80,7 +81,9 @@ if (command === 'plan') {
     previousVersion: (env.PREVIOUS_VERSION ?? '').replace(/^v/, ''),
   })
   process.stdout.write(JSON.stringify(versions) + '\n')
+} else if (command === 'files' && PLATFORMS.includes(process.argv[3])) {
+  process.stdout.write(PLATFORM_FILES[process.argv[3]].join('\n') + '\n')
 } else {
-  console.error('Usage: node scripts/release-plan.mjs plan|versions')
+  console.error('Usage: node scripts/release-plan.mjs plan|versions|files <platform>')
   process.exit(2)
 }
