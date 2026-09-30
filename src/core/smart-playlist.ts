@@ -193,9 +193,11 @@ export function matchesRules(item: JfItem, def: Pick<SmartPlaylistDef, 'match' |
 
 function sortKey(item: JfItem, sortBy: SmartPlaylistSortField): string | number {
   switch (sortBy) {
-    case 'name': return (item.SortName || item.Name || '').toLowerCase()
-    case 'artist': return (item.AlbumArtist || item.Artists?.[0] || '').toLowerCase()
-    case 'album': return (item.Album || '').toLowerCase()
+    // The title, not SortName: a track's SortName starts with its track
+    // number ("0002 - Title"), so sorting on it interleaves albums.
+    case 'name': return item.Name || ''
+    case 'artist': return item.AlbumArtist || item.Artists?.[0] || ''
+    case 'album': return item.Album || ''
     case 'dateAdded': return item.DateCreated ? (Date.parse(item.DateCreated) || 0) : 0
     case 'playCount': return item.UserData?.PlayCount || 0
   }
@@ -210,6 +212,10 @@ export function applySmartPlaylistRules(items: readonly JfItem[], def: SmartPlay
   filtered.sort((a, b) => {
     const ka = sortKey(a, def.sortBy)
     const kb = sortKey(b, def.sortBy)
+    // Natural and case-insensitive, so "Track 10" follows "Track 2".
+    if (typeof ka === 'string' && typeof kb === 'string') {
+      return ka.localeCompare(kb, undefined, { numeric: true, sensitivity: 'base' }) * dir
+    }
     if (ka < kb) return -1 * dir
     if (ka > kb) return 1 * dir
     return 0

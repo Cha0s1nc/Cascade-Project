@@ -3428,7 +3428,7 @@ async function fetchUserSmartPlaylist(def) {
   const query = CascadeCore.toItemsQuery(def)
   const data = await jfGetAllPaged(`/Users/${jf.userId}/Items`, {
     IncludeItemTypes: 'Audio', Recursive: true,
-    Fields: 'AlbumId,AlbumPrimaryImageTag,Genres,DateCreated,SortName',
+    Fields: 'AlbumId,AlbumPrimaryImageTag,Genres,DateCreated',
     ...query
   })
   return CascadeCore.applySmartPlaylistRules(data.Items || [], def, Date.now())

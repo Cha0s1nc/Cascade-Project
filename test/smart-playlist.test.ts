@@ -254,6 +254,15 @@ test('applySmartPlaylistRules: sortDir desc reverses the order', () => {
   assert.deepEqual(applySmartPlaylistRules(items, def, NOW).map(i => i.Id), ['b', 'a'])
 })
 
+test('applySmartPlaylistRules: sortBy name is by title, not the track-numbered SortName', () => {
+  const items = [
+    item({ Id: 'o2', Name: 'Overdrive Track 2', SortName: '0002 - Overdrive Track 2' }),
+    item({ Id: 'u1', Name: 'Unplugged Track 1', SortName: '0001 - Unplugged Track 1' }),
+    item({ Id: 'o10', Name: 'Overdrive Track 10', SortName: '0010 - Overdrive Track 10' }),
+  ]
+  assert.deepEqual(applySmartPlaylistRules(items, baseDef(), NOW).map(i => i.Id), ['o2', 'o10', 'u1'])
+})
+
 test('applySmartPlaylistRules: sortBy playCount, and it does not mutate the input array', () => {
   const items = [
     item({ Id: 'a', UserData: { PlayCount: 1 } }),
