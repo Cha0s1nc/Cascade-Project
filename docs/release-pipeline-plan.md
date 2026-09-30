@@ -161,10 +161,25 @@ A separate workflow triggered by `release: published`:
   `changelog.json` into `github/projects/cascade/`, using a deploy key that
   can push to that repo only. New pages `/github/projects/cascade/releases/`
   and `/changelog/` render the JSON client-side.
-- **OCI mirror:** upload installers over SSH as a dedicated user restricted
-  to one folder; served by Caddy in Docker at `downloads.chaosinc.xyz`
-  behind Cloudflare; prune to the newest 20 distinct versions per platform.
-  Server setup, DNS and secrets are done by the maintainer, not an agent.
+- **OCI mirror (set up 2026-09-30, ready for the workflow):**
+  - Served at `https://downloads.chaosinc.xyz:47443/<platform>/<version>/<file>`
+    by Caddy in Docker (`/opt/cascade-mirror` on the OCI box), from
+    `/srv/cascade-downloads`. The DNS record is DNS only, not proxied:
+    Cloudflare's free plan discourages serving large files through its
+    proxy, and ports 80 and 443 are taken on that box (443 is headscale), so
+    Caddy gets its certificate through the ACME DNS challenge with a
+    Cloudflare token kept in `/opt/cascade-mirror/.env`. Port 47443 is open
+    in the OCI security list.
+  - Uploads: `rsync` over SSH as `cascade-mirror@$MIRROR_HOST`, whose key is
+    locked to `rrsync /srv/cascade-downloads` (no shell, no forwarding, paths
+    anchored in that folder). Paths are relative to the mirror root, e.g.
+    `rsync -rt dist/ cascade-mirror@HOST:` with `dist/desktop/2.3.1/...`.
+    macOS's openrsync is rejected by rrsync; upload from an Ubuntu runner.
+  - Pruning is server side: `cascade-mirror-prune.timer` runs daily and keeps
+    the newest 20 `x.y.z` folders per platform. Betas are not mirrored.
+  - GitHub: secrets `MIRROR_SSH_KEY`, `MIRROR_KNOWN_HOSTS`,
+    `WEBSITE_DEPLOY_KEY` (write deploy key on `cha0sserverpage`); variables
+    `MIRROR_HOST`, `MIRROR_URL`.
 - **In the app:** desktop fetches
   `https://chaosinc.xyz/github/projects/cascade/changelog.json` and shows
   "what's new since your version" for its own platform, falling back to the
