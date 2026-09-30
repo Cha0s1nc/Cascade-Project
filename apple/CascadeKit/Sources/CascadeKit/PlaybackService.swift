@@ -86,7 +86,11 @@ public final class PlaybackService {
     /// it is resolved and enqueued while this one plays, and AVFoundation
     /// switches to it at the exact end (trimming AAC and MP3 priming as it
     /// goes). See syncPreload.
-    private let player = AVQueuePlayer()
+    ///
+    /// One of two decks: a crossfade starts the next track on the other one
+    /// and swaps them, so `player` is always the deck that is playing `item`.
+    @ObservationIgnored private var player = AVQueuePlayer()
+    @ObservationIgnored private var otherDeck = AVQueuePlayer()
     /// The AVPlayerItem that belongs to `item`. Tracked here rather than read
     /// from player.currentItem, because a queue player moves that on its own,
     /// and an end notification from any other item (a track already skipped
@@ -117,7 +121,7 @@ public final class PlaybackService {
             }
         }
     }
-    private var timeObserver: Any?
+    private var timeObservers: [Any] = []
     private var progressTask: Task<Void, Never>?
     private var eventTask: Task<Void, Never>?
 
@@ -490,6 +494,7 @@ public final class PlaybackService {
     /// replaceCurrentItem: on a queue player that leaves whatever was queued
     /// behind it in place.
     private func setPlayerItem(_ playerItem: AVPlayerItem) {
+        endCrossfade()
         dropPreload()
         player.removeAllItems()
         player.insert(playerItem, after: nil)
@@ -499,6 +504,9 @@ public final class PlaybackService {
     public func pause() {
         guard item != nil, !isPaused else { return }
         isPaused = true
+        // A fade does not survive a pause: the tail is cut, the new track
+        // resumes at full level.
+        endCrossfade()
         player.pause()
         updateNowPlaying()
         reportNow()
@@ -521,6 +529,7 @@ public final class PlaybackService {
         guard let item, let resolved else { return }
         let target = max(0, min(seconds, durationSeconds > 0 ? durationSeconds : seconds))
 
+        endCrossfade()
         if resolved.direct {
             // The whole file is already there, so this costs no round trip.
             await seekPlayer(to: target)
@@ -556,8 +565,15 @@ public final class PlaybackService {
     /// 0-1, clamped. Persisting it is the app's business, not this service's.
     public func setVolume(_ v: Float) {
         volume = min(1, max(0, v))
-        player.volume = volume * normalizationVolume
+        applyVolumes()
         reportNow()
+    }
+
+    /// Each deck's volume: the user's, times the untapped normalization cut,
+    /// times where it is in a crossfade.
+    private func applyVolumes() {
+        player.volume = volume * normalizationVolume * fadeIn
+        if let tail { tail.deck.volume = volume * tail.normalization * fadeOut }
     }
 
     // MARK: - Volume normalization
@@ -633,12 +649,13 @@ public final class PlaybackService {
 
     private func setNormalizationVolume(_ v: Float) {
         normalizationVolume = v
-        player.volume = volume * v
+        applyVolumes()
     }
 
     public func setMuted(_ muted: Bool) {
         isMuted = muted
         player.isMuted = muted
+        otherDeck.isMuted = muted
         reportNow()
     }
 
@@ -647,6 +664,7 @@ public final class PlaybackService {
         abandonEncode()
         stopReporting()
         _ = nextToken()          // invalidates anything still resolving
+        endCrossfade()
         dropPreload()
         player.removeAllItems()
         currentPlayerItem = nil
@@ -699,6 +717,14 @@ public final class PlaybackService {
             if let preload, preload.index == index, preload.itemId == queue.items[index].id,
                player.items().contains(preload.playerItem) {
                 await handOver(to: preload)
+            } else if let preload, preload.parked, preload.index == index,
+                      preload.itemId == queue.items[index].id {
+                // Crossfade was on but never started (a seek past its start,
+                // or too little left): the parked track follows straight on.
+                player.removeAllItems()
+                player.insert(preload.playerItem, after: nil)
+                player.play()
+                await handOver(to: preload)
             } else {
                 queue.index = index
                 await load(queue.items[index])
@@ -726,6 +752,9 @@ public final class PlaybackService {
         let playerItem: AVPlayerItem
         let duration: Double
         let tap: TapContext?
+        /// Held back for a crossfade rather than queued behind the current
+        /// item on the same deck.
+        let parked: Bool
     }
     private var preload: Preload?
     /// What the in-flight preload is fetching, so a sync that wants the same
@@ -757,7 +786,8 @@ public final class PlaybackService {
         let want = expectedNext()
         if let want {
             if let preload, preload.index == want.index, preload.itemId == want.item.id,
-               player.items().contains(preload.playerItem) { return }
+               preload.parked == (crossfadeSeconds > 0),
+               preload.parked || player.items().contains(preload.playerItem) { return }
             if preload == nil, let target = preloadTarget,
                target.index == want.index, target.itemId == want.item.id { return }
         }
@@ -790,11 +820,15 @@ public final class PlaybackService {
         // resolving. If it has, load() is already on it.
         guard token == preloadToken, let current = currentPlayerItem,
               player.items().last === current else { return abandon(stream) }
-        player.insert(playerItem, after: current)
-        player.actionAtItemEnd = .advance
+        let parked = crossfadeSeconds > 0
+        if !parked {
+            player.insert(playerItem, after: current)
+            player.actionAtItemEnd = .advance
+        }
         preload = Preload(index: index, itemId: next.id, stream: stream,
-                          playerItem: playerItem, duration: duration, tap: nextTap)
+                          playerItem: playerItem, duration: duration, tap: nextTap, parked: parked)
         preloadTarget = nil
+        if parked { scheduleCrossfade() }
     }
 
     /// Take the enqueued item out of the player and forget it.
@@ -807,16 +841,137 @@ public final class PlaybackService {
         // queued, which is what a plain AVPlayer did: repeat-one and the
         // load() fallback both expect the finished item to still be there.
         player.actionAtItemEnd = .pause
+        clearCrossfadeObserver()
         guard let preload else { return }
         self.preload = nil
-        player.remove(preload.playerItem)
+        if !preload.parked { player.remove(preload.playerItem) }
         abandon(preload.stream)
+    }
+
+    // MARK: - Crossfade
+    //
+    // The desktop's two-deck crossfade. AVQueuePlayer cannot overlap two
+    // items, so with a crossfade set the next track is resolved as usual but
+    // parked instead of queued, and when the current one reaches its end
+    // minus the fade, it starts on the other deck and the two swap: `player`
+    // becomes the new track's deck at once (Now Playing, reports and the
+    // queue move on as the fade begins, as in Apple Music), and the old one
+    // plays on as the tail, fading out under an equal-power curve. Anything
+    // that changes what plays (a seek, a skip, pause, stop) cuts the tail.
+
+    /// Settings > Playback > Crossfade; 0 is off, which keeps the gapless
+    /// handover.
+    public var crossfadeSeconds: Double = 0 {
+        didSet {
+            guard crossfadeSeconds != oldValue else { return }
+            dropPreload()
+            syncPreload()
+        }
+    }
+
+    /// The deck still playing the previous track while it fades out.
+    @ObservationIgnored private var tail: (deck: AVQueuePlayer, item: AVPlayerItem,
+                                           stream: ResolvedStream, normalization: Float)?
+    @ObservationIgnored private var fadeIn: Float = 1
+    @ObservationIgnored private var fadeOut: Float = 1
+    @ObservationIgnored private var fadeTask: Task<Void, Never>?
+    @ObservationIgnored private var crossfadeObserver: (deck: AVQueuePlayer, token: Any)?
+
+    private func clearCrossfadeObserver() {
+        guard let crossfadeObserver else { return }
+        crossfadeObserver.deck.removeTimeObserver(crossfadeObserver.token)
+        self.crossfadeObserver = nil
+    }
+
+    /// Arms the start of the fade on the current item's clock.
+    private func scheduleCrossfade() {
+        clearCrossfadeObserver()
+        guard crossfadeSeconds > 0, let preload, preload.parked, tail == nil,
+              let current = currentPlayerItem else { return }
+        let length = current.duration.seconds
+        guard length.isFinite, length > 0 else { return }
+        let start = length - crossfadeSeconds
+        let now = player.currentTime().seconds
+        // The preload landed inside the window (a slow resolve, a short
+        // track): start now, for what is left.
+        if now.isFinite, start <= now { return beginCrossfade() }
+        let token = player.addBoundaryTimeObserver(
+            forTimes: [NSValue(time: CMTime(seconds: max(0, start), preferredTimescale: 600))], queue: .main
+        ) { [weak self] in
+            // Registered on .main, so on the main actor, as with the
+            // periodic observer.
+            MainActor.assumeIsolated { self?.beginCrossfade() }
+        }
+        crossfadeObserver = (player, token)
+    }
+
+    private func beginCrossfade() {
+        clearCrossfadeObserver()
+        guard crossfadeSeconds > 0, !isPaused, tail == nil, let next = preload, next.parked,
+              let outgoing = currentPlayerItem, let resolved else { return }
+        let remaining = outgoing.duration.seconds - player.currentTime().seconds
+        // Too little left: the parked track follows at the end instead.
+        guard let fade = Crossfade.duration(configured: crossfadeSeconds, remaining: remaining) else { return }
+        debugLog("crossfade \(String(format: "%.1f", fade)) s into #\(next.index + 1)")
+
+        let incoming = otherDeck
+        incoming.removeAllItems()
+        incoming.insert(next.playerItem, after: nil)
+        incoming.actionAtItemEnd = .pause
+        incoming.isMuted = isMuted
+        tail = (player, outgoing, resolved, normalizationVolume)
+        otherDeck = player
+        player = incoming
+        fadeIn = 0
+        fadeOut = 1
+        applyVolumes()
+        player.play()
+        // The handover's stopped report still reads the old stream from
+        // `resolved`, then adopts the new one; the tail's transcode, if any,
+        // is abandoned when the tail stops.
+        Task { await handOver(to: next) }
+
+        let started = ContinuousClock.now
+        fadeTask = Task { [weak self] in
+            while !Task.isCancelled {
+                let elapsed = started.duration(to: .now)
+                let progress = (Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18) / fade
+                guard let self else { return }
+                let gains = Crossfade.gains(at: progress)
+                self.fadeOut = gains.out
+                self.fadeIn = gains.in
+                self.applyVolumes()
+                if progress >= 1 { break }
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+            guard !Task.isCancelled else { return }
+            debugLog("crossfade done")
+            self?.endCrossfade()
+        }
+    }
+
+    /// Stops the tail and puts the playing deck at full level. Also how a
+    /// fade is cut short.
+    private func endCrossfade() {
+        fadeTask?.cancel()
+        fadeTask = nil
+        if let tail {
+            self.tail = nil
+            tail.deck.pause()
+            tail.deck.removeAllItems()
+            abandon(tail.stream)
+        }
+        fadeIn = 1
+        fadeOut = 1
+        applyVolumes()
+        // The next track parked while this fade ran could not arm its own.
+        scheduleCrossfade()
     }
 
     /// The player has already moved onto the preloaded item by itself; bring
     /// this object's state, the server and the lock screen along with it.
     private func handOver(to next: Preload) async {
-        debugLog("gapless handover to #\(next.index + 1)")
+        debugLog("handover to #\(next.index + 1)")
         // Snapshot BEFORE swapping `resolved`: a stopped report carrying the
         // new item's PlaySessionId would tell the server to kill the stream
         // that is now playing. The old track ran to its end, so it reports
@@ -933,19 +1088,23 @@ public final class PlaybackService {
     private func observePlayer() {
         // Position comes from the player rather than a wall clock, so pausing,
         // buffering and rate changes are all accounted for without extra code.
-        timeObserver = player.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
-            queue: .main
-        ) { [weak self] time in
-            // assumeIsolated is safe HERE, unlike in the remote command
-            // handlers below, because this observer was registered with
-            // queue: .main and the main dispatch queue is the main actor's
-            // executor. Keeping it avoids hopping through a Task twice a
-            // second just to move a progress bar.
-            MainActor.assumeIsolated {
-                guard let self, time.isNumeric else { return }
-                self.positionSeconds = CascadeKit.seconds(fromTicks: self.streamStartTicks) + time.seconds
-            }
+        // On both decks; only the one playing `item` moves the position.
+        for deck in [player, otherDeck] {
+            let id = ObjectIdentifier(deck)
+            timeObservers.append(deck.addPeriodicTimeObserver(
+                forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
+                queue: .main
+            ) { [weak self] time in
+                // assumeIsolated is safe HERE, unlike in the remote command
+                // handlers below, because this observer was registered with
+                // queue: .main and the main dispatch queue is the main actor's
+                // executor. Keeping it avoids hopping through a Task twice a
+                // second just to move a progress bar.
+                MainActor.assumeIsolated {
+                    guard let self, time.isNumeric, ObjectIdentifier(self.player) == id else { return }
+                    self.positionSeconds = CascadeKit.seconds(fromTicks: self.streamStartTicks) + time.seconds
+                }
+            })
         }
 
         // An async sequence rather than block observers, so cancelling one task

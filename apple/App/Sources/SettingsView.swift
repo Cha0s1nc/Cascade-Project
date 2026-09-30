@@ -67,6 +67,16 @@ struct SettingsView: View {
                         Text("By Track").tag(Normalization.Mode.track)
                         Text("By Album").tag(Normalization.Mode.album)
                     }
+                    Picker("Crossfade", selection: Binding(
+                        get: { Int(player.crossfadeSeconds) },
+                        set: {
+                            player.crossfadeSeconds = Double($0)
+                            UserDefaults.standard.set($0, forKey: "cascade.crossfadeSeconds")
+                        }
+                    )) {
+                        Text("Off").tag(0)
+                        ForEach(Array(Crossfade.range), id: \.self) { Text("\($0) s").tag($0) }
+                    }
                     NavigationLink {
                         EqualizerView()
                     } label: {
@@ -76,7 +86,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Playback")
                 } footer: {
-                    Text("Below the original, the server converts to AAC at that rate. Applies from the next track.\n\nNormalization evens out loudness using the server's scan (Jellyfin's LUFS scan has to be on). By Album keeps an album's own dynamics. Loud tracks are turned down; quiet ones are turned up only while the equalizer is on.")
+                    Text("Below the original, the server converts to AAC at that rate. Applies from the next track.\n\nNormalization evens out loudness using the server's scan (Jellyfin's LUFS scan has to be on). By Album keeps an album's own dynamics. Loud tracks are turned down; quiet ones are turned up only while the equalizer is on.\n\nCrossfade blends the end of each song into the next; off keeps albums gapless.")
                 }
             }
 

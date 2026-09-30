@@ -241,6 +241,9 @@ final class AppState {
         player.normalization = Normalization.Mode(
             rawValue: UserDefaults.standard.string(forKey: "cascade.normalization") ?? "") ?? .off
         player.equalizer = EQProfile.decode(UserDefaults.standard.data(forKey: "cascade.eq"))
+        // Stored values are clamped: 0 (off) or the settings range.
+        let fade = UserDefaults.standard.integer(forKey: "cascade.crossfadeSeconds")
+        player.crossfadeSeconds = Crossfade.range.contains(fade) ? Double(fade) : 0
         player.offline = offline
         self.player = player
         if let offline {
