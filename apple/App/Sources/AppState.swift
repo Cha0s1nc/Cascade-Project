@@ -18,6 +18,8 @@ final class AppState {
     private(set) var cascadePluginApi: CascadePluginApi?
     /// Makes this app a target for "play on" from other Jellyfin clients.
     private var remoteControl: RemoteControl?
+    /// Listening along with others (Waterfall). One per sign-in, like the player.
+    private(set) var waterfall: WaterfallSession?
 
     /// Downloaded albums and playlists. One for the app's life, not per
     /// sign-in: it owns the background download session. None on tvOS.
@@ -204,6 +206,8 @@ final class AppState {
         player = nil
         remoteControl?.stop()
         remoteControl = nil
+        waterfall?.leave()
+        waterfall = nil
         controlledDevice = nil
         cascadePluginApi = nil
         cascadePluginInfo = .init()
@@ -252,6 +256,8 @@ final class AppState {
                 await offline.replayPlays(client: client)
             }
         }
+        waterfall?.leave()
+        waterfall = WaterfallSession(client: client, player: player)
         // Castable from other Jellyfin clients for as long as this player lives.
         remoteControl?.stop()
         remoteControl = RemoteControl(client: client, player: player)

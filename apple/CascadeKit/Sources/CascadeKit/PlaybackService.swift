@@ -201,6 +201,7 @@ public final class PlaybackService {
     public func play(_ items: [JfItem], startIndex: Int = 0,
                      more: QueuePageFetch? = nil, moreFrom: Int = 0) async {
         guard items.indices.contains(startIndex) else { return }
+        if transportGate?(.replaceQueue) == true { return }
         debugLog("play \(items.count) tracks from #\(startIndex)" + (more == nil ? "" : ", more from offset \(moreFrom)"))
         queueFeed = more.map { QueueFeed(fetch: $0, next: moreFrom) }
         hasMoreQueue = more != nil
@@ -214,6 +215,7 @@ public final class PlaybackService {
     /// this still moves on, because a next button that refused to skip would
     /// read as broken.
     public func next() async {
+        if transportGate?(.next) == true { return }
         guard let index = manualNextIndex(length: queue.items.count,
                                           index: queue.index, repeatMode: repeatMode) else {
             await stop()
@@ -224,6 +226,7 @@ public final class PlaybackService {
     }
 
     public func previous() async {
+        if transportGate?(.previous) == true { return }
         guard let index = manualPreviousIndex(length: queue.items.count,
                                               index: queue.index, repeatMode: repeatMode) else { return }
         queue.index = index
@@ -242,6 +245,37 @@ public final class PlaybackService {
         queue = setShuffle(queue, on: shuffle)
         syncPreload()
     }
+
+    // MARK: - Someone else's room
+
+    /// What a person asked the transport for, for `transportGate`.
+    public enum TransportRequest {
+        case playPause, next, previous, seek(Double), enqueue([JfItem]), replaceQueue
+    }
+
+    /// Set while this app is a guest in a Waterfall room, where the host owns
+    /// playback: every transport entry point (the app's buttons, the lock
+    /// screen, remote control) asks it first, and a true means it took the
+    /// request (sent it to the host, or explained why not) and nothing plays
+    /// here. The room's own following passes straight through.
+    public var transportGate: ((TransportRequest) -> Bool)?
+
+    /// Takes on a queue whose `index` is the track already playing, without
+    /// restarting it: a Waterfall guest mirroring the host's queue. False
+    /// when that track is not the one playing, so nothing changed.
+    @discardableResult
+    public func adoptQueue(_ items: [JfItem], index: Int) -> Bool {
+        guard items.indices.contains(index), items[index].id == item?.id else { return false }
+        queueFeed = nil
+        hasMoreQueue = false
+        shuffle = false
+        queue = QueueOrder(items: items, index: index, unshuffled: nil)
+        syncPreload()
+        return true
+    }
+
+    /// The queue as shown, for a Waterfall host to publish.
+    public var queueIds: [String] { queue.items.map(\.id) }
 
     // MARK: - Paged queue
     //
@@ -313,6 +347,7 @@ public final class PlaybackService {
     /// Right after the current track. With nothing playing, plays them.
     public func playNext(_ items: [JfItem]) async {
         guard !items.isEmpty else { return }
+        if transportGate?(.enqueue(items)) == true { return }
         guard item != nil else { return await play(items) }
         queue = playingNext(queue, items)
         syncPreload()
@@ -321,6 +356,7 @@ public final class PlaybackService {
     /// At the end of the queue. With nothing playing, plays them.
     public func addToQueue(_ items: [JfItem]) async {
         guard !items.isEmpty else { return }
+        if transportGate?(.enqueue(items)) == true { return }
         guard item != nil else { return await play(items) }
         queue = appending(queue, items)
         syncPreload()
@@ -341,6 +377,7 @@ public final class PlaybackService {
     /// Play a queue row, keeping the queue as it is.
     public func jump(to index: Int) async {
         guard queue.items.indices.contains(index) else { return }
+        if transportGate?(.replaceQueue) == true { return }
         queue.index = index
         await load(queue.items[index])
     }
@@ -503,6 +540,7 @@ public final class PlaybackService {
 
     public func pause() {
         guard item != nil, !isPaused else { return }
+        if transportGate?(.playPause) == true { return }
         isPaused = true
         // A fade does not survive a pause: the tail is cut, the new track
         // resumes at full level.
@@ -514,6 +552,7 @@ public final class PlaybackService {
 
     public func resume() {
         guard item != nil, isPaused else { return }
+        if transportGate?(.playPause) == true { return }
         isPaused = false
         player.play()
         updateNowPlaying()
@@ -527,6 +566,7 @@ public final class PlaybackService {
     /// Seek to an absolute position in the current track, in seconds.
     public func seek(to seconds: Double) async {
         guard let item, let resolved else { return }
+        if transportGate?(.seek(seconds)) == true { return }
         let target = max(0, min(seconds, durationSeconds > 0 ? durationSeconds : seconds))
 
         endCrossfade()

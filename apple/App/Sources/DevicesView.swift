@@ -53,6 +53,14 @@ struct DevicesSheet: View {
                     if let error { Text(error).foregroundStyle(.red) }
                 }
                 if let selected { controls(selected) }
+                Section {
+                    NavigationLink {
+                        WaterfallView()
+                    } label: {
+                        LabeledContent("Listen Together", value: state.waterfall?.isActive == true
+                                       ? "Room \(state.waterfall?.code ?? "")" : "Waterfall")
+                    }
+                }
             }
             .navigationTitle("Control Devices")
             .navigationBarTitleDisplayMode(.inline)

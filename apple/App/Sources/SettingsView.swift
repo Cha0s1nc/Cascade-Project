@@ -129,6 +129,17 @@ struct SettingsView: View {
             }
 
             Section {
+                NavigationLink {
+                    WaterfallView()
+                } label: {
+                    LabeledContent("Waterfall", value: state.waterfall?.isActive == true
+                                   ? (state.waterfall?.role == .host ? "Hosting" : "In a Room") : "Off")
+                }
+            } footer: {
+                Text("Listen along with others on this server.")
+            }
+
+            Section {
                 Button("Sign Out", role: .destructive) {
                     confirmingSignOut = true
                 }

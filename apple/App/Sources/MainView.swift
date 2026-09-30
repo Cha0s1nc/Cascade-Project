@@ -15,6 +15,18 @@ struct MainView: View {
     enum AppTab: Hashable { case nowPlaying, home, albums, artists, songs, playlists, search, settings }
 
     var body: some View {
+        content
+            .alert("Waterfall", isPresented: Binding(
+                get: { state.waterfall?.notice != nil },
+                set: { if !$0 { state.waterfall?.notice = nil } })) {
+                Button("OK") { state.waterfall?.notice = nil }
+            } message: {
+                Text(state.waterfall?.notice ?? "")
+            }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         #if os(tvOS)
         tabs
         #else

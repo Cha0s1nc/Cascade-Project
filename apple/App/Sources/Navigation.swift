@@ -86,7 +86,8 @@ private struct LibraryToolbar: ViewModifier {
                     }
                     .accessibilityLabel("Downloads")
                     Button { controllingDevices = true } label: {
-                        Image(systemName: state.controlledDevice == nil ? "hifispeaker.2" : "hifispeaker.2.fill")
+                        Image(systemName: state.controlledDevice == nil && state.waterfall?.isActive != true
+                              ? "hifispeaker.2" : "hifispeaker.2.fill")
                     }
                     .accessibilityLabel("Control Devices")
                     NavigationLink(value: AppRoute.settings) {
