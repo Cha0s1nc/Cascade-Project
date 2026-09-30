@@ -42,6 +42,9 @@
     if (!raw) return empty
     const out = []
     const lists = []   // open lists, innermost last: { indent, tag }
+    // Consecutive text lines are one paragraph: CHANGELOG.md wraps its lines.
+    let para = []
+    const closePara = () => { if (para.length) out.push(`<p>${inline(para.join(' '))}</p>`); para = [] }
     const closeLists = (above = -1) => {
       while (lists.length && lists[lists.length - 1].indent > above) out.push(`</li></${lists.pop().tag}>`)
     }
@@ -50,6 +53,7 @@
       const t = line.trimEnd()
       let m
       if ((m = t.match(/^(\s*)([-*+]|\d+[.)])\s+(.*)$/)) && !/^\s*([-*_])(\s*\1){2,}\s*$/.test(t)) {
+        closePara()
         const indent = indentOf(m[1])
         const tag = /\d/.test(m[2]) ? 'ol' : 'ul'
         closeLists(indent)
@@ -57,16 +61,18 @@
         if (top && top.indent === indent) out.push(`</li><li>${inline(m[3])}`)
         else { lists.push({ indent, tag }); out.push(`<${tag}><li>${inline(m[3])}`) }
       } else if (t.trim() && lists.length && /^\s/.test(t)) {
-        // An indented line under a list item continues that item.
-        out.push(`<br>${inline(t.trim())}`)
+        // An indented line under a list item continues that item, as a soft
+        // wrap: GitHub joins it with a space, and CHANGELOG.md wraps long items.
+        out.push(` ${inline(t.trim())}`)
       } else {
         closeLists()
-        if (!t.trim()) continue
-        if ((m = t.match(/^(#{1,6})\s+(.*)$/))) out.push(`<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`)
-        else if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(t)) out.push('<hr>')
-        else out.push(`<p>${inline(t.trim())}</p>`)
+        if (!t.trim()) { closePara(); continue }
+        if ((m = t.match(/^(#{1,6})\s+(.*)$/))) { closePara(); out.push(`<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`) }
+        else if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(t)) { closePara(); out.push('<hr>') }
+        else para.push(t.trim())
       }
     }
+    closePara()
     closeLists()
     return out.join('') || empty
   }

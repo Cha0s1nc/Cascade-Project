@@ -29,3 +29,11 @@ test('renderReleaseNotes renders headings, rules and an empty body', () => {
   assert.equal(renderReleaseNotes('## Major changes\n\n---\nDone'), '<h2>Major changes</h2><hr><p>Done</p>')
   assert.match(renderReleaseNotes(''), /No release notes available/)
 })
+
+test('wrapped lines join: one paragraph, and one list item', () => {
+  assert.equal(renderReleaseNotes('The updater cannot\ninstall updates.\n\nNext one'),
+    '<p>The updater cannot install updates.</p><p>Next one</p>')
+  assert.equal(renderReleaseNotes('- Only through the plugin\n  (renamed). Server owners\n- Two'),
+    '<ul><li>Only through the plugin (renamed). Server owners</li><li>Two</li></ul>')
+  assert.equal(renderReleaseNotes('Intro\n### Desktop\n- a'), '<p>Intro</p><h3>Desktop</h3><ul><li>a</li></ul>')
+})
