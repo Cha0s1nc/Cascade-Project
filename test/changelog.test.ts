@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import {
   ChangelogError, changelogSectionMarkdown, findChangelogEntry, parseChangelog,
 } from '../src/core/changelog.ts'
@@ -113,4 +114,13 @@ test('findChangelogEntry finds a version with or without a leading v', () => {
 test('changelogSectionMarkdown prints platforms in a fixed order', () => {
   const entry = findChangelogEntry(parseChangelog(SAMPLE), '2.2.0')!
   assert.equal(changelogSectionMarkdown(entry), '### Desktop\n\n- Jellyfin 12\n\n### Android\n\n- Hello\n')
+})
+
+test('the real CHANGELOG.md parses, newest first, with the backfilled releases', () => {
+  const entries = parseChangelog(readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8'))
+  const versions = entries.map(e => e.version)
+  for (const v of ['2.2.0', '2.1.0', '2.0.1', '2.0.0']) {
+    assert.ok(findChangelogEntry(entries, v)?.platforms.desktop, `${v} is missing or has no Desktop section`)
+  }
+  assert.ok(versions.length >= 4)
 })
