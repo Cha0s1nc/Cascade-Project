@@ -75,6 +75,8 @@ struct AlbumDetailView: View {
                     Label("Add to Playlist", systemImage: "text.badge.plus").labelStyle(.iconOnly)
                 }
                 .disabled(tracks.isEmpty)
+                DownloadButton(item: album)
+                    .disabled(tracks.isEmpty)
             }
             .buttonStyle(.borderedProminent)
         }

@@ -136,7 +136,10 @@ struct PlaylistDetailView: View {
         }
         .navigationTitle(name)
         #if os(iOS)
-        .toolbar { EditButton() }
+        .toolbar {
+            DownloadButton(item: playlist)
+            EditButton()
+        }
         #endif
         .alert("Rename Playlist", isPresented: $renaming) {
             TextField("Name", text: $newName)

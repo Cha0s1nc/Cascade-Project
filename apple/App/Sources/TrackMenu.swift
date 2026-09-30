@@ -188,6 +188,19 @@ private struct ItemContextMenu: ViewModifier {
                     }
                 }
             }
+            #if os(iOS)
+            if let offline = state.offline, item.type == "MusicAlbum" || item.type == "Playlist" {
+                if offline.isDownloaded(item.id) {
+                    Button("Remove Download", systemImage: "trash", role: .destructive) {
+                        Task { await offline.remove(item.id) }
+                    }
+                } else if let client = state.client {
+                    Button("Download", systemImage: "arrow.down.circle") {
+                        Task { await offline.download(item, client: client) }
+                    }
+                }
+            }
+            #endif
             if let artist, openItem != nil {
                 Button("Go to Artist", systemImage: "music.mic") {
                     guard let client = state.client, let openItem else { return }

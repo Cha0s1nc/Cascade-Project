@@ -19,6 +19,14 @@ final class AppState {
     /// Makes this app a target for "play on" from other Jellyfin clients.
     private var remoteControl: RemoteControl?
 
+    /// Downloaded albums and playlists. One for the app's life, not per
+    /// sign-in: it owns the background download session. None on tvOS.
+    #if os(iOS)
+    let offline: OfflineLibrary? = OfflineLibrary()
+    #else
+    let offline: OfflineLibrary? = nil
+    #endif
+
     /// The other device picked in the Devices sheet: song menus offer
     /// "Play on" it while one is picked.
     var controlledDevice: (id: String, name: String)?
@@ -232,7 +240,14 @@ final class AppState {
             cellular: StreamingQuality(stored: UserDefaults.standard.object(forKey: StreamingQuality.cellularKey)))
         player.normalization = Normalization.Mode(
             rawValue: UserDefaults.standard.string(forKey: "cascade.normalization") ?? "") ?? .off
+        player.offline = offline
         self.player = player
+        if let offline {
+            Task {
+                await offline.resume(client: client)
+                await offline.replayPlays(client: client)
+            }
+        }
         // Castable from other Jellyfin clients for as long as this player lives.
         remoteControl?.stop()
         remoteControl = RemoteControl(client: client, player: player)

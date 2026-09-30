@@ -63,6 +63,16 @@ struct ArtworkView: View {
                 loaded = (key, hit)
                 return
             }
+            // A downloaded cover first: with the server away, the network
+            // try hangs until it times out, for every cover on screen.
+            if let file = state.offline?.artFile(itemId), let data = try? Data(contentsOf: file),
+               let decoded = UIImage(data: data) {
+                let ready = await decoded.byPreparingForDisplay() ?? decoded
+                ArtworkCache.images.setObject(ready, forKey: key,
+                                              cost: Int(ready.size.width * ready.size.height * ready.scale * ready.scale * 4))
+                loaded = (key, ready)
+                return
+            }
             guard let url = await client.imageUrl(itemId: itemId, size: pixels),
                   let (data, response) = try? await URLSession.shared.data(from: url) else { return }
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0

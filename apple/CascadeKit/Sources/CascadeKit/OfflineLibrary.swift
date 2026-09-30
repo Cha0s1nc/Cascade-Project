@@ -32,8 +32,9 @@ public final class OfflineLibrary {
 
     /// Handed over by the app delegate when iOS relaunches the app to finish
     /// downloads in the background; called once the session has delivered
-    /// everything, so iOS can suspend the app again.
-    @ObservationIgnored public var backgroundCompletion: (() -> Void)?
+    /// everything, so iOS can suspend the app again. Static: the delegate
+    /// hears about it without a way to reach this object.
+    public static var backgroundCompletion: (() -> Void)?
 
     public static let sessionIdentifier = "cascade.downloads"
 
@@ -217,8 +218,8 @@ public final class OfflineLibrary {
             lastError = message
             debugLog("download of \(id) failed: \(message)")
         case .eventsDelivered:
-            backgroundCompletion?()
-            backgroundCompletion = nil
+            Self.backgroundCompletion?()
+            Self.backgroundCompletion = nil
         }
     }
 

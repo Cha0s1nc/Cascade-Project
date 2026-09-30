@@ -18,6 +18,11 @@ reflections of it, so the phone runs the same compiled code the Apple TV will.
   - `Playback.swift` - PlaybackInfo negotiation, resume, transcode seeking.
   - `PlaybackReporting.swift` - start / progress / stopped.
   - `PlaybackService.swift` - the only place AVPlayer is wired up.
+  - `Lyrics.swift`, `LyricSources.swift`, `SpicyLyrics.swift` - parsing and the
+    lyric waterfall (Cascade plugin, Kugou, LRCLIB, Jellyfin).
+  - `SmartPlaylists.swift`, `PlayHistory.swift`, `Normalization.swift`,
+    `RemoteControl.swift` - ported from the desktop's `src/core` with its tests.
+  - `OfflineIndex.swift` (pure, tested) and `OfflineLibrary.swift` - downloads.
 - `App/Sources/` - both app targets build these same files. SwiftUI covers most
   of the platform difference; where it does not (tvOS has no `Slider`, and focus
   replaces touch) the views branch on `#if os(tvOS)` rather than forking.
@@ -103,7 +108,8 @@ rests with no chrome, the artwork is the focus target, select is play/pause,
 left and right are previous and next, and the Play/Pause key works whether or
 not anything is on screen.
 
-Not built: playlists, favourites UI, lyrics, offline downloads.
+Not built at the time: playlists, favourites UI, lyrics, offline downloads.
+All four exist now; see the dated sections below.
 
 Added on branch `ios-next` (2026-09-23, Xcode 27 / iOS and tvOS 27 SDKs):
 - Quick Connect sign-in (`QuickConnect.swift`), verified in the iOS simulator
@@ -113,7 +119,7 @@ Added on branch `ios-next` (2026-09-23, Xcode 27 / iOS and tvOS 27 SDKs):
 - Lyrics on Now Playing from the server's Cascade plugin (`Lyrics.swift`:
   `parseLRC` ported with the desktop's tests; plugin probe tries
   `CascadeServer/Info`, then the pre-rename `CascadeLyrics/Info`). Line sync
-  only, no karaoke word fill yet. Never requests SpicyLyrics (no credit UI).
+  only, no karaoke word fill yet. (Superseded: see "Lyrics" below.)
   iOS toggles artwork/lyrics and a tapped line seeks; tvOS shows lyrics in
   place of the queue.
 - Favourite button on iOS Now Playing (not on tvOS yet).
@@ -171,7 +177,8 @@ Browsing and playlists (branch `overnight/swift-browse`, 2026-09-27):
   like the tvOS one (tap by accessibility label, screenshot to a folder)
   works when the simulator tap tool is not granted.
 
-Out of scope for v1: EQ, crossfade, offline downloads, video.
+Once out of scope for v1: EQ, crossfade, offline downloads, video. Offline
+downloads are built (below); the other three are the remaining port work.
 
 Driving iOS without a person: the CascadeiOSUITests target
 (UITests/iOS/TapScript.swift) taps, long-presses, drags, locks and
@@ -204,3 +211,58 @@ setting on iOS that applies while Network reports the path as expensive.
 PlaybackService caps the device profile per resolve (`currentProfile`).
 Stored values go through `StreamingQuality(stored:)`, so garbage reads as
 Original.
+
+Lyrics (2026-09-28/29): SpicyLyrics through the Cascade plugin (syllable
+fill, duets, background vocals, held notes that swell by length, and the
+credit the API's terms require), then Kugou, LRCLIB and Jellyfin as the
+desktop's waterfall does, unless Settings > Server-Only Lyrics (on by
+default) keeps it to the plugin. Untimed lyrics show as a still page.
+Style Tuning (Now Playing > ... > Style Tuning, every build) holds every
+lyric and background knob; the defaults are the user's own tuning. Direct
+streams are opened with AVURLAssetPreferPreciseDurationAndTimingKey: without
+it a FLAC with no SEEKTABLE seeked 1 to 4 s off, so tapping a line landed
+early or late.
+
+Desktop parity batch (2026-09-29): menus on album, artist and playlist
+tiles; the artist page (bio, top songs, similar artists); filtering;
+History; smart playlists (Favorites, Most Played, a rule builder, stored on
+the device as the desktop does); volume normalization (attenuation only:
+AVPlayer's volume stops at 1, so a boost waits for the EQ's audio tap);
+remote control both ways (castable from Jellyfin clients over the socket,
+and Control Devices to drive another session). The server's device list
+names this app iPhone, iPad or Apple TV, not "Cascade".
+
+Offline downloads (2026-09-29, iOS only; tvOS storage is a purgeable cache):
+- Download from an album or playlist's long-press menu, or the button on its
+  page; the Downloads screen (toolbar, every tab) works with no server.
+- One index (`OfflineIndex`, relative paths, validated when read) under
+  Application Support/offline, excluded from backup. A track shared by two
+  downloads is stored once; removing one deletes only files nobody else
+  holds. Launch reconciles the index with the files on disk.
+- Files are `/Items/{id}/Download` (honors the admin's download switch; not
+  `/File`, which ignores it) through one background URLSession created at
+  launch. A finished download is kept only on a 2xx with the full length:
+  background sessions "finish" error pages too.
+- PlaybackService plays a downloaded track from disk (`stream(for:)`, used
+  by load and the gapless preload) and takes its gain from the saved item.
+  Start and stopped reports go out in order without being awaited, so an
+  unreachable server no longer holds a track change for a minute.
+- Jellyfin counts a play on the START report (SessionManager.OnPlaybackStart
+  at 10.11.11), so a failed one is queued and replayed as
+  `/UserPlayedItems/{id}?datePlayed=` once a later report succeeds or the
+  app next launches; the server then shows the real play time.
+- Verified in the iOS 27 simulator against the local 10.11.11: a 7-song
+  playlist downloaded with sizes matching the server; with the server URL
+  pointed at an unroutable address, Downloads, covers and playback worked,
+  audio started 0.2 s after the tap, the handover between local files was
+  gapless, and two plays were queued; reconnecting replayed both (counts up
+  one each, LastPlayedDate the offline time); removal emptied the folder.
+- Not verified yet: background downloads with the app suspended or killed
+  on a real iPhone under free provisioning (expected to need no
+  entitlement), and downloads surviving a re-sign. Check both on the phone
+  deploy. Not built: transcoded downloads, favorites made offline, lyrics
+  offline, an offline mode for the library tabs.
+- Testing tip: the app's preferences live in the simulator's cfprefsd; set
+  the server URL with `xcrun simctl spawn <udid> defaults write
+  <container>/Library/Preferences/xyz.chaosinc.cascade.ios cascade.serverUrl
+  <url>`. Editing the plist file directly is silently undone.

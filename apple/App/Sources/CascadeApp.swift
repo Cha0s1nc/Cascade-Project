@@ -4,6 +4,9 @@ import CascadeKit
 @main
 struct CascadeApp: App {
     @State private var state = AppState()
+    #if os(iOS)
+    @UIApplicationDelegateAdaptor private var appDelegate: AppDelegate
+    #endif
 
     init() {
         // Artwork loads through AsyncImage on URLSession.shared. Jellyfin marks
@@ -19,6 +22,18 @@ struct CascadeApp: App {
         }
     }
 }
+
+#if os(iOS)
+/// Only here for background downloads: iOS relaunches the app to hand over
+/// finished ones and wants to hear when they have all been taken in.
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
+                     completionHandler: @escaping () -> Void) {
+        guard identifier == OfflineLibrary.sessionIdentifier else { return completionHandler() }
+        OfflineLibrary.backgroundCompletion = completionHandler
+    }
+}
+#endif
 
 struct RootView: View {
     @Environment(AppState.self) private var state

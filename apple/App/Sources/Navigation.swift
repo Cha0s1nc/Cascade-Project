@@ -3,7 +3,9 @@ import CascadeKit
 
 /// Screens that are not a library item.
 enum AppRoute: Hashable {
-    case search, settings, genres, history
+    case search, settings, genres, history, downloads
+    /// A downloaded album or playlist, by id.
+    case downloaded(String)
     /// "favorites", "most-played", or a user smart playlist's id.
     case smartPlaylist(String)
 }
@@ -38,6 +40,12 @@ extension View {
                 case .genres: GenresView()
                 case .history: HistoryView()
                 case .smartPlaylist(let kind): SmartPlaylistView(kind: kind)
+                #if os(iOS)
+                case .downloads: DownloadsView()
+                case .downloaded(let id): DownloadedCollectionView(id: id)
+                #else
+                case .downloads, .downloaded: EmptyView()
+                #endif
                 }
             }
     }
@@ -71,6 +79,12 @@ private struct LibraryToolbar: ViewModifier {
                         Image(systemName: "magnifyingglass")
                     }
                     .accessibilityLabel("Search")
+                    // Here rather than in Settings: it is where you go when
+                    // the server cannot be reached, and every tab has it.
+                    NavigationLink(value: AppRoute.downloads) {
+                        Image(systemName: "arrow.down.circle")
+                    }
+                    .accessibilityLabel("Downloads")
                     Button { controllingDevices = true } label: {
                         Image(systemName: state.controlledDevice == nil ? "hifispeaker.2" : "hifispeaker.2.fill")
                     }
