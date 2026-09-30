@@ -108,7 +108,7 @@ rests with no chrome, the artwork is the focus target, select is play/pause,
 left and right are previous and next, and the Play/Pause key works whether or
 not anything is on screen.
 
-Not built at the time: playlists, favourites UI, lyrics, offline downloads.
+Not built at the time: playlists, favorites UI, lyrics, offline downloads.
 All four exist now; see the dated sections below.
 
 Added on branch `ios-next` (2026-09-23, Xcode 27 / iOS and tvOS 27 SDKs):
@@ -122,11 +122,11 @@ Added on branch `ios-next` (2026-09-23, Xcode 27 / iOS and tvOS 27 SDKs):
   only, no karaoke word fill yet. (Superseded: see "Lyrics" below.)
   iOS toggles artwork/lyrics and a tapped line seeks; tvOS shows lyrics in
   place of the queue.
-- Favourite button on iOS Now Playing (not on tvOS yet).
+- Favorite button on iOS Now Playing (not on tvOS yet).
 - Playlists tab, read-only: browse, play, shuffle.
 Verified by a person on the iPhone 16 (iOS 27, free provisioning, Xcode 27,
 2026-09-23): Quick Connect sign-in, lyrics on Now Playing (toggle, sync,
-tap-to-seek), the favourite button sticking server-side, and the Playlists
+tap-to-seek), the favorite button sticking server-side, and the Playlists
 tab. tvOS: builds and reaches the Quick Connect screen; signed-in use not
 checked yet.
 

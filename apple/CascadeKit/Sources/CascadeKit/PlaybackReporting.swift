@@ -13,6 +13,14 @@ import Foundation
 /// How often to check in while playing. Jellyfin's own clients use ~10s.
 public let progressInterval: Duration = .seconds(10)
 
+/// How long a report may take. Start and stopped reports go out one after
+/// another, and with the server unreachable (a tailnet that is down hangs
+/// rather than refusing) each held the next for URLSession's default 60 s:
+/// two per track change, so skipping built a backlog that drained late and
+/// stamped plays with the wrong time. Not much shorter: a slow link that
+/// loses the reply to a report the server did take would count it twice.
+let reportTimeout: TimeInterval = 15
+
 public enum PlayMethod: String, Codable, Sendable {
     case directPlay = "DirectPlay"
     case directStream = "DirectStream"
@@ -97,13 +105,13 @@ public enum PlaybackReporter {
     /// Whether the server took it: this is the report a play is counted on.
     @discardableResult
     public static func start(_ client: JellyfinClient, _ state: PlaybackState) async -> Bool {
-        (try? await client.postRaw("/Sessions/Playing", body: PlaybackReport(state))) != nil
+        (try? await client.postRaw("/Sessions/Playing", body: PlaybackReport(state), timeout: reportTimeout)) != nil
     }
 
     public static func progress(_ client: JellyfinClient, _ state: PlaybackState) async {
         let event = state.isPaused ? "Pause" : "TimeUpdate"
         _ = try? await client.postRaw("/Sessions/Playing/Progress",
-                                  body: PlaybackReport(state, eventName: event))
+                                      body: PlaybackReport(state, eventName: event), timeout: reportTimeout)
     }
 
     /// Playback ended. Drives play history, so position matters.
@@ -113,6 +121,6 @@ public enum PlaybackReporter {
             positionTicks: max(0, state.positionTicks),
             playSessionId: state.playSessionId,
             mediaSourceId: state.mediaSourceId
-        ))
+        ), timeout: reportTimeout)
     }
 }

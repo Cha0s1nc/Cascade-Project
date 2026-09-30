@@ -41,6 +41,10 @@ public struct OfflineIndex: Codable, Sendable, Equatable {
     /// Newest first.
     public var collections: [Collection] = []
     public var plays: [Play] = []
+    /// Album loudness gains (dB) for the albums downloaded tracks belong to,
+    /// so album-mode normalization works offline, and for a playlist's
+    /// tracks too. Only albums that have one.
+    public var albumGains: [String: Double] = [:]
 
     public init() {}
 
@@ -102,6 +106,8 @@ public struct OfflineIndex: Codable, Sendable, Equatable {
             if let file = track.file { orphaned.append(file) }
             tracks[id] = nil
         }
+        let albums = Set(tracks.values.compactMap(\.item.albumId))
+        albumGains = albumGains.filter { albums.contains($0.key) }
         return orphaned.sorted()
     }
 
@@ -138,6 +144,21 @@ public struct OfflineIndex: Codable, Sendable, Equatable {
     }
 
     public func encoded() -> Data? { try? JSONEncoder().encode(self) }
+
+    /// An id fit to become a file name: Jellyfin's are hex, and one from
+    /// anywhere else must not become a path.
+    public static func isSafeId(_ id: String) -> Bool {
+        !id.isEmpty && id.count <= 64 && id.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber) }
+    }
+
+    /// Whether a queued play the server refused should be dropped rather
+    /// than retried. The item is gone (deleted or re-scanned since) or the
+    /// request can never succeed (another server), so retrying would jam
+    /// every play queued behind it. Anything else (no response, 401, 5xx)
+    /// may clear up, so the play is kept.
+    public static func dropsPlay(afterStatus status: Int) -> Bool {
+        status == 400 || status == 404
+    }
 
     /// "media/" plus a plain file name: no separators, no "..".
     static func isSafeMediaPath(_ path: String) -> Bool {

@@ -19,6 +19,30 @@ struct OfflineIndexTests {
         #expect(index.tracks.isEmpty)
     }
 
+    @Test func albumGainsGoWithTheLastTrackFromThatAlbum() {
+        var index = OfflineIndex()
+        var one = track("1"); one.albumId = "A"
+        var two = track("2"); two.albumId = "B"
+        index.add(album("x"), tracks: [one])
+        index.add(album("y"), tracks: [two])
+        index.albumGains = ["A": -3, "B": -5]
+        index.remove("x")
+        #expect(index.albumGains == ["B": -5])
+    }
+
+    @Test func aRefusedPlayIsDroppedOnlyWhenRetryingCannotHelp() {
+        #expect(OfflineIndex.dropsPlay(afterStatus: 404))
+        #expect(OfflineIndex.dropsPlay(afterStatus: 400))
+        for keep in [0, 401, 403, 500, 502, 503] { #expect(!OfflineIndex.dropsPlay(afterStatus: keep), "\(keep)") }
+    }
+
+    @Test func onlyPlainIdsBecomeFileNames() {
+        #expect(OfflineIndex.isSafeId("4489a27fb2adcc74f790cb3d3d977ef7"))
+        for bad in ["", "../x", "a/b", "a.b", "é", String(repeating: "a", count: 65)] {
+            #expect(!OfflineIndex.isSafeId(bad), "\(bad)")
+        }
+    }
+
     @Test func askingAgainKeepsWhatIsOnDiskAndPutsItFirst() {
         var index = OfflineIndex()
         index.add(album("a"), tracks: [track("1")])

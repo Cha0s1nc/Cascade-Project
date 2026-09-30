@@ -37,6 +37,10 @@ struct DownloadsView: View {
             }
         }
         .navigationTitle("Downloads")
+        // Retries whatever failed or stopped, and clears the last error.
+        .task {
+            if let offline = state.offline, let client = state.client { await offline.resume(client: client) }
+        }
         .confirmationDialog("Remove every download from this device?", isPresented: $confirmingRemoveAll,
                             titleVisibility: .visible) {
             Button("Remove All", role: .destructive) { Task { await state.offline?.removeAll() } }
@@ -61,9 +65,13 @@ private struct DownloadRow: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            if progress.done < progress.total {
+            if state.offline?.isTransferring(collection.id) == true {
                 ProgressView(value: Double(progress.done), total: Double(max(progress.total, 1)))
                     .progressViewStyle(.circular)
+            } else if progress.done < progress.total {
+                Image(systemName: "exclamationmark.circle")
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Some songs did not download")
             }
         }
     }
@@ -76,14 +84,19 @@ struct DownloadedCollectionView: View {
 
     var body: some View {
         let tracks = state.offline?.tracks(of: id) ?? []
+        // Only what is on disk is queued: this screen is for playing with no
+        // server, where a track still to download would hang, then fail.
+        let playable = tracks.filter { state.offline?.localFile($0.id) != nil }
         List {
-            ForEach(Array(tracks.enumerated()), id: \.offset) { index, track in
+            ForEach(Array(tracks.enumerated()), id: \.offset) { _, track in
+                let ready = state.offline?.localFile(track.id) != nil
                 Button {
-                    Task { await state.player?.play(tracks, startIndex: index) }
+                    let start = playable.firstIndex { $0.id == track.id } ?? 0
+                    Task { await state.player?.play(playable, startIndex: start) }
                 } label: {
                     HStack {
                         TrackRow(track: track)
-                        if state.offline?.localFile(track.id) == nil {
+                        if !ready {
                             Image(systemName: "arrow.down.circle.dotted")
                                 .foregroundStyle(.secondary)
                                 .accessibilityLabel("Not downloaded yet")
@@ -91,13 +104,14 @@ struct DownloadedCollectionView: View {
                     }
                 }
                 .buttonStyle(.plain)
+                .disabled(!ready)
             }
         }
         .navigationTitle(state.offline?.savedItem(id)?.name ?? "Download")
         .toolbar {
-            if !tracks.isEmpty {
+            if !playable.isEmpty {
                 Button("Shuffle", systemImage: "shuffle") {
-                    Task { await playShuffled(tracks, on: state.player) }
+                    Task { await playShuffled(playable, on: state.player) }
                 }
             }
         }

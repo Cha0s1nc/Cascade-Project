@@ -30,7 +30,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
                      completionHandler: @escaping () -> Void) {
         guard identifier == OfflineLibrary.sessionIdentifier else { return completionHandler() }
-        OfflineLibrary.backgroundCompletion = completionHandler
+        OfflineLibrary.handBackgroundCompletion(completionHandler)
     }
 }
 #endif

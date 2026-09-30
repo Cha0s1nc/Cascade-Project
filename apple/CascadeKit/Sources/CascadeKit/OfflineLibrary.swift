@@ -34,7 +34,19 @@ public final class OfflineLibrary {
     /// downloads in the background; called once the session has delivered
     /// everything, so iOS can suspend the app again. Static: the delegate
     /// hears about it without a way to reach this object.
-    public static var backgroundCompletion: (() -> Void)?
+    private static var backgroundCompletion: (() -> Void)?
+    /// The session can finish delivering before the app delegate hands the
+    /// handler over (it exists from launch), so that order is remembered.
+    private static var deliveredWithoutHandler = false
+
+    public static func handBackgroundCompletion(_ handler: @escaping () -> Void) {
+        if deliveredWithoutHandler {
+            deliveredWithoutHandler = false
+            handler()
+        } else {
+            backgroundCompletion = handler
+        }
+    }
 
     public static let sessionIdentifier = "cascade.downloads"
 
@@ -82,6 +94,11 @@ public final class OfflineLibrary {
         index.readyFile(itemId).map { root.appending(path: $0) }
     }
 
+    /// Whether any of a collection's tracks is transferring right now.
+    public func isTransferring(_ collectionId: String) -> Bool {
+        index.collection(collectionId)?.trackIds.contains(where: active.contains) ?? false
+    }
+
     public func artFile(_ itemId: String) -> URL? {
         art.contains(itemId) ? root.appending(path: "art/\(itemId).jpg") : nil
     }
@@ -112,10 +129,12 @@ public final class OfflineLibrary {
             let gains = await Self.singleItems(list.map(\.id), client: client)
             for i in list.indices { list[i].normalizationGain = gains[list[i].id]?.normalizationGain }
             let full = (try? await client.item(id: collection.id)) ?? collection
+            let albumIds = Set(list.compactMap(\.albumId))
+            let albums = await Self.singleItems(albumIds.sorted(), client: client)
             index.add(full, tracks: list)
+            for (id, album) in albums { if let db = album.normalizationGain { index.albumGains[id] = db } }
             save()
-            let albums = Set(list.compactMap(\.albumId)).subtracting(art)
-            await saveArt([collection.id] + albums.sorted(), client: client)
+            await saveArt([collection.id] + albumIds.subtracting(art).sorted(), client: client)
             await resume(client: client)
         } catch {
             lastError = error.localizedDescription
@@ -125,9 +144,10 @@ public final class OfflineLibrary {
     /// Starts whatever is asked for and not yet on disk or on its way:
     /// after a relaunch, a failure, or a new request.
     public func resume(client: JellyfinClient) async {
+        lastError = nil
         let config = await client.currentConfig
         let running = Set(await session.allTasks.compactMap(\.taskDescription))
-        for id in index.pending where !running.contains(id) {
+        for id in index.pending where !running.contains(id) && OfflineIndex.isSafeId(id) {
             guard let url = URL(string: "\(config.url)/Items/\(id)/Download") else { continue }
             var request = URLRequest(url: url)
             request.setValue(authHeader(appVersion: cascadeAppVersion, deviceId: config.deviceId, token: config.token),
@@ -181,6 +201,8 @@ public final class OfflineLibrary {
             do {
                 try await client.postRaw("/UserPlayedItems/\(play.itemId)", body: Optional<EmptyBody>.none,
                                          params: ["userId": userId, "datePlayed": stamp.string(from: play.date)])
+            } catch let error as JellyfinError where OfflineIndex.dropsPlay(afterStatus: error.status) {
+                debugLog("offline play of \(play.itemId) refused (HTTP \(error.status)), dropped")
             } catch {
                 debugLog("offline play replay stopped: \(error)")
                 return
@@ -218,13 +240,17 @@ public final class OfflineLibrary {
             lastError = message
             debugLog("download of \(id) failed: \(message)")
         case .eventsDelivered:
-            Self.backgroundCompletion?()
-            Self.backgroundCompletion = nil
+            if let handler = Self.backgroundCompletion {
+                Self.backgroundCompletion = nil
+                handler()
+            } else {
+                Self.deliveredWithoutHandler = true
+            }
         }
     }
 
     private func saveArt(_ ids: [String], client: JellyfinClient) async {
-        for id in ids where !art.contains(id) {
+        for id in ids where !art.contains(id) && OfflineIndex.isSafeId(id) {
             guard let url = await client.imageUrl(itemId: id, size: 600),
                   let (data, response) = try? await URLSession.shared.data(from: url),
                   (response as? HTTPURLResponse)?.statusCode == 200 else { continue }

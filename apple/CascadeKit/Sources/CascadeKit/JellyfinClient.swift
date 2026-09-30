@@ -167,8 +167,10 @@ public actor JellyfinClient {
     /// which is the whole point.
     @discardableResult
     public func postRaw<Body: Encodable>(_ path: String, body: Body?,
-                                         params: [String: String?] = [:]) async throws -> Data {
+                                         params: [String: String?] = [:],
+                                         timeout: TimeInterval? = nil) async throws -> Data {
         var request = URLRequest(url: try makeURL(path, params))
+        if let timeout { request.timeoutInterval = timeout }
         request.httpMethod = "POST"
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")

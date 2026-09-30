@@ -563,7 +563,7 @@ public final class PlaybackService {
         // hangs until it times out and the gapless handover misses.
         if let offline, let saved = offline.savedItem(item.id) {
             if normalization == .album, let albumId = item.albumId,
-               let db = offline.savedItem(albumId)?.normalizationGain { return db }
+               let db = offline.index.albumGains[albumId] { return db }
             return saved.normalizationGain
         }
         if normalization == .album, let albumId = item.albumId,
