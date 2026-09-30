@@ -1,100 +1,101 @@
 name: Build
 
 on:
+  # stable: a "Release (x.x.X) [platforms]" commit in the pushed range makes a
+  # draft release; without one it only builds. dev: a "[BETA]" commit
+  # publishes a prerelease; anything else does nothing past the setup job.
+  # The rules live in src/core/release-plan.ts (tested) and
+  # docs/release-pipeline-plan.md.
+  #
+  # NOT tags. Releases are created as drafts, and publishing a draft creates
+  # its tag - which pushed a 'v*' tag, retriggered this workflow, and had it
+  # rebuild and overwrite the assets that had just been published.
   push:
-    # NOT tags. Releases are created as drafts, and publishing a draft creates
-    # its tag - which pushed a 'v*' tag, retriggered this workflow, and had it
-    # rebuild and overwrite the assets that had just been published. Worse, the
-    # tag lands on whatever target_commitish the release carries, so the rebuild
-    # was of a completely different commit. Use workflow_dispatch for manual
-    # builds instead.
-    branches: ['stable']
-    # The other apps live in this repo too. A push that only touches them
-    # must not build a desktop release.
-    paths-ignore: ['apple/**', 'android/**']
-  # Manual runs build any branch. Leave prerelease off for a test build (installers
-  # on the run page, no release); turn it on to publish a -bN beta draft.
+    branches: ['stable', 'dev']
+  # Manual runs build any branch and never publish: no bump is a test build
+  # (installers on the run page, no release); a bump or beta makes a draft.
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Version to build (e.g. 1.1.1) — leave blank to use package.json'
-        required: false
+      bump:
+        description: 'Make a draft release, bumping the last published version'
+        type: choice
+        options: ['', 'patch', 'minor', 'major']
         default: ''
-      prerelease:
-        description: 'Publish as a beta (-bN) prerelease draft'
+      platforms:
+        description: 'Platforms to build: all, or a list such as "desktop, apple"'
+        required: false
+        default: 'all'
+      beta:
+        description: 'Make a -bN beta draft instead'
         type: boolean
         default: false
 
 permissions:
   contents: write
 
+# Two runs on one branch cannot claim the same version: they queue.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  # ── Resolve version & release metadata ────────────────────────────────────
+  # ── Decide what this run does ─────────────────────────────────────────────
   setup:
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.resolve.outputs.version }}
-      tag: ${{ steps.resolve.outputs.tag }}
-      prerelease: ${{ steps.resolve.outputs.prerelease }}
-      should_release: ${{ steps.resolve.outputs.should_release }}
+      mode: ${{ steps.plan.outputs.mode }}
+      version: ${{ steps.plan.outputs.version }}
+      tag: ${{ steps.plan.outputs.tag }}
+      desktop: ${{ steps.plan.outputs.desktop }}
+      apple: ${{ steps.plan.outputs.apple }}
+      android: ${{ steps.plan.outputs.android }}
+      prerelease: ${{ steps.plan.outputs.prerelease }}
+      publish: ${{ steps.plan.outputs.publish }}
+      last_tag: ${{ steps.plan.outputs.last_tag }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Resolve version and release type
-        id: resolve
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      # Every value reaches the script through env, never pasted into the
+      # script itself: commit messages are read from git inside it.
+      - name: Plan
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          BRANCH: ${{ github.ref_name }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          INPUT_BUMP: ${{ inputs.bump }}
+          INPUT_PLATFORMS: ${{ inputs.platforms }}
+          INPUT_BETA: ${{ inputs.beta }}
         run: |
-          PKG=$(node -p "require('./package.json').version")
+          # The latest PUBLISHED, non-prerelease release: never a draft.
+          LAST_TAG=$(gh release view --json tagName -q .tagName)
+          echo "last_tag=$LAST_TAG" >> "$GITHUB_OUTPUT"
+          export LAST_VERSION="$LAST_TAG"
+          # Drafts included, so a beta number is never reused.
+          export TAGS=$(gh release list --limit 200 --json tagName -q '.[].tagName')
+          node scripts/release-plan.mjs plan
 
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.prerelease }}" == "true" ]]; then
-            # Manual beta - auto-increment beta build number
-            BASE="${PKG%%-*}"
-            COUNT=$(git tag -l "v${BASE}-b[0-9]*" | wc -l | tr -d ' ')
-            BETA_NUM=$((COUNT + 1))
-            VERSION="${BASE}-b${BETA_NUM}"
-            TAG="v${VERSION}"
-            echo "version=$VERSION"      >> $GITHUB_OUTPUT
-            echo "tag=$TAG"             >> $GITHUB_OUTPUT
-            echo "prerelease=true"      >> $GITHUB_OUTPUT
-            echo "should_release=true"  >> $GITHUB_OUTPUT
-
-          elif [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/stable" ]]; then
-            # Push to stable — use package.json version as-is
-            VERSION="$PKG"
-            TAG="v${VERSION}"
-            echo "version=$VERSION"      >> $GITHUB_OUTPUT
-            echo "tag=$TAG"             >> $GITHUB_OUTPUT
-            echo "prerelease=false"     >> $GITHUB_OUTPUT
-            echo "should_release=true"  >> $GITHUB_OUTPUT
-
-          elif [[ "${{ github.event_name }}" == "push" ]]; then
-            # Tag push — use the tag. Unreachable while the trigger above only
-            # lists branches; kept so re-enabling 'tags' still resolves sanely.
-            REF="${{ github.ref_name }}"
-            VERSION="${REF#v}"
-            TAG="$REF"
-            [[ "$REF" == *-* ]] && PRE=true || PRE=false
-            echo "version=$VERSION"      >> $GITHUB_OUTPUT
-            echo "tag=$TAG"             >> $GITHUB_OUTPUT
-            echo "prerelease=$PRE"      >> $GITHUB_OUTPUT
-            echo "should_release=true"  >> $GITHUB_OUTPUT
-
-          else
-            # workflow_dispatch test build
-            INPUT="${{ github.event.inputs.version }}"
-            VERSION="${INPUT:-$PKG}"
-            TAG="v${VERSION}"
-            echo "version=$VERSION"      >> $GITHUB_OUTPUT
-            echo "tag=$TAG"             >> $GITHUB_OUTPUT
-            echo "prerelease=false"     >> $GITHUB_OUTPUT
-            echo "should_release=false" >> $GITHUB_OUTPUT
-          fi
+      # A release with no changelog section is refused before anything builds.
+      - name: Check the changelog has this version
+        if: steps.plan.outputs.mode == 'release'
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: node scripts/changelog-section.mjs "$VERSION" > /dev/null
 
   # ── Test and typecheck ────────────────────────────────────────────────────
   # Gates every build job below: a red test or a type error must never reach
   # a packaged build, let alone a release draft.
   test:
+    needs: setup
+    if: needs.setup.outputs.desktop == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -122,6 +123,7 @@ jobs:
   # ── Windows ────────────────────────────────────────────────────────────────
   build-windows:
     needs: [setup, test]
+    if: needs.setup.outputs.desktop == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -131,8 +133,13 @@ jobs:
           node-version: 24
           cache: npm
 
+      # Empty for a build without a release: package.json's version stays.
       - name: Set version
-        run: npm version ${{ needs.setup.outputs.version }} --no-git-tag-version --allow-same-version
+        if: needs.setup.outputs.version != ''
+        shell: bash
+        env:
+          VERSION: ${{ needs.setup.outputs.version }}
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
 
       - name: Install dependencies
         run: npm ci
@@ -150,6 +157,7 @@ jobs:
   # ── macOS ──────────────────────────────────────────────────────────────────
   build-mac:
     needs: [setup, test]
+    if: needs.setup.outputs.desktop == 'true'
     # Pinned rather than macos-latest: the Apple Translation helper needs the
     # macOS 26 SDK, and a runner rollback would fail the build in a way that
     # looks unrelated to the label.
@@ -162,8 +170,13 @@ jobs:
           node-version: 24
           cache: npm
 
+      # Empty for a build without a release: package.json's version stays.
       - name: Set version
-        run: npm version ${{ needs.setup.outputs.version }} --no-git-tag-version --allow-same-version
+        if: needs.setup.outputs.version != ''
+        shell: bash
+        env:
+          VERSION: ${{ needs.setup.outputs.version }}
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
 
       - name: Install dependencies
         run: npm ci
@@ -205,6 +218,7 @@ jobs:
   # ── Linux (AppImage + RPM) ─────────────────────────────────────────────────
   build-linux:
     needs: [setup, test]
+    if: needs.setup.outputs.desktop == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -219,8 +233,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y rpm libarchive-tools fakeroot dpkg
 
+      # Empty for a build without a release: package.json's version stays.
       - name: Set version
-        run: npm version ${{ needs.setup.outputs.version }} --no-git-tag-version --allow-same-version
+        if: needs.setup.outputs.version != ''
+        shell: bash
+        env:
+          VERSION: ${{ needs.setup.outputs.version }}
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
 
       - name: Install dependencies
         run: npm ci
@@ -249,31 +268,178 @@ jobs:
           path: dist/*.deb
           retention-days: 7
 
+
+  # ── iOS and tvOS ─────────────────────────────────────────────────────────
+  # Unsigned: the maintainer has no paid Apple developer account yet. The
+  # .ipa files are re-signed at install time (Sideloadly, Xcode); the
+  # .xcarchive keeps the debug symbols for reading crash logs later.
+  build-apple:
+    needs: setup
+    if: needs.setup.outputs.apple == 'true'
+    # Xcode 27 is its own image; macos-26 does not have it.
+    runs-on: xcode-27
+    defaults:
+      run:
+        working-directory: apple
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: CascadeKit tests
+        working-directory: apple/CascadeKit
+        run: swift test
+
+      - name: Generate the Xcode project
+        run: xcodegen generate
+
+      # The marketing version is x.y.z (a beta's -bN is dropped: Apple only
+      # takes numbers); the build number is the run number, which only goes
+      # up, as the stores require.
+      - name: Archive and package
+        env:
+          VERSION: ${{ needs.setup.outputs.version }}
+          BUILD: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          NAME="${VERSION:-build-$BUILD}"
+          MARKETING="${VERSION%%-*}"
+          MARKETING="${MARKETING:-0.0.$BUILD}"
+          mkdir -p dist
+          for p in iOS tvOS; do
+            xcodebuild archive -project Cascade.xcodeproj -scheme "Cascade$p" \
+              -destination "generic/platform=$p" -archivePath "build/Cascade-$p.xcarchive" \
+              MARKETING_VERSION="$MARKETING" CURRENT_PROJECT_VERSION="$BUILD" \
+              CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+            APP=$(ls -d build/Cascade-$p.xcarchive/Products/Applications/*.app | head -1)
+            rm -rf Payload && mkdir Payload && cp -R "$APP" Payload/
+            zip -qry "dist/Cascade-$NAME-$p.ipa" Payload
+            ditto -c -k --keepParent "build/Cascade-$p.xcarchive" "dist/Cascade-$NAME-$p.xcarchive.zip"
+          done
+          ls -la dist
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist-apple
+          path: apple/dist/*
+          retention-days: 7
+
   # ── Release ────────────────────────────────────────────────────────────────
+  # A draft (always, except a [BETA] pushed to dev, which is published as a
+  # prerelease) holding the new builds, the unchanged platforms' files copied
+  # from the latest published release, versions.json saying which version
+  # each platform really is, and notes from CHANGELOG.md. A platform whose
+  # build failed is carried over instead and named in the notes; the draft
+  # is for the maintainer to check before publishing.
   release:
-    needs: [setup, build-windows, build-mac, build-linux]
-    if: needs.setup.outputs.should_release == 'true'
+    needs: [setup, test, build-windows, build-mac, build-linux, build-apple]
+    if: >-
+      always() && needs.setup.result == 'success' &&
+      (needs.setup.outputs.mode == 'release' || needs.setup.outputs.mode == 'beta')
     runs-on: ubuntu-latest
     steps:
-      - name: Download all artifacts
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Download build artifacts
         uses: actions/download-artifact@v8
+        continue-on-error: true
         with:
           path: artifacts
           merge-multiple: true
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ needs.setup.outputs.tag }}
-          # Without this the draft carries no commitish, so publishing it creates
-          # the tag on the DEFAULT branch rather than the commit that was built.
-          # That is how v1.2.0-b4 ended up tagged at a three-week-old stable
-          # commit, and how the binaries came from code that had none of the
-          # work they were supposed to contain.
-          target_commitish: ${{ github.sha }}
-          files: artifacts/**
-          generate_release_notes: true
-          draft: true
-          prerelease: ${{ needs.setup.outputs.prerelease }}
+      - name: Assemble and create the release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ needs.setup.outputs.mode }}
+          VERSION: ${{ needs.setup.outputs.version }}
+          TAG: ${{ needs.setup.outputs.tag }}
+          LAST_TAG: ${{ needs.setup.outputs.last_tag }}
+          PUBLISH: ${{ needs.setup.outputs.publish }}
+          PRERELEASE: ${{ needs.setup.outputs.prerelease }}
+          WANT_DESKTOP: ${{ needs.setup.outputs.desktop }}
+          WANT_APPLE: ${{ needs.setup.outputs.apple }}
+          WIN: ${{ needs.build-windows.result }}
+          MAC: ${{ needs.build-mac.result }}
+          LINUX: ${{ needs.build-linux.result }}
+          APPLE: ${{ needs.build-apple.result }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mkdir -p release carried
+          REBUILT=(); CARRIED=(); FAILED=()
+
+          # Desktop counts as rebuilt only if all three builds made it: one
+          # desktop version per release, as versions.json says.
+          if [ "$WANT_DESKTOP" = true ]; then
+            if [ "$WIN" = success ] && [ "$MAC" = success ] && [ "$LINUX" = success ]; then
+              REBUILT+=(desktop)
+              cp artifacts/*.exe artifacts/*.dmg artifacts/*.AppImage artifacts/*.deb artifacts/*.rpm release/
+            else
+              FAILED+=(desktop)
+            fi
+          fi
+          if [ "$WANT_APPLE" = true ]; then
+            if [ "$APPLE" = success ]; then
+              REBUILT+=(apple)
+              cp artifacts/*.ipa artifacts/*.xcarchive.zip release/
+            else
+              FAILED+=(apple)
+            fi
+          fi
+          if [ ${#REBUILT[@]} -eq 0 ]; then
+            echo "::error::Nothing built successfully; not making a release."
+            exit 1
+          fi
+
+          # Carry-over: a stable release always holds every platform's newest
+          # files, so nobody has to dig through older releases. Betas do not.
+          if [ "$MODE" = release ]; then
+            gh release download "$LAST_TAG" -p versions.json -D carried 2>/dev/null || true
+            for p in desktop apple android; do
+              [[ " ${REBUILT[*]} " == *" $p "* ]] && continue
+              case $p in
+                desktop) PATTERNS=('*.exe' '*.dmg' '*.AppImage' '*.deb' '*.rpm') ;;
+                apple)   PATTERNS=('*.ipa' '*.xcarchive.zip') ;;
+                android) PATTERNS=('*.apk' '*.aab') ;;
+              esac
+              ARGS=(); for pat in "${PATTERNS[@]}"; do ARGS+=(-p "$pat"); done
+              mkdir -p "carried/$p"
+              gh release download "$LAST_TAG" "${ARGS[@]}" -D "carried/$p" 2>/dev/null || true
+              FILES=(carried/$p/*)
+              if [ ${#FILES[@]} -gt 0 ]; then CARRIED+=("$p"); cp "${FILES[@]}" release/; fi
+            done
+          fi
+
+          join() { local IFS=,; echo "$*"; }
+          VERSION="$VERSION" REBUILT="$(join "${REBUILT[@]}")" CARRIED="$(join "${CARRIED[@]+"${CARRIED[@]}"}")" \
+            PREVIOUS_FILE=carried/versions.json PREVIOUS_VERSION="$LAST_TAG" \
+            node scripts/release-plan.mjs versions > release/versions.json
+          echo "versions.json: $(cat release/versions.json)"
+
+          # Notes: the changelog section (required for a release, checked in
+          # setup), then what was carried over and what failed.
+          if ! node scripts/changelog-section.mjs "${VERSION%%-*}" > notes.md 2>/dev/null; then
+            echo "Beta build $VERSION." > notes.md
+          fi
+          name() { case $1 in desktop) echo Desktop ;; apple) echo "iOS and tvOS" ;; android) echo Android ;; esac; }
+          if [ ${#CARRIED[@]} -gt 0 ]; then
+            { echo; echo '---'; echo; echo "Unchanged in this release, carried over from $LAST_TAG:"; echo
+              for p in "${CARRIED[@]}"; do echo "- $(name "$p") $(jq -r --arg p "$p" '.[$p] // "?"' release/versions.json)"; done
+            } >> notes.md
+          fi
+          if [ ${#FAILED[@]} -gt 0 ]; then
+            { echo; for p in "${FAILED[@]}"; do echo "**The $(name "$p") build failed in this run.** Check it before publishing."; done; } >> notes.md
+          fi
+
+          FLAGS=(--title "$TAG" --notes-file notes.md --target "$SHA")
+          [ "$PUBLISH" = true ] || FLAGS+=(--draft)
+          [ "$PRERELEASE" = true ] && FLAGS+=(--prerelease)
+          gh release create "$TAG" "${FLAGS[@]}" release/*
+          echo "Made $TAG ($([ "$PUBLISH" = true ] && echo published || echo draft)) with: $(ls release | tr '\n' ' ')"
