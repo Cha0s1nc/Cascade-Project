@@ -21,6 +21,50 @@ final class AppState {
     /// Listening along with others (Waterfall). One per sign-in, like the player.
     private(set) var waterfall: WaterfallSession?
 
+    /// Music or Video: which library the tabs browse, the desktop's toggle.
+    enum BrowseMode: String { case music, video }
+    var browseMode = BrowseMode(rawValue: UserDefaults.standard.string(forKey: "cascade.browseMode") ?? "") ?? .music {
+        didSet { UserDefaults.standard.set(browseMode.rawValue, forKey: "cascade.browseMode") }
+    }
+
+    /// The movie or episodes playing, shown full screen while set.
+    var videoSession: VideoSession?
+
+    /// Plays movies or episodes in Apple's player, pausing any music first.
+    func playVideo(_ items: [JfItem], startIndex: Int = 0, audioStreamIndex: Int? = nil, resume: Bool = true) async {
+        guard let client, let config else { return }
+        player?.pause()
+        let session = videoSession ?? VideoSession(client: client, config: config)
+        videoSession = session
+        await session.play(items, startIndex: startIndex, audioStreamIndex: audioStreamIndex, resume: resume)
+    }
+
+    /// One tile's worth: an episode plays on through the rest of its season.
+    func playVideoItem(_ item: JfItem) async {
+        guard let client else { return }
+        if item.type == "Episode", let series = item.seriesId,
+           let season = try? await client.episodes(of: series, season: item.seasonId),
+           let index = season.firstIndex(where: { $0.id == item.id }) {
+            await playVideo(season, startIndex: index)
+        } else {
+            await playVideo([item])
+        }
+    }
+
+    /// Bumped once a closed video's stopped report has landed, so pages
+    /// refetch resume points and Next Up after the server has them, not
+    /// before (they raced, and a page showed Play instead of Resume).
+    private(set) var videoRevision = 0
+
+    func closeVideo() {
+        guard let session = videoSession else { return }
+        videoSession = nil
+        Task {
+            await session.stop()
+            videoRevision += 1
+        }
+    }
+
     /// Downloaded albums and playlists. One for the app's life, not per
     /// sign-in: it owns the background download session. None on tvOS.
     #if os(iOS)
@@ -208,6 +252,7 @@ final class AppState {
         remoteControl = nil
         waterfall?.leave()
         waterfall = nil
+        closeVideo()
         controlledDevice = nil
         cascadePluginApi = nil
         cascadePluginInfo = .init()

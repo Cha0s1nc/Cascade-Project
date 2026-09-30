@@ -114,6 +114,14 @@ public struct JfItem: Codable, Sendable, Identifiable, Hashable {
     public var artistItems: [JfNameId]?
     public var albumArtists: [JfNameId]?
 
+    // Video: an episode's show and season, and what a movie or show page shows.
+    public var seriesId: String?
+    public var seriesName: String?
+    public var seasonId: String?
+    public var backdropImageTags: [String]?
+    public var officialRating: String?
+    public var communityRating: Double?
+
     public init(id: String, name: String? = nil, type: String? = nil,
                 runTimeTicks: Int? = nil, userData: JfUserData? = nil) {
         self.id = id

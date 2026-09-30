@@ -192,6 +192,13 @@ public actor JellyfinClient {
         return imageUrl(itemId: itemId)
     }
 
+    /// Any image type at a given box, for posters (2:3), stills (16:9) and
+    /// backdrops, which a square request would crop.
+    public func imageUrl(itemId: String, type: String, width: Int, height: Int) -> URL? {
+        URL(string: "\(config.url)/Items/\(itemId)/Images/\(type)"
+            + "?fillHeight=\(height)&fillWidth=\(width)&quality=90&ApiKey=\(config.token)")
+    }
+
     public func imageUrl(itemId: String, size: Int = 600) -> URL? {
         URL(string: "\(config.url)/Items/\(itemId)/Images/Primary"
             + "?fillHeight=\(size)&fillWidth=\(size)&quality=90&ApiKey=\(config.token)")

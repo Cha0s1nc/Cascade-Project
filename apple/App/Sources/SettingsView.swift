@@ -129,6 +129,16 @@ struct SettingsView: View {
             }
 
             Section {
+                @Bindable var state = state
+                Picker("Browse", selection: $state.browseMode) {
+                    Text("Music").tag(AppState.BrowseMode.music)
+                    Text("Movies and Shows").tag(AppState.BrowseMode.video)
+                }
+            } footer: {
+                Text("Which library the tabs show.")
+            }
+
+            Section {
                 NavigationLink {
                     WaterfallView()
                 } label: {

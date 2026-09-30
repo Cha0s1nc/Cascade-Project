@@ -19,6 +19,8 @@ struct ItemDestination: View {
         case "MusicArtist": ArtistDetailView(artist: item)
         case "Playlist": PlaylistDetailView(playlist: item)
         case "MusicGenre": GenreDetailView(genre: item)
+        case "Movie": MovieDetailView(movie: item)
+        case "Series": SeriesDetailView(series: item)
         default: AlbumDetailView(album: item)
         }
     }
@@ -74,6 +76,15 @@ private struct LibraryToolbar: ViewModifier {
     func body(content: Content) -> some View {
         content
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    @Bindable var state = state
+                    Button {
+                        state.browseMode = state.browseMode == .music ? .video : .music
+                    } label: {
+                        Image(systemName: state.browseMode == .music ? "film" : "music.note")
+                    }
+                    .accessibilityLabel(state.browseMode == .music ? "Browse Video" : "Browse Music")
+                }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     NavigationLink(value: AppRoute.search) {
                         Image(systemName: "magnifyingglass")

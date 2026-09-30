@@ -12,10 +12,16 @@ struct MainView: View {
     @State private var showingNowPlaying = false
     @State private var tab: AppTab = .home
 
-    enum AppTab: Hashable { case nowPlaying, home, albums, artists, songs, playlists, search, settings }
+    enum AppTab: Hashable { case nowPlaying, home, albums, artists, songs, playlists, movies, shows, search, settings }
 
     var body: some View {
         content
+            .fullScreenCover(isPresented: Binding(
+                get: { state.videoSession != nil },
+                set: { if !$0 { state.closeVideo() } })) {
+                if let session = state.videoSession { VideoScreen(session: session) }
+            }
+            .onChange(of: state.browseMode) { tab = .home }
             .alert("Waterfall", isPresented: Binding(
                 get: { state.waterfall?.notice != nil },
                 set: { if !$0 { state.waterfall?.notice = nil } })) {
@@ -55,11 +61,17 @@ struct MainView: View {
                 }
             }
             #endif
-            Tab("Home", systemImage: "house", value: AppTab.home) { stack { HomeView() } }
-            Tab("Albums", systemImage: "square.stack", value: AppTab.albums) { stack { AlbumsView() } }
-            Tab("Artists", systemImage: "music.mic", value: AppTab.artists) { stack { ArtistsView() } }
-            Tab("Songs", systemImage: "music.note.list", value: AppTab.songs) { stack { SongsView() } }
-            Tab("Playlists", systemImage: "music.note.square.stack", value: AppTab.playlists) { stack { PlaylistsView() } }
+            if state.browseMode == .video {
+                Tab("Home", systemImage: "house", value: AppTab.home) { stack { VideoHomeView() } }
+                Tab("Movies", systemImage: "film", value: AppTab.movies) { stack { VideoGridView(kind: .movies) } }
+                Tab("Shows", systemImage: "tv", value: AppTab.shows) { stack { VideoGridView(kind: .shows) } }
+            } else {
+                Tab("Home", systemImage: "house", value: AppTab.home) { stack { HomeView() } }
+                Tab("Albums", systemImage: "square.stack", value: AppTab.albums) { stack { AlbumsView() } }
+                Tab("Artists", systemImage: "music.mic", value: AppTab.artists) { stack { ArtistsView() } }
+                Tab("Songs", systemImage: "music.note.list", value: AppTab.songs) { stack { SongsView() } }
+                Tab("Playlists", systemImage: "music.note.square.stack", value: AppTab.playlists) { stack { PlaylistsView() } }
+            }
             #if os(tvOS)
             Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .search) { stack { SearchView() } }
             Tab("Settings", systemImage: "gear", value: AppTab.settings) { stack { SettingsView() } }

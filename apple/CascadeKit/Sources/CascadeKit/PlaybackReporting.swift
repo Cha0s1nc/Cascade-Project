@@ -40,10 +40,13 @@ public struct PlaybackState: Sendable, Equatable {
     public var mediaSourceId: String?
     public var playMethod: PlayMethod
     public var canSeek: Bool
+    /// "Audio" or "Video": what the server's session shows as playing.
+    public var mediaType = "Audio"
 
     public init(itemId: String, positionTicks: Int, isPaused: Bool = false, isMuted: Bool = false,
                 volumeLevel: Int = 100, playSessionId: String? = nil, mediaSourceId: String? = nil,
-                playMethod: PlayMethod = .directPlay, canSeek: Bool = true) {
+                playMethod: PlayMethod = .directPlay, canSeek: Bool = true, mediaType: String = "Audio") {
+        self.mediaType = mediaType
         self.itemId = itemId
         self.positionTicks = positionTicks
         self.isPaused = isPaused
@@ -83,7 +86,7 @@ public struct PlaybackReport: Encodable, Sendable {
         volumeLevel = min(100, max(0, s.volumeLevel))
         canSeek = s.canSeek
         playMethod = s.playMethod
-        mediaType = "Audio"
+        mediaType = s.mediaType
         queueableMediaTypes = ["Audio"]
         playSessionId = s.playSessionId
         mediaSourceId = s.mediaSourceId

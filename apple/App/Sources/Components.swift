@@ -29,13 +29,20 @@ struct ArtworkView: View {
     /// animates (Now Playing's grows from a header thumbnail), so one sharp
     /// image scales smoothly instead of two copies crossfading.
     var fillsFrame = false
+    /// Width over height: 1 for album art, 2/3 for a poster, 16/9 for an
+    /// episode still or a backdrop. `size` is the width.
+    var aspect: CGFloat = 1
+    /// Jellyfin's image type: "Primary", or "Backdrop" for a page's header.
+    var imageType = "Primary"
 
     @Environment(AppState.self) private var state
     /// Tagged with its key: the same view can be handed a different item, and
     /// must not keep showing the last one's cover while the new one loads.
     @State private var loaded: (key: NSString, image: UIImage)?
 
-    private var key: NSString? { itemId.map { "\($0)|\(pixels)" as NSString } }
+    private var key: NSString? {
+        itemId.map { aspect == 1 && imageType == "Primary" ? "\($0)|\(pixels)" : "\($0)|\(pixels)|\(aspect)|\(imageType)" } as NSString?
+    }
     private var pixels: Int { Int(size * 2) }
 
     var body: some View {
@@ -47,13 +54,13 @@ struct ArtworkView: View {
                 Image(uiImage: image).resizable().aspectRatio(contentMode: .fill)
             } else {
                 Rectangle().fill(.quaternary)
-                Image(systemName: "music.note")
+                Image(systemName: aspect == 1 ? "music.note" : "film")
                     .font(.system(size: size * 0.3))
                     .foregroundStyle(.secondary)
             }
         }
-        .frame(width: fillsFrame ? nil : size, height: fillsFrame ? nil : size)
-        .aspectRatio(1, contentMode: .fit)
+        .frame(width: fillsFrame ? nil : size, height: fillsFrame ? nil : size / aspect)
+        .aspectRatio(aspect, contentMode: .fit)
         .clipShape(ProportionalRoundedRectangle())
         .task(id: itemId) {
             // The URL carries the token (ApiKey), so it can only be built once
@@ -73,7 +80,10 @@ struct ArtworkView: View {
                 loaded = (key, ready)
                 return
             }
-            guard let url = await client.imageUrl(itemId: itemId, size: pixels),
+            let url = aspect == 1 && imageType == "Primary"
+                ? await client.imageUrl(itemId: itemId, size: pixels)
+                : await client.imageUrl(itemId: itemId, type: imageType, width: pixels, height: Int(CGFloat(pixels) / aspect))
+            guard let url,
                   let (data, response) = try? await URLSession.shared.data(from: url) else { return }
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             // 404 is the normal "this item has no art"; anything else is worth knowing.
