@@ -5,6 +5,32 @@ The GNU General Public License below covers Cascade's source code only.
 The artwork in the assets/ folder is NOT covered by it. That artwork is
 separately licensed, see assets/LICENSE.
 
+Additional permission under GNU GPL version 3 section 7 (app stores)
+
+As an additional permission under section 7 of the GNU General Public
+License version 3, you may convey Cascade, or a work based on it, in
+object code form through an app store or similar distribution service
+(for example Apple's App Store and TestFlight, Google Play, or the
+Microsoft Store), even where that service's terms of use, usage rules or
+technical measures (such as limits on the number of devices an app may
+be installed on, or code signing and encryption applied to the app)
+impose restrictions on recipients that the License would otherwise not
+allow, provided that:
+
+  1. you satisfy every other condition of the License, including making
+     the Corresponding Source of the work you convey available to every
+     recipient, under this License and free of charge, through a means
+     that the service's restrictions do not apply to; and
+
+  2. this additional permission does not extend to any other
+     restriction, and grants no rights to the artwork in assets/.
+
+This permission applies to the whole of Cascade's source code, including
+the apps for every platform in this repository. As section 7 allows, you
+may remove this additional permission from your own copies and modified
+versions, in which case the plain GNU General Public License applies to
+them.
+
                     GNU GENERAL PUBLIC LICENSE
                        Version 3, 29 June 2007
 

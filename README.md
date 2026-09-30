@@ -228,7 +228,7 @@ Builds are attached to [GitHub Releases](https://github.com/Cha0s1nc/Cascade-Pro
 
 ## License
 
-The source code is [GPL-3.0](LICENSE) © 2026 cha0s.
+The source code is [GPL-3.0](LICENSE) © 2026 cha0s, with one added permission: it may also be distributed through app stores such as Apple's App Store and Google Play, whose terms the GPL alone does not allow, as long as the source stays available to everyone under the GPL. The exact wording is at the top of the [LICENSE](LICENSE).
 
 Lyric translation uses Mozilla's [bergamot-translator](https://github.com/browsermt/bergamot-translator) runtime (bundled) and [Firefox Translations models](https://github.com/mozilla/firefox-translations-models) (downloaded on first use), both under the [Mozilla Public License 2.0](https://www.mozilla.org/MPL/2.0/). Their source is available at those links.
 
