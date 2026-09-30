@@ -1,0 +1,102 @@
+name: Cascade
+
+packages:
+  CascadeKit:
+    path: CascadeKit
+
+# Both targets build the same App/Sources. SwiftUI covers most of the
+# difference; where it does not (tvOS has no Slider, and focus replaces touch)
+# the views branch on #if os(tvOS) rather than forking into two copies.
+targets:
+  CascadeiOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - App/Sources
+    dependencies:
+      - package: CascadeKit
+        product: CascadeKit
+    # Generated rather than hand-written, so the CFBundle keys Xcode expects
+    # stay in step with the target instead of being maintained twice.
+    info:
+      path: App/Info.plist
+      properties:
+        # Load-bearing: whether background audio survives under free
+        # provisioning is the first thing the device build has to answer.
+        UIBackgroundModes: [audio]
+        UILaunchScreen: {}
+        # Declared so the build stops warning that a non-fullscreen app must
+        # support every orientation. Music browsing works in all of them.
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: xyz.chaosinc.cascade.ios
+        DEVELOPMENT_TEAM: 8SF895GF9C
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_VERSION: "6.0"
+    scheme:
+      testTargets:
+        - CascadeiOSUITests
+
+  CascadetvOS:
+    type: application
+    platform: tvOS
+    deploymentTarget: "18.0"
+    sources:
+      - App/Sources
+    dependencies:
+      - package: CascadeKit
+        product: CascadeKit
+    info:
+      path: App/Info-tvOS.plist
+      properties:
+        UIBackgroundModes: [audio]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: xyz.chaosinc.cascade.tvos
+        DEVELOPMENT_TEAM: 8SF895GF9C
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_VERSION: "6.0"
+    scheme:
+      testTargets:
+        - CascadetvOSUITests
+
+  # Presses Siri Remote buttons from a script, so the TV app can be exercised
+  # without a person at the simulator. See UITests/tvOS/RemoteScript.swift.
+  CascadetvOSUITests:
+    type: bundle.ui-testing
+    platform: tvOS
+    deploymentTarget: "18.0"
+    sources:
+      - UITests/tvOS
+    dependencies:
+      - target: CascadetvOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: xyz.chaosinc.cascade.tvos.uitests
+        DEVELOPMENT_TEAM: 8SF895GF9C
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: YES
+
+  # The phone's counterpart: taps, long-presses and screenshots from a script.
+  # See UITests/iOS/TapScript.swift.
+  CascadeiOSUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - UITests/iOS
+    dependencies:
+      - target: CascadeiOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: xyz.chaosinc.cascade.ios.uitests
+        DEVELOPMENT_TEAM: 8SF895GF9C
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: YES

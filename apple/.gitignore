@@ -1,0 +1,7 @@
+.DS_Store
+*.xcodeproj/
+.build/
+DerivedData/
+xcuserdata/
+App/Info.plist
+App/Info-tvOS.plist
