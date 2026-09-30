@@ -1555,6 +1555,35 @@ ipcMain.handle('updater:install', () => {
     })
   }
 
+  // An AppImage is one file, so updating it is a file swap. Opening the
+  // download instead, as every other Linux package does, ran nothing: it sat
+  // in the temp folder without the execute bit, and the AppImage the user
+  // actually launches never changed. The new file goes beside the old one and
+  // is renamed over it (this process keeps the old one open, so that is safe),
+  // then starts once this process is gone: while it runs, the single instance
+  // lock would make the new copy quit at once.
+  if (process.platform === 'linux' && process.env.APPIMAGE) {
+    const target = process.env.APPIMAGE
+    try {
+      const staged = `${target}.update`
+      fs.copyFileSync(pendingDownload.destPath, staged)
+      fs.chmodSync(staged, 0o755)
+      fs.renameSync(staged, target)
+      spawn('/bin/sh', ['-c', 'while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; exec "$2"', 'relaunch', String(process.pid), target], {
+        detached: true, stdio: 'ignore',
+      }).unref()
+      updaterLog('Installed. Cascade will close and reopen.', 'info')
+      setTimeout(quitForInstaller, 300)
+      return { quitting: true }
+    } catch (err) {
+      console.error('[updater] AppImage swap failed:', err.message)
+      try { fs.rmSync(`${target}.update`, { force: true }) } catch {}
+      updaterLog(`Could not replace ${target} (${err.message}). Opening the release page instead.`, 'error')
+      if (pendingDownload.releaseUrl) shell.openExternal(pendingDownload.releaseUrl)
+      return { fallback: true }
+    }
+  }
+
   if (process.platform !== 'win32') return handOver()
 
   try {
