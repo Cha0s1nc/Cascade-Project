@@ -2,11 +2,13 @@
 // releases, their versions.json files and what the download mirror holds.
 // Pure; scripts/site-data.mjs does the fetching.
 //
-// A release lists only the platforms it built. Files carried over from an
+// Every published release is listed, betas included, with its GitHub release
+// notes word for word. A release lists only the platforms it built. Files carried over from an
 // older release (see docs/release-pipeline-plan.md) are left out: they are
 // listed under the release that built them, so nothing appears twice.
 
 import { PLATFORMS, platformOfFile } from './release-plan.ts'
+import { isNewerVersion } from './update-release.ts'
 import type { Platform } from './release-plan.ts'
 
 export interface GhRelease {
@@ -15,6 +17,7 @@ export interface GhRelease {
   published_at: string | null
   draft: boolean
   prerelease: boolean
+  body?: string | null
   assets: { name: string, size: number, browser_download_url: string }[]
 }
 
@@ -26,10 +29,14 @@ export interface SiteRelease {
   /** YYYY-MM-DD */
   date: string
   url: string
+  prerelease: boolean
+  /** The GitHub release notes, verbatim Markdown. */
+  notes: string
   platforms: Partial<Record<Platform, SiteFile[]>>
 }
 
-const VERSION_RE = /^\d+\.\d+\.\d+$/
+// x.y.z, or a beta: x.y.z-bN (early betas were tagged with a bare -b).
+const VERSION_RE = /^\d+\.\d+\.\d+(-b\d*)?$/
 
 export interface SiteInput {
   releases: readonly GhRelease[]
@@ -40,12 +47,12 @@ export interface SiteInput {
   mirrorVersions: Partial<Record<Platform, readonly string[]>>
 }
 
-/** Published stable releases, newest first, each with the files it built. */
+/** Published releases, betas included, newest first, each with the files it built. */
 export function siteReleases(input: SiteInput): SiteRelease[] {
   const out: SiteRelease[] = []
   for (const r of input.releases) {
     const version = r.tag_name.replace(/^v/, '')
-    if (r.draft || r.prerelease || !VERSION_RE.test(version)) continue
+    if (r.draft || !VERSION_RE.test(version)) continue
     const versions = input.versionsByTag[r.tag_name]
     // Before versions.json, a release was the desktop app alone.
     const builtHere = (p: Platform) => versions && typeof versions === 'object'
@@ -67,10 +74,11 @@ export function siteReleases(input: SiteInput): SiteRelease[] {
         .sort((a, b) => a.name.localeCompare(b.name))
       if (files.length) platforms[p] = files
     }
-    out.push({ version, tag: r.tag_name, date: (r.published_at ?? '').slice(0, 10), url: r.html_url, platforms })
+    out.push({
+      version, tag: r.tag_name, date: (r.published_at ?? '').slice(0, 10), url: r.html_url,
+      prerelease: r.prerelease, notes: typeof r.body === 'string' ? r.body : '', platforms,
+    })
   }
-  return out.sort((a, b) => {
-    const [x, y] = [a.version, b.version].map(v => v.split('.').map(Number))
-    return y[0] - x[0] || y[1] - x[1] || y[2] - x[2]
-  })
+  // A beta sorts below the release it leads up to.
+  return out.sort((a, b) => (isNewerVersion(a.version, b.version) ? -1 : isNewerVersion(b.version, a.version) ? 1 : 0))
 }

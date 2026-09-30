@@ -38,7 +38,8 @@ count only in a commit's **first line**.
   The result is a **draft**: check it, then publish it by hand. Publishing
   runs `.github/workflows/publish.yml`, which copies the new builds to the
   download mirror and pushes `releases.json` and `changelog.json` to the
-  live website. A manual run of Publish writes to the website's
+  live website, whose releases page shows each release's notes exactly as
+  written on GitHub. Editing a release's notes later updates the site too. A manual run of Publish writes to the website's
   `cascade-releases` branch instead, and only works once `publish.yml` is
   on `stable` (GitHub runs manual workflows from the default branch).
 - **Beta:** a commit on `dev` whose first line contains `[BETA]` (and

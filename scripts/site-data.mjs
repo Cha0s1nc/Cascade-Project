@@ -1,7 +1,8 @@
 // Writes the website's Cascade data into OUT_DIR:
 //
-//   releases.json   published stable releases and the files each one built,
-//                   with download mirror links (src/core/site-data.ts)
+//   releases.json   published releases, betas included, with their GitHub
+//                   release notes verbatim and the files each one built, with
+//                   download mirror links (src/core/site-data.ts)
 //   changelog.json  CHANGELOG.md parsed (src/core/changelog.ts), keeping only
 //                   versions that have a published release; the desktop's
 //                   update window reads this
@@ -34,7 +35,7 @@ const getJson = async (url, extra = {}) => {
 
 // ponytail: one page of 100 releases; paginate when there are more.
 const releases = (await getJson(`https://api.github.com/repos/${REPO}/releases?per_page=100`))
-  .filter(r => !r.draft && !r.prerelease)
+  .filter(r => !r.draft)
 
 const versionsByTag = {}
 for (const r of releases) {
@@ -57,7 +58,7 @@ for (const p of PLATFORMS) {
 }
 
 const site = siteReleases({ releases, versionsByTag, mirrorUrl: MIRROR_URL, mirrorVersions })
-const published = new Set(site.map(r => r.version))
+const published = new Set(site.filter(r => !r.prerelease).map(r => r.version))
 const changelog = parseChangelog(readFileSync('CHANGELOG.md', 'utf8')).filter(e => published.has(e.version))
 
 mkdirSync(OUT_DIR, { recursive: true })

@@ -185,6 +185,13 @@ A separate workflow triggered by `release: published`:
   `https://chaosinc.xyz/github/projects/cascade/changelog.json`, then
   `CHANGELOG.md` at the release's tag on GitHub, then the release body
   (`desktopReleaseNotes` in `main.js`, logic in `src/core/changelog.ts`).
+- **Website content:** the releases page shows every release and beta with
+  its GitHub release notes verbatim (from `releases.json`); `changelog.json`
+  feeds the desktop update window. `publish.yml` also runs on `edited`, so
+  fixing a release's notes on GitHub updates the site. Betas that
+  `build.yml` publishes use the Actions token, whose events never start
+  other workflows, so a CI beta reaches the site at the next publish or
+  edit.
 - **Built as:** `.github/workflows/publish.yml` (mirror job, then website
   job), `scripts/site-data.mjs` and `src/core/site-data.ts`. The website's
   `main` is written only by the `release` event; a manual run writes to

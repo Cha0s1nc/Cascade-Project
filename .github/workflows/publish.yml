@@ -1,6 +1,8 @@
-# After a stable release is published by hand: copy the platforms it built to
-# the download mirror, and refresh the website's releases.json and
-# changelog.json. See docs/release-pipeline-plan.md, phase 7.
+# When a release is published: copy the platforms a stable release built to
+# the download mirror, and refresh the website's releases.json (every release,
+# betas too, with its GitHub notes verbatim) and changelog.json. Editing a
+# release's notes refreshes the website only. See
+# docs/release-pipeline-plan.md, phase 7.
 #
 # The website's main branch deploys live, so only the release event writes
 # there. A manual run writes to a preview branch (default cascade-releases).
@@ -8,7 +10,7 @@ name: Publish
 
 on:
   release:
-    types: [published]
+    types: [published, edited]
   workflow_dispatch:
     inputs:
       tag:
@@ -37,8 +39,8 @@ env:
 
 jobs:
   mirror:
-    # Betas are not mirrored and do not change the website.
-    if: (github.event_name != 'release' || !github.event.release.prerelease) && (github.event_name == 'release' || inputs.mirror)
+    # Stable releases only, once, when first published. Betas are not mirrored.
+    if: github.event_name == 'release' && github.event.action == 'published' && !github.event.release.prerelease || github.event_name == 'workflow_dispatch' && inputs.mirror
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -83,7 +85,7 @@ jobs:
     needs: mirror
     # Runs even if the mirror failed or was skipped: the data then simply has
     # no mirror links for this release.
-    if: always() && (github.event_name != 'release' || !github.event.release.prerelease)
+    if: always() && !cancelled()
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
