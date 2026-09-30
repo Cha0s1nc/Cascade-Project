@@ -29,6 +29,9 @@ targets:
         # these XcodeGen writes a literal 1.0 and 1 that nothing can override.
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # Only standard HTTPS/TLS, which is exempt, so App Store Connect does
+        # not ask about export compliance on every upload.
+        ITSAppUsesNonExemptEncryption: false
         UIBackgroundModes: [audio]
         UILaunchScreen: {}
         # Declared so the build stops warning that a non-fullscreen app must
@@ -40,6 +43,11 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: xyz.chaosinc.cascade.ios
+        # Empty locally, so automatic signing applies. The TestFlight job in
+        # build.yml signs manually and names its profile through this, since
+        # a profile passed to xcodebuild directly also lands on the CascadeKit
+        # package, which rejects it. See docs/testflight.md.
+        PROVISIONING_PROFILE_SPECIFIER: $(CASCADE_PROFILE_IOS)
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
         DEVELOPMENT_TEAM: 8SF895GF9C
@@ -66,10 +74,18 @@ targets:
         # these XcodeGen writes a literal 1.0 and 1 that nothing can override.
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # Only standard HTTPS/TLS, which is exempt, so App Store Connect does
+        # not ask about export compliance on every upload.
+        ITSAppUsesNonExemptEncryption: false
         UIBackgroundModes: [audio]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: xyz.chaosinc.cascade.tvos
+        # Empty locally, so automatic signing applies. The TestFlight job in
+        # build.yml signs manually and names its profile through this, since
+        # a profile passed to xcodebuild directly also lands on the CascadeKit
+        # package, which rejects it. See docs/testflight.md.
+        PROVISIONING_PROFILE_SPECIFIER: $(CASCADE_PROFILE_TVOS)
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
         DEVELOPMENT_TEAM: 8SF895GF9C

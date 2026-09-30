@@ -326,6 +326,121 @@ jobs:
           path: apple/dist/*
           retention-days: 7
 
+  # ── TestFlight ─────────────────────────────────────────────────────────────
+  # Off until the paid Apple Developer Program exists: it runs only when the
+  # repository variable TESTFLIGHT is "true", after the setup in
+  # docs/testflight.md. Uploads every published beta (a [BETA] commit pushed
+  # to dev) to TestFlight, iOS and tvOS, with the same version and build
+  # number as the sideload builds above. Independent of the release job, so a
+  # failed upload never holds up the GitHub prerelease.
+  #
+  # Signing is manual: a distribution certificate and one App Store profile
+  # per app, installed from secrets. (Automatic signing on a fresh runner would
+  # create a new certificate every run, and Apple caps how many can exist.)
+  testflight:
+    needs: setup
+    if: vars.TESTFLIGHT == 'true' && needs.setup.outputs.apple == 'true' && needs.setup.outputs.mode == 'beta' && needs.setup.outputs.publish == 'true'
+    runs-on: xcode-27
+    defaults:
+      run:
+        working-directory: apple
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate the Xcode project
+        run: xcodegen generate
+
+      - name: Install the signing certificate, profiles and API key
+        env:
+          CERT_P12: ${{ secrets.APPLE_DIST_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.APPLE_DIST_CERT_PASSWORD }}
+          PROFILE_IOS: ${{ secrets.APPLE_PROFILE_IOS }}
+          PROFILE_TVOS: ${{ secrets.APPLE_PROFILE_TVOS }}
+          ASC_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          # A throwaway keychain with a random password, first in the search list.
+          KC="$RUNNER_TEMP/signing.keychain-db"
+          KC_PASS=$(openssl rand -hex 24)
+          security create-keychain -p "$KC_PASS" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KC_PASS" "$KC"
+          printf '%s' "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/dist.p12"
+          security import "$RUNNER_TEMP/dist.p12" -P "$CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KC"
+          rm -f "$RUNNER_TEMP/dist.p12"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KC_PASS" "$KC" >/dev/null
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+
+          # Profiles go where both older and newer Xcode look, named by UUID.
+          # Their names are what the build and the export refer to.
+          for d in "$HOME/Library/MobileDevice/Provisioning Profiles" "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do mkdir -p "$d"; done
+          for p in IOS TVOS; do
+            var="PROFILE_$p"
+            printf '%s' "${!var}" | base64 --decode > "$RUNNER_TEMP/$p.mobileprovision"
+            security cms -D -i "$RUNNER_TEMP/$p.mobileprovision" > "$RUNNER_TEMP/$p.plist"
+            UUID=$(plutil -extract UUID raw "$RUNNER_TEMP/$p.plist")
+            NAME=$(plutil -extract Name raw "$RUNNER_TEMP/$p.plist")
+            cp "$RUNNER_TEMP/$p.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision"
+            cp "$RUNNER_TEMP/$p.mobileprovision" "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/$UUID.mobileprovision"
+            echo "PROFILE_NAME_$p=$NAME" >> "$GITHUB_ENV"
+          done
+
+          printf '%s' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc.p8"
+          echo "KEYCHAIN=$KC" >> "$GITHUB_ENV"
+
+      # Same numbers as build-apple: x.y.z without the beta suffix (TestFlight
+      # groups a version's betas under it) and the run number as the build.
+      - name: Archive, sign and upload
+        env:
+          VERSION: ${{ needs.setup.outputs.version }}
+          BUILD: ${{ github.run_number }}
+          TEAM: ${{ vars.APPLE_TEAM_ID }}
+          KEY_ID: ${{ vars.ASC_API_KEY_ID }}
+          ISSUER: ${{ vars.ASC_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          MARKETING="${VERSION%%-*}"
+          AUTH=(-authenticationKeyPath "$RUNNER_TEMP/asc.p8" -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER")
+          for p in iOS tvOS; do
+            case $p in
+              iOS)  BUNDLE=xyz.chaosinc.cascade.ios;  PROFILE="$PROFILE_NAME_IOS" ;;
+              tvOS) BUNDLE=xyz.chaosinc.cascade.tvos; PROFILE="$PROFILE_NAME_TVOS" ;;
+            esac
+            xcodebuild archive -project Cascade.xcodeproj -scheme "Cascade$p" \
+              -destination "generic/platform=$p" -archivePath "build/Cascade-$p.xcarchive" \
+              MARKETING_VERSION="$MARKETING" CURRENT_PROJECT_VERSION="$BUILD" \
+              DEVELOPMENT_TEAM="$TEAM" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Apple Distribution" \
+              CASCADE_PROFILE_IOS="$PROFILE_NAME_IOS" CASCADE_PROFILE_TVOS="$PROFILE_NAME_TVOS" \
+              OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN"
+            # destination upload: the export goes straight to App Store
+            # Connect. The build number is ours, so Xcode must not change it.
+            cat > "build/ExportOptions-$p.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>$TEAM</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>signingCertificate</key><string>Apple Distribution</string>
+            <key>provisioningProfiles</key><dict><key>$BUNDLE</key><string>$PROFILE</string></dict>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+            <key>uploadSymbols</key><true/>
+          </dict></plist>
+          PLIST
+            xcodebuild -exportArchive -archivePath "build/Cascade-$p.xcarchive" \
+              -exportOptionsPlist "build/ExportOptions-$p.plist" -exportPath "build/export-$p" "${AUTH[@]}"
+          done
+
+      - name: Remove the keychain and key
+        if: always()
+        run: |
+          [ -n "${KEYCHAIN:-}" ] && security delete-keychain "$KEYCHAIN" || true
+          rm -f "$RUNNER_TEMP/asc.p8" "$RUNNER_TEMP"/*.mobileprovision "$RUNNER_TEMP"/IOS.plist "$RUNNER_TEMP"/TVOS.plist
+
   # ── Release ────────────────────────────────────────────────────────────────
   # A draft (always, except a [BETA] pushed to dev, which is published as a
   # prerelease) holding the new builds, the unchanged platforms' files copied
