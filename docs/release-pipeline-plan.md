@@ -46,7 +46,7 @@ handoff brief for anyone (human or agent) picking up a phase.
 | 3 | Swift CI workflow (tests + iOS/tvOS builds) | done (`.github/workflows/apple.yml`, runs on the `xcode-27` image) |
 | **4** | **Updater reads `versions.json`** | cloud agent |
 | **5** | **`CHANGELOG.md` format, parser, backfill** | cloud agent |
-| 6 | `build.yml` rework: markers, platforms, carry-over, Apple job | after 2 to 5 |
+| 6 | `build.yml` rework: markers, platforms, carry-over, Apple job | done (`d520dbb`, `9d979d4`, tested with manual drafts) |
 | 7 | Publish workflow: website data, OCI mirror, in-app "what's new" | after 6 |
 | 8 | Apple signing, TestFlight | once the paid developer program exists |
 | 9 | Android | when the app exists |

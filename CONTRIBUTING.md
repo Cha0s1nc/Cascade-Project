@@ -23,6 +23,28 @@ The artwork in `assets/` is not GPL and is not open to contributions; see
 - `stable` is the release branch. Pushing to it builds a release, so only
   the maintainer merges into it.
 
+## Releases (maintainer)
+
+Releases are made by `.github/workflows/build.yml`; the rules are in
+`src/core/release-plan.ts` and `docs/release-pipeline-plan.md`. Markers
+count only in a commit's **first line**.
+
+- **Stable release:** on `dev`, make an empty commit whose first line is
+  `Release (x.x.X)` (patch), `Release (x.X.0)` (minor) or
+  `Release (X.0.0)` (major), optionally followed by a platform list such as
+  `[desktop, apple]`, then push `dev` to `stable`. The version is the last
+  published release bumped. Without a list, the platforms are those whose
+  folders changed. CI refuses a version with no `CHANGELOG.md` section.
+  The result is a **draft**: check it, then publish it by hand.
+- **Beta:** a commit on `dev` whose first line contains `[BETA]` (and
+  optionally a platform list) publishes a `x.y.z-bN` prerelease.
+- **Manual run** (Actions, Build, Run workflow): never publishes. No bump
+  makes a test build; a bump or the beta box makes a draft.
+
+Each release holds every platform's newest files: platforms not rebuilt
+are copied from the last published release under their own version, and
+`versions.json` records which version each platform really is.
+
 ## Before you open a pull request
 
 ```
