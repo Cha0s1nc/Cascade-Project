@@ -94,8 +94,10 @@ struct StoppedReport: Encodable {
 /// and these fire on a timer where a thrown error would be noise. The next
 /// check-in re-syncs.
 public enum PlaybackReporter {
-    public static func start(_ client: JellyfinClient, _ state: PlaybackState) async {
-        _ = try? await client.postRaw("/Sessions/Playing", body: PlaybackReport(state))
+    /// Whether the server took it: this is the report a play is counted on.
+    @discardableResult
+    public static func start(_ client: JellyfinClient, _ state: PlaybackState) async -> Bool {
+        (try? await client.postRaw("/Sessions/Playing", body: PlaybackReport(state))) != nil
     }
 
     public static func progress(_ client: JellyfinClient, _ state: PlaybackState) async {

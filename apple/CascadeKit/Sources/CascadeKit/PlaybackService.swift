@@ -69,6 +69,10 @@ public final class PlaybackService {
     private let config: ServerConfig
     private let profile: DeviceProfile
 
+    /// Downloads: a track on disk plays from there, and a play the server
+    /// could not hear about is kept for later. Nil on tvOS.
+    public var offline: OfflineLibrary?
+
     /// Settings > Streaming quality. Set through setStreamingQuality so a
     /// preload resolved at the old rate is thrown away.
     public private(set) var streamingQuality: StreamingQuality = .original
@@ -389,7 +393,7 @@ public final class PlaybackService {
     private func load(_ item: JfItem, autoplay: Bool = true) async {
         // Whatever was playing is finished as far as the server is concerned,
         // and its transcode, if any, is now waste.
-        if self.item != nil { await reportStopped() }
+        if self.item != nil { reportStopped() }
         abandonEncode()
         stopReporting()
         dropPreload()
@@ -408,8 +412,7 @@ public final class PlaybackService {
         isTranscoding = false
 
         let startTicks = resumeTicks(for: item)
-        let stream = await resolveStream(client: client, config: config,
-                                        itemId: item.id, profile: currentProfile, startTicks: startTicks)
+        let stream = await stream(for: item, startTicks: startTicks)
         // A later play() or stop() won the race; its result is the real one.
         guard token == loadToken else { return }
 
@@ -451,7 +454,7 @@ public final class PlaybackService {
         updateNowPlaying()
         Task { await loadArtwork() }
         syncPreload()
-        await PlaybackReporter.start(client, state())
+        reportStart()
         startReporting()
     }
 
@@ -555,6 +558,14 @@ public final class PlaybackService {
 
     private func normalizationDb(for item: JfItem) async -> Double? {
         guard normalization != .off else { return nil }
+        // A downloaded track was saved with its gain, and its album's when
+        // the album was downloaded too. Never the network: offline, a lookup
+        // hangs until it times out and the gapless handover misses.
+        if let offline, let saved = offline.savedItem(item.id) {
+            if normalization == .album, let albumId = item.albumId,
+               let db = offline.savedItem(albumId)?.normalizationGain { return db }
+            return saved.normalizationGain
+        }
         if normalization == .album, let albumId = item.albumId,
            let db = await gainDb(id: albumId, key: "album:\(albumId)") {
             return db
@@ -586,7 +597,7 @@ public final class PlaybackService {
     }
 
     public func stop() async {
-        if item != nil { await reportStopped() }
+        if item != nil { reportStopped() }
         abandonEncode()
         stopReporting()
         _ = nextToken()          // invalidates anything still resolving
@@ -710,7 +721,7 @@ public final class PlaybackService {
     }
 
     private func fetchPreload(_ index: Int, _ next: JfItem, _ token: Int) async {
-        let stream = await resolveStream(client: client, config: config, itemId: next.id, profile: currentProfile)
+        let stream = await stream(for: next)
         guard token == preloadToken else { return abandon(stream) }
         // Warms the gain cache, so the handover applies it without a wait.
         _ = await normalizationDb(for: next)
@@ -780,8 +791,10 @@ public final class PlaybackService {
         Task { await applyNormalization(for: current) }
         syncPreload()
 
-        await PlaybackReporter.stopped(client, finished)
-        await PlaybackReporter.start(client, state())
+        let client = self.client
+        let report = finished
+        enqueueReport { await PlaybackReporter.stopped(client, report) }
+        reportStart()
         startReporting()
     }
 
@@ -959,8 +972,48 @@ public final class PlaybackService {
         Task { await PlaybackReporter.progress(client, snapshot) }
     }
 
-    private func reportStopped() async {
-        await PlaybackReporter.stopped(client, state())
+    /// Start and stopped reports go out in order but never hold up
+    /// playback: with the server unreachable (a tailnet down, a LAN-only
+    /// server on cellular) each one hangs until it times out, and awaiting
+    /// them held a track change, or even Stop, for up to a minute.
+    @ObservationIgnored private var reportChain: Task<Void, Never>?
+
+    private func enqueueReport(_ work: @escaping @Sendable () async -> Void) {
+        let previous = reportChain
+        reportChain = Task { await previous?.value; await work() }
+    }
+
+    private func reportStopped() {
+        let snapshot = state()
+        let client = self.client
+        enqueueReport { await PlaybackReporter.stopped(client, snapshot) }
+    }
+
+    /// Jellyfin counts a play on this report, not the stopped one, so one
+    /// that fails is kept to send later; one that lands means the server is
+    /// back and anything kept can go.
+    private func reportStart() {
+        let snapshot = state()
+        let client = self.client
+        let userId = config.userId
+        let offline = self.offline
+        let startedAt = Date()
+        enqueueReport {
+            if await PlaybackReporter.start(client, snapshot) {
+                await offline?.replayPlays(client: client)
+            } else {
+                await offline?.recordPlay(snapshot.itemId, userId: userId, at: startedAt)
+            }
+        }
+    }
+
+    /// The downloaded file when there is one, else a stream from the server.
+    private func stream(for item: JfItem, startTicks: Int = 0) async -> ResolvedStream {
+        if let file = offline?.localFile(item.id) {
+            return ResolvedStream(url: file, playSessionId: nil, mediaSourceId: nil, direct: true, startTicks: 0)
+        }
+        return await resolveStream(client: client, config: config, itemId: item.id,
+                                   profile: currentProfile, startTicks: startTicks)
     }
 
     private func startReporting() {
@@ -1067,8 +1120,14 @@ public final class PlaybackService {
         #if canImport(MediaPlayer) && canImport(UIKit)
         guard let item else { return }
         let artId = item.albumId ?? item.id
-        guard artwork?.itemId != artId,
-              let url = await client.imageUrl(itemId: artId, size: 600),
+        guard artwork?.itemId != artId else { return }
+        if let file = offline?.artFile(artId), let data = try? Data(contentsOf: file),
+           let parsed = UIImage(data: data), let image = await parsed.byPreparingForDisplay() {
+            guard (self.item?.albumId ?? self.item?.id) == artId else { return }
+            artwork = (artId, Self.makeArtwork(image))
+            return updateNowPlaying()
+        }
+        guard let url = await client.imageUrl(itemId: artId, size: 600),
               let (data, response) = try? await URLSession.shared.data(from: url) else { return }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard status == 200 else {
