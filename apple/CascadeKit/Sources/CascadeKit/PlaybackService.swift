@@ -555,6 +555,8 @@ public final class PlaybackService {
         if transportGate?(.playPause) == true { return }
         isPaused = false
         player.play()
+        // A pause cuts any fade, and with it the arming of the next one.
+        scheduleCrossfade()
         updateNowPlaying()
         reportNow()
     }
@@ -576,6 +578,9 @@ public final class PlaybackService {
             positionSeconds = target
             updateNowPlaying()
             reportNow()
+            // A seek past the fade's start skips its boundary; arm it again
+            // for where playback is now.
+            scheduleCrossfade()
             return
         }
 
@@ -756,7 +761,7 @@ public final class PlaybackService {
         case .play(let index):
             if let preload, preload.index == index, preload.itemId == queue.items[index].id,
                player.items().contains(preload.playerItem) {
-                await handOver(to: preload)
+                handOver(to: preload)
             } else if let preload, preload.parked, preload.index == index,
                       preload.itemId == queue.items[index].id {
                 // Crossfade was on but never started (a seek past its start,
@@ -764,7 +769,7 @@ public final class PlaybackService {
                 player.removeAllItems()
                 player.insert(preload.playerItem, after: nil)
                 player.play()
-                await handOver(to: preload)
+                handOver(to: preload)
             } else {
                 queue.index = index
                 await load(queue.items[index])
@@ -969,7 +974,7 @@ public final class PlaybackService {
         // The handover's stopped report still reads the old stream from
         // `resolved`, then adopts the new one; the tail's transcode, if any,
         // is abandoned when the tail stops.
-        Task { await handOver(to: next) }
+        handOver(to: next)
 
         let started = ContinuousClock.now
         fadeTask = Task { [weak self] in
@@ -987,6 +992,8 @@ public final class PlaybackService {
             guard !Task.isCancelled else { return }
             debugLog("crossfade done")
             self?.endCrossfade()
+            // The next track, parked while this fade ran, could not arm its own.
+            self?.scheduleCrossfade()
         }
     }
 
@@ -1004,13 +1011,16 @@ public final class PlaybackService {
         fadeIn = 1
         fadeOut = 1
         applyVolumes()
-        // The next track parked while this fade ran could not arm its own.
-        scheduleCrossfade()
+        // Never re-arms here: seek and stop call this before doing their own
+        // work, and arming inside the fade window starts a fade on the spot,
+        // which a seek would then land on the wrong deck and a stop would
+        // leave playing. Callers that should re-arm (a fade that ran its
+        // course, a seek that landed, a resume) do so themselves.
     }
 
     /// The player has already moved onto the preloaded item by itself; bring
     /// this object's state, the server and the lock screen along with it.
-    private func handOver(to next: Preload) async {
+    private func handOver(to next: Preload) {
         debugLog("handover to #\(next.index + 1)")
         // Snapshot BEFORE swapping `resolved`: a stopped report carrying the
         // new item's PlaySessionId would tell the server to kill the stream

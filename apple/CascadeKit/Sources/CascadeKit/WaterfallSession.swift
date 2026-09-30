@@ -79,9 +79,10 @@ public final class WaterfallSession {
         guard (response as? HTTPURLResponse)?.statusCode == 200,
               let code = (try? JSONDecoder().decode(Created.self, from: data))?.code,
               let room = Waterfall.normalizedCode(code) else { throw failure("Could not create a room.") }
+        try await open(room, relayBase: relayBase, name: name, as: .host)
+        // After open(), which starts from a clean slate (leave()).
         guestAddsAllowed = allowGuestAdds
         guestControlAllowed = allowGuestControl
-        try await open(room, relayBase: relayBase, name: name, as: .host)
         publishQueue()
         publishState()
     }
