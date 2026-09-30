@@ -19,7 +19,10 @@ concurrency:
 
 jobs:
   test-and-build:
-    runs-on: macos-26
+    # The project needs the iOS and tvOS 27 SDKs. GitHub ships Xcode 27 as its
+    # own image (public preview since 2026-07-16, arm64 only); the macos-26
+    # image has no Xcode 27 at all.
+    runs-on: xcode-27
     timeout-minutes: 45
     defaults:
       run:
@@ -27,14 +30,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # The project needs the iOS and tvOS 27 SDKs. Xcode 27 is a public
-      # preview on this image and not the default, so pick it explicitly.
-      - name: Select Xcode 27
+      - name: Check the Xcode version
         run: |
-          XCODE=$(ls -d /Applications/Xcode_27*.app | sort -V | tail -1)
-          echo "Using $XCODE"
-          sudo xcode-select -s "$XCODE"
           xcodebuild -version
+          xcodebuild -version | head -1 | grep -q '^Xcode 27' || { echo "Expected Xcode 27"; exit 1; }
 
       - name: Install XcodeGen
         run: brew install xcodegen
