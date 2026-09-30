@@ -92,6 +92,31 @@ public final class PlaybackService {
     /// and an end notification from any other item (a track already skipped
     /// past, a preload) must not move the queue.
     private var currentPlayerItem: AVPlayerItem?
+    /// The EQ and normalization on the item playing; nil for one
+    /// AVFoundation will not tap (an HLS transcode). See AudioTap.
+    private var currentTap: TapContext?
+
+    /// Settings > Equalizer. Applied to what plays and what is preloaded.
+    /// Turning it on or off changes whether items are tapped at all (see
+    /// `tap`), so the preload is redone, and one turned on mid-track taps the
+    /// playing item on the spot.
+    public var equalizer = EQProfile() {
+        didSet {
+            currentTap?.update(profile: equalizer)
+            preload?.tap?.update(profile: equalizer)
+            guard equalizer.enabled != oldValue.enabled else { return }
+            dropPreload()
+            syncPreload()
+            if equalizer.enabled, currentTap == nil, let playerItem = currentPlayerItem,
+               let resolved, let item {
+                Task {
+                    guard let tap = await tap(playerItem, resolved), currentPlayerItem === playerItem else { return }
+                    currentTap = tap
+                    await applyNormalization(for: item)
+                }
+            }
+        }
+    }
     private var timeObserver: Any?
     private var progressTask: Task<Void, Never>?
     private var eventTask: Task<Void, Never>?
@@ -420,7 +445,7 @@ public final class PlaybackService {
 
         let playerItem = makePlayerItem(stream)
         setPlayerItem(playerItem)
-        Task { await applyNormalization(for: item) }
+        currentTap = nil
 
         // Direct play hands over the whole file, so the server ignored
         // startTicks and a resume position has to be seeked locally. That can
@@ -436,6 +461,9 @@ public final class PlaybackService {
         do {
             let duration = try await playerItem.asset.load(.duration).seconds
             guard token == loadToken else { return }
+            currentTap = await tap(playerItem, stream)
+            guard token == loadToken else { return }
+            Task { await applyNormalization(for: item) }
             if duration.isFinite, duration > 0 {
                 durationSeconds = duration
                 if stream.direct && startTicks > 0 {
@@ -517,6 +545,7 @@ public final class PlaybackService {
 
         adopt(stream)
         setPlayerItem(makePlayerItem(stream))
+        currentTap = nil   // a transcode, which cannot be tapped
         player.play()
         positionSeconds = target
         updateNowPlaying()
@@ -541,10 +570,18 @@ public final class PlaybackService {
 
     /// Off, by track or by album. Applied to what is playing at once.
     public var normalization: Normalization.Mode = .off {
-        didSet { if normalization != oldValue, let item { Task { await applyNormalization(for: item) } } }
+        didSet {
+            guard normalization != oldValue else { return }
+            if let item { Task { await applyNormalization(for: item) } }
+            // The preloaded track's gain was set for the old mode.
+            dropPreload()
+            syncPreload()
+        }
     }
 
-    /// The current track's multiplier, times the user's volume.
+    /// The multiplier on the player itself, for an item with no tap (a
+    /// transcode), where only a cut can be applied. 1 whenever the tap
+    /// carries the gain.
     private var normalizationVolume: Float = 1
     /// "track:<id>" or "album:<id>" to its gain in dB, nil when it has none.
     private var gainCache: [String: Double?] = [:]
@@ -578,10 +615,19 @@ public final class PlaybackService {
     /// playing when it lands.
     private func applyNormalization(for item: JfItem) async {
         setNormalizationVolume(1)
-        guard normalization != .off else { return }
+        let tap = currentTap
+        guard normalization != .off else {
+            tap?.update(normalization: 1)
+            return
+        }
         let db = await normalizationDb(for: item)
         guard self.item?.id == item.id else { return }
-        setNormalizationVolume(Normalization.playerVolume(db: db))
+        if let tap {
+            // In the tap a boost is possible too.
+            tap.update(normalization: Normalization.linear(db: db))
+        } else {
+            setNormalizationVolume(Normalization.playerVolume(db: db))
+        }
         debugLog("normalization \(normalization.rawValue): \(db.map { String(format: "%+.1f dB", $0) } ?? "none") for \(item.name ?? item.id)")
     }
 
@@ -604,6 +650,7 @@ public final class PlaybackService {
         dropPreload()
         player.removeAllItems()
         currentPlayerItem = nil
+        currentTap = nil
         resolved = nil
         streamStartTicks = 0
         item = nil
@@ -678,6 +725,7 @@ public final class PlaybackService {
         let stream: ResolvedStream
         let playerItem: AVPlayerItem
         let duration: Double
+        let tap: TapContext?
     }
     private var preload: Preload?
     /// What the in-flight preload is fetching, so a sync that wants the same
@@ -724,8 +772,12 @@ public final class PlaybackService {
         let stream = await stream(for: next)
         guard token == preloadToken else { return abandon(stream) }
         // Warms the gain cache, so the handover applies it without a wait.
-        _ = await normalizationDb(for: next)
+        let db = await normalizationDb(for: next)
         let playerItem = makePlayerItem(stream)
+        // Tapped with its own gain already set, so the level changes at the
+        // exact sample the handover lands on.
+        let nextTap = await tap(playerItem, stream)
+        nextTap?.update(normalization: normalization == .off ? 1 : Normalization.linear(db: db))
         // Loading the duration is also what proves the stream decodes. One
         // that does not is left out, and the end of this track falls back to
         // load(), which reports the failure properly.
@@ -741,7 +793,7 @@ public final class PlaybackService {
         player.insert(playerItem, after: current)
         player.actionAtItemEnd = .advance
         preload = Preload(index: index, itemId: next.id, stream: stream,
-                          playerItem: playerItem, duration: duration)
+                          playerItem: playerItem, duration: duration, tap: nextTap)
         preloadTarget = nil
     }
 
@@ -780,6 +832,7 @@ public final class PlaybackService {
         queue.index = next.index
         item = queue.items[next.index]
         currentPlayerItem = next.playerItem
+        currentTap = next.tap
         adopt(next.stream)
         durationSeconds = next.duration
         let t = player.currentTime().seconds
@@ -852,6 +905,21 @@ public final class PlaybackService {
     /// Measured on such a file: default seeks landed -3.4 to +3.9 s from the
     /// reported time; precise ones all within 10 ms of each other, with no
     /// slower start. A transcode (HLS) is seeked by the server instead.
+    /// A tap for a direct stream while the EQ is on, carrying it as it
+    /// stands. None for a transcode, which AVFoundation plays as HLS and will
+    /// not tap, and none while the EQ is off: a tapped item costs the gapless
+    /// handover. Measured in the simulator on the player's clock, from one
+    /// track's end to the next one running: 58 and 67 ms untapped, 422 and
+    /// 430 ms with pre-effects taps, 262 and 256 ms with post-effects ones.
+    /// So the EQ, and the normalization boosts that ride on it, come with a
+    /// short pause between tracks, and everyone else keeps gapless.
+    private func tap(_ playerItem: AVPlayerItem, _ stream: ResolvedStream) async -> TapContext? {
+        guard stream.direct, equalizer.enabled else { return nil }
+        let context = TapContext()
+        context.update(profile: equalizer)
+        return await AudioTap.attach(context, to: playerItem) ? context : nil
+    }
+
     private func makePlayerItem(_ stream: ResolvedStream) -> AVPlayerItem {
         let options: [String: Any]? = stream.direct ? [AVURLAssetPreferPreciseDurationAndTimingKey: true] : nil
         return AVPlayerItem(asset: AVURLAsset(url: stream.url, options: options))

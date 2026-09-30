@@ -240,6 +240,7 @@ final class AppState {
             cellular: StreamingQuality(stored: UserDefaults.standard.object(forKey: StreamingQuality.cellularKey)))
         player.normalization = Normalization.Mode(
             rawValue: UserDefaults.standard.string(forKey: "cascade.normalization") ?? "") ?? .off
+        player.equalizer = EQProfile.decode(UserDefaults.standard.data(forKey: "cascade.eq"))
         player.offline = offline
         self.player = player
         if let offline {
@@ -263,6 +264,11 @@ final class AppState {
                 cascadePluginInfo = info
             }
         }
+    }
+
+    func setEqualizer(_ profile: EQProfile) {
+        player?.equalizer = profile
+        UserDefaults.standard.set(profile.encoded(), forKey: "cascade.eq")
     }
 
     var appVersion: String {

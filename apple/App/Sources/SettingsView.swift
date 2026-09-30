@@ -67,10 +67,16 @@ struct SettingsView: View {
                         Text("By Track").tag(Normalization.Mode.track)
                         Text("By Album").tag(Normalization.Mode.album)
                     }
+                    NavigationLink {
+                        EqualizerView()
+                    } label: {
+                        LabeledContent("Equalizer", value: player.equalizer.enabled
+                                       ? player.equalizer.presetName ?? "Custom" : "Off")
+                    }
                 } header: {
                     Text("Playback")
                 } footer: {
-                    Text("Below the original, the server converts to AAC at that rate. Applies from the next track.\n\nNormalization evens out loudness using the server's scan (Jellyfin's LUFS scan has to be on). By Album keeps an album's own dynamics. Loud tracks are turned down; quiet ones are not turned up yet.")
+                    Text("Below the original, the server converts to AAC at that rate. Applies from the next track.\n\nNormalization evens out loudness using the server's scan (Jellyfin's LUFS scan has to be on). By Album keeps an album's own dynamics. Loud tracks are turned down; quiet ones are turned up only while the equalizer is on.")
                 }
             }
 

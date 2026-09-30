@@ -20,12 +20,9 @@ public enum Normalization {
         return Float(pow(10, min(maxBoostDb, max(-maxCutDb, db)) / 20))
     }
 
-    /// What AVPlayer can apply: its volume stops at 1, so a boost is left
-    /// out and only cuts are heard.
-    ///
-    /// ponytail: attenuation only. Most tracks scan loud and get cut, so the
-    /// library evens out; a quiet one stays as quiet as it was. A boost needs
-    /// an audio tap, which the EQ will bring; move the gain there then.
+    /// What AVPlayer's own volume can apply, for an item with no audio tap
+    /// (the EQ is off, or an HLS transcode): it stops at 1, so only cuts are
+    /// heard. A tapped item takes `linear`, boosts included.
     public static func playerVolume(db: Double?) -> Float {
         min(1, linear(db: db))
     }
