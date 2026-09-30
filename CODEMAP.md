@@ -283,8 +283,14 @@ literals. Renaming an id is a silent break that typecheck will not catch.
   main.js **95**, `destroyRpc()` **194**.
 - Lyrics sources: `fetchLyricsWaterfall()` **7918**; plugin probe
   `_cascadePluginAbsent` **7478**.
-- Updater: main.js `parseVersion()` **608**, `checkForUpdates()` **898**,
-  `installSilentlyWindows()` **1299**.
+- Updater: main.js `checkForUpdates()` **956**, `fetchVersionsFile()` **937**,
+  `installSilentlyWindows()` **1421** (line numbers from the phase 4 branch).
+  Version comparison, reading `versions.json` and picking the installer live
+  in `src/core/update-release.ts`, which main.js requires as the CommonJS
+  bundle `build/update-release.js` (`npm run build:main`, part of `build:ts`).
+  The desktop version is `versions.json`'s `desktop` entry, falling back to
+  the tag, and a release only counts if one of its installers carries that
+  version in its file name.
 
 ## Added on overnight-2026-09-27 (line numbers at 8b57f2c)
 
@@ -436,8 +442,8 @@ audio on the live deck. Recorded so these are not rebuilt on a hunch.
   this protects against a malicious release uploaded to the repo; GitHub's
   asset digest only catches corruption. The swap script logs to
   `$TMPDIR/cascade-update.log` (named from the bundle, so Stream's is
-  `cha0s-stream-update.log`). `isNewer` sorts `-bN` betas below their release;
-  Stream's is the same function.
+  `cha0s-stream-update.log`). `isNewerVersion` (in `src/core/update-release.ts`)
+  sorts `-bN` betas below their release; Stream's `isNewer` is the same logic.
 
 ## Server facts (verified against this user's live Jellyfin 10.11.11)
 
