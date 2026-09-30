@@ -29,6 +29,9 @@ reflections of it, so the phone runs the same compiled code the Apple TV will.
     PlaybackService.
   - `WaterfallProtocol.swift` (pure, tested) and `WaterfallSession.swift` -
     listen-together rooms.
+  - `Video.swift` - the video device profile, movie and show queries, and
+    PlaybackInfo for video. The player (`VideoSession`) and pages are in
+    App/Sources/VideoPlayer.swift and VideoViews.swift.
 - `App/Sources/` - both app targets build these same files. SwiftUI covers most
   of the platform difference; where it does not (tvOS has no `Slider`, and focus
   replaces touch) the views branch on `#if os(tvOS)` rather than forking.
@@ -183,8 +186,8 @@ Browsing and playlists (branch `overnight/swift-browse`, 2026-09-27):
   like the tvOS one (tap by accessibility label, screenshot to a folder)
   works when the simulator tap tool is not granted.
 
-Once out of scope for v1: EQ, crossfade, offline downloads, video. All but
-video are built (below).
+Once out of scope for v1: EQ, crossfade, offline downloads, video. All four
+are built (below).
 
 Driving iOS without a person: the CascadeiOSUITests target
 (UITests/iOS/TapScript.swift) taps, long-presses, drags, locks and
@@ -325,3 +328,31 @@ downloads with the app suspended and killed; whether gapless is audible
 with the EQ off and on; crossfade by ear (a dip mid-fade, pause and seek
 during one); Waterfall hosting with the phone locked; lock screen
 controls as a guest going to the host.
+
+Video (2026-09-29): movies and shows, the desktop's video half. A Music /
+Video switch (`AppState.browseMode`: top left on iOS, and Settings >
+Browse) swaps the tabs for Home, Movies and Shows.
+- Playback is `VideoSession` on AVPlayerViewController, apart from the
+  music PlaybackService (no gapless decks, no music lock screen): the
+  player brings controls, subtitles, AirPlay and picture in picture.
+  Starting a video pauses music. Reports go out with MediaType Video.
+- `DeviceProfile.appleVideo` claims MP4/MOV with H.264/HEVC for direct
+  play; everything else comes as HLS (TS, H.264, AAC/AC-3/E-AC-3 up to 6
+  channels). Text subtitles are `Hls`: the server lists every one in the
+  manifest's subtitle group and the player's own menu offers them. Picture
+  subtitles (PGS, VobSub) are burned in.
+- An audio track choice is honored only with the media source id beside
+  it (checked on 10.11.11); the transcode then carries that track alone,
+  which is why the picker is on the movie page, not in the player.
+- Jellyfin keeps no resume point for anything under 5 minutes, or under
+  5% in: short test clips always come back "played" or at 0.
+- Pages refetch on `AppState.videoRevision`, bumped once a closed video's
+  stopped report has landed; refetching as the player closed raced it.
+- JfItem equals any copy with the same id, so a row given a refetched item
+  was not redrawn: rows take watched state and progress as plain values.
+- Checked in the iOS simulator against generated media (a direct MP4, an
+  MKV with two audio tracks and embedded plus external SRT, a two-episode
+  show, a 7-minute movie for resume) and the tvOS simulator's Home. Not
+  built: video search, a subtitle picker outside the player, per-library
+  selection for video, trickplay thumbnails, and the lock screen during
+  video (the music service's remote commands stay registered).

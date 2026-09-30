@@ -149,7 +149,10 @@ struct VideoStillTile: View {
             Task { await state.playVideoItem(item) }
         } label: {
             VStack(alignment: .leading, spacing: 4) {
-                ArtworkView(itemId: item.id, size: stillWidth, aspect: 16.0 / 9.0)
+                // A movie's own 16:9 picture is its backdrop; its Primary is
+                // the poster, which a wide frame crops.
+                ArtworkView(itemId: item.id, size: stillWidth, aspect: 16.0 / 9.0,
+                            imageType: item.type == "Movie" && item.backdropImageTags?.isEmpty == false ? "Backdrop" : "Primary")
                     .overlay(alignment: .bottom) { WatchedBar(item: item) }
                 Text(item.seriesName ?? item.name ?? "Untitled").font(.caption).lineLimit(1)
                 if item.type == "Episode" {
