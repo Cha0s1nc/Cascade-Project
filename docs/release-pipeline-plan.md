@@ -42,8 +42,8 @@ handoff brief for anyone (human or agent) picking up a phase.
 | Phase | What | Where |
 |---|---|---|
 | 0, 1 | License decision and text, first `CONTRIBUTING.md` | done (`2f0882d`) |
-| 2 | Merge cascade-swift into `apple/` with history | local (needs Xcode) |
-| 3 | Swift CI workflow (tests + iOS/tvOS builds) | local |
+| 2 | Merge cascade-swift into `apple/` with history | done (`b11a780`, `8eb5e9a`) |
+| 3 | Swift CI workflow (tests + iOS/tvOS builds) | done (`.github/workflows/apple.yml`, runs on the `xcode-27` image) |
 | **4** | **Updater reads `versions.json`** | cloud agent |
 | **5** | **`CHANGELOG.md` format, parser, backfill** | cloud agent |
 | 6 | `build.yml` rework: markers, platforms, carry-over, Apple job | after 2 to 5 |
@@ -134,8 +134,8 @@ Target:
   `paths` filters act per workflow, not per job, so compute the list in
   `setup` and gate each job on it.
 - **Jobs are independent.** One platform failing must not block the others.
-- **Apple job** (`macos-26`, Xcode 27 is a public preview there, select it
-  explicitly): archive iOS and tvOS, produce unsigned `.ipa` files, keep the
+- **Apple job** (`runs-on: xcode-27`; the `macos-26` image has no Xcode 27,
+  see `apple.yml`): archive iOS and tvOS, produce unsigned `.ipa` files, keep the
   `.xcarchive` too.
 - **Release job:** a DRAFT `vX.Y.Z` containing the new builds, the files of
   platforms not rebuilt copied from the latest *published* release (never a
