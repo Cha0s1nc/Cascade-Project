@@ -33,6 +33,12 @@ final class AppState {
     /// Plays movies or episodes in Apple's player, pausing any music first.
     func playVideo(_ items: [JfItem], startIndex: Int = 0, audioStreamIndex: Int? = nil, resume: Bool = true) async {
         guard let client, let config else { return }
+        // A guest's pause would go to the host (the transport gate) and stop
+        // the whole room, or explain host control at an odd moment: leave the
+        // room instead. A host pausing their own room is fine.
+        if waterfall?.role == .guest {
+            waterfall?.leave(reason: "Left the Waterfall room to play a video.")
+        }
         player?.pause()
         let session = videoSession ?? VideoSession(client: client, config: config)
         videoSession = session

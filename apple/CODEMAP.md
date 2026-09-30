@@ -327,7 +327,10 @@ Waiting on the phone (things the simulator could not settle): background
 downloads with the app suspended and killed; whether gapless is audible
 with the EQ off and on; crossfade by ear (a dip mid-fade, pause and seek
 during one); Waterfall hosting with the phone locked; lock screen
-controls as a guest going to the host.
+controls as a guest going to the host; during a movie, AirPods or Control
+Center play/pause (the music service's handlers are still registered and
+might wake the paused song), what the lock screen shows, the subtitle
+list in the player's menu, and picture in picture.
 
 Video (2026-09-29): movies and shows, the desktop's video half. A Music /
 Video switch (`AppState.browseMode`: top left on iOS, and Settings >
@@ -352,7 +355,10 @@ Browse) swaps the tabs for Home, Movies and Shows.
   was not redrawn: rows take watched state and progress as plain values.
 - Checked in the iOS simulator against generated media (a direct MP4, an
   MKV with two audio tracks and embedded plus external SRT, a two-episode
-  show, a 7-minute movie for resume) and the tvOS simulator's Home. Not
+  show, a 7-minute movie for resume). tvOS, driven by RemoteScript: focus
+  reaches the tiles, select resumes in the native player, and Menu twice
+  returns to Home with the position saved. A Waterfall guest who starts a
+  video leaves the room first, rather than pausing it through the gate. Not
   built: video search, a subtitle picker outside the player, per-library
   selection for video, trickplay thumbnails, and the lock screen during
   video (the music service's remote commands stay registered).
