@@ -21,6 +21,8 @@ const { spawn } = require('child_process')
 const { installInPlace } = require('./mac-update')
 // Pure release logic from src/core/update-release.ts, bundled by build:main.
 const UpdateRelease = require('./build/update-release')
+// CHANGELOG.md parsing and the notes shown in the update window, from src/core/changelog.ts.
+const Changelog = require('./build/changelog')
 const crypto = require('crypto')
 const { pathToFileURL } = require('url')
 const Store = require('electron-store')
@@ -953,6 +955,46 @@ async function fetchVersionsFile(release) {
   }
 }
 
+// The update window's notes: every desktop changelog section after this
+// version up to the one on offer, so skipping 2.3.1 on the way to 2.3.2 still
+// shows what 2.3.1 changed. Read from the website's changelog.json, then from
+// CHANGELOG.md at the release's tag on GitHub, then the release's own notes.
+// Betas are not in the changelog, so a beta shows its release notes.
+const CHANGELOG_JSON_URL = 'https://chaosinc.xyz/github/projects/cascade/changelog.json'
+const CHANGELOG_MAX_BYTES = 2_000_000
+
+async function fetchChangelogText(url) {
+  const res = await fetch(url, { headers: { 'User-Agent': 'cascade-updater' }, signal: AbortSignal.timeout(8_000) })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const text = await res.text()
+  if (text.length > CHANGELOG_MAX_BYTES) throw new Error('too large')
+  return text
+}
+
+async function desktopReleaseNotes(release, version) {
+  const fallback = release.body || ''
+  if (!/^\d+\.\d+\.\d+$/.test(version)) return fallback
+  const tag = /^v\d+\.\d+\.\d+$/.test(release.tag_name) ? release.tag_name : 'stable'
+  const sources = [
+    ['website', async () => Changelog.changelogFromJson(JSON.parse(await fetchChangelogText(CHANGELOG_JSON_URL)))],
+    ['GitHub', async () => Changelog.parseChangelog(await fetchChangelogText(`https://raw.githubusercontent.com/${GITHUB_REPO}/${tag}/CHANGELOG.md`))],
+  ]
+  for (const [name, load] of sources) {
+    try {
+      const entries = await load()
+      if (!entries) throw new Error('malformed')
+      const notes = Changelog.notesBetween(entries, 'desktop', app.getVersion(), version)
+      if (notes) return notes
+      // The file is fine but has nothing for this range: the release notes
+      // will say more than the other copy of the same changelog would.
+      return fallback
+    } catch (err) {
+      console.error(`[updater] Changelog from the ${name} unavailable:`, err.message)
+    }
+  }
+  return fallback
+}
+
 async function checkForUpdates() {
   try {
     // Defaults on for a beta build itself (so it keeps finding newer betas), unless
@@ -999,7 +1041,7 @@ async function checkForUpdates() {
     // window shows and what mac-update.js requires the new app to report.
     openUpdaterWindow({
       version:      build.version,
-      releaseNotes: release.body         || '',
+      releaseNotes: await desktopReleaseNotes(release, build.version),
       releaseDate:  release.published_at || '',
       releaseUrl:   release.html_url     || '',
       downloadUrl:  asset?.browser_download_url || null,

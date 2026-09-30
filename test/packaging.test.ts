@@ -26,8 +26,9 @@ test('every local file main.js requires is shipped', () => {
   }
 })
 
-test('the bundle main.js requires is built by build:ts', () => {
+test('the bundles main.js requires are built by build:ts', () => {
   const scripts = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).scripts
-  assert.match(scripts['build:main'], /--outfile=build\/update-release\.js/)
+  for (const entry of ['update-release', 'changelog']) assert.match(scripts['build:main'], new RegExp(`src/core/${entry}\\.ts\\b`))
+  assert.match(scripts['build:main'], /--outdir=build\b/)
   assert.match(scripts['build:ts'], /npm run build:main\b/)
 })

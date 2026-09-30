@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import {
-  ChangelogError, changelogSectionMarkdown, findChangelogEntry, parseChangelog,
+  ChangelogError, changelogFromJson, changelogSectionMarkdown, findChangelogEntry, notesBetween, parseChangelog,
 } from '../src/core/changelog.ts'
 
 const SAMPLE = `# Changelog
@@ -123,4 +123,26 @@ test('the real CHANGELOG.md parses, newest first, with the backfilled releases',
     assert.ok(findChangelogEntry(entries, v)?.platforms.desktop, `${v} is missing or has no Desktop section`)
   }
   assert.ok(versions.length >= 4)
+})
+
+test('changelogFromJson round-trips parsed entries and refuses anything malformed', () => {
+  const entries = parseChangelog(SAMPLE)
+  assert.deepEqual(changelogFromJson(JSON.parse(JSON.stringify(entries))), entries)
+  const ok = { version: '2.3.0', date: '2026-10-05', platforms: { desktop: '- x' } }
+  assert.deepEqual(changelogFromJson([{ ...ok, platforms: { desktop: '- x', web: '- ignored' } }]), [ok])
+  for (const bad of [
+    null, {}, 'text', [null],
+    [{ ...ok, version: 'v2.3.0' }], [{ ...ok, version: '2.3.0-b1' }], [{ ...ok, date: '2026-02-30' }],
+    [{ ...ok, platforms: [] }], [{ ...ok, platforms: { desktop: 5 } }], [{ ...ok, platforms: { desktop: ' ' } }],
+    [{ ...ok, platforms: { desktop: 'x'.repeat(20_001) } }], Array(501).fill(ok),
+  ]) assert.equal(changelogFromJson(bad), null, JSON.stringify(bad)?.slice(0, 80))
+})
+
+test('notesBetween lists one platform after the current version up to the target, newest first', () => {
+  const e = (version: string, platforms: Record<string, string>) => ({ version, date: '2026-10-01', platforms })
+  const entries = [e('2.3.2', { apple: '- a' }), e('2.3.1', { desktop: '- d1' }), e('2.3.0', { desktop: '- d0' }), e('2.2.0', { desktop: '- old' }), e('2.4.0', { desktop: '- future' })]
+  assert.equal(notesBetween(entries, 'desktop', '2.2.0', '2.3.2'), '## 2.3.1 (2026-10-01)\n\n- d1\n\n## 2.3.0 (2026-10-01)\n\n- d0')
+  assert.equal(notesBetween(entries, 'desktop', '2.3.1', '2.3.2'), '')
+  // A beta of the target's base counts as older than it.
+  assert.match(notesBetween(entries, 'desktop', '2.3.0-b2', '2.3.0'), /^## 2\.3\.0 /)
 })

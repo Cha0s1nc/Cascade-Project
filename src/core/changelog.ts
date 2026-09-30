@@ -158,6 +158,51 @@ export function findChangelogEntry(entries: readonly ChangelogEntry[], version: 
   return entries.find(e => e.version === want)
 }
 
+// Caps for changelog.json read from the website: well above any real file,
+// low enough that a broken or hostile one cannot flood the updater window.
+const JSON_MAX_ENTRIES = 500
+const JSON_MAX_NOTES = 20_000
+
+/**
+ * changelog.json (the parsed CHANGELOG.md the website serves) checked back
+ * into entries, or null if anything in it is not shaped like one. It comes
+ * over the network, so every field is checked, not trusted.
+ */
+export function changelogFromJson(data: unknown): ChangelogEntry[] | null {
+  if (!Array.isArray(data) || data.length > JSON_MAX_ENTRIES) return null
+  const entries: ChangelogEntry[] = []
+  for (const e of data) {
+    if (!e || typeof e !== 'object') return null
+    const { version, date, platforms } = e as Record<string, unknown>
+    if (typeof version !== 'string' || typeof date !== 'string') return null
+    if (!VERSION_HEADING_RE.test(`## ${version} (${date})`) || !isRealDate(date)) return null
+    if (!platforms || typeof platforms !== 'object' || Array.isArray(platforms)) return null
+    const out: ChangelogEntry['platforms'] = {}
+    for (const p of CHANGELOG_PLATFORMS) {
+      const text = (platforms as Record<string, unknown>)[p]
+      if (text === undefined) continue
+      if (typeof text !== 'string' || !text.trim() || text.length > JSON_MAX_NOTES) return null
+      out[p] = text
+    }
+    entries.push({ version, date, platforms: out })
+  }
+  return entries
+}
+
+/**
+ * What changed for one platform after `current`, up to and including
+ * `target`, newest first, each version under its own `##` heading. Empty
+ * when the changelog has nothing for that platform in the range (then the
+ * caller shows the release's own notes instead).
+ */
+export function notesBetween(entries: readonly ChangelogEntry[], platform: ChangelogPlatform, current: string, target: string): string {
+  return entries
+    .filter(e => e.platforms[platform] !== undefined && isNewerVersion(e.version, current) && !isNewerVersion(e.version, target))
+    .sort((a, b) => (isNewerVersion(a.version, b.version) ? -1 : 1))
+    .map(e => `## ${e.version} (${e.date})\n\n${e.platforms[platform]}`)
+    .join('\n\n')
+}
+
 /**
  * One version's notes as Markdown, for a GitHub release body: each platform
  * under its `###` heading, in a fixed order. No version heading, since the
