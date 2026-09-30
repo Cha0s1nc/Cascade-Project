@@ -1,0 +1,61 @@
+name: Apple
+
+# Tests and builds the iOS and tvOS app in apple/ on every change to it.
+# Builds only, unsigned: releasing the Apple app is phase 6 of
+# docs/release-pipeline-plan.md.
+
+on:
+  push:
+    branches: ['dev']
+    paths: ['apple/**', '.github/workflows/apple.yml']
+  pull_request:
+    branches: ['dev']
+    paths: ['apple/**', '.github/workflows/apple.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: apple-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    runs-on: macos-26
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: apple
+    steps:
+      - uses: actions/checkout@v7
+
+      # The project needs the iOS and tvOS 27 SDKs. Xcode 27 is a public
+      # preview on this image and not the default, so pick it explicitly.
+      - name: Select Xcode 27
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_27*.app | sort -V | tail -1)
+          echo "Using $XCODE"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      # Offline suite; the live-server tests skip themselves without
+      # CASCADE_SERVER.
+      - name: CascadeKit tests
+        working-directory: apple/CascadeKit
+        run: swift test
+
+      - name: Generate the Xcode project
+        run: xcodegen generate
+
+      - name: Build for iOS
+        run: >
+          xcodebuild -project Cascade.xcodeproj -scheme CascadeiOS
+          -destination 'generic/platform=iOS Simulator'
+          CODE_SIGNING_ALLOWED=NO build
+
+      - name: Build for tvOS
+        run: >
+          xcodebuild -project Cascade.xcodeproj -scheme CascadetvOS
+          -destination 'generic/platform=tvOS Simulator'
+          CODE_SIGNING_ALLOWED=NO build
