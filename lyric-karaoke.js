@@ -89,6 +89,8 @@ function lyricWordSpans(line, cls, emphasis) {
 // span but one is being rewritten with what it already holds - and each write
 // invalidates a background-clip: text gradient sitting under a drop-shadow,
 // which is the most expensive text paint in index.html.
+const _defaultLyricStyle = CascadeCore.lyricStyleFrom({})
+
 function _paintWordSpans(line, nowTicks) {
   line?.querySelectorAll('.lyric-word, .ov-lyric-word').forEach(w => {
     // The fill has a soft edge 0.6em wide, as in Apple Music (the gradients in
@@ -100,19 +102,27 @@ function _paintWordSpans(line, nowTicks) {
     const p = `calc(${prog.toFixed(2)}% + ${(prog * 0.006 - 0.3).toFixed(3)}em)`
     // A held note swells letter by letter, as in Apple Music: the word's
     // progress sweeps across its letters, each getting its own share of the
-    // fill (--p). A letter the fill has reached is .lit, which starts its
-    // rise animation in styles/lyrics.css (delayed peak, then a settle, held
-    // until the line ends). Unlit again on a seek back, so it can replay.
+    // fill (--p), and each swells (--s, see styles/karaoke.css) from when the
+    // fill reaches it, by CascadeCore.heldSwell: more for a longer note,
+    // rising until it ends, then settling. Computed from the clock every
+    // frame, so a seek back simply draws it from the start again.
     if (w.classList.contains('emph')) {
       const letters = w.children
       const n = letters.length
+      const start = parseInt(w.dataset.ws) / 10_000_000
+      const held = Math.max(0, (w.dataset.we ? parseInt(w.dataset.we) / 10_000_000 : start) - start)
+      const now = nowTicks / 10_000_000
+      // The Lyrics settings live in renderer.js; the miniplayer, which has
+      // none, draws with the defaults.
+      const style = typeof lyricStyle !== 'undefined' ? lyricStyle : _defaultLyricStyle
       for (let i = 0; i < n; i++) {
         const t = Math.max(0, Math.min(1, prog / 100 * n - i))
         const lp = `calc(${(t * 100).toFixed(2)}% + ${(t * 0.6 - 0.3).toFixed(3)}em)`
         const st = letters[i].style
         if (st.getPropertyValue('--p') !== lp) st.setProperty('--p', lp)
-        const lit = t > 0
-        if (letters[i].classList.contains('lit') !== lit) letters[i].classList.toggle('lit', lit)
+        const litAt = start + held * i / n
+        const sw = CascadeCore.heldSwell(now - litAt, start + held - litAt, held, style).toFixed(3)
+        if (st.getPropertyValue('--s') !== sw) st.setProperty('--s', sw)
       }
     }
     if (w.style.getPropertyValue('--p') !== p) w.style.setProperty('--p', p)

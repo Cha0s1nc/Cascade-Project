@@ -60,7 +60,8 @@
 .np-overlay.art-theme .np-overlay-tabs { border-bottom-color: rgba(255,255,255,0.12); }
 .np-overlay.art-theme .np-ov-tab { color: rgba(255,255,255,0.45); }
 .np-overlay.art-theme .np-ov-tab.active { color: white; }
-.np-overlay.art-theme .np-overlay-title { color: rgba(255,255,255,0.5); }
+.np-overlay.art-theme .np-overlay-title,
+.np-overlay.art-theme .np-overlay-theme { color: rgba(255,255,255,0.5); }
 
 /* Light theme's blobs are pale (album-colors.ts' light MIN_L/MAX_L pair),
    not the black-glow vivid ones above - so the white text and black-tinted
@@ -85,7 +86,8 @@ html[data-theme="light"] .np-overlay.art-theme .np-overlay-right { background: r
 html[data-theme="light"] .np-overlay.art-theme .np-overlay-header { background: rgba(255,255,255,var(--np-scrim-header, 0.16)); }
 html[data-theme="light"] .np-overlay.art-theme .np-overlay-track { color: #1c1c1e; }
 html[data-theme="light"] .np-overlay.art-theme .np-overlay-artist { color: rgba(28,28,30,0.7); }
-html[data-theme="light"] .np-overlay.art-theme .np-overlay-title { color: rgba(28,28,30,0.5); }
+html[data-theme="light"] .np-overlay.art-theme .np-overlay-title,
+html[data-theme="light"] .np-overlay.art-theme .np-overlay-theme { color: rgba(28,28,30,0.5); }
 /* The karaoke active line floats directly on the blobs with no scrim (only
    .browsing gets one, and that scrim is already dark - see dd975bd - so it
    needs no light variant). Everything else in .ov-lyric-line/.ov-lyric-word
@@ -113,8 +115,12 @@ html[data-theme="light"] .backdrop.dim { background: rgba(0,0,0,0.28); }
 html[data-theme="light"] .np-overlay { background: var(--bg); }
 
 /* ── Theme picker ── */
-#theme-dot { width: 11px; height: 11px; border-radius: 50%; background: var(--grad); cursor: pointer; flex-shrink: 0; transition: transform 0.15s, filter 0.15s; border: none; padding: 0; }
-#theme-dot:hover { transform: scale(1.25); filter: brightness(1.15); }
+/* A paintbrush, like Now Playing's: it used to be a dot in the theme's
+   gradient, which nobody read as "change the theme here". */
+#theme-btn { display: grid; place-items: center; width: 26px; height: 26px; padding: 0; flex-shrink: 0; border: none; border-radius: 6px; background: none; color: var(--text3); cursor: pointer; transition: background 0.12s, color 0.12s; }
+#theme-btn:hover { background: var(--surface2); color: var(--text); }
+#theme-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); }
+#theme-btn svg { width: 15px; height: 15px; }
 /* display stays flex always (never none) so opacity/transform/visibility
    can animate reversibly, same trick as #setup-overlay. */
 .theme-picker { position: absolute; top: 46px; right: 16px; z-index: 400; width: 248px;
@@ -156,6 +162,31 @@ input[type="color"].tp-swatch { width: 100%; height: 30px; border: 1px solid var
 .theme-picker .setting-input { width: 100%; }
 #tp-font-custom { margin-top: 8px; }
 .tp-range { width: 100%; accent-color: var(--accent); }
+/* Pages: main, Colors, Lyrics. Only the .active one shows. */
+.tp-page { display: none; flex-direction: column; gap: 13px; }
+.tp-page.active { display: flex; }
+.tp-back { display: grid; place-items: center; padding: 3px; margin-left: -5px; border: none; border-radius: 6px; background: none; color: var(--text3); cursor: pointer; transition: background 0.12s, color 0.12s; }
+.tp-back:hover { background: var(--surface2); color: var(--text); }
+.tp-back svg { width: 15px; height: 15px; }
+.tp-back + .tp-title { margin-right: auto; margin-left: 2px; }
+.tp-navs { display: flex; flex-direction: column; gap: 4px; }
+.tp-nav { display: flex; align-items: center; gap: 9px; width: 100%; padding: 9px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface2); color: var(--text); font-family: var(--font); font-size: 12px; font-weight: 500; text-align: left; cursor: pointer; transition: border-color 0.12s, background 0.12s; }
+.tp-nav:hover { border-color: var(--text3); }
+.tp-nav:focus-visible, .tp-back:focus-visible, .tp-reset-all:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); }
+.tp-nav-name { flex: 1; }
+.tp-nav svg { width: 13px; height: 13px; color: var(--text3); }
+.tp-nav-swatch { width: 12px; height: 12px; border-radius: 50%; background: var(--grad); flex-shrink: 0; }
+.tp-page-hint { margin-top: -7px; }
+.tp-knobs { display: flex; flex-direction: column; gap: 10px; }
+.tp-knob-section { margin: 8px 0 -4px; }
+.tp-knob-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: 2px; font-size: 11px; color: var(--text2); }
+.tp-knob-name { flex: 1; }
+.tp-knob-value { font-size: 10.5px; color: var(--text3); font-variant-numeric: tabular-nums; }
+.tp-knob-reset { visibility: hidden; padding: 0 2px; border: none; background: none; color: var(--text3); font-size: 12px; line-height: 1; cursor: pointer; }
+.tp-knob.changed .tp-knob-reset { visibility: visible; }
+.tp-knob-reset:hover { color: var(--text); }
+.tp-reset-all { padding: 7px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface2); color: var(--text2); font-family: var(--font); font-size: 11px; cursor: pointer; transition: border-color 0.12s, color 0.12s; }
+.tp-reset-all:hover { border-color: var(--text3); color: var(--text); }
 .tp-hint { display: block; margin-top: 4px; font-size: 10px; color: var(--text3); }
 .tp-album-row { display: flex; align-items: center; justify-content: space-between; }
 .tp-album-label { display: flex; flex-direction: column; gap: 2px; }

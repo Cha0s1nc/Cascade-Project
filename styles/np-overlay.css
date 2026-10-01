@@ -22,6 +22,21 @@ html[data-platform="linux"] .np-overlay-header { padding-inline: var(--caption-r
 }
 .np-overlay-title:hover { background: var(--surface2); color: var(--text); }
 .np-overlay-title:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); }
+/* Opens the Theme panel (theme and lyric look) from Now Playing. In the
+   corner the old x used to hold, but on Windows and Linux kept left of the
+   caption buttons, where an x would have read as a second close button. */
+.np-overlay-header { position: relative; }
+.np-overlay-theme {
+  -webkit-app-region: no-drag; position: absolute; top: 50%; right: 20px; transform: translateY(-50%);
+  display: grid; place-items: center; width: 30px; height: 30px; padding: 0;
+  background: none; border: none; border-radius: 7px; color: var(--text3); cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.np-overlay-theme:hover { background: var(--surface2); color: var(--text); }
+.np-overlay-theme:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); }
+.np-overlay-theme svg { width: 17px; height: 17px; }
+html[data-platform="win32"] .np-overlay-theme,
+html[data-platform="linux"] .np-overlay-theme { right: var(--caption-reserve); }
 .np-overlay-title svg { width: 15px; height: 15px; transition: transform 0.12s; }
 .np-overlay-title:hover svg { transform: translateY(2px); }
 @media (prefers-reduced-motion: reduce) { .np-overlay-title:hover svg { transform: none; } }
@@ -342,35 +357,36 @@ html[data-theme="light"] .q-now { background: rgba(255,255,255,0.72); }
 /* --np-lyric-scale is the Now Playing lyric size setting (renderer.js
    saveNpTuning()/loadNpTuning()) - a multiplier on the shipped clamp so a
    stored size never has to duplicate its min/preferred/max, just scale them. */
-.ov-lyric-line { text-align: left; font-size: calc(clamp(22px, 3vw, 50px) * var(--np-lyric-scale, 1)); font-weight: 800; letter-spacing: -0.015em; color: white; padding: 12px 56px; line-height: 1.25; cursor: default; max-width: min(900px, 92%); opacity: 0; filter: blur(6px); transition: opacity 0.55s cubic-bezier(0.16,1,0.3,1), filter 0.55s cubic-bezier(0.16,1,0.3,1); }
+.ov-lyric-line { text-align: left; font-size: calc(clamp(22px, 3vw, 50px) * var(--np-lyric-scale, 1)); font-weight: 800; letter-spacing: -0.015em; color: white; padding: calc(var(--ly-line-gap, 8px) / 2) 56px; line-height: 1.25; cursor: default; max-width: min(900px, 92%); opacity: 0; filter: blur(var(--ly-far-blur, 6px)); transform-origin: left center; transition: opacity var(--ly-fade, 1s) cubic-bezier(0.16,1,0.3,1), filter var(--ly-fade, 1s) cubic-bezier(0.16,1,0.3,1), transform var(--ly-fade, 1s) cubic-bezier(0.16,1,0.3,1); }
 /* Segoe UI has no 800, so CSS font matching rounds up to 900 (Segoe UI
    Black) and Windows lyrics came out far heavier than SF Pro's Heavy on the
    Mac. 700 is Segoe UI Bold, the closest match. */
 html[data-platform="win32"] .ov-lyric-line { font-weight: 700; }
 .ov-lyric-line.seekable { cursor: pointer; }
-.ov-lyric-line.past { opacity: 0; pointer-events: none; }
-.ov-lyric-line.near-3 { opacity: 0.12; filter: blur(4px); }
-.ov-lyric-line.near-2 { opacity: 0.22; filter: blur(3px); }
-.ov-lyric-line.near-1 { opacity: 0.35; filter: blur(2px); }
+/* Each value here is a Lyrics setting in the Theme panel (src/core/lyric-style.ts);
+   the fallbacks are its defaults. */
+.ov-lyric-line.past { opacity: var(--ly-past-opacity, 0.3); filter: blur(var(--ly-past-blur, 3.5px)); transform: scale(var(--ly-past-scale, 0.75)); }
+.ov-lyric-line.opposite { transform-origin: right center; }
+.ov-lyric-line.near-3 { opacity: var(--ly-next3-opacity, 0.1); filter: blur(var(--ly-next3-blur, 4px)); }
+.ov-lyric-line.near-2 { opacity: var(--ly-next2-opacity, 0.11); filter: blur(var(--ly-next2-blur, 4px)); }
+.ov-lyric-line.near-1 { opacity: var(--ly-next1-opacity, 0.15); filter: blur(var(--ly-next1-blur, 2.5px)); }
 .ov-lyric-line.active { opacity: 1; filter: none; }
 .ov-lyric-trans { font-size: clamp(14px, 1.35vw, 22px); font-weight: 500; letter-spacing: 0; line-height: 1.3; margin-top: 6px; color: rgba(255,255,255,0.72); -webkit-text-fill-color: currentColor; }
 /* Unsung words stay readable, not ghosted: the fill is the progress cue. */
-.ov-lyric-word { -webkit-text-fill-color: rgba(255,255,255,0.4); }
+.ov-lyric-word { -webkit-text-fill-color: rgba(255,255,255,var(--ly-unsung-opacity, 0.4)); }
 .ov-lyric-line.active .ov-lyric-word, .ov-lyric-line.active .emph-l {
   --p: -0.3em;   /* unsung: the soft edge sits wholly before the word */
-  background: linear-gradient(to right, white calc(var(--p) - 0.3em), rgba(255,255,255,0.4) calc(var(--p) + 0.3em));
+  background: linear-gradient(to right, white calc(var(--p) - 0.3em), rgba(255,255,255,var(--ly-unsung-opacity, 0.4)) calc(var(--p) + 0.3em));
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
 }
-#ov-panel-lyrics:hover .ov-lyric-line.past { opacity: 0.18; filter: blur(2px); pointer-events: auto; }
-#ov-panel-lyrics:hover .ov-lyric-line.past.near-past { opacity: 0.3; filter: blur(1px); }
 /* Scrolling by hand means you want to read, and the karaoke fade hides
    exactly what you are scrolling toward - past lines and anything beyond
    near-3 sit at opacity 0. Bring the whole lyric up while browsing. The
    line's existing transition does the fade both ways, so it settles back
    into the karaoke look on its own when the spring returns to the active
    line. */
-#ov-panel-lyrics.browsing .ov-lyric-line { opacity: 0.8; filter: none; color: white; text-shadow: 0 1px 4px rgba(0,0,0,0.55); pointer-events: auto; }
-#ov-panel-lyrics.browsing .ov-lyric-line.active { opacity: 1; color: white; }
+#ov-panel-lyrics.browsing .ov-lyric-line { opacity: var(--ly-browsing-opacity, 0.8); filter: blur(var(--ly-browsing-blur, 1px)); transform: none; color: white; text-shadow: 0 1px 4px rgba(0,0,0,0.55); pointer-events: auto; }
+#ov-panel-lyrics.browsing .ov-lyric-line.active { opacity: 1; filter: none; color: white; }
 /* Not on karaoke words: their fill is see-through (0.4 white unsung, and the
    gradient's text-fill is transparent), so the shadow showed through the
    glyphs as a muddy doubled outline. */
@@ -389,11 +405,11 @@ html[data-platform="win32"] .ov-lyric-line { font-weight: 700; }
    Deliberately left alone: .near-1/.near-2/.near-3/.past, which fade to
    near-zero opacity on purpose and are not meant to be read. Selectors
    are scoped to [data-theme="light"] so dark theme is untouched. */
-html[data-theme="light"] .ov-lyric-word { -webkit-text-fill-color: rgba(28,28,30,0.4); }
+html[data-theme="light"] .ov-lyric-word { -webkit-text-fill-color: rgba(28,28,30,var(--ly-unsung-opacity, 0.4)); }
 html[data-theme="light"] .ov-lyric-line { color: #1c1c1e; }
 html[data-theme="light"] .ov-lyric-trans { color: rgba(28,28,30,0.7); }
 html[data-theme="light"] .ov-lyric-line.active .ov-lyric-word, html[data-theme="light"] .ov-lyric-line.active .emph-l {
-  background: linear-gradient(to right, #1c1c1e calc(var(--p) - 0.3em), rgba(28,28,30,0.4) calc(var(--p) + 0.3em));
+  background: linear-gradient(to right, #1c1c1e calc(var(--p) - 0.3em), rgba(28,28,30,var(--ly-unsung-opacity, 0.4)) calc(var(--p) + 0.3em));
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
 }
 html[data-theme="light"] #ov-panel-lyrics.browsing .ov-lyric-line { color: #1c1c1e; text-shadow: 0 1px 3px rgba(255,255,255,0.6); }

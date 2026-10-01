@@ -123,3 +123,61 @@ export function queueSourceFallback(items: readonly JfItem[]): string | null {
   if (!first?.AlbumId || !first.Album) return null
   return items.every(t => t.AlbumId === first.AlbumId) ? first.Album : null
 }
+
+/**
+ * The queue as kept across a restart: item ids (refetched on restore, so a
+ * track deleted meanwhile just drops out), where playback was, and the
+ * original order when shuffled. Music only: a video or a radio station is
+ * not kept, and an empty queue keeps nothing.
+ */
+export interface SavedQueue {
+  ids: string[]
+  index: number
+  positionSec: number
+  unshuffledIds?: string[]
+}
+
+export const SAVED_QUEUE_MAX = 2000
+
+export function savedQueueOf(queue: readonly JfItem[], index: number, positionSec: number, unshuffled: readonly JfItem[]): SavedQueue | null {
+  const current = queue[index]
+  if (!current || current.Type !== 'Audio') return null
+  // Past the cap, keep a window that holds the current track.
+  const start = queue.length > SAVED_QUEUE_MAX ? Math.max(0, Math.min(index - 100, queue.length - SAVED_QUEUE_MAX)) : 0
+  const ids = queue.slice(start, start + SAVED_QUEUE_MAX).map(i => i.Id)
+  const saved: SavedQueue = { ids, index: index - start, positionSec: Math.max(0, Math.round(positionSec * 10) / 10) }
+  if (unshuffled.length) saved.unshuffledIds = unshuffled.slice(0, SAVED_QUEUE_MAX).map(i => i.Id)
+  return saved
+}
+
+const idList = (v: unknown): string[] =>
+  Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && /^[0-9a-f-]{32,36}$/i.test(x)).slice(0, SAVED_QUEUE_MAX) : []
+
+/** Every id a stored queue needs fetched, or none if it is not a queue. Stored data is untrusted. */
+export function savedQueueIds(saved: unknown): string[] {
+  if (!saved || typeof saved !== 'object') return []
+  const s = saved as Record<string, unknown>
+  return [...new Set([...idList(s.ids), ...idList(s.unshuffledIds)])]
+}
+
+/**
+ * Rebuilds a stored queue from freshly fetched items (any order). If the
+ * current track is gone, the next one that is still there becomes current,
+ * from its start.
+ */
+export function restoreQueue(saved: unknown, items: readonly JfItem[]): { queue: JfItem[], index: number, positionSec: number, unshuffled: JfItem[] } | null {
+  if (!saved || typeof saved !== 'object') return null
+  const s = saved as Record<string, unknown>
+  const ids = idList(s.ids)
+  const byId = new Map(items.map(i => [i.Id, i]))
+  const queue = ids.map(id => byId.get(id)).filter((i): i is JfItem => !!i)
+  if (!queue.length) return null
+  const savedIndex = Number.isInteger(s.index) ? Math.min(Math.max(s.index as number, 0), ids.length - 1) : 0
+  const pos = typeof s.positionSec === 'number' && Number.isFinite(s.positionSec) ? Math.max(0, s.positionSec) : 0
+  const stillThere = byId.has(ids[savedIndex])
+  // Items kept before the saved current one: where it, or its successor, now sits.
+  const before = ids.slice(0, savedIndex).filter(id => byId.has(id)).length
+  const index = Math.min(before, queue.length - 1)
+  const unshuffled = idList(s.unshuffledIds).map(id => byId.get(id)).filter((i): i is JfItem => !!i)
+  return { queue, index, positionSec: stillThere ? pos : 0, unshuffled }
+}

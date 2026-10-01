@@ -38,84 +38,116 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="4"/><polygon points="10.5 9 15.5 12 10.5 15" fill="currentColor" stroke="none"/></svg>
         </button>
       </div>
-      <button id="theme-dot" title="Customize theme"></button>
+      <button id="theme-btn" title="Theme" aria-label="Theme" aria-haspopup="dialog">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9.06 11.9 8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/></svg>
+      </button>
     </div>
   </header>
 
   <!-- Theme picker panel -->
-  <div class="theme-picker" id="theme-picker">
-    <div class="tp-row">
-      <span class="tp-title">Theme</span>
-      <button class="tp-close" id="tp-close">×</button>
-    </div>
-    <div class="tp-divider"></div>
-    <div>
-      <div class="tp-label">Mode</div>
-      <div class="seg-control">
-        <button class="seg-btn active" data-thememode="dark" id="seg-dark">Dark</button>
-        <button class="seg-btn" data-thememode="light" id="seg-light">Light</button>
+  <div class="theme-picker" id="theme-picker" role="dialog" aria-label="Theme">
+    <!-- Three pages, one shown at a time (.active): the main one with the mode
+         and font, and Colors and Lyrics behind their rows. Closing the panel
+         returns it to the main page. -->
+    <div class="tp-page active" data-page="main">
+      <div class="tp-row">
+        <span class="tp-title">Theme</span>
+        <button class="tp-close" aria-label="Close">×</button>
       </div>
-    </div>
-    <div>
-      <div class="tp-label">Gradient</div>
-      <div class="tp-colors">
-        <div class="tp-color-wrap">
-          <input type="color" class="tp-swatch" id="grad-start" value="#4ade80">
-          <span class="tp-color-name">Start</span>
-        </div>
-        <span class="tp-arrow">→</span>
-        <div class="tp-color-wrap">
-          <input type="color" class="tp-swatch" id="grad-end" value="#7c3aed">
-          <span class="tp-color-name">End</span>
+      <div class="tp-divider"></div>
+      <div>
+        <div class="tp-label">Mode</div>
+        <div class="seg-control">
+          <button class="seg-btn active" data-thememode="dark" id="seg-dark">Dark</button>
+          <button class="seg-btn" data-thememode="light" id="seg-light">Light</button>
         </div>
       </div>
-    </div>
-    <div>
-      <div class="tp-label">Presets</div>
-      <div class="tp-presets" id="tp-presets"></div>
-    </div>
-    <div class="tp-divider"></div>
-    <div>
-      <div class="tp-label">Font</div>
-      <select class="setting-input" id="tp-font-preset">
-        <option value="system">System</option>
-        <option value="sans">Helvetica</option>
-        <option value="serif">Georgia</option>
-        <option value="mono">Monospace</option>
-        <option value="custom">Custom…</option>
-      </select>
-      <input type="text" class="setting-input" id="tp-font-custom" placeholder="Font family name" maxlength="60" hidden>
-    </div>
-    <div class="tp-divider"></div>
-    <div>
-      <div class="tp-label">Lyric size</div>
-      <input type="range" class="tp-range" id="tp-lyric-scale" min="0.8" max="1.4" step="0.05" value="1">
-    </div>
-    <div>
-      <div class="tp-label">Background dim</div>
-      <input type="range" class="tp-range" id="tp-bg-dim" min="0" max="1" step="0.01" value="0.16">
-      <span class="tp-hint">Light mode with album art accent</span>
-    </div>
-    <div class="tp-album-row">
-      <div class="tp-album-label">
-        <span class="tp-album-name">Blend background with art</span>
-        <span class="tp-album-desc">Light mode with album art accent</span>
+      <div class="tp-navs">
+        <button class="tp-nav" data-open="colors"><span class="tp-nav-swatch" aria-hidden="true"></span><span class="tp-nav-name">Colors</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></button>
+        <button class="tp-nav" data-open="lyrics"><span class="tp-nav-name">Lyrics</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></button>
       </div>
-      <label class="toggle">
-        <input type="checkbox" id="tp-bg-blend" checked>
-        <span class="toggle-track"></span>
-      </label>
-    </div>
-    <div class="tp-divider"></div>
-    <div class="tp-album-row">
-      <div class="tp-album-label">
-        <span class="tp-album-name">Album art accent</span>
-        <span class="tp-album-desc">Match gradient to current album's colors</span>
+      <div class="tp-divider"></div>
+      <div>
+        <div class="tp-label">Font</div>
+        <select class="setting-input" id="tp-font-preset">
+          <option value="system">System</option>
+          <option value="sans">Helvetica</option>
+          <option value="serif">Georgia</option>
+          <option value="mono">Monospace</option>
+          <option value="custom">Custom…</option>
+        </select>
+        <input type="text" class="setting-input" id="tp-font-custom" placeholder="Font family name" maxlength="60" hidden>
       </div>
-      <label class="toggle">
-        <input type="checkbox" id="toggle-album-art">
-        <span class="toggle-track"></span>
-      </label>
+    </div>
+
+    <div class="tp-page" data-page="colors">
+      <div class="tp-row">
+        <button class="tp-back" data-open="main" aria-label="Back to Theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 6 9 12 15 18"/></svg></button>
+        <span class="tp-title">Colors</span>
+        <button class="tp-close" aria-label="Close">×</button>
+      </div>
+      <div class="tp-divider"></div>
+      <div>
+        <div class="tp-label">Gradient</div>
+        <div class="tp-colors">
+          <div class="tp-color-wrap">
+            <input type="color" class="tp-swatch" id="grad-start" value="#4ade80">
+            <span class="tp-color-name">Start</span>
+          </div>
+          <span class="tp-arrow">→</span>
+          <div class="tp-color-wrap">
+            <input type="color" class="tp-swatch" id="grad-end" value="#7c3aed">
+            <span class="tp-color-name">End</span>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="tp-label">Presets</div>
+        <div class="tp-presets" id="tp-presets"></div>
+      </div>
+      <div class="tp-divider"></div>
+      <div class="tp-album-row">
+        <div class="tp-album-label">
+          <span class="tp-album-name">Album art accent</span>
+          <span class="tp-album-desc">Match gradient to current album's colors</span>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="toggle-album-art">
+          <span class="toggle-track"></span>
+        </label>
+      </div>
+      <div>
+        <div class="tp-label">Background dim</div>
+        <input type="range" class="tp-range" id="tp-bg-dim" min="0" max="1" step="0.01" value="0.16">
+        <span class="tp-hint">Light mode with album art accent</span>
+      </div>
+      <div class="tp-album-row">
+        <div class="tp-album-label">
+          <span class="tp-album-name">Blend background with art</span>
+          <span class="tp-album-desc">Light mode with album art accent</span>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="tp-bg-blend" checked>
+          <span class="toggle-track"></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="tp-page" data-page="lyrics">
+      <div class="tp-row">
+        <button class="tp-back" data-open="main" aria-label="Back to Theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 6 9 12 15 18"/></svg></button>
+        <span class="tp-title">Lyrics</span>
+        <button class="tp-close" aria-label="Close">×</button>
+      </div>
+      <div class="tp-divider"></div>
+      <span class="tp-hint tp-page-hint">Full-screen lyrics in Now Playing. Changes show right away.</span>
+      <div>
+        <div class="tp-label">Text size</div>
+        <input type="range" class="tp-range" id="tp-lyric-scale" min="0.8" max="1.4" step="0.05" value="1">
+      </div>
+      <!-- Filled from CascadeCore.LYRIC_KNOBS by renderer.js. -->
+      <div class="tp-knobs" id="tp-lyric-knobs"></div>
+      <button class="tp-reset-all" id="tp-lyric-reset">Reset all lyric settings</button>
     </div>
   </div>
 
@@ -1290,6 +1322,9 @@
     <button class="np-overlay-title" id="np-overlay-collapse" title="Close now playing (Esc)" aria-label="Close now playing">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
       <span>Now Playing</span>
+    </button>
+    <button class="np-overlay-theme" id="np-theme-btn" title="Theme and lyrics" aria-label="Theme and lyrics" aria-haspopup="dialog">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9.06 11.9 8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/></svg>
     </button>
   </div>
   <div class="np-overlay-body">

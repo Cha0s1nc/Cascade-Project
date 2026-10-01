@@ -15,6 +15,7 @@ let queueIndex = -1
 let shuffle = false
 let repeatMode = 'none' // 'none' | 'all' | 'one'
 let _unshuffledQueue = []   // original order saved when shuffle is enabled
+let _restoredResume = null   // { sec } while a restored queue's track waits for play (see Last queue)
 
 // Queue panel virtualisation
 const QUEUE_WIN      = 20   // minimum rows kept in DOM at once; see _queueWin()
@@ -777,6 +778,7 @@ async function connect(serverUrl, token, userId) {
   await populateLibraryPicker(viewsPromise)
   invalidateLibraryViews()
   await loadHome()
+  await restoreLastQueue()
   // Both sit over a populated app rather than a blank one, hence after loadHome.
   // The wizard runs itself off its stored revision, so an ordinary launch on the
   // current revision shows nothing - and when it does run it has already marked
@@ -821,9 +823,9 @@ function startRemoteControl() {
       if (playCommand === 'PlayLast' && !idle) { enqueueTracks(tracks, label); return }
       playItems(tracks, startIndex)
     },
-    playPause()     { if (audio.paused) audio.play().catch(() => {}); else audio.pause() },
+    playPause()     { if (audio.paused) playOrResume(); else audio.pause() },
     pause()         { audio.pause() },
-    unpause()       { audio.play().catch(() => {}) },
+    unpause()       { playOrResume() },
     stop()          { stopPlayback() },
     nextTrack()     { document.getElementById('btn-next').click() },
     previousTrack() { document.getElementById('btn-prev').click() },
@@ -4626,6 +4628,56 @@ document.getElementById('show-back-btn').addEventListener('click', () => {
 
 /** Start a new queue. `source` names it in the queue panel ("From Favorite
  *  Songs"); without one, a single album's tracks are labelled with the album. */
+// ── Last queue ───────────────────────────────────────────────────────────────
+// The queue, the current track and where it was are kept across restarts
+// (CascadeCore.savedQueueOf / restoreQueue): saved every few seconds when it
+// changed, and restored after sign-in, shown but not loaded. Nothing plays and
+// nothing is reported to the server until play is pressed, which then starts
+// that track where it was left (playOrResume). A Waterfall guest neither saves
+// nor restores: its queue is the host's.
+let _lastSavedQueue = undefined
+
+function _saveQueueState() {
+  if (blocksLocalPlayback()) return
+  const state = CascadeCore.savedQueueOf(queue, queueIndex, mediaPosition(), _unshuffledQueue)
+  const text = JSON.stringify(state)
+  if (text === _lastSavedQueue) return
+  _lastSavedQueue = text
+  window.cascade.store.set('lastQueue', text)
+}
+setInterval(_saveQueueState, 5000)
+window.addEventListener('beforeunload', _saveQueueState)
+
+async function restoreLastQueue() {
+  if (queue.length || blocksLocalPlayback()) return
+  let saved = null
+  try { saved = JSON.parse(await window.cascade.store.get('lastQueue') || 'null') } catch {}
+  const ids = CascadeCore.savedQueueIds(saved)
+  if (!ids.length) return
+  const items = await jfItemsByIds(ids, 'AlbumId,AlbumPrimaryImageTag,UserData,MediaStreams,MediaSources')
+  if (queue.length || blocksLocalPlayback()) return   // something started meanwhile
+  const restored = CascadeCore.restoreQueue(saved, items)
+  if (!restored) return
+  queue = restored.queue
+  queueIndex = restored.index
+  _unshuffledQueue = shuffle ? (restored.unshuffled.length ? restored.unshuffled : [...queue]) : []
+  queueSource = CascadeCore.queueSourceFallback(queue)
+  _restoredResume = { sec: restored.positionSec }
+  _lastSavedQueue = JSON.stringify(CascadeCore.savedQueueOf(queue, queueIndex, restored.positionSec, _unshuffledQueue))
+  updateNowPlaying(queue[queueIndex])
+  syncProgressUI()
+  renderQueuePanel()
+}
+
+// Play, or for a restored queue, start its track where it was left.
+function playOrResume() {
+  if (_restoredResume && queue[queueIndex]) {
+    playCurrentTrack({ startTicks: Math.round(_restoredResume.sec * 10_000_000) })
+    return
+  }
+  audio.play().catch(() => {})
+}
+
 function playItems(items, startIndex, source) {
   // In a Waterfall room a guest follows the host - starting something locally
   // would silently fight the session until the next sync pulled it back.
@@ -4769,6 +4821,7 @@ async function playCurrentTrack(opts = {}) {
   if (blocksLocalPlayback()) return
   if (queueIndex < 0 || queueIndex >= queue.length) return
   const item = queue[queueIndex]
+  _restoredResume = null
 
   // Every track change funnels through here, so this is the one place that
   // needs to know to abandon an in-progress crossfade - covers next/prev,
@@ -5171,6 +5224,7 @@ let _streamOffsetSec = 0
 
 /** Position within the item, in seconds. */
 function mediaPosition() {
+  if (_restoredResume) return _restoredResume.sec
   return _streamOffsetSec + audio.currentTime
 }
 
@@ -5184,6 +5238,7 @@ function mediaPosition() {
  */
 function mediaDuration() {
   const item = queue[queueIndex]
+  if (_restoredResume && item?.RunTimeTicks) return item.RunTimeTicks / 10_000_000
   if (isVideoItem(item) && item?.RunTimeTicks) return item.RunTimeTicks / 10_000_000
   return audio.duration || 0
 }
@@ -5202,6 +5257,8 @@ async function seekTo(sec) {
   const dur = mediaDuration()
   const target = Math.max(0, Math.min(dur || sec, sec))
 
+  // Not loaded yet (a restored queue): move where play will start from.
+  if (_restoredResume) { _restoredResume.sec = target; syncProgressUI(); return }
   if (_transcodeUrl) {
     await restartStreamAt(target)
     return
@@ -6009,7 +6066,7 @@ function _waitForPlayable(deck, timeoutMs = 4000) {
 // ── Player controls ───────────────────────────────────────────────────────────
 
 document.getElementById('btn-play').addEventListener('click', () => {
-  if (audio.paused) audio.play()
+  if (audio.paused) playOrResume()
   else audio.pause()
 })
 
@@ -6033,6 +6090,7 @@ document.getElementById('btn-next').addEventListener('click', () => {
 document.getElementById('btn-shuffle').addEventListener('click', () => {
   shuffle = !shuffle
   document.getElementById('btn-shuffle').classList.toggle('active', shuffle)
+  window.cascade.store.set('shuffle', shuffle)
 
   const currentId = queue[queueIndex]?.Id
 
@@ -6045,8 +6103,9 @@ document.getElementById('btn-shuffle').addEventListener('click', () => {
     if (nowIdx > 0) { const [t] = queue.splice(nowIdx, 1); queue.unshift(t) }
     queueIndex = 0
   } else {
-    // Restore original order, keeping the same track playing
-    queue = _unshuffledQueue
+    // Restore original order, keeping the same track playing. A queue with no
+    // original order on record stays as it is rather than emptying.
+    if (_unshuffledQueue.length) queue = _unshuffledQueue
     _unshuffledQueue = []
     queueIndex = Math.max(0, queue.findIndex(t => t.Id === currentId))
   }
@@ -6077,6 +6136,7 @@ function updateRepeatButtons() {
 document.getElementById('btn-repeat').addEventListener('click', () => {
   const modes = ['none', 'all', 'one']
   repeatMode = modes[(modes.indexOf(repeatMode) + 1) % modes.length]
+  window.cascade.store.set('repeatMode', repeatMode)
   updateRepeatButtons()
   _reprefetch()   // repeat mode changes what "next" means
 })
@@ -6951,6 +7011,7 @@ async function init() {
   buildPresets()
   await loadUiFont()
   await loadNpTuning()
+  await loadLyricStyle()
   await initDiscordRpc()
 
   crossfadeEnabled = (await window.cascade.store.get('crossfadeEnabled')) === true
@@ -6987,6 +7048,13 @@ async function init() {
   // Restore saved volume
   const savedVol = await window.cascade.store.get('volume')
   if (savedVol !== undefined && savedVol !== null) setVolumeRatio(parseFloat(savedVol))
+  // Shuffle and repeat stay as they were left.
+  shuffle = (await window.cascade.store.get('shuffle')) === true
+  document.getElementById('btn-shuffle').classList.toggle('active', shuffle)
+  document.getElementById('ov-shuffle').classList.toggle('active', shuffle)
+  const savedRepeat = await window.cascade.store.get('repeatMode')
+  if (['none', 'all', 'one'].includes(savedRepeat)) repeatMode = savedRepeat
+  updateRepeatButtons()
 
   const serverUrl = await window.cascade.store.get('serverUrl')
   const username  = await window.cascade.store.get('username')
@@ -8495,7 +8563,7 @@ async function renderOverlayLyrics() {
   // actual current line - no CSS-transition reflow trick needed since jumpTo()
   // bypasses the animation loop entirely.
   ovLyricsSpring.jumpTo(0)
-  const nowSec0 = audio.currentTime + 0.225
+  const nowSec0 = audio.currentTime + _lyricLead
   let initialIdx = 0
   for (let i = 0; i < lyricsData.length; i++) {
     if (lyricsData[i].Start != null && lyricsData[i].Start / 10000000 <= nowSec0) initialIdx = i
@@ -8522,7 +8590,7 @@ function renderOverlayLyricLines() {
   body.querySelectorAll('.ov-lyric-line.seekable').forEach(el => {
     el.addEventListener('click', () => {
       const ticks = parseInt(el.dataset.start)
-      if (!isNaN(ticks) && audio.duration) audio.currentTime = ticks / 10000000
+      if (!isNaN(ticks) && audio.duration) audio.currentTime = Math.max(0, ticks / 10000000 - _lyricLead)
       // Clicking a line is the same intent as the settle timer firing: you are
       // done browsing and back on the current lyric. Drop the manual offset now
       // instead of leaving the view parked until the timer catches up.
@@ -8738,7 +8806,11 @@ document.getElementById('ov-translate-btn').addEventListener('click', () => onTr
 // overdamped (critical damping for 250 would be ~31.6), so lines ease in and
 // never overshoot, where the old 210/26 bounced slightly; and a longer ripple,
 // so the lines below trail a little more.
-const LYRIC_MOTION = { stiffness: 250, damping: 50, ripple: 90 }
+const LYRIC_MOTION = { stiffness: 250, damping: 50, ripple: 40 }
+// How far ahead of the audio lyrics are drawn, in seconds: the Lyrics
+// setting "Lyrics timing" negated (it is negative for earlier, as in the
+// Apple app). Set by applyLyricStyle().
+let _lyricLead = 0.35
 
 function createSpring(onUpdate, motion = LYRIC_MOTION) {
   let pos = 0, vel = 0, target = 0
@@ -8844,7 +8916,12 @@ function _scrollOverlayLyricsTo(idx, instant, first = idx) {
   // A group of overlapping lines is centred as one block, top of the first to
   // the bottom of the last; a single line is the same with top === el.
   const top = body.querySelector(`.ov-lyric-line[data-idx="${first}"]`) || el
-  const centreOn = () => (ovLyricsBaseY = panel.clientHeight / 2 - (top.offsetTop + el.offsetTop + el.offsetHeight) / 2)
+  // The block's point at the same share of its own height lands at that
+  // share of the panel's: 0.5 centers it, lower sits it higher up.
+  const centreOn = () => {
+    const blockTop = top.offsetTop, blockBottom = el.offsetTop + el.offsetHeight
+    return (ovLyricsBaseY = panel.clientHeight * ovLyricLinePosition - (blockTop + (blockBottom - blockTop) * ovLyricLinePosition))
+  }
   centreOn()
   // While the user is manually scrolling, leave the spring alone - it gets
   // redirected (base + their offset) from the wheel handler instead.
@@ -8883,6 +8960,7 @@ function _ovLyricsTranslateYFor(idx) {
 let lastOverlayLyricsIdx = -1
 let _ovLyricsScanIdx = 0   // cursor into lyricsData so timeupdate scans forward instead of from 0 each tick
 let ovLyricsBaseY = 0            // auto-follow position for the current active line
+let ovLyricLinePosition = 0.5    // where that line sits, 0.5 = centered (a Lyrics setting)
 let ovLyricsManualOffset = 0     // extra offset applied while the user scrolls by hand
 let ovLyricsUserScrolling = false
 let ovLyricsScrollTimer = null
@@ -8927,7 +9005,7 @@ onDeck('timeupdate', () => {
   // animation and the line-promotion check complete in lockstep - no gap in
   // either direction (mid-fill cutoff if promotion is earlier, a visible
   // "stick" on the finished word if promotion is later).
-  const nowSec = audio.currentTime + 0.225
+  const nowSec = audio.currentTime + _lyricLead
   const baseIdx = _scanLyricsBaseIdx(nowSec, _ovLyricsScanIdx)
   _ovLyricsScanIdx = baseIdx
 
@@ -9881,29 +9959,13 @@ window.cascadeDebug = {
   // with no overshoot; less bounces, more crawls). ripple: ms each following
   // line lags behind the one above it in the overlay's fade. Session only;
   // tell Claude the numbers you like and they become the defaults.
-  // Held notes (styles/lyrics.css): emphLift (em) and emphScale are the PEAK
-  // rise and swell of each letter (0.1, 1.08); emphHold is the fraction of the
-  // peak it settles to and holds until the line ends (0.6); emphRise is the
-  // whole rise-and-settle in seconds (1.7, peak at 65% of it). Every sung
-  // word: wordLift (em, 0.04) and wordLiftTime (s, 0.6). Defaults were
-  // measured from a 60fps recording of Apple Music.
+  // The scroll spring (stiffness, damping) and the ripple between lines, in
+  // ms. Everything else about the lyrics' look and motion is a setting now:
+  // Theme > Lyrics (src/core/lyric-style.ts).
   lyricMotion(opts = {}) {
     for (const k of ['stiffness', 'damping', 'ripple']) {
       if (Number.isFinite(opts[k]) && opts[k] >= 0) LYRIC_MOTION[k] = opts[k]
     }
-    const root = document.documentElement.style
-    if (Number.isFinite(opts.emphLift)) root.setProperty('--emph-lift', `${opts.emphLift}em`)
-    if (Number.isFinite(opts.emphScale) && opts.emphScale > 0) root.setProperty('--emph-scale', String(opts.emphScale))
-    if (Number.isFinite(opts.emphHold) && opts.emphHold >= 0) root.setProperty('--emph-hold', String(opts.emphHold))
-    if (Number.isFinite(opts.emphRise) && opts.emphRise > 0) root.setProperty('--emph-rise', `${opts.emphRise}s`)
-    if (Number.isFinite(opts.wordLift)) root.setProperty('--word-lift', `${opts.wordLift}em`)
-    if (Number.isFinite(opts.wordLiftTime) && opts.wordLiftTime >= 0) root.setProperty('--word-lift-time', `${opts.wordLiftTime}s`)
-    LYRIC_MOTION.wordLift = parseFloat(root.getPropertyValue('--word-lift')) || 0.04
-    LYRIC_MOTION.wordLiftTime = parseFloat(root.getPropertyValue('--word-lift-time')) || 0.6
-    LYRIC_MOTION.emphLift = parseFloat(root.getPropertyValue('--emph-lift')) || 0.1
-    LYRIC_MOTION.emphScale = parseFloat(root.getPropertyValue('--emph-scale')) || 1.08
-    LYRIC_MOTION.emphHold = parseFloat(root.getPropertyValue('--emph-hold')) || 0.6
-    LYRIC_MOTION.emphRise = parseFloat(root.getPropertyValue('--emph-rise')) || 1.7
     const critical = 2 * Math.sqrt(LYRIC_MOTION.stiffness)
     console.log(`[cascadeDebug] lyric motion`, { ...LYRIC_MOTION }, `(no-overshoot damping for this stiffness: ${critical.toFixed(1)})`)
     return { ...LYRIC_MOTION }
@@ -10247,7 +10309,7 @@ let _wordRafId = null
 
 function _wordHighlightFrame() {
   _wordRafId = requestAnimationFrame(_wordHighlightFrame)
-  const nowTicks = (audio.currentTime + 0.225) * 10_000_000
+  const nowTicks = (audio.currentTime + _lyricLead) * 10_000_000
 
   // Side panel - CSS scoping (.lyrics-line.active .lyric-word) handles inactive lines.
   // Guard on the panel being open, which is exactly "the user can see this":
@@ -10628,7 +10690,7 @@ function renderLyrics() {
       lyricsScrollSuppressed = true
       clearTimeout(lyricsScrollTimer)
       lyricsScrollTimer = setTimeout(() => { lyricsScrollSuppressed = false }, 1500)
-      audio.currentTime = ticks / 10000000
+      audio.currentTime = Math.max(0, ticks / 10000000 - _lyricLead)
       lastLyricsIdx = -1
       _lyricsScanIdx = 0
     })
@@ -10653,7 +10715,7 @@ onDeck('timeupdate', () => {
   // animation and the line-promotion check complete in lockstep - no gap in
   // either direction (mid-fill cutoff if promotion is earlier, a visible
   // "stick" on the finished word if promotion is later).
-  const nowSec = audio.currentTime + 0.225
+  const nowSec = audio.currentTime + _lyricLead
   const baseIdx = _scanLyricsBaseIdx(nowSec, _lyricsScanIdx)
   _lyricsScanIdx = baseIdx
 
@@ -11522,7 +11584,6 @@ function applyGradient(start, end) {
   document.documentElement.style.setProperty('--grad', grad)
   document.documentElement.style.setProperty('--accent', end)
   document.documentElement.style.setProperty('--accent-glow', hexToRgba(end, 0.25))
-  document.getElementById('theme-dot').style.background = grad
   // Switch play/pause icon to black on light gradients so it stays readable
   const fg = perceivedLuminance(end) > 160 ? '#111111' : 'white'
   document.documentElement.style.setProperty('--play-btn-fg', fg)
@@ -11695,6 +11756,34 @@ function applyNpTuning(lyricScale, bgDim, bgBlend) {
 async function saveNpTuning(lyricScale, bgDim, bgBlend) {
   await window.cascade.store.set('npTuning', JSON.stringify({ lyricScale, bgDim, bgBlend }))
   applyNpTuning(lyricScale, bgDim, bgBlend)
+}
+
+// ── Lyrics look (Theme panel > Lyrics) ──────────────────────────────────────
+// Knobs, ranges and defaults live in src/core/lyric-style.ts. Most are CSS
+// custom properties on :root; three are read from JS: where the current line
+// sits, the ripple between lines, and how early lyrics are drawn. Only the
+// changed knobs are stored, under 'lyricStyle'.
+let lyricStyle = CascadeCore.lyricStyleFrom({})
+
+function applyLyricStyle(style) {
+  lyricStyle = CascadeCore.lyricStyleFrom(style)
+  const root = document.documentElement
+  for (const [prop, value] of Object.entries(CascadeCore.lyricStyleCss(lyricStyle))) root.style.setProperty(prop, value)
+  ovLyricLinePosition = lyricStyle.currentLinePosition
+  LYRIC_MOTION.ripple = lyricStyle.rippleSeconds * 1000
+  _lyricLead = -lyricStyle.lyricsDelay
+}
+
+async function saveLyricStyle(style) {
+  applyLyricStyle(style)
+  await window.cascade.store.set('lyricStyle', JSON.stringify(CascadeCore.lyricStyleChanges(lyricStyle)))
+}
+
+async function loadLyricStyle() {
+  let stored = null
+  try { stored = JSON.parse(await window.cascade.store.get('lyricStyle') || 'null') } catch {}
+  applyLyricStyle(stored)
+  renderLyricKnobs()
 }
 
 async function loadNpTuning() {
@@ -11903,18 +11992,93 @@ function clearAlbumArtTheme() {
 }
 
 // Wire up theme picker UI
-document.getElementById('theme-dot').addEventListener('click', (e) => {
-  e.stopPropagation()
-  document.getElementById('theme-picker').classList.toggle('open')
-})
-document.getElementById('tp-close').addEventListener('click', () => {
+// The Theme panel has three pages: the main one, and Colors and Lyrics
+// behind their rows. Every way of closing it goes back to the main page.
+function showThemePage(name) {
+  const picker = document.getElementById('theme-picker')
+  for (const page of picker.querySelectorAll('.tp-page')) page.classList.toggle('active', page.dataset.page === name)
+  picker.scrollTop = 0
+}
+function closeThemePicker() {
   document.getElementById('theme-picker').classList.remove('open')
+  showThemePage('main')
+}
+// Opened from the paintbrush in the title bar or in Now Playing.
+for (const id of ['theme-btn', 'np-theme-btn']) {
+  document.getElementById(id).addEventListener('click', (e) => {
+    e.stopPropagation()
+    const picker = document.getElementById('theme-picker')
+    if (picker.classList.contains('open')) closeThemePicker()
+    else picker.classList.add('open')
+  })
+}
+document.getElementById('theme-picker').addEventListener('click', (e) => {
+  if (e.target.closest('.tp-close')) { closeThemePicker(); return }
+  const nav = e.target.closest('[data-open]')
+  if (nav) showThemePage(nav.dataset.open)
 })
 document.addEventListener('mousedown', (e) => {
   const picker = document.getElementById('theme-picker')
-  if (!picker.contains(e.target) && e.target.id !== 'theme-dot') {
-    picker.classList.remove('open')
+  if (picker.classList.contains('open') && !picker.contains(e.target) && !e.target.closest('#theme-btn, #np-theme-btn')) {
+    closeThemePicker()
   }
+})
+
+// Lyrics page: one slider per knob, from CascadeCore.LYRIC_KNOBS, each with
+// its value and a reset arrow that shows once it differs from the default.
+function renderLyricKnobs() {
+  const box = document.getElementById('tp-lyric-knobs')
+  box.replaceChildren()
+  let section = ''
+  for (const k of CascadeCore.LYRIC_KNOBS) {
+    if (k.section !== section) {
+      section = k.section
+      const h = document.createElement('div')
+      h.className = 'tp-label tp-knob-section'
+      h.textContent = section
+      box.append(h)
+    }
+    const row = document.createElement('div')
+    row.className = 'tp-knob'
+    row.dataset.key = k.key
+    row.innerHTML = '<div class="tp-knob-head"><span class="tp-knob-name"></span><span class="tp-knob-value"></span>'
+      + '<button class="tp-knob-reset" title="Reset to default" aria-label="Reset to default">↺</button></div>'
+      + '<input type="range" class="tp-range">'
+    row.querySelector('.tp-knob-name').textContent = k.label
+    const input = row.querySelector('input')
+    Object.assign(input, { min: k.min, max: k.max, step: k.step })
+    input.setAttribute('aria-label', `${k.section}: ${k.label}`)
+    box.append(row)
+  }
+  syncLyricKnobs()
+}
+
+function syncLyricKnobs() {
+  for (const row of document.querySelectorAll('#tp-lyric-knobs .tp-knob')) {
+    const k = CascadeCore.lyricKnob(row.dataset.key)
+    const v = lyricStyle[k.key]
+    const decimals = (String(k.step).split('.')[1] || '').length
+    row.querySelector('input').value = String(v)
+    row.querySelector('.tp-knob-value').textContent = v.toFixed(decimals)
+    row.classList.toggle('changed', Math.abs(v - k.value) > 1e-9)
+  }
+}
+
+document.getElementById('tp-lyric-knobs').addEventListener('input', (e) => {
+  const row = e.target.closest('.tp-knob')
+  if (!row) return
+  saveLyricStyle({ ...lyricStyle, [row.dataset.key]: parseFloat(e.target.value) })
+  syncLyricKnobs()
+})
+document.getElementById('tp-lyric-knobs').addEventListener('click', (e) => {
+  const row = e.target.closest('.tp-knob-reset') && e.target.closest('.tp-knob')
+  if (!row) return
+  saveLyricStyle({ ...lyricStyle, [row.dataset.key]: CascadeCore.lyricKnob(row.dataset.key).value })
+  syncLyricKnobs()
+})
+document.getElementById('tp-lyric-reset').addEventListener('click', () => {
+  saveLyricStyle({})
+  syncLyricKnobs()
 })
 
 document.getElementById('seg-dark').addEventListener('click', () => { setThemeMode('dark'); saveTheme() })
