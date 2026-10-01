@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   songSortValue, sortSongs, shuffleInPlace, shuffled, nextQueueIndex, insertAfterCurrent,
-  queueRemainingSec, formatQueueSpan, queueSourceFallback,
+  queueRemainingSec, formatQueueSpan, queueSourceFallback, trimToCurrent, clearUpNext,
 } from '../src/core/queue.ts'
 import type { JfItem } from '../src/core/types.ts'
 
@@ -183,4 +183,36 @@ test('restoreQueue rebuilds the queue in its saved order and moves on past delet
   assert.equal(r2.queue[r2.index].Id, id('c'))
   assert.equal(r2.positionSec, 0)
   for (const junk of [null, 'x', { ids: 'nope' }, { ids: ['../etc'] }]) assert.equal(restoreQueue(junk, items), null)
+})
+
+test('trimToCurrent: keeps only the playing track', () => {
+  assert.deepEqual(trimToCurrent(['a', 'b', 'c', 'd'], 2), { queue: ['c'], index: 0 })
+  assert.deepEqual(trimToCurrent(['a'], 0), { queue: ['a'], index: 0 })
+  assert.deepEqual(trimToCurrent(['a', 'b'], 0), { queue: ['a'], index: 0 })
+})
+
+test('trimToCurrent: nothing playing empties the queue', () => {
+  assert.deepEqual(trimToCurrent([], -1), { queue: [], index: -1 })
+  assert.deepEqual(trimToCurrent(['a', 'b'], -1), { queue: [], index: -1 })
+  assert.deepEqual(trimToCurrent(['a', 'b'], 5), { queue: [], index: -1 })
+})
+
+test('trimToCurrent: does not mutate its input', () => {
+  const q = ['a', 'b', 'c']
+  trimToCurrent(q, 1)
+  assert.deepEqual(q, ['a', 'b', 'c'])
+})
+
+test('clearUpNext: keeps History and the current track', () => {
+  assert.deepEqual(clearUpNext(['a', 'b', 'c', 'd'], 2), { queue: ['a', 'b', 'c'], index: 2 })
+  assert.deepEqual(clearUpNext(['a', 'b', 'c'], 0), { queue: ['a'], index: 0 })
+  assert.deepEqual(clearUpNext(['a', 'b', 'c'], 2), { queue: ['a', 'b', 'c'], index: 2 })
+})
+
+test('clearUpNext: nothing playing empties the queue, input untouched', () => {
+  assert.deepEqual(clearUpNext([], -1), { queue: [], index: -1 })
+  assert.deepEqual(clearUpNext(['a'], -1), { queue: [], index: -1 })
+  const q = ['a', 'b']
+  clearUpNext(q, 0)
+  assert.deepEqual(q, ['a', 'b'])
 })

@@ -8332,6 +8332,7 @@ function renderQueuePanel() {
 
   // Up Next: where the queue came from, its position, and when it ends.
   document.getElementById('q-next-source').textContent = queueSource ? `From ${queueSource}` : ''
+  document.getElementById('q-next-clear').hidden = follower || queueIndex + 1 >= queue.length
   _renderQueueMeta()
 
   // The window starts at the first upcoming track. The panel opens at the
@@ -8405,6 +8406,8 @@ function _renderQueueHistory() {
   rows.innerHTML = queue.slice(0, queueIndex).map((item, i) => _queueRowHtml(item, i)).join('')
   rows.querySelectorAll('.queue-row').forEach(el => _wireQueueRow(el, follower))
 }
+
+document.getElementById('q-next-clear').addEventListener('click', () => clearQueueTracks('upnext'))
 
 document.getElementById('q-history-toggle').addEventListener('click', () => {
   _queueHistoryOpen = !_queueHistoryOpen
@@ -9076,11 +9079,45 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { hideCtxM
 // they cannot drift into three different meanings of "stop".
 document.getElementById('ctx-stop').addEventListener('click', () => stopPlayback())
 
-// Clear queue
+// Clear queue: keeps the playing track. Dropping it from the queue while the
+// deck kept playing left the queue panel and the player disagreeing.
 document.getElementById('ctx-clear-queue').addEventListener('click', () => {
-  queue = []; queueIndex = -1; queueSource = null
-  _clearStreamPrefetch()   // nothing left to prefetch for
+  hideCtxMenu()
+  clearQueueTracks('all')
 })
+
+/**
+ * The one place the queue is trimmed by a "Clear". `scope` is 'all' (keep only
+ * the playing track, History included) or 'upnext' (keep History and the
+ * playing track). Every copy of the queue is trimmed together: the shuffle
+ * backup would bring cleared tracks back when shuffle is turned off, the
+ * Waterfall attribution list is parallel to `queue`, and a prefetched next
+ * track is for a track that is gone.
+ */
+function clearQueueTracks(scope) {
+  if (isWaterfallFollower()) return
+  // finishCrossfade() lands on an index captured before the fade started;
+  // removing the incoming track under it would land it on the wrong one.
+  if (_cfActive) { showToast('Clear the queue once the crossfade finishes'); return }
+  const before = queueIndex
+  const next = scope === 'upnext'
+    ? CascadeCore.clearUpNext(queue, queueIndex)
+    : CascadeCore.trimToCurrent(queue, queueIndex)
+  const kept = new Set(next.queue)
+  queue = next.queue
+  queueIndex = next.index
+  queueSource = null
+  if (_unshuffledQueue.length) _unshuffledQueue = _unshuffledQueue.filter(t => kept.has(t))
+  // Parallel to `queue`: the host's own wfOnQueueChanged() only truncates, which
+  // is right for 'upnext' but would hand the kept track its old neighbor's name.
+  if (scope !== 'upnext' && typeof wfActive === 'function' && wfActive() && Array.isArray(wfAddedBy)) {
+    wfAddedBy = queueIndex >= 0 ? [wfAddedBy[before] ?? null] : []
+  }
+  _queueHistoryOpen = false
+  _reprefetch()
+  _saveQueueState()
+  renderQueuePanel()
+}
 
 // Instant mix
 document.getElementById('ctx-instant-mix').addEventListener('click', async () => {
