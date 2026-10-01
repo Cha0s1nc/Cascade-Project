@@ -28,11 +28,25 @@ install themselves again on every platform.
 - Artist pages show a bio, similar artists and top songs.
 - Volume normalization from Jellyfin's normalization data, using the album's
   gain, or the track's when the album has none.
+- A new look for the full-screen lyrics, matching the iPhone app: past lines
+  stay visible, smaller and blurred, upcoming lines are quieter, and lines
+  fade more slowly.
+- Lyrics settings: the Theme panel has a Lyrics page with 27 settings for
+  the full-screen lyrics (line position, spacing, past and upcoming lines,
+  karaoke, held notes, motion and timing), each with its own reset.
+- Held notes swell more the longer they are held, rising until the note
+  ends, as on the iPhone app.
+- Cascade remembers the window's position and size, on whichever monitor it
+  was on, plus shuffle, repeat and the last queue. The queue comes back
+  paused where you left it.
 
 #### Minor changes
 
 - An output device setting, to choose which speakers or headphones Cascade
   plays through.
+- The Theme panel opens from a paintbrush in the title bar and in Now
+  Playing, and is split into Colors and Lyrics pages.
+- Clicking a lyric line starts it as it lights up, not a moment late.
 - Approve another device's Quick Connect code from Settings, Account.
 - During a crossfade, the next song shows as playing as soon as it starts
   fading in, instead of once the fade ends.
