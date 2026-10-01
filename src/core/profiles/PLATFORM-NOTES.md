@@ -14,7 +14,7 @@ Before B1, Cascade built one hardcoded stream URL:
   &AudioCodec=aac&MaxStreamingBitrate=140000000
 ```
 
-That container list is **Chromium's** capability set. It worked because Electron decodes nearly everything. Moving it unchanged into shared core would have made it the default for every future client — the specific bug this phase exists to prevent.
+That container list is **Chromium's** capability set. It worked because Electron decodes nearly everything. Moving it unchanged into shared core would have made it the default for every future client, which is the specific bug this phase exists to prevent.
 
 ## tvOS (AVPlayer, via react-native-tvos)
 
@@ -32,6 +32,6 @@ That container list is **Chromium's** capability set. It worked because Electron
 
 ## When writing a real profile
 
-1. Start narrow — AAC and MP3 direct play, everything else transcoded.
+1. Start narrow: AAC and MP3 direct play, everything else transcoded.
 2. Widen only after confirming a container actually plays on the device.
 3. `MaxStreamingBitrate` should be lower than desktop; TVs are usually on Wi-Fi and the default 140 Mbps is meaningless there.
