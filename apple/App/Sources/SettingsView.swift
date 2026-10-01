@@ -13,6 +13,7 @@ struct SettingsView: View {
     @State private var approveCode = ""
     @State private var isApproving = false
     @State private var approveStatus: (ok: Bool, message: String)?
+    @AppStorage("cascade.autoSkipSegments") private var autoSkipSegments = false
 
     var body: some View {
         List {
@@ -88,6 +89,14 @@ struct SettingsView: View {
                 } footer: {
                     Text("Below the original, the server converts to AAC at that rate. Applies from the next track.\n\nNormalization evens out loudness using the server's scan (Jellyfin's LUFS scan has to be on). By Album keeps an album's own dynamics. Loud tracks are turned down; quiet ones are turned up only while the equalizer is on.\n\nCrossfade blends the end of each song into the next; off keeps albums gapless.")
                 }
+            }
+
+            Section {
+                Toggle("Auto-Skip Intros and Credits", isOn: $autoSkipSegments)
+            } header: {
+                Text("Video")
+            } footer: {
+                Text("Skips an intro or the end credits as soon as it starts, once each. Needs Jellyfin 10.10 or later with something that finds them, such as the Intro Skipper plugin. The Skip button still shows when this is off.")
             }
 
             // Only with the plugin: without it, server-only would mean no

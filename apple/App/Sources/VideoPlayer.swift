@@ -15,6 +15,8 @@ final class VideoSession {
     private(set) var error: String?
     /// Set when the last episode ends, so the player closes itself.
     private(set) var finished = false
+    /// The intro or outro playing now, which the player offers to skip.
+    private(set) var activeSegment: MediaSegment?
 
     private let client: JellyfinClient
     private let config: ServerConfig
@@ -24,6 +26,10 @@ final class VideoSession {
     @ObservationIgnored private var resolved: ResolvedStream?
     @ObservationIgnored private var reportTask: Task<Void, Never>?
     @ObservationIgnored private var endTask: Task<Void, Never>?
+    @ObservationIgnored private var segmentTask: Task<Void, Never>?
+    @ObservationIgnored private var segments: [MediaSegment] = []
+    /// Segments auto-skip already fired for, so seeking back is not fought.
+    @ObservationIgnored private var autoSkipped: Set<String> = []
 
     init(client: JellyfinClient, config: ServerConfig) {
         self.client = client
@@ -62,6 +68,7 @@ final class VideoSession {
             }
             player.play()
             watchForEnd(playerItem)
+            watchSegments(for: item)
             _ = await PlaybackReporter.start(client, state())
             startReporting()
         } catch {
@@ -90,6 +97,55 @@ final class VideoSession {
                 guard let self, self.item != nil else { return }
                 await PlaybackReporter.progress(self.client, self.state())
             }
+        }
+    }
+
+    // MARK: Skip intro and outro
+
+    /// Settings > Video. Off unless turned on.
+    private var autoSkip: Bool { UserDefaults.standard.bool(forKey: "cascade.autoSkipSegments") }
+
+    /// Fetches the item's Media Segments (none on an older server or with no
+    /// provider) and then follows the playhead, twice a second, for the one
+    /// that is playing.
+    private func watchSegments(for item: JfItem) {
+        segmentTask?.cancel()
+        segments = []
+        autoSkipped = []
+        activeSegment = nil
+        segmentTask = Task { [weak self] in
+            guard let self else { return }
+            let found = await self.client.mediaSegments(for: item.id)
+            guard !found.isEmpty, !Task.isCancelled, self.item?.id == item.id else { return }
+            self.segments = found
+            while !Task.isCancelled {
+                self.updateActiveSegment()
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+        }
+    }
+
+    private func updateActiveSegment() {
+        let position = seconds(fromTicks: positionTicks())
+        let segment = MediaSegments.active(in: segments, at: position)
+        if segment != activeSegment { activeSegment = segment }
+        guard let segment, autoSkip, player.rate != 0 else { return }
+        let key = "\(segment.type.rawValue):\(segment.startSeconds)"
+        if autoSkipped.insert(key).inserted { skipSegment() }
+    }
+
+    /// What the player's Skip button does: past an intro, or past an outro,
+    /// which when it runs to the end goes on to the next episode.
+    func skipSegment() {
+        guard let segment = activeSegment else { return }
+        let duration = item?.runTimeTicks.map { seconds(fromTicks: $0) } ?? 0
+        switch MediaSegments.skipAction(for: segment, duration: duration) {
+        case .next:
+            Task { await advance() }
+        case .seek(let target):
+            // A transcode's clock starts where it was asked to.
+            let local = max(0, target - seconds(fromTicks: resolved?.startTicks ?? 0))
+            Task { await player.seek(to: CMTime(seconds: local, preferredTimescale: 600)) }
         }
     }
 
@@ -128,6 +184,8 @@ final class VideoSession {
 
     func stop() async {
         endTask?.cancel()
+        segmentTask?.cancel()
+        activeSegment = nil
         player.pause()
         await reportStopped()
         player.replaceCurrentItem(with: nil)
@@ -138,6 +196,9 @@ final class VideoSession {
 /// Apple's player, full screen.
 struct VideoPlayerView: UIViewControllerRepresentable {
     let session: VideoSession
+    /// The intro or outro to offer to skip. A parameter, not read inside
+    /// updateUIViewController, so a change rebuilds this view and updates it.
+    let skippable: MediaSegment?
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let controller = AVPlayerViewController()
@@ -151,6 +212,15 @@ struct VideoPlayerView: UIViewControllerRepresentable {
 
     func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {
         if controller.player !== session.player { controller.player = session.player }
+        // Apple's contextual action: drawn over the player and, on tvOS, a
+        // button the remote reaches by itself, so select keeps meaning
+        // play/pause rather than being taken by ours.
+        let activeSession = session
+        controller.contextualActions = skippable.map { segment in
+            [UIAction(title: segment.skipLabel, image: UIImage(systemName: "forward.end.fill")) { _ in
+                Task { @MainActor in activeSession.skipSegment() }
+            }]
+        } ?? []
     }
 }
 
@@ -161,7 +231,7 @@ struct VideoScreen: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VideoPlayerView(session: session)
+        VideoPlayerView(session: session, skippable: session.activeSegment)
             .ignoresSafeArea()
             .overlay(alignment: .top) {
                 if let error = session.error {
