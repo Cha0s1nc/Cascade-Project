@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import {
-  ChangelogError, changelogFromJson, changelogSectionMarkdown, findChangelogEntry, notesBetween, parseChangelog,
+  ChangelogError, changelogFromJson, changelogSectionMarkdown, unwrapMarkdown, findChangelogEntry, notesBetween, parseChangelog,
 } from '../src/core/changelog.ts'
 
 const SAMPLE = `# Changelog
@@ -147,4 +147,42 @@ test('notesBetween lists one platform after the current version up to the target
   assert.equal(notesBetween(entries, 'desktop', '2.2.0', '2.3.3'), null)
   // A beta of the target's base counts as older than it.
   assert.match(notesBetween(entries, 'desktop', '2.3.0-b2', '2.3.0') ?? '', /^## 2\.3\.0 /)
+})
+
+test('unwrapMarkdown joins wrapped paragraphs and list items, and nothing else', () => {
+  const md = [
+    'Mac users have to install this one by hand: the',
+    'updater cannot.',
+    '',
+    '#### Major changes',
+    '',
+    '- Smart playlists with a rule',
+    '  builder.',
+    '  - A nested item',
+    '    that wraps.',
+    '- Short one.',
+    '',
+    '```',
+    'code stays',
+    'as written',
+    '```',
+    '---',
+    'After the rule.',
+  ].join('\n')
+  assert.equal(unwrapMarkdown(md), [
+    'Mac users have to install this one by hand: the updater cannot.',
+    '',
+    '#### Major changes',
+    '',
+    '- Smart playlists with a rule builder.',
+    '  - A nested item that wraps.',
+    '- Short one.',
+    '',
+    '```',
+    'code stays',
+    'as written',
+    '```',
+    '---',
+    'After the rule.',
+  ].join('\n'))
 })

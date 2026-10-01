@@ -208,6 +208,40 @@ export function notesBetween(entries: readonly ChangelogEntry[], platform: Chang
     .join('\n\n')
 }
 
+const BLOCK_START_RE = /^\s*(?:[-*+]\s|\d+[.)]\s|#|>|\|)/
+const RULE_RE = /^\s*([-*_])(\s*\1){2,}\s*$/
+
+/**
+ * Joins hard-wrapped lines back into whole paragraphs and list items.
+ * CHANGELOG.md is wrapped for reading in an editor, but GitHub renders a
+ * release body like a comment, where every newline is a line break, so a
+ * wrapped paragraph showed up broken mid-sentence. Headings, list items,
+ * quotes, tables, rules and code blocks keep their own lines.
+ */
+export function unwrapMarkdown(markdown: string): string {
+  const out: string[] = []
+  let fence: string | null = null
+  for (const raw of markdown.replace(/\r\n?/g, '\n').split('\n')) {
+    const line = raw.trimEnd()
+    const fenceMatch = line.match(FENCE_RE)
+    if (fence || fenceMatch) {
+      if (fence && fenceMatch && fenceMatch[1] === fence) fence = null
+      else if (!fence && fenceMatch) fence = fenceMatch[1]!
+      out.push(raw)
+      continue
+    }
+    const prev = out[out.length - 1]
+    const prevOpen = prev !== undefined && prev.trim() !== '' && !/^\s*#/.test(prev)
+      && !RULE_RE.test(prev) && !/^\s*\|/.test(prev) && !FENCE_RE.test(prev)
+    if (line.trim() && prevOpen && !BLOCK_START_RE.test(line) && !RULE_RE.test(line)) {
+      out[out.length - 1] = `${prev} ${line.trim()}`
+    } else {
+      out.push(line)
+    }
+  }
+  return out.join('\n')
+}
+
 /**
  * One version's notes as Markdown, for a GitHub release body: each platform
  * under its `###` heading, in a fixed order. No version heading, since the
@@ -216,6 +250,6 @@ export function notesBetween(entries: readonly ChangelogEntry[], platform: Chang
 export function changelogSectionMarkdown(entry: ChangelogEntry): string {
   return CHANGELOG_PLATFORMS
     .filter(p => entry.platforms[p] !== undefined)
-    .map(p => `### ${PLATFORM_TITLES[p]}\n\n${entry.platforms[p]}`)
+    .map(p => `### ${PLATFORM_TITLES[p]}\n\n${unwrapMarkdown(entry.platforms[p]!)}`)
     .join('\n\n') + '\n'
 }
