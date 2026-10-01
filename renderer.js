@@ -11915,16 +11915,19 @@ function clearAlbumArtTheme() {
 }
 
 // Wire up theme picker UI
-document.getElementById('theme-dot').addEventListener('click', (e) => {
-  e.stopPropagation()
-  document.getElementById('theme-picker').classList.toggle('open')
-})
+// Opened from the title bar's dot, or from Now Playing's paintbrush.
+for (const id of ['theme-dot', 'np-theme-btn']) {
+  document.getElementById(id).addEventListener('click', (e) => {
+    e.stopPropagation()
+    document.getElementById('theme-picker').classList.toggle('open')
+  })
+}
 document.getElementById('tp-close').addEventListener('click', () => {
   document.getElementById('theme-picker').classList.remove('open')
 })
 document.addEventListener('mousedown', (e) => {
   const picker = document.getElementById('theme-picker')
-  if (!picker.contains(e.target) && e.target.id !== 'theme-dot') {
+  if (!picker.contains(e.target) && !e.target.closest('#theme-dot, #np-theme-btn')) {
     picker.classList.remove('open')
   }
 })

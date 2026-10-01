@@ -22,6 +22,21 @@ html[data-platform="linux"] .np-overlay-header { padding-inline: var(--caption-r
 }
 .np-overlay-title:hover { background: var(--surface2); color: var(--text); }
 .np-overlay-title:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); }
+/* Opens the Theme panel (theme and lyric look) from Now Playing. In the
+   corner the old x used to hold, but on Windows and Linux kept left of the
+   caption buttons, where an x would have read as a second close button. */
+.np-overlay-header { position: relative; }
+.np-overlay-theme {
+  -webkit-app-region: no-drag; position: absolute; top: 50%; right: 20px; transform: translateY(-50%);
+  display: grid; place-items: center; width: 30px; height: 30px; padding: 0;
+  background: none; border: none; border-radius: 7px; color: var(--text3); cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.np-overlay-theme:hover { background: var(--surface2); color: var(--text); }
+.np-overlay-theme:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); }
+.np-overlay-theme svg { width: 17px; height: 17px; }
+html[data-platform="win32"] .np-overlay-theme,
+html[data-platform="linux"] .np-overlay-theme { right: var(--caption-reserve); }
 .np-overlay-title svg { width: 15px; height: 15px; transition: transform 0.12s; }
 .np-overlay-title:hover svg { transform: translateY(2px); }
 @media (prefers-reduced-motion: reduce) { .np-overlay-title:hover svg { transform: none; } }

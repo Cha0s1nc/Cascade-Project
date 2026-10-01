@@ -60,7 +60,8 @@
 .np-overlay.art-theme .np-overlay-tabs { border-bottom-color: rgba(255,255,255,0.12); }
 .np-overlay.art-theme .np-ov-tab { color: rgba(255,255,255,0.45); }
 .np-overlay.art-theme .np-ov-tab.active { color: white; }
-.np-overlay.art-theme .np-overlay-title { color: rgba(255,255,255,0.5); }
+.np-overlay.art-theme .np-overlay-title,
+.np-overlay.art-theme .np-overlay-theme { color: rgba(255,255,255,0.5); }
 
 /* Light theme's blobs are pale (album-colors.ts' light MIN_L/MAX_L pair),
    not the black-glow vivid ones above - so the white text and black-tinted
@@ -85,7 +86,8 @@ html[data-theme="light"] .np-overlay.art-theme .np-overlay-right { background: r
 html[data-theme="light"] .np-overlay.art-theme .np-overlay-header { background: rgba(255,255,255,var(--np-scrim-header, 0.16)); }
 html[data-theme="light"] .np-overlay.art-theme .np-overlay-track { color: #1c1c1e; }
 html[data-theme="light"] .np-overlay.art-theme .np-overlay-artist { color: rgba(28,28,30,0.7); }
-html[data-theme="light"] .np-overlay.art-theme .np-overlay-title { color: rgba(28,28,30,0.5); }
+html[data-theme="light"] .np-overlay.art-theme .np-overlay-title,
+html[data-theme="light"] .np-overlay.art-theme .np-overlay-theme { color: rgba(28,28,30,0.5); }
 /* The karaoke active line floats directly on the blobs with no scrim (only
    .browsing gets one, and that scrim is already dark - see dd975bd - so it
    needs no light variant). Everything else in .ov-lyric-line/.ov-lyric-word
