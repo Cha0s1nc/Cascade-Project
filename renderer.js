@@ -11528,7 +11528,6 @@ function applyGradient(start, end) {
   document.documentElement.style.setProperty('--grad', grad)
   document.documentElement.style.setProperty('--accent', end)
   document.documentElement.style.setProperty('--accent-glow', hexToRgba(end, 0.25))
-  document.getElementById('theme-dot').style.background = grad
   // Switch play/pause icon to black on light gradients so it stays readable
   const fg = perceivedLuminance(end) > 160 ? '#111111' : 'white'
   document.documentElement.style.setProperty('--play-btn-fg', fg)
@@ -11915,8 +11914,8 @@ function clearAlbumArtTheme() {
 }
 
 // Wire up theme picker UI
-// Opened from the title bar's dot, or from Now Playing's paintbrush.
-for (const id of ['theme-dot', 'np-theme-btn']) {
+// Opened from the paintbrush in the title bar or in Now Playing.
+for (const id of ['theme-btn', 'np-theme-btn']) {
   document.getElementById(id).addEventListener('click', (e) => {
     e.stopPropagation()
     document.getElementById('theme-picker').classList.toggle('open')
@@ -11927,7 +11926,7 @@ document.getElementById('tp-close').addEventListener('click', () => {
 })
 document.addEventListener('mousedown', (e) => {
   const picker = document.getElementById('theme-picker')
-  if (!picker.contains(e.target) && !e.target.closest('#theme-dot, #np-theme-btn')) {
+  if (!picker.contains(e.target) && !e.target.closest('#theme-btn, #np-theme-btn')) {
     picker.classList.remove('open')
   }
 })

@@ -115,8 +115,12 @@ html[data-theme="light"] .backdrop.dim { background: rgba(0,0,0,0.28); }
 html[data-theme="light"] .np-overlay { background: var(--bg); }
 
 /* ── Theme picker ── */
-#theme-dot { width: 11px; height: 11px; border-radius: 50%; background: var(--grad); cursor: pointer; flex-shrink: 0; transition: transform 0.15s, filter 0.15s; border: none; padding: 0; }
-#theme-dot:hover { transform: scale(1.25); filter: brightness(1.15); }
+/* A paintbrush, like Now Playing's: it used to be a dot in the theme's
+   gradient, which nobody read as "change the theme here". */
+#theme-btn { display: grid; place-items: center; width: 26px; height: 26px; padding: 0; flex-shrink: 0; border: none; border-radius: 6px; background: none; color: var(--text3); cursor: pointer; transition: background 0.12s, color 0.12s; }
+#theme-btn:hover { background: var(--surface2); color: var(--text); }
+#theme-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); }
+#theme-btn svg { width: 15px; height: 15px; }
 /* display stays flex always (never none) so opacity/transform/visibility
    can animate reversibly, same trick as #setup-overlay. */
 .theme-picker { position: absolute; top: 46px; right: 16px; z-index: 400; width: 248px;
