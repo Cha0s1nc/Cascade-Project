@@ -71,6 +71,7 @@ final class VideoSession {
             player.play()
             watchForEnd(playerItem)
             watchSegments(for: item)
+            addChapterMarkers(for: item, to: playerItem, streamStartSeconds: seconds(fromTicks: stream.startTicks))
             _ = await PlaybackReporter.start(client, state())
             startReporting()
         } catch {
@@ -99,6 +100,34 @@ final class VideoSession {
                 guard let self, self.item != nil else { return }
                 await PlaybackReporter.progress(self.client, self.state())
             }
+        }
+    }
+
+    // MARK: Chapters
+
+    /// The video's chapters as the player's navigation markers: the player's own
+    /// scrubber shows them and lets a person jump between them (on tvOS, by
+    /// swiping up). Fetched after playback has started, so a slow answer costs
+    /// nothing; a film with none (or an older server) just has no markers.
+    private func addChapterMarkers(for item: JfItem, to playerItem: AVPlayerItem, streamStartSeconds: Double) {
+        Task { [weak self] in
+            guard let self else { return }
+            let all = await self.client.chapters(for: item)
+            let chapters = Chapters.onPlayerTimeline(all, streamStartSeconds: streamStartSeconds)
+            // The item may have changed while this was out.
+            guard chapters.count > 1, self.item?.id == item.id, self.player.currentItem === playerItem else { return }
+            let markers = chapters.enumerated().map { i, chapter -> AVTimedMetadataGroup in
+                let title = AVMutableMetadataItem()
+                title.identifier = .commonIdentifierTitle
+                title.value = chapter.name as NSString
+                title.extendedLanguageTag = "und"
+                // A marker runs to the next chapter's start (the last, to the end).
+                let end = i + 1 < chapters.count ? chapters[i + 1].startSeconds : chapter.startSeconds + 1
+                let start = CMTime(seconds: chapter.startSeconds, preferredTimescale: 600)
+                let range = CMTimeRange(start: start, end: CMTime(seconds: end, preferredTimescale: 600))
+                return AVTimedMetadataGroup(items: [title], timeRange: range)
+            }
+            playerItem.navigationMarkerGroups = [AVNavigationMarkersGroup(title: nil, timedNavigationMarkers: markers)]
         }
     }
 
@@ -208,6 +237,9 @@ struct VideoPlayerView: UIViewControllerRepresentable {
         #if os(iOS)
         controller.allowsPictureInPicturePlayback = true
         controller.canStartPictureInPictureAutomaticallyFromInline = true
+        // The player's own speed menu (0.5x to 2x). It is on by default; saying so
+        // keeps it from vanishing if a later change narrows the list.
+        controller.speeds = AVPlaybackSpeed.systemDefaultSpeeds
         #endif
         return controller
     }

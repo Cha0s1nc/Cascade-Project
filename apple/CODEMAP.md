@@ -154,3 +154,8 @@ Lyrics translation on device (2026-10-01, iOS only, not compiled or run: written
 - Nothing leaves the phone: lyric text is only ever given to the framework.
 - UI: Now Playing ··· menu, "Translate Lyrics" / "Hide Translation", shown only when the lyrics are in another supported language. Each translation is drawn under its line at 60% size.
 
+Video chapters and playback speed (2026-10-01, not compiled or run, same caveat as above):
+- `Chapters.swift` (pure, tested): `Chapters.list` is the desktop's `chapterList` (sorted, deduplicated, past-the-end dropped, blank names numbered, fewer than two is none) and `onPlayerTimeline` moves a transcode's chapters onto the player's clock, which starts where the transcode was asked to. `JellyfinClient.chapters(for:)` asks for `Fields=Chapters` once per video, the way the desktop does, since the list queries do not.
+- `VideoSession.addChapterMarkers` sets `AVPlayerItem.navigationMarkerGroups` from them, so AVPlayerViewController draws and navigates them itself. Added after playback starts and only if the item is still the current one.
+- Speed: `AVPlayerViewController` brings its own speed menu on iOS. `speeds = AVPlaybackSpeed.systemDefaultSpeeds` is set explicitly. Whether the menu is reachable, and whether chapters appear in it, is for a device to say. tvOS is left to the system.
+
