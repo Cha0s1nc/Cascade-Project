@@ -141,6 +141,13 @@ Everything above still describes edd2fad. This section covers what the overnight
 - Radio is Jellyfin Live TV channels, opt-in (Settings > Library), because an M3U tuner cannot mark a channel as radio and `/LiveTv/Channels?type=` is ignored. `applyRadioNavVisibility()` **1439**, `loadRadio()` **1445**, `playRadioStation()` **1496**, `src/core/radio.ts`. Kept out of `playCurrentTrack()` on purpose: a channel is an infinite stream with a LiveStreamId to close, and prefetch, lyrics, played reports and the progress math all guard on it.
 - `.strm` files in a music library do NOT work for radio: Jellyfin only follows a `.strm` for Video items, and feeds the text file itself to ffmpeg for Audio. Verified against Jellyfin's source and the server.
 
+## Added for reverse proxies (headers and client certificates)
+
+- `src/core/custom-headers.ts` is the pure part: name and value validation, `parseHeaderLines` (one `Name: Value` per line), `headersForRequest` (same origin as the Jellyfin server only, `ws`/`wss` counted as `http`/`https`), `withCustomHeaders`, `chooseClientCertificate`. main.js requires it as `build/custom-headers.js`.
+- main.js `installConnectionHeaders()` adds them in `session.defaultSession.webRequest.onBeforeSendHeaders`, the only place that also reaches `<img>`, `<audio>` and `<video>`. `Authorization`, `X-Emby-Authorization`, `Host`, `Content-Length` and `Transfer-Encoding` are refused. The origin comes from `connectionServerUrl`, kept in step by the `serverUrl` store key and by `connection-set`, which the setup form and Settings call BEFORE the first request: a proxy that wants the header refuses the sign-in itself.
+- Headers live in the store key `customHeaders`, in plain text like the token. Never sent to lyrics providers, GitHub, Mozilla or the Waterfall relay (tested in `test/custom-headers.test.ts`, and against the real app: fetch, img and audio all carry them).
+- Client certificates: `select-client-certificate` answers only for the server's origin. Electron cannot be handed a `.p12` file, only a certificate already in the operating system's store, so the person imports theirs there; Cascade picks (asking when several, remembering the fingerprint in `clientCertFingerprint`). Chromium does not call the handler when the store holds nothing. The pick and the dialog are NOT verified: no certificate could be installed in the test environment.
+
 ## Measured, not worth building
 
 Taken with the debug panel's resources section on Apple Silicon, playing real audio on the live deck. Recorded so these are not rebuilt on a hunch.

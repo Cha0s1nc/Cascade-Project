@@ -16,6 +16,13 @@ const cascade: ElectronPlatform = {
     set:    (key, value) => ipcRenderer.invoke('store-set', key, value),
     delete: (key) => ipcRenderer.invoke('store-delete', key),
   },
+  // Reverse-proxy support: extra headers (applied in the main process, to the
+  // Jellyfin server's origin only) and the remembered client certificate.
+  connection: {
+    getHeaders:       () => ipcRenderer.invoke('connection-get-headers'),
+    set:              (serverUrl, headers) => ipcRenderer.invoke('connection-set', serverUrl, headers),
+    resetCertificate: () => ipcRenderer.invoke('connection-reset-certificate'),
+  },
   clipboard: {
     write: (text) => ipcRenderer.invoke('clipboard-write', text),
   },

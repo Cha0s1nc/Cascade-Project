@@ -6537,6 +6537,8 @@ async function loadSettingsFields() {
   document.getElementById('s-url').value  = await window.cascade.store.get('serverUrl') || ''
   document.getElementById('s-user').value = await window.cascade.store.get('username') || ''
   document.getElementById('s-pass').value = ''
+  document.getElementById('s-headers').value = CascadeCore.formatHeaderLines(await window.cascade.connection.getHeaders())
+  document.getElementById('s-headers-error').textContent = ''
 
   document.getElementById('qc-approve-status-row').style.display = 'none'
   _applyQuickConnectGating()
@@ -6780,12 +6782,23 @@ async function loadSettingsFields() {
   }
 }
 
+document.getElementById('s-cert-reset').addEventListener('click', async () => {
+  await window.cascade.connection.resetCertificate()
+  showToast('Certificate choice cleared. Cascade asks again the next time your server wants one.')
+})
+
 document.getElementById('btn-save-settings').addEventListener('click', async () => {
   const url = document.getElementById('s-url').value.trim()
   const user = document.getElementById('s-user').value.trim()
   const pass = document.getElementById('s-pass').value
 
   if (!url || !user) return
+
+  // Headers first: a proxy that wants them refuses everything below without.
+  const parsed = CascadeCore.parseHeaderLines(document.getElementById('s-headers').value)
+  document.getElementById('s-headers-error').textContent = parsed.errors.join(' ')
+  if (parsed.errors.length) return
+  await window.cascade.connection.set(url, parsed.headers)
 
   // Persist URL and username immediately so they survive a failed connection attempt
   await window.cascade.store.set('serverUrl', url)
@@ -6878,17 +6891,35 @@ function promptReauth(message) {
 // Only offer it if the server actually has it switched on. Debounced because
 // this fires while the user is still typing the URL.
 let _qcProbeTimer = null
+/**
+ * Tells the main process which server the setup form is about and which
+ * reverse-proxy headers to send it, ahead of the first request: a proxy that
+ * wants a header refuses the sign-in itself without it. False (and the problem
+ * shown, unless `report` is false) when the headers field does not parse.
+ */
+async function applySetupConnection(url, { report = true } = {}) {
+  const { headers, errors } = CascadeCore.parseHeaderLines(document.getElementById('setup-headers').value)
+  if (errors.length) {
+    if (report) document.getElementById('setup-error').textContent = errors.join(' ')
+    return false
+  }
+  await window.cascade.connection.set(url, headers)
+  return true
+}
+
 function probeQuickConnect() {
   clearTimeout(_qcProbeTimer)
   _qcProbeTimer = setTimeout(async () => {
     const url = document.getElementById('setup-url').value.trim().replace(/\/+$/, '')
     const btn = document.getElementById('setup-quickconnect')
     if (!url) { btn.style.display = 'none'; return }
+    if (!await applySetupConnection(url, { report: false })) { btn.style.display = 'none'; return }
     btn.style.display = (await CascadeCore.quickConnectEnabled(url)) ? '' : 'none'
   }, 500)
 }
 
 document.getElementById('setup-url').addEventListener('input', probeQuickConnect)
+document.getElementById('setup-headers').addEventListener('input', probeQuickConnect)
 
 function endQuickConnect() {
   if (_qcAbort) { _qcAbort(); _qcAbort = null }
@@ -6904,6 +6935,7 @@ document.getElementById('setup-quickconnect').addEventListener('click', async ()
   const url = document.getElementById('setup-url').value.trim().replace(/\/+$/, '')
   if (!url) { err.textContent = 'Enter your server URL first.'; return }
   err.textContent = ''
+  if (!await applySetupConnection(url)) return
 
   let start
   try {
@@ -6966,6 +6998,7 @@ document.getElementById('setup-connect').addEventListener('click', async () => {
   const pass = document.getElementById('setup-password').value
 
   if (!url || !user) { err.textContent = 'Server URL and username are required.'; return }
+  if (!await applySetupConnection(url)) return
 
   btn.disabled = true
   btn.textContent = 'Connecting…'
@@ -7131,6 +7164,12 @@ async function init() {
   // Always pre-fill the setup form so the user never has to retype from scratch
   if (serverUrl) document.getElementById('setup-url').value      = serverUrl
   if (username)  document.getElementById('setup-username').value  = username
+  // Saved reverse-proxy headers, with the section open so they are not a surprise.
+  const savedHeaders = await window.cascade.connection.getHeaders()
+  if (savedHeaders.length) {
+    document.getElementById('setup-headers').value = CascadeCore.formatHeaderLines(savedHeaders)
+    document.getElementById('setup-advanced').open = true
+  }
   // The probe normally runs as the user types; a pre-filled URL never fires that.
   if (serverUrl) probeQuickConnect()
 

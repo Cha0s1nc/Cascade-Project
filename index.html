@@ -1072,6 +1072,21 @@
                   <div class="setting-label"><span class="setting-name">Password</span></div>
                   <input class="setting-input" id="s-pass" type="password" placeholder="Password" />
                 </div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Reverse proxy headers</span>
+                    <span class="setting-desc">For a server behind Cloudflare Access, Authelia or similar. One Name: Value per line, sent only to this server. Authorization and Host cannot be set. Saved on this computer with your other connection settings. Applied when you save.</span>
+                    <span class="setting-desc" id="s-headers-error" style="color:var(--red)"></span>
+                  </div>
+                  <textarea class="setting-input" id="s-headers" rows="3" spellcheck="false" autocomplete="off" placeholder="CF-Access-Client-Id: ..."></textarea>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Client certificate</span>
+                    <span class="setting-desc">If your server asks for one, install it in your system's certificate store (a .p12 or .pfx file opens there); Cascade offers what is installed and remembers your choice.</span>
+                  </div>
+                  <button class="btn btn-secondary" id="s-cert-reset" type="button">Choose again</button>
+                </div>
               </div>
               <!-- Approve another device's Quick Connect code for this signed-in
                    account. Greyed out (same disabled+data-tip pattern as the
@@ -1203,6 +1218,13 @@
       <label>Password</label>
       <input type="password" id="setup-password" placeholder="Password" />
     </div>
+    <!-- For a server behind Cloudflare Access, Authelia or another reverse
+         proxy that wants a header. Closed unless some are already saved. -->
+    <details class="setup-advanced" id="setup-advanced">
+      <summary>Reverse proxy headers</summary>
+      <textarea id="setup-headers" rows="3" spellcheck="false" autocomplete="off" placeholder="CF-Access-Client-Id: ...&#10;CF-Access-Client-Secret: ..."></textarea>
+      <p class="setup-qc-hint">One <strong>Name: Value</strong> per line. Sent only to this server.</p>
+    </details>
     <div class="setup-error" id="setup-error"></div>
     <button class="setup-btn" id="setup-connect">Connect</button>
     <!-- Shown only once we know the server actually offers Quick Connect. -->

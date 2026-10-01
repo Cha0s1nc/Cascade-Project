@@ -133,6 +133,16 @@ export interface DesktopCapabilities {
   shell?: { openExternal(url: string): Promise<void> }
   download?(url: string, filename: string): Promise<unknown>
 
+  /** Reverse-proxy support. Headers are added in the main process, to the
+   *  Jellyfin server's origin only; `set` takes the server URL it is about so
+   *  they work before the first sign-in. The certificate is chosen from the
+   *  operating system's store and remembered. */
+  connection?: {
+    getHeaders(): Promise<{ name: string; value: string }[]>
+    set(serverUrl: string, headers: { name: string; value: string }[]): Promise<{ name: string; value: string }[]>
+    resetCertificate(): Promise<void>
+  }
+
   checkForUpdates?(): Promise<UpdateCheckResult>
   isPackaged?(): Promise<boolean>
   /** True when the `.cascade-debug` sentinel file was present at startup.
@@ -233,6 +243,7 @@ export interface ElectronPlatform extends Platform, DesktopCapabilities {
   clipboard: NonNullable<DesktopCapabilities['clipboard']>
   shell: NonNullable<DesktopCapabilities['shell']>
   download: NonNullable<DesktopCapabilities['download']>
+  connection: NonNullable<DesktopCapabilities['connection']>
   checkForUpdates: NonNullable<DesktopCapabilities['checkForUpdates']>
   isPackaged: NonNullable<DesktopCapabilities['isPackaged']>
   isDebugMode: NonNullable<DesktopCapabilities['isDebugMode']>
