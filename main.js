@@ -27,6 +27,9 @@ const Changelog = require('./build/changelog')
 const WindowState = require('./build/window-state')
 // Extra headers and client certificates for servers behind a reverse proxy, from src/core/custom-headers.ts.
 const CustomHeaders = require('./build/custom-headers')
+// Offline downloads: the pure index rules from src/core/offline-index.ts, and the main-process side in offline.js.
+const OfflineIndex = require('./build/offline-index')
+const { createOffline } = require('./offline')
 const crypto = require('crypto')
 const { pathToFileURL } = require('url')
 const Store = require('electron-store')
@@ -48,9 +51,15 @@ const Store = require('electron-store')
 // and Chromium refuses cross-origin fetches to any scheme not flagged for CORS.
 // The translation library of the day swallowed that as "file was not found
 // locally", so it read as a missing model rather than a blocked request.
+// cascade-offline plays downloaded music (see offline.js). `stream` is what lets
+// a media element read it and seek: without it a <video> cannot play the
+// scheme's responses at all.
 protocol.registerSchemesAsPrivileged([{
   scheme: 'cascade-model',
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
+}, {
+  scheme: 'cascade-offline',
+  privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
 }])
 
 // Serve `rel` from inside `root`, or refuse. Trust boundary: the path comes off
@@ -564,8 +573,13 @@ function createWindow() {
 app.whenReady().then(() => {
   registerModelProtocol()
   installConnectionHeaders()
+  offline.load()
+  offline.registerProtocol()
   createWindow()
 })
+
+// A debounced index write must not be lost to a quit.
+app.on('before-quit', () => offline.flush())
 
 app.on('window-all-closed', () => {
   globalShortcut.unregisterAll()
@@ -702,6 +716,15 @@ ipcMain.handle('connection-set', (_e, serverUrl, headers) => {
   else store.delete('customHeaders')
   return connectionHeaders
 })
+
+const offline = createOffline({
+  app, ipcMain, net, protocol,
+  getWindow: () => win,
+  getServerUrl: () => connectionServerUrl,
+  headersFor: (url) => CustomHeaders.headersForRequest(url, connectionServerUrl, connectionHeaders),
+  Offline: OfflineIndex,
+})
+offline.register()
 
 // A client certificate. Electron can only answer with one from the operating
 // system's certificate store (a .p12 file cannot be handed to it), so the

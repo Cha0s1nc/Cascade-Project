@@ -23,6 +23,16 @@ const cascade: ElectronPlatform = {
     set:              (serverUrl, headers) => ipcRenderer.invoke('connection-set', serverUrl, headers),
     resetCertificate: () => ipcRenderer.invoke('connection-reset-certificate'),
   },
+  offline: {
+    summary:  () => ipcRenderer.invoke('offline-summary'),
+    tracks:   (collectionId) => ipcRenderer.invoke('offline-tracks', collectionId),
+    add:      (collection, tracks, session) => ipcRenderer.invoke('offline-add', collection, tracks, session),
+    remove:   (collectionId) => ipcRenderer.invoke('offline-remove', collectionId),
+    resume:   (session) => ipcRenderer.invoke('offline-resume', session),
+    addPlay:  (play) => ipcRenderer.invoke('offline-play-add', play),
+    takePlays: () => ipcRenderer.invoke('offline-plays-take'),
+    onEvent:  (cb) => { ipcRenderer.on('offline-event', (_e, event) => cb(event)) },
+  },
   clipboard: {
     write: (text) => ipcRenderer.invoke('clipboard-write', text),
   },
