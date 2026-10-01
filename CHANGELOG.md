@@ -10,6 +10,76 @@ headings inside a section. The release workflow reads this file, so it has to
 keep to that format; `npm test` checks it, and
 `node scripts/changelog-section.mjs 2.3.0` prints one version's notes.
 
+## 2.3.0 (2026-10-01)
+
+### Desktop
+
+Mac users on 2.1.0 or 2.2.0 have to download and install 2.3.0 by hand: the
+updater in those versions cannot install updates. From 2.3.0 on, updates
+install themselves again on every platform.
+
+#### Major changes
+
+- Smart playlists you define yourself, with a rule builder.
+- Sort and filter Albums, Artists, Playlists, Movies and Shows.
+- A Genres tab and a full listening History.
+- Internet radio, through Jellyfin's Live TV channels.
+- Control other Jellyfin sessions from Cascade, with a device picker.
+- Artist pages show a bio, similar artists and top songs.
+- Volume normalization from Jellyfin's normalization data, using the album's
+  gain, or the track's when the album has none.
+
+#### Minor changes
+
+- An output device setting, to choose which speakers or headphones Cascade
+  plays through.
+- Approve another device's Quick Connect code from Settings, Account.
+- During a crossfade, the next song shows as playing as soon as it starts
+  fading in, instead of once the fade ends.
+- The update window shows what changed in every version since yours, not
+  only the newest one.
+- AAC (`.m4a`) files play directly instead of being converted by the server.
+- Every release, with its notes and downloads, is listed on
+  [chaosinc.xyz](https://www.chaosinc.xyz/github/projects/cascade/releases/).
+
+#### Updates
+
+- Mac updates install in place again.
+- Linux AppImage updates replace the AppImage instead of doing nothing.
+- Linux .deb and .rpm updates no longer end on "The update did not install"
+  while the package installer is open.
+- Every step of an update now either finishes, falls back, or says why it
+  could not, instead of hanging.
+- The download progress shows the real speed.
+
+#### Fixes
+
+- Crossfade could restart the next song partway through the fade.
+- Only the first page of albums, artists, movies and shows loaded.
+- Smart playlists sorted by the track-numbered name instead of the title.
+
+### Apple
+
+The first release of Cascade for iPhone, iPad and Apple TV. It is a native
+app, not a copy of the desktop one.
+
+- Browse your music: Home, Albums, Artists, Songs, playlists, favorites and
+  search.
+- Sign in with a password or Quick Connect.
+- Synced lyrics, from the [CascadeServer plugin](https://github.com/Cha0s1nc/CascadeServer)
+  (Spicy Lyrics), Kugou, LRCLIB and Jellyfin, with adjustable lyric motion.
+- Gapless playback, crossfade, an equalizer and volume normalization.
+- Downloads for listening offline.
+- Smart playlists and listening history.
+- Waterfall, to listen together with people on the same server.
+- Movies and TV shows.
+- Lock screen and Control Center controls, and playback that continues with
+  the screen off.
+- On Apple TV, the remote works the way it does in Apple Music.
+
+Needs iOS 18 or tvOS 18. Until it is on the App Store, the builds are
+unsigned `.ipa` files: install them with Sideloadly or Xcode.
+
 ## 2.2.0 (2026-09-27)
 
 ### Desktop
