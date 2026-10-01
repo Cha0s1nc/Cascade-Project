@@ -91,8 +91,10 @@ most views are shared, and a change for the phone can break the TV.
 
 - Open pull requests against `dev`, one change per pull request.
 - Explain the why in the commit message, not only the what.
-- Don't put `[BETA]` or `Release (...)` in a commit's first line. Those are
-  release triggers (see below), and only the maintainer uses them.
+- Don't put `[BETA]` or `Release (...)` in a commit's first line or the
+  pull request's title. Those are release triggers (see below), only the
+  maintainer uses them, and a required check refuses pull requests that
+  carry one.
 - Screenshots or a short clip help a lot for anything visual.
 
 ## Licensing of contributions

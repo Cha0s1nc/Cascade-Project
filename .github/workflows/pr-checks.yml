@@ -1,0 +1,37 @@
+# Checks every pull request. Required to merge into dev (a ruleset; the
+# maintainer can bypass it).
+#
+# Release markers ("[BETA]", "Release (x.X.0)" and the like) are the
+# maintainer's alone: merged from a pull request, a [BETA] would publish a
+# beta at once, and a bump marker would set the next release's version when
+# dev reaches stable. The title counts because a squash merge makes it the
+# commit's first line. Commit messages reach the script through git, never a
+# ${{ }} expression, so a crafted message cannot inject into the shell.
+name: PR checks
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  release-markers:
+    name: Release markers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: No release markers in the title or commits
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          TITLE: ${{ github.event.pull_request.title }}
+        run: node scripts/release-plan.mjs check-pr

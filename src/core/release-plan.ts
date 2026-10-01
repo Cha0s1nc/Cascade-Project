@@ -42,6 +42,15 @@ export function bumpOf(messages: readonly string[]): Bump | null {
   return best
 }
 
+/**
+ * The lines that carry a release or beta marker. Pull requests may not: a
+ * merged contributor commit with one would publish a beta (on dev) or set
+ * the next release's bump (when dev reaches stable). Releases are the
+ * maintainer's call, made with their own commits.
+ */
+export const markerLines = (lines: readonly string[]): string[] =>
+  lines.filter(l => bumpOf([l]) !== null || isBeta([l]))
+
 /** Whether any message asks for a beta: `[BETA]`, any case. */
 export const isBeta = (messages: readonly string[]): boolean => messages.some(m => /\[beta\]/i.test(m))
 

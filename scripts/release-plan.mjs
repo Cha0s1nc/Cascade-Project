@@ -3,6 +3,7 @@
 //   node scripts/release-plan.mjs plan       what this push or manual run does
 //   node scripts/release-plan.mjs versions   the versions.json for a release
 //   node scripts/release-plan.mjs files P    platform P's file patterns, one per line
+//   node scripts/release-plan.mjs check-pr   fail if a pull request carries a release marker
 //
 // Everything comes in through environment variables, never through the
 // workflow's ${{ }} expressions: commit messages are read from git here, so
@@ -13,6 +14,7 @@
 //           INPUT_BUMP, INPUT_PLATFORMS, INPUT_BETA
 // versions: VERSION, REBUILT, CARRIED (comma lists), PREVIOUS_FILE (optional
 //           path to the last release's versions.json), PREVIOUS_VERSION
+// check-pr: BASE, HEAD (commit shas), TITLE (the pull request's title)
 import { execFileSync } from 'node:child_process'
 import { appendFileSync, existsSync, readFileSync } from 'node:fs'
 
@@ -23,7 +25,7 @@ process.removeAllListeners('warning')
 process.on('warning', w => {
   if (w.code !== 'MODULE_TYPELESS_PACKAGE_JSON') for (const print of printWarning) print(w)
 })
-const { PLATFORMS, PLATFORM_FILES, planRelease, versionsFor } = await import('../src/core/release-plan.ts')
+const { PLATFORMS, PLATFORM_FILES, markerLines, planRelease, versionsFor } = await import('../src/core/release-plan.ts')
 
 const env = process.env
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8' })
@@ -81,9 +83,19 @@ if (command === 'plan') {
     previousVersion: (env.PREVIOUS_VERSION ?? '').replace(/^v/, ''),
   })
   process.stdout.write(JSON.stringify(versions) + '\n')
+} else if (command === 'check-pr') {
+  // The title counts too: a squash merge makes it the commit's first line.
+  const subjects = git('log', '--format=%s', `${env.BASE}..${env.HEAD}`).split('\n').filter(Boolean)
+  const found = markerLines([env.TITLE ?? '', ...subjects])
+  if (found.length) {
+    console.error('Release markers are for the maintainer only. Remove them from the pull request title and commit first lines:')
+    for (const line of found) console.error(`  ${line}`)
+    process.exit(1)
+  }
+  console.error(`No release markers in the title or ${subjects.length} commit(s).`)
 } else if (command === 'files' && PLATFORMS.includes(process.argv[3])) {
   process.stdout.write(PLATFORM_FILES[process.argv[3]].join('\n') + '\n')
 } else {
-  console.error('Usage: node scripts/release-plan.mjs plan|versions|files <platform>')
+  console.error('Usage: node scripts/release-plan.mjs plan|versions|files <platform>|check-pr')
   process.exit(2)
 }

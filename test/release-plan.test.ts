@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import {
   bumpOf, isBeta, platformListOf, platformsFromFiles, bumpVersion, nextBetaNumber, planRelease, versionsFor,
-  PLATFORM_FILES, platformOfFile,
+  PLATFORM_FILES, platformOfFile, markerLines,
 } from '../src/core/release-plan.ts'
 import type { PlanInput } from '../src/core/release-plan.ts'
 
@@ -147,4 +147,10 @@ test("build.yml's carry-over patterns match PLATFORM_FILES", () => {
     assert.ok(m, `no PATTERNS line for ${p} in build.yml`)
     assert.deepEqual(m[1].split(/\s+/).filter(Boolean).map(s => s.replace(/'/g, '')), patterns)
   }
+})
+
+test('markerLines finds release and beta markers, and nothing else', () => {
+  assert.deepEqual(markerLines(['Fix the queue', 'Try it [beta]', 'Bump to Release (X.0.0)', 'Mentions x.x.X loosely', '(x.X.0)']),
+    ['Try it [beta]', 'Bump to Release (X.0.0)', '(x.X.0)'])
+  assert.deepEqual(markerLines([]), [])
 })
