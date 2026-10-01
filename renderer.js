@@ -5578,8 +5578,9 @@ async function continueWithAutoMix(lastItem) {
 
 let _cfArmed = true        // guards against re-triggering mid-fade; re-set per track
 let _cfSession = 0         // bumped on cancel, so an in-flight stream resolve knows to stop
-let _cfActive = false      // true from the start of a fade until the handoff completes
+let _cfActive = false      // true while a no-fade handoff runs (finishCrossfade); a real fade hands over as it starts
 let _cfOtherDeck = null    // the deck fading in, while a crossfade is in progress
+let _cfTail = null         // { deck, timer }: the previous track fading out after the handoff
 let _cfNextResolved = null   // resolved stream of the incoming track, adopted on finish
 
 // Mirrors the `ended` handler's "what plays next" logic, but only for the case
@@ -5591,7 +5592,7 @@ function _resolveCrossfadeTarget() {
 }
 
 onDeck('timeupdate', () => {
-  if (!crossfadeEnabled || !_cfArmed || _cfActive) return
+  if (!crossfadeEnabled || !_cfArmed || _cfActive || _cfTail) return
   // The host owns track changes in a Waterfall room. A guest fading on its own
   // leaves `audio` on the outgoing deck while the incoming one is what plays,
   // so the room's drift correction would seek a deck nobody is hearing.
@@ -5727,15 +5728,50 @@ async function startCrossfade(nextIndex) {
     outGain.gain.setValueCurveAtTime(outCurve, now, fadeSecs)
     inGain.gain.setValueCurveAtTime(inCurve, now, fadeSecs)
   }
-  _cfActive = true
+  // The new track becomes the current one the moment it starts fading in, so
+  // the title, art, lyrics, queue and the server all move to it then, not
+  // once the old one has faded out. The audio thread owns both ramps above.
+  _handOverAtFadeStart(nextIndex, incoming, fadeSecs)
+}
 
-  // The audio thread owns the actual ramp above; this timer only triggers the
-  // JS-side handoff bookkeeping once it has finished, so a little timer
-  // jitter here does not affect what the fade sounded like.
-  setTimeout(() => {
-    if (_cfOtherDeck !== incoming) return   // cancelled mid-fade
-    finishCrossfade(nextIndex, incoming)
-  }, fadeSecs * 1000)
+// The handoff for a fade that is running: everything finishCrossfade does,
+// except the outgoing deck keeps playing its fade-out as the "tail" instead of
+// stopping. Its events are already ignored from here on (onDeck only listens
+// to `audio`), and its gain ramp needs nothing from JS. The tail is stopped
+// when its fade ends, or cut short by cancelCrossfade (pause, skip, any track
+// change). The incoming deck's gain is left mid-ramp, not snapped to 1 the way
+// _swapDeck does.
+function _handOverAtFadeStart(nextIndex, incoming, fadeSecs) {
+  const outgoing = audio
+  const outgoingItem = queue[queueIndex]
+  if (outgoingItem) reportPlaybackStopped(outgoingItem.Id, Math.round(outgoing.currentTime * 10000000))
+
+  audio = incoming
+  if (_audioCtx) _mediaSrc = _deckSource(incoming)
+  _cfActive = false
+  _cfOtherDeck = null
+  queueIndex = nextIndex
+  startEqLoop()
+  _startWordLoop()
+  // Its first, synchronous step is cancelCrossfade(), so the tail is set only
+  // after this call; set before, the handoff would cut its own tail.
+  playCurrentTrack({ alreadyPlaying: true, resolved: _cfNextResolved })
+  _cfNextResolved = null
+  renderQueuePanel()
+  _cfTail = { deck: outgoing, timer: setTimeout(() => { _cutCrossfadeTail(); _schedulePrefetch() }, fadeSecs * 1000) }
+}
+
+// Stop the previous track's fade-out and give the new one full gain. The
+// prefetch waits for this: the deck the tail plays on is the one it loads.
+function _cutCrossfadeTail() {
+  if (!_cfTail) return
+  const { deck, timer } = _cfTail
+  _cfTail = null
+  clearTimeout(timer)
+  deck.pause()
+  _detachDeck(deck)
+  const g = _audioCtx && _deckGain(audio)
+  if (g) { g.gain.cancelScheduledValues(_audioCtx.currentTime); g.gain.setValueAtTime(1, _audioCtx.currentTime) }
 }
 
 // Point `audio` at `incoming`, park `outgoing`. Shared by finishCrossfade and
@@ -5812,6 +5848,9 @@ function cancelCrossfade() {
   // Bump first: this is what tells an in-flight startCrossfade() resolve that
   // it no longer owns the crossfade.
   _cfSession++
+  // After the handoff the new track is already `audio`; only the old one's
+  // fade-out is left to stop.
+  _cutCrossfadeTail()
   if (_cfOtherDeck) {
     const otherDeck = _cfOtherDeck
     if (_audioCtx) {
@@ -5899,7 +5938,9 @@ async function _prefetchNext() {
   // queue mutation during an active fade left both decks at readyState 0 with
   // playback frozen. _cfOtherDeck is non-null for that whole window, so
   // bailing here is the single guard every mutation path needs.
-  if (_cfOtherDeck) return
+  // Same for the previous track's fade-out: it is still playing on the idle
+  // deck, and _cutCrossfadeTail() schedules the prefetch once it ends.
+  if (_cfOtherDeck || _cfTail) return
   const nextIndex = _resolveCrossfadeTarget()
   const nextItem = nextIndex >= 0 ? queue[nextIndex] : null
   // A radio queue is always a single channel, but repeat-all can make
@@ -5918,7 +5959,7 @@ async function _prefetchNext() {
   // even be idle any more. deck === audio covers a fade that started AND
   // finished entirely during this await, which moves what "idle" means out
   // from under the captured `deck` without ever setting _cfOtherDeck again.
-  if (token !== _prefetchToken || playingVideo() || deck === audio || deck === _cfOtherDeck) {
+  if (token !== _prefetchToken || playingVideo() || deck === audio || deck === _cfOtherDeck || deck === _cfTail?.deck) {
     if (!resolved.direct) stopActiveEncoding(jfClient, jf, resolved.playSessionId)
     return
   }
