@@ -15,6 +15,7 @@ let queueIndex = -1
 let shuffle = false
 let repeatMode = 'none' // 'none' | 'all' | 'one'
 let _unshuffledQueue = []   // original order saved when shuffle is enabled
+let _restoredResume = null   // { sec } while a restored queue's track waits for play (see Last queue)
 
 // Queue panel virtualisation
 const QUEUE_WIN      = 20   // minimum rows kept in DOM at once; see _queueWin()
@@ -777,6 +778,7 @@ async function connect(serverUrl, token, userId) {
   await populateLibraryPicker(viewsPromise)
   invalidateLibraryViews()
   await loadHome()
+  await restoreLastQueue()
   // Both sit over a populated app rather than a blank one, hence after loadHome.
   // The wizard runs itself off its stored revision, so an ordinary launch on the
   // current revision shows nothing - and when it does run it has already marked
@@ -821,9 +823,9 @@ function startRemoteControl() {
       if (playCommand === 'PlayLast' && !idle) { enqueueTracks(tracks, label); return }
       playItems(tracks, startIndex)
     },
-    playPause()     { if (audio.paused) audio.play().catch(() => {}); else audio.pause() },
+    playPause()     { if (audio.paused) playOrResume(); else audio.pause() },
     pause()         { audio.pause() },
-    unpause()       { audio.play().catch(() => {}) },
+    unpause()       { playOrResume() },
     stop()          { stopPlayback() },
     nextTrack()     { document.getElementById('btn-next').click() },
     previousTrack() { document.getElementById('btn-prev').click() },
@@ -4626,6 +4628,56 @@ document.getElementById('show-back-btn').addEventListener('click', () => {
 
 /** Start a new queue. `source` names it in the queue panel ("From Favorite
  *  Songs"); without one, a single album's tracks are labelled with the album. */
+// ── Last queue ───────────────────────────────────────────────────────────────
+// The queue, the current track and where it was are kept across restarts
+// (CascadeCore.savedQueueOf / restoreQueue): saved every few seconds when it
+// changed, and restored after sign-in, shown but not loaded. Nothing plays and
+// nothing is reported to the server until play is pressed, which then starts
+// that track where it was left (playOrResume). A Waterfall guest neither saves
+// nor restores: its queue is the host's.
+let _lastSavedQueue = undefined
+
+function _saveQueueState() {
+  if (blocksLocalPlayback()) return
+  const state = CascadeCore.savedQueueOf(queue, queueIndex, mediaPosition(), _unshuffledQueue)
+  const text = JSON.stringify(state)
+  if (text === _lastSavedQueue) return
+  _lastSavedQueue = text
+  window.cascade.store.set('lastQueue', text)
+}
+setInterval(_saveQueueState, 5000)
+window.addEventListener('beforeunload', _saveQueueState)
+
+async function restoreLastQueue() {
+  if (queue.length || blocksLocalPlayback()) return
+  let saved = null
+  try { saved = JSON.parse(await window.cascade.store.get('lastQueue') || 'null') } catch {}
+  const ids = CascadeCore.savedQueueIds(saved)
+  if (!ids.length) return
+  const items = await jfItemsByIds(ids, 'AlbumId,AlbumPrimaryImageTag,UserData,MediaStreams,MediaSources')
+  if (queue.length || blocksLocalPlayback()) return   // something started meanwhile
+  const restored = CascadeCore.restoreQueue(saved, items)
+  if (!restored) return
+  queue = restored.queue
+  queueIndex = restored.index
+  _unshuffledQueue = shuffle ? (restored.unshuffled.length ? restored.unshuffled : [...queue]) : []
+  queueSource = CascadeCore.queueSourceFallback(queue)
+  _restoredResume = { sec: restored.positionSec }
+  _lastSavedQueue = JSON.stringify(CascadeCore.savedQueueOf(queue, queueIndex, restored.positionSec, _unshuffledQueue))
+  updateNowPlaying(queue[queueIndex])
+  syncProgressUI()
+  renderQueuePanel()
+}
+
+// Play, or for a restored queue, start its track where it was left.
+function playOrResume() {
+  if (_restoredResume && queue[queueIndex]) {
+    playCurrentTrack({ startTicks: Math.round(_restoredResume.sec * 10_000_000) })
+    return
+  }
+  audio.play().catch(() => {})
+}
+
 function playItems(items, startIndex, source) {
   // In a Waterfall room a guest follows the host - starting something locally
   // would silently fight the session until the next sync pulled it back.
@@ -4769,6 +4821,7 @@ async function playCurrentTrack(opts = {}) {
   if (blocksLocalPlayback()) return
   if (queueIndex < 0 || queueIndex >= queue.length) return
   const item = queue[queueIndex]
+  _restoredResume = null
 
   // Every track change funnels through here, so this is the one place that
   // needs to know to abandon an in-progress crossfade - covers next/prev,
@@ -5171,6 +5224,7 @@ let _streamOffsetSec = 0
 
 /** Position within the item, in seconds. */
 function mediaPosition() {
+  if (_restoredResume) return _restoredResume.sec
   return _streamOffsetSec + audio.currentTime
 }
 
@@ -5184,6 +5238,7 @@ function mediaPosition() {
  */
 function mediaDuration() {
   const item = queue[queueIndex]
+  if (_restoredResume && item?.RunTimeTicks) return item.RunTimeTicks / 10_000_000
   if (isVideoItem(item) && item?.RunTimeTicks) return item.RunTimeTicks / 10_000_000
   return audio.duration || 0
 }
@@ -5202,6 +5257,8 @@ async function seekTo(sec) {
   const dur = mediaDuration()
   const target = Math.max(0, Math.min(dur || sec, sec))
 
+  // Not loaded yet (a restored queue): move where play will start from.
+  if (_restoredResume) { _restoredResume.sec = target; syncProgressUI(); return }
   if (_transcodeUrl) {
     await restartStreamAt(target)
     return
@@ -6009,7 +6066,7 @@ function _waitForPlayable(deck, timeoutMs = 4000) {
 // ── Player controls ───────────────────────────────────────────────────────────
 
 document.getElementById('btn-play').addEventListener('click', () => {
-  if (audio.paused) audio.play()
+  if (audio.paused) playOrResume()
   else audio.pause()
 })
 
@@ -6033,6 +6090,7 @@ document.getElementById('btn-next').addEventListener('click', () => {
 document.getElementById('btn-shuffle').addEventListener('click', () => {
   shuffle = !shuffle
   document.getElementById('btn-shuffle').classList.toggle('active', shuffle)
+  window.cascade.store.set('shuffle', shuffle)
 
   const currentId = queue[queueIndex]?.Id
 
@@ -6045,8 +6103,9 @@ document.getElementById('btn-shuffle').addEventListener('click', () => {
     if (nowIdx > 0) { const [t] = queue.splice(nowIdx, 1); queue.unshift(t) }
     queueIndex = 0
   } else {
-    // Restore original order, keeping the same track playing
-    queue = _unshuffledQueue
+    // Restore original order, keeping the same track playing. A queue with no
+    // original order on record stays as it is rather than emptying.
+    if (_unshuffledQueue.length) queue = _unshuffledQueue
     _unshuffledQueue = []
     queueIndex = Math.max(0, queue.findIndex(t => t.Id === currentId))
   }
@@ -6077,6 +6136,7 @@ function updateRepeatButtons() {
 document.getElementById('btn-repeat').addEventListener('click', () => {
   const modes = ['none', 'all', 'one']
   repeatMode = modes[(modes.indexOf(repeatMode) + 1) % modes.length]
+  window.cascade.store.set('repeatMode', repeatMode)
   updateRepeatButtons()
   _reprefetch()   // repeat mode changes what "next" means
 })
@@ -6988,6 +7048,13 @@ async function init() {
   // Restore saved volume
   const savedVol = await window.cascade.store.get('volume')
   if (savedVol !== undefined && savedVol !== null) setVolumeRatio(parseFloat(savedVol))
+  // Shuffle and repeat stay as they were left.
+  shuffle = (await window.cascade.store.get('shuffle')) === true
+  document.getElementById('btn-shuffle').classList.toggle('active', shuffle)
+  document.getElementById('ov-shuffle').classList.toggle('active', shuffle)
+  const savedRepeat = await window.cascade.store.get('repeatMode')
+  if (['none', 'all', 'one'].includes(savedRepeat)) repeatMode = savedRepeat
+  updateRepeatButtons()
 
   const serverUrl = await window.cascade.store.get('serverUrl')
   const username  = await window.cascade.store.get('username')

@@ -156,3 +156,31 @@ test('queue source fallback: the album name only when every track shares it', ()
   assert.equal(queueSourceFallback([{ Id: '1', Name: '' }]), null)
   assert.equal(queueSourceFallback([]), null)
 })
+
+test('savedQueueOf keeps music queues by id, and nothing else', async () => {
+  const { savedQueueOf } = await import('../src/core/queue.ts')
+  const song = (n: number) => ({ Id: `${n}`.padStart(32, 'a'), Type: 'Audio' }) as any
+  const q = [song(1), song(2), song(3)]
+  assert.deepEqual(savedQueueOf(q, 1, 42.34, []), { ids: q.map(i => i.Id), index: 1, positionSec: 42.3 })
+  assert.deepEqual(savedQueueOf(q, 0, 0, [q[2], q[0], q[1]])?.unshuffledIds, [q[2].Id, q[0].Id, q[1].Id])
+  assert.equal(savedQueueOf([], 0, 0, []), null)
+  assert.equal(savedQueueOf([{ Id: 'a'.repeat(32), Type: 'Movie' } as any], 0, 10, []), null)
+})
+
+test('restoreQueue rebuilds the queue in its saved order and moves on past deleted tracks', async () => {
+  const { restoreQueue, savedQueueIds } = await import('../src/core/queue.ts')
+  const id = (c: string) => c.repeat(32)
+  const saved = { ids: [id('a'), id('b'), id('c'), id('d')], index: 2, positionSec: 30, unshuffledIds: [id('d'), id('a')] }
+  assert.deepEqual(savedQueueIds(saved), [id('a'), id('b'), id('c'), id('d')])
+  const items = [id('d'), id('c'), id('a')].map(Id => ({ Id, Type: 'Audio' }) as any)   // server order, b deleted
+  const r = restoreQueue(saved, items)!
+  assert.deepEqual(r.queue.map(i => i.Id), [id('a'), id('c'), id('d')])
+  assert.equal(r.index, 1)
+  assert.equal(r.positionSec, 30)
+  assert.deepEqual(r.unshuffled.map(i => i.Id), [id('d'), id('a')])
+  // Current track deleted: its successor, from the start.
+  const r2 = restoreQueue({ ...saved, index: 1 }, items)!
+  assert.equal(r2.queue[r2.index].Id, id('c'))
+  assert.equal(r2.positionSec, 0)
+  for (const junk of [null, 'x', { ids: 'nope' }, { ids: ['../etc'] }]) assert.equal(restoreQueue(junk, items), null)
+})

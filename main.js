@@ -23,6 +23,8 @@ const { installInPlace } = require('./mac-update')
 const UpdateRelease = require('./build/update-release')
 // CHANGELOG.md parsing and the notes shown in the update window, from src/core/changelog.ts.
 const Changelog = require('./build/changelog')
+// Whether the saved window position still fits the monitors, from src/core/window-state.ts.
+const WindowState = require('./build/window-state')
 const crypto = require('crypto')
 const { pathToFileURL } = require('url')
 const Store = require('electron-store')
@@ -411,6 +413,21 @@ let metadataEditorWindow = null
 let miniPlayerWindow  = null
 let pendingDownload   = null
 
+// Saves the main window's normal (unmaximized) bounds and whether it is
+// maximized, for createWindow to reopen it there: on close, and half a second
+// after it stops moving or resizing, so a crash loses at most that. Never
+// while fullscreen, whose bounds are not a place to reopen at.
+function trackWindowState(w) {
+  let timer = null
+  const save = () => {
+    if (w.isDestroyed() || w.isFullScreen() || w.isMinimized()) return
+    store.set('windowState', { ...w.getNormalBounds(), maximized: w.isMaximized() })
+  }
+  const soon = () => { clearTimeout(timer); timer = setTimeout(save, 500) }
+  for (const event of ['move', 'resize', 'maximize', 'unmaximize']) w.on(event, soon)
+  w.on('close', () => { clearTimeout(timer); save() })
+}
+
 function createWindow() {
   const isDarwin = process.platform === 'darwin'
   // `npm run demo` (or `electron . --fullscreen`): opens straight into
@@ -418,20 +435,25 @@ function createWindow() {
   // one is connected. Fullscreen fills whichever display the window starts on.
   const demo = process.argv.includes('--fullscreen')
   const demoDisplay = demo ? screen.getAllDisplays().find(d => !d.internal) : null
+  // Where it was when it last closed, if that still fits the monitors
+  // connected now (see src/core/window-state.ts); otherwise the default.
+  const MIN_SIZE = { width: 800, height: 560 }
+  const restore = demo ? null : WindowState.windowBoundsToRestore(store.get('windowState'), screen.getAllDisplays().map(d => d.workArea), MIN_SIZE)
   win = new BrowserWindow({
-    width: 1100,
-    height: 700,
+    width: restore?.bounds.width ?? 1100,
+    height: restore?.bounds.height ?? 700,
     ...(demoDisplay ? { x: demoDisplay.bounds.x + 40, y: demoDisplay.bounds.y + 40 } : {}),
+    ...(restore ? { x: restore.bounds.x, y: restore.bounds.y } : {}),
     // Only ever passed as true. An explicit `fullscreen: false` is not "start
     // windowed" on macOS, it makes the window non-fullscreenable: the video
     // player's Fullscreen button, F and double-click still told the page it
     // was fullscreen, but the window stayed its normal size.
     ...(demo ? { fullscreen: true } : {}),
-    minWidth: 800,
+    minWidth: MIN_SIZE.width,
     // 560, not 500: the video overlay stacks a picture, a title, two button
     // rows, a scrubber and a volume slider into one column, and 500 was under
     // what that needs - the picture was the part that got squeezed out.
-    minHeight: 560,
+    minHeight: MIN_SIZE.height,
     backgroundColor: '#111113',
     // hiddenInset + trafficLightPosition is macOS-only and is silently ignored
     // elsewhere, which used to leave Windows/Linux with the OS title bar AND
@@ -506,7 +528,12 @@ function createWindow() {
     ipcMain.on('touchbar-update', () => {})
   }
 
-  showWhenReady(win)
+  // Windows sizes a window created on a monitor with a different scale
+  // factor than the primary wrongly; setting the bounds again once it exists
+  // puts it right. Harmless elsewhere.
+  if (restore) win.setBounds(restore.bounds)
+  showWhenReady(win, () => { if (restore?.maximized) win.maximize() })
+  trackWindowState(win)
 
   // Hung off did-finish-load rather than ready-to-show. Same reason as
   // showWhenReady: ready-to-show can simply never fire on Windows, which
