@@ -5130,16 +5130,15 @@ function updateNowPlaying(item) {
 // that state here too.
 //
 // That drop keeps the renderer from duplicating window state, and it stays. But
-// the miniplayer is gated to unpackaged builds, so in a packaged build the
-// window can never exist and every push is built, serialised and structured-
+// with no miniplayer open every push would be built, serialised and structured-
 // cloned across IPC purely to be discarded - four times a second, all session.
-// Bail before doing that work. Safe despite _miniplayerEnabled being declared
-// with let further down the file: every caller is event-driven or runs after
-// load, so none of them reaches here during module evaluation.
+// Bail before doing that work. _miniplayerOpen is kept by main.js's open-state
+// message (declared here, above every caller, so no use can reach its TDZ).
+let _miniplayerOpen = false
 let _mpSheetOf = null, _mpSheetEmphasis = false, _mpSheetId = 0, _mpSheetSent = false
 
 function pushMiniplayerState() {
-  if (!_miniplayerEnabled) return
+  if (!_miniplayerOpen) return
   const item = queue[queueIndex]
   if (!item) { window.cascade.miniPlayer.updateState(null); return }
   const art = _currentHighResArtUrl || artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
@@ -6276,32 +6275,19 @@ document.getElementById('btn-lyrics-open').addEventListener('click', () => showL
 
 // Miniplayer open button - main.js minimizes this window and creates (or
 // focuses) the small always-on-top remote control window.
-// Dev builds only for now. The miniplayer is half-built (no volume, no shuffle
-// or repeat, no queue pane) and its window chrome only really works on macOS,
-// so a packaged build says "coming soon" rather than handing people a window
-// they cannot do much with. Same shape as the toast gating above: keyed on
-// isPackaged, not on a setting anyone can flip by accident.
-let _miniplayerEnabled = true
-window.cascade?.isPackaged?.().then(packaged => {
-  _miniplayerEnabled = !packaged
-  const btn = document.getElementById('btn-miniplayer-open')
-  if (!btn || _miniplayerEnabled) return
-  btn.classList.add('needs-admin')            // the existing dimmed-but-visible treatment
-  btn.setAttribute('data-tip', 'Miniplayer - coming soon')
-  btn.title = 'Miniplayer - coming soon'
-})
-
 // Lyrics are fetched only while something shows them (see updateNowPlaying);
 // an open miniplayer counts. Fetched on open too, for the song already playing.
-let _miniplayerOpen = false
 window.cascade.miniPlayer.onOpenChange(open => {
   _miniplayerOpen = open
-  if (open && !lyricsData.length && queue[queueIndex]) fetchLyrics()
+  if (!open) return
+  if (!lyricsData.length && queue[queueIndex]) fetchLyrics()
+  // The window's page has not loaded yet, and while paused nothing else would
+  // push, so it would sit on "Nothing playing" until the next state change.
+  pushMiniplayerState()
+  setTimeout(pushMiniplayerState, 600)
 })
 
 document.getElementById('btn-miniplayer-open').addEventListener('click', () => {
-  if (!_miniplayerEnabled) { showToast('Miniplayer is coming soon'); return }
-  pushMiniplayerState()
   window.cascade.miniPlayer.open()
 })
 
@@ -6456,6 +6442,7 @@ window.cascade.miniPlayer.onControl(async (raw) => {
   // `volume`, not audio.volume: mid-crossfade the element is partway through
   // a fade (see openLyricsEditorFor).
   else if (cmd.type === 'volume') setVolumeRatio(volume + cmd.delta)
+  else if (cmd.type === 'volumeto') setVolumeRatio(cmd.fraction)
   else if (cmd.type === 'credit') {
     const url = CascadeCore.safeCreditUrl(lyricsCredit?.[cmd.who]?.url)
     if (url) window.cascade.shell.openExternal(url)
