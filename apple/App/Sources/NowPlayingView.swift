@@ -18,6 +18,11 @@ struct NowPlayingView: View {
     let player: PlaybackService
     @Environment(AppState.self) private var state
     @State private var lyrics = LyricsModel()
+    #if os(iOS)
+    /// On-device translation of the lyrics (the Translation framework has no
+    /// tvOS version).
+    @State private var translation = LyricsTranslationModel()
+    #endif
     /// Overrides of the playing item's snapshot, which a server answer does
     /// not update. Nil until toggled; reset on every track change.
     @State private var favoriteOverride: Bool?
@@ -87,6 +92,13 @@ struct NowPlayingView: View {
                    "\(state.cascadePluginInfo.capabilities.sorted())", "\(state.serverOnlyLyrics)",
                    state.localSpotifyLinks[player.item?.id ?? ""] ?? "", "\(state.lyricsRevision)"]) {
             await lyrics.load(item: player.item, state: state)
+            #if os(iOS)
+            // The new lyrics, or their absence: translate from wherever the song is.
+            await translation.attach(lines: lyrics.lines) {
+                Lyrics.activeLineIndex(lyrics.lines ?? [],
+                                       at: Int(player.positionSeconds * Double(Lyrics.ticksPerSecond)))
+            }
+            #endif
         }
     }
 
@@ -319,6 +331,11 @@ struct NowPlayingView: View {
                 sleepMenu
                 lyricsTimingMenu
                 #if os(iOS)
+                if translation.available {
+                    Button(translation.isOn ? "Hide Translation" : "Translate Lyrics", systemImage: "character.bubble") {
+                        translation.toggle()
+                    }
+                }
                 Button("Control Devices\u{2026}", systemImage: "hifispeaker.2") { controllingDevices = true }
                 if state.cascadePluginInfo.spotifyLink {
                     Button("Link Spotify Track\u{2026}", systemImage: "link") { linkingSpotify = true }
@@ -574,10 +591,12 @@ struct NowPlayingView: View {
     @ViewBuilder private var lyricsPanel: some View {
         if let lines = lyrics.lines {
             VStack(spacing: 8) {
-                LyricsView(lines: lines, player: player, emphasis: lyrics.credit != nil, synced: lyrics.synced)
+                LyricsView(lines: lines, player: player, emphasis: lyrics.credit != nil, synced: lyrics.synced,
+                           translations: translation.isOn ? translation.translations : [:])
                     // A new song's lyrics start from their own top, not scrolled
                     // to wherever the last song's were.
                     .id(player.item?.id)
+                    .lyricsTranslationTask(translation)
                 // Pinned under the lyrics, on screen with the controls or
                 // without: SpicyLyrics' terms want it visible, not tucked away.
                 if let credit = lyrics.credit { LyricsCreditView(credit: credit) }
