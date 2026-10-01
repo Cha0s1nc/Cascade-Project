@@ -70,7 +70,7 @@ let cascadeAppVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"
 /// because it runs before there is any config to construct a client with.
 public func authenticate(serverUrl: String, username: String, password: String,
                          appVersion: String, deviceId: String,
-                         session: URLSession = .shared) async throws -> JfAuthResult {
+                         session: URLSession = ProxyConnection.shared.session) async throws -> JfAuthResult {
     let base = serverUrl.hasSuffix("/") ? String(serverUrl.dropLast()) : serverUrl
     guard let url = URL(string: "\(base)/Users/AuthenticateByName") else {
         throw JellyfinError(status: 0, message: "Not a valid server address")
@@ -94,11 +94,14 @@ public func authenticate(serverUrl: String, username: String, password: String,
 
 public actor JellyfinClient {
     private var config: ServerConfig
-    private let session: URLSession
+    /// Nil means the proxy-aware session, looked up at each call: a header
+    /// edit replaces it, so it must not be kept.
+    private let injectedSession: URLSession?
+    private var session: URLSession { injectedSession ?? ProxyConnection.shared.session }
 
-    public init(config: ServerConfig, session: URLSession = .shared) {
+    public init(config: ServerConfig, session: URLSession? = nil) {
         self.config = config
-        self.session = session
+        self.injectedSession = session
     }
 
     /// Sign-in replaces the whole config, so callers hold the client and swap

@@ -59,7 +59,9 @@ final class VideoSession {
                                                          audioStreamIndex: audioStreamIndex, startTicks: start)
             guard self.item?.id == item.id else { return }
             resolved = stream
-            let playerItem = AVPlayerItem(url: stream.url)
+            // Through ProxyConnection: AVPlayer's own networking needs the reverse
+            // proxy headers set on the asset.
+            let playerItem = AVPlayerItem(asset: ProxyConnection.shared.asset(url: stream.url))
             player.replaceCurrentItem(with: playerItem)
             // A direct file starts at 0 and seeks locally; a transcode was
             // asked to start at `start` and its clock counts from there.

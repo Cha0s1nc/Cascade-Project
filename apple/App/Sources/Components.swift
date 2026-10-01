@@ -84,7 +84,7 @@ struct ArtworkView: View {
                 ? await client.imageUrl(itemId: itemId, size: pixels)
                 : await client.imageUrl(itemId: itemId, type: imageType, width: pixels, height: Int(CGFloat(pixels) / aspect))
             guard let url,
-                  let (data, response) = try? await URLSession.shared.data(from: url) else { return }
+                  let (data, response) = try? await ProxyConnection.shared.session(for: url).data(from: url) else { return }
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             // 404 is the normal "this item has no art"; anything else is worth knowing.
             guard status == 200 else {

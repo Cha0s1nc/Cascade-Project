@@ -74,7 +74,7 @@ public enum QuickConnect {
 
     /// Whether the server offers it. Never throws: a server that errors here
     /// simply does not, and the password form is still there.
-    public static func isEnabled(serverUrl: String, session: URLSession = .shared) async -> Bool {
+    public static func isEnabled(serverUrl: String, session: URLSession = ProxyConnection.shared.session) async -> Bool {
         guard let u = try? url(serverUrl, "/QuickConnect/Enabled"),
               let (data, response) = try? await session.data(from: u),
               (response as? HTTPURLResponse)?.statusCode == 200
@@ -84,7 +84,7 @@ public enum QuickConnect {
 
     /// Start a request and get the code to show the user.
     public static func initiate(serverUrl: String, appVersion: String, deviceId: String,
-                                session: URLSession = .shared) async throws -> QuickConnectState {
+                                session: URLSession = ProxyConnection.shared.session) async throws -> QuickConnectState {
         let data = try await send(initiateRequest(serverUrl: serverUrl, appVersion: appVersion, deviceId: deviceId), session)
         return try JSON.decoder.decode(QuickConnectState.self, from: data)
     }
@@ -92,7 +92,7 @@ public enum QuickConnect {
     /// True once approved on the other device. A 404 means the request expired
     /// or was cancelled server-side, and a network blip is just a missed poll:
     /// both read as "not yet", and `timeout` is what ends the wait.
-    public static func isApproved(serverUrl: String, secret: String, session: URLSession = .shared) async -> Bool {
+    public static func isApproved(serverUrl: String, secret: String, session: URLSession = ProxyConnection.shared.session) async -> Bool {
         guard let request = try? connectRequest(serverUrl: serverUrl, secret: secret),
               let (data, response) = try? await session.data(for: request),
               (response as? HTTPURLResponse)?.statusCode == 200,
@@ -103,7 +103,7 @@ public enum QuickConnect {
 
     /// Trade an approved secret for a real access token.
     public static func authenticate(serverUrl: String, secret: String, appVersion: String, deviceId: String,
-                                    session: URLSession = .shared) async throws -> JfAuthResult {
+                                    session: URLSession = ProxyConnection.shared.session) async throws -> JfAuthResult {
         let data = try await send(authenticateRequest(serverUrl: serverUrl, secret: secret,
                                                       appVersion: appVersion, deviceId: deviceId), session)
         return try JSON.decoder.decode(JfAuthResult.self, from: data)

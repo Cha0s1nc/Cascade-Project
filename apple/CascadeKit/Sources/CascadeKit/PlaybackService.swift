@@ -1126,8 +1126,11 @@ public final class PlaybackService {
     }
 
     private func makePlayerItem(_ stream: ResolvedStream) -> AVPlayerItem {
-        let options: [String: Any]? = stream.direct ? [AVURLAssetPreferPreciseDurationAndTimingKey: true] : nil
-        return AVPlayerItem(asset: AVURLAsset(url: stream.url, options: options))
+        let base: [String: Any] = stream.direct ? [AVURLAssetPreferPreciseDurationAndTimingKey: true] : [:]
+        // Through ProxyConnection so a server behind a reverse proxy gets its
+        // headers: AVPlayer does its own networking, URLSession configuration
+        // never reaches it.
+        return AVPlayerItem(asset: ProxyConnection.shared.asset(url: stream.url, base: base))
     }
 
     private func seekPlayer(to seconds: Double) async {
@@ -1405,7 +1408,7 @@ public final class PlaybackService {
             return updateNowPlaying()
         }
         guard let url = await client.imageUrl(itemId: artId, size: 600),
-              let (data, response) = try? await URLSession.shared.data(from: url) else { return }
+              let (data, response) = try? await ProxyConnection.shared.session(for: url).data(from: url) else { return }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard status == 200 else {
             if status != 404 { debugLog("lock screen art for item \(artId): HTTP \(status)") }

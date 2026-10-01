@@ -192,6 +192,10 @@ final class AppState {
     }
 
     init() {
+        // Before restore() builds the client: a proxy that wants a header refuses
+        // even the first request without it.
+        ProxyConnection.shared.setHeaders(ProxyHeaderStore.load())
+        ProxyConnection.shared.setServer(UserDefaults.standard.string(forKey: "cascade.serverUrl"))
         restore()
     }
 
@@ -237,6 +241,7 @@ final class AppState {
     private func persist(server: String, auth: JfAuthResult) {
         username = auth.user.name
         let server = server.hasSuffix("/") ? String(server.dropLast()) : server
+        ProxyConnection.shared.setServer(server)
         let config = ServerConfig(url: server, token: auth.accessToken,
                                   userId: auth.user.id, deviceId: Self.deviceId)
         Keychain.set(config.token, for: "token")

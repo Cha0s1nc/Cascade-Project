@@ -22,6 +22,8 @@ struct SettingsView: View {
                 LabeledContent("Signed in as", value: username ?? "")
             }
 
+            ProxySettingsSection()
+
             Section {
                 LoadingOverlay(isLoading: isLoading, error: error, isEmpty: libraries.isEmpty)
                 ForEach(libraries) { library in

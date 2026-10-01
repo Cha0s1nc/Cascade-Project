@@ -152,6 +152,9 @@ public final class OfflineLibrary {
             var request = URLRequest(url: url)
             request.setValue(authHeader(appVersion: cascadeAppVersion, deviceId: config.deviceId, token: config.token),
                              forHTTPHeaderField: "Authorization")
+            // Per request, not on the background session's configuration: that is
+            // made once at launch and a header edit must apply to the next download.
+            for h in ProxyConnection.shared.headersToSend(for: url) { request.setValue(h.value, forHTTPHeaderField: h.name) }
             let task = session.downloadTask(with: request)
             task.taskDescription = id
             task.resume()
@@ -252,7 +255,7 @@ public final class OfflineLibrary {
     private func saveArt(_ ids: [String], client: JellyfinClient) async {
         for id in ids where !art.contains(id) && OfflineIndex.isSafeId(id) {
             guard let url = await client.imageUrl(itemId: id, size: 600),
-                  let (data, response) = try? await URLSession.shared.data(from: url),
+                  let (data, response) = try? await ProxyConnection.shared.session(for: url).data(from: url),
                   (response as? HTTPURLResponse)?.statusCode == 200 else { continue }
             if (try? data.write(to: root.appending(path: "art/\(id).jpg"), options: .atomic)) != nil { art.insert(id) }
         }
@@ -324,6 +327,12 @@ final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked S
             return .failed(id: id, message: error.localizedDescription)
         }
         return .finished(id: id, file: file, bytes: size)
+    }
+
+    /// A server that wants a client certificate asks the background session too.
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge) async
+        -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        ProxyConnection.shared.respond(to: challenge)
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
