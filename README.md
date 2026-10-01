@@ -91,27 +91,18 @@ In the full-screen overlay, toggle lyrics with the lyrics button in the secondar
 
 ## Waterfall (beta)
 
-Synced listening. One person hosts, everyone else joins with a six character
-code and hears the same track at the same time.
+Synced listening. One person hosts, everyone else joins with a six character code and hears the same track at the same time.
 
-**No audio crosses the wire.** Every member streams the track from the same
-Jellyfin server they're already signed in to, and the room only carries "which
-track, what position, playing or paused" plus the shared queue. That means
-rooms are same-server only, and joining one hosted on a different Jellyfin is
-refused.
+**No audio crosses the wire.** Every member streams the track from the same Jellyfin server they're already signed in to, and the room only carries "which track, what position, playing or paused" plus the shared queue. That means rooms are same-server only, and joining one hosted on a different Jellyfin is refused.
 
-The host owns the queue. Guests see all of it and can append to it, with each
-addition labelled with who added it. Two host settings under **Settings >
-Integrations > Waterfall** control the rest:
+The host owns the queue. Guests see all of it and can append to it, with each addition labelled with who added it. Two host settings under **Settings > Integrations > Waterfall** control the rest:
 
 | Setting | Default | Effect |
 |---------|---------|--------|
 | Guests can add to the queue | On | Guests may append tracks. They can never reorder or remove |
 | Guests can control playback | Off | Guests may play, pause, skip and seek for the whole room |
 
-Rooms run through a Cloudflare Worker relay, which only ever forwards small
-control messages. Point it at your own instance in **Settings > Integrations > Waterfall** if
-you'd rather not use the default - the Worker source is in `signaling/`.
+Rooms run through a Cloudflare Worker relay, which only ever forwards small control messages. Point it at your own instance in **Settings > Integrations > Waterfall** if you'd rather not use the default - the Worker source is in `signaling/`.
 
 ---
 
@@ -148,10 +139,7 @@ This builds the desktop app at the repo root. The native iOS and tvOS app, still
 
 ### Prerequisites
 
-- Node.js v22.18 or newer (or v23.6+). The tests run TypeScript directly
-  through Node's type stripping with no flag, which those versions are the
-  first to do by default. v22.6 through v22.17 can run them only with
-  `--experimental-strip-types`
+- Node.js v22.18 or newer (or v23.6+). The tests run TypeScript directly through Node's type stripping with no flag, which those versions are the first to do by default. v22.6 through v22.17 can run them only with `--experimental-strip-types`
 - npm
 
 ### Setup
@@ -168,11 +156,7 @@ npm install
 npm start
 ```
 
-The portable parts of Cascade (Jellyfin client, lyrics parsing, queue logic,
-stream negotiation, the Waterfall protocol) live in `src/` as TypeScript and are
-bundled to `build/` by esbuild. `npm start` and every `build:*` script run that
-first, so there's no separate step to remember. `renderer.js` stays plain JS and
-calls into the bundle through a `CascadeCore` global.
+The portable parts of Cascade (Jellyfin client, lyrics parsing, queue logic, stream negotiation, the Waterfall protocol) live in `src/` as TypeScript and are bundled to `build/` by esbuild. `npm start` and every `build:*` script run that first, so there's no separate step to remember. `renderer.js` stays plain JS and calls into the bundle through a `CascadeCore` global.
 
 ```bash
 npm run typecheck   # tsc on src/ and the tests
@@ -180,34 +164,27 @@ npm test            # node --test
 npm run build:ts    # bundle src/ to build/ on its own
 ```
 
-To run a second instance side by side (useful for testing Waterfall), use
-`npm run dev:second` - it uses a separate user data directory so it gets its own
-Jellyfin session.
+To run a second instance side by side (useful for testing Waterfall), use `npm run dev:second` - it uses a separate user data directory so it gets its own Jellyfin session.
 
 `npm run demo` opens Cascade in full screen for demos and screen recordings, on an external monitor when one is connected.
 
 ### Generate icons
 
-Put the artwork in `assets/` as either `source.svg` or `source.png` (1024×1024
-square minimum), then:
+Put the artwork in `assets/` as either `source.svg` or `source.png` (1024×1024 square minimum), then:
 
 ```bash
 npm run icons
 ```
 
-That generates `icon.png`, `icon.ico` and `icon.icns`. The source is named
-`source.*` rather than `icon.*` because those three are outputs - a source
-sharing one of their names would be overwritten by its own output mid-run.
+That generates `icon.png`, `icon.ico` and `icon.icns`. The source is named `source.*` rather than `icon.*` because those three are outputs - a source sharing one of their names would be overwritten by its own output mid-run.
 
-If both sources exist the SVG wins, and the script says so rather than choosing
-silently. To force the other one, or to use a file from anywhere else:
+If both sources exist the SVG wins, and the script says so rather than choosing silently. To force the other one, or to use a file from anywhere else:
 
 ```bash
 npm run icons -- assets/source.png
 ```
 
-A raster source smaller than 1024×1024 is rejected rather than upscaled. Needs
-`sharp` (installed by `npm install`), and `iconutil` on macOS for the `.icns`.
+A raster source smaller than 1024×1024 is rejected rather than upscaled. Needs `sharp` (installed by `npm install`), and `iconutil` on macOS for the `.icns`.
 
 ### Build installers
 
@@ -269,7 +246,4 @@ Album art is looked up from the iTunes catalog by artist and album, so it works 
 
 ## Credits
 
-Design inspired by:
-[Cider](https://cider.sh) by the Cider Collective.
-[Apple Music](https://music.apple.com/) by Apple (obviously dummy)
-My other apps on [Github](https://www.github.com/Cha0s1nc)
+Design inspired by: [Cider](https://cider.sh) by the Cider Collective. [Apple Music](https://music.apple.com/) by Apple (obviously dummy) My other apps on [Github](https://www.github.com/Cha0s1nc)

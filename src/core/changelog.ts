@@ -208,36 +208,64 @@ export function notesBetween(entries: readonly ChangelogEntry[], platform: Chang
     .join('\n\n')
 }
 
-const BLOCK_START_RE = /^\s*(?:[-*+]\s|\d+[.)]\s|#|>|\|)/
+// A line that starts its own block: a list item, heading, quote, table row,
+// raw HTML, or a link reference definition ("[x]: https://...").
+const BLOCK_START_RE = /^\s*(?:[-*+]\s|\d+[.)]\s|#|>|\||<|\[[^\]]+\]:\s)/
 const RULE_RE = /^\s*([-*_])(\s*\1){2,}\s*$/
+const LIST_ITEM_RE = /^\s*(?:[-*+]|\d+[.)])\s/
 
 /**
  * Joins hard-wrapped lines back into whole paragraphs and list items.
- * CHANGELOG.md is wrapped for reading in an editor, but GitHub renders a
- * release body like a comment, where every newline is a line break, so a
- * wrapped paragraph showed up broken mid-sentence. Headings, list items,
- * quotes, tables, rules and code blocks keep their own lines.
+ * GitHub renders a release body, PR or issue like a comment, where every
+ * newline is a line break, so wrapped text showed up broken mid-sentence;
+ * Markdown files read the same either way, so they are kept unwrapped too.
+ *
+ * Anything that is its own line stays put: headings, list items, quotes,
+ * tables, rules, raw HTML, link definitions, fenced and indented code, and
+ * YAML front matter at the top.
  */
 export function unwrapMarkdown(markdown: string): string {
+  const lines = markdown.replace(/\r\n?/g, '\n').split('\n')
   const out: string[] = []
+  let i = 0
+  // Front matter: copied as is, down to its closing ---.
+  if (lines[0] === '---') {
+    const end = lines.indexOf('---', 1)
+    if (end > 0) { out.push(...lines.slice(0, end + 1)); i = end + 1 }
+  }
   let fence: string | null = null
-  for (const raw of markdown.replace(/\r\n?/g, '\n').split('\n')) {
+  let indentedCode = false
+  let lastText = ''   // the last non-blank line, to tell indented code from a list's
+  for (; i < lines.length; i++) {
+    const raw = lines[i]!
     const line = raw.trimEnd()
     const fenceMatch = line.match(FENCE_RE)
     if (fence || fenceMatch) {
       if (fence && fenceMatch && fenceMatch[1] === fence) fence = null
       else if (!fence && fenceMatch) fence = fenceMatch[1]!
       out.push(raw)
+      if (line.trim()) lastText = line
       continue
     }
     const prev = out[out.length - 1]
+    // Indented code: four spaces after a blank line, unless that blank line
+    // sits inside a list, where the indent continues the item instead.
+    const indented = /^( {4}|\t)/.test(raw)
+    if (indentedCode && (indented || !line.trim())) { out.push(raw); continue }
+    indentedCode = false
+    if (indented && (prev === undefined || !prev.trim()) && !LIST_ITEM_RE.test(lastText) && !/^\s/.test(lastText)) {
+      indentedCode = true
+      out.push(raw)
+      continue
+    }
     const prevOpen = prev !== undefined && prev.trim() !== '' && !/^\s*#/.test(prev)
-      && !RULE_RE.test(prev) && !/^\s*\|/.test(prev) && !FENCE_RE.test(prev)
+      && !RULE_RE.test(prev) && !/^\s*(?:\||<|\[[^\]]+\]:\s)/.test(prev) && !FENCE_RE.test(prev)
     if (line.trim() && prevOpen && !BLOCK_START_RE.test(line) && !RULE_RE.test(line)) {
       out[out.length - 1] = `${prev} ${line.trim()}`
     } else {
       out.push(line)
     }
+    if (line.trim()) lastText = line
   }
   return out.join('\n')
 }

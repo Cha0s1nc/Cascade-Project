@@ -186,3 +186,24 @@ test('unwrapMarkdown joins wrapped paragraphs and list items, and nothing else',
     'After the rule.',
   ].join('\n'))
 })
+
+test('unwrapMarkdown leaves front matter, HTML, link definitions and indented code alone', () => {
+  const md = [
+    '---', 'name: x', 'description: a long', 'one', '---',
+    'Deploy from this', 'folder:', '',
+    '    npm install &&', '    npx wrangler deploy', '',
+    '<!-- What this changes,', 'and why. -->', '',
+    '[homepage]: https://example.com', '[v2.1]: https://example.com/v2',
+    '- A list item', '',
+    '    continued after a blank line', 'inside the list.',
+  ].join('\n')
+  assert.equal(unwrapMarkdown(md), [
+    '---', 'name: x', 'description: a long', 'one', '---',
+    'Deploy from this folder:', '',
+    '    npm install &&', '    npx wrangler deploy', '',
+    '<!-- What this changes,', 'and why. -->', '',
+    '[homepage]: https://example.com', '[v2.1]: https://example.com/v2',
+    '- A list item', '',
+    '    continued after a blank line inside the list.',
+  ].join('\n'))
+})
