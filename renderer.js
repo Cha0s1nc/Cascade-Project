@@ -8523,7 +8523,7 @@ function renderOverlayLyricLines() {
   body.querySelectorAll('.ov-lyric-line.seekable').forEach(el => {
     el.addEventListener('click', () => {
       const ticks = parseInt(el.dataset.start)
-      if (!isNaN(ticks) && audio.duration) audio.currentTime = ticks / 10000000
+      if (!isNaN(ticks) && audio.duration) audio.currentTime = Math.max(0, ticks / 10000000 - _lyricLead)
       // Clicking a line is the same intent as the settle timer firing: you are
       // done browsing and back on the current lyric. Drop the manual offset now
       // instead of leaving the view parked until the timer catches up.
@@ -9892,29 +9892,13 @@ window.cascadeDebug = {
   // with no overshoot; less bounces, more crawls). ripple: ms each following
   // line lags behind the one above it in the overlay's fade. Session only;
   // tell Claude the numbers you like and they become the defaults.
-  // Held notes (styles/lyrics.css): emphLift (em) and emphScale are the PEAK
-  // rise and swell of each letter (0.1, 1.08); emphHold is the fraction of the
-  // peak it settles to and holds until the line ends (0.6); emphRise is the
-  // whole rise-and-settle in seconds (1.7, peak at 65% of it). Every sung
-  // word: wordLift (em, 0.04) and wordLiftTime (s, 0.6). Defaults were
-  // measured from a 60fps recording of Apple Music.
+  // The scroll spring (stiffness, damping) and the ripple between lines, in
+  // ms. Everything else about the lyrics' look and motion is a setting now:
+  // Theme > Lyrics (src/core/lyric-style.ts).
   lyricMotion(opts = {}) {
     for (const k of ['stiffness', 'damping', 'ripple']) {
       if (Number.isFinite(opts[k]) && opts[k] >= 0) LYRIC_MOTION[k] = opts[k]
     }
-    const root = document.documentElement.style
-    if (Number.isFinite(opts.emphLift)) root.setProperty('--emph-lift', `${opts.emphLift}em`)
-    if (Number.isFinite(opts.emphScale) && opts.emphScale > 0) root.setProperty('--emph-scale', String(opts.emphScale))
-    if (Number.isFinite(opts.emphHold) && opts.emphHold >= 0) root.setProperty('--emph-hold', String(opts.emphHold))
-    if (Number.isFinite(opts.emphRise) && opts.emphRise > 0) root.setProperty('--emph-rise', `${opts.emphRise}s`)
-    if (Number.isFinite(opts.wordLift)) root.setProperty('--word-lift', `${opts.wordLift}em`)
-    if (Number.isFinite(opts.wordLiftTime) && opts.wordLiftTime >= 0) root.setProperty('--word-lift-time', `${opts.wordLiftTime}s`)
-    LYRIC_MOTION.wordLift = parseFloat(root.getPropertyValue('--word-lift')) || 0.04
-    LYRIC_MOTION.wordLiftTime = parseFloat(root.getPropertyValue('--word-lift-time')) || 0.6
-    LYRIC_MOTION.emphLift = parseFloat(root.getPropertyValue('--emph-lift')) || 0.1
-    LYRIC_MOTION.emphScale = parseFloat(root.getPropertyValue('--emph-scale')) || 1.08
-    LYRIC_MOTION.emphHold = parseFloat(root.getPropertyValue('--emph-hold')) || 0.6
-    LYRIC_MOTION.emphRise = parseFloat(root.getPropertyValue('--emph-rise')) || 1.7
     const critical = 2 * Math.sqrt(LYRIC_MOTION.stiffness)
     console.log(`[cascadeDebug] lyric motion`, { ...LYRIC_MOTION }, `(no-overshoot damping for this stiffness: ${critical.toFixed(1)})`)
     return { ...LYRIC_MOTION }
@@ -10639,7 +10623,7 @@ function renderLyrics() {
       lyricsScrollSuppressed = true
       clearTimeout(lyricsScrollTimer)
       lyricsScrollTimer = setTimeout(() => { lyricsScrollSuppressed = false }, 1500)
-      audio.currentTime = ticks / 10000000
+      audio.currentTime = Math.max(0, ticks / 10000000 - _lyricLead)
       lastLyricsIdx = -1
       _lyricsScanIdx = 0
     })

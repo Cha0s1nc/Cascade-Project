@@ -42,10 +42,13 @@ export const LYRIC_KNOBS: readonly LyricKnob[] = [
 
   { key: 'unsungOpacity', section: 'Karaoke', label: 'Unsung word opacity', min: 0, max: 1, step: 0.01, value: 0.4, css: '--ly-unsung-opacity' },
   { key: 'wordLift', section: 'Karaoke', label: 'Word lift (em)', min: 0, max: 0.2, step: 0.005, value: 0.04, css: '--word-lift', unit: 'em' },
+  // Held notes (SpicyLyrics only): see heldSwell() below.
+  { key: 'heldFullSeconds', section: 'Karaoke', label: 'Held note: full swell after (s)', min: 1, max: 8, step: 0.1, value: 3 },
+  { key: 'heldMinStrength', section: 'Karaoke', label: 'Held note: short note strength', min: 0, max: 1, step: 0.05, value: 0.3 },
   { key: 'heldLift', section: 'Karaoke', label: 'Held note lift (em)', min: 0, max: 0.4, step: 0.01, value: 0.1, css: '--emph-lift', unit: 'em' },
   { key: 'heldScale', section: 'Karaoke', label: 'Held note swell', min: 1, max: 1.4, step: 0.01, value: 1.08, css: '--emph-scale' },
-  { key: 'heldSettle', section: 'Karaoke', label: 'Held note settle', min: 0, max: 1, step: 0.05, value: 0.6, css: '--emph-hold' },
-  { key: 'heldRiseSeconds', section: 'Karaoke', label: 'Held note rise (s)', min: 0.2, max: 4, step: 0.1, value: 1.7, css: '--emph-rise', unit: 's' },
+  { key: 'heldSettle', section: 'Karaoke', label: 'Held note settle', min: 0, max: 1, step: 0.05, value: 0.6 },
+  { key: 'heldSettleSeconds', section: 'Karaoke', label: 'Held note settle time (s)', min: 0, max: 2, step: 0.05, value: 0.6 },
   { key: 'backgroundVocalSize', section: 'Karaoke', label: 'Background vocal size', min: 0.4, max: 1, step: 0.01, value: 0.64, css: '--ly-bg-vocal-size', unit: 'em' },
   { key: 'backgroundVocalOpacity', section: 'Karaoke', label: 'Background vocal opacity', min: 0, max: 1, step: 0.01, value: 0.85, css: '--ly-bg-vocal-opacity' },
 
@@ -90,3 +93,40 @@ export function lyricStyleCss(style: LyricStyle): Record<string, string> {
 }
 
 export const lyricKnob = (key: string): LyricKnob | undefined => BY_KEY.get(key)
+
+/** CSS's (and SwiftUI's) ease-in-out, cubic-bezier(0.42, 0, 0.58, 1). */
+export function easeInOut(t: number): number {
+  if (!(t > 0)) return 0
+  if (t >= 1) return 1
+  // Solve x(u) = t for the curve parameter u (Newton), then return y(u).
+  let u = t
+  for (let i = 0; i < 8; i++) {
+    const x = 3 * 0.42 * (1 - u) ** 2 * u + 3 * 0.58 * (1 - u) * u * u + u ** 3 - t
+    if (Math.abs(x) < 1e-7) break
+    const dx = 3 * 0.42 * (1 - u) ** 2 + 6 * (0.58 - 0.42) * (1 - u) * u + 3 * (1 - 0.58) * u * u
+    u = Math.min(1, Math.max(0, u - x / dx))
+  }
+  return 3 * (1 - u) * u * u + u ** 3
+}
+
+/**
+ * How swollen one letter of a held note is, 0 to 1 of the full swell: the
+ * Apple app's LyricStyle.swell, so both apps draw held notes alike.
+ *
+ * Apple Music swells a held note more the longer it is. So the strength comes
+ * from the note's length (a 1 s hold gets heldMinStrength, heldFullSeconds or
+ * longer gets all of it), each letter rises from when the fill reaches it
+ * until the note ends (over at least 0.35 s, so a letter reached near the end
+ * does not pop), then settles to heldSettle of its peak over
+ * heldSettleSeconds and holds there until the line changes.
+ */
+export function heldSwell(sinceLit: number, untilEnd: number, held: number, style: LyricStyle): number {
+  if (!(sinceLit >= 0)) return 0
+  const full = style.heldFullSeconds
+  const reach = full > 1 ? Math.min(1, Math.max(0, (held - 1) / (full - 1))) : 1
+  const strength = style.heldMinStrength + (1 - style.heldMinStrength) * reach
+  const rise = Math.max(untilEnd, 0.35)
+  if (sinceLit < rise) return strength * easeInOut(sinceLit / rise)
+  const settle = style.heldSettleSeconds > 0 ? Math.min(1, (sinceLit - rise) / style.heldSettleSeconds) : 1
+  return strength * (1 - (1 - style.heldSettle) * easeInOut(settle))
+}
