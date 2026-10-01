@@ -342,16 +342,17 @@ html[data-theme="light"] .q-now { background: rgba(255,255,255,0.72); }
 /* --np-lyric-scale is the Now Playing lyric size setting (renderer.js
    saveNpTuning()/loadNpTuning()) - a multiplier on the shipped clamp so a
    stored size never has to duplicate its min/preferred/max, just scale them. */
-.ov-lyric-line { text-align: left; font-size: calc(clamp(22px, 3vw, 50px) * var(--np-lyric-scale, 1)); font-weight: 800; letter-spacing: -0.015em; color: white; padding: 12px 56px; line-height: 1.25; cursor: default; max-width: min(900px, 92%); opacity: 0; filter: blur(6px); transition: opacity 0.55s cubic-bezier(0.16,1,0.3,1), filter 0.55s cubic-bezier(0.16,1,0.3,1); }
+.ov-lyric-line { text-align: left; font-size: calc(clamp(22px, 3vw, 50px) * var(--np-lyric-scale, 1)); font-weight: 800; letter-spacing: -0.015em; color: white; padding: 4px 56px; line-height: 1.25; cursor: default; max-width: min(900px, 92%); opacity: 0; filter: blur(6px); transform-origin: left center; transition: opacity 1s cubic-bezier(0.16,1,0.3,1), filter 1s cubic-bezier(0.16,1,0.3,1), transform 1s cubic-bezier(0.16,1,0.3,1); }
 /* Segoe UI has no 800, so CSS font matching rounds up to 900 (Segoe UI
    Black) and Windows lyrics came out far heavier than SF Pro's Heavy on the
    Mac. 700 is Segoe UI Bold, the closest match. */
 html[data-platform="win32"] .ov-lyric-line { font-weight: 700; }
 .ov-lyric-line.seekable { cursor: pointer; }
-.ov-lyric-line.past { opacity: 0; pointer-events: none; }
-.ov-lyric-line.near-3 { opacity: 0.12; filter: blur(4px); }
-.ov-lyric-line.near-2 { opacity: 0.22; filter: blur(3px); }
-.ov-lyric-line.near-1 { opacity: 0.35; filter: blur(2px); }
+.ov-lyric-line.past { opacity: 0.3; filter: blur(3.5px); transform: scale(0.75); }
+.ov-lyric-line.opposite { transform-origin: right center; }
+.ov-lyric-line.near-3 { opacity: 0.1; filter: blur(4px); }
+.ov-lyric-line.near-2 { opacity: 0.11; filter: blur(4px); }
+.ov-lyric-line.near-1 { opacity: 0.15; filter: blur(2.5px); }
 .ov-lyric-line.active { opacity: 1; filter: none; }
 .ov-lyric-trans { font-size: clamp(14px, 1.35vw, 22px); font-weight: 500; letter-spacing: 0; line-height: 1.3; margin-top: 6px; color: rgba(255,255,255,0.72); -webkit-text-fill-color: currentColor; }
 /* Unsung words stay readable, not ghosted: the fill is the progress cue. */
@@ -361,16 +362,14 @@ html[data-platform="win32"] .ov-lyric-line { font-weight: 700; }
   background: linear-gradient(to right, white calc(var(--p) - 0.3em), rgba(255,255,255,0.4) calc(var(--p) + 0.3em));
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
 }
-#ov-panel-lyrics:hover .ov-lyric-line.past { opacity: 0.18; filter: blur(2px); pointer-events: auto; }
-#ov-panel-lyrics:hover .ov-lyric-line.past.near-past { opacity: 0.3; filter: blur(1px); }
 /* Scrolling by hand means you want to read, and the karaoke fade hides
    exactly what you are scrolling toward - past lines and anything beyond
    near-3 sit at opacity 0. Bring the whole lyric up while browsing. The
    line's existing transition does the fade both ways, so it settles back
    into the karaoke look on its own when the spring returns to the active
    line. */
-#ov-panel-lyrics.browsing .ov-lyric-line { opacity: 0.8; filter: none; color: white; text-shadow: 0 1px 4px rgba(0,0,0,0.55); pointer-events: auto; }
-#ov-panel-lyrics.browsing .ov-lyric-line.active { opacity: 1; color: white; }
+#ov-panel-lyrics.browsing .ov-lyric-line { opacity: 0.8; filter: blur(1px); transform: none; color: white; text-shadow: 0 1px 4px rgba(0,0,0,0.55); pointer-events: auto; }
+#ov-panel-lyrics.browsing .ov-lyric-line.active { opacity: 1; filter: none; color: white; }
 /* Not on karaoke words: their fill is see-through (0.4 white unsung, and the
    gradient's text-fill is transparent), so the shadow showed through the
    glyphs as a muddy doubled outline. */

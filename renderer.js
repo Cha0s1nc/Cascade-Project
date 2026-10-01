@@ -8495,7 +8495,7 @@ async function renderOverlayLyrics() {
   // actual current line - no CSS-transition reflow trick needed since jumpTo()
   // bypasses the animation loop entirely.
   ovLyricsSpring.jumpTo(0)
-  const nowSec0 = audio.currentTime + 0.225
+  const nowSec0 = audio.currentTime + 0.35
   let initialIdx = 0
   for (let i = 0; i < lyricsData.length; i++) {
     if (lyricsData[i].Start != null && lyricsData[i].Start / 10000000 <= nowSec0) initialIdx = i
@@ -8738,7 +8738,7 @@ document.getElementById('ov-translate-btn').addEventListener('click', () => onTr
 // overdamped (critical damping for 250 would be ~31.6), so lines ease in and
 // never overshoot, where the old 210/26 bounced slightly; and a longer ripple,
 // so the lines below trail a little more.
-const LYRIC_MOTION = { stiffness: 250, damping: 50, ripple: 90 }
+const LYRIC_MOTION = { stiffness: 250, damping: 50, ripple: 40 }
 
 function createSpring(onUpdate, motion = LYRIC_MOTION) {
   let pos = 0, vel = 0, target = 0
@@ -8844,7 +8844,7 @@ function _scrollOverlayLyricsTo(idx, instant, first = idx) {
   // A group of overlapping lines is centred as one block, top of the first to
   // the bottom of the last; a single line is the same with top === el.
   const top = body.querySelector(`.ov-lyric-line[data-idx="${first}"]`) || el
-  const centreOn = () => (ovLyricsBaseY = panel.clientHeight / 2 - (top.offsetTop + el.offsetTop + el.offsetHeight) / 2)
+  const centreOn = () => (ovLyricsBaseY = panel.clientHeight * 0.12 - top.offsetTop)
   centreOn()
   // While the user is manually scrolling, leave the spring alone - it gets
   // redirected (base + their offset) from the wheel handler instead.
@@ -8927,7 +8927,7 @@ onDeck('timeupdate', () => {
   // animation and the line-promotion check complete in lockstep - no gap in
   // either direction (mid-fill cutoff if promotion is earlier, a visible
   // "stick" on the finished word if promotion is later).
-  const nowSec = audio.currentTime + 0.225
+  const nowSec = audio.currentTime + 0.35
   const baseIdx = _scanLyricsBaseIdx(nowSec, _ovLyricsScanIdx)
   _ovLyricsScanIdx = baseIdx
 
@@ -10247,7 +10247,7 @@ let _wordRafId = null
 
 function _wordHighlightFrame() {
   _wordRafId = requestAnimationFrame(_wordHighlightFrame)
-  const nowTicks = (audio.currentTime + 0.225) * 10_000_000
+  const nowTicks = (audio.currentTime + 0.35) * 10_000_000
 
   // Side panel - CSS scoping (.lyrics-line.active .lyric-word) handles inactive lines.
   // Guard on the panel being open, which is exactly "the user can see this":
@@ -10653,7 +10653,7 @@ onDeck('timeupdate', () => {
   // animation and the line-promotion check complete in lockstep - no gap in
   // either direction (mid-fill cutoff if promotion is earlier, a visible
   // "stick" on the finished word if promotion is later).
-  const nowSec = audio.currentTime + 0.225
+  const nowSec = audio.currentTime + 0.35
   const baseIdx = _scanLyricsBaseIdx(nowSec, _lyricsScanIdx)
   _lyricsScanIdx = baseIdx
 
