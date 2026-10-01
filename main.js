@@ -1589,6 +1589,32 @@ ipcMain.handle('updater:install', () => {
     }
   }
 
+  // A .deb or .rpm goes to the desktop's package installer. Not through
+  // shell.openPath: on Linux that waits on xdg-open, which only returns once
+  // the installer window closes, so the update window never got its reply
+  // and ended on a false "did not install". Started detached instead, and
+  // only a failure to start counts.
+  if (process.platform === 'linux') {
+    const child = spawn('xdg-open', [pendingDownload.destPath], { detached: true, stdio: 'ignore' })
+    child.unref()
+    return new Promise((resolve) => {
+      const fail = (why) => {
+        clearTimeout(timer)
+        updaterLog(`Could not open the installer (${why}). Opening the release page instead.`, 'error')
+        if (pendingDownload.releaseUrl) shell.openExternal(pendingDownload.releaseUrl)
+        resolve({ fallback: true })
+      }
+      const timer = setTimeout(() => {
+        child.removeAllListeners()
+        updaterLog('Opened the installer. Cascade will close so it can finish.', 'info')
+        setTimeout(quitForInstaller, 1500)
+        resolve({ quitting: true })
+      }, 1000)
+      child.on('error', (err) => fail(err.message))
+      child.on('exit', (code) => { if (code) fail(`xdg-open exited with ${code}`) })
+    })
+  }
+
   if (process.platform !== 'win32') return handOver()
 
   try {
