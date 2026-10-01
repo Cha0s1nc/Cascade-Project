@@ -26,7 +26,7 @@ const SAVE_DEBOUNCE_MS = 500
  * @param {() => Electron.BrowserWindow | null} deps.getWindow
  * @param {() => string | null} deps.getServerUrl
  * @param {(url: string) => {name: string, value: string}[]} deps.headersFor  custom reverse proxy headers for a URL
- * @param {object} deps.Offline  build/offline-index.js
+ * @param {typeof import('./src/core/offline-index')} deps.Offline  build/offline-index.js
  */
 function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, headersFor, Offline }) {
   const root = path.join(app.getPath('userData'), 'offline')
@@ -192,7 +192,7 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
     networkDown = false
     try {
       const workers = Array.from({ length: PARALLEL }, async () => {
-        for (;;) {
+        while (true) {
           if (networkDown) return
           const id = Offline.pendingTrackIds(index).find(t => !active.has(t) && !failed.has(t))
           if (!id) return
@@ -269,9 +269,9 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
       const range = Offline.parseByteRange(req.headers.get('range'), size)
       if (range === 'unsatisfiable') return new Response(null, { status: 416, headers: { ...headers, 'content-range': `bytes */${size}` } })
       if (range === null) {
-        return new Response(Readable.toWeb(fs.createReadStream(abs)), { status: 200, headers: { ...headers, 'content-length': String(size) } })
+        return new Response(/** @type {any} */ (Readable.toWeb(fs.createReadStream(abs))), { status: 200, headers: { ...headers, 'content-length': String(size) } })
       }
-      return new Response(Readable.toWeb(fs.createReadStream(abs, { start: range.start, end: range.end })), {
+      return new Response(/** @type {any} */ (Readable.toWeb(fs.createReadStream(abs, { start: range.start, end: range.end }))), {
         status: 206,
         headers: { ...headers, 'content-range': `bytes ${range.start}-${range.end}/${size}`, 'content-length': String(range.end - range.start + 1) },
       })
