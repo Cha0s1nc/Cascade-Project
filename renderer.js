@@ -8844,7 +8844,12 @@ function _scrollOverlayLyricsTo(idx, instant, first = idx) {
   // A group of overlapping lines is centred as one block, top of the first to
   // the bottom of the last; a single line is the same with top === el.
   const top = body.querySelector(`.ov-lyric-line[data-idx="${first}"]`) || el
-  const centreOn = () => (ovLyricsBaseY = panel.clientHeight * 0.12 - top.offsetTop)
+  // The block's point at the same share of its own height lands at that
+  // share of the panel's: 0.5 centers it, lower sits it higher up.
+  const centreOn = () => {
+    const blockTop = top.offsetTop, blockBottom = el.offsetTop + el.offsetHeight
+    return (ovLyricsBaseY = panel.clientHeight * ovLyricLinePosition - (blockTop + (blockBottom - blockTop) * ovLyricLinePosition))
+  }
   centreOn()
   // While the user is manually scrolling, leave the spring alone - it gets
   // redirected (base + their offset) from the wheel handler instead.
@@ -8883,6 +8888,7 @@ function _ovLyricsTranslateYFor(idx) {
 let lastOverlayLyricsIdx = -1
 let _ovLyricsScanIdx = 0   // cursor into lyricsData so timeupdate scans forward instead of from 0 each tick
 let ovLyricsBaseY = 0            // auto-follow position for the current active line
+let ovLyricLinePosition = 0.5    // where that line sits, 0.5 = centered (tuning panel)
 let ovLyricsManualOffset = 0     // extra offset applied while the user scrolls by hand
 let ovLyricsUserScrolling = false
 let ovLyricsScrollTimer = null
@@ -11682,7 +11688,8 @@ document.getElementById('tp-font-custom').addEventListener('input', (e) => {
 // CascadeCore's clamp*() functions are the one place a corrupted stored
 // number gets turned into something safe before it can reach a CSS value -
 // same "store values are untrusted" rule as everywhere else.
-function applyNpTuning(lyricScale, bgDim, bgBlend) {
+function applyNpTuning(lyricScale, bgDim, bgBlend, linePosition) {
+  ovLyricLinePosition = CascadeCore.clampLinePosition(linePosition)
   const root = document.documentElement
   root.style.setProperty('--np-lyric-scale', String(CascadeCore.clampLyricScale(lyricScale)))
   const dim = String(CascadeCore.clampBgDim(bgDim))
@@ -11692,30 +11699,33 @@ function applyNpTuning(lyricScale, bgDim, bgBlend) {
   root.style.setProperty('--np-blend', CascadeCore.clampBgBlend(bgBlend) ? 'multiply' : 'normal')
 }
 
-async function saveNpTuning(lyricScale, bgDim, bgBlend) {
-  await window.cascade.store.set('npTuning', JSON.stringify({ lyricScale, bgDim, bgBlend }))
-  applyNpTuning(lyricScale, bgDim, bgBlend)
+async function saveNpTuning(lyricScale, bgDim, bgBlend, linePosition) {
+  await window.cascade.store.set('npTuning', JSON.stringify({ lyricScale, bgDim, bgBlend, linePosition }))
+  applyNpTuning(lyricScale, bgDim, bgBlend, linePosition)
 }
 
 async function loadNpTuning() {
-  let lyricScale, bgDim, bgBlend
+  let lyricScale, bgDim, bgBlend, linePosition
   try {
     const raw = await window.cascade.store.get('npTuning')
     if (raw) {
       const t = JSON.parse(raw)
-      lyricScale = t.lyricScale; bgDim = t.bgDim; bgBlend = t.bgBlend
+      lyricScale = t.lyricScale; bgDim = t.bgDim; bgBlend = t.bgBlend; linePosition = t.linePosition
     }
   } catch {}
   lyricScale = CascadeCore.clampLyricScale(lyricScale)
   bgDim = CascadeCore.clampBgDim(bgDim)
   bgBlend = CascadeCore.clampBgBlend(bgBlend)
-  applyNpTuning(lyricScale, bgDim, bgBlend)
+  linePosition = CascadeCore.clampLinePosition(linePosition)
+  applyNpTuning(lyricScale, bgDim, bgBlend, linePosition)
   const scaleInput = document.getElementById('tp-lyric-scale')
   const dimInput = document.getElementById('tp-bg-dim')
   const blendInput = document.getElementById('tp-bg-blend')
   if (scaleInput) scaleInput.value = String(lyricScale)
   if (dimInput) dimInput.value = String(bgDim)
   if (blendInput) blendInput.checked = bgBlend
+  const posInput = document.getElementById('tp-line-position')
+  if (posInput) posInput.value = String(linePosition)
 }
 
 /** Reads all three controls' current values, so any one changing saves and
@@ -11725,12 +11735,14 @@ function _npTuningInputValues() {
     parseFloat(document.getElementById('tp-lyric-scale').value),
     parseFloat(document.getElementById('tp-bg-dim').value),
     document.getElementById('tp-bg-blend').checked,
+    parseFloat(document.getElementById('tp-line-position').value),
   ]
 }
 
 document.getElementById('tp-lyric-scale').addEventListener('input', () => saveNpTuning(..._npTuningInputValues()))
 document.getElementById('tp-bg-dim').addEventListener('input', () => saveNpTuning(..._npTuningInputValues()))
 document.getElementById('tp-bg-blend').addEventListener('change', () => saveNpTuning(..._npTuningInputValues()))
+document.getElementById('tp-line-position').addEventListener('input', () => saveNpTuning(..._npTuningInputValues()))
 
 /** Album art accent mode overrides whatever gradient/preset is picked, so
  *  those controls do nothing while it's on - dim them and say why rather

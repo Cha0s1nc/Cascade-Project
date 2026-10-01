@@ -38,6 +38,18 @@ export function clampLyricScale(n: unknown): number {
   return clampTo(n, LYRIC_SCALE_MIN, LYRIC_SCALE_MAX, LYRIC_SCALE_DEFAULT)
 }
 
+/** Where the current lyric line sits in the full-screen lyrics, as a share
+ *  of the panel's height: 0.5 is centered (the shipped look), lower is
+ *  higher up, the way the iOS app places it. The floor keeps the line clear
+ *  of the header, the ceiling leaves room for the lines coming up. */
+export const LINE_POSITION_MIN = 0.1
+export const LINE_POSITION_MAX = 0.6
+export const LINE_POSITION_DEFAULT = 0.5
+
+export function clampLinePosition(n: unknown): number {
+  return clampTo(n, LINE_POSITION_MIN, LINE_POSITION_MAX, LINE_POSITION_DEFAULT)
+}
+
 export function clampBgDim(n: unknown): number {
   return clampTo(n, BG_DIM_MIN, BG_DIM_MAX, BG_DIM_DEFAULT)
 }

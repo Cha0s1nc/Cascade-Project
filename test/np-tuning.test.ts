@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {
   LYRIC_SCALE_MIN, LYRIC_SCALE_MAX, LYRIC_SCALE_DEFAULT,
   BG_DIM_MIN, BG_DIM_MAX, BG_DIM_DEFAULT,
-  clampLyricScale, clampBgDim, clampBgBlend,
+  clampLyricScale, clampBgDim, clampBgBlend, clampLinePosition,
 } from '../src/core/np-tuning.ts'
 
 test('clampLyricScale keeps an in-range value as-is', () => {
@@ -44,4 +44,11 @@ test('clampBgBlend: only an explicit false turns multiply off', () => {
   assert.equal(clampBgBlend(undefined), true)
   assert.equal(clampBgBlend(null), true)
   assert.equal(clampBgBlend('normal'), true) // a stale/corrupt value reads as the shipped default
+})
+
+test('clampLinePosition keeps a real position and centers anything else', () => {
+  assert.equal(clampLinePosition(0.12), 0.12)
+  assert.equal(clampLinePosition(0), 0.1)
+  assert.equal(clampLinePosition(2), 0.6)
+  for (const bad of [undefined, null, NaN, '0.3', Infinity]) assert.equal(clampLinePosition(bad), 0.5)
 })
