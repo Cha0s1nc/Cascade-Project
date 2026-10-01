@@ -49,7 +49,7 @@ handoff brief for anyone (human or agent) picking up a phase.
 | 6 | `build.yml` rework: markers, platforms, carry-over, Apple job | done (`d520dbb`, `9d979d4`, tested with manual drafts) |
 | 7 | Publish workflow: website data, OCI mirror, in-app "what's new" | built (`publish.yml`); website pages on the `cascade-releases` branch of the site |
 | 8 | Apple signing, TestFlight | job written and switched off; setup list in `docs/testflight.md` |
-| 9 | Android | when the app exists |
+| 9 | Android | placeholder `build-android` job in `build.yml`, skipped until `android/` exists; check its Gradle paths and add signing then |
 
 ## Phase 4: the updater reads `versions.json`
 

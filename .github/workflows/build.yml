@@ -326,6 +326,54 @@ jobs:
           path: apple/dist/*
           retention-days: 7
 
+  # ── Android (placeholder) ──────────────────────────────────────────────────
+  # Skips itself until an android/ folder exists: the plan only marks
+  # android as wanted when it does (`available` in scripts/release-plan.mjs),
+  # so this costs nothing today. Written for a standard Gradle project with
+  # the wrapper checked in and the app module at android/app; adjust the
+  # paths once the real app exists. Same numbering as the Apple app: the
+  # release version as versionName, the run number as versionCode, which
+  # only goes up, as Google Play requires.
+  #
+  # The release APK and AAB come out unsigned until a keystore exists (add
+  # it as secrets and a signingConfig then). An unsigned APK does not
+  # install on a device, so sideloading needs that too.
+  build-android:
+    needs: setup
+    if: needs.setup.outputs.android == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Build the APK and the bundle
+        env:
+          VERSION: ${{ needs.setup.outputs.version }}
+          BUILD: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          NAME="${VERSION:-build-$BUILD}"
+          ./gradlew --no-daemon assembleRelease bundleRelease \
+            -PversionName="$NAME" -PversionCode="$BUILD"
+          mkdir -p dist
+          cp app/build/outputs/apk/release/*.apk "dist/Cascade-$NAME.apk"
+          cp app/build/outputs/bundle/release/*.aab "dist/Cascade-$NAME.aab"
+          ls -la dist
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist-android
+          path: android/dist/*
+          retention-days: 7
+
   # ── TestFlight ─────────────────────────────────────────────────────────────
   # Off until the paid Apple Developer Program exists: it runs only when the
   # repository variable TESTFLIGHT is "true", after the setup in
@@ -449,7 +497,7 @@ jobs:
   # build failed is carried over instead and named in the notes; the draft
   # is for the maintainer to check before publishing.
   release:
-    needs: [setup, test, build-windows, build-mac, build-linux, build-apple]
+    needs: [setup, test, build-windows, build-mac, build-linux, build-apple, build-android]
     if: >-
       always() && needs.setup.result == 'success' &&
       (needs.setup.outputs.mode == 'release' || needs.setup.outputs.mode == 'beta')
@@ -479,10 +527,12 @@ jobs:
           PRERELEASE: ${{ needs.setup.outputs.prerelease }}
           WANT_DESKTOP: ${{ needs.setup.outputs.desktop }}
           WANT_APPLE: ${{ needs.setup.outputs.apple }}
+          WANT_ANDROID: ${{ needs.setup.outputs.android }}
           WIN: ${{ needs.build-windows.result }}
           MAC: ${{ needs.build-mac.result }}
           LINUX: ${{ needs.build-linux.result }}
           APPLE: ${{ needs.build-apple.result }}
+          ANDROID: ${{ needs.build-android.result }}
           SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
@@ -506,6 +556,14 @@ jobs:
               cp artifacts/*.ipa artifacts/*.xcarchive.zip release/
             else
               FAILED+=(apple)
+            fi
+          fi
+          if [ "$WANT_ANDROID" = true ]; then
+            if [ "$ANDROID" = success ]; then
+              REBUILT+=(android)
+              cp artifacts/*.apk artifacts/*.aab release/
+            else
+              FAILED+=(android)
             fi
           fi
           if [ ${#REBUILT[@]} -eq 0 ]; then
