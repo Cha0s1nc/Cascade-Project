@@ -433,6 +433,19 @@ html[data-theme="light"] #ov-panel-lyrics.browsing .ov-lyric-line.active { color
   opacity: 0; transition: opacity 0.2s ease;
 }
 #ov-osd.show { opacity: 1; }
+/* Above the control bar, bottom right, where a player puts its skip button.
+   Kept up while the chrome idles away: it is the one thing a viewer wants. */
+#ov-skip-segment {
+  display: none; position: absolute; right: 28px; bottom: 140px; z-index: 4;
+  padding: 10px 20px; border-radius: 8px; cursor: pointer;
+  background: rgba(20,20,22,0.82); color: #fff; border: 1px solid rgba(255,255,255,0.35);
+  font-family: var(--font); font-size: 14px; font-weight: 700;
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  transition: background 0.15s ease, color 0.15s ease; -webkit-app-region: no-drag;
+}
+#ov-skip-segment.show { display: block; }
+#ov-skip-segment:hover { background: #fff; color: #111; }
+@media (prefers-reduced-motion: reduce) { #ov-skip-segment { transition: none; } }
 #ov-keys {
   display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 5;
   grid-template-columns: auto auto; gap: 8px 28px; align-items: center;

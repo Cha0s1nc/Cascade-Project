@@ -831,6 +831,16 @@
                     <span class="toggle-track"></span>
                   </label>
                 </div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Auto-skip intros and credits</span>
+                    <span class="setting-desc">Skips an intro or the end credits as soon as it starts, once each. Needs a server that knows where they are (Jellyfin 10.10 or later with a segment provider such as the Intro Skipper plugin). Off by default; the Skip button still shows.</span>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="autoskip-toggle">
+                    <span class="toggle-track"></span>
+                  </label>
+                </div>
                 <div class="setting-row" id="normalize-source-row" style="display:none">
                   <div class="setting-label">
                     <span class="setting-name">Normalize by</span>
@@ -1342,6 +1352,9 @@
            in the middle of the picture where you are looking, the way
            YouTube shows it, rather than as a toast at the window's edge. -->
       <div class="vid-only" id="ov-osd" aria-live="polite"></div>
+      <!-- "Skip Intro" / "Skip Credits", shown while a Media Segment of that
+           type is playing. Driven by _syncSkipButton() in renderer.js. -->
+      <button class="vid-only" id="ov-skip-segment" type="button"></button>
       <!-- The shortcut list, opened with ?. Filled from VIDEO_KEYS. -->
       <div class="vid-only" id="ov-keys" role="dialog" aria-label="Keyboard shortcuts"></div>
       <!-- #ov-art is rewritten wholesale on every art change, so the hover

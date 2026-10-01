@@ -4735,6 +4735,7 @@ function applyVideoMode(on) {
   bar.classList.toggle('video', !!on)
   bar.classList.toggle('single', !!on && queue.length <= 1)
   loadChapters(on ? queue[queueIndex] : null)
+  loadSegments(on ? queue[queueIndex] : null)
   // A movie playing behind the library grid with no picture is confusing, so
   // opening the overlay is part of starting video, not a separate step.
   if (on) openOverlay()
@@ -4777,6 +4778,73 @@ function renderChapterMarks() {
     bar.appendChild(mark)
   }
 }
+
+// ── Skip intro and outro ──
+//
+// Jellyfin 10.10+ Media Segments, fetched once per video next to the chapters.
+// An older server (404) or one with no provider (empty list) shows nothing.
+// Pure parsing and "which segment is playing" live in src/core/media-segments.ts.
+
+/** The current video's segments, from CascadeCore.parseMediaSegments(). */
+let _segments = []
+/** The segment the button is showing for, or null. */
+let _activeSegment = null
+/** Settings > Playback: skip an intro or outro the moment it starts. */
+let autoSkipSegments = false
+/** Segments auto-skip has already fired for, so seeking back is not fought. */
+const _autoSkipped = new Set()
+
+async function loadSegments(item) {
+  _segments = []
+  _autoSkipped.clear()
+  _syncSkipButton()
+  if (!item || !isVideoItem(item)) return
+  try {
+    const data = await jfGet(`/MediaSegments/${item.Id}`)
+    // Skipped past it while the request was out: these are someone else's.
+    if (queue[queueIndex]?.Id !== item.Id) return
+    _segments = CascadeCore.parseMediaSegments(data)
+  } catch { /* no segments is the same as none */ }
+  _syncSkipButton()
+}
+
+/** Show, relabel or hide the button for the segment at the playhead, and fire
+ *  auto-skip. Runs on every timeupdate while a video has segments. */
+function _syncSkipButton() {
+  const btn = document.getElementById('ov-skip-segment')
+  const seg = _segments.length && playingVideo() ? CascadeCore.activeSegment(_segments, mediaPosition()) : null
+  _activeSegment = seg
+  btn.classList.toggle('show', !!seg)
+  if (!seg) return
+  const label = CascadeCore.skipLabel(seg)
+  if (btn.textContent !== label) btn.textContent = label
+  const key = CascadeCore.segmentKey(queue[queueIndex].Id, seg)
+  if (autoSkipSegments && !audio.paused && !_autoSkipped.has(key)) {
+    _autoSkipped.add(key)
+    skipActiveSegment()
+  }
+}
+
+/** Skip what the button offers: seek past it, or for an outro that runs to the
+ *  end, on to the next episode (or the end, when there is none). */
+function skipActiveSegment() {
+  const seg = _activeSegment
+  if (!seg || !playingVideo()) return
+  const action = CascadeCore.skipAction(seg, mediaDuration())
+  if (action.kind === 'next') {
+    if (queueIndex < queue.length - 1 && !blocksLocalPlayback()) document.getElementById('btn-next').click()
+    else seekTo(mediaDuration())
+  } else {
+    seekTo(action.sec)
+  }
+  videoOsd(CascadeCore.skipLabel(seg).replace('Skip', 'Skipped'))
+}
+
+document.getElementById('ov-skip-segment').addEventListener('click', (e) => {
+  e.stopPropagation()
+  skipActiveSegment()
+})
+onDeck('timeupdate', () => { if (_segments.length) _syncSkipButton() })
 
 // Attach text subtitles as native <track> elements.
 //
@@ -6547,6 +6615,12 @@ async function loadSettingsFields() {
   normalizeToggle.checked = normalizationEnabled
   normalizeSourceRow.style.display = normalizationEnabled ? '' : 'none'
   normalizeSourceSelect.value = normalizationSource
+  const autoSkipToggle = document.getElementById('autoskip-toggle')
+  autoSkipToggle.checked = autoSkipSegments
+  autoSkipToggle.onchange = async () => {
+    autoSkipSegments = autoSkipToggle.checked
+    await window.cascade.store.set('autoSkipSegments', autoSkipSegments)
+  }
   normalizeToggle.onchange = async () => {
     normalizeSourceRow.style.display = normalizeToggle.checked ? '' : 'none'
     await setNormalizationEnabled(normalizeToggle.checked)
@@ -7019,6 +7093,7 @@ async function init() {
   crossfadeSeconds = parseInt(await window.cascade.store.get('crossfadeSeconds'), 10) || 6
   maxStreamingBitrate = parseInt(await window.cascade.store.get('maxStreamingBitrate'), 10) || DEFAULT_MAX_BITRATE
   normalizationEnabled = (await window.cascade.store.get('normalizationEnabled')) === true
+  autoSkipSegments = (await window.cascade.store.get('autoSkipSegments')) === true
   {
     const savedSource = await window.cascade.store.get('normalizationSource')
     normalizationSource = savedSource === 'album' ? 'album' : 'track'
@@ -8026,6 +8101,7 @@ const VIDEO_KEYS = [
   [',  /  .', 'Previous or next frame (while paused)'],
   ['<  /  >', 'Slower or faster'],
   ['Shift+P  /  Shift+N', 'Previous or next episode'],
+  ['S', 'Skip the intro or credits, when offered'],
   [window.cascade.platform === 'darwin' ? '⌥←  /  ⌥→' : 'Ctrl+←  /  Ctrl+→', 'Previous or next chapter'],
   ['?', 'This list'],
   ['Esc', 'Close'],
@@ -8120,6 +8196,7 @@ document.addEventListener('keydown', (e) => {
   else if (key === 'm') { document.getElementById('btn-mute').click(); videoOsd(audio.muted ? 'Muted' : 'Unmuted') }
   else if (key === 'f') toggleVideoFullscreen()
   else if (key === 'c') toggleSubtitles()
+  else if (key === 's') { if (_activeSegment) skipActiveSegment(); else handled = false }
   else if (/^[0-9]$/.test(key) && dur) seekTo(dur * Number(key) / 10)
   else if (key === 'Home') seekTo(0)
   else if (key === 'End' && dur) seekTo(dur)
