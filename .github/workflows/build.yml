@@ -539,7 +539,8 @@ jobs:
           echo "versions.json: $(cat release/versions.json)"
 
           # Notes: the changelog section (required for a release, checked in
-          # setup), then what was carried over and what failed.
+          # setup), then what was carried over and what failed, then a link to
+          # the full changelog.
           if ! node scripts/changelog-section.mjs "${VERSION%%-*}" > notes.md 2>/dev/null; then
             echo "Beta build $VERSION." > notes.md
           fi
@@ -552,6 +553,10 @@ jobs:
           if [ ${#FAILED[@]} -gt 0 ]; then
             { echo; for p in "${FAILED[@]}"; do echo "**The $(name "$p") build failed in this run.** Check it before publishing."; done; } >> notes.md
           fi
+          # The full changelog is the website's releases page, opened at this
+          # version (it lists each one under #v<version>), not a GitHub
+          # compare link. It reaches the page when the release is published.
+          { echo; echo "**Full changelog**: https://www.chaosinc.xyz/github/projects/cascade/releases/#v$VERSION"; } >> notes.md
 
           FLAGS=(--title "$TAG" --notes-file notes.md --target "$SHA")
           [ "$PUBLISH" = true ] || FLAGS+=(--draft)
