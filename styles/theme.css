@@ -162,6 +162,31 @@ input[type="color"].tp-swatch { width: 100%; height: 30px; border: 1px solid var
 .theme-picker .setting-input { width: 100%; }
 #tp-font-custom { margin-top: 8px; }
 .tp-range { width: 100%; accent-color: var(--accent); }
+/* Pages: main, Colors, Lyrics. Only the .active one shows. */
+.tp-page { display: none; flex-direction: column; gap: 13px; }
+.tp-page.active { display: flex; }
+.tp-back { display: grid; place-items: center; padding: 3px; margin-left: -5px; border: none; border-radius: 6px; background: none; color: var(--text3); cursor: pointer; transition: background 0.12s, color 0.12s; }
+.tp-back:hover { background: var(--surface2); color: var(--text); }
+.tp-back svg { width: 15px; height: 15px; }
+.tp-back + .tp-title { margin-right: auto; margin-left: 2px; }
+.tp-navs { display: flex; flex-direction: column; gap: 4px; }
+.tp-nav { display: flex; align-items: center; gap: 9px; width: 100%; padding: 9px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface2); color: var(--text); font-family: var(--font); font-size: 12px; font-weight: 500; text-align: left; cursor: pointer; transition: border-color 0.12s, background 0.12s; }
+.tp-nav:hover { border-color: var(--text3); }
+.tp-nav:focus-visible, .tp-back:focus-visible, .tp-reset-all:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); }
+.tp-nav-name { flex: 1; }
+.tp-nav svg { width: 13px; height: 13px; color: var(--text3); }
+.tp-nav-swatch { width: 12px; height: 12px; border-radius: 50%; background: var(--grad); flex-shrink: 0; }
+.tp-page-hint { margin-top: -7px; }
+.tp-knobs { display: flex; flex-direction: column; gap: 10px; }
+.tp-knob-section { margin: 8px 0 -4px; }
+.tp-knob-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: 2px; font-size: 11px; color: var(--text2); }
+.tp-knob-name { flex: 1; }
+.tp-knob-value { font-size: 10.5px; color: var(--text3); font-variant-numeric: tabular-nums; }
+.tp-knob-reset { visibility: hidden; padding: 0 2px; border: none; background: none; color: var(--text3); font-size: 12px; line-height: 1; cursor: pointer; }
+.tp-knob.changed .tp-knob-reset { visibility: visible; }
+.tp-knob-reset:hover { color: var(--text); }
+.tp-reset-all { padding: 7px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface2); color: var(--text2); font-family: var(--font); font-size: 11px; cursor: pointer; transition: border-color 0.12s, color 0.12s; }
+.tp-reset-all:hover { border-color: var(--text3); color: var(--text); }
 .tp-hint { display: block; margin-top: 4px; font-size: 10px; color: var(--text3); }
 .tp-album-row { display: flex; align-items: center; justify-content: space-between; }
 .tp-album-label { display: flex; flex-direction: column; gap: 2px; }

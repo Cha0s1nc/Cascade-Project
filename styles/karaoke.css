@@ -23,6 +23,9 @@
   transition: max-height 0.4s ease, opacity 0.4s ease, margin-top 0.4s ease;
 }
 .lyrics-line.active .lyric-bg, .ov-lyric-line.active .lyric-bg { max-height: 4em; opacity: 0.85; margin-top: 0.3em; }
+/* Full-screen background vocals: Lyrics settings in the Theme panel. */
+.ov-lyric-line .lyric-bg { font-size: var(--ly-bg-vocal-size, 0.64em); }
+.ov-lyric-line.active .lyric-bg { opacity: var(--ly-bg-vocal-opacity, 0.85); }
 /* Duets: the second voice's lines sit on the right, background row and
    translation with them, as Apple Music and SpicyLyrics draw them. Now
    Playing lines are narrower than their column, so they also move over. */

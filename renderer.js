@@ -6951,6 +6951,7 @@ async function init() {
   buildPresets()
   await loadUiFont()
   await loadNpTuning()
+  await loadLyricStyle()
   await initDiscordRpc()
 
   crossfadeEnabled = (await window.cascade.store.get('crossfadeEnabled')) === true
@@ -8495,7 +8496,7 @@ async function renderOverlayLyrics() {
   // actual current line - no CSS-transition reflow trick needed since jumpTo()
   // bypasses the animation loop entirely.
   ovLyricsSpring.jumpTo(0)
-  const nowSec0 = audio.currentTime + 0.35
+  const nowSec0 = audio.currentTime + _lyricLead
   let initialIdx = 0
   for (let i = 0; i < lyricsData.length; i++) {
     if (lyricsData[i].Start != null && lyricsData[i].Start / 10000000 <= nowSec0) initialIdx = i
@@ -8739,6 +8740,10 @@ document.getElementById('ov-translate-btn').addEventListener('click', () => onTr
 // never overshoot, where the old 210/26 bounced slightly; and a longer ripple,
 // so the lines below trail a little more.
 const LYRIC_MOTION = { stiffness: 250, damping: 50, ripple: 40 }
+// How far ahead of the audio lyrics are drawn, in seconds: the Lyrics
+// setting "Lyrics timing" negated (it is negative for earlier, as in the
+// Apple app). Set by applyLyricStyle().
+let _lyricLead = 0.35
 
 function createSpring(onUpdate, motion = LYRIC_MOTION) {
   let pos = 0, vel = 0, target = 0
@@ -8888,7 +8893,7 @@ function _ovLyricsTranslateYFor(idx) {
 let lastOverlayLyricsIdx = -1
 let _ovLyricsScanIdx = 0   // cursor into lyricsData so timeupdate scans forward instead of from 0 each tick
 let ovLyricsBaseY = 0            // auto-follow position for the current active line
-let ovLyricLinePosition = 0.5    // where that line sits, 0.5 = centered (tuning panel)
+let ovLyricLinePosition = 0.5    // where that line sits, 0.5 = centered (a Lyrics setting)
 let ovLyricsManualOffset = 0     // extra offset applied while the user scrolls by hand
 let ovLyricsUserScrolling = false
 let ovLyricsScrollTimer = null
@@ -8933,7 +8938,7 @@ onDeck('timeupdate', () => {
   // animation and the line-promotion check complete in lockstep - no gap in
   // either direction (mid-fill cutoff if promotion is earlier, a visible
   // "stick" on the finished word if promotion is later).
-  const nowSec = audio.currentTime + 0.35
+  const nowSec = audio.currentTime + _lyricLead
   const baseIdx = _scanLyricsBaseIdx(nowSec, _ovLyricsScanIdx)
   _ovLyricsScanIdx = baseIdx
 
@@ -10253,7 +10258,7 @@ let _wordRafId = null
 
 function _wordHighlightFrame() {
   _wordRafId = requestAnimationFrame(_wordHighlightFrame)
-  const nowTicks = (audio.currentTime + 0.35) * 10_000_000
+  const nowTicks = (audio.currentTime + _lyricLead) * 10_000_000
 
   // Side panel - CSS scoping (.lyrics-line.active .lyric-word) handles inactive lines.
   // Guard on the panel being open, which is exactly "the user can see this":
@@ -10659,7 +10664,7 @@ onDeck('timeupdate', () => {
   // animation and the line-promotion check complete in lockstep - no gap in
   // either direction (mid-fill cutoff if promotion is earlier, a visible
   // "stick" on the finished word if promotion is later).
-  const nowSec = audio.currentTime + 0.35
+  const nowSec = audio.currentTime + _lyricLead
   const baseIdx = _scanLyricsBaseIdx(nowSec, _lyricsScanIdx)
   _lyricsScanIdx = baseIdx
 
@@ -11687,8 +11692,7 @@ document.getElementById('tp-font-custom').addEventListener('input', (e) => {
 // CascadeCore's clamp*() functions are the one place a corrupted stored
 // number gets turned into something safe before it can reach a CSS value -
 // same "store values are untrusted" rule as everywhere else.
-function applyNpTuning(lyricScale, bgDim, bgBlend, linePosition) {
-  ovLyricLinePosition = CascadeCore.clampLinePosition(linePosition)
+function applyNpTuning(lyricScale, bgDim, bgBlend) {
   const root = document.documentElement
   root.style.setProperty('--np-lyric-scale', String(CascadeCore.clampLyricScale(lyricScale)))
   const dim = String(CascadeCore.clampBgDim(bgDim))
@@ -11698,33 +11702,58 @@ function applyNpTuning(lyricScale, bgDim, bgBlend, linePosition) {
   root.style.setProperty('--np-blend', CascadeCore.clampBgBlend(bgBlend) ? 'multiply' : 'normal')
 }
 
-async function saveNpTuning(lyricScale, bgDim, bgBlend, linePosition) {
-  await window.cascade.store.set('npTuning', JSON.stringify({ lyricScale, bgDim, bgBlend, linePosition }))
-  applyNpTuning(lyricScale, bgDim, bgBlend, linePosition)
+async function saveNpTuning(lyricScale, bgDim, bgBlend) {
+  await window.cascade.store.set('npTuning', JSON.stringify({ lyricScale, bgDim, bgBlend }))
+  applyNpTuning(lyricScale, bgDim, bgBlend)
+}
+
+// ── Lyrics look (Theme panel > Lyrics) ──────────────────────────────────────
+// Knobs, ranges and defaults live in src/core/lyric-style.ts. Most are CSS
+// custom properties on :root; three are read from JS: where the current line
+// sits, the ripple between lines, and how early lyrics are drawn. Only the
+// changed knobs are stored, under 'lyricStyle'.
+let lyricStyle = CascadeCore.lyricStyleFrom({})
+
+function applyLyricStyle(style) {
+  lyricStyle = CascadeCore.lyricStyleFrom(style)
+  const root = document.documentElement
+  for (const [prop, value] of Object.entries(CascadeCore.lyricStyleCss(lyricStyle))) root.style.setProperty(prop, value)
+  ovLyricLinePosition = lyricStyle.currentLinePosition
+  LYRIC_MOTION.ripple = lyricStyle.rippleSeconds * 1000
+  _lyricLead = -lyricStyle.lyricsDelay
+}
+
+async function saveLyricStyle(style) {
+  applyLyricStyle(style)
+  await window.cascade.store.set('lyricStyle', JSON.stringify(CascadeCore.lyricStyleChanges(lyricStyle)))
+}
+
+async function loadLyricStyle() {
+  let stored = null
+  try { stored = JSON.parse(await window.cascade.store.get('lyricStyle') || 'null') } catch {}
+  applyLyricStyle(stored)
+  renderLyricKnobs()
 }
 
 async function loadNpTuning() {
-  let lyricScale, bgDim, bgBlend, linePosition
+  let lyricScale, bgDim, bgBlend
   try {
     const raw = await window.cascade.store.get('npTuning')
     if (raw) {
       const t = JSON.parse(raw)
-      lyricScale = t.lyricScale; bgDim = t.bgDim; bgBlend = t.bgBlend; linePosition = t.linePosition
+      lyricScale = t.lyricScale; bgDim = t.bgDim; bgBlend = t.bgBlend
     }
   } catch {}
   lyricScale = CascadeCore.clampLyricScale(lyricScale)
   bgDim = CascadeCore.clampBgDim(bgDim)
   bgBlend = CascadeCore.clampBgBlend(bgBlend)
-  linePosition = CascadeCore.clampLinePosition(linePosition)
-  applyNpTuning(lyricScale, bgDim, bgBlend, linePosition)
+  applyNpTuning(lyricScale, bgDim, bgBlend)
   const scaleInput = document.getElementById('tp-lyric-scale')
   const dimInput = document.getElementById('tp-bg-dim')
   const blendInput = document.getElementById('tp-bg-blend')
   if (scaleInput) scaleInput.value = String(lyricScale)
   if (dimInput) dimInput.value = String(bgDim)
   if (blendInput) blendInput.checked = bgBlend
-  const posInput = document.getElementById('tp-line-position')
-  if (posInput) posInput.value = String(linePosition)
 }
 
 /** Reads all three controls' current values, so any one changing saves and
@@ -11734,14 +11763,12 @@ function _npTuningInputValues() {
     parseFloat(document.getElementById('tp-lyric-scale').value),
     parseFloat(document.getElementById('tp-bg-dim').value),
     document.getElementById('tp-bg-blend').checked,
-    parseFloat(document.getElementById('tp-line-position').value),
   ]
 }
 
 document.getElementById('tp-lyric-scale').addEventListener('input', () => saveNpTuning(..._npTuningInputValues()))
 document.getElementById('tp-bg-dim').addEventListener('input', () => saveNpTuning(..._npTuningInputValues()))
 document.getElementById('tp-bg-blend').addEventListener('change', () => saveNpTuning(..._npTuningInputValues()))
-document.getElementById('tp-line-position').addEventListener('input', () => saveNpTuning(..._npTuningInputValues()))
 
 /** Album art accent mode overrides whatever gradient/preset is picked, so
  *  those controls do nothing while it's on - dim them and say why rather
@@ -11914,21 +11941,93 @@ function clearAlbumArtTheme() {
 }
 
 // Wire up theme picker UI
+// The Theme panel has three pages: the main one, and Colors and Lyrics
+// behind their rows. Every way of closing it goes back to the main page.
+function showThemePage(name) {
+  const picker = document.getElementById('theme-picker')
+  for (const page of picker.querySelectorAll('.tp-page')) page.classList.toggle('active', page.dataset.page === name)
+  picker.scrollTop = 0
+}
+function closeThemePicker() {
+  document.getElementById('theme-picker').classList.remove('open')
+  showThemePage('main')
+}
 // Opened from the paintbrush in the title bar or in Now Playing.
 for (const id of ['theme-btn', 'np-theme-btn']) {
   document.getElementById(id).addEventListener('click', (e) => {
     e.stopPropagation()
-    document.getElementById('theme-picker').classList.toggle('open')
+    const picker = document.getElementById('theme-picker')
+    if (picker.classList.contains('open')) closeThemePicker()
+    else picker.classList.add('open')
   })
 }
-document.getElementById('tp-close').addEventListener('click', () => {
-  document.getElementById('theme-picker').classList.remove('open')
+document.getElementById('theme-picker').addEventListener('click', (e) => {
+  if (e.target.closest('.tp-close')) { closeThemePicker(); return }
+  const nav = e.target.closest('[data-open]')
+  if (nav) showThemePage(nav.dataset.open)
 })
 document.addEventListener('mousedown', (e) => {
   const picker = document.getElementById('theme-picker')
-  if (!picker.contains(e.target) && !e.target.closest('#theme-btn, #np-theme-btn')) {
-    picker.classList.remove('open')
+  if (picker.classList.contains('open') && !picker.contains(e.target) && !e.target.closest('#theme-btn, #np-theme-btn')) {
+    closeThemePicker()
   }
+})
+
+// Lyrics page: one slider per knob, from CascadeCore.LYRIC_KNOBS, each with
+// its value and a reset arrow that shows once it differs from the default.
+function renderLyricKnobs() {
+  const box = document.getElementById('tp-lyric-knobs')
+  box.replaceChildren()
+  let section = ''
+  for (const k of CascadeCore.LYRIC_KNOBS) {
+    if (k.section !== section) {
+      section = k.section
+      const h = document.createElement('div')
+      h.className = 'tp-label tp-knob-section'
+      h.textContent = section
+      box.append(h)
+    }
+    const row = document.createElement('div')
+    row.className = 'tp-knob'
+    row.dataset.key = k.key
+    row.innerHTML = '<div class="tp-knob-head"><span class="tp-knob-name"></span><span class="tp-knob-value"></span>'
+      + '<button class="tp-knob-reset" title="Reset to default" aria-label="Reset to default">↺</button></div>'
+      + '<input type="range" class="tp-range">'
+    row.querySelector('.tp-knob-name').textContent = k.label
+    const input = row.querySelector('input')
+    Object.assign(input, { min: k.min, max: k.max, step: k.step })
+    input.setAttribute('aria-label', `${k.section}: ${k.label}`)
+    box.append(row)
+  }
+  syncLyricKnobs()
+}
+
+function syncLyricKnobs() {
+  for (const row of document.querySelectorAll('#tp-lyric-knobs .tp-knob')) {
+    const k = CascadeCore.lyricKnob(row.dataset.key)
+    const v = lyricStyle[k.key]
+    const decimals = (String(k.step).split('.')[1] || '').length
+    row.querySelector('input').value = String(v)
+    row.querySelector('.tp-knob-value').textContent = v.toFixed(decimals)
+    row.classList.toggle('changed', Math.abs(v - k.value) > 1e-9)
+  }
+}
+
+document.getElementById('tp-lyric-knobs').addEventListener('input', (e) => {
+  const row = e.target.closest('.tp-knob')
+  if (!row) return
+  saveLyricStyle({ ...lyricStyle, [row.dataset.key]: parseFloat(e.target.value) })
+  syncLyricKnobs()
+})
+document.getElementById('tp-lyric-knobs').addEventListener('click', (e) => {
+  const row = e.target.closest('.tp-knob-reset') && e.target.closest('.tp-knob')
+  if (!row) return
+  saveLyricStyle({ ...lyricStyle, [row.dataset.key]: CascadeCore.lyricKnob(row.dataset.key).value })
+  syncLyricKnobs()
+})
+document.getElementById('tp-lyric-reset').addEventListener('click', () => {
+  saveLyricStyle({})
+  syncLyricKnobs()
 })
 
 document.getElementById('seg-dark').addEventListener('click', () => { setThemeMode('dark'); saveTheme() })
