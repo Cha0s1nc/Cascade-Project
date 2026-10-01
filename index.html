@@ -204,6 +204,13 @@
         </div>
         <div class="nav-info"><span class="nav-label">History</span></div>
       </div>
+      <div class="nav-item nav-music" data-view="downloads">
+        <div class="nav-bar"></div>
+        <div class="nav-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </div>
+        <div class="nav-info"><span class="nav-label">Downloads</span></div>
+      </div>
       <!-- Radio. Hidden until Settings > Library > "Show Live TV as Radio" is
            turned on and the server actually has Live TV channels - see
            applyRadioNavVisibility() in renderer.js. -->
@@ -352,7 +359,8 @@
               <div class="pl-detail-name" id="album-detail-name"></div>
               <div class="pl-detail-meta" id="album-detail-meta"></div>
             </div>
-            <button class="shuffle-all-btn" id="btn-play-album" style="margin-left:auto">
+            <button class="shuffle-all-btn" id="btn-offline-album" type="button" style="margin-left:auto"></button>
+            <button class="shuffle-all-btn" id="btn-play-album">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
               Play
             </button>
@@ -600,6 +608,7 @@
                    into a real Jellyfin playlist, since a smart playlist itself
                    has nothing on the server to point at. -->
               <button class="shuffle-all-btn" id="btn-save-as-playlist" style="display:none">Save as a Playlist</button>
+              <button class="shuffle-all-btn" id="btn-offline-playlist" type="button"></button>
               <button class="shuffle-all-btn" id="btn-edit-playlist">Edit</button>
               <button class="shuffle-all-btn" id="btn-shuffle-playlist">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
@@ -703,6 +712,20 @@
             <div class="track-row skel-card"><div class="skel skel-text" style="width:14px;height:11px;margin:0 auto"></div><div class="track-thumb skel"></div><div style="min-width:0"><div class="skel skel-text" style="width:60%"></div><div class="skel skel-text" style="width:35%;height:9px;margin-top:5px"></div></div><div class="skel skel-text" style="width:70%"></div><div class="skel skel-text" style="width:34px;height:9px;margin-left:auto"></div></div>
           </div>
         </div>
+      </div>
+
+      <!-- Downloads: albums and playlists saved for offline listening. Works with
+           no server at all (see enterOfflineMode in renderer.js). -->
+      <div class="view" id="view-downloads">
+        <div class="sect-header" style="margin-bottom:14px">
+          <span class="sect-title">Downloads</span>
+          <span class="dl-total" id="downloads-total"></span>
+        </div>
+        <div class="dl-banner" id="downloads-banner" hidden>
+          <span id="downloads-banner-text">Your server is not reachable. Downloaded music still plays.</span>
+          <button class="shuffle-all-btn" id="downloads-retry" type="button">Try again</button>
+        </div>
+        <div id="downloads-list"></div>
       </div>
 
       <!-- Settings -->
@@ -1718,8 +1741,11 @@
   <div class="ctx-item" id="ictx-instant-mix">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/></svg>Instant mix
   </div>
+  <div class="ctx-item" id="ictx-offline">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="8 12 12 16 16 12"/><line x1="12" y1="8" x2="12" y2="16"/></svg><span id="ictx-offline-label">Download for offline</span>
+  </div>
   <div class="ctx-item" id="ictx-download">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Save files to disk
   </div>
   <div class="ctx-item" id="ictx-add-playlist">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add to playlist

@@ -17,7 +17,7 @@ export interface OfflineSummary {
   ready: Record<string, string>
   /** Item ids that have a cover on disk (cascade-offline://local/art/<id>.jpg). */
   art: string[]
-  collections: { item: JfItem; done: number; total: number; bytes: number }[]
+  collections: { item: JfItem; trackIds: string[]; done: number; total: number; bytes: number }[]
   totalBytes: number
   active: { id: string; received: number; total: number | null }[]
   failed: Record<string, string>

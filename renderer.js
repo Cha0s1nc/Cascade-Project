@@ -16,6 +16,13 @@ let shuffle = false
 let repeatMode = 'none' // 'none' | 'all' | 'one'
 let _unshuffledQueue = []   // original order saved when shuffle is enabled
 let _restoredResume = null   // { sec } while a restored queue's track waits for play (see Last queue)
+// Offline downloads (see the section of that name). Declared up here because
+// artUrl() and resolveTrackStream() read it from the very first render.
+let _offline = { ready: {}, art: new Set(), collections: [], totalBytes: 0, active: [], failed: {}, plays: 0 }
+/** The server could not be reached at launch: only downloads and playback work. */
+let _offlineMode = false
+/** Live bytes per track being downloaded, from the main process's progress events. */
+const _offlineProgress = new Map()
 
 // Queue panel virtualisation
 const QUEUE_WIN      = 20   // minimum rows kept in DOM at once; see _queueWin()
@@ -243,7 +250,9 @@ function greeting() {
   return 'Good evening'
 }
 
-const artUrl       = (itemId, tag) => jfClient.artUrl(itemId, tag)
+// A downloaded album's cover comes from disk (cascade-offline://), so it still
+// shows with no server and loads without a round trip with one.
+const artUrl       = (itemId, tag) => (_offline.art.has(itemId) ? `cascade-offline://local/art/${itemId}.jpg` : null) || jfClient.artUrl(itemId, tag)
 const artistArtUrl = (itemId)      => jfClient.artistArtUrl(itemId)
 
 // ── Skeleton loaders ──────────────────────────────────────────────────────────
@@ -521,8 +530,14 @@ function decodableVideoAudioCodecs() {
 }
 
 /** @type {(itemId: string, kind?: 'Audio' | 'Video', opts?: any) => Promise<any>} */
-const resolveTrackStream = (itemId, kind = 'Audio', opts = {}) =>
-  resolveStream(jfClient, jf, itemId, currentDeviceProfile(), maxStreamingBitrate, kind, opts)
+const resolveTrackStream = (itemId, kind = 'Audio', opts = {}) => {
+  // A downloaded track plays from disk, before the server is asked anything:
+  // it is the file the person chose to keep, it needs no transcode, and with
+  // no network there is nobody to ask. Direct, from the start, no session.
+  const local = kind === 'Audio' ? _offline.ready[itemId] : null
+  if (local) return Promise.resolve({ url: local, playSessionId: null, mediaSourceId: null, direct: true, startTicks: 0 })
+  return resolveStream(jfClient, jf, itemId, currentDeviceProfile(), maxStreamingBitrate, kind, opts)
+}
 
 // Self-contained URL for "Copy stream URL". Deliberately the /universal form
 // rather than a PlaySessionId-bound one, so the copied link keeps working after
@@ -736,6 +751,7 @@ async function connect(serverUrl, token, userId) {
   // Verify the token is still valid with a lightweight ping, retry up to 3x
   let verified = false
   let userInfo = null
+  let lastError = null
   for (let attempt = 1; attempt <= 3; attempt++) {
     showLoading(attempt === 1 ? 'Connecting…' : `Retrying… (${attempt}/3)`)
     try {
@@ -743,6 +759,9 @@ async function connect(serverUrl, token, userId) {
       verified = true
       break
     } catch (e) {
+      lastError = e
+      // No network at all: waiting and asking again will not change that.
+      if (!navigator.onLine) break
       if (attempt < 3) await new Promise(r => setTimeout(r, 1500 * attempt))
     }
   }
@@ -751,7 +770,9 @@ async function connect(serverUrl, token, userId) {
 
   if (!verified) {
     if (errorEl) errorEl.textContent = 'Connection failed. Check your server URL and try again.'
-    throw new Error('Could not reach Jellyfin server')
+    // The HTTP status when the server answered ("401 Unauthorized"), none when
+    // it never did: launch tells a rejected token from a missing network by it.
+    throw Object.assign(new Error('Could not reach Jellyfin server'), { status: Number(/^(\d{3}) /.exec(lastError?.message || '')?.[1]) || null })
   }
 
   // Free: userInfo is the same /Users/{id} response the token-verify ping just
@@ -764,6 +785,9 @@ async function connect(serverUrl, token, userId) {
   // canDeleteMedia). Gates the "Delete media" entry, kept apart from
   // _applyAdminGating's admin-only entries below.
   jf.canDelete = CascadeCore.canDeleteMedia(userInfo?.Policy)
+  // Whether the account may download media: Jellyfin answers /Download with a
+  // 403 otherwise, which the offline downloads report as such track by track.
+  jf.canDownload = userInfo?.Policy?.EnableContentDownloading !== false
   // Same free response again - whether the account can see Live TV at all,
   // which the Radio nav row is gated on (see applyRadioNavVisibility). A
   // server with no Live TV access denied would otherwise show a Radio tab
@@ -775,6 +799,10 @@ async function connect(serverUrl, token, userId) {
 
   startRemoteControl()
   probeCascadePlugin()  // not awaited - cheap, and nothing here depends on the result yet
+  // Back online: carry on with downloads that were waiting, and tell the
+  // server about plays made while it was out of reach.
+  window.cascade.offline.resume(offlineSession()).catch(() => {})
+  replayOfflinePlays()
   await populateLibraryPicker(viewsPromise)
   invalidateLibraryViews()
   await loadHome()
@@ -1942,6 +1970,7 @@ function showView(name) {
   // No dataset.loaded gate: history must reflect whatever was just played, so
   // it reloads every time it's shown rather than caching a stale fetch.
   if (name === 'history') loadHistory()
+  if (name === 'downloads') renderDownloadsView()
   if (name === 'movies' && !document.getElementById('movies-grid').dataset.loaded) loadMovies()
   if (name === 'shows' && !document.getElementById('shows-grid').dataset.loaded) loadShows()
   if (name === 'radio' && !document.getElementById('radio-grid').dataset.loaded) loadRadio()
@@ -2396,6 +2425,7 @@ function wireArtistCards(container, items, onPick) {
 }
 
 let currentAlbumTracks = []
+let _openAlbumItem = null   // the album page's own item, for its Download button
 
 /** Track query shared by the album detail view and the album context menu's
  *  Play/Play next/Play last/Shuffle/Add to playlist actions. */
@@ -2425,6 +2455,8 @@ async function openAlbum(albumId) {
       fetchAlbumTracks(albumId)
     ])
     currentAlbumTracks = tracks
+    _openAlbumItem = album
+    renderOfflineButtons()
 
     document.getElementById('album-detail-name').textContent = album.Name || ''
     const artistHtml = album.AlbumArtist
@@ -3338,6 +3370,7 @@ async function openPlaylist(playlistId, name) {
   artEl.innerHTML = `<img src="${plArtUrl}" alt="" onerror="this.innerHTML='♪'">`
 
   try {
+    renderOfflineButtons()
     renderPlaylistDetailItems(await fetchPlaylistTracks(playlistId), true)
   } catch (e) {
     document.getElementById('pl-detail-rows').innerHTML = `<div class="empty-state">Could not load playlist</div>`
@@ -3461,6 +3494,7 @@ async function openSmartPlaylist(kind) {
   document.getElementById('btn-edit-playlist').style.display = sp.isUser ? '' : 'none'
   document.getElementById('btn-edit-playlist').textContent = sp.isUser ? 'Edit Rules' : 'Edit'
   document.getElementById('btn-save-as-playlist').style.display = sp.isUser ? '' : 'none'
+  renderOfflineButtons()   // no id: a smart playlist has nothing on the server to download
   document.getElementById('pl-detail-art').style.background = sp.gradient
   document.getElementById('pl-detail-art').innerHTML = sp.icon
 
@@ -5455,7 +5489,14 @@ let _reportingActive = false
 
 function reportPlaybackStart(itemId) {
   _reportingActive = true
-  CascadeCore.reportStart(jfClient, playbackSnapshot(itemId))
+  const item = queue[queueIndex]
+  CascadeCore.reportStart(jfClient, playbackSnapshot(itemId)).then(ok => {
+    // Jellyfin counts a play on this report, so one it never heard (offline) is
+    // kept and sent later as a played-at update. Music only: a film or a radio
+    // channel has no play to lose.
+    if (!ok) { if (item && !isVideoItem(item) && !CascadeCore.isRadioItem(item)) queueOfflinePlay(item.Id) }
+    else if (_offline.plays > 0) replayOfflinePlays()
+  })
   startProgressReporting()
 }
 
@@ -7176,18 +7217,328 @@ async function init() {
   ;({ token, userId } = await migrateDeviceId(serverUrl, username, legacyPassword, token, userId))
   if (legacyPassword !== undefined) await window.cascade.store.delete('password')
 
+  // Before anything draws a cover or resolves a stream: what is downloaded is
+  // what works with no server.
+  await refreshOffline()
+
   if (serverUrl && token && userId) {
     document.getElementById('setup-overlay').classList.add('hidden')
     try {
       await connect(serverUrl, token, userId)
     } catch (e) {
-      // The token was rejected: Jellyfin tokens only die when revoked (signed
-      // out, device removed in the dashboard), so this is a real sign-in, not a
-      // refresh. There is no stored password to retry with, by design.
-      promptReauth('Your session expired. Sign in again with a code, or enter your password.')
+      if (e?.status === 401 || e?.status === 403) {
+        // The token was rejected: Jellyfin tokens only die when revoked (signed
+        // out, device removed in the dashboard), so this is a real sign-in, not a
+        // refresh. There is no stored password to retry with, by design.
+        promptReauth('Your session expired. Sign in again with a code, or enter your password.')
+      } else if (_offline.collections.length) {
+        // The server never answered and there is music on disk: open on that.
+        enterOfflineMode()
+      } else {
+        promptReauth('Could not reach your server. Check your connection or the address, then sign in again.')
+      }
     }
   }
   // else setup overlay stays visible (fields already pre-filled above)
+}
+
+// ── Offline downloads ─────────────────────────────────────────────────────────
+//
+// Albums and playlists saved to disk for listening with no network. The files,
+// the one index of them and the download queue live in the main process
+// (offline.js); the rules about what a removal may delete and what counts as a
+// finished download are pure, in src/core/offline-index.ts. Here: a summary
+// kept in `_offline` (declared at the top, artUrl() and resolveTrackStream()
+// read it), the Downloads view, the buttons, offline mode and play replay.
+//
+// Toasts do not show in a packaged build, so feedback is the button's own state
+// and the Downloads view, never a toast alone.
+
+/** The Authorization header for a call that needs the session. The main
+ *  process keeps it in memory for the length of the download queue only. */
+function offlineSession() {
+  return { authorization: CascadeCore.authHeader(appVersion, deviceId, jf.token) }
+}
+
+function offlineCollection(id) {
+  return id ? _offline.collections.find(c => c.item.Id === id) || null : null
+}
+
+function fmtBytes(n) {
+  if (!Number.isFinite(n) || n <= 0) return '0 MB'
+  const mb = n / 1048576
+  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.max(1, Math.round(mb))} MB`
+}
+
+let _offlineRefreshTimer = null
+function scheduleOfflineRefresh() {
+  if (_offlineRefreshTimer) return
+  _offlineRefreshTimer = setTimeout(() => { _offlineRefreshTimer = null; refreshOffline() }, 150)
+}
+
+async function refreshOffline() {
+  let summary
+  try { summary = await window.cascade.offline.summary() } catch { return }
+  _offline = { ...summary, art: new Set(summary.art) }
+  for (const id of [..._offlineProgress.keys()]) if (!summary.active.some(a => a.id === id)) _offlineProgress.delete(id)
+  renderOfflineButtons()
+  if (_currentView === 'downloads') renderDownloadsView()
+}
+
+window.cascade.offline.onEvent((event) => {
+  if (event.type === 'progress') { _offlineProgress.set(event.id, event); updateDownloadCards(); return }
+  if (event.type === 'track-done') _offlineProgress.delete(event.id)
+  scheduleOfflineRefresh()
+})
+
+/** Starts the download of an album or playlist, or removes it if it is already
+ *  asked for: the one handler behind the menu entry and both page buttons. */
+async function toggleOfflineDownload(kind, item) {
+  if (!item?.Id) return
+  if (offlineCollection(item.Id)) { await removeOfflineDownload(item.Id); return }
+  if (jf.canDownload === false) {
+    showNotice('This account is not allowed to download media. An admin can turn it on in the Jellyfin dashboard.', 'Downloads')
+    return
+  }
+  let tracks
+  try { tracks = kind === 'album' ? await fetchAlbumTracks(item.Id) : await fetchPlaylistTracks(item.Id) }
+  catch { showNotice('Could not read that list from the server.', 'Downloads'); return }
+  const music = tracks.filter(t => !t.Type || t.Type === 'Audio')
+  if (!music.length) { showNotice('There are no songs to download in that.', 'Downloads'); return }
+  const collection = {
+    Id: item.Id, Name: item.Name, Type: kind === 'album' ? 'MusicAlbum' : 'Playlist',
+    ImageTags: item.ImageTags, AlbumArtist: item.AlbumArtist, ProductionYear: item.ProductionYear, ChildCount: music.length,
+  }
+  if (!await window.cascade.offline.add(collection, music, offlineSession())) {
+    showNotice('Could not start the download.', 'Downloads')
+    return
+  }
+  await refreshOffline()
+}
+
+async function removeOfflineDownload(id) {
+  await window.cascade.offline.remove(id)
+  await refreshOffline()
+}
+
+const DL_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>'
+
+/** The Download button on the open album and on the open playlist. */
+function renderOfflineButtons() {
+  paintOfflineButton('btn-offline-album', _openAlbumItem?.Id)
+  paintOfflineButton('btn-offline-playlist', currentSmartKind ? null : currentPlaylistId)
+}
+
+function paintOfflineButton(buttonId, id) {
+  const btn = document.getElementById(buttonId)
+  if (!btn) return
+  btn.style.display = id ? '' : 'none'
+  if (!id) return
+  const c = offlineCollection(id)
+  const done = !!c && c.done === c.total
+  btn.classList.toggle('on', done)
+  btn.title = c ? 'Remove this download' : 'Download for offline listening'
+  btn.innerHTML = `${DL_ICON} ${!c ? 'Download' : done ? 'Downloaded' : `Downloading ${c.done}/${c.total}`}`
+}
+
+document.getElementById('btn-offline-album').addEventListener('click', () => {
+  if (_openAlbumItem) toggleOfflineDownload('album', _openAlbumItem)
+})
+document.getElementById('btn-offline-playlist').addEventListener('click', () => {
+  if (!currentPlaylistId || currentSmartKind) return
+  toggleOfflineDownload('playlist', { Id: currentPlaylistId, Name: document.getElementById('pl-detail-name').textContent })
+})
+
+// ── Downloads view ──
+
+/** Which collections have their song list open, kept across a redraw. */
+const _dlOpen = new Set()
+
+function dlCardHtml(c) {
+  const id = c.item.Id
+  const art = artUrl(id, c.item.ImageTags?.Primary)
+  return `<div class="dl-card" data-dl-id="${esc(id)}">
+    <div class="dl-art">${art ? `<img src="${esc(art)}" alt="" onerror="this.parentNode.textContent='♪'">` : '♪'}</div>
+    <div class="dl-info">
+      <div class="dl-name">${esc(c.item.Name || '')}</div>
+      <div class="dl-meta"></div>
+      <div class="dl-bar"><span></span></div>
+    </div>
+    <div class="dl-actions">
+      <button class="shuffle-all-btn" data-dl="play" type="button">Play</button>
+      <button class="shuffle-all-btn" data-dl="songs" type="button">Songs</button>
+      <button class="shuffle-all-btn" data-dl="retry" type="button" hidden>Try again</button>
+      <button class="shuffle-all-btn" data-dl="remove" type="button">Remove</button>
+    </div>
+  </div>
+  <div class="dl-tracks" data-dl-tracks="${esc(id)}" hidden></div>`
+}
+
+function renderDownloadsView() {
+  const list = document.getElementById('downloads-list')
+  document.getElementById('downloads-banner').hidden = !_offlineMode
+  document.getElementById('downloads-total').textContent = _offline.collections.length
+    ? `${_offline.collections.length} ${_offline.collections.length === 1 ? 'collection' : 'collections'} · ${fmtBytes(_offline.totalBytes)}` : ''
+  if (!_offline.collections.length) {
+    list.innerHTML = '<div class="empty-state">Nothing downloaded yet. Open an album or a playlist and press Download, or right-click one.</div>'
+    return
+  }
+  list.innerHTML = _offline.collections.map(dlCardHtml).join('')
+  for (const card of list.querySelectorAll('.dl-card')) {
+    const id = card.dataset.dlId
+    card.querySelector('[data-dl="play"]').addEventListener('click', () => playDownloaded(id))
+    card.querySelector('[data-dl="songs"]').addEventListener('click', () => toggleDownloadedSongs(id))
+    card.querySelector('[data-dl="retry"]').addEventListener('click', () => window.cascade.offline.resume(offlineSession()))
+    card.querySelector('[data-dl="remove"]').addEventListener('click', async () => {
+      const name = offlineCollection(id)?.item.Name || 'this download'
+      if (!confirm(`Remove "${name}" from your downloads? Songs another download still uses stay.`)) return
+      _dlOpen.delete(id)
+      await removeOfflineDownload(id)
+    })
+    if (_dlOpen.has(id)) showDownloadedSongs(id)
+  }
+  updateDownloadCards()
+}
+
+/** Progress, sizes and failures, set in place: progress events arrive several
+ *  times a second and a rebuild would swap a button under the pointer. */
+function updateDownloadCards() {
+  if (_currentView !== 'downloads') return
+  for (const card of document.querySelectorAll('#downloads-list .dl-card')) {
+    const c = offlineCollection(card.dataset.dlId)
+    if (!c) continue
+    let partial = 0
+    let moving = false
+    for (const id of c.trackIds) {
+      if (_offline.ready[id]) continue
+      const p = _offlineProgress.get(id)
+      if (!p) continue
+      moving = true
+      if (p.total) partial += Math.min(1, p.received / p.total)
+    }
+    const failed = c.trackIds.filter(id => _offline.failed[id])
+    const kind = c.item.Type === 'Playlist' ? 'Playlist' : 'Album'
+    const meta = [kind, `${c.done} of ${c.total} ${c.total === 1 ? 'song' : 'songs'}`, fmtBytes(c.bytes)]
+    const metaEl = card.querySelector('.dl-meta')
+    metaEl.textContent = meta.join(' · ')
+    if (failed.length) {
+      const bad = document.createElement('span')
+      bad.className = 'dl-error'
+      bad.textContent = ` · ${failed.length} failed`
+      bad.title = _offline.failed[failed[0]]
+      metaEl.appendChild(bad)
+    }
+    card.classList.toggle('done', c.done === c.total)
+    card.querySelector('.dl-bar > span').style.width = `${c.total ? ((c.done + partial) / c.total) * 100 : 0}%`
+    card.querySelector('[data-dl="retry"]').hidden = !failed.length || moving
+    card.querySelector('[data-dl="play"]').disabled = c.done === 0
+    card.querySelector('[data-dl="songs"]').disabled = c.done === 0
+  }
+}
+
+async function downloadedTracks(id) {
+  const rows = await window.cascade.offline.tracks(id)
+  return rows.filter(r => r.ready).map(r => r.item)
+}
+
+async function playDownloaded(id) {
+  const items = await downloadedTracks(id)
+  if (items.length) playItems(items, 0, offlineCollection(id)?.item.Name)
+}
+
+async function showDownloadedSongs(id) {
+  const box = document.querySelector(`[data-dl-tracks="${CSS.escape(id)}"]`)
+  if (!box) return
+  const items = await downloadedTracks(id)
+  box.innerHTML = `<div class="track-list"><div id="dl-rows-${esc(id)}">${items.map((t, i) => trackRowHtml(t, i)).join('')}</div></div>`
+  box.querySelectorAll('.track-row').forEach(el => {
+    const i = parseInt(el.dataset.idx)
+    wireTrackRow(el, items[i], items, i, { source: offlineCollection(id)?.item.Name })
+  })
+  highlightPlayingRow()
+  box.hidden = false
+}
+
+function toggleDownloadedSongs(id) {
+  const box = document.querySelector(`[data-dl-tracks="${CSS.escape(id)}"]`)
+  if (!box) return
+  if (!box.hidden) { box.hidden = true; _dlOpen.delete(id); return }
+  _dlOpen.add(id)
+  showDownloadedSongs(id)
+}
+
+// ── Offline mode ──
+// Launched with no reachable server: the sign-in prompt would be wrong (the
+// token is fine) and the library has nothing to show, so the app opens on the
+// Downloads, which play from disk. It leaves offline mode by itself when the
+// network comes back, or on "Try again".
+
+function enterOfflineMode() {
+  _offlineMode = true
+  document.body.classList.add('offline-mode')
+  showView('downloads')
+  refreshOffline()
+}
+
+async function leaveOfflineModeIfReachable() {
+  if (!_offlineMode) return
+  const serverUrl = await window.cascade.store.get('serverUrl')
+  const token = await window.cascade.store.get('token')
+  const userId = await window.cascade.store.get('userId')
+  if (!serverUrl || !token || !userId) return
+  try {
+    await connect(serverUrl, token, userId)
+  } catch (e) {
+    if (e?.status === 401 || e?.status === 403) { _offlineMode = false; document.body.classList.remove('offline-mode'); promptReauth('Your session expired. Sign in again with a code, or enter your password.') }
+    return   // still out of reach: stay on the downloads
+  }
+  _offlineMode = false
+  document.body.classList.remove('offline-mode')
+  document.getElementById('downloads-banner').hidden = true
+  showView('home')
+}
+
+document.getElementById('downloads-retry').addEventListener('click', leaveOfflineModeIfReachable)
+window.addEventListener('online', leaveOfflineModeIfReachable)
+
+// ── Plays made while the server was out of reach ──
+// Jellyfin counts a play when playback STARTS, so a start report it never heard
+// is a play lost. Those are kept (in the main process, across a restart) and
+// sent as a played-at update once the server answers.
+
+function queueOfflinePlay(itemId) {
+  window.cascade.offline.addPlay({ itemId, userId: jf.userId, date: new Date().toISOString() })
+    .then(() => scheduleOfflineRefresh()).catch(() => {})
+}
+
+let _replayingPlays = false
+async function replayOfflinePlays() {
+  if (_replayingPlays || !jf?.url) return
+  _replayingPlays = true
+  try {
+    const plays = await window.cascade.offline.takePlays()
+    for (let i = 0; i < plays.length; i++) {
+      const p = plays[i]
+      // Another account's play cannot be sent with this account's token. Keep it.
+      if (p.userId !== jf.userId) { await window.cascade.offline.addPlay(p); continue }
+      let status = 0
+      try {
+        const res = await fetch(`${jf.url}/UserPlayedItems/${p.itemId}?userId=${encodeURIComponent(p.userId)}&datePlayed=${encodeURIComponent(p.date)}`,
+          { method: 'POST', headers: CascadeCore.authHeaders(jf) })
+        status = res.status
+        if (res.ok) continue
+      } catch { /* still unreachable */ }
+      // The item is gone or the request can never succeed: retrying would jam
+      // every play behind it. Anything else may clear up, so it is kept.
+      if (CascadeCore.dropsPlay(status)) continue
+      await window.cascade.offline.addPlay(p)
+      // No answer at all: the rest would fail the same way, keep them in order.
+      if (status === 0) { for (const rest of plays.slice(i + 1)) await window.cascade.offline.addPlay(rest); break }
+    }
+  } finally {
+    _replayingPlays = false
+    scheduleOfflineRefresh()
+  }
 }
 
 // ── Full-screen now-playing overlay ──────────────────────────────────────────
@@ -9506,7 +9857,7 @@ let _ictxOnDetail = null   // "View detail"/"Go to artist page" handler - the
 const ICTX_FLAG_IDS = {
   play: 'ictx-play', playNext: 'ictx-play-next', playLast: 'ictx-play-last',
   shuffle: 'ictx-shuffle', instantMix: 'ictx-instant-mix', addPlaylist: 'ictx-add-playlist',
-  download: 'ictx-download', favorite: 'ictx-favorite',
+  download: 'ictx-download', offline: 'ictx-offline', favorite: 'ictx-favorite',
   markPlayed: 'ictx-mark-played', markUnplayed: 'ictx-mark-unplayed',
   goArtist: 'ictx-go-artist', viewDetail: 'ictx-view-detail',
   rename: 'ictx-rename', deleteItem: 'ictx-delete',
@@ -9557,6 +9908,8 @@ function showItemCtxMenu(kind, item, el, x, y, onDetail) {
   if (detailLabel) detailLabel.textContent = kind === 'artist' ? 'Go to artist page' : 'Go to details'
   const favLabel = document.getElementById('ictx-favorite-label')
   if (favLabel) favLabel.textContent = item?.UserData?.IsFavorite ? 'Unfavorite' : 'Favorite'
+  const offlineLabel = document.getElementById('ictx-offline-label')
+  if (offlineLabel) offlineLabel.textContent = offlineCollection(item?.Id) ? 'Remove download' : 'Download for offline'
   // A user smart playlist repurposes the rename/delete rows (its own
   // definition, never gated on server delete permission the way a real
   // playlist is - see menuItemsForKind) rather than adding two more rows that
@@ -9658,6 +10011,13 @@ document.getElementById('ictx-add-playlist').addEventListener('click', async () 
   if (!tracks.length) return
   _atpTargetItem = tracks   // array - atpLoadPlaylists() POSTs every id at once
   openAtpModal()
+})
+
+// Download for offline, or remove it: album and playlist (see menuItemsForKind).
+document.getElementById('ictx-offline').addEventListener('click', () => {
+  hideItemCtxMenu()
+  if (!['album', 'playlist'].includes(_ictxKind) || !_ictxItem) return
+  toggleOfflineDownload(_ictxKind, _ictxItem)
 })
 
 // Download: album-only (see menuItemsForKind) - there is no single file to

@@ -26,6 +26,8 @@ export interface MenuItemVisibility {
   instantMix: boolean
   addPlaylist: boolean
   download: boolean
+  /** Download for offline listening, or remove that download (album and playlist). */
+  offline: boolean
   favorite: boolean
   markPlayed: boolean
   markUnplayed: boolean
@@ -39,7 +41,7 @@ export interface MenuItemVisibility {
 
 const NONE: MenuItemVisibility = {
   play: false, playNext: false, playLast: false, shuffle: false, instantMix: false,
-  addPlaylist: false, download: false, favorite: false, markPlayed: false, markUnplayed: false,
+  addPlaylist: false, download: false, offline: false, favorite: false, markPlayed: false, markUnplayed: false,
   goArtist: false, viewDetail: false, rename: false, deleteItem: false, refreshMeta: false, editMeta: false,
 }
 
@@ -53,7 +55,7 @@ export function menuItemsForKind(kind: MenuItemKind, opts: MenuItemOptions = {})
   switch (kind) {
     case 'album':
       return { ...NONE, play: true, playNext: true, playLast: true, shuffle: true, instantMix: true,
-        addPlaylist: true, download: true, favorite: true, goArtist: true, refreshMeta: true, editMeta: true }
+        addPlaylist: true, download: true, offline: true, favorite: true, goArtist: true, refreshMeta: true, editMeta: true }
     case 'artist':
       return { ...NONE, play: true, playNext: true, playLast: true, shuffle: true, instantMix: true,
         addPlaylist: true, favorite: true, viewDetail: true }
@@ -65,7 +67,7 @@ export function menuItemsForKind(kind: MenuItemKind, opts: MenuItemOptions = {})
         markPlayed: opts.isPlayed === false, markUnplayed: opts.isPlayed === true }
     case 'playlist':
       return { ...NONE, play: true, playNext: true, playLast: true, shuffle: true,
-        addPlaylist: true, rename: true, deleteItem: true }
+        addPlaylist: true, offline: true, rename: true, deleteItem: true }
     case 'smart-playlist':
       return { ...NONE, play: true, playNext: true, playLast: true, shuffle: true, addPlaylist: true }
     // Reuses the rename/delete rows (renderer.js relabels them "Edit rules…"/

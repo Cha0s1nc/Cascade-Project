@@ -96,6 +96,7 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
       art: [...art],
       collections: index.collections.map(c => ({
         item: c.item,
+        trackIds: c.trackIds,
         ...Offline.collectionProgress(index, c.item.Id),
         bytes: Offline.collectionBytes(index, c.item.Id),
       })),

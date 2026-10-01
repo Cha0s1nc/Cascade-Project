@@ -119,3 +119,12 @@ test('a failed report never throws', async () => {
 test('progress interval is frequent enough to look live', () => {
   assert.ok(PROGRESS_INTERVAL_MS <= 10_000)
 })
+
+test('a report says whether the server took it', async () => {
+  stubFetch()
+  assert.equal(await reportStart(client, state()), true)
+  stubFetch(false)
+  assert.equal(await reportStart(client, state()), false, 'a refused start is how an offline play is noticed')
+  globalThis.fetch = (() => Promise.reject(new Error('offline'))) as unknown as typeof fetch
+  assert.equal(await reportStart(client, state()), false)
+})

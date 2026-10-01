@@ -56,13 +56,15 @@ export function buildPlaybackReport(s: PlaybackState): Record<string, unknown> {
   }
 }
 
-/** Playback began. */
-export function reportStart(client: JellyfinClient, s: PlaybackState): Promise<void> {
+/** Playback began. Resolves true when the server took it: Jellyfin counts a
+ *  play on this report, so a caller that can tell it failed (offline) can queue
+ *  the play and replay it later. */
+export function reportStart(client: JellyfinClient, s: PlaybackState): Promise<boolean> {
   return post(client, '/Sessions/Playing', buildPlaybackReport(s))
 }
 
 /** Periodic check-in, and every play/pause/seek/volume change. */
-export function reportProgress(client: JellyfinClient, s: PlaybackState): Promise<void> {
+export function reportProgress(client: JellyfinClient, s: PlaybackState): Promise<boolean> {
   return post(client, '/Sessions/Playing/Progress', {
     ...buildPlaybackReport(s),
     EventName: s.isPaused ? 'Pause' : 'TimeUpdate',
@@ -70,7 +72,7 @@ export function reportProgress(client: JellyfinClient, s: PlaybackState): Promis
 }
 
 /** Playback ended. Drives watch history, so position matters. */
-export function reportStopped(client: JellyfinClient, s: PlaybackState): Promise<void> {
+export function reportStopped(client: JellyfinClient, s: PlaybackState): Promise<boolean> {
   return post(client, '/Sessions/Playing/Stopped', {
     ItemId: s.itemId,
     PositionTicks: Math.max(0, Math.round(s.positionTicks)),
@@ -83,11 +85,13 @@ export function reportStopped(client: JellyfinClient, s: PlaybackState): Promise
  * Reporting is best-effort: a dropped check-in must never interrupt playback,
  * and these fire on a timer where an unhandled rejection would be noise.
  */
-async function post(client: JellyfinClient, path: string, body: unknown): Promise<void> {
+async function post(client: JellyfinClient, path: string, body: unknown): Promise<boolean> {
   try {
     await client.post(path, body)
+    return true
   } catch {
     /* server unreachable or session gone; the next check-in re-syncs */
+    return false
   }
 }
 
