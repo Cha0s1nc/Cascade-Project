@@ -1,4 +1,6 @@
 import { _electron as electron } from 'playwright-core'
+// The installed Electron binary for this platform (the package's main export is its path).
+import electronPath from 'electron'
 
 // Run from the repo root: CASCADE_DIR defaults to the current directory.
 const ROOT = process.env.CASCADE_DIR || process.cwd()
@@ -14,7 +16,7 @@ const mk = (k) => new Promise(r => { const s = http.createServer((req, res) => {
 const A = await mk('A'), B = await mk('B')
 const pa = A.address().port, pb = B.address().port
 const dir = fs.mkdtempSync('/tmp/cascade-ud-')
-const app = await electron.launch({ executablePath: `${ROOT}/node_modules/electron/dist/electron`, args: [ROOT, '--no-sandbox', `--user-data-dir=${dir}`], env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1' } })
+const app = await electron.launch({ executablePath: electronPath, args: [ROOT, '--no-sandbox', `--user-data-dir=${dir}`], env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1' } })
 const win = await app.firstWindow()
 await win.waitForLoadState('domcontentloaded')
 await win.waitForFunction(() => window.cascade && window.cascade.connection)

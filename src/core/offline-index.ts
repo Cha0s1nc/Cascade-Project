@@ -179,6 +179,11 @@ export const isSafeMediaPath = (p: unknown): p is string =>
 export const isSafeArtPath = (p: unknown): p is string =>
   typeof p === 'string' && /^art\/[A-Za-z0-9]{1,64}\.jpg$/.test(p)
 
+/** A Jellyfin user id (a GUID, with or without dashes). It names the account's
+ *  offline folder, so it must never be a path. */
+export const isSafeUserId = (id: unknown): id is string =>
+  typeof id === 'string' && /^[A-Za-z0-9-]{1,64}$/.test(id) && !/^-+$/.test(id)
+
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
 
@@ -219,7 +224,7 @@ export function parseIndex(raw: unknown): OfflineIndex {
 
   if (Array.isArray(raw.plays)) {
     for (const p of raw.plays) {
-      if (!isPlainObject(p) || !isSafeId(p.itemId) || typeof p.userId !== 'string' || !/^[A-Za-z0-9-]{1,64}$/.test(p.userId)) continue
+      if (!isPlainObject(p) || !isSafeId(p.itemId) || !isSafeUserId(p.userId)) continue
       const date = isoDate(p.date)
       if (date) index.plays.push({ itemId: p.itemId, userId: p.userId, date })
     }

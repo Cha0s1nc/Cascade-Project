@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  isSafeUserId,
   emptyIndex, addCollection, markReady, removeCollection, reconcile, pendingTrackIds, collectionProgress,
   totalBytes, collectionBytes, readyFile, indexedFiles, addPlay, dropsPlay, isSafeId, isSafeMediaPath, isSafeArtPath,
   parseIndex, slimItem, fileExtensionFor, judgeDownload, MAX_QUEUED_PLAYS, collectionOf, parseByteRange, contentTypeForFile,
@@ -194,4 +195,10 @@ test('contentTypeForFile names what a stored file is', () => {
   assert.equal(contentTypeForFile('media/x.M4A'), 'audio/mp4')
   assert.equal(contentTypeForFile('art/x.jpg'), 'image/jpeg')
   assert.equal(contentTypeForFile('media/x.zzz'), 'application/octet-stream')
+})
+
+test('a user id names a folder and can never be a path', () => {
+  assert.ok(isSafeUserId('4f1c2a9e8b7d4c3e9a1b2c3d4e5f6a7b'))
+  assert.ok(isSafeUserId('4f1c2a9e-8b7d-4c3e-9a1b-2c3d4e5f6a7b'))
+  for (const bad of ['', '..', '-', '---', 'a/b', 'a\\b', '.hidden', 'x'.repeat(65), null, 5]) assert.equal(isSafeUserId(bad), false, String(bad))
 })

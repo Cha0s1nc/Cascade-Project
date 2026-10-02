@@ -4,10 +4,15 @@
 // in src/core/offline-index.ts; this file is the part that touches the disk and
 // the network. No semicolons, like main.js.
 //
-// Layout under app.getPath('userData')/offline:
+// Layout under app.getPath('userData')/offline/<userId>, one folder per
+// account so the next person to sign in never sees, plays or resumes the last
+// one's downloads (Jellyfin user ids are GUIDs, unique across servers, and the
+// same account reached at another address keeps its music):
 //   index.json        the one index, relative paths only, validated when read
 //   media/<id>.<ext>  a finished track; media/<id>.partial while it downloads
 //   art/<id>.jpg      cover art, so the Downloads view works with no server
+// ponytail: a user deleted on the server leaves its folder behind; add a
+// cleanup when someone asks where the disk space went.
 
 const fs = require('fs')
 const path = require('path')
@@ -29,11 +34,17 @@ const SAVE_DEBOUNCE_MS = 500
  * @param {typeof import('./src/core/offline-index')} deps.Offline  build/offline-index.js
  */
 function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, headersFor, Offline }) {
-  const root = path.join(app.getPath('userData'), 'offline')
-  const mediaDir = path.join(root, 'media')
-  const artDir = path.join(root, 'art')
-  const indexFile = path.join(root, 'index.json')
+  const base = path.join(app.getPath('userData'), 'offline')
+  /** The signed-in account's folder, or null with nobody signed in: then every
+   *  call answers empty and the protocol serves nothing. */
+  let owner = null
+  let root = null
+  let mediaDir = null
+  let artDir = null
+  let indexFile = null
 
+  /** Replaced (never mutated into another account's) on every owner change, so
+   *  work that started for one account can tell it is stale after an await. */
   let index = Offline.emptyIndex()
   /** Art on disk, by item id. Derived from the folder, not stored. */
   let art = new Set()
@@ -48,6 +59,27 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
   let saveTimer = null
 
   // ── Index on disk ──────────────────────────────────────────────────────────
+
+  /** Switches to `userId`'s downloads, or to none. The outgoing account's index
+   *  is written first and its downloads stopped (they resume when it signs in
+   *  again), and the token it was downloading with is dropped. */
+  function setOwner(userId) {
+    const next = Offline.isSafeUserId(userId) ? userId : null
+    if (next === owner) return
+    flush()
+    for (const a of active.values()) a.controller.abort()
+    failed.clear()
+    session = null
+    owner = next
+    index = Offline.emptyIndex()
+    art = new Set()
+    if (!owner) { root = mediaDir = artDir = indexFile = null; return }
+    root = path.join(base, owner)
+    mediaDir = path.join(root, 'media')
+    artDir = path.join(root, 'art')
+    indexFile = path.join(root, 'index.json')
+    load()
+  }
 
   function load() {
     fs.mkdirSync(mediaDir, { recursive: true })
@@ -68,6 +100,7 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
 
   function saveNow() {
     clearTimeout(saveTimer); saveTimer = null
+    if (!indexFile) return
     const tmp = `${indexFile}.tmp`
     fs.writeFileSync(tmp, JSON.stringify(index))
     fs.renameSync(tmp, indexFile)
@@ -108,6 +141,7 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
   }
 
   function tracksOf(collectionId) {
+    if (!owner) return []
     const c = Offline.collectionOf(index, collectionId)
     if (!c) return []
     return c.trackIds.map(id => ({ item: index.tracks[id].item, ready: !!index.tracks[id].file }))
@@ -124,6 +158,8 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
   async function downloadTrack(id) {
     const server = getServerUrl()
     const url = `${server.replace(/\/+$/, '')}/Items/${id}/Download`
+    const mine = index
+    const dir = root
     const partial = path.join(mediaDir, `${id}.partial`)
     const state = { received: 0, total: null, reachedServer: false, controller: new AbortController() }
     active.set(id, state)
@@ -156,12 +192,13 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
         status: res.status, expected: state.total, received: state.received,
         contentDisposition: res.headers.get('content-disposition'), contentType: res.headers.get('content-type'),
       })
-      // Dropped by a removal while it ran: the file is nobody's now.
-      if (!index.tracks[id]) { fs.rmSync(partial, { force: true }); return }
+      // Dropped by a removal, or the account signed out, while it ran: the
+      // file is nobody's now.
+      if (index !== mine || !index.tracks[id]) { fs.rmSync(partial, { force: true }); return }
       if (!verdict.ok) { fs.rmSync(partial, { force: true }); failed.set(id, verdict.message); return }
 
       const file = `media/${id}.${verdict.ext}`
-      fs.renameSync(partial, path.join(root, file))
+      fs.renameSync(partial, path.join(dir, file))
       Offline.markReady(index, id, file, state.received)
       failed.delete(id)
       scheduleSave()
@@ -169,7 +206,7 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
     } catch (e) {
       try { out?.destroy() } catch {}
       fs.rmSync(partial, { force: true })
-      if (state.controller.signal.aborted) return
+      if (state.controller.signal.aborted || index !== mine) return
       if (state.reachedServer) {
         // Cut off partway: this track failed, the next may well be fine.
         failed.set(id, 'The download was interrupted.')
@@ -187,13 +224,14 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
 
   /** Runs until nothing is pending, a few tracks at once. One loop at a time. */
   async function pump() {
-    if (running || !session || !getServerUrl()) return
+    if (running || !owner || !session || !getServerUrl()) return
     running = true
     networkDown = false
+    const mine = index
     try {
       const workers = Array.from({ length: PARALLEL }, async () => {
         while (true) {
-          if (networkDown) return
+          if (networkDown || index !== mine || !session) return
           const id = Offline.pendingTrackIds(index).find(t => !active.has(t) && !failed.has(t))
           if (!id) return
           await downloadTrack(id)
@@ -204,6 +242,8 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
     } finally {
       running = false
       emit({ type: 'changed' })
+      // Another account signed in while this one's queue wound down.
+      if (index !== mine) pump()
     }
   }
 
@@ -212,21 +252,26 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
   async function fetchMissingArt() {
     const server = getServerUrl()
     if (!server || !session) return
+    const mine = index
+    const dir = artDir
     const ids = new Set()
     for (const c of index.collections) {
       ids.add(c.item.Id)
       for (const id of c.trackIds) { const a = index.tracks[id]?.item.AlbumId; if (a) ids.add(a) }
     }
     for (const id of ids) {
+      if (index !== mine || !session) return
       if (art.has(id) || !Offline.isSafeId(id)) continue
       const url = `${server.replace(/\/+$/, '')}/Items/${id}/Images/Primary?maxWidth=600&quality=90&format=Jpg`
-      const partial = path.join(artDir, `${id}.partial`)
+      const partial = path.join(dir, `${id}.partial`)
       try {
         const res = await net.fetch(url, { headers: requestHeaders(url) })
         // 404 is the normal "this item has no art".
         if (!res.ok || !(res.headers.get('content-type') || '').startsWith('image/')) continue
-        fs.writeFileSync(partial, Buffer.from(await res.arrayBuffer()))
-        fs.renameSync(partial, path.join(artDir, `${id}.jpg`))
+        const body = Buffer.from(await res.arrayBuffer())
+        if (index !== mine) return
+        fs.writeFileSync(partial, body)
+        fs.renameSync(partial, path.join(dir, `${id}.jpg`))
         art.add(id)
         emit({ type: 'art', id })
       } catch {
@@ -253,7 +298,7 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
       const allowed = Offline.isSafeMediaPath(rel)
         ? Offline.indexedFiles(index).has(rel)
         : Offline.isSafeArtPath(rel) && art.has(rel.slice(4, -4))
-      if (url.host !== 'local' || !allowed) return new Response('Not found', { status: 404 })
+      if (!root || url.host !== 'local' || !allowed) return new Response('Not found', { status: 404 })
       const abs = path.normalize(path.join(root, rel))
       if (!abs.startsWith(root + path.sep)) return new Response('Forbidden', { status: 403 })
       let size
@@ -289,11 +334,14 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
   }
 
   function register() {
+    // The renderer says who is signed in: at launch (from the store, so offline
+    // mode finds that account's music), on every sign-in, and null on sign-out.
+    ipcMain.handle('offline-owner', (_e, userId) => { setOwner(userId) })
     ipcMain.handle('offline-summary', () => summary())
     ipcMain.handle('offline-tracks', (_e, collectionId) => Offline.isSafeId(collectionId) ? tracksOf(collectionId) : [])
 
     ipcMain.handle('offline-add', (_e, collection, tracks, s) => {
-      if (!collection || !Offline.isSafeId(collection.Id) || !Array.isArray(tracks) || !tracks.length) return false
+      if (!owner || !collection || !Offline.isSafeId(collection.Id) || !Array.isArray(tracks) || !tracks.length) return false
       takeSession(s)
       Offline.addCollection(index, collection, tracks)
       for (const id of index.collections[0].trackIds) failed.delete(id)
@@ -304,7 +352,7 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
     })
 
     ipcMain.handle('offline-remove', (_e, collectionId) => {
-      if (!Offline.isSafeId(collectionId)) return false
+      if (!owner || !Offline.isSafeId(collectionId)) return false
       const orphans = Offline.removeCollection(index, collectionId)
       // Stop what is downloading for tracks nobody wants now.
       for (const [id, a] of active) if (!index.tracks[id]) a.controller.abort()
@@ -322,6 +370,7 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
     // Start whatever is asked for and not on disk: after a relaunch, a failure,
     // or on reconnect. Clears failures so each gets another try.
     ipcMain.handle('offline-resume', (_e, s) => {
+      if (!owner) return
       takeSession(s)
       failed.clear()
       pump()
@@ -330,8 +379,7 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
     ipcMain.handle('offline-play-add', (_e, play) => {
       const date = new Date(play?.date)
       // What the renderer sends is checked like anything read from disk.
-      if (!Offline.isSafeId(play?.itemId) || typeof play.userId !== 'string' || !/^[A-Za-z0-9-]{1,64}$/.test(play.userId)
-        || Number.isNaN(date.getTime())) return
+      if (!owner || !Offline.isSafeId(play?.itemId) || !Offline.isSafeUserId(play.userId) || Number.isNaN(date.getTime())) return
       Offline.addPlay(index, { itemId: play.itemId, userId: play.userId, date: date.toISOString() })
       scheduleSave()
     })
@@ -342,7 +390,7 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
 
   function flush() { try { if (saveTimer) saveNow() } catch {} }
 
-  return { load, register, registerProtocol, flush, pump }
+  return { register, registerProtocol, flush }
 }
 
 module.exports = { createOffline }

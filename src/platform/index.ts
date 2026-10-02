@@ -169,6 +169,9 @@ export interface DesktopCapabilities {
    *  session carries the Authorization header for this call only: the main
    *  process keeps it in memory and stores nothing about who is signed in. */
   offline?: {
+    /** Whose downloads to show and fetch: the signed-in user id, or null when
+     *  nobody is. Each account has its own; another's are never listed. */
+    setOwner(userId: string | null): Promise<void>
     summary(): Promise<OfflineSummary>
     tracks(collectionId: string): Promise<{ item: JfItem; ready: boolean }[]>
     add(collection: JfItem, tracks: JfItem[], session: { authorization: string }): Promise<boolean>

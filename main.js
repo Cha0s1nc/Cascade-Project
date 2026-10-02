@@ -573,7 +573,6 @@ function createWindow() {
 app.whenReady().then(() => {
   registerModelProtocol()
   installConnectionHeaders()
-  offline.load()
   offline.registerProtocol()
   createWindow()
 })

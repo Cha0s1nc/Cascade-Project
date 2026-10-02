@@ -1,4 +1,6 @@
 import { _electron as electron } from 'playwright-core'
+// The installed Electron binary for this platform (the package's main export is its path).
+import electronPath from 'electron'
 
 // Run from the repo root: CASCADE_DIR defaults to the current directory.
 const ROOT = process.env.CASCADE_DIR || process.cwd()
@@ -40,7 +42,7 @@ const tmp = await makeServer(0); const port = tmp.address().port; tmp.close(); a
 let srv = await makeServer(port)
 const server = `http://127.0.0.1:${port}`
 const dir = fs.mkdtempSync('/tmp/cascade-ud-')
-const launch = () => electron.launch({ executablePath: `${ROOT}/node_modules/electron/dist/electron`, args: [ROOT, '--no-sandbox', `--user-data-dir=${dir}`] })
+const launch = () => electron.launch({ executablePath: electronPath, args: [ROOT, '--no-sandbox', `--user-data-dir=${dir}`] })
 
 // ---- run 1: sign in, download ----
 let app = await launch(); let win = await app.firstWindow()
@@ -89,4 +91,10 @@ await win.waitForTimeout(1500)
 console.log('RUN2b left offline mode; active view:', await win.evaluate(() => document.querySelector('.view.active').id))
 console.log('replayed:', log.filter(l => l.startsWith('POST /UserPlayedItems')).map(l => l.replace(/datePlayed=[^&]+/, 'datePlayed=<date>')))
 console.log('plays after replay:', (await win.evaluate(() => window.cascade.offline.summary())).plays)
+
+// ---- run 2c: sign out through the real button ----
+await win.evaluate(() => document.getElementById('btn-logout').click())
+await win.waitForSelector('#setup-overlay:not(.hidden)')
+const out = await win.evaluate(() => window.cascade.offline.summary())
+console.log('signed out -> collections:', out.collections.length, '| renderer _offline:', await win.evaluate(() => _offline.collections.length))
 await app.close(); srv.close()

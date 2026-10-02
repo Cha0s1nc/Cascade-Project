@@ -24,6 +24,7 @@ const cascade: ElectronPlatform = {
     resetCertificate: () => ipcRenderer.invoke('connection-reset-certificate'),
   },
   offline: {
+    setOwner: (userId) => ipcRenderer.invoke('offline-owner', userId),
     summary:  () => ipcRenderer.invoke('offline-summary'),
     tracks:   (collectionId) => ipcRenderer.invoke('offline-tracks', collectionId),
     add:      (collection, tracks, session) => ipcRenderer.invoke('offline-add', collection, tracks, session),

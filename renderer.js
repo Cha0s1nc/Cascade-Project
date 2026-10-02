@@ -799,8 +799,11 @@ async function connect(serverUrl, token, userId) {
 
   startRemoteControl()
   probeCascadePlugin()  // not awaited - cheap, and nothing here depends on the result yet
-  // Back online: carry on with downloads that were waiting, and tell the
-  // server about plays made while it was out of reach.
+  // This account's downloads (another's are never shown or resumed). Back
+  // online: carry on with downloads that were waiting, and tell the server
+  // about plays made while it was out of reach.
+  await window.cascade.offline.setOwner(jf.userId)
+  await refreshOffline()
   window.cascade.offline.resume(offlineSession()).catch(() => {})
   replayOfflinePlays()
   await populateLibraryPicker(viewsPromise)
@@ -6892,6 +6895,10 @@ document.getElementById('btn-logout').addEventListener('click', async () => {
                        // and the current encoding, clears Discord presence
   invalidateLibraryViews()
   invalidateVideoViews()
+  // Stops this account's downloads, drops the token the main process held for
+  // them, and hides its music from whoever signs in next.
+  await window.cascade.offline.setOwner(null)
+  await refreshOffline()
   jf.isAdmin = false     // a stale admin flag must not survive into the next account
   jf.canDelete = false   // same for the deletion right - it is per-account, not per-session
   _applyAdminGating()
@@ -7218,7 +7225,9 @@ async function init() {
   if (legacyPassword !== undefined) await window.cascade.store.delete('password')
 
   // Before anything draws a cover or resolves a stream: what is downloaded is
-  // what works with no server.
+  // what works with no server. Each account has its own downloads, and the
+  // saved one is whose music offline mode plays.
+  await window.cascade.offline.setOwner(serverUrl && token && userId ? userId : null)
   await refreshOffline()
 
   if (serverUrl && token && userId) {

@@ -2,7 +2,7 @@
 
 These drive the real Electron app (not mocks) against small fake Jellyfin servers, and are what the claims in `docs/missing-features-report.md` about the desktop items rest on. They are evidence for an audit, not part of the test suite: delete this folder if you do not want it in the repo.
 
-Run from the repo root after `npm run build:ts`, with `npm i --no-save playwright-core` and Xvfb available: `xvfb-run -a node docs/missing-features-verification/<script>.mjs`. Each prints what it observed. They create throwaway profiles under `/tmp` and listen on random local ports.
+Run from the repo root after `npm run build:ts`, with `npm i --no-save playwright-core`: `node docs/missing-features-verification/<script>.mjs` on macOS, or under `xvfb-run -a` on a headless Linux box. All six passed on macOS on 2026-09-30. Each prints what it observed. They create throwaway profiles under `/tmp` and listen on random local ports.
 
 - `headers-injection.mjs`: reverse proxy headers reach fetch, image and audio requests to the server's origin and no other host or port, and Authorization and Host are refused.
 - `headers-signin.mjs`: the sign-in screen against a server that rejects any request without the header, including the Quick Connect probe and everything after sign-in.

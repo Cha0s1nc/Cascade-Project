@@ -1,4 +1,6 @@
 import { _electron as electron } from 'playwright-core'
+// The installed Electron binary for this platform (the package's main export is its path).
+import electronPath from 'electron'
 
 // Run from the repo root: CASCADE_DIR defaults to the current directory.
 const ROOT = process.env.CASCADE_DIR || process.cwd()
@@ -16,7 +18,7 @@ const srv = await new Promise(r => { const s = http.createServer((req, res) => {
   res.end(JSON.stringify({ Items: [], TotalRecordCount: 0 }))
 }).listen(0, '127.0.0.1', () => r(s)) })
 const dir = fs.mkdtempSync('/tmp/cascade-ud-')
-const app = await electron.launch({ executablePath: `${ROOT}/node_modules/electron/dist/electron`, args: [ROOT, '--no-sandbox', `--user-data-dir=${dir}`] })
+const app = await electron.launch({ executablePath: electronPath, args: [ROOT, '--no-sandbox', `--user-data-dir=${dir}`] })
 const win = await app.firstWindow()
 await win.waitForSelector('#setup-overlay:not(.hidden)')
 await win.fill('#setup-url', `http://127.0.0.1:${srv.address().port}`); await win.fill('#setup-username', 'b'); await win.fill('#setup-password', 'p')
