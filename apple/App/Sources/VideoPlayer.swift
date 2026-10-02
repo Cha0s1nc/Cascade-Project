@@ -1,5 +1,6 @@
 import SwiftUI
 import AVKit
+import Combine
 import CascadeKit
 
 /// One movie or run of episodes playing: the desktop's playVideo. Apart from
@@ -17,6 +18,24 @@ final class VideoSession {
     private(set) var finished = false
     /// The intro or outro playing now, which the player offers to skip.
     private(set) var activeSegment: MediaSegment?
+    /// The playing video's chapters, on the player's clock. tvOS hands them to
+    /// the system player as markers; iOS draws them as ticks on its scrubber.
+    private(set) var chapters: [Chapter] = []
+    /// The server's preview frames for scrubbing, when the library makes them.
+    private(set) var trickplay: Trickplay?
+    /// The player's clock and length, twice a second, for the iOS controls.
+    private(set) var time: Double = 0
+    private(set) var duration: Double = 0
+    private(set) var isPlaying = false
+    /// Wider than tall, so the iOS player holds landscape. Nil until known.
+    private(set) var isLandscapeVideo: Bool?
+    /// The stream's subtitle and audio choices, for the iOS menus.
+    private(set) var subtitleGroup: AVMediaSelectionGroup?
+    private(set) var audioGroup: AVMediaSelectionGroup?
+    /// What the menus call each track, read once when the stream loads.
+    private(set) var trackLabels: [AVMediaSelectionOption: String] = [:]
+    /// Bumped on a selection, so the menus redraw their checkmarks.
+    private(set) var selectionRevision = 0
 
     private let client: JellyfinClient
     private let config: ServerConfig
@@ -30,6 +49,10 @@ final class VideoSession {
     @ObservationIgnored private var segments: [MediaSegment] = []
     /// Segments auto-skip already fired for, so seeking back is not fought.
     @ObservationIgnored private var autoSkipped: Set<String> = []
+    @ObservationIgnored private var timeObserver: Any?
+    @ObservationIgnored private var statusWatch: AnyCancellable?
+    /// Trickplay sheets fetched for this item, by sheet number.
+    @ObservationIgnored private var sheets: [Int: UIImage] = [:]
 
     init(client: JellyfinClient, config: ServerConfig) {
         self.client = client
@@ -37,6 +60,21 @@ final class VideoSession {
         // AVPlayer's own default already follows the system's caption
         // preferences (Settings > Accessibility > Subtitles & Captioning).
         player.appliesMediaSelectionCriteriaAutomatically = true
+        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
+                                                      queue: .main) { [weak self] t in
+            MainActor.assumeIsolated { self?.tick(t.seconds) }
+        }
+    }
+
+    private func tick(_ seconds: Double) {
+        time = seconds.isFinite ? seconds : 0
+        let length = player.currentItem?.duration.seconds ?? 0
+        duration = length.isFinite ? length : 0
+        isPlaying = player.timeControlStatus != .paused
+        // The picture's real size, for an item the list did not say it of.
+        if isLandscapeVideo == nil, let size = player.currentItem?.presentationSize, size.width > 0, size.height > 0 {
+            isLandscapeVideo = size.width > size.height
+        }
     }
 
     /// `resume` picks up at the saved position; otherwise from the start.
@@ -53,25 +91,45 @@ final class VideoSession {
         let item = queue[index]
         self.item = item
         error = nil
+        chapters = []
+        trickplay = nil
+        sheets = [:]
+        subtitleGroup = nil
+        audioGroup = nil
+        trackLabels = [:]
+        time = 0
+        duration = 0
+        // The list's MediaStreams say it before the first frame does.
+        let video = item.mediaStreams?.first { $0.type == "Video" }
+        isLandscapeVideo = video.flatMap { v in v.width.flatMap { w in v.height.map { h in w > h } } }
         let start = resume ? resumeTicks(for: item) : 0
         do {
             let stream = try await VideoPlayback.resolve(client: client, config: config, item: item,
-                                                         audioStreamIndex: audioStreamIndex, startTicks: start)
+                                                         audioStreamIndex: audioStreamIndex)
             guard self.item?.id == item.id else { return }
             resolved = stream
             // Through ProxyConnection: AVPlayer's own networking needs the reverse
             // proxy headers set on the asset.
             let playerItem = AVPlayerItem(asset: ProxyConnection.shared.asset(url: stream.url))
             player.replaceCurrentItem(with: playerItem)
-            // A direct file starts at 0 and seeks locally; a transcode was
-            // asked to start at `start` and its clock counts from there.
-            if stream.direct && start > 0 {
+            // Apple's player drew its own broken-play icon for a stream that
+            // fails; the iOS controls would just sit over black.
+            statusWatch = playerItem.publisher(for: \.status).receive(on: DispatchQueue.main).sink { [weak self] status in
+                MainActor.assumeIsolated {
+                    guard status == .failed, let self, self.error == nil else { return }
+                    self.error = "This video stopped loading. The server may have refused the stream."
+                }
+            }
+            // Both a direct file and a transcode's playlist start at the top
+            // of the film, so a resume is a seek (see VideoPlayback.resolve).
+            if start > 0 {
                 await player.seek(to: CMTime(seconds: seconds(fromTicks: start), preferredTimescale: 600))
             }
             player.play()
             watchForEnd(playerItem)
             watchSegments(for: item)
             addChapterMarkers(for: item, to: playerItem, streamStartSeconds: seconds(fromTicks: stream.startTicks))
+            loadSelectionGroups(for: playerItem)
             _ = await PlaybackReporter.start(client, state())
             startReporting()
         } catch {
@@ -105,17 +163,23 @@ final class VideoSession {
 
     // MARK: Chapters
 
-    /// The video's chapters as the player's navigation markers: the player's own
-    /// scrubber shows them and lets a person jump between them (on tvOS, by
-    /// swiping up). Fetched after playback has started, so a slow answer costs
-    /// nothing; a film with none (or an older server) just has no markers.
+    /// The video's chapters and trickplay manifest, in one request. On tvOS the
+    /// chapters become the player's navigation markers (its scrubber shows them,
+    /// swipe up to jump); iOS draws its own scrubber with them as ticks.
+    /// Fetched after playback has started, so a slow answer costs nothing; a
+    /// film with neither (or an older server) just has none.
     private func addChapterMarkers(for item: JfItem, to playerItem: AVPlayerItem, streamStartSeconds: Double) {
+        let mediaSourceId = resolved?.mediaSourceId
         Task { [weak self] in
             guard let self else { return }
-            let all = await self.client.chapters(for: item)
-            let chapters = Chapters.onPlayerTimeline(all, streamStartSeconds: streamStartSeconds)
+            let details = await self.client.videoDetails(for: item)
             // The item may have changed while this was out.
-            guard chapters.count > 1, self.item?.id == item.id, self.player.currentItem === playerItem else { return }
+            guard self.item?.id == item.id, self.player.currentItem === playerItem else { return }
+            self.trickplay = Trickplay.pick(details.trickplay, mediaSourceId: mediaSourceId)
+            let chapters = Chapters.onPlayerTimeline(details.chapters, streamStartSeconds: streamStartSeconds)
+            guard chapters.count > 1 else { return }
+            self.chapters = chapters
+            #if os(tvOS)
             let markers = chapters.enumerated().map { i, chapter -> AVTimedMetadataGroup in
                 let title = AVMutableMetadataItem()
                 title.identifier = .commonIdentifierTitle
@@ -128,7 +192,88 @@ final class VideoSession {
                 return AVTimedMetadataGroup(items: [title], timeRange: range)
             }
             playerItem.navigationMarkerGroups = [AVNavigationMarkersGroup(title: nil, timedNavigationMarkers: markers)]
+            #endif
         }
+    }
+
+    // MARK: The iOS controls
+
+    /// Where the player's clock starts in the film: zero but for a transcode
+    /// asked to start partway in. Add it for anything shown as film time.
+    var streamStartSeconds: Double { seconds(fromTicks: resolved?.startTicks ?? 0) }
+
+    /// On the player's clock. A transcode cannot go before its own start.
+    func seek(toPlayerSeconds target: Double) {
+        let clamped = max(0, duration > 0 ? min(target, duration) : target)
+        time = clamped
+        Task { await player.seek(to: CMTime(seconds: clamped, preferredTimescale: 600)) }
+    }
+
+    func skip(by seconds: Double) { seek(toPlayerSeconds: time + seconds) }
+
+    func togglePlay() {
+        if player.timeControlStatus == .paused { player.play() } else { player.pause() }
+        isPlaying = player.timeControlStatus != .paused
+    }
+
+    /// 1 is normal. Kept across play and pause.
+    var speed: Float { player.defaultRate }
+
+    func setSpeed(_ rate: Float) {
+        player.defaultRate = rate
+        if player.rate != 0 { player.rate = rate }
+        selectionRevision += 1
+    }
+
+    private func loadSelectionGroups(for playerItem: AVPlayerItem) {
+        Task { [weak self] in
+            let legible = try? await playerItem.asset.loadMediaSelectionGroup(for: .legible)
+            let audible = try? await playerItem.asset.loadMediaSelectionGroup(for: .audible)
+            var labels: [AVMediaSelectionOption: String] = [:]
+            for option in (legible?.options ?? []) + (audible?.options ?? []) {
+                let item = option.commonMetadata.first { $0.identifier?.rawValue == "m3u8/NAME" }
+                let name = try? await item?.load(.stringValue)
+                labels[option] = mediaTrackLabel(playlistName: name ?? nil, fallback: option.displayName)
+            }
+            guard let self, self.player.currentItem === playerItem else { return }
+            self.trackLabels = labels
+            self.subtitleGroup = legible?.options.isEmpty == false ? legible : nil
+            // One audio track is no choice at all.
+            self.audioGroup = (audible?.options.count ?? 0) > 1 ? audible : nil
+        }
+    }
+
+    /// The server's name for a track, which tells five English tracks apart.
+    func label(for option: AVMediaSelectionOption) -> String {
+        trackLabels[option] ?? option.displayName
+    }
+
+    func selected(in group: AVMediaSelectionGroup) -> AVMediaSelectionOption? {
+        player.currentItem?.currentMediaSelection.selectedMediaOption(in: group)
+    }
+
+    /// Nil turns subtitles off (only a group that allows empty selection).
+    func select(_ option: AVMediaSelectionOption?, in group: AVMediaSelectionGroup) {
+        player.currentItem?.select(option, in: group)
+        selectionRevision += 1
+    }
+
+    /// The preview frame at a film position, from the server's trickplay sheets,
+    /// fetched once each and kept for this item.
+    func trickplayFrame(atFilmSeconds seconds: Double) async -> UIImage? {
+        guard let trickplay, let item, let frame = trickplay.frame(atSeconds: seconds) else { return nil }
+        let sheet: UIImage
+        if let cached = sheets[frame.sheet] {
+            sheet = cached
+        } else {
+            guard let data = try? await client.trickplaySheet(itemId: item.id, mediaSourceId: resolved?.mediaSourceId,
+                                                              frameWidth: trickplay.frameWidth, sheet: frame.sheet),
+                  let image = UIImage(data: data), self.item?.id == item.id else { return nil }
+            sheets[frame.sheet] = image
+            sheet = image
+        }
+        let rect = CGRect(x: frame.x, y: frame.y, width: frame.width, height: frame.height)
+        return sheet.cgImage?.cropping(to: rect).map { UIImage(cgImage: $0) }
     }
 
     // MARK: Skip intro and outro
@@ -216,7 +361,10 @@ final class VideoSession {
     func stop() async {
         endTask?.cancel()
         segmentTask?.cancel()
+        if let timeObserver { player.removeTimeObserver(timeObserver) }
+        timeObserver = nil
         activeSegment = nil
+        chapters = []
         player.pause()
         await reportStopped()
         player.replaceCurrentItem(with: nil)
@@ -224,7 +372,10 @@ final class VideoSession {
     }
 }
 
-/// Apple's player, full screen.
+#if os(tvOS)
+/// Apple's player, full screen. tvOS only: its remote-driven scrubbing, focus
+/// and info panels are the system's to get right. iOS draws its own
+/// (CascadeVideoPlayer, VideoControls.swift).
 struct VideoPlayerView: UIViewControllerRepresentable {
     let session: VideoSession
     /// The intro or outro to offer to skip. A parameter, not read inside
@@ -234,13 +385,6 @@ struct VideoPlayerView: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let controller = AVPlayerViewController()
         controller.player = session.player
-        #if os(iOS)
-        controller.allowsPictureInPicturePlayback = true
-        controller.canStartPictureInPictureAutomaticallyFromInline = true
-        // The player's own speed menu (0.5x to 2x). It is on by default; saying so
-        // keeps it from vanishing if a later change narrows the list.
-        controller.speeds = AVPlaybackSpeed.systemDefaultSpeeds
-        #endif
         return controller
     }
 
@@ -257,16 +401,15 @@ struct VideoPlayerView: UIViewControllerRepresentable {
         } ?? []
     }
 }
+#endif
 
 /// What the full-screen cover shows: the player, with any error over it.
-/// Closing is the player's own X, which dismisses the cover.
 struct VideoScreen: View {
     let session: VideoSession
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VideoPlayerView(session: session, skippable: session.activeSegment)
-            .ignoresSafeArea()
+        player
             .overlay(alignment: .top) {
                 if let error = session.error {
                     Text(error)
@@ -274,8 +417,22 @@ struct VideoScreen: View {
                         .background(.red.opacity(0.85), in: .rect(cornerRadius: 12))
                         .foregroundStyle(.white)
                         .padding()
+                        #if os(iOS)
+                        // Under the iOS controls' top bar, not over it.
+                        .padding(.top, 48)
+                        #endif
                 }
             }
             .onChange(of: session.finished) { _, done in if done { dismiss() } }
+    }
+
+    @ViewBuilder private var player: some View {
+        #if os(iOS)
+        CascadeVideoPlayer(session: session) { dismiss() }
+        #else
+        // Closing is the player's own Menu button, which dismisses the cover.
+        VideoPlayerView(session: session, skippable: session.activeSegment)
+            .ignoresSafeArea()
+        #endif
     }
 }

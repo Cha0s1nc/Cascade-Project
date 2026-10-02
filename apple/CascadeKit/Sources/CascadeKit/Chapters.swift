@@ -60,16 +60,17 @@ public enum Chapters {
         return chapters.filter { $0.startSeconds >= streamStartSeconds }
             .map { Chapter(startSeconds: $0.startSeconds - streamStartSeconds, name: $0.name) }
     }
-}
 
-public extension JellyfinClient {
-    /// The video's chapters, or none: a film without any, or a request that
-    /// failed, shows no markers rather than an error.
-    func chapters(for item: JfItem) async -> [Chapter] {
-        struct Response: Decodable { var chapters: [JfChapter]? }
-        guard let r: Response = try? await get("/Users/\(currentConfig.userId)/Items/\(item.id)", params: ["fields": "Chapters"]) else {
-            return []
-        }
-        return Chapters.list(r.chapters, runTimeTicks: item.runTimeTicks)
+    /// The chapter playing at `seconds` (the list's own clock), nil before the
+    /// first. The list is sorted.
+    public static func current(in chapters: [Chapter], at seconds: Double) -> Chapter? {
+        chapters.last { $0.startSeconds <= seconds }
+    }
+
+    /// Where each chapter starts as a fraction of `duration`, for ticks on the
+    /// scrubber. The start and the end need no tick.
+    public static func tickFractions(_ chapters: [Chapter], duration: Double) -> [Double] {
+        guard duration.isFinite, duration > 0 else { return [] }
+        return chapters.map { $0.startSeconds / duration }.filter { $0 > 0 && $0 < 1 }
     }
 }

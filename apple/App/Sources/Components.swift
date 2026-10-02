@@ -219,11 +219,14 @@ struct ItemTiles: View {
     }
 }
 
-/// mm:ss, or a dash when there is no sensible duration to show.
+/// m:ss, h:mm:ss past an hour (a film), or a dash when there is no sensible
+/// duration to show.
 func clock(_ seconds: Double) -> String {
     guard seconds.isFinite, seconds >= 0 else { return "--:--" }
     let total = Int(seconds)
-    return String(format: "%d:%02d", total / 60, total % 60)
+    return total >= 3600
+        ? String(format: "%d:%02d:%02d", total / 3600, total / 60 % 60, total % 60)
+        : String(format: "%d:%02d", total / 60, total % 60)
 }
 
 /// The state every list screen has: loading, loaded, or failed with a reason
