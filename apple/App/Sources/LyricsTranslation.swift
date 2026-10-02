@@ -91,31 +91,53 @@ final class LyricsTranslationModel {
     /// The translation task's work. `prepareTranslation` is where the framework
     /// asks to download a language that is not installed, with its own prompt;
     /// declining ends here and turns the feature off.
-    func run(_ session: TranslationSession) async {
-        phase = .preparing
+    ///
+    /// Nonisolated because the session is not Sendable: it stays with the task
+    /// the framework handed it to, and only plain strings hop to the main actor.
+    nonisolated func run(_ session: TranslationSession) async {
+        guard let job = await beginRun() else { return }
         do {
             try await session.prepareTranslation()
         } catch {
-            phase = .failed("The language was not downloaded.")
-            isOn = false
+            await failRun()
             return
         }
-        phase = .translating
-        defer { saveCache() }
-        for index in LyricTranslation.order(count: lines.count, from: currentLine()) {
-            if Task.isCancelled { return }
-            let text = lines[index]
-            guard translations[index] == nil, !text.trimmingCharacters(in: .whitespaces).isEmpty else { continue }
-            do {
-                let response = try await session.translate(text)
-                translations[index] = response.targetText
-                cache.set(response.targetText, for: LyricTranslation.cacheKey(source: source, target: target, line: text))
-            } catch {
-                // One line the framework would not take is not worth stopping for.
-                continue
-            }
+        await setPhase(.translating)
+        for (index, text) in job {
+            if Task.isCancelled { break }
+            // One line the framework would not take is not worth stopping for.
+            guard let response = try? await session.translate(text) else { continue }
+            await store(response.targetText, at: index, for: text)
         }
-        phase = .idle
+        await finishRun()
+    }
+
+    /// The lines still to translate, in order from where the song is.
+    private func beginRun() -> [(Int, String)]? {
+        phase = .preparing
+        return LyricTranslation.order(count: lines.count, from: currentLine()).compactMap { index in
+            let text = lines[index]
+            return translations[index] == nil && !text.trimmingCharacters(in: .whitespaces).isEmpty ? (index, text) : nil
+        }
+    }
+
+    private func failRun() {
+        phase = .failed("The language was not downloaded.")
+        isOn = false
+    }
+
+    private func setPhase(_ new: Phase) { phase = new }
+
+    private func store(_ translation: String, at index: Int, for text: String) {
+        // A new song arrived mid-run: this line is the last song's.
+        guard lines.indices.contains(index), lines[index] == text else { return }
+        translations[index] = translation
+        cache.set(translation, for: LyricTranslation.cacheKey(source: source, target: target, line: text))
+    }
+
+    private func finishRun() {
+        saveCache()
+        if phase == .translating { phase = .idle }
     }
 
     private func saveCache() {
@@ -127,7 +149,7 @@ extension View {
     /// Attaches the model's translation task to a view that is on screen while
     /// lyrics are.
     func lyricsTranslationTask(_ model: LyricsTranslationModel) -> some View {
-        translationTask(model.configuration) { session in
+        translationTask(model.configuration) { @Sendable session in
             await model.run(session)
         }
     }
