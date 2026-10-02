@@ -40,6 +40,8 @@ final class AppState {
             waterfall?.leave(reason: "Left the Waterfall room to play a video.")
         }
         player?.pause()
+        // The video takes the lock screen until it closes.
+        player?.lockScreenSuspended = true
         let session = videoSession ?? VideoSession(client: client, config: config)
         videoSession = session
         await session.play(items, startIndex: startIndex, audioStreamIndex: audioStreamIndex, resume: resume)
@@ -67,6 +69,7 @@ final class AppState {
         videoSession = nil
         Task {
             await session.stop()
+            player?.lockScreenSuspended = false
             videoRevision += 1
         }
     }

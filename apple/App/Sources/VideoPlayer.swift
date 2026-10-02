@@ -1,6 +1,9 @@
 import SwiftUI
 import AVKit
 import Combine
+#if os(iOS)
+import MediaPlayer
+#endif
 import CascadeKit
 
 /// One movie or run of episodes playing: the desktop's playVideo. Apart from
@@ -51,6 +54,13 @@ final class VideoSession {
     @ObservationIgnored private var autoSkipped: Set<String> = []
     @ObservationIgnored private var timeObserver: Any?
     @ObservationIgnored private var statusWatch: AnyCancellable?
+    #if os(iOS)
+    /// The remote command targets this video added, removed on close.
+    @ObservationIgnored private var commandTargets: [(MPRemoteCommand, Any)] = []
+    @ObservationIgnored private var lockScreenArt: (itemId: String, art: MPMediaItemArtwork)?
+    /// What the lock screen was last told, so it is written on a change only.
+    @ObservationIgnored private var lockScreenShown: (playing: Bool, duration: Double)?
+    #endif
     /// Trickplay sheets fetched for this item, by sheet number.
     @ObservationIgnored private var sheets: [Int: UIImage] = [:]
 
@@ -71,6 +81,11 @@ final class VideoSession {
         let length = player.currentItem?.duration.seconds ?? 0
         duration = length.isFinite ? length : 0
         isPlaying = player.timeControlStatus != .paused
+        #if os(iOS)
+        // The lock screen runs its own clock from the rate; it needs telling
+        // only when that or the length changes.
+        if lockScreenShown?.playing != isPlaying || lockScreenShown?.duration != duration { updateLockScreen() }
+        #endif
         // The picture's real size, for an item the list did not say it of.
         if isLandscapeVideo == nil, let size = player.currentItem?.presentationSize, size.width > 0, size.height > 0 {
             isLandscapeVideo = size.width > size.height
@@ -83,6 +98,9 @@ final class VideoSession {
         queue = items
         index = startIndex
         self.audioStreamIndex = audioStreamIndex
+        #if os(iOS)
+        claimLockScreen()
+        #endif
         await load(resume: resume)
     }
 
@@ -126,6 +144,9 @@ final class VideoSession {
                 await player.seek(to: CMTime(seconds: seconds(fromTicks: start), preferredTimescale: 600))
             }
             player.play()
+            #if os(iOS)
+            loadLockScreenArt(for: item)
+            #endif
             watchForEnd(playerItem)
             watchSegments(for: item)
             addChapterMarkers(for: item, to: playerItem, streamStartSeconds: seconds(fromTicks: stream.startTicks))
@@ -206,14 +227,24 @@ final class VideoSession {
     func seek(toPlayerSeconds target: Double) {
         let clamped = max(0, duration > 0 ? min(target, duration) : target)
         time = clamped
-        Task { await player.seek(to: CMTime(seconds: clamped, preferredTimescale: 600)) }
+        Task {
+            await player.seek(to: CMTime(seconds: clamped, preferredTimescale: 600))
+            #if os(iOS)
+            updateLockScreen()
+            #endif
+        }
     }
 
     func skip(by seconds: Double) { seek(toPlayerSeconds: time + seconds) }
 
-    func togglePlay() {
-        if player.timeControlStatus == .paused { player.play() } else { player.pause() }
+    func togglePlay() { setPlaying(player.timeControlStatus == .paused) }
+
+    func setPlaying(_ on: Bool) {
+        if on { player.play() } else { player.pause() }
         isPlaying = player.timeControlStatus != .paused
+        #if os(iOS)
+        updateLockScreen()
+        #endif
     }
 
     /// 1 is normal. Kept across play and pause.
@@ -223,6 +254,9 @@ final class VideoSession {
         player.defaultRate = rate
         if player.rate != 0 { player.rate = rate }
         selectionRevision += 1
+        #if os(iOS)
+        updateLockScreen()
+        #endif
     }
 
     private func loadSelectionGroups(for playerItem: AVPlayerItem) {
@@ -358,11 +392,118 @@ final class VideoSession {
         await load(resume: false)
     }
 
+    #if os(iOS)
+    // MARK: Lock screen (iOS)
+    //
+    // AVPlayerViewController used to fill this in by itself. With Cascade's own
+    // player nothing did, so the lock screen kept the paused song and its
+    // buttons still drove the music player. While a video is open it owns the
+    // lock screen; the music player stands aside (PlaybackService
+    // .lockScreenSuspended, set by AppState) and takes it back on close.
+
+    private func claimLockScreen() {
+        guard commandTargets.isEmpty else { return }
+        let center = MPRemoteCommandCenter.shared()
+        func on(_ command: MPRemoteCommand, _ run: @escaping @Sendable () async -> Void) {
+            commandTargets.append((command, command.addTarget(handler: Self.handler(run))))
+        }
+        on(center.playCommand) { [weak self] in await self?.setPlaying(true) }
+        on(center.pauseCommand) { [weak self] in await self?.setPlaying(false) }
+        on(center.togglePlayPauseCommand) { [weak self] in await self?.togglePlay() }
+        on(center.skipForwardCommand) { [weak self] in await self?.skip(by: 10) }
+        on(center.skipBackwardCommand) { [weak self] in await self?.skip(by: -10) }
+        let position = center.changePlaybackPositionCommand
+        commandTargets.append((position, position.addTarget(handler: Self.positionHandler { [weak self] seconds in
+            await self?.seek(toPlayerSeconds: seconds)
+        })))
+        // A film skips by ten seconds; next and previous are the music's.
+        center.skipForwardCommand.preferredIntervals = [10]
+        center.skipBackwardCommand.preferredIntervals = [10]
+        center.skipForwardCommand.isEnabled = true
+        center.skipBackwardCommand.isEnabled = true
+        center.nextTrackCommand.isEnabled = false
+        center.previousTrackCommand.isEnabled = false
+    }
+
+    private func releaseLockScreen() {
+        guard !commandTargets.isEmpty else { return }
+        let center = MPRemoteCommandCenter.shared()
+        for (command, target) in commandTargets { command.removeTarget(target) }
+        commandTargets = []
+        center.skipForwardCommand.isEnabled = false
+        center.skipBackwardCommand.isEnabled = false
+        center.nextTrackCommand.isEnabled = true
+        center.previousTrackCommand.isEnabled = true
+        lockScreenShown = nil
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+    }
+
+    private func updateLockScreen() {
+        guard !commandTargets.isEmpty, let item else { return }
+        var subtitle = item.productionYear.map(String.init) ?? ""
+        if let series = item.seriesName {
+            subtitle = VideoPlayback.episodeCode(item).map { "\(series) · \($0)" } ?? series
+        }
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: item.name ?? "",
+            MPMediaItemPropertyArtist: subtitle,
+            MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.video.rawValue,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: time,
+            // Zero while paused, or the lock screen's clock keeps running.
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? Double(speed) : 0.0,
+            MPNowPlayingInfoPropertyDefaultPlaybackRate: Double(speed),
+        ]
+        if duration > 0 { info[MPMediaItemPropertyPlaybackDuration] = duration }
+        if let art = lockScreenArt, art.itemId == item.id { info[MPMediaItemPropertyArtwork] = art.art }
+        lockScreenShown = (isPlaying, duration)
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    /// The poster (a still, for an episode), a moment after playback starts.
+    private func loadLockScreenArt(for item: JfItem) {
+        guard lockScreenArt?.itemId != item.id else { return updateLockScreen() }
+        Task { [weak self] in
+            guard let self, let url = await self.client.imageUrl(itemId: item.id, size: 600),
+                  let (data, response) = try? await ProxyConnection.shared.session(for: url).data(from: url),
+                  (response as? HTTPURLResponse)?.statusCode == 200,
+                  let image = await UIImage(data: data)?.byPreparingForDisplay(),
+                  self.item?.id == item.id else { return }
+            self.lockScreenArt = (item.id, Self.makeArtwork(image))
+            self.updateLockScreen()
+        }
+    }
+
+    // Built outside the main actor: MediaPlayer calls these from its own queue,
+    // and a closure written in a main-actor method would trap there (see
+    // PlaybackService's lock screen art).
+    nonisolated private static func makeArtwork(_ image: UIImage) -> MPMediaItemArtwork {
+        MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+    }
+
+    nonisolated private static func handler(_ run: @escaping @Sendable () async -> Void) -> (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus {
+        { _ in
+            Task { await run() }
+            return .success
+        }
+    }
+
+    nonisolated private static func positionHandler(_ run: @escaping @Sendable (Double) async -> Void) -> (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus {
+        { event in
+            guard let seconds = (event as? MPChangePlaybackPositionCommandEvent)?.positionTime else { return .commandFailed }
+            Task { await run(seconds) }
+            return .success
+        }
+    }
+    #endif
+
     func stop() async {
         endTask?.cancel()
         segmentTask?.cancel()
         if let timeObserver { player.removeTimeObserver(timeObserver) }
         timeObserver = nil
+        #if os(iOS)
+        releaseLockScreen()
+        #endif
         activeSegment = nil
         chapters = []
         player.pause()

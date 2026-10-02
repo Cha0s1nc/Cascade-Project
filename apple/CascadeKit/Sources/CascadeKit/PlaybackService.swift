@@ -1332,6 +1332,13 @@ public final class PlaybackService {
 
     // MARK: - Lock screen and remote controls
 
+    /// True while a video owns the lock screen (the iOS player, VideoSession).
+    /// The music player's remote targets stay registered but do nothing, and it
+    /// stops writing Now Playing; handing back restores this item's.
+    public var lockScreenSuspended = false {
+        didSet { if !lockScreenSuspended { updateNowPlaying() } }
+    }
+
     private func configureRemoteCommands() {
         #if canImport(MediaPlayer)
         // Task rather than MainActor.assumeIsolated. MPRemoteCommandCenter does
@@ -1341,28 +1348,28 @@ public final class PlaybackService {
         // touches a lock screen control.
         let center = MPRemoteCommandCenter.shared()
         center.playCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.resume() }
+            Task { @MainActor in guard self?.lockScreenSuspended == false else { return }; self?.resume() }
             return .success
         }
         center.pauseCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.pause() }
+            Task { @MainActor in guard self?.lockScreenSuspended == false else { return }; self?.pause() }
             return .success
         }
         center.togglePlayPauseCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.togglePlayPause() }
+            Task { @MainActor in guard self?.lockScreenSuspended == false else { return }; self?.togglePlayPause() }
             return .success
         }
         center.nextTrackCommand.addTarget { [weak self] _ in
-            Task { @MainActor in await self?.next() }
+            Task { @MainActor in guard self?.lockScreenSuspended == false else { return }; await self?.next() }
             return .success
         }
         center.previousTrackCommand.addTarget { [weak self] _ in
-            Task { @MainActor in await self?.previous() }
+            Task { @MainActor in guard self?.lockScreenSuspended == false else { return }; await self?.previous() }
             return .success
         }
         center.changePlaybackPositionCommand.addTarget { [weak self] event in
             guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
-            Task { @MainActor in await self?.seek(to: event.positionTime) }
+            Task { @MainActor in guard self?.lockScreenSuspended == false else { return }; await self?.seek(to: event.positionTime) }
             return .success
         }
         #endif
@@ -1430,6 +1437,7 @@ public final class PlaybackService {
 
     private func updateNowPlaying() {
         #if canImport(MediaPlayer)
+        guard !lockScreenSuspended else { return }
         guard let item else { return clearNowPlaying() }
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: item.name ?? "Unknown",
@@ -1472,6 +1480,7 @@ public final class PlaybackService {
 
     private func clearNowPlaying() {
         #if canImport(MediaPlayer)
+        guard !lockScreenSuspended else { return }
         // Same main queue requirement as the setter above.
         if Thread.isMainThread {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
