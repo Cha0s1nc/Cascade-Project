@@ -2,6 +2,10 @@
 
 Written 2026-10-01 at the end of the run described by `docs/missing-features-plan.md`. All seven items were worked, on the `missing-features` branch, as eleven commits after `c809d60`, plus the commit that adds this report. Read the "Read this first" section before auditing: a few things the plan asked for could not be done the way it said, and the Apple half was written without a compiler.
 
+## Audit follow-up (2026-09-30)
+
+An audit on a Mac changed the picture below in four ways. CascadeKit compiles and its tests pass (262), so the kit was fine. The iOS app did not compile: `navigationMarkerGroups`, `AVNavigationMarkersGroup` and `contextualActions` are tvOS only, which broke chapters and also Skip Intro on iOS, and `LyricsTranslation.run` sent a non-Sendable `TranslationSession` across actors. Both are fixed: `run` is nonisolated, and iOS now has Cascade's own video player (`VideoControls.swift`: chapter ticks and trickplay on the scrubber, Skip Intro, subtitle, audio and speed menus, AirPlay, picture in picture, and a landscape lock for landscape video). Both apps build. Lyrics translation was checked on an iPhone; the player was checked in the simulator against a 10.11 server. The same pass fixed video resume, which was already broken on dev: every resume of a transcoded film failed with HTTP 400, because the app asked the server to start the stream partway while Jellyfin's HLS playlist always covers the whole film. Resume is now a seek after loading. The Media Segments shape and `/UserPlayedItems` parameters match Jellyfin's published openapi (12.1.0). Desktop offline downloads are now per account (`userData/offline/<userId>/`): sign-out stops downloads and drops the token, and another account never sees, plays or resumes them. The verification scripts were updated for that, use the platform's Electron binary, and all six pass on macOS. The Apple app has the same per-account gap; it predates this branch and is not fixed here. Where the sections below say otherwise, this one is current.
+
 ## Read this first
 
 - **Nothing in `apple/` has been compiled or run.** This environment has no Swift toolchain, no Xcode and no device. Every Swift file was written and then read back by eye, and checked only for balanced brackets. The Swift tests I wrote have never executed. Treat the Apple code as a careful draft that needs `swift test` and a build before it is trusted. Items 3, 4, 6 and 7 each have an Apple half; it is flagged in the table below.
@@ -15,11 +19,11 @@ Written 2026-10-01 at the end of the run described by `docs/missing-features-pla
 |---|------|---------|-------|
 | 1 | Clear queue keeps the playing song | Done and unit tested; the UI was not driven in the real app | n/a |
 | 2 | Ungate the miniplayer | Done, checked in the real app on Linux | n/a |
-| 3 | Skip Intro and Outro | Done and unit tested; segment shape unverified against a server | Written, not compiled |
-| 4 | Reverse proxy headers and client certificates | Headers done and checked in the real app; certificate unverified | Written, not compiled; playback with a certificate unchecked |
-| 5 | Offline downloads | Done and checked end to end in the real app | Already existed |
-| 6 | Lyrics translation on device | n/a | Written, not compiled, iOS only |
-| 7 | Video chapters and playback speed | n/a | Written, not compiled |
+| 3 | Skip Intro and Outro | Done and unit tested; segment shape matches the openapi | Builds; iOS uses an overlay (see follow-up); not run |
+| 4 | Reverse proxy headers and client certificates | Headers done and checked in the real app; certificate unverified | Builds, not run; playback with a certificate unchecked |
+| 5 | Offline downloads | Done and checked end to end in the real app; per account since the audit | Already existed |
+| 6 | Lyrics translation on device | n/a | Builds after the audit fix, not run, iOS only |
+| 7 | Video chapters and playback speed | n/a | Builds; iOS chapters are a menu (see follow-up); not run |
 
 ## Item by item
 
@@ -41,7 +45,7 @@ Checked in the real app (Electron 44 under Xvfb on Linux): the window opens, the
 
 Desktop: `src/core/media-segments.ts` (parse, `activeSegment`, `skipAction`, `skipLabel`, `segmentKey`) with 13 tests for the boundaries the plan listed (exact start inside, exact end outside, overlap, empty, unknown type, malformed ticks). `loadSegments()` runs next to `loadChapters()`. The button shows while an Intro or Outro plays, `S` skips it (listed in the `?` overlay), and Settings has an off-by-default auto-skip that fires once per segment so seeking back is not fought. An Outro that runs to the end of the item (within a second) goes to the next episode, or to the end when there is none. A 404 or an empty list shows nothing. Recap, Preview and Commercial are parsed but never offered.
 
-Apple: `MediaSegments.swift` in CascadeKit with a Swift test, offered through `AVPlayerViewController.contextualActions` (the system draws it and, on tvOS, makes it reachable without taking select), plus an Auto-Skip toggle in Settings. Not compiled.
+Apple: `MediaSegments.swift` in CascadeKit with a Swift test, offered on tvOS through `AVPlayerViewController.contextualActions` (iOS has no such API; since the audit it is a button in the iOS player, `VideoControls.swift`) (the system draws it and, on tvOS, makes it reachable without taking select), plus an Auto-Skip toggle in Settings. Not compiled.
 
 ### 4. Reverse proxy headers and client certificates (`ce35cbc`, `ecff0e7`)
 
@@ -53,7 +57,7 @@ Apple: `ProxyHeaders.swift` (pure, tested) and `ProxyConnection.swift`. `ProxyCo
 
 ### 5. Offline downloads, desktop (`6c13a97`, `5dd99cb`)
 
-Pure rules in `src/core/offline-index.ts`, mirroring Apple's `OfflineIndex` and its tests (18 tests): one index of relative paths, a shared track stored once, removal deleting only files nobody else holds, `reconcile`, `parseIndex` dropping anything that could escape the folder, `judgeDownload` (2xx, the full announced length, something that says audio), and range parsing. `offline.js` (new, in `build.files`) is the main-process side: `userData/offline/{index.json,media,art}`, two downloads at a time from `/Items/{id}/Download` (never `/File`), written to `.partial` and renamed only after verification, with the reverse proxy headers and certificate applied. Playback goes through a `cascade-offline://local/...` protocol, never `file://`: it serves only files the index lists, checks the path by shape and by an escape guard, and answers `Range` requests itself. In the renderer: a Downloads view (progress, size, Play, Songs, Try again, Remove), a Download button on the album and playlist pages, a "Download for offline" entry in the item menu (the old "Download" entry, which saves loose files to disk, is relabeled "Save files to disk"), and covers served from disk.
+Pure rules in `src/core/offline-index.ts`, mirroring Apple's `OfflineIndex` and its tests (18 tests): one index of relative paths, a shared track stored once, removal deleting only files nobody else holds, `reconcile`, `parseIndex` dropping anything that could escape the folder, `judgeDownload` (2xx, the full announced length, something that says audio), and range parsing. `offline.js` (new, in `build.files`) is the main-process side: `userData/offline/<userId>/{index.json,media,art}` (one folder per account since the audit), two downloads at a time from `/Items/{id}/Download` (never `/File`), written to `.partial` and renamed only after verification, with the reverse proxy headers and certificate applied. Playback goes through a `cascade-offline://local/...` protocol, never `file://`: it serves only files the index lists, checks the path by shape and by an escape guard, and answers `Range` requests itself. In the renderer: a Downloads view (progress, size, Play, Songs, Try again, Remove), a Download button on the album and playlist pages, a "Download for offline" entry in the item menu (the old "Download" entry, which saves loose files to disk, is relabeled "Save files to disk"), and covers served from disk.
 
 Offline mode: `connect()` now throws with the HTTP status when the server answered. A 401 or 403 still shows the sign-in prompt. With no answer at all and music on disk the app opens on the Downloads, the rest of the sidebar is dimmed, and the `online` event or "Try again" reconnects. Plays whose start report failed are queued in the main process and replayed as `POST /UserPlayedItems/{id}?userId&datePlayed` once the server is back; 400 and 404 drop a play, anything else keeps it. This needed `reportStart` to resolve true or false instead of nothing.
 
