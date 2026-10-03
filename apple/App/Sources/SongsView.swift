@@ -2,23 +2,30 @@ import SwiftUI
 import CascadeKit
 
 struct SongsView: View {
-    @Environment(AppState.self) private var state
+    @Environment(AppState.self) var state
     /// Loaded and kept by AppState (see browseList), so it survives leaving
     /// this screen and keeps filling while it is off screen.
-    @State private var list: BrowseList?
-    private var items: [JfItem] { list?.items ?? [] }
-    private var isLoading: Bool { list?.isLoading ?? true }
-    private var error: String? { list?.error }
+    @State var list: BrowseList?
+    var items: [JfItem] { list?.items ?? [] }
+    var isLoading: Bool { list?.isLoading ?? true }
+    var error: String? { list?.error }
     /// True once every page is in, so Play All and Shuffle All can use the
     /// list on screen instead of asking the server again.
-    private var loadedAll: Bool { list?.isComplete ?? false }
-    @State private var isStarting = false
-    @State private var playError: String?
-    @AppStorage("cascade.songs.sort") private var sortField: SongSortField = .name
-    @AppStorage("cascade.songs.order") private var sortDirection: SortDirection = .ascending
-    @AppStorage("cascade.songs.filter") private var filter = BrowseFilter()
+    var loadedAll: Bool { list?.isComplete ?? false }
+    @State var isStarting = false
+    @State var playError: String?
+    // The desktop's keys and strings: songsSortField is the field name and
+    // songsSortDir is "asc" or "desc". The filter has no desktop counterpart.
+    @AppStorage("cascade.songsSortField") var sortField: SongSortField = .name
+    @AppStorage("cascade.songsSortDir") private var sortDirStored = "asc"
+    @AppStorage("cascade.songs.filter") var filter = BrowseFilter()
     /// Bumped by pull to refresh, so the reload misses the cache.
     @State private var refreshes = 0
+
+    var sortDirection: SortDirection {
+        get { sortDirStored == "desc" ? .descending : .ascending }
+        nonmutating set { sortDirStored = newValue == .descending ? "desc" : "asc" }
+    }
 
     private var browseKey: BrowseKey {
         BrowseKey(libraries: state.config?.libraryIds, sort: sortField.rawValue,
@@ -26,6 +33,45 @@ struct SongsView: View {
     }
 
     var body: some View {
+        content
+            .navigationTitle("Songs")
+            .alert("Could not play", isPresented: Binding(get: { playError != nil },
+                                                          set: { if !$0 { playError = nil } })) {
+                Button("OK") {}
+            } message: {
+                Text(playError ?? "")
+            }
+            .refreshable { state.dropBrowseCache(.songs); refreshes += 1 }
+            // The server sorts, not this view. Sorting here (sortSongs) only
+            // sorted the pages loaded so far, so the first rows were wrong until
+            // the last page landed. sortSongs' plain lowercase compare also
+            // disagrees with Jellyfin's SortName collation, so re-sorting the
+            // server's pages with it made rows jump as pages arrived.
+            .task(id: browseKey) {
+                guard let client = state.client else { return }
+                let (sortBy, order, filterNow) = (sortField.serverSortBy, sortDirection.serverValue, filter)
+                list = state.browseList(.songs, browseKey) { list in
+                    try await loadPaged(sortBy: sortBy, sortOrder: order, nextStart: { list.nextStart = $0 }, fetch: {
+                        try await client.songs(limit: $0, startIndex: $1, sortBy: sortBy,
+                                               sortOrder: order, filter: filterNow)
+                    }) {
+                        list.items = $0
+                        list.isLoading = false
+                    }
+                }
+            }
+    }
+
+    @ViewBuilder private var content: some View {
+        #if os(macOS)
+        macContent
+        #else
+        phoneContent
+        #endif
+    }
+
+    #if !os(macOS)
+    private var phoneContent: some View {
         List {
             // Two equal-width buttons of their own, like Apple Music's Songs
             // screen; sort lives in the toolbar on iOS (see below).
@@ -68,45 +114,24 @@ struct SongsView: View {
                 .buttonStyle(.plain)
             }
         }
-        .navigationTitle("Songs")
         #if os(iOS)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) { sortMenu }
             ToolbarItem(placement: .topBarTrailing) { FilterMenu(filter: $filter, itemType: "Audio") }
         }
         #endif
-        .alert("Could not play", isPresented: Binding(get: { playError != nil },
-                                                      set: { if !$0 { playError = nil } })) {
-            Button("OK") {}
-        } message: {
-            Text(playError ?? "")
-        }
-        .onChange(of: sortField) { sortDirection = sortField.defaultDirection }
-        .refreshable { state.dropBrowseCache(.songs); refreshes += 1 }
-        // The server sorts, not this view. Sorting here (sortSongs) only
-        // sorted the pages loaded so far, so the first rows were wrong until
-        // the last page landed. sortSongs' plain lowercase compare also
-        // disagrees with Jellyfin's SortName collation, so re-sorting the
-        // server's pages with it made rows jump as pages arrived.
-        .task(id: browseKey) {
-            guard let client = state.client else { return }
-            let (sortBy, order, filterNow) = (sortField.serverSortBy, sortDirection.serverValue, filter)
-            list = state.browseList(.songs, browseKey) { list in
-                try await loadPaged(sortBy: sortBy, sortOrder: order, nextStart: { list.nextStart = $0 }, fetch: {
-                    try await client.songs(limit: $0, startIndex: $1, sortBy: sortBy,
-                                           sortOrder: order, filter: filterNow)
-                }) {
-                    list.items = $0
-                    list.isLoading = false
-                }
-            }
-        }
     }
+    #endif
 
-    private var sortMenu: some View {
+    /// Choosing a field also sets the direction that suits it, here and not
+    /// in an onChange: the Mac's column headers set both at once, and a
+    /// reaction to the field would overwrite the direction they just chose.
+    var sortMenu: some View {
         SortMenu(fields: [(SongSortField.name, "Title"), (.artist, "Artist"), (.album, "Album"),
                           (.added, "Date Added"), (.played, "Date Last Played")],
-                 field: $sortField, direction: $sortDirection)
+                 field: Binding(get: { sortField },
+                                set: { sortField = $0; sortDirection = $0.defaultDirection }),
+                 direction: Binding(get: { sortDirection }, set: { sortDirection = $0 }))
     }
 
     /// Play All and Shuffle All cover the whole library (in the current sort
@@ -121,7 +146,7 @@ struct SongsView: View {
     /// then another random 200 each time the queue runs low, minus anything
     /// already queued, since shuffling only the loaded pages would never reach
     /// the rest of the library. With the whole list in, it just shuffles that.
-    private func playAll(shuffled: Bool) async {
+    func playAll(shuffled: Bool) async {
         guard !isStarting, let client = state.client, let player = state.player else { return }
         isStarting = true
         defer { isStarting = false }

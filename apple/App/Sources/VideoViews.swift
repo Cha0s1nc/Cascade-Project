@@ -5,119 +5,12 @@ import CascadeKit
 // opens its page; tapping an episode or Play starts Apple's player.
 
 #if os(tvOS)
-private let posterWidth: CGFloat = 200
-private let stillWidth: CGFloat = 360
+let posterWidth: CGFloat = 200
+let stillWidth: CGFloat = 360
 #else
-private let posterWidth: CGFloat = 120
-private let stillWidth: CGFloat = 240
+let posterWidth: CGFloat = 120
+let stillWidth: CGFloat = 240
 #endif
-
-/// Video's Home: pick up where you left off, the next episode of each show,
-/// and what is new.
-struct VideoHomeView: View {
-    @Environment(AppState.self) private var state
-    @State private var resume: [JfItem] = []
-    @State private var nextUp: [JfItem] = []
-    @State private var movies: [JfItem] = []
-    @State private var episodes: [JfItem] = []
-    @State private var loaded = false
-    @State private var error: String?
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                if !resume.isEmpty { stills("Continue Watching", resume) }
-                if !nextUp.isEmpty { stills("Next Up", nextUp) }
-                if !movies.isEmpty { posters("Recently Added Movies", movies) }
-                if !episodes.isEmpty { stills("Recently Added Episodes", episodes) }
-                if loaded, resume.isEmpty, nextUp.isEmpty, movies.isEmpty, episodes.isEmpty {
-                    ContentUnavailableView("No Videos", systemImage: "film",
-                                           description: Text(error ?? "This server has no movies or shows you can see."))
-                }
-            }
-            .padding(.vertical)
-        }
-        .navigationTitle("Home")
-        .refreshable { await load() }
-        .task { if !loaded { await load() } }
-        .onChange(of: state.videoRevision) { Task { await load() } }
-    }
-
-    private func load() async {
-        guard let client = state.client else { return }
-        async let r = client.continueWatching()
-        async let n = client.nextUp()
-        async let m = client.latestVideo("Movie")
-        async let e = client.latestVideo("Episode")
-        do {
-            (resume, nextUp, movies, episodes) = try await (r, n, m, e)
-            error = nil
-        } catch {
-            self.error = error.localizedDescription
-        }
-        loaded = true
-    }
-
-    private func stills(_ title: String, _ items: [JfItem]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.title2.bold()).padding(.horizontal)
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(alignment: .top, spacing: 16) {
-                    ForEach(items) { VideoStillTile(item: $0) }
-                }
-                .padding(.horizontal)
-            }
-        }
-    }
-
-    private func posters(_ title: String, _ items: [JfItem]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.title2.bold()).padding(.horizontal)
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(alignment: .top, spacing: 16) {
-                    ForEach(items) { PosterTile(item: $0) }
-                }
-                .padding(.horizontal)
-            }
-        }
-    }
-}
-
-/// All movies or all shows, as a poster grid.
-struct VideoGridView: View {
-    enum Kind { case movies, shows }
-    let kind: Kind
-    @Environment(AppState.self) private var state
-    @State private var items: [JfItem] = []
-    @State private var loading = true
-    @State private var error: String?
-
-    var body: some View {
-        ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: posterWidth), spacing: 16)], spacing: 20) {
-                ForEach(items) { PosterTile(item: $0) }
-            }
-            .padding()
-            if items.isEmpty {
-                LoadingOverlay(isLoading: loading, error: error, isEmpty: true)
-            }
-        }
-        .navigationTitle(kind == .movies ? "Movies" : "Shows")
-        .refreshable { await load() }
-        .task { if items.isEmpty { await load() } }
-    }
-
-    private func load() async {
-        guard let client = state.client else { return }
-        do {
-            items = kind == .movies ? try await client.movies() : try await client.shows()
-            error = nil
-        } catch {
-            self.error = error.localizedDescription
-        }
-        loading = false
-    }
-}
 
 /// A movie or show: its poster and name, opening its page.
 struct PosterTile: View {

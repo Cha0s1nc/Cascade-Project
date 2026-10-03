@@ -91,6 +91,11 @@ public struct VideoGroup: Sendable, Identifiable {
     public var libraryId: String
     public var items: [JfItem]
     public var id: String { libraryId }
+
+    public init(libraryId: String, items: [JfItem]) {
+        self.libraryId = libraryId
+        self.items = items
+    }
 }
 
 /// Which groups the user collapsed in a grouped poster grid, persisted as
@@ -188,6 +193,23 @@ public extension JellyfinClient {
             next += r?.items ?? []
         }
         return Array(VideoLibraries.onePerSeries(VideoLibraries.byRecentPlay(partway) + next).prefix(limit))
+    }
+
+    /// Recently added movies or episodes, from the chosen libraries only,
+    /// newest first. /Items/Latest takes one parent, so each library is asked
+    /// and the results merged.
+    func latestVideo(_ type: String, libraryIds: [String], limit: Int = 20) async throws -> [JfItem] {
+        var found: [JfItem] = []
+        for parent in libraryIds.isEmpty ? [nil] : libraryIds.map(Optional.some) {
+            let params: [String: String?] = [
+                "userId": currentConfig.userId, "includeItemTypes": type, "parentId": parent,
+                "limit": String(limit), "groupItems": "false",
+                "fields": "ProductionYear,DateCreated,SeriesPrimaryImageTag",
+            ]
+            let items: [JfItem] = try await get("/Items/Latest", params: params)
+            found += items
+        }
+        return Array(found.sorted { ($0.dateCreated ?? "") > ($1.dateCreated ?? "") }.prefix(limit))
     }
 
     /// Genre names present on items of these types in the given libraries,

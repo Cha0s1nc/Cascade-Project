@@ -247,8 +247,16 @@ private struct ItemContextMenu: ViewModifier {
 /// A tab's navigation stack with a path, so the track menu's Go to entries
 /// can push onto it.
 struct TabStack<Content: View>: View {
+    /// An item to push as soon as the stack is up, then cleared: how a deep
+    /// link lands on a page in a section that was not showing (the Mac shell).
+    var opening: Binding<JfItem?>?
     @ViewBuilder let content: Content
     @State private var path = NavigationPath()
+
+    init(opening: Binding<JfItem?>? = nil, @ViewBuilder content: () -> Content) {
+        self.opening = opening
+        self.content = content()
+    }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -257,5 +265,10 @@ struct TabStack<Content: View>: View {
                 .appNavigation()
         }
         .environment(\.openItem) { path.append($0) }
+        .task(id: opening?.wrappedValue) {
+            guard let item = opening?.wrappedValue else { return }
+            path.append(item)
+            opening?.wrappedValue = nil
+        }
     }
 }
