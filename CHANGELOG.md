@@ -2,7 +2,7 @@
 
 Every stable release of Cascade, newest first. Betas are not listed on their own; what they added is under the stable release that shipped it.
 
-Each version is a heading like `## 2.3.0 (2026-10-05)`, dated the day the release was published (UTC), followed by a `### Desktop`, `### Apple` or `### Android` section for each platform the release changed. Use `####` for headings inside a section. The release workflow reads this file, so it has to keep to that format; `npm test` checks it, and `node scripts/changelog-section.mjs 2.3.0` prints one version's notes.
+Each version is a heading like `## 2.3.0 (2026-10-05)`, dated the day the release was published (UTC), followed by a `### Desktop`, `### Mac`, `### Apple` or `### Android` section for each platform the release changed. Desktop is the Electron app on every OS, Mac is the native Mac app, and Apple is iOS and tvOS. Use `####` for headings inside a section. The release workflow reads this file, so it has to keep to that format; `npm test` checks it, and `node scripts/changelog-section.mjs 2.3.0` prints one version's notes.
 
 ## 2.3.0 (2026-10-01)
 

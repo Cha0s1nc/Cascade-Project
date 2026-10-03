@@ -5,12 +5,16 @@
 //   ## 2.3.0 (2026-10-05)
 //   ### Desktop
 //   - ...
+//   ### Mac
+//   - ...
 //   ### Apple
 //   - ...
 //   ### Android
 //   - ...
 //
-// Platform sections are optional per version. Betas are not listed.
+// Platform sections are optional per version. Betas are not listed. Desktop
+// is the Electron app on every OS; Mac is the native Mac app, which the Mac
+// updater reads (docs/mac-native-plan.md); Apple is iOS and tvOS.
 //
 // The release workflow takes a version's notes from here, and the website and
 // the in-app "what's new" read the JSON this produces. So the parser is strict
@@ -22,12 +26,16 @@
 
 import { isNewerVersion } from './update-release.ts'
 
-export type ChangelogPlatform = 'desktop' | 'apple' | 'android'
+export type ChangelogPlatform = 'desktop' | 'mac' | 'apple' | 'android'
 
 /** Platform keys in the order sections are printed. */
-export const CHANGELOG_PLATFORMS: readonly ChangelogPlatform[] = ['desktop', 'apple', 'android']
+export const CHANGELOG_PLATFORMS: readonly ChangelogPlatform[] = ['desktop', 'mac', 'apple', 'android']
 
-const PLATFORM_TITLES: Record<ChangelogPlatform, string> = { desktop: 'Desktop', apple: 'Apple', android: 'Android' }
+const PLATFORM_TITLES: Record<ChangelogPlatform, string> = { desktop: 'Desktop', mac: 'Mac', apple: 'Apple', android: 'Android' }
+
+// For error messages, built from the list so a new platform cannot be missed.
+const HEADINGS_TEXT = CHANGELOG_PLATFORMS.map(p => `### ${PLATFORM_TITLES[p]}`)
+const HEADINGS_OR = `${HEADINGS_TEXT.slice(0, -1).join(', ')} or ${HEADINGS_TEXT[HEADINGS_TEXT.length - 1]}`
 
 export interface ChangelogEntry {
   version: string
@@ -92,7 +100,7 @@ export function parseChangelog(markdown: string): ChangelogEntry[] {
   const closeEntry = () => {
     closePlatform()
     if (entry && Object.keys(entry.platforms).length === 0) {
-      throw new ChangelogError(entryLine, `${entry.version} has no ### Desktop, ### Apple or ### Android section`)
+      throw new ChangelogError(entryLine, `${entry.version} has no ${HEADINGS_OR} section`)
     }
   }
 
@@ -129,7 +137,7 @@ export function parseChangelog(markdown: string): ChangelogEntry[] {
       if (line.startsWith('### ') || line === '###') {
         if (!entry) throw new ChangelogError(n, `"${line}" comes before any version heading`)
         const key = CHANGELOG_PLATFORMS.find(p => line === `### ${PLATFORM_TITLES[p]}`)
-        if (!key) throw new ChangelogError(n, `expected "### Desktop", "### Apple" or "### Android", found "${line}"`)
+        if (!key) throw new ChangelogError(n, `expected a platform heading (${HEADINGS_OR}), found "${line}"`)
         if (entry.platforms[key] !== undefined || platform === key) throw new ChangelogError(n, `${entry.version} has two ${PLATFORM_TITLES[key]} sections`)
         closePlatform()
         platform = key
@@ -143,7 +151,7 @@ export function parseChangelog(markdown: string): ChangelogEntry[] {
 
     if (platform) body.push(raw)
     else if (entry && line.trim() !== '') {
-      throw new ChangelogError(n, `text in ${entry.version} before its first ### Desktop, ### Apple or ### Android heading`)
+      throw new ChangelogError(n, `text in ${entry.version} before its first platform heading (${HEADINGS_OR})`)
     }
   })
 

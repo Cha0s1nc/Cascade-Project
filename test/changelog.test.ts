@@ -86,6 +86,17 @@ test('parseChangelog refuses an unknown or misplaced platform heading', () => {
   throwsAt('## 2.3.0 (2026-10-05)\n### Desktop\n- x\n### Apple\n- a\n### Desktop\n- y\n', 6, /two Desktop sections/)
 })
 
+test('parseChangelog reads a Mac section and prints it between Desktop and Android', () => {
+  const md = '## 2.4.0 (2026-10-20)\n### Android\n- a\n### Mac\n- native\n### Desktop\n- d\n'
+  const entry = parseChangelog(md)[0]!
+  assert.deepEqual(entry.platforms, { android: '- a', mac: '- native', desktop: '- d' })
+  assert.equal(changelogSectionMarkdown(entry), '### Desktop\n\n- d\n\n### Mac\n\n- native\n\n### Android\n\n- a\n')
+  throwsAt('## 2.4.0 (2026-10-20)\n### Mac\n- x\n### Mac\n- y\n', 4, /two Mac sections/)
+  throwsAt('## 2.4.0 (2026-10-20)\n### MacOS\n- x\n', 2, /### Mac/)
+  // The native Mac updater's notes come from its own section.
+  assert.equal(notesBetween(parseChangelog(md), 'mac', '2.3.0', '2.4.0'), '## 2.4.0 (2026-10-20)\n\n- native')
+})
+
 test('parseChangelog refuses text outside a platform section', () => {
   throwsAt('## 2.3.0 (2026-10-05)\nLoose text\n### Desktop\n- x\n', 2, /before its first/)
   throwsAt('## 2.3.0 (2026-10-05)\n### Desktop\n- x\n# Title\n', 4, /use ####/)

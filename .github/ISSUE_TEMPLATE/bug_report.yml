@@ -18,6 +18,18 @@ body:
         - Apple TV
     validations:
       required: true
+  - type: dropdown
+    id: build
+    attributes:
+      label: Build (Mac only)
+      description: Two Mac apps ship for now. The native one is installed from Cascade-Native-x.y.z.dmg, or through "Try the native Mac app" in Settings, About. Anything else on a Mac is the Electron one.
+      options:
+        - Not on a Mac
+        - Electron
+        - Native
+        - Not sure
+    validations:
+      required: true
   - type: input
     id: version
     attributes:
