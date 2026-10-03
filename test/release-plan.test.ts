@@ -28,13 +28,16 @@ test('isBeta reads [BETA] in any case', () => {
 test('platformListOf reads bracket lists and ignores brackets that are not platforms', () => {
   assert.deepEqual(platformListOf(['Release (x.x.X) [android, desktop]']), ['desktop', 'android'])
   assert.deepEqual(platformListOf(['[BETA] [apple]']), ['apple'])
-  assert.deepEqual(platformListOf(['[all]']), ['desktop', 'apple', 'android'])
+  assert.deepEqual(platformListOf(['[all]']), ['desktop', 'mac', 'apple', 'android'])
   assert.deepEqual(platformListOf(['[Desktop]', 'and [apple]']), ['desktop', 'apple'])
+  assert.deepEqual(platformListOf(['[BETA] [mac]']), ['mac'])
   assert.equal(platformListOf(['[BETA]', '[WIP] desktop', '[desktop, wip]']), null)
 })
 
 test('platformsFromFiles maps folders to apps, and docs or CI to nothing', () => {
-  assert.deepEqual(platformsFromFiles(['apple/App/Sources/X.swift']), ['apple'])
+  // apple/ is two apps: the iOS and tvOS one and the native Mac one.
+  assert.deepEqual(platformsFromFiles(['apple/App/Sources/X.swift']), ['mac', 'apple'])
+  assert.deepEqual(platformsFromFiles(['apple/App/Mac/MacRootView.swift', 'renderer.js']), ['desktop', 'mac', 'apple'])
   assert.deepEqual(platformsFromFiles(['renderer.js', 'android/app/build.gradle']), ['desktop', 'android'])
   assert.deepEqual(platformsFromFiles(['README.md', 'CHANGELOG.md', 'docs/plan.md', '.github/workflows/build.yml', 'LICENSE']), [])
   assert.deepEqual(platformsFromFiles(['src/core/queue.ts']), ['desktop'])
@@ -77,6 +80,8 @@ test('stable push without a marker only builds, and docs alone do nothing', () =
   const p = planRelease(base({ messages: ['Fix a thing'], files: ['apple/App/Sources/X.swift'] }))
   assert.equal(p.mode, 'build')
   assert.deepEqual(p.platforms, ['apple'])
+  // With the native Mac app in the repo, the same change builds it too.
+  assert.deepEqual(planRelease(base({ messages: ['Fix a thing'], files: ['apple/App/Sources/X.swift'], available: ['desktop', 'mac', 'apple'] })).platforms, ['mac', 'apple'])
   assert.equal(p.version, '')
   assert.equal(planRelease(base({ messages: ['Docs'], files: ['README.md'] })).mode, 'none')
 })
@@ -132,6 +137,45 @@ test('markers in a commit body do nothing: only the first line counts', () => {
   assert.equal(planRelease(base({ branch: 'dev', messages: ['Try the queue [BETA]\n\nbody'] })).mode, 'beta')
 })
 
+test('a mac-only beta on dev builds just the native Mac app, without carry-over of anything else', () => {
+  const p = planRelease(base({ branch: 'dev', messages: ['Try the native app [BETA] [mac]'], available: ['desktop', 'mac', 'apple'] }))
+  assert.equal(p.mode, 'beta')
+  assert.deepEqual(p.platforms, ['mac'])
+  assert.equal(p.publish, true)
+  // Without the app folder, mac is not wanted at all.
+  assert.equal(planRelease(base({ branch: 'dev', messages: ['[BETA] [mac]'] })).mode, 'none')
+})
+
+test('a manual run can pick mac', () => {
+  const d = (dispatch: PlanInput['dispatch']) => planRelease(base({ event: 'workflow_dispatch', branch: 'dev', available: ['desktop', 'mac', 'apple'], dispatch }))
+  assert.deepEqual(d({ platforms: 'mac' }).platforms, ['mac'])
+  assert.deepEqual(d({}).platforms, ['desktop', 'mac', 'apple'])
+})
+
+test('versionsFor carries each Mac build over on its own', () => {
+  // Electron rebuilt, native carried: the native version stays the old one.
+  assert.deepEqual(versionsFor({ version: '2.4.1', rebuilt: ['desktop'], carried: ['mac', 'apple'],
+    previous: { desktop: '2.4.0', mac: '2.3.9', apple: '2.4.0' }, previousVersion: '2.4.0' }),
+  { desktop: '2.4.1', mac: '2.3.9', apple: '2.4.0' })
+  // Native rebuilt, Electron carried.
+  assert.deepEqual(versionsFor({ version: '2.4.1', rebuilt: ['mac'], carried: ['desktop'],
+    previous: { desktop: '2.4.0', mac: '2.4.0' }, previousVersion: '2.4.0' }),
+  { desktop: '2.4.0', mac: '2.4.1' })
+  // No native build in the last release: nothing is invented for it, and the
+  // old-release fallback to the tag is only for desktop.
+  assert.deepEqual(versionsFor({ version: '2.4.1', rebuilt: ['desktop'], carried: ['mac'], previous: { desktop: '2.4.0' }, previousVersion: '2.4.0' }),
+    { desktop: '2.4.1' })
+})
+
+test('platformOfFile tells the native Mac DMG from the Electron one', () => {
+  assert.equal(platformOfFile('Cascade-Native-2.4.0.dmg'), 'mac')
+  assert.equal(platformOfFile('Cascade-Native-2.4.0-b1.dmg'), 'mac')
+  assert.equal(platformOfFile('Cascade-2.4.0-arm64.dmg'), 'desktop')
+  assert.equal(platformOfFile('Cascade-2.0.1.dmg'), 'desktop')
+  assert.equal(platformOfFile('Cascade-Native-2.4.0.dmg.blockmap'), null)
+  assert.equal(platformOfFile('MyCascade-Native-2.4.0.dmg'), 'desktop')
+})
+
 test('platformOfFile sorts release files by platform and ignores the rest', () => {
   assert.equal(platformOfFile('Cascade-2.3.1-arm64.dmg'), 'desktop')
   assert.equal(platformOfFile('Cascade-2.3.1-tvOS.ipa'), 'apple')
@@ -143,7 +187,8 @@ test('platformOfFile sorts release files by platform and ignores the rest', () =
 test("build.yml's carry-over patterns match PLATFORM_FILES", () => {
   const yml = readFileSync(new URL('../.github/workflows/build.yml', import.meta.url), 'utf8')
   for (const [p, patterns] of Object.entries(PLATFORM_FILES)) {
-    const m = yml.match(new RegExp(`${p}\\)\\s+PATTERNS=\\(([^)]*)\\)`))
+    // The leading space keeps "mac)" from matching inside "desktop)" and the like.
+    const m = yml.match(new RegExp(`\\s${p}\\)\\s+PATTERNS=\\(([^)]*)\\)`))
     assert.ok(m, `no PATTERNS line for ${p} in build.yml`)
     assert.deepEqual(m[1].split(/\s+/).filter(Boolean).map(s => s.replace(/'/g, '')), patterns)
   }

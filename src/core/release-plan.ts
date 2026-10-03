@@ -4,8 +4,11 @@
 // discovered in a failed CI run. scripts/release-plan.mjs feeds it from git
 // and GitHub, and writes the answer out for the workflow.
 
-export type Platform = 'desktop' | 'apple' | 'android'
-export const PLATFORMS: readonly Platform[] = ['desktop', 'apple', 'android']
+// `mac` is the native Mac app (apple/, CascadeMac). `desktop` stays the
+// Electron app on every OS, Electron's Mac DMG included; see
+// docs/mac-native-plan.md.
+export type Platform = 'desktop' | 'mac' | 'apple' | 'android'
+export const PLATFORMS: readonly Platform[] = ['desktop', 'mac', 'apple', 'android']
 
 /**
  * Which release files belong to which platform, as `gh release download`
@@ -13,14 +16,28 @@ export const PLATFORMS: readonly Platform[] = ['desktop', 'apple', 'android']
  * test/release-plan.test.ts fails if the two drift apart.
  */
 export const PLATFORM_FILES: Record<Platform, readonly string[]> = {
+  // desktop's *.dmg also matches the native DMG, so anything that downloads
+  // or copies these patterns has to drop Cascade-Native-* afterwards (build.yml
+  // and publish.yml do); platformOfFile tells them apart for everything else.
   desktop: ['*.exe', '*.dmg', '*.AppImage', '*.deb', '*.rpm'],
+  mac: ['Cascade-Native-*.dmg'],
   apple: ['*.ipa', '*.xcarchive.zip'],
   android: ['*.apk', '*.aab'],
 }
 
+// Most specific first: mac's pattern is a subset of desktop's *.dmg, so
+// testing in PLATFORMS order would file the native DMG under desktop.
+const MATCH_ORDER: readonly Platform[] = ['mac', ...PLATFORMS.filter(p => p !== 'mac')]
+
+// A glob as an anchored regex. Only * is special; the patterns above are
+// not general globs. (endsWith would do for "*.ext", but not for a pattern
+// with a wildcard in the middle.)
+const globToRegExp = (pat: string) =>
+  new RegExp(`^${pat.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')}$`)
+
 /** The platform a release file belongs to, or null (versions.json, blockmaps, anything else). */
 export function platformOfFile(name: string): Platform | null {
-  return PLATFORMS.find(p => PLATFORM_FILES[p].some(pat => name.endsWith(pat.slice(1)))) ?? null
+  return MATCH_ORDER.find(p => PLATFORM_FILES[p].some(pat => globToRegExp(pat).test(name))) ?? null
 }
 
 export type Bump = 'major' | 'minor' | 'patch'
@@ -77,14 +94,15 @@ export function platformListOf(messages: readonly string[]): Platform[] | null {
 }
 
 /**
- * Which platforms a set of changed files touches. `apple/` and `android/` are
- * their apps; docs, the changelog, license files and CI configuration build
+ * Which platforms a set of changed files touches. `apple/` is two apps, the
+ * iOS and tvOS one and the native Mac one, which share its sources; `android/`
+ * is its own; docs, the changelog, license files and CI configuration build
  * nothing by themselves; everything else is the desktop app at the root.
  */
 export function platformsFromFiles(files: readonly string[]): Platform[] {
   const hit = new Set<Platform>()
   for (const f of files) {
-    if (f.startsWith('apple/')) hit.add('apple')
+    if (f.startsWith('apple/')) { hit.add('apple'); hit.add('mac') }
     else if (f.startsWith('android/')) hit.add('android')
     else if (/^(docs\/|\.github\/|\.claude\/)/.test(f)) continue
     else if (/^[^/]+\.md$/i.test(f) || /^LICENSE/.test(f)) continue

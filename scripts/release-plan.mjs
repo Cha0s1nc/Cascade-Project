@@ -63,7 +63,8 @@ if (command === 'plan') {
     files: range.files,
     lastVersion: (env.LAST_VERSION ?? '').replace(/^v/, ''),
     tags: (env.TAGS ?? '').split('\n').map(s => s.trim()).filter(Boolean),
-    available: PLATFORMS.filter(p => p === 'desktop' || existsSync(p)),
+    // The native Mac app lives in apple/, beside the iOS and tvOS one.
+    available: PLATFORMS.filter(p => p === 'desktop' || existsSync(p === 'mac' ? 'apple' : p)),
     dispatch: { bump: env.INPUT_BUMP, platforms: env.INPUT_PLATFORMS, beta: env.INPUT_BETA === 'true' },
   })
   console.error(`Plan: ${plan.mode} ${plan.version || ''} [${plan.platforms.join(', ')}] (${plan.reason})`)
