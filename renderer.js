@@ -1108,9 +1108,22 @@ dpSeekInput.addEventListener('change', () => {
   _dpSendPlaystate('Seek', { seekPositionTicks: CascadeCore.secondsToTicks(Number(dpSeekInput.value)) })
 })
 
+// Live while dragging: each input would be a request to the server and a hop
+// to the device, so at most one goes out per 150 ms, carrying wherever the
+// thumb is by then, and the release sends the exact final level.
 const dpVolInput = document.getElementById('dp-vol')
-dpVolInput.addEventListener('input', () => { _dpVolDragging = true })
+let _dpVolTimer = null
+dpVolInput.addEventListener('input', () => {
+  _dpVolDragging = true
+  if (_dpVolTimer) return
+  _dpVolTimer = setTimeout(() => {
+    _dpVolTimer = null
+    _dpSendGeneralCommand(CascadeCore.buildSetVolumeCommand(Number(dpVolInput.value)))
+  }, 150)
+})
 dpVolInput.addEventListener('change', () => {
+  clearTimeout(_dpVolTimer)
+  _dpVolTimer = null
   _dpVolDragging = false
   _dpSendGeneralCommand(CascadeCore.buildSetVolumeCommand(Number(dpVolInput.value)))
 })

@@ -14,6 +14,11 @@ struct DevicesSheet: View {
     @State private var error: String?
     /// Moved by hand; the next poll does not snap it back mid-drag.
     @State private var volumeDraft: Double?
+    /// While the finger is on the volume slider: the 3 s poll leaves the draft
+    /// alone, or a level reported a moment ago would snap the thumb back.
+    @State private var volumeEditing = false
+    /// The pending live volume command, at most one per interval.
+    @State private var volumeSend: Task<Void, Never>?
 
     private var selected: RemoteSession? {
         sessions.first { $0.id == state.controlledDevice?.id }
@@ -111,9 +116,15 @@ struct DevicesSheet: View {
             if let level = s.playState?.volumeLevel {
                 HStack {
                     Image(systemName: "speaker.fill").foregroundStyle(.secondary)
-                    Slider(value: Binding(get: { volumeDraft ?? Double(level) }, set: { volumeDraft = $0 }),
-                           in: 0...100) { editing in
+                    Slider(value: Binding(get: { volumeDraft ?? Double(level) }, set: { v in
+                        volumeDraft = v
+                        sendVolumeSoon(to: s.id)
+                    }), in: 0...100) { editing in
+                        volumeEditing = editing
                         guard !editing, let draft = volumeDraft else { return }
+                        // The exact final level, whatever the last live send was.
+                        volumeSend?.cancel()
+                        volumeSend = nil
                         Task { try? await state.client?.setVolume(Int(draft), on: s.id) }
                     }
                     Image(systemName: "speaker.wave.3.fill").foregroundStyle(.secondary)
@@ -149,13 +160,26 @@ struct DevicesSheet: View {
         }
     }
 
+    /// Live volume while dragging: each step would be a request to the server
+    /// and a hop to the device, so at most one goes out per 150 ms, carrying
+    /// wherever the thumb is by then.
+    private func sendVolumeSoon(to sessionId: String) {
+        guard volumeSend == nil else { return }
+        volumeSend = Task {
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled else { return }
+            if let level = volumeDraft { try? await state.client?.setVolume(Int(level), on: sessionId) }
+            volumeSend = nil
+        }
+    }
+
     private func poll(once: Bool = false) async {
         repeat {
             do {
                 sessions = try await state.client?.controllableSessions() ?? []
                 polledAt = .now
                 error = nil
-                volumeDraft = nil
+                if !volumeEditing { volumeDraft = nil }
             } catch {
                 self.error = error.localizedDescription
             }
