@@ -32,6 +32,7 @@ Written 2026-09-30 against `dev` at `2f0882d`. Line numbers are approximate and 
 | 7 | Publish workflow: website data, OCI mirror, in-app "what's new" | built (`publish.yml`); website pages on the `cascade-releases` branch of the site |
 | 8 | Apple signing, TestFlight | job written and switched off; setup list in `docs/testflight.md` |
 | 9 | Android | placeholder `build-android` job in `build.yml`, skipped until `android/` exists; check its Gradle paths and add signing then |
+| 10 | Native macOS app, shipped beside the Electron DMG until it reaches parity | planned; see `docs/mac-native-plan.md` |
 
 ## Phase 4: the updater reads `versions.json`
 
