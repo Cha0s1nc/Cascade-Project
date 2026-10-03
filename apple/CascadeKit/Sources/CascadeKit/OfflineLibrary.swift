@@ -51,8 +51,18 @@ public final class OfflineLibrary {
     public static let sessionIdentifier = "cascade.downloads"
 
     public static var defaultRoot: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        #if os(macOS)
+        // Application Support is shared by every app on the Mac, unlike an
+        // iOS app's own container, so the files go under the bundle id. It is
+        // read at run time: a debug build's `.dev` id keeps its downloads out
+        // of the release app's folder. iOS keeps its old path, which would
+        // otherwise orphan what is already downloaded.
+        return support.appending(path: Bundle.main.bundleIdentifier ?? "xyz.chaosinc.cascade", directoryHint: .isDirectory)
             .appending(path: "offline", directoryHint: .isDirectory)
+        #else
+        return support.appending(path: "offline", directoryHint: .isDirectory)
+        #endif
     }
 
     public init(root: URL = OfflineLibrary.defaultRoot) {

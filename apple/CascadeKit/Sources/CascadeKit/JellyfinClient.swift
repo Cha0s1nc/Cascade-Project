@@ -58,6 +58,8 @@ let cascadeDeviceName: String = {
     }
     let machine = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] ?? hardware
     return machine.hasPrefix("iPad") ? "iPad" : "iPhone"
+    #elseif os(macOS)
+    return "Mac"
     #else
     return "Cascade"
     #endif

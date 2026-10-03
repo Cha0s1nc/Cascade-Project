@@ -93,18 +93,26 @@ public struct DeviceProfile: Codable, Sendable {
 // FLAC is supported on iOS/tvOS 11+ and a survey of the target server found
 // 1087 of 1087 music tracks are FLAC, so omitting it would transcode the whole
 // library on every play.
+#if os(macOS)
+let appleMaxBitrate = defaultMaxBitrate
+#else
+let appleMaxBitrate = 20_000_000
+#endif
+
 private let codecCheckedContainers = "aac,mp3,alac,m4a,flac"
 private let codecCheckedAudioCodecs = "aac,mp3,alac,flac"
 
 public extension DeviceProfile {
     /// The profile for Apple platforms (iOS, tvOS) playing through AVPlayer.
     ///
-    /// maxStreamingBitrate is well under the desktop's 140 Mbps default: these
-    /// are phones and set-top boxes on Wi-Fi, and the desktop number is
-    /// meaningless off a wired link.
+    /// maxStreamingBitrate is well under the desktop's 140 Mbps default on
+    /// phones and set-top boxes: they are on Wi-Fi, and the desktop number is
+    /// meaningless off a wired link. The Mac is the desktop, so its "Original"
+    /// is the desktop's own: a hi-res FLAC runs past 20 Mbps and would be
+    /// transcoded for rate under the phone's ceiling.
     static let apple = DeviceProfile(
         name: "Cascade Apple",
-        maxStreamingBitrate: 20_000_000,
+        maxStreamingBitrate: appleMaxBitrate,
         directPlayProfiles: [
             // audioCodec is spelled out rather than left to the container list
             // to imply, so a post-negotiation check has something concrete to

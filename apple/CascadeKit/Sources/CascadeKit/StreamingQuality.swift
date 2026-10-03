@@ -31,6 +31,21 @@ public enum StreamingQuality: Int, CaseIterable, Sendable, Identifiable {
         self = (stored as? Int).flatMap(StreamingQuality.init(rawValue:)) ?? .original
     }
 
+    /// The desktop's `maxStreamingBitrate`, a bits-per-second number with
+    /// 140,000,000 as "Original" (its steps are 320/192/128/96 kbps). A value
+    /// between two steps lands on the step below it, so a cap is never loosened
+    /// by the mapping; anything at or past the desktop's Original, and anything
+    /// unusable, is Original.
+    public init(electronBitrate value: Any?) {
+        let number = (value as? Int) ?? (value as? String).flatMap(Int.init) ?? 0
+        guard number > 0, number < StreamingQuality.desktopOriginal else { self = .original; return }
+        self = StreamingQuality.allCases.filter { $0.bitrate != nil && $0.rawValue <= number }
+            .max { $0.rawValue < $1.rawValue } ?? .kbps96
+    }
+
+    /// The desktop's "Original" (src/core/jellyfin.ts DEFAULT_MAX_BITRATE).
+    public static let desktopOriginal = 140_000_000
+
     public static let wifiKey = "cascade.streamingQuality"
     public static let cellularKey = "cascade.cellularStreamingQuality"
 }
