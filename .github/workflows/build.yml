@@ -47,6 +47,7 @@ jobs:
       version: ${{ steps.plan.outputs.version }}
       tag: ${{ steps.plan.outputs.tag }}
       desktop: ${{ steps.plan.outputs.desktop }}
+      mac: ${{ steps.plan.outputs.mac }}
       apple: ${{ steps.plan.outputs.apple }}
       android: ${{ steps.plan.outputs.android }}
       prerelease: ${{ steps.plan.outputs.prerelease }}
@@ -213,6 +214,106 @@ jobs:
         with:
           name: dist-mac
           path: dist/*.dmg
+          retention-days: 7
+
+  # ── macOS, native app ──────────────────────────────────────────────────────
+  # The Swift app (CascadeMac in apple/), shipped as Cascade-Native-<ver>.dmg
+  # beside the Electron DMG above, which is untouched. Both are named so that
+  # no updater already in the wild can pick the native one: Electron's DMG
+  # carries arm64 in its name and this one does not (src/core/update-release.ts,
+  # docs/mac-native-plan.md).
+  #
+  # Ad-hoc signed, like the Electron build, and for the same reason: there is
+  # no Developer ID. Not gated on the desktop tests: it is the Swift app, and
+  # CascadeKit's own suite runs here instead.
+  build-mac-native:
+    needs: setup
+    if: needs.setup.outputs.mac == 'true'
+    # Xcode 27 is its own image; macos-26 does not have it.
+    runs-on: xcode-27
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: apple
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: CascadeKit tests
+        working-directory: apple/CascadeKit
+        run: swift test
+
+      - name: Generate the Xcode project
+        run: xcodegen generate
+
+      # The marketing version is the whole release version, a beta's -bN
+      # included, unlike the iOS and tvOS build: mac-update.js refuses a swap
+      # unless the new app's CFBundleShortVersionString equals the version
+      # versions.json promised, and Electron betas already work that way.
+      # macOS outside the App Store accepts it. The build number is the run
+      # number, which only goes up.
+      - name: Archive
+        env:
+          VERSION: ${{ needs.setup.outputs.version }}
+          BUILD: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          xcodebuild archive -project Cascade.xcodeproj -scheme CascadeMac \
+            -destination 'generic/platform=macOS' -archivePath build/CascadeMac.xcarchive \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+            MARKETING_VERSION="${VERSION:-0.0.$BUILD}" CURRENT_PROJECT_VERSION="$BUILD" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+
+      # --deep because the app may embed frameworks. The strict verify is the
+      # check the in-place updater runs on the downloaded copy, so a bundle
+      # that fails it here would fail on every user's Mac.
+      - name: Sign ad hoc and package the DMG
+        env:
+          VERSION: ${{ needs.setup.outputs.version }}
+          BUILD: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          NAME="${VERSION:-build-$BUILD}"
+          APP=build/CascadeMac.xcarchive/Products/Applications/Cascade.app
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --strict --verbose=2 "$APP"
+          # One .app and an Applications link to drag it to. The updater
+          # insists on exactly one .app in the image.
+          rm -rf stage && mkdir -p stage dist
+          ditto "$APP" stage/Cascade.app
+          ln -s /Applications stage/Applications
+          hdiutil create -volname Cascade -srcfolder stage -fs HFS+ -format UDZO -ov "dist/Cascade-Native-$NAME.dmg"
+          ls -la dist
+
+      # Opens the DMG the way the updater will and checks what it checks,
+      # so a bad bundle fails this job rather than a user's update.
+      - name: Check the DMG
+        env:
+          VERSION: ${{ needs.setup.outputs.version }}
+          BUILD: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          NAME="${VERSION:-build-$BUILD}"
+          MOUNT=$(mktemp -d)
+          hdiutil attach "dist/Cascade-Native-$NAME.dmg" -nobrowse -readonly -noautoopen -mountpoint "$MOUNT"
+          trap 'hdiutil detach "$MOUNT" -force' EXIT
+          [ "$(ls -d "$MOUNT"/*.app | wc -l)" -eq 1 ] || { echo "::error::expected exactly one .app in the DMG"; exit 1; }
+          APP=$(ls -d "$MOUNT"/*.app)
+          codesign --verify --strict "$APP"
+          PLIST="$APP/Contents/Info.plist"
+          ID=$(plutil -extract CFBundleIdentifier raw -o - "$PLIST")
+          GOT=$(plutil -extract CFBundleShortVersionString raw -o - "$PLIST")
+          [ "$ID" = xyz.chaosinc.cascade ] || { echo "::error::bundle id is $ID"; exit 1; }
+          [ "$GOT" = "${VERSION:-0.0.$BUILD}" ] || { echo "::error::version is $GOT, expected ${VERSION:-0.0.$BUILD}"; exit 1; }
+          lipo -archs "$APP/Contents/MacOS/Cascade" | grep -qx arm64 || { echo "::error::not an arm64-only binary"; exit 1; }
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist-mac-native
+          path: apple/dist/*.dmg
           retention-days: 7
 
   # ── Linux (AppImage + RPM) ─────────────────────────────────────────────────
@@ -497,7 +598,7 @@ jobs:
   # build failed is carried over instead and named in the notes; the draft
   # is for the maintainer to check before publishing.
   release:
-    needs: [setup, test, build-windows, build-mac, build-linux, build-apple, build-android]
+    needs: [setup, test, build-windows, build-mac, build-mac-native, build-linux, build-apple, build-android]
     if: >-
       always() && needs.setup.result == 'success' &&
       (needs.setup.outputs.mode == 'release' || needs.setup.outputs.mode == 'beta')
@@ -526,10 +627,12 @@ jobs:
           PUBLISH: ${{ needs.setup.outputs.publish }}
           PRERELEASE: ${{ needs.setup.outputs.prerelease }}
           WANT_DESKTOP: ${{ needs.setup.outputs.desktop }}
+          WANT_MAC: ${{ needs.setup.outputs.mac }}
           WANT_APPLE: ${{ needs.setup.outputs.apple }}
           WANT_ANDROID: ${{ needs.setup.outputs.android }}
           WIN: ${{ needs.build-windows.result }}
           MAC: ${{ needs.build-mac.result }}
+          MAC_NATIVE: ${{ needs.build-mac-native.result }}
           LINUX: ${{ needs.build-linux.result }}
           APPLE: ${{ needs.build-apple.result }}
           ANDROID: ${{ needs.build-android.result }}
@@ -545,9 +648,22 @@ jobs:
           if [ "$WANT_DESKTOP" = true ]; then
             if [ "$WIN" = success ] && [ "$MAC" = success ] && [ "$LINUX" = success ]; then
               REBUILT+=(desktop)
-              cp artifacts/*.exe artifacts/*.dmg artifacts/*.AppImage artifacts/*.deb artifacts/*.rpm release/
+              # Not *.dmg: the native Mac DMG is in artifacts/ too, and is
+              # its own platform below.
+              cp artifacts/*.exe artifacts/*.AppImage artifacts/*.deb artifacts/*.rpm release/
+              for f in artifacts/*.dmg; do
+                case "${f##*/}" in Cascade-Native-*) ;; *) cp "$f" release/ ;; esac
+              done
             else
               FAILED+=(desktop)
+            fi
+          fi
+          if [ "$WANT_MAC" = true ]; then
+            if [ "$MAC_NATIVE" = success ]; then
+              REBUILT+=(mac)
+              cp artifacts/Cascade-Native-*.dmg release/
+            else
+              FAILED+=(mac)
             fi
           fi
           if [ "$WANT_APPLE" = true ]; then
@@ -575,16 +691,20 @@ jobs:
           # files, so nobody has to dig through older releases. Betas do not.
           if [ "$MODE" = release ]; then
             gh release download "$LAST_TAG" -p versions.json -D carried 2>/dev/null || true
-            for p in desktop apple android; do
+            for p in desktop mac apple android; do
               [[ " ${REBUILT[*]} " == *" $p "* ]] && continue
               case $p in
                 desktop) PATTERNS=('*.exe' '*.dmg' '*.AppImage' '*.deb' '*.rpm') ;;
+                mac)     PATTERNS=('Cascade-Native-*.dmg') ;;
                 apple)   PATTERNS=('*.ipa' '*.xcarchive.zip') ;;
                 android) PATTERNS=('*.apk' '*.aab') ;;
               esac
               ARGS=(); for pat in "${PATTERNS[@]}"; do ARGS+=(-p "$pat"); done
               mkdir -p "carried/$p"
               gh release download "$LAST_TAG" "${ARGS[@]}" -D "carried/$p" 2>/dev/null || true
+              # desktop's *.dmg pattern also fetched the native DMG, which
+              # belongs to mac and is carried over (or not) on its own.
+              if [ "$p" = desktop ]; then rm -f carried/desktop/Cascade-Native-*; fi
               FILES=(carried/$p/*)
               if [ ${#FILES[@]} -gt 0 ]; then CARRIED+=("$p"); cp "${FILES[@]}" release/; fi
             done
@@ -602,7 +722,7 @@ jobs:
           if ! node scripts/changelog-section.mjs "${VERSION%%-*}" > notes.md 2>/dev/null; then
             echo "Beta build $VERSION." > notes.md
           fi
-          name() { case $1 in desktop) echo Desktop ;; apple) echo "iOS and tvOS" ;; android) echo Android ;; esac; }
+          name() { case $1 in desktop) echo Desktop ;; mac) echo "Mac (native)" ;; apple) echo "iOS and tvOS" ;; android) echo Android ;; esac; }
           if [ ${#CARRIED[@]} -gt 0 ]; then
             { echo; echo '---'; echo; echo "Unchanged in this release, carried over from $LAST_TAG:"; echo
               for p in "${CARRIED[@]}"; do echo "- $(name "$p") $(jq -r --arg p "$p" '.[$p] // "?"' release/versions.json)"; done

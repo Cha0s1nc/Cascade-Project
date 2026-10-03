@@ -199,3 +199,18 @@ test('markerLines finds release and beta markers, and nothing else', () => {
     ['Try it [beta]', 'Bump to Release (X.0.0)', '(x.X.0)'])
   assert.deepEqual(markerLines([]), [])
 })
+
+test('the workflows keep the native Mac DMG out of desktop, and give it its own platform', () => {
+  const read = (f: string) => readFileSync(new URL(`../.github/workflows/${f}`, import.meta.url), 'utf8')
+  const build = read('build.yml')
+  const publish = read('publish.yml')
+  // desktop's *.dmg matches the native file, so both places that fetch it drop it afterwards.
+  assert.match(build, /rm -f carried\/desktop\/Cascade-Native-\*/)
+  assert.match(publish, /rm -f "up\/desktop\/\$VERSION"\/Cascade-Native-\*/)
+  // The release job copies the native DMG as mac, not as part of desktop.
+  assert.match(build, /case "\$\{f##\*\/\}" in Cascade-Native-\*\) ;;/)
+  assert.match(build, /cp artifacts\/Cascade-Native-\*\.dmg release\//)
+  // The job exists, is gated on the plan's mac output, and the release waits for it.
+  assert.match(build, /build-mac-native:\n    needs: setup\n    if: needs\.setup\.outputs\.mac == 'true'/)
+  assert.match(build, /needs: \[setup, test, build-windows, build-mac, build-mac-native,/)
+})

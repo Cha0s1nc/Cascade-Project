@@ -1,5 +1,6 @@
 # When a release is published: copy the platforms a stable release built to
-# the download mirror, and refresh the website's releases.json (every release,
+# the download mirror (the native Mac DMG goes to mac/<version>/, the Electron
+# one stays under desktop/), and refresh the website's releases.json (every release,
 # betas too, with its GitHub notes verbatim) and changelog.json. Editing a
 # release's notes refreshes the website only. See
 # docs/release-pipeline-plan.md, phase 7.
@@ -64,6 +65,9 @@ jobs:
           for p in $BUILT; do
             ARGS=(); while read -r pat; do ARGS+=(-p "$pat"); done < <(node scripts/release-plan.mjs files "$p")
             gh release download "$TAG" "${ARGS[@]}" -D "up/$p/$VERSION"
+            # desktop's *.dmg also fetched the native Mac DMG, which is its own
+            # platform (mac/<ver>/) with its own version in versions.json.
+            if [ "$p" = desktop ]; then rm -f "up/desktop/$VERSION"/Cascade-Native-*; fi
           done
           find up -type f | sort
 
