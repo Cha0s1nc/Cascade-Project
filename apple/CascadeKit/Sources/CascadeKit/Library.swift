@@ -141,13 +141,13 @@ public extension JellyfinClient {
     /// Album artists rather than every credited artist, which is the list a
     /// music app means by "Artists". A separate endpoint, not an item type; it
     /// takes one parentId, so several libraries are queried per library too.
-    func artists(limit: Int = 500, startIndex: Int = 0, sortOrder: String = "Ascending",
+    func artists(limit: Int = 500, startIndex: Int = 0, sortBy: String = "SortName", sortOrder: String = "Ascending",
                  favoritesOnly: Bool = false, filter: BrowseFilter = .init()) async throws -> [JfItem] {
         try await itemsAcrossLibraries([
             "userId": currentConfig.userId,
-            // The server's default for this route, stated so the libraries
-            // can be put back in the same order after merging.
-            "sortBy": "SortName",
+            // SortName is the server's default for this route, stated so the
+            // libraries can be put back in the same order after merging.
+            "sortBy": sortBy,
             "sortOrder": sortOrder,
             "isFavorite": favoritesOnly ? "true" : nil,
             "limit": String(limit),
@@ -301,9 +301,42 @@ public extension JellyfinClient {
         ]) { _, new in new })
     }
 
+    /// The desktop's search dropdown: songs, albums and artists, each its own
+    /// query with its own cap (10, 8, 8), so one kind with many matches
+    /// cannot crowd the others out of a single shared limit. Movies and shows
+    /// (8 each) only when their library ids are given, which a music-only
+    /// account never has. A kind that fails comes back empty rather than
+    /// sinking the rest, as the desktop's allSettled does.
+    func searchEverything(_ term: String, movieLibraries: [String] = [],
+                          showLibraries: [String] = []) async throws -> SearchResults {
+        let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return SearchResults() }
+        async let songs = try? itemsAcrossLibraries(baseParams.merging([
+            "searchTerm": trimmed, "includeItemTypes": "Audio", "fields": trackFields, "limit": "10",
+        ]) { _, new in new })
+        async let albums = try? itemsAcrossLibraries(baseParams.merging([
+            "searchTerm": trimmed, "includeItemTypes": "MusicAlbum", "limit": "8",
+        ]) { _, new in new })
+        // /Artists, not /Items, as the desktop does: it is the route that
+        // knows artists, and it finds track artists as well as album artists.
+        async let artists = try? itemsAcrossLibraries([
+            "userId": currentConfig.userId, "searchTerm": trimmed, "limit": "8",
+        ], path: "/Artists")
+        async let movies = movieLibraries.isEmpty
+            ? nil : try? searchVideo(trimmed, type: "Movie", libraryIds: movieLibraries)
+        async let shows = showLibraries.isEmpty
+            ? nil : try? searchVideo(trimmed, type: "Series", libraryIds: showLibraries)
+        // Each merged list is cut back to its cap: several libraries return a
+        // full limit each.
+        return SearchResults(songs: Array((await songs ?? []).prefix(10)),
+                             albums: Array((await albums ?? []).prefix(8)),
+                             artists: Array((await artists ?? []).prefix(8)),
+                             movies: await movies ?? [], shows: await shows ?? [])
+    }
+
     // MARK: - Home
 
-    func recentlyAdded(limit: Int = 20) async throws -> [JfItem] {
+    func recentlyAdded(limit: Int = 24) async throws -> [JfItem] {
         try await itemsAcrossLibraries(baseParams.merging([
             "includeItemTypes": "MusicAlbum",
             "sortBy": "DateCreated",
@@ -312,7 +345,7 @@ public extension JellyfinClient {
         ]) { _, new in new })
     }
 
-    func recentlyPlayed(limit: Int = 20) async throws -> [JfItem] {
+    func recentlyPlayed(limit: Int = 24) async throws -> [JfItem] {
         try await itemsAcrossLibraries(baseParams.merging([
             "includeItemTypes": "Audio",
             "sortBy": "DatePlayed",
@@ -363,6 +396,23 @@ public extension JellyfinClient {
             try await delete(path, params: params)
         }
     }
+}
+
+/// What the search box found, by kind.
+public struct SearchResults: Sendable {
+    public var songs: [JfItem] = []
+    public var albums: [JfItem] = []
+    public var artists: [JfItem] = []
+    public var movies: [JfItem] = []
+    public var shows: [JfItem] = []
+
+    public init(songs: [JfItem] = [], albums: [JfItem] = [], artists: [JfItem] = [],
+                movies: [JfItem] = [], shows: [JfItem] = []) {
+        self.songs = songs; self.albums = albums; self.artists = artists
+        self.movies = movies; self.shows = shows
+    }
+
+    public var isEmpty: Bool { songs.isEmpty && albums.isEmpty && artists.isEmpty && movies.isEmpty && shows.isEmpty }
 }
 
 public enum ArtistPage {
