@@ -235,6 +235,8 @@ struct LoadingOverlay: View {
     let isLoading: Bool
     let error: String?
     let isEmpty: Bool
+    /// The empty state's symbol: a note, or a film for the video screens.
+    var emptySymbol = "music.note"
 
     var body: some View {
         if isLoading {
@@ -242,7 +244,7 @@ struct LoadingOverlay: View {
         } else if let error {
             ContentUnavailableView("Could not load", systemImage: "exclamationmark.triangle", description: Text(error))
         } else if isEmpty {
-            ContentUnavailableView("Nothing here", systemImage: "music.note")
+            ContentUnavailableView("Nothing here", systemImage: emptySymbol)
         }
     }
 }

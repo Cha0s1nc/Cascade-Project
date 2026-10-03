@@ -60,3 +60,15 @@ struct VideoResumeTests {
         #expect(VideoPlayback.withoutStartTicks("https://s/videos/1/master.m3u8?api_key=k")?.absoluteString == "https://s/videos/1/master.m3u8?api_key=k")
     }
 }
+
+struct VideoSearchTests {
+    @Test func searchesMoviesShowsAndEpisodesAcrossLibraries() throws {
+        let params = try #require(VideoPlayback.searchParams(term: "  infinity castle ", userId: "u1"))
+        #expect(params["searchTerm"] == "infinity castle")
+        #expect(params["includeItemTypes"] == "Movie,Series,Episode")
+        #expect(params["recursive"] == "true")
+        #expect(params["userId"] == "u1")
+        #expect(params["fields"]??.contains("MediaStreams") == true, "results play like list items")
+        #expect(VideoPlayback.searchParams(term: "   ", userId: "u1") == nil)
+    }
+}

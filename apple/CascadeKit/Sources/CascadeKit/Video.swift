@@ -70,6 +70,14 @@ public extension JellyfinClient {
         return r.items ?? []
     }
 
+    /// Movies, shows and episodes matching a search: the Video mode's search
+    /// screen. Empty for a blank term.
+    func searchVideo(_ term: String, limit: Int = 60) async throws -> [JfItem] {
+        guard let params = VideoPlayback.searchParams(term: term, userId: currentConfig.userId, limit: limit) else { return [] }
+        let r: JfItemsResponse = try await get("/Items", params: params)
+        return r.items ?? []
+    }
+
     /// Next episode to watch, per show (or for one show).
     func nextUp(seriesId: String? = nil, limit: Int = 20) async throws -> [JfItem] {
         let r: JfItemsResponse = try await get("/Shows/NextUp", params: [
@@ -159,6 +167,15 @@ public enum VideoPlayback {
             + (source.id.map { [URLQueryItem(name: "mediaSourceId", value: $0)] } ?? [])
             + (playSessionId.map { [URLQueryItem(name: "PlaySessionId", value: $0)] } ?? [])
         return c.url
+    }
+
+    /// The query behind searchVideo, nil for a blank term. Fields as the video
+    /// lists ask for them, so a result opens a detail page or plays as one.
+    public static func searchParams(term: String, userId: String, limit: Int = 60) -> [String: String?]? {
+        let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return ["userId": userId, "searchTerm": trimmed, "includeItemTypes": "Movie,Series,Episode",
+                "recursive": "true", "fields": videoFields, "limit": String(limit)]
     }
 
     /// "S1:E2" for an episode, as the desktop's episodeCode.
