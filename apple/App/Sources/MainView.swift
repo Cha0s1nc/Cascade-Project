@@ -1,6 +1,9 @@
 import SwiftUI
 import CascadeKit
 
+// The Mac has its own shell (App/Mac/MacRootView.swift): a sidebar and a
+// player bar, not tabs and a pill.
+#if !os(macOS)
 /// The signed-in shell: tabs, and on iOS the mini player as Apple Music's glass
 /// pill over the tab bar.
 ///
@@ -194,4 +197,5 @@ struct MiniPlayer: View {
         .accessibilityAction(named: "Open Now Playing", onTap)
     }
 }
+#endif
 #endif

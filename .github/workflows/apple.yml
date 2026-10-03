@@ -1,6 +1,6 @@
 name: Apple
 
-# Tests and builds the iOS and tvOS app in apple/ on every change to it.
+# Tests and builds the iOS, tvOS and Mac apps in apple/ on every change to it.
 # Builds only, unsigned: releasing the Apple app is phase 6 of
 # docs/release-pipeline-plan.md.
 
@@ -57,4 +57,10 @@ jobs:
         run: >
           xcodebuild -project Cascade.xcodeproj -scheme CascadetvOS
           -destination 'generic/platform=tvOS Simulator'
+          CODE_SIGNING_ALLOWED=NO build
+
+      - name: Build for macOS
+        run: >
+          xcodebuild -project Cascade.xcodeproj -scheme CascadeMac
+          -destination 'generic/platform=macOS'
           CODE_SIGNING_ALLOWED=NO build

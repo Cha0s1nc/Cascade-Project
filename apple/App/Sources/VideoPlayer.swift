@@ -135,6 +135,26 @@ final class VideoSession {
     }
 }
 
+#if os(macOS)
+/// Apple's player. AVPlayerView brings the same controls, subtitle and audio
+/// menus, and picture in picture that AVPlayerViewController does on iOS.
+struct VideoPlayerView: NSViewRepresentable {
+    let session: VideoSession
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let view = AVPlayerView()
+        view.player = session.player
+        view.controlsStyle = .floating
+        view.allowsPictureInPicturePlayback = true
+        view.showsFullScreenToggleButton = true
+        return view
+    }
+
+    func updateNSView(_ view: AVPlayerView, context: Context) {
+        if view.player !== session.player { view.player = session.player }
+    }
+}
+#else
 /// Apple's player, full screen.
 struct VideoPlayerView: UIViewControllerRepresentable {
     let session: VideoSession
@@ -153,6 +173,7 @@ struct VideoPlayerView: UIViewControllerRepresentable {
         if controller.player !== session.player { controller.player = session.player }
     }
 }
+#endif
 
 /// What the full-screen cover shows: the player, with any error over it.
 /// Closing is the player's own X, which dismisses the cover.

@@ -21,7 +21,7 @@ struct SignInView: View {
             Section("Server") {
                 TextField("https://jellyfin.example.com", text: $server)
                     .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
+                    .noAutocaps()
                     #if os(iOS)
                     .textContentType(.URL)
                     .keyboardType(.URL)
@@ -51,7 +51,7 @@ struct SignInView: View {
             Section("Account") {
                 TextField("Username", text: $username)
                     .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
+                    .noAutocaps()
                 SecureField("Password", text: $password)
             }
             if let error {

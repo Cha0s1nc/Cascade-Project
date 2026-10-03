@@ -40,7 +40,11 @@ struct RootView: View {
 
     var body: some View {
         if state.isSignedIn {
+            #if os(macOS)
+            MacRootView()
+            #else
             MainView()
+            #endif
         } else {
             // Wrapped so the title renders. MainView brings its own stack per
             // tab, so this one is only for sign in.

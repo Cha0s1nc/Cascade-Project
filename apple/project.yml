@@ -95,6 +95,46 @@ targets:
       testTargets:
         - CascadetvOSUITests
 
+  # The native Mac app, replacing the Electron build on macOS. Same bundle id
+  # as Electron's appId, so the swap installer accepts either build and users
+  # can move between them in place. Ad-hoc signed, no sandbox: Discord's IPC
+  # socket, the localhost control server and ~/.cascade-control-token all
+  # need it. See docs/mac-native-plan.md.
+  CascadeMac:
+    type: application
+    platform: macOS
+    deploymentTarget: "15.0"
+    sources:
+      - App/Sources
+      - App/Mac
+      - path: ../assets/icon.icns
+        buildPhase: resources
+    dependencies:
+      - package: CascadeKit
+        product: CascadeKit
+    info:
+      path: App/Info-macOS.plist
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleIconFile: icon
+        LSApplicationCategoryType: public.app-category.music
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        # Electron reaches plain-http LAN servers today, so this must too.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: xyz.chaosinc.cascade
+        PRODUCT_NAME: Cascade
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        DEVELOPMENT_TEAM: ""
+        ENABLE_HARDENED_RUNTIME: NO
+        SWIFT_VERSION: "6.0"
+
   # Presses Siri Remote buttons from a script, so the TV app can be exercised
   # without a person at the simulator. See UITests/tvOS/RemoteScript.swift.
   CascadetvOSUITests:

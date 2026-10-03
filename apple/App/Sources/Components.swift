@@ -11,8 +11,8 @@ import CascadeKit
 /// every time. NSCache gives memory back on its own under pressure.
 @MainActor
 enum ArtworkCache {
-    static let images: NSCache<NSString, UIImage> = {
-        let cache = NSCache<NSString, UIImage>()
+    static let images: NSCache<NSString, PlatformImage> = {
+        let cache = NSCache<NSString, PlatformImage>()
         cache.totalCostLimit = 96 << 20   // bytes of decoded pixels
         return cache
     }()
@@ -38,7 +38,7 @@ struct ArtworkView: View {
     @Environment(AppState.self) private var state
     /// Tagged with its key: the same view can be handed a different item, and
     /// must not keep showing the last one's cover while the new one loads.
-    @State private var loaded: (key: NSString, image: UIImage)?
+    @State private var loaded: (key: NSString, image: PlatformImage)?
 
     private var key: NSString? {
         itemId.map { aspect == 1 && imageType == "Primary" ? "\($0)|\(pixels)" : "\($0)|\(pixels)|\(aspect)|\(imageType)" } as NSString?
@@ -51,7 +51,7 @@ struct ArtworkView: View {
         }
         ZStack {
             if let image {
-                Image(uiImage: image).resizable().aspectRatio(contentMode: .fill)
+                Image(platformImage: image).resizable().aspectRatio(contentMode: .fill)
             } else {
                 Rectangle().fill(.quaternary)
                 Image(systemName: aspect == 1 ? "music.note" : "film")
@@ -73,10 +73,10 @@ struct ArtworkView: View {
             // A downloaded cover first: with the server away, the network
             // try hangs until it times out, for every cover on screen.
             if let file = state.offline?.artFile(itemId), let data = try? Data(contentsOf: file),
-               let decoded = UIImage(data: data) {
-                let ready = await decoded.byPreparingForDisplay() ?? decoded
+               let decoded = PlatformImage(data: data) {
+                let ready = await decoded.preparedForDisplay() ?? decoded
                 ArtworkCache.images.setObject(ready, forKey: key,
-                                              cost: Int(ready.size.width * ready.size.height * ready.scale * ready.scale * 4))
+                                              cost: ready.pixelArea * 4)
                 loaded = (key, ready)
                 return
             }
@@ -91,7 +91,7 @@ struct ArtworkView: View {
                 if status != 404 { debugLog("cover for item \(itemId): HTTP \(status)") }
                 return
             }
-            guard let decoded = UIImage(data: data) else {
+            guard let decoded = PlatformImage(data: data) else {
                 debugLog("cover for item \(itemId) did not decode: \(data.count) bytes, \(response.mimeType ?? "no type")")
                 return
             }
@@ -99,13 +99,13 @@ struct ArtworkView: View {
             // Nil here is ImageIO failing on the pixel data itself (the
             // "-17102 decompressing image, possibly corrupt" case): the header
             // parsed, the image did not.
-            let prepared = await decoded.byPreparingForDisplay()
+            let prepared = await decoded.preparedForDisplay()
             if prepared == nil {
                 debugLog("cover for item \(itemId) failed to decode its pixels: \(data.count) bytes, \(response.mimeType ?? "no type")")
             }
             let ready = prepared ?? decoded
             ArtworkCache.images.setObject(ready, forKey: key,
-                                          cost: Int(ready.size.width * ready.size.height * ready.scale * ready.scale * 4))
+                                          cost: ready.pixelArea * 4)
             loaded = (key, ready)
         }
     }

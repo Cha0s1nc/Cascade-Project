@@ -5,6 +5,8 @@ import AVKit
 import MediaPlayer
 #endif
 
+// The Mac has its own Now Playing overlay in App/Mac.
+#if !os(macOS)
 /// Full screen player, over the desktop's album-art background.
 ///
 /// iOS follows Apple Music's layout: big artwork with the title, a heart and a
@@ -681,4 +683,5 @@ private struct SystemVolumeSlider: UIViewRepresentable {
 
     func updateUIView(_ view: MPVolumeView, context: Context) {}
 }
+#endif
 #endif

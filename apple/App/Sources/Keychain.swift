@@ -7,6 +7,36 @@ import Security
 // credential for the whole account, so it gets the same treatment a password
 // would.
 
+#if os(macOS)
+/// On the Mac the token is a 0600 file in Application Support, not a Keychain
+/// item. The app is ad-hoc signed and the signature changes with every update,
+/// so the legacy file keychain would prompt after each one, and the
+/// data-protection keychain needs a team-signed build. Electron keeps the
+/// token in config.json today, so this is no weaker than what it replaces.
+enum Keychain {
+    private static func file(_ account: String) -> URL {
+        let dir = URL.applicationSupportDirectory.appending(path: "xyz.chaosinc.cascade", directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true,
+                                                 attributes: [.posixPermissions: 0o700])
+        return dir.appending(path: "\(account).secret")
+    }
+
+    static func set(_ value: String, for account: String) {
+        let url = file(account)
+        // Created 0600 before the secret is written, so it is never readable by others.
+        FileManager.default.createFile(atPath: url.path, contents: nil, attributes: [.posixPermissions: 0o600])
+        try? Data(value.utf8).write(to: url)
+    }
+
+    static func get(_ account: String) -> String? {
+        (try? Data(contentsOf: file(account))).flatMap { String(data: $0, encoding: .utf8) }
+    }
+
+    static func remove(_ account: String) {
+        try? FileManager.default.removeItem(at: file(account))
+    }
+}
+#else
 enum Keychain {
     private static func query(_ account: String) -> [String: Any] {
         [
@@ -43,3 +73,4 @@ enum Keychain {
         SecItemDelete(query(account) as CFDictionary)
     }
 }
+#endif

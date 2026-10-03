@@ -1,7 +1,7 @@
 import SwiftUI
 import CascadeKit
 
-#if !os(tvOS)
+#if os(iOS)
 /// The queue on iOS as its own sheet: tap a row to play it, Edit to drag or
 /// delete. tvOS shows its queue beside the player instead, and has no drag to
 /// reorder with.
@@ -25,7 +25,9 @@ struct QueueView: View {
         }
     }
 }
+#endif
 
+#if !os(tvOS)
 /// The queue's rows: tap to play, drag to reorder, delete, and the "Add Next"
 /// row while the queue came from a list still being paged in. Shared by the
 /// queue sheet (the whole queue) and Now Playing's queue mode (only what plays

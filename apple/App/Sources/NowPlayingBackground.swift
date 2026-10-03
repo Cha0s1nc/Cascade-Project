@@ -21,7 +21,7 @@ enum CoverPalettes {
     /// The cover drawn into an 80x80 sRGB RGBA buffer, the byte layout
     /// AlbumColors expects (8 bits, premultiplied, alpha last), then clustered.
     nonisolated static func extract(_ data: Data) -> [BlobColor] {
-        guard let image = UIImage(data: data)?.cgImage,
+        guard let image = PlatformImage(data: data)?.cgImage,
               let space = CGColorSpace(name: CGColorSpace.sRGB) else { return [] }
         let side = AlbumColors.sampleSide
         var bytes = [UInt8](repeating: 0, count: side * side * 4)
