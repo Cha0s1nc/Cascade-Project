@@ -134,6 +134,11 @@ export interface DesktopCapabilities {
   download?(url: string, filename: string): Promise<unknown>
 
   checkForUpdates?(): Promise<UpdateCheckResult>
+  /** Whether this is a Mac that can run the native app (Apple Silicon). */
+  canTryNativeMac?(): Promise<boolean>
+  /** Settings, About, "Try the native Mac app": moves this Mac to the native
+   *  build through the update window; see main.js 'try-native-mac'. */
+  tryNativeMac?(): Promise<UpdateCheckResult>
   isPackaged?(): Promise<boolean>
   /** True when the `.cascade-debug` sentinel file was present at startup.
    *  Gates the renderer's debug panel - see main.js debugSentinelPresent(). */
@@ -234,6 +239,8 @@ export interface ElectronPlatform extends Platform, DesktopCapabilities {
   shell: NonNullable<DesktopCapabilities['shell']>
   download: NonNullable<DesktopCapabilities['download']>
   checkForUpdates: NonNullable<DesktopCapabilities['checkForUpdates']>
+  canTryNativeMac: NonNullable<DesktopCapabilities['canTryNativeMac']>
+  tryNativeMac: NonNullable<DesktopCapabilities['tryNativeMac']>
   isPackaged: NonNullable<DesktopCapabilities['isPackaged']>
   isDebugMode: NonNullable<DesktopCapabilities['isDebugMode']>
   appMetrics: NonNullable<DesktopCapabilities['appMetrics']>

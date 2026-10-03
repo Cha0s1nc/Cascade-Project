@@ -137,7 +137,7 @@ export function parseChangelog(markdown: string): ChangelogEntry[] {
       if (line.startsWith('### ') || line === '###') {
         if (!entry) throw new ChangelogError(n, `"${line}" comes before any version heading`)
         const key = CHANGELOG_PLATFORMS.find(p => line === `### ${PLATFORM_TITLES[p]}`)
-        if (!key) throw new ChangelogError(n, `expected a platform heading (${HEADINGS_OR}), found "${line}"`)
+        if (!key) throw new ChangelogError(n, `expected ${HEADINGS_OR.replace(/### \w+/g, '"$&"')}, found "${line}"`)
         if (entry.platforms[key] !== undefined || platform === key) throw new ChangelogError(n, `${entry.version} has two ${PLATFORM_TITLES[key]} sections`)
         closePlatform()
         platform = key

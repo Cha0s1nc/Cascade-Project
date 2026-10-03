@@ -412,6 +412,10 @@ let lyricsEditorWindow = null
 let metadataEditorWindow = null
 let miniPlayerWindow  = null
 let pendingDownload   = null
+// Set while the update window on screen is the "Try the native Mac app" one.
+// Holds the macBuild the user had before, so closing the window without
+// installing puts it back.
+let nativeSwitch      = null
 
 // Saves the main window's normal (unmaximized) bounds and whether it is
 // maximized, for createWindow to reopen it there: on close, and half a second
@@ -708,7 +712,7 @@ function openUpdaterWindow(updateInfo) {
       hasDirectDownload: !!updateInfo.downloadUrl,
     })
   })
-  updaterWindow.on('closed', () => { updaterWindow = null })
+  updaterWindow.on('closed', () => { updaterWindow = null; abandonNativeSwitch() })
 }
 
 // ── Lyrics editor window ───────────────────────────────────────────────────────
@@ -982,8 +986,8 @@ async function fetchVersionsFile(release) {
   }
 }
 
-// The update window's notes: every desktop changelog section after this
-// version up to the one on offer, so skipping 2.3.1 on the way to 2.3.2 still
+// The update window's notes: every desktop changelog section (the Mac one,
+// for the native app) after this version up to the one on offer, so skipping 2.3.1 on the way to 2.3.2 still
 // shows what 2.3.1 changed. Read from the website's changelog.json, then from
 // CHANGELOG.md at the release's tag on GitHub, then the release's own notes.
 // Betas are not in the changelog, so a beta shows its release notes.
@@ -998,7 +1002,7 @@ async function fetchChangelogText(url) {
   return text
 }
 
-async function desktopReleaseNotes(release, version) {
+async function desktopReleaseNotes(release, version, { platform = 'desktop', from = app.getVersion() } = {}) {
   const fallback = release.body || ''
   if (!/^\d+\.\d+\.\d+$/.test(version)) return fallback
   const tag = /^v\d+\.\d+\.\d+$/.test(release.tag_name) ? release.tag_name : 'stable'
@@ -1010,7 +1014,7 @@ async function desktopReleaseNotes(release, version) {
     try {
       const entries = await load()
       if (!entries) throw new Error('malformed')
-      const notes = Changelog.notesBetween(entries, 'desktop', app.getVersion(), version)
+      const notes = Changelog.notesBetween(entries, platform, from, version)
       // null: this copy predates the release (the website lags a publish),
       // so try the next one. Empty: it knows the release but has nothing
       // for the desktop in the range, and the release notes say more.
@@ -1023,14 +1027,36 @@ async function desktopReleaseNotes(release, version) {
   return fallback
 }
 
-async function checkForUpdates() {
+// Which Mac app this Mac follows: 'electron' or 'native'. Only an Apple
+// Silicon Mac can have chosen native (the native app is arm64 only), and
+// nothing but "Try the native Mac app" sets it. Anywhere else, and with it
+// unset, this is undefined and the update check is exactly what it always was.
+function macBuildPreference() {
+  if (process.platform !== 'darwin' || process.arch !== 'arm64') return undefined
+  const pref = store.get('macBuild')
+  return UpdateRelease.isMacBuild(pref) ? pref : undefined
+}
+
+function abandonNativeSwitch() {
+  if (!nativeSwitch) return
+  const { previous } = nativeSwitch
+  nativeSwitch = null
+  if (previous === undefined) store.delete('macBuild')
+  else store.set('macBuild', previous)
+}
+
+// `tryNative` is the Settings button: offer the native app whatever version
+// it is at (it is often not newer than this Electron one, which is no reason
+// to withhold it), looking through the recent releases and not only the latest
+// stable one, because the native app ships as a beta first.
+async function checkForUpdates({ tryNative = false } = {}) {
   try {
     // Defaults on for a beta build itself (so it keeps finding newer betas), unless
     // the user has explicitly chosen otherwise, that choice always wins.
     const isBetaBuild = /-b\d*$/.test(app.getVersion())
     const betaUpdates = store.get('betaUpdates', isBetaBuild)
     let candidates
-    if (betaUpdates) {
+    if (betaUpdates || tryNative) {
       const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=10`, {
         headers: { 'User-Agent': 'cascade-updater' }
       })
@@ -1049,27 +1075,44 @@ async function checkForUpdates() {
     // back to its tag; see src/core/update-release.ts. The beta channel walks
     // on past a release with no desktop build in it (a beta made for another
     // platform only) to the newest one that has one, rather than stopping.
-    let release, build
-    for (const r of candidates) {
-      if (!r || typeof r !== 'object') continue
-      build = UpdateRelease.desktopBuildOf(r, await fetchVersionsFile(r))
-      if (build) { release = r; break }
+    const versionsTexts = new Map()
+    const findBuild = async (macBuild) => {
+      for (const r of candidates) {
+        if (!r || typeof r !== 'object') continue
+        if (!versionsTexts.has(r)) versionsTexts.set(r, await fetchVersionsFile(r))
+        const build = UpdateRelease.desktopBuildOf(r, versionsTexts.get(r), macBuild)
+        if (build) return { release: r, build }
+      }
+      return null
     }
-    if (!build) return { hasUpdate: false }
-    if (!UpdateRelease.isNewerVersion(build.version, app.getVersion())) return { hasUpdate: false }
-    console.log(`[updater] ${release.tag_name} holds desktop ${build.version} (from ${build.source})`)
+    // A Mac that chose the native app follows it, and keeps getting Electron
+    // updates for as long as the native app is not what is installed (a
+    // switch that failed halfway must not strand it). The button never falls
+    // back: it would install Electron and call it native.
+    const wanted = tryNative ? ['native']
+      : macBuildPreference() === 'native' ? ['native', undefined] : [undefined]
+    let found = null, macBuild
+    for (macBuild of wanted) {
+      const hit = await findBuild(macBuild)
+      if (hit && (tryNative || UpdateRelease.isNewerVersion(hit.build.version, app.getVersion()))) { found = hit; break }
+    }
+    if (!found) return { hasUpdate: false }
+    const { release, build } = found
+    console.log(`[updater] ${release.tag_name} holds ${macBuild === 'native' ? 'native Mac' : 'desktop'} ${build.version} (from ${build.source})`)
 
     const asset = UpdateRelease.pickInstaller(release, build.version, {
       platform: process.platform,
       arch: process.arch,
       linuxKind: process.platform === 'linux' ? linuxPackageKind() : null,
-    })
+    }, macBuild)
 
     // The version here is the desktop one, not the tag: it is what the update
     // window shows and what mac-update.js requires the new app to report.
+    // The native app's notes are its own section of the changelog, from the
+    // beginning: this Electron version says nothing about what it has.
     openUpdaterWindow({
       version:      build.version,
-      releaseNotes: await desktopReleaseNotes(release, build.version),
+      releaseNotes: await desktopReleaseNotes(release, build.version, macBuild === 'native' ? { platform: 'mac', from: '0.0.0' } : {}),
       releaseDate:  release.published_at || '',
       releaseUrl:   release.html_url     || '',
       downloadUrl:  asset?.browser_download_url || null,
@@ -1430,6 +1473,31 @@ ipcMain.handle('apple-translation:open-settings', () => shell.openExternal(APPLE
 
 // ── Updater IPC ────────────────────────────────────────────────────────────────
 
+// Whether this Mac can run the native app (Apple Silicon only), which is
+// whether Settings shows the button.
+ipcMain.handle('can-try-native-mac', () => process.platform === 'darwin' && process.arch === 'arm64')
+
+// "Try the native Mac app": the user's choice to move to the native build. It
+// sets macBuild and runs the update flow below, whose in-place swap checks the
+// bundle id and signature of what it installs. If no native build is on offer,
+// or the user closes the window without installing, the choice is undone, so a
+// Mac that stays on Electron keeps following Electron.
+ipcMain.handle('try-native-mac', async () => {
+  if (process.platform !== 'darwin' || process.arch !== 'arm64') {
+    return { hasUpdate: false, error: 'The native Mac app needs an Apple Silicon Mac.' }
+  }
+  if (!app.isPackaged) return { hasUpdate: false, error: 'Not available in a development run.' }
+  abandonNativeSwitch()
+  nativeSwitch = { previous: store.get('macBuild') }
+  store.set('macBuild', 'native')
+  const result = await checkForUpdates({ tryNative: true })
+  if (!result.hasUpdate) {
+    abandonNativeSwitch()
+    if (!result.error) result.error = 'No release has the native Mac app yet.'
+  }
+  return result
+})
+
 ipcMain.handle('check-for-updates', async () => {
   if (app.isPackaged) {
     return await checkForUpdates()
@@ -1573,6 +1641,8 @@ ipcMain.handle('updater:install', () => {
       if (timedOut) updaterLog('The update finished preparing late. Quitting Cascade within a minute applies it; otherwise use the installer that opened.', 'info')
     }, () => {})
     return Promise.race([inPlace, timeout]).then(() => {
+      // The swap is under way, so the choice of the native app stands.
+      nativeSwitch = null
       setTimeout(quitForInstaller, 300)
       return { quitting: true }
     }).catch((err) => {

@@ -6956,6 +6956,25 @@ document.getElementById('btn-check-updates').addEventListener('click', async () 
   }
 })
 
+// Only Macs that can run the native app see this row. The button hands off to
+// the update window, which downloads, checks and swaps it in like any update.
+if (window.cascade.platform === 'darwin') {
+  window.cascade.canTryNativeMac().then(can => {
+    document.getElementById('native-mac-row').style.display = can ? '' : 'none'
+  }).catch(() => {})
+}
+document.getElementById('btn-try-native-mac').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-try-native-mac')
+  btn.disabled = true
+  try {
+    const result = await window.cascade.tryNativeMac()
+    if (!result?.hasUpdate) showNotice(result?.error || 'Could not look for the native Mac app.', 'Native Mac app')
+    // else: the updater window itself is the feedback
+  } finally {
+    btn.disabled = false
+  }
+})
+
 // Tokens issued before per-install device ids are bound server-side to the old
 // constant DeviceId "cascade-app", so every Cascade looked like one device to
 // Jellyfin: two machines on one account collided in the session list and remote

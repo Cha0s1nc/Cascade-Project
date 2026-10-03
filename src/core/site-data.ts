@@ -21,7 +21,21 @@ export interface GhRelease {
   assets: { name: string, size: number, browser_download_url: string }[]
 }
 
-export interface SiteFile { name: string, size: number, url: string, mirror: string | null }
+export interface SiteFile {
+  name: string
+  size: number
+  url: string
+  mirror: string | null
+  /**
+   * What to call a Mac download, since two ship side by side: "Mac (native)"
+   * and "Mac (Electron)". null for every other file, which the site labels
+   * by its extension as before.
+   */
+  label: string | null
+}
+
+const fileLabel = (name: string): string | null =>
+  platformOfFile(name) === 'mac' ? 'Mac (native)' : /\.dmg$/i.test(name) ? 'Mac (Electron)' : null
 
 export interface SiteRelease {
   version: string
@@ -70,6 +84,7 @@ export function siteReleases(input: SiteInput): SiteRelease[] {
           mirror: input.mirrorVersions[p]?.includes(version)
             ? `${input.mirrorUrl}/${p}/${version}/${encodeURIComponent(a.name)}`
             : null,
+          label: fileLabel(a.name),
         }))
         .sort((a, b) => a.name.localeCompare(b.name))
       if (files.length) platforms[p] = files

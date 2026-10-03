@@ -47,3 +47,24 @@ test('siteReleases keeps the release notes verbatim and sorts betas below their 
   assert.equal(out[1].notes, 'Alr, later.\n\n**Full Changelog**: x')
   assert.equal(out[0].notes, '')
 })
+
+test('siteReleases lists the native Mac DMG under mac and the Electron DMG under desktop, labelled', () => {
+  const out = siteReleases({
+    releases: [
+      rel('v2.4.0', ['Cascade-2.4.0-arm64.dmg', 'Cascade.Setup.2.4.0.exe', 'Cascade-Native-2.4.0.dmg', 'versions.json']),
+      // Native only: Electron's files are carried over from v2.4.0.
+      rel('v2.4.1', ['Cascade-2.4.0-arm64.dmg', 'Cascade-Native-2.4.1.dmg', 'versions.json']),
+    ],
+    versionsByTag: { 'v2.4.0': { desktop: '2.4.0', mac: '2.4.0' }, 'v2.4.1': { desktop: '2.4.0', mac: '2.4.1' } },
+    mirrorUrl: 'https://m',
+    mirrorVersions: { desktop: ['2.4.0'], mac: ['2.4.0', '2.4.1'] },
+  })
+  const [native, both] = out
+  assert.deepEqual(Object.keys(native.platforms), ['mac'])
+  assert.deepEqual(native.platforms.mac, [{
+    name: 'Cascade-Native-2.4.1.dmg', size: 10, url: 'https://github.com/dl/Cascade-Native-2.4.1.dmg',
+    mirror: 'https://m/mac/2.4.1/Cascade-Native-2.4.1.dmg', label: 'Mac (native)',
+  }])
+  assert.deepEqual(both.platforms.desktop!.map(f => [f.name, f.label]), [['Cascade-2.4.0-arm64.dmg', 'Mac (Electron)'], ['Cascade.Setup.2.4.0.exe', null]])
+  assert.deepEqual(both.platforms.mac!.map(f => f.name), ['Cascade-Native-2.4.0.dmg'])
+})
