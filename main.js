@@ -1050,6 +1050,9 @@ function abandonNativeSwitch() {
 // to withhold it), looking through the recent releases and not only the latest
 // stable one, because the native app ships as a beta first.
 async function checkForUpdates({ tryNative = false } = {}) {
+  // The window on screen is the native app's, and a different offer replacing
+  // it would install Electron while macBuild still says native.
+  if (!tryNative && nativeSwitch) return { hasUpdate: false }
   try {
     // Defaults on for a beta build itself (so it keeps finding newer betas), unless
     // the user has explicitly chosen otherwise, that choice always wins.
@@ -1487,7 +1490,12 @@ ipcMain.handle('try-native-mac', async () => {
     return { hasUpdate: false, error: 'The native Mac app needs an Apple Silicon Mac.' }
   }
   if (!app.isPackaged) return { hasUpdate: false, error: 'Not available in a development run.' }
-  abandonNativeSwitch()
+  // An update window already open would keep showing its own release while
+  // Download and Install acted on this one (openUpdaterWindow only focuses it).
+  if (updaterWindow && !updaterWindow.isDestroyed()) {
+    updaterWindow.focus()
+    return { hasUpdate: false, error: 'Finish or close the update window first.' }
+  }
   nativeSwitch = { previous: store.get('macBuild') }
   store.set('macBuild', 'native')
   const result = await checkForUpdates({ tryNative: true })

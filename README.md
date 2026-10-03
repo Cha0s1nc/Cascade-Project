@@ -37,7 +37,7 @@ Cascade is a Jellyfin streaming app, originally prioritized for music streaming.
 
 Download the latest release for your platform from the [Releases](https://github.com/Cha0s1nc/Cascade-Project/releases) page.
 
-- **Mac** - open the `.dmg` and drag the app to your Applications folder. Two Mac builds are published: `Cascade-<version>-arm64.dmg` is the Electron app, the default and the one that updates itself, and `Cascade-Native-<version>.dmg` is the native Swift app, in beta, for Apple Silicon. From the Electron app, Settings, About, **Try the native Mac app** switches over in place and brings your settings along. Both are Apple Silicon only.
+- **Mac** - open the `.dmg` and drag the app to your Applications folder. `Cascade-<version>-arm64.dmg` is the Electron app, the default and the one that updates itself. A native Swift Mac app is on its way, starting as a beta and published as `Cascade-Native-<version>.dmg` beside it; when a release has it, Settings, About, **Try the native Mac app** in the Electron app switches over in place. Both are Apple Silicon only.
 - **Windows** - run the `.exe` installer
 - **Linux** - run the `.AppImage` directly, or install the `.deb` / `.rpm`
 
