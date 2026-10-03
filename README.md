@@ -37,7 +37,7 @@ Cascade is a Jellyfin streaming app, originally prioritized for music streaming.
 
 Download the latest release for your platform from the [Releases](https://github.com/Cha0s1nc/Cascade-Project/releases) page.
 
-- **Mac** - open the `.dmg` and drag the app to your Applications folder
+- **Mac** - open the `.dmg` and drag the app to your Applications folder. Two Mac builds are published: `Cascade-<version>-arm64.dmg` is the Electron app, the default and the one that updates itself, and `Cascade-Native-<version>.dmg` is the native Swift app, in beta, for Apple Silicon. From the Electron app, Settings, About, **Try the native Mac app** switches over in place and brings your settings along. Both are Apple Silicon only.
 - **Windows** - run the `.exe` installer
 - **Linux** - run the `.AppImage` directly, or install the `.deb` / `.rpm`
 
@@ -201,7 +201,7 @@ Output goes to `dist/`.
 
 ## Releases
 
-Builds are attached to [GitHub Releases](https://github.com/Cha0s1nc/Cascade-Project/releases). The built-in auto-updater checks for new releases on startup and will prompt you to download and install.
+Builds are attached to [GitHub Releases](https://github.com/Cha0s1nc/Cascade-Project/releases). The built-in auto-updater checks for new releases on startup and will prompt you to download and install. A release's `versions.json` says which version of each app it holds (`desktop` is Electron on every OS, `mac` is the native Mac app, `apple` is iOS and tvOS), because a release can carry the other apps' files over unchanged.
 
 Every release and beta, with its notes and downloads, is also listed on [chaosinc.xyz](https://www.chaosinc.xyz/github/projects/cascade/releases/), which mirrors the last 20 versions of each app.
 

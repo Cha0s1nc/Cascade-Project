@@ -33,6 +33,7 @@ Written 2026-09-30 against `dev` at `2f0882d`. Line numbers are approximate and 
 | 8 | Apple signing, TestFlight | job written and switched off; setup list in `docs/testflight.md` |
 | 9 | Android | placeholder `build-android` job in `build.yml`, skipped until `android/` exists; check its Gradle paths and add signing then |
 | 10 | Native macOS app, shipped beside the Electron DMG until it reaches parity | planned; see `docs/mac-native-plan.md` |
+| 11 | Release tooling for the native Mac DMG: a `mac` platform, `macBuild`, the bridge button, a CI job, mirror and site data | built (`mac/release` branch); see below |
 
 ## Phase 4: the updater reads `versions.json`
 
@@ -97,6 +98,21 @@ A separate workflow triggered by `release: published`:
 - **In the app:** the update window shows every desktop changelog section after the installed version up to the offered one, from `https://www.chaosinc.xyz/github/projects/cascade/changelog.json`, then `CHANGELOG.md` at the release's tag on GitHub, then the release body (`desktopReleaseNotes` in `main.js`, logic in `src/core/changelog.ts`).
 - **Website content:** the releases page shows every release and beta with its GitHub release notes verbatim (from `releases.json`); `changelog.json` feeds the desktop update window. `publish.yml` also runs on `edited`, so fixing a release's notes on GitHub updates the site. Betas that `build.yml` publishes use the Actions token, whose events never start other workflows, so a CI beta reaches the site at the next publish or edit.
 - **Built as:** `.github/workflows/publish.yml` (mirror job, then website job), `scripts/site-data.mjs` and `src/core/site-data.ts`. The website's `main` is written only by the `release` event; a manual run writes to `cascade-releases` unless told otherwise. A manual run needs the workflow file on the default branch (`stable`), so it only works once a release has carried it there.
+
+## Phase 11: the native Mac DMG
+
+Written 2026-10-03. The native Mac app (`CascadeMac` in `apple/`) ships beside the Electron DMG, each Mac holding one `Cascade.app` at a time, until it reaches parity. The reasoning is in `docs/mac-native-plan.md`, "Shipping both Mac DMGs"; this is what the pipeline does about it. It must ship before the first native build is published: the bridge Electron release is the only way in.
+
+- **A fourth platform, `mac`.** `src/core/release-plan.ts` gets `mac` with the file pattern `Cascade-Native-*.dmg`. `desktop` stays Electron on every OS. `platformOfFile` tests `mac` first because desktop's `*.dmg` also matches. A changed path under `apple/` means `apple` and `mac`; `[mac]` in a marker (or `[all]`) names it alone. It is available when `apple/` exists. Carry-over is per platform: a release that rebuilds only Electron carries over the last published native DMG, and the other way round, with `versions.json` saying so (`{ "desktop": "2.4.0", "mac": "2.4.0", "apple": ..., "android": ... }`).
+- **The native DMG is named without `arm64`.** Every updater already in users' hands picks the first `.dmg` containing `arm64` with the desktop version in its name, so none can be handed it. `desktopBuildOf` also no longer counts it as proof of an Electron build: a release holding only the native file must not offer Windows and Linux an update.
+- **Four places still treat `*.dmg` as desktop** and drop `Cascade-Native-*` by hand: the release job's copy of built files and its carry-over download in `build.yml`, the mirror download in `publish.yml`, and `desktopBuildOf`. If a fifth ever appears, `test/release-plan.test.ts` is where to teach it.
+- **`macBuild`**, `electron` (the default, unset) or `native`, steers `desktopBuildOf` and `pickInstaller` to `versions.json`'s `mac` entry and the `Cascade-Native-` asset. It is passed only on an Apple Silicon Mac. Unset, nothing changes.
+- **The bridge release**: Settings, About, "Try the native Mac app" (macOS on Apple Silicon only) sets `macBuild = native` and runs the existing update window: download, sha256, `mac-update.js` in-place swap. It offers the native app whatever its version, looks through the last 10 releases because the native app ships as a beta first, and undoes the choice if no native build exists or the window closes before the swap starts.
+- **`build.yml`**: `build-mac-native` on `xcode-27` (xcodegen, `xcodebuild archive -scheme CascadeMac`, ad-hoc `codesign --force --deep --sign -`, `hdiutil create`), then mounts the DMG and checks one app, `codesign --verify --strict`, bundle id `xyz.chaosinc.cascade`, the exact version and an arm64-only binary. `MARKETING_VERSION` is the whole release version including a beta's `-bN`, because `mac-update.js` compares it with what `versions.json` promised. The Electron `build-mac` job is unchanged.
+- **Publishing**: `publish.yml` mirrors the native DMG to `mac/<ver>/` (the mirror's daily prune is per platform folder on the server and needs no change if it walks the folders; check it once). `releases.json` lists every file with a `label`, "Mac (native)" or "Mac (Electron)" for the two DMGs, which the website's releases page has to render.
+- **Changelog and bug reports**: `### Mac` is a platform section beside `### Desktop`, read by the native updater; the bug report form asks which Mac build it is about.
+- **Defaults and sunset** are the plan's: the native DMG ships as a `[BETA]` first (`Release` markers with `[mac]` or a `[BETA] [mac]` commit on dev), Electron stays the default download, and only after parity and a few clean stable releases does the site make native primary. Retiring the Electron Mac build later means deleting the `build-mac` job and nothing else here.
+- **Not done here**: the Swift side (`UpdateRelease.swift`, `MacUpdateInstaller.swift`, the settings import, "Switch back to the Electron build") belongs to the native app's own agents; the website's rendering of `label`; and the one-time in-app offer to Electron users after parity.
 
 ## Reference numbers
 
