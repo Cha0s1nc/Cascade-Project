@@ -51,10 +51,14 @@ import Testing
         let bad = ["", "not json", #"{"desktop":"2.3.1""#, "[]", #"["2.3.1"]"#, "null", #""2.3.1""#, "231",
                    #"{"desktop":null}"#, #"{"desktop":231}"#, #"{"desktop":"999"}"#, #"{"desktop":"v2.3.1"}"#,
                    #"{"desktop":"2.3"}"#, #"{"desktop":{"version":"2.3.1"}}"#, #"{"desktop":"<script>"}"#,
-                   #"{"desktop":"2.3.1","mac":"2.3"}"#, #"{"mac":9}"#,
                    #"{"desktop":"2.3.1","pad":"\#(padded)"}"#]
         for text in bad { #expect(R.parseVersionsFile(text) == nil, "\(text.prefix(60))") }
         #expect(R.parseVersionsFile(nil) == nil)
+    }
+
+    @Test func aBadMacEntryReadsAsNoneWithoutSpoilingDesktop() {
+        #expect(R.parseVersionsFile(#"{"desktop":"2.3.1","mac":"2.3"}"#) == .init(desktop: "2.3.1", mac: nil))
+        #expect(R.parseVersionsFile(#"{"mac":9}"#) == .init(desktop: nil, mac: nil))
     }
 
     @Test func versionsFileIsNotFooledByAnInheritedKey() {

@@ -115,8 +115,9 @@ public enum UpdateRelease {
 
     /// Reads the text of a versions.json. Untrusted: it is a file anyone with
     /// write access to the repo can upload. Nil for anything wrong with it,
-    /// including a `desktop` or `mac` entry that is present but not a plain
-    /// version. Other platforms' entries are not this app's business.
+    /// including a `desktop` entry that is present but not a plain version.
+    /// A bad `mac` entry reads as none. Other platforms' entries are not this
+    /// app's business.
     public static func parseVersionsFile(_ text: String?) -> VersionsFile? {
         guard let text, text.utf8.count <= versionsMaxBytes,
               let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)),
@@ -125,8 +126,10 @@ public enum UpdateRelease {
             guard let value = dict[key] else { return .some(nil) }
             return isReleaseVersion(value) ? .some(value as? String) : nil
         }
-        guard let desktop = entry("desktop"), let mac = entry("mac") else { return nil }
-        return VersionsFile(desktop: desktop, mac: mac)
+        guard let desktop = entry("desktop") else { return nil }
+        // A bad mac entry reads as none, as in the TypeScript: it must not
+        // take the desktop answer down with it for the Electron build.
+        return VersionsFile(desktop: desktop, mac: entry("mac") ?? nil)
     }
 
     public static func findVersionsAsset(_ release: Release) -> Asset? {
