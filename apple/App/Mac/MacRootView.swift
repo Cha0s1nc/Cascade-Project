@@ -29,12 +29,6 @@ struct MacRootView: View {
             TabStack { section.root }
                 .id(section)
         }
-        .overlay {
-            // Full-window layers over the split view: Now Playing, then a
-            // video above everything.
-            NowPlayingOverlay()
-            MacVideoHost()
-        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) { ThemePanelButton() }
             ToolbarItem(placement: .navigation) {
@@ -50,6 +44,12 @@ struct MacRootView: View {
             if let player = state.player {
                 PlayerBar(player: player)
             }
+        }
+        .overlay {
+            // Full-window layers over the split view and the player bar: Now Playing, then a
+            // video above everything.
+            NowPlayingOverlay()
+            MacVideoHost()
         }
         .onChange(of: state.browseMode) { section = .home }
         .frame(minWidth: 800, minHeight: 560)

@@ -1,6 +1,6 @@
 # Native Mac app: build map
 
-Describes `mac-swift-port` at the commit that adds this file (its parent is `65880c7`). Line numbers drift; re-grep before trusting one. The plan is `docs/mac-native-plan.md`; this map is how the work on it is split, so agents working in parallel never edit the same file.
+Describes `mac-swift-port` at the commit after `f9d31d0` ("Keep debug builds off the installed app's data"); agents start from that commit. Line numbers drift; re-grep before trusting one. The plan is `docs/mac-native-plan.md`; this map is how the work on it is split, so agents working in parallel never edit the same file.
 
 ## Where things are
 
@@ -21,17 +21,26 @@ From `apple/`:
 
 ```
 xcodegen generate
-xcodebuild -project Cascade.xcodeproj -scheme CascadeMac -destination 'generic/platform=macOS' CODE_SIGNING_ALLOWED=NO -jobs 3 build 2>&1 | grep -E "error:|BUILD"
+xcodebuild -project Cascade.xcodeproj -scheme CascadeMac -destination 'generic/platform=macOS' CODE_SIGNING_ALLOWED=NO -jobs 2 build 2>&1 | grep -E "error:|BUILD"
 cd CascadeKit && swift test
 ```
 
-Before you finish, also build `CascadeiOS` (`-destination 'generic/platform=iOS Simulator'`) and `CascadetvOS` (`'generic/platform=tvOS Simulator'`) if you touched anything in `App/Sources` or `CascadeKit`. Several agents build at once on an 8-core, 16 GB laptop: always pass `-jobs 3`, and do not run builds in a loop.
+Before you finish, also build `CascadeiOS` (`-destination 'generic/platform=iOS Simulator'`) and `CascadetvOS` (`'generic/platform=tvOS Simulator'`) if you touched anything in `App/Sources` or `CascadeKit`. Several agents build at once on an 8-core, 16 GB laptop: always pass `-jobs 2`, and do not run builds in a loop.
 
-Launch the built app with `open -n <DerivedData>/Build/Products/Debug/Cascade.app` (find the path with `-showBuildSettings | grep BUILT_PRODUCTS_DIR`), screenshot with `screencapture -x <file>` and look at the PNG. Kill it with `pkill -9 -f 'Debug/Cascade.app/Contents/MacOS/Cascade'` when done (kill -9, so no stop report goes out).
+Launch the built app with `open -n <DerivedData>/Build/Products/Debug/Cascade.app` (find the path with `-showBuildSettings | grep BUILT_PRODUCTS_DIR`), screenshot with `screencapture -x <file>` and look at the PNG. Other agents run their own builds at the same time, so kill only yours, matched on your own DerivedData path: `pkill -9 -f '<your BUILT_PRODUCTS_DIR>/Cascade.app/Contents/MacOS/Cascade'` (kill -9, so no stop report goes out). A full-screen capture shows other agents' windows too; capture your own window with `screencapture -x -l <windowid>` (window id from `osascript` or CGWindowList) or crop.
 
 ## Live test server
 
 A throwaway Jellyfin 10.11.11 at `http://127.0.0.1:18130` with generated media: 3 artists, 6 albums, 24 tracks (FLAC and MP3, genres Rock/Electronic), 2 movies (one MKV with two audio tracks), a 3-episode show. Credentials are in `/private/tmp/claude-502/-Users-jonathan-VScode-Cascade-Project/6885fdb8-60a7-4f44-8703-667f6537db59/scratchpad/jf-mac/creds.env` (`CASCADE_SERVER`, `CASCADE_USER` is an admin, `CASCADE_GUEST_USER` is not). Source it for `swift test` live runs: `set -a; . <that file>; set +a; swift test`. Never print the passwords. It has no Cascade plugin, so plugin lyrics routes 404 there. Never point anything at the user's real server (jellyfin.chaosinc.xyz).
+
+## Real user data: never touch it
+
+This Mac is the user's own machine. The installed Electron app's settings live in `~/Library/Application Support/Cascade/config.json`, with a real token for their real server. `~/.cascade-control-token` is in use by Cha0s Stream. The Electron app may be running.
+
+- Debug builds of CascadeMac have the bundle id `xyz.chaosinc.cascade.dev` (Release keeps `xyz.chaosinc.cascade`), so they get their own UserDefaults and Application Support folder. All worktrees' debug builds share that one `.dev` domain, so keep app launches to quick smoke checks, and do real verification with builds, `swift test` and the live CascadeKit suite.
+- Nothing in this work reads the real `config.json` at runtime in a debug build, and nothing ever writes to it. The Electron config path must be injectable (launch argument or environment variable); tests use fixture files.
+- Never regenerate or overwrite an existing `~/.cascade-control-token`. Handle port 47847 already being bound (the Electron app may hold it) without crashing. Never leave Discord presence set after a test.
+- Only ever sign in to the test server below.
 
 ## House rules
 
@@ -39,6 +48,8 @@ A throwaway Jellyfin 10.11.11 at `http://127.0.0.1:18130` with generated media: 
 - No em dashes anywhere, code and comments included. Comments explain why. Match the surrounding style.
 - Anything pure goes in CascadeKit with a test, porting the matching `test/*.test.ts` cases.
 - tvOS and iOS must keep building and behaving as before.
+- New Jellyfin calls go in an `extension JellyfinClient` in a new CascadeKit file you own (for example `PlaylistRoutes.swift`), not in `JellyfinClient.swift` or `Library.swift`, unless you own those.
+- A new `JfItem` field only arrives if the request asks for it in `Fields=`; add it to the query you use.
 - New persisted settings use `UserDefaults` key `cascade.<electronStoreKey>` with the Electron key's exact name (for example `cascade.outputDeviceId`, `cascade.miniplayerHeight`, `cascade.lyricsForcedSource`, `cascade.eqVideo`, `cascade.albumsPrefs`), holding the same value shape where practical. The settings import maps Electron's `config.json` onto these names, so a different name means a lost setting. Existing keys keep their names (`cascade.eq` is the music EQ, `cascade.libraryIds`, `cascade.crossfadeSeconds`, `cascade.serverOnlyLyrics`, `cascade.spotifyLinks`, `cascade.smartPlaylists`, `cascade.deviceId`, `cascade.browseMode`).
 - Known desktop quirks to fix rather than port: the plan's "Known desktop quirks" section.
 
@@ -49,13 +60,13 @@ Each agent edits only the files it owns, plus additive, append-only changes to t
 | Agent | Plan scope | Owns |
 |---|---|---|
 | P, playback | Phase 1 (all), plus the CascadeKit fixes in "Architecture" (NSImage artwork, device name "Mac", OfflineLibrary scoping, bitrate cap), separate Music/Video EQ profiles in CascadeKit, Phase 5's "remote commands must not wake the paused song during a video" | `PlaybackService.swift`, `Queue.swift`, `QueueActions.swift`, `Equalizer.swift`, `AudioTap.swift`, `Crossfade.swift`, `DeviceProfile.swift`, `StreamingQuality.swift`, `JellyfinClient.swift`, `OfflineLibrary.swift`, `RemoteControl.swift`, new `Radio.swift`, `Ownership.swift`, `QueuePersistence.swift`; `App/Mac/RadioView.swift`, `PlaybackCommands.swift`, `OutputDevices.swift` |
-| L1, browsing | Phase 2: Home, sort and filter (Decade, Played, per-view prefs), Songs `Table`, Genres, History, artist page, Search (with video search), library pickers, `splitVideoLibraryIds`, `onePerSeries`, `collapsedLibs`, `sectionMode`, ⌘K search focus | `BrowseSort.swift`, `Library.swift`, `LibraryMerge.swift`, new `BrowseMode.swift` / `VideoLibraries.swift` in CascadeKit; `HomeView`, `AlbumsView`, `ArtistsView`, `ArtistDetailView`, `AlbumDetailView`, `SongsView`, `GenresView`, `HistoryView`, `SearchView`, `BrowseControls`, `Navigation.swift`, `VideoViews.swift` (grids and Home only; V owns the player); `App/Mac/MacRootView.swift`, `LibrarySettings.swift`, new Mac browsing files |
+| L1, browsing | Phase 2: Home, sort and filter (Decade, Played, per-view prefs), Songs `Table`, Genres, History, artist page, Search (with video search), library pickers, `splitVideoLibraryIds`, `onePerSeries`, `collapsedLibs`, `sectionMode`, ⌘K search focus | `BrowseSort.swift`, `Library.swift`, `LibraryMerge.swift`, new `BrowseMode.swift` / `VideoLibraries.swift` in CascadeKit; `HomeView`, `AlbumsView`, `ArtistsView`, `ArtistDetailView`, `AlbumDetailView`, `SongsView`, `GenresView`, `HistoryView`, `SearchView`, `BrowseControls`, `Navigation.swift`, `VideoViews.swift` (grids and Home only; `MovieDetailView` and `SeriesDetailView` belong to V); `App/Mac/MacRootView.swift`, `LibrarySettings.swift`, new Mac browsing files |
 | L2, library actions | Phase 2: context menus item for item, permissions and admin gating, media info sheet, download with NSSavePanel, copy stream URL, mark played, playlists (drag reorder, edit mode, bulk save, choke point, Save as Playlist, New playlist seeds the target), smart playlist parity, Devices panel on Mac, Waterfall modal and settings; Phase 4 metadata editor | `PlaylistEditing.swift`, `SmartPlaylists.swift`, `WaterfallSession.swift`, `WaterfallProtocol.swift`, new `Permissions.swift`, `ContextMenu.swift`; `TrackMenu.swift` (except `TabStack`), `AddToPlaylistSheet`, `PlaylistsView`, `SmartPlaylistsView`, `DevicesView`, `WaterfallView`, `DownloadsView`; `App/Mac/MetadataEditor.swift`, new Mac files for these |
 | N1, now playing | Phase 3 (all), queue panel meta (`queueRemainingSec`, `formatQueueSpan`, `queueSourceFallback`) and history in the overlay, the auto-mix toggle UI, the player bar (click opens the overlay, slider keys) | `AlbumColors.swift`, `Lyrics.swift` (parse side), `LyricSources.swift`, `SpicyLyrics.swift`, new `Translation.swift`, `TranslationCache.swift`, `NPTuning.swift`, `QueueMeta.swift`; `LyricsView`, `NowPlayingBackground`, `StyleTuning`, `SpotifyLinkSheet`, `QueueView.swift` (QueueList); `App/Mac/NowPlayingOverlay.swift`, `ThemePanel.swift`, `PlayerBar.swift`, new Mac files for these |
 | N2, windows | Phase 4: miniplayer and lyrics editor (LRC / enhanced LRC parse and export in CascadeKit) | new `LRCDocument.swift` (or similar) in CascadeKit; `App/Mac/MacWindows.swift`, new `Miniplayer*.swift`, `LyricsEditor*.swift` |
 | I1, integrations | Phase 4: Discord RPC (+ `ITunesArt.swift`), Cha0s Stream control server, Touch Bar, debug panel, Esc order; the `CascadeMacUITests` target; `apple/MAC-PARITY.md` | new `ITunesArt.swift`; `App/Mac/MacIntegrations.swift`, new `DiscordRPC.swift`, `ControlServer.swift`, `TouchBar.swift`, `DebugPanel.swift`; `UITests/macOS/`, the UITests target in `project.yml` |
 | I2, settings and updater | Phase 4 settings parity (six tabs, Music and Video EQ panels with presets, Auto preamp, the drag-point response graph, Account with Quick Connect approve), first-run wizard, arrow keys between tabs; Phase 6 settings import (bidirectional table), updater window, `MacUpdateInstaller`, beta channel, "Switch back to the Electron build" | new `UpdateRelease.swift`, `Changelog.swift`, `ElectronSettingsImport.swift`, `ReleaseNotes.swift` in CascadeKit; `SettingsView.swift`, `EqualizerView.swift`, `SignInView.swift`; `App/Mac/MacSettings.swift`, new `MacUpdateInstaller.swift`, `UpdateWindow.swift`, `FirstRunWizard.swift` |
-| V, video | Phase 5 except the remote-commands fix (P) | `Video.swift`, new `Chapters.swift` in CascadeKit, `withoutAudioCodecs` / `neededAudioStreamIndex` in `Playback.swift`; `VideoPlayer.swift`; `App/Mac/MacVideo.swift`, new Mac video files |
+| V, video | Phase 5 except the remote-commands fix (P) | `Video.swift`, new `Chapters.swift` in CascadeKit, `withoutAudioCodecs` / `neededAudioStreamIndex` in `Playback.swift`; `VideoPlayer.swift`, `MovieDetailView` and `SeriesDetailView` in `VideoViews.swift`; `App/Mac/MacVideo.swift`, new Mac video files |
 | R, release | "Shipping both Mac DMGs" and "Release tooling": Electron bridge release, `release-plan.ts`, `update-release.ts` (`macBuild`, `mac` key, `Cascade-Native-` asset), `build.yml` native job, `publish.yml`, `site-data.ts`, `CHANGELOG.md` `### Mac`, issue template build field, docs | everything outside `apple/` except `.github/workflows/apple.yml` |
 
 Shared files, additive only (append new members; never reorder, rename or reformat existing code): `AppState.swift`, `CascadeApp.swift`, `Models.swift` (new `JfItem` fields), `Components.swift`, `project.yml`, `apple/CODEMAP.md` (add your own dated section at the end). Merges are done by hand afterwards, so small, separate hunks merge cleanly and rewrites do not.
@@ -79,4 +90,4 @@ If you need something from another agent's file, do not edit it: write a short n
 
 ## Finishing
 
-Commit on your branch in small commits with clear messages (end each with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`; never a session link). Do not push, do not merge, do not open a PR. Your final message is a report: what you built, what you verified and how (builds, tests, live server, screenshots), what you skipped and why, and any cross-agent notes.
+Commit on your branch in small commits with clear messages (end each with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`; never a session link). Do not push, do not merge, do not open a PR. Your final message is a report: what you built, what you verified and how (builds, tests, live server, screenshots), every plan bullet in your scope that you did NOT finish (one line each, with why), and any cross-agent notes.

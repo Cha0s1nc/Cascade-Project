@@ -15,7 +15,7 @@ import Security
 /// token in config.json today, so this is no weaker than what it replaces.
 enum Keychain {
     private static func file(_ account: String) -> URL {
-        let dir = URL.applicationSupportDirectory.appending(path: "xyz.chaosinc.cascade", directoryHint: .isDirectory)
+        let dir = URL.applicationSupportDirectory.appending(path: Bundle.main.bundleIdentifier ?? "xyz.chaosinc.cascade", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true,
                                                  attributes: [.posixPermissions: 0o700])
         return dir.appending(path: "\(account).secret")

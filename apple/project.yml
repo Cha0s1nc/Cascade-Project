@@ -123,6 +123,9 @@ targets:
         # Electron reaches plain-http LAN servers today, so this must too.
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
+        # macOS 15 asks before an app reaches the local network; most
+        # Jellyfin servers live there.
+        NSLocalNetworkUsageDescription: Cascade connects to your Jellyfin server and to devices on your network.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: xyz.chaosinc.cascade
@@ -134,6 +137,12 @@ targets:
         DEVELOPMENT_TEAM: ""
         ENABLE_HARDENED_RUNTIME: NO
         SWIFT_VERSION: "6.0"
+      configs:
+        # Debug builds are a different app to macOS: their own defaults,
+        # Application Support folder and token, so a development build never
+        # reads or signs out of the installed app's session.
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: xyz.chaosinc.cascade.dev
 
   # Presses Siri Remote buttons from a script, so the TV app can be exercised
   # without a person at the simulator. See UITests/tvOS/RemoteScript.swift.
