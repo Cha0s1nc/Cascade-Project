@@ -6,6 +6,8 @@ struct CascadeApp: App {
     @State private var state = AppState()
     #if os(iOS)
     @UIApplicationDelegateAdaptor private var appDelegate: AppDelegate
+    #elseif os(macOS)
+    @NSApplicationDelegateAdaptor private var appDelegate: MacAppDelegate
     #endif
 
     init() {
@@ -16,12 +18,45 @@ struct CascadeApp: App {
     }
 
     var body: some Scene {
+        #if os(macOS)
+        WindowGroup(id: "main") {
+            RootView()
+                .environment(state)
+                .onAppear { MacIntegrations.start(state: state) }
+        }
+        .defaultSize(width: 1100, height: 700)
+        .commands { PlaybackCommands(state: state) }
+
+        Window("Miniplayer", id: "miniplayer") {
+            MiniplayerView().environment(state)
+        }
+        WindowGroup("Lyrics Editor", id: "lyrics-editor", for: String.self) { $itemId in
+            if let itemId { LyricsEditorView(itemId: itemId).environment(state) }
+        }
+        WindowGroup("Metadata Editor", id: "metadata-editor", for: String.self) { $itemId in
+            if let itemId { MetadataEditorView(itemId: itemId).environment(state) }
+        }
+        Window("Update Available", id: "update") {
+            UpdateAvailableView().environment(state)
+        }
+        Settings {
+            MacSettingsView().environment(state)
+        }
+        #else
         WindowGroup {
             RootView()
                 .environment(state)
         }
+        #endif
     }
 }
+
+#if os(macOS)
+/// Closing the main window quits, as the Electron build does.
+final class MacAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+}
+#endif
 
 #if os(iOS)
 /// Only here for background downloads: iOS relaunches the app to hand over

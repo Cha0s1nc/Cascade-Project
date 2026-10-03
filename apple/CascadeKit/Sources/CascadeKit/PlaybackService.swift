@@ -63,6 +63,16 @@ public final class PlaybackService {
     /// profile and the server disagree.
     public private(set) var isTranscoding = false
 
+    // Contract stubs for the Mac app (apple/MAC-MAP.md); the playback agent
+    // implements them.
+    /// When the queue runs out, append an instant mix of 25 and play on.
+    public var autoMix = false
+    /// CoreAudio device UID both decks play to; nil is the system default.
+    public var outputDeviceId: String?
+    /// Lines for the Mac debug panel: play method, codecs, decks, crossfade,
+    /// prefetch and handover timing, tap state.
+    public func debugLines() -> [String] { [] }
+
     // MARK: - Internals
 
     private let client: JellyfinClient

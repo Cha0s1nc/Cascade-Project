@@ -27,6 +27,9 @@ final class AppState {
         didSet { UserDefaults.standard.set(browseMode.rawValue, forKey: "cascade.browseMode") }
     }
 
+    /// The Mac's Now Playing overlay is showing.
+    var nowPlayingOpen = false
+
     /// The movie or episodes playing, shown full screen while set.
     var videoSession: VideoSession?
 
