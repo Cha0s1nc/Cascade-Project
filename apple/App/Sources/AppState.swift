@@ -30,6 +30,23 @@ final class AppState {
     /// The Mac's Now Playing overlay is showing.
     var nowPlayingOpen = false
 
+    /// Internet radio: the person has confirmed their server's Live TV
+    /// channels are radio stations (Jellyfin cannot say which are), the
+    /// desktop's `radioEnabled`. The Radio section also needs `hasLiveTv`.
+    var radioEnabled = UserDefaults.standard.bool(forKey: radioEnabledKey) {
+        didSet { UserDefaults.standard.set(radioEnabled, forKey: radioEnabledKey) }
+    }
+    /// This account may use Live TV (its policy). False until asked, and for
+    /// an account without it, where the Radio section would only 403.
+    private(set) var hasLiveTv = false
+    /// Whether to show Radio at all: opted in, and the account has Live TV.
+    var showsRadio: Bool { radioEnabled && hasLiveTv }
+
+    #if os(macOS)
+    /// Saves and restores the queue, volume, repeat and output device.
+    private var playbackPersistence: PlaybackPersistence?
+    #endif
+
     /// The movie or episodes playing, shown full screen while set.
     var videoSession: VideoSession?
 
@@ -249,6 +266,10 @@ final class AppState {
     }
 
     func signOut() async {
+        #if os(macOS)
+        playbackPersistence?.stop(clearingSavedQueue: true)
+        playbackPersistence = nil
+        #endif
         await player?.stop()
         Keychain.remove("token")
         UserDefaults.standard.removeObject(forKey: "cascade.userId")
@@ -261,6 +282,7 @@ final class AppState {
         remoteControl = nil
         waterfall?.leave()
         waterfall = nil
+        hasLiveTv = false
         closeVideo()
         controlledDevice = nil
         cascadePluginApi = nil
@@ -303,7 +325,17 @@ final class AppState {
         let fade = UserDefaults.standard.integer(forKey: "cascade.crossfadeSeconds")
         player.crossfadeSeconds = Crossfade.range.contains(fade) ? Double(fade) : 0
         player.offline = offline
+        player.videoEqualizer = EQProfile.decode(UserDefaults.standard.data(forKey: EQKind.video.storageKey))
+        // The music service's media keys and remote commands stay out of the
+        // way while a video is on. Read from the session itself, so no way of
+        // closing a video can leave them dead.
+        player.isVideoActive = { [weak self] in self?.videoSession != nil }
         self.player = player
+        #if os(macOS)
+        playbackPersistence?.stop()
+        playbackPersistence = PlaybackPersistence(player: player, client: client)
+        playbackPersistence?.start()
+        #endif
         if let offline {
             Task {
                 await offline.resume(client: client)
@@ -315,7 +347,19 @@ final class AppState {
         // Castable from other Jellyfin clients for as long as this player lives.
         remoteControl?.stop()
         remoteControl = RemoteControl(client: client, player: player)
+        // A cast and a Waterfall room never both drive this player: the room
+        // wins, and remote volume is refused in one (see Ownership).
+        remoteControl?.ownership = { [weak self] in
+            let room = self?.waterfall
+            return OwnershipState(waterfallActive: room?.isActive ?? false, waterfallIsHost: room?.role == .host,
+                                  guestAddsAllowed: room?.guestAddsAllowed)
+        }
         remoteControl?.start()
+        hasLiveTv = false
+        Task {
+            let access = (try? await client.hasLiveTvAccess()) ?? false
+            if self.client === client { hasLiveTv = access }
+        }
         cascadePluginApi = nil
         cascadePluginInfo = .init()
         Task {
@@ -332,6 +376,23 @@ final class AppState {
     func setEqualizer(_ profile: EQProfile) {
         player?.equalizer = profile
         UserDefaults.standard.set(profile.encoded(), forKey: "cascade.eq")
+    }
+
+    /// The Music or Video curve. Video's is applied by the video player; this
+    /// only keeps and saves it, beside music's.
+    func equalizer(for kind: EQKind) -> EQProfile {
+        switch kind {
+        case .music: player?.equalizer ?? EQProfile.decode(UserDefaults.standard.data(forKey: kind.storageKey))
+        case .video: player?.videoEqualizer ?? EQProfile.decode(UserDefaults.standard.data(forKey: kind.storageKey))
+        }
+    }
+
+    func setEqualizer(_ profile: EQProfile, for kind: EQKind) {
+        switch kind {
+        case .music: player?.equalizer = profile
+        case .video: player?.videoEqualizer = profile
+        }
+        UserDefaults.standard.set(profile.encoded(), forKey: kind.storageKey)
     }
 
     var appVersion: String {

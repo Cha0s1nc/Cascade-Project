@@ -59,6 +59,20 @@ public struct EQProfile: Codable, Sendable, Equatable {
     public func encoded() -> Data? { try? JSONEncoder().encode(self) }
 }
 
+/// The desktop keeps a separate curve for music and for video (`eqMusic` and
+/// `eqVideo`): a bass boost that suits a song makes dialogue boom. Each is an
+/// `EQProfile`, stored as JSON under its own key.
+public enum EQKind: String, CaseIterable, Sendable, Identifiable {
+    case music, video
+
+    public var id: String { rawValue }
+
+    /// `cascade.eq` is the music profile, as it was before there was a second.
+    public var storageKey: String { self == .music ? "cascade.eq" : "cascade.eqVideo" }
+
+    public var label: String { self == .music ? "Music" : "Video" }
+}
+
 /// One second-order filter's coefficients, normalized so a0 is 1: the RBJ
 /// Audio EQ Cookbook peaking filter, which is what Web Audio's 'peaking'
 /// BiquadFilterNode is, so the desktop and this sound alike.

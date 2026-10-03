@@ -1605,7 +1605,9 @@ public final class PlaybackService {
     /// on-change reports the server's view of this session freezes between
     /// ticks, so a controller's scrubber and volume slider sit still.
     private func reportNow() {
-        guard !isRadio else { return }
+        // Nothing playing is nothing to report: a volume restored at launch
+        // would otherwise send a progress report with no item id.
+        guard item != nil, !isRadio else { return }
         let snapshot = state()
         Task { await PlaybackReporter.progress(client, snapshot) }
     }
