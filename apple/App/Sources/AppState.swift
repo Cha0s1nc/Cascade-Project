@@ -255,6 +255,8 @@ final class AppState {
 
     func signOut() async {
         await player?.stop()
+        // Stops this account's downloads and hides them from whoever is next.
+        offline?.setOwner(nil)
         Keychain.remove("token")
         UserDefaults.standard.removeObject(forKey: "cascade.userId")
         UserDefaults.standard.removeObject(forKey: "cascade.libraryIds")
@@ -310,6 +312,8 @@ final class AppState {
         player.offline = offline
         self.player = player
         if let offline {
+            // This account's downloads; another's are never listed or resumed.
+            offline.setOwner(config.userId)
             Task {
                 await offline.resume(client: client)
                 await offline.replayPlays(client: client)

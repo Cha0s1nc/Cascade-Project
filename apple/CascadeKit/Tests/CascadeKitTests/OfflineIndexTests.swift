@@ -95,6 +95,10 @@ struct OfflineIndexTests {
         #expect(OfflineIndex.fileExtension(suggestedFilename: "Download", mimeType: "audio/mp4") != nil)
         #expect(OfflineIndex.fileExtension(suggestedFilename: "x.a b", mimeType: "text/html") == nil)
         #expect(OfflineIndex.fileExtension(suggestedFilename: nil, mimeType: nil) == nil)
+        // A file name only counts when it names audio: an error page a proxy
+        // answered 200 with is not a track, whatever it is called.
+        #expect(OfflineIndex.fileExtension(suggestedFilename: "login.html", mimeType: "text/html") == nil)
+        #expect(OfflineIndex.fileExtension(suggestedFilename: "track.mp3", mimeType: "text/html") == "mp3")
     }
 
     @Test func onlyAWholeAudioResponseBecomesATrack() throws {
@@ -112,17 +116,32 @@ struct OfflineIndexTests {
         }
         let flac = ["Content-Type": "audio/flac", "Content-Disposition": "attachment; filename=\"01 Song.flac\""]
 
-        if case .failed(_, let message) = DownloadDelegate.place(try temp(), id: "abc", response: response(403, [:]), root: root) {
+        if case .failed(_, let message) = DownloadDelegate.place(try temp(), owner: "u1", id: "abc", response: response(403, [:]), root: root) {
             #expect(message.contains("admin"))
         } else { Issue.record("a 403 page was kept") }
-        guard case .failed = DownloadDelegate.place(try temp(), id: "abc",
+        guard case .failed = DownloadDelegate.place(try temp(), owner: "u1", id: "abc",
             response: response(200, flac.merging(["Content-Length": "99"]) { $1 }), root: root) else {
             Issue.record("a short file was kept"); return
         }
-        let ok = DownloadDelegate.place(try temp(), id: "abc",
+        let ok = DownloadDelegate.place(try temp(), owner: "u1", id: "abc",
                                         response: response(200, flac.merging(["Content-Length": "10"]) { $1 }), root: root)
-        guard case .finished(_, let file, let bytes) = ok else { Issue.record("\(ok)"); return }
-        #expect(file == "media/abc.flac" && bytes == 10)
+        guard case .finished(let owner, _, let file, let bytes) = ok else { Issue.record("\(ok)"); return }
+        #expect(owner == "u1" && file == "media/abc.flac" && bytes == 10)
         #expect(FileManager.default.fileExists(atPath: root.appending(path: file).path))
+    }
+
+    @Test func accountsAndTaskNames() {
+        #expect(OfflineIndex.isSafeUserId("4f1c2a9e8b7d4c3e9a1b2c3d4e5f6a7b"))
+        #expect(OfflineIndex.isSafeUserId("4f1c2a9e-8b7d-4c3e-9a1b-2c3d4e5f6a7b"))
+        for bad in ["", "-", "---", "..", "a/b", ".hidden", String(repeating: "x", count: 65)] {
+            #expect(!OfflineIndex.isSafeUserId(bad), "\(bad)")
+        }
+        let name = OfflineIndex.taskName(owner: "u-1", itemId: "abc123")
+        #expect(OfflineIndex.parseTaskName(name)?.owner == "u-1")
+        #expect(OfflineIndex.parseTaskName(name)?.itemId == "abc123")
+        // A task from before per-account folders carries only the track.
+        #expect(OfflineIndex.parseTaskName("abc123") == nil)
+        #expect(OfflineIndex.parseTaskName("../x/abc") == nil)
+        #expect(OfflineIndex.parseTaskName(nil) == nil)
     }
 }
