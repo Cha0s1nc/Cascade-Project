@@ -1,7 +1,7 @@
 import Foundation
 
-// The desktop's lyric waterfall (renderer.js _lyricsWaterfall), minus its
-// forced-source picker: where a track's lyrics come from.
+// The desktop's lyric waterfall (renderer.js _lyricsWaterfall), forced-source
+// picker included (LyricsSourceChoice): where a track's lyrics come from.
 //
 // - Server-only: the Cascade plugin alone, SpicyLyrics first when the server
 //   has a key, then the plugin's own files.
@@ -250,14 +250,63 @@ public enum LyricsWaterfall {
     /// - spotifyId: a link this user made for this song on this device only.
     public static func fetch(_ track: Track, client: JellyfinClient, plugin: (api: CascadePluginApi, info: CascadePluginInfo)?,
                              serverOnly: Bool, spotifyId: String?, userAgent: String) async -> LyricsResult? {
-        if serverOnly, let plugin {
-            let result = try? await client.serverLyrics(itemId: track.id, api: plugin.api, spicy: plugin.info.spicy,
-                                                         durationSeconds: track.durationSeconds, spotifyId: spotifyId)
-            return result.map { r in
+        await fetchDetailed(track, client: client, plugin: plugin, serverOnly: serverOnly, spotifyId: spotifyId,
+                            userAgent: userAgent).result
+    }
+
+    /// `fetch` plus what the source pill's dropdown wants: which sources were tried and how each
+    /// went, and the desktop's forced-source choice. A forced source is asked alone (a
+    /// forced Kugou never falls back to LRCLIB), and SpicyLyrics is not a forceable choice, so
+    /// forcing skips it.
+    public static func fetchDetailed(_ track: Track, client: JellyfinClient,
+                                     plugin: (api: CascadePluginApi, info: CascadePluginInfo)?,
+                                     serverOnly: Bool, spotifyId: String?, userAgent: String,
+                                     forced requested: LyricsSourceChoice = .auto) async -> LyricsOutcome {
+        let serverMode = serverOnly && plugin != nil
+        // A choice from the other mode (a stored Kugou with server-only since turned on) is
+        // not one this mode can honor: it reads as Auto, as the desktop resets it.
+        let forced = requested.isValid(serverOnly: serverMode) ? requested : .auto
+
+        if serverMode, let plugin {
+            var outcome = LyricsOutcome()
+            let result = try? await client.serverLyrics(itemId: track.id, api: plugin.api,
+                                                         spicy: forced == .auto && plugin.info.spicy,
+                                                         durationSeconds: track.durationSeconds, spotifyId: spotifyId,
+                                                         wantType: forced.pluginType)
+            let kept: LyricsResult? = result.flatMap { r in
                 var r = r
                 if r.credit == nil { r.lines = Lyrics.droppingCredits(r.lines, title: track.title) }
                 return r.lines.isEmpty ? nil : r
-            } ?? nil
+            }
+            outcome.result = kept
+            outcome.tried["Cascade"] = kept == nil ? .fail : .ok
+            return outcome
+        }
+
+        func kugou() async -> LyricsResult? {
+            guard let krc = try? await Kugou.krc(title: track.title, artist: track.artist,
+                                                 durationMs: Int(track.durationSeconds * 1000)) else { return nil }
+            let lines = Lyrics.droppingCredits(Lyrics.parseKrc(krc), title: track.title)
+            // Only with word timings; otherwise LRCLIB's lines are as good.
+            return lines.contains { !($0.words ?? []).isEmpty } ? LyricsResult(lines: lines, source: "Kugou") : nil
+        }
+        func lrclib() async -> LyricsResult? {
+            (try? await LRCLIB.lyrics(title: track.title, artist: track.artist, album: track.album,
+                                      durationSeconds: Int(track.durationSeconds.rounded()), userAgent: userAgent)) ?? nil
+        }
+        func jellyfin() async -> LyricsResult? { (try? await client.jellyfinLyrics(itemId: track.id)) ?? nil }
+
+        var outcome = LyricsOutcome()
+        if forced != .auto {
+            let result: LyricsResult?
+            switch forced {
+            case .kugou: result = await kugou()
+            case .lrclib: result = await lrclib()
+            default: result = await jellyfin()
+            }
+            outcome.result = result
+            if result?.instrumental != true { outcome.tried[forced.rawValue] = result == nil ? .fail : .ok }
+            return outcome
         }
 
         async let spicy: LyricsResult? = {
@@ -266,20 +315,101 @@ public enum LyricsWaterfall {
                                                   durationSeconds: track.durationSeconds, spotifyId: spotifyId,
                                                   spicyOnly: true)
         }()
-        async let kugou: LyricsResult? = {
-            guard let krc = try? await Kugou.krc(title: track.title, artist: track.artist,
-                                                 durationMs: Int(track.durationSeconds * 1000)) else { return nil }
-            let lines = Lyrics.droppingCredits(Lyrics.parseKrc(krc), title: track.title)
-            // Only with word timings; otherwise LRCLIB's lines are as good.
-            return lines.contains { !($0.words ?? []).isEmpty } ? LyricsResult(lines: lines, source: "Kugou") : nil
-        }()
-        async let lrclib = try? LRCLIB.lyrics(title: track.title, artist: track.artist, album: track.album,
-                                              durationSeconds: Int(track.durationSeconds.rounded()), userAgent: userAgent)
-        async let jellyfin = try? client.jellyfinLyrics(itemId: track.id)
+        async let k = kugou()
+        async let l = lrclib()
+        async let j = jellyfin()
 
-        let (s, k, l, j) = await (spicy, kugou, lrclib ?? nil, jellyfin ?? nil)
-        if l?.instrumental == true { return l }
-        return s ?? k ?? l ?? j
+        let (spicyResult, kugouResult, lrclibResult, jellyfinResult) = await (spicy, k, l, j)
+        if lrclibResult?.instrumental == true { outcome.result = lrclibResult; return outcome }
+        outcome.tried["Kugou"] = kugouResult == nil ? .fail : .ok
+        outcome.tried["LRCLIB"] = lrclibResult == nil ? .fail : .ok
+        outcome.tried["Jellyfin"] = jellyfinResult == nil ? .fail : .ok
+        outcome.result = spicyResult ?? kugouResult ?? lrclibResult ?? jellyfinResult
+        return outcome
+    }
+}
+
+/// How one source went on the last fetch, for the dropdown's badges.
+public enum LyricsFetchStatus: Sendable, Equatable { case ok, fail }
+
+/// A fetch's answer and how each source it asked went (keyed "Kugou", "LRCLIB", "Jellyfin",
+/// or "Cascade" in server-only mode).
+public struct LyricsOutcome: Sendable, Equatable {
+    public var result: LyricsResult?
+    public var tried: [String: LyricsFetchStatus] = [:]
+    public init(result: LyricsResult? = nil, tried: [String: LyricsFetchStatus] = [:]) {
+        self.result = result
+        self.tried = tried
+    }
+}
+
+/// The source pill's choices, stored under `lyricsForcedSource` with the desktop's strings.
+public enum LyricsSourceChoice: String, CaseIterable, Sendable {
+    case auto
+    case kugou = "Kugou"
+    case lrclib = "LRCLIB"
+    case jellyfin = "Jellyfin"
+    case cascadeKaraoke = "cascade-karaoke"
+    case cascadeSynced = "cascade-synced"
+
+    /// A stored value is untrusted: anything that is not one of these reads as Auto.
+    public init(stored: String?) { self = stored.flatMap(Self.init(rawValue:)) ?? .auto }
+
+    /// The pill's label while this is forced.
+    public var label: String {
+        switch self {
+        case .auto: "Auto"
+        case .cascadeKaraoke: "Karaoke"
+        case .cascadeSynced: "Synced"
+        default: rawValue
+        }
+    }
+
+    /// The dropdown's wording: server-only mode reads "Karaoke Only" and "Synced Only".
+    public var menuLabel: String {
+        switch self {
+        case .cascadeKaraoke: "Karaoke Only"
+        case .cascadeSynced: "Synced Only"
+        default: label
+        }
+    }
+
+    /// What the plugin's `type` field must say for a forced server choice.
+    var pluginType: String? {
+        switch self {
+        case .cascadeKaraoke: "karaoke"
+        case .cascadeSynced: "synced"
+        default: nil
+        }
+    }
+
+    /// Auto fits both modes; the server's files only server-only mode; the three outside
+    /// sources only the full waterfall.
+    public func isValid(serverOnly: Bool) -> Bool {
+        switch self {
+        case .auto: true
+        case .cascadeKaraoke, .cascadeSynced: serverOnly
+        default: !serverOnly
+        }
+    }
+
+    /// What the dropdown lists in a mode.
+    public static func choices(serverOnly: Bool) -> [LyricsSourceChoice] {
+        allCases.filter { $0.isValid(serverOnly: serverOnly) }
+    }
+
+    /// The hint under Auto.
+    public static func autoHint(serverOnly: Bool) -> String {
+        serverOnly ? "Server \u{00B7} karaoke preferred" : "Kugou \u{2192} LRCLIB \u{2192} Jellyfin"
+    }
+
+    /// The key a fetch's status is kept under for this choice.
+    public var statusKey: String? {
+        switch self {
+        case .auto: nil
+        case .cascadeKaraoke, .cascadeSynced: "Cascade"
+        default: rawValue
+        }
     }
 }
 
