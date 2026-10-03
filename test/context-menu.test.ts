@@ -124,3 +124,11 @@ test('clampMenuPosition: never goes negative even when the menu is bigger than t
   assert.equal(left, 0)
   assert.equal(top, 0)
 })
+
+test('only an album and a real playlist offer an offline download', () => {
+  assert.equal(menuItemsForKind('album').offline, true)
+  assert.equal(menuItemsForKind('playlist').offline, true)
+  for (const kind of ['artist', 'video', 'series', 'smart-playlist', 'user-smart-playlist'] as const) {
+    assert.equal(menuItemsForKind(kind).offline, false, kind)
+  }
+})

@@ -151,6 +151,24 @@ public struct OfflineIndex: Codable, Sendable, Equatable {
         !id.isEmpty && id.count <= 64 && id.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber) }
     }
 
+    /// A Jellyfin user id (a GUID, with or without dashes). It names the
+    /// account's folder, so it must never be a path.
+    public static func isSafeUserId(_ id: String) -> Bool {
+        !id.isEmpty && id.count <= 64 && id.contains(where: { $0 != "-" })
+            && id.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
+    }
+
+    /// A background download's name: the account and the track. The session
+    /// outlives a sign-out, so a transfer that finishes after one says whose
+    /// folder it belongs to.
+    public static func taskName(owner: String, itemId: String) -> String { "\(owner)/\(itemId)" }
+
+    public static func parseTaskName(_ name: String?) -> (owner: String, itemId: String)? {
+        let parts = (name ?? "").split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 2, isSafeUserId(parts[0]), isSafeId(parts[1]) else { return nil }
+        return (parts[0], parts[1])
+    }
+
     /// Whether a queued play the server refused should be dropped rather
     /// than retried. The item is gone (deleted or re-scanned since) or the
     /// request can never succeed (another server), so retrying would jam
@@ -171,11 +189,14 @@ public struct OfflineIndex: Codable, Sendable, Equatable {
     /// The extension a downloaded file is saved under. AVFoundation picks
     /// the parser for a local file by its extension, so a wrong or missing
     /// one is a file that will not play. The server's file name first
-    /// (/Download sends the original's), then the MIME type.
+    /// (/Download sends the original's), then the MIME type. Either has to
+    /// name audio: an error page a proxy answered 200 with is not a track,
+    /// whatever its file name says.
     public static func fileExtension(suggestedFilename: String?, mimeType: String?) -> String? {
         if let name = suggestedFilename, let dot = name.lastIndex(of: ".") {
             let ext = name[name.index(after: dot)...].lowercased()
-            if (1...5).contains(ext.count), ext.allSatisfy({ $0.isLetter || $0.isNumber }) { return ext }
+            if (1...5).contains(ext.count), ext.allSatisfy({ $0.isLetter || $0.isNumber }),
+               UTType(filenameExtension: ext)?.conforms(to: .audiovisualContent) == true { return ext }
         }
         guard let mimeType, let type = UTType(mimeType: mimeType),
               type.conforms(to: .audiovisualContent) else { return nil }

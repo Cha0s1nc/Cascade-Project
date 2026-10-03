@@ -36,6 +36,10 @@ public struct JfMediaStream: Codable, Sendable {
     public var language: String?
     public var displayTitle: String?
     public var isDefault: Bool?
+    /// Video streams only: the picture's size, so the player knows a film is
+    /// landscape before its first frame.
+    public var width: Int?
+    public var height: Int?
 }
 
 public struct JfImageTags: Codable, Sendable {

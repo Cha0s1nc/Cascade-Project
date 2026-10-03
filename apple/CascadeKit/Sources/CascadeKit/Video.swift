@@ -70,6 +70,14 @@ public extension JellyfinClient {
         return r.items ?? []
     }
 
+    /// Movies, shows and episodes matching a search: the Video mode's search
+    /// screen. Empty for a blank term.
+    func searchVideo(_ term: String, limit: Int = 60) async throws -> [JfItem] {
+        guard let params = VideoPlayback.searchParams(term: term, userId: currentConfig.userId, limit: limit) else { return [] }
+        let r: JfItemsResponse = try await get("/Items", params: params)
+        return r.items ?? []
+    }
+
     /// Next episode to watch, per show (or for one show).
     func nextUp(seriesId: String? = nil, limit: Int = 20) async throws -> [JfItem] {
         let r: JfItemsResponse = try await get("/Shows/NextUp", params: [
@@ -102,15 +110,21 @@ public enum VideoPlayback {
     /// The request with the choices a person can make before playing. The
     /// server honors an audio track only alongside the media source id
     /// (checked on 10.11.11), and the transcode then carries that track alone.
+    ///
+    /// No start position goes to the server: a resume is a seek once the
+    /// stream has loaded. Jellyfin's HLS playlist always covers the whole film,
+    /// so a transcode asked to start partway (StartTimeTicks) left AVPlayer
+    /// asking for segments from the top, which the server answered with 400:
+    /// every resume of a transcoded film failed. Seeking in that playlist is
+    /// what scrubbing already does, and it works anywhere in the film.
     public static func resolve(client: JellyfinClient, config: ServerConfig, item: JfItem,
-                               audioStreamIndex: Int? = nil, startTicks: Int = 0,
+                               audioStreamIndex: Int? = nil,
                                profile: DeviceProfile = .appleVideo) async throws -> ResolvedStream {
         struct Request: Encodable {
             var userId: String
             var maxStreamingBitrate: Int
             var deviceProfile: DeviceProfile
             var autoOpenLiveStream = true
-            var startTimeTicks: Int?
             var mediaSourceId: String?
             var audioStreamIndex: Int?
         }
@@ -118,18 +132,17 @@ public enum VideoPlayback {
         let info: PlaybackInfoResponse = try await client.post(
             "/Items/\(item.id)/PlaybackInfo",
             body: Request(userId: config.userId, maxStreamingBitrate: profile.maxStreamingBitrate ?? defaultMaxBitrate,
-                          deviceProfile: profile, startTimeTicks: startTicks > 0 ? startTicks : nil,
-                          mediaSourceId: sourceId, audioStreamIndex: audioStreamIndex),
+                          deviceProfile: profile, mediaSourceId: sourceId, audioStreamIndex: audioStreamIndex),
             params: ["UserId": config.userId])
         guard let source = info.mediaSources?.first else {
             throw JellyfinError(status: 0, message: "The server offered no way to play this.")
         }
         if let transcodingUrl = source.transcodingUrl {
-            guard let url = URL(string: withStartTicks(config.url + transcodingUrl, startTicks)) else {
+            guard let url = withoutStartTicks(config.url + transcodingUrl) else {
                 throw JellyfinError(status: 0, message: "Bad transcoding URL")
             }
             return ResolvedStream(url: url, playSessionId: info.playSessionId, mediaSourceId: source.id,
-                                  direct: false, startTicks: startTicks)
+                                  direct: false, startTicks: 0)
         }
         guard source.supportsDirectPlay == true,
               let url = directUrl(config: config, itemId: item.id, source: source, playSessionId: info.playSessionId) else {
@@ -139,6 +152,14 @@ public enum VideoPlayback {
                               direct: true, startTicks: 0)
     }
 
+    /// The server's transcode URL with any start position taken off, so the
+    /// stream is the whole film (see resolve).
+    static func withoutStartTicks(_ url: String) -> URL? {
+        guard var c = URLComponents(string: url) else { return nil }
+        c.queryItems = c.queryItems?.filter { $0.name.caseInsensitiveCompare("StartTimeTicks") != .orderedSame }
+        return c.url
+    }
+
     static func directUrl(config: ServerConfig, itemId: String, source: MediaSource, playSessionId: String?) -> URL? {
         let ext = source.container.map { ".\($0.split(separator: ",")[0])" } ?? ""
         guard var c = URLComponents(string: "\(config.url)/Videos/\(itemId)/stream\(ext)") else { return nil }
@@ -146,6 +167,15 @@ public enum VideoPlayback {
             + (source.id.map { [URLQueryItem(name: "mediaSourceId", value: $0)] } ?? [])
             + (playSessionId.map { [URLQueryItem(name: "PlaySessionId", value: $0)] } ?? [])
         return c.url
+    }
+
+    /// The query behind searchVideo, nil for a blank term. Fields as the video
+    /// lists ask for them, so a result opens a detail page or plays as one.
+    public static func searchParams(term: String, userId: String, limit: Int = 60) -> [String: String?]? {
+        let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return ["userId": userId, "searchTerm": trimmed, "includeItemTypes": "Movie,Series,Episode",
+                "recursive": "true", "fields": videoFields, "limit": String(limit)]
     }
 
     /// "S1:E2" for an episode, as the desktop's episodeCode.
@@ -158,4 +188,17 @@ public enum VideoPlayback {
     public static func audioTracks(_ item: JfItem) -> [JfMediaStream] {
         (item.mediaStreams ?? []).filter { $0.type == "Audio" && $0.index != nil }
     }
+}
+
+/// What a subtitle or audio menu calls a track. The stream's own name is the
+/// server's ("English Signs - ASS", "For ENG Dub - English - SUBRIP"), where
+/// the system's display name is only the language, so five English tracks
+/// would read the same. The codec on the end means nothing to a viewer.
+public func mediaTrackLabel(playlistName: String?, fallback: String) -> String {
+    guard var parts = playlistName?.components(separatedBy: " - ").map({ $0.trimmingCharacters(in: .whitespaces) })
+        .filter({ !$0.isEmpty }), !parts.isEmpty else { return fallback }
+    if parts.count > 1, let last = parts.last, last.allSatisfy({ $0.isUppercase || $0.isNumber || $0 == "_" }) {
+        parts.removeLast()
+    }
+    return parts.joined(separator: " - ")
 }

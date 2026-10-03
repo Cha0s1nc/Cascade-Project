@@ -11,6 +11,8 @@ This folder holds the icon SOURCE and the GENERATED icons. Do not confuse them.
     icon.png      Linux, 1024x1024
     icon.icns     macOS, built from an iconset
     icon.ico      Windows, 256x256
+    apple/App/Assets-iOS.xcassets    iOS app icon, 1024x1024, opaque
+    apple/App/Assets-tvOS.xcassets   tvOS layered icon (400x240, 1280x768) and top shelf
 
 To regenerate after new artwork:
 

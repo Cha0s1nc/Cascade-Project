@@ -11,7 +11,7 @@ enum CoverPalettes {
     static func palette(for itemId: String, client: JellyfinClient) async -> [BlobColor] {
         if let hit = cache[itemId] { return hit }
         guard let url = await client.imageUrl(itemId: itemId, size: AlbumColors.sampleSide),
-              let (data, response) = try? await URLSession.shared.data(from: url),
+              let (data, response) = try? await ProxyConnection.shared.session(for: url).data(from: url),
               (response as? HTTPURLResponse)?.statusCode == 200 else { return [] }
         let colors = await Task.detached(priority: .utility) { extract(data) }.value
         cache[itemId] = colors

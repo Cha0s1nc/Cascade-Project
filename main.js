@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, clipboard, shell, Menu, globalShortcut, TouchBar, protocol, net, screen } = require('electron')
+const { app, BrowserWindow, ipcMain, clipboard, shell, Menu, globalShortcut, TouchBar, protocol, net, screen, session, dialog } = require('electron')
 
 // A main-process throw before the window is shown means no window and, for a
 // rejection, not even a message: Electron shows a dialog for an uncaught
@@ -25,6 +25,11 @@ const UpdateRelease = require('./build/update-release')
 const Changelog = require('./build/changelog')
 // Whether the saved window position still fits the monitors, from src/core/window-state.ts.
 const WindowState = require('./build/window-state')
+// Extra headers and client certificates for servers behind a reverse proxy, from src/core/custom-headers.ts.
+const CustomHeaders = require('./build/custom-headers')
+// Offline downloads: the pure index rules from src/core/offline-index.ts, and the main-process side in offline.js.
+const OfflineIndex = require('./build/offline-index')
+const { createOffline } = require('./offline')
 const crypto = require('crypto')
 const { pathToFileURL } = require('url')
 const Store = require('electron-store')
@@ -46,9 +51,15 @@ const Store = require('electron-store')
 // and Chromium refuses cross-origin fetches to any scheme not flagged for CORS.
 // The translation library of the day swallowed that as "file was not found
 // locally", so it read as a missing model rather than a blocked request.
+// cascade-offline plays downloaded music (see offline.js). `stream` is what lets
+// a media element read it and seek: without it a <video> cannot play the
+// scheme's responses at all.
 protocol.registerSchemesAsPrivileged([{
   scheme: 'cascade-model',
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
+}, {
+  scheme: 'cascade-offline',
+  privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
 }])
 
 // Serve `rel` from inside `root`, or refuse. Trust boundary: the path comes off
@@ -561,8 +572,13 @@ function createWindow() {
 
 app.whenReady().then(() => {
   registerModelProtocol()
+  installConnectionHeaders()
+  offline.registerProtocol()
   createWindow()
 })
+
+// A debounced index write must not be lost to a quit.
+app.on('before-quit', () => offline.flush())
 
 app.on('window-all-closed', () => {
   globalShortcut.unregisterAll()
@@ -658,8 +674,96 @@ ipcMain.on('set-window-buttons-visible', (_e, visible) => {
 
 // IPC: store
 ipcMain.handle('store-get', (_e, key) => store.get(key))
-ipcMain.handle('store-set', (_e, key, value) => store.set(key, value))
-ipcMain.handle('store-delete', (_e, key) => store.delete(key))
+ipcMain.handle('store-set', (_e, key, value) => {
+  // The server URL decides where custom headers go, so keep it in step.
+  if (key === 'serverUrl') connectionServerUrl = typeof value === 'string' ? value : null
+  return store.set(key, value)
+})
+ipcMain.handle('store-delete', (_e, key) => {
+  if (key === 'serverUrl') connectionServerUrl = null
+  return store.delete(key)
+})
+
+// ── Reverse-proxy headers and client certificate ──────────────────────────────
+//
+// For a Jellyfin behind Cloudflare Access, Authelia or an mTLS proxy: the proxy
+// refuses any request without the header or certificate, sign-in included.
+// Headers are added here, in the session, because that is the only place that
+// also reaches <img>, <audio> and <video> requests, which a fetch wrapper in
+// the renderer cannot. They go to the Jellyfin server's own origin and nowhere
+// else (lyrics providers, GitHub, Mozilla and the Waterfall relay never see
+// them). Saved with the connection settings in the store, like the token.
+let connectionServerUrl = store.get('serverUrl') || null
+let connectionHeaders = CustomHeaders.sanitizeCustomHeaders(store.get('customHeaders'))
+
+function installConnectionHeaders() {
+  session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['<all_urls>'] }, (details, callback) => {
+    const extra = CustomHeaders.headersForRequest(details.url, connectionServerUrl, connectionHeaders)
+    if (!extra.length) { callback({}); return }
+    callback({ requestHeaders: CustomHeaders.withCustomHeaders(details.requestHeaders, extra) })
+  })
+}
+
+// The renderer sets these before it signs in, so a proxy that rejects the
+// sign-in itself can still be reached. Both are validated here: IPC input is
+// not trusted.
+ipcMain.handle('connection-get-headers', () => connectionHeaders)
+// `persist` false is the sign-in screen's Quick Connect check, which runs as
+// the address is typed: it changes what is sent now and keeps the stored
+// headers as they were.
+ipcMain.handle('connection-set', (_e, serverUrl, headers, persist = true) => {
+  if (typeof serverUrl === 'string' && CustomHeaders.requestOrigin(serverUrl)) connectionServerUrl = serverUrl
+  connectionHeaders = CustomHeaders.sanitizeCustomHeaders(headers)
+  if (persist === false) return connectionHeaders
+  if (connectionHeaders.length) store.set('customHeaders', connectionHeaders)
+  else store.delete('customHeaders')
+  return connectionHeaders
+})
+
+const offline = createOffline({
+  app, ipcMain, net, protocol,
+  getWindow: () => win,
+  getServerUrl: () => connectionServerUrl,
+  headersFor: (url) => CustomHeaders.headersForRequest(url, connectionServerUrl, connectionHeaders),
+  Offline: OfflineIndex,
+})
+offline.register()
+
+// A client certificate. Electron can only answer with one from the operating
+// system's certificate store (a .p12 file cannot be handed to it), so the
+// person installs theirs there and Cascade picks from what is installed. The
+// choice is remembered by fingerprint; only the Jellyfin server's own origin
+// is asked about, every other site keeps Chromium's default.
+app.on('select-client-certificate', async (event, _webContents, url, list, callback) => {
+  const serverOrigin = CustomHeaders.requestOrigin(connectionServerUrl)
+  if (!serverOrigin || CustomHeaders.requestOrigin(url) !== serverOrigin) return
+  event.preventDefault()
+  const choice = CustomHeaders.chooseClientCertificate(list, store.get('clientCertFingerprint'), Date.now() / 1000)
+  if (choice.kind === 'none') { callback(); return }
+  if (choice.kind === 'use') { callback(list[choice.index]); return }
+  // Several candidates and no remembered one: ask. A dialog button each; past
+  // a handful the person has more certificates than this can sensibly list.
+  const shown = choice.candidates.slice(0, 6)
+  const { response } = await dialog.showMessageBox(win && !win.isDestroyed() ? win : undefined, {
+    type: 'question',
+    title: 'Client certificate',
+    message: 'Your Jellyfin server asks for a client certificate.',
+    detail: 'Choose the one to use. Cascade remembers it.',
+    buttons: [...shown.map(i => `${list[i].subjectName} (${list[i].issuerName})`), 'Cancel'],
+    cancelId: shown.length,
+    defaultId: 0,
+  })
+  if (response >= shown.length) { callback(); return }
+  const picked = list[shown[response]]
+  store.set('clientCertFingerprint', picked.fingerprint)
+  callback(picked)
+})
+
+// Forget the remembered certificate so the next connection asks again.
+ipcMain.handle('connection-reset-certificate', async () => {
+  store.delete('clientCertFingerprint')
+  try { await session.defaultSession.clearAuthCache() } catch {}
+})
 
 // IPC: clipboard
 ipcMain.handle('clipboard-write', (_e, text) => clipboard.writeText(text))

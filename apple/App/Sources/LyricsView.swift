@@ -239,6 +239,9 @@ struct LyricsView: View {
     /// False for lyrics with no timings: a still page to scroll, every line
     /// lit, with nothing to follow.
     var synced = true
+    /// The on-device translation of each line, by index, shown under it. Empty
+    /// while off or on tvOS, which has no Translation framework.
+    var translations: [Int: String] = [:]
 
     /// The current line, from a clock of its own rather than the player's
     /// half-second position, so a line changes on its beat.
@@ -254,12 +257,19 @@ struct LyricsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(lines.indices, id: \.self) { index in
-                    Text(lines[index].text)
-                        .font(.system(size: LyricStyle.size, weight: LyricStyle.weight))
-                        .tracking(LyricStyle.tracking * LyricStyle.size)
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, LyricStyle.lineGap)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(lines[index].text)
+                            .font(.system(size: LyricStyle.size, weight: LyricStyle.weight))
+                            .tracking(LyricStyle.tracking * LyricStyle.size)
+                            .foregroundStyle(.white)
+                        if let translated = translations[index] {
+                            Text(translated)
+                                .font(.system(size: LyricStyle.size * 0.6, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.65))
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, LyricStyle.lineGap)
                 }
             }
             .padding(.vertical, 24)
@@ -275,7 +285,8 @@ struct LyricsView: View {
                         ForEach(lines.indices, id: \.self) { index in
                             LyricLineView(line: lines[index],
                                           distance: Lyrics.lineDistance(index, active: active),
-                                          browsing: browsing, emphasis: emphasis, player: player)
+                                          browsing: browsing, emphasis: emphasis, player: player,
+                                          translation: translations[index])
                                 .id(index)
                                 #if !os(tvOS)
                                 .contentShape(Rectangle())
@@ -342,6 +353,8 @@ private struct LyricLineView: View {
     let browsing: Bool
     let emphasis: Bool
     let player: PlaybackService
+    /// The line's on-device translation, drawn smaller under it.
+    var translation: String?
 
     var body: some View {
         let look = LyricStyle.look(distance: distance, browsing: browsing)
@@ -349,9 +362,17 @@ private struct LyricLineView: View {
         // A duet's second voice sits on the right, background row with it.
         let side: Alignment = line.opposite ? .trailing : .leading
         ShrinkWithoutRewrap(scale: look.scale) {
-            content(karaoke: karaoke)
-                .font(.system(size: LyricStyle.size, weight: LyricStyle.weight))
-                .tracking(LyricStyle.tracking * LyricStyle.size)
+            VStack(alignment: line.opposite ? .trailing : .leading, spacing: 4) {
+                content(karaoke: karaoke)
+                    .font(.system(size: LyricStyle.size, weight: LyricStyle.weight))
+                    .tracking(LyricStyle.tracking * LyricStyle.size)
+                if let translation {
+                    Text(translation)
+                        .font(.system(size: LyricStyle.size * 0.6, weight: .medium))
+                        .opacity(0.65)
+                        .multilineTextAlignment(line.opposite ? .trailing : .leading)
+                }
+            }
                 .frame(maxWidth: .infinity, alignment: side)
                 .scaleEffect(look.scale, anchor: line.opposite ? .topTrailing : .topLeading)
         }

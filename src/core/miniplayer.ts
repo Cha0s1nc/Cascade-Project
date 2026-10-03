@@ -125,6 +125,7 @@ export type MiniplayerCommand =
   | { type: MiniplayerAction }
   | { type: 'seek', fraction: number }
   | { type: 'volume', delta: number }
+  | { type: 'volumeto', fraction: number }
   | { type: 'credit', who: 'uploader' | 'maker' }
   | { type: 'jump', index: number }
   | { type: 'sheet' }
@@ -149,6 +150,8 @@ export function parseMiniplayerCommand(raw: unknown): MiniplayerCommand | null {
     const m = MINIPLAYER_MAX_VOLUME_STEP
     return { type: 'volume', delta: Math.max(-m, Math.min(m, value)) }
   }
+  // The volume slider: an absolute level, 0-1.
+  if (type === 'volumeto') return { type: 'volumeto', fraction: Math.max(0, Math.min(1, value)) }
   if (type === 'credit' && (value === 0 || value === 1)) return { type: 'credit', who: value === 0 ? 'uploader' : 'maker' }
   // A queue position; whether it exists is the receiver's call, it owns the queue.
   if (type === 'jump' && Number.isInteger(value) && value >= 0) return { type: 'jump', index: value }

@@ -40,6 +40,8 @@ final class AppState {
             waterfall?.leave(reason: "Left the Waterfall room to play a video.")
         }
         player?.pause()
+        // The video takes the lock screen until it closes.
+        player?.lockScreenSuspended = true
         let session = videoSession ?? VideoSession(client: client, config: config)
         videoSession = session
         await session.play(items, startIndex: startIndex, audioStreamIndex: audioStreamIndex, resume: resume)
@@ -67,6 +69,7 @@ final class AppState {
         videoSession = nil
         Task {
             await session.stop()
+            player?.lockScreenSuspended = false
             videoRevision += 1
         }
     }
@@ -192,6 +195,10 @@ final class AppState {
     }
 
     init() {
+        // Before restore() builds the client: a proxy that wants a header refuses
+        // even the first request without it.
+        ProxyConnection.shared.setHeaders(ProxyHeaderStore.load())
+        ProxyConnection.shared.setServer(UserDefaults.standard.string(forKey: "cascade.serverUrl"))
         restore()
     }
 
@@ -237,6 +244,7 @@ final class AppState {
     private func persist(server: String, auth: JfAuthResult) {
         username = auth.user.name
         let server = server.hasSuffix("/") ? String(server.dropLast()) : server
+        ProxyConnection.shared.setServer(server)
         let config = ServerConfig(url: server, token: auth.accessToken,
                                   userId: auth.user.id, deviceId: Self.deviceId)
         Keychain.set(config.token, for: "token")
@@ -247,6 +255,8 @@ final class AppState {
 
     func signOut() async {
         await player?.stop()
+        // Stops this account's downloads and hides them from whoever is next.
+        offline?.setOwner(nil)
         Keychain.remove("token")
         UserDefaults.standard.removeObject(forKey: "cascade.userId")
         UserDefaults.standard.removeObject(forKey: "cascade.libraryIds")
@@ -302,6 +312,8 @@ final class AppState {
         player.offline = offline
         self.player = player
         if let offline {
+            // This account's downloads; another's are never listed or resumed.
+            offline.setOwner(config.userId)
             Task {
                 await offline.resume(client: client)
                 await offline.replayPlays(client: client)

@@ -36,3 +36,39 @@ struct VideoTests {
         #expect(VideoPlayback.audioTracks(item).map(\.index) == [1, 2])
     }
 }
+
+struct MediaTrackLabelTests {
+    @Test func theServersNameWithoutTheCodec() {
+        #expect(mediaTrackLabel(playlistName: "English - Default - SUBRIP", fallback: "English") == "English - Default")
+        #expect(mediaTrackLabel(playlistName: "For ENG Dub - English - SUBRIP", fallback: "English") == "For ENG Dub - English")
+        #expect(mediaTrackLabel(playlistName: "English Signs - ASS", fallback: "English") == "English Signs")
+        #expect(mediaTrackLabel(playlistName: "English cc - Hearing Impaired - ASS", fallback: "English") == "English cc - Hearing Impaired")
+        #expect(mediaTrackLabel(playlistName: "Thai - SUBRIP", fallback: "Thai") == "Thai")
+    }
+
+    @Test func noNameIsTheSystemsName() {
+        #expect(mediaTrackLabel(playlistName: nil, fallback: "English") == "English")
+        #expect(mediaTrackLabel(playlistName: "  ", fallback: "English") == "English")
+        #expect(mediaTrackLabel(playlistName: "SDH", fallback: "English") == "SDH", "a lone uppercase name is a name, not a codec")
+    }
+}
+
+struct VideoResumeTests {
+    @Test func theTranscodeURLLosesItsStartSoTheStreamIsTheWholeFilm() {
+        let url = VideoPlayback.withoutStartTicks("https://s/videos/1/master.m3u8?MediaSourceId=a&StartTimeTicks=42000000000&api_key=k")
+        #expect(url?.absoluteString == "https://s/videos/1/master.m3u8?MediaSourceId=a&api_key=k")
+        #expect(VideoPlayback.withoutStartTicks("https://s/videos/1/master.m3u8?api_key=k")?.absoluteString == "https://s/videos/1/master.m3u8?api_key=k")
+    }
+}
+
+struct VideoSearchTests {
+    @Test func searchesMoviesShowsAndEpisodesAcrossLibraries() throws {
+        let params = try #require(VideoPlayback.searchParams(term: "  infinity castle ", userId: "u1"))
+        #expect(params["searchTerm"] == "infinity castle")
+        #expect(params["includeItemTypes"] == "Movie,Series,Episode")
+        #expect(params["recursive"] == "true")
+        #expect(params["userId"] == "u1")
+        #expect(params["fields"]??.contains("MediaStreams") == true, "results play like list items")
+        #expect(VideoPlayback.searchParams(term: "   ", userId: "u1") == nil)
+    }
+}
