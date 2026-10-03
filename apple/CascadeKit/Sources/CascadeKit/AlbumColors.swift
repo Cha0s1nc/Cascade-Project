@@ -1,9 +1,10 @@
 import Foundation
 
 // The album-art background: a few vivid colours pulled out of a cover, drifting
-// around as blobs. A port of the desktop's src/core/album-colors.ts (dark theme
-// only, since Now Playing is always dark here), so the phone paints the same
-// background from the same cover rather than a lookalike. Pure: raw RGBA bytes
+// around as blobs. A port of the desktop's src/core/album-colors.ts, so the
+// phone and the Mac paint the same background from the same cover rather than a
+// lookalike. The light theme (the Mac's Theme panel) has its own lightness
+// window and base, see lightnessRange. Pure: raw RGBA bytes
 // and a timestamp in, numbers out. Getting the pixels and painting the blobs
 // are the app's business.
 
@@ -35,6 +36,21 @@ public struct DriftParams: Sendable, Equatable {
 public enum AlbumColors {
     /// The base the blobs sit on. The desktop overlay's #0d0d0f.
     public static let base = (r: 13.0 / 255, g: 13.0 / 255, b: 15.0 / 255)
+    /// The light theme's base, #f2f2f7: the same colour as the light app
+    /// background, so turning album-art theming on and off is no flash.
+    public static let baseLight = (r: 242.0 / 255, g: 242.0 / 255, b: 247.0 / 255)
+
+    /// The lightness window each theme clamps its blobs into. Not two versions
+    /// of one idea: the dark theme lightens blobs so they glow on near-black,
+    /// the light theme darkens them so they stain near-white like ink on paper
+    /// under multiply blending (pale blobs multiply to almost nothing, which is
+    /// what the washed-out first attempt was). Tuned by eye on the desktop.
+    public static let lightnessRange = (dark: (min: 0.45, max: 0.82), light: (min: 0.0, max: 0.27))
+
+    /// Blob opacity scale on the light base. 1, i.e. none: with the lightness
+    /// window doing the work, an extra cut was the biggest cause of the
+    /// wash-out. Kept as a named constant, as on the desktop.
+    static let lightAlphaScale = 1.0
 
     /// How often a host should move the blobs. The drift has periods of tens of
     /// seconds, so 60 fps is wasted work; the desktop runs at ~15.
@@ -104,8 +120,8 @@ public enum AlbumColors {
     /// thing, which reads as a one-colour background.
     static let minSeparation = 0.12
     /// Dark theme lightness window: below it a blob is lost on #0d0d0f, above
-    /// it washes out the content in front.
-    static let minL = 0.45, maxL = 0.82
+    /// it washes out the content in front. The light one is lightnessRange.light.
+    static let minL = lightnessRange.dark.min, maxL = lightnessRange.dark.max
     /// Below this a colour reads as grey rather than as a colour.
     static let minChroma = 0.06
 
@@ -117,7 +133,7 @@ public enum AlbumColors {
     /// the caller mislabelled its buffer, and reading past a row would give
     /// plausible garbage, so it throws. Deterministic: the same cover always
     /// gives the same colours, or the background would change between plays.
-    public static func extractTopColors(_ rgba: [UInt8], count n: Int = 3) throws -> [BlobColor] {
+    public static func extractTopColors(_ rgba: [UInt8], count n: Int = 3, light: Bool = false) throws -> [BlobColor] {
         guard rgba.count % 4 == 0 else { throw NotPackedRGBA() }
 
         // Near-black and near-white say nothing about a palette (every cover
@@ -184,7 +200,7 @@ public enum AlbumColors {
         for r in ranked where picked.count < n && !picked.contains(r.c) {
             picked.append(r.c)
         }
-        return picked.map(blobColor)
+        return picked.map { blobColor($0, light: light) }
     }
 
     /// Deterministic k-means++ style seeding: the most colourful sample, then
@@ -207,10 +223,11 @@ public enum AlbumColors {
 
     /// A cluster centre as a paintable colour. Left alone unless it would be
     /// invisible against the base, then only nudged to the edge of the usable
-    /// window; the hue is never touched.
-    static func blobColor(_ c: Oklab) -> BlobColor {
+    /// window (the theme's); the hue is never touched.
+    static func blobColor(_ c: Oklab, light: Bool = false) -> BlobColor {
         var (L, a, b) = (c.L, c.a, c.b)
-        L = min(maxL, max(minL, L))
+        let window = light ? lightnessRange.light : lightnessRange.dark
+        L = min(window.max, max(window.min, L))
         let ch = hypot(a, b)
         if ch > 0 && ch < minChroma {
             let scale = minChroma / ch
@@ -255,15 +272,18 @@ public enum AlbumColors {
 
     /// Where the blobs are at time `t` in seconds. Pure: a host drives it from a
     /// clock, a test from a constant.
-    public static func driftedBlobs(_ colors: [BlobColor], drift: [DriftParams], at t: Double) -> [Blob] {
-        colors.enumerated().map { i, color in
+    public static func driftedBlobs(_ colors: [BlobColor], drift: [DriftParams], at t: Double,
+                                    light: Bool = false) -> [Blob] {
+        let alphaScale = light ? lightAlphaScale : 1
+        return colors.enumerated().map { i, color in
             let s = i < slots.count ? slots[i] : slots[2]
+            let alpha = s.alpha * alphaScale
             guard let p = i < drift.count ? drift[i] : drift.first else {
-                return Blob(x: s.x, y: s.y, w: s.w, h: s.h, alpha: s.alpha, color: color)
+                return Blob(x: s.x, y: s.y, w: s.w, h: s.h, alpha: alpha, color: color)
             }
             return Blob(x: s.x + sin(t * p.xF1 + p.xP1) * p.xA1 + sin(t * p.xF2 + p.xP2) * p.xA2,
                         y: s.y + cos(t * p.yF1 + p.yP1) * p.yA1 + cos(t * p.yF2 + p.yP2) * p.yA2,
-                        w: s.w, h: s.h, alpha: s.alpha, color: color)
+                        w: s.w, h: s.h, alpha: alpha, color: color)
         }
     }
 }

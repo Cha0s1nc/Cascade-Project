@@ -91,4 +91,43 @@ import Testing
         // The big blobs count for more than the small one.
         #expect(AlbumColors.brightness([salmon, salmon, navy]) > AlbumColors.brightness([navy, navy, salmon]))
     }
+
+    // The light theme, from test/album-colors.test.ts.
+
+    @Test func eachThemeClampsBlobLightnessIntoItsOwnWindow() throws {
+        // Asserted against the configured window, not literals: these numbers are a tuning
+        // knob that moved three times on the desktop. The slack is the sRGB round trip, which
+        // clips a deep saturated colour at a low L back into gamut and reads a little lighter.
+        let deepRed = cover((400, 140, 20, 30))
+        for light in [false, true] {
+            let blob = try #require(try AlbumColors.extractTopColors(deepRed, count: 1, light: light).first)
+            let window = light ? AlbumColors.lightnessRange.light : AlbumColors.lightnessRange.dark
+            let L = AlbumColors.oklab(r: blob.r, g: blob.g, b: blob.b).L
+            #expect(L >= window.min - 0.06 && L <= window.max + 0.06, "light=\(light) L=\(L)")
+        }
+    }
+
+    @Test func theTwoThemesClampIntoGenuinelyDifferentWindows() {
+        // Light is not "dark, but paler": multiply blending makes a light-theme blob ink on paper.
+        let d = AlbumColors.lightnessRange.dark, l = AlbumColors.lightnessRange.light
+        #expect(d.min < d.max && l.min < l.max)
+        #expect(d.min != l.min || d.max != l.max)
+        #expect(l.max < d.min)
+    }
+
+    @Test func lightModeKeepsBlobLayoutIdenticalToDark() throws {
+        let colors = try AlbumColors.extractTopColors(cover((300, 200, 30, 60), (300, 40, 70, 200)), count: 2)
+        let drift = AlbumColors.randomizeDrift(count: 2) { 0.5 }
+        let dark = AlbumColors.driftedBlobs(colors, drift: drift, at: 5)
+        let light = AlbumColors.driftedBlobs(colors, drift: drift, at: 5, light: true)
+        for (d, l) in zip(dark, light) {
+            // Position and size are the invariant; alpha is a tuning knob.
+            #expect(d.x == l.x && d.y == l.y && d.w == l.w && d.h == l.h)
+        }
+    }
+
+    @Test func theLightBaseMatchesTheLightAppBackground() {
+        #expect(Int((AlbumColors.baseLight.r * 255).rounded()) == 0xf2)
+        #expect(Int((AlbumColors.baseLight.b * 255).rounded()) == 0xf7)
+    }
 }
