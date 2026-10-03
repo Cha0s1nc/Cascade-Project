@@ -161,7 +161,9 @@ export interface DesktopCapabilities {
    *  operating system's store and remembered. */
   connection?: {
     getHeaders(): Promise<{ name: string; value: string }[]>
-    set(serverUrl: string, headers: { name: string; value: string }[]): Promise<{ name: string; value: string }[]>
+    /** `persist` false changes what is sent without saving it (the sign-in
+     *  screen's Quick Connect check, run as the address is typed). */
+    set(serverUrl: string, headers: { name: string; value: string }[], persist?: boolean): Promise<{ name: string; value: string }[]>
     resetCertificate(): Promise<void>
   }
 

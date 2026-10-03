@@ -154,6 +154,9 @@ test('the extension comes from the file name, then the MIME type', () => {
   assert.equal(fileExtensionFor('attachment; filename="x.a b"', 'text/html'), null)
   assert.equal(fileExtensionFor(null, null), null)
   assert.equal(fileExtensionFor('attachment; filename="no-extension"', 'application/octet-stream'), null)
+  // A file name only counts when it names audio.
+  assert.equal(fileExtensionFor('attachment; filename="login.html"', 'text/html'), null)
+  assert.equal(fileExtensionFor('attachment; filename="track.ape"', 'application/octet-stream'), 'ape')
 })
 
 test('only a whole audio response becomes a track', () => {

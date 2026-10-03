@@ -20,7 +20,7 @@ const cascade: ElectronPlatform = {
   // Jellyfin server's origin only) and the remembered client certificate.
   connection: {
     getHeaders:       () => ipcRenderer.invoke('connection-get-headers'),
-    set:              (serverUrl, headers) => ipcRenderer.invoke('connection-set', serverUrl, headers),
+    set:              (serverUrl, headers, persist) => ipcRenderer.invoke('connection-set', serverUrl, headers, persist),
     resetCertificate: () => ipcRenderer.invoke('connection-reset-certificate'),
   },
   offline: {

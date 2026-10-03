@@ -113,12 +113,22 @@ public enum ProxyHeaders {
         return "\(http)://\(host)\(port)"
     }
 
-    /// Whether two URLs name the same host, whatever the scheme or port: an
-    /// http to https upgrade on the same host is not leaving the server.
-    public static func sameHost(_ a: URL, _ b: URL) -> Bool {
-        guard let x = URLComponents(url: a, resolvingAgainstBaseURL: false)?.host?.lowercased(), !x.isEmpty,
-              let y = URLComponents(url: b, resolvingAgainstBaseURL: false)?.host?.lowercased() else { return false }
-        return x == y
+    /// Whether a redirect may keep the headers: it stays on the same origin,
+    /// or it is the http to https upgrade of the same address. Any other port
+    /// on the host is another service, the same rule as the desktop's.
+    public static func redirectKeepsHeaders(from a: URL, to b: URL) -> Bool {
+        guard let x = origin(of: a), let y = origin(of: b) else { return false }
+        return x == y || x.replacingOccurrences(of: "http://", with: "https://") == y && x.hasPrefix("http://")
+    }
+
+    /// The origin a server's authentication challenge came from, for
+    /// comparing with the server's own.
+    public static func origin(host: String, port: Int, protocol scheme: String?) -> String? {
+        var parts = URLComponents()
+        parts.scheme = scheme ?? "https"
+        parts.host = host
+        if port > 0 { parts.port = port }
+        return parts.url.flatMap(origin(of:))
     }
 
     /// The headers to add to a request to `url`: all of them when it goes to

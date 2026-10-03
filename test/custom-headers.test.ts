@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  probeHeaders,
   headerNameProblem, headerValueProblem, parseHeaderLines, formatHeaderLines, sanitizeCustomHeaders,
   requestOrigin, headersForRequest, withCustomHeaders, chooseClientCertificate, MAX_CUSTOM_HEADERS,
 } from '../src/core/custom-headers.ts'
@@ -124,4 +125,13 @@ test('chooseClientCertificate: an expired certificate is never offered, indexes 
   assert.deepEqual(chooseClientCertificate([cert('old', 500)], null, now), { kind: 'none' })
   assert.deepEqual(chooseClientCertificate([cert('old', 500), cert('b', 2_000)], 'old', now), { kind: 'use', index: 1 }, 'a remembered but expired choice is ignored')
   assert.deepEqual(chooseClientCertificate([cert('x', 999), cert('y', 5_000), cert('z')], null, now), { kind: 'ask', candidates: [1, 2] })
+})
+
+test('the Quick Connect check sends saved headers only to the server they were saved for', () => {
+  const saved = [{ name: 'CF-Access-Client-Id', value: 'id' }]
+  assert.deepEqual(probeHeaders('https://jf.example.com/', 'https://jf.example.com', saved), saved)
+  assert.deepEqual(probeHeaders('https://jf.example.co', 'https://jf.example.com', saved), [], 'a half-typed host gets nothing')
+  assert.deepEqual(probeHeaders('https://jf.example.com:8920', 'https://jf.example.com', saved), [], 'another port is another server')
+  assert.deepEqual(probeHeaders('https://jf.example.com', null, saved), [], 'nothing saved yet')
+  assert.deepEqual(probeHeaders('not a url', 'https://jf.example.com', saved), [])
 })

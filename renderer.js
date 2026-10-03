@@ -6945,14 +6945,18 @@ let _qcProbeTimer = null
  * wants a header refuses the sign-in itself without it. False (and the problem
  * shown, unless `report` is false) when the headers field does not parse.
  */
-async function applySetupConnection(url, { report = true } = {}) {
+async function applySetupConnection(url, { report = true, probe = false } = {}) {
   const { headers, errors } = CascadeCore.parseHeaderLines(document.getElementById('setup-headers').value)
   if (errors.length) {
     if (report) document.getElementById('setup-error').textContent = errors.join(' ')
     return false
   }
-  await window.cascade.connection.set(url, headers)
-  return true
+  // The probe runs as the address is typed: it sends the headers only to the
+  // server they were saved for, and saves nothing (see probeHeaders).
+  const send = probe ? CascadeCore.probeHeaders(url, await window.cascade.store.get('serverUrl'), headers) : headers
+  await window.cascade.connection.set(url, send, !probe)
+  // 'withheld': the check went out without the headers this server may need.
+  return send.length < headers.length ? 'withheld' : true
 }
 
 function probeQuickConnect() {
@@ -6961,8 +6965,11 @@ function probeQuickConnect() {
     const url = document.getElementById('setup-url').value.trim().replace(/\/+$/, '')
     const btn = document.getElementById('setup-quickconnect')
     if (!url) { btn.style.display = 'none'; return }
-    if (!await applySetupConnection(url, { report: false })) { btn.style.display = 'none'; return }
-    btn.style.display = (await CascadeCore.quickConnectEnabled(url)) ? '' : 'none'
+    const applied = await applySetupConnection(url, { report: false, probe: true })
+    if (!applied) { btn.style.display = 'none'; return }
+    // Without its headers a proxy refuses the check, which says nothing about
+    // Quick Connect: offer it, and pressing it sends the headers and finds out.
+    btn.style.display = (applied === 'withheld' || await CascadeCore.quickConnectEnabled(url)) ? '' : 'none'
   }, 500)
 }
 

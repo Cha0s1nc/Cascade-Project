@@ -708,9 +708,13 @@ function installConnectionHeaders() {
 // sign-in itself can still be reached. Both are validated here: IPC input is
 // not trusted.
 ipcMain.handle('connection-get-headers', () => connectionHeaders)
-ipcMain.handle('connection-set', (_e, serverUrl, headers) => {
+// `persist` false is the sign-in screen's Quick Connect check, which runs as
+// the address is typed: it changes what is sent now and keeps the stored
+// headers as they were.
+ipcMain.handle('connection-set', (_e, serverUrl, headers, persist = true) => {
   if (typeof serverUrl === 'string' && CustomHeaders.requestOrigin(serverUrl)) connectionServerUrl = serverUrl
   connectionHeaders = CustomHeaders.sanitizeCustomHeaders(headers)
+  if (persist === false) return connectionHeaders
   if (connectionHeaders.length) store.set('customHeaders', connectionHeaders)
   else store.delete('customHeaders')
   return connectionHeaders

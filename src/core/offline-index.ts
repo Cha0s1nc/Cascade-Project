@@ -247,16 +247,24 @@ const AUDIO_EXTENSIONS: Record<string, string> = {
   'audio/x-ms-wma': 'wma', 'audio/x-matroska': 'mka',
 }
 
+/** Extensions a downloaded track may be saved under: what the MIME table
+ *  above produces, plus lossless and container formats a library also holds. */
+const AUDIO_FILE_EXTENSIONS = new Set([
+  ...Object.values(AUDIO_EXTENSIONS), 'alac', 'aif', 'aiff', 'ape', 'wv', 'dsf', 'dff', 'oga', 'mp4', 'm4b', 'mpc',
+])
+
 /** The extension a downloaded file is saved under. A media element picks its
  *  parser by what the response says, but a wrong or missing extension is a
  *  file nothing else can identify. The server's file name first (/Download
- *  sends the original's), then the MIME type; null when neither says audio. */
+ *  sends the original's), then the MIME type; null when neither says audio.
+ *  A file name only counts when it names audio: an error page a proxy
+ *  answered 200 with is not a track, whatever it is called. */
 export function fileExtensionFor(contentDisposition: string | null | undefined, contentType: string | null | undefined): string | null {
   const name = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(contentDisposition ?? '')?.[1]
   if (name) {
     const dot = name.lastIndexOf('.')
     const ext = dot >= 0 ? name.slice(dot + 1).toLowerCase() : ''
-    if (/^[a-z0-9]{1,5}$/.test(ext)) return ext
+    if (AUDIO_FILE_EXTENSIONS.has(ext)) return ext
   }
   const mime = (contentType ?? '').split(';')[0].trim().toLowerCase()
   return AUDIO_EXTENSIONS[mime] ?? null

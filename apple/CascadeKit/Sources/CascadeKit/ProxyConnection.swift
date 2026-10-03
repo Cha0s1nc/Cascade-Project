@@ -73,18 +73,19 @@ public final class ProxyConnection: @unchecked Sendable {
         return a == b
     }
 
-    func isServerHost(_ host: String) -> Bool {
+    func isServer(_ space: URLProtectionSpace) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        guard let server, let mine = URLComponents(url: server, resolvingAgainstBaseURL: false)?.host?.lowercased() else { return false }
-        return mine == host.lowercased()
+        guard let server, let mine = ProxyHeaders.origin(of: server),
+              let theirs = ProxyHeaders.origin(host: space.host, port: space.port, protocol: space.protocol) else { return false }
+        return mine == theirs
     }
 
     /// The answer to a server's request for a client certificate: the identity
-    /// the person imported, for the server's own host only; every other
+    /// the person imported, for the server's own origin only; every other
     /// challenge (server trust included) gets the default handling.
     func respond(to challenge: URLAuthenticationChallenge) -> (URLSession.AuthChallengeDisposition, URLCredential?) {
         guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodClientCertificate,
-              isServerHost(challenge.protectionSpace.host),
+              isServer(challenge.protectionSpace),
               let identity = ClientIdentity.stored() else { return (.performDefaultHandling, nil) }
         return (.useCredential, URLCredential(identity: identity, certificates: nil, persistence: .forSession))
     }
@@ -130,13 +131,14 @@ final class ProxySessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked S
         connection.respond(to: challenge)
     }
 
-    /// A proxy's login redirect to another host would otherwise carry the
-    /// service token there. An http to https upgrade on the same host is fine.
+    /// A proxy's login redirect to another host (or another port on it) would
+    /// otherwise carry the service token there. An http to https upgrade of
+    /// the same address is fine.
     func urlSession(_ session: URLSession, task: URLSessionTask,
                     willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest) async -> URLRequest? {
         guard let from = task.originalRequest?.url, let to = request.url else { return request }
-        return ProxyHeaders.sameHost(from, to) ? request : nil
+        return ProxyHeaders.redirectKeepsHeaders(from: from, to: to) ? request : nil
     }
 }
 

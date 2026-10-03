@@ -90,11 +90,19 @@ struct ProxyHeadersTests {
         #expect(ProxyHeaders.headers(for: server, server: server, from: []).isEmpty)
     }
 
-    @Test func sameHostIgnoresSchemeAndPort() {
-        func same(_ a: String, _ b: String) -> Bool { ProxyHeaders.sameHost(URL(string: a)!, URL(string: b)!) }
-        #expect(same("http://jf.example.com/x", "https://jf.example.com/x"))
-        #expect(same("https://JF.example.com:8443/", "https://jf.example.com/"))
-        #expect(!same("https://jf.example.com/", "https://login.example.net/"))
+    @Test func redirectsKeepTheHeadersOnlyOnTheSameOrigin() {
+        func keeps(_ a: String, _ b: String) -> Bool { ProxyHeaders.redirectKeepsHeaders(from: URL(string: a)!, to: URL(string: b)!) }
+        #expect(keeps("https://jf.example.com/x", "https://JF.example.com/y"))
+        #expect(keeps("http://jf.example.com/x", "https://jf.example.com/x"), "the upgrade of the same address")
+        #expect(!keeps("https://jf.example.com/", "https://jf.example.com:8443/"), "another port is another service")
+        #expect(!keeps("https://jf.example.com/", "http://jf.example.com/"), "no downgrade")
+        #expect(!keeps("https://jf.example.com/", "https://login.example.net/"))
+    }
+
+    @Test func aChallengeIsTheServersOnlyFromItsOwnOrigin() {
+        #expect(ProxyHeaders.origin(host: "JF.example.com", port: 443, protocol: "https") == "https://jf.example.com")
+        #expect(ProxyHeaders.origin(host: "jf.example.com", port: 8443, protocol: "https") == "https://jf.example.com:8443")
+        #expect(ProxyHeaders.origin(host: "jf.example.com", port: 0, protocol: nil) == "https://jf.example.com")
     }
 
     // MARK: ProxyConnection

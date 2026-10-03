@@ -126,6 +126,17 @@ export function headersForRequest(requestUrl: string, serverUrl: string | null |
   return target && server && target === server ? [...headers] : []
 }
 
+/**
+ * The headers the sign-in screen's Quick Connect check may send. It runs as
+ * the address is typed, so it would otherwise hand the saved headers (a
+ * Cloudflare Access token, say) to every half-typed host that resolves. Until
+ * Connect is pressed, only the server they were saved for gets them.
+ */
+export function probeHeaders(typedUrl: string, savedServerUrl: string | null | undefined, headers: readonly CustomHeader[]): CustomHeader[] {
+  const typed = requestOrigin(typedUrl)
+  return typed && typed === requestOrigin(savedServerUrl) ? [...headers] : []
+}
+
 /** `existing` with `extra` set on it. A header already present under any
  *  capitalization is replaced, not duplicated. Returns a new object. */
 export function withCustomHeaders(
