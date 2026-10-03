@@ -28,16 +28,18 @@ test('isBeta reads [BETA] in any case', () => {
 test('platformListOf reads bracket lists and ignores brackets that are not platforms', () => {
   assert.deepEqual(platformListOf(['Release (x.x.X) [android, desktop]']), ['desktop', 'android'])
   assert.deepEqual(platformListOf(['[BETA] [apple]']), ['apple'])
-  assert.deepEqual(platformListOf(['[all]']), ['desktop', 'mac', 'apple', 'android'])
+  // [all] leaves out mac: it is built only when named (EXPLICIT_ONLY).
+  assert.deepEqual(platformListOf(['[all]']), ['desktop', 'apple', 'android'])
+  assert.deepEqual(platformListOf(['[all] [mac]']), ['desktop', 'mac', 'apple', 'android'])
   assert.deepEqual(platformListOf(['[Desktop]', 'and [apple]']), ['desktop', 'apple'])
   assert.deepEqual(platformListOf(['[BETA] [mac]']), ['mac'])
   assert.equal(platformListOf(['[BETA]', '[WIP] desktop', '[desktop, wip]']), null)
 })
 
 test('platformsFromFiles maps folders to apps, and docs or CI to nothing', () => {
-  // apple/ is two apps: the iOS and tvOS one and the native Mac one.
-  assert.deepEqual(platformsFromFiles(['apple/App/Sources/X.swift']), ['mac', 'apple'])
-  assert.deepEqual(platformsFromFiles(['apple/App/Mac/MacRootView.swift', 'renderer.js']), ['desktop', 'mac', 'apple'])
+  // apple/ builds iOS and tvOS; the native Mac app waits to be named.
+  assert.deepEqual(platformsFromFiles(['apple/App/Sources/X.swift']), ['apple'])
+  assert.deepEqual(platformsFromFiles(['apple/App/Mac/MacRootView.swift', 'renderer.js']), ['desktop', 'apple'])
   assert.deepEqual(platformsFromFiles(['renderer.js', 'android/app/build.gradle']), ['desktop', 'android'])
   assert.deepEqual(platformsFromFiles(['README.md', 'CHANGELOG.md', 'docs/plan.md', '.github/workflows/build.yml', 'LICENSE']), [])
   assert.deepEqual(platformsFromFiles(['src/core/queue.ts']), ['desktop'])
@@ -80,8 +82,8 @@ test('stable push without a marker only builds, and docs alone do nothing', () =
   const p = planRelease(base({ messages: ['Fix a thing'], files: ['apple/App/Sources/X.swift'] }))
   assert.equal(p.mode, 'build')
   assert.deepEqual(p.platforms, ['apple'])
-  // With the native Mac app in the repo, the same change builds it too.
-  assert.deepEqual(planRelease(base({ messages: ['Fix a thing'], files: ['apple/App/Sources/X.swift'], available: ['desktop', 'mac', 'apple'] })).platforms, ['mac', 'apple'])
+  // With the native Mac app in the repo, the same change still does not build it.
+  assert.deepEqual(planRelease(base({ messages: ['Fix a thing'], files: ['apple/App/Sources/X.swift'], available: ['desktop', 'mac', 'apple'] })).platforms, ['apple'])
   assert.equal(p.version, '')
   assert.equal(planRelease(base({ messages: ['Docs'], files: ['README.md'] })).mode, 'none')
 })
@@ -149,7 +151,20 @@ test('a mac-only beta on dev builds just the native Mac app, without carry-over 
 test('a manual run can pick mac', () => {
   const d = (dispatch: PlanInput['dispatch']) => planRelease(base({ event: 'workflow_dispatch', branch: 'dev', available: ['desktop', 'mac', 'apple'], dispatch }))
   assert.deepEqual(d({ platforms: 'mac' }).platforms, ['mac'])
-  assert.deepEqual(d({}).platforms, ['desktop', 'mac', 'apple'])
+  assert.deepEqual(d({ platforms: 'desktop, mac' }).platforms, ['desktop', 'mac'])
+  // "all" and the empty default leave it out, like every other implicit choice.
+  assert.deepEqual(d({}).platforms, ['desktop', 'apple'])
+  assert.deepEqual(d({ platforms: 'all' }).platforms, ['desktop', 'apple'])
+})
+
+test('mac is built only when named: not by a lone marker, [all] or apple/ changes', () => {
+  const all = ['desktop', 'mac', 'apple'] as const
+  const stable = (messages: string[], files: string[] = []) => planRelease(base({ messages, files, available: [...all] }))
+  assert.deepEqual(stable(['Release (x.x.X)']).platforms, ['desktop', 'apple'])
+  assert.deepEqual(stable(['Release (x.x.X) [all]']).platforms, ['desktop', 'apple'])
+  assert.deepEqual(stable(['Release (x.x.X)'], ['apple/App/Mac/X.swift']).platforms, ['apple'])
+  assert.deepEqual(stable(['Release (x.x.X) [desktop, mac]']).platforms, ['desktop', 'mac'])
+  assert.deepEqual(stable(['Release (x.x.X) [all, mac]']).platforms, ['desktop', 'mac', 'apple'])
 })
 
 test('versionsFor carries each Mac build over on its own', () => {

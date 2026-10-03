@@ -11,6 +11,17 @@ export type Platform = 'desktop' | 'mac' | 'apple' | 'android'
 export const PLATFORMS: readonly Platform[] = ['desktop', 'mac', 'apple', 'android']
 
 /**
+ * Built only when a marker or manual run names it (`[mac]`, `[desktop, mac]`).
+ * `[all]`, a marker with no list, a manual "all", and changes under `apple/`
+ * leave it out, so the native Mac DMG cannot land in a stable release before
+ * the maintainer asks for it: docs/mac-native-plan.md, "Defaults and sunset"
+ * step 1 (it ships as an explicit [BETA] first). Flipping it on at parity is
+ * emptying this list.
+ */
+export const EXPLICIT_ONLY: readonly Platform[] = ['mac']
+const DEFAULT_PLATFORMS: readonly Platform[] = PLATFORMS.filter(p => !EXPLICIT_ONLY.includes(p))
+
+/**
  * Which release files belong to which platform, as `gh release download`
  * patterns. build.yml's carry-over step spells the same lists out in bash;
  * test/release-plan.test.ts fails if the two drift apart.
@@ -85,7 +96,7 @@ export function platformListOf(messages: readonly string[]): Platform[] | null {
       if (!words.length || !words.every(w => w === 'all' || (PLATFORMS as readonly string[]).includes(w))) continue
       any = true
       for (const w of words) {
-        if (w === 'all') PLATFORMS.forEach(p => found.add(p))
+        if (w === 'all') DEFAULT_PLATFORMS.forEach(p => found.add(p))
         else found.add(w as Platform)
       }
     }
@@ -95,14 +106,15 @@ export function platformListOf(messages: readonly string[]): Platform[] | null {
 
 /**
  * Which platforms a set of changed files touches. `apple/` is two apps, the
- * iOS and tvOS one and the native Mac one, which share its sources; `android/`
- * is its own; docs, the changelog, license files and CI configuration build
- * nothing by themselves; everything else is the desktop app at the root.
+ * iOS and tvOS one and the native Mac one, which share its sources; it means
+ * mac too once mac is no longer EXPLICIT_ONLY. `android/` is its own; docs,
+ * the changelog, license files and CI configuration build nothing by
+ * themselves; everything else is the desktop app at the root.
  */
 export function platformsFromFiles(files: readonly string[]): Platform[] {
   const hit = new Set<Platform>()
   for (const f of files) {
-    if (f.startsWith('apple/')) { hit.add('apple'); hit.add('mac') }
+    if (f.startsWith('apple/')) { hit.add('apple'); if (!EXPLICIT_ONLY.includes('mac')) hit.add('mac') }
     else if (f.startsWith('android/')) hit.add('android')
     else if (/^(docs\/|\.github\/|\.claude\/)/.test(f)) continue
     else if (/^[^/]+\.md$/i.test(f) || /^LICENSE/.test(f)) continue
@@ -188,7 +200,7 @@ export function planRelease(input: PlanInput): Plan {
   if (input.event === 'workflow_dispatch') {
     const d = input.dispatch ?? {}
     const words = (d.platforms ?? '').trim()
-    const list = !words || words.toLowerCase() === 'all' ? [...PLATFORMS] : platformListOf([`[${words}]`])
+    const list = !words || words.toLowerCase() === 'all' ? [...DEFAULT_PLATFORMS] : platformListOf([`[${words}]`])
     if (!list) return none(`manual run: "${words}" is not a platform list`)
     const bump = d.bump && d.bump in BUMP_RANK ? d.bump as Bump : null
     if (d.beta) return release('beta', betaVersion(bump), available(list), false, 'manual beta (draft)')
@@ -204,7 +216,7 @@ export function planRelease(input: PlanInput): Plan {
   const list = platformListOf(subjects)
   // A marker with no platform list and no changed app files (an empty trigger
   // commit on its own) means everything.
-  const chosen = list ?? (platformsFromFiles(input.files).length ? platformsFromFiles(input.files) : [...PLATFORMS])
+  const chosen = list ?? (platformsFromFiles(input.files).length ? platformsFromFiles(input.files) : [...DEFAULT_PLATFORMS])
 
   if (input.branch === 'stable') {
     if (bump) return release('release', bumpVersion(input.lastVersion, bump), available(chosen), false, `${bump} release marker`)
