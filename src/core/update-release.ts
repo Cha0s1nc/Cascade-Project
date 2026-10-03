@@ -8,6 +8,11 @@
 //
 //   { "desktop": "2.3.1", "apple": "2.3.1", "android": "2.3.2" }
 //
+// From the native Mac app on, a `mac` entry says which version of that app
+// the release holds (its file is Cascade-Native-<ver>.dmg), beside `desktop`,
+// which stays the Electron app on every OS. A Mac running Electron follows
+// `desktop` unless it has chosen the native build (`macBuild`, below).
+//
 // Reading the tag alone would make release v2.3.2, holding the desktop 2.3.1
 // installers, look like an update to 2.3.2 forever. So the desktop version
 // comes from that file, and the tag is only a fallback for releases made
@@ -37,6 +42,11 @@ export interface InstallTarget {
   arch: string
   linuxKind: 'AppImage' | 'deb' | 'rpm' | null
 }
+
+/** Which Mac app a Mac is on; Electron's `macBuild` preference. Unset means electron. */
+export type MacBuild = 'electron' | 'native'
+
+export const isMacBuild = (v: unknown): v is MacBuild => v === 'electron' || v === 'native'
 
 export const VERSIONS_ASSET_NAME = 'versions.json'
 
@@ -84,7 +94,7 @@ export function findVersionsAsset(release: ReleaseLike): ReleaseAsset | undefine
 }
 
 export type VersionsFile =
-  | { ok: true, desktop: string | null }
+  | { ok: true, desktop: string | null, mac: string | null }
   | { ok: false }
 
 /**
@@ -93,6 +103,8 @@ export type VersionsFile =
  * file with no desktop entry, which says the release holds no desktop build
  * (a beta for another platform, say). Anything else wrong with it, including
  * a desktop entry that is present but not a plain version, is `ok: false`.
+ * `mac` is the native Mac app's version; unlike `desktop` a bad entry is
+ * read as no entry, so a malformed one can never stop Electron's own updates.
  * Other platforms' entries are not this app's business and are not checked.
  */
 export function parseVersionsFile(text: unknown): VersionsFile {
@@ -100,15 +112,24 @@ export function parseVersionsFile(text: unknown): VersionsFile {
   let data: unknown
   try { data = JSON.parse(text) } catch { return { ok: false } }
   if (!data || typeof data !== 'object' || Array.isArray(data)) return { ok: false }
-  if (!Object.prototype.hasOwnProperty.call(data, 'desktop')) return { ok: true, desktop: null }
-  const desktop = (data as Record<string, unknown>).desktop
-  return isReleaseVersion(desktop) ? { ok: true, desktop } : { ok: false }
+  const own = (key: string) => Object.prototype.hasOwnProperty.call(data, key) ? (data as Record<string, unknown>)[key] : undefined
+  const mac = isReleaseVersion(own('mac')) ? own('mac') as string : null
+  if (!Object.prototype.hasOwnProperty.call(data, 'desktop')) return { ok: true, desktop: null, mac }
+  const desktop = own('desktop')
+  return isReleaseVersion(desktop) ? { ok: true, desktop, mac } : { ok: false }
 }
 
 const INSTALLER_RE = /\.(exe|dmg|AppImage|deb|rpm)$/i
 
 /** A desktop installer, as opposed to versions.json, an .ipa, an .apk, a blockmap. */
 export const isDesktopInstaller = (name: string): boolean => INSTALLER_RE.test(name)
+
+// The native Mac app's DMG. Named without "arm64" on purpose: every updater
+// already in users' hands picks the first .dmg containing arm64 (below), so
+// none of them can ever be handed this one.
+const NATIVE_MAC_RE = /^Cascade-Native-.+\.dmg$/i
+
+export const isNativeMacInstaller = (name: string): boolean => NATIVE_MAC_RE.test(name)
 
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
@@ -142,11 +163,27 @@ export interface DesktopBuild {
  * offer on its own: a file claiming 9.9.9, or a tag used because the file was
  * unreadable, offers nothing unless the release really contains that build.
  * (A release carrying over desktop 2.3.1 as v2.3.2 has no 2.3.2 installers.)
- * It checks every platform's installers, not only this one's, so a computer
- * with no installer of its own (an Intel Mac) is still told about the update
- * and sent to the release page, as before.
+ * It checks every Electron platform's installers, not only this one's, so a
+ * computer with no installer of its own (an Intel Mac) is still told about
+ * the update and sent to the release page, as before. The native Mac DMG does
+ * not count: it proves a native build, not an Electron one, and a release
+ * holding only that (and a tag, because versions.json was unreadable) must
+ * not offer Windows and Linux an update they cannot install.
+ *
+ * `macBuild` is the Mac's own choice and the caller passes it only on a Mac.
+ * Anything but 'native' leaves everything above as it was. With 'native' the
+ * version is the `mac` entry, with no tag fallback (a tag names no native
+ * version, and every release before the native app has none) and with
+ * Cascade-Native-<version>.dmg as the proof it was built.
  */
-export function desktopBuildOf(release: ReleaseLike, versionsText: string | null): DesktopBuild | null {
+export function desktopBuildOf(release: ReleaseLike, versionsText: string | null, macBuild?: MacBuild | null): DesktopBuild | null {
+  if (macBuild === 'native') {
+    const file = versionsText == null ? null : parseVersionsFile(versionsText)
+    if (!file?.ok || file.mac === null) return null
+    const mac = file.mac
+    const built = releaseAssets(release).some(a => isNativeMacInstaller(a.name) && nameCarriesVersion(a.name, mac))
+    return built ? { version: mac, source: 'versions.json' } : null
+  }
   let pick: DesktopBuild | null = null
   const file = versionsText == null ? null : parseVersionsFile(versionsText)
   if (file?.ok) {
@@ -161,7 +198,7 @@ export function desktopBuildOf(release: ReleaseLike, versionsText: string | null
   }
   if (!pick) return null
   const version = pick.version
-  const built = releaseAssets(release).some(a => isDesktopInstaller(a.name) && nameCarriesVersion(a.name, version))
+  const built = releaseAssets(release).some(a => isDesktopInstaller(a.name) && !isNativeMacInstaller(a.name) && nameCarriesVersion(a.name, version))
   return built ? pick : null
 }
 
@@ -171,8 +208,12 @@ export function desktopBuildOf(release: ReleaseLike, versionsText: string | null
  * installer that cannot run on their machine, or one of a different version
  * (the Mac installer refuses those anyway), is worse than sending them to the
  * release page.
+ *
+ * `macBuild` only matters on a Mac: 'native' picks the native DMG, anything
+ * else the Electron one, which is never the native one even if some day it
+ * were named like it.
  */
-export function pickInstaller(release: ReleaseLike, version: string, target: InstallTarget): ReleaseAsset | undefined {
+export function pickInstaller(release: ReleaseLike, version: string, target: InstallTarget, macBuild?: MacBuild | null): ReleaseAsset | undefined {
   const assets = releaseAssets(release).filter(a => nameCarriesVersion(a.name, version))
   const byExt = (re: RegExp) => assets.filter(a => re.test(a.name))
 
@@ -183,7 +224,9 @@ export function pickInstaller(release: ReleaseLike, version: string, target: Ins
   // arch in the filename, so the match stays explicit even though it is now the
   // only dmg published; older releases still have an unsuffixed x64 one.
   if (target.platform === 'darwin') {
-    return target.arch === 'arm64' ? byExt(/\.dmg$/i).find(a => /arm64/i.test(a.name)) : undefined
+    if (target.arch !== 'arm64') return undefined
+    const dmgs = byExt(/\.dmg$/i)
+    return macBuild === 'native' ? dmgs.find(a => isNativeMacInstaller(a.name)) : dmgs.find(a => /arm64/i.test(a.name) && !isNativeMacInstaller(a.name))
   }
 
   // x64 only: no arm64 Linux build is published, and handing an arm64
