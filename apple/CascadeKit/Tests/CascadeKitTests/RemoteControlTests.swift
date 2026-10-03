@@ -45,6 +45,23 @@ struct RemoteControlTests {
         }
     }
 
+    @Test func aWaterfallRoomRefusesCastsButNeverVolumeAndKeepAliveAlwaysPasses() {
+        let solo = OwnershipState()
+        let guest = OwnershipState(waterfallActive: true)
+        let host = OwnershipState(waterfallActive: true, waterfallIsHost: true)
+        let transport: [RemoteCommand] = [.play(itemIds: ["a"], startIndex: 0, mode: .now), .playPause, .pause,
+                                          .unpause, .stop, .next, .previous, .seek(ticks: 5)]
+        let volume: [RemoteCommand] = [.setVolume(percent: 50), .volumeUp, .volumeDown, .toggleMute, .setMute(true)]
+        for c in transport + volume { #expect(RemoteControl.accepts(c, in: solo)) }
+        // Refused for host and guest alike: a room outranks a cast.
+        for room in [guest, host] {
+            for c in transport { #expect(!RemoteControl.accepts(c, in: room)) }
+            // Volume is personal to this device: a room never drives it either.
+            for c in volume { #expect(!RemoteControl.accepts(c, in: room)) }
+            #expect(RemoteControl.accepts(.forceKeepAlive(seconds: 60), in: room))
+        }
+    }
+
     @Test func controllableSessionsExcludeItselfAndTheUncontrollable() {
         func session(_ id: String, _ device: String, _ remote: Bool) -> RemoteSession {
             RemoteSession(id: id, deviceId: device, supportsRemoteControl: remote)
