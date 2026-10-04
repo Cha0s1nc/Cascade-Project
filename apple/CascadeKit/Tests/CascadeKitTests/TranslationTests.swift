@@ -27,85 +27,85 @@ private let udhr: [String: String] = [
 @Suite struct LanguageDetectionTests {
     @Test func detectsTheLanguageOfEachTranslation() {
         for code in ["en", "es", "fr", "de", "pt", "it", "ru", "ja"] {
-            #expect(Translation.detectLanguage(udhr[code]!) == code, "expected \(code)")
+            #expect(LyricTranslation.detectLanguage(udhr[code]!) == code, "expected \(code)")
         }
         // Either Chinese script is "zh" here; chineseScript settles which.
-        #expect(Translation.detectLanguage(udhr["zhHans"]!) == "zh")
-        #expect(Translation.detectLanguage(udhr["zhHant"]!) == "zh")
+        #expect(LyricTranslation.detectLanguage(udhr["zhHans"]!) == "zh")
+        #expect(LyricTranslation.detectLanguage(udhr["zhHant"]!) == "zh")
     }
 
     @Test func returnsEmptyRatherThanGuessingOnThinInput() {
         // "" means "no idea", never "English".
-        #expect(Translation.detectLanguage("") == "")
-        #expect(Translation.detectLanguage("Oh") == "")
-        #expect(Translation.detectLanguage("   \n  \t ") == "")
-        #expect(Translation.detectLanguage("La la la") == "")
+        #expect(LyricTranslation.detectLanguage("") == "")
+        #expect(LyricTranslation.detectLanguage("Oh") == "")
+        #expect(LyricTranslation.detectLanguage("   \n  \t ") == "")
+        #expect(LyricTranslation.detectLanguage("La la la") == "")
         // Padding is not signal.
-        #expect(Translation.detectLanguage("a\n\n   \t  b") == "")
+        #expect(LyricTranslation.detectLanguage("a\n\n   \t  b") == "")
     }
 
     @Test func offersTranslationForNonEnglishLyricsOnly() {
-        #expect(Translation.shouldOffer([udhr["es"]!]))
-        #expect(Translation.shouldOffer([udhr["ja"]!]))
-        #expect(!Translation.shouldOffer([udhr["en"]!]))
+        #expect(LyricTranslation.shouldOffer([udhr["es"]!]))
+        #expect(LyricTranslation.shouldOffer([udhr["ja"]!]))
+        #expect(!LyricTranslation.shouldOffer([udhr["en"]!]))
     }
 
     @Test func neverOffersTranslationWithNothingToGoOn() {
-        #expect(!Translation.shouldOffer([]))
-        #expect(!Translation.shouldOffer(["", "", ""]))
-        #expect(!Translation.shouldOffer(["Ooh", "Ahh"]))
+        #expect(!LyricTranslation.shouldOffer([]))
+        #expect(!LyricTranslation.shouldOffer(["", "", ""]))
+        #expect(!LyricTranslation.shouldOffer(["Ooh", "Ahh"]))
     }
 
     @Test func judgesTheWholeSheetNotTheFirstLine() {
         // A Spanish song whose first line is its English title was once detected as English.
         let lines = ["Bailando"] + udhr["es"]!.components(separatedBy: ". ")
-        #expect(Translation.shouldOffer(lines))
+        #expect(LyricTranslation.shouldOffer(lines))
     }
 }
 
 @Suite struct TranslationLanguageTests {
     @Test func namesTheLanguageForTheFiveThatHadModelsOnDesktop() {
-        #expect(Translation.languageFor([udhr["ja"]!]) == "ja")
-        #expect(Translation.languageFor([udhr["ko"]!]) == "ko")
-        #expect(Translation.languageFor([udhr["zhHans"]!]) == "zh-Hans")
-        #expect(Translation.languageFor([udhr["zhHant"]!]) == "zh-Hant")
-        #expect(Translation.languageFor([udhr["es"]!]) == "es")
+        #expect(LyricTranslation.languageFor([udhr["ja"]!]) == "ja")
+        #expect(LyricTranslation.languageFor([udhr["ko"]!]) == "ko")
+        #expect(LyricTranslation.languageFor([udhr["zhHans"]!]) == "zh-Hans")
+        #expect(LyricTranslation.languageFor([udhr["zhHant"]!]) == "zh-Hant")
+        #expect(LyricTranslation.languageFor([udhr["es"]!]) == "es")
     }
 
     @Test func namesTheOtherLanguagesAppleTakes() {
         for code in ["fr", "de", "pt", "th", "hi", "ru", "uk"] {
-            #expect(Translation.languageFor([udhr[code]!]) == code, "expected \(code)")
+            #expect(LyricTranslation.languageFor([udhr[code]!]) == code, "expected \(code)")
         }
     }
 
     @Test func offersNothingForEnglishOrTextTooThinToJudge() {
-        #expect(Translation.languageFor([udhr["en"]!]) == nil)
-        #expect(Translation.languageFor([]) == nil)
-        #expect(Translation.languageFor(["Ooh", "Ahh"]) == nil)
+        #expect(LyricTranslation.languageFor([udhr["en"]!]) == nil)
+        #expect(LyricTranslation.languageFor([]) == nil)
+        #expect(LyricTranslation.languageFor(["Ooh", "Ahh"]) == nil)
     }
 
     @Test func readsTheWholeSheetNotTheFirstLine() {
-        #expect(Translation.languageFor(["Idol", udhr["ja"]!]) == "ja")
+        #expect(LyricTranslation.languageFor(["Idol", udhr["ja"]!]) == "ja")
     }
 
     @Test func cyrillicTellsRussianFromUkrainianByTheirOwnLetters() {
         // A short Russian line that trigram matching called Ukrainian.
-        #expect(Translation.languageFor(["Я люблю гулять под дождём, когда улицы пустые вечером"]) == "ru")
-        #expect(Translation.cyrillicLanguage("Їжак їсть яблука") == "uk")
-        #expect(Translation.cyrillicLanguage("Съешь ещё этих мягких булок") == "ru")
-        #expect(Translation.cyrillicLanguage("Мама мыла раму") == "ru")
-        #expect(Translation.cyrillicLanguage("Мама") == nil)
+        #expect(LyricTranslation.languageFor(["Я люблю гулять под дождём, когда улицы пустые вечером"]) == "ru")
+        #expect(LyricTranslation.cyrillicLanguage("Їжак їсть яблука") == "uk")
+        #expect(LyricTranslation.cyrillicLanguage("Съешь ещё этих мягких булок") == "ru")
+        #expect(LyricTranslation.cyrillicLanguage("Мама мыла раму") == "ru")
+        #expect(LyricTranslation.cyrillicLanguage("Мама") == nil)
     }
 
     @Test func chineseScriptFollowsTheMajoritySpellingTiesToSimplified() {
-        #expect(Translation.chineseScript("我们这个") == "zh-Hans")
-        #expect(Translation.chineseScript("我們這個") == "zh-Hant")
-        #expect(Translation.chineseScript("人人生而自由") == "zh-Hans")
-        #expect(Translation.chineseScript("们們") == "zh-Hans")
+        #expect(LyricTranslation.chineseScript("我们这个") == "zh-Hans")
+        #expect(LyricTranslation.chineseScript("我們這個") == "zh-Hant")
+        #expect(LyricTranslation.chineseScript("人人生而自由") == "zh-Hans")
+        #expect(LyricTranslation.chineseScript("们們") == "zh-Hans")
     }
 
     @Test func theScriptTablesStayAlignedPairForPair() {
-        let s = Translation.simplified, t = Translation.traditional
+        let s = LyricTranslation.simplified, t = LyricTranslation.traditional
         #expect(s.count == t.count)
         for (i, c) in s.enumerated() { #expect(c != t[i], "pair \(i) is the same character: \(c)") }
         #expect(Set(s).count == s.count)
@@ -115,15 +115,15 @@ private let udhr: [String: String] = [
     }
 
     @Test func theEngineIsAppleOrNothing() {
-        #expect(Translation.pickEngine(enabled: true, status: .installed) == .apple)
-        #expect(Translation.pickEngine(enabled: true, status: .supported) == .needsInstall)
-        #expect(Translation.pickEngine(enabled: true, status: .unsupported) == .none)
-        #expect(Translation.pickEngine(enabled: true, status: nil) == .none)
-        #expect(Translation.pickEngine(enabled: false, status: .installed) == .none)
+        #expect(LyricTranslation.pickEngine(enabled: true, status: .installed) == .apple)
+        #expect(LyricTranslation.pickEngine(enabled: true, status: .supported) == .needsInstall)
+        #expect(LyricTranslation.pickEngine(enabled: true, status: .unsupported) == .none)
+        #expect(LyricTranslation.pickEngine(enabled: true, status: nil) == .none)
+        #expect(LyricTranslation.pickEngine(enabled: false, status: .installed) == .none)
     }
 
     @Test func everyLanguageThatHadADesktopModelIsOneAppleIsAskedAbout() {
-        for key in ["ja", "ko", "zh-Hans", "zh-Hant", "es"] { #expect(Translation.appleKeys.contains(key)) }
+        for key in ["ja", "ko", "zh-Hans", "zh-Hant", "es"] { #expect(LyricTranslation.appleKeys.contains(key)) }
     }
 }
 

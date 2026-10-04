@@ -8,7 +8,7 @@ import NaturalLanguage
 // src/core/language.ts, with NaturalLanguage in place of franc, and the
 // language half of src/core/translation-models.ts.
 
-public enum Translation {
+public enum LyricTranslation {
     /// Below this, language detection is guessing. A two-word line is not enough to
     /// separate English from Dutch, so callers hand in several joined lines.
     static let minChars = 24
