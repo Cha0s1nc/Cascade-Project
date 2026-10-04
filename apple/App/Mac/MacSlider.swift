@@ -11,7 +11,7 @@ struct MacSlider: View {
     var bigStep = 0.2
     var height: CGFloat = 4
     /// The fill. The unfilled part is this at low opacity.
-    var fill: Color = .accentColor
+    var fill: Color = MacTheme.shared.accent
     /// Spoken name and value for VoiceOver.
     var label: String
     var valueText: (Double) -> String = { "\(Int(($0 * 100).rounded())) percent" }

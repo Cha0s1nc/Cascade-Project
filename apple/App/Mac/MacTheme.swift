@@ -71,7 +71,9 @@ final class MacTheme {
         guard settings.albumArt, let itemId, let client else { return }
         let colors = await CoverPalettes.palette(for: itemId, client: client, light: isLight)
         guard !Task.isCancelled, settings.albumArt else { return }
-        let next = ArtTheme(from: colors)
+        // No cover (or none that decoded) leaves the gradient's accent, rather than the grey
+        // an ArtTheme gives a monochrome cover.
+        let next = colors.isEmpty ? nil : ArtTheme(from: colors)
         if next != art { art = next }
     }
 }

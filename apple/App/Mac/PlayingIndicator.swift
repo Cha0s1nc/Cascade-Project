@@ -30,7 +30,7 @@ struct PlayingIndicator: View {
             }
         }
         .frame(maxHeight: .infinity, alignment: .bottom)
-        .foregroundStyle(Color.accentColor)
+        .foregroundStyle(MacTheme.shared.accent)
     }
 
     /// 0.2 to 1 of the full height. Each bar has its own speed and phase, so they never move in

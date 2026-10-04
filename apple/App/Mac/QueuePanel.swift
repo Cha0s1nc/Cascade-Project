@@ -45,10 +45,10 @@ struct QueuePanel: View {
                 Button { player.autoMix.toggle() } label: {
                     Text("\u{221E}").font(.system(size: 17, weight: .bold))
                         .frame(width: 28, height: 24)
-                        .background(Capsule().fill(player.autoMix ? Color.accentColor.opacity(0.3) : .clear))
+                        .background(Capsule().fill(player.autoMix ? MacTheme.shared.accent.opacity(0.3) : .clear))
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(player.autoMix ? Color.accentColor : .secondary)
+                .foregroundStyle(player.autoMix ? MacTheme.shared.accent : .secondary)
                 .help("Auto-mix similar tracks when the queue ends")
                 .accessibilityLabel("Auto-mix")
                 .accessibilityValue(player.autoMix ? "On" : "Off")
@@ -218,9 +218,9 @@ private struct QueueRow: View {
         }
         .padding(.horizontal, 16)
         .frame(height: 52)
-        .background(current ? Color.accentColor.opacity(0.15) : (hovering ? Color.primary.opacity(0.06) : .clear))
+        .background(current ? MacTheme.shared.accent.opacity(0.15) : (hovering ? Color.primary.opacity(0.06) : .clear))
         .overlay(alignment: .top) {
-            Rectangle().fill(Color.accentColor).frame(height: 2).opacity(dropTarget ? 1 : 0)
+            Rectangle().fill(MacTheme.shared.accent).frame(height: 2).opacity(dropTarget ? 1 : 0)
         }
         .contentShape(Rectangle())
         .onHover { hovering = $0 }

@@ -11,20 +11,26 @@ struct PlayerBar: View {
 
     var body: some View {
         HStack(spacing: 16) {
-            HStack(spacing: 10) {
-                ArtworkView(itemId: player.item?.albumId ?? player.item?.id, size: 44)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(player.item?.name ?? "Not playing").lineLimit(1)
-                    Text(player.item?.albumArtist ?? player.item?.artists?.first ?? "")
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            // A button too (not only the bar's tap below), so it is reachable by keyboard and VoiceOver.
+            Button(action: openNowPlaying) {
+                HStack(spacing: 10) {
+                    ArtworkView(itemId: player.item?.albumId ?? player.item?.id, size: 44)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(player.item?.name ?? "Not playing").lineLimit(1)
+                        Text(player.item?.albumArtist ?? player.item?.artists?.first ?? "")
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
                 }
+                .frame(width: 240, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .frame(width: 240, alignment: .leading)
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open Now Playing")
 
             VStack(spacing: 4) {
                 HStack(spacing: 18) {
                     Button { player.toggleShuffle() } label: { Image(systemName: "shuffle") }
-                        .foregroundStyle(player.shuffle ? Color.accentColor : .secondary)
+                        .foregroundStyle(player.shuffle ? MacTheme.shared.accent : .secondary)
                         .accessibilityLabel("Shuffle")
                     Button { Task { await player.previous() } } label: { Image(systemName: "backward.fill") }
                         .accessibilityLabel("Previous")
@@ -37,7 +43,7 @@ struct PlayerBar: View {
                     Button { player.cycleRepeat() } label: {
                         Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
                     }
-                    .foregroundStyle(player.repeatMode == .none ? .secondary : Color.accentColor)
+                    .foregroundStyle(player.repeatMode == .none ? .secondary : MacTheme.shared.accent)
                     .accessibilityLabel("Repeat")
                 }
                 .buttonStyle(.plain)
@@ -51,7 +57,7 @@ struct PlayerBar: View {
                     Image(systemName: ui.sidePanelOpen ? "quote.bubble.fill" : "quote.bubble")
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(ui.sidePanelOpen ? Color.accentColor : .secondary)
+                .foregroundStyle(ui.sidePanelOpen ? MacTheme.shared.accent : .secondary)
                 .help("Lyrics")
                 .accessibilityLabel("Lyrics")
                 HStack(spacing: 6) {
@@ -72,13 +78,16 @@ struct PlayerBar: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        .background {
-            // Under the controls, so only the bar's empty parts answer.
-            Rectangle().fill(.bar)
-                .contentShape(Rectangle())
-                .onTapGesture { if player.item != nil { withAnimation(.easeInOut(duration: 0.38)) { state.nowPlayingOpen = true } } }
-        }
+        .background(.bar)
+        // The whole bar, but a control's own click wins over this one, so only what is not a
+        // control opens Now Playing.
+        .contentShape(Rectangle())
+        .onTapGesture(perform: openNowPlaying)
         .disabled(player.item == nil)
+    }
+
+    private func openNowPlaying() {
+        if player.item != nil { withAnimation(.easeInOut(duration: 0.38)) { state.nowPlayingOpen = true } }
     }
 }
 

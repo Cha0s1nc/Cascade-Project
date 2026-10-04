@@ -235,7 +235,7 @@ private struct KnobRow: View {
                 Spacer()
                 Text(value, format: .number.precision(.fractionLength(knob.step < 0.01 ? 3 : knob.step < 1 ? 2 : 0)))
                     .monospacedDigit()
-                    .foregroundStyle(changed ? Color.accentColor : .secondary)
+                    .foregroundStyle(changed ? MacTheme.shared.accent : .secondary)
                 Button {
                     tuning.values[keyPath: knob.path] = standard
                 } label: {

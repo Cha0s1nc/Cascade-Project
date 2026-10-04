@@ -123,7 +123,7 @@ struct LyricsSourcePill: View {
                 .font(.caption.weight(.semibold))
                 .padding(.horizontal, 9)
                 .padding(.vertical, 3)
-                .background(Capsule().fill(forced == .auto ? Color.primary.opacity(0.1) : Color.accentColor.opacity(0.3)))
+                .background(Capsule().fill(forced == .auto ? Color.primary.opacity(0.1) : MacTheme.shared.accent.opacity(0.3)))
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
@@ -167,7 +167,7 @@ struct TranslateButton: View {
                     .font(.caption.weight(.semibold))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
-                    .background(Capsule().fill(translator.showing ? Color.accentColor.opacity(0.3) : Color.primary.opacity(0.1)))
+                    .background(Capsule().fill(translator.showing ? MacTheme.shared.accent.opacity(0.3) : Color.primary.opacity(0.1)))
             }
             .buttonStyle(.plain)
             .help(help)

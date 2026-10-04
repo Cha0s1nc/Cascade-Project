@@ -16,6 +16,8 @@ struct NowPlayingOverlay: View {
     private var ui: MacNowPlayingUI { .shared }
     private var prefs: LyricsPrefs { .shared }
 
+    // TODO(merge, coordinator): once PlaybackService has `isRadio` (cb5bd02), add `&& !(state.player?.isRadio ?? false)`
+    // here (radio has no lyrics, so skip the fetch) and show a LIVE badge in OverlayContent's title block.
     private var wantsLyrics: Bool { (state.nowPlayingOpen && ui.rightPanel == .lyrics) || ui.sidePanelOpen }
 
     var body: some View {
@@ -114,6 +116,9 @@ private struct OverlayContent: View {
         .foregroundStyle(ink)
         .environment(\.lyricInk, ink)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // The window's toolbar (mode picker, back button) has nothing to do over Now Playing,
+        // which has its own header.
+        .toolbarVisibility(.hidden, for: .windowToolbar)
         .onContinuousHover { _ in poke() }
         .simultaneousGesture(TapGesture().onEnded { poke() })
         .task(id: "\(wake)|\(player.isPaused)") {
@@ -258,6 +263,9 @@ private struct OverlayContent: View {
         var album = JfItem(id: albumId, name: item.album, type: "MusicAlbum")
         album.albumArtist = item.albumArtist
         close()
+        // TODO(merge, coordinator): cb5bd02 has `@Environment(\.showLibraryItem)`; replace this
+        // post with `showLibraryItem(album)` (type "MusicAlbum"), which switches mode and section.
+        // This base lacks it, so the notification is the placeholder.
         NotificationCenter.default.post(name: .cascadeOpenItem, object: album)
     }
 
@@ -301,7 +309,7 @@ private struct OverlayContent: View {
     private var transport: some View {
         HStack(spacing: 26) {
             Button { player.toggleShuffle() } label: { Image(systemName: "shuffle").font(.system(size: 16)) }
-                .foregroundStyle(player.shuffle ? Color.accentColor : ink.opacity(0.7))
+                .foregroundStyle(player.shuffle ? MacTheme.shared.accent : ink.opacity(0.7))
                 .accessibilityLabel("Shuffle")
                 .accessibilityValue(player.shuffle ? "On" : "Off")
             Button { Task { await player.previous() } } label: { Image(systemName: "backward.fill").font(.system(size: 22)) }
@@ -311,7 +319,7 @@ private struct OverlayContent: View {
                     .font(.system(size: 22))
                     .foregroundStyle(HexColor.prefersDarkInk(over: theme.accentHex) ? Color.black : Color.white)
                     .frame(width: 52, height: 52)
-                    .background(Circle().fill(Color.accentColor))
+                    .background(Circle().fill(MacTheme.shared.accent))
                     .contentShape(Circle())
             }
             .accessibilityLabel(player.isPaused ? "Play" : "Pause")
@@ -320,7 +328,7 @@ private struct OverlayContent: View {
             Button { player.cycleRepeat() } label: {
                 Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat").font(.system(size: 16))
             }
-            .foregroundStyle(player.repeatMode == .none ? ink.opacity(0.7) : Color.accentColor)
+            .foregroundStyle(player.repeatMode == .none ? ink.opacity(0.7) : MacTheme.shared.accent)
             .accessibilityLabel("Repeat")
         }
         .buttonStyle(.plain)
