@@ -17,6 +17,28 @@ struct SignInView: View {
     @State private var quickConnectTask: Task<Void, Never>?
 
     var body: some View {
+        #if os(macOS)
+        // A grouped form in a centered column under the app's name, rather than
+        // a full-window list stretched edge to edge.
+        VStack(spacing: 14) {
+            VStack(spacing: 6) {
+                Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 72, height: 72)
+                Text("Cascade").font(.largeTitle.bold())
+                Text("Sign in to your Jellyfin server").foregroundStyle(.secondary)
+            }
+            .padding(.top, 28)
+            form
+                .formStyle(.grouped)
+                .frame(maxWidth: 460)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(minWidth: 520, minHeight: 600)
+        #else
+        form
+        #endif
+    }
+
+    private var form: some View {
         Form {
             Section("Server") {
                 TextField("https://jellyfin.example.com", text: $server)
@@ -53,6 +75,7 @@ struct SignInView: View {
                     .autocorrectionDisabled()
                     .noAutocaps()
                 SecureField("Password", text: $password)
+                    .onSubmit(submit)
             }
             if let error {
                 // Shown, not swallowed. A sign-in that fails quietly is
@@ -100,6 +123,8 @@ struct SignInView: View {
     }
 
     private func submit() {
+        // Also reached from the return key, which the disabled button does not stop.
+        guard !busy, !server.isEmpty, !username.isEmpty else { return }
         busy = true
         error = nil
         Task {

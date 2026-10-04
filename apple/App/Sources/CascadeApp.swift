@@ -23,6 +23,7 @@ struct CascadeApp: App {
             RootView()
                 .environment(state)
                 .onAppear { MacIntegrations.start(state: state) }
+                .macAppExtras()
         }
         .defaultSize(width: 1100, height: 700)
         .commands { PlaybackCommands(state: state) }

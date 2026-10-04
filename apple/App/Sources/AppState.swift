@@ -195,6 +195,11 @@ final class AppState {
     }
 
     init() {
+        #if os(macOS)
+        // Before restore(): the Electron app's session and device id, when
+        // there is one to bring across, are what it should find.
+        MacSettingsImport.runOnce()
+        #endif
         restore()
     }
 

@@ -15,6 +15,15 @@ struct SettingsView: View {
     @State private var approveStatus: (ok: Bool, message: String)?
 
     var body: some View {
+        #if os(macOS)
+        // The Mac's Settings is the six-tab one, wherever it is opened from.
+        MacSettingsView()
+        #else
+        phoneBody
+        #endif
+    }
+
+    @ViewBuilder private var phoneBody: some View {
         List {
             Section("Account") {
                 LabeledContent("Server", value: state.config?.url ?? "")
