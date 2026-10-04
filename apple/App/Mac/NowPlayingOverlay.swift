@@ -35,6 +35,9 @@ struct NowPlayingOverlay: View {
             }
         }
         .translationHost(ui.translator)
+        #if DEBUG
+        .task { await NowPlayingDebug.run(state) }
+        #endif
         // Lyrics are asked for only while something shows them. Everything that changes
         // which lyrics a song gets (the plugin turning up, server-only, a Spotify link, a
         // forced source, a reload) asks again.
@@ -116,9 +119,8 @@ private struct OverlayContent: View {
         .foregroundStyle(ink)
         .environment(\.lyricInk, ink)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // The window's toolbar (mode picker, back button) has nothing to do over Now Playing,
-        // which has its own header.
-        .toolbarVisibility(.hidden, for: .windowToolbar)
+        // The window's toolbar stays over this (hiding it took the traffic lights with it, and a
+        // window you cannot close is not one to leave people in): the header below sits clear of it.
         .onContinuousHover { _ in poke() }
         .simultaneousGesture(TapGesture().onEnded { poke() })
         .task(id: "\(wake)|\(player.isPaused)") {
