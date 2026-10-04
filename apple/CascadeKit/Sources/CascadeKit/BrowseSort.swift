@@ -94,15 +94,17 @@ public struct BrowseFilter: Hashable, Sendable {
     public enum Played: String, CaseIterable, Sendable { case any, played, unplayed }
 
     public var favoritesOnly = false
-    /// A music genre's id, as the Genres screen lists them.
-    public var genreId: String?
+    /// A genre's name, as the desktop stores it in its prefs. The items
+    /// routes filter by name (`genres`), and a name is the same in every
+    /// library where an id is not.
+    public var genre: String?
     /// The decade's first year: 1990 means 1990 to 1999.
     public var decade: Int?
     public var played: Played = .any
 
-    public init(favoritesOnly: Bool = false, genreId: String? = nil, decade: Int? = nil, played: Played = .any) {
+    public init(favoritesOnly: Bool = false, genre: String? = nil, decade: Int? = nil, played: Played = .any) {
         self.favoritesOnly = favoritesOnly
-        self.genreId = genreId
+        self.genre = genre
         self.decade = decade
         self.played = played
     }
@@ -114,7 +116,7 @@ public struct BrowseFilter: Hashable, Sendable {
     public var params: [String: String] {
         var out: [String: String] = [:]
         if favoritesOnly { out["isFavorite"] = "true" }
-        if let genreId { out["genreIds"] = genreId }
+        if let genre { out["genres"] = genre }
         if let decade { out["years"] = (decade..<decade + 10).map(String.init).joined(separator: ",") }
         switch played {
         case .any: break
@@ -130,19 +132,19 @@ public struct BrowseFilter: Hashable, Sendable {
     }
 }
 
-/// Stored as "favorites|genreId|decade|played", so a screen keeps its filter
+/// Stored as "favorites|genre|decade|played", so a screen keeps its filter
 /// between launches with @AppStorage. Anything that does not read back
 /// cleanly falls back to no filter rather than reaching the server.
 extension BrowseFilter: RawRepresentable {
     public init?(rawValue: String) {
         let parts = rawValue.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
         guard parts.count == 4, let played = Played(rawValue: parts[3]) else { return nil }
-        self.init(favoritesOnly: parts[0] == "1", genreId: parts[1].isEmpty ? nil : parts[1],
+        self.init(favoritesOnly: parts[0] == "1", genre: parts[1].isEmpty ? nil : parts[1],
                   decade: Int(parts[2]), played: played)
     }
 
     public var rawValue: String {
-        [favoritesOnly ? "1" : "0", genreId ?? "", decade.map(String.init) ?? "", played.rawValue]
+        [favoritesOnly ? "1" : "0", genre ?? "", decade.map(String.init) ?? "", played.rawValue]
             .joined(separator: "|")
     }
 }

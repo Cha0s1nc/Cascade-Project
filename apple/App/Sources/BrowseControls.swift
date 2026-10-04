@@ -77,31 +77,40 @@ struct SortMenu<Field: Hashable>: View {
 /// steps to the next choice: a genre list is too long for a dialog of its own.
 struct FilterMenu: View {
     @Binding var filter: BrowseFilter
-    /// What the decade list is read from: "MusicAlbum" or "Audio".
+    /// What the genre and decade lists are read from: "MusicAlbum", "Audio",
+    /// "Movie" or "Series".
     let itemType: String
+    var showsGenre = true
     var showsDecade = true
     var showsPlayed = true
+    /// The movie or TV libraries a video filter's lists are read from. Music
+    /// ones come from the library selection in the config.
+    var libraryIds: [String] = []
 
     @Environment(AppState.self) private var state
-    @State private var genres: [JfItem] = []
+    @State private var genres: [String] = []
     @State private var decades: [Int] = []
     #if os(tvOS)
     @State private var isChoosing = false
     #endif
 
+    private struct ListsKey: Hashable { var music: [String]; var video: [String] }
+
     var body: some View {
         menu
-            .task(id: state.config?.libraryIds) {
+            .task(id: ListsKey(music: state.config?.libraryIds ?? [], video: libraryIds)) {
                 guard let client = state.client else { return }
-                async let foundGenres = try? client.genres()
-                async let years = showsDecade ? (try? client.years(of: itemType)) : []
-                genres = await foundGenres ?? []
-                decades = BrowseFilter.decades(await years ?? [])
+                let isVideo = itemType == "Movie" || itemType == "Series"
+                if showsGenre {
+                    genres = (isVideo ? try? await client.genreNames(types: itemType, libraryIds: libraryIds)
+                                      : try? await client.genres().compactMap(\.name)) ?? []
+                }
+                if showsDecade {
+                    let years = isVideo ? try? await client.years(of: itemType, libraryIds: libraryIds)
+                                        : try? await client.years(of: itemType)
+                    decades = BrowseFilter.decades(years ?? [])
+                }
             }
-    }
-
-    private var genreName: String? {
-        filter.genreId.flatMap { id in genres.first { $0.id == id }?.name }
     }
 
     private var label: some View {
@@ -115,7 +124,7 @@ struct FilterMenu: View {
             .confirmationDialog("Filter", isPresented: $isChoosing) {
                 Button(filter.favoritesOnly ? "Favorites Only: On" : "Favorites Only: Off") { filter.favoritesOnly.toggle() }
                 if !genres.isEmpty {
-                    Button("Genre: \(genreName ?? "Any")") { filter.genreId = next(filter.genreId, in: genres.map(\.id)) }
+                    Button("Genre: \(filter.genre ?? "Any")") { filter.genre = next(filter.genre, in: genres) }
                 }
                 if showsDecade, !decades.isEmpty {
                     Button("Decade: \(filter.decade.map { "\(String($0))s" } ?? "Any")") {
@@ -142,9 +151,9 @@ struct FilterMenu: View {
         Menu {
             Toggle("Favorites Only", isOn: $filter.favoritesOnly)
             if !genres.isEmpty {
-                Picker("Genre", selection: $filter.genreId) {
+                Picker("Genre", selection: $filter.genre) {
                     Text("Any Genre").tag(String?.none)
-                    ForEach(genres) { Text($0.name ?? "").tag(Optional($0.id)) }
+                    ForEach(genres, id: \.self) { Text($0).tag(Optional($0)) }
                 }
                 .pickerStyle(.menu)
             }
@@ -189,6 +198,17 @@ struct BrowseKey: Hashable {
     var filter = BrowseFilter()
     /// Bumped to reload after a write the screen made itself.
     var generation = 0
+}
+
+extension Binding where Value == LibraryPrefs {
+    /// The sort field as a screen's own enum, over the prefs' stored string.
+    /// Picking a field also sets the direction that suits it (newest first for
+    /// a date), which the person can still flip back.
+    func sort<F: RawRepresentable & Hashable>(_ fallback: F, defaultDirection: @escaping (F) -> SortDirection)
+        -> Binding<F> where F.RawValue == String {
+        Binding<F>(get: { wrappedValue.sortField(default: fallback) },
+                   set: { wrappedValue.field = $0.rawValue; wrappedValue.direction = defaultDirection($0) })
+    }
 }
 
 /// The browse screens whose lists AppState keeps; see AppState.browseList.

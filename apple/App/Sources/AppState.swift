@@ -30,6 +30,9 @@ final class AppState {
     /// The Mac's Now Playing overlay is showing.
     var nowPlayingOpen = false
 
+    /// The movie and TV libraries browsed, apart from the music selection.
+    let videoLibraries = VideoLibrarySelection()
+
     /// The movie or episodes playing, shown full screen while set.
     var videoSession: VideoSession?
 

@@ -27,7 +27,16 @@ struct ArtistDetailView: View {
                 if !topSongs.isEmpty { topSongsSection }
                 if !albums.isEmpty {
                     VStack(alignment: .leading, spacing: 0) {
-                        sectionTitle("Albums")
+                        HStack {
+                            sectionTitle("Albums")
+                            Spacer()
+                            // Every album in order, as the desktop's Play All
+                            // on the albums section does.
+                            Button { Task { await state.player?.play(await allSongs(), startIndex: 0) } } label: {
+                                Label("Play All", systemImage: "play.fill")
+                            }
+                            .padding(.trailing)
+                        }
                         ItemTiles(items: albums)
                     }
                 }

@@ -1,9 +1,10 @@
 import SwiftUI
 import CascadeKit
 
-/// Three horizontal rows. Recently Played and Frequently Played are empty
-/// until the user has actually played something, so a row with no items
-/// hides itself instead of showing a heading over nothing.
+/// Horizontal rows: Recently Played and Recently Added (24 each), recent
+/// playlists and Frequently Played. A row with nothing in it (no plays yet)
+/// hides itself instead of showing a heading over nothing. In Video mode the
+/// shell shows VideoHomeView instead, so these music shelves are hidden.
 struct HomeView: View {
     @Environment(AppState.self) private var state
     @State private var recentAlbums: [JfItem] = []
@@ -21,11 +22,15 @@ struct HomeView: View {
         ScrollView {
             LoadingOverlay(isLoading: isLoading, error: error, isEmpty: isEmpty)
             VStack(alignment: .leading, spacing: 24) {
-                if !recentAlbums.isEmpty {
-                    row("Recently Added", albums: recentAlbums)
-                }
+                #if os(macOS)
+                GreetingHeader()
+                #endif
+                // The desktop's order: what you played, then what is new.
                 if !recentTracks.isEmpty {
                     row("Recently Played", tracks: recentTracks, more: .history)
+                }
+                if !recentAlbums.isEmpty {
+                    row("Recently Added", albums: recentAlbums)
                 }
                 if !playlists.isEmpty {
                     // "Recent" only once something has been played from one;

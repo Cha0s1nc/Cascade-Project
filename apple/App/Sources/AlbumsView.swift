@@ -9,26 +9,25 @@ struct AlbumsView: View {
     private var items: [JfItem] { list?.items ?? [] }
     private var isLoading: Bool { list?.isLoading ?? true }
     private var error: String? { list?.error }
-    // Remembered between launches. A stored value that no longer names a
-    // case falls back to the default rather than reaching the server.
-    @AppStorage("cascade.albums.sort") private var sortField: AlbumSortField = .name
-    @AppStorage("cascade.albums.order") private var sortDirection: SortDirection = .ascending
-    @AppStorage("cascade.albums.filter") private var filter = BrowseFilter()
+    // Remembered between launches in the desktop's shape (cascade.albumsPrefs).
+    // A stored value that does not read back, or names a field this screen
+    // does not offer, falls back to the default rather than reaching the server.
+    @AppStorage("cascade.albumsPrefs") private var prefs = LibraryPrefs()
     /// Bumped by pull to refresh, so the reload misses the cache.
     @State private var refreshes = 0
 
+    private var sortField: AlbumSortField { prefs.sortField(default: .name) }
+
     private var browseKey: BrowseKey {
         BrowseKey(libraries: state.config?.libraryIds, sort: sortField.rawValue,
-                  direction: sortDirection, filter: filter, generation: refreshes)
+                  direction: prefs.direction, filter: prefs.filter, generation: refreshes)
     }
 
     var body: some View {
         ScrollView {
+            #if !os(macOS)
             HStack {
-                SortMenu(fields: [(AlbumSortField.name, "Name"), (.artist, "Artist"), (.year, "Year"),
-                                  (.added, "Date Added"), (.played, "Recently Played")],
-                         field: $sortField, direction: $sortDirection)
-                FilterMenu(filter: $filter, itemType: "MusicAlbum")
+                controls
                 Spacer()
                 NavigationLink(value: AppRoute.genres) {
                     Label("Genres", systemImage: "guitars")
@@ -36,17 +35,23 @@ struct AlbumsView: View {
             }
             .padding(.horizontal)
             .browseHeader()
+            #endif
             LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty)
             ItemGrid(items: items)
         }
         .navigationTitle("Albums")
-        .onChange(of: sortField) { sortDirection = sortField.defaultDirection }
+        #if os(macOS)
+        // In the window toolbar, where a Mac app keeps them.
+        .toolbar {
+            ToolbarItemGroup { controls }
+        }
+        #endif
         // Keyed on the library selection and the sort, so changing either
         // reloads from the server rather than re-sorting a partial list.
         .refreshable { state.dropBrowseCache(.albums); refreshes += 1 }
         .task(id: browseKey) {
             guard let client = state.client else { return }
-            let (field, direction, filter) = (sortField, sortDirection, filter)
+            let (field, direction, filter) = (sortField, prefs.direction, prefs.filter)
             list = state.browseList(.albums, browseKey) { list in
                 if let sortBy = field.serverSortBy {
                     try await loadPaged(sortBy: sortBy, sortOrder: direction.serverValue, fetch: {
@@ -64,5 +69,17 @@ struct AlbumsView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder private var controls: some View {
+        SortMenu(fields: [(AlbumSortField.name, "Name"), (.artist, "Artist"), (.year, "Year"),
+                          (.added, "Date Added"), (.played, "Recently Played")],
+                 field: $prefs.sort(.name) { $0.defaultDirection }, direction: $prefs.direction)
+        FilterMenu(filter: $prefs.filter, itemType: "MusicAlbum")
+        #if os(macOS)
+        NavigationLink(value: AppRoute.genres) {
+            Label("Genres", systemImage: "guitars")
+        }
+        #endif
     }
 }

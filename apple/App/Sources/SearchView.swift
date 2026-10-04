@@ -1,49 +1,57 @@
 import SwiftUI
 import CascadeKit
 
+extension EnvironmentValues {
+    /// Opens a library item the way a deep link does: switching the Music /
+    /// Video mode if the item belongs to the other one, then going to its
+    /// section. Set by the Mac shell; nil elsewhere, where a result is a plain
+    /// navigation link on the stack it is in.
+    @Entry var showLibraryItem: ((JfItem) -> Void)? = nil
+}
+
+/// The search screen on iOS and tvOS, with its own field. The Mac shows
+/// SearchResultsView under the toolbar's search field instead.
 struct SearchView: View {
-    @Environment(AppState.self) private var state
     @State private var searchText = ""
-    @State private var artists: [JfItem] = []
-    @State private var albums: [JfItem] = []
-    @State private var songs: [JfItem] = []
+
+    var body: some View {
+        SearchResultsView(query: searchText, field: $searchText)
+            .navigationTitle("Search")
+            #if !os(tvOS)
+            .searchable(text: $searchText)
+            #endif
+    }
+}
+
+/// Songs 10, albums 8, artists 8, and movies and shows 8 each from the chosen
+/// video libraries, after a 300 ms pause in typing (the desktop's search).
+struct SearchResultsView: View {
+    let query: String
+    /// tvOS has no search field of its own, so the screen carries one.
+    var field: Binding<String>?
+
+    @Environment(AppState.self) private var state
+    @State private var results = SearchResults()
     @State private var isLoading = false
     @State private var error: String?
 
-    private var trimmed: String { searchText.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var hasResults: Bool { !artists.isEmpty || !albums.isEmpty || !songs.isEmpty }
+    private var trimmed: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var libraries: VideoLibrarySelection { state.videoLibraries }
+    private struct SearchKey: Hashable { var query: String; var movies: [String]; var shows: [String] }
 
     var body: some View {
         List {
             #if os(tvOS)
-            TextField("Search", text: $searchText)
+            if let field { TextField("Search", text: field) }
             #endif
             if !trimmed.isEmpty {
-                LoadingOverlay(isLoading: isLoading, error: error, isEmpty: !isLoading && !hasResults)
+                LoadingOverlay(isLoading: isLoading, error: error, isEmpty: !isLoading && results.isEmpty)
             }
-            if !artists.isEmpty {
-                Section("Artists") {
-                    ForEach(artists) { artist in
-                        NavigationLink(value: artist) {
-                            Text(artist.name ?? "Unknown")
-                        }
-                    }
-                }
-            }
-            if !albums.isEmpty {
-                Section("Albums") {
-                    ForEach(albums) { album in
-                        NavigationLink(value: album) {
-                            Text(album.name ?? "Unknown")
-                        }
-                    }
-                }
-            }
-            if !songs.isEmpty {
+            if !results.songs.isEmpty {
                 Section("Songs") {
-                    ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
+                    ForEach(Array(results.songs.enumerated()), id: \.element.id) { index, song in
                         Button {
-                            Task { await state.player?.play(songs, startIndex: index) }
+                            Task { await state.player?.play(results.songs, startIndex: index) }
                         } label: {
                             TrackRow(track: song)
                         }
@@ -51,14 +59,14 @@ struct SearchView: View {
                     }
                 }
             }
+            section("Albums", results.albums)
+            section("Artists", results.artists, round: true)
+            section("Movies", results.movies, poster: true)
+            section("Shows", results.shows, poster: true)
         }
-        .navigationTitle("Search")
-        #if !os(tvOS)
-        .searchable(text: $searchText)
-        #endif
-        .task(id: searchText) {
+        .task(id: SearchKey(query: trimmed, movies: libraries.movieIds, shows: libraries.showIds)) {
             guard !trimmed.isEmpty, let client = state.client else {
-                artists = []; albums = []; songs = []; isLoading = false; error = nil
+                results = SearchResults(); isLoading = false; error = nil
                 return
             }
             // Quiet period before firing, and cancellation via .task(id:) itself,
@@ -66,16 +74,63 @@ struct SearchView: View {
             try? await Task.sleep(nanoseconds: 300_000_000)
             if Task.isCancelled { return }
             isLoading = true
+            await libraries.load(client: client, userId: state.config?.userId)
             do {
-                let results = try await client.search(trimmed)
-                artists = results.filter { $0.type == "MusicArtist" }
-                albums = results.filter { $0.type == "MusicAlbum" }
-                songs = results.filter { $0.type == "Audio" }
+                results = try await client.searchEverything(trimmed, movieLibraries: libraries.movieIds,
+                                                            showLibraries: libraries.showIds)
                 error = nil
             } catch {
-                self.error = error.localizedDescription
+                if !Task.isCancelled { self.error = error.localizedDescription }
             }
             isLoading = false
+        }
+    }
+
+    @ViewBuilder
+    private func section(_ title: String, _ items: [JfItem], round: Bool = false, poster: Bool = false) -> some View {
+        if !items.isEmpty {
+            Section(title) {
+                ForEach(items) { item in
+                    ResultLink(item: item) {
+                        HStack(spacing: 12) {
+                            ArtworkView(itemId: item.id, size: poster ? 30 : 40, aspect: poster ? 2.0 / 3.0 : 1)
+                                .clipShape(round ? AnyShape(Circle()) : AnyShape(ProportionalRoundedRectangle()))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.name ?? "Unknown").lineLimit(1)
+                                if let subtitle = subtitle(item) {
+                                    Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                }
+            }
+        }
+    }
+
+    private func subtitle(_ item: JfItem) -> String? {
+        switch item.type {
+        case "MusicAlbum": item.albumArtist
+        case "Movie", "Series": item.productionYear.map(String.init)
+        default: nil
+        }
+    }
+}
+
+/// A search result's row: a navigation link on the stack it is shown in, or,
+/// where the shell provides showLibraryItem, a deep link that can switch mode.
+private struct ResultLink<Label: View>: View {
+    let item: JfItem
+    @ViewBuilder let label: Label
+    @Environment(\.showLibraryItem) private var show
+
+    var body: some View {
+        if let show {
+            Button { show(item) } label: { label }.buttonStyle(.plain)
+        } else {
+            NavigationLink(value: item) { label }
         }
     }
 }

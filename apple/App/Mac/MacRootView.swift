@@ -4,41 +4,61 @@ import CascadeKit
 /// The signed-in Mac shell: a sidebar of library sections, the section's own
 /// navigation stack, and the player bar along the bottom. The desktop app's
 /// layout, in place of the phone's tabs and mini player pill.
+///
+/// The window's size (1100x700 by default, 800x560 at the least) is set where
+/// the scene is declared (CascadeApp's defaultSize) and here (the minimum);
+/// SwiftUI restores the frame the person left it at.
 struct MacRootView: View {
     @Environment(AppState.self) private var state
     @SceneStorage("mac.section") private var section: MacSection = .home
+    @State private var query = ""
+    @FocusState private var searchFocused: Bool
+    /// Where a deep link wants to go once its section's stack is up.
+    @State private var pendingItem: JfItem?
+
+    private var libraries: VideoLibrarySelection { state.videoLibraries }
+    private var isSearching: Bool { !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     var body: some View {
         NavigationSplitView {
-            List(selection: Binding(get: { section }, set: { section = $0 ?? .home })) {
-                ForEach(MacSection.sidebar(for: state.browseMode)) { item in
-                    Label(item.title, systemImage: item.symbol).tag(item)
-                }
-            }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
-            .safeAreaInset(edge: .bottom) {
-                List(selection: Binding(get: { section }, set: { section = $0 ?? .home })) {
-                    Label("Settings", systemImage: "gear").tag(MacSection.settings)
-                }
-                .frame(height: 44)
-                .scrollDisabled(true)
-            }
+            sidebar
+                .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 280)
         } detail: {
             // Keyed by section, so each one starts at its own root rather
             // than inheriting the last section's pushed pages.
-            TabStack { section.root }
-                .id(section)
+            if isSearching {
+                TabStack { SearchResultsView(query: query).navigationTitle("Search") }
+                    .id("search")
+            } else {
+                TabStack(opening: $pendingItem) { section.root }
+                    .id(section)
+            }
         }
         .toolbar {
-            ToolbarItem(placement: .primaryAction) { ThemePanelButton() }
             ToolbarItem(placement: .navigation) {
-                @Bindable var state = state
-                Picker("Browse", selection: $state.browseMode) {
-                    Text("Music").tag(AppState.BrowseMode.music)
-                    Text("Video").tag(AppState.BrowseMode.video)
+                // Nothing to switch to on a music-only server, as on the desktop.
+                if libraries.hasVideoLibrary {
+                    @Bindable var state = state
+                    Picker("Browse", selection: $state.browseMode) {
+                        Text("Music").tag(AppState.BrowseMode.music)
+                        Text("Video").tag(AppState.BrowseMode.video)
+                    }
+                    .pickerStyle(.segmented)
                 }
-                .pickerStyle(.segmented)
             }
+            ToolbarItem(placement: .primaryAction) { ThemePanelButton() }
+        }
+        .searchable(text: $query, placement: .toolbar,
+                    prompt: state.browseMode == .video ? "Search movies and shows" : "Search songs, albums, artists")
+        .searchFocused($searchFocused)
+        .background {
+            // Command-K, as on the desktop. A zero-size button rather than a
+            // menu command: the main window is the only place it applies.
+            Button("Search") { searchFocused = true }
+                .keyboardShortcut("k", modifiers: .command)
+                .frame(width: 0, height: 0)
+                .opacity(0)
+                .accessibilityHidden(true)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if let player = state.player {
@@ -51,8 +71,70 @@ struct MacRootView: View {
             NowPlayingOverlay()
             MacVideoHost()
         }
-        .onChange(of: state.browseMode) { section = .home }
+        // Results, and anything else that opens an item, go through here so a
+        // movie found from Music mode switches to Video, as the desktop's
+        // sectionMode does for a deep link.
+        .environment(\.showLibraryItem) { show($0) }
+        .task(id: state.config?.userId) {
+            await libraries.load(client: state.client, userId: state.config?.userId)
+        }
+        // Leaving a mode strands a section only that mode has; Home and
+        // Settings are in both, so they stay.
+        .onChange(of: state.browseMode) {
+            if section != .settings, !MacSection.sidebar(for: state.browseMode).contains(section) { section = .home }
+        }
         .frame(minWidth: 800, minHeight: 560)
+    }
+
+    private var sidebar: some View {
+        List(selection: Binding(get: { section }, set: { section = $0 ?? .home; query = "" })) {
+            ForEach(visibleSections) { item in
+                Label(item.title, systemImage: item.symbol).tag(item)
+            }
+        }
+        .listStyle(.sidebar)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            // Pinned under the list so it is always there, like the desktop's.
+            VStack(spacing: 0) {
+                Divider()
+                Button { section = .settings; query = "" } label: {
+                    Label("Settings", systemImage: "gear")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 6).padding(.horizontal, 10)
+                        .background(section == .settings ? Color.accentColor.opacity(0.22) : .clear,
+                                    in: RoundedRectangle(cornerRadius: 6))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(8)
+            }
+        }
+    }
+
+    /// The sidebar's rows for the mode. Movies and TV Shows only once a
+    /// library of that kind exists (or before the server has been asked), so a
+    /// row never leads to a screen that cannot have anything on it.
+    private var visibleSections: [MacSection] {
+        MacSection.sidebar(for: state.browseMode).filter {
+            switch $0 {
+            case .movies: !libraries.isLoaded || !libraries.movieLibraries.isEmpty
+            case .shows: !libraries.isLoaded || !libraries.showLibraries.isEmpty
+            default: true
+            }
+        }
+    }
+
+    /// Opens an item in the section its type belongs to, switching the
+    /// Music / Video mode first when that section is the other mode's.
+    private func show(_ item: JfItem) {
+        guard let name = BrowseModeLogic.section(forItemType: item.type),
+              let target = MacSection(rawValue: name) else { return }
+        if let mode = BrowseModeLogic.sectionMode(name), mode.rawValue != state.browseMode.rawValue {
+            state.browseMode = AppState.BrowseMode(rawValue: mode.rawValue) ?? state.browseMode
+        }
+        query = ""
+        section = target
+        pendingItem = item
     }
 }
 
