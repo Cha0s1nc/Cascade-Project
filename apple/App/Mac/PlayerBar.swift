@@ -2,9 +2,12 @@ import SwiftUI
 import CascadeKit
 
 /// What is playing, along the bottom of the window: art and title, transport,
-/// a scrubber and the volume.
+/// a scrubber and the volume. Any empty part of the bar opens Now Playing (the controls keep
+/// their own clicks), as on the desktop, where the right half was once a dead zone.
 struct PlayerBar: View {
     let player: PlaybackService
+    @Environment(AppState.self) private var state
+    private var ui: MacNowPlayingUI { .shared }
 
     var body: some View {
         HStack(spacing: 16) {
@@ -42,19 +45,39 @@ struct PlayerBar: View {
             }
             .frame(maxWidth: 520)
 
-            HStack(spacing: 6) {
-                Image(systemName: player.isMuted ? "speaker.slash.fill" : "speaker.fill")
-                    .onTapGesture { player.setMuted(!player.isMuted) }
-                Slider(value: Binding(get: { Double(player.volume) }, set: { player.setVolume(Float($0)) }), in: 0...1)
+            HStack(spacing: 10) {
+                // The side lyrics panel, over whatever is on screen.
+                Button { ui.sidePanelOpen.toggle() } label: {
+                    Image(systemName: ui.sidePanelOpen ? "quote.bubble.fill" : "quote.bubble")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(ui.sidePanelOpen ? Color.accentColor : .secondary)
+                .help("Lyrics")
+                .accessibilityLabel("Lyrics")
+                HStack(spacing: 6) {
+                    Image(systemName: player.isMuted ? "speaker.slash.fill" : "speaker.fill")
+                        .onTapGesture { player.setMuted(!player.isMuted) }
+                        .accessibilityLabel(player.isMuted ? "Unmute" : "Mute")
+                        .accessibilityAddTraits(.isButton)
+                    MacSlider(value: Double(player.isMuted ? 0 : player.volume), fill: .secondary, label: "Volume") {
+                        // Moving the slider is a wish to hear it.
+                        if player.isMuted { player.setMuted(false) }
+                        player.setVolume(Float($0))
+                    }
                     .frame(width: 110)
-                    .accessibilityLabel("Volume")
+                }
             }
             .frame(width: 240, alignment: .trailing)
             .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        .background(.bar)
+        .background {
+            // Under the controls, so only the bar's empty parts answer.
+            Rectangle().fill(.bar)
+                .contentShape(Rectangle())
+                .onTapGesture { if player.item != nil { withAnimation(.easeInOut(duration: 0.38)) { state.nowPlayingOpen = true } } }
+        }
         .disabled(player.item == nil)
     }
 }

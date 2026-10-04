@@ -22,6 +22,7 @@ struct CascadeApp: App {
         WindowGroup(id: "main") {
             RootView()
                 .environment(state)
+                .macThemed()
                 .onAppear { MacIntegrations.start(state: state) }
         }
         .defaultSize(width: 1100, height: 700)
@@ -40,7 +41,7 @@ struct CascadeApp: App {
             UpdateAvailableView().environment(state)
         }
         Settings {
-            MacSettingsView().environment(state)
+            MacSettingsView().environment(state).macThemed()
         }
         #else
         WindowGroup {

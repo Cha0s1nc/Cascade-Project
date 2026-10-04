@@ -6,21 +6,24 @@ import CascadeKit
 /// round again track after track.
 @MainActor
 enum CoverPalettes {
+    /// Keyed by the theme too: the light one clamps blobs into a different lightness window
+    /// than the dark one, so a palette is only right for the theme it was extracted for.
     private static var cache: [String: [BlobColor]] = [:]
 
-    static func palette(for itemId: String, client: JellyfinClient) async -> [BlobColor] {
-        if let hit = cache[itemId] { return hit }
+    static func palette(for itemId: String, client: JellyfinClient, light: Bool = false) async -> [BlobColor] {
+        let key = "\(itemId)|\(light)"
+        if let hit = cache[key] { return hit }
         guard let url = await client.imageUrl(itemId: itemId, size: AlbumColors.sampleSide),
               let (data, response) = try? await URLSession.shared.data(from: url),
               (response as? HTTPURLResponse)?.statusCode == 200 else { return [] }
-        let colors = await Task.detached(priority: .utility) { extract(data) }.value
-        cache[itemId] = colors
+        let colors = await Task.detached(priority: .utility) { extract(data, light: light) }.value
+        cache[key] = colors
         return colors
     }
 
     /// The cover drawn into an 80x80 sRGB RGBA buffer, the byte layout
     /// AlbumColors expects (8 bits, premultiplied, alpha last), then clustered.
-    nonisolated static func extract(_ data: Data) -> [BlobColor] {
+    nonisolated static func extract(_ data: Data, light: Bool = false) -> [BlobColor] {
         guard let image = PlatformImage(data: data)?.cgImage,
               let space = CGColorSpace(name: CGColorSpace.sRGB) else { return [] }
         let side = AlbumColors.sampleSide
@@ -34,7 +37,7 @@ enum CoverPalettes {
             return true
         }
         guard drawn else { return [] }
-        return (try? AlbumColors.extractTopColors(bytes)) ?? []
+        return (try? AlbumColors.extractTopColors(bytes, light: light)) ?? []
     }
 }
 
@@ -51,6 +54,8 @@ final class CoverBackdrop {
     static let shared = CoverBackdrop()
 
     private(set) var itemId: String?
+    /// The theme the colours were worked out for.
+    private(set) var light = false
     private(set) var colors: [BlobColor] = []
     private(set) var drift = AlbumColors.randomizeDrift()
     /// What was showing before the last change, faded out under the new one.
@@ -58,19 +63,23 @@ final class CoverBackdrop {
     private(set) var changedAt = Date.distantPast
     @ObservationIgnored private var requested: String?
 
-    /// Show this cover's colours, crossfading from whatever is up.
-    func show(itemId: String?, client: JellyfinClient?) async {
-        guard itemId != self.itemId || colors.isEmpty else { return }
+    /// Show this cover's colours, crossfading from whatever is up. The one place the
+    /// background's colours are set (the desktop's setOverlayBackgroundImage): it skips
+    /// when the cover and the theme are what is already showing, and a theme switch
+    /// re-extracts, since each theme clamps blobs into its own lightness window.
+    func show(itemId: String?, client: JellyfinClient?, light: Bool = false) async {
+        guard itemId != self.itemId || light != self.light || colors.isEmpty else { return }
         requested = itemId
         let fresh: [BlobColor]
         if let itemId, let client {
-            fresh = await CoverPalettes.palette(for: itemId, client: client)
+            fresh = await CoverPalettes.palette(for: itemId, client: client, light: light)
         } else {
             fresh = []
         }
         // A newer track asked while this one was loading.
         guard requested == itemId else { return }
         self.itemId = itemId
+        self.light = light
         guard fresh != colors else { return }
         previous = (colors, drift)
         colors = fresh
@@ -91,6 +100,12 @@ struct NowPlayingBackground: View {
     /// Lyrics are in front, so darken: more for a bright cover, whose light
     /// blobs otherwise swallow the faint upcoming lines.
     var behindLyrics = false
+    /// The Mac's light theme: blobs clamped to the light lightness window over a near-white
+    /// base, not darkened behind lyrics (the overlay lays its own scrims instead).
+    var light = false
+    /// The light theme paints the blobs with multiply, like ink on paper (the desktop's
+    /// --np-blend); off, they are laid on as they are. Dark ignores it.
+    var multiply = true
 
     @Environment(AppState.self) private var state
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -108,15 +123,17 @@ struct NowPlayingBackground: View {
             // so a fade measured against it could sit at zero forever.
             let fade = reduceMotion ? 1 : min(1, max(0, now.timeIntervalSince(changedAt) / Self.fadeSeconds))
             Canvas { context, size in
+                let base = light ? AlbumColors.baseLight : AlbumColors.base
                 context.fill(Path(CGRect(origin: .zero, size: size)),
-                             with: .color(Color(.sRGB, red: AlbumColors.base.r, green: AlbumColors.base.g,
-                                                blue: AlbumColors.base.b)))
+                             with: .color(Color(.sRGB, red: base.r, green: base.g, blue: base.b)))
+                var inked = context
+                if light && multiply { inked.blendMode = .multiply }
                 if fade < 1 {
-                    draw(AlbumColors.driftedBlobs(previous.colors, drift: previous.drift, at: t),
-                         weight: (1 - fade) * tune.bgIntensity, in: context, size: size)
+                    draw(AlbumColors.driftedBlobs(previous.colors, drift: previous.drift, at: t, light: light),
+                         weight: (1 - fade) * tune.bgIntensity, in: inked, size: size)
                 }
-                draw(AlbumColors.driftedBlobs(colors, drift: drift, at: t), weight: fade * tune.bgIntensity,
-                     in: context, size: size)
+                draw(AlbumColors.driftedBlobs(colors, drift: drift, at: t, light: light), weight: fade * tune.bgIntensity,
+                     in: inked, size: size)
             }
             // The tuning panel's colour knobs; at their defaults, no-ops.
             .saturation(tune.bgSaturation)
@@ -125,14 +142,14 @@ struct NowPlayingBackground: View {
         }
         .overlay {
             Color.black
-                .opacity(behindLyrics ? Self.lyricsDim(colors, tune) : 0)
+                .opacity(behindLyrics && !light ? Self.lyricsDim(colors, tune) : 0)
                 .animation(.easeInOut(duration: 0.6), value: behindLyrics)
                 .animation(.easeInOut(duration: Self.fadeSeconds), value: colors)
         }
         .ignoresSafeArea()
         .accessibilityHidden(true)
-        .task(id: itemId) {
-            await CoverBackdrop.shared.show(itemId: itemId, client: state.client)
+        .task(id: "\(itemId ?? "")|\(light)") {
+            await CoverBackdrop.shared.show(itemId: itemId, client: state.client, light: light)
         }
     }
 

@@ -14,25 +14,31 @@ final class LyricsModel {
     /// False for untimed lyrics, drawn as a still page.
     private(set) var synced = true
     private(set) var instrumental = false
+    /// Where the lines on screen came from ("Kugou", "Karaoke", a SpicyLyrics provider ...),
+    /// for the source pill while no source is forced.
+    private(set) var source: String?
+    /// How each source went on the last fetch, for the dropdown's badges.
+    private(set) var tried: [String: LyricsFetchStatus] = [:]
     /// True from a track change until its lyrics are in (or known missing).
     /// Without it, the brief nil between two tracks read as "this song has no
     /// lyrics", and Now Playing left lyrics mode on every skip.
     private(set) var isLoading = false
     /// What was asked for last: the track and everything that changes the
-    /// answer (the plugin, server-only, a Spotify link).
+    /// answer (the plugin, server-only, a Spotify link, a forced source).
     private var loadedKey: String?
 
     /// Answers this session, misses included, keyed as loadedKey. The sheet
     /// is rebuilt on every opening, and without this each one asked all four
     /// sources again; a miss is kept too, or an instrumental album re-ran the
     /// whole waterfall on every track, as the desktop once did.
-    private static var cache: [String: LyricsResult?] = [:]
+    private static var cache: [String: LyricsOutcome] = [:]
 
     func load(item: JfItem?, state: AppState) async {
         let plugin = state.cascadePluginApi.map { (api: $0, info: state.cascadePluginInfo) }
         let spotifyId = item.flatMap { state.localSpotifyLinks[$0.id] }
+        let forced = LyricsPrefs.shared.forcedSource
         let key = [item?.id ?? "", String(describing: plugin?.api), "\(plugin?.info.capabilities.sorted() ?? [])",
-                   "\(state.serverOnlyLyrics)", spotifyId ?? "", "\(state.lyricsRevision)"].joined(separator: "|")
+                   "\(state.serverOnlyLyrics)", spotifyId ?? "", "\(state.lyricsRevision)", forced.rawValue].joined(separator: "|")
         guard key != loadedKey else { return }
         show(nil)
         loadedKey = key
@@ -52,27 +58,42 @@ final class LyricsModel {
         #endif
         guard let item, let client = state.client else { return }
         if let hit = Self.cache[key] {
-            show(hit)
+            show(hit.result, tried: hit.tried)
             return
         }
         isLoading = true
         let track = LyricsWaterfall.Track(id: item.id, title: item.name ?? "",
                                           artist: item.albumArtist ?? item.artists?.first ?? "", album: item.album ?? "",
                                           durationSeconds: Double(item.runTimeTicks ?? 0) / Double(Lyrics.ticksPerSecond))
-        let result = await LyricsWaterfall.fetch(track, client: client, plugin: plugin,
-                                                 serverOnly: state.serverOnlyLyrics, spotifyId: spotifyId,
-                                                 userAgent: "Cascade/\(state.appVersion) (iOS; Jellyfin music client)")
-        Self.cache[key] = result
+        #if os(macOS)
+        let platform = "Mac"
+        #else
+        let platform = "iOS"
+        #endif
+        let outcome = await LyricsWaterfall.fetchDetailed(track, client: client, plugin: plugin,
+                                                          serverOnly: state.serverOnlyLyrics, spotifyId: spotifyId,
+                                                          userAgent: "Cascade/\(state.appVersion) (\(platform); Jellyfin music client)",
+                                                          forced: forced)
+        Self.cache[key] = outcome
         // A newer track may have started while this one was in flight.
         guard loadedKey == key else { return }
-        show(result)
+        show(outcome.result, tried: outcome.tried)
     }
 
-    private func show(_ result: LyricsResult?) {
+    /// Forgets this track's answer, so the next load asks the sources again: a source that
+    /// was merely down, not missing the song (the desktop's _reloadLyricsFor).
+    func reload() {
+        if let loadedKey { Self.cache[loadedKey] = nil }
+        loadedKey = nil
+    }
+
+    private func show(_ result: LyricsResult?, tried: [String: LyricsFetchStatus] = [:]) {
         lines = result.flatMap { $0.lines.isEmpty ? nil : $0.lines }
         credit = result?.credit
         synced = result?.synced ?? true
         instrumental = result?.instrumental ?? false
+        source = lines == nil ? nil : result?.source
+        self.tried = tried
         isLoading = false
     }
 }
@@ -160,6 +181,29 @@ extension LyricsModel {
 // a window, and on a phone it would sit at its 22 px floor. Every value here
 // is live in StyleTuning (the debug panel), under the defaults above.
 
+private struct LyricInkKey: EnvironmentKey {
+    static let defaultValue = Color.white
+}
+
+private struct LyricScaleKey: EnvironmentKey {
+    static let defaultValue = CGFloat(1)
+}
+
+extension EnvironmentValues {
+    /// The colour lyrics are drawn in. White, as everywhere on iOS and tvOS; the Mac's light
+    /// theme sets a dark one (the desktop's #1c1c1e) over its pale album-art background.
+    var lyricInk: Color {
+        get { self[LyricInkKey.self] }
+        set { self[LyricInkKey.self] = newValue }
+    }
+
+    /// A share of the tuned lyric size: 1 in the overlay, less in the Mac's narrow side panel.
+    var lyricScale: CGFloat {
+        get { self[LyricScaleKey.self] }
+        set { self[LyricScaleKey.self] = newValue }
+    }
+}
+
 /// The values live in StyleTuning, so the debug panel can move them; these
 /// are the shapes that read them.
 @MainActor
@@ -169,7 +213,7 @@ private enum LyricStyle {
     static let weight: Font.Weight = .heavy          // 800
     static let tracking = -0.015                     // letter-spacing, in em
     static var lineGap: CGFloat { v.lineGap }        // padding: 12px, above and below
-    static var unsung: Color { .white.opacity(v.unsungOpacity) }
+    static func unsung(_ ink: Color) -> Color { ink.opacity(v.unsungOpacity) }
     /// cubic-bezier(0.16, 1, 0.3, 1) over 0.55 s, the line fade and blur.
     static var fade: Animation { .timingCurve(0.16, 1, 0.3, 1, duration: v.fadeSeconds) }
     static var ripple: Double { v.rippleSeconds }
@@ -239,6 +283,12 @@ struct LyricsView: View {
     /// False for lyrics with no timings: a still page to scroll, every line
     /// lit, with nothing to follow.
     var synced = true
+    /// An English line for each of `lines` (empty where there is none yet), shown under the
+    /// original, which always stays. Nil when translation is off.
+    var translations: [String]?
+
+    @Environment(\.lyricInk) private var ink
+    @Environment(\.lyricScale) private var scale
 
     /// The current line, from a clock of its own rather than the player's
     /// half-second position, so a line changes on its beat.
@@ -246,25 +296,59 @@ struct LyricsView: View {
     @State private var browsing = false
     @State private var settleTask: Task<Void, Never>?
 
+    /// How long manual browsing holds after the last scroll before the lyrics spring back to
+    /// the current line: 2.5 s on a phone, 2.2 s on the desktop's wheel.
+    #if os(macOS)
+    private static let settleSeconds = 2.2
+    #else
+    private static let settleSeconds = 2.5
+    #endif
+
     var body: some View {
         if synced { syncedBody } else { stillPage }
+    }
+
+    private func translation(_ index: Int) -> String? {
+        guard let translations, translations.indices.contains(index) else { return nil }
+        let t = translations[index].trimmingCharacters(in: .whitespaces)
+        // A line the engine returned unchanged (English in a mixed song) is not repeated under itself.
+        return t.isEmpty || t.lowercased() == lines[index].text.trimmingCharacters(in: .whitespaces).lowercased() ? nil : t
     }
 
     private var stillPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(lines.indices, id: \.self) { index in
-                    Text(lines[index].text)
-                        .font(.system(size: LyricStyle.size, weight: LyricStyle.weight))
-                        .tracking(LyricStyle.tracking * LyricStyle.size)
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, LyricStyle.lineGap)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(lines[index].text)
+                            .font(.system(size: LyricStyle.size * scale, weight: LyricStyle.weight))
+                            .tracking(LyricStyle.tracking * LyricStyle.size * scale)
+                            .foregroundStyle(ink)
+                        if let t = translation(index) {
+                            Text(t)
+                                .font(.system(size: LyricStyle.size * scale * 0.55, weight: .semibold))
+                                .foregroundStyle(ink.opacity(0.6))
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, LyricStyle.lineGap)
                 }
             }
             .padding(.vertical, 24)
         }
         .scrollIndicators(.hidden)
+    }
+
+    /// Enters manual browsing, and arms the spring back to the current line.
+    private func beginBrowsing(proxy: ScrollViewProxy) {
+        settleTask?.cancel()
+        if !browsing { withAnimation(LyricStyle.fade) { browsing = true } }
+        settleTask = Task {
+            try? await Task.sleep(for: .seconds(Self.settleSeconds))
+            guard !Task.isCancelled else { return }
+            withAnimation(LyricStyle.fade) { browsing = false }
+            withAnimation(LyricStyle.scroll) { proxy.scrollTo(active ?? 0, anchor: LyricStyle.anchor) }
+        }
     }
 
     private var syncedBody: some View {
@@ -275,7 +359,8 @@ struct LyricsView: View {
                         ForEach(lines.indices, id: \.self) { index in
                             LyricLineView(line: lines[index],
                                           distance: Lyrics.lineDistance(index, active: active),
-                                          browsing: browsing, emphasis: emphasis, player: player)
+                                          browsing: browsing, emphasis: emphasis, player: player,
+                                          translation: translation(index))
                                 .id(index)
                                 #if !os(tvOS)
                                 .contentShape(Rectangle())
@@ -292,6 +377,12 @@ struct LyricsView: View {
                     .padding(.bottom, geo.size.height)
                 }
                 .scrollIndicators(.hidden)
+                #if os(macOS)
+                // A mouse wheel gives a scroll view no phase to report (a trackpad does, a
+                // wheel's ticks are discrete), so the wheel itself starts browsing: any scroll
+                // event over the lyrics, held for settleSeconds after the last one.
+                .background(WheelWatcher { beginBrowsing(proxy: proxy) })
+                #else
                 .onScrollPhaseChange { _, phase in
                     if phase == .interacting {
                         settleTask?.cancel()
@@ -299,13 +390,14 @@ struct LyricsView: View {
                     } else if phase == .idle, browsing {
                         settleTask?.cancel()
                         settleTask = Task {
-                            try? await Task.sleep(for: .seconds(2.5))
+                            try? await Task.sleep(for: .seconds(Self.settleSeconds))
                             guard !Task.isCancelled else { return }
                             withAnimation(LyricStyle.fade) { browsing = false }
                             withAnimation(LyricStyle.scroll) { proxy.scrollTo(active ?? 0, anchor: LyricStyle.anchor) }
                         }
                     }
                 }
+                #endif
                 .onChange(of: active) { _, index in
                     guard !browsing else { return }
                     withAnimation(LyricStyle.scroll) { proxy.scrollTo(index ?? 0, anchor: LyricStyle.anchor) }
@@ -342,6 +434,11 @@ private struct LyricLineView: View {
     let browsing: Bool
     let emphasis: Bool
     let player: PlaybackService
+    /// The English line to show under the original, if any.
+    var translation: String?
+
+    @Environment(\.lyricInk) private var ink
+    @Environment(\.lyricScale) private var scale
 
     var body: some View {
         let look = LyricStyle.look(distance: distance, browsing: browsing)
@@ -349,11 +446,22 @@ private struct LyricLineView: View {
         // A duet's second voice sits on the right, background row with it.
         let side: Alignment = line.opposite ? .trailing : .leading
         ShrinkWithoutRewrap(scale: look.scale) {
-            content(karaoke: karaoke)
-                .font(.system(size: LyricStyle.size, weight: LyricStyle.weight))
-                .tracking(LyricStyle.tracking * LyricStyle.size)
-                .frame(maxWidth: .infinity, alignment: side)
-                .scaleEffect(look.scale, anchor: line.opposite ? .topTrailing : .topLeading)
+            VStack(alignment: line.opposite ? .trailing : .leading, spacing: 2 * scale) {
+                content(karaoke: karaoke)
+                    .font(.system(size: LyricStyle.size * scale, weight: LyricStyle.weight))
+                    .tracking(LyricStyle.tracking * LyricStyle.size * scale)
+                // The original always stays, karaoke fill included; the translation sits under
+                // it inside the same line, so the line's height (which the scroll anchors on)
+                // and its tap to seek cover the pair.
+                if let translation {
+                    Text(translation)
+                        .font(.system(size: LyricStyle.size * scale * 0.55, weight: .semibold))
+                        .foregroundStyle(ink.opacity(0.65))
+                        .multilineTextAlignment(line.opposite ? .trailing : .leading)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: side)
+            .scaleEffect(look.scale, anchor: line.opposite ? .topTrailing : .topLeading)
         }
         .padding(.vertical, LyricStyle.lineGap * look.scale)
             // Browsing lines get a shadow to read over the blobs; karaoke words
@@ -388,9 +496,9 @@ private struct LyricLineView: View {
                         // as in Apple Music (karaoke.css .lyric-bg).
                         ShrinkWithoutRewrap(scale: distance == 0 ? 1 : 0) {
                             wordFlow(background, now: now)
-                                .font(.system(size: LyricStyle.backgroundSize, weight: .semibold))
-                                .tracking(LyricStyle.tracking * LyricStyle.backgroundSize)
-                                .padding(.top, 0.3 * LyricStyle.backgroundSize)
+                                .font(.system(size: LyricStyle.backgroundSize * scale, weight: .semibold))
+                                .tracking(LyricStyle.tracking * LyricStyle.backgroundSize * scale)
+                                .padding(.top, 0.3 * LyricStyle.backgroundSize * scale)
                         }
                         .clipped()
                         .opacity(distance == 0 ? LyricStyle.backgroundOpacity : 0)
@@ -403,7 +511,7 @@ private struct LyricLineView: View {
             // flush right with the word's trailing space in front of them
             // ("theright"). WordFlow right-aligns karaoke rows itself.
             Text(line.text)
-                .foregroundStyle(.white)
+                .foregroundStyle(ink)
                 .multilineTextAlignment(line.opposite ? .trailing : .leading)
         }
     }
@@ -461,12 +569,16 @@ private struct KaraokeWord: View {
     let progress: Double
     let sung: Bool
 
+    @Environment(\.lyricInk) private var ink
+    @Environment(\.lyricScale) private var scale
+
     var body: some View {
+        let edge = LyricStyle.edge * scale
         Text(text)
-            .foregroundStyle(LyricStyle.unsung)
+            .foregroundStyle(LyricStyle.unsung(ink))
             .overlay {
                 Text(text)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ink)
                     .mask {
                         GeometryReader { geo in
                             // The edge's centre slides from 0.3 em before the
@@ -474,15 +586,15 @@ private struct KaraokeWord: View {
                             // dim and a sung one fully lit, never half an edge
                             // over either end (lyric-karaoke.js's --p).
                             let width = max(geo.size.width, 1)
-                            let centre = progress * width + (progress * 2 - 1) * LyricStyle.edge
+                            let centre = progress * width + (progress * 2 - 1) * edge
                             LinearGradient(stops: [
-                                .init(color: .white, location: (centre - LyricStyle.edge) / width),
-                                .init(color: .clear, location: (centre + LyricStyle.edge) / width),
+                                .init(color: .white, location: (centre - edge) / width),
+                                .init(color: .clear, location: (centre + edge) / width),
                             ], startPoint: .leading, endPoint: .trailing)
                         }
                     }
             }
-            .offset(y: sung ? -LyricStyle.liftDistance : 0)
+            .offset(y: sung ? -LyricStyle.liftDistance * scale : 0)
             .animation(LyricStyle.lift, value: sung)
     }
 }
@@ -498,6 +610,9 @@ private struct HeldWord: View {
     /// swell into, so it never overlaps its neighbours.
     let standalone: Bool
 
+    @Environment(\.lyricInk) private var ink
+    @Environment(\.lyricScale) private var scale
+
     var body: some View {
         let tps = Double(Lyrics.ticksPerSecond)
         let letters = Array(word.text.trimmingCharacters(in: .whitespaces))
@@ -511,27 +626,28 @@ private struct HeldWord: View {
                 let litAt = start + held * Double(i) / n
                 let s = now == Int.min ? 0 : LyricStyle.swell(sinceLit: seconds - litAt, untilEnd: start + held - litAt, held: held)
                 KaraokeWord(text: String(letters[i]), progress: min(1, max(0, progress * n - Double(i))), sung: false)
-                    .shadow(color: .white.opacity(0.7 * s), radius: 0.35 * LyricStyle.size * s)
+                    .shadow(color: ink.opacity(0.7 * s), radius: 0.35 * LyricStyle.size * scale * s)
                     .scaleEffect(1 + (LyricStyle.heldScale - 1) * s, anchor: UnitPoint(x: 0.5, y: 0.75))
-                    .offset(y: -LyricStyle.heldLift * s)
+                    .offset(y: -LyricStyle.heldLift * scale * s)
             }
             if word.text.last?.isWhitespace == true { Text(" ") }
         }
-        .padding(.horizontal, standalone ? 0.06 * LyricStyle.size : 0)
+        .padding(.horizontal, standalone ? 0.06 * LyricStyle.size * scale : 0)
     }
 }
 
 /// Credit for SpicyLyrics lyrics, which their terms want on screen wherever
 /// they show: the provider, then the uploader and maker of a community sync.
-/// Names link to their https pages on iOS.
+/// Names link to their https pages on iOS and the Mac (tvOS has nowhere to open one).
 struct LyricsCreditView: View {
     let credit: SpicyCredit
+    @Environment(\.lyricInk) private var ink
 
     var body: some View {
         Text(text)
             .font(.caption2)
-            .foregroundStyle(.white.opacity(0.6))
-            .tint(.white.opacity(0.85))
+            .foregroundStyle(ink.opacity(0.6))
+            .tint(ink.opacity(0.85))
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -541,7 +657,7 @@ struct LyricsCreditView: View {
             guard let person else { continue }
             out += AttributedString(" · \(role) ")
             var name = AttributedString(person.name)
-            #if os(iOS)
+            #if !os(tvOS)
             name.link = person.url
             #endif
             out += name
@@ -591,3 +707,47 @@ private struct WordFlow: Layout {
         return rows
     }
 }
+
+#if os(macOS)
+import AppKit
+
+/// Tells its owner when the mouse wheel or trackpad scrolls over the view it backs, without
+/// taking the scroll from the scroll view: a local monitor only listens. A scroll view
+/// reports a phase for a trackpad but nothing for a wheel's discrete ticks, and the
+/// desktop's lyrics enter manual browsing on either.
+private struct WheelWatcher: NSViewRepresentable {
+    let onScroll: () -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = WheelWatcherView()
+        view.onScroll = onScroll
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        (view as? WheelWatcherView)?.onScroll = onScroll
+    }
+
+    final class WheelWatcherView: NSView {
+        var onScroll: () -> Void = {}
+        private var monitor: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                if let self, event.window === self.window,
+                   self.bounds.contains(self.convert(event.locationInWindow, from: nil)) {
+                    self.onScroll()
+                }
+                return event
+            }
+        }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        // The monitor is removed when the view leaves its window (viewDidMoveToWindow with nil).
+    }
+}
+#endif

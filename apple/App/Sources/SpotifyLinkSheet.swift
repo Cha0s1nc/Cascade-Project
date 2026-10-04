@@ -1,4 +1,4 @@
-#if os(iOS)
+#if !os(tvOS)
 import SwiftUI
 import CascadeKit
 
@@ -27,8 +27,10 @@ struct SpotifyLinkSheet: View {
             Form {
                 Section {
                     TextField("Spotify song link", text: $link)
+                        #if os(iOS)
                         .keyboardType(.URL)
-                        .textInputAutocapitalization(.never)
+                        #endif
+                        .noAutocaps()
                         .autocorrectionDisabled()
                         .onSubmit(save)
                     PasteButton(payloadType: String.self) { strings in
@@ -54,7 +56,7 @@ struct SpotifyLinkSheet: View {
                 }
             }
             .navigationTitle("Link Spotify Track")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -66,7 +68,12 @@ struct SpotifyLinkSheet: View {
             }
             .task(loadCurrent)
         }
+        #if os(iOS)
         .presentationDetents([.medium, .large])
+        #else
+        // A Mac sheet has no detents; give the form room.
+        .frame(minWidth: 460, minHeight: 300)
+        #endif
     }
 
     /// What the song is linked to now: this device's link, else the server's.
