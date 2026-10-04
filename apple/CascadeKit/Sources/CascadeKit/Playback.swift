@@ -196,3 +196,69 @@ public func stopActiveEncoding(client: JellyfinClient, config: ServerConfig,
                                  params: ["deviceId": config.deviceId,
                                           "playSessionId": playSessionId])
 }
+
+// MARK: - Video stream choices (ported from playback.ts)
+
+/// An HLS playlist, as opposed to a progressive stream. A playlist covers the
+/// whole item (checked against 10.11.11: StartTimeTicks on master.m3u8 changes
+/// nothing, all the segments are still listed from 0), so the player seeks
+/// anywhere in it without a new stream and a start offset must never be
+/// counted on top of its clock.
+public func isHlsUrl(_ url: String) -> Bool {
+    url.range(of: #"\.m3u8(\?|$)"#, options: [.regularExpression, .caseInsensitive]) != nil
+}
+
+/// Which audio stream to explicitly request, given the item's own tracks and
+/// the codecs this client can decode, or nil when nothing needs forcing.
+///
+/// Direct play hands over the raw file with every audio stream still inside
+/// it. The server's compatibility check only has to find ONE decodable stream
+/// to call the file direct-playable, but the player decodes whichever track
+/// the container flags as default. When those differ, the video plays and the
+/// track it tried is a codec it lacks: silent, no error. A single-track item
+/// has no such gap, which is why it shows up as "movies have no sound, TV is
+/// fine" (a Blu-ray rip's default is often TrueHD or DTS, with a compatible
+/// track further down).
+public func neededAudioStreamIndex(_ streams: [JfMediaStream]?, decodable: [String]) -> Int? {
+    let audio = (streams ?? []).filter { $0.type == "Audio" }
+    guard audio.count > 1 else { return nil }
+    let ok = Set(decodable.map { $0.lowercased() })
+    let effectiveDefault = audio.first { $0.isDefault == true } ?? audio[0]
+    if ok.contains((effectiveDefault.codec ?? "").lowercased()) { return nil }
+    return audio.first { ok.contains(($0.codec ?? "").lowercased()) }?.index
+}
+
+public extension DeviceProfile {
+    /// The same profile with `drop` removed from every video direct-play
+    /// entry's audio codec list: for a codec the client CLAIMED to decode and
+    /// then demonstrably could not. Withdrawing the claim makes the next
+    /// negotiation transcode instead of direct playing into silence. Video
+    /// entries only: the audio path plays single-stream music files whose
+    /// codec the server picked against this same list.
+    ///
+    /// The desktop calls this from its decode check, which is not ported (the
+    /// AVFoundation profile is declarative, see apple/CODEMAP.md); it is here
+    /// so a future "no sound" fallback has the same tool.
+    func withoutAudioCodecs(_ drop: [String]) -> DeviceProfile {
+        guard !drop.isEmpty else { return self }
+        let dropped = Set(drop.map { $0.lowercased() })
+        var out = self
+        out.directPlayProfiles = directPlayProfiles.map { p in
+            guard p.type == .video, let codecs = p.audioCodec else { return p }
+            var q = p
+            q.audioCodec = codecs.split(separator: ",", omittingEmptySubsequences: false)
+                .filter { !dropped.contains($0.trimmingCharacters(in: .whitespaces).lowercased()) }
+                .joined(separator: ",")
+            return q
+        }
+        return out
+    }
+
+    /// The audio codecs this profile claims for video direct play: what
+    /// `neededAudioStreamIndex` checks a movie's default track against.
+    var videoDirectPlayAudioCodecs: [String] {
+        directPlayProfiles.filter { $0.type == .video }
+            .flatMap { ($0.audioCodec ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) } }
+            .filter { !$0.isEmpty }
+    }
+}
