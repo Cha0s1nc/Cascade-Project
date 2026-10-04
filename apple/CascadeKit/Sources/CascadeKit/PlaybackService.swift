@@ -72,6 +72,10 @@ public final class PlaybackService {
     /// Lines for the Mac debug panel: play method, codecs, decks, crossfade,
     /// prefetch and handover timing, tap state.
     public func debugLines() -> [String] { [] }
+    /// How loud the playing item is right now, 0 to 1, from its audio tap; nil when it has
+    /// none (the tap is only attached while the EQ is on, and never just for this). The Mac's
+    /// playing-row bars follow it, and fall back to a canned animation on nil.
+    public var tapLevel: Float? { currentTap?.level }
 
     // MARK: - Internals
 
