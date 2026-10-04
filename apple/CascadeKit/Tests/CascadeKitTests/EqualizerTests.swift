@@ -101,6 +101,16 @@ struct TapProcessingTests {
         #expect(abs(db(rms(other, hz: 60) / flat)) < 0.5)
     }
 
+    @Test func musicAndVideoKeepSeparateProfilesUnderTheirOwnKeys() {
+        // cascade.eq was the only profile before video had one, so it stays music's.
+        #expect(EQKind.music.storageKey == "cascade.eq")
+        #expect(EQKind.video.storageKey == "cascade.eqVideo")
+        let video = EQProfile(enabled: true, preamp: -2, gains: [3, 0, 0, 0, 0])
+        #expect(EQProfile.decode(video.encoded()) == video)
+        // Nothing stored yet is a flat, off profile, not an error.
+        #expect(EQProfile.decode(nil) == EQProfile())
+    }
+
     @Test func autoPreampAndNormalizationMultiply() {
         let context = TapContext()
         // Auto preamp -6 for the +6 band, measured away from the band, plus a

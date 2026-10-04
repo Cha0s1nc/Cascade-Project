@@ -171,8 +171,37 @@ public final class RemoteControl {
         socket.send(.string(text)) { _ in }
     }
 
+    /// Whether a command may be acted on. Transport is refused outright in a
+    /// room rather than queued: a command that applies silently after the room
+    /// ends is worse than one that visibly does nothing now. Volume and mute
+    /// are personal to this device and never something a room or a cast
+    /// drives, so they follow their own rule, not the transport one. Keep-alive
+    /// is the socket's own housekeeping and always passes.
+    nonisolated static func accepts(_ command: RemoteCommand, in state: OwnershipState) -> Bool {
+        switch command {
+        case .forceKeepAlive: return true
+        case .setVolume, .volumeUp, .volumeDown, .toggleMute, .setMute:
+            return Ownership.acceptsRemoteVolumeCommand(state)
+        default: return Ownership.acceptsRemoteCommand(state)
+        }
+    }
+
+    /// What the app says about a Waterfall room right now, so a cast and a
+    /// room never both drive this player (see Ownership). Nil is "no room",
+    /// which is what a standalone RemoteControl, and every test, means.
+    public var ownership: (@MainActor () -> OwnershipState)?
+
     private func apply(_ command: RemoteCommand) async {
         guard let player else { return }
+        guard Self.accepts(command, in: ownership?() ?? OwnershipState()) else { return }
+        // A controller's play or skip would wake the paused song under a
+        // movie, the same as a media key (see PlaybackService.isVideoActive).
+        if player.isVideoActive?() == true {
+            switch command {
+            case .playPause, .unpause, .next, .previous, .seek: return
+            default: break
+            }
+        }
         switch command {
         case .forceKeepAlive(let seconds): startKeepAlive(seconds: max(1, seconds / 2))
         case .play(let ids, let start, let mode):

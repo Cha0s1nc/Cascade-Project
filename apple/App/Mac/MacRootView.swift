@@ -119,6 +119,9 @@ struct MacRootView: View {
             switch $0 {
             case .movies: !libraries.isLoaded || !libraries.movieLibraries.isEmpty
             case .shows: !libraries.isLoaded || !libraries.showLibraries.isEmpty
+            // Opted in and allowed Live TV; otherwise the row only leads to
+            // a 403 or a prompt nobody asked for. Settings turns it on.
+            case .radio: state.showsRadio
             default: true
             }
         }

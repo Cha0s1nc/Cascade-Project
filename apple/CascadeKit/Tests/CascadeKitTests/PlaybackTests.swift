@@ -79,8 +79,12 @@ struct DeviceProfileTests {
         #expect(t?.container == "ts")
     }
 
-    @Test func bitrateIsAWirelessNumber() {
+    @Test func bitrateIsAWirelessNumberOnPhonesAndTheDesktopsOnTheMac() {
+        #if os(macOS)
+        #expect(DeviceProfile.apple.maxStreamingBitrate == 140_000_000)
+        #else
         #expect(DeviceProfile.apple.maxStreamingBitrate == 20_000_000)
+        #endif
     }
 }
 

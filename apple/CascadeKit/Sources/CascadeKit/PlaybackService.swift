@@ -6,6 +6,9 @@ import Network
 #if canImport(MediaPlayer)
 import MediaPlayer
 #endif
+#if canImport(AppKit)
+import AppKit
+#endif
 
 /// The one place AVPlayer is wired to Jellyfin's playback API.
 ///
@@ -63,15 +66,53 @@ public final class PlaybackService {
     /// profile and the server disagree.
     public private(set) var isTranscoding = false
 
-    // Contract stubs for the Mac app (apple/MAC-MAP.md); the playback agent
-    // implements them.
-    /// When the queue runs out, append an instant mix of 25 and play on.
+    /// A live radio station is playing (a Live TV channel). It has no length
+    /// to scrub, no lyrics, and nothing next to prefetch, and reports nothing
+    /// to the server: views read this to show LIVE instead of a time.
+    public var isRadio: Bool { isRadioItem(item) }
+
+    /// When the queue runs out, append an instant mix of 25 and play on. Not
+    /// persisted: the desktop starts it off every launch too.
     public var autoMix = false
-    /// CoreAudio device UID both decks play to; nil is the system default.
-    public var outputDeviceId: String?
-    /// Lines for the Mac debug panel: play method, codecs, decks, crossfade,
-    /// prefetch and handover timing, tap state.
-    public func debugLines() -> [String] { [] }
+
+    // MARK: - Mac: output device
+
+    /// CoreAudio device UID both decks play to; nil is the system default. A
+    /// device that is not there (unplugged since it was saved, or since it was
+    /// picked) falls back to the default and says so in `outputNotice`. The
+    /// app persists whatever this becomes, through `onOutputDeviceChange`.
+    public var outputDeviceId: String? {
+        didSet {
+            guard outputDeviceId != oldValue else { return }
+            applyOutputDevice()
+            onOutputDeviceChange?(outputDeviceId)
+        }
+    }
+    /// Set when the chosen output vanished and playback moved to the system
+    /// default. The settings row shows it; assigning nil dismisses it.
+    public var outputNotice: String?
+    /// Every output the Mac has right now (empty off the Mac), kept current
+    /// as devices come and go.
+    public private(set) var outputDevices: [AudioOutputDevice] = []
+    /// Called with the new value whenever `outputDeviceId` changes, including
+    /// the fall-back, so the app saves what is really in use.
+    @ObservationIgnored public var onOutputDeviceChange: ((String?) -> Void)?
+    /// Called when volume, shuffle or repeat change, for the app to save.
+    @ObservationIgnored public var onSettingsChange: (() -> Void)?
+    #if os(macOS)
+    @ObservationIgnored private var deviceWatcher: AudioOutput.DeviceWatcher?
+    #endif
+
+    /// Whether a video is on, so the music service's remote commands (media
+    /// keys, Control Center, AirPods) leave a paused song alone: they are
+    /// registered app-wide, and a play press during a movie would otherwise
+    /// start the song under it. Set by the app from its video session.
+    @ObservationIgnored public var isVideoActive: (() -> Bool)?
+
+    /// The Video equalizer profile. Held here with the music one so a single
+    /// object has both; this service applies only `equalizer` (the tracks it
+    /// plays), and the video player applies this one to its own audio.
+    public var videoEqualizer = EQProfile()
 
     // MARK: - Internals
 
@@ -158,6 +199,7 @@ public final class PlaybackService {
         configureAudioSession()
         observePlayer()
         configureRemoteCommands()
+        watchOutputDevices()
         pathMonitor.pathUpdateHandler = Self.pathHandler { [weak self] expensive in
             self?.onExpensiveNetwork = expensive
         }
@@ -226,6 +268,9 @@ public final class PlaybackService {
     /// read as broken.
     public func next() async {
         if transportGate?(.next) == true { return }
+        // A station is a queue of one with nowhere to go: the same press
+        // reconnects it, as on the desktop.
+        if let item, isRadio { return await loadRadio(item) }
         guard let index = manualNextIndex(length: queue.items.count,
                                           index: queue.index, repeatMode: repeatMode) else {
             await stop()
@@ -237,6 +282,7 @@ public final class PlaybackService {
 
     public func previous() async {
         if transportGate?(.previous) == true { return }
+        if let item, isRadio { return await loadRadio(item) }
         guard let index = manualPreviousIndex(length: queue.items.count,
                                               index: queue.index, repeatMode: repeatMode) else { return }
         queue.index = index
@@ -246,6 +292,14 @@ public final class PlaybackService {
     public func cycleRepeat() {
         repeatMode = repeatMode.next
         syncPreload()
+        onSettingsChange?()
+    }
+
+    /// Restores what was saved: used at launch, before anything plays.
+    public func setRepeatMode(_ mode: RepeatMode) {
+        guard mode != repeatMode else { return }
+        repeatMode = mode
+        syncPreload()
     }
 
     /// Reorders the queue around whatever is playing. The track keeps playing
@@ -254,6 +308,7 @@ public final class PlaybackService {
         shuffle.toggle()
         queue = setShuffle(queue, on: shuffle)
         syncPreload()
+        onSettingsChange?()
     }
 
     // MARK: - Someone else's room
@@ -354,11 +409,13 @@ public final class PlaybackService {
     // The order logic is in QueueActions.swift. Each of these re-syncs the
     // gapless preload, because each can change what plays next.
 
-    /// Right after the current track. With nothing playing, plays them.
+    /// Right after the current track. With nothing playing, plays them. Over a
+    /// station too: a live stream never ends, so anything queued behind it
+    /// would never be reached.
     public func playNext(_ items: [JfItem]) async {
         guard !items.isEmpty else { return }
         if transportGate?(.enqueue(items)) == true { return }
-        guard item != nil else { return await play(items) }
+        guard item != nil, !isRadio else { return await play(items) }
         queue = playingNext(queue, items)
         syncPreload()
     }
@@ -367,7 +424,7 @@ public final class PlaybackService {
     public func addToQueue(_ items: [JfItem]) async {
         guard !items.isEmpty else { return }
         if transportGate?(.enqueue(items)) == true { return }
-        guard item != nil else { return await play(items) }
+        guard item != nil, !isRadio else { return await play(items) }
         queue = appending(queue, items)
         syncPreload()
     }
@@ -466,11 +523,15 @@ public final class PlaybackService {
         }
     }
 
-    private func load(_ item: JfItem, autoplay: Bool = true) async {
+    /// `startTicks` overrides where to begin: a restored queue's saved
+    /// position, which the item's own resume point knows nothing about.
+    private func load(_ item: JfItem, autoplay: Bool = true, startTicks override: Int? = nil) async {
         // Whatever was playing is finished as far as the server is concerned,
         // and its transcode, if any, is now waste.
         if self.item != nil { reportStopped() }
         abandonEncode()
+        closeRadioStream()
+        restoredTicks = nil
         stopReporting()
         dropPreload()
         // From here the old item's end, if it lands, is not ours to act on.
@@ -487,7 +548,7 @@ public final class PlaybackService {
         streamStartTicks = 0
         isTranscoding = false
 
-        let startTicks = resumeTicks(for: item)
+        let startTicks = override ?? resumeTicks(for: item)
         let stream = await stream(for: item, startTicks: startTicks)
         // A later play() or stop() won the race; its result is the real one.
         guard token == loadToken else { return }
@@ -561,8 +622,25 @@ public final class PlaybackService {
     }
 
     public func resume() {
-        guard item != nil, isPaused else { return }
+        guard let item, isPaused else { return }
         if transportGate?(.playPause) == true { return }
+        // A restored queue shows the track but has loaded nothing: playing is
+        // loading it, where it was left.
+        if currentPlayerItem == nil, !isLoading {
+            let ticks = restoredTicks
+            if isRadioItem(item) {
+                Task { await loadRadio(item) }
+            } else {
+                Task { await load(item, startTicks: ticks) }
+            }
+            return
+        }
+        // A station paused is a connection left idle, and resuming it would
+        // play what was buffered, then lag behind the live edge. Tune in again.
+        if isRadioItem(item) {
+            Task { await loadRadio(item) }
+            return
+        }
         isPaused = false
         player.play()
         // A pause cuts any fade, and with it the arming of the next one.
@@ -577,9 +655,18 @@ public final class PlaybackService {
 
     /// Seek to an absolute position in the current track, in seconds.
     public func seek(to seconds: Double) async {
-        guard let item, let resolved else { return }
+        guard let item, !isRadio else { return }   // a live stream has no position to go to
         if transportGate?(.seek(seconds)) == true { return }
         let target = max(0, min(seconds, durationSeconds > 0 ? durationSeconds : seconds))
+        // A restored queue has loaded nothing yet: the scrubber just moves the
+        // place it will start from.
+        guard let resolved else {
+            if currentPlayerItem == nil, !isLoading, restoredTicks != nil {
+                restoredTicks = ticks(fromSeconds: target)
+                positionSeconds = target
+            }
+            return
+        }
 
         endCrossfade()
         if resolved.direct {
@@ -622,6 +709,7 @@ public final class PlaybackService {
         volume = min(1, max(0, v))
         applyVolumes()
         reportNow()
+        onSettingsChange?()
     }
 
     /// Each deck's volume: the user's, times the untapped normalization cut,
@@ -686,6 +774,7 @@ public final class PlaybackService {
     /// playing when it lands.
     private func applyNormalization(for item: JfItem) async {
         setNormalizationVolume(1)
+        guard !isRadioItem(item) else { return }   // a station has no loudness scan
         let tap = currentTap
         guard normalization != .off else {
             tap?.update(normalization: 1)
@@ -717,6 +806,8 @@ public final class PlaybackService {
     public func stop() async {
         if item != nil { reportStopped() }
         abandonEncode()
+        closeRadioStream()
+        restoredTicks = nil
         stopReporting()
         _ = nextToken()          // invalidates anything still resolving
         endCrossfade()
@@ -756,12 +847,23 @@ public final class PlaybackService {
         // Only the end of the item we are playing counts. A late one from a
         // track already skipped past would otherwise skip this one too.
         guard let ended, let currentPlayerItem, ended == ObjectIdentifier(currentPlayerItem) else { return }
+        // A live stream "ending" almost always means the connection dropped,
+        // not that the station finished: tune in again rather than run the
+        // queue-advance logic below, which assumes a finite track. A second's
+        // wait, so a server that answers and then hangs up does not spin.
+        if let item, isRadio {
+            let token = loadToken
+            try? await Task.sleep(for: .seconds(1))
+            guard token == loadToken, self.item?.id == item.id, !isPaused else { return }
+            return await loadRadio(item)
+        }
         if sleepTimer == .endOfTrack { return await sleepAtTrackEnd() }
-        #if DEBUG
-        measureHandover(from: ended)
-        #endif
+        if measureHandovers { measureHandover(from: ended) }
         switch advanceOnEnd(length: queue.items.count, index: queue.index, repeatMode: repeatMode) {
         case .stop:
+            // The queue ran out. With auto-mix on, keep playing from an
+            // instant mix of the last track; otherwise that is the end.
+            if autoMix, await continueWithAutoMix() { return }
             await stop()
         case .restart:
             // Explicit play: the item paused at its end, and a seek alone
@@ -825,7 +927,7 @@ public final class PlaybackService {
     /// track with a resume point (load() seeks into it, which a queued item
     /// cannot do before it starts).
     private func expectedNext() -> (index: Int, item: JfItem)? {
-        guard item != nil, sleepTimer != .endOfTrack,
+        guard item != nil, !isRadio, sleepTimer != .endOfTrack,
               case .play(let index) = advanceOnEnd(length: queue.items.count, index: queue.index,
                                                   repeatMode: repeatMode) else { return nil }
         let next = queue.items[index]
@@ -1066,13 +1168,24 @@ public final class PlaybackService {
         startReporting()
     }
 
+    /// Whether to time each handover. On in debug builds; the Mac debug panel
+    /// turns it on in release builds while it is open, since the timing polls
+    /// the player every few milliseconds around each track change.
     #if DEBUG
+    @ObservationIgnored public var measureHandovers = true
+    #else
+    @ObservationIgnored public var measureHandovers = false
+    #endif
+    /// The last handover's measure, in ms, and what it was between.
+    @ObservationIgnored public private(set) var lastHandover: (ms: Double, label: String)?
+
     /// How long the timeline sat between one track ending and the next one
     /// producing audio: time since the end notification, minus how far the
     /// new item's clock has already run. Near zero means the next item was
     /// already playing when we heard the old one end. This is the player's
     /// timeline, not a sample-level check of the audio. Read it with
-    /// `log show --predicate 'eventMessage CONTAINS "HANDOVER"'`.
+    /// `log show --predicate 'eventMessage CONTAINS "HANDOVER"'`, or in the
+    /// debug panel.
     private func measureHandover(from ended: ObjectIdentifier) {
         let start = ContinuousClock.now
         let from = item?.name ?? "?"
@@ -1085,7 +1198,9 @@ public final class PlaybackService {
                     if t.isFinite, t > 0 {
                         let waited = start.duration(to: .now)
                         let ms = (Double(waited.components.attoseconds) / 1e15 + Double(waited.components.seconds) * 1000) - t * 1000
-                        NSLog("HANDOVER %@ -> %@: %.0f ms", from, self.item?.name ?? "?", ms)
+                        let to = self.item?.name ?? "?"
+                        self.lastHandover = (ms, "\(from) -> \(to)")
+                        NSLog("HANDOVER %@ -> %@: %.0f ms", from, to, ms)
                         return
                     }
                 }
@@ -1093,7 +1208,242 @@ public final class PlaybackService {
             }
         }
     }
-    #endif
+
+    // MARK: - Radio
+    //
+    // A Live TV channel played as a station. Its own path, not `load`: that
+    // one's prefetch, resume and crossfade logic all assume a finite track, and
+    // bending it around a channel (no length, no media source until
+    // PlaybackInfo opens the tuner, a LiveStreamId to close afterwards) would
+    // risk the ordinary path that every song goes through. The places a
+    // continuous stream would trip are guarded where they are (isRadio).
+
+    /// Tunes in to a station: a queue of one.
+    public func playRadio(_ channel: JfItem) async {
+        guard isRadioItem(channel) else { return }
+        if transportGate?(.replaceQueue) == true { return }
+        queueFeed = nil
+        hasMoreQueue = false
+        playRequests += 1
+        await loadRadio(channel)
+    }
+
+    private func loadRadio(_ channel: JfItem) async {
+        if self.item != nil { reportStopped() }
+        abandonEncode()
+        stopReporting()
+        dropPreload()
+        restoredTicks = nil
+        currentPlayerItem = nil
+        currentTap = nil
+        // Closed before the next one opens, as on the desktop, so a retune of
+        // the same channel never holds two sessions.
+        await closeRadioStreamNow()
+
+        let token = nextToken()
+        item = channel
+        queue = QueueOrder(items: [channel], index: 0, unshuffled: nil)
+        isPaused = false
+        isLoading = true
+        error = nil
+        positionSeconds = 0
+        durationSeconds = 0
+        resolved = nil
+        streamStartTicks = 0
+        isTranscoding = false
+        setNormalizationVolume(1)
+
+        let profile = currentProfile
+        do {
+            let stream = try await client.resolveRadioStream(
+                channelId: channel.id, profile: profile, maxBitrate: profile.maxStreamingBitrate ?? defaultMaxBitrate)
+            // Another station, a stop or a track won the race while PlaybackInfo
+            // was in flight: this one's open session is nobody's now.
+            guard token == loadToken else {
+                await client.closeRadioStream(liveStreamId: stream.liveStreamId)
+                return
+            }
+            radioLiveStreamId = stream.liveStreamId
+            debugLog("radio \(channel.name ?? channel.id), live stream \(stream.liveStreamId ?? "none")")
+            // No precise-duration option: there is no duration to be precise about.
+            setPlayerItem(AVPlayerItem(asset: AVURLAsset(url: stream.url)))
+            isLoading = false
+            player.play()
+            updateNowPlaying()
+            Task { await loadArtwork() }
+        } catch {
+            guard token == loadToken else { return }
+            // Whatever was playing before kept going while this resolved.
+            player.pause()
+            player.removeAllItems()
+            self.error = "Could not play that station: \(error.localizedDescription)"
+            isLoading = false
+            isPaused = true
+        }
+    }
+
+    /// The server-side tuner session behind the station that is open, if any.
+    private var radioLiveStreamId: String?
+
+    private func closeRadioStream() {
+        guard let id = radioLiveStreamId else { return }
+        radioLiveStreamId = nil
+        let client = self.client
+        // Never awaited: leaving a station should be instant, and a session
+        // the server never hears about costs it a process, not correctness.
+        Task.detached { await client.closeRadioStream(liveStreamId: id) }
+    }
+
+    private func closeRadioStreamNow() async {
+        guard let id = radioLiveStreamId else { return }
+        radioLiveStreamId = nil
+        await client.closeRadioStream(liveStreamId: id)
+    }
+
+    // MARK: - Auto-mix
+
+    /// The queue just ran out: append an instant mix of 25 from the last
+    /// track and play on. False when there is nothing to continue with, and
+    /// the caller stops as usual. Music only, and never for a Waterfall guest,
+    /// whose queue is the host's.
+    private func continueWithAutoMix() async -> Bool {
+        guard let seed = item, seed.type == "Audio", transportGate == nil else { return false }
+        let token = loadToken
+        guard let mix = try? await client.instantMix(seedId: seed.id, limit: 25) else { return false }
+        // Something else took over while the mix was fetched.
+        guard token == loadToken, item?.id == seed.id else { return false }
+        let fresh = mix.filter { $0.id != seed.id }
+        guard !fresh.isEmpty else { return false }
+        let start = queue.items.count
+        queue = appending(queue, fresh)
+        queue.index = start
+        debugLog("auto-mix added \(fresh.count) tracks after \(seed.name ?? seed.id)")
+        await load(queue.items[start])
+        return true
+    }
+
+    // MARK: - Saving and restoring the queue
+
+    /// Where a restored queue will start from, in ticks: set while a queue is
+    /// shown but nothing is loaded, and spent by the first play.
+    private var restoredTicks: Int?
+
+    /// What to keep of the queue across a restart; nil when there is nothing
+    /// worth keeping (nothing playing, a video, a station). A station is left
+    /// out rather than saved as nothing, so quitting while one plays does not
+    /// erase the last music queue.
+    public func savedQueue() -> SavedQueue? {
+        guard item != nil, !isRadio else { return nil }
+        return savedQueueOf(queue.items, index: queue.index, positionSec: positionSeconds,
+                            unshuffled: queue.unshuffled ?? [])
+    }
+
+    /// Shows a queue from a previous launch without playing it: no stream is
+    /// resolved, nothing is reported to the server, no lock screen entry is
+    /// made. Play then loads the current track where it was left. Refused when
+    /// anything else has started meanwhile, since the person's own play wins.
+    public func adoptRestoredQueue(_ restored: RestoredQueue, shuffled: Bool, repeatMode mode: RepeatMode) {
+        guard item == nil, queue.items.isEmpty, !isLoading else { return }
+        queueFeed = nil
+        hasMoreQueue = false
+        shuffle = shuffled
+        repeatMode = mode
+        queue = QueueOrder(items: restored.queue, index: restored.index,
+                           unshuffled: shuffled ? (restored.unshuffled.isEmpty ? restored.queue : restored.unshuffled) : nil)
+        item = queue.current
+        isPaused = true
+        positionSeconds = restored.positionSec
+        durationSeconds = Double(item?.runTimeTicks ?? 0) / ticksPerSecond
+        restoredTicks = ticks(fromSeconds: restored.positionSec)
+    }
+
+    // MARK: - Output device
+
+    private var outputNames: [String: String] = [:]
+
+    private func watchOutputDevices() {
+        #if os(macOS)
+        refreshOutputDevices()
+        deviceWatcher = AudioOutput.watchDevices(Self.deviceHandler { [weak self] in self?.refreshOutputDevices() })
+        #endif
+    }
+
+    /// Built outside main-actor isolation for the reason `pathHandler` is:
+    /// CoreAudio owns the queue this is called on.
+    nonisolated private static func deviceHandler(_ apply: @escaping @MainActor @Sendable () -> Void) -> @Sendable () -> Void {
+        { Task { @MainActor in apply() } }
+    }
+
+    private func refreshOutputDevices() {
+        #if os(macOS)
+        outputDevices = AudioOutput.devices()
+        for d in outputDevices { outputNames[d.id] = d.name }
+        applyOutputDevice()
+        #endif
+    }
+
+    private func applyOutputDevice() {
+        #if os(macOS)
+        let target = AudioOutput.resolve(wanted: outputDeviceId, available: outputDevices.map(\.id))
+        if target.vanished, let gone = outputDeviceId {
+            outputNotice = "\(outputNames[gone] ?? "The selected output") is no longer available, so sound is playing on the system default."
+            outputDeviceId = nil   // applies the default and tells the app to save it
+            return
+        }
+        // Both decks, since a crossfade swaps which one plays.
+        for deck in [player, otherDeck] { deck.audioOutputDeviceUniqueID = target.id }
+        #endif
+    }
+
+    // MARK: - Debug panel
+
+    /// What the player is doing, for the Mac debug panel: play method,
+    /// decks, crossfade, prefetch, tap, last handover.
+    public func debugLines() -> [String] {
+        var lines: [String] = []
+        func status(_ p: AVQueuePlayer) -> String {
+            let s = p.timeControlStatus == .playing ? "playing" : p.timeControlStatus == .paused ? "paused" : "waiting"
+            return "\(s) \(p.items().count) queued, volume \(String(format: "%.2f", p.volume))"
+        }
+        guard let item else {
+            lines.append("nothing playing")
+            lines.append("deck A: \(status(player))")
+            return lines
+        }
+        let method: String
+        if isRadio { method = "live radio" }
+        else if let resolved { method = resolved.playSessionId == nil && resolved.direct ? "local file" : resolved.direct ? "direct play" : "transcode (HLS)" }
+        else { method = isLoading ? "resolving" : "not loaded (restored queue)" }
+        lines.append("now: \(item.name ?? item.id), #\(queue.index + 1) of \(queue.items.count)")
+        lines.append("method: \(method), container \(item.mediaSources?.first?.container ?? "unknown")")
+        lines.append("deck A (current): \(status(player))")
+        lines.append("deck B: \(status(otherDeck))")
+        if crossfadeSeconds > 0 {
+            lines.append("crossfade: \(Int(crossfadeSeconds)) s" + (tail == nil ? ", idle" : String(format: ", fading (in %.2f, out %.2f)", fadeIn, fadeOut)))
+        } else {
+            lines.append("crossfade: off (gapless)")
+        }
+        if let preload {
+            lines.append("prefetch: #\(preload.index + 1) \(preload.parked ? "parked for crossfade" : "queued"), \(preload.stream.direct ? "direct" : "transcode"), tap \(preload.tap == nil ? "none" : "on")")
+        } else if let preloadTarget {
+            lines.append("prefetch: resolving #\(preloadTarget.index + 1)")
+        } else {
+            lines.append("prefetch: none")
+        }
+        lines.append("equalizer: " + (equalizer.enabled ? "on" : "off") + ", tap " + (currentTap == nil ? "none" : "attached")
+                     + (resolved.map { !$0.direct && equalizer.enabled ? " (transcodes cannot be tapped)" : "" } ?? ""))
+        lines.append("normalization: \(normalization.rawValue)")
+        lines.append("output: " + (outputDeviceId.flatMap { outputNames[$0] } ?? "system default")
+                     + String(format: ", volume %.0f%%", volume * 100) + (isMuted ? ", muted" : ""))
+        lines.append("quality: \(streamingQuality.label)\(onExpensiveNetwork ? " (cellular: \(cellularQuality.label))" : "")")
+        if let lastHandover {
+            lines.append(String(format: "last handover: %.0f ms, %@", lastHandover.ms, lastHandover.label))
+        } else {
+            lines.append(measureHandovers ? "last handover: none yet" : "last handover: timing off")
+        }
+        if let radioLiveStreamId { lines.append("live stream: \(radioLiveStreamId)") }
+        return lines
+    }
 
     // MARK: - Wiring
 
@@ -1255,6 +1605,9 @@ public final class PlaybackService {
     /// on-change reports the server's view of this session freezes between
     /// ticks, so a controller's scrubber and volume slider sit still.
     private func reportNow() {
+        // Nothing playing is nothing to report: a volume restored at launch
+        // would otherwise send a progress report with no item id.
+        guard item != nil, !isRadio else { return }
         let snapshot = state()
         Task { await PlaybackReporter.progress(client, snapshot) }
     }
@@ -1271,6 +1624,9 @@ public final class PlaybackService {
     }
 
     private func reportStopped() {
+        // A channel has no finite position to report, and the server has
+        // nothing to do with a played-state update against a TvChannel.
+        guard !isRadio else { return }
         let snapshot = state()
         let client = self.client
         enqueueReport { await PlaybackReporter.stopped(client, snapshot) }
@@ -1280,6 +1636,7 @@ public final class PlaybackService {
     /// that fails is kept to send later; one that lands means the server is
     /// back and anything kept can go.
     private func reportStart() {
+        guard !isRadio else { return }
         let snapshot = state()
         let client = self.client
         let userId = config.userId
@@ -1347,30 +1704,42 @@ public final class PlaybackService {
         // shows up as a debugger stop on no breakpoint the first time anyone
         // touches a lock screen control.
         let center = MPRemoteCommandCenter.shared()
+        // Every handler checks whether a video is on. These targets are
+        // registered app-wide and outlive a movie, so without the check a media
+        // key or an AirPods squeeze during one would start the paused song (or
+        // skip to another) under the film. Checked on main, where the answer
+        // lives, not here on MediaPlayer's queue.
         center.playCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.resume() }
+            Task { @MainActor in if self?.isVideoActive?() != true { self?.resume() } }
             return .success
         }
         center.pauseCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.pause() }
+            Task { @MainActor in if self?.isVideoActive?() != true { self?.pause() } }
             return .success
         }
         center.togglePlayPauseCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.togglePlayPause() }
+            Task { @MainActor in if self?.isVideoActive?() != true { self?.togglePlayPause() } }
             return .success
         }
         center.nextTrackCommand.addTarget { [weak self] _ in
-            Task { @MainActor in await self?.next() }
+            Task { @MainActor in if self?.isVideoActive?() != true { await self?.next() } }
             return .success
         }
         center.previousTrackCommand.addTarget { [weak self] _ in
-            Task { @MainActor in await self?.previous() }
+            Task { @MainActor in if self?.isVideoActive?() != true { await self?.previous() } }
             return .success
         }
         center.changePlaybackPositionCommand.addTarget { [weak self] event in
             guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
-            Task { @MainActor in await self?.seek(to: event.positionTime) }
+            Task { @MainActor in if self?.isVideoActive?() != true { await self?.seek(to: event.positionTime) } }
             return .success
+        }
+        // Off unless asked for: on the Mac, the system hands the media keys to
+        // whichever app has these enabled and is the Now Playing app.
+        for command in [center.playCommand, center.pauseCommand, center.togglePlayPauseCommand,
+                        center.nextTrackCommand, center.previousTrackCommand,
+                        center.changePlaybackPositionCommand] {
+            command.isEnabled = true
         }
         #endif
     }
@@ -1388,15 +1757,40 @@ public final class PlaybackService {
     // closure it builds carries no isolation and no check.
     // https://developer.apple.com/forums/thread/764874
 
-    #if canImport(MediaPlayer) && canImport(UIKit)
+    #if canImport(MediaPlayer) && (canImport(UIKit) || canImport(AppKit))
     /// Artwork for whatever is playing, kept so a position update does not
     /// download it again. Keyed by the art's item id (the album, usually), so
     /// the next track on the same album reuses it.
     private var artwork: (itemId: String, image: MPMediaItemArtwork)?
 
+    #if canImport(UIKit)
     nonisolated private static func makeArtwork(_ image: UIImage) -> MPMediaItemArtwork {
         MPMediaItemArtwork(boundsSize: image.size) { _ in image }
     }
+
+    /// Decoded off the main thread, rather than by MediaPlayer at draw time,
+    /// where a damaged file only surfaced as ImageIO's anonymous
+    /// "decompressing image -- possibly corrupt".
+    nonisolated private static func decodeArt(_ data: Data) async -> UIImage? {
+        guard let parsed = UIImage(data: data) else { return nil }
+        return await parsed.byPreparingForDisplay()
+    }
+    #else
+    // The Mac's lock screen and Control Center take an NSImage. Built here,
+    // outside main-actor isolation, for the same reason as the UIKit one:
+    // MediaPlayer calls the handler on its own queue.
+    nonisolated private static func makeArtwork(_ image: NSImage) -> MPMediaItemArtwork {
+        MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+    }
+
+    /// AppKit decodes lazily, so asking for the CGImage here is what proves
+    /// the bytes are an image at all, and does that work off the main thread.
+    nonisolated private static func decodeArt(_ data: Data) async -> NSImage? {
+        guard let image = NSImage(data: data),
+              image.cgImage(forProposedRect: nil, context: nil, hints: nil) != nil else { return nil }
+        return image
+    }
+    #endif
     #endif
 
     /// Fetch the current item's art for the lock screen. Separate from
@@ -1404,12 +1798,12 @@ public final class PlaybackService {
     /// is a download. The art lands a moment after the track, as it does in
     /// every other music app. Not awaited by callers: decoration only.
     private func loadArtwork() async {
-        #if canImport(MediaPlayer) && canImport(UIKit)
+        #if canImport(MediaPlayer) && (canImport(UIKit) || canImport(AppKit))
         guard let item else { return }
         let artId = item.albumId ?? item.id
         guard artwork?.itemId != artId else { return }
         if let file = offline?.artFile(artId), let data = try? Data(contentsOf: file),
-           let parsed = UIImage(data: data), let image = await parsed.byPreparingForDisplay() {
+           let image = await Self.decodeArt(data) {
             guard (self.item?.albumId ?? self.item?.id) == artId else { return }
             artwork = (artId, Self.makeArtwork(image))
             return updateNowPlaying()
@@ -1421,10 +1815,7 @@ public final class PlaybackService {
             if status != 404 { debugLog("lock screen art for item \(artId): HTTP \(status)") }
             return
         }
-        // Decoded here, off the main thread, rather than by MediaPlayer at
-        // draw time, where a damaged file only surfaced as ImageIO's
-        // anonymous "decompressing image -- possibly corrupt".
-        guard let parsed = UIImage(data: data), let image = await parsed.byPreparingForDisplay() else {
+        guard let image = await Self.decodeArt(data) else {
             debugLog("lock screen art for item \(artId) (\(item.album ?? item.name ?? "?")) did not decode: \(data.count) bytes, \(response.mimeType ?? "no type")")
             return
         }
@@ -1448,11 +1839,18 @@ public final class PlaybackService {
             // lock screen's scrubber running on its own after a pause.
             MPNowPlayingInfoPropertyPlaybackRate: isPaused ? 0.0 : 1.0,
         ]
-        #if canImport(UIKit)
+        #if canImport(UIKit) || canImport(AppKit)
         if let artwork, artwork.itemId == (item.albumId ?? item.id) {
             info[MPMediaItemPropertyArtwork] = artwork.image
         }
         #endif
+        if isRadio {
+            // No length, and no position that means anything: the system
+            // shows it as live rather than a scrubber stuck at zero.
+            info[MPNowPlayingInfoPropertyIsLiveStream] = true
+            info[MPMediaItemPropertyPlaybackDuration] = nil
+            info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = nil
+        }
         // A NaN or infinite duration reaches MediaPlayer as a corrupt payload
         // rather than an error. A live stream and an asset whose duration is
         // still indefinite both produce one.
@@ -1469,10 +1867,15 @@ public final class PlaybackService {
         // nonisolated(unsafe) because the dictionary is built here, handed over
         // once, and never read or mutated again.
         nonisolated(unsafe) let payload = info
+        let paused = isPaused
         if Thread.isMainThread {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = payload
+            Self.setPlaybackState(paused ? .paused : .playing)
         } else {
-            DispatchQueue.main.async { MPNowPlayingInfoCenter.default().nowPlayingInfo = payload }
+            DispatchQueue.main.async {
+                MPNowPlayingInfoCenter.default().nowPlayingInfo = payload
+                Self.setPlaybackState(paused ? .paused : .playing)
+            }
         }
         #endif
     }
@@ -1482,9 +1885,25 @@ public final class PlaybackService {
         // Same main queue requirement as the setter above.
         if Thread.isMainThread {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            Self.setPlaybackState(.stopped)
         } else {
-            DispatchQueue.main.async { MPNowPlayingInfoCenter.default().nowPlayingInfo = nil }
+            DispatchQueue.main.async {
+                MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+                Self.setPlaybackState(.stopped)
+            }
         }
         #endif
     }
+
+    #if canImport(MediaPlayer)
+    /// On the Mac the system decides which app the media keys go to from this
+    /// state, not from the info dictionary: an app that never sets it is not
+    /// offered the play/pause key. iOS works it out from the audio session and
+    /// ignores this.
+    nonisolated private static func setPlaybackState(_ state: MPNowPlayingPlaybackState) {
+        #if os(macOS)
+        MPNowPlayingInfoCenter.default().playbackState = state
+        #endif
+    }
+    #endif
 }
