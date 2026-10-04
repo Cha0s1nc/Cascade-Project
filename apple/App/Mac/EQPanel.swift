@@ -42,7 +42,8 @@ struct EQPanel: View {
                     Text(String(format: "%+.1f dB", profile.effectivePreamp)).monospacedDigit().foregroundStyle(.secondary).frame(width: 64, alignment: .trailing)
                 }
             } else {
-                Text(String(format: "Preamp %+.1f dB: turned down by the biggest boost so boosted bands cannot distort.", profile.effectivePreamp))
+                // + 0 so a flat curve reads 0.0 rather than -0.0.
+                Text(String(format: "Preamp %+.1f dB: turned down by the biggest boost so boosted bands cannot distort.", profile.effectivePreamp + 0))
                     .font(.caption).foregroundStyle(.secondary)
             }
             HStack {

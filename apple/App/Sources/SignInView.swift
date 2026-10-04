@@ -41,6 +41,13 @@ struct SignInView: View {
     private var form: some View {
         Form {
             Section("Server") {
+                #if os(macOS)
+                // A grouped Mac form puts the first argument on the left as the
+                // row's label, so the address example goes in the prompt.
+                TextField("Address", text: $server, prompt: Text("https://jellyfin.example.com"))
+                    .autocorrectionDisabled()
+                    .noAutocaps()
+                #else
                 TextField("https://jellyfin.example.com", text: $server)
                     .autocorrectionDisabled()
                     .noAutocaps()
@@ -48,6 +55,7 @@ struct SignInView: View {
                     .textContentType(.URL)
                     .keyboardType(.URL)
                     #endif
+                #endif
             }
 
             if let code = quickConnectCode {

@@ -200,16 +200,17 @@ public enum ElectronSettingsImport {
         rows.append(ids("libraryIds", "cascade.libraryIds"))
         rows.append(ids("movieLibraryIds", "cascade.movieLibraryIds"))
         rows.append(ids("showLibraryIds", "cascade.showLibraryIds"))
-        rows.append(ids("collapsedLibs", "cascade.collapsedLibs"))
+        // Kept as the JSON array text, as the desktop keeps it and the native
+        // poster groups read it.
+        rows.append(simple("collapsedLibs", "cascade.collapsedLibs",
+                           import: { idList($0).flatMap { stringify($0) } },
+                           export: { v in (v as? String).flatMap { idList($0) }.flatMap { stringify($0) } }))
         rows.append(bool("singleLibraryMode", "cascade.singleLibraryMode"))
         rows.append(enumeration("browseMode", "cascade.browseMode", ["music", "video"]))
         rows.append(bool("radioEnabled", "cascade.radioEnabled"))
         for name in viewPrefs { rows.append(blob("\(name)Prefs", "cascade.\(name)Prefs")) }
-        // The native Songs screen already stores these two under its own names.
-        rows.append(enumeration("songsSortField", "cascade.songs.sort", ["name", "artist", "album", "added", "played"]))
-        rows.append(simple("songsSortDir", "cascade.songs.order",
-                           import: { ["asc": "ascending", "desc": "descending"][$0 as? String ?? ""] },
-                           export: { ["ascending": "asc", "descending": "desc"][$0 as? String ?? ""] }))
+        rows.append(enumeration("songsSortField", "cascade.songsSortField", ["name", "artist", "album", "added", "played"]))
+        rows.append(enumeration("songsSortDir", "cascade.songsSortDir", ["asc", "desc"]))
 
         // Onboarding.
         rows.append(simple("wizardSeenRevision", "cascade.wizardSeenRevision", import: { int($0, 0...1000) },
@@ -238,11 +239,13 @@ public enum ElectronSettingsImport {
         rows.append(simple("maxStreamingBitrate", "cascade.streamingQuality",
                            import: { v in
                                guard let bps = int(v, 1...1_000_000_000) else { return nil }
-                               // The nearest step at or above what was asked for, so a
-                               // value between steps never streams worse than chosen;
-                               // anything past the top step is Original.
+                               // A value between steps lands on the step below it, so a
+                               // cap is never loosened by the mapping (the same rule as
+                               // StreamingQuality(electronBitrate:)); anything at or past
+                               // the desktop's Original, 140 Mbps, is Original.
+                               guard bps < 140_000_000 else { return 0 }
                                let steps = [96_000, 128_000, 192_000, 256_000, 320_000]
-                               return steps.first { $0 >= bps } ?? 0
+                               return steps.last { $0 <= bps } ?? 96_000
                            },
                            export: { v in
                                guard let q = v as? Int else { return nil }

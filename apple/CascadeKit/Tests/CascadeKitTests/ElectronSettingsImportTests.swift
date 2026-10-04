@@ -92,12 +92,12 @@ import Testing
         #expect(v["cascade.libraryIds"] as? [String] == ["lib-music", "lib-more"])
         #expect(v["cascade.movieLibraryIds"] as? [String] == ["lib-movies"])
         #expect(v["cascade.showLibraryIds"] as? [String] == [])
-        #expect(v["cascade.collapsedLibs"] as? [String] == ["lib-movies"])
+        #expect(v["cascade.collapsedLibs"] as? String == #"["lib-movies"]"#)
         #expect(v["cascade.singleLibraryMode"] as? Bool == false)
         #expect(v["cascade.browseMode"] as? String == "video")
         #expect(v["cascade.albumsPrefs"] as? String == #"{"sort":"added","dir":"desc"}"#)
-        #expect(v["cascade.songs.sort"] as? String == "played")
-        #expect(v["cascade.songs.order"] as? String == "descending")
+        #expect(v["cascade.songsSortField"] as? String == "played")
+        #expect(v["cascade.songsSortDir"] as? String == "desc")
         #expect(v["cascade.wizardSeenRevision"] as? Int == 3)
         #expect(v["cascade.firstRunWizardSeen"] as? Bool == true)
         #expect(v["cascade.videoIntroSeen"] as? Bool == true)
@@ -161,11 +161,14 @@ import Testing
         #expect(v(["crossfadeEnabled": true, "crossfadeSeconds": 99])["cascade.crossfadeSeconds"] as? Int == 6)
         #expect(v(["maxStreamingBitrate": 140_000_000])["cascade.streamingQuality"] as? Int == 0)
         #expect(v(["maxStreamingBitrate": 320_000])["cascade.streamingQuality"] as? Int == 320_000)
-        #expect(v(["maxStreamingBitrate": 100_000])["cascade.streamingQuality"] as? Int == 128_000)
+        // Between steps lands on the step below, so a cap is never loosened.
+        #expect(v(["maxStreamingBitrate": 100_000])["cascade.streamingQuality"] as? Int == 96_000)
+        #expect(v(["maxStreamingBitrate": 200_000])["cascade.streamingQuality"] as? Int == 192_000)
+        #expect(v(["maxStreamingBitrate": 50_000])["cascade.streamingQuality"] as? Int == 96_000)
         #expect(v(["normalizationEnabled": false, "normalizationSource": "album"])["cascade.normalization"] as? String == "off")
         #expect(v(["normalizationEnabled": true])["cascade.normalization"] as? String == "track")
         // Every value the native side stores must be one it reads back.
-        #expect(StreamingQuality(stored: v(["maxStreamingBitrate": 100_000])["cascade.streamingQuality"]) == .kbps128)
+        #expect(StreamingQuality(stored: v(["maxStreamingBitrate": 100_000])["cascade.streamingQuality"]) == .kbps96)
         #expect(Normalization.Mode(rawValue: v(["normalizationEnabled": true, "normalizationSource": "album"])["cascade.normalization"] as? String ?? "") == .album)
     }
 
@@ -301,7 +304,7 @@ import Testing
         let native: [String: Any] = [
             "cascade.serverUrl": "file:///etc/passwd", "cascade.libraryIds": ["fine", "not fine!"], "cascade.crossfadeSeconds": 400,
             "cascade.streamingQuality": 12345, "cascade.normalization": "loud", "cascade.eq": Data("junk".utf8),
-            "cascade.browseMode": "x", "cascade.volume": 9.0, "cascade.songs.order": "up",
+            "cascade.browseMode": "x", "cascade.volume": 9.0, "cascade.songsSortDir": "up",
         ]
         let original = try Self.config()
         let back = I.export(nativeValue: nativeLookup(native), token: nil, into: original)

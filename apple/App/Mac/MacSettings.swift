@@ -97,7 +97,13 @@ struct MacSettingsView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: 520, idealWidth: 640, minHeight: 420, idealHeight: 580)
-        .onAppear { tabsFocused = true }
+        .onAppear {
+            tabsFocused = true
+            #if DEBUG
+            // Test hook for looking at a tab without clicking: `-cascade.settingsTab playback`.
+            if let raw = UserDefaults.standard.string(forKey: "cascade.settingsTab"), let t = Tab(rawValue: raw) { tab = t }
+            #endif
+        }
     }
 
     /// Arrow keys move between tabs while the strip has focus, as the desktop's
@@ -151,6 +157,8 @@ private struct LibraryTab: View {
             // Live TV channels as stations: the row only appears for an account
             // Jellyfin already lets see Live TV, and the switch is the user
             // confirming those channels are radio (an M3U tuner cannot say).
+            // MERGE HOOK: playback's RadioSettingsSection() (embedded in Playback)
+            // does this row; when it lands, delete this block and the .task below.
             if hasLiveTv {
                 Section {
                     Toggle("Show Live TV channels as Radio", isOn: $radioEnabled)
@@ -214,7 +222,11 @@ private struct PlaybackTab: View {
                 }
 
                 OutputDeviceSettings()
+                // MERGE HOOK: embed RadioSettingsSection() here once it exists.
 
+                // MERGE HOOK: with state.equalizer(for:) and state.setEqualizer(_:for:)
+                // from playback, bind both panels through those (music and video),
+                // and delete VideoEqualizer in EQPanel.swift.
                 Section {
                     EQPanel(title: "Music", profile: Binding(get: { player.equalizer }, set: { state.setEqualizer($0) }))
                 } header: {

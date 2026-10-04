@@ -629,12 +629,19 @@ struct NotesView: View {
 /// launch check. Attached once, to the main window's content.
 private struct UpdatePrompt: ViewModifier {
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
     private let service = UpdateService.shared
 
     func body(content: Content) -> some View {
         content
             .onChange(of: service.showRequest) { openWindow(id: "update") }
-            .task { service.checkOnLaunch() }
+            .task {
+                service.checkOnLaunch()
+                #if DEBUG
+                // Test hook: open the Settings window on launch.
+                if UserDefaults.standard.bool(forKey: "cascade.openSettings") { openSettings() }
+                #endif
+            }
     }
 }
 
