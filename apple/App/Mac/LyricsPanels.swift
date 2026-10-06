@@ -135,7 +135,7 @@ struct LyricsSourcePill: View {
     }
 
     private func title(_ choice: LyricsSourceChoice) -> String {
-        choice == .auto ? "Auto \u{2014} \(LyricsSourceChoice.autoHint(serverOnly: serverMode))" : choice.menuLabel
+        choice == .auto ? "Auto (\(LyricsSourceChoice.autoHint(serverOnly: serverMode)))" : choice.menuLabel
     }
 
     /// The badge for how the source went on the last fetch.
