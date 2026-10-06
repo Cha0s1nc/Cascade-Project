@@ -253,7 +253,7 @@ struct MacTracksMenu: View {
                       let url = URL(string: "\(base)/web/index.html#/details?id=\(track.id)") else { return }
                 openURL(url)
             }
-            Button("Edit Lyrics\u{2026}", systemImage: "text.quote") { openWindow(id: "lyrics-editor", value: track.id) }
+            Button("Edit Lyrics\u{2026}", systemImage: "text.quote") { openLyricsEditor(itemId: track.id, state: state, openWindow: openWindow) }
         }
     }
 
