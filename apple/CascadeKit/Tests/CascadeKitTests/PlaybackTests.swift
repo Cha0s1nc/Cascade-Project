@@ -179,3 +179,24 @@ struct TickTests {
         #expect(ticks(fromSeconds: -1) == 0)
     }
 }
+
+@Suite("seeksLocally")
+struct SeeksLocallyTests {
+    private func stream(_ url: String, direct: Bool) -> ResolvedStream {
+        ResolvedStream(url: URL(string: url)!, playSessionId: nil, mediaSourceId: nil, direct: direct, startTicks: 0)
+    }
+
+    @Test func aFileSeeksInThePlayer() {
+        #expect(stream("http://h/Audio/x/stream?static=true", direct: true).seeksLocally)
+    }
+
+    // The bug: an HLS transcode was re-requested with StartTimeTicks, which
+    // HLS ignores, so every seek on a capped quality landed back at 0.
+    @Test func anHlsTranscodeSeeksInThePlayer() {
+        #expect(stream("http://h/Audio/x/main.m3u8?AudioCodec=aac", direct: false).seeksLocally)
+    }
+
+    @Test func aProgressiveTranscodeAsksForANewStream() {
+        #expect(!stream("http://h/Audio/x/universal?Container=mp3", direct: false).seeksLocally)
+    }
+}

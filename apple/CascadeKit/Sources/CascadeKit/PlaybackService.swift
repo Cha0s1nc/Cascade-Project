@@ -564,7 +564,7 @@ public final class PlaybackService {
         setPlayerItem(playerItem)
         currentTap = nil
 
-        // Direct play hands over the whole file, so the server ignored
+        // A file or an HLS playlist holds the whole item, so the server ignored
         // startTicks and a resume position has to be seeked locally. That can
         // only happen once the asset has loaded enough to be seekable, which is
         // why this awaits the duration rather than seeking straight away.
@@ -583,7 +583,7 @@ public final class PlaybackService {
             Task { await applyNormalization(for: item) }
             if duration.isFinite, duration > 0 {
                 durationSeconds = duration
-                if stream.direct && startTicks > 0 {
+                if stream.seeksLocally && startTicks > 0 {
                     await seekPlayer(to: CascadeKit.seconds(fromTicks: startTicks))
                     positionSeconds = CascadeKit.seconds(fromTicks: startTicks)
                 }
@@ -674,7 +674,7 @@ public final class PlaybackService {
         }
 
         endCrossfade()
-        if resolved.direct {
+        if resolved.seeksLocally {
             // The whole file is already there, so this costs no round trip.
             await seekPlayer(to: target)
             positionSeconds = target

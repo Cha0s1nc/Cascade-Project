@@ -58,6 +58,10 @@ public struct ResolvedStream: Sendable, Equatable {
     public var startTicks: Int
     /// What to report to /Sessions/Playing as PlayMethod.
     public var playMethod: PlayMethod { direct ? .directPlay : .transcode }
+    /// The whole item is in the player (a file, or an HLS playlist, which
+    /// lists every segment from 0), so a seek moves the player rather than
+    /// asking the server for a new stream.
+    public var seeksLocally: Bool { direct || isHlsUrl(url.absoluteString) }
 }
 
 // MARK: - PlaybackInfo wire shapes
@@ -134,12 +138,17 @@ public func resolveStream(client: JellyfinClient, config: ServerConfig, itemId: 
         }
 
         if let transcodingUrl = source.transcodingUrl {
-            let full = withStartTicks(config.url + transcodingUrl, startTicks)
+            // HLS ignores the offset (see isHlsUrl): it starts at 0 and the
+            // player seeks, as with a file. Counting the offset on top of its
+            // clock put a resumed or seeked capped-quality track at the wrong
+            // place, the same bug the video path had.
+            let offset = isHlsUrl(transcodingUrl) ? 0 : startTicks
+            let full = withStartTicks(config.url + transcodingUrl, offset)
             guard let url = URL(string: full) else {
                 throw JellyfinError(status: 0, message: "Bad transcoding URL")
             }
             return ResolvedStream(url: url, playSessionId: info.playSessionId,
-                                  mediaSourceId: source.id, direct: false, startTicks: startTicks)
+                                  mediaSourceId: source.id, direct: false, startTicks: offset)
         }
 
         guard let url = directStreamUrl(config: config, itemId: itemId, source: source,
