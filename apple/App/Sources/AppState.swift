@@ -65,6 +65,11 @@ final class AppState {
         player?.pause()
         let session = videoSession ?? VideoSession(client: client, config: config)
         videoSession = session
+        // The Video EQ curve (video agent: the music service only holds it).
+        session.setEqualizer(equalizer(for: .video))
+        #if os(macOS)
+        session.follow(player)
+        #endif
         await session.play(items, startIndex: startIndex, audioStreamIndex: audioStreamIndex, resume: resume)
     }
 
@@ -398,7 +403,9 @@ final class AppState {
     func setEqualizer(_ profile: EQProfile, for kind: EQKind) {
         switch kind {
         case .music: player?.equalizer = profile
-        case .video: player?.videoEqualizer = profile
+        case .video:
+            player?.videoEqualizer = profile
+            videoSession?.setEqualizer(profile)
         }
         UserDefaults.standard.set(profile.encoded(), forKey: kind.storageKey)
     }

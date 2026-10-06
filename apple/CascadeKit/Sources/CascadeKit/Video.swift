@@ -125,11 +125,16 @@ public enum VideoPlayback {
             throw JellyfinError(status: 0, message: "The server offered no way to play this.")
         }
         if let transcodingUrl = source.transcodingUrl {
-            guard let url = URL(string: withStartTicks(config.url + transcodingUrl, startTicks)) else {
+            // An HLS playlist spans the whole item and ignores the offset, so
+            // like a direct file it starts at 0 and the caller seeks the
+            // player. Counting the offset anyway doubled it: a resumed
+            // transcode began at the start and reported start + clock.
+            let offset = isHlsUrl(transcodingUrl) ? 0 : startTicks
+            guard let url = URL(string: withStartTicks(config.url + transcodingUrl, offset)) else {
                 throw JellyfinError(status: 0, message: "Bad transcoding URL")
             }
             return ResolvedStream(url: url, playSessionId: info.playSessionId, mediaSourceId: source.id,
-                                  direct: false, startTicks: startTicks)
+                                  direct: false, startTicks: offset)
         }
         guard source.supportsDirectPlay == true,
               let url = directUrl(config: config, itemId: item.id, source: source, playSessionId: info.playSessionId) else {
