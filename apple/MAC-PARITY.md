@@ -47,8 +47,8 @@ Status: built / partial / not built.
 
 ## Phase 4: windows and integrations
 
-- Miniplayer: not built in this branch - a stub at 8f21cad, in progress on `mac/windows`
-- Lyrics editor and LRC parse and export: not built in this branch - a stub at 8f21cad, in progress on `mac/windows`
+- Miniplayer: partial - floating window, 300 wide, saved height, hover traffic lights, minimize and restore, wheel volume, Lyrics and Up Next tabs, 2.6 s fade; a restyled window rather than a true NSPanel, and none of it seen running yet
+- Lyrics editor and LRC parse and export: built - LRC and enhanced LRC in CascadeKit with tests, word pills, inspector, Stamp mode, own player with speed, plugin save (request shape tested only: the test server has no plugin); no unsaved-changes prompt, not seen running yet
 - Metadata editor: built
 - Discord Rich Presence with iTunes art: built - checked by frame, activity, backoff and throttle tests only, never connected to a real Discord
 - Cha0s Stream control server: built - run against the real port and token, all four routes with and without the token
