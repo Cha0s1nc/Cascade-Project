@@ -76,7 +76,7 @@ struct AddToPlaylistSheet: View {
         defer { isSaving = false }
         do {
             try await client.addToPlaylist(playlistId, itemIds: tracks.map(\.id))
-            state.dropBrowseCache(.playlists)   // its song count changed
+            state.playlistMutated()   // its song count changed
             dismiss()
         } catch {
             writeError = error.localizedDescription
@@ -90,7 +90,7 @@ struct AddToPlaylistSheet: View {
         defer { isSaving = false }
         do {
             _ = try await client.createPlaylist(name: name, itemIds: tracks.map(\.id))
-            state.dropBrowseCache(.playlists)
+            state.playlistMutated()
             dismiss()
         } catch {
             writeError = error.localizedDescription

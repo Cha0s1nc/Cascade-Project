@@ -62,6 +62,35 @@ public enum PlaylistEdit {
     }
 }
 
+/// The Playlists screen's sort fields, as the desktop stores them in
+/// `cascade.playlistsPrefs` (name, added, count). Playlists are few and come
+/// back whole, so sorting and filtering happen here, on the loaded list.
+public enum PlaylistPrefsField: String, Sendable, CaseIterable {
+    case name, added, count
+
+    public var defaultDirection: SortDirection { self == .name ? .ascending : .descending }
+}
+
+public func arrangedPlaylists(_ items: [JfItem], by prefs: LibraryPrefs) -> [JfItem] {
+    let field: PlaylistPrefsField = prefs.sortField(default: .name)
+    let kept = prefs.filter.favoritesOnly ? items.filter { $0.userData?.isFavorite == true } : items
+    let sorted = kept.enumerated().sorted { a, b in
+        let order: ComparisonResult
+        switch field {
+        case .name: order = (a.element.sortName ?? a.element.name ?? "").localizedStandardCompare(b.element.sortName ?? b.element.name ?? "")
+        case .added:
+            let (x, y) = (a.element.dateCreated ?? "", b.element.dateCreated ?? "")
+            order = x == y ? .orderedSame : (x < y ? .orderedAscending : .orderedDescending)
+        case .count:
+            let (x, y) = (a.element.childCount ?? 0, b.element.childCount ?? 0)
+            order = x == y ? .orderedSame : (x < y ? .orderedAscending : .orderedDescending)
+        }
+        if order == .orderedSame { return a.offset < b.offset }
+        return prefs.direction == .descending ? order == .orderedDescending : order == .orderedAscending
+    }
+    return sorted.map(\.element)
+}
+
 /// What a playlist's own page needs beyond its tracks: whether it is public
 /// (GET /Playlists/{id}'s OpenAccess; the item has no such field, which is
 /// why the desktop's read of IsPublic always saw false) and whether this

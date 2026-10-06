@@ -49,6 +49,37 @@ struct PlaylistBulkEditTests {
     }
 }
 
+struct PlaylistsPrefsTests {
+    private func playlist(_ name: String, count: Int, added: String, fav: Bool = false) -> JfItem {
+        var p = JfItem(id: name, name: name, type: "Playlist", userData: JfUserData(isFavorite: fav))
+        p.childCount = count
+        p.dateCreated = added
+        return p
+    }
+    private let items: [JfItem] = []
+
+    @Test func sortsByNameAddedAndCountInEitherDirection() {
+        let list = [playlist("b", count: 5, added: "2026-01-01", fav: true),
+                    playlist("a", count: 9, added: "2026-03-01"),
+                    playlist("c", count: 1, added: "2026-02-01")]
+        func ids(_ field: String, _ dir: SortDirection) -> [String] {
+            arrangedPlaylists(list, by: LibraryPrefs(field: field, direction: dir)).map(\.id)
+        }
+        #expect(ids("name", .ascending) == ["a", "b", "c"])
+        #expect(ids("added", .descending) == ["a", "c", "b"])
+        #expect(ids("count", .descending) == ["a", "b", "c"])
+        #expect(ids("count", .ascending) == ["c", "b", "a"])
+        #expect(ids("nonsense", .ascending) == ["a", "b", "c"], "an unknown stored field falls back to name")
+    }
+
+    @Test func theFavoritesFilterKeepsOnlyFavorites() {
+        let list = [playlist("a", count: 1, added: "x", fav: true), playlist("b", count: 1, added: "x")]
+        var prefs = LibraryPrefs()
+        prefs.filter.favoritesOnly = true
+        #expect(arrangedPlaylists(list, by: prefs).map(\.id) == ["a"])
+    }
+}
+
 struct MediaInfoTests {
     private func detail(_ json: String) throws -> MediaDetail {
         try JSON.decoder.decode(MediaDetail.self, from: Data(json.utf8))

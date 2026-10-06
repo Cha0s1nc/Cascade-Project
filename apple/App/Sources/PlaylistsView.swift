@@ -8,11 +8,14 @@ struct PlaylistsView: View {
     /// Loaded and kept by AppState (see browseList), so it survives leaving
     /// this screen and keeps filling while it is off screen.
     @State private var list: BrowseList?
-    private var items: [JfItem] { list?.items ?? [] }
+    private var items: [JfItem] { arrangedPlaylists(list?.items ?? [], by: prefs) }
     private var isLoading: Bool { list?.isLoading ?? true }
     private var error: String? { list?.error }
-    @AppStorage("cascade.playlists.sort") private var sortField: PlaylistSortField = .name
-    @AppStorage("cascade.playlists.order") private var sortDirection: SortDirection = .ascending
+    // The desktop's key and shape (cascade.playlistsPrefs): field name, added
+    // or count, direction, and the favorites filter. Arranged on the loaded
+    // list, which is whole.
+    @AppStorage("cascade.playlistsPrefs") private var prefs = LibraryPrefs()
+    private var sortField: PlaylistPrefsField { prefs.sortField(default: .name) }
     @State private var creating = false
     @State private var newName = ""
     @State private var writeError: String?
@@ -22,8 +25,10 @@ struct PlaylistsView: View {
     var body: some View {
         ScrollView {
             HStack {
-                SortMenu(fields: [(PlaylistSortField.name, "Name"), (.added, "Date Added")],
-                         field: $sortField, direction: $sortDirection)
+                SortMenu(fields: [(PlaylistPrefsField.name, "Name"), (.added, "Date Added"), (.count, "Song Count")],
+                         field: Binding(get: { sortField }, set: { prefs.field = $0.rawValue }),
+                         direction: Binding(get: { prefs.direction }, set: { prefs.direction = $0 }),
+                         favoritesOnly: Binding(get: { prefs.filter.favoritesOnly }, set: { prefs.filter.favoritesOnly = $0 }))
                 Spacer()
                 Button {
                     newName = ""
@@ -31,6 +36,11 @@ struct PlaylistsView: View {
                 } label: {
                     Label("New Playlist", systemImage: "plus")
                 }
+                #if os(macOS)
+                Button { state.playlistMutated(); generation += 1 } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+                #endif
             }
             .padding(.horizontal)
             .browseHeader()
@@ -39,23 +49,22 @@ struct PlaylistsView: View {
             ItemGrid(items: items)
         }
         .navigationTitle("Playlists")
-        .onChange(of: sortField) { sortDirection = sortField.defaultDirection }
+        .onChange(of: prefs.field) { prefs.direction = sortField.defaultDirection }
         .alert("New Playlist", isPresented: $creating) {
             TextField("Name", text: $newName)
             Button("Cancel", role: .cancel) {}
             Button("Create") { Task { await create() } }
         }
         .writeErrorAlert($writeError)
-        .refreshable { state.dropBrowseCache(.playlists); generation += 1 }
+        .refreshable { state.playlistMutated(); generation += 1 }
         // Kept by AppState, and dropped by every playlist write
-        // (dropBrowseCache), so a playlist renamed or deleted on its own page
+        // (playlistMutated), so a playlist renamed or deleted on its own page
         // is still current when this screen comes back.
-        .task(id: BrowseKey(sort: sortField.rawValue, direction: sortDirection, generation: generation)) {
+        .task(id: BrowseKey(sort: "all", direction: .ascending, generation: generation + state.playlistRevision * 1000)) {
             guard let client = state.client else { return }
-            let (sortBy, order) = (sortField.serverSortBy, sortDirection.serverValue)
-            list = state.browseList(.playlists, BrowseKey(sort: sortField.rawValue, direction: sortDirection,
-                                                          generation: generation)) { list in
-                list.items = try await client.playlists(sortBy: sortBy, sortOrder: order)
+            list = state.browseList(.playlists, BrowseKey(sort: "all", direction: .ascending,
+                                                          generation: generation + state.playlistRevision * 1000)) { list in
+                list.items = try await client.playlists()
             }
         }
     }
@@ -65,7 +74,7 @@ struct PlaylistsView: View {
         guard !name.isEmpty, let client = state.client else { return }
         do {
             _ = try await client.createPlaylist(name: name)
-            generation += 1
+            state.playlistMutated()
         } catch {
             writeError = error.localizedDescription
         }
@@ -101,6 +110,14 @@ struct PlaylistDetailView: View {
     }
 
     var body: some View {
+        #if os(macOS)
+        MacPlaylistDetail(source: .playlist(playlist))
+        #else
+        listBody
+        #endif
+    }
+
+    private var listBody: some View {
         List {
             header
             ForEach(Array(tracks.enumerated()), id: \.element.entryId) { index, track in
@@ -216,7 +233,7 @@ struct PlaylistDetailView: View {
         let entries = offsets.map { tracks[$0].entryId }
         do {
             try await client.removeFromPlaylist(playlist.id, entryIds: entries)
-            state.dropBrowseCache(.playlists)   // its song count changed
+            state.playlistMutated()   // its song count changed
             tracks.removeAll { entries.contains($0.entryId) }
         } catch {
             writeError = error.localizedDescription
@@ -244,7 +261,7 @@ struct PlaylistDetailView: View {
         guard !trimmed.isEmpty, trimmed != name, let client = state.client else { return }
         do {
             try await client.renamePlaylist(playlist.id, to: trimmed)
-            state.dropBrowseCache(.playlists)
+            state.playlistMutated()
             name = trimmed
         } catch {
             writeError = error.localizedDescription
@@ -255,7 +272,7 @@ struct PlaylistDetailView: View {
         guard let client = state.client else { return }
         do {
             try await client.deletePlaylist(playlist.id)
-            state.dropBrowseCache(.playlists)
+            state.playlistMutated()
             dismiss()
         } catch {
             writeError = error.localizedDescription

@@ -72,6 +72,14 @@ struct SmartPlaylistView: View {
     private var name: String { builtIns.first { $0.kind == kind }?.name ?? userPlaylist?.name ?? "Smart Playlist" }
 
     var body: some View {
+        #if os(macOS)
+        MacPlaylistDetail(source: .smart(kind))
+        #else
+        listBody
+        #endif
+    }
+
+    private var listBody: some View {
         List {
             HStack(spacing: 12) {
                 Button { Task { await state.player?.play(tracks) } } label: {
