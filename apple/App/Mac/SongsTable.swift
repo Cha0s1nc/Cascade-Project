@@ -157,6 +157,12 @@ private struct SongsTable: View {
         }
         .onChange(of: field) { syncOrder() }
         .onChange(of: direction) { syncOrder() }
+        // Acts on the selection when the clicked row is in it, on that row
+        // alone otherwise (the system decides which set `ids` is).
+        .contextMenu(forSelectionType: JfItem.ID.self) { ids in
+            MacTracksMenu(tracks: items.filter { ids.contains($0.id) })
+        }
+        .trackActionHost()
         // Return plays what is selected, like double-clicking.
         .onKeyPress(.return) {
             guard !selection.isEmpty else { return .ignored }
@@ -171,13 +177,12 @@ private struct SongsTable: View {
     }
 
     /// One cell's content, filling the cell so the whole row answers a
-    /// double-click and a right-click, not only the text. The menu is the
-    /// shared track menu, so it is the same as every other track list's.
+    /// double-click, not only the text. The right-click menu is the table's
+    /// own (above), which knows the selection.
     private func cell<Content: View>(_ track: JfItem, @ViewBuilder _ content: () -> Content) -> some View {
         content()
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
-            .trackContextMenu(track)
             .simultaneousGesture(TapGesture(count: 2).onEnded { play(selected: [track.id], startingAt: track) })
     }
 

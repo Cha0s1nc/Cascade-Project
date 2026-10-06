@@ -1,5 +1,8 @@
 import SwiftUI
 import CascadeKit
+#if os(macOS)
+import AppKit
+#endif
 
 /// Push a library item onto the current tab's stack. Set by TabStack; nil
 /// where there is no stack to push onto (the Now Playing sheet, the tvOS
@@ -27,6 +30,14 @@ private struct TrackContextMenu: ViewModifier {
     @State private var addingToPlaylist = false
 
     func body(content: Content) -> some View {
+        #if os(macOS)
+        // The host presents Add to Playlist, Media Info and the delete dialog.
+        content.contextMenu {
+            TrackMenuItems(track: track, favorite: $favorite, played: $played,
+                           addingToPlaylist: $addingToPlaylist)
+        }
+        .trackActionHost()
+        #else
         content.contextMenu {
             TrackMenuItems(track: track, favorite: $favorite, played: $played,
                            addingToPlaylist: $addingToPlaylist)
@@ -36,6 +47,7 @@ private struct TrackContextMenu: ViewModifier {
         .sheet(isPresented: $addingToPlaylist) {
             AddToPlaylistSheet(track: track).environment(state)
         }
+        #endif
     }
 }
 
@@ -50,6 +62,8 @@ struct TrackMenuItems: View {
     @Binding var favorite: Bool?
     @Binding var played: Bool?
     @Binding var addingToPlaylist: Bool
+    /// The Now Playing menu: adds Stop and Clear Queue (Mac).
+    var nowPlaying = false
     @Environment(AppState.self) private var state
     @Environment(\.openItem) private var openItem
 
@@ -58,6 +72,16 @@ struct TrackMenuItems: View {
     private var artist: JfNameId? { track.albumArtists?.first ?? track.artistItems?.first }
 
     var body: some View {
+        #if os(macOS)
+        MacTracksMenu(tracks: [track], nowPlaying: nowPlaying, favorite: $favorite, played: $played,
+                      addingToPlaylist: $addingToPlaylist)
+        #else
+        iosBody
+        #endif
+    }
+
+    @ViewBuilder
+    private var iosBody: some View {
         Section {
             Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
                 Task { await state.player?.playNext([track]) }
@@ -207,11 +231,37 @@ private struct ItemContextMenu: ViewModifier {
                     Task { if let found = try? await client.item(id: artist.id) { openItem(found) } }
                 }
             }
+            #if os(macOS)
+            MacItemMenuExtras(item: item, deletingPlaylist: $deletingPlaylist)
+            #endif
         }
         .sheet(isPresented: $addingToPlaylist) {
             AddToPlaylistSheet(tracks: playlistTracks).environment(state)
         }
+        #if os(macOS)
+        .confirmationDialog("Delete \u{201C}\(item.name ?? "playlist")\u{201D}?", isPresented: $deletingPlaylist,
+                            titleVisibility: .visible) {
+            Button("Delete Playlist", role: .destructive) { Task { await deletePlaylist() } }
+        } message: {
+            Text("The songs stay in your library.")
+        }
+        #endif
     }
+
+    #if os(macOS)
+    @State private var deletingPlaylist = false
+
+    /// Re-checks the right before sending: a dimmed item can still be triggered.
+    private func deletePlaylist() async {
+        guard state.canDelete, let client = state.client else { return }
+        do {
+            try await client.deleteItem(item.id)
+            state.playlistMutated()
+        } catch {
+            NSAlert(error: error).runModal()
+        }
+    }
+    #endif
 
     /// The tile's songs, fetched when an action needs them: a grid of albums
     /// does not carry its tracks, and fetching them all up front would cost a
