@@ -80,6 +80,20 @@ enum MainWindows {
     }
 }
 
+/// How anything opens the lyrics editor (Edit lyrics in a menu, the lyrics panel's edit button):
+/// it needs the Cascade Server plugin, and the one-time notice comes first, as on the desktop.
+@MainActor
+func openLyricsEditor(itemId: String, state: AppState, openWindow: OpenWindowAction) {
+    guard state.cascadePluginApi != nil else {
+        let a = NSAlert()
+        a.messageText = "The lyrics editor needs the Cascade Server plugin, which was not found on this server."
+        a.runModal()
+        return
+    }
+    guard PluginNotice.ensure() else { return }
+    openWindow(id: "lyrics-editor", value: itemId)
+}
+
 /// "Open Miniplayer" in the Window menu, ahead of the stock items.
 struct WindowCommands: Commands {
     var body: some Commands {

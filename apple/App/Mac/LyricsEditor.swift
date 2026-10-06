@@ -173,7 +173,7 @@ private struct LineList: View {
             ScrollView {
                 LazyVStack(spacing: 4) {
                     ForEach(model.lines.indices, id: \.self) { li in
-                        row(li, playing: playing == li).id(li)
+                        if model.lines.indices.contains(li) { row(li, playing: playing == li).id(li) }
                     }
                     Button("+ Add line") { model.appendLine() }.padding(.top, 6)
                 }
@@ -210,7 +210,7 @@ private struct LineList: View {
                             .buttonStyle(.bordered).controlSize(.small).help("Add word")
                     }
                 } else {
-                    TextField("Lyric line", text: Binding(get: { model.lines[li].text }, set: { model.setText(li, $0) }))
+                    TextField("Lyric line", text: Binding(get: { model.line(li)?.text ?? "" }, set: { model.setText(li, $0) }))
                         .textFieldStyle(.plain)
                         .onTapGesture { model.selection = .line(li) }
                 }
@@ -240,7 +240,7 @@ private struct LineList: View {
         let isNext = model.stampTarget == .word(line: li, word: wi)
         Group {
             if editingWord == sel {
-                TextField("word", text: Binding(get: { model.lines[li].words?[wi].text.trimmingCharacters(in: .whitespaces) ?? "" },
+                TextField("word", text: Binding(get: { model.word(li, wi)?.text.trimmingCharacters(in: .whitespaces) ?? "" },
                                                 set: { model.setWord(li, wi, text: $0) }))
                     .textFieldStyle(.plain).frame(minWidth: 40).fixedSize()
                     .onSubmit { editingWord = nil }
@@ -305,19 +305,19 @@ private struct Inspector: View {
             case .line(let li)? where model.lines.indices.contains(li):
                 Text("LINE").font(.caption.weight(.bold)).foregroundStyle(.secondary)
                 Text("Start").foregroundStyle(.secondary)
-                TimeField(value: Binding(get: { model.lines[li].start }, set: { model.setStart(li, $0) }))
+                TimeField(value: Binding(get: { model.line(li)?.start }, set: { model.setStart(li, $0) }))
                 Button("Stamp") { model.stampSelection() }
                 Spacer()
             case .word(let li, let wi)? where model.lines.indices.contains(li) && model.lines[li].words?.indices.contains(wi) == true:
                 Text("WORD").font(.caption.weight(.bold)).foregroundStyle(.secondary)
-                TextField("word text", text: Binding(get: { model.lines[li].words?[wi].text.trimmingCharacters(in: .whitespaces) ?? "" },
+                TextField("word text", text: Binding(get: { model.word(li, wi)?.text.trimmingCharacters(in: .whitespaces) ?? "" },
                                                      set: { model.setWord(li, wi, text: $0) }))
                     .frame(width: 140)
                 Text("Start").foregroundStyle(.secondary)
-                TimeField(value: Binding(get: { model.lines[li].words?[wi].start }, set: { model.setWord(li, wi, start: .some($0)) }))
+                TimeField(value: Binding(get: { model.word(li, wi)?.start }, set: { model.setWord(li, wi, start: .some($0)) }))
                 Button("Stamp") { model.stampSelection() }
                 Text("End").foregroundStyle(.secondary)
-                TimeField(value: Binding(get: { model.lines[li].words?[wi].end }, set: { model.setWord(li, wi, end: .some($0)) }))
+                TimeField(value: Binding(get: { model.word(li, wi)?.end }, set: { model.setWord(li, wi, end: .some($0)) }))
                 Button("Stamp") { model.stampSelection(end: true) }
                 Spacer()
                 Button { model.moveWord(li, wi, -1) } label: { Image(systemName: "arrow.left") }.help("Move word left")

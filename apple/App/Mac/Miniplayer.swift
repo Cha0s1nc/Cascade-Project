@@ -121,6 +121,7 @@ private struct MiniplayerBody: View {
             .padding(.trailing, 14)
         }
         .padding(.top, 14)
+        .background(WheelCatcher(onScroll: wheelVolume))
         .animation(.easeOut(duration: 0.25), value: idle)
     }
 
@@ -134,7 +135,7 @@ private struct MiniplayerBody: View {
                     .clipped()
                     .onTapGesture { dismissWindow(id: "miniplayer") }
                     // Over the cover the wheel sets the volume; over the panel it scrolls.
-                    .background(WheelCatcher { delta, precise in nudgeVolume(Float(delta) * (precise ? 0.003 : 0.02)) })
+                    .background(WheelCatcher(onScroll: wheelVolume))
                 VStack(spacing: 10) {
                     HStack(alignment: .bottom) {
                         titleBlock(size: 16)
@@ -298,6 +299,12 @@ private struct MiniplayerBody: View {
 
     // MARK: Actions
 
+    /// A wheel notch is 5 percent and a trackpad swipe is smooth; one event moves it 10 at most,
+    /// as the desktop clamps it.
+    private func wheelVolume(_ delta: CGFloat, _ precise: Bool) {
+        nudgeVolume(Float(min(0.1, max(-0.1, delta * (precise ? 0.003 : 0.05)))))
+    }
+
     private func nudgeVolume(_ delta: Float) {
         guard delta != 0 else { return }
         let next = min(1, max(0, (volumeHud ?? player.volume) + delta))
@@ -398,6 +405,7 @@ private struct MiniplayerWindowSetup: NSViewRepresentable {
         private(set) weak var window: NSWindow?
         private var observers: [NSObjectProtocol] = []
         private var saveTask: Task<Void, Never>?
+        private var retry: Task<Void, Never>?
 
         func attach(_ window: NSWindow) {
             guard self.window !== window else { return }
@@ -441,6 +449,16 @@ private struct MiniplayerWindowSetup: NSViewRepresentable {
 
         func setLights(visible: Bool) {
             guard let window else { return }
+            // Pointing at a native light can read as leaving the page; hiding it then would pull
+            // the close button out from under the pointer (main.js hit this). The pointer decides.
+            retry?.cancel()
+            if !visible, window.frame.contains(NSEvent.mouseLocation) {
+                retry = Task { [weak self] in
+                    try? await Task.sleep(for: .milliseconds(250))
+                    if !Task.isCancelled { self?.setLights(visible: false) }
+                }
+                return
+            }
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0.2
                 for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {

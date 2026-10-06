@@ -84,6 +84,13 @@ final class LyricsEditorModel {
 
     // MARK: Editing
 
+    /// Bounds-checked reads for bindings: a row removed under SwiftUI can still be asked for once.
+    func line(_ li: Int) -> LRCLine? { lines.indices.contains(li) ? lines[li] : nil }
+    func word(_ li: Int, _ wi: Int) -> LRCWord? {
+        guard let words = line(li)?.words, words.indices.contains(wi) else { return nil }
+        return words[wi]
+    }
+
     private func edit(_ change: () -> Void) { change(); dirty = true }
 
     private func refreshText(_ li: Int) {
