@@ -18,6 +18,102 @@ public struct SmartPlaylist: Codable, Hashable, Identifiable, Sendable {
         case played(Bool)
         case playCountAtLeast(Int)
         case favorite(Bool)
+
+        // The desktop's stored shape: {"field":"genre","op":"is","value":...},
+        // {"field":"year","op":"between","min":..,"max":..}, and so on, so a
+        // definition written by either app reads in the other. The first
+        // version of this app wrote Swift's own enum encoding ({"genre":
+        // {"_0":...}}); decoding still takes that, so an existing phone's
+        // playlists survive the change.
+        private enum Key: String, CodingKey { case field, op, value, min, max, days }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: Key.self)
+            guard let field = try c.decodeIfPresent(String.self, forKey: .field) else {
+                self = try LegacyRule(from: decoder).rule
+                return
+            }
+            let op = try c.decodeIfPresent(String.self, forKey: .op)
+            func bad() -> DecodingError {
+                .dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "bad \(field) rule"))
+            }
+            func int(_ key: Key, _ fallback: Int) -> Int {
+                if let n = try? c.decode(Int.self, forKey: key) { return n }
+                if let d = try? c.decode(Double.self, forKey: key), d.isFinite { return Int(d) }
+                return fallback
+            }
+            switch field {
+            case "genre":
+                guard op == "is" || op == "isNot", let v = try c.decodeIfPresent(String.self, forKey: .value) else { throw bad() }
+                self = .genre(v, isNot: op == "isNot")
+            case "artist":
+                guard op == "is", let v = try c.decodeIfPresent(String.self, forKey: .value) else { throw bad() }
+                self = .artist(v)
+            case "year":
+                guard op == "between" else { throw bad() }
+                self = .year(min: int(.min, 1000), max: int(.max, 2100))
+            case "addedWithinDays":
+                guard op == "lte" else { throw bad() }
+                self = .addedWithinDays(int(.days, 30))
+            case "played":
+                guard op == "is", let v = try? c.decode(Bool.self, forKey: .value) else { throw bad() }
+                self = .played(v)
+            case "playCount":
+                guard op == "gte" else { throw bad() }
+                self = .playCountAtLeast(int(.value, 1))
+            case "favorite":
+                guard op == "is", let v = try? c.decode(Bool.self, forKey: .value) else { throw bad() }
+                self = .favorite(v)
+            default: throw bad()
+            }
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: Key.self)
+            switch self {
+            case .genre(let g, let isNot):
+                try c.encode("genre", forKey: .field); try c.encode(isNot ? "isNot" : "is", forKey: .op)
+                try c.encode(g, forKey: .value)
+            case .artist(let a):
+                try c.encode("artist", forKey: .field); try c.encode("is", forKey: .op); try c.encode(a, forKey: .value)
+            case .year(let lo, let hi):
+                try c.encode("year", forKey: .field); try c.encode("between", forKey: .op)
+                try c.encode(lo, forKey: .min); try c.encode(hi, forKey: .max)
+            case .addedWithinDays(let d):
+                try c.encode("addedWithinDays", forKey: .field); try c.encode("lte", forKey: .op)
+                try c.encode(d, forKey: .days)
+            case .played(let p):
+                try c.encode("played", forKey: .field); try c.encode("is", forKey: .op); try c.encode(p, forKey: .value)
+            case .playCountAtLeast(let n):
+                try c.encode("playCount", forKey: .field); try c.encode("gte", forKey: .op); try c.encode(n, forKey: .value)
+            case .favorite(let f):
+                try c.encode("favorite", forKey: .field); try c.encode("is", forKey: .op); try c.encode(f, forKey: .value)
+            }
+        }
+    }
+
+    /// The rule as this app first stored it (Swift's synthesized enum coding),
+    /// kept only to read definitions saved before the desktop's shape.
+    private enum LegacyRule: Codable {
+        case genre(String, isNot: Bool)
+        case artist(String)
+        case year(min: Int, max: Int)
+        case addedWithinDays(Int)
+        case played(Bool)
+        case playCountAtLeast(Int)
+        case favorite(Bool)
+
+        var rule: Rule {
+            switch self {
+            case .genre(let g, let n): .genre(g, isNot: n)
+            case .artist(let a): .artist(a)
+            case .year(let a, let b): .year(min: a, max: b)
+            case .addedWithinDays(let d): .addedWithinDays(d)
+            case .played(let p): .played(p)
+            case .playCountAtLeast(let n): .playCountAtLeast(n)
+            case .favorite(let f): .favorite(f)
+            }
+        }
     }
 
     public enum SortField: String, Codable, CaseIterable, Sendable {
@@ -46,6 +142,57 @@ public struct SmartPlaylist: Codable, Hashable, Identifiable, Sendable {
         self.limit = limit
     }
 
+    // MARK: Coding
+    //
+    // The desktop's shape: {id, name, match: "all"|"any", rules, sortBy,
+    // sortDir: "asc"|"desc", limit}. Reading also takes this app's first
+    // shape (matchAny, descending), and an unreadable value falls back to the
+    // default as the desktop's parser does, so one bad field never loses a
+    // playlist. A bad rule is dropped, not the playlist.
+
+    private enum Key: String, CodingKey { case id, name, match, rules, sortBy, sortDir, limit, matchAny, descending }
+
+    private struct LossyRule: Decodable {
+        let value: Rule?
+        init(from decoder: Decoder) throws { value = try? Rule(from: decoder) }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: Key.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        if let match = try? c.decode(String.self, forKey: .match) {
+            matchAny = match == "any"
+        } else {
+            matchAny = (try? c.decode(Bool.self, forKey: .matchAny)) ?? false
+        }
+        rules = ((try? c.decode([LossyRule].self, forKey: .rules)) ?? []).compactMap(\.value)
+        sortBy = (try? c.decode(SortField.self, forKey: .sortBy)) ?? .name
+        if let dir = try? c.decode(String.self, forKey: .sortDir) {
+            descending = dir == "desc"
+        } else {
+            descending = (try? c.decode(Bool.self, forKey: .descending)) ?? false
+        }
+        if let n = try? c.decode(Int.self, forKey: .limit) {
+            limit = n
+        } else if let d = try? c.decode(Double.self, forKey: .limit), d.isFinite {
+            limit = Int(d)
+        } else {
+            limit = 100
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: Key.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(matchAny ? "any" : "all", forKey: .match)
+        try c.encode(rules, forKey: .rules)
+        try c.encode(sortBy, forKey: .sortBy)
+        try c.encode(descending ? "desc" : "asc", forKey: .sortDir)
+        try c.encode(limit, forKey: .limit)
+    }
+
     // MARK: Storage
 
     /// What was stored, each definition checked and clamped. A corrupt list
@@ -58,6 +205,14 @@ public struct SmartPlaylist: Codable, Hashable, Identifiable, Sendable {
         }
         guard let data, let list = try? JSONDecoder().decode([Lossy].self, from: data) else { return [] }
         return list.compactMap { $0.value?.validated() }
+    }
+
+    /// The list as `defaults` holds it, as Data (what this app writes) or as
+    /// JSON text (what the desktop's store holds, so a settings import can
+    /// copy the value across as it is).
+    public static func stored(in defaults: UserDefaults, key: String = "cascade.smartPlaylists") -> [SmartPlaylist] {
+        if let data = defaults.data(forKey: key) { return decodeList(data) }
+        return decodeList(defaults.string(forKey: key)?.data(using: .utf8))
     }
 
     public static func encodeList(_ list: [SmartPlaylist]) -> Data {

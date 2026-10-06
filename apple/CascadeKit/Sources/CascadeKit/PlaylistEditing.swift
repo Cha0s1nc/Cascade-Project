@@ -27,10 +27,52 @@ struct NewPlaylist: Encodable {
 }
 
 /// POST /Playlists/{id}. Nil fields are left out of the JSON, and the server
-/// leaves out-of-body fields alone: sending Ids would replace the contents.
+/// leaves out-of-body fields alone: sending Ids would replace the contents,
+/// which is exactly what the bulk save below wants and a rename must not.
 struct PlaylistUpdate: Encodable {
     var name: String?
+    var ids: [String]?
+    var isPublic: Bool?
 }
+
+/// Bulk playlist editing over a selection of rows (src/core/playlist-edit.ts):
+/// remove, and move to the top or bottom. Rows are selected by entry id (a
+/// track can in principle appear twice), and the result is the new order for
+/// `setPlaylistItems` to send.
+public enum PlaylistEdit {
+    /// Drop every selected row, keeping the rest in their existing order.
+    public static func removing(_ items: [JfItem], selected: Set<String>) -> [JfItem] {
+        items.filter { !selected.contains($0.entryId) }
+    }
+
+    /// Pull every selected row to the front, in their existing relative order.
+    public static func movingToTop(_ items: [JfItem], selected: Set<String>) -> [JfItem] {
+        let (chosen, rest) = split(items, selected)
+        return chosen + rest
+    }
+
+    /// Push every selected row to the back, in their existing relative order.
+    public static func movingToBottom(_ items: [JfItem], selected: Set<String>) -> [JfItem] {
+        let (chosen, rest) = split(items, selected)
+        return rest + chosen
+    }
+
+    private static func split(_ items: [JfItem], _ selected: Set<String>) -> ([JfItem], [JfItem]) {
+        (items.filter { selected.contains($0.entryId) }, items.filter { !selected.contains($0.entryId) })
+    }
+}
+
+/// What a playlist's own page needs beyond its tracks: whether it is public
+/// (GET /Playlists/{id}'s OpenAccess; the item has no such field, which is
+/// why the desktop's read of IsPublic always saw false) and whether this
+/// account may change it (the item's CanDelete, the server's own check).
+public struct PlaylistInfo: Sendable, Equatable {
+    public var isPublic: Bool
+    public var canEdit: Bool
+}
+
+private struct PlaylistDto: Decodable { var openAccess: Bool? }
+private struct CanDeleteDto: Decodable { var canDelete: Bool? }
 
 private struct CreatedPlaylist: Decodable {
     var id: String
@@ -70,5 +112,26 @@ public extension JellyfinClient {
     /// Moves one entry to `index`, counted in the final order.
     func movePlaylistEntry(_ playlistId: String, entryId: String, to index: Int) async throws {
         try await postRaw("/Playlists/\(playlistId)/Items/\(entryId)/Move/\(index)", body: Optional<EmptyBody>.none)
+    }
+
+    /// Replaces the playlist's contents with `itemIds`, in that order, in one
+    /// request: a remove or a move over many rows is one atomic write instead
+    /// of a Move or DELETE per row. These are track ids, not entry ids.
+    func setPlaylistItems(_ playlistId: String, itemIds: [String]) async throws {
+        try await postRaw("/Playlists/\(playlistId)", body: PlaylistUpdate(ids: itemIds))
+    }
+
+    /// Name and public flag together, as the desktop's Rename / Public dialog
+    /// sends them; contents untouched.
+    func updatePlaylist(_ playlistId: String, name: String, isPublic: Bool) async throws {
+        try await postRaw("/Playlists/\(playlistId)", body: PlaylistUpdate(name: name, isPublic: isPublic))
+    }
+
+    func playlistInfo(_ playlistId: String) async throws -> PlaylistInfo {
+        let playlist: PlaylistDto = try await get("/Playlists/\(playlistId)")
+        // An explicit false is trusted; anything else (true, or missing on an
+        // older server) offers editing, and a refused write then says so.
+        let item: CanDeleteDto = try await get("/Items/\(playlistId)", params: ["userId": currentConfig.userId])
+        return PlaylistInfo(isPublic: playlist.openAccess == true, canEdit: item.canDelete != false)
     }
 }
