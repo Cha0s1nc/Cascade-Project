@@ -18,7 +18,10 @@ struct NowPlayingOverlay: View {
         ZStack {
             if let player = state.player {
                 if state.nowPlayingOpen {
+                    // trackActionHost: Media Info, Delete and multi-song Add to
+                    // Playlist from the More menu present from here.
                     OverlayContent(player: player)
+                        .trackActionHost()
                         .transition(.move(edge: .bottom))
                         .zIndex(2)
                 } else if ui.sidePanelOpen {
@@ -381,7 +384,7 @@ private struct OverlayContent: View {
         Menu {
             if let track = player.item {
                 TrackMenuItems(track: track, favorite: $favoriteOverride, played: $playedOverride,
-                               addingToPlaylist: $addingToPlaylist)
+                               addingToPlaylist: $addingToPlaylist, nowPlaying: true)
             }
             Section {
                 SleepTimerMenu(player: player)

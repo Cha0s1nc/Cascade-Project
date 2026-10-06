@@ -335,6 +335,7 @@ public enum ElectronSettingsImport {
                            import: { v in (v as? String) == "" ? "" : httpUrl(v, trimSlash: true) },
                            export: { v in (v as? String) == "" ? "" : httpUrl(v, trimSlash: true) }))
         rows.append(bool("waterfallAllowGuestControl", "cascade.wf.guestControl"))
+        rows.append(bool("waterfallAllowGuestQueue", "cascade.wf.guestAdds"))
         rows.append(simple("miniplayerHeight", "cascade.miniplayerHeight", import: { int($0, 100...900) }, export: { int($0, 100...900) }))
 
         // Definitions the native side already has types for: go through them,

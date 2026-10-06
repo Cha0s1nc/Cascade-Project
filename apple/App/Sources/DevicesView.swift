@@ -1,4 +1,4 @@
-#if os(iOS)
+#if !os(tvOS)
 import SwiftUI
 import CascadeKit
 
@@ -14,6 +14,7 @@ struct DevicesSheet: View {
     @State private var error: String?
     /// Moved by hand; the next poll does not snap it back mid-drag.
     @State private var volumeDraft: Double?
+    @State private var seekDraft: Double?
 
     private var selected: RemoteSession? {
         sessions.first { $0.id == state.controlledDevice?.id }
@@ -63,12 +64,18 @@ struct DevicesSheet: View {
                 }
             }
             .navigationTitle("Control Devices")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
+            // Cancelled with the sheet, so it polls only while open.
             .task { await poll() }
         }
+        #if os(macOS)
+        .frame(minWidth: 420, minHeight: 460)
+        #endif
     }
 
     private func nowPlaying(_ s: RemoteSession) -> String {
@@ -89,7 +96,18 @@ struct DevicesSheet: View {
                     let position = SessionControl.position(s.playState, polledAt: polledAt, now: context.date)
                     let duration = Double(s.nowPlayingItem?.runTimeTicks ?? 0) / Double(Lyrics.ticksPerSecond)
                     VStack(spacing: 4) {
+                        #if os(macOS)
+                        // Seek on the Mac, as the desktop's panel has: released
+                        // sends the position, then the next poll shows it.
+                        Slider(value: Binding(get: { seekDraft ?? min(position, max(duration, 1)) }, set: { seekDraft = $0 }),
+                               in: 0...max(duration, 1)) { editing in
+                            guard !editing, let draft = seekDraft else { return }
+                            seekDraft = nil
+                            send("Seek", seekTicks: Int(draft * Double(Lyrics.ticksPerSecond)))
+                        }
+                        #else
                         ProgressView(value: min(position, max(duration, 1)), total: max(duration, 1))
+                        #endif
                         HStack {
                             Text(clock(position)); Spacer(); Text(clock(duration))
                         }
@@ -140,10 +158,11 @@ struct DevicesSheet: View {
         }
     }
 
-    private func send(_ command: String) {
+    private func send(_ command: String, seekTicks: Int? = nil) {
         guard let id = state.controlledDevice?.id else { return }
         Task {
-            try? await state.client?.sendPlaystate(command, to: id)
+            do { try await state.client?.sendPlaystate(command, to: id, seekTicks: seekTicks) }
+            catch { self.error = error.localizedDescription }
             try? await Task.sleep(for: .milliseconds(400))
             await poll(once: true)
         }

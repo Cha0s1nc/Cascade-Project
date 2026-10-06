@@ -30,6 +30,31 @@ final class AppState {
     /// The Mac's Now Playing overlay is showing.
     var nowPlayingOpen = false
 
+    /// From the user's Policy (Permissions). False until it has been read and
+    /// for any failure: gated items stay dimmed rather than offered and refused.
+    private(set) var isAdmin = false
+    private(set) var canDelete = false
+    func setPolicy(_ policy: UserPolicy?) {
+        isAdmin = Permissions.isAdmin(policy: policy)
+        canDelete = Permissions.canDeleteMedia(policy: policy)
+    }
+
+    /// Bumped by `playlistMutated`; an open playlist page reloads when it changes.
+    private(set) var playlistRevision = 0
+    /// The one choke point every playlist write goes through (the desktop's
+    /// playlistMutated): drops the Playlists list and tells open pages to
+    /// reload, so no screen keeps showing what the server no longer has.
+    func playlistMutated() {
+        dropBrowseCache(.playlists)
+        playlistRevision += 1
+    }
+    /// Bumped after a metadata edit or a delete so pages refetch their items.
+    private(set) var libraryRevision = 0
+    func libraryMutated() {
+        for screen in [BrowseScreen.albums, .artists, .songs, .playlists] { dropBrowseCache(screen) }
+        libraryRevision += 1
+    }
+
     /// The movie and TV libraries browsed, apart from the music selection.
     let videoLibraries = VideoLibrarySelection()
 
@@ -138,7 +163,7 @@ final class AppState {
 
     /// Smart playlists made on this device (the desktop keeps them locally
     /// too: Jellyfin has no such thing). Validated when read back.
-    private(set) var smartPlaylists = SmartPlaylist.decodeList(UserDefaults.standard.data(forKey: "cascade.smartPlaylists"))
+    private(set) var smartPlaylists = SmartPlaylist.stored(in: .standard)
 
     /// Adds the playlist, or replaces the one with its id.
     func saveSmartPlaylist(_ playlist: SmartPlaylist) {
@@ -296,6 +321,7 @@ final class AppState {
         waterfall?.leave()
         waterfall = nil
         hasLiveTv = false
+        setPolicy(nil)
         closeVideo()
         controlledDevice = nil
         cascadePluginApi = nil
@@ -369,6 +395,11 @@ final class AppState {
         }
         remoteControl?.start()
         hasLiveTv = false
+        setPolicy(nil)   // a previous account's rights must not outlive it
+        Task {
+            let policy = try? await client.userPolicy()
+            if self.client === client { setPolicy(policy) }
+        }
         Task {
             let access = (try? await client.hasLiveTvAccess()) ?? false
             if self.client === client { hasLiveTv = access }
