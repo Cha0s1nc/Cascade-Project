@@ -1,5 +1,8 @@
 import SwiftUI
 import CascadeKit
+#if os(macOS)
+import AppKit
+#endif
 
 /// Waterfall: listen along with others signed in to the same server, the
 /// desktop's room panel. Start a room and share its code, or join one.
@@ -77,6 +80,13 @@ struct WaterfallView: View {
             #if os(iOS)
             if let code = session.code {
                 ShareLink("Share Code", item: "Join my Cascade Waterfall room: \(code)")
+            }
+            #elseif os(macOS)
+            if let code = session.code {
+                Button("Copy Code", systemImage: "doc.on.doc") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(code, forType: .string)
+                }
             }
             #endif
             Button("Leave Room", role: .destructive) { session.leave() }

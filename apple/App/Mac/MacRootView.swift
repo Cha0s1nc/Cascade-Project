@@ -46,6 +46,7 @@ struct MacRootView: View {
                     .pickerStyle(.segmented)
                 }
             }
+            ToolbarItem(placement: .primaryAction) { MacConnectButtons() }
             ToolbarItem(placement: .primaryAction) { ThemePanelButton() }
         }
         .searchable(text: $query, placement: .toolbar,

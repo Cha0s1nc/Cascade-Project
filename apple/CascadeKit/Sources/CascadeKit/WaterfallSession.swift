@@ -40,6 +40,11 @@ public final class WaterfallSession {
     // Host
     @ObservationIgnored private var queueRev = 0
     @ObservationIgnored private var addedBy: [String?] = []
+    /// Who added the queue row at `index`, for "added by X" in the queue
+    /// panel. Nil when unknown (a row the host added, or out of range).
+    public func addedBy(at index: Int) -> String? {
+        addedBy.indices.contains(index) ? addedBy[index] : nil
+    }
     @ObservationIgnored private var publishedQueue: [String] = []
     @ObservationIgnored private var published: (trackId: String, paused: Bool, index: Int, positionMs: Double, at: Double)?
     @ObservationIgnored private var lastHeartbeat = 0.0
