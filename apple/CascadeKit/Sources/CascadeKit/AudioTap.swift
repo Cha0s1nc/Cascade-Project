@@ -48,6 +48,12 @@ public final class TapContext: @unchecked Sendable {
         history.deallocate()
     }
 
+    /// How loud the last buffer was, 0 to 1, falling away between buffers: the Mac's playing-row
+    /// bars follow it when a tap happens to be attached (the EQ is on). The audio thread only
+    /// try-takes the lock, so a read from the main actor can never make it wait.
+    private let levelStore = OSAllocatedUnfairLock(initialState: Float(0))
+    public var level: Float { levelStore.withLock { $0 } }
+
     public func update(profile: EQProfile? = nil, normalization: Float? = nil) {
         settings.withLock {
             if let profile { $0.profile = profile }
@@ -95,8 +101,15 @@ public final class TapContext: @unchecked Sendable {
     func process(_ list: UnsafeMutablePointer<AudioBufferList>, frames: Int) {
         guard usable else { return }
         refresh()
-        if !filtering && gain == 1 { return }
         let buffers = UnsafeMutableAudioBufferListPointer(list)
+        // Peak of the first channel, before the early return: a flat tap still has a level.
+        if let first = buffers.first, let data = first.mData?.assumingMemoryBound(to: Float.self) {
+            var peak: Float = 0
+            for n in 0..<min(frames, Int(first.mDataByteSize) / MemoryLayout<Float>.size) { peak = max(peak, abs(data[n])) }
+            let heard = min(1, peak)
+            _ = levelStore.withLockIfAvailable { $0 = max(heard, $0 * 0.85) }
+        }
+        if !filtering && gain == 1 { return }
         for (channel, buffer) in buffers.enumerated() where channel < Self.maxChannels {
             guard let data = buffer.mData?.assumingMemoryBound(to: Float.self) else { continue }
             let count = min(frames, Int(buffer.mDataByteSize) / MemoryLayout<Float>.size)

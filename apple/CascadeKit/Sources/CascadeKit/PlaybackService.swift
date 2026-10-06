@@ -114,6 +114,11 @@ public final class PlaybackService {
     /// plays), and the video player applies this one to its own audio.
     public var videoEqualizer = EQProfile()
 
+    /// How loud the playing item is right now, 0 to 1, from its audio tap; nil when it has
+    /// none (the tap is only attached while the EQ is on, and never just for this). The Mac's
+    /// playing-row bars follow it, and fall back to a canned animation on nil.
+    public var tapLevel: Float? { currentTap?.level }
+
     // MARK: - Internals
 
     private let client: JellyfinClient

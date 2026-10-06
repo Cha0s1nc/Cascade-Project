@@ -261,13 +261,21 @@ public extension JellyfinClient {
     /// which has other sources. `spotifyId` is a link this user made on this
     /// device, used for this request only.
     func serverLyrics(itemId: String, api: CascadePluginApi, spicy: Bool, durationSeconds: Double,
-                      spotifyId: String? = nil, spicyOnly: Bool = false) async throws -> LyricsResult? {
+                      spotifyId: String? = nil, spicyOnly: Bool = false, wantType: String? = nil) async throws -> LyricsResult? {
         let path = CascadePlugin.lyricsPath(api, itemId: itemId)
         func parsed(_ lrc: String?) -> LyricsResult? {
             let lines = Lyrics.parseLRC(lrc ?? "")
             return lines.isEmpty ? nil : LyricsResult(lines: lines, source: "Cascade")
         }
         do {
+            // A forced Karaoke or Synced choice means exactly the plugin's own files of that
+            // type (the pill's "Karaoke Only" / "Synced Only"), never SpicyLyrics.
+            if let wantType {
+                let reply: PluginLyrics = try await get(path)
+                guard reply.type == wantType, var found = parsed(reply.lrc) else { return nil }
+                found.source = wantType == "karaoke" ? "Karaoke" : "Synced"
+                return found
+            }
             if spicy {
                 let data = try await getData(path, params: ["syllable": "true", "spicyOnly": spicyOnly ? "true" : nil,
                                                             "spotifyId": spotifyId])

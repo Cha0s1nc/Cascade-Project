@@ -20,7 +20,9 @@ struct CascadeApp: App {
     var body: some Scene {
         #if os(macOS)
         WindowGroup(id: "main") {
+            // macThemed reads AppState, so it sits inside .environment (environment flows inward).
             RootView()
+                .macThemed()
                 .environment(state)
                 .onAppear { MacIntegrations.start(state: state) }
         }
@@ -40,7 +42,7 @@ struct CascadeApp: App {
             UpdateAvailableView().environment(state)
         }
         Settings {
-            MacSettingsView().environment(state)
+            MacSettingsView().macThemed().environment(state)
         }
         #else
         WindowGroup {
