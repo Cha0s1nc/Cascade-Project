@@ -44,6 +44,12 @@ import Testing
         (NSDictionary(contentsOf: app.appending(path: "Contents/Info.plist")) as? [String: Any])?["CFBundleShortVersionString"] as? String
     }
 
+    /// Waits for a process without blocking a cooperative thread, which hung the
+    /// whole suite once when other tests ran beside it.
+    private func settle(_ p: Process) async {
+        for _ in 0..<400 where p.isRunning { try? await Task.sleep(for: .milliseconds(50)) }
+    }
+
     /// A process id that is certainly gone, so the swap script does not wait.
     private func deadPid() throws -> Int32 {
         let p = Process()
@@ -91,7 +97,7 @@ import Testing
         // And the good one installs.
         let lines = LockedLines()
         let result = try await install(good, into: old, version: "2.0.0") { lines.add($0) }
-        result.process.waitUntilExit()
+        await settle(result.process)
         #expect(result.process.terminationStatus == 0)
         #expect(version(of: old) == "2.0.0")
         // The swap leaves no staged copy or backup next to the app.
@@ -165,8 +171,8 @@ import Testing
         try await Task.sleep(for: .milliseconds(300))
         // Still waiting: nothing has moved while the app runs.
         #expect(try String(contentsOf: target.appending(path: "marker"), encoding: .utf8) == "old")
-        app.waitUntilExit()
-        p.waitUntilExit()
+        await settle(app)
+        await settle(p)
         #expect(try String(contentsOf: target.appending(path: "marker"), encoding: .utf8) == "new")
     }
 }
