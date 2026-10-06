@@ -29,6 +29,7 @@ struct CascadeApp: App {
         }
         .defaultSize(width: 1100, height: 700)
         .commands { PlaybackCommands(state: state) }
+        .commands { WindowCommands() }
 
         Window("Miniplayer", id: "miniplayer") {
             MiniplayerView().environment(state)
