@@ -1,3 +1,4 @@
+#if !os(tvOS)
 import SwiftUI
 import CascadeKit
 
@@ -183,3 +184,4 @@ struct DevicesSheet: View {
         } while !Task.isCancelled
     }
 }
+#endif
