@@ -36,6 +36,8 @@ public struct JfMediaStream: Codable, Sendable {
     public var language: String?
     public var displayTitle: String?
     public var isDefault: Bool?
+    /// Frames per second of a video stream, for stepping a frame at a time.
+    public var realFrameRate: Double?
 }
 
 public struct JfImageTags: Codable, Sendable {
