@@ -20,9 +20,10 @@ struct CascadeApp: App {
     var body: some Scene {
         #if os(macOS)
         WindowGroup(id: "main") {
-            // macThemed reads AppState, so it sits inside .environment (environment flows inward).
+            // Inside the environment: the theme and the extras read AppState themselves.
             RootView()
                 .macThemed()
+                .macAppExtras()
                 .environment(state)
                 .onAppear { MacIntegrations.start(state: state) }
         }
@@ -41,8 +42,9 @@ struct CascadeApp: App {
         Window("Update Available", id: "update") {
             UpdateAvailableView().environment(state)
         }
+        .windowResizability(.contentSize)
         Settings {
-            MacSettingsView().macThemed().environment(state)
+            MacSettingsView().frame(width: 680, height: 720).macThemed().environment(state)
         }
         #else
         WindowGroup {
@@ -75,8 +77,17 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 struct RootView: View {
     @Environment(AppState.self) private var state
 
+    /// Debug builds only: `-cascade.forceSignIn YES` shows the sign-in screen
+    /// over a stored session, to look at it without signing anyone out.
+    private var showsMain: Bool {
+        #if DEBUG
+        if UserDefaults.standard.bool(forKey: "cascade.forceSignIn") { return false }
+        #endif
+        return state.isSignedIn
+    }
+
     var body: some View {
-        if state.isSignedIn {
+        if showsMain {
             #if os(macOS)
             MacRootView()
             #else
