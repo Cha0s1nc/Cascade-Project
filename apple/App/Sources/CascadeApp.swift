@@ -28,7 +28,7 @@ struct CascadeApp: App {
                 .onAppear { MacIntegrations.start(state: state) }
         }
         .defaultSize(width: 1100, height: 700)
-        .commands { PlaybackCommands(state: state) }
+        .commands { PlaybackCommands(state: state); WindowCommands() }
 
         Window("Miniplayer", id: "miniplayer") {
             MiniplayerView().environment(state)
