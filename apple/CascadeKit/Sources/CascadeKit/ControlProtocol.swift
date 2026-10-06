@@ -10,11 +10,15 @@ public struct ControlRequest: Sendable, Equatable {
     /// Lowercased names.
     public var headers: [String: String]
     public var body: Data
+    public init(method: String, path: String, headers: [String: String], body: Data) {
+        self.method = method; self.path = path; self.headers = headers; self.body = body
+    }
 }
 
 public struct ControlResponse: Sendable, Equatable {
     public var status: Int
     public var body: String
+    public init(status: Int, body: String) { self.status = status; self.body = body }
 
     /// The bytes on the wire. Node's `res.writeHead(404); res.end()` has no body and no content type.
     public var data: Data {

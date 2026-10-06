@@ -99,12 +99,12 @@ struct IntegrationsTests {
     @Test func parseWaitsForTheWholeBody() {
         let raw = "POST /cascade/control HTTP/1.1\r\nHost: x\r\nX-Cascade-Token: t\r\nContent-Length: 17\r\n\r\n"
         #expect(ControlServerProtocol.parse(Data(raw.utf8)) == .incomplete)
-        #expect(ControlServerProtocol.parse(Data((raw + #"{"action":"next"}"#).utf8)) == .incomplete)
+        #expect(ControlServerProtocol.parse(Data((raw + #"{"action":"ne"#).utf8)) == .incomplete)
         guard case .request(let r) = ControlServerProtocol.parse(Data((raw + #"{"action":"next"}"#).utf8)) else {
             Issue.record("expected a request"); return
         }
         #expect(r.method == "POST" && r.path == "/cascade/control" && r.headers["x-cascade-token"] == "t")
-        #expect(r.body.count == 17 || r.body.count == 16)
+        #expect(r.body.count == 17)
     }
 
     @Test func garbageIsMalformed() {
