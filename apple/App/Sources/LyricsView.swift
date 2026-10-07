@@ -283,9 +283,9 @@ struct LyricsView: View {
     /// False for lyrics with no timings: a still page to scroll, every line
     /// lit, with nothing to follow.
     var synced = true
-    /// An English line for each of `lines` (empty where there is none yet), shown under the
-    /// original, which always stays. Nil when translation is off.
-    var translations: [String]?
+    /// The on-device translation of each line, by index, shown under it. Empty
+    /// while off or on tvOS, which has no Translation framework.
+    var translations: [Int: String] = [:]
 
     @Environment(\.lyricInk) private var ink
     @Environment(\.lyricScale) private var scale
@@ -309,8 +309,7 @@ struct LyricsView: View {
     }
 
     private func translation(_ index: Int) -> String? {
-        guard let translations, translations.indices.contains(index) else { return nil }
-        let t = translations[index].trimmingCharacters(in: .whitespaces)
+        guard let t = translations[index]?.trimmingCharacters(in: .whitespaces) else { return nil }
         // A line the engine returned unchanged (English in a mixed song) is not repeated under itself.
         return t.isEmpty || t.lowercased() == lines[index].text.trimmingCharacters(in: .whitespaces).lowercased() ? nil : t
     }

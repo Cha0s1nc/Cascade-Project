@@ -64,7 +64,7 @@ struct MacLyricsBody: View {
         if let lines = model.lines {
             VStack(spacing: 8) {
                 LyricsView(lines: lines, player: player, emphasis: model.credit != nil, synced: model.synced,
-                           translations: ui.translator.showing ? ui.translator.translations : nil)
+                           translations: ui.translator.showing ? ui.translator.byIndex : [:])
                     // A new song's lyrics start from their own top, not scrolled to wherever
                     // the last song's were.
                     .id(player.item?.id)
@@ -180,7 +180,7 @@ struct TranslateButton: View {
         switch translator.status {
         case .translating(let done, let total) where total > 0: "\(Int(Double(done) / Double(total) * 100))%"
         case .translating: "Translating\u{2026}"
-        case .needsInstall(let key): "Install \(LyricTranslation.displayName(key))\u{2026}"
+        case .needsInstall(let key): "Install \(LyricLanguages.displayName(key))\u{2026}"
         case .failed: "Failed"
         case .idle: translator.showing ? "Show original" : "Translate"
         }
@@ -189,7 +189,7 @@ struct TranslateButton: View {
     private var help: String {
         switch translator.status {
         case .failed: "Translation unavailable"
-        case .needsInstall(let key): "Install \(LyricTranslation.displayName(key)) in macOS to translate"
+        case .needsInstall(let key): "Install \(LyricLanguages.displayName(key)) in macOS to translate"
         default: translator.showing ? "Show original" : "Translate lyrics"
         }
     }

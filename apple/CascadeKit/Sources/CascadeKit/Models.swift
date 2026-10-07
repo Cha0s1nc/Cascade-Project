@@ -38,6 +38,10 @@ public struct JfMediaStream: Codable, Sendable {
     public var isDefault: Bool?
     /// Frames per second of a video stream, for stepping a frame at a time.
     public var realFrameRate: Double?
+    /// Video streams only: the picture's size, so the player knows a film is
+    /// landscape before its first frame.
+    public var width: Int?
+    public var height: Int?
 }
 
 public struct JfImageTags: Codable, Sendable {

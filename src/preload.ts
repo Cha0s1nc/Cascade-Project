@@ -16,8 +16,31 @@ const cascade: ElectronPlatform = {
     set:    (key, value) => ipcRenderer.invoke('store-set', key, value),
     delete: (key) => ipcRenderer.invoke('store-delete', key),
   },
+  // Reverse-proxy support: extra headers (applied in the main process, to the
+  // Jellyfin server's origin only) and the remembered client certificate.
+  connection: {
+    getHeaders:       () => ipcRenderer.invoke('connection-get-headers'),
+    set:              (serverUrl, headers, persist) => ipcRenderer.invoke('connection-set', serverUrl, headers, persist),
+    resetCertificate: () => ipcRenderer.invoke('connection-reset-certificate'),
+  },
+  offline: {
+    setOwner: (userId) => ipcRenderer.invoke('offline-owner', userId),
+    summary:  () => ipcRenderer.invoke('offline-summary'),
+    tracks:   (collectionId) => ipcRenderer.invoke('offline-tracks', collectionId),
+    add:      (collection, tracks, session) => ipcRenderer.invoke('offline-add', collection, tracks, session),
+    remove:   (collectionId) => ipcRenderer.invoke('offline-remove', collectionId),
+    resume:   (session) => ipcRenderer.invoke('offline-resume', session),
+    addPlay:  (play) => ipcRenderer.invoke('offline-play-add', play),
+    takePlays: () => ipcRenderer.invoke('offline-plays-take'),
+    onEvent:  (cb) => { ipcRenderer.on('offline-event', (_e, event) => cb(event)) },
+  },
   clipboard: {
     write: (text) => ipcRenderer.invoke('clipboard-write', text),
+    read:  () => ipcRenderer.invoke('clipboard-read'),
+  },
+  presets: {
+    save: (fileName, text) => ipcRenderer.invoke('preset-save', fileName, text),
+    open: () => ipcRenderer.invoke('preset-open'),
   },
   shell: {
     openExternal: (url) => ipcRenderer.invoke('shell-open', url),

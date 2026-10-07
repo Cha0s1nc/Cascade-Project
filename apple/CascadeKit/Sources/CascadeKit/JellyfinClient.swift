@@ -37,10 +37,27 @@ func errorMessage(response: HTTPURLResponse, body: Data) -> String {
 /// accepts a token by default: 12.0 turned off X-Emby-Token, X-Emby-Authorization
 /// and api_key on new and upgraded servers. Jellyfin 10.11 accepts this form too.
 public func authHeader(appVersion: String, deviceId: String, token: String? = nil) -> String {
-    let base = "MediaBrowser Client=\"Cascade\", Device=\"\(cascadeDeviceName)\", DeviceId=\"\(deviceId)\", Version=\"\(appVersion)\""
+    let base = "MediaBrowser Client=\"\(cascadeEdition)\", Device=\"\(cascadeDeviceName)\", DeviceId=\"\(deviceId)\", Version=\"\(appVersion)\""
     guard let token, !token.isEmpty else { return base }
     return base + ", Token=\"\(token)\""
 }
+
+/// Which edition of Cascade this is, as the server's Devices and Activity
+/// screens show it beside the device name. The desktop's Electron build sends
+/// "Cascade Electron" (src/core/jellyfin.ts). The native Mac app keeps the
+/// Electron build's DeviceId when it takes over, so the server sees the same
+/// device with its app renamed, not a new device.
+public let cascadeEdition: String = {
+    #if os(tvOS)
+    return "Cascade tvOS"
+    #elseif os(iOS)
+    return "Cascade iOS"
+    #elseif os(macOS)
+    return "Cascade Mac"
+    #else
+    return "Cascade"
+    #endif
+}()
 
 /// What the server's device list and cast menus call this device, so a phone
 /// and a desktop signed in to one account are told apart. Fixed words rather
@@ -72,7 +89,7 @@ let cascadeAppVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"
 /// because it runs before there is any config to construct a client with.
 public func authenticate(serverUrl: String, username: String, password: String,
                          appVersion: String, deviceId: String,
-                         session: URLSession = .shared) async throws -> JfAuthResult {
+                         session: URLSession = ProxyConnection.shared.session) async throws -> JfAuthResult {
     let base = serverUrl.hasSuffix("/") ? String(serverUrl.dropLast()) : serverUrl
     guard let url = URL(string: "\(base)/Users/AuthenticateByName") else {
         throw JellyfinError(status: 0, message: "Not a valid server address")
@@ -96,11 +113,14 @@ public func authenticate(serverUrl: String, username: String, password: String,
 
 public actor JellyfinClient {
     private var config: ServerConfig
-    private let session: URLSession
+    /// Nil means the proxy-aware session, looked up at each call: a header
+    /// edit replaces it, so it must not be kept.
+    private let injectedSession: URLSession?
+    private var session: URLSession { injectedSession ?? ProxyConnection.shared.session }
 
-    public init(config: ServerConfig, session: URLSession = .shared) {
+    public init(config: ServerConfig, session: URLSession? = nil) {
         self.config = config
-        self.session = session
+        self.injectedSession = session
     }
 
     /// Sign-in replaces the whole config, so callers hold the client and swap

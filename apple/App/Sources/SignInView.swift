@@ -58,6 +58,10 @@ struct SignInView: View {
                 #endif
             }
 
+            // Before the first request goes out: a proxy that wants a header
+            // refuses the sign-in itself without it.
+            ProxySettingsSection()
+
             if let code = quickConnectCode {
                 Section("Quick Connect") {
                     Text(code)
@@ -97,6 +101,7 @@ struct SignInView: View {
         // Re-checked as the address is typed; .task(id:) cancels the previous
         // check, which is the debounce.
         .task(id: server) {
+            ProxyConnection.shared.setServer(server)
             quickConnectAvailable = false
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled, !server.isEmpty else { return }
@@ -133,6 +138,7 @@ struct SignInView: View {
     private func submit() {
         // Also reached from the return key, which the disabled button does not stop.
         guard !busy, !server.isEmpty, !username.isEmpty else { return }
+        ProxyConnection.shared.setServer(server)
         busy = true
         error = nil
         Task {
@@ -146,6 +152,7 @@ struct SignInView: View {
     }
 
     private func startQuickConnect() {
+        ProxyConnection.shared.setServer(server)
         error = nil
         let server = self.server
         quickConnectTask = Task {

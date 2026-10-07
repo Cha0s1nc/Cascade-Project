@@ -121,7 +121,7 @@ public final class RemoteControl {
         url.scheme = url.scheme == "https" ? "wss" : "ws"
         url.queryItems = [.init(name: "ApiKey", value: config.token), .init(name: "deviceId", value: config.deviceId)]
         guard let target = url.url else { return }
-        let socket = URLSession.shared.webSocketTask(with: target)
+        let socket = ProxyConnection.shared.session(for: target).webSocketTask(with: target)
         self.socket = socket
         socket.resume()
         send(["MessageType": "KeepAlive"])

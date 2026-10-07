@@ -30,15 +30,20 @@ final class LyricsTranslator {
     private(set) var status = Status.idle
     /// One English line for each line of the sheet, empty where there is none yet.
     private(set) var translations: [String] = []
+    /// The same lines by index, the shape LyricsView takes (shared with the
+    /// iOS translator); an empty slot is a line not translated yet.
+    var byIndex: [Int: String] {
+        Dictionary(uniqueKeysWithValues: translations.enumerated().filter { !$0.element.isEmpty }.map { ($0.offset, $0.element) })
+    }
     /// The language of the sheet on screen, or nil when Apple could not take it.
     private(set) var language: String?
-    private(set) var availability: LyricTranslation.AppleStatus?
+    private(set) var availability: LyricLanguages.AppleStatus?
     /// Shown by the install prompt.
     var promptingInstall: String?
 
     private var sheet: [LyricLine] = []
     private var sheetId: String?
-    private var cache: TranslationCache
+    private var cache: TranslationCacheFile
     private var cacheDirty = false
     private var saveTask: Task<Void, Never>?
     private var runTask: Task<Void, Never>?
@@ -56,7 +61,7 @@ final class LyricsTranslator {
     }
 
     init() {
-        cache = TranslationCache.load(from: Self.cacheURL)
+        cache = TranslationCacheFile.load(from: Self.cacheURL)
         cacheDirty = cache.isDirty
     }
 
@@ -66,7 +71,7 @@ final class LyricsTranslator {
     /// translate this sheet (or could, once its language is installed).
     var offered: Bool {
         prefs.translationEnabled && language != nil
-            && LyricTranslation.pickEngine(enabled: true, status: availability) != .none
+            && LyricLanguages.pickEngine(enabled: true, status: availability) != .none
     }
 
     /// Whether the sheet's translations are on screen (or on their way).
@@ -85,7 +90,7 @@ final class LyricsTranslator {
         language = nil
         availability = nil
         guard !sheet.isEmpty, prefs.translationEnabled else { return }
-        language = LyricTranslation.languageFor(sheet.map(\.text))
+        language = LyricLanguages.languageFor(sheet.map(\.text))
         Task { await refreshAvailabilityThenTranslate() }
     }
 
@@ -119,7 +124,7 @@ final class LyricsTranslator {
         ensure(userAsked: false)
     }
 
-    private static func appleStatus(_ key: String) async -> LyricTranslation.AppleStatus {
+    private static func appleStatus(_ key: String) async -> LyricLanguages.AppleStatus {
         switch await LanguageAvailability().status(from: Locale.Language(identifier: key), to: Locale.Language(identifier: "en")) {
         case .installed: .installed
         case .supported: .supported
@@ -134,7 +139,7 @@ final class LyricsTranslator {
     func ensure(userAsked: Bool) {
         guard prefs.translationEnabled, prefs.translateOn, !sheet.isEmpty, let language,
               translatedSheetId != sheetId, runTask == nil || runTask?.isCancelled == true else { return }
-        switch LyricTranslation.pickEngine(enabled: true, status: availability) {
+        switch LyricLanguages.pickEngine(enabled: true, status: availability) {
         case .none:
             status = .idle
         case .needsInstall:
@@ -198,7 +203,7 @@ final class LyricsTranslator {
         do {
             // Cached lines first, all at once.
             for text in plan.pendingTexts {
-                if let hit = cache.lookup(TranslationCache.key(language: language, line: text)) {
+                if let hit = cache.lookup(TranslationCacheFile.key(language: language, line: text)) {
                     for i in plan.land(text) { translations[i] = hit }
                 }
             }
@@ -206,7 +211,7 @@ final class LyricsTranslator {
                 try Task.checkCancellation()
                 let english = try await translate(text)
                 guard id == sheetId else { return }
-                cache.store(TranslationCache.key(language: language, line: text), english)
+                cache.store(TranslationCacheFile.key(language: language, line: text), english)
                 cacheDirty = true
                 for i in plan.land(text) { translations[i] = english }
                 status = .translating(done: plan.done, total: plan.total)

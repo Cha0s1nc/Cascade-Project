@@ -93,7 +93,7 @@ struct MacVideoOverlay: View {
                 speedMenu
                 if !session.chapters.isEmpty { chapterMenu }
                 subtitleMenu
-                if session.audioTracks.count > 1 { audioMenu }
+                if session.audioGroup != nil { audioMenu }
                 Button { controller.showsKeys.toggle() } label: { Image(systemName: "keyboard") }
                     .accessibilityLabel("Keyboard shortcuts")
                 Button { controller.toggleFullscreen() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
@@ -120,43 +120,52 @@ struct MacVideoOverlay: View {
 
     private var chapterMenu: some View {
         Menu {
-            let current = chapterAt(session.chapters, session.position)
-            ForEach(Array(session.chapters.enumerated()), id: \.offset) { i, chapter in
-                Button { session.seek(to: chapter.sec) } label: {
-                    let text = "\(chapter.name)  \(VideoControls.clock(chapter.sec))"
-                    if i == current { Label(text, systemImage: "checkmark") } else { Text(text) }
+            let current = Chapters.current(in: session.chapters, at: session.position)
+            ForEach(Array(session.chapters.enumerated()), id: \.offset) { _, chapter in
+                Button { session.seek(to: chapter.startSeconds) } label: {
+                    let text = "\(chapter.name)  \(VideoControls.clock(chapter.startSeconds))"
+                    if chapter == current { Label(text, systemImage: "checkmark") } else { Text(text) }
                 }
             }
         } label: { Image(systemName: "list.bullet") }
         .accessibilityLabel("Chapters")
     }
 
+    // The stream's own subtitle and audio renditions, as the iOS player
+    // offers them (VideoSession.subtitleGroup / audioGroup). Picture
+    // subtitles are burned in by the server, so a film can have none.
     private var subtitleMenu: some View {
-        Menu {
-            if session.subtitles.isEmpty {
-                // Picture subtitles are burned in by the server, so none to choose from.
-                Text("None available")
-            } else {
-                Button { session.selectSubtitle(nil) } label: {
-                    if session.subtitleSelection == nil { Label("Off", systemImage: "checkmark") } else { Text("Off") }
+        let _ = session.selectionRevision
+        let group = session.subtitleGroup
+        let on = group.flatMap { session.selected(in: $0) }
+        return Menu {
+            if let group {
+                Button { session.select(nil, in: group) } label: {
+                    if on == nil { Label("Off", systemImage: "checkmark") } else { Text("Off") }
                 }
-                ForEach(session.subtitles) { choice in
-                    Button { session.selectSubtitle(choice.id) } label: {
-                        let text = choice.label + (choice.isForced ? " (forced)" : "")
-                        if session.subtitleSelection == choice.id { Label(text, systemImage: "checkmark") } else { Text(text) }
+                ForEach(group.options, id: \.self) { option in
+                    Button { session.select(option, in: group) } label: {
+                        if option == on { Label(session.label(for: option), systemImage: "checkmark") }
+                        else { Text(session.label(for: option)) }
                     }
                 }
+            } else {
+                Text("None available")
             }
-        } label: { Image(systemName: session.subtitleSelection == nil ? "captions.bubble" : "captions.bubble.fill") }
+        } label: { Image(systemName: on == nil ? "captions.bubble" : "captions.bubble.fill") }
         .accessibilityLabel("Subtitles")
     }
 
     private var audioMenu: some View {
-        Menu {
-            ForEach(session.audioTracks, id: \.index) { track in
-                Button { Task { await session.selectAudio(track.index ?? 0) } } label: {
-                    let text = track.displayTitle ?? track.language ?? "Track \(track.index ?? 0)"
-                    if track.index == session.currentAudioIndex { Label(text, systemImage: "checkmark") } else { Text(text) }
+        let _ = session.selectionRevision
+        return Menu {
+            if let group = session.audioGroup {
+                let on = session.selected(in: group)
+                ForEach(group.options, id: \.self) { option in
+                    Button { session.select(option, in: group) } label: {
+                        if option == on { Label(session.label(for: option), systemImage: "checkmark") }
+                        else { Text(session.label(for: option)) }
+                    }
                 }
             }
         } label: { Image(systemName: "waveform") }
@@ -181,7 +190,7 @@ private struct ChapterScrubber: View {
                     Capsule().fill(Color.accentColor).frame(width: geo.size.width * min(1, shown / total), height: 4)
                     ForEach(Array(session.chapters.enumerated()), id: \.offset) { _, chapter in
                         Rectangle().fill(.white.opacity(0.9)).frame(width: 2, height: 8)
-                            .offset(x: geo.size.width * min(1, chapter.sec / total) - 1)
+                            .offset(x: geo.size.width * min(1, chapter.startSeconds / total) - 1)
                     }
                     Circle().fill(.white).frame(width: 12, height: 12)
                         .offset(x: geo.size.width * min(1, shown / total) - 6)

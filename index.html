@@ -65,6 +65,7 @@
       <div class="tp-navs">
         <button class="tp-nav" data-open="colors"><span class="tp-nav-swatch" aria-hidden="true"></span><span class="tp-nav-name">Colors</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></button>
         <button class="tp-nav" data-open="lyrics"><span class="tp-nav-name">Lyrics</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></button>
+        <button class="tp-nav" data-open="presets"><span class="tp-nav-name">Share a look</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></button>
       </div>
       <div class="tp-divider"></div>
       <div>
@@ -149,6 +150,45 @@
       <div class="tp-knobs" id="tp-lyric-knobs"></div>
       <button class="tp-reset-all" id="tp-lyric-reset">Reset all lyric settings</button>
     </div>
+
+    <!-- Presets: export the current look as a .cascadepreset file or as text,
+         and import one. Building and checking a preset is
+         src/core/presets.ts; renderer.js applies it through the same save
+         paths the controls on the other pages use. -->
+    <div class="tp-page" data-page="presets">
+      <div class="tp-row">
+        <button class="tp-back" data-open="main" aria-label="Back to Theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 6 9 12 15 18"/></svg></button>
+        <span class="tp-title">Share a look</span>
+        <button class="tp-close" aria-label="Close">×</button>
+      </div>
+      <div class="tp-divider"></div>
+      <span class="tp-hint tp-page-hint">Save your colors and lyrics style as a preset to share, or load someone else's.</span>
+      <div>
+        <div class="tp-label">Include</div>
+        <div class="tp-album-row">
+          <span class="tp-album-name">Colors, mode and font</span>
+          <label class="toggle"><input type="checkbox" id="tp-preset-theme" checked><span class="toggle-track"></span></label>
+        </div>
+        <div class="tp-album-row" style="margin-top:8px;">
+          <span class="tp-album-name">Lyrics style</span>
+          <label class="toggle"><input type="checkbox" id="tp-preset-lyrics" checked><span class="toggle-track"></span></label>
+        </div>
+      </div>
+      <div>
+        <div class="tp-label">Name</div>
+        <input type="text" class="setting-input" id="tp-preset-name" placeholder="My look" maxlength="60">
+      </div>
+      <div class="tp-preset-actions">
+        <button class="tp-reset-all" id="tp-preset-export">Export file…</button>
+        <button class="tp-reset-all" id="tp-preset-copy">Copy as text</button>
+      </div>
+      <div class="tp-divider"></div>
+      <div class="tp-preset-actions">
+        <button class="tp-reset-all" id="tp-preset-import">Import file…</button>
+        <button class="tp-reset-all" id="tp-preset-paste">Paste text</button>
+      </div>
+      <span class="tp-hint">Importing replaces only the parts the preset includes.</span>
+    </div>
   </div>
 
   <div class="body-wrap">
@@ -203,6 +243,13 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
         </div>
         <div class="nav-info"><span class="nav-label">History</span></div>
+      </div>
+      <div class="nav-item nav-music" data-view="downloads">
+        <div class="nav-bar"></div>
+        <div class="nav-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </div>
+        <div class="nav-info"><span class="nav-label">Downloads</span></div>
       </div>
       <!-- Radio. Hidden until Settings > Library > "Show Live TV as Radio" is
            turned on and the server actually has Live TV channels - see
@@ -352,7 +399,8 @@
               <div class="pl-detail-name" id="album-detail-name"></div>
               <div class="pl-detail-meta" id="album-detail-meta"></div>
             </div>
-            <button class="shuffle-all-btn" id="btn-play-album" style="margin-left:auto">
+            <button class="shuffle-all-btn" id="btn-offline-album" type="button" style="margin-left:auto"></button>
+            <button class="shuffle-all-btn" id="btn-play-album">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
               Play
             </button>
@@ -559,9 +607,11 @@
           <div class="sect-header" style="margin-bottom:14px">
             <span class="sect-title">Playlists</span>
             <div style="display:flex;gap:8px;align-items:center">
-              <button class="shuffle-all-btn" id="btn-new-smart-playlist">
+              <!-- One entry point for both kinds: the modal it opens has a
+                   Normal / Smart switch (see openNewPlaylistModal). -->
+              <button class="shuffle-all-btn" id="btn-new-playlist">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                New Smart Playlist
+                New Playlist
               </button>
               <button class="shuffle-all-btn lib-sort-btn" data-lib-view="playlists">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/></svg>
@@ -593,6 +643,7 @@
             <div>
               <div class="pl-detail-name" id="pl-detail-name"></div>
               <div class="pl-detail-meta" id="pl-detail-meta"></div>
+              <div class="pl-detail-overview" id="pl-detail-overview" hidden></div>
             </div>
             <button id="pl-detail-refresh" title="Refresh this playlist" style="background:none;border:none;color:var(--text3);cursor:pointer;padding:2px 4px;font-size:14px;line-height:1;border-radius:4px;transition:color 0.15s;" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--text3)'">↻</button>
             <div style="margin-left:auto;display:flex;gap:8px">
@@ -600,6 +651,7 @@
                    into a real Jellyfin playlist, since a smart playlist itself
                    has nothing on the server to point at. -->
               <button class="shuffle-all-btn" id="btn-save-as-playlist" style="display:none">Save as a Playlist</button>
+              <button class="shuffle-all-btn" id="btn-offline-playlist" type="button"></button>
               <button class="shuffle-all-btn" id="btn-edit-playlist">Edit</button>
               <button class="shuffle-all-btn" id="btn-shuffle-playlist">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
@@ -614,7 +666,7 @@
           <!-- Edit mode toolbar: bulk move/remove act on the checkbox selection,
                rename/public opens pl-edit-modal. Hidden outside edit mode. -->
           <div class="pl-edit-toolbar" id="pl-edit-toolbar">
-            <button class="shuffle-all-btn" id="pl-edit-props">Rename / Public…</button>
+            <button class="shuffle-all-btn" id="pl-edit-props">Details…</button>
             <span class="pl-edit-count" id="pl-edit-count">0 selected</span>
             <button class="shuffle-all-btn" id="pl-edit-top" disabled>Move to top</button>
             <button class="shuffle-all-btn" id="pl-edit-bottom" disabled>Move to bottom</button>
@@ -703,6 +755,20 @@
             <div class="track-row skel-card"><div class="skel skel-text" style="width:14px;height:11px;margin:0 auto"></div><div class="track-thumb skel"></div><div style="min-width:0"><div class="skel skel-text" style="width:60%"></div><div class="skel skel-text" style="width:35%;height:9px;margin-top:5px"></div></div><div class="skel skel-text" style="width:70%"></div><div class="skel skel-text" style="width:34px;height:9px;margin-left:auto"></div></div>
           </div>
         </div>
+      </div>
+
+      <!-- Downloads: albums and playlists saved for offline listening. Works with
+           no server at all (see enterOfflineMode in renderer.js). -->
+      <div class="view" id="view-downloads">
+        <div class="sect-header" style="margin-bottom:14px">
+          <span class="sect-title">Downloads</span>
+          <span class="dl-total" id="downloads-total"></span>
+        </div>
+        <div class="dl-banner" id="downloads-banner" hidden>
+          <span id="downloads-banner-text">Your server is not reachable. Downloaded music still plays.</span>
+          <button class="shuffle-all-btn" id="downloads-retry" type="button">Try again</button>
+        </div>
+        <div id="downloads-list"></div>
       </div>
 
       <!-- Settings -->
@@ -828,6 +894,16 @@
                   </div>
                   <label class="toggle">
                     <input type="checkbox" id="normalize-toggle">
+                    <span class="toggle-track"></span>
+                  </label>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Auto-skip intros and credits</span>
+                    <span class="setting-desc">Skips an intro or the end credits as soon as it starts, once each. Needs a server that knows where they are (Jellyfin 10.10 or later with a segment provider such as the Intro Skipper plugin). Off by default; the Skip button still shows.</span>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="autoskip-toggle">
                     <span class="toggle-track"></span>
                   </label>
                 </div>
@@ -1062,6 +1138,21 @@
                   <div class="setting-label"><span class="setting-name">Password</span></div>
                   <input class="setting-input" id="s-pass" type="password" placeholder="Password" />
                 </div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Reverse proxy headers</span>
+                    <span class="setting-desc">For a server behind Cloudflare Access, Authelia or similar. One Name: Value per line, sent only to this server. Authorization and Host cannot be set. Saved on this computer with your other connection settings. Applied when you save.</span>
+                    <span class="setting-desc" id="s-headers-error" style="color:var(--red)"></span>
+                  </div>
+                  <textarea class="setting-input" id="s-headers" rows="3" spellcheck="false" autocomplete="off" placeholder="CF-Access-Client-Id: ..."></textarea>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Client certificate</span>
+                    <span class="setting-desc">If your server asks for one, install it in your system's certificate store (a .p12 or .pfx file opens there); Cascade offers what is installed and remembers your choice.</span>
+                  </div>
+                  <button class="btn btn-secondary" id="s-cert-reset" type="button">Choose again</button>
+                </div>
               </div>
               <!-- Approve another device's Quick Connect code for this signed-in
                    account. Greyed out (same disabled+data-tip pattern as the
@@ -1092,7 +1183,7 @@
             <section class="settings-section" id="section-about" role="tabpanel" aria-labelledby="sn-about">
               <div class="settings-group settings-about">
                 <div>
-                  <div style="font-size:13px;font-weight:500;color:var(--text);">Cascade</div>
+                  <div style="font-size:13px;font-weight:500;color:var(--text);" id="app-edition">Cascade</div>
                   <div style="font-size:11px;color:var(--text3);" id="app-version">v1.0.0</div>
                 </div>
                 <div style="display:flex;align-items:center;gap:12px;">
@@ -1201,6 +1292,13 @@
       <label>Password</label>
       <input type="password" id="setup-password" placeholder="Password" />
     </div>
+    <!-- For a server behind Cloudflare Access, Authelia or another reverse
+         proxy that wants a header. Closed unless some are already saved. -->
+    <details class="setup-advanced" id="setup-advanced">
+      <summary>Reverse proxy headers</summary>
+      <textarea id="setup-headers" rows="3" spellcheck="false" autocomplete="off" placeholder="CF-Access-Client-Id: ...&#10;CF-Access-Client-Secret: ..."></textarea>
+      <p class="setup-qc-hint">One <strong>Name: Value</strong> per line. Sent only to this server.</p>
+    </details>
     <div class="setup-error" id="setup-error"></div>
     <button class="setup-btn" id="setup-connect">Connect</button>
     <!-- Shown only once we know the server actually offers Quick Connect. -->
@@ -1350,6 +1448,9 @@
            in the middle of the picture where you are looking, the way
            YouTube shows it, rather than as a toast at the window's edge. -->
       <div class="vid-only" id="ov-osd" aria-live="polite"></div>
+      <!-- "Skip Intro" / "Skip Credits", shown while a Media Segment of that
+           type is playing. Driven by _syncSkipButton() in renderer.js. -->
+      <button class="vid-only" id="ov-skip-segment" type="button"></button>
       <!-- The shortcut list, opened with ?. Filled from VIDEO_KEYS. -->
       <div class="vid-only" id="ov-keys" role="dialog" aria-label="Keyboard shortcuts"></div>
       <!-- #ov-art is rewritten wholesale on every art change, so the hover
@@ -1478,7 +1579,10 @@
             <div class="q-sect-title">Up Next</div>
             <div class="q-sub" id="q-next-source"></div>
           </div>
-          <div class="q-next-meta" id="q-next-meta"></div>
+          <div class="q-next-right">
+            <div class="q-next-meta" id="q-next-meta"></div>
+            <button type="button" class="q-clear" id="q-next-clear" title="Remove everything after the playing track" hidden>Clear</button>
+          </div>
         </div>
         <div id="ov-queue-rows"></div>
       </div>
@@ -1688,8 +1792,11 @@
   <div class="ctx-item" id="ictx-instant-mix">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/></svg>Instant mix
   </div>
+  <div class="ctx-item" id="ictx-offline">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="8 12 12 16 16 12"/><line x1="12" y1="8" x2="12" y2="16"/></svg><span id="ictx-offline-label">Download for offline</span>
+  </div>
   <div class="ctx-item" id="ictx-download">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Save files to disk
   </div>
   <div class="ctx-item" id="ictx-add-playlist">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add to playlist
@@ -1852,13 +1959,24 @@
     </div>
   </div>
 </div>
-<!-- Edit Playlist properties: rename + public/private, one UpdatePlaylistDto
-     request. Reuses .modal-overlay/.modal-card/.modal-input/.modal-btn verbatim
-     (no modal CSS added here) and the existing .toggle switch from Settings. -->
+<!-- Playlist details: picture, name, description, public. Name and public are
+     Jellyfin's own POST /Playlists/{id}; picture and description need either
+     an admin (Jellyfin requires elevation for both) or Cascade Server's
+     playlist-edit routes, which let the owner do it (see openPlaylistDetails). -->
 <div class="modal-overlay hidden" id="pl-edit-modal">
   <div class="modal-card" style="max-height:none;">
-    <div class="modal-title">Edit playlist</div>
-    <input class="modal-input" id="pl-edit-name" placeholder="Playlist name…" maxlength="100" style="width:100%;box-sizing:border-box;margin-bottom:14px;" />
+    <div class="modal-title">Playlist details</div>
+    <div class="pl-details-art-row">
+      <div class="pl-details-art" id="pl-edit-art">♪</div>
+      <div class="pl-details-art-actions">
+        <button class="modal-btn" id="pl-edit-art-change" type="button">Change picture…</button>
+        <button class="modal-btn" id="pl-edit-art-remove" type="button">Remove picture</button>
+        <div class="wf-note" id="pl-edit-art-note" hidden></div>
+      </div>
+      <input type="file" id="pl-edit-art-file" accept="image/jpeg,image/png,image/webp" hidden>
+    </div>
+    <input class="modal-input" id="pl-edit-name" placeholder="Playlist name…" maxlength="100" style="width:100%;box-sizing:border-box;margin-bottom:10px;" />
+    <textarea class="modal-input pl-details-overview" id="pl-edit-overview" placeholder="Description (optional)" maxlength="2000" rows="3"></textarea>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
       <span style="font-size:12px;color:var(--text2)">Public playlist</span>
       <label class="toggle">
@@ -1880,7 +1998,25 @@
 <div class="modal-overlay hidden" id="smart-pl-modal">
   <div class="modal-card" style="width:420px;max-height:80vh;overflow-y:auto;">
     <div class="modal-title" id="smart-pl-modal-title">New smart playlist</div>
+    <!-- Normal makes a real Jellyfin playlist; Smart makes a local rule-based
+         one. Hidden while editing an existing smart playlist, which cannot
+         turn into the other kind. -->
+    <div class="seg-control" id="new-pl-mode" role="group" aria-label="Playlist kind" style="margin-bottom:14px;">
+      <button class="seg-btn" id="new-pl-mode-normal" type="button" aria-pressed="false">Normal</button>
+      <button class="seg-btn" id="new-pl-mode-smart" type="button" aria-pressed="false">Smart</button>
+    </div>
     <input class="modal-input" id="smart-pl-name" placeholder="Playlist name…" maxlength="100" style="width:100%;box-sizing:border-box;margin-bottom:14px;" />
+    <div id="new-pl-normal-fields">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <span style="font-size:12px;color:var(--text2)">Public playlist</span>
+        <label class="toggle">
+          <input type="checkbox" id="new-pl-public">
+          <span class="toggle-track"></span>
+        </label>
+      </div>
+      <div class="wf-note" style="margin-bottom:16px;">Starts empty. Add songs from any track's menu.</div>
+    </div>
+    <div id="new-pl-smart-fields">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:12px;color:var(--text2)">
       <span>Match</span>
       <select class="setting-input" id="smart-pl-match" style="width:auto;padding:4px 8px;">
@@ -1906,6 +2042,7 @@
       </select>
       <span style="margin-left:auto">Limit</span>
       <input class="setting-input" id="smart-pl-limit" type="number" min="1" max="500" style="width:64px;padding:4px 8px;" />
+    </div>
     </div>
     <div class="modal-actions">
       <button class="modal-btn" id="smart-pl-cancel">Cancel</button>

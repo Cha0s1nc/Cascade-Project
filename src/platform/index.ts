@@ -9,6 +9,28 @@
 // implements it and types/cascade.d.ts declares the global from it, so the
 // bridge and its type surface cannot drift apart.
 
+import type { JfItem } from '../core/types.ts'
+
+/** What the main process tells the renderer about offline downloads. */
+export interface OfflineSummary {
+  /** Track id to the cascade-offline:// URL of its finished file. */
+  ready: Record<string, string>
+  /** Item ids that have a cover on disk (cascade-offline://local/art/<id>.jpg). */
+  art: string[]
+  collections: { item: JfItem; trackIds: string[]; done: number; total: number; bytes: number }[]
+  totalBytes: number
+  active: { id: string; received: number; total: number | null }[]
+  failed: Record<string, string>
+  /** Plays waiting to be sent to the server. */
+  plays: number
+}
+
+export type OfflineEvent =
+  | { type: 'progress'; id: string; received: number; total: number | null }
+  | { type: 'track-done'; id: string; url: string }
+  | { type: 'art'; id: string }
+  | { type: 'changed' }
+
 /** Persistent key-value storage. localStorage on a TV, electron-store here. */
 export interface PlatformStorage {
   /**
@@ -129,9 +151,44 @@ export interface Platform {
  * capability-flags object that could disagree with reality.
  */
 export interface DesktopCapabilities {
-  clipboard?: { write(text: string): Promise<void> }
+  clipboard?: { write(text: string): Promise<void>; read(): Promise<string> }
+  /** .cascadepreset files through the OS save and open dialogs. Text only:
+   *  building and validating a preset is src/core/presets.ts's job. */
+  presets?: {
+    save(fileName: string, text: string): Promise<{ ok: boolean; canceled?: boolean; error?: string }>
+    open(): Promise<{ ok: boolean; canceled?: boolean; error?: string; text?: string }>
+  }
   shell?: { openExternal(url: string): Promise<void> }
   download?(url: string, filename: string): Promise<unknown>
+
+  /** Reverse-proxy support. Headers are added in the main process, to the
+   *  Jellyfin server's origin only; `set` takes the server URL it is about so
+   *  they work before the first sign-in. The certificate is chosen from the
+   *  operating system's store and remembered. */
+  connection?: {
+    getHeaders(): Promise<{ name: string; value: string }[]>
+    /** `persist` false changes what is sent without saving it (the sign-in
+     *  screen's Quick Connect check, run as the address is typed). */
+    set(serverUrl: string, headers: { name: string; value: string }[], persist?: boolean): Promise<{ name: string; value: string }[]>
+    resetCertificate(): Promise<void>
+  }
+
+  /** Offline downloads (main process owns the files, see offline.js). The
+   *  session carries the Authorization header for this call only: the main
+   *  process keeps it in memory and stores nothing about who is signed in. */
+  offline?: {
+    /** Whose downloads to show and fetch: the signed-in user id, or null when
+     *  nobody is. Each account has its own; another's are never listed. */
+    setOwner(userId: string | null): Promise<void>
+    summary(): Promise<OfflineSummary>
+    tracks(collectionId: string): Promise<{ item: JfItem; ready: boolean }[]>
+    add(collection: JfItem, tracks: JfItem[], session: { authorization: string }): Promise<boolean>
+    remove(collectionId: string): Promise<boolean>
+    resume(session: { authorization: string }): Promise<void>
+    addPlay(play: { itemId: string; userId: string; date: string }): Promise<void>
+    takePlays(): Promise<{ itemId: string; userId: string; date: string }[]>
+    onEvent(cb: (event: OfflineEvent) => void): void
+  }
 
   checkForUpdates?(): Promise<UpdateCheckResult>
   /** Whether this is a Mac that can run the native app (Apple Silicon). */
@@ -236,8 +293,11 @@ export interface DesktopCapabilities {
  */
 export interface ElectronPlatform extends Platform, DesktopCapabilities {
   clipboard: NonNullable<DesktopCapabilities['clipboard']>
+  presets: NonNullable<DesktopCapabilities['presets']>
   shell: NonNullable<DesktopCapabilities['shell']>
   download: NonNullable<DesktopCapabilities['download']>
+  connection: NonNullable<DesktopCapabilities['connection']>
+  offline: NonNullable<DesktopCapabilities['offline']>
   checkForUpdates: NonNullable<DesktopCapabilities['checkForUpdates']>
   canTryNativeMac: NonNullable<DesktopCapabilities['canTryNativeMac']>
   tryNativeMac: NonNullable<DesktopCapabilities['tryNativeMac']>

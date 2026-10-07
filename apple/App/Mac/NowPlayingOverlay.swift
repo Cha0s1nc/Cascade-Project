@@ -50,7 +50,7 @@ struct NowPlayingOverlay: View {
         .onChange(of: state.player?.item?.id) { syncTranslator() }
         .onChange(of: ui.lyrics.isLoading) { syncTranslator() }
         .onChange(of: prefs.translationEnabled) { ui.translator.enabledChanged() }
-        .alert("Install \(LyricTranslation.displayName(ui.translator.promptingInstall ?? "")) in macOS?",
+        .alert("Install \(LyricLanguages.displayName(ui.translator.promptingInstall ?? "")) in macOS?",
                isPresented: Binding(get: { ui.translator.promptingInstall != nil },
                                     set: { if !$0 { ui.translator.dismissInstallPrompt() } })) {
             Button("Open Language & Region") { ui.translator.openLanguageSettings() }

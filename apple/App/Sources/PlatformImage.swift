@@ -9,6 +9,7 @@ typealias PlatformImage = NSImage
 
 extension NSImage {
     var cgImage: CGImage? { cgImage(forProposedRect: nil, context: nil, hints: nil) }
+    convenience init(cgImage: CGImage) { self.init(cgImage: cgImage, size: .zero) }
     /// Pixel area, for NSCache costs. NSImage has no scale; its reps carry the pixels.
     var pixelArea: Int { cgImage.map { $0.width * $0.height } ?? Int(size.width * size.height) }
     /// AppKit decodes lazily at first draw; forcing a CGImage here moves that

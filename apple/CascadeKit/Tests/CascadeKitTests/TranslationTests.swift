@@ -27,85 +27,85 @@ private let udhr: [String: String] = [
 @Suite struct LanguageDetectionTests {
     @Test func detectsTheLanguageOfEachTranslation() {
         for code in ["en", "es", "fr", "de", "pt", "it", "ru", "ja"] {
-            #expect(LyricTranslation.detectLanguage(udhr[code]!) == code, "expected \(code)")
+            #expect(LyricLanguages.detectLanguage(udhr[code]!) == code, "expected \(code)")
         }
         // Either Chinese script is "zh" here; chineseScript settles which.
-        #expect(LyricTranslation.detectLanguage(udhr["zhHans"]!) == "zh")
-        #expect(LyricTranslation.detectLanguage(udhr["zhHant"]!) == "zh")
+        #expect(LyricLanguages.detectLanguage(udhr["zhHans"]!) == "zh")
+        #expect(LyricLanguages.detectLanguage(udhr["zhHant"]!) == "zh")
     }
 
     @Test func returnsEmptyRatherThanGuessingOnThinInput() {
         // "" means "no idea", never "English".
-        #expect(LyricTranslation.detectLanguage("") == "")
-        #expect(LyricTranslation.detectLanguage("Oh") == "")
-        #expect(LyricTranslation.detectLanguage("   \n  \t ") == "")
-        #expect(LyricTranslation.detectLanguage("La la la") == "")
+        #expect(LyricLanguages.detectLanguage("") == "")
+        #expect(LyricLanguages.detectLanguage("Oh") == "")
+        #expect(LyricLanguages.detectLanguage("   \n  \t ") == "")
+        #expect(LyricLanguages.detectLanguage("La la la") == "")
         // Padding is not signal.
-        #expect(LyricTranslation.detectLanguage("a\n\n   \t  b") == "")
+        #expect(LyricLanguages.detectLanguage("a\n\n   \t  b") == "")
     }
 
     @Test func offersTranslationForNonEnglishLyricsOnly() {
-        #expect(LyricTranslation.shouldOffer([udhr["es"]!]))
-        #expect(LyricTranslation.shouldOffer([udhr["ja"]!]))
-        #expect(!LyricTranslation.shouldOffer([udhr["en"]!]))
+        #expect(LyricLanguages.shouldOffer([udhr["es"]!]))
+        #expect(LyricLanguages.shouldOffer([udhr["ja"]!]))
+        #expect(!LyricLanguages.shouldOffer([udhr["en"]!]))
     }
 
     @Test func neverOffersTranslationWithNothingToGoOn() {
-        #expect(!LyricTranslation.shouldOffer([]))
-        #expect(!LyricTranslation.shouldOffer(["", "", ""]))
-        #expect(!LyricTranslation.shouldOffer(["Ooh", "Ahh"]))
+        #expect(!LyricLanguages.shouldOffer([]))
+        #expect(!LyricLanguages.shouldOffer(["", "", ""]))
+        #expect(!LyricLanguages.shouldOffer(["Ooh", "Ahh"]))
     }
 
     @Test func judgesTheWholeSheetNotTheFirstLine() {
         // A Spanish song whose first line is its English title was once detected as English.
         let lines = ["Bailando"] + udhr["es"]!.components(separatedBy: ". ")
-        #expect(LyricTranslation.shouldOffer(lines))
+        #expect(LyricLanguages.shouldOffer(lines))
     }
 }
 
 @Suite struct TranslationLanguageTests {
     @Test func namesTheLanguageForTheFiveThatHadModelsOnDesktop() {
-        #expect(LyricTranslation.languageFor([udhr["ja"]!]) == "ja")
-        #expect(LyricTranslation.languageFor([udhr["ko"]!]) == "ko")
-        #expect(LyricTranslation.languageFor([udhr["zhHans"]!]) == "zh-Hans")
-        #expect(LyricTranslation.languageFor([udhr["zhHant"]!]) == "zh-Hant")
-        #expect(LyricTranslation.languageFor([udhr["es"]!]) == "es")
+        #expect(LyricLanguages.languageFor([udhr["ja"]!]) == "ja")
+        #expect(LyricLanguages.languageFor([udhr["ko"]!]) == "ko")
+        #expect(LyricLanguages.languageFor([udhr["zhHans"]!]) == "zh-Hans")
+        #expect(LyricLanguages.languageFor([udhr["zhHant"]!]) == "zh-Hant")
+        #expect(LyricLanguages.languageFor([udhr["es"]!]) == "es")
     }
 
     @Test func namesTheOtherLanguagesAppleTakes() {
         for code in ["fr", "de", "pt", "th", "hi", "ru", "uk"] {
-            #expect(LyricTranslation.languageFor([udhr[code]!]) == code, "expected \(code)")
+            #expect(LyricLanguages.languageFor([udhr[code]!]) == code, "expected \(code)")
         }
     }
 
     @Test func offersNothingForEnglishOrTextTooThinToJudge() {
-        #expect(LyricTranslation.languageFor([udhr["en"]!]) == nil)
-        #expect(LyricTranslation.languageFor([]) == nil)
-        #expect(LyricTranslation.languageFor(["Ooh", "Ahh"]) == nil)
+        #expect(LyricLanguages.languageFor([udhr["en"]!]) == nil)
+        #expect(LyricLanguages.languageFor([]) == nil)
+        #expect(LyricLanguages.languageFor(["Ooh", "Ahh"]) == nil)
     }
 
     @Test func readsTheWholeSheetNotTheFirstLine() {
-        #expect(LyricTranslation.languageFor(["Idol", udhr["ja"]!]) == "ja")
+        #expect(LyricLanguages.languageFor(["Idol", udhr["ja"]!]) == "ja")
     }
 
     @Test func cyrillicTellsRussianFromUkrainianByTheirOwnLetters() {
         // A short Russian line that trigram matching called Ukrainian.
-        #expect(LyricTranslation.languageFor(["Я люблю гулять под дождём, когда улицы пустые вечером"]) == "ru")
-        #expect(LyricTranslation.cyrillicLanguage("Їжак їсть яблука") == "uk")
-        #expect(LyricTranslation.cyrillicLanguage("Съешь ещё этих мягких булок") == "ru")
-        #expect(LyricTranslation.cyrillicLanguage("Мама мыла раму") == "ru")
-        #expect(LyricTranslation.cyrillicLanguage("Мама") == nil)
+        #expect(LyricLanguages.languageFor(["Я люблю гулять под дождём, когда улицы пустые вечером"]) == "ru")
+        #expect(LyricLanguages.cyrillicLanguage("Їжак їсть яблука") == "uk")
+        #expect(LyricLanguages.cyrillicLanguage("Съешь ещё этих мягких булок") == "ru")
+        #expect(LyricLanguages.cyrillicLanguage("Мама мыла раму") == "ru")
+        #expect(LyricLanguages.cyrillicLanguage("Мама") == nil)
     }
 
     @Test func chineseScriptFollowsTheMajoritySpellingTiesToSimplified() {
-        #expect(LyricTranslation.chineseScript("我们这个") == "zh-Hans")
-        #expect(LyricTranslation.chineseScript("我們這個") == "zh-Hant")
-        #expect(LyricTranslation.chineseScript("人人生而自由") == "zh-Hans")
-        #expect(LyricTranslation.chineseScript("们們") == "zh-Hans")
+        #expect(LyricLanguages.chineseScript("我们这个") == "zh-Hans")
+        #expect(LyricLanguages.chineseScript("我們這個") == "zh-Hant")
+        #expect(LyricLanguages.chineseScript("人人生而自由") == "zh-Hans")
+        #expect(LyricLanguages.chineseScript("们們") == "zh-Hans")
     }
 
     @Test func theScriptTablesStayAlignedPairForPair() {
-        let s = LyricTranslation.simplified, t = LyricTranslation.traditional
+        let s = LyricLanguages.simplified, t = LyricLanguages.traditional
         #expect(s.count == t.count)
         for (i, c) in s.enumerated() { #expect(c != t[i], "pair \(i) is the same character: \(c)") }
         #expect(Set(s).count == s.count)
@@ -115,15 +115,15 @@ private let udhr: [String: String] = [
     }
 
     @Test func theEngineIsAppleOrNothing() {
-        #expect(LyricTranslation.pickEngine(enabled: true, status: .installed) == .apple)
-        #expect(LyricTranslation.pickEngine(enabled: true, status: .supported) == .needsInstall)
-        #expect(LyricTranslation.pickEngine(enabled: true, status: .unsupported) == .none)
-        #expect(LyricTranslation.pickEngine(enabled: true, status: nil) == .none)
-        #expect(LyricTranslation.pickEngine(enabled: false, status: .installed) == .none)
+        #expect(LyricLanguages.pickEngine(enabled: true, status: .installed) == .apple)
+        #expect(LyricLanguages.pickEngine(enabled: true, status: .supported) == .needsInstall)
+        #expect(LyricLanguages.pickEngine(enabled: true, status: .unsupported) == .none)
+        #expect(LyricLanguages.pickEngine(enabled: true, status: nil) == .none)
+        #expect(LyricLanguages.pickEngine(enabled: false, status: .installed) == .none)
     }
 
     @Test func everyLanguageThatHadADesktopModelIsOneAppleIsAskedAbout() {
-        for key in ["ja", "ko", "zh-Hans", "zh-Hant", "es"] { #expect(LyricTranslation.appleKeys.contains(key)) }
+        for key in ["ja", "ko", "zh-Hans", "zh-Hant", "es"] { #expect(LyricLanguages.appleKeys.contains(key)) }
     }
 }
 
@@ -173,10 +173,10 @@ private let udhr: [String: String] = [
     private let day = 24.0 * 60 * 60 * 1000
 
     @Test func anEntryLastsTwentyFiveDaysFromWhenItWasTranslated() {
-        #expect(!TranslationCache.expired(at: now - 24 * day, now: now))
-        #expect(TranslationCache.expired(at: now - TranslationCache.ttlMs, now: now))
+        #expect(!TranslationCacheFile.expired(at: now - 24 * day, now: now))
+        #expect(TranslationCacheFile.expired(at: now - TranslationCacheFile.ttlMs, now: now))
         // From the future: the clock was wrong, do not trust it.
-        #expect(TranslationCache.expired(at: now + day, now: now))
+        #expect(TranslationCacheFile.expired(at: now + day, now: now))
     }
 
     @Test func loadedEntriesDropMalformedAndExpiredOnesKeepingOrder() {
@@ -186,19 +186,19 @@ private let udhr: [String: String] = [
             "junk", ["x"], ["", "empty key", now], ["k", 5, now], ["k", "nan", Double.nan],
             ["apple|ko|c", "C", now],
         ]
-        let live = TranslationCache.liveEntries(raw, now: now)
+        let live = TranslationCacheFile.liveEntries(raw, now: now)
         #expect(live.map(\.key) == ["apple|ja|b", "apple|ko|c"])
         #expect(live.map(\.text) == ["B", "C"])
     }
 
     @Test func loadedEntriesAreCappedToTheNewestAndNonArraysAreEmpty() {
         let raw: [Any] = [1, 2, 3].map { ["k\($0)", "t\($0)", now] as [Any] }
-        #expect(TranslationCache.liveEntries(raw, now: now, max: 2).map(\.key) == ["k2", "k3"])
-        for junk in [NSNull(), [String: Any](), "x", 42] as [Any] { #expect(TranslationCache.liveEntries(junk, now: now).isEmpty) }
+        #expect(TranslationCacheFile.liveEntries(raw, now: now, max: 2).map(\.key) == ["k2", "k3"])
+        for junk in [NSNull(), [String: Any](), "x", 42] as [Any] { #expect(TranslationCacheFile.liveEntries(junk, now: now).isEmpty) }
     }
 
     @Test func aLookupReturnsWhatWasStoredAndNeverExtendsIt() {
-        var cache = TranslationCache()
+        var cache = TranslationCacheFile()
         cache.store("apple|ja|a", "A", now: now - 24 * day)
         #expect(cache.lookup("apple|ja|a", now: now) == "A")
         // Reading did not refresh the stamp: a day later it is past 25 days.
@@ -208,7 +208,7 @@ private let udhr: [String: String] = [
     }
 
     @Test func theLeastRecentlyUsedGoesFirstWhenFull() {
-        var cache = TranslationCache()
+        var cache = TranslationCacheFile()
         for i in 1...3 { cache.store("k\(i)", "t\(i)", now: now, max: 3) }
         _ = cache.lookup("k1", now: now)   // k2 is now the oldest
         cache.store("k4", "t4", now: now, max: 3)
@@ -217,13 +217,13 @@ private let udhr: [String: String] = [
     }
 
     @Test func theFileRoundTripsAndKeepsTheOrder() throws {
-        var cache = TranslationCache()
+        var cache = TranslationCacheFile()
         cache.store("apple|ja|a", "A", now: now - 2 * day)
         cache.store("apple|ja|b", "B", now: now - day)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("tc-\(UUID().uuidString)/translation-cache.json")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         try cache.save(to: url, now: now)
-        var back = TranslationCache.load(from: url, now: now)
+        var back = TranslationCacheFile.load(from: url, now: now)
         #expect(back.count == 2 && !back.isDirty)
         #expect(back.lookup("apple|ja|a", now: now) == "A")
         // The desktop's shape: [[key, text, at]], oldest first.
@@ -236,11 +236,11 @@ private let udhr: [String: String] = [
         defer { try? FileManager.default.removeItem(at: url) }
         let raw: [Any] = [["apple|ja|old", "O", now - 30 * day], ["apple|ja|new", "N", now]]
         try JSONSerialization.data(withJSONObject: raw).write(to: url)
-        let cache = TranslationCache.load(from: url, now: now)
+        let cache = TranslationCacheFile.load(from: url, now: now)
         #expect(cache.count == 1 && cache.isDirty)
         // A missing or corrupt file is an empty cache, not a crash.
-        #expect(TranslationCache.load(from: url.appendingPathExtension("missing")).count == 0)
+        #expect(TranslationCacheFile.load(from: url.appendingPathExtension("missing")).count == 0)
         try Data("not json".utf8).write(to: url)
-        #expect(TranslationCache.load(from: url).count == 0)
+        #expect(TranslationCacheFile.load(from: url).count == 0)
     }
 }

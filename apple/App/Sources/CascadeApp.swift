@@ -64,9 +64,14 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
 #endif
 
 #if os(iOS)
-/// Only here for background downloads: iOS relaunches the app to hand over
-/// finished ones and wants to hear when they have all been taken in.
+/// For background downloads (iOS relaunches the app to hand over finished
+/// ones and wants to hear when they have all been taken in), and for the
+/// video player's landscape lock (OrientationLock).
 final class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        OrientationLock.mask
+    }
+
     func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
                      completionHandler: @escaping () -> Void) {
         guard identifier == OfflineLibrary.sessionIdentifier else { return completionHandler() }

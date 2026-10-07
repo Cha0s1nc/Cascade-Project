@@ -159,3 +159,12 @@ test('miniplayerSheet carries the duet side, and only when set', () => {
   ], false)
   assert.deepEqual(sheet.lines.map(l => l.Opposite), [undefined, true, undefined])
 })
+
+test('parseMiniplayerCommand: volumeto is an absolute level clamped to 0-1', () => {
+  assert.deepEqual(parseMiniplayerCommand({ type: 'volumeto', value: 0.4 }), { type: 'volumeto', fraction: 0.4 })
+  assert.deepEqual(parseMiniplayerCommand({ type: 'volumeto', value: 7 }), { type: 'volumeto', fraction: 1 })
+  assert.deepEqual(parseMiniplayerCommand({ type: 'volumeto', value: -1 }), { type: 'volumeto', fraction: 0 })
+  assert.equal(parseMiniplayerCommand({ type: 'volumeto', value: NaN }), null)
+  assert.equal(parseMiniplayerCommand({ type: 'volumeto', value: '0.5' }), null)
+  assert.equal(parseMiniplayerCommand({ type: 'volumeto' }), null)
+})

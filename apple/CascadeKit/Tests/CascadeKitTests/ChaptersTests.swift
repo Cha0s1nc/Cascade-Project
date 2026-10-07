@@ -2,58 +2,69 @@ import Foundation
 import Testing
 @testable import CascadeKit
 
-// The chapter cases from test/playback.test.ts.
 struct ChaptersTests {
-    private func ch(_ pairs: [(Double, String)]) -> [Chapter] { pairs.map { Chapter(sec: $0.0, name: $0.1) } }
+    private let t = 10_000_000
 
-    @Test func listSortsDedupesNamesAndDropsChaptersPastTheEnd() {
-        let list = chapterList([
-            RawChapter(startPositionTicks: 600_000_000, name: "Middle"),
-            RawChapter(startPositionTicks: 0, name: "  "),
-            RawChapter(startPositionTicks: 600_000_000, name: "Duplicate"),
-            RawChapter(startPositionTicks: 5_000_000_000, name: "After the end"),
-            RawChapter(startPositionTicks: -1, name: "Negative"),
-            RawChapter(startPositionTicks: nil, name: "No start"),
-        ], runTimeTicks: 1_200_000_000)
-        #expect(list == ch([(0, "Chapter 1"), (60, "Middle")]))
+    @Test func sortsDedupesNamesAndDropsChaptersPastTheEnd() {
+        let list = Chapters.list([
+            JfChapter(name: "Middle", startPositionTicks: 600 * t),
+            JfChapter(name: "", startPositionTicks: 0),
+            JfChapter(name: "Duplicate", startPositionTicks: 600 * t),
+            JfChapter(name: "Past the end", startPositionTicks: 9_000 * t),
+            JfChapter(name: "No start"),
+            JfChapter(name: "Negative", startPositionTicks: -5),
+        ], runTimeTicks: 7_200 * t)
+        #expect(list == [Chapter(startSeconds: 0, name: "Chapter 1"), Chapter(startSeconds: 600, name: "Middle")])
     }
 
-    @Test func oneChapterOffersNothing() {
-        #expect(chapterList([RawChapter(startPositionTicks: 0, name: "Film")]).isEmpty)
-        #expect(chapterList(nil).isEmpty)
+    @Test func oneChapterOrNoneOffersNothing() {
+        #expect(Chapters.list([JfChapter(name: "Film", startPositionTicks: 0)]).isEmpty)
+        #expect(Chapters.list(nil).isEmpty)
+        #expect(Chapters.list([]).isEmpty)
+        #expect(Chapters.list([JfChapter(name: "A", startPositionTicks: 0), JfChapter(name: "B", startPositionTicks: 100 * t)],
+                              runTimeTicks: 50 * t).isEmpty, "the second is past the end, leaving one")
     }
 
-    @Test func noRuntimeKeepsEveryChapter() {
-        let list = chapterList([RawChapter(startPositionTicks: 0), RawChapter(startPositionTicks: 90_000_000_000)])
-        #expect(list.map(\.sec) == [0, 9000])
+    @Test func aMissingRuntimeKeepsEverything() {
+        let list = Chapters.list([JfChapter(name: "A", startPositionTicks: 0), JfChapter(name: "B", startPositionTicks: 99_999 * t)])
+        #expect(list.count == 2)
+        #expect(Chapters.list([JfChapter(name: "A", startPositionTicks: 0), JfChapter(name: "B", startPositionTicks: 5 * t)],
+                              runTimeTicks: 0).count == 2, "a zero runtime means unknown")
     }
 
-    @Test func atFindsTheChapterPlayingAtAPosition() {
-        let c = ch([(0, "a"), (60, "b"), (120, "c")])
-        #expect(chapterAt(c, 0) == 0)
-        #expect(chapterAt(c, 59.9) == 0)
-        #expect(chapterAt(c, 60) == 1)
-        #expect(chapterAt(c, 5000) == 2)
-        #expect(chapterAt(ch([(10, "x"), (20, "y")]), 5) == -1)
+    @Test func blankNamesGetTheirPosition() {
+        let list = Chapters.list([JfChapter(name: "  ", startPositionTicks: 0), JfChapter(name: nil, startPositionTicks: 60 * t),
+                                  JfChapter(name: " Named ", startPositionTicks: 120 * t)])
+        #expect(list.map(\.name) == ["Chapter 1", "Chapter 2", "Named"])
     }
 
-    @Test func targetGoesForwardToTheNextStartAndBackLikeAPreviousButton() {
-        let c = ch([(0, "a"), (60, "b"), (120, "c")])
-        #expect(chapterTarget(c, 30, forward: true) == 60)
-        #expect(chapterTarget(c, 130, forward: true) == nil)
-        #expect(chapterTarget(c, 90, forward: false) == 60)
-        #expect(chapterTarget(c, 61, forward: false) == 0)
-        #expect(chapterTarget(c, 1, forward: false) == 0)
-        #expect(chapterTarget(ch([(10, "x"), (20, "y")]), 5, forward: false) == nil)
-        // Before the first chapter, forward still lands on it.
-        #expect(chapterTarget(ch([(10, "x"), (20, "y")]), 5, forward: true) == 10)
+    @Test func aTranscodeStartedPartwayDropsEarlierChaptersAndShiftsTheRest() {
+        let all = [Chapter(startSeconds: 0, name: "a"), Chapter(startSeconds: 60, name: "b"), Chapter(startSeconds: 120, name: "c")]
+        #expect(Chapters.onPlayerTimeline(all, streamStartSeconds: 0) == all)
+        #expect(Chapters.onPlayerTimeline(all, streamStartSeconds: 60) == [Chapter(startSeconds: 0, name: "b"), Chapter(startSeconds: 60, name: "c")])
+        #expect(Chapters.onPlayerTimeline(all, streamStartSeconds: 500).isEmpty)
     }
 
-    /// The shape Jellyfin sends, through the same decoder the client uses.
-    @Test func decodesTheServersShape() throws {
-        struct Response: Decodable { var chapters: [RawChapter]? }
-        let json = #"{"Chapters":[{"StartPositionTicks":0,"Name":"Opening","ImageDateModified":"0001-01-01T00:00:00Z"},{"StartPositionTicks":300000000}]}"#
+    @Test func decodesJellyfinsChaptersField() throws {
+        let json = #"{"Chapters":[{"Name":"Opening","StartPositionTicks":0,"ImageTag":"x"},{"Name":"Title","StartPositionTicks":900000000}]}"#
+        struct Response: Decodable { var chapters: [JfChapter]? }
         let r = try JSON.decoder.decode(Response.self, from: Data(json.utf8))
-        #expect(chapterList(r.chapters) == ch([(0, "Opening"), (30, "Chapter 2")]))
+        #expect(Chapters.list(r.chapters).map(\.name) == ["Opening", "Title"])
+    }
+}
+
+@Suite("Chapter jumps")
+struct ChapterJumpTests {
+    private let c = [Chapter(startSeconds: 0, name: "a"), Chapter(startSeconds: 60, name: "b"), Chapter(startSeconds: 120, name: "c")]
+
+    @Test func forwardGoesToTheNextStart() {
+        #expect(Chapters.jumpTarget(in: c, from: 30, forward: true) == 60)
+        #expect(Chapters.jumpTarget(in: c, from: 130, forward: true) == nil)
+    }
+
+    @Test func backRestartsTheChapterOrGoesToThePreviousOne() {
+        #expect(Chapters.jumpTarget(in: c, from: 90, forward: false) == 60)
+        #expect(Chapters.jumpTarget(in: c, from: 61, forward: false) == 0)
+        #expect(Chapters.jumpTarget(in: c, from: 1, forward: false) == 0)
     }
 }

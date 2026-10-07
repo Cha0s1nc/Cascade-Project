@@ -8,7 +8,7 @@ import Foundation
 // entry does not extend it. The file is `[[key, text, at], ...]`, oldest first, the
 // shape the desktop writes.
 
-public struct TranslationCache: Sendable {
+public struct TranslationCacheFile: Sendable {
     public struct Entry: Equatable, Sendable {
         public var key: String
         public var text: String
@@ -38,12 +38,12 @@ public struct TranslationCache: Sendable {
 
     /// From what was read off disk (untrusted: hand-edited or from an older build): malformed
     /// and expired entries dropped, the newest `max` kept in their original order.
-    public init(raw: Any?, now: Double = Date().timeIntervalSince1970 * 1000, max: Int = TranslationCache.maxEntries) {
+    public init(raw: Any?, now: Double = Date().timeIntervalSince1970 * 1000, max: Int = TranslationCacheFile.maxEntries) {
         for entry in Self.liveEntries(raw, now: now, max: max) { insert(entry) }
         isDirty = false
     }
 
-    public static func liveEntries(_ raw: Any?, now: Double, max: Int = TranslationCache.maxEntries) -> [Entry] {
+    public static func liveEntries(_ raw: Any?, now: Double, max: Int = TranslationCacheFile.maxEntries) -> [Entry] {
         guard let list = raw as? [Any] else { return [] }
         let ok: [Entry] = list.compactMap { item in
             guard let e = item as? [Any], e.count == 3,
@@ -73,7 +73,7 @@ public struct TranslationCache: Sendable {
     }
 
     public mutating func store(_ key: String, _ text: String, now: Double = Date().timeIntervalSince1970 * 1000,
-                               max: Int = TranslationCache.maxEntries) {
+                               max: Int = TranslationCacheFile.maxEntries) {
         insert(Entry(key: key, text: text, at: now))
         isDirty = true
         while entries.count > max, let oldest = entries.min(by: { $0.value.stamp < $1.value.stamp })?.key {
@@ -96,10 +96,10 @@ public struct TranslationCache: Sendable {
         return (try? JSONSerialization.data(withJSONObject: live)) ?? Data("[]".utf8)
     }
 
-    public static func load(from url: URL, now: Double = Date().timeIntervalSince1970 * 1000) -> TranslationCache {
+    public static func load(from url: URL, now: Double = Date().timeIntervalSince1970 * 1000) -> TranslationCacheFile {
         guard let data = try? Data(contentsOf: url),
-              let raw = try? JSONSerialization.jsonObject(with: data) else { return TranslationCache() }
-        var cache = TranslationCache(raw: raw, now: now)
+              let raw = try? JSONSerialization.jsonObject(with: data) else { return TranslationCacheFile() }
+        var cache = TranslationCacheFile(raw: raw, now: now)
         // Expired ones left the memory copy on load and must leave the disk too.
         if let list = raw as? [Any], list.count != cache.count { cache.isDirty = true }
         return cache

@@ -58,8 +58,54 @@ export async function readErrorMessage(res: Response): Promise<string> {
  * there. Jellyfin 10.11 already accepts this form, so it is safe on both.
  */
 export function authHeader(appVersion: string, deviceId: string, token?: string): string {
-  const base = `MediaBrowser Client="Cascade", Device="Cascade", DeviceId="${deviceId}", Version="${appVersion}"`
+  const base = `MediaBrowser Client="${_identity.client}", Device="${_identity.device}", DeviceId="${deviceId}", Version="${appVersion}"`
   return token ? `${base}, Token="${token}"` : base
+}
+
+/**
+ * Which edition of Cascade this is, as the server's Devices and Activity
+ * screens show it: Client is the edition ("Cascade Electron", and in the Apple
+ * app "Cascade iOS", "Cascade tvOS", "Cascade Mac"), Device is the machine
+ * ("Windows", "iPhone"). Set once at startup, before anything authenticates,
+ * since it never changes while the app runs; a host that never sets it stays
+ * plain "Cascade". The DeviceId is what the server keys a device on, so moving
+ * a machine from one edition to another (Electron to the native Mac app) keeps
+ * the same device and only renames it.
+ */
+export interface ClientIdentity { client: string; device: string }
+
+export const ELECTRON_EDITION = 'Cascade Electron'
+
+const DEFAULT_IDENTITY: ClientIdentity = { client: 'Cascade', device: 'Cascade' }
+let _identity: ClientIdentity = DEFAULT_IDENTITY
+
+/** Fixed, header-safe words only: the value goes inside a quoted header
+ *  field, so a quote or comma would break every request. */
+const identityWord = (v: unknown, fallback: string): string => {
+  const s = typeof v === 'string' ? v.replace(/[^A-Za-z0-9 .()\-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 40) : ''
+  return s || fallback
+}
+
+export function setClientIdentity(identity: Partial<ClientIdentity>): ClientIdentity {
+  _identity = {
+    client: identityWord(identity.client, DEFAULT_IDENTITY.client),
+    device: identityWord(identity.device, DEFAULT_IDENTITY.device),
+  }
+  return _identity
+}
+
+export function clientIdentity(): ClientIdentity {
+  return { ..._identity }
+}
+
+/** The machine name a desktop build reports, from Node's process.platform. */
+export function desktopDeviceName(platform: unknown): string {
+  switch (platform) {
+    case 'win32': return 'Windows'
+    case 'darwin': return 'Mac'
+    case 'linux': return 'Linux'
+    default: return 'Desktop'
+  }
 }
 
 /** Headers for an authenticated request, from the session config (`jf`). The

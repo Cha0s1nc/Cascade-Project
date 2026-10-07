@@ -1,12 +1,16 @@
 import SwiftUI
 import AVKit
+import Combine
+#if os(iOS)
+import MediaPlayer
+#endif
 import CascadeKit
 
 /// One movie or run of episodes playing: the desktop's playVideo. Apart from
 /// the music PlaybackService on purpose: that one is built around gapless
 /// audio decks, the lock screen's music controls and the queue, none of which
-/// a movie wants. Apple's player view does the drawing; on the Mac the
-/// controls are our own (App/Mac/MacVideoControls.swift) and read from here.
+/// a movie wants. Apple's player view does the controls, subtitles, AirPlay
+/// and picture in picture.
 @MainActor
 @Observable
 final class VideoSession {
@@ -15,61 +19,54 @@ final class VideoSession {
     private(set) var error: String?
     /// Set when the last episode ends, so the player closes itself.
     private(set) var finished = false
-    /// A stream is being negotiated or has not started yet.
-    private(set) var isLoading = false
-    /// Where playback is in the item, in seconds, refreshed a few times a
-    /// second. A transcode's own clock may start elsewhere; this never does.
-    private(set) var position: Double = 0
-    private(set) var isPlaying = false
-    private(set) var rate: Double = 1
+    /// The intro or outro playing now, which the player offers to skip.
+    private(set) var activeSegment: MediaSegment?
+    /// The playing video's chapters, on the player's clock. tvOS hands them to
+    /// the system player as markers; iOS draws them as ticks on its scrubber.
     private(set) var chapters: [Chapter] = []
-    /// What the subtitle picker lists, default and forced first. Empty when
-    /// the stream carries none (picture subtitles are burned in, not listed).
-    private(set) var subtitles: [SubtitleChoice] = []
-    /// The `SubtitleChoice.id` showing, nil for off.
-    private(set) var subtitleSelection: Int?
-    /// The audio stream asked for: the person's pick, or the one forced
-    /// because the file's own default is a codec this player lacks.
-    private(set) var audioIndex: Int?
-    /// True while the scrubber is being dragged, so the clock stops moving it.
-    var isScrubbing = false
+    /// The server's preview frames for scrubbing, when the library makes them.
+    private(set) var trickplay: Trickplay?
+    /// The player's clock and length, twice a second, for the iOS controls.
+    private(set) var time: Double = 0
+    private(set) var duration: Double = 0
+    private(set) var isPlaying = false
+    /// Wider than tall, so the iOS player holds landscape. Nil until known.
+    private(set) var isLandscapeVideo: Bool?
+    /// The stream's subtitle and audio choices, for the iOS menus.
+    private(set) var subtitleGroup: AVMediaSelectionGroup?
+    private(set) var audioGroup: AVMediaSelectionGroup?
+    /// What the menus call each track, read once when the stream loads.
+    private(set) var trackLabels: [AVMediaSelectionOption: String] = [:]
+    /// Bumped on a selection, so the menus redraw their checkmarks.
+    private(set) var selectionRevision = 0
 
     private let client: JellyfinClient
     private let config: ServerConfig
     private var queue: [JfItem] = []
-    private(set) var index = 0
-    @ObservationIgnored private var pickedAudio: (index: Int, language: String?)?
+    private var index = 0
+    private var audioStreamIndex: Int?
     @ObservationIgnored private var resolved: ResolvedStream?
     @ObservationIgnored private var reportTask: Task<Void, Never>?
     @ObservationIgnored private var endTask: Task<Void, Never>?
-    @ObservationIgnored private var loadGeneration = 0
-
-    // Subtitles. The options are AVFoundation's own (an HLS manifest's
-    // subtitle group, or a file's text tracks), not Jellyfin's stream
-    // indices, which they do not map back to reliably.
-    @ObservationIgnored private var legibleGroup: AVMediaSelectionGroup?
-    @ObservationIgnored private var legibleOptions: [AVMediaSelectionOption] = []
-    private enum SubtitlePick { case unset, off, track(String) }
-    /// What the person last chose, by label, so the next episode (or the same
-    /// one after an audio switch) comes up the same way.
-    @ObservationIgnored private var subtitlePick = SubtitlePick.unset
-    /// The track C turns back on.
-    @ObservationIgnored private var lastSubtitle = 0
-
+    @ObservationIgnored private var segmentTask: Task<Void, Never>?
+    @ObservationIgnored private var segments: [MediaSegment] = []
+    /// Segments auto-skip already fired for, so seeking back is not fought.
+    @ObservationIgnored private var autoSkipped: Set<String> = []
     @ObservationIgnored private var timeObserver: Any?
-    @ObservationIgnored private var statusWatch: NSKeyValueObservation?
-    @ObservationIgnored private var itemWatch: NSKeyValueObservation?
-    @ObservationIgnored private var pendingSkip: Double?
-    @ObservationIgnored private var skipTask: Task<Void, Never>?
-
-    // The Video EQ: a tap on the item, only for a direct stream (AVFoundation
-    // will not tap an HLS transcode, which is what an MKV becomes).
+    @ObservationIgnored private var statusWatch: AnyCancellable?
+    #if os(iOS)
+    /// The remote command targets this video added, removed on close.
+    @ObservationIgnored private var commandTargets: [(MPRemoteCommand, Any)] = []
+    @ObservationIgnored private var lockScreenArt: (itemId: String, art: MPMediaItemArtwork)?
+    /// What the lock screen was last told, so it is written on a change only.
+    @ObservationIgnored private var lockScreenShown: (playing: Bool, duration: Double)?
+    #endif
+    /// Trickplay sheets fetched for this item, by sheet number.
+    @ObservationIgnored private var sheets: [Int: PlatformImage] = [:]
+    /// The Video EQ: a tap on the item, only for a direct stream (AVFoundation
+    /// will not tap an HLS transcode, which is what an MKV becomes).
     @ObservationIgnored private var tap: TapContext?
     private(set) var equalizer = EQProfile()
-
-    /// The app's volume and mute, shared with music as on the desktop (one
-    /// choke point), when the app hands it over. Nil: the player's own.
-    @ObservationIgnored private weak var audio: PlaybackService?
 
     init(client: JellyfinClient, config: ServerConfig) {
         self.client = client
@@ -77,143 +74,100 @@ final class VideoSession {
         // AVPlayer's own default already follows the system's caption
         // preferences (Settings > Accessibility > Subtitles & Captioning).
         player.appliesMediaSelectionCriteriaAutomatically = true
-        statusWatch = player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] player, _ in
-            let paused = player.timeControlStatus == .paused
-            Task { @MainActor in self?.isPlaying = !paused }
-        }
-        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.25, preferredTimescale: 600),
-                                                      queue: .main) { [weak self] _ in
-            // The queue is main, so this is already isolated; the closure just
-            // is not declared that way.
-            MainActor.assumeIsolated { self?.tick() }
+        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
+                                                      queue: .main) { [weak self] t in
+            MainActor.assumeIsolated { self?.tick(t.seconds) }
         }
     }
 
-    private func tick() {
-        guard !isScrubbing, pendingSkip == nil, item != nil, !isLoading else { return }
-        position = livePosition
+    private func tick(_ seconds: Double) {
+        time = seconds.isFinite ? seconds : 0
+        let length = player.currentItem?.duration.seconds ?? 0
+        duration = length.isFinite ? length : 0
+        isPlaying = player.timeControlStatus != .paused
+        #if os(iOS)
+        // The lock screen runs its own clock from the rate; it needs telling
+        // only when that or the length changes.
+        if lockScreenShown?.playing != isPlaying || lockScreenShown?.duration != duration { updateLockScreen() }
+        #endif
+        // The picture's real size, for an item the list did not say it of.
+        if isLandscapeVideo == nil, let size = player.currentItem?.presentationSize, size.width > 0, size.height > 0 {
+            isLandscapeVideo = size.width > size.height
+        }
     }
-
-    // MARK: - Starting
 
     /// `resume` picks up at the saved position; otherwise from the start.
     func play(_ items: [JfItem], startIndex: Int = 0, audioStreamIndex: Int? = nil, resume: Bool = true) async {
         guard items.indices.contains(startIndex) else { return }
         queue = items
         index = startIndex
-        finished = false
-        pickedAudio = audioStreamIndex.map { picked in
-            (picked, items[startIndex].mediaStreams?.first { $0.index == picked }?.language)
-        }
-        await load(startTicks: resume ? resumeTicks(for: items[startIndex]) : 0, autoplay: true)
+        self.audioStreamIndex = audioStreamIndex
+        #if os(iOS)
+        claimLockScreen()
+        #endif
+        await load(resume: resume)
     }
 
-    /// Follows the app's volume and mute (Mac), so Up and Down, the Playback
-    /// menu and the player bar's slider all move the same value.
-    func follow(_ service: PlaybackService?) {
-        audio = service
-        syncVolume()
-    }
-
-    private func syncVolume() {
-        guard let audio else { return }
-        withObservationTracking {
-            player.volume = audio.volume
-            player.isMuted = audio.isMuted
-        } onChange: { [weak self] in
-            Task { @MainActor in self?.syncVolume() }
-        }
-    }
-
-    var volume: Float { audio?.volume ?? player.volume }
-    var isMuted: Bool { audio?.isMuted ?? player.isMuted }
-
-    func setVolume(_ v: Float) {
-        let clamped = min(1, max(0, v))
-        if let audio { audio.setVolume(clamped) } else { player.volume = clamped }
-    }
-
-    func toggleMute() {
-        if let audio { audio.setMuted(!audio.isMuted) } else { player.isMuted.toggle() }
-    }
-
-    /// `startTicks` is where in the item to begin. A transcode asked to start
-    /// partway in was the old way of resuming; an HLS playlist spans the whole
-    /// item, so now everything begins at 0 and seeks.
-    private func load(startTicks start: Int, autoplay: Bool) async {
-        loadGeneration += 1
-        let generation = loadGeneration
+    private func load(resume: Bool) async {
         await reportStopped()
-        guard generation == loadGeneration, queue.indices.contains(index) else { return }
         let item = queue[index]
-        let sameItem = self.item?.id == item.id
         self.item = item
         error = nil
-        isLoading = true
-        position = seconds(fromTicks: start)
-        pendingSkip = nil
-        if !sameItem {
-            chapters = []
-            subtitles = []
-            subtitleSelection = nil
-            Task { [weak self] in
-                guard let self else { return }
-                let found = await client.chapters(of: item)
-                if self.item?.id == item.id { self.chapters = found }
-            }
-        }
-        audioIndex = pickedAudioIndex(for: item)
+        chapters = []
+        trickplay = nil
+        sheets = [:]
+        subtitleGroup = nil
+        audioGroup = nil
+        trackLabels = [:]
+        time = 0
+        duration = 0
+        // The list's MediaStreams say it before the first frame does.
+        let video = item.mediaStreams?.first { $0.type == "Video" }
+        isLandscapeVideo = video.flatMap { v in v.width.flatMap { w in v.height.map { h in w > h } } }
+        let start = resume ? resumeTicks(for: item) : 0
         do {
             let stream = try await VideoPlayback.resolve(client: client, config: config, item: item,
-                                                         audioStreamIndex: audioIndex, startTicks: start)
-            guard generation == loadGeneration else { return }
+                                                         audioStreamIndex: audioStreamIndex)
+            guard self.item?.id == item.id else { return }
             resolved = stream
-            // Precise timing on a direct file, as the music side learned: a
-            // file with no index otherwise seeks seconds off its target.
-            let options: [String: Any]? = stream.direct ? [AVURLAssetPreferPreciseDurationAndTimingKey: true] : nil
-            let playerItem = AVPlayerItem(asset: AVURLAsset(url: stream.url, options: options))
+            // Through ProxyConnection: AVPlayer's own networking needs the reverse
+            // proxy headers set on the asset.
+            let playerItem = AVPlayerItem(asset: ProxyConnection.shared.asset(url: stream.url))
             tap = nil
             if stream.direct, equalizer.enabled {
                 let context = TapContext()
                 context.update(profile: equalizer)
                 if await AudioTap.attach(context, to: playerItem) { tap = context }
-                guard generation == loadGeneration else { return }
+                guard self.item?.id == item.id else { return }
             }
             player.replaceCurrentItem(with: playerItem)
-            watch(playerItem, generation: generation)
-            // Direct files and HLS playlists both begin at 0: seek to where
-            // the person was.
-            if stream.startTicks == 0, start > 0 {
-                player.seek(to: CMTime(seconds: seconds(fromTicks: start), preferredTimescale: 600),
-                            toleranceBefore: .zero, toleranceAfter: .zero) { _ in }
+            // Apple's player drew its own broken-play icon for a stream that
+            // fails; the iOS controls would just sit over black.
+            statusWatch = playerItem.publisher(for: \.status).receive(on: DispatchQueue.main).sink { [weak self] status in
+                MainActor.assumeIsolated {
+                    guard status == .failed, let self, self.error == nil else { return }
+                    self.error = "This video stopped loading. The server may have refused the stream."
+                }
             }
-            player.defaultRate = Float(rate)
-            if autoplay { player.play() }
-            isLoading = false
-            _ = await PlaybackReporter.start(client, state(positionTicks: start))
-            guard generation == loadGeneration else { return }
+            // Both a direct file and a transcode's playlist start at the top
+            // of the film, so a resume is a seek (see VideoPlayback.resolve).
+            if start > 0 {
+                await player.seek(to: CMTime(seconds: seconds(fromTicks: start), preferredTimescale: 600))
+            }
+            player.play()
+            #if os(iOS)
+            loadLockScreenArt(for: item)
+            #endif
+            watchForEnd(playerItem)
+            watchSegments(for: item)
+            addChapterMarkers(for: item, to: playerItem, streamStartSeconds: seconds(fromTicks: stream.startTicks))
+            loadSelectionGroups(for: playerItem)
+            _ = await PlaybackReporter.start(client, state())
             startReporting()
         } catch {
-            guard generation == loadGeneration else { return }
-            isLoading = false
             self.error = error.localizedDescription
         }
     }
-
-    /// The audio stream to request for `item`: the person's pick (matched by
-    /// language when this is another episode, whose stream numbering may
-    /// differ), else the one forced when the file's default track is a codec
-    /// this player lacks, else the server's choice.
-    private func pickedAudioIndex(for item: JfItem) -> Int? {
-        if let pick = pickedAudio {
-            let tracks = VideoPlayback.audioTracks(item)
-            if tracks.contains(where: { $0.index == pick.index && $0.language == pick.language }) { return pick.index }
-            if let language = pick.language, let match = tracks.first(where: { $0.language == language }) { return match.index }
-        }
-        return neededAudioStreamIndex(item.mediaStreams, decodable: DeviceProfile.appleVideo.videoDirectPlayAudioCodecs)
-    }
-
-    // MARK: - Where it is
 
     /// The position in the item, in ticks: a transcode's clock starts where
     /// it was asked to.
@@ -222,19 +176,8 @@ final class VideoSession {
         return (resolved?.startTicks ?? 0) + ticks(fromSeconds: t.isFinite ? t : 0)
     }
 
-    /// The position right now, from the player rather than the sampled one.
-    var livePosition: Double { seconds(fromTicks: positionTicks()) }
-
-    /// The item's length. The server's runtime when it gave one: an HLS
-    /// item's own duration grows as the playlist is read.
-    var duration: Double {
-        if let t = item?.runTimeTicks, t > 0 { return seconds(fromTicks: t) }
-        let d = player.currentItem?.duration.seconds ?? 0
-        return d.isFinite ? d : 0
-    }
-
-    private func state(positionTicks override: Int? = nil) -> PlaybackState {
-        PlaybackState(itemId: item?.id ?? "", positionTicks: override ?? positionTicks(), isPaused: player.rate == 0,
+    private func state() -> PlaybackState {
+        PlaybackState(itemId: item?.id ?? "", positionTicks: positionTicks(), isPaused: player.rate == 0,
                       playSessionId: resolved?.playSessionId, mediaSourceId: resolved?.mediaSourceId,
                       playMethod: resolved?.playMethod ?? .directPlay, mediaType: "Video")
     }
@@ -250,6 +193,183 @@ final class VideoSession {
         }
     }
 
+    // MARK: Chapters
+
+    /// The video's chapters and trickplay manifest, in one request. On tvOS the
+    /// chapters become the player's navigation markers (its scrubber shows them,
+    /// swipe up to jump); iOS draws its own scrubber with them as ticks.
+    /// Fetched after playback has started, so a slow answer costs nothing; a
+    /// film with neither (or an older server) just has none.
+    private func addChapterMarkers(for item: JfItem, to playerItem: AVPlayerItem, streamStartSeconds: Double) {
+        let mediaSourceId = resolved?.mediaSourceId
+        Task { [weak self] in
+            guard let self else { return }
+            let details = await self.client.videoDetails(for: item)
+            // The item may have changed while this was out.
+            guard self.item?.id == item.id, self.player.currentItem === playerItem else { return }
+            self.trickplay = Trickplay.pick(details.trickplay, mediaSourceId: mediaSourceId)
+            let chapters = Chapters.onPlayerTimeline(details.chapters, streamStartSeconds: streamStartSeconds)
+            guard chapters.count > 1 else { return }
+            self.chapters = chapters
+            #if os(tvOS)
+            let markers = chapters.enumerated().map { i, chapter -> AVTimedMetadataGroup in
+                let title = AVMutableMetadataItem()
+                title.identifier = .commonIdentifierTitle
+                title.value = chapter.name as NSString
+                title.extendedLanguageTag = "und"
+                // A marker runs to the next chapter's start (the last, to the end).
+                let end = i + 1 < chapters.count ? chapters[i + 1].startSeconds : chapter.startSeconds + 1
+                let start = CMTime(seconds: chapter.startSeconds, preferredTimescale: 600)
+                let range = CMTimeRange(start: start, end: CMTime(seconds: end, preferredTimescale: 600))
+                return AVTimedMetadataGroup(items: [title], timeRange: range)
+            }
+            playerItem.navigationMarkerGroups = [AVNavigationMarkersGroup(title: nil, timedNavigationMarkers: markers)]
+            #endif
+        }
+    }
+
+    // MARK: The iOS controls
+
+    /// Where the player's clock starts in the film: zero but for a transcode
+    /// asked to start partway in. Add it for anything shown as film time.
+    var streamStartSeconds: Double { seconds(fromTicks: resolved?.startTicks ?? 0) }
+
+    /// On the player's clock. A transcode cannot go before its own start.
+    func seek(toPlayerSeconds target: Double) {
+        let clamped = max(0, duration > 0 ? min(target, duration) : target)
+        time = clamped
+        Task {
+            await player.seek(to: CMTime(seconds: clamped, preferredTimescale: 600))
+            #if os(iOS)
+            updateLockScreen()
+            #endif
+        }
+    }
+
+    func skip(by seconds: Double) { seek(toPlayerSeconds: time + seconds) }
+
+    func togglePlay() { setPlaying(player.timeControlStatus == .paused) }
+
+    func setPlaying(_ on: Bool) {
+        if on { player.play() } else { player.pause() }
+        isPlaying = player.timeControlStatus != .paused
+        #if os(iOS)
+        updateLockScreen()
+        #endif
+    }
+
+    /// 1 is normal. Kept across play and pause.
+    var speed: Float { player.defaultRate }
+
+    func setSpeed(_ rate: Float) {
+        player.defaultRate = rate
+        if player.rate != 0 { player.rate = rate }
+        selectionRevision += 1
+        #if os(iOS)
+        updateLockScreen()
+        #endif
+    }
+
+    private func loadSelectionGroups(for playerItem: AVPlayerItem) {
+        Task { [weak self] in
+            let legible = try? await playerItem.asset.loadMediaSelectionGroup(for: .legible)
+            let audible = try? await playerItem.asset.loadMediaSelectionGroup(for: .audible)
+            var labels: [AVMediaSelectionOption: String] = [:]
+            for option in (legible?.options ?? []) + (audible?.options ?? []) {
+                let item = option.commonMetadata.first { $0.identifier?.rawValue == "m3u8/NAME" }
+                let name = try? await item?.load(.stringValue)
+                labels[option] = mediaTrackLabel(playlistName: name ?? nil, fallback: option.displayName)
+            }
+            guard let self, self.player.currentItem === playerItem else { return }
+            self.trackLabels = labels
+            self.subtitleGroup = legible?.options.isEmpty == false ? legible : nil
+            // One audio track is no choice at all.
+            self.audioGroup = (audible?.options.count ?? 0) > 1 ? audible : nil
+        }
+    }
+
+    /// The server's name for a track, which tells five English tracks apart.
+    func label(for option: AVMediaSelectionOption) -> String {
+        trackLabels[option] ?? option.displayName
+    }
+
+    func selected(in group: AVMediaSelectionGroup) -> AVMediaSelectionOption? {
+        player.currentItem?.currentMediaSelection.selectedMediaOption(in: group)
+    }
+
+    /// Nil turns subtitles off (only a group that allows empty selection).
+    func select(_ option: AVMediaSelectionOption?, in group: AVMediaSelectionGroup) {
+        player.currentItem?.select(option, in: group)
+        selectionRevision += 1
+    }
+
+    /// The preview frame at a film position, from the server's trickplay sheets,
+    /// fetched once each and kept for this item.
+    func trickplayFrame(atFilmSeconds seconds: Double) async -> PlatformImage? {
+        guard let trickplay, let item, let frame = trickplay.frame(atSeconds: seconds) else { return nil }
+        let sheet: PlatformImage
+        if let cached = sheets[frame.sheet] {
+            sheet = cached
+        } else {
+            guard let data = try? await client.trickplaySheet(itemId: item.id, mediaSourceId: resolved?.mediaSourceId,
+                                                              frameWidth: trickplay.frameWidth, sheet: frame.sheet),
+                  let image = PlatformImage(data: data), self.item?.id == item.id else { return nil }
+            sheets[frame.sheet] = image
+            sheet = image
+        }
+        let rect = CGRect(x: frame.x, y: frame.y, width: frame.width, height: frame.height)
+        return sheet.cgImage?.cropping(to: rect).map { PlatformImage(cgImage: $0) }
+    }
+
+    // MARK: Skip intro and outro
+
+    /// Settings > Video. Off unless turned on.
+    private var autoSkip: Bool { UserDefaults.standard.bool(forKey: "cascade.autoSkipSegments") }
+
+    /// Fetches the item's Media Segments (none on an older server or with no
+    /// provider) and then follows the playhead, twice a second, for the one
+    /// that is playing.
+    private func watchSegments(for item: JfItem) {
+        segmentTask?.cancel()
+        segments = []
+        autoSkipped = []
+        activeSegment = nil
+        segmentTask = Task { [weak self] in
+            guard let self else { return }
+            let found = await self.client.mediaSegments(for: item.id)
+            guard !found.isEmpty, !Task.isCancelled, self.item?.id == item.id else { return }
+            self.segments = found
+            while !Task.isCancelled {
+                self.updateActiveSegment()
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+        }
+    }
+
+    private func updateActiveSegment() {
+        let position = seconds(fromTicks: positionTicks())
+        let segment = MediaSegments.active(in: segments, at: position)
+        if segment != activeSegment { activeSegment = segment }
+        guard let segment, autoSkip, player.rate != 0 else { return }
+        let key = "\(segment.type.rawValue):\(segment.startSeconds)"
+        if autoSkipped.insert(key).inserted { skipSegment() }
+    }
+
+    /// What the player's Skip button does: past an intro, or past an outro,
+    /// which when it runs to the end goes on to the next episode.
+    func skipSegment() {
+        guard let segment = activeSegment else { return }
+        let duration = item?.runTimeTicks.map { seconds(fromTicks: $0) } ?? 0
+        switch MediaSegments.skipAction(for: segment, duration: duration) {
+        case .next:
+            Task { await advance() }
+        case .seek(let target):
+            // A transcode's clock starts where it was asked to.
+            let local = max(0, target - seconds(fromTicks: resolved?.startTicks ?? 0))
+            Task { await player.seek(to: CMTime(seconds: local, preferredTimescale: 600)) }
+        }
+    }
+
     /// Where the person stopped is what the server resumes from next time.
     private func reportStopped() async {
         reportTask?.cancel()
@@ -260,9 +380,7 @@ final class VideoSession {
         if !resolved.direct { await stopActiveEncoding(client: client, config: config, playSessionId: resolved.playSessionId) }
     }
 
-    // MARK: - Watching the item
-
-    private func watch(_ playerItem: AVPlayerItem, generation: Int) {
+    private func watchForEnd(_ playerItem: AVPlayerItem) {
         endTask?.cancel()
         endTask = Task { [weak self] in
             for await _ in NotificationCenter.default.notifications(named: AVPlayerItem.didPlayToEndTimeNotification,
@@ -272,15 +390,6 @@ final class VideoSession {
                 return
             }
         }
-        itemWatch = playerItem.observe(\.status, options: [.new]) { [weak self] observed, _ in
-            let failed = observed.status == .failed
-            let message = observed.error?.localizedDescription
-            Task { @MainActor in
-                guard let self, generation == self.loadGeneration, failed else { return }
-                self.error = message ?? "This video could not be played."
-            }
-        }
-        Task { [weak self] in await self?.loadSubtitles(for: playerItem, generation: generation) }
     }
 
     /// The next episode, from its start, or the end.
@@ -291,193 +400,114 @@ final class VideoSession {
             return
         }
         index += 1
-        await load(startTicks: 0, autoplay: true)
+        await load(resume: false)
     }
 
-    var hasNext: Bool { index + 1 < queue.count }
-    var hasPrevious: Bool { index > 0 }
+    #if os(iOS)
+    // MARK: Lock screen (iOS)
+    //
+    // AVPlayerViewController used to fill this in by itself. With Cascade's own
+    // player nothing did, so the lock screen kept the paused song and its
+    // buttons still drove the music player. While a video is open it owns the
+    // lock screen; the music player stands aside (PlaybackService
+    // .lockScreenSuspended, set by AppState) and takes it back on close.
 
-    func next() async {
-        guard hasNext else { return }
-        index += 1
-        await load(startTicks: 0, autoplay: true)
-    }
-
-    func previous() async {
-        guard hasPrevious else { return }
-        index -= 1
-        await load(startTicks: 0, autoplay: true)
-    }
-
-    func stop() async {
-        loadGeneration += 1
-        endTask?.cancel()
-        skipTask?.cancel()
-        player.pause()
-        await reportStopped()
-        player.replaceCurrentItem(with: nil)
-        if let timeObserver { player.removeTimeObserver(timeObserver) }
-        timeObserver = nil
-        tap = nil
-        item = nil
-    }
-
-    // MARK: - Transport
-
-    func togglePlayPause() {
-        if player.timeControlStatus == .paused { player.play() } else { player.pause() }
-    }
-
-    /// Seeks inside the item. Exact, not to the nearest keyframe: a skip of
-    /// five seconds should land five seconds on.
-    func seek(to target: Double) {
-        let total = duration
-        let t = max(0, total > 0 ? min(total, target) : target)
-        pendingSkip = nil
-        skipTask?.cancel()
-        position = t
-        let clock = t - seconds(fromTicks: resolved?.startTicks ?? 0)
-        player.seek(to: CMTime(seconds: max(0, clock), preferredTimescale: 600),
-                    toleranceBefore: .zero, toleranceAfter: .zero) { _ in }
-    }
-
-    /// Jump by `delta` seconds. A direct file moves at once. A transcode's
-    /// every landing costs the server a new encode, so a run of taps is
-    /// collected and sent once, after the last one; the clock follows each tap
-    /// so the run stays legible.
-    func skip(by delta: Double) {
-        let total = duration
-        guard total > 0 else { return }
-        if resolved?.direct != false {
-            seek(to: VideoControls.skipTarget(from: livePosition, by: delta, duration: total))
-            return
+    private func claimLockScreen() {
+        guard commandTargets.isEmpty else { return }
+        let center = MPRemoteCommandCenter.shared()
+        func on(_ command: MPRemoteCommand, _ run: @escaping @Sendable () async -> Void) {
+            commandTargets.append((command, command.addTarget(handler: Self.handler(run))))
         }
-        let target = VideoControls.skipTarget(from: pendingSkip ?? livePosition, by: delta, duration: total)
-        pendingSkip = target
-        position = target
-        skipTask?.cancel()
-        skipTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(VideoControls.skipBatchDelay))
-            guard !Task.isCancelled, let self else { return }
-            self.seek(to: target)
+        on(center.playCommand) { [weak self] in await self?.setPlaying(true) }
+        on(center.pauseCommand) { [weak self] in await self?.setPlaying(false) }
+        on(center.togglePlayPauseCommand) { [weak self] in await self?.togglePlay() }
+        on(center.skipForwardCommand) { [weak self] in await self?.skip(by: 10) }
+        on(center.skipBackwardCommand) { [weak self] in await self?.skip(by: -10) }
+        let position = center.changePlaybackPositionCommand
+        commandTargets.append((position, position.addTarget(handler: Self.positionHandler { [weak self] seconds in
+            await self?.seek(toPlayerSeconds: seconds)
+        })))
+        // A film skips by ten seconds; next and previous are the music's.
+        center.skipForwardCommand.preferredIntervals = [10]
+        center.skipBackwardCommand.preferredIntervals = [10]
+        center.skipForwardCommand.isEnabled = true
+        center.skipBackwardCommand.isEnabled = true
+        center.nextTrackCommand.isEnabled = false
+        center.previousTrackCommand.isEnabled = false
+    }
+
+    private func releaseLockScreen() {
+        guard !commandTargets.isEmpty else { return }
+        let center = MPRemoteCommandCenter.shared()
+        for (command, target) in commandTargets { command.removeTarget(target) }
+        commandTargets = []
+        center.skipForwardCommand.isEnabled = false
+        center.skipBackwardCommand.isEnabled = false
+        center.nextTrackCommand.isEnabled = true
+        center.previousTrackCommand.isEnabled = true
+        lockScreenShown = nil
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+    }
+
+    private func updateLockScreen() {
+        guard !commandTargets.isEmpty, let item else { return }
+        var subtitle = item.productionYear.map(String.init) ?? ""
+        if let series = item.seriesName {
+            subtitle = VideoPlayback.episodeCode(item).map { "\(series) · \($0)" } ?? series
+        }
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: item.name ?? "",
+            MPMediaItemPropertyArtist: subtitle,
+            MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.video.rawValue,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: time,
+            // Zero while paused, or the lock screen's clock keeps running.
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? Double(speed) : 0.0,
+            MPNowPlayingInfoPropertyDefaultPlaybackRate: Double(speed),
+        ]
+        if duration > 0 { info[MPMediaItemPropertyPlaybackDuration] = duration }
+        if let art = lockScreenArt, art.itemId == item.id { info[MPMediaItemPropertyArtwork] = art.art }
+        lockScreenShown = (isPlaying, duration)
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    /// The poster (a still, for an episode), a moment after playback starts.
+    private func loadLockScreenArt(for item: JfItem) {
+        guard lockScreenArt?.itemId != item.id else { return updateLockScreen() }
+        Task { [weak self] in
+            guard let self, let url = await self.client.imageUrl(itemId: item.id, size: 600),
+                  let (data, response) = try? await ProxyConnection.shared.session(for: url).data(from: url),
+                  (response as? HTTPURLResponse)?.statusCode == 200,
+                  let image = await UIImage(data: data)?.byPreparingForDisplay(),
+                  self.item?.id == item.id else { return }
+            self.lockScreenArt = (item.id, Self.makeArtwork(image))
+            self.updateLockScreen()
         }
     }
 
-    /// One frame while paused, at the film's own rate when the server said.
-    func step(forward: Bool) {
-        guard player.timeControlStatus == .paused, let current = player.currentItem else { return }
-        if forward ? current.canStepForward : current.canStepBackward {
-            current.step(byCount: forward ? 1 : -1)
-        } else {
-            // An HLS stream often cannot step back; a tiny seek is the next best.
-            let fps = item?.mediaStreams?.first { $0.type == "Video" }?.realFrameRate
-            let frame = VideoControls.frameDuration(fps: fps)
-            seek(to: livePosition + (forward ? frame : -frame))
+    // Built outside the main actor: MediaPlayer calls these from its own queue,
+    // and a closure written in a main-actor method would trap there (see
+    // PlaybackService's lock screen art).
+    nonisolated private static func makeArtwork(_ image: UIImage) -> MPMediaItemArtwork {
+        MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+    }
+
+    nonisolated private static func handler(_ run: @escaping @Sendable () async -> Void) -> (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus {
+        { _ in
+            Task { await run() }
+            return .success
         }
     }
 
-    func setRate(_ r: Double) {
-        rate = r
-        player.defaultRate = Float(r)
-        if player.timeControlStatus != .paused { player.rate = Float(r) }
-    }
-
-    /// Previous or next chapter, from where it is. Returns the chapter landed on.
-    @discardableResult
-    func jumpChapter(forward: Bool) -> Chapter? {
-        guard let target = chapterTarget(chapters, livePosition, forward: forward) else { return nil }
-        seek(to: target)
-        let at = chapterAt(chapters, target)
-        return chapters.indices.contains(at) ? chapters[at] : nil
-    }
-
-    // MARK: - Audio track
-
-    /// The audio stream playing, for the picker's tick: the one asked for, or
-    /// the file's own default.
-    var audioTracks: [JfMediaStream] { item.map(VideoPlayback.audioTracks) ?? [] }
-
-    var currentAudioIndex: Int? {
-        let tracks = item.map(VideoPlayback.audioTracks) ?? []
-        return audioIndex ?? (tracks.first { $0.isDefault == true } ?? tracks.first)?.index
-    }
-
-    /// A different audio track is a different stream from the server (it
-    /// honors a track only alongside the media source id, and the transcode
-    /// carries that one alone), so playback restarts where it was. Stays
-    /// paused if it was paused.
-    func selectAudio(_ streamIndex: Int) async {
-        guard let item, streamIndex != currentAudioIndex else { return }
-        pickedAudio = (streamIndex, VideoPlayback.audioTracks(item).first { $0.index == streamIndex }?.language)
-        let wasPlaying = player.timeControlStatus != .paused
-        await load(startTicks: ticks(fromSeconds: pendingSkip ?? livePosition), autoplay: wasPlaying)
-    }
-
-    // MARK: - Subtitles
-
-    private func loadSubtitles(for playerItem: AVPlayerItem, generation: Int) async {
-        guard let group = try? await playerItem.asset.loadMediaSelectionGroup(for: .legible),
-              generation == loadGeneration else { return }
-        let options = group.options
-        legibleGroup = group
-        legibleOptions = options
-        subtitles = orderedSubtitles(options.enumerated().map { i, option in
-            SubtitleChoice(id: i, label: option.displayName,
-                           isDefault: group.defaultOption == option,
-                           isForced: option.hasMediaCharacteristic(.containsOnlyForcedSubtitles))
-        })
-        // The system picks one on its own once the item is ready; wait for
-        // that rather than reading before it has happened.
-        for _ in 0..<30 where playerItem.status == .unknown {
-            try? await Task.sleep(for: .milliseconds(100))
-            guard generation == loadGeneration else { return }
+    nonisolated private static func positionHandler(_ run: @escaping @Sendable (Double) async -> Void) -> (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus {
+        { event in
+            guard let seconds = (event as? MPChangePlaybackPositionCommandEvent)?.positionTime else { return .commandFailed }
+            Task { await run(seconds) }
+            return .success
         }
-        switch subtitlePick {
-        case .unset: break
-        case .off: playerItem.select(nil, in: group)
-        case .track(let label):
-            if let match = options.first(where: { $0.displayName == label }) { playerItem.select(match, in: group) }
-        }
-        refreshSubtitleSelection()
     }
+    #endif
 
-    private func refreshSubtitleSelection() {
-        guard let group = legibleGroup, let current = player.currentItem,
-              let option = current.currentMediaSelection.selectedMediaOption(in: group),
-              let i = legibleOptions.firstIndex(of: option) else {
-            subtitleSelection = nil
-            return
-        }
-        subtitleSelection = i
-    }
-
-    /// Off, or a `SubtitleChoice.id`. Remembered for the next item.
-    func selectSubtitle(_ id: Int?) {
-        guard let group = legibleGroup, let current = player.currentItem else { return }
-        if let id, legibleOptions.indices.contains(id) {
-            current.select(legibleOptions[id], in: group)
-            subtitlePick = .track(legibleOptions[id].displayName)
-            lastSubtitle = id
-        } else {
-            if let showing = subtitleSelection { lastSubtitle = showing }
-            current.select(nil, in: group)
-            subtitlePick = .off
-        }
-        refreshSubtitleSelection()
-    }
-
-    /// C: off and back on to the last pick. Returns what to say, or nil when
-    /// there is nothing to toggle.
-    func toggleSubtitles() -> String? {
-        guard let result = toggledSubtitle(showing: subtitleSelection, remembered: lastSubtitle, count: legibleOptions.count) else {
-            return nil
-        }
-        lastSubtitle = result.remembered
-        selectSubtitle(result.selection)
-        return result.selection.map { legibleOptions[$0].displayName } ?? "Subtitles off"
-    }
-
-    // MARK: - Equalizer
+    // MARK: Equalizer
 
     /// The Video EQ curve. Live: a curve change moves the tap already on the
     /// item, and switching it on mid-film taps the item playing (direct
@@ -497,7 +527,144 @@ final class VideoSession {
 
     /// Whether the EQ is actually on the audio: it is off for a transcode.
     var equalizerActive: Bool { tap != nil && equalizer.enabled }
+
+    #if os(macOS)
+    // MARK: The Mac player (App/Mac/MacVideo.swift, MacVideoControls.swift)
+
+    /// The Mac's scrubber is being dragged, so idle hiding waits.
+    var isScrubbing = false
+    /// Resolving the stream: nothing on screen yet.
+    var isLoading: Bool { item != nil && player.currentItem == nil && error == nil }
+    var position: Double { time }
+    var rate: Double { Double(speed) }
+    func setRate(_ rate: Double) { setSpeed(Float(rate)) }
+    func togglePlayPause() { togglePlay() }
+    func seek(to seconds: Double) { seek(toPlayerSeconds: seconds) }
+
+    var hasNext: Bool { index + 1 < queue.count }
+    var hasPrevious: Bool { index > 0 }
+
+    /// Shift-N and Shift-P: the next or previous episode, from its start.
+    func next() async {
+        guard hasNext else { return }
+        index += 1
+        await load(resume: false)
+    }
+
+    func previous() async {
+        guard hasPrevious else { return }
+        index -= 1
+        await load(resume: false)
+    }
+
+    /// Comma and period: one frame, only while paused (playing, the next
+    /// frame would be gone before it was seen).
+    func step(forward: Bool) {
+        guard player.rate == 0 else { return }
+        player.currentItem?.step(byCount: forward ? 1 : -1)
+    }
+
+    /// Option-Left and Option-Right. Returns the chapter it went to, for the readout.
+    func jumpChapter(forward: Bool) -> Chapter? {
+        guard let target = Chapters.jumpTarget(in: chapters, from: time, forward: forward) else { return nil }
+        seek(toPlayerSeconds: target)
+        return Chapters.current(in: chapters, at: target)
+    }
+
+    /// The last subtitle track turned off with C, for C to bring back.
+    @ObservationIgnored private var lastSubtitle: AVMediaSelectionOption?
+
+    /// C: subtitles off, or back to the last track (the first one if none
+    /// yet). Returns what to show in the readout, nil when there are none.
+    func toggleSubtitles() -> String? {
+        guard let group = subtitleGroup else { return nil }
+        if let on = selected(in: group) {
+            lastSubtitle = on
+            select(nil, in: group)
+            return "Subtitles off"
+        }
+        guard let pick = lastSubtitle ?? group.options.first else { return nil }
+        select(pick, in: group)
+        return label(for: pick)
+    }
+
+    /// The Mac video follows the music player's volume and mute, the app's
+    /// one volume, so the slider means the same thing in both.
+    @ObservationIgnored private weak var audio: PlaybackService?
+
+    func follow(_ service: PlaybackService?) {
+        audio = service
+        syncVolume()
+    }
+
+    private func syncVolume() {
+        player.volume = audio?.volume ?? player.volume
+        player.isMuted = audio?.isMuted ?? player.isMuted
+        selectionRevision += 1
+    }
+
+    var volume: Float { audio?.volume ?? player.volume }
+    var isMuted: Bool { audio?.isMuted ?? player.isMuted }
+
+    func setVolume(_ value: Float) {
+        let v = min(1, max(0, value))
+        if let audio { audio.setVolume(v) } else { player.volume = v }
+        syncVolume()
+    }
+
+    func toggleMute() {
+        if let audio { audio.setMuted(!audio.isMuted) } else { player.isMuted.toggle() }
+        syncVolume()
+    }
+    #endif
+
+    func stop() async {
+        endTask?.cancel()
+        segmentTask?.cancel()
+        if let timeObserver { player.removeTimeObserver(timeObserver) }
+        timeObserver = nil
+        #if os(iOS)
+        releaseLockScreen()
+        #endif
+        activeSegment = nil
+        chapters = []
+        player.pause()
+        await reportStopped()
+        player.replaceCurrentItem(with: nil)
+        item = nil
+    }
 }
+
+#if os(tvOS)
+/// Apple's player, full screen. tvOS only: its remote-driven scrubbing, focus
+/// and info panels are the system's to get right. iOS draws its own
+/// (CascadeVideoPlayer, VideoControls.swift).
+struct VideoPlayerView: UIViewControllerRepresentable {
+    let session: VideoSession
+    /// The intro or outro to offer to skip. A parameter, not read inside
+    /// updateUIViewController, so a change rebuilds this view and updates it.
+    let skippable: MediaSegment?
+
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let controller = AVPlayerViewController()
+        controller.player = session.player
+        return controller
+    }
+
+    func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {
+        if controller.player !== session.player { controller.player = session.player }
+        // Apple's contextual action: drawn over the player and, on tvOS, a
+        // button the remote reaches by itself, so select keeps meaning
+        // play/pause rather than being taken by ours.
+        let activeSession = session
+        controller.contextualActions = skippable.map { segment in
+            [UIAction(title: segment.skipLabel, image: UIImage(systemName: "forward.end.fill")) { _ in
+                Task { @MainActor in activeSession.skipSegment() }
+            }]
+        } ?? []
+    }
+}
+#endif
 
 #if os(macOS)
 /// Apple's picture, with our own controls over it (App/Mac/MacVideoControls):
@@ -519,36 +686,17 @@ struct VideoPlayerView: NSViewRepresentable {
         if view.player !== session.player { view.player = session.player }
     }
 }
-#else
-/// Apple's player, full screen.
-struct VideoPlayerView: UIViewControllerRepresentable {
-    let session: VideoSession
-
-    func makeUIViewController(context: Context) -> AVPlayerViewController {
-        let controller = AVPlayerViewController()
-        controller.player = session.player
-        #if os(iOS)
-        controller.allowsPictureInPicturePlayback = true
-        controller.canStartPictureInPictureAutomaticallyFromInline = true
-        #endif
-        return controller
-    }
-
-    func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {
-        if controller.player !== session.player { controller.player = session.player }
-    }
-}
 #endif
 
+#if !os(macOS)
 /// What the full-screen cover shows: the player, with any error over it.
-/// Closing is the player's own X, which dismisses the cover.
+/// The Mac has its own (MacVideoHost).
 struct VideoScreen: View {
     let session: VideoSession
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VideoPlayerView(session: session)
-            .ignoresSafeArea()
+        player
             .overlay(alignment: .top) {
                 if let error = session.error {
                     Text(error)
@@ -556,8 +704,23 @@ struct VideoScreen: View {
                         .background(.red.opacity(0.85), in: .rect(cornerRadius: 12))
                         .foregroundStyle(.white)
                         .padding()
+                        #if os(iOS)
+                        // Under the iOS controls' top bar, not over it.
+                        .padding(.top, 48)
+                        #endif
                 }
             }
             .onChange(of: session.finished) { _, done in if done { dismiss() } }
     }
+
+    @ViewBuilder private var player: some View {
+        #if os(iOS)
+        CascadeVideoPlayer(session: session) { dismiss() }
+        #else
+        // Closing is the player's own Menu button, which dismisses the cover.
+        VideoPlayerView(session: session, skippable: session.activeSegment)
+            .ignoresSafeArea()
+        #endif
+    }
 }
+#endif

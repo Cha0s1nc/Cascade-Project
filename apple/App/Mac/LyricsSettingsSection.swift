@@ -59,15 +59,15 @@ struct LyricsSettingsSection: View {
         let availability = LanguageAvailability()
         let english = Locale.Language(identifier: "en")
         var have: [String] = [], need: [String] = []
-        for key in LyricTranslation.appleKeys {
+        for key in LyricLanguages.appleKeys {
             switch await availability.status(from: Locale.Language(identifier: key), to: english) {
             case .installed: have.append(key)
             case .supported: need.append(key)
             default: break
             }
         }
-        installed = have.map(LyricTranslation.displayName).sorted()
-        missing = need.map(LyricTranslation.displayName).sorted()
+        installed = have.map(LyricLanguages.displayName).sorted()
+        missing = need.map(LyricLanguages.displayName).sorted()
         checked = true
     }
 }

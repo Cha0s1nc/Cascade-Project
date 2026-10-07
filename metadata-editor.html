@@ -231,7 +231,9 @@ let editorJf   = null   // { url, token, userId, isAdmin }
 // The token goes in the standard Authorization header (or ApiKey in a URL):
 // Jellyfin 12 turns off X-Emby-Token and api_key by default. Same value as
 // CascadeCore.authHeader in the main window; this page does not load core.
-const jfAuthorization = jf => `MediaBrowser Client="Cascade", Device="Cascade", DeviceId="${jf.deviceId || 'cascade-app'}", Version="${jf.appVersion || '0.0.0'}", Token="${jf.token}"`
+// The edition and machine come from the main window (CascadeCore.clientIdentity),
+// already reduced to header-safe words there.
+const jfAuthorization = jf => `MediaBrowser Client="${jf.client || 'Cascade'}", Device="${jf.device || 'Cascade'}", DeviceId="${jf.deviceId || 'cascade-app'}", Version="${jf.appVersion || '0.0.0'}", Token="${jf.token}"`
 
 function fieldsToArray(str) {
   return str.split(',').map(s => s.trim()).filter(Boolean)

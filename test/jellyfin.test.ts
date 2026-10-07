@@ -2,6 +2,7 @@ import { test, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   JellyfinClient, authenticate, authHeader,
+  setClientIdentity, clientIdentity, desktopDeviceName, ELECTRON_EDITION,
   quickConnectEnabled, quickConnectInitiate, quickConnectApproved, quickConnectAuthenticate,
   quickConnectAuthorize,
   QUICK_CONNECT_POLL_MS, QUICK_CONNECT_TIMEOUT_MS, readErrorMessage,
@@ -579,6 +580,40 @@ test('post: a JSON body still comes back parsed', async () => {
 test('authHeader: the token goes inside the standard header, only when there is one', () => {
   assert.equal(authHeader('1.0', 'd'), 'MediaBrowser Client="Cascade", Device="Cascade", DeviceId="d", Version="1.0"')
   assert.equal(authHeader('1.0', 'd', 'T'), 'MediaBrowser Client="Cascade", Device="Cascade", DeviceId="d", Version="1.0", Token="T"')
+})
+
+test('client identity: the edition and machine go in the header, and reset', () => {
+  try {
+    setClientIdentity({ client: ELECTRON_EDITION, device: desktopDeviceName('win32') })
+    assert.equal(authHeader('2.3.0', 'd', 'T'), 'MediaBrowser Client="Cascade Electron", Device="Windows", DeviceId="d", Version="2.3.0", Token="T"')
+    assert.deepEqual(clientIdentity(), { client: 'Cascade Electron', device: 'Windows' })
+  } finally {
+    setClientIdentity({})
+  }
+  assert.deepEqual(clientIdentity(), { client: 'Cascade', device: 'Cascade' })
+})
+
+test('client identity: nothing that could break the quoted header gets through', () => {
+  try {
+    setClientIdentity({ client: 'Cascade", Token="evil', device: 42 as unknown as string })
+    const header = authHeader('1.0', 'd')
+    assert.equal(clientIdentity().client, 'Cascade Tokenevil')
+    assert.equal(clientIdentity().device, 'Cascade')
+    assert.equal(header.split('"').length, 9, 'exactly four quoted fields')
+    setClientIdentity({ client: '   ', device: 'x'.repeat(100) })
+    assert.equal(clientIdentity().client, 'Cascade')
+    assert.equal(clientIdentity().device.length, 40)
+  } finally {
+    setClientIdentity({})
+  }
+})
+
+test('desktopDeviceName: one plain word per platform', () => {
+  assert.equal(desktopDeviceName('win32'), 'Windows')
+  assert.equal(desktopDeviceName('darwin'), 'Mac')
+  assert.equal(desktopDeviceName('linux'), 'Linux')
+  assert.equal(desktopDeviceName('freebsd'), 'Desktop')
+  assert.equal(desktopDeviceName(undefined), 'Desktop')
 })
 
 test('dedupeById: of two copies of an album, the one with more tracks wins', () => {

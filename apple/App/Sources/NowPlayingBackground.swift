@@ -14,7 +14,7 @@ enum CoverPalettes {
         let key = "\(itemId)|\(light)"
         if let hit = cache[key] { return hit }
         guard let url = await client.imageUrl(itemId: itemId, size: AlbumColors.sampleSide),
-              let (data, response) = try? await URLSession.shared.data(from: url),
+              let (data, response) = try? await ProxyConnection.shared.session(for: url).data(from: url),
               (response as? HTTPURLResponse)?.statusCode == 200 else { return [] }
         let colors = await Task.detached(priority: .utility) { extract(data, light: light) }.value
         cache[key] = colors

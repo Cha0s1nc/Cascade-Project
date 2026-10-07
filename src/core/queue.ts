@@ -124,6 +124,30 @@ export function queueSourceFallback(items: readonly JfItem[]): string | null {
   return items.every(t => t.AlbumId === first.AlbumId) ? first.Album : null
 }
 
+/** A queue after a clear, and where the playing track sits in it. */
+export interface TrimmedQueue<T> { queue: T[]; index: number }
+
+/**
+ * "Clear queue": drop everything but the track that is playing, so the queue
+ * panel and the audio element keep agreeing. With nothing playing (index out
+ * of range) the queue is simply emptied. Returns new arrays, never mutates.
+ */
+export function trimToCurrent<T>(queue: readonly T[], queueIndex: number): TrimmedQueue<T> {
+  if (queueIndex < 0 || queueIndex >= queue.length) return { queue: [], index: -1 }
+  return { queue: [queue[queueIndex]], index: 0 }
+}
+
+/**
+ * "Clear" on the Up Next header: drop what follows the playing track and keep
+ * History and the current track where they are, so the index does not move.
+ * With nothing playing there is no Up Next to separate from History, so the
+ * whole queue is emptied.
+ */
+export function clearUpNext<T>(queue: readonly T[], queueIndex: number): TrimmedQueue<T> {
+  if (queueIndex < 0 || queueIndex >= queue.length) return { queue: [], index: -1 }
+  return { queue: queue.slice(0, queueIndex + 1), index: queueIndex }
+}
+
 /**
  * The queue as kept across a restart: item ids (refetched on restore, so a
  * track deleted meanwhile just drops out), where playback was, and the

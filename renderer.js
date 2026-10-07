@@ -16,6 +16,13 @@ let shuffle = false
 let repeatMode = 'none' // 'none' | 'all' | 'one'
 let _unshuffledQueue = []   // original order saved when shuffle is enabled
 let _restoredResume = null   // { sec } while a restored queue's track waits for play (see Last queue)
+// Offline downloads (see the section of that name). Declared up here because
+// artUrl() and resolveTrackStream() read it from the very first render.
+let _offline = { ready: {}, art: new Set(), collections: [], totalBytes: 0, active: [], failed: {}, plays: 0 }
+/** The server could not be reached at launch: only downloads and playback work. */
+let _offlineMode = false
+/** Live bytes per track being downloaded, from the main process's progress events. */
+const _offlineProgress = new Map()
 
 // Queue panel virtualisation
 const QUEUE_WIN      = 20   // minimum rows kept in DOM at once; see _queueWin()
@@ -243,7 +250,9 @@ function greeting() {
   return 'Good evening'
 }
 
-const artUrl       = (itemId, tag) => jfClient.artUrl(itemId, tag)
+// A downloaded album's cover comes from disk (cascade-offline://), so it still
+// shows with no server and loads without a round trip with one.
+const artUrl       = (itemId, tag) => (_offline.art.has(itemId) ? `cascade-offline://local/art/${itemId}.jpg` : null) || jfClient.artUrl(itemId, tag)
 const artistArtUrl = (itemId)      => jfClient.artistArtUrl(itemId)
 
 // ── Skeleton loaders ──────────────────────────────────────────────────────────
@@ -521,8 +530,14 @@ function decodableVideoAudioCodecs() {
 }
 
 /** @type {(itemId: string, kind?: 'Audio' | 'Video', opts?: any) => Promise<any>} */
-const resolveTrackStream = (itemId, kind = 'Audio', opts = {}) =>
-  resolveStream(jfClient, jf, itemId, currentDeviceProfile(), maxStreamingBitrate, kind, opts)
+const resolveTrackStream = (itemId, kind = 'Audio', opts = {}) => {
+  // A downloaded track plays from disk, before the server is asked anything:
+  // it is the file the person chose to keep, it needs no transcode, and with
+  // no network there is nobody to ask. Direct, from the start, no session.
+  const local = kind === 'Audio' ? _offline.ready[itemId] : null
+  if (local) return Promise.resolve({ url: local, playSessionId: null, mediaSourceId: null, direct: true, startTicks: 0 })
+  return resolveStream(jfClient, jf, itemId, currentDeviceProfile(), maxStreamingBitrate, kind, opts)
+}
 
 // Self-contained URL for "Copy stream URL". Deliberately the /universal form
 // rather than a PlaySessionId-bound one, so the copied link keeps working after
@@ -736,6 +751,7 @@ async function connect(serverUrl, token, userId) {
   // Verify the token is still valid with a lightweight ping, retry up to 3x
   let verified = false
   let userInfo = null
+  let lastError = null
   for (let attempt = 1; attempt <= 3; attempt++) {
     showLoading(attempt === 1 ? 'Connecting…' : `Retrying… (${attempt}/3)`)
     try {
@@ -743,6 +759,9 @@ async function connect(serverUrl, token, userId) {
       verified = true
       break
     } catch (e) {
+      lastError = e
+      // No network at all: waiting and asking again will not change that.
+      if (!navigator.onLine) break
       if (attempt < 3) await new Promise(r => setTimeout(r, 1500 * attempt))
     }
   }
@@ -751,7 +770,9 @@ async function connect(serverUrl, token, userId) {
 
   if (!verified) {
     if (errorEl) errorEl.textContent = 'Connection failed. Check your server URL and try again.'
-    throw new Error('Could not reach Jellyfin server')
+    // The HTTP status when the server answered ("401 Unauthorized"), none when
+    // it never did: launch tells a rejected token from a missing network by it.
+    throw Object.assign(new Error('Could not reach Jellyfin server'), { status: Number(/^(\d{3}) /.exec(lastError?.message || '')?.[1]) || null })
   }
 
   // Free: userInfo is the same /Users/{id} response the token-verify ping just
@@ -764,6 +785,9 @@ async function connect(serverUrl, token, userId) {
   // canDeleteMedia). Gates the "Delete media" entry, kept apart from
   // _applyAdminGating's admin-only entries below.
   jf.canDelete = CascadeCore.canDeleteMedia(userInfo?.Policy)
+  // Whether the account may download media: Jellyfin answers /Download with a
+  // 403 otherwise, which the offline downloads report as such track by track.
+  jf.canDownload = userInfo?.Policy?.EnableContentDownloading !== false
   // Same free response again - whether the account can see Live TV at all,
   // which the Radio nav row is gated on (see applyRadioNavVisibility). A
   // server with no Live TV access denied would otherwise show a Radio tab
@@ -775,6 +799,13 @@ async function connect(serverUrl, token, userId) {
 
   startRemoteControl()
   probeCascadePlugin()  // not awaited - cheap, and nothing here depends on the result yet
+  // This account's downloads (another's are never shown or resumed). Back
+  // online: carry on with downloads that were waiting, and tell the server
+  // about plays made while it was out of reach.
+  await window.cascade.offline.setOwner(jf.userId)
+  await refreshOffline()
+  window.cascade.offline.resume(offlineSession()).catch(() => {})
+  replayOfflinePlays()
   await populateLibraryPicker(viewsPromise)
   invalidateLibraryViews()
   await loadHome()
@@ -1077,9 +1108,22 @@ dpSeekInput.addEventListener('change', () => {
   _dpSendPlaystate('Seek', { seekPositionTicks: CascadeCore.secondsToTicks(Number(dpSeekInput.value)) })
 })
 
+// Live while dragging: each input would be a request to the server and a hop
+// to the device, so at most one goes out per 150 ms, carrying wherever the
+// thumb is by then, and the release sends the exact final level.
 const dpVolInput = document.getElementById('dp-vol')
-dpVolInput.addEventListener('input', () => { _dpVolDragging = true })
+let _dpVolTimer = null
+dpVolInput.addEventListener('input', () => {
+  _dpVolDragging = true
+  if (_dpVolTimer) return
+  _dpVolTimer = setTimeout(() => {
+    _dpVolTimer = null
+    _dpSendGeneralCommand(CascadeCore.buildSetVolumeCommand(Number(dpVolInput.value)))
+  }, 150)
+})
 dpVolInput.addEventListener('change', () => {
+  clearTimeout(_dpVolTimer)
+  _dpVolTimer = null
   _dpVolDragging = false
   _dpSendGeneralCommand(CascadeCore.buildSetVolumeCommand(Number(dpVolInput.value)))
 })
@@ -1942,6 +1986,7 @@ function showView(name) {
   // No dataset.loaded gate: history must reflect whatever was just played, so
   // it reloads every time it's shown rather than caching a stale fetch.
   if (name === 'history') loadHistory()
+  if (name === 'downloads') renderDownloadsView()
   if (name === 'movies' && !document.getElementById('movies-grid').dataset.loaded) loadMovies()
   if (name === 'shows' && !document.getElementById('shows-grid').dataset.loaded) loadShows()
   if (name === 'radio' && !document.getElementById('radio-grid').dataset.loaded) loadRadio()
@@ -2396,6 +2441,7 @@ function wireArtistCards(container, items, onPick) {
 }
 
 let currentAlbumTracks = []
+let _openAlbumItem = null   // the album page's own item, for its Download button
 
 /** Track query shared by the album detail view and the album context menu's
  *  Play/Play next/Play last/Shuffle/Add to playlist actions. */
@@ -2425,6 +2471,8 @@ async function openAlbum(albumId) {
       fetchAlbumTracks(albumId)
     ])
     currentAlbumTracks = tracks
+    _openAlbumItem = album
+    renderOfflineButtons()
 
     document.getElementById('album-detail-name').textContent = album.Name || ''
     const artistHtml = album.AlbumArtist
@@ -3180,39 +3228,243 @@ document.getElementById('pl-edit-bottom').addEventListener('click', () => {
   savePlaylistIds(moveSelectedToBottom(currentPlaylistItems, plEditSelected), 'Moved to bottom')
 })
 
-// Rename + public/private. One small modal for both since they're the same
-// UpdatePlaylistDto request - reuses .modal-overlay/.modal-card/.modal-input/
-// .modal-btn verbatim (no new modal CSS) and the existing .toggle switch used
-// throughout Settings.
-document.getElementById('pl-edit-props').addEventListener('click', () => {
-  document.getElementById('pl-edit-name').value = document.getElementById('pl-detail-name').textContent
-  document.getElementById('pl-edit-public').checked = plCurrentIsPublic
-  document.getElementById('pl-edit-modal').classList.remove('hidden')
-})
-document.getElementById('pl-edit-cancel').addEventListener('click', () => {
+// ── Playlist details (picture, name, description, public) ───────────────────
+// One modal for everything about a playlist that is not its tracks. Name and
+// public go through Jellyfin's own POST /Playlists/{id}, which the owner may
+// use. Picture and description cannot: Jellyfin requires an admin for both
+// (POST /Items/{id}/Images/Primary and POST /Items/{id}), so they go through
+// Cascade Server's playlist-edit routes when it offers them, which let the
+// owner do it, and Jellyfin's routes for an admin otherwise. With neither,
+// those controls are disabled and say why. See
+// CascadeCore.playlistDetailsRoute and docs/cascade-server-plugin-tasks.md.
+
+let _plDetails = null   // the playlist the modal is editing, and what it started from
+const _plArtBust = new Map()   // playlist id -> cache-buster after a picture change
+
+/** The detail header's art URL. It carries no image tag, so after a change
+ *  the old picture would be served from cache without the buster. */
+function playlistArtUrl(playlistId) {
+  const bust = _plArtBust.get(playlistId)
+  return `${jf.url}/Items/${playlistId}/Images/Primary?fillHeight=160&fillWidth=160&quality=80&ApiKey=${jf.token}${bust ? `&v=${bust}` : ''}`
+}
+
+function _setPlDetailsArt(src) {
+  const el = document.getElementById('pl-edit-art')
+  el.textContent = '♪'
+  if (!src) return
+  const img = document.createElement('img')
+  img.alt = ''
+  img.onerror = () => { el.textContent = '♪' }
+  img.src = src
+  el.replaceChildren(img)
+}
+
+function _dropPendingArt() {
+  if (_plDetails?.art && _plDetails.art !== 'remove') URL.revokeObjectURL(_plDetails.art.url)
+  if (_plDetails) _plDetails.art = null
+}
+
+function closePlaylistDetails() {
+  _dropPendingArt()
+  _plDetails = null
+  document.getElementById('pl-edit-art-file').value = ''
   document.getElementById('pl-edit-modal').classList.add('hidden')
+}
+
+async function openPlaylistDetails(playlistId, name) {
+  if (!playlistId) return
+  let it = null
+  try { it = await jfGet(`/Users/${jf.userId}/Items/${playlistId}`, { Fields: 'Overview' }) } catch {}
+  if (it?.CanDelete === false) {
+    showNotice('You do not have permission to edit this playlist.', 'Playlist')
+    return
+  }
+  const route = CascadeCore.playlistDetailsRoute(_cascadePluginCaps, !_cascadePluginAbsent, !!jf.isAdmin)
+  _plDetails = {
+    id: playlistId,
+    route,
+    name: it?.Name || name || '',
+    isPublic: !!it?.IsPublic,
+    overview: typeof it?.Overview === 'string' ? it.Overview : '',
+    hasArt: !!it?.ImageTags?.Primary,
+    art: null,   // null (unchanged), 'remove', or { bytes, type, url }
+    saving: false,
+  }
+  document.getElementById('pl-edit-name').value = _plDetails.name
+  document.getElementById('pl-edit-public').checked = _plDetails.isPublic
+  document.getElementById('pl-edit-overview').value = _plDetails.overview
+  _setPlDetailsArt(_plDetails.hasArt ? playlistArtUrl(playlistId) : null)
+  // Disabled AND guarded in the handlers below.
+  const note = document.getElementById('pl-edit-art-note')
+  note.hidden = !!route
+  note.textContent = route ? '' : 'The picture and description need Cascade Server on this server, or an admin account.'
+  document.getElementById('pl-edit-art-change').disabled = !route
+  document.getElementById('pl-edit-art-remove').disabled = !route || !_plDetails.hasArt
+  document.getElementById('pl-edit-overview').disabled = !route
+  document.getElementById('pl-edit-modal').classList.remove('hidden')
+}
+
+document.getElementById('pl-edit-props').addEventListener('click', () => {
+  openPlaylistDetails(currentPlaylistId, document.getElementById('pl-detail-name').textContent)
 })
+document.getElementById('pl-edit-cancel').addEventListener('click', closePlaylistDetails)
+
+document.getElementById('pl-edit-art-change').addEventListener('click', () => {
+  if (!_plDetails?.route || _plDetails.saving) return
+  document.getElementById('pl-edit-art-file').click()
+})
+
+document.getElementById('pl-edit-art-file').addEventListener('change', async (e) => {
+  const file = e.target.files?.[0]
+  e.target.value = ''
+  if (!file || !_plDetails?.route) return
+  if (file.size > CascadeCore.PLAYLIST_IMAGE_MAX_BYTES) {
+    showNotice('That picture is too large. Use one under 10 MB.', 'Playlist')
+    return
+  }
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  const type = CascadeCore.sniffImageType(bytes)
+  if (!type) { showNotice('Use a JPEG, PNG or WebP picture.', 'Playlist'); return }
+  _dropPendingArt()
+  _plDetails.art = { bytes, type, url: URL.createObjectURL(new Blob([bytes], { type })) }
+  _setPlDetailsArt(_plDetails.art.url)
+  document.getElementById('pl-edit-art-remove').disabled = false
+})
+
+document.getElementById('pl-edit-art-remove').addEventListener('click', () => {
+  if (!_plDetails?.route || _plDetails.saving) return
+  _dropPendingArt()
+  // Removing a picture that was only picked in this dialog just un-picks it.
+  if (_plDetails.hasArt) _plDetails.art = 'remove'
+  _setPlDetailsArt(null)
+  document.getElementById('pl-edit-art-remove').disabled = true
+})
+
+/** One write, checked (CODEMAP rule 1). Resolves to an error message or null. */
+async function _plDetailsWrite(path, init) {
+  try {
+    // Spaced like every other playlist write (createPlaylistWriteGate); the
+    // name, description and picture of one playlist share one gate.
+    const id = path.match(/[0-9a-f]{32}/i)?.[0]
+    if (id) await waitForPlaylistWrite(id)
+    const res = await fetch(`${jf.url}${path}`, init)
+    return res.ok ? null : await CascadeCore.readErrorMessage(res)
+  } catch (e) {
+    return e.message
+  }
+}
+
+async function _savePlaylistOverview(d, overview) {
+  if (d.route === 'plugin') {
+    return _plDetailsWrite(`/CascadeServer/Playlists/${d.id}/Details`, {
+      method: 'PUT',
+      headers: CascadeCore.authHeaders(jf, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ overview }),
+    })
+  }
+  // Jellyfin's item update replaces the whole item, so it takes the full
+  // fetched DTO with one field changed, never a partial body (the metadata
+  // editor's rule too).
+  try {
+    const res = await fetch(`${jf.url}/Items/${d.id}`, { headers: CascadeCore.authHeaders(jf) })
+    if (!res.ok) return await CascadeCore.readErrorMessage(res)
+    const full = await res.json()
+    return _plDetailsWrite(`/Items/${d.id}`, {
+      method: 'POST',
+      headers: CascadeCore.authHeaders(jf, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ ...full, Overview: overview }),
+    })
+  } catch (e) {
+    return e.message
+  }
+}
+
+async function _savePlaylistArt(d) {
+  const plugin = d.route === 'plugin'
+  const path = plugin ? `/CascadeServer/Playlists/${d.id}/Image` : `/Items/${d.id}/Images/Primary`
+  if (d.art === 'remove') return _plDetailsWrite(path, { method: 'DELETE', headers: CascadeCore.authHeaders(jf) })
+  // The plugin takes the raw bytes; Jellyfin's own route reads its body as
+  // base64 text with the image's type as Content-Type.
+  return _plDetailsWrite(path, {
+    method: 'POST',
+    headers: CascadeCore.authHeaders(jf, { 'Content-Type': d.art.type }),
+    body: plugin ? d.art.bytes : CascadeCore.bytesToBase64(d.art.bytes),
+  })
+}
+
 document.getElementById('pl-edit-save').addEventListener('click', async () => {
+  const d = _plDetails
+  if (!d || d.saving) return
   const name = document.getElementById('pl-edit-name').value.trim()
   if (!name) { showNotice('Playlist name cannot be empty.', 'Playlist'); return }
   const isPublic = document.getElementById('pl-edit-public').checked
+  const overview = document.getElementById('pl-edit-overview').value.trim().slice(0, CascadeCore.PLAYLIST_OVERVIEW_MAX)
+  d.saving = true
+  const saveBtn = document.getElementById('pl-edit-save')
+  saveBtn.disabled = true
+  const failed = []
   try {
-    await waitForPlaylistWrite(currentPlaylistId)
-    const res = await fetch(`${jf.url}/Playlists/${currentPlaylistId}`, {
-      method: 'POST',
-      headers: CascadeCore.authHeaders(jf, { 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ Name: name, IsPublic: isPublic })
-    })
-    if (!res.ok) throw new Error(await CascadeCore.readErrorMessage(res))
-    plCurrentIsPublic = isPublic
-    document.getElementById('pl-detail-name').textContent = name
-    document.getElementById('pl-edit-modal').classList.add('hidden')
-    showToast('Playlist updated')
-    await playlistMutated(currentPlaylistId)
-  } catch (e) {
-    showNotice(`Could not update the playlist.\n\n${e.message}`, 'Playlist')
+    // Each part is written only if it changed, and its starting value moves
+    // forward only once it saved, so pressing Save again after a failure
+    // resends just what failed.
+    if (name !== d.name || isPublic !== d.isPublic) {
+      const err = await _plDetailsWrite(`/Playlists/${d.id}`, {
+        method: 'POST',
+        headers: CascadeCore.authHeaders(jf, { 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ Name: name, IsPublic: isPublic }),
+      })
+      if (err) failed.push(`Name and public: ${err}`)
+      else {
+        d.name = name
+        d.isPublic = isPublic
+        if (currentPlaylistId === d.id) {
+          document.getElementById('pl-detail-name').textContent = name
+          plCurrentIsPublic = isPublic
+        }
+      }
+    }
+    if (d.route && overview !== d.overview) {
+      const err = await _savePlaylistOverview(d, overview)
+      if (err) failed.push(`Description: ${err}`)
+      else {
+        d.overview = overview
+        if (currentPlaylistId === d.id) showPlaylistOverview(overview)
+      }
+    }
+    if (d.route && d.art) {
+      const err = await _savePlaylistArt(d)
+      if (err) failed.push(`Picture: ${err}`)
+      else {
+        d.hasArt = d.art !== 'remove'
+        _dropPendingArt()
+        _plArtBust.set(d.id, Date.now())
+        if (currentPlaylistId === d.id) {
+          document.getElementById('pl-detail-art').innerHTML = d.hasArt
+            ? `<img src="${playlistArtUrl(d.id)}" alt="" onerror="this.parentElement.textContent='♪'">` : '♪'
+        }
+      }
+    }
+  } finally {
+    d.saving = false
+    saveBtn.disabled = false
   }
+  // The index shows names and pictures, and re-fetches them next time it is
+  // drawn. Nothing about the tracks changed, so the open list stays as is.
+  delete document.getElementById('playlists-grid').dataset.loaded
+  if (failed.length) {
+    showNotice(`Some changes did not save.\n\n${failed.join('\n')}`, 'Playlist')
+    return
+  }
+  closePlaylistDetails()
+  showToast('Playlist updated')
 })
+
+/** The description under the playlist's name in its detail header. */
+function showPlaylistOverview(text) {
+  const el = document.getElementById('pl-detail-overview')
+  el.textContent = text || ''
+  el.hidden = !text
+}
 
 function showPlaylistDetailShell(name) {
   document.getElementById('playlist-index').style.display = 'none'
@@ -3341,10 +3593,16 @@ async function openPlaylist(playlistId, name) {
   document.getElementById('btn-edit-playlist').style.display = ''
   const artEl = document.getElementById('pl-detail-art')
   artEl.style.background = ''
-  const plArtUrl = `${jf.url}/Items/${playlistId}/Images/Primary?fillHeight=160&fillWidth=160&quality=80&ApiKey=${jf.token}`
-  artEl.innerHTML = `<img src="${plArtUrl}" alt="" onerror="this.innerHTML='♪'">`
+  artEl.innerHTML = `<img src="${playlistArtUrl(playlistId)}" alt="" onerror="this.parentElement.textContent='♪'">`
+  // The description is not in the track list's response, so it comes from the
+  // item itself, without holding up the tracks.
+  showPlaylistOverview('')
+  jfGet(`/Users/${jf.userId}/Items/${playlistId}`, { Fields: 'Overview' })
+    .then(it => { if (currentPlaylistId === playlistId) showPlaylistOverview(typeof it?.Overview === 'string' ? it.Overview : '') })
+    .catch(() => {})
 
   try {
+    renderOfflineButtons()
     renderPlaylistDetailItems(await fetchPlaylistTracks(playlistId), true)
   } catch (e) {
     document.getElementById('pl-detail-rows').innerHTML = `<div class="empty-state">Could not load playlist</div>`
@@ -3468,6 +3726,7 @@ async function openSmartPlaylist(kind) {
   document.getElementById('btn-edit-playlist').style.display = sp.isUser ? '' : 'none'
   document.getElementById('btn-edit-playlist').textContent = sp.isUser ? 'Edit Rules' : 'Edit'
   document.getElementById('btn-save-as-playlist').style.display = sp.isUser ? '' : 'none'
+  renderOfflineButtons()   // no id: a smart playlist has nothing on the server to download
   document.getElementById('pl-detail-art').style.background = sp.gradient
   document.getElementById('pl-detail-art').innerHTML = sp.icon
 
@@ -3601,10 +3860,31 @@ function addSmartRuleRow(rule) {
 document.getElementById('smart-pl-add-rule').addEventListener('click', () => addSmartRuleRow(null))
 
 let _smartPlEditingId = null   // set while the modal edits an existing def, null while creating one
+// Which kind the shared modal is making: 'normal' (a real Jellyfin playlist)
+// or 'smart' (a local rule-based definition). Only "New Playlist" offers the
+// choice; editing a smart playlist is always 'smart'.
+let _newPlMode = 'smart'
+
+function setNewPlaylistMode(mode) {
+  _newPlMode = mode === 'normal' && !_smartPlEditingId ? 'normal' : 'smart'
+  const normal = _newPlMode === 'normal'
+  const normalBtn = document.getElementById('new-pl-mode-normal')
+  const smartBtn = document.getElementById('new-pl-mode-smart')
+  normalBtn.classList.toggle('active', normal)
+  smartBtn.classList.toggle('active', !normal)
+  normalBtn.setAttribute('aria-pressed', String(normal))
+  smartBtn.setAttribute('aria-pressed', String(!normal))
+  document.getElementById('new-pl-normal-fields').hidden = !normal
+  document.getElementById('new-pl-smart-fields').hidden = normal
+  document.getElementById('smart-pl-modal-title').textContent =
+    _smartPlEditingId ? 'Edit smart playlist' : normal ? 'New playlist' : 'New smart playlist'
+}
 
 function openSmartPlaylistEditor(def) {
   _smartPlEditingId = def ? def.id : null
-  document.getElementById('smart-pl-modal-title').textContent = def ? 'Edit smart playlist' : 'New smart playlist'
+  // .seg-control sets display itself, so the hidden attribute would lose to it.
+  document.getElementById('new-pl-mode').style.display = def ? 'none' : ''
+  setNewPlaylistMode('smart')
   document.getElementById('smart-pl-name').value = def?.name || ''
   document.getElementById('smart-pl-match').value = def?.match || 'all'
   document.getElementById('smart-pl-sort-by').value = def?.sortBy || 'name'
@@ -3617,14 +3897,78 @@ function openSmartPlaylistEditor(def) {
   document.getElementById('smart-pl-modal').classList.remove('hidden')
 }
 
-document.getElementById('btn-new-smart-playlist').addEventListener('click', () => openSmartPlaylistEditor(null))
+/** "New Playlist": the same modal with the Normal / Smart switch showing,
+ *  starting on Normal since a plain playlist is the common case. */
+function openNewPlaylistModal() {
+  openSmartPlaylistEditor(null)
+  document.getElementById('new-pl-public').checked = false
+  setNewPlaylistMode('normal')
+  document.getElementById('smart-pl-name').focus()
+}
+
+document.getElementById('btn-new-playlist').addEventListener('click', openNewPlaylistModal)
+document.getElementById('new-pl-mode-normal').addEventListener('click', () => setNewPlaylistMode('normal'))
+document.getElementById('new-pl-mode-smart').addEventListener('click', () => setNewPlaylistMode('smart'))
+
+// The Playlists index only re-fetches when shown with its loaded flag cleared,
+// and a playlist made from its own header leaves it showing - so redraw it
+// now rather than leaving the new card missing until the next visit.
+function reloadPlaylistIndexIfShown() {
+  delete document.getElementById('playlists-grid').dataset.loaded
+  const index = document.getElementById('playlist-index')
+  if (document.getElementById('view-playlists').classList.contains('active') && index.style.display !== 'none') loadPlaylists()
+}
+
+/** A real, empty Jellyfin playlist. Name, owner and media type go in the query
+ *  like every other create call here; IsPublic only exists on the JSON body
+ *  (CreatePlaylistDto). Returns the new id, or null after telling the user. */
+async function createEmptyPlaylist(name, isPublic) {
+  try {
+    const res = await fetch(`${jf.url}/Playlists?Name=${encodeURIComponent(name)}&UserId=${encodeURIComponent(jf.userId)}&MediaType=Audio`, {
+      method: 'POST',
+      headers: CascadeCore.authHeaders(jf, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ Name: name, Ids: [], UserId: jf.userId, MediaType: 'Audio', IsPublic: isPublic })
+    })
+    if (!res.ok) throw new Error(await CascadeCore.readErrorMessage(res))
+    const data = await res.json().catch(() => null)
+    return typeof data?.Id === 'string' && data.Id ? data.Id : ''
+  } catch (e) {
+    showNotice(`Could not create the playlist.\n\n${e.message}`, 'Playlist')
+    return null
+  }
+}
 
 document.getElementById('smart-pl-cancel').addEventListener('click', () => {
   document.getElementById('smart-pl-modal').classList.add('hidden')
 })
 
+let _newPlSaving = false
+
 document.getElementById('smart-pl-save').addEventListener('click', async () => {
   const name = document.getElementById('smart-pl-name').value.trim()
+  if (_newPlMode === 'normal' && !_smartPlEditingId) {
+    if (!name) { showNotice('Give this playlist a name.', 'Playlist'); return }
+    // Guarded here, not only by disabling the button: a second press while
+    // the first request is in flight would create the playlist twice.
+    if (_newPlSaving) return
+    _newPlSaving = true
+    const saveBtn = document.getElementById('smart-pl-save')
+    saveBtn.disabled = true
+    try {
+      const id = await createEmptyPlaylist(name, document.getElementById('new-pl-public').checked)
+      if (id == null) return
+      document.getElementById('smart-pl-modal').classList.add('hidden')
+      showToast(`Playlist "${name}" created`)
+      reloadPlaylistIndexIfShown()
+      // The server answers with the new id; an older one that does not still
+      // made the playlist, which the reloaded index now shows.
+      if (id) openPlaylist(id, name)
+    } finally {
+      _newPlSaving = false
+      saveBtn.disabled = false
+    }
+    return
+  }
   if (!name) { showNotice('Give this smart playlist a name.', 'Smart Playlist'); return }
   const rules = [...document.querySelectorAll('#smart-pl-rules .smart-pl-rule')].map(row => {
     const field = row.querySelector('.spl-field').value
@@ -3648,7 +3992,7 @@ document.getElementById('smart-pl-save').addEventListener('click', async () => {
   userSmartPlaylists = merged
   await saveUserSmartPlaylists()
   document.getElementById('smart-pl-modal').classList.add('hidden')
-  delete document.getElementById('playlists-grid').dataset.loaded
+  reloadPlaylistIndexIfShown()
   showToast(_smartPlEditingId ? 'Smart playlist updated' : 'Smart playlist created')
   if (currentSmartKind === raw.id) await refreshPlaylistDetail()
 })
@@ -4743,6 +5087,7 @@ function applyVideoMode(on) {
   bar.classList.toggle('video', !!on)
   bar.classList.toggle('single', !!on && queue.length <= 1)
   loadChapters(on ? queue[queueIndex] : null)
+  loadSegments(on ? queue[queueIndex] : null)
   // A movie playing behind the library grid with no picture is confusing, so
   // opening the overlay is part of starting video, not a separate step.
   if (on) openOverlay()
@@ -4785,6 +5130,73 @@ function renderChapterMarks() {
     bar.appendChild(mark)
   }
 }
+
+// ── Skip intro and outro ──
+//
+// Jellyfin 10.10+ Media Segments, fetched once per video next to the chapters.
+// An older server (404) or one with no provider (empty list) shows nothing.
+// Pure parsing and "which segment is playing" live in src/core/media-segments.ts.
+
+/** The current video's segments, from CascadeCore.parseMediaSegments(). */
+let _segments = []
+/** The segment the button is showing for, or null. */
+let _activeSegment = null
+/** Settings > Playback: skip an intro or outro the moment it starts. */
+let autoSkipSegments = false
+/** Segments auto-skip has already fired for, so seeking back is not fought. */
+const _autoSkipped = new Set()
+
+async function loadSegments(item) {
+  _segments = []
+  _autoSkipped.clear()
+  _syncSkipButton()
+  if (!item || !isVideoItem(item)) return
+  try {
+    const data = await jfGet(`/MediaSegments/${item.Id}`)
+    // Skipped past it while the request was out: these are someone else's.
+    if (queue[queueIndex]?.Id !== item.Id) return
+    _segments = CascadeCore.parseMediaSegments(data)
+  } catch { /* no segments is the same as none */ }
+  _syncSkipButton()
+}
+
+/** Show, relabel or hide the button for the segment at the playhead, and fire
+ *  auto-skip. Runs on every timeupdate while a video has segments. */
+function _syncSkipButton() {
+  const btn = document.getElementById('ov-skip-segment')
+  const seg = _segments.length && playingVideo() ? CascadeCore.activeSegment(_segments, mediaPosition()) : null
+  _activeSegment = seg
+  btn.classList.toggle('show', !!seg)
+  if (!seg) return
+  const label = CascadeCore.skipLabel(seg)
+  if (btn.textContent !== label) btn.textContent = label
+  const key = CascadeCore.segmentKey(queue[queueIndex].Id, seg)
+  if (autoSkipSegments && !audio.paused && !_autoSkipped.has(key)) {
+    _autoSkipped.add(key)
+    skipActiveSegment()
+  }
+}
+
+/** Skip what the button offers: seek past it, or for an outro that runs to the
+ *  end, on to the next episode (or the end, when there is none). */
+function skipActiveSegment() {
+  const seg = _activeSegment
+  if (!seg || !playingVideo()) return
+  const action = CascadeCore.skipAction(seg, mediaDuration())
+  if (action.kind === 'next') {
+    if (queueIndex < queue.length - 1 && !blocksLocalPlayback()) document.getElementById('btn-next').click()
+    else seekTo(mediaDuration())
+  } else {
+    seekTo(action.sec)
+  }
+  videoOsd(CascadeCore.skipLabel(seg).replace('Skip', 'Skipped'))
+}
+
+document.getElementById('ov-skip-segment').addEventListener('click', (e) => {
+  e.stopPropagation()
+  skipActiveSegment()
+})
+onDeck('timeupdate', () => { if (_segments.length) _syncSkipButton() })
 
 // Attach text subtitles as native <track> elements.
 //
@@ -5138,16 +5550,15 @@ function updateNowPlaying(item) {
 // that state here too.
 //
 // That drop keeps the renderer from duplicating window state, and it stays. But
-// the miniplayer is gated to unpackaged builds, so in a packaged build the
-// window can never exist and every push is built, serialised and structured-
+// with no miniplayer open every push would be built, serialised and structured-
 // cloned across IPC purely to be discarded - four times a second, all session.
-// Bail before doing that work. Safe despite _miniplayerEnabled being declared
-// with let further down the file: every caller is event-driven or runs after
-// load, so none of them reaches here during module evaluation.
+// Bail before doing that work. _miniplayerOpen is kept by main.js's open-state
+// message (declared here, above every caller, so no use can reach its TDZ).
+let _miniplayerOpen = false
 let _mpSheetOf = null, _mpSheetEmphasis = false, _mpSheetId = 0, _mpSheetSent = false
 
 function pushMiniplayerState() {
-  if (!_miniplayerEnabled) return
+  if (!_miniplayerOpen) return
   const item = queue[queueIndex]
   if (!item) { window.cascade.miniPlayer.updateState(null); return }
   const art = _currentHighResArtUrl || artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
@@ -5396,7 +5807,14 @@ let _reportingActive = false
 
 function reportPlaybackStart(itemId) {
   _reportingActive = true
-  CascadeCore.reportStart(jfClient, playbackSnapshot(itemId))
+  const item = queue[queueIndex]
+  CascadeCore.reportStart(jfClient, playbackSnapshot(itemId)).then(ok => {
+    // Jellyfin counts a play on this report, so one it never heard (offline) is
+    // kept and sent later as a played-at update. Music only: a film or a radio
+    // channel has no play to lose.
+    if (!ok) { if (item && !isVideoItem(item) && !CascadeCore.isRadioItem(item)) queueOfflinePlay(item.Id) }
+    else if (_offline.plays > 0) replayOfflinePlays()
+  })
   startProgressReporting()
 }
 
@@ -6284,32 +6702,19 @@ document.getElementById('btn-lyrics-open').addEventListener('click', () => showL
 
 // Miniplayer open button - main.js minimizes this window and creates (or
 // focuses) the small always-on-top remote control window.
-// Dev builds only for now. The miniplayer is half-built (no volume, no shuffle
-// or repeat, no queue pane) and its window chrome only really works on macOS,
-// so a packaged build says "coming soon" rather than handing people a window
-// they cannot do much with. Same shape as the toast gating above: keyed on
-// isPackaged, not on a setting anyone can flip by accident.
-let _miniplayerEnabled = true
-window.cascade?.isPackaged?.().then(packaged => {
-  _miniplayerEnabled = !packaged
-  const btn = document.getElementById('btn-miniplayer-open')
-  if (!btn || _miniplayerEnabled) return
-  btn.classList.add('needs-admin')            // the existing dimmed-but-visible treatment
-  btn.setAttribute('data-tip', 'Miniplayer - coming soon')
-  btn.title = 'Miniplayer - coming soon'
-})
-
 // Lyrics are fetched only while something shows them (see updateNowPlaying);
 // an open miniplayer counts. Fetched on open too, for the song already playing.
-let _miniplayerOpen = false
 window.cascade.miniPlayer.onOpenChange(open => {
   _miniplayerOpen = open
-  if (open && !lyricsData.length && queue[queueIndex]) fetchLyrics()
+  if (!open) return
+  if (!lyricsData.length && queue[queueIndex]) fetchLyrics()
+  // The window's page has not loaded yet, and while paused nothing else would
+  // push, so it would sit on "Nothing playing" until the next state change.
+  pushMiniplayerState()
+  setTimeout(pushMiniplayerState, 600)
 })
 
 document.getElementById('btn-miniplayer-open').addEventListener('click', () => {
-  if (!_miniplayerEnabled) { showToast('Miniplayer is coming soon'); return }
-  pushMiniplayerState()
   window.cascade.miniPlayer.open()
 })
 
@@ -6464,6 +6869,7 @@ window.cascade.miniPlayer.onControl(async (raw) => {
   // `volume`, not audio.volume: mid-crossfade the element is partway through
   // a fade (see openLyricsEditorFor).
   else if (cmd.type === 'volume') setVolumeRatio(volume + cmd.delta)
+  else if (cmd.type === 'volumeto') setVolumeRatio(cmd.fraction)
   else if (cmd.type === 'credit') {
     const url = CascadeCore.safeCreditUrl(lyricsCredit?.[cmd.who]?.url)
     if (url) window.cascade.shell.openExternal(url)
@@ -6490,6 +6896,8 @@ async function loadSettingsFields() {
   document.getElementById('s-url').value  = await window.cascade.store.get('serverUrl') || ''
   document.getElementById('s-user').value = await window.cascade.store.get('username') || ''
   document.getElementById('s-pass').value = ''
+  document.getElementById('s-headers').value = CascadeCore.formatHeaderLines(await window.cascade.connection.getHeaders())
+  document.getElementById('s-headers-error').textContent = ''
 
   document.getElementById('qc-approve-status-row').style.display = 'none'
   _applyQuickConnectGating()
@@ -6568,6 +6976,12 @@ async function loadSettingsFields() {
   normalizeToggle.checked = normalizationEnabled
   normalizeSourceRow.style.display = normalizationEnabled ? '' : 'none'
   normalizeSourceSelect.value = normalizationSource
+  const autoSkipToggle = document.getElementById('autoskip-toggle')
+  autoSkipToggle.checked = autoSkipSegments
+  autoSkipToggle.onchange = async () => {
+    autoSkipSegments = autoSkipToggle.checked
+    await window.cascade.store.set('autoSkipSegments', autoSkipSegments)
+  }
   normalizeToggle.onchange = async () => {
     normalizeSourceRow.style.display = normalizeToggle.checked ? '' : 'none'
     await setNormalizationEnabled(normalizeToggle.checked)
@@ -6727,12 +7141,23 @@ async function loadSettingsFields() {
   }
 }
 
+document.getElementById('s-cert-reset').addEventListener('click', async () => {
+  await window.cascade.connection.resetCertificate()
+  showToast('Certificate choice cleared. Cascade asks again the next time your server wants one.')
+})
+
 document.getElementById('btn-save-settings').addEventListener('click', async () => {
   const url = document.getElementById('s-url').value.trim()
   const user = document.getElementById('s-user').value.trim()
   const pass = document.getElementById('s-pass').value
 
   if (!url || !user) return
+
+  // Headers first: a proxy that wants them refuses everything below without.
+  const parsed = CascadeCore.parseHeaderLines(document.getElementById('s-headers').value)
+  document.getElementById('s-headers-error').textContent = parsed.errors.join(' ')
+  if (parsed.errors.length) return
+  await window.cascade.connection.set(url, parsed.headers)
 
   // Persist URL and username immediately so they survive a failed connection attempt
   await window.cascade.store.set('serverUrl', url)
@@ -6785,6 +7210,10 @@ document.getElementById('btn-logout').addEventListener('click', async () => {
                        // and the current encoding, clears Discord presence
   invalidateLibraryViews()
   invalidateVideoViews()
+  // Stops this account's downloads, drops the token the main process held for
+  // them, and hides its music from whoever signs in next.
+  await window.cascade.offline.setOwner(null)
+  await refreshOffline()
   jf.isAdmin = false     // a stale admin flag must not survive into the next account
   jf.canDelete = false   // same for the deletion right - it is per-account, not per-session
   _applyAdminGating()
@@ -6825,17 +7254,42 @@ function promptReauth(message) {
 // Only offer it if the server actually has it switched on. Debounced because
 // this fires while the user is still typing the URL.
 let _qcProbeTimer = null
+/**
+ * Tells the main process which server the setup form is about and which
+ * reverse-proxy headers to send it, ahead of the first request: a proxy that
+ * wants a header refuses the sign-in itself without it. False (and the problem
+ * shown, unless `report` is false) when the headers field does not parse.
+ */
+async function applySetupConnection(url, { report = true, probe = false } = {}) {
+  const { headers, errors } = CascadeCore.parseHeaderLines(document.getElementById('setup-headers').value)
+  if (errors.length) {
+    if (report) document.getElementById('setup-error').textContent = errors.join(' ')
+    return false
+  }
+  // The probe runs as the address is typed: it sends the headers only to the
+  // server they were saved for, and saves nothing (see probeHeaders).
+  const send = probe ? CascadeCore.probeHeaders(url, await window.cascade.store.get('serverUrl'), headers) : headers
+  await window.cascade.connection.set(url, send, !probe)
+  // 'withheld': the check went out without the headers this server may need.
+  return send.length < headers.length ? 'withheld' : true
+}
+
 function probeQuickConnect() {
   clearTimeout(_qcProbeTimer)
   _qcProbeTimer = setTimeout(async () => {
     const url = document.getElementById('setup-url').value.trim().replace(/\/+$/, '')
     const btn = document.getElementById('setup-quickconnect')
     if (!url) { btn.style.display = 'none'; return }
-    btn.style.display = (await CascadeCore.quickConnectEnabled(url)) ? '' : 'none'
+    const applied = await applySetupConnection(url, { report: false, probe: true })
+    if (!applied) { btn.style.display = 'none'; return }
+    // Without its headers a proxy refuses the check, which says nothing about
+    // Quick Connect: offer it, and pressing it sends the headers and finds out.
+    btn.style.display = (applied === 'withheld' || await CascadeCore.quickConnectEnabled(url)) ? '' : 'none'
   }, 500)
 }
 
 document.getElementById('setup-url').addEventListener('input', probeQuickConnect)
+document.getElementById('setup-headers').addEventListener('input', probeQuickConnect)
 
 function endQuickConnect() {
   if (_qcAbort) { _qcAbort(); _qcAbort = null }
@@ -6851,6 +7305,7 @@ document.getElementById('setup-quickconnect').addEventListener('click', async ()
   const url = document.getElementById('setup-url').value.trim().replace(/\/+$/, '')
   if (!url) { err.textContent = 'Enter your server URL first.'; return }
   err.textContent = ''
+  if (!await applySetupConnection(url)) return
 
   let start
   try {
@@ -6913,6 +7368,7 @@ document.getElementById('setup-connect').addEventListener('click', async () => {
   const pass = document.getElementById('setup-password').value
 
   if (!url || !user) { err.textContent = 'Server URL and username are required.'; return }
+  if (!await applySetupConnection(url)) return
 
   btn.disabled = true
   btn.textContent = 'Connecting…'
@@ -6964,25 +7420,6 @@ document.getElementById('btn-check-updates').addEventListener('click', async () 
   }
 })
 
-// Only Macs that can run the native app see this row. The button hands off to
-// the update window, which downloads, checks and swaps it in like any update.
-if (window.cascade.platform === 'darwin') {
-  window.cascade.canTryNativeMac().then(can => {
-    document.getElementById('native-mac-row').style.display = can ? '' : 'none'
-  }).catch(() => {})
-}
-document.getElementById('btn-try-native-mac').addEventListener('click', async () => {
-  const btn = document.getElementById('btn-try-native-mac')
-  btn.disabled = true
-  try {
-    const result = await window.cascade.tryNativeMac()
-    if (!result?.hasUpdate) showNotice(result?.error || 'Could not look for the native Mac app.', 'Native Mac app')
-    // else: the updater window itself is the feedback
-  } finally {
-    btn.disabled = false
-  }
-})
-
 // Tokens issued before per-install device ids are bound server-side to the old
 // constant DeviceId "cascade-app", so every Cascade looked like one device to
 // Jellyfin: two machines on one account collided in the session list and remote
@@ -7019,6 +7456,15 @@ async function migrateDeviceId(serverUrl, username, password, token, userId) {
 }
 
 async function init() {
+  // Before anything authenticates: the edition and machine name go into the
+  // auth header, which is how the server's Devices screen tells this desktop
+  // build apart from the Apple and Android apps.
+  const identity = CascadeCore.setClientIdentity({
+    client: CascadeCore.ELECTRON_EDITION,
+    device: CascadeCore.desktopDeviceName(window.cascade.platform),
+  })
+  const editionEl = document.getElementById('app-edition')
+  if (editionEl) editionEl.textContent = identity.client
   // Before anything authenticates: the device id goes into the auth header.
   deviceId = await window.cascade.store.get('deviceId')
   if (!deviceId) {
@@ -7059,6 +7505,7 @@ async function init() {
   crossfadeSeconds = parseInt(await window.cascade.store.get('crossfadeSeconds'), 10) || 6
   maxStreamingBitrate = parseInt(await window.cascade.store.get('maxStreamingBitrate'), 10) || DEFAULT_MAX_BITRATE
   normalizationEnabled = (await window.cascade.store.get('normalizationEnabled')) === true
+  autoSkipSegments = (await window.cascade.store.get('autoSkipSegments')) === true
   {
     const savedSource = await window.cascade.store.get('normalizationSource')
     normalizationSource = savedSource === 'album' ? 'album' : 'track'
@@ -7096,24 +7543,342 @@ async function init() {
   // Always pre-fill the setup form so the user never has to retype from scratch
   if (serverUrl) document.getElementById('setup-url').value      = serverUrl
   if (username)  document.getElementById('setup-username').value  = username
+  // Saved reverse-proxy headers, with the section open so they are not a surprise.
+  const savedHeaders = await window.cascade.connection.getHeaders()
+  if (savedHeaders.length) {
+    document.getElementById('setup-headers').value = CascadeCore.formatHeaderLines(savedHeaders)
+    document.getElementById('setup-advanced').open = true
+  }
   // The probe normally runs as the user types; a pre-filled URL never fires that.
   if (serverUrl) probeQuickConnect()
 
   ;({ token, userId } = await migrateDeviceId(serverUrl, username, legacyPassword, token, userId))
   if (legacyPassword !== undefined) await window.cascade.store.delete('password')
 
+  // Before anything draws a cover or resolves a stream: what is downloaded is
+  // what works with no server. Each account has its own downloads, and the
+  // saved one is whose music offline mode plays.
+  await window.cascade.offline.setOwner(serverUrl && token && userId ? userId : null)
+  await refreshOffline()
+
   if (serverUrl && token && userId) {
     document.getElementById('setup-overlay').classList.add('hidden')
     try {
       await connect(serverUrl, token, userId)
     } catch (e) {
-      // The token was rejected: Jellyfin tokens only die when revoked (signed
-      // out, device removed in the dashboard), so this is a real sign-in, not a
-      // refresh. There is no stored password to retry with, by design.
-      promptReauth('Your session expired. Sign in again with a code, or enter your password.')
+      if (e?.status === 401 || e?.status === 403) {
+        // The token was rejected: Jellyfin tokens only die when revoked (signed
+        // out, device removed in the dashboard), so this is a real sign-in, not a
+        // refresh. There is no stored password to retry with, by design.
+        promptReauth('Your session expired. Sign in again with a code, or enter your password.')
+      } else if (_offline.collections.length) {
+        // The server never answered and there is music on disk: open on that.
+        enterOfflineMode()
+      } else {
+        promptReauth('Could not reach your server. Check your connection or the address, then sign in again.')
+      }
     }
   }
   // else setup overlay stays visible (fields already pre-filled above)
+}
+
+// ── Offline downloads ─────────────────────────────────────────────────────────
+//
+// Albums and playlists saved to disk for listening with no network. The files,
+// the one index of them and the download queue live in the main process
+// (offline.js); the rules about what a removal may delete and what counts as a
+// finished download are pure, in src/core/offline-index.ts. Here: a summary
+// kept in `_offline` (declared at the top, artUrl() and resolveTrackStream()
+// read it), the Downloads view, the buttons, offline mode and play replay.
+//
+// Toasts do not show in a packaged build, so feedback is the button's own state
+// and the Downloads view, never a toast alone.
+
+/** The Authorization header for a call that needs the session. The main
+ *  process keeps it in memory for the length of the download queue only. */
+function offlineSession() {
+  return { authorization: CascadeCore.authHeader(appVersion, deviceId, jf.token) }
+}
+
+function offlineCollection(id) {
+  return id ? _offline.collections.find(c => c.item.Id === id) || null : null
+}
+
+function fmtBytes(n) {
+  if (!Number.isFinite(n) || n <= 0) return '0 MB'
+  const mb = n / 1048576
+  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.max(1, Math.round(mb))} MB`
+}
+
+let _offlineRefreshTimer = null
+function scheduleOfflineRefresh() {
+  if (_offlineRefreshTimer) return
+  _offlineRefreshTimer = setTimeout(() => { _offlineRefreshTimer = null; refreshOffline() }, 150)
+}
+
+async function refreshOffline() {
+  let summary
+  try { summary = await window.cascade.offline.summary() } catch { return }
+  _offline = { ...summary, art: new Set(summary.art) }
+  for (const id of [..._offlineProgress.keys()]) if (!summary.active.some(a => a.id === id)) _offlineProgress.delete(id)
+  renderOfflineButtons()
+  if (_currentView === 'downloads') renderDownloadsView()
+}
+
+window.cascade.offline.onEvent((event) => {
+  if (event.type === 'progress') { _offlineProgress.set(event.id, event); updateDownloadCards(); return }
+  if (event.type === 'track-done') _offlineProgress.delete(event.id)
+  scheduleOfflineRefresh()
+})
+
+/** Starts the download of an album or playlist, or removes it if it is already
+ *  asked for: the one handler behind the menu entry and both page buttons. */
+async function toggleOfflineDownload(kind, item) {
+  if (!item?.Id) return
+  if (offlineCollection(item.Id)) { await removeOfflineDownload(item.Id); return }
+  if (jf.canDownload === false) {
+    showNotice('This account is not allowed to download media. An admin can turn it on in the Jellyfin dashboard.', 'Downloads')
+    return
+  }
+  let tracks
+  try { tracks = kind === 'album' ? await fetchAlbumTracks(item.Id) : await fetchPlaylistTracks(item.Id) }
+  catch { showNotice('Could not read that list from the server.', 'Downloads'); return }
+  const music = tracks.filter(t => !t.Type || t.Type === 'Audio')
+  if (!music.length) { showNotice('There are no songs to download in that.', 'Downloads'); return }
+  const collection = {
+    Id: item.Id, Name: item.Name, Type: kind === 'album' ? 'MusicAlbum' : 'Playlist',
+    ImageTags: item.ImageTags, AlbumArtist: item.AlbumArtist, ProductionYear: item.ProductionYear, ChildCount: music.length,
+  }
+  if (!await window.cascade.offline.add(collection, music, offlineSession())) {
+    showNotice('Could not start the download.', 'Downloads')
+    return
+  }
+  await refreshOffline()
+}
+
+async function removeOfflineDownload(id) {
+  await window.cascade.offline.remove(id)
+  await refreshOffline()
+}
+
+const DL_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>'
+
+/** The Download button on the open album and on the open playlist. */
+function renderOfflineButtons() {
+  paintOfflineButton('btn-offline-album', _openAlbumItem?.Id)
+  paintOfflineButton('btn-offline-playlist', currentSmartKind ? null : currentPlaylistId)
+}
+
+function paintOfflineButton(buttonId, id) {
+  const btn = document.getElementById(buttonId)
+  if (!btn) return
+  btn.style.display = id ? '' : 'none'
+  if (!id) return
+  const c = offlineCollection(id)
+  const done = !!c && c.done === c.total
+  btn.classList.toggle('on', done)
+  btn.title = c ? 'Remove this download' : 'Download for offline listening'
+  btn.innerHTML = `${DL_ICON} ${!c ? 'Download' : done ? 'Downloaded' : `Downloading ${c.done}/${c.total}`}`
+}
+
+document.getElementById('btn-offline-album').addEventListener('click', () => {
+  if (_openAlbumItem) toggleOfflineDownload('album', _openAlbumItem)
+})
+document.getElementById('btn-offline-playlist').addEventListener('click', () => {
+  if (!currentPlaylistId || currentSmartKind) return
+  toggleOfflineDownload('playlist', { Id: currentPlaylistId, Name: document.getElementById('pl-detail-name').textContent })
+})
+
+// ── Downloads view ──
+
+/** Which collections have their song list open, kept across a redraw. */
+const _dlOpen = new Set()
+
+function dlCardHtml(c) {
+  const id = c.item.Id
+  const art = artUrl(id, c.item.ImageTags?.Primary)
+  return `<div class="dl-card" data-dl-id="${esc(id)}">
+    <div class="dl-art">${art ? `<img src="${esc(art)}" alt="" onerror="this.parentNode.textContent='♪'">` : '♪'}</div>
+    <div class="dl-info">
+      <div class="dl-name">${esc(c.item.Name || '')}</div>
+      <div class="dl-meta"></div>
+      <div class="dl-bar"><span></span></div>
+    </div>
+    <div class="dl-actions">
+      <button class="shuffle-all-btn" data-dl="play" type="button">Play</button>
+      <button class="shuffle-all-btn" data-dl="songs" type="button">Songs</button>
+      <button class="shuffle-all-btn" data-dl="retry" type="button" hidden>Try again</button>
+      <button class="shuffle-all-btn" data-dl="remove" type="button">Remove</button>
+    </div>
+  </div>
+  <div class="dl-tracks" data-dl-tracks="${esc(id)}" hidden></div>`
+}
+
+function renderDownloadsView() {
+  const list = document.getElementById('downloads-list')
+  document.getElementById('downloads-banner').hidden = !_offlineMode
+  document.getElementById('downloads-total').textContent = _offline.collections.length
+    ? `${_offline.collections.length} ${_offline.collections.length === 1 ? 'collection' : 'collections'} · ${fmtBytes(_offline.totalBytes)}` : ''
+  if (!_offline.collections.length) {
+    list.innerHTML = '<div class="empty-state">Nothing downloaded yet. Open an album or a playlist and press Download, or right-click one.</div>'
+    return
+  }
+  list.innerHTML = _offline.collections.map(dlCardHtml).join('')
+  for (const card of list.querySelectorAll('.dl-card')) {
+    const id = card.dataset.dlId
+    card.querySelector('[data-dl="play"]').addEventListener('click', () => playDownloaded(id))
+    card.querySelector('[data-dl="songs"]').addEventListener('click', () => toggleDownloadedSongs(id))
+    card.querySelector('[data-dl="retry"]').addEventListener('click', () => window.cascade.offline.resume(offlineSession()))
+    card.querySelector('[data-dl="remove"]').addEventListener('click', async () => {
+      const name = offlineCollection(id)?.item.Name || 'this download'
+      if (!confirm(`Remove "${name}" from your downloads? Songs another download still uses stay.`)) return
+      _dlOpen.delete(id)
+      await removeOfflineDownload(id)
+    })
+    if (_dlOpen.has(id)) showDownloadedSongs(id)
+  }
+  updateDownloadCards()
+}
+
+/** Progress, sizes and failures, set in place: progress events arrive several
+ *  times a second and a rebuild would swap a button under the pointer. */
+function updateDownloadCards() {
+  if (_currentView !== 'downloads') return
+  for (const card of document.querySelectorAll('#downloads-list .dl-card')) {
+    const c = offlineCollection(card.dataset.dlId)
+    if (!c) continue
+    let partial = 0
+    let moving = false
+    for (const id of c.trackIds) {
+      if (_offline.ready[id]) continue
+      const p = _offlineProgress.get(id)
+      if (!p) continue
+      moving = true
+      if (p.total) partial += Math.min(1, p.received / p.total)
+    }
+    const failed = c.trackIds.filter(id => _offline.failed[id])
+    const kind = c.item.Type === 'Playlist' ? 'Playlist' : 'Album'
+    const meta = [kind, `${c.done} of ${c.total} ${c.total === 1 ? 'song' : 'songs'}`, fmtBytes(c.bytes)]
+    const metaEl = card.querySelector('.dl-meta')
+    metaEl.textContent = meta.join(' · ')
+    if (failed.length) {
+      const bad = document.createElement('span')
+      bad.className = 'dl-error'
+      bad.textContent = ` · ${failed.length} failed`
+      bad.title = _offline.failed[failed[0]]
+      metaEl.appendChild(bad)
+    }
+    card.classList.toggle('done', c.done === c.total)
+    card.querySelector('.dl-bar > span').style.width = `${c.total ? ((c.done + partial) / c.total) * 100 : 0}%`
+    card.querySelector('[data-dl="retry"]').hidden = !failed.length || moving
+    card.querySelector('[data-dl="play"]').disabled = c.done === 0
+    card.querySelector('[data-dl="songs"]').disabled = c.done === 0
+  }
+}
+
+async function downloadedTracks(id) {
+  const rows = await window.cascade.offline.tracks(id)
+  return rows.filter(r => r.ready).map(r => r.item)
+}
+
+async function playDownloaded(id) {
+  const items = await downloadedTracks(id)
+  if (items.length) playItems(items, 0, offlineCollection(id)?.item.Name)
+}
+
+async function showDownloadedSongs(id) {
+  const box = document.querySelector(`[data-dl-tracks="${CSS.escape(id)}"]`)
+  if (!box) return
+  const items = await downloadedTracks(id)
+  box.innerHTML = `<div class="track-list"><div id="dl-rows-${esc(id)}">${items.map((t, i) => trackRowHtml(t, i)).join('')}</div></div>`
+  box.querySelectorAll('.track-row').forEach(el => {
+    const i = parseInt(el.dataset.idx)
+    wireTrackRow(el, items[i], items, i, { source: offlineCollection(id)?.item.Name })
+  })
+  highlightPlayingRow()
+  box.hidden = false
+}
+
+function toggleDownloadedSongs(id) {
+  const box = document.querySelector(`[data-dl-tracks="${CSS.escape(id)}"]`)
+  if (!box) return
+  if (!box.hidden) { box.hidden = true; _dlOpen.delete(id); return }
+  _dlOpen.add(id)
+  showDownloadedSongs(id)
+}
+
+// ── Offline mode ──
+// Launched with no reachable server: the sign-in prompt would be wrong (the
+// token is fine) and the library has nothing to show, so the app opens on the
+// Downloads, which play from disk. It leaves offline mode by itself when the
+// network comes back, or on "Try again".
+
+function enterOfflineMode() {
+  _offlineMode = true
+  document.body.classList.add('offline-mode')
+  showView('downloads')
+  refreshOffline()
+}
+
+async function leaveOfflineModeIfReachable() {
+  if (!_offlineMode) return
+  const serverUrl = await window.cascade.store.get('serverUrl')
+  const token = await window.cascade.store.get('token')
+  const userId = await window.cascade.store.get('userId')
+  if (!serverUrl || !token || !userId) return
+  try {
+    await connect(serverUrl, token, userId)
+  } catch (e) {
+    if (e?.status === 401 || e?.status === 403) { _offlineMode = false; document.body.classList.remove('offline-mode'); promptReauth('Your session expired. Sign in again with a code, or enter your password.') }
+    return   // still out of reach: stay on the downloads
+  }
+  _offlineMode = false
+  document.body.classList.remove('offline-mode')
+  document.getElementById('downloads-banner').hidden = true
+  showView('home')
+}
+
+document.getElementById('downloads-retry').addEventListener('click', leaveOfflineModeIfReachable)
+window.addEventListener('online', leaveOfflineModeIfReachable)
+
+// ── Plays made while the server was out of reach ──
+// Jellyfin counts a play when playback STARTS, so a start report it never heard
+// is a play lost. Those are kept (in the main process, across a restart) and
+// sent as a played-at update once the server answers.
+
+function queueOfflinePlay(itemId) {
+  window.cascade.offline.addPlay({ itemId, userId: jf.userId, date: new Date().toISOString() })
+    .then(() => scheduleOfflineRefresh()).catch(() => {})
+}
+
+let _replayingPlays = false
+async function replayOfflinePlays() {
+  if (_replayingPlays || !jf?.url) return
+  _replayingPlays = true
+  try {
+    const plays = await window.cascade.offline.takePlays()
+    for (let i = 0; i < plays.length; i++) {
+      const p = plays[i]
+      // Another account's play cannot be sent with this account's token. Keep it.
+      if (p.userId !== jf.userId) { await window.cascade.offline.addPlay(p); continue }
+      let status = 0
+      try {
+        const res = await fetch(`${jf.url}/UserPlayedItems/${p.itemId}?userId=${encodeURIComponent(p.userId)}&datePlayed=${encodeURIComponent(p.date)}`,
+          { method: 'POST', headers: CascadeCore.authHeaders(jf) })
+        status = res.status
+        if (res.ok) continue
+      } catch { /* still unreachable */ }
+      // The item is gone or the request can never succeed: retrying would jam
+      // every play behind it. Anything else may clear up, so it is kept.
+      if (CascadeCore.dropsPlay(status)) continue
+      await window.cascade.offline.addPlay(p)
+      // No answer at all: the rest would fail the same way, keep them in order.
+      if (status === 0) { for (const rest of plays.slice(i + 1)) await window.cascade.offline.addPlay(rest); break }
+    }
+  } finally {
+    _replayingPlays = false
+    scheduleOfflineRefresh()
+  }
 }
 
 // ── Full-screen now-playing overlay ──────────────────────────────────────────
@@ -8066,6 +8831,7 @@ const VIDEO_KEYS = [
   [',  /  .', 'Previous or next frame (while paused)'],
   ['<  /  >', 'Slower or faster'],
   ['Shift+P  /  Shift+N', 'Previous or next episode'],
+  ['S', 'Skip the intro or credits, when offered'],
   [window.cascade.platform === 'darwin' ? '⌥←  /  ⌥→' : 'Ctrl+←  /  Ctrl+→', 'Previous or next chapter'],
   ['?', 'This list'],
   ['Esc', 'Close'],
@@ -8160,6 +8926,7 @@ document.addEventListener('keydown', (e) => {
   else if (key === 'm') { document.getElementById('btn-mute').click(); videoOsd(audio.muted ? 'Muted' : 'Unmuted') }
   else if (key === 'f') toggleVideoFullscreen()
   else if (key === 'c') toggleSubtitles()
+  else if (key === 's') { if (_activeSegment) skipActiveSegment(); else handled = false }
   else if (/^[0-9]$/.test(key) && dur) seekTo(dur * Number(key) / 10)
   else if (key === 'Home') seekTo(0)
   else if (key === 'End' && dur) seekTo(dur)
@@ -8359,6 +9126,7 @@ function renderQueuePanel() {
 
   // Up Next: where the queue came from, its position, and when it ends.
   document.getElementById('q-next-source').textContent = queueSource ? `From ${queueSource}` : ''
+  document.getElementById('q-next-clear').hidden = follower || queueIndex + 1 >= queue.length
   _renderQueueMeta()
 
   // The window starts at the first upcoming track. The panel opens at the
@@ -8432,6 +9200,8 @@ function _renderQueueHistory() {
   rows.innerHTML = queue.slice(0, queueIndex).map((item, i) => _queueRowHtml(item, i)).join('')
   rows.querySelectorAll('.queue-row').forEach(el => _wireQueueRow(el, follower))
 }
+
+document.getElementById('q-next-clear').addEventListener('click', () => clearQueueTracks('upnext'))
 
 document.getElementById('q-history-toggle').addEventListener('click', () => {
   _queueHistoryOpen = !_queueHistoryOpen
@@ -8828,6 +9598,11 @@ document.getElementById('ov-translate-btn').addEventListener('click', () => onTr
 // keeps moving from its current speed toward the new target instead of
 // restarting from a standstill, which is what makes back-to-back line changes
 // read as one continuous glide instead of a stutter-restart.
+//
+// The stepping is CascadeCore.stepSpring (src/core/spring.ts), in fixed small
+// substeps. One explicit step per frame diverged below about 25 fps, which a
+// fullscreen game starving Cascade's frames reliably caused: the lyrics flung
+// or shook on every new line whenever Cascade was not in front.
 // Lyric motion, shared by both lyric springs and tunable live from DevTools
 // (cascadeDebug.lyricMotion). Tuned by eye against Apple Music, 2026-09-23:
 // overdamped (critical damping for 250 would be ~31.6), so lines ease in and
@@ -8851,16 +9626,16 @@ function createSpring(onUpdate, motion = LYRIC_MOTION) {
 
   function frame(ts) {
     if (lastTs == null) lastTs = ts
-    const dt = Math.min((ts - lastTs) / 1000, 0.05)  // clamp so a stalled tab doesn't fling on resume
+    // A gap long enough to mean nothing was drawn snaps instead of animating
+    // a stale move (see SPRING_SNAP_GAP_S), so no clamp is needed here.
+    const dt = (ts - lastTs) / 1000
     lastTs = ts
     if (targetFn) target = targetFn()
 
-    const accel = (target - pos) * motion.stiffness - vel * motion.damping
-    vel += accel * dt
-    pos += vel * dt
-
-    const settled = Math.abs(target - pos) < 0.05 && Math.abs(vel) < 0.05
-    if (settled) { pos = target; vel = 0 }
+    const next = CascadeCore.stepSpring({ pos, vel }, target, dt, motion)
+    pos = next.pos
+    vel = next.vel
+    const settled = next.settled
     onUpdate(pos)
 
     if (!settled) raf = requestAnimationFrame(frame)
@@ -9103,11 +9878,45 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { hideCtxM
 // they cannot drift into three different meanings of "stop".
 document.getElementById('ctx-stop').addEventListener('click', () => stopPlayback())
 
-// Clear queue
+// Clear queue: keeps the playing track. Dropping it from the queue while the
+// deck kept playing left the queue panel and the player disagreeing.
 document.getElementById('ctx-clear-queue').addEventListener('click', () => {
-  queue = []; queueIndex = -1; queueSource = null
-  _clearStreamPrefetch()   // nothing left to prefetch for
+  hideCtxMenu()
+  clearQueueTracks('all')
 })
+
+/**
+ * The one place the queue is trimmed by a "Clear". `scope` is 'all' (keep only
+ * the playing track, History included) or 'upnext' (keep History and the
+ * playing track). Every copy of the queue is trimmed together: the shuffle
+ * backup would bring cleared tracks back when shuffle is turned off, the
+ * Waterfall attribution list is parallel to `queue`, and a prefetched next
+ * track is for a track that is gone.
+ */
+function clearQueueTracks(scope) {
+  if (isWaterfallFollower()) return
+  // finishCrossfade() lands on an index captured before the fade started;
+  // removing the incoming track under it would land it on the wrong one.
+  if (_cfActive) { showToast('Clear the queue once the crossfade finishes'); return }
+  const before = queueIndex
+  const next = scope === 'upnext'
+    ? CascadeCore.clearUpNext(queue, queueIndex)
+    : CascadeCore.trimToCurrent(queue, queueIndex)
+  const kept = new Set(next.queue)
+  queue = next.queue
+  queueIndex = next.index
+  queueSource = null
+  if (_unshuffledQueue.length) _unshuffledQueue = _unshuffledQueue.filter(t => kept.has(t))
+  // Parallel to `queue`: the host's own wfOnQueueChanged() only truncates, which
+  // is right for 'upnext' but would hand the kept track its old neighbor's name.
+  if (scope !== 'upnext' && typeof wfActive === 'function' && wfActive() && Array.isArray(wfAddedBy)) {
+    wfAddedBy = queueIndex >= 0 ? [wfAddedBy[before] ?? null] : []
+  }
+  _queueHistoryOpen = false
+  _reprefetch()
+  _saveQueueState()
+  renderQueuePanel()
+}
 
 // Instant mix
 document.getElementById('ctx-instant-mix').addEventListener('click', async () => {
@@ -9394,7 +10203,7 @@ let _ictxOnDetail = null   // "View detail"/"Go to artist page" handler - the
 const ICTX_FLAG_IDS = {
   play: 'ictx-play', playNext: 'ictx-play-next', playLast: 'ictx-play-last',
   shuffle: 'ictx-shuffle', instantMix: 'ictx-instant-mix', addPlaylist: 'ictx-add-playlist',
-  download: 'ictx-download', favorite: 'ictx-favorite',
+  download: 'ictx-download', offline: 'ictx-offline', favorite: 'ictx-favorite',
   markPlayed: 'ictx-mark-played', markUnplayed: 'ictx-mark-unplayed',
   goArtist: 'ictx-go-artist', viewDetail: 'ictx-view-detail',
   rename: 'ictx-rename', deleteItem: 'ictx-delete',
@@ -9445,12 +10254,14 @@ function showItemCtxMenu(kind, item, el, x, y, onDetail) {
   if (detailLabel) detailLabel.textContent = kind === 'artist' ? 'Go to artist page' : 'Go to details'
   const favLabel = document.getElementById('ictx-favorite-label')
   if (favLabel) favLabel.textContent = item?.UserData?.IsFavorite ? 'Unfavorite' : 'Favorite'
+  const offlineLabel = document.getElementById('ictx-offline-label')
+  if (offlineLabel) offlineLabel.textContent = offlineCollection(item?.Id) ? 'Remove download' : 'Download for offline'
   // A user smart playlist repurposes the rename/delete rows (its own
   // definition, never gated on server delete permission the way a real
   // playlist is - see menuItemsForKind) rather than adding two more rows that
   // would only ever apply to one kind.
   const renameLabel = document.getElementById('ictx-rename-label')
-  if (renameLabel) renameLabel.textContent = kind === 'user-smart-playlist' ? 'Edit rules…' : 'Rename…'
+  if (renameLabel) renameLabel.textContent = kind === 'user-smart-playlist' ? 'Edit rules…' : kind === 'playlist' ? 'Details…' : 'Rename…'
   const deleteLabel = document.getElementById('ictx-delete-label')
   if (deleteLabel) deleteLabel.textContent = kind === 'user-smart-playlist' ? 'Delete smart playlist' : 'Delete playlist'
   // _applyAdminGating() gates ictx-delete on jf.canDelete for a real playlist's
@@ -9548,6 +10359,13 @@ document.getElementById('ictx-add-playlist').addEventListener('click', async () 
   openAtpModal()
 })
 
+// Download for offline, or remove it: album and playlist (see menuItemsForKind).
+document.getElementById('ictx-offline').addEventListener('click', () => {
+  hideItemCtxMenu()
+  if (!['album', 'playlist'].includes(_ictxKind) || !_ictxItem) return
+  toggleOfflineDownload(_ictxKind, _ictxItem)
+})
+
 // Download: album-only (see menuItemsForKind) - there is no single file to
 // hand window.cascade.download for a whole album, so this queues one download
 // per track the same way tctx-download does for a single one.
@@ -9609,10 +10427,10 @@ document.getElementById('ictx-mark-unplayed').addEventListener('click', () => {
   if (_ictxItem) setItemPlayed(_ictxItem, false)
 })
 
-// Rename reuses the exact same modal/save-handler as the playlist detail
-// view's "Rename / Public…" (pl-edit-props / pl-edit-save below) - it just has
-// to seed currentPlaylistId/plCurrentIsPublic itself first, the same way
-// btn-edit-playlist's handler does, since this card was never opened.
+// A real playlist's "Details…" opens the same modal as the detail view's
+// Details button. It works on its own copy of the playlist id, so opening it
+// from a card no longer repoints currentPlaylistId at a playlist that is not
+// the one on screen.
 document.getElementById('ictx-rename').addEventListener('click', async () => {
   hideItemCtxMenu()
   if (_ictxKind === 'user-smart-playlist' && _ictxItem) {
@@ -9621,15 +10439,7 @@ document.getElementById('ictx-rename').addEventListener('click', async () => {
     return
   }
   if (_ictxKind !== 'playlist' || !_ictxItem) return
-  currentPlaylistId = _ictxItem.Id
-  currentSmartKind = null
-  try {
-    const it = await jfGet(`/Users/${jf.userId}/Items/${_ictxItem.Id}`)
-    plCurrentIsPublic = !!it.IsPublic
-  } catch { plCurrentIsPublic = false }
-  document.getElementById('pl-edit-name').value = _ictxItem.Name
-  document.getElementById('pl-edit-public').checked = plCurrentIsPublic
-  document.getElementById('pl-edit-modal').classList.remove('hidden')
+  openPlaylistDetails(_ictxItem.Id, _ictxItem.Name)
 })
 
 // Delete reuses deleteItemFromServer (defined with "Delete media" above) - a
@@ -10228,7 +11038,7 @@ async function openLyricsEditorFor(item) {
   const seed = item.Id === queue[queueIndex]?.Id && !lyricsCredit ? (lyricsData || []) : []
   // Pass `volume`, not audio.volume: mid-crossfade the element is partway
   // through a fade and would hand the editor whatever that transient value is.
-  window.cascade.lyricsEditor.open({ item, jf, lyricsData: seed, volume, lyricsUrl: cascadeLyricsUrl(item.Id) })
+  window.cascade.lyricsEditor.open({ item, jf: { ...jf, ...CascadeCore.clientIdentity() }, lyricsData: seed, volume, lyricsUrl: cascadeLyricsUrl(item.Id) })
 }
 
 // Spicy Lyrics' own sync editor, its fork of the AMLL TTML Tool, which its
@@ -10264,7 +11074,7 @@ const SPICY_TTML_TOOL_URL = 'https://tool.community.spicylyrics.org/'
 // window itself checks jf.isAdmin again before its save button does anything.
 function openMetadataEditorFor(item) {
   if (!item || !jf.isAdmin) return
-  window.cascade.metadataEditor.open({ item, jf })
+  window.cascade.metadataEditor.open({ item, jf: { ...jf, ...CascadeCore.clientIdentity() } })
 }
 
 // Refresh whatever already-loaded views hold the edited item. Same local
@@ -12109,6 +12919,121 @@ document.getElementById('tp-lyric-reset').addEventListener('click', () => {
   syncLyricKnobs()
 })
 
+// ── Presets (Theme panel > Share a look) ────────────────────────────────────
+// A preset is the theme (mode, gradient, album art accent, background dim and
+// blend, font) and/or the lyrics style (knobs plus text size). The format and
+// every check live in src/core/presets.ts; this reads the live controls and
+// applies a preset through the same save paths those controls use, so an
+// imported look is stored exactly as if it had been set by hand.
+
+let _presetBusy = false
+
+/** The current look as a preset, limited to the parts switched on, or null
+ *  (after saying why) when both are off. */
+function currentPreset() {
+  const withTheme = document.getElementById('tp-preset-theme').checked
+  const withLyrics = document.getElementById('tp-preset-lyrics').checked
+  if (!withTheme && !withLyrics) {
+    showNotice('Switch on colors, lyrics style, or both to make a preset.', 'Preset')
+    return null
+  }
+  const theme = withTheme ? {
+    mode: _isLightTheme() ? 'light' : 'dark',
+    gradStart: document.getElementById('grad-start').value,
+    gradEnd: document.getElementById('grad-end').value,
+    albumArt: themeAlbumArt,
+    bgDim: parseFloat(document.getElementById('tp-bg-dim').value),
+    bgBlend: document.getElementById('tp-bg-blend').checked,
+    font: { preset: document.getElementById('tp-font-preset').value, custom: document.getElementById('tp-font-custom').value },
+  } : undefined
+  const lyrics = withLyrics ? {
+    style: CascadeCore.lyricStyleChanges(lyricStyle),
+    lyricScale: parseFloat(document.getElementById('tp-lyric-scale').value),
+  } : undefined
+  return CascadeCore.buildPreset({ name: document.getElementById('tp-preset-name').value, theme, lyrics })
+}
+
+/** Applies a parsed (already validated) preset. Parts it does not carry are
+ *  left alone. */
+async function applyPreset(preset) {
+  const t = preset.theme
+  if (t) {
+    setThemeMode(t.mode)
+    document.getElementById('grad-start').value = t.gradStart
+    document.getElementById('grad-end').value = t.gradEnd
+    applyGradient(t.gradStart, t.gradEnd)
+    // Saves the theme key too, with the mode and gradient set just above.
+    setAlbumArtAccent(t.albumArt)
+    markActivePreset()
+    await saveUiFont(t.font.preset, t.font.custom)
+    await loadUiFont()
+  }
+  if (preset.lyrics) {
+    await saveLyricStyle(preset.lyrics.style)
+    syncLyricKnobs()
+  }
+  // Text size, background dim and blend share one store key (npTuning), so
+  // they are written together from whichever side the preset carries.
+  if (t || preset.lyrics) {
+    const [scale, dim, blend] = _npTuningInputValues()
+    await saveNpTuning(preset.lyrics ? preset.lyrics.lyricScale : scale, t ? t.bgDim : dim, t ? t.bgBlend : blend)
+    await loadNpTuning()
+  }
+  document.getElementById('tp-preset-name').value = preset.name === 'Untitled' ? '' : preset.name
+}
+
+async function importPresetText(text) {
+  const r = CascadeCore.parsePreset(text)
+  if (!r.ok) { showNotice(r.error, 'Preset'); return }
+  await applyPreset(r.preset)
+  showToast(`Applied "${r.preset.name}"`)
+}
+
+/** Toasts are dev-only, so a button that has nothing visible to show for
+ *  itself (a copy, a save) says it worked in its own label for a moment. */
+function flashPresetButton(btn, label) {
+  const original = btn.dataset.label || btn.textContent
+  btn.dataset.label = original
+  btn.textContent = label
+  clearTimeout(btn._flashTimer)
+  btn._flashTimer = setTimeout(() => { btn.textContent = original }, 1600)
+}
+
+/** One preset action at a time: a second press while a dialog is open would
+ *  otherwise stack another dialog or apply twice. */
+async function runPresetAction(fn) {
+  if (_presetBusy) return
+  _presetBusy = true
+  try { await fn() } catch (e) { showNotice(`Something went wrong with the preset.\n\n${e.message}`, 'Preset') }
+  finally { _presetBusy = false }
+}
+
+document.getElementById('tp-preset-export').addEventListener('click', () => runPresetAction(async () => {
+  const preset = currentPreset()
+  if (!preset) return
+  const res = await window.cascade.presets.save(CascadeCore.presetFileName(preset.name), CascadeCore.serializePreset(preset))
+  if (res.ok) flashPresetButton(document.getElementById('tp-preset-export'), 'Exported')
+  else if (!res.canceled) showNotice(`Could not save the preset.\n\n${res.error || ''}`, 'Preset')
+}))
+
+document.getElementById('tp-preset-copy').addEventListener('click', () => runPresetAction(async () => {
+  const preset = currentPreset()
+  if (!preset) return
+  await window.cascade.clipboard.write(CascadeCore.serializePreset(preset))
+  flashPresetButton(document.getElementById('tp-preset-copy'), 'Copied')
+}))
+
+document.getElementById('tp-preset-import').addEventListener('click', () => runPresetAction(async () => {
+  const res = await window.cascade.presets.open()
+  if (res.canceled) return
+  if (!res.ok) { showNotice(`Could not open the preset.\n\n${res.error || ''}`, 'Preset'); return }
+  await importPresetText(res.text)
+}))
+
+document.getElementById('tp-preset-paste').addEventListener('click', () => runPresetAction(async () => {
+  await importPresetText(await window.cascade.clipboard.read())
+}))
+
 document.getElementById('seg-dark').addEventListener('click', () => { setThemeMode('dark'); saveTheme() })
 document.getElementById('seg-light').addEventListener('click', () => { setThemeMode('light'); saveTheme() })
 
@@ -12377,7 +13302,9 @@ function debugPanelText() {
     ? `${p.hit ? 'HIT' : 'MISS'}${p.readyState !== undefined ? ` rs=${p.readyState}${p.readyState < 4 ? ' COLD' : ''}` : ''} (${p.from}, ${Math.round((Date.now() - p.at) / 1000)}s ago)`
     : 'none yet'
 
+  const ident = CascadeCore.clientIdentity()
   return [
+    `client: ${ident.client} ${appVersion} on ${ident.device}   deviceId: ${deviceId}`,
     `playing: ${!audio.paused}   live deck: ${audio.id}   pos: ${audio.currentTime.toFixed(1)}s / ${mediaDuration().toFixed(1)}s`,
     `item: ${item ? `${item.Name}  (${item.Id})` : 'none'}`,
     '',

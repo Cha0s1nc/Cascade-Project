@@ -316,6 +316,19 @@ body.away .close-btn { opacity: 0; }
   .lyric-credit button:hover { color: #fff; text-decoration: underline; }
 }
 
+/* ── Volume slider ──
+   Shown in the square and lyrics layouts, where there is room; the pill keeps
+   the wheel and the arrow keys. Same shape as the scrubber (a tall hit area
+   around a thin track) so it can be grabbed without pixel hunting. */
+.vol-row { display: none; align-items: center; gap: 8px; color: rgba(255,255,255,0.7); }
+.vol-row svg { flex-shrink: 0; }
+.vol-bar { flex: 1; height: 12px; display: flex; align-items: center; cursor: pointer; touch-action: none; }
+.vol-track { position: relative; width: 100%; height: 3px; border-radius: 2px; background: rgba(255,255,255,0.22); transition: height 0.12s; }
+.vol-bar:hover .vol-track, .vol-bar.dragging .vol-track { height: 5px; }
+.vol-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 100%; border-radius: inherit; background: #fff; }
+.vol-bar:focus-visible { outline: 2px solid rgba(255,255,255,0.6); outline-offset: 2px; border-radius: 2px; }
+@container (min-height: 180px) { .vol-row { display: flex; } }
+
 /* Pill idle: fade the transport out and let the title have the room, which is
    the one thing worth reading at a glance at this size. */
 @container (max-height: 179px) {
@@ -386,6 +399,12 @@ body.away .close-btn { opacity: 0; }
       <button class="icon-btn" id="btn-next" title="Next" aria-label="Next">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M15.8 5H18v14h-2.2zM4 5.6v12.8a.8.8 0 0 0 1.2.7l9.4-6.4a.8.8 0 0 0 0-1.4L5.2 4.9A.8.8 0 0 0 4 5.6z"/></svg>
       </button>
+    </div>
+    <div class="vol-row">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>
+      <div class="vol-bar" id="vol-bar" role="slider" aria-label="Volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100" tabindex="0">
+        <div class="vol-track"><div class="vol-fill" id="vol-fill"></div></div>
+      </div>
     </div>
   </div>
   <!-- Under the cover (tall layout only): lyrics or Up Next, one at a time.
@@ -481,7 +500,7 @@ window.miniPlayer.onState((state) => {
   if (!_seeking) setProgress(state.positionSec, state.durationSec)
   setLike(state.isFavorite)
   setPlaying(state.isPlaying)
-  if (!_wheelActive && Number.isFinite(state.volume)) _volume = state.volume
+  if (!_wheelActive && Number.isFinite(state.volume)) { _volume = state.volume; paintVolume() }
   _clock = { pos: state.positionSec || 0, at: Number.isFinite(state.sentAt) ? state.sentAt : Date.now(), playing: !!state.isPlaying }
   takeSheet(state)
   if (!state.isPlaying) paintLyrics(clockTicks())   // a seek while paused
@@ -619,6 +638,12 @@ let _wheelActive = false
 let _wheelTimer = null
 let _hudTimer = null
 
+function paintVolume() {
+  const pct = Math.round(_volume * 100)
+  $('vol-fill').style.width = `${pct}%`
+  $('vol-bar').setAttribute('aria-valuenow', String(pct))
+}
+
 function showVolumeHud() {
   const pct = Math.round(_volume * 100)
   $('vol-hud-fill').style.width = `${pct}%`
@@ -637,8 +662,49 @@ function nudgeVolume(delta) {
   clearTimeout(_wheelTimer)
   _wheelTimer = setTimeout(() => { _wheelActive = false }, 600)
   control({ type: 'volume', value: delta })
+  paintVolume()
   showVolumeHud()
 }
+
+// The slider sets an absolute level. Held locally while dragging for the same
+// reason the wheel is: a state tick carrying the old volume would yank it back.
+function volumeAt(e) {
+  const r = $('vol-bar').getBoundingClientRect()
+  return r.width ? Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) : _volume
+}
+function setVolumeTo(v) {
+  _volume = v
+  _wheelActive = true
+  clearTimeout(_wheelTimer)
+  _wheelTimer = setTimeout(() => { _wheelActive = false }, 600)
+  control({ type: 'volumeto', value: v })
+  paintVolume()
+}
+$('vol-bar').addEventListener('pointerdown', (e) => {
+  e.stopPropagation()
+  const bar = $('vol-bar')
+  bar.classList.add('dragging')
+  bar.setPointerCapture(e.pointerId)
+  setVolumeTo(volumeAt(e))
+  const move = (ev) => setVolumeTo(volumeAt(ev))
+  const up = () => {
+    bar.removeEventListener('pointermove', move)
+    bar.removeEventListener('pointerup', up)
+    bar.removeEventListener('pointercancel', up)
+    bar.classList.remove('dragging')
+  }
+  bar.addEventListener('pointermove', move)
+  bar.addEventListener('pointerup', up)
+  bar.addEventListener('pointercancel', up)
+})
+// The arrow keys on the focused slider step it; the window-level handler
+// below would do the same, so stop the pair from doubling up.
+$('vol-bar').addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    e.preventDefault(); e.stopPropagation()
+    nudgeVolume(e.key === 'ArrowRight' ? 0.05 : -0.05)
+  }
+})
 
 // Over the lyrics and Up Next panel the wheel scrolls it instead (and pauses
 // the lyrics following the song; see followLyrics). Everywhere else, the

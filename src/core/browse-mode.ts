@@ -9,7 +9,7 @@ export type BrowseMode = 'music' | 'video'
 /** Which view names belong to each mode. Home and Settings are in neither -
  *  they show in both modes, so they are simply absent from both lists. */
 export const MODE_VIEWS: Record<BrowseMode, string[]> = {
-  music: ['albums', 'artists', 'songs', 'playlists', 'genres', 'history', 'radio'],
+  music: ['albums', 'artists', 'songs', 'playlists', 'genres', 'history', 'downloads', 'radio'],
   video: ['movies', 'shows'],
 }
 

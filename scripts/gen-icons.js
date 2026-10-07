@@ -170,6 +170,126 @@ async function checkSize(src) {
   }
 }
 
+// ── Apple (apple/App) ────────────────────────────────────────────────────────
+//
+// Asset catalogs for the iOS and tvOS targets, written whole each run (both
+// folders are generated: edit source.png, not them). iOS takes one opaque
+// full-bleed 1024 square and rounds it itself. tvOS wants a layered icon (the
+// tilt-and-shine on the home screen) and a top shelf banner. The art is flat,
+// so the back layer carries it and the front layer is empty.
+// ponytail: give the artist's layered export (waterfall on its own layer) to
+// the front layer for real parallax.
+
+const APPLE = path.join(__dirname, '../apple/App')
+// Where the landscape crops sit, as a fraction of the height: the waterfall.
+// ponytail: tuned by eye for the current source.png, like INSTALLER_FOCUS.
+const TV_FOCUS_Y = 0.55
+// The artwork's own night blue, behind anything that has to be opaque.
+const BACKDROP = '#06104a'
+const XCODE_INFO = { version: 1, author: 'xcode' }
+
+function writeJson(file, value) {
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n')
+}
+
+/** The artwork filling w x h: scaled to width w and cropped to h rows around
+ *  TV_FOCUS_Y. Opaque, as every app icon layer but the front has to be. */
+async function landscape(src, w, h) {
+  const top = Math.round(Math.min(w - h, Math.max(0, w * TV_FOCUS_Y - h / 2)))
+  return sharp(src).resize(w, w).extract({ left: 0, top, width: w, height: h })
+    .flatten({ background: BACKDROP }).png().toBuffer()
+}
+
+/** The top shelf: far wider than the square art, and stretching a 1024 source
+ *  to 1920 or 3840 across reads as blur. So the art sits sharp in the middle at
+ *  full height, feathered into a blurred copy of itself that fills the width. */
+async function topShelf(src, w, h) {
+  // Blurred hard and dimmed, so it reads as the art's ambient color rather
+  // than a second, soft copy of the waterfall beside the sharp one.
+  const back = await sharp(await landscape(src, w, h)).blur(Math.round(h / 9))
+    .modulate({ brightness: 0.55 }).png().toBuffer()
+  const feather = Buffer.from(
+    `<svg width="${h}" height="${h}"><defs><linearGradient id="f">` +
+    `<stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".15" stop-color="#fff"/>` +
+    `<stop offset=".85" stop-color="#fff"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>` +
+    `</linearGradient></defs><rect width="${h}" height="${h}" fill="url(#f)"/></svg>`)
+  const art = await sharp(src).resize(h, h).flatten({ background: BACKDROP })
+    .composite([{ input: feather, blend: 'dest-in' }]).png().toBuffer()
+  return sharp(back).composite([{ input: art, left: Math.round((w - h) / 2), top: 0 }]).png().toBuffer()
+}
+
+/** An imageset of tv images, one per scale: [{ scale: 1, png }, ...]. */
+function writeImageset(dir, name, images) {
+  for (const { scale, png } of images) fs.writeFileSync(path.join(dir, `${name}@${scale}x.png`), png)
+  writeJson(path.join(dir, 'Contents.json'), {
+    images: images.map(({ scale }) => ({ idiom: 'tv', filename: `${name}@${scale}x.png`, scale: `${scale}x` })),
+    info: XCODE_INFO,
+  })
+}
+
+/** A layered tvOS icon at width x height (1x), with the art on the back
+ *  layer and a transparent front. */
+async function writeImagestack(dir, src, width, height, scales) {
+  const layers = { Front: [], Back: [] }
+  for (const scale of scales) {
+    const [w, h] = [width * scale, height * scale]
+    layers.Back.push({ scale, png: await landscape(src, w, h) })
+    layers.Front.push({ scale, png: await sharp({ create: { width: w, height: h, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer() })
+  }
+  for (const [layer, images] of Object.entries(layers)) {
+    const layerDir = path.join(dir, `${layer}.imagestacklayer`)
+    fs.mkdirSync(path.join(layerDir, 'Content.imageset'), { recursive: true })
+    writeJson(path.join(layerDir, 'Contents.json'), { info: XCODE_INFO })
+    writeImageset(path.join(layerDir, 'Content.imageset'), layer.toLowerCase(), images)
+  }
+  writeJson(path.join(dir, 'Contents.json'), {
+    layers: [{ filename: 'Front.imagestacklayer' }, { filename: 'Back.imagestacklayer' }],
+    info: XCODE_INFO,
+  })
+}
+
+async function appleIcons(src) {
+  // iOS: one 1024 square, opaque (the App Store refuses an icon with alpha).
+  const ios = path.join(APPLE, 'Assets-iOS.xcassets')
+  fs.rmSync(ios, { recursive: true, force: true })
+  writeJson(path.join(ios, 'Contents.json'), { info: XCODE_INFO })
+  const iconSet = path.join(ios, 'AppIcon.appiconset')
+  fs.mkdirSync(iconSet, { recursive: true })
+  await sharp(src).resize(MAX_SIZE, MAX_SIZE).flatten({ background: BACKDROP }).png().toFile(path.join(iconSet, 'AppIcon.png'))
+  writeJson(path.join(iconSet, 'Contents.json'), {
+    images: [{ filename: 'AppIcon.png', idiom: 'universal', platform: 'ios', size: '1024x1024' }],
+    info: XCODE_INFO,
+  })
+  console.log('  apple/App/Assets-iOS.xcassets')
+
+  // tvOS: the home screen icon, the App Store icon, and both top shelf sizes.
+  const tv = path.join(APPLE, 'Assets-tvOS.xcassets')
+  fs.rmSync(tv, { recursive: true, force: true })
+  writeJson(path.join(tv, 'Contents.json'), { info: XCODE_INFO })
+  const brand = path.join(tv, 'App Icon & Top Shelf Image.brandassets')
+  await writeImagestack(path.join(brand, 'App Icon.imagestack'), src, 400, 240, [1, 2])
+  await writeImagestack(path.join(brand, 'App Icon - App Store.imagestack'), src, 1280, 768, [1])
+  for (const [name, w] of [['Top Shelf Image', 1920], ['Top Shelf Image Wide', 2320]]) {
+    const dir = path.join(brand, `${name}.imageset`)
+    fs.mkdirSync(dir, { recursive: true })
+    writeImageset(dir, name.toLowerCase().replace(/ /g, '-'), [
+      { scale: 1, png: await topShelf(src, w, 720) },
+      { scale: 2, png: await topShelf(src, w * 2, 1440) },
+    ])
+  }
+  writeJson(path.join(brand, 'Contents.json'), {
+    assets: [
+      { filename: 'App Icon - App Store.imagestack', idiom: 'tv', role: 'primary-app-icon', size: '1280x768' },
+      { filename: 'App Icon.imagestack', idiom: 'tv', role: 'primary-app-icon', size: '400x240' },
+      { filename: 'Top Shelf Image Wide.imageset', idiom: 'tv', role: 'top-shelf-image-wide', size: '2320x720' },
+      { filename: 'Top Shelf Image.imageset', idiom: 'tv', role: 'top-shelf-image', size: '1920x720' },
+    ],
+    info: XCODE_INFO,
+  })
+  console.log('  apple/App/Assets-tvOS.xcassets')
+}
+
 async function run() {
   const SRC = resolveSource()
   if (path.resolve(SRC) === GENERATED) {
@@ -227,7 +347,9 @@ async function run() {
   await installerImage(SRC, 'installer-sidebar.bmp', 314, 164, 314)
   await installerImage(SRC, 'installer-header.bmp', 300, 150, 57)
 
-  console.log('\nDone. Icons written to assets/')
+  await appleIcons(SRC)
+
+  console.log('\nDone. Icons written to assets/ and apple/App/')
 }
 
 run().catch(err => { console.error(err.message || err); process.exit(1) })

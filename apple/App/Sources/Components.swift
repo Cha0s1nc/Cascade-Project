@@ -84,7 +84,7 @@ struct ArtworkView: View {
                 ? await client.imageUrl(itemId: itemId, size: pixels)
                 : await client.imageUrl(itemId: itemId, type: imageType, width: pixels, height: Int(CGFloat(pixels) / aspect))
             guard let url,
-                  let (data, response) = try? await URLSession.shared.data(from: url) else { return }
+                  let (data, response) = try? await ProxyConnection.shared.session(for: url).data(from: url) else { return }
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             // 404 is the normal "this item has no art"; anything else is worth knowing.
             guard status == 200 else {
@@ -219,11 +219,14 @@ struct ItemTiles: View {
     }
 }
 
-/// mm:ss, or a dash when there is no sensible duration to show.
+/// m:ss, h:mm:ss past an hour (a film), or a dash when there is no sensible
+/// duration to show.
 func clock(_ seconds: Double) -> String {
     guard seconds.isFinite, seconds >= 0 else { return "--:--" }
     let total = Int(seconds)
-    return String(format: "%d:%02d", total / 60, total % 60)
+    return total >= 3600
+        ? String(format: "%d:%02d:%02d", total / 3600, total / 60 % 60, total % 60)
+        : String(format: "%d:%02d", total / 60, total % 60)
 }
 
 /// The state every list screen has: loading, loaded, or failed with a reason
@@ -232,6 +235,8 @@ struct LoadingOverlay: View {
     let isLoading: Bool
     let error: String?
     let isEmpty: Bool
+    /// The empty state's symbol: a note, or a film for the video screens.
+    var emptySymbol = "music.note"
 
     var body: some View {
         if isLoading {
@@ -239,7 +244,7 @@ struct LoadingOverlay: View {
         } else if let error {
             ContentUnavailableView("Could not load", systemImage: "exclamationmark.triangle", description: Text(error))
         } else if isEmpty {
-            ContentUnavailableView("Nothing here", systemImage: "music.note")
+            ContentUnavailableView("Nothing here", systemImage: emptySymbol)
         }
     }
 }

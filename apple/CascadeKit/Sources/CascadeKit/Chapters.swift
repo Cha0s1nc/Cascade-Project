@@ -1,85 +1,93 @@
 import Foundation
 
-// Chapters, ported from playback.ts (chapterList, chapterAt, chapterTarget):
-// the ticks on the scrubber, the chapter list and the previous/next chapter
-// keys all read from this.
+// A video's chapters, for AVPlayerViewController's navigation markers. The
+// desktop's chapterList (src/core/playback.ts) with its tests.
+//
+// Jellyfin's item carries them in `Chapters` when asked for with
+// Fields=Chapters; the list queries do not ask, so they are fetched once per
+// video, the way the desktop does.
+
+/// One entry of Jellyfin's Chapters array.
+public struct JfChapter: Codable, Sendable, Equatable {
+    public var name: String?
+    public var startPositionTicks: Int?
+
+    public init(name: String? = nil, startPositionTicks: Int? = nil) {
+        self.name = name
+        self.startPositionTicks = startPositionTicks
+    }
+}
 
 /// A chapter as the player uses it: where it starts, in seconds, and what to
 /// call it.
 public struct Chapter: Sendable, Equatable {
-    public var sec: Double
+    public var startSeconds: Double
     public var name: String
 
-    public init(sec: Double, name: String) {
-        self.sec = sec
+    public init(startSeconds: Double, name: String) {
+        self.startSeconds = startSeconds
         self.name = name
     }
 }
 
-/// Jellyfin's `Chapters` entry, as sent. Only what the player reads.
-public struct RawChapter: Decodable, Sendable {
-    public var startPositionTicks: Int?
-    public var name: String?
-
-    public init(startPositionTicks: Int? = nil, name: String? = nil) {
-        self.startPositionTicks = startPositionTicks
-        self.name = name
-    }
-}
-
-/// Jellyfin's chapters cleaned up for seeking: sorted, deduplicated by start,
-/// anything past the end of the item dropped, and a name for the ones that
-/// have none. Fewer than two leaves nothing worth offering, since one chapter
-/// is just "the film".
-public func chapterList(_ raw: [RawChapter]?, runTimeTicks: Int? = nil) -> [Chapter] {
-    var seen = Set<Int>()
-    let list = (raw ?? [])
-        .compactMap { c -> (ticks: Int, name: String?)? in
-            guard let t = c.startPositionTicks, t >= 0 else { return nil }
-            if let total = runTimeTicks, total > 0, t >= total { return nil }
-            return (t, c.name)
-        }
-        .sorted { $0.ticks < $1.ticks }
-        .filter { seen.insert($0.ticks).inserted }
-        .enumerated()
-        .map { i, c -> Chapter in
+public enum Chapters {
+    /// Jellyfin's Chapters array, cleaned up: sorted, deduplicated by start,
+    /// anything at or past the end of the item dropped, and a name for the ones
+    /// that have none. Fewer than two leaves nothing worth offering, since one
+    /// chapter is just "the film".
+    public static func list(_ raw: [JfChapter]?, runTimeTicks: Int? = nil) -> [Chapter] {
+        var seen = Set<Int>()
+        let kept = (raw ?? [])
+            .compactMap { c -> (ticks: Int, name: String?)? in
+                guard let ticks = c.startPositionTicks, ticks >= 0 else { return nil }
+                if let end = runTimeTicks, end > 0, ticks >= end { return nil }
+                return (ticks, c.name)
+            }
+            .sorted { $0.ticks < $1.ticks }
+            .filter { seen.insert($0.ticks).inserted }
+        guard kept.count > 1 else { return [] }
+        return kept.enumerated().map { i, c in
             let name = c.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return Chapter(sec: seconds(fromTicks: c.ticks), name: name.isEmpty ? "Chapter \(i + 1)" : name)
+            return Chapter(startSeconds: Double(c.ticks) / ticksPerSecond, name: name.isEmpty ? "Chapter \(i + 1)" : name)
         }
-    return list.count > 1 ? list : []
-}
-
-/// Index of the chapter playing at `sec`, or -1 before the first one.
-public func chapterAt(_ chapters: [Chapter], _ sec: Double) -> Int {
-    var at = -1
-    for (i, c) in chapters.enumerated() {
-        if c.sec > sec { break }
-        at = i
     }
-    return at
-}
 
-/// Where a chapter jump from `sec` lands, in seconds, or nil for nowhere to go.
-///
-/// Forward is the next chapter's start. Back works like a CD player's
-/// previous button (and YouTube's): more than `restartWithin` seconds into a
-/// chapter goes to its own start, closer than that goes to the chapter before.
-public func chapterTarget(_ chapters: [Chapter], _ sec: Double, forward: Bool, restartWithin: Double = 3) -> Double? {
-    let cur = chapterAt(chapters, sec)
-    if forward { return chapters.indices.contains(cur + 1) ? chapters[cur + 1].sec : nil }
-    if cur < 0 { return nil }
-    if sec - chapters[cur].sec > restartWithin { return chapters[cur].sec }
-    return chapters.indices.contains(cur - 1) ? chapters[cur - 1].sec : chapters[cur].sec
-}
+    /// The chapters on the player's own timeline. A transcode's clock starts
+    /// where it was asked to, so a chapter before that point is not in the
+    /// stream, and the rest move back by it. (A direct file starts at 0.)
+    public static func onPlayerTimeline(_ chapters: [Chapter], streamStartSeconds: Double) -> [Chapter] {
+        guard streamStartSeconds > 0 else { return chapters }
+        return chapters.filter { $0.startSeconds >= streamStartSeconds }
+            .map { Chapter(startSeconds: $0.startSeconds - streamStartSeconds, name: $0.name) }
+    }
 
-public extension JellyfinClient {
-    /// A movie or episode's chapters. The list calls leave them out, and the
-    /// single-item route has no `fields` parameter: it returns Chapters on
-    /// its own (checked against 10.11.11's spec and a real item). A failure
-    /// is no chapters: they are a nicety, never a reason to stop a film.
-    func chapters(of item: JfItem) async -> [Chapter] {
-        struct Response: Decodable { var chapters: [RawChapter]? }
-        guard let r: Response = try? await get("/Items/\(item.id)", params: ["userId": currentConfig.userId]) else { return [] }
-        return chapterList(r.chapters, runTimeTicks: item.runTimeTicks)
+    /// The chapter playing at `seconds` (the list's own clock), nil before the
+    /// first. The list is sorted.
+    public static func current(in chapters: [Chapter], at seconds: Double) -> Chapter? {
+        chapters.last { $0.startSeconds <= seconds }
+    }
+
+    /// Where each chapter starts as a fraction of `duration`, for ticks on the
+    /// scrubber. The start and the end need no tick.
+    public static func tickFractions(_ chapters: [Chapter], duration: Double) -> [Double] {
+        guard duration.isFinite, duration > 0 else { return [] }
+        return chapters.map { $0.startSeconds / duration }.filter { $0 > 0 && $0 < 1 }
+    }
+
+    /// Where a chapter jump from `seconds` lands, or nil for nowhere to go:
+    /// the Mac player's Option-Left and Option-Right. Forward is the next
+    /// chapter's start. Back works like a CD player's previous button: more
+    /// than `restartWithin` seconds into a chapter goes to its own start,
+    /// closer than that to the chapter before.
+    public static func jumpTarget(in chapters: [Chapter], from seconds: Double, forward: Bool,
+                                  restartWithin: Double = 3) -> Double? {
+        let cur = chapters.lastIndex { $0.startSeconds <= seconds }
+        if forward {
+            let next = (cur ?? -1) + 1
+            return chapters.indices.contains(next) ? chapters[next].startSeconds : nil
+        }
+        guard let cur else { return nil }
+        if seconds - chapters[cur].startSeconds > restartWithin { return chapters[cur].startSeconds }
+        return chapters.indices.contains(cur - 1) ? chapters[cur - 1].startSeconds : chapters[cur].startSeconds
     }
 }

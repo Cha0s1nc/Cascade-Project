@@ -34,10 +34,10 @@ struct LiveVideoTests {
     }
 
     /// The master playlist spans the whole item whatever the offset, so a
-    /// resumed transcode must not also count the offset on the player's clock.
-    @Test func aResumedHlsTranscodeCarriesNoOffset() async throws {
+    /// transcode never carries one: a resume is a seek on the player.
+    @Test func anHlsTranscodeCarriesNoOffset() async throws {
         let (client, config, item) = try await movie(named: "Second Feature")
-        let stream = try await VideoPlayback.resolve(client: client, config: config, item: item, startTicks: 300_000_000)
+        let stream = try await VideoPlayback.resolve(client: client, config: config, item: item)
         #expect(!stream.direct)
         #expect(stream.startTicks == 0)
         #expect(!stream.url.absoluteString.contains("StartTimeTicks"))
@@ -50,8 +50,8 @@ struct LiveVideoTests {
 
     @Test func chaptersAnswerAndMissingOnesAreEmpty() async throws {
         let (client, _, item) = try await movie(named: "Second Feature")
-        #expect(await client.chapters(of: item).isEmpty, "the test media has none; the route must still answer 200 and decode")
+        #expect(await client.videoDetails(for: item).chapters.isEmpty, "the test media has none; the route must still answer 200 and decode")
         let ghost = JfItem(id: UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased(), type: "Movie")
-        #expect(await client.chapters(of: ghost).isEmpty)
+        #expect(await client.videoDetails(for: ghost).chapters.isEmpty)
     }
 }

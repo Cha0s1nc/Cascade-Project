@@ -13,6 +13,7 @@ struct SettingsView: View {
     @State private var approveCode = ""
     @State private var isApproving = false
     @State private var approveStatus: (ok: Bool, message: String)?
+    @AppStorage("cascade.autoSkipSegments") private var autoSkipSegments = false
 
     var body: some View {
         #if os(macOS)
@@ -29,6 +30,8 @@ struct SettingsView: View {
                 LabeledContent("Server", value: state.config?.url ?? "")
                 LabeledContent("Signed in as", value: username ?? "")
             }
+
+            ProxySettingsSection()
 
             Section {
                 LoadingOverlay(isLoading: isLoading, error: error, isEmpty: libraries.isEmpty)
@@ -99,6 +102,14 @@ struct SettingsView: View {
                 }
             }
 
+            Section {
+                Toggle("Auto-Skip Intros and Credits", isOn: $autoSkipSegments)
+            } header: {
+                Text("Video")
+            } footer: {
+                Text("Skips an intro or the end credits as soon as it starts, once each. Needs Jellyfin 10.10 or later with something that finds them, such as the Intro Skipper plugin. The Skip button still shows when this is off.")
+            }
+
             // Only with the plugin: without it, server-only would mean no
             // lyrics at all, so the waterfall runs whatever this says.
             if state.cascadePluginApi != nil {
@@ -165,6 +176,7 @@ struct SettingsView: View {
             }
 
             Section("About") {
+                LabeledContent("Edition", value: cascadeEdition)
                 LabeledContent("Version", value: state.appVersion)
             }
         }
