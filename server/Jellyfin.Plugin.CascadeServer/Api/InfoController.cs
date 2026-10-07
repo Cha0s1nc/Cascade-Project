@@ -41,6 +41,7 @@ public class InfoController : ControllerBase
         "karaoke",         // word-level .slrc, not just line-level .lrc
         "server-style",    // GET, PUT and DELETE /CascadeServer/Style
         "explicit",        // POST /CascadeServer/Explicit/Query, GET and PUT /CascadeServer/Explicit/{itemId}
+        "animated-art",    // GET /CascadeServer/AnimatedArt/{albumId} and /File, PUT, DELETE, TidalAlbum, Refresh
         "playlist-edit",   // POST and DELETE /CascadeServer/Playlists/{id}/Image, PUT .../Details
     };
 
@@ -75,6 +76,8 @@ public class InfoController : ControllerBase
             spotifyLinkServerWide = spicy && await SpotifyLinkPermission.ServerWideAsync(auth, HttpContext),
             // For this user: whether they may set explicit ratings by hand.
             canEditExplicit = await SpotifyLinkPermission.AllowedAsync(auth, HttpContext, Plugin.Config.ExplicitEditUsers),
+            // For this user: whether they may upload, remove and link animated album art.
+            canEditAnimatedArt = await SpotifyLinkPermission.AllowedAsync(auth, HttpContext, Plugin.Config.AnimatedArtEditUsers),
         });
     }
 }

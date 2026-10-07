@@ -64,4 +64,34 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>Gets or sets whether explicit songs get an "Explicit" tag in Jellyfin, for other clients to filter on.</summary>
     public bool MirrorExplicitTag { get; set; }
+
+    /// <summary>Gets or sets the client id of the administrator's own TIDAL developer app. Empty means TIDAL is off.</summary>
+    public string TidalClientId { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the client secret of the administrator's own TIDAL developer app. Empty means TIDAL is off. Never logged or returned by a route.</summary>
+    public string TidalClientSecret { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the country code sent to TIDAL; its catalog differs by country.</summary>
+    public string TidalCountryCode { get; set; } = "US";
+
+    /// <summary>Gets or sets which of TIDAL's square sizes to keep (320, 640, 750, 1080 or 1280); the nearest available is used.</summary>
+    public int TidalArtSize { get; set; } = 1080;
+
+    /// <summary>
+    /// Gets or sets how a TIDAL video reaches clients: "cache" downloads it into the 25-day cache and
+    /// serves it from this server; "direct" caches only the lookup and hands out TIDAL's own file URL.
+    /// </summary>
+    public string TidalArtDelivery { get; set; } = "cache";
+
+    /// <summary>Gets or sets the order of sources: "sidecar-first", "tidal-first", "sidecar-only" or "tidal-only".</summary>
+    public string AnimatedArtSourceOrder { get; set; } = "sidecar-first";
+
+    /// <summary>Gets or sets the sidecar file names looked for in an album folder, in order.</summary>
+    public string[] AnimatedArtSidecarNames { get; set; } = ["cover.mp4", "cover.webm"];
+
+    /// <summary>Gets or sets the largest accepted upload, in megabytes.</summary>
+    public int AnimatedArtMaxUploadMb { get; set; } = 50;
+
+    /// <summary>Gets or sets the users (ids, any Guid format) who may upload, remove and link animated art, besides administrators.</summary>
+    public string[] AnimatedArtEditUsers { get; set; } = [];
 }

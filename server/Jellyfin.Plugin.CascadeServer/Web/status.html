@@ -69,6 +69,73 @@
                         <h4>Who can set explicit ratings by hand</h4>
                         <div id="csExplicitUsers">Loading users…</div>
                     </div>
+                    <div class="verticalSection">
+                        <h3>Animated album art</h3>
+                        <div class="fieldDescription" style="margin-bottom:0.8em;">
+                            Cascade can show a looping video cover on the now-playing view. It comes from a
+                            <strong>cover.mp4</strong> in the album's folder (put there by hand or uploaded from Cascade), or
+                            from TIDAL, which has one for roughly one album in twelve.
+                        </div>
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="csArtOrder">Where to look</label>
+                            <select is="emby-select" id="csArtOrder" class="emby-select-withcolor emby-select">
+                                <option value="sidecar-first">The album's own file first, then TIDAL</option>
+                                <option value="tidal-first">TIDAL first, then the album's own file</option>
+                                <option value="sidecar-only">The album's own file only</option>
+                                <option value="tidal-only">TIDAL only</option>
+                            </select>
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="text" id="csArtNames" label="File names to look for, separated by commas" />
+                            <div class="fieldDescription">The first .mp4 name is used when saving an MP4 upload, the first .webm name for a WebM.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="number" id="csArtMaxMb" min="1" label="Largest upload (MB)" />
+                        </div>
+                        <h4>Who can upload, remove and link animated covers</h4>
+                        <div id="csArtUsers">Loading users…</div>
+
+                        <h4 style="margin-top:1.5em;">TIDAL</h4>
+                        <div class="fieldDescription" style="margin-bottom:0.8em;">
+                            Optional. TIDAL's terms do not let one developer account be shared, so you use your own:
+                            <ol style="margin:0.5em 0 0.5em 1.2em;">
+                                <li>Sign in at developer.tidal.com and create an app.</li>
+                                <li>Copy its client id and client secret here and save.</li>
+                                <li>Press <strong>Test</strong> to check them.</li>
+                            </ol>
+                            Lookups happen only when someone opens an album in Cascade, never as a library-wide pass. They send
+                            the album's barcode (and sometimes track ISRCs) to TIDAL. Results are kept for at most 25 days and
+                            are deleted if you clear these fields. See TIDAL's
+                            <a is="emby-linkbutton" class="button-link" href="https://developer.tidal.com/documentation/guidelines-developer-terms-1_0" target="_blank" rel="noopener">Developer Terms</a>.
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="text" id="csTidalId" label="TIDAL client id" autocomplete="off" />
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="password" id="csTidalSecret" label="TIDAL client secret" autocomplete="off" />
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="text" id="csTidalCountry" maxlength="2" label="Country code (the catalog differs by country)" />
+                        </div>
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="csTidalSize">Video size</label>
+                            <select is="emby-select" id="csTidalSize" class="emby-select-withcolor emby-select">
+                                <option value="320">320</option><option value="640">640</option><option value="750">750</option>
+                                <option value="1080">1080</option><option value="1280">1280 (about 3.6 MB for 10 seconds)</option>
+                            </select>
+                        </div>
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="csTidalDelivery">Delivery</label>
+                            <select is="emby-select" id="csTidalDelivery" class="emby-select-withcolor emby-select">
+                                <option value="cache">Download and serve from this server</option>
+                                <option value="direct">Send clients TIDAL's own file address (nothing stored here)</option>
+                            </select>
+                        </div>
+                        <div style="margin:0.8em 0;">
+                            <button is="emby-button" type="button" class="raised" id="csTidalTest"><span>Test</span></button>
+                            <span id="csTidalTestMsg" class="fieldDescription" style="margin-left:0.8em;"></span>
+                        </div>
+                    </div>
                     <button is="emby-button" type="submit" class="raised button-submit block"><span>Save</span></button>
                 </form>
 
@@ -311,6 +378,15 @@
                     page.querySelector('#csExplicitDeezer').checked = config.ExplicitLookupDeezer !== false;
                     page.querySelector('#csExplicitItunes').checked = config.ExplicitLookupItunes !== false;
                     page.querySelector('#csMirrorExplicitTag').checked = !!config.MirrorExplicitTag;
+                    renderUserList('#csArtUsers', 'csArtUser', r[1] || [], config.AnimatedArtEditUsers);
+                    page.querySelector('#csArtOrder').value = config.AnimatedArtSourceOrder || 'sidecar-first';
+                    page.querySelector('#csArtNames').value = (config.AnimatedArtSidecarNames || ['cover.mp4', 'cover.webm']).join(', ');
+                    page.querySelector('#csArtMaxMb').value = config.AnimatedArtMaxUploadMb || 50;
+                    page.querySelector('#csTidalId').value = config.TidalClientId || '';
+                    page.querySelector('#csTidalSecret').value = config.TidalClientSecret || '';
+                    page.querySelector('#csTidalCountry').value = config.TidalCountryCode || 'US';
+                    page.querySelector('#csTidalSize').value = String(config.TidalArtSize || 1080);
+                    page.querySelector('#csTidalDelivery').value = config.TidalArtDelivery || 'cache';
                 });
             }
 
@@ -331,6 +407,16 @@
                     config.ExplicitLookupDeezer = page.querySelector('#csExplicitDeezer').checked;
                     config.ExplicitLookupItunes = page.querySelector('#csExplicitItunes').checked;
                     config.MirrorExplicitTag = page.querySelector('#csMirrorExplicitTag').checked;
+                    config.AnimatedArtEditUsers = picked('csArtUser');
+                    config.AnimatedArtSourceOrder = page.querySelector('#csArtOrder').value;
+                    config.AnimatedArtSidecarNames = page.querySelector('#csArtNames').value.split(',')
+                        .map(function (n) { return n.trim(); }).filter(function (n) { return n; });
+                    config.AnimatedArtMaxUploadMb = Math.max(1, parseInt(page.querySelector('#csArtMaxMb').value, 10) || 50);
+                    config.TidalClientId = page.querySelector('#csTidalId').value.trim();
+                    config.TidalClientSecret = page.querySelector('#csTidalSecret').value.trim();
+                    config.TidalCountryCode = (page.querySelector('#csTidalCountry').value.trim() || 'US').toUpperCase();
+                    config.TidalArtSize = parseInt(page.querySelector('#csTidalSize').value, 10) || 1080;
+                    config.TidalArtDelivery = page.querySelector('#csTidalDelivery').value;
                     return ApiClient.updatePluginConfiguration(PLUGIN_ID, config);
                 }).then(function (result) {
                     Dashboard.processPluginConfigurationUpdateResult(result);
@@ -414,6 +500,18 @@
                 ApiClient.ajax({ type: 'DELETE', url: ApiClient.getUrl('CascadeServer/Style') })
                     .then(function () { styleMsg('Cleared.'); loadStyle(); })
                     .catch(function (res) { styleError(res).then(function (m) { styleMsg(m, true); }); });
+            });
+
+            page.querySelector('#csTidalTest').addEventListener('click', function () {
+                var msg = page.querySelector('#csTidalTestMsg');
+                msg.style.color = '';
+                msg.textContent = 'Testing…';
+                ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('CascadeServer/AnimatedArt/TidalTest'), dataType: 'json' })
+                    .then(function (r) {
+                        msg.textContent = r.ok ? 'Works.' : r.error;
+                        msg.style.color = r.ok ? '#4caf50' : '#e05252';
+                    })
+                    .catch(function () { msg.textContent = 'The test could not run.'; msg.style.color = '#e05252'; });
             });
 
             page.addEventListener('viewshow', function () { loadSettings(); loadStyle(); load(); });

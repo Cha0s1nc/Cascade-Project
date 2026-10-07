@@ -20,6 +20,7 @@
     <Compile Include="..\Jellyfin.Plugin.CascadeServer\Media\Sniff.cs" Link="Pure\Sniff.cs" />
     <Compile Include="..\Jellyfin.Plugin.CascadeServer\Explicit\TitleMatch.cs" Link="Pure\TitleMatch.cs" />
     <Compile Include="..\Jellyfin.Plugin.CascadeServer\Explicit\ExplicitRules.cs" Link="Pure\ExplicitRules.cs" />
+    <Compile Include="..\Jellyfin.Plugin.CascadeServer\AnimatedArt\TidalParse.cs" Link="Pure\TidalParse.cs" />
   </ItemGroup>
 
 </Project>

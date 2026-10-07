@@ -22,6 +22,13 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         : base(applicationPaths, xmlSerializer)
     {
         Instance = this;
+
+        // TIDAL's terms want copies gone when access ends, so clearing the credentials empties the cache.
+        ConfigurationChanged += (_, _) =>
+        {
+            if (!AnimatedArt.TidalClient.Configured) AnimatedArt.TidalCache.Clear(applicationPaths);
+            AnimatedArt.TidalClient.Reset();
+        };
     }
 
     /// <summary>Gets the singleton plugin instance.</summary>

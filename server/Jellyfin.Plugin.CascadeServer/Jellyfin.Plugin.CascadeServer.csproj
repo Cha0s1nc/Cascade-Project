@@ -11,7 +11,7 @@
   <PropertyGroup>
     <JellyfinTarget Condition="'$(JellyfinTarget)' == ''">10.11</JellyfinTarget>
     <!-- The release number. A release tag must match it: v1.0.0 for 1.0.0. -->
-    <PluginVersion>1.0.0</PluginVersion>
+    <PluginVersion>1.1.0</PluginVersion>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(JellyfinTarget)' == '10.11'">

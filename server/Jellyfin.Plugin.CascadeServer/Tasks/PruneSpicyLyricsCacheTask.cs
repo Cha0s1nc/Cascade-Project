@@ -25,15 +25,15 @@ public class PruneSpicyLyricsCacheTask : IScheduledTask
     }
 
     /// <inheritdoc/>
-    public string Name => "Prune SpicyLyrics cache";
+    public string Name => "Prune SpicyLyrics and TIDAL caches";
 
     /// <inheritdoc/>
     public string Key => "CascadeServerPruneSpicyLyricsCache";
 
     /// <inheritdoc/>
     public string Description =>
-        "Deletes cached SpicyLyrics responses older than 25 days. Required by SpicyLyrics' " +
-        "terms, which allow keeping lyrics for at most 30 days.";
+        "Deletes cached SpicyLyrics responses and cached TIDAL animated covers older than 25 days. " +
+        "Required by SpicyLyrics' terms (at most 30 days) and by TIDAL's, which allow temporary caching only.";
 
     /// <inheritdoc/>
     public string Category => "Cascade Server";
@@ -52,6 +52,7 @@ public class PruneSpicyLyricsCacheTask : IScheduledTask
     public Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
         new SpicyLyricsCache(_appPaths).Prune();
+        AnimatedArt.TidalCache.Prune(_appPaths);
         progress.Report(100);
         return Task.CompletedTask;
     }
