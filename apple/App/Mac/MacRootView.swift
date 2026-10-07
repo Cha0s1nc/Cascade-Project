@@ -85,6 +85,13 @@ struct MacRootView: View {
             if section != .settings, !MacSection.sidebar(for: state.browseMode).contains(section) { section = .home }
         }
         .frame(minWidth: 800, minHeight: 560)
+        #if DEBUG
+        // Debug builds only: `-cascade.section songs` opens a section at
+        // launch, to check it without clicking (UI scripting is not allowed).
+        .onAppear {
+            if let raw = UserDefaults.standard.string(forKey: "cascade.section"), let s = MacSection(rawValue: raw) { section = s }
+        }
+        #endif
     }
 
     private var sidebar: some View {

@@ -161,6 +161,7 @@ private struct SongsTable: View {
         // alone otherwise (the system decides which set `ids` is).
         .contextMenu(forSelectionType: JfItem.ID.self) { ids in
             MacTracksMenu(tracks: items.filter { ids.contains($0.id) })
+                .environment(state)
         }
         .trackActionHost()
         // Return plays what is selected, like double-clicking.
@@ -180,7 +181,11 @@ private struct SongsTable: View {
     /// double-click, not only the text. The right-click menu is the table's
     /// own (above), which knows the selection.
     private func cell<Content: View>(_ track: JfItem, @ViewBuilder _ content: () -> Content) -> some View {
+        // Handed down explicitly: Table builds its cells outside this view's
+        // environment on macOS 27, so ArtworkView and PlayingIndicator found
+        // no AppState and the app stopped on a fatal error opening Songs.
         content()
+            .environment(state)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .simultaneousGesture(TapGesture(count: 2).onEnded { play(selected: [track.id], startingAt: track) })

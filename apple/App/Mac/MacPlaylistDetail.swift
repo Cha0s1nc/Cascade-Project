@@ -144,6 +144,9 @@ struct MacPlaylistDetail: View {
             MacTracksMenu(tracks: chosen, playlist: isReal && canEdit
                           ? PlaylistMenuContext(remove: { save(PlaylistEdit.removing(tracks, selected: Set($0.map(\.entryId)))) })
                           : nil)
+            // Explicit, as in SongsTable: a selection menu can be built
+            // outside the page's environment.
+            .environment(state)
         } primaryAction: { ids in
             guard let first = tracks.firstIndex(where: { ids.contains($0.entryId) }) else { return }
             RecentPlaylists.touch(playlistItem?.id ?? smartKind ?? "")
