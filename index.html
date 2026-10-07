@@ -65,6 +65,7 @@
       <div class="tp-navs">
         <button class="tp-nav" data-open="colors"><span class="tp-nav-swatch" aria-hidden="true"></span><span class="tp-nav-name">Colors</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></button>
         <button class="tp-nav" data-open="lyrics"><span class="tp-nav-name">Lyrics</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></button>
+        <button class="tp-nav" data-open="presets"><span class="tp-nav-name">Share a look</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></button>
       </div>
       <div class="tp-divider"></div>
       <div>
@@ -148,6 +149,45 @@
       <!-- Filled from CascadeCore.LYRIC_KNOBS by renderer.js. -->
       <div class="tp-knobs" id="tp-lyric-knobs"></div>
       <button class="tp-reset-all" id="tp-lyric-reset">Reset all lyric settings</button>
+    </div>
+
+    <!-- Presets: export the current look as a .cascadepreset file or as text,
+         and import one. Building and checking a preset is
+         src/core/presets.ts; renderer.js applies it through the same save
+         paths the controls on the other pages use. -->
+    <div class="tp-page" data-page="presets">
+      <div class="tp-row">
+        <button class="tp-back" data-open="main" aria-label="Back to Theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 6 9 12 15 18"/></svg></button>
+        <span class="tp-title">Share a look</span>
+        <button class="tp-close" aria-label="Close">×</button>
+      </div>
+      <div class="tp-divider"></div>
+      <span class="tp-hint tp-page-hint">Save your colors and lyrics style as a preset to share, or load someone else's.</span>
+      <div>
+        <div class="tp-label">Include</div>
+        <div class="tp-album-row">
+          <span class="tp-album-name">Colors, mode and font</span>
+          <label class="toggle"><input type="checkbox" id="tp-preset-theme" checked><span class="toggle-track"></span></label>
+        </div>
+        <div class="tp-album-row" style="margin-top:8px;">
+          <span class="tp-album-name">Lyrics style</span>
+          <label class="toggle"><input type="checkbox" id="tp-preset-lyrics" checked><span class="toggle-track"></span></label>
+        </div>
+      </div>
+      <div>
+        <div class="tp-label">Name</div>
+        <input type="text" class="setting-input" id="tp-preset-name" placeholder="My look" maxlength="60">
+      </div>
+      <div class="tp-preset-actions">
+        <button class="tp-reset-all" id="tp-preset-export">Export file…</button>
+        <button class="tp-reset-all" id="tp-preset-copy">Copy as text</button>
+      </div>
+      <div class="tp-divider"></div>
+      <div class="tp-preset-actions">
+        <button class="tp-reset-all" id="tp-preset-import">Import file…</button>
+        <button class="tp-reset-all" id="tp-preset-paste">Paste text</button>
+      </div>
+      <span class="tp-hint">Importing replaces only the parts the preset includes.</span>
     </div>
   </div>
 

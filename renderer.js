@@ -12700,6 +12700,121 @@ document.getElementById('tp-lyric-reset').addEventListener('click', () => {
   syncLyricKnobs()
 })
 
+// ── Presets (Theme panel > Share a look) ────────────────────────────────────
+// A preset is the theme (mode, gradient, album art accent, background dim and
+// blend, font) and/or the lyrics style (knobs plus text size). The format and
+// every check live in src/core/presets.ts; this reads the live controls and
+// applies a preset through the same save paths those controls use, so an
+// imported look is stored exactly as if it had been set by hand.
+
+let _presetBusy = false
+
+/** The current look as a preset, limited to the parts switched on, or null
+ *  (after saying why) when both are off. */
+function currentPreset() {
+  const withTheme = document.getElementById('tp-preset-theme').checked
+  const withLyrics = document.getElementById('tp-preset-lyrics').checked
+  if (!withTheme && !withLyrics) {
+    showNotice('Switch on colors, lyrics style, or both to make a preset.', 'Preset')
+    return null
+  }
+  const theme = withTheme ? {
+    mode: _isLightTheme() ? 'light' : 'dark',
+    gradStart: document.getElementById('grad-start').value,
+    gradEnd: document.getElementById('grad-end').value,
+    albumArt: themeAlbumArt,
+    bgDim: parseFloat(document.getElementById('tp-bg-dim').value),
+    bgBlend: document.getElementById('tp-bg-blend').checked,
+    font: { preset: document.getElementById('tp-font-preset').value, custom: document.getElementById('tp-font-custom').value },
+  } : undefined
+  const lyrics = withLyrics ? {
+    style: CascadeCore.lyricStyleChanges(lyricStyle),
+    lyricScale: parseFloat(document.getElementById('tp-lyric-scale').value),
+  } : undefined
+  return CascadeCore.buildPreset({ name: document.getElementById('tp-preset-name').value, theme, lyrics })
+}
+
+/** Applies a parsed (already validated) preset. Parts it does not carry are
+ *  left alone. */
+async function applyPreset(preset) {
+  const t = preset.theme
+  if (t) {
+    setThemeMode(t.mode)
+    document.getElementById('grad-start').value = t.gradStart
+    document.getElementById('grad-end').value = t.gradEnd
+    applyGradient(t.gradStart, t.gradEnd)
+    // Saves the theme key too, with the mode and gradient set just above.
+    setAlbumArtAccent(t.albumArt)
+    markActivePreset()
+    await saveUiFont(t.font.preset, t.font.custom)
+    await loadUiFont()
+  }
+  if (preset.lyrics) {
+    await saveLyricStyle(preset.lyrics.style)
+    syncLyricKnobs()
+  }
+  // Text size, background dim and blend share one store key (npTuning), so
+  // they are written together from whichever side the preset carries.
+  if (t || preset.lyrics) {
+    const [scale, dim, blend] = _npTuningInputValues()
+    await saveNpTuning(preset.lyrics ? preset.lyrics.lyricScale : scale, t ? t.bgDim : dim, t ? t.bgBlend : blend)
+    await loadNpTuning()
+  }
+  document.getElementById('tp-preset-name').value = preset.name === 'Untitled' ? '' : preset.name
+}
+
+async function importPresetText(text) {
+  const r = CascadeCore.parsePreset(text)
+  if (!r.ok) { showNotice(r.error, 'Preset'); return }
+  await applyPreset(r.preset)
+  showToast(`Applied "${r.preset.name}"`)
+}
+
+/** Toasts are dev-only, so a button that has nothing visible to show for
+ *  itself (a copy, a save) says it worked in its own label for a moment. */
+function flashPresetButton(btn, label) {
+  const original = btn.dataset.label || btn.textContent
+  btn.dataset.label = original
+  btn.textContent = label
+  clearTimeout(btn._flashTimer)
+  btn._flashTimer = setTimeout(() => { btn.textContent = original }, 1600)
+}
+
+/** One preset action at a time: a second press while a dialog is open would
+ *  otherwise stack another dialog or apply twice. */
+async function runPresetAction(fn) {
+  if (_presetBusy) return
+  _presetBusy = true
+  try { await fn() } catch (e) { showNotice(`Something went wrong with the preset.\n\n${e.message}`, 'Preset') }
+  finally { _presetBusy = false }
+}
+
+document.getElementById('tp-preset-export').addEventListener('click', () => runPresetAction(async () => {
+  const preset = currentPreset()
+  if (!preset) return
+  const res = await window.cascade.presets.save(CascadeCore.presetFileName(preset.name), CascadeCore.serializePreset(preset))
+  if (res.ok) flashPresetButton(document.getElementById('tp-preset-export'), 'Exported')
+  else if (!res.canceled) showNotice(`Could not save the preset.\n\n${res.error || ''}`, 'Preset')
+}))
+
+document.getElementById('tp-preset-copy').addEventListener('click', () => runPresetAction(async () => {
+  const preset = currentPreset()
+  if (!preset) return
+  await window.cascade.clipboard.write(CascadeCore.serializePreset(preset))
+  flashPresetButton(document.getElementById('tp-preset-copy'), 'Copied')
+}))
+
+document.getElementById('tp-preset-import').addEventListener('click', () => runPresetAction(async () => {
+  const res = await window.cascade.presets.open()
+  if (res.canceled) return
+  if (!res.ok) { showNotice(`Could not open the preset.\n\n${res.error || ''}`, 'Preset'); return }
+  await importPresetText(res.text)
+}))
+
+document.getElementById('tp-preset-paste').addEventListener('click', () => runPresetAction(async () => {
+  await importPresetText(await window.cascade.clipboard.read())
+}))
+
 document.getElementById('seg-dark').addEventListener('click', () => { setThemeMode('dark'); saveTheme() })
 document.getElementById('seg-light').addEventListener('click', () => { setThemeMode('light'); saveTheme() })
 

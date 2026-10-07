@@ -151,7 +151,13 @@ export interface Platform {
  * capability-flags object that could disagree with reality.
  */
 export interface DesktopCapabilities {
-  clipboard?: { write(text: string): Promise<void> }
+  clipboard?: { write(text: string): Promise<void>; read(): Promise<string> }
+  /** .cascadepreset files through the OS save and open dialogs. Text only:
+   *  building and validating a preset is src/core/presets.ts's job. */
+  presets?: {
+    save(fileName: string, text: string): Promise<{ ok: boolean; canceled?: boolean; error?: string }>
+    open(): Promise<{ ok: boolean; canceled?: boolean; error?: string; text?: string }>
+  }
   shell?: { openExternal(url: string): Promise<void> }
   download?(url: string, filename: string): Promise<unknown>
 
@@ -282,6 +288,7 @@ export interface DesktopCapabilities {
  */
 export interface ElectronPlatform extends Platform, DesktopCapabilities {
   clipboard: NonNullable<DesktopCapabilities['clipboard']>
+  presets: NonNullable<DesktopCapabilities['presets']>
   shell: NonNullable<DesktopCapabilities['shell']>
   download: NonNullable<DesktopCapabilities['download']>
   connection: NonNullable<DesktopCapabilities['connection']>
