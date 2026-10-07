@@ -34,3 +34,23 @@ struct PlaylistEditingTests {
         #expect(object["MediaType"] as? String == "Audio")
     }
 }
+
+@Suite("PlaylistWriteGate")
+struct PlaylistWriteGateTests {
+    @Test func writesToOnePlaylistAreSpacedOut() async {
+        let gate = PlaylistWriteGate(spacing: .milliseconds(150))
+        let start = ContinuousClock.now
+        await gate.wait(for: "a")
+        await gate.wait(for: "a")
+        await gate.wait(for: "a")
+        #expect(ContinuousClock.now - start >= .milliseconds(300))
+    }
+
+    @Test func otherPlaylistsDoNotWait() async {
+        let gate = PlaylistWriteGate(spacing: .seconds(5))
+        let start = ContinuousClock.now
+        await gate.wait(for: "a")
+        await gate.wait(for: "b")
+        #expect(ContinuousClock.now - start < .seconds(1))
+    }
+}

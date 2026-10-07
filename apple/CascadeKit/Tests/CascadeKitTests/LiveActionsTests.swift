@@ -40,10 +40,20 @@ struct LiveActionsTests {
         // Name and public flag together, contents untouched, read back from the right place.
         let before = try await client.playlistInfo(id)
         try await client.updatePlaylist(id, name: "cascade-test-renamed", isPublic: !before.isPublic)
-        let after = try await client.playlistInfo(id)
+        // Jellyfin can briefly read back the old playlist right after a
+        // rename (new, old, new within 200 ms on 10.11.11), so wait for it to
+        // settle rather than failing on the blip one run in several.
+        var name: String?
+        var after = try await client.playlistInfo(id)
+        for _ in 0..<20 {
+            name = try await client.items(ids: [id]).first?.name
+            after = try await client.playlistInfo(id)
+            if name == "cascade-test-renamed", after.isPublic == !before.isPublic { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        #expect(name == "cascade-test-renamed")
         #expect(after.isPublic == !before.isPublic)
         #expect(try await client.tracks(inPlaylist: id).map(\.id) == [tracks[0].id, tracks[1].id])
-        #expect(try await client.items(ids: [id]).first?.name == "cascade-test-renamed")
         #expect(after.canEdit, "the owner can edit")
     }
 

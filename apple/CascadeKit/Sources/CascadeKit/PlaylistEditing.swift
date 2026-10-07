@@ -118,6 +118,7 @@ public extension JellyfinClient {
     }
 
     func renamePlaylist(_ playlistId: String, to name: String) async throws {
+        await PlaylistWriteGate.shared.wait(for: playlistId)
         try await postRaw("/Playlists/\(playlistId)", body: PlaylistUpdate(name: name))
     }
 
@@ -128,6 +129,7 @@ public extension JellyfinClient {
 
     /// Appends tracks. Jellyfin 10.11 silently skips one already there.
     func addToPlaylist(_ playlistId: String, itemIds: [String]) async throws {
+        await PlaylistWriteGate.shared.wait(for: playlistId)
         try await postRaw("/Playlists/\(playlistId)/Items", body: Optional<EmptyBody>.none, params: [
             "ids": itemIds.joined(separator: ","),
             "userId": currentConfig.userId,
@@ -135,11 +137,13 @@ public extension JellyfinClient {
     }
 
     func removeFromPlaylist(_ playlistId: String, entryIds: [String]) async throws {
+        await PlaylistWriteGate.shared.wait(for: playlistId)
         try await delete("/Playlists/\(playlistId)/Items", params: ["entryIds": entryIds.joined(separator: ",")])
     }
 
     /// Moves one entry to `index`, counted in the final order.
     func movePlaylistEntry(_ playlistId: String, entryId: String, to index: Int) async throws {
+        await PlaylistWriteGate.shared.wait(for: playlistId)
         try await postRaw("/Playlists/\(playlistId)/Items/\(entryId)/Move/\(index)", body: Optional<EmptyBody>.none)
     }
 
@@ -147,12 +151,14 @@ public extension JellyfinClient {
     /// request: a remove or a move over many rows is one atomic write instead
     /// of a Move or DELETE per row. These are track ids, not entry ids.
     func setPlaylistItems(_ playlistId: String, itemIds: [String]) async throws {
+        await PlaylistWriteGate.shared.wait(for: playlistId)
         try await postRaw("/Playlists/\(playlistId)", body: PlaylistUpdate(ids: itemIds))
     }
 
     /// Name and public flag together, as the desktop's Rename / Public dialog
     /// sends them; contents untouched.
     func updatePlaylist(_ playlistId: String, name: String, isPublic: Bool) async throws {
+        await PlaylistWriteGate.shared.wait(for: playlistId)
         try await postRaw("/Playlists/\(playlistId)", body: PlaylistUpdate(name: name, isPublic: isPublic))
     }
 
@@ -162,5 +168,32 @@ public extension JellyfinClient {
         // older server) offers editing, and a refused write then says so.
         let item: CanDeleteDto = try await get("/Items/\(playlistId)", params: ["userId": currentConfig.userId])
         return PlaylistInfo(isPublic: playlist.openAccess == true, canEdit: item.canDelete != false)
+    }
+}
+
+/// Spaces writes to one playlist at least `spacing` apart. Jellyfin 10.11.11
+/// rewrites playlist.xml from a background metadata saver shortly after each
+/// playlist change; a second write landing inside that window collides with it
+/// on the file ("being used by another process" in the server log) and the
+/// playlist ends up in an older state, though every POST answered 204.
+/// Measured: writes 100 ms apart lost the final state 7 runs in 10, 300 ms
+/// apart none in 10. Every playlist write in this file waits here first.
+public actor PlaylistWriteGate {
+    public static let shared = PlaylistWriteGate()
+
+    private let spacing: Duration
+    private var nextSlot: [String: ContinuousClock.Instant] = [:]
+
+    public init(spacing: Duration = .milliseconds(400)) {
+        self.spacing = spacing
+    }
+
+    /// Returns once this playlist's last write is at least `spacing` behind.
+    /// The slot is taken before sleeping, so concurrent callers queue in turn.
+    public func wait(for playlistId: String) async {
+        let now = ContinuousClock.now
+        let slot = max(now, nextSlot[playlistId] ?? now)
+        nextSlot[playlistId] = slot + spacing
+        if slot > now { try? await Task.sleep(until: slot, clock: .continuous) }
     }
 }

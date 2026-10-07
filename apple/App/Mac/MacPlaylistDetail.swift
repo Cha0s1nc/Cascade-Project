@@ -26,6 +26,8 @@ struct MacPlaylistDetail: View {
     @State private var canEdit = true
     @State private var showingProps = false
     @State private var propsName = ""
+    /// A rename this page made, held until the server reads it back the same.
+    @State private var writtenName: String?
     @State private var confirmingDelete = false
     @State private var editingRules = false
     @State private var savingAs = false
@@ -201,7 +203,13 @@ struct MacPlaylistDetail: View {
             case .playlist(let p):
                 tracks = try await client.tracks(inPlaylist: p.id)
                 // Name and flags may have changed elsewhere; the item is the truth.
-                if let fresh = try await client.items(ids: [p.id]).first?.name { name = fresh }
+                if let fresh = try await client.items(ids: [p.id]).first?.name {
+                    // Jellyfin can answer with the old name for a moment after
+                    // a rename (seen on 10.11.11: new, old, then new again
+                    // within 200 ms), so what this page just wrote stands
+                    // until the server says the same.
+                    if writtenName == nil || fresh == writtenName { name = fresh; writtenName = nil }
+                }
                 let info = try await client.playlistInfo(p.id)
                 (isPublic, canEdit) = (info.isPublic, info.canEdit)
             case .smart(let kind):
@@ -260,6 +268,8 @@ struct MacPlaylistDetail: View {
         guard let playlist = playlistItem, !trimmed.isEmpty, let client = state.client else { return }
         do {
             try await client.updatePlaylist(playlist.id, name: trimmed, isPublic: isPublic)
+            name = trimmed
+            writtenName = trimmed
             showingProps = false
             state.playlistMutated()
         } catch {
