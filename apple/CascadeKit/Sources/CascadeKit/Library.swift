@@ -106,7 +106,7 @@ public extension JellyfinClient {
                 genreId: String? = nil, filter: BrowseFilter = .init()) async throws -> [JfItem] {
         try await itemsAcrossLibraries(baseParams.merging([
             "includeItemTypes": "MusicAlbum",
-            "sortBy": sortBy,
+            "sortBy": withTiebreakers(sortBy),
             "sortOrder": sortOrder,
             "isFavorite": favoritesOnly ? "true" : nil,
             "genreIds": genreId,
@@ -161,7 +161,7 @@ public extension JellyfinClient {
                genreId: String? = nil, filter: BrowseFilter = .init()) async throws -> [JfItem] {
         try await itemsAcrossLibraries(baseParams.merging([
             "includeItemTypes": "Audio",
-            "sortBy": sortBy,
+            "sortBy": withTiebreakers(sortBy),
             "sortOrder": sortOrder,
             "isFavorite": favoritesOnly ? "true" : nil,
             "genreIds": genreId,
@@ -440,4 +440,17 @@ extension Dictionary where Key == String, Value == String? {
     func applying(_ filter: BrowseFilter) -> [String: String?] {
         merging(filter.params.mapValues { Optional($0) }) { _, new in new }
     }
+}
+
+/// `sortBy` with keys appended so no two different items tie. Jellyfin breaks
+/// a tie differently with and without `limit` (checked on 10.11.11: three
+/// "0001 - Track 1" songs came back in one order paged and another whole), so
+/// a list paged in 200s and the same list fetched whole for Play disagreed on
+/// order. Tracks numbered 1 share a SortName in any real library, and a whole
+/// album shares a DateCreated. Random is left alone; a key already listed is
+/// not repeated.
+func withTiebreakers(_ sortBy: String) -> String {
+    let keys = sortBy.split(separator: ",").map(String.init)
+    guard !keys.isEmpty, !keys.contains("Random") else { return sortBy }
+    return (keys + ["SortName", "AlbumArtist", "Album"].filter { !keys.contains($0) }).joined(separator: ",")
 }

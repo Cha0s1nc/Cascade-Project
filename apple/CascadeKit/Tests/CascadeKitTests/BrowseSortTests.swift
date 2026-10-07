@@ -53,3 +53,19 @@ struct BrowseSortTests {
         #expect(ids(albumsByRecentPlay(playedTracks: played, albums: albums)) == ["B", "A", "C"])
     }
 }
+
+@Suite("withTiebreakers")
+struct TiebreakerTests {
+    @Test func aSingleKeyGetsTheRest() {
+        #expect(withTiebreakers("SortName") == "SortName,AlbumArtist,Album")
+        #expect(withTiebreakers("DateCreated") == "DateCreated,SortName,AlbumArtist,Album")
+    }
+
+    @Test func keysAlreadyThereAreNotRepeated() {
+        #expect(withTiebreakers("AlbumArtist,SortName") == "AlbumArtist,SortName,Album")
+    }
+
+    @Test func randomStaysRandom() {
+        #expect(withTiebreakers("Random") == "Random")
+    }
+}
