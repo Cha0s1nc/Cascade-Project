@@ -5,3 +5,4 @@ DerivedData/
 xcuserdata/
 App/Info.plist
 App/Info-tvOS.plist
+App/Info-macOS.plist
