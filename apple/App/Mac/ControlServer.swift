@@ -36,25 +36,29 @@ final class ControlServer {
         let box = BufferBox()
         // A client that never finishes its request does not get to hold the socket.
         let idle = Task { try? await Task.sleep(for: .seconds(10)); c.cancel() }
-        func read() {
-            c.receive(minimumIncompleteLength: 1, maximumLength: 16384) { [weak self] data, _, done, error in
-                MainActor.assumeIsolated {
-                    guard let self else { c.cancel(); return }
-                    if let data { box.data.append(data) }
-                    switch ControlServerProtocol.parse(box.data) {
-                    case .request(let req):
-                        idle.cancel()
-                        self.reply(c, self.respond(to: req))
-                    case .malformed:
-                        idle.cancel()
-                        self.reply(c, ControlResponse(status: 400, body: #"{"ok":false,"error":"Bad request"}"#))
-                    case .incomplete:
-                        if done || error != nil { idle.cancel(); c.cancel() } else { read() }
-                    }
+        read(c, into: box, idle: idle)
+    }
+
+    /// One receive, then another until a whole request is in. A method rather
+    /// than a nested function: the callback is @Sendable, and capturing a local
+    /// function in it was a Swift 6 warning (it all runs on the main queue).
+    private func read(_ c: NWConnection, into box: BufferBox, idle: Task<Void, Never>) {
+        c.receive(minimumIncompleteLength: 1, maximumLength: 16384) { [weak self] data, _, done, error in
+            MainActor.assumeIsolated {
+                guard let self else { c.cancel(); return }
+                if let data { box.data.append(data) }
+                switch ControlServerProtocol.parse(box.data) {
+                case .request(let req):
+                    idle.cancel()
+                    self.reply(c, self.respond(to: req))
+                case .malformed:
+                    idle.cancel()
+                    self.reply(c, ControlResponse(status: 400, body: #"{"ok":false,"error":"Bad request"}"#))
+                case .incomplete:
+                    if done || error != nil { idle.cancel(); c.cancel() } else { self.read(c, into: box, idle: idle) }
                 }
             }
         }
-        read()
     }
 
     private func reply(_ c: NWConnection, _ r: ControlResponse) {
