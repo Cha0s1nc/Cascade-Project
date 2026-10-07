@@ -40,6 +40,7 @@ public class InfoController : ControllerBase
         "lyrics-write",    // POST and DELETE on the same route
         "karaoke",         // word-level .slrc, not just line-level .lrc
         "server-style",    // GET, PUT and DELETE /CascadeServer/Style
+        "playlist-edit",   // POST and DELETE /CascadeServer/Playlists/{id}/Image, PUT .../Details
     };
 
     // Only while a SpicyLyrics key is set: GET ?syllable=true can then return a raw
