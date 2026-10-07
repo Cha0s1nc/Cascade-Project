@@ -85,6 +85,7 @@ Verify with `npm run build:ts && npm run typecheck && npm test`.
     - Translated lines are cached per engine (`apple|ja|...`), so switching engines never serves the other's output.
     - Translation Languages has no System Settings link of its own; the prompt opens Language & Region (`com.apple.Localization-Settings.extension`) and says where to click.
   - Settings model rows (`renderTranslationModelRows`, **8428**) update in place, never rebuild: progress events arrive several times a second and a rebuild would swap the button under the pointer.
+- `createSpring()` (both lyric scroll springs) steps through `CascadeCore.stepSpring()` (`src/core/spring.ts`) in fixed 1/240 s substeps and snaps after a gap over 0.25 s. **Never go back to one step per frame:** explicit Euler with stiffness 250 / damping 50 diverges below about 25 fps, which a fullscreen game starving Cascade's frames (VALORANT on Windows) caused, flinging the lyrics on every line change.
 - A lyrics MISS is cached, not just a hit (`_cachePut(item.Id, null)` at the tail of `fetchLyricsWaterfall`). Both readers gate on `.has()`, so without it a track with no lyrics anywhere re-ran all three sources on every advance - for the track and the five `_prefetchUpcoming` looks ahead at. A forced source still bypasses the cache; `_reloadLyricsFor()` is the escape hatch when a source was merely down.
 
 ### Theme and album art

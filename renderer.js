@@ -9287,6 +9287,11 @@ document.getElementById('ov-translate-btn').addEventListener('click', () => onTr
 // keeps moving from its current speed toward the new target instead of
 // restarting from a standstill, which is what makes back-to-back line changes
 // read as one continuous glide instead of a stutter-restart.
+//
+// The stepping is CascadeCore.stepSpring (src/core/spring.ts), in fixed small
+// substeps. One explicit step per frame diverged below about 25 fps, which a
+// fullscreen game starving Cascade's frames reliably caused: the lyrics flung
+// or shook on every new line whenever Cascade was not in front.
 // Lyric motion, shared by both lyric springs and tunable live from DevTools
 // (cascadeDebug.lyricMotion). Tuned by eye against Apple Music, 2026-09-23:
 // overdamped (critical damping for 250 would be ~31.6), so lines ease in and
@@ -9310,16 +9315,16 @@ function createSpring(onUpdate, motion = LYRIC_MOTION) {
 
   function frame(ts) {
     if (lastTs == null) lastTs = ts
-    const dt = Math.min((ts - lastTs) / 1000, 0.05)  // clamp so a stalled tab doesn't fling on resume
+    // A gap long enough to mean nothing was drawn snaps instead of animating
+    // a stale move (see SPRING_SNAP_GAP_S), so no clamp is needed here.
+    const dt = (ts - lastTs) / 1000
     lastTs = ts
     if (targetFn) target = targetFn()
 
-    const accel = (target - pos) * motion.stiffness - vel * motion.damping
-    vel += accel * dt
-    pos += vel * dt
-
-    const settled = Math.abs(target - pos) < 0.05 && Math.abs(vel) < 0.05
-    if (settled) { pos = target; vel = 0 }
+    const next = CascadeCore.stepSpring({ pos, vel }, target, dt, motion)
+    pos = next.pos
+    vel = next.vel
+    const settled = next.settled
     onUpdate(pos)
 
     if (!settled) raf = requestAnimationFrame(frame)
