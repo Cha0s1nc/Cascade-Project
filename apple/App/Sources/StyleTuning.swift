@@ -36,25 +36,25 @@ final class StyleTuning {
         var next3Blur = 4.0
         var farBlur = 6.0
         var browsingOpacity = 0.8
-        var browsingBlur = 1.0
-        var unsungOpacity = 0.4
+        var browsingBlur = 2.5
+        var unsungOpacity = 0.29
         var wordLift = 0.04
         var fadeSeconds = 1.0
         var rippleSeconds = 0.04
         /// A held note swells across its own length, and more the longer it
         /// is: a note held this long or longer gets the full swell.
-        var heldFullSeconds = 3.0
+        var heldFullSeconds = 1.4
         /// The share of the full swell a note held just 1 s gets.
-        var heldMinStrength = 0.3
-        var heldLift = 0.1
-        var heldScale = 1.08
+        var heldMinStrength = 0.45
+        var heldLift = 0.16
+        var heldScale = 1.19
         /// What is kept of the peak once the note ends, until the line does.
-        var heldSettle = 0.6
-        var heldSettleSeconds = 0.6
+        var heldSettle = 0.7
+        var heldSettleSeconds = 0.4
         /// Lyrics drawn this much later than the audio clock (negative: earlier).
         /// A little early by default: a line takes its fade to light up, so
         /// one that starts on the beat reads as late. Apple Music leads too.
-        var lyricsDelay = -0.35
+        var lyricsDelay = -0.05
         var backgroundVocalSize = 0.64
         var backgroundVocalOpacity = 0.85
         var bgSaturation = 1.0

@@ -38,17 +38,17 @@ export const LYRIC_KNOBS: readonly LyricKnob[] = [
   { key: 'next3Blur', section: 'Upcoming lines', label: 'Third blur', min: 0, max: 8, step: 0.5, value: 4, css: '--ly-next3-blur', unit: 'px' },
   { key: 'farBlur', section: 'Upcoming lines', label: 'Blur further out', min: 0, max: 12, step: 0.5, value: 6, css: '--ly-far-blur', unit: 'px' },
   { key: 'browsingOpacity', section: 'Upcoming lines', label: 'Opacity while scrolling', min: 0, max: 1, step: 0.01, value: 0.8, css: '--ly-browsing-opacity' },
-  { key: 'browsingBlur', section: 'Upcoming lines', label: 'Blur while scrolling', min: 0, max: 8, step: 0.5, value: 1, css: '--ly-browsing-blur', unit: 'px' },
+  { key: 'browsingBlur', section: 'Upcoming lines', label: 'Blur while scrolling', min: 0, max: 8, step: 0.5, value: 2.5, css: '--ly-browsing-blur', unit: 'px' },
 
-  { key: 'unsungOpacity', section: 'Karaoke', label: 'Unsung word opacity', min: 0, max: 1, step: 0.01, value: 0.4, css: '--ly-unsung-opacity' },
+  { key: 'unsungOpacity', section: 'Karaoke', label: 'Unsung word opacity', min: 0, max: 1, step: 0.01, value: 0.29, css: '--ly-unsung-opacity' },
   { key: 'wordLift', section: 'Karaoke', label: 'Word lift (em)', min: 0, max: 0.2, step: 0.005, value: 0.04, css: '--word-lift', unit: 'em' },
   // Held notes (SpicyLyrics only): see heldSwell() below.
-  { key: 'heldFullSeconds', section: 'Karaoke', label: 'Held note: full swell after (s)', min: 1, max: 8, step: 0.1, value: 3 },
-  { key: 'heldMinStrength', section: 'Karaoke', label: 'Held note: short note strength', min: 0, max: 1, step: 0.05, value: 0.3 },
-  { key: 'heldLift', section: 'Karaoke', label: 'Held note lift (em)', min: 0, max: 0.4, step: 0.01, value: 0.1, css: '--emph-lift', unit: 'em' },
-  { key: 'heldScale', section: 'Karaoke', label: 'Held note swell', min: 1, max: 1.4, step: 0.01, value: 1.08, css: '--emph-scale' },
-  { key: 'heldSettle', section: 'Karaoke', label: 'Held note settle', min: 0, max: 1, step: 0.05, value: 0.6 },
-  { key: 'heldSettleSeconds', section: 'Karaoke', label: 'Held note settle time (s)', min: 0, max: 2, step: 0.05, value: 0.6 },
+  { key: 'heldFullSeconds', section: 'Karaoke', label: 'Held note: full swell after (s)', min: 1, max: 8, step: 0.1, value: 1.4 },
+  { key: 'heldMinStrength', section: 'Karaoke', label: 'Held note: short note strength', min: 0, max: 1, step: 0.05, value: 0.45 },
+  { key: 'heldLift', section: 'Karaoke', label: 'Held note lift (em)', min: 0, max: 0.4, step: 0.01, value: 0.16, css: '--emph-lift', unit: 'em' },
+  { key: 'heldScale', section: 'Karaoke', label: 'Held note swell', min: 1, max: 1.4, step: 0.01, value: 1.19, css: '--emph-scale' },
+  { key: 'heldSettle', section: 'Karaoke', label: 'Held note settle', min: 0, max: 1, step: 0.05, value: 0.7 },
+  { key: 'heldSettleSeconds', section: 'Karaoke', label: 'Held note settle time (s)', min: 0, max: 2, step: 0.05, value: 0.4 },
   { key: 'backgroundVocalSize', section: 'Karaoke', label: 'Background vocal size', min: 0.4, max: 1, step: 0.01, value: 0.64, css: '--ly-bg-vocal-size', unit: 'em' },
   { key: 'backgroundVocalOpacity', section: 'Karaoke', label: 'Background vocal opacity', min: 0, max: 1, step: 0.01, value: 0.85, css: '--ly-bg-vocal-opacity' },
 
@@ -56,7 +56,7 @@ export const LYRIC_KNOBS: readonly LyricKnob[] = [
   { key: 'rippleSeconds', section: 'Motion', label: 'Ripple per line (s)', min: 0, max: 0.4, step: 0.01, value: 0.04 },
   // Negative is earlier, as in the Apple app: a line takes its fade to light
   // up, so one drawn exactly on the beat reads as late.
-  { key: 'lyricsDelay', section: 'Motion', label: 'Lyrics timing (s)', min: -2, max: 2, step: 0.05, value: -0.35 },
+  { key: 'lyricsDelay', section: 'Motion', label: 'Lyrics timing (s)', min: -2, max: 2, step: 0.05, value: -0.05 },
 ]
 
 export type LyricStyle = Record<string, number>

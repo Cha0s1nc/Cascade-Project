@@ -16,7 +16,7 @@ test('lyricStyleFrom keeps valid stored values, clamps the rest, and ignores jun
   assert.equal(s.pastBlur, 2)
   assert.equal(s.pastOpacity, 1)
   assert.equal(s.next1Blur, 2.5)
-  assert.equal(s.lyricsDelay, -0.35)
+  assert.equal(s.lyricsDelay, -0.05)
   assert.ok(!('bogus' in s))
   for (const junk of [null, undefined, 'str', [1, 2], 42]) assert.deepEqual(lyricStyleFrom(junk), lyricStyleFrom({}))
 })
@@ -45,7 +45,9 @@ test('easeInOut matches cubic-bezier(0.42, 0, 0.58, 1) at its known points', () 
 })
 
 test('heldSwell: longer holds swell more, rise until the note ends, then settle', () => {
-  const s = lyricStyleFrom({})   // full after 3 s, 0.3 at 1 s, settle to 0.6 over 0.6 s
+  // Pinned rather than the defaults, which are tuned by ear and move: full
+  // after 3 s, 0.3 at 1 s, settle to 0.6 over 0.6 s.
+  const s = lyricStyleFrom({ heldFullSeconds: 3, heldMinStrength: 0.3, heldSettle: 0.6, heldSettleSeconds: 0.6 })
   assert.equal(heldSwell(-0.1, 1, 1, s), 0)
   // Peak strength by length: 1 s hold 0.3, 2 s halfway, 3 s and longer full.
   assert.ok(Math.abs(heldSwell(1, 1, 1, s) - 0.3) < 1e-6)
