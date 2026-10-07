@@ -71,6 +71,7 @@ private struct ThemeMainPage: View {
                     }
                 }
             }
+            SharePresetSection()
         }
         .formStyle(.grouped)
         .navigationTitle("Theme")
