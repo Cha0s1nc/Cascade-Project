@@ -51,7 +51,7 @@ struct AlbumDetailView: View {
                 .font(.title2.bold())
                 .lineLimit(1)
             if let artist = album.albumArtist {
-                Text(artist)
+                ArtistLink(name: artist, id: (album.albumArtists?.first ?? album.artistItems?.first)?.id)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }

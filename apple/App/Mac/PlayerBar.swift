@@ -12,20 +12,24 @@ struct PlayerBar: View {
     var body: some View {
         HStack(spacing: 16) {
             // A button too (not only the bar's tap below), so it is reachable by keyboard and VoiceOver.
-            Button(action: openNowPlaying) {
-                HStack(spacing: 10) {
+            // The artist is a link of its own, so the button stops short of it.
+            HStack(spacing: 10) {
+                Button(action: openNowPlaying) {
                     ArtworkView(itemId: player.item?.albumId ?? player.item?.id, size: 44)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(player.item?.name ?? "Not playing").lineLimit(1)
-                        Text(player.item?.albumArtist ?? player.item?.artists?.first ?? "")
-                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    }
                 }
-                .frame(width: 240, alignment: .leading)
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .accessibilityLabel("Open Now Playing")
+                VStack(alignment: .leading, spacing: 2) {
+                    Button(action: openNowPlaying) {
+                        Text(player.item?.name ?? "Not playing").lineLimit(1)
+                    }
+                    .buttonStyle(.plain)
+                    ArtistLink(name: player.item?.albumArtist ?? player.item?.artists?.first ?? "",
+                               id: (player.item?.albumArtists?.first ?? player.item?.artistItems?.first)?.id)
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Open Now Playing")
+            .frame(width: 240, alignment: .leading)
 
             VStack(spacing: 4) {
                 HStack(spacing: 18) {

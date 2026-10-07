@@ -202,7 +202,8 @@ private struct OverlayContent: View {
                 art(side: side)
                 VStack(spacing: 3) {
                     Text(player.item?.name ?? "Nothing playing").font(.title3.weight(.semibold)).lineLimit(1)
-                    Text(player.item?.albumArtist ?? player.item?.artists?.first ?? "")
+                    ArtistLink(name: player.item?.albumArtist ?? player.item?.artists?.first ?? "",
+                               id: (player.item?.albumArtists?.first ?? player.item?.artistItems?.first)?.id)
                         .foregroundStyle(ink.opacity(0.7)).lineLimit(1)
                 }
                 if let error = player.error { Text(error).font(.caption).foregroundStyle(.red) }
@@ -268,12 +269,15 @@ private struct OverlayContent: View {
     }
 
     private func viewAlbum() {
-        guard let item = player.item, let albumId = item.albumId else { return }
-        var album = JfItem(id: albumId, name: item.album, type: "MusicAlbum")
-        album.albumArtist = item.albumArtist
-        close()
-        // Through the shell's deep link, which switches to Music and Albums first.
-        showLibraryItem?(album)
+        guard let albumId = player.item?.albumId, let client = state.client else { return }
+        let show = showLibraryItem
+        Task { @MainActor in
+            // The whole album, so its page has the artist, year and everything else.
+            guard let album = try? await client.item(id: albumId) else { return }
+            close()
+            // Through the shell's deep link, which switches to Music and Albums first.
+            show?(album)
+        }
     }
 
     // MARK: Controls

@@ -304,6 +304,10 @@ struct TabStack<Content: View>: View {
     init(opening: Binding<JfItem?>? = nil, @ViewBuilder content: () -> Content) {
         self.opening = opening
         self.content = content()
+        // A new section's stack starts on the item. Pushing it from a task
+        // after the stack was up raced the outgoing section's stack, which
+        // could take the item first and leave this one on its root.
+        _path = State(initialValue: opening?.wrappedValue.map { NavigationPath([$0]) } ?? NavigationPath())
     }
 
     var body: some View {
@@ -313,10 +317,51 @@ struct TabStack<Content: View>: View {
                 .appNavigation()
         }
         .environment(\.openItem) { path.append($0) }
-        .task(id: opening?.wrappedValue) {
-            guard let item = opening?.wrappedValue else { return }
+        .onAppear { opening?.wrappedValue = nil }
+        // The section already showing: push onto what is there.
+        .onChange(of: opening?.wrappedValue) { _, item in
+            guard let item else { return }
             path.append(item)
             opening?.wrappedValue = nil
+        }
+    }
+}
+
+/// An artist's name that opens their page, like the desktop's artist links.
+/// Plain text where nothing can navigate (or on tvOS, where it would steal focus).
+struct ArtistLink: View {
+    let name: String
+    let id: String?
+    @Environment(AppState.self) private var state
+    @Environment(\.openItem) private var openItem
+    @Environment(\.showLibraryItem) private var showLibraryItem
+    @State private var hovering = false
+
+    var body: some View {
+        #if os(tvOS)
+        Text(name)
+        #else
+        if let id, !name.isEmpty, showLibraryItem != nil || openItem != nil {
+            Button { open(id) } label: { Text(name).underline(hovering) }
+                .buttonStyle(.plain)
+                .onHover { hovering = $0 }
+                #if os(macOS)
+                .pointerStyle(.link)
+                #endif
+                .accessibilityHint("Opens the artist")
+        } else {
+            Text(name)
+        }
+        #endif
+    }
+
+    private func open(_ id: String) {
+        guard let client = state.client else { return }
+        let (show, push) = (showLibraryItem, openItem)
+        Task { @MainActor in
+            guard let artist = try? await client.item(id: id) else { return }
+            if state.nowPlayingOpen { withAnimation(.easeInOut(duration: 0.38)) { state.nowPlayingOpen = false } }
+            if let show { show(artist) } else { push?(artist) }
         }
     }
 }
