@@ -140,3 +140,18 @@ struct SortsLikeServerTests {
         #expect(!sortsLikeServer(nil))
     }
 }
+
+@Suite("Song title order")
+struct SongTitleOrderTests {
+    // A song's SortName starts with its track number, so a Title sort must
+    // read Name: by SortName, track 1 "Zoom" came before track 2 "Alpha".
+    @Test func nameIgnoresTheTrackNumberInSortName() {
+        var zoom = JfItem(id: "z", name: "Zoom")
+        zoom.sortName = "0001 - Zoom"
+        var alpha = JfItem(id: "a", name: "Alpha")
+        alpha.sortName = "0002 - Alpha"
+        #expect(sortedLikeServer([zoom, alpha], sortBy: "Name").map(\.id) == ["a", "z"])
+        #expect(sortedLikeServer([alpha, zoom], sortBy: "SortName").map(\.id) == ["z", "a"])
+        #expect(SongSortField.name.serverSortBy == "Name")
+    }
+}

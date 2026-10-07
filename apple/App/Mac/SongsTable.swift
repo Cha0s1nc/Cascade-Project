@@ -87,6 +87,11 @@ extension SongsView {
             } else {
                 SongsTable(items: items, field: Binding(get: { sortField }, set: { sortField = $0 }),
                            direction: Binding(get: { sortDirection }, set: { sortDirection = $0 }))
+                    // A new table per order. Handed a re-sorted list, SwiftUI's
+                    // Table moves every row, and AppKit then builds and measures
+                    // a row view for all of them, not just the visible ones:
+                    // 1,200 songs held the main thread for about 45 seconds.
+                    .id("\(sortField.rawValue)|\(sortDirection)")
             }
         }
         .toolbar {

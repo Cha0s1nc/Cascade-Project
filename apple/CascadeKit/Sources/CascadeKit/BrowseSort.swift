@@ -17,7 +17,10 @@ public extension SongSortField {
     /// Ties broken by name, the same tie-break sortSongs and the desktop use.
     var serverSortBy: String {
         switch self {
-        case .name:   return "SortName"
+        // Name, not SortName: a song's SortName starts with its track number
+        // ("0012 - Love"), so a Title sort ran in track-number order. The
+        // others keep SortName as the tie-break, which is album track order.
+        case .name:   return "Name"
         case .artist: return "AlbumArtist,SortName"
         case .album:  return "Album,SortName"
         case .added:  return "DateCreated,SortName"

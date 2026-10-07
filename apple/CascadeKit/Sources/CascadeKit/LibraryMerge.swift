@@ -75,7 +75,8 @@ public func sortedLikeServer(_ items: [JfItem], sortBy: String?, sortOrder: Stri
     let descending = sortOrder == "Descending"
     func text(_ item: JfItem) -> String? {
         switch key {
-        case "SortName", "Name": return item.sortName ?? item.name ?? ""
+        case "SortName": return item.sortName ?? item.name ?? ""
+        case "Name": return item.name ?? ""
         case "DateCreated": return item.dateCreated ?? ""
         case "DatePlayed": return item.userData?.lastPlayedDate ?? ""
         case "AlbumArtist": return item.albumArtist ?? item.artists?.first ?? ""
