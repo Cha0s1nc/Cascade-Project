@@ -106,3 +106,17 @@ input[type="range"]:disabled { opacity: 0.4; cursor: default; }
   .ov-translate-btn.loading { animation-duration: 3s; }
   /* Held notes and background rows: see styles/karaoke.css. */
 }
+
+/* Last session's queue, offered after sign-in (offerQueueRestore). Bottom
+   right, just above the player bar; under the modals, over everything else. */
+.restore-card { position: fixed; right: 16px; bottom: 84px; z-index: 480; display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.35); transition: opacity 0.25s, transform 0.25s; }
+.restore-card.hidden { opacity: 0; transform: translateX(24px); pointer-events: none; }
+.restore-card-art { width: 44px; height: 44px; border-radius: 6px; background: var(--surface3, var(--surface)) center / cover no-repeat; flex: none; }
+.restore-card-text { width: 270px; min-width: 0; }
+.restore-card-title { font-size: 13px; font-weight: 600; color: var(--text); }
+.restore-card-sub { font-size: 11px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.restore-card-timer { height: 3px; border-radius: 2px; background: var(--border); margin-top: 7px; overflow: hidden; }
+.restore-card-timer-fill { height: 100%; width: 100%; background: var(--accent); }
+.restore-card-timer-fill.running { width: 0; transition: width var(--restore-seconds, 20s) linear; }
+.restore-card-close { background: none; border: none; color: var(--text2); font-size: 12px; cursor: pointer; padding: 4px 6px; }
+.restore-card-close:hover { color: var(--text); }

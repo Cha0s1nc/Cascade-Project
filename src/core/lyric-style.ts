@@ -74,6 +74,31 @@ export function lyricStyleFrom(stored: unknown): LyricStyle {
 }
 
 /** Only the knobs that differ from their defaults: what gets stored. */
+/** Bumped each time the shipped defaults are re-baked, with the knobs that
+ *  moved. Someone who never touched those knobs gets the new values by
+ *  themselves (only changes are stored); someone who did is asked once, on
+ *  opening Now Playing, whether to take them. Revision 2 is the stable build's
+ *  own tuning (2026-10-06). The Apple app keeps the same table
+ *  (StyleTuning.knobsChanged); a new bake adds the next number to both. */
+export const LYRIC_DEFAULTS_REVISION = 2
+export const LYRIC_DEFAULTS_CHANGED: Readonly<Record<number, readonly string[]>> = {
+  2: ['browsingBlur', 'unsungOpacity', 'heldFullSeconds', 'heldMinStrength', 'heldLift',
+    'heldScale', 'heldSettle', 'heldSettleSeconds', 'lyricsDelay'],
+}
+
+/** The re-baked knobs this person changed themselves since the defaults they
+ *  last saw (`seen`, stored; missing or junk counts as 1), so the new values
+ *  do not reach them unasked. `changes` is the stored lyricStyle (only what
+ *  differs from the defaults). Empty means there is nothing to ask. */
+export function lyricKnobsWithNewDefaults(changes: unknown, seen: unknown): LyricKnob[] {
+  const from = typeof seen === 'number' && Number.isInteger(seen) && seen >= 1 ? seen : 1
+  if (from >= LYRIC_DEFAULTS_REVISION) return []
+  const moved = new Set<string>()
+  for (let r = from + 1; r <= LYRIC_DEFAULTS_REVISION; r++) for (const k of LYRIC_DEFAULTS_CHANGED[r] ?? []) moved.add(k)
+  const mine = lyricStyleChanges(lyricStyleFrom(changes))
+  return LYRIC_KNOBS.filter(k => moved.has(k.key) && k.key in mine)
+}
+
 export function lyricStyleChanges(style: LyricStyle): LyricStyle {
   const out: LyricStyle = {}
   for (const k of LYRIC_KNOBS) {

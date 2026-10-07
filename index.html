@@ -2077,6 +2077,30 @@
   </div>
 </div>
 
+<!-- A yes/no question that has to be answered (showChoice) -->
+<div class="modal-overlay hidden" id="choice-modal">
+  <div class="modal-card" style="max-height:none;">
+    <div class="modal-title" id="choice-title"></div>
+    <div class="wf-note" id="choice-body"></div>
+    <div class="modal-actions" style="margin-top:16px;">
+      <button class="modal-btn" id="choice-no"></button>
+      <button class="modal-btn modal-btn-accent" id="choice-yes"></button>
+    </div>
+  </div>
+</div>
+
+<!-- Last session's queue, offered after sign-in (offerQueueRestore) -->
+<div class="restore-card hidden" id="restore-card" role="dialog" aria-label="Restore your last queue">
+  <div class="restore-card-art" id="restore-card-art"></div>
+  <div class="restore-card-text">
+    <div class="restore-card-title">Pick up where you left off?</div>
+    <div class="restore-card-sub" id="restore-card-sub"></div>
+    <div class="restore-card-timer"><div class="restore-card-timer-fill" id="restore-card-timer"></div></div>
+  </div>
+  <button class="modal-btn modal-btn-accent" id="restore-card-yes">Restore</button>
+  <button class="restore-card-close" id="restore-card-no" aria-label="Dismiss" data-tip="Dismiss">✕</button>
+</div>
+
 <!-- Waterfall: same-server synced listening (beta) -->
 <div class="modal-overlay hidden" id="wf-modal">
   <div class="modal-card">

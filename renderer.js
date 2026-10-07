@@ -677,6 +677,32 @@ function showNotice(message, title = 'Heads up') {
   })
 }
 
+// A question with two answers, as a modal that must be answered. Resolves true
+// for yes. Returns false at once if one is already on screen.
+function showChoice(title, message, yes, no) {
+  const modal = document.getElementById('choice-modal')
+  if (!modal || !modal.classList.contains('hidden')) return Promise.resolve(false)
+  document.getElementById('choice-title').textContent = title
+  document.getElementById('choice-body').textContent = message
+  const yesBtn = document.getElementById('choice-yes')
+  const noBtn = document.getElementById('choice-no')
+  yesBtn.textContent = yes
+  noBtn.textContent = no
+  modal.classList.remove('hidden')
+  return new Promise(resolve => {
+    const done = answer => {
+      modal.classList.add('hidden')
+      yesBtn.removeEventListener('click', onYes)
+      noBtn.removeEventListener('click', onNo)
+      resolve(answer)
+    }
+    const onYes = () => done(true)
+    const onNo = () => done(false)
+    yesBtn.addEventListener('click', onYes)
+    noBtn.addEventListener('click', onNo)
+  })
+}
+
 function showToast(msg, duration = 2200) {
   if (!_toastsEnabled) return
   const t = document.getElementById('toast')
@@ -4992,6 +5018,9 @@ let _lastSavedQueue = undefined
 function _saveQueueState() {
   if (blocksLocalPlayback()) return
   const state = CascadeCore.savedQueueOf(queue, queueIndex, mediaPosition(), _unshuffledQueue)
+  // Nothing has played this session (the restore card may still be up, or
+  // was ignored): last session's queue stays saved for the next launch.
+  if (!state && _lastSavedQueue === undefined) return
   const text = JSON.stringify(state)
   if (text === _lastSavedQueue) return
   _lastSavedQueue = text
@@ -5010,6 +5039,14 @@ async function restoreLastQueue() {
   if (queue.length || blocksLocalPlayback()) return   // something started meanwhile
   const restored = CascadeCore.restoreQueue(saved, items)
   if (!restored) return
+  // Offered, not put back unasked: a card in the corner for 20 s. Ignoring it
+  // keeps the saved queue (nothing overwrites it while nothing plays), so the
+  // next launch asks again.
+  offerQueueRestore(restored, () => applyRestoredQueue(restored))
+}
+
+function applyRestoredQueue(restored) {
+  if (queue.length || blocksLocalPlayback()) return   // something started while the card was up
   queue = restored.queue
   queueIndex = restored.index
   _unshuffledQueue = shuffle ? (restored.unshuffled.length ? restored.unshuffled : [...queue]) : []
@@ -5019,6 +5056,41 @@ async function restoreLastQueue() {
   updateNowPlaying(queue[queueIndex])
   syncProgressUI()
   renderQueuePanel()
+}
+
+// The "Pick up where you left off?" card (index.html #restore-card): the song,
+// its artist and the queue's length, with a bar that runs out after 20 s and
+// closes the card. Restore runs `apply`; closing or running out does nothing.
+const RESTORE_OFFER_SECONDS = 20
+let _restoreOfferTimer = null
+
+function offerQueueRestore(restored, apply) {
+  const card = document.getElementById('restore-card')
+  if (!card) return
+  const item = restored.queue[restored.index] || restored.queue[0]
+  const count = restored.queue.length
+  const artist = item?.AlbumArtist || item?.Artists?.[0] || ''
+  document.getElementById('restore-card-sub').textContent =
+    [item?.Name, artist].filter(Boolean).join(' - ') + ` \u00B7 ${count === 1 ? '1 song' : `${count} songs`}`
+  const art = item ? artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary) : null
+  document.getElementById('restore-card-art').style.backgroundImage = art ? `url("${art}")` : ''
+  const timer = document.getElementById('restore-card-timer')
+  timer.classList.remove('running')
+  card.style.setProperty('--restore-seconds', `${RESTORE_OFFER_SECONDS}s`)
+  card.classList.remove('hidden')
+  // Restart the bar's transition from full.
+  void timer.offsetWidth
+  timer.classList.add('running')
+  const close = () => {
+    clearTimeout(_restoreOfferTimer)
+    card.classList.add('hidden')
+    document.getElementById('restore-card-yes').onclick = null
+    document.getElementById('restore-card-no').onclick = null
+  }
+  document.getElementById('restore-card-yes').onclick = () => { close(); apply() }
+  document.getElementById('restore-card-no').onclick = close
+  clearTimeout(_restoreOfferTimer)
+  _restoreOfferTimer = setTimeout(close, RESTORE_OFFER_SECONDS * 1000)
 }
 
 // Play, or for a restored queue, start its track where it was left.
@@ -8516,6 +8588,7 @@ onDeck('emptied', stopEqLoop)
 function openOverlay() {
   overlayOpen = true
   npOverlay.classList.add('open')
+  maybeOfferNewLyricDefaults()
   syncOverlayState()
   renderQueuePanel()
   if (overlayLyricsOpen) renderOverlayLyrics()
@@ -12622,6 +12695,33 @@ async function loadLyricStyle() {
   try { stored = JSON.parse(await window.cascade.store.get('lyricStyle') || 'null') } catch {}
   applyLyricStyle(stored)
   renderLyricKnobs()
+}
+
+// Re-baked lyric defaults reach everyone who never touched those knobs by
+// themselves. Someone who did is asked once, on opening Now Playing, naming
+// the knobs (CascadeCore.lyricKnobsWithNewDefaults). Asked at most once a session.
+let _lyricDefaultsAsked = false
+async function maybeOfferNewLyricDefaults() {
+  if (_lyricDefaultsAsked) return
+  _lyricDefaultsAsked = true
+  const seen = await window.cascade.store.get('lyricStyleDefaultsSeen')
+  const knobs = CascadeCore.lyricKnobsWithNewDefaults(CascadeCore.lyricStyleChanges(lyricStyle), seen)
+  const markSeen = () => window.cascade.store.set('lyricStyleDefaultsSeen', CascadeCore.LYRIC_DEFAULTS_REVISION)
+  if (!knobs.length) { markSeen(); return }
+  // A beat after opening, so it does not land on the transition.
+  await new Promise(r => setTimeout(r, 600))
+  const count = knobs.length === 1 ? 'one of these settings' : `${knobs.length} of these settings`
+  const useNew = await showChoice('New lyric defaults',
+    `Cascade's lyric look was retuned. You changed ${count} yourself: ${knobs.map(k => k.label).join(', ')}. Use the new defaults for them, or keep yours?`,
+    'Use the New Defaults', 'Keep Mine')
+  if (useNew) {
+    const next = { ...lyricStyle }
+    const defaults = CascadeCore.lyricStyleFrom({})
+    for (const k of knobs) next[k.key] = defaults[k.key]
+    await saveLyricStyle(next)
+    renderLyricKnobs()
+  }
+  await markSeen()
 }
 
 async function loadNpTuning() {

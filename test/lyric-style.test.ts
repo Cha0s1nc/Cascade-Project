@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { LYRIC_KNOBS, lyricStyleFrom, lyricStyleChanges, lyricStyleCss, easeInOut, heldSwell } from '../src/core/lyric-style.ts'
+import { LYRIC_KNOBS, lyricStyleFrom, lyricStyleChanges, lyricStyleCss, easeInOut, heldSwell, lyricKnobsWithNewDefaults, LYRIC_DEFAULTS_REVISION, LYRIC_DEFAULTS_CHANGED } from '../src/core/lyric-style.ts'
 
 test('every knob has a sane, unique definition', () => {
   const keys = new Set<string>()
@@ -59,4 +59,21 @@ test('heldSwell: longer holds swell more, rise until the note ends, then settle'
   assert.ok(Math.abs(heldSwell(30, 4, 4, s) - 0.6) < 1e-6)
   // A letter reached near the end still takes 0.35 s to rise, not a pop.
   assert.ok(heldSwell(0.1, 0.05, 4, s) < heldSwell(0.34, 0.05, 4, s))
+})
+
+test('lyricKnobsWithNewDefaults: only re-baked knobs this person changed, once', () => {
+  // Never touched anything: the new defaults already reach them, nothing to ask.
+  assert.deepEqual(lyricKnobsWithNewDefaults({}, undefined), [])
+  // Changed a re-baked knob and an untouched one: only the re-baked one is asked about.
+  const keys = lyricKnobsWithNewDefaults({ heldScale: 1.12, pastBlur: 2 }, 1).map(k => k.key)
+  assert.deepEqual(keys, ['heldScale'])
+  // Already saw this revision: nothing.
+  assert.deepEqual(lyricKnobsWithNewDefaults({ heldScale: 1.12 }, LYRIC_DEFAULTS_REVISION), [])
+  // Junk for the seen revision counts as the first.
+  assert.deepEqual(lyricKnobsWithNewDefaults({ lyricsDelay: -0.3 }, 'x').map(k => k.key), ['lyricsDelay'])
+})
+
+test('LYRIC_DEFAULTS_CHANGED names real knobs', () => {
+  const known = new Set(LYRIC_KNOBS.map(k => k.key))
+  for (const keys of Object.values(LYRIC_DEFAULTS_CHANGED)) for (const k of keys) assert.ok(known.has(k), k)
 })
