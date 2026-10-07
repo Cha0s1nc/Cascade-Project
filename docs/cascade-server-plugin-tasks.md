@@ -42,10 +42,10 @@ All routes need a signed-in user (`[Authorize]`), as the existing ones do. Error
 
 - `mode` is `"off"`, `"default"` or `"enforced"`. With `"off"`, `preset` is `null`.
 - `preset` is a Cascade preset object (format below) or `null`.
-- `enforce` says which parts are locked when `mode` is `"enforced"`; both are ignored for `"default"`.
+- `enforce` says which parts are locked when `mode` is `"enforced"`; both are ignored for `"default"`. With `"off"` both are `false`.
 - `updatedUtc` is an ISO 8601 UTC time or `null`. Cascade uses it to notice a change.
 
-`PUT /CascadeServer/Style`, admins only (403 otherwise). The body has the same shape without `updatedUtc`. Answers 204, or 400 when the preset is invalid.
+`PUT /CascadeServer/Style`, admins only (403 otherwise). The body has the same shape without `updatedUtc`. Answers 204, or 400 when the preset is invalid, when `mode` is `"default"` or `"enforced"` with no preset, or when `mode` is not one of the three. A PUT with `"off"` clears the stored preset and both enforce flags (use it as DELETE). **As built:** `preset`, `updatedUtc` and `enforce` are always present in the GET answer (null when empty).
 
 `DELETE /CascadeServer/Style`, admins only. Back to `off`, answers 204.
 
@@ -130,11 +130,12 @@ Add `canEditExplicit` (bool, for this user) to the `/CascadeServer/Info` respons
    - Vorbis/FLAC/Opus: the `ITUNESADVISORY` comment, and an `EXPLICIT` comment some taggers write.
    - Values: `1` or `4` is explicit, `2` is clean, `0` or absent is unknown.
 3. **Online lookups,** each switchable in settings and both on by default. Like the lyric sources, they send artist and title to a third party; say so on the plugin page.
-   - **Deezer:** `https://api.deezer.com/track/isrc:<ISRC>` when the item has an ISRC, otherwise `https://api.deezer.com/search?q=artist:"<artist>" track:"<title>"`. The fields are `explicit_lyrics` (bool) and `explicit_content_lyrics` (0 not explicit, 1 explicit, 2 unknown, 3 edited, 4 clean, 5 explicit, 6 no advice; confirm against a live response before relying on it).
+   - **Deezer:** `https://api.deezer.com/track/isrc:<ISRC>` when the item has an ISRC, otherwise a search. **As built:** the search is the plain text query `https://api.deezer.com/search?q=<artist> <title>&limit=25`, because the `artist:"..." track:"..."` form answered an empty list for every query when tried live (2026-10-07), while the plain form works. The ISRC answer is checked with the same match rule as search results. The fields are `explicit_lyrics` (bool) and `explicit_content_lyrics` (0 not explicit, 1 explicit, 2 unknown, 3 edited, 4 clean, 5 explicit, 6 no advice; confirmed live: HUMBLE. is `1`, a track Deezer has no advice data for is `2` (with `explicit_lyrics` false), a plainly clean one is `0`. The plugin maps 1 and 5 to explicit, 3 and 4 to clean, 0 and 6 to not explicit, 2 and anything else to unknown).
    - **iTunes Search:** `https://itunes.apple.com/search?entity=song&term=<artist title>`, field `trackExplicitness` (`explicit`, `cleaned`, `notExplicit`).
    - **Matching rule.** Accept a result only when the artist and title match after normalising (lowercase, accents removed, bracketed edition words like "(Remastered)" dropped) **and** the duration is within 3 seconds. Port the normalising from `src/core/itunes-art.ts` in Cascade-Project, which was written because taking the first search result picked karaoke and tribute versions.
    - **No confident match means unknown, never clean.**
    - `notExplicit` or Deezer `0` are stored as "not explicit". They answer as unknown in the Query route, since only `clean` means an edited version.
+   - When matching results disagree (an explicit and a cleaned edition of one song), the one closest in length wins, and a tie is unknown. A result whose title or artist says karaoke, instrumental, tribute and so on is refused unless the library song says so too. The query answers keys exactly as the ids were sent.
 
 **Store:** `explicit.json` in the data dir, in the `SpotifyIdStore` shape. Each entry is:
 - `{ Rating, Source, Manual, CheckedUtc }`;
@@ -258,13 +259,13 @@ The `{albumId}` in every route is a MusicAlbum id. An Audio id is accepted too a
 `PUT /CascadeServer/AnimatedArt/{albumId}`, admins and `AnimatedArtEditUsers` (403 otherwise). The body is the raw file, with `Content-Type` `video/mp4` or `video/webm`.
 - Check the magic bytes (`ftyp` at offset 4 for MP4, `1A 45 DF A3` for WebM) and answer 400 when they do not match.
 - Answer 413 over `AnimatedArtMaxUploadMb`.
-- Save it into the album folder under the first matching name from `AnimatedArtSidecarNames`, replacing an existing file of that name. Write to a temporary name and move it into place.
+- Save it into the album folder under the first matching name from `AnimatedArtSidecarNames`, replacing an existing file of that name. Write to a temporary name and move it into place. **As built:** the other configured sidecar names in that folder (and any data-dir upload) are then deleted when they can be, so the new cover is the one that shows.
 - When the folder is not writable (a read-only mount), fall back to `{DataDir}/animated-art/uploads/{albumId}.mp4` (or `.webm`), as `SaveLyrics` falls back to the data dir. The GET then reports it as `"sidecar"` all the same.
 - Answers 204.
 
 Finding the album folder: a MusicAlbum's `Path` is normally its folder. When it is null, or the album's tracks span more than one folder, use the folder of the first track by disc and track number. Confirm against Jellyfin's `MusicAlbum` on 10.11 and 12.
 
-`DELETE /CascadeServer/AnimatedArt/{albumId}`, same permission. Removes the sidecar or upload only, never the TIDAL cache. Answers 204, or 404 when there was none.
+`DELETE /CascadeServer/AnimatedArt/{albumId}`, same permission. Removes the sidecar or upload only, never the TIDAL cache. Answers 204, or 404 when there was none. **As built:** 409 with `{ "error" }` when the sidecar is in a folder the server cannot write to.
 
 `PUT /CascadeServer/AnimatedArt/{albumId}/TidalAlbum`, same permission. Links an album by hand when automatic matching fails, like "Link a Spotify track":
 
@@ -274,7 +275,7 @@ Finding the album folder: a MusicAlbum's `Path` is normally its folder. When it 
 
 - `null` removes the link.
 - Validate the id by fetching it (400 when TIDAL does not know it), then clear that album's cache entry and miss so the next GET looks again.
-- Answers 204.
+- Answers 204. **As built:** also 409 when no TIDAL app is set up, 429 or 502 (with `{ "error" }`) when TIDAL is rate limiting or unreachable while the id is checked, and 400 when the id is not digits.
 - Keep links in `tidal-links.json` in the data dir, in the `SpotifyIdStore` shape. A link is an id the admin chose, not TIDAL content, so it is kept until removed.
 
 `POST /CascadeServer/AnimatedArt/{albumId}/Refresh`, same permission. Drops that album's TIDAL cache entry and miss. Answers 204.
