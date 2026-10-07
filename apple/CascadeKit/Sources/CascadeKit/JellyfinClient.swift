@@ -37,10 +37,27 @@ func errorMessage(response: HTTPURLResponse, body: Data) -> String {
 /// accepts a token by default: 12.0 turned off X-Emby-Token, X-Emby-Authorization
 /// and api_key on new and upgraded servers. Jellyfin 10.11 accepts this form too.
 public func authHeader(appVersion: String, deviceId: String, token: String? = nil) -> String {
-    let base = "MediaBrowser Client=\"Cascade\", Device=\"\(cascadeDeviceName)\", DeviceId=\"\(deviceId)\", Version=\"\(appVersion)\""
+    let base = "MediaBrowser Client=\"\(cascadeEdition)\", Device=\"\(cascadeDeviceName)\", DeviceId=\"\(deviceId)\", Version=\"\(appVersion)\""
     guard let token, !token.isEmpty else { return base }
     return base + ", Token=\"\(token)\""
 }
+
+/// Which edition of Cascade this is, as the server's Devices and Activity
+/// screens show it beside the device name. The desktop's Electron build sends
+/// "Cascade Electron" (src/core/jellyfin.ts). The native Mac app keeps the
+/// Electron build's DeviceId when it takes over, so the server sees the same
+/// device with its app renamed, not a new device.
+public let cascadeEdition: String = {
+    #if os(tvOS)
+    return "Cascade tvOS"
+    #elseif os(iOS)
+    return "Cascade iOS"
+    #elseif os(macOS)
+    return "Cascade Mac"
+    #else
+    return "Cascade"
+    #endif
+}()
 
 /// What the server's device list and cast menus call this device, so a phone
 /// and a desktop signed in to one account are told apart. Fixed words rather
@@ -58,6 +75,8 @@ let cascadeDeviceName: String = {
     }
     let machine = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] ?? hardware
     return machine.hasPrefix("iPad") ? "iPad" : "iPhone"
+    #elseif os(macOS)
+    return "Mac"
     #else
     return "Cascade"
     #endif

@@ -590,7 +590,9 @@ let editorJf    = null   // { url, token }
 // The token goes in the standard Authorization header (or ApiKey in a URL):
 // Jellyfin 12 turns off X-Emby-Token and api_key by default. Same value as
 // CascadeCore.authHeader in the main window; this page does not load core.
-const jfAuthorization = jf => `MediaBrowser Client="Cascade", Device="Cascade", DeviceId="${jf.deviceId || 'cascade-app'}", Version="${jf.appVersion || '0.0.0'}", Token="${jf.token}"`
+// The edition and machine come from the main window (CascadeCore.clientIdentity),
+// already reduced to header-safe words there.
+const jfAuthorization = jf => `MediaBrowser Client="${jf.client || 'Cascade'}", Device="${jf.device || 'Cascade'}", DeviceId="${jf.deviceId || 'cascade-app'}", Version="${jf.appVersion || '0.0.0'}", Token="${jf.token}"`
 let editorLyricsUrl = null // Cascade Server plugin lyrics route for editorItem, from the main window
 let initLines   = []     // original lines passed at open (for re-import)
 let editorLines = []     // working copy: [{ start, text, words: [{start,end,text}]|null }]

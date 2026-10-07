@@ -7239,6 +7239,15 @@ async function migrateDeviceId(serverUrl, username, password, token, userId) {
 }
 
 async function init() {
+  // Before anything authenticates: the edition and machine name go into the
+  // auth header, which is how the server's Devices screen tells this desktop
+  // build apart from the Apple and Android apps.
+  const identity = CascadeCore.setClientIdentity({
+    client: CascadeCore.ELECTRON_EDITION,
+    device: CascadeCore.desktopDeviceName(window.cascade.platform),
+  })
+  const editionEl = document.getElementById('app-edition')
+  if (editionEl) editionEl.textContent = identity.client
   // Before anything authenticates: the device id goes into the auth header.
   deviceId = await window.cascade.store.get('deviceId')
   if (!deviceId) {
@@ -10819,7 +10828,7 @@ async function openLyricsEditorFor(item) {
   const seed = item.Id === queue[queueIndex]?.Id && !lyricsCredit ? (lyricsData || []) : []
   // Pass `volume`, not audio.volume: mid-crossfade the element is partway
   // through a fade and would hand the editor whatever that transient value is.
-  window.cascade.lyricsEditor.open({ item, jf, lyricsData: seed, volume, lyricsUrl: cascadeLyricsUrl(item.Id) })
+  window.cascade.lyricsEditor.open({ item, jf: { ...jf, ...CascadeCore.clientIdentity() }, lyricsData: seed, volume, lyricsUrl: cascadeLyricsUrl(item.Id) })
 }
 
 // Spicy Lyrics' own sync editor, its fork of the AMLL TTML Tool, which its
@@ -10855,7 +10864,7 @@ const SPICY_TTML_TOOL_URL = 'https://tool.community.spicylyrics.org/'
 // window itself checks jf.isAdmin again before its save button does anything.
 function openMetadataEditorFor(item) {
   if (!item || !jf.isAdmin) return
-  window.cascade.metadataEditor.open({ item, jf })
+  window.cascade.metadataEditor.open({ item, jf: { ...jf, ...CascadeCore.clientIdentity() } })
 }
 
 // Refresh whatever already-loaded views hold the edited item. Same local
@@ -13083,7 +13092,9 @@ function debugPanelText() {
     ? `${p.hit ? 'HIT' : 'MISS'}${p.readyState !== undefined ? ` rs=${p.readyState}${p.readyState < 4 ? ' COLD' : ''}` : ''} (${p.from}, ${Math.round((Date.now() - p.at) / 1000)}s ago)`
     : 'none yet'
 
+  const ident = CascadeCore.clientIdentity()
   return [
+    `client: ${ident.client} ${appVersion} on ${ident.device}   deviceId: ${deviceId}`,
     `playing: ${!audio.paused}   live deck: ${audio.id}   pos: ${audio.currentTime.toFixed(1)}s / ${mediaDuration().toFixed(1)}s`,
     `item: ${item ? `${item.Name}  (${item.Id})` : 'none'}`,
     '',

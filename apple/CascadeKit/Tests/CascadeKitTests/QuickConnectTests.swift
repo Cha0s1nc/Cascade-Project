@@ -45,6 +45,12 @@ struct QuickConnectTests {
     #expect(authHeader(appVersion: "1.0", deviceId: "d", token: "T").hasSuffix(", Token=\"T\""))
 }
 
+@Test func authHeaderNamesTheEdition() {
+    // The server's Devices screen tells the editions apart by Client.
+    #expect(["Cascade iOS", "Cascade tvOS", "Cascade Mac"].contains(cascadeEdition))
+    #expect(authHeader(appVersion: "1.0", deviceId: "d").hasPrefix("MediaBrowser Client=\"\(cascadeEdition)\", "))
+}
+
 struct QuickConnectApprovalTests {
     @Test func codesAreSixDigitsWithSpacingForgiven() {
         #expect(QuickConnect.normalizedCode("123456") == "123456")

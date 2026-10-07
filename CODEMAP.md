@@ -26,6 +26,10 @@ Verify with `npm run build:ts && npm run typecheck && npm test`.
 
 **The coupling no AST can see:** `index.html` defines ids and classes, `renderer.js` reaches them by `getElementById` / `querySelector` string literals. Renaming an id is a silent break that typecheck will not catch.
 
+## Edition labels
+
+The server's Devices and Activity screens tell Cascade's editions apart by the auth header's `Client`: `Cascade Electron` (this app, every OS), `Cascade iOS`, `Cascade tvOS`, and `Cascade Mac` for the native port on `mac-swift-port`. `Device` is the machine (`Windows`, `Mac`, `Linux`, `iPhone`, `iPad`, `Apple TV`). Desktop sets it once in `init()` through `CascadeCore.setClientIdentity()`, before anything authenticates; `authHeader()` reads it, and the lyrics and metadata editor windows get it in the `jf` they are opened with. Apple's is `cascadeEdition` in `JellyfinClient.swift`. The server keys a device on `DeviceId`, so the Mac port keeping Electron's id renames the device rather than adding one. Nothing matches on the old plain `Cascade`.
+
 ## Rules this codebase learned the hard way
 
 1. **Read the response of anything that writes.** Five separate write paths were found reporting success on an HTTP 403 because nothing checked `res.ok`, and one removed a track from the queue regardless of what the server said, so a refused delete looked exactly like a successful one.
