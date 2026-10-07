@@ -62,6 +62,14 @@ public func mergeLibraryCopies(_ items: [JfItem]) -> [JfItem] {
 /// are joined library by library, so without this a second library's albums
 /// all landed after the first's. Handles the keys this app sorts by; any other
 /// `sortBy` (track order, search relevance) keeps the order it was given.
+/// Whether sortedLikeServer orders by this sortBy's first key the way the
+/// server does, so a whole list already loaded can be re-sorted on the device
+/// instead of fetched again. Random and the rating or runtime sorts cannot.
+public func sortsLikeServer(_ sortBy: String?) -> Bool {
+    let key = (sortBy ?? "").split(separator: ",").first.map(String.init) ?? ""
+    return ["SortName", "Name", "DateCreated", "DatePlayed", "AlbumArtist", "Album", "PlayCount", "ProductionYear"].contains(key)
+}
+
 public func sortedLikeServer(_ items: [JfItem], sortBy: String?, sortOrder: String? = nil) -> [JfItem] {
     let key = (sortBy ?? "").split(separator: ",").first.map(String.init) ?? ""
     let descending = sortOrder == "Descending"

@@ -48,7 +48,7 @@ struct MacPlaylistDetail: View {
             if editing && isReal { bulkBar }
             Divider()
             if tracks.isEmpty {
-                LoadingOverlay(isLoading: isLoading, error: error, isEmpty: true).frame(maxHeight: .infinity)
+                LoadingOverlay(isLoading: isLoading, error: error, isEmpty: true, skeleton: .rows).frame(maxHeight: .infinity)
             } else {
                 list
             }

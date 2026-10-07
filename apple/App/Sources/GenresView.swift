@@ -30,7 +30,7 @@ struct GenresView: View {
     @ViewBuilder private var content: some View {
         #if os(macOS)
         ScrollView {
-            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty)
+            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty, skeleton: .grid)
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 14)], spacing: 14) {
                 ForEach(items) { genre in
                     NavigationLink(value: genre) { GenreTile(name: genre.name ?? "Unknown") }
@@ -41,7 +41,7 @@ struct GenresView: View {
         }
         #else
         List {
-            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty)
+            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty, skeleton: .grid)
             ForEach(items) { genre in
                 NavigationLink(value: genre) {
                     Text(genre.name ?? "Unknown")
@@ -112,7 +112,7 @@ struct GenreDetailView: View {
             }
             .padding()
             .browseHeader()
-            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: albums.isEmpty)
+            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: albums.isEmpty, skeleton: .grid)
             ItemTiles(items: albums)
             if !songs.isEmpty { songsSection }
         }

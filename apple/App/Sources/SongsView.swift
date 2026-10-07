@@ -50,7 +50,7 @@ struct SongsView: View {
             .task(id: browseKey) {
                 guard let client = state.client else { return }
                 let (sortBy, order, filterNow) = (sortField.serverSortBy, sortDirection.serverValue, filter)
-                list = state.browseList(.songs, browseKey) { list in
+                list = state.browseList(.songs, browseKey, localSort: sortBy) { list in
                     try await loadPaged(sortBy: sortBy, sortOrder: order, nextStart: { list.nextStart = $0 }, fetch: {
                         try await client.songs(limit: $0, startIndex: $1, sortBy: sortBy,
                                                sortOrder: order, filter: filterNow)
@@ -104,7 +104,7 @@ struct SongsView: View {
             .browseHeader()
             .buttonStyle(.borderless)
             #endif
-            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty)
+            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty, skeleton: .rows)
             ForEach(Array(items.enumerated()), id: \.element.id) { index, song in
                 Button {
                     Task { await state.player?.play(items, startIndex: index) }

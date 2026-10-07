@@ -30,7 +30,7 @@ struct ArtistsView: View {
             .padding(.horizontal)
             .browseHeader()
             #endif
-            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty)
+            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty, skeleton: .grid)
             ItemGrid(items: items)
         }
         .navigationTitle("Artists")
@@ -44,7 +44,7 @@ struct ArtistsView: View {
         .task(id: browseKey) {
             guard let client = state.client else { return }
             let (field, order, filter) = (sortField, prefs.direction.serverValue, prefs.filter)
-            list = state.browseList(.artists, browseKey) { list in
+            list = state.browseList(.artists, browseKey, localSort: field.serverSortBy) { list in
                 try await loadPaged(sortBy: field.serverSortBy, sortOrder: order, fetch: {
                     try await client.artists(limit: $0, startIndex: $1, sortBy: field.serverSortBy,
                                              sortOrder: order, filter: filter)

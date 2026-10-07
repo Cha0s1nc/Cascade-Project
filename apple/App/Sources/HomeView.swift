@@ -20,7 +20,7 @@ struct HomeView: View {
 
     var body: some View {
         ScrollView {
-            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: isEmpty)
+            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: isEmpty, skeleton: .grid)
             VStack(alignment: .leading, spacing: 24) {
                 #if os(macOS)
                 GreetingHeader()

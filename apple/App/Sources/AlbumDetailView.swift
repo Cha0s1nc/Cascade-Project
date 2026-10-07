@@ -30,7 +30,7 @@ struct AlbumDetailView: View {
                             .padding(.horizontal)
                     }
                 }
-                LoadingOverlay(isLoading: isLoading, error: error, isEmpty: tracks.isEmpty)
+                LoadingOverlay(isLoading: isLoading, error: error, isEmpty: tracks.isEmpty, skeleton: .rows)
                     .padding(.horizontal)
             }
         }

@@ -35,7 +35,7 @@ struct SearchView: View {
             #endif
             if !trimmed.isEmpty {
                 LoadingOverlay(isLoading: isLoading, error: error, isEmpty: !isLoading && !hasResults,
-                               emptySymbol: isVideo ? "film" : "music.note")
+                               emptySymbol: isVideo ? "film" : "music.note", skeleton: .rows)
             }
             if !artists.isEmpty {
                 Section("Artists") {
@@ -163,7 +163,7 @@ struct SearchResultsView: View {
             if let field { TextField("Search", text: field) }
             #endif
             if !trimmed.isEmpty {
-                LoadingOverlay(isLoading: isLoading, error: error, isEmpty: !isLoading && results.isEmpty)
+                LoadingOverlay(isLoading: isLoading, error: error, isEmpty: !isLoading && results.isEmpty, skeleton: .rows)
             }
             if !results.songs.isEmpty {
                 Section("Songs") {

@@ -125,3 +125,18 @@ struct LibraryMergeTests {
         #expect(ids(sortedLikeServer(items, sortBy: "DateCreated", sortOrder: "Descending")) == ["new", "old"])
     }
 }
+
+@Suite("sortsLikeServer")
+struct SortsLikeServerTests {
+    @Test func theKeysSortedLikeServerKnowsCanBeSortedHere() {
+        #expect(sortsLikeServer("SortName,AlbumArtist,Album"))
+        #expect(sortsLikeServer("DateCreated"))
+        #expect(sortsLikeServer("PlayCount"))
+    }
+
+    @Test func randomAndUnknownKeysGoBackToTheServer() {
+        #expect(!sortsLikeServer("Random"))
+        #expect(!sortsLikeServer("CommunityRating"))
+        #expect(!sortsLikeServer(nil))
+    }
+}

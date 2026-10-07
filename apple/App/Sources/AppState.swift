@@ -210,15 +210,37 @@ final class AppState {
     /// yet or the last one failed. Asking for a new key cancels the screen's
     /// other unfinished loads, so flicking through sorts does not leave a
     /// queue of whole-library fetches running.
-    func browseList(_ screen: BrowseScreen, _ key: BrowseKey,
+    ///
+    /// `localSort` is the server sortBy this key asks for, when the list is the
+    /// whole library in that order. Then a whole list already loaded for the
+    /// same screen, libraries and filter in another order is re-sorted here
+    /// instead of fetched again: changing the sort is instant after the first
+    /// load, as the desktop's is.
+    func browseList(_ screen: BrowseScreen, _ key: BrowseKey, localSort: String? = nil,
                     load: @escaping @MainActor (BrowseList) async throws -> Void) -> BrowseList {
         let cacheKey = BrowseCacheKey(screen: screen, key: key)
         if let list = browseLists[cacheKey], list.error == nil { return list }
+        if let localSort, sortsLikeServer(localSort),
+           let source = browseLists.first(where: { other, list in
+               other.screen == screen && list.isWholeList && list.isComplete && list.error == nil
+                   && other.key.libraries == key.libraries && other.key.filter == key.filter
+                   && other.key.generation == key.generation
+           })?.value {
+            let list = BrowseList()
+            list.items = sortedLikeServer(source.items, sortBy: localSort, sortOrder: key.direction.serverValue)
+            list.isWholeList = true
+            list.isComplete = true
+            list.isLoading = false
+            list.nextStart = source.nextStart
+            browseLists[cacheKey] = list
+            return list
+        }
         for (other, list) in browseLists where other.screen == screen && !list.isComplete {
             list.task?.cancel()
             browseLists[other] = nil
         }
         let list = BrowseList()
+        list.isWholeList = localSort != nil
         browseLists[cacheKey] = list
         list.task = Task {
             do {

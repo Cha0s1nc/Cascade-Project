@@ -82,7 +82,7 @@ extension SongsView {
             .disabled(isStarting)
             Divider()
             if items.isEmpty {
-                LoadingOverlay(isLoading: isLoading, error: error, isEmpty: true)
+                LoadingOverlay(isLoading: isLoading, error: error, isEmpty: true, skeleton: .rows)
                     .frame(maxHeight: .infinity)
             } else {
                 SongsTable(items: items, field: Binding(get: { sortField }, set: { sortField = $0 }),

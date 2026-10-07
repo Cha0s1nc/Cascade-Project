@@ -104,7 +104,7 @@ struct SmartPlaylistView: View {
                 .trackContextMenu(track)
             }
             if tracks.isEmpty {
-                LoadingOverlay(isLoading: isLoading, error: error, isEmpty: true)
+                LoadingOverlay(isLoading: isLoading, error: error, isEmpty: true, skeleton: .rows)
             }
         }
         .navigationTitle(name)

@@ -45,7 +45,7 @@ struct PlaylistsView: View {
             .padding(.horizontal)
             .browseHeader()
             SmartPlaylistShelf()
-            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty)
+            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty, skeleton: .grid)
             ItemGrid(items: items)
         }
         .navigationTitle("Playlists")
@@ -149,7 +149,7 @@ struct PlaylistDetailView: View {
                 Task { await move(source, to: playlistMoveIndex(from: source, toOffset: offset)) }
             }
             #endif
-            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: tracks.isEmpty)
+            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: tracks.isEmpty, skeleton: .rows)
         }
         .navigationTitle(name)
         #if os(iOS)

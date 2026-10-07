@@ -227,6 +227,9 @@ final class BrowseList {
     /// The server offset of the first page not fetched yet, for screens that
     /// hand the rest of their list to the player (Songs' Play).
     var nextStart = 0
+    /// Holds the whole library for its key (every page, not a recent-only
+    /// or random selection), so another sort of it can be made on the device.
+    var isWholeList = false
     @ObservationIgnored var task: Task<Void, Never>?
 }
 

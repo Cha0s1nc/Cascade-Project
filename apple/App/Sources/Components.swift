@@ -264,14 +264,86 @@ struct LoadingOverlay: View {
     let isEmpty: Bool
     /// The empty state's symbol: a note, or a film for the video screens.
     var emptySymbol = "music.note"
+    /// What to draw while the first page loads: the screen's own shape in
+    /// gray, so it does not jump from a spinner to a full grid.
+    var skeleton: Skeleton = .spinner
+
+    enum Skeleton { case spinner, grid, rows }
 
     var body: some View {
         if isLoading {
-            ProgressView()
+            switch skeleton {
+            case .spinner: ProgressView()
+            case .grid: SkeletonGrid()
+            case .rows: SkeletonRows()
+            }
         } else if let error {
             ContentUnavailableView("Could not load", systemImage: "exclamationmark.triangle", description: Text(error))
         } else if isEmpty {
             ContentUnavailableView("Nothing here", systemImage: emptySymbol)
         }
+    }
+}
+
+/// Gray tiles in ItemTiles' layout, pulsing while the first page loads.
+struct SkeletonGrid: View {
+    #if os(tvOS)
+    private let tile: CGFloat = 220
+    #else
+    private let tile: CGFloat = 150
+    #endif
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: tile), spacing: 16)], spacing: 20) {
+            ForEach(0..<18, id: \.self) { _ in
+                VStack(alignment: .leading, spacing: 6) {
+                    ProportionalRoundedRectangle().fill(.quaternary).aspectRatio(1, contentMode: .fit)
+                    Capsule().fill(.quaternary).frame(width: tile * 0.7, height: 9)
+                    Capsule().fill(.quaternary.opacity(0.6)).frame(width: tile * 0.45, height: 8)
+                }
+            }
+        }
+        .padding()
+        .modifier(SkeletonPulse())
+    }
+}
+
+/// Gray track rows in TrackRow's layout, pulsing while the first page loads.
+struct SkeletonRows: View {
+    var body: some View {
+        VStack(spacing: 14) {
+            ForEach(0..<12, id: \.self) { i in
+                HStack(spacing: 12) {
+                    RoundedRectangle(cornerRadius: 4).fill(.quaternary).frame(width: 40, height: 40)
+                    VStack(alignment: .leading, spacing: 6) {
+                        // Varied widths, so it reads as a list of titles.
+                        Capsule().fill(.quaternary).frame(width: CGFloat(140 + (i * 37) % 120), height: 9)
+                        Capsule().fill(.quaternary.opacity(0.6)).frame(width: CGFloat(80 + (i * 23) % 70), height: 8)
+                    }
+                    Spacer()
+                }
+            }
+        }
+        .padding()
+        .modifier(SkeletonPulse())
+    }
+}
+
+/// A slow fade in and out, or still with Reduce Motion on. The placeholder
+/// shape takes the whole space, top first, and is not hit-testable.
+private struct SkeletonPulse: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var dim = false
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(dim ? 0.45 : 1)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .allowsHitTesting(false)
+            .accessibilityLabel("Loading")
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { dim = true }
+            }
     }
 }

@@ -41,7 +41,7 @@ struct ArtistDetailView: View {
                     }
                 }
                 if !similar.isEmpty { similarSection }
-                LoadingOverlay(isLoading: isLoading, error: error, isEmpty: albums.isEmpty)
+                LoadingOverlay(isLoading: isLoading, error: error, isEmpty: albums.isEmpty, skeleton: .grid)
             }
         }
         .navigationTitle(artist.name ?? "Artist")
