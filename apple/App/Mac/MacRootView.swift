@@ -13,8 +13,8 @@ struct MacRootView: View {
     @SceneStorage("mac.section") private var section: MacSection = .home
     @State private var query = ""
     @FocusState private var searchFocused: Bool
-    /// Where a deep link wants to go once its section's stack is up.
-    @State private var pendingItem: JfItem?
+    /// Where a deep link wants to go, and the section it belongs to.
+    @State private var pending: (section: MacSection, item: JfItem)?
 
     private var libraries: VideoLibrarySelection { state.videoLibraries }
     private var isSearching: Bool { !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -34,7 +34,12 @@ struct MacRootView: View {
                     TabStack { SearchResultsView(query: query).navigationTitle("Search") }
                         .id("search")
                 } else {
-                    TabStack(opening: $pendingItem) { section.root }
+                    // Only the target section's stack sees the item. The section is
+                    // scene storage, which can update a beat after the item: the
+                    // outgoing stack used to take it, and the new one sat on its root.
+                    TabStack(opening: Binding(
+                        get: { pending?.section == section ? pending?.item : nil },
+                        set: { if $0 == nil { pending = nil } })) { section.root }
                         .id(section)
                 }
             }
@@ -173,7 +178,7 @@ struct MacRootView: View {
         }
         query = ""
         section = target
-        pendingItem = item
+        pending = (target, item)
     }
 }
 

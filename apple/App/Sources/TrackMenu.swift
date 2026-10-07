@@ -300,14 +300,11 @@ struct TabStack<Content: View>: View {
     var opening: Binding<JfItem?>?
     @ViewBuilder let content: Content
     @State private var path = NavigationPath()
+    @State private var shown = false
 
     init(opening: Binding<JfItem?>? = nil, @ViewBuilder content: () -> Content) {
         self.opening = opening
         self.content = content()
-        // A new section's stack starts on the item. Pushing it from a task
-        // after the stack was up raced the outgoing section's stack, which
-        // could take the item first and leave this one on its root.
-        _path = State(initialValue: opening?.wrappedValue.map { NavigationPath([$0]) } ?? NavigationPath())
     }
 
     var body: some View {
@@ -317,13 +314,17 @@ struct TabStack<Content: View>: View {
                 .appNavigation()
         }
         .environment(\.openItem) { path.append($0) }
-        .onAppear { opening?.wrappedValue = nil }
-        // The section already showing: push onto what is there.
-        .onChange(of: opening?.wrappedValue) { _, item in
-            guard let item else { return }
-            path.append(item)
-            opening?.wrappedValue = nil
-        }
+        .onAppear { shown = true; take() }
+        .onChange(of: opening?.wrappedValue) { if shown { take() } }
+    }
+
+    /// Pushes the opened item, a turn of the run loop later: a stack in the
+    /// Mac's split view keeps a path set before it is on screen but still
+    /// shows its root, which is why a link into another section took two clicks.
+    private func take() {
+        guard let item = opening?.wrappedValue else { return }
+        opening?.wrappedValue = nil
+        Task { @MainActor in path.append(item) }
     }
 }
 
