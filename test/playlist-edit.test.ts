@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { entryIdOf, removeSelected, moveSelectedToTop, moveSelectedToBottom } from '../src/core/playlist-edit.ts'
+import { entryIdOf, removeSelected, moveSelectedToTop, moveSelectedToBottom, createPlaylistWriteGate } from '../src/core/playlist-edit.ts'
 import type { JfItem } from '../src/core/types.ts'
 
 const item = (over: Partial<JfItem> & { Id: string }): JfItem => over
@@ -55,4 +55,26 @@ test('moveSelectedToTop: selecting everything or nothing is a no-op order-wise',
   const items = [item({ Id: 'a' }), item({ Id: 'b' }), item({ Id: 'c' })]
   assert.deepEqual(moveSelectedToTop(items, new Set()).map(i => i.Id), ['a', 'b', 'c'])
   assert.deepEqual(moveSelectedToTop(items, new Set(['a', 'b', 'c'])).map(i => i.Id), ['a', 'b', 'c'])
+})
+
+test('createPlaylistWriteGate: writes to one playlist wait their turn', async () => {
+  let clock = 1000
+  const slept: number[] = []
+  const wait = createPlaylistWriteGate(400, () => clock, async ms => { slept.push(ms) })
+  await wait('a')
+  await wait('a')
+  await wait('a')
+  // Two calls in the same instant reserve the next two slots, 400 ms apart.
+  assert.deepEqual(slept, [400, 800])
+  clock += 2000
+  await wait('a')
+  assert.deepEqual(slept, [400, 800], 'a write long after the last one does not wait')
+})
+
+test('createPlaylistWriteGate: other playlists do not wait', async () => {
+  const slept: number[] = []
+  const wait = createPlaylistWriteGate(400, () => 0, async ms => { slept.push(ms) })
+  await wait('a')
+  await wait('b')
+  assert.deepEqual(slept, [])
 })

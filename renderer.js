@@ -3140,12 +3140,17 @@ document.getElementById('pl-select-all').addEventListener('change', (e) => {
   updatePlEditToolbar()
 })
 
+// Every write to a playlist waits here first, so Jellyfin's background
+// playlist.xml saver cannot undo it (see createPlaylistWriteGate).
+const waitForPlaylistWrite = CascadeCore.createPlaylistWriteGate()
+
 // Rewrites Ids wholesale (one atomic request) rather than firing per-row
 // Move/DELETE calls. Built from currentPlaylistItems after applying the change
 // locally, then playlistMutated() re-reads from the server so the view and
 // currentPlaylistItems never disagree with what actually saved.
 async function savePlaylistIds(newItems, successMsg) {
   try {
+    await waitForPlaylistWrite(currentPlaylistId)
     const res = await fetch(`${jf.url}/Playlists/${currentPlaylistId}`, {
       method: 'POST',
       headers: CascadeCore.authHeaders(jf, { 'Content-Type': 'application/json' }),
@@ -3192,6 +3197,7 @@ document.getElementById('pl-edit-save').addEventListener('click', async () => {
   if (!name) { showNotice('Playlist name cannot be empty.', 'Playlist'); return }
   const isPublic = document.getElementById('pl-edit-public').checked
   try {
+    await waitForPlaylistWrite(currentPlaylistId)
     const res = await fetch(`${jf.url}/Playlists/${currentPlaylistId}`, {
       method: 'POST',
       headers: CascadeCore.authHeaders(jf, { 'Content-Type': 'application/json' }),
@@ -3316,6 +3322,7 @@ function wirePlaylistRowDrag(rowsEl, items) {
       renderPlaylistDetailItems(items, true)
       try {
         const entryId = moved.PlaylistItemId || moved.Id
+        await waitForPlaylistWrite(currentPlaylistId)
         const res = await fetch(`${jf.url}/Playlists/${currentPlaylistId}/Items/${entryId}/Move/${to}`, {
           method: 'POST', headers: CascadeCore.authHeaders(jf)
         })
@@ -4075,6 +4082,7 @@ document.getElementById('tctx-pl-remove').addEventListener('click', async () => 
   const entryId = _ctxEl.dataset.entryId
   if (!entryId) { showNotice('This row is missing its playlist entry ID, so it cannot be removed.', 'Playlist'); return }
   try {
+    await waitForPlaylistWrite(currentPlaylistId)
     const res = await fetch(`${jf.url}/Playlists/${currentPlaylistId}/Items?EntryIds=${encodeURIComponent(entryId)}`, {
       method: 'DELETE', headers: CascadeCore.authHeaders(jf)
     })
@@ -9153,6 +9161,7 @@ async function atpLoadPlaylists() {
         if (!items.length) return
         try {
           const ids = items.map(i => encodeURIComponent(i.Id)).join(',')
+          await waitForPlaylistWrite(el.dataset.id)
           const res = await fetch(`${jf.url}/Playlists/${el.dataset.id}/Items?Ids=${ids}&UserId=${encodeURIComponent(jf.userId)}`, {
             method: 'POST',
             headers: CascadeCore.authHeaders(jf)
