@@ -17,7 +17,6 @@ struct PlaylistsView: View {
     @AppStorage("cascade.playlistsPrefs") private var prefs = LibraryPrefs()
     private var sortField: PlaylistPrefsField { prefs.sortField(default: .name) }
     @State private var creating = false
-    @State private var newName = ""
     @State private var writeError: String?
     /// Bumped after a create so the list reloads with the new playlist.
     @State private var generation = 0
@@ -30,8 +29,9 @@ struct PlaylistsView: View {
                          direction: Binding(get: { prefs.direction }, set: { prefs.direction = $0 }),
                          favoritesOnly: Binding(get: { prefs.filter.favoritesOnly }, set: { prefs.filter.favoritesOnly = $0 }))
                 Spacer()
+                // One button for both kinds, as on the desktop: the sheet asks
+                // Normal or Smart. The smart shelf's own New tile is gone.
                 Button {
-                    newName = ""
                     creating = true
                 } label: {
                     Label("New Playlist", systemImage: "plus")
@@ -50,10 +50,8 @@ struct PlaylistsView: View {
         }
         .navigationTitle("Playlists")
         .onChange(of: prefs.field) { prefs.direction = sortField.defaultDirection }
-        .alert("New Playlist", isPresented: $creating) {
-            TextField("Name", text: $newName)
-            Button("Cancel", role: .cancel) {}
-            Button("Create") { Task { await create() } }
+        .sheet(isPresented: $creating) {
+            NewPlaylistSheet().environment(state)
         }
         .writeErrorAlert($writeError)
         .refreshable { state.playlistMutated(); generation += 1 }
@@ -69,14 +67,74 @@ struct PlaylistsView: View {
         }
     }
 
+}
+
+/// New Playlist: a normal playlist on the server, or a smart one built from
+/// rules (kept on this device, as the desktop keeps them), picked at the top.
+struct NewPlaylistSheet: View {
+    enum Kind: String, CaseIterable, Identifiable {
+        case normal = "Normal", smart = "Smart"
+        var id: Self { self }
+    }
+
+    @Environment(AppState.self) private var state
+    @Environment(\.dismiss) private var dismiss
+    @State private var kind = Kind.normal
+    @State private var name = ""
+    @State private var isSaving = false
+    @State private var error: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Picker("Kind", selection: $kind) {
+                ForEach(Kind.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding()
+            switch kind {
+            case .smart:
+                // Its own Cancel and Save; Save dismisses this whole sheet.
+                SmartPlaylistEditor(playlist: SmartPlaylist(name: name))
+            case .normal:
+                normal
+            }
+        }
+        #if os(macOS)
+        .frame(minWidth: 460, minHeight: kind == .smart ? 520 : 220)
+        #endif
+    }
+
+    private var normal: some View {
+        NavigationStack {
+            Form {
+                TextField("Name", text: $name)
+                    .onSubmit { Task { await create() } }
+                if let error { Text(error).foregroundStyle(.red) }
+            }
+            .formStyle(.grouped)
+            .navigationTitle("New Playlist")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Create") { Task { await create() } }
+                        .disabled(isSaving || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+    }
+
     private func create() async {
-        let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, let client = state.client else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !isSaving, let client = state.client else { return }
+        isSaving = true
+        defer { isSaving = false }
         do {
-            _ = try await client.createPlaylist(name: name)
+            _ = try await client.createPlaylist(name: trimmed)
             state.playlistMutated()
+            dismiss()
         } catch {
-            writeError = error.localizedDescription
+            self.error = error.localizedDescription
         }
     }
 }

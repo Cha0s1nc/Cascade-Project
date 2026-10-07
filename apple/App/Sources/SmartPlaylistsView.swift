@@ -11,7 +11,6 @@ private let builtIns: [(kind: String, name: String, symbol: String, colors: [Col
 /// rule-based ones, then a tile to make another. Above the real playlists.
 struct SmartPlaylistShelf: View {
     @Environment(AppState.self) private var state
-    @State private var creating = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -30,18 +29,11 @@ struct SmartPlaylistShelf: View {
                         }
                         .buttonStyle(.plain)
                     }
-                    Button { creating = true } label: {
-                        tile("New", "Build from rules", "plus", [.gray.opacity(0.5), .gray.opacity(0.8)])
-                    }
-                    .buttonStyle(.plain)
                 }
                 .padding(.horizontal)
             }
         }
         .padding(.bottom, 8)
-        .sheet(isPresented: $creating) {
-            SmartPlaylistEditor(playlist: SmartPlaylist(name: "")).environment(state)
-        }
     }
 
     private func tile(_ name: String, _ subtitle: String, _ symbol: String, _ colors: [Color]) -> some View {
