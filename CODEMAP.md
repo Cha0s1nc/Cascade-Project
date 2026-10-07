@@ -54,6 +54,7 @@ Verify with `npm run build:ts && npm run typecheck && npm test`.
 ### Playlists
 - `currentPlaylistItems` - **2118**, `playlistMutated()` - **2126**. **The single choke point every mutation must go through.** Bypassing it is what once left the in-memory list holding removed tracks.
 - `openPlaylist()` - **2430**. Clears `has-extra-col` before drawing its skeleton, per rule 3 above.
+- "New Playlist" (`#btn-new-playlist`) opens `#smart-pl-modal` with a Normal / Smart switch (`openNewPlaylistModal()`, `setNewPlaylistMode()`). Normal is `createEmptyPlaylist()`: a real playlist with no Ids, IsPublic on the JSON body since only `CreatePlaylistDto` has it. Editing a smart playlist hides the switch. `reloadPlaylistIndexIfShown()` redraws the index, which a create from its own header otherwise left stale.
 - Smart playlists (Favorites, Most Played) hide the Edit button: they are generated, with nothing on the server to rewrite.
 
 ### Playback, decks, crossfade

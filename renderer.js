@@ -3644,10 +3644,31 @@ function addSmartRuleRow(rule) {
 document.getElementById('smart-pl-add-rule').addEventListener('click', () => addSmartRuleRow(null))
 
 let _smartPlEditingId = null   // set while the modal edits an existing def, null while creating one
+// Which kind the shared modal is making: 'normal' (a real Jellyfin playlist)
+// or 'smart' (a local rule-based definition). Only "New Playlist" offers the
+// choice; editing a smart playlist is always 'smart'.
+let _newPlMode = 'smart'
+
+function setNewPlaylistMode(mode) {
+  _newPlMode = mode === 'normal' && !_smartPlEditingId ? 'normal' : 'smart'
+  const normal = _newPlMode === 'normal'
+  const normalBtn = document.getElementById('new-pl-mode-normal')
+  const smartBtn = document.getElementById('new-pl-mode-smart')
+  normalBtn.classList.toggle('active', normal)
+  smartBtn.classList.toggle('active', !normal)
+  normalBtn.setAttribute('aria-pressed', String(normal))
+  smartBtn.setAttribute('aria-pressed', String(!normal))
+  document.getElementById('new-pl-normal-fields').hidden = !normal
+  document.getElementById('new-pl-smart-fields').hidden = normal
+  document.getElementById('smart-pl-modal-title').textContent =
+    _smartPlEditingId ? 'Edit smart playlist' : normal ? 'New playlist' : 'New smart playlist'
+}
 
 function openSmartPlaylistEditor(def) {
   _smartPlEditingId = def ? def.id : null
-  document.getElementById('smart-pl-modal-title').textContent = def ? 'Edit smart playlist' : 'New smart playlist'
+  // .seg-control sets display itself, so the hidden attribute would lose to it.
+  document.getElementById('new-pl-mode').style.display = def ? 'none' : ''
+  setNewPlaylistMode('smart')
   document.getElementById('smart-pl-name').value = def?.name || ''
   document.getElementById('smart-pl-match').value = def?.match || 'all'
   document.getElementById('smart-pl-sort-by').value = def?.sortBy || 'name'
@@ -3660,14 +3681,78 @@ function openSmartPlaylistEditor(def) {
   document.getElementById('smart-pl-modal').classList.remove('hidden')
 }
 
-document.getElementById('btn-new-smart-playlist').addEventListener('click', () => openSmartPlaylistEditor(null))
+/** "New Playlist": the same modal with the Normal / Smart switch showing,
+ *  starting on Normal since a plain playlist is the common case. */
+function openNewPlaylistModal() {
+  openSmartPlaylistEditor(null)
+  document.getElementById('new-pl-public').checked = false
+  setNewPlaylistMode('normal')
+  document.getElementById('smart-pl-name').focus()
+}
+
+document.getElementById('btn-new-playlist').addEventListener('click', openNewPlaylistModal)
+document.getElementById('new-pl-mode-normal').addEventListener('click', () => setNewPlaylistMode('normal'))
+document.getElementById('new-pl-mode-smart').addEventListener('click', () => setNewPlaylistMode('smart'))
+
+// The Playlists index only re-fetches when shown with its loaded flag cleared,
+// and a playlist made from its own header leaves it showing - so redraw it
+// now rather than leaving the new card missing until the next visit.
+function reloadPlaylistIndexIfShown() {
+  delete document.getElementById('playlists-grid').dataset.loaded
+  const index = document.getElementById('playlist-index')
+  if (document.getElementById('view-playlists').classList.contains('active') && index.style.display !== 'none') loadPlaylists()
+}
+
+/** A real, empty Jellyfin playlist. Name, owner and media type go in the query
+ *  like every other create call here; IsPublic only exists on the JSON body
+ *  (CreatePlaylistDto). Returns the new id, or null after telling the user. */
+async function createEmptyPlaylist(name, isPublic) {
+  try {
+    const res = await fetch(`${jf.url}/Playlists?Name=${encodeURIComponent(name)}&UserId=${encodeURIComponent(jf.userId)}&MediaType=Audio`, {
+      method: 'POST',
+      headers: CascadeCore.authHeaders(jf, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ Name: name, Ids: [], UserId: jf.userId, MediaType: 'Audio', IsPublic: isPublic })
+    })
+    if (!res.ok) throw new Error(await CascadeCore.readErrorMessage(res))
+    const data = await res.json().catch(() => null)
+    return typeof data?.Id === 'string' && data.Id ? data.Id : ''
+  } catch (e) {
+    showNotice(`Could not create the playlist.\n\n${e.message}`, 'Playlist')
+    return null
+  }
+}
 
 document.getElementById('smart-pl-cancel').addEventListener('click', () => {
   document.getElementById('smart-pl-modal').classList.add('hidden')
 })
 
+let _newPlSaving = false
+
 document.getElementById('smart-pl-save').addEventListener('click', async () => {
   const name = document.getElementById('smart-pl-name').value.trim()
+  if (_newPlMode === 'normal' && !_smartPlEditingId) {
+    if (!name) { showNotice('Give this playlist a name.', 'Playlist'); return }
+    // Guarded here, not only by disabling the button: a second press while
+    // the first request is in flight would create the playlist twice.
+    if (_newPlSaving) return
+    _newPlSaving = true
+    const saveBtn = document.getElementById('smart-pl-save')
+    saveBtn.disabled = true
+    try {
+      const id = await createEmptyPlaylist(name, document.getElementById('new-pl-public').checked)
+      if (id == null) return
+      document.getElementById('smart-pl-modal').classList.add('hidden')
+      showToast(`Playlist "${name}" created`)
+      reloadPlaylistIndexIfShown()
+      // The server answers with the new id; an older one that does not still
+      // made the playlist, which the reloaded index now shows.
+      if (id) openPlaylist(id, name)
+    } finally {
+      _newPlSaving = false
+      saveBtn.disabled = false
+    }
+    return
+  }
   if (!name) { showNotice('Give this smart playlist a name.', 'Smart Playlist'); return }
   const rules = [...document.querySelectorAll('#smart-pl-rules .smart-pl-rule')].map(row => {
     const field = row.querySelector('.spl-field').value
@@ -3691,7 +3776,7 @@ document.getElementById('smart-pl-save').addEventListener('click', async () => {
   userSmartPlaylists = merged
   await saveUserSmartPlaylists()
   document.getElementById('smart-pl-modal').classList.add('hidden')
-  delete document.getElementById('playlists-grid').dataset.loaded
+  reloadPlaylistIndexIfShown()
   showToast(_smartPlEditingId ? 'Smart playlist updated' : 'Smart playlist created')
   if (currentSmartKind === raw.id) await refreshPlaylistDetail()
 })
