@@ -121,7 +121,7 @@ private struct SongsTable: View {
             TableColumn("Title", value: \.songTitle) { track in
                 cell(track) {
                     HStack(spacing: 8) {
-                        ArtworkView(itemId: track.albumId ?? track.id, size: 24)
+                        ArtworkView(itemId: track.albumId ?? track.id, size: 32)
                         Text(track.songTitle).lineLimit(1)
                     }
                 }
@@ -191,7 +191,9 @@ private struct SongsTable: View {
         // no AppState and the app stopped on a fatal error opening Songs.
         content()
             .environment(state)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            // The desktop's row: 45 pt with a 32 pt cover (SONG_ROW_H in
+            // renderer.js), not the table's default single tight line.
+            .frame(maxWidth: .infinity, minHeight: 37, alignment: .leading)
             .contentShape(Rectangle())
             .simultaneousGesture(TapGesture(count: 2).onEnded { play(selected: [track.id], startingAt: track) })
     }

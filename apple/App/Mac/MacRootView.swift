@@ -101,6 +101,9 @@ struct MacRootView: View {
             if section != .settings, !MacSection.sidebar(for: state.browseMode).contains(section) { section = .home }
         }
         .frame(minWidth: 800, minHeight: 560)
+        // List rows at the desktop's spacing (its track and queue rows are 45
+        // and 53 pt): the macOS default packed them into about 24.
+        .environment(\.defaultMinListRowHeight, 44)
         #if DEBUG
         // Debug builds only: `-cascade.section songs` opens a section at
         // launch, to check it without clicking (UI scripting is not allowed).
@@ -119,6 +122,9 @@ struct MacRootView: View {
             }
         }
         .listStyle(.sidebar)
+        // The desktop's sidebar rows are 36 pt with 15 pt icons; .large is
+        // the closest the system sidebar goes.
+        .environment(\.sidebarRowSize, .large)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             // Pinned under the list so it is always there, like the desktop's.
             VStack(spacing: 0) {
