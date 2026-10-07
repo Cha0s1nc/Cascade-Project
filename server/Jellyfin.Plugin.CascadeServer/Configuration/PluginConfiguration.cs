@@ -30,4 +30,23 @@ public class PluginConfiguration : BasePluginConfiguration
     /// themselves only: Cascade keeps their links on their own computer.
     /// </summary>
     public string[] ServerWideSpotifyLinkUsers { get; set; } = [];
+
+    /// <summary>
+    /// Gets or sets the server style mode: "off", "default" or "enforced". Set through
+    /// PUT /CascadeServer/Style, which validates it; kept here so it is backed up with the
+    /// rest of the settings.
+    /// </summary>
+    public string ServerStyleMode { get; set; } = "off";
+
+    /// <summary>Gets or sets whether the theme part of the server style is locked (enforced mode).</summary>
+    public bool ServerStyleEnforceTheme { get; set; }
+
+    /// <summary>Gets or sets whether the lyrics part of the server style is locked (enforced mode).</summary>
+    public bool ServerStyleEnforceLyrics { get; set; }
+
+    /// <summary>Gets or sets the validated preset JSON text; empty when the mode is off.</summary>
+    public string ServerStylePresetJson { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets when the server style last changed, as an ISO 8601 UTC time; empty when never.</summary>
+    public string ServerStyleUpdatedUtc { get; set; } = string.Empty;
 }

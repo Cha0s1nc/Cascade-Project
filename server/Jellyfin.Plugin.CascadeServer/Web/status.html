@@ -44,6 +44,39 @@
                     <button is="emby-button" type="submit" class="raised button-submit block"><span>Save</span></button>
                 </form>
 
+                <form id="csStyleForm" style="margin:1em 0 2.5em;">
+                    <h2>Server style</h2>
+                    <div class="fieldDescription" style="margin-bottom:0.8em;">
+                        A theme and lyrics look for everyone on this server. In Cascade, open the Theme panel, choose
+                        Share a look, and copy it as text (or save a .cascadepreset file), then paste or load it here.
+                        As a default it fills in the settings people never changed. Enforced, it is applied over their
+                        own settings without overwriting them. Dark or light mode and the font always stay the user's own.
+                    </div>
+                    <div class="selectContainer">
+                        <label class="selectLabel" for="csStyleMode">Mode</label>
+                        <select is="emby-select" id="csStyleMode" class="emby-select-withcolor emby-select">
+                            <option value="off">Off</option>
+                            <option value="default">Default for everyone</option>
+                            <option value="enforced">Enforced</option>
+                        </select>
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label><input is="emby-checkbox" type="checkbox" id="csStyleEnforceTheme" /><span>Enforce the theme (colors, background)</span></label>
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label><input is="emby-checkbox" type="checkbox" id="csStyleEnforceLyrics" /><span>Enforce the lyrics look</span></label>
+                        <div class="fieldDescription checkboxFieldDescription">The two boxes only matter in Enforced mode.</div>
+                    </div>
+                    <div class="inputContainer">
+                        <textarea id="csStylePreset" rows="8" style="width:100%;font-family:monospace;" placeholder="Paste a Cascade preset here"></textarea>
+                    </div>
+                    <div style="margin:0.5em 0;"><input type="file" id="csStyleFile" accept=".cascadepreset,.json,application/json" /></div>
+                    <div id="csStylePreview" class="fieldDescription" style="margin:0.5em 0;"></div>
+                    <div id="csStyleMsg" class="fieldDescription" style="margin:0.5em 0;"></div>
+                    <button is="emby-button" type="submit" class="raised button-submit"><span>Save style</span></button>
+                    <button is="emby-button" type="button" class="raised" id="csStyleClear"><span>Clear</span></button>
+                </form>
+
                 <h2>Lyrics coverage</h2>
                 <p>Shows which tracks in your library have word-level karaoke lyrics available from Kugou, based on
                    the last run of the <strong>Download lyrics</strong> (Cascade Server) scheduled task. Tracks the task
@@ -268,7 +301,83 @@
                 return false;
             });
 
-            page.addEventListener('viewshow', function () { loadSettings(); load(); });
+            // ── Server style ────────────────────────────────────────────────────
+            function stylePresetSummary(text) {
+                var p;
+                try { p = JSON.parse(text); } catch (e) { return text.trim() ? 'Not valid JSON yet.' : ''; }
+                if (!p || typeof p !== 'object') return 'Not a preset.';
+                var parts = [];
+                if (p.theme && typeof p.theme === 'object') parts.push('theme');
+                if (p.lyrics && typeof p.lyrics === 'object') parts.push('lyrics');
+                var out = '"' + escapeHtml(p.name || 'Untitled') + '": ' + (parts.join(' and ') || 'nothing usable');
+                var t = p.theme || {};
+                var hex = /^#[0-9a-fA-F]{6}$/;
+                if (hex.test(t.gradStart) && hex.test(t.gradEnd)) {
+                    out += ' <span style="display:inline-block;width:3em;height:0.9em;vertical-align:middle;border-radius:3px;background:linear-gradient(90deg,' +
+                        t.gradStart + ',' + t.gradEnd + ');"></span> ' + t.gradStart + ' to ' + t.gradEnd;
+                }
+                return out;
+            }
+
+            function styleMsg(text, bad) {
+                var el = page.querySelector('#csStyleMsg');
+                el.textContent = text || '';
+                el.style.color = bad ? '#e05252' : '';
+            }
+
+            function loadStyle() {
+                ApiClient.getJSON(ApiClient.getUrl('CascadeServer/Style')).then(function (s) {
+                    page.querySelector('#csStyleMode').value = s.mode;
+                    page.querySelector('#csStyleEnforceTheme').checked = !!(s.enforce && s.enforce.theme);
+                    page.querySelector('#csStyleEnforceLyrics').checked = !!(s.enforce && s.enforce.lyrics);
+                    page.querySelector('#csStylePreset').value = s.preset ? JSON.stringify(s.preset, null, 2) : '';
+                    page.querySelector('#csStylePreview').innerHTML = s.preset ? stylePresetSummary(JSON.stringify(s.preset)) : '';
+                });
+            }
+
+            function styleError(res) {
+                if (res && res.json) return res.json().then(function (j) { return j.error || 'Failed.'; }, function () { return 'Failed.'; });
+                return Promise.resolve('Failed.');
+            }
+
+            page.querySelector('#csStylePreset').addEventListener('input', function () {
+                page.querySelector('#csStylePreview').innerHTML = stylePresetSummary(this.value);
+            });
+            page.querySelector('#csStyleFile').addEventListener('change', function () {
+                var f = this.files && this.files[0];
+                if (!f) return;
+                if (f.size > 65536) { styleMsg('That file is too large to be a Cascade preset.', true); return; }
+                var r = new FileReader();
+                r.onload = function () {
+                    var ta = page.querySelector('#csStylePreset');
+                    ta.value = String(r.result);
+                    ta.dispatchEvent(new Event('input'));
+                };
+                r.readAsText(f);
+            });
+            page.querySelector('#csStyleForm').addEventListener('submit', function (e) {
+                e.preventDefault();
+                var mode = page.querySelector('#csStyleMode').value;
+                var body = { mode: mode, enforce: {
+                    theme: page.querySelector('#csStyleEnforceTheme').checked,
+                    lyrics: page.querySelector('#csStyleEnforceLyrics').checked }, preset: null };
+                if (mode !== 'off') {
+                    try { body.preset = JSON.parse(page.querySelector('#csStylePreset').value); }
+                    catch (err) { styleMsg('The preset is not valid JSON.', true); return false; }
+                }
+                ApiClient.ajax({ type: 'PUT', url: ApiClient.getUrl('CascadeServer/Style'),
+                    contentType: 'application/json', data: JSON.stringify(body) })
+                    .then(function () { styleMsg('Saved.'); loadStyle(); })
+                    .catch(function (res) { styleError(res).then(function (m) { styleMsg(m, true); }); });
+                return false;
+            });
+            page.querySelector('#csStyleClear').addEventListener('click', function () {
+                ApiClient.ajax({ type: 'DELETE', url: ApiClient.getUrl('CascadeServer/Style') })
+                    .then(function () { styleMsg('Cleared.'); loadStyle(); })
+                    .catch(function (res) { styleError(res).then(function (m) { styleMsg(m, true); }); });
+            });
+
+            page.addEventListener('viewshow', function () { loadSettings(); loadStyle(); load(); });
             page.addEventListener('viewdestroy', stopCheckAllPolling);
             page.querySelector('#clRefreshBtn').addEventListener('click', function () { load(); });
             page.querySelector('#clCheckAllBtn').addEventListener('click', checkAll);
