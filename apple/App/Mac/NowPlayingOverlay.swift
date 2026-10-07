@@ -89,6 +89,12 @@ private struct OverlayContent: View {
     /// The controls fold away after 3 s without a sign of life, while something is playing; the
     /// progress row stays, so a glance still says where you are.
     @State private var idle = false
+    /// Buttons, icons and the bar grow with the cover, so a big window on a
+    /// high-resolution screen does not leave them tiny under it.
+    @State private var controlScale: CGFloat = 1
+    private var u: CGFloat { controlScale }
+    /// 1 up to a 360 pt cover, then in step with it, to at most 1.8.
+    static func scale(forCover side: CGFloat) -> CGFloat { min(1.8, max(1, side / 360)) }
     @State private var wake = 0
     @State private var artHovering = false
 
@@ -165,7 +171,7 @@ private struct OverlayContent: View {
         ZStack {
             Button(action: close) {
                 HStack(spacing: 7) {
-                    Image(systemName: "chevron.down").font(.system(size: 12, weight: .bold))
+                    Image(systemName: "chevron.down").font(.system(size: 12 * u, weight: .bold))
                     Text("Now Playing").font(.caption.weight(.semibold))
                 }
                 .foregroundStyle(ink.opacity(0.6))
@@ -199,11 +205,12 @@ private struct OverlayContent: View {
                         .foregroundStyle(ink.opacity(0.7)).lineLimit(1)
                 }
                 if let error = player.error { Text(error).font(.caption).foregroundStyle(.red) }
-                controls.frame(maxWidth: min(side + 80, 460))
+                controls.frame(maxWidth: min(side + 80, 460 * u))
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 28)
             .frame(width: geo.size.width, height: geo.size.height)
+            .onChange(of: side, initial: true) { controlScale = Self.scale(forCover: side) }
         }
         .frame(maxWidth: .infinity)
         .background(scrim)
@@ -236,9 +243,9 @@ private struct OverlayContent: View {
 
     private func artButton(_ symbol: String, label: String, tint: Color = .white, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 18, weight: .semibold))
+            Image(systemName: symbol).font(.system(size: 18 * u, weight: .semibold))
                 .foregroundStyle(tint)
-                .frame(width: 48, height: 48)
+                .frame(width: 48 * u, height: 48 * u)
                 .background(Circle().fill(.ultraThinMaterial))
                 .contentShape(Circle())
         }
@@ -302,7 +309,7 @@ private struct OverlayContent: View {
             Text(clock(scrubbing.map { $0 * player.durationSeconds } ?? player.positionSeconds))
                 .font(.caption2.monospacedDigit()).foregroundStyle(ink.opacity(0.6))
             MacSlider(value: scrubbing ?? (player.durationSeconds > 0 ? player.positionSeconds / player.durationSeconds : 0),
-                      step: 5 / max(player.durationSeconds, 1), bigStep: 30 / max(player.durationSeconds, 1),
+                      step: 5 / max(player.durationSeconds, 1), bigStep: 30 / max(player.durationSeconds, 1), height: 4 * u,
                       fill: ink, label: "Seek",
                       valueText: { "\(clock($0 * player.durationSeconds)) of \(clock(player.durationSeconds))" },
                       onChange: { scrubbing = $0 },
@@ -317,26 +324,26 @@ private struct OverlayContent: View {
     }
 
     private var transport: some View {
-        HStack(spacing: 26) {
-            Button { player.toggleShuffle() } label: { Image(systemName: "shuffle").font(.system(size: 16)) }
+        HStack(spacing: 26 * u) {
+            Button { player.toggleShuffle() } label: { Image(systemName: "shuffle").font(.system(size: 16 * u)) }
                 .foregroundStyle(player.shuffle ? MacTheme.shared.accent : ink.opacity(0.7))
                 .accessibilityLabel("Shuffle")
                 .accessibilityValue(player.shuffle ? "On" : "Off")
-            Button { Task { await player.previous() } } label: { Image(systemName: "backward.fill").font(.system(size: 22)) }
+            Button { Task { await player.previous() } } label: { Image(systemName: "backward.fill").font(.system(size: 22 * u)) }
                 .accessibilityLabel("Previous")
             Button { player.togglePlayPause() } label: {
                 Image(systemName: player.isPaused ? "play.fill" : "pause.fill")
-                    .font(.system(size: 22))
+                    .font(.system(size: 22 * u))
                     .foregroundStyle(HexColor.prefersDarkInk(over: theme.accentHex) ? Color.black : Color.white)
-                    .frame(width: 52, height: 52)
+                    .frame(width: 52 * u, height: 52 * u)
                     .background(Circle().fill(MacTheme.shared.accent))
                     .contentShape(Circle())
             }
             .accessibilityLabel(player.isPaused ? "Play" : "Pause")
-            Button { Task { await player.next() } } label: { Image(systemName: "forward.fill").font(.system(size: 22)) }
+            Button { Task { await player.next() } } label: { Image(systemName: "forward.fill").font(.system(size: 22 * u)) }
                 .accessibilityLabel("Next")
             Button { player.cycleRepeat() } label: {
-                Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat").font(.system(size: 16))
+                Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat").font(.system(size: 16 * u))
             }
             .foregroundStyle(player.repeatMode == .none ? ink.opacity(0.7) : MacTheme.shared.accent)
             .accessibilityLabel("Repeat")
@@ -351,7 +358,7 @@ private struct OverlayContent: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(player.isMuted ? "Unmute" : "Mute")
-            MacSlider(value: Double(player.isMuted ? 0 : player.volume), fill: ink.opacity(0.6), label: "Volume") {
+            MacSlider(value: Double(player.isMuted ? 0 : player.volume), height: 4 * u, fill: ink.opacity(0.6), label: "Volume") {
                 if player.isMuted { player.setMuted(false) }
                 player.setVolume(Float($0))
             }
@@ -369,7 +376,7 @@ private struct OverlayContent: View {
                 withAnimation(.easeInOut(duration: 0.3)) { ui.rightPanel = showingLyrics ? .queue : .lyrics }
             } label: {
                 Image(systemName: showingLyrics ? "quote.bubble.fill" : "quote.bubble")
-                    .font(.system(size: 17))
+                    .font(.system(size: 17 * u))
                     .frame(width: 36, height: 30)
                     .background(Circle().fill(showingLyrics ? ink.opacity(0.18) : .clear))
             }
@@ -403,7 +410,7 @@ private struct OverlayContent: View {
                 }
             }
         } label: {
-            Image(systemName: "ellipsis").font(.system(size: 17))
+            Image(systemName: "ellipsis").font(.system(size: 17 * u))
                 .frame(width: 36, height: 30)
         }
         .menuStyle(.button)
@@ -502,6 +509,7 @@ private struct ToolbarHider: NSViewRepresentable {
         weak var window: NSWindow?
         var wasVisible: Bool?
         var titleWas: NSWindow.TitleVisibility?
+        var titleObservation: NSKeyValueObservation?
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -515,6 +523,11 @@ private struct ToolbarHider: NSViewRepresentable {
             context.coordinator.titleWas = window.titleVisibility
             toolbar.isVisible = false
             window.titleVisibility = .hidden
+            // SwiftUI writes the section's title back as the view updates;
+            // keep the title bar empty while this is up.
+            context.coordinator.titleObservation = window.observe(\.titleVisibility) { window, _ in
+                if window.titleVisibility != .hidden { DispatchQueue.main.async { window.titleVisibility = .hidden } }
+            }
         }
         return view
     }
@@ -523,6 +536,7 @@ private struct ToolbarHider: NSViewRepresentable {
 
     static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
         if let wasVisible = coordinator.wasVisible { coordinator.window?.toolbar?.isVisible = wasVisible }
+        coordinator.titleObservation = nil
         if let titleWas = coordinator.titleWas { coordinator.window?.titleVisibility = titleWas }
     }
 }

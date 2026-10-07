@@ -28,12 +28,21 @@ struct MacSlider: View {
 
     var body: some View {
         GeometryReader { bar in
+            let knob = height * 3 + (dragging ? 2 : 0)
+            let x = max(0, min(1, value)) * bar.size.width
             ZStack(alignment: .leading) {
-                Capsule().fill(fill.opacity(0.25))
-                Capsule().fill(fill)
-                    .frame(width: max(0, min(1, value)) * bar.size.width)
+                Group {
+                    Capsule().fill(fill.opacity(0.25))
+                    Capsule().fill(fill)
+                        .frame(width: x)
+                }
+                .frame(height: dragging ? height + 3 : height)
+                // The handle: where the value is, and something to grab.
+                Circle().fill(fill)
+                    .frame(width: knob, height: knob)
+                    .shadow(color: .black.opacity(0.25), radius: 1.5, y: 0.5)
+                    .offset(x: min(max(0, x - knob / 2), bar.size.width - knob))
             }
-            .frame(height: dragging ? height + 3 : height)
             .frame(maxHeight: .infinity)
             .contentShape(Rectangle())
             .gesture(
@@ -49,7 +58,7 @@ struct MacSlider: View {
             )
             .animation(.easeOut(duration: 0.12), value: dragging)
         }
-        .frame(height: 18)
+        .frame(height: max(18, height * 3 + 6))
         .focusable()
         .focused($focused)
         .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow, .pageUp, .pageDown, .home, .end]) { press in
