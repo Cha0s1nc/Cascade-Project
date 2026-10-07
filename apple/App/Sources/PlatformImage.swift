@@ -12,9 +12,26 @@ extension NSImage {
     convenience init(cgImage: CGImage) { self.init(cgImage: cgImage, size: .zero) }
     /// Pixel area, for NSCache costs. NSImage has no scale; its reps carry the pixels.
     var pixelArea: Int { cgImage.map { $0.width * $0.height } ?? Int(size.width * size.height) }
-    /// AppKit decodes lazily at first draw; forcing a CGImage here moves that
-    /// off the main thread, as byPreparingForDisplay does on iOS.
-    func preparedForDisplay() async -> NSImage? { cgImage == nil ? nil : self }
+    /// Decoded now, off the main thread, as byPreparingForDisplay does on iOS.
+    /// AppKit otherwise decodes a JPEG lazily at its first draw, on the main
+    /// thread, and covers scrolling into a grid stalled it (up to 167 ms).
+    /// Drawing into a bitmap forces the decode here; nil if it fails.
+    func preparedForDisplay() async -> NSImage? {
+        guard let source = cgImage else { return nil }
+        let size = self.size
+        let decoded = await Task.detached(priority: .userInitiated) { () -> CGImage? in
+            let width = source.width, height = source.height
+            guard width > 0, height > 0, let space = CGColorSpace(name: CGColorSpace.sRGB),
+                  let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                          bytesPerRow: 0, space: space,
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
+                                              | CGBitmapInfo.byteOrder32Little.rawValue) else { return nil }
+            context.interpolationQuality = .high
+            context.draw(source, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return context.makeImage()
+        }.value
+        return decoded.map { NSImage(cgImage: $0, size: size) }
+    }
 }
 
 extension Image {

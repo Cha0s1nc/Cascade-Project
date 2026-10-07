@@ -85,6 +85,9 @@ struct MacRootView: View {
             NowPlayingOverlay()
             MacVideoHost()
         }
+        // The one presenter for every track and tile menu in the window:
+        // Add to Playlist, Media Info, the delete dialogs.
+        .trackActionHost()
         // Results, and anything else that opens an item, go through here so a
         // movie found from Music mode switches to Video, as the desktop's
         // sectionMode does for a deep link.
@@ -111,6 +114,7 @@ struct MacRootView: View {
             if let raw = UserDefaults.standard.string(forKey: "cascade.section"), let s = MacSection(rawValue: raw) { section = s }
             // `-cascade.nowPlaying YES` opens Now Playing (paused on a restored queue: nothing plays).
             if UserDefaults.standard.bool(forKey: "cascade.nowPlaying") { state.nowPlayingOpen = true }
+            DebugScrollProbe.runIfAsked()
         }
         #endif
     }

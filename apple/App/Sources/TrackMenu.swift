@@ -31,12 +31,14 @@ private struct TrackContextMenu: ViewModifier {
 
     func body(content: Content) -> some View {
         #if os(macOS)
-        // The host presents Add to Playlist, Media Info and the delete dialog.
+        // The window's one host (MacRootView, the overlay, a table) presents
+        // Add to Playlist, Media Info and the delete dialog. A host per row put
+        // two sheets, a dialog and an alert on every row, and SwiftUI merged
+        // all of them on each frame of a scroll: lists scrolled at ~13 fps.
         content.contextMenu {
             TrackMenuItems(track: track, favorite: $favorite, played: $played,
                            addingToPlaylist: $addingToPlaylist)
         }
-        .trackActionHost()
         #else
         content.contextMenu {
             TrackMenuItems(track: track, favorite: $favorite, played: $played,
@@ -232,36 +234,32 @@ private struct ItemContextMenu: ViewModifier {
                 }
             }
             #if os(macOS)
-            MacItemMenuExtras(item: item, deletingPlaylist: $deletingPlaylist)
+            MacItemMenuExtras(item: item, deletingPlaylist: Binding(
+                get: { trackActions?.deletingPlaylist?.id == item.id },
+                set: { trackActions?.deletingPlaylist = $0 ? item : nil }))
             #endif
         }
+        #if os(macOS)
+        // Presented by the window's one host (trackActionHost): a sheet and a
+        // dialog on every tile were merged by SwiftUI on each frame of a
+        // scroll, and grids scrolled at ~13 fps.
+        .onChange(of: addingToPlaylist) { _, on in
+            guard on else { return }
+            addingToPlaylist = false
+            trackActions?.playlistTracks = playlistTracks
+            trackActions?.addingToPlaylist = true
+        }
+        #else
         .sheet(isPresented: $addingToPlaylist) {
             AddToPlaylistSheet(tracks: playlistTracks).environment(state)
-        }
-        #if os(macOS)
-        .confirmationDialog("Delete \u{201C}\(item.name ?? "playlist")\u{201D}?", isPresented: $deletingPlaylist,
-                            titleVisibility: .visible) {
-            Button("Delete Playlist", role: .destructive) { Task { await deletePlaylist() } }
-        } message: {
-            Text("The songs stay in your library.")
         }
         #endif
     }
 
     #if os(macOS)
-    @State private var deletingPlaylist = false
-
-    /// Re-checks the right before sending: a dimmed item can still be triggered.
-    private func deletePlaylist() async {
-        guard state.canDelete, let client = state.client else { return }
-        do {
-            try await client.deleteItem(item.id)
-            state.playlistMutated()
-        } catch {
-            NSAlert(error: error).runModal()
-        }
-    }
+    @Environment(\.trackActions) private var trackActions
     #endif
+
 
     /// The tile's songs, fetched when an action needs them: a grid of albums
     /// does not carry its tracks, and fetching them all up front would cost a

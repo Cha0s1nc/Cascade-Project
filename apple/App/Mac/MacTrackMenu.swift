@@ -15,6 +15,8 @@ final class TrackActionState {
     var playlistTracks: [JfItem] = []
     var addingToPlaylist = false
     var deleting: [JfItem] = []
+    /// A playlist a tile's menu asked to delete; the host confirms it.
+    var deletingPlaylist: JfItem?
     var error: String?
 }
 
@@ -55,7 +57,30 @@ private struct TrackActionHost: ViewModifier {
             } message: {
                 Text("This removes the file from your server and cannot be undone.")
             }
+            .confirmationDialog("Delete \u{201C}\(actions.deletingPlaylist?.name ?? "playlist")\u{201D}?",
+                                isPresented: Binding(get: { actions.deletingPlaylist != nil },
+                                                     set: { if !$0 { actions.deletingPlaylist = nil } }),
+                                titleVisibility: .visible) {
+                Button("Delete Playlist", role: .destructive) {
+                    let playlist = actions.deletingPlaylist
+                    actions.deletingPlaylist = nil
+                    if let playlist { Task { await deletePlaylist(playlist) } }
+                }
+            } message: {
+                Text("The songs stay in your library.")
+            }
             .writeErrorAlert($actions.error)
+    }
+
+    /// Re-checks the right before sending: a dimmed item can still be triggered.
+    private func deletePlaylist(_ playlist: JfItem) async {
+        guard state.canDelete, let client = state.client else { return }
+        do {
+            try await client.deleteItem(playlist.id)
+            state.playlistMutated()
+        } catch {
+            actions.error = "Could not delete \u{201C}\(playlist.name ?? "playlist")\u{201D}: \(error.localizedDescription)"
+        }
     }
 
     private var deleteTitle: String {
