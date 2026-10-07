@@ -30,6 +30,9 @@ final class AppState {
     /// The Mac's Now Playing overlay is showing.
     var nowPlayingOpen = false
 
+    /// Bumped by Command-comma; the Mac shell shows its Settings section.
+    var settingsRequests = 0
+
     /// From the user's Policy (Permissions). False until it has been read and
     /// for any failure: gated items stay dimmed rather than offered and refused.
     private(set) var isAdmin = false

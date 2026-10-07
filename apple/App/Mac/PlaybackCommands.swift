@@ -13,6 +13,11 @@ struct PlaybackCommands: Commands {
     let state: AppState
     var body: some Commands {
         CommandMenu("Playback") { PlaybackMenuItems(state: state) }
+        // The app menu's Settings, Command-comma, opens the sidebar's Settings.
+        CommandGroup(replacing: .appSettings) {
+            Button("Settings\u{2026}") { state.settingsRequests += 1 }
+                .keyboardShortcut(",", modifiers: .command)
+        }
     }
 }
 

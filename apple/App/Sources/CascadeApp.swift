@@ -44,9 +44,6 @@ struct CascadeApp: App {
             UpdateAvailableView().environment(state)
         }
         .windowResizability(.contentSize)
-        Settings {
-            MacSettingsView().frame(width: 680, height: 720).macThemed().environment(state)
-        }
         #else
         WindowGroup {
             RootView()
@@ -82,9 +79,6 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
 struct RootView: View {
     @Environment(AppState.self) private var state
-    #if os(macOS) && DEBUG
-    @Environment(\.openSettings) private var openSettings
-    #endif
 
     /// Debug builds only: `-cascade.forceSignIn YES` shows the sign-in screen
     /// over a stored session, to look at it without signing anyone out.
@@ -109,10 +103,5 @@ struct RootView: View {
                 NavigationStack { SignInView() }
             }
         }
-        #if os(macOS) && DEBUG
-        // Debug builds only: `-cascade.openSettings YES` opens Settings at
-        // launch, to check it without clicking (UI scripting is not allowed).
-        .onAppear { if UserDefaults.standard.bool(forKey: "cascade.openSettings") { openSettings() } }
-        #endif
     }
 }

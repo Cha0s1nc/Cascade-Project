@@ -20,48 +20,51 @@ struct MacRootView: View {
     private var isSearching: Bool { !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     var body: some View {
-        NavigationSplitView {
-            sidebar
-                .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 280)
-        } detail: {
-            // Keyed by section, so each one starts at its own root rather
-            // than inheriting the last section's pushed pages.
-            if isSearching {
-                TabStack { SearchResultsView(query: query).navigationTitle("Search") }
-                    .id("search")
-            } else {
-                TabStack(opening: $pendingItem) { section.root }
-                    .id(section)
-            }
-        }
-        .toolbar {
-            ToolbarItem(placement: .navigation) {
-                // Nothing to switch to on a music-only server, as on the desktop.
-                if libraries.hasVideoLibrary {
-                    @Bindable var state = state
-                    Picker("Browse", selection: $state.browseMode) {
-                        Text("Music").tag(AppState.BrowseMode.music)
-                        Text("Video").tag(AppState.BrowseMode.video)
-                    }
-                    .pickerStyle(.segmented)
+        // The bar sits under the split view, not over it as an inset: the
+        // AppKit lists and forms in the columns ignore a SwiftUI inset, so
+        // Settings and the sidebar's own Settings row ran under the bar.
+        VStack(spacing: 0) {
+            NavigationSplitView {
+                sidebar
+                    .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 280)
+            } detail: {
+                // Keyed by section, so each one starts at its own root rather
+                // than inheriting the last section's pushed pages.
+                if isSearching {
+                    TabStack { SearchResultsView(query: query).navigationTitle("Search") }
+                        .id("search")
+                } else {
+                    TabStack(opening: $pendingItem) { section.root }
+                        .id(section)
                 }
             }
-            ToolbarItem(placement: .primaryAction) { MacConnectButtons() }
-            ToolbarItem(placement: .primaryAction) { ThemePanelButton() }
-        }
-        .searchable(text: $query, placement: .toolbar,
-                    prompt: state.browseMode == .video ? "Search movies and shows" : "Search songs, albums, artists")
-        .searchFocused($searchFocused)
-        .background {
-            // Command-K, as on the desktop. A zero-size button rather than a
-            // menu command: the main window is the only place it applies.
-            Button("Search") { searchFocused = true }
-                .keyboardShortcut("k", modifiers: .command)
-                .frame(width: 0, height: 0)
-                .opacity(0)
-                .accessibilityHidden(true)
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+            .toolbar {
+                ToolbarItem(placement: .navigation) {
+                    // Nothing to switch to on a music-only server, as on the desktop.
+                    if libraries.hasVideoLibrary {
+                        @Bindable var state = state
+                        Picker("Browse", selection: $state.browseMode) {
+                            Text("Music").tag(AppState.BrowseMode.music)
+                            Text("Video").tag(AppState.BrowseMode.video)
+                        }
+                        .pickerStyle(.segmented)
+                    }
+                }
+                ToolbarItem(placement: .primaryAction) { MacConnectButtons() }
+                ToolbarItem(placement: .primaryAction) { ThemePanelButton() }
+            }
+            .searchable(text: $query, placement: .toolbar,
+                        prompt: state.browseMode == .video ? "Search movies and shows" : "Search songs, albums, artists")
+            .searchFocused($searchFocused)
+            .background {
+                // Command-K, as on the desktop. A zero-size button rather than a
+                // menu command: the main window is the only place it applies.
+                Button("Search") { searchFocused = true }
+                    .keyboardShortcut("k", modifiers: .command)
+                    .frame(width: 0, height: 0)
+                    .opacity(0)
+                    .accessibilityHidden(true)
+            }
             if let player = state.player {
                 PlayerBar(player: player)
             }
@@ -79,6 +82,9 @@ struct MacRootView: View {
         .task(id: state.config?.userId) {
             await libraries.load(client: state.client, userId: state.config?.userId)
         }
+        // Command-comma and the app menu's Settings come here: one Settings,
+        // the sidebar's, rather than a second window with the same tabs.
+        .onChange(of: state.settingsRequests) { section = .settings; query = "" }
         // Leaving a mode strands a section only that mode has; Home and
         // Settings are in both, so they stay.
         .onChange(of: state.browseMode) {
