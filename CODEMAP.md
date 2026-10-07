@@ -26,6 +26,10 @@ Verify with `npm run build:ts && npm run typecheck && npm test`.
 
 **The coupling no AST can see:** `index.html` defines ids and classes, `renderer.js` reaches them by `getElementById` / `querySelector` string literals. Renaming an id is a silent break that typecheck will not catch.
 
+## Edition labels
+
+The server's Devices and Activity screens tell Cascade's editions apart by the auth header's `Client`: `Cascade Electron` (this app, every OS), `Cascade iOS`, `Cascade tvOS`, and `Cascade Mac` for the native port on `mac-swift-port`. `Device` is the machine (`Windows`, `Mac`, `Linux`, `iPhone`, `iPad`, `Apple TV`). Desktop sets it once in `init()` through `CascadeCore.setClientIdentity()`, before anything authenticates; `authHeader()` reads it, and the lyrics and metadata editor windows get it in the `jf` they are opened with. Apple's is `cascadeEdition` in `JellyfinClient.swift`. The server keys a device on `DeviceId`, so the Mac port keeping Electron's id renames the device rather than adding one. Nothing matches on the old plain `Cascade`.
+
 ## Rules this codebase learned the hard way
 
 1. **Read the response of anything that writes.** Five separate write paths were found reporting success on an HTTP 403 because nothing checked `res.ok`, and one removed a track from the queue regardless of what the server said, so a refused delete looked exactly like a successful one.
@@ -54,6 +58,8 @@ Verify with `npm run build:ts && npm run typecheck && npm test`.
 ### Playlists
 - `currentPlaylistItems` - **2118**, `playlistMutated()` - **2126**. **The single choke point every mutation must go through.** Bypassing it is what once left the in-memory list holding removed tracks.
 - `openPlaylist()` - **2430**. Clears `has-extra-col` before drawing its skeleton, per rule 3 above.
+- "New Playlist" (`#btn-new-playlist`) opens `#smart-pl-modal` with a Normal / Smart switch (`openNewPlaylistModal()`, `setNewPlaylistMode()`). Normal is `createEmptyPlaylist()`: a real playlist with no Ids, IsPublic on the JSON body since only `CreatePlaylistDto` has it. Editing a smart playlist hides the switch. `reloadPlaylistIndexIfShown()` redraws the index, which a create from its own header otherwise left stale.
+- Playlist details (`openPlaylistDetails()`, `#pl-edit-modal`, from Edit > Details… and the card menu's Details…): picture, name, description, public. Name and public are `POST /Playlists/{id}`. Picture and description go through `CascadeCore.playlistDetailsRoute()`: Cascade Server's `playlist-edit` routes when offered (the owner may use them), else Jellyfin's admin-only `POST /Items/{id}/Images/Primary` (body is **base64 text**) and full-DTO `POST /Items/{id}`, else disabled with a note. Each part is written only if changed and its baseline moves only on success, so Save after a failure resends just what failed. `playlistArtUrl()` adds a cache-buster after a picture change, since the header URL carries no image tag. The image is sniffed by its bytes (`sniffImageType`), not the picker's extension.
 - Smart playlists (Favorites, Most Played) hide the Edit button: they are generated, with nothing on the server to rewrite.
 
 ### Playback, decks, crossfade
@@ -85,6 +91,7 @@ Verify with `npm run build:ts && npm run typecheck && npm test`.
     - Translated lines are cached per engine (`apple|ja|...`), so switching engines never serves the other's output.
     - Translation Languages has no System Settings link of its own; the prompt opens Language & Region (`com.apple.Localization-Settings.extension`) and says where to click.
   - Settings model rows (`renderTranslationModelRows`, **8428**) update in place, never rebuild: progress events arrive several times a second and a rebuild would swap the button under the pointer.
+- `createSpring()` (both lyric scroll springs) steps through `CascadeCore.stepSpring()` (`src/core/spring.ts`) in fixed 1/240 s substeps and snaps after a gap over 0.25 s. **Never go back to one step per frame:** explicit Euler with stiffness 250 / damping 50 diverges below about 25 fps, which a fullscreen game starving Cascade's frames (VALORANT on Windows) caused, flinging the lyrics on every line change.
 - A lyrics MISS is cached, not just a hit (`_cachePut(item.Id, null)` at the tail of `fetchLyricsWaterfall`). Both readers gate on `.has()`, so without it a track with no lyrics anywhere re-ran all three sources on every advance - for the track and the five `_prefetchUpcoming` looks ahead at. A forced source still bypasses the cache; `_reloadLyricsFor()` is the escape hatch when a source was merely down.
 
 ### Theme and album art
@@ -92,6 +99,12 @@ Verify with `npm run build:ts && npm run typecheck && npm test`.
 - `themeFromArtUrl()` - **9267**. The ONLY way to feed colour extraction, per rule 8 above. Four call sites route through it; `applyAlbumArtTheme()` is called from nowhere else.
 - `setOverlayBackgroundImage()` - **5461**. Single choke point for `#np-overlay`'s background, holding a skip-if-unchanged cache. That element is `position: fixed; inset: 0` and the queue, transport, art and lyrics all paint into the same layer, so every assignment re-rasters the viewport - and writing an identical value still invalidates paint. The cache lives in the setter and not in `startBeatLoop`'s closure precisely because three other paths write this property and would leave a closure-local cache stale.
 - Light mode is NOT "dark but paler". With multiply blending a dark blob stains a near-white base like ink, so the two lightness ranges move in opposite directions on purpose. See `BLOB_L_RANGE` in `album-colors.ts`.
+
+### Presets (Theme panel > Share a look)
+- `src/core/presets.ts` is the format and every check: `{ format: 'cascade-preset', version: 1, name, theme?, lyrics? }`. `parsePreset()` never throws, refuses anything over 64 KB, a wrong format or a newer version, and runs every value through the setting's own clamp (`lyricStyleFrom`, `clamp*`, `sanitizeFontName`, a strict `#rrggbb`). A missing field takes the shipped default, so a preset lands on one known look. `buildPreset()` uses the same checks, so an export can never write what an import would refuse.
+- renderer.js `currentPreset()` reads the live controls; `applyPreset()` goes through the controls' own save paths (`setAlbumArtAccent`, `saveUiFont`, `saveLyricStyle`, `saveNpTuning`) and re-syncs them. Text size, background dim and blend share the `npTuning` key, so a lyrics-only or theme-only preset writes that key from whichever side it carries.
+- main.js `preset-save` / `preset-open` move text only, size-capped, through the OS dialogs. `clipboard-read` exists for "Paste text".
+- Not built yet: a server-wide style from Cascade Server, and the Apple app reading presets (its lyric keys already match).
 
 ### Tooltips, menus, debug
 - `_positionTooltip()` - **9408**. One shared `#tooltip` element on `<body>` (index.html **1534**, CSS `styles/controls.css` **19**), delegated from `document`. NOT a `::after`: a pseudo-element cannot escape clipping or a stacking context, which is why tips vanished behind the player bar and inside Settings.

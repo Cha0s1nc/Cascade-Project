@@ -167,6 +167,7 @@ struct SettingsView: View {
             }
 
             Section("About") {
+                LabeledContent("Edition", value: cascadeEdition)
                 LabeledContent("Version", value: state.appVersion)
             }
         }

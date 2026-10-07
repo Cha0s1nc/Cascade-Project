@@ -36,6 +36,11 @@ const cascade: ElectronPlatform = {
   },
   clipboard: {
     write: (text) => ipcRenderer.invoke('clipboard-write', text),
+    read:  () => ipcRenderer.invoke('clipboard-read'),
+  },
+  presets: {
+    save: (fileName, text) => ipcRenderer.invoke('preset-save', fileName, text),
+    open: () => ipcRenderer.invoke('preset-open'),
   },
   shell: {
     openExternal: (url) => ipcRenderer.invoke('shell-open', url),

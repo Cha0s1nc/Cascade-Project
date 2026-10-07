@@ -767,6 +767,44 @@ ipcMain.handle('connection-reset-certificate', async () => {
 
 // IPC: clipboard
 ipcMain.handle('clipboard-write', (_e, text) => clipboard.writeText(text))
+// For "Paste preset". Through main rather than navigator.clipboard.readText,
+// which Chromium gates on a permission and on focus that a page in a popover
+// does not reliably have.
+ipcMain.handle('clipboard-read', () => clipboard.readText())
+
+// IPC: theme and lyrics presets (.cascadepreset files)
+// Text in, text out: the renderer builds and validates the preset
+// (src/core/presets.ts). Main only moves bytes, and caps them, since a file
+// picked here could be anything.
+const PRESET_MAX_BYTES = 64 * 1024
+const PRESET_FILTERS = [{ name: 'Cascade preset', extensions: ['cascadepreset', 'json'] }]
+
+ipcMain.handle('preset-save', async (e, fileName, text) => {
+  if (typeof text !== 'string' || Buffer.byteLength(text) > PRESET_MAX_BYTES) return { ok: false, error: 'Preset too large' }
+  const owner = BrowserWindow.fromWebContents(e.sender)
+  const defaultPath = path.join(app.getPath('documents'), typeof fileName === 'string' ? path.basename(fileName) : 'Cascade preset.cascadepreset')
+  const { canceled, filePath } = await dialog.showSaveDialog(owner || undefined, { title: 'Export preset', defaultPath, filters: PRESET_FILTERS })
+  if (canceled || !filePath) return { ok: false, canceled: true }
+  try {
+    await fs.promises.writeFile(filePath, text, 'utf8')
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
+ipcMain.handle('preset-open', async (e) => {
+  const owner = BrowserWindow.fromWebContents(e.sender)
+  const { canceled, filePaths } = await dialog.showOpenDialog(owner || undefined, { title: 'Import preset', properties: ['openFile'], filters: PRESET_FILTERS })
+  if (canceled || !filePaths?.length) return { ok: false, canceled: true }
+  try {
+    const { size } = await fs.promises.stat(filePaths[0])
+    if (size > PRESET_MAX_BYTES) return { ok: false, error: 'That file is too large to be a Cascade preset.' }
+    return { ok: true, text: await fs.promises.readFile(filePaths[0], 'utf8') }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
 
 // IPC: shell
 // Web links only. Some of what reaches this comes from third parties (a

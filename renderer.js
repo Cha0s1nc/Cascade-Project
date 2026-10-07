@@ -3228,39 +3228,243 @@ document.getElementById('pl-edit-bottom').addEventListener('click', () => {
   savePlaylistIds(moveSelectedToBottom(currentPlaylistItems, plEditSelected), 'Moved to bottom')
 })
 
-// Rename + public/private. One small modal for both since they're the same
-// UpdatePlaylistDto request - reuses .modal-overlay/.modal-card/.modal-input/
-// .modal-btn verbatim (no new modal CSS) and the existing .toggle switch used
-// throughout Settings.
-document.getElementById('pl-edit-props').addEventListener('click', () => {
-  document.getElementById('pl-edit-name').value = document.getElementById('pl-detail-name').textContent
-  document.getElementById('pl-edit-public').checked = plCurrentIsPublic
-  document.getElementById('pl-edit-modal').classList.remove('hidden')
-})
-document.getElementById('pl-edit-cancel').addEventListener('click', () => {
+// ── Playlist details (picture, name, description, public) ───────────────────
+// One modal for everything about a playlist that is not its tracks. Name and
+// public go through Jellyfin's own POST /Playlists/{id}, which the owner may
+// use. Picture and description cannot: Jellyfin requires an admin for both
+// (POST /Items/{id}/Images/Primary and POST /Items/{id}), so they go through
+// Cascade Server's playlist-edit routes when it offers them, which let the
+// owner do it, and Jellyfin's routes for an admin otherwise. With neither,
+// those controls are disabled and say why. See
+// CascadeCore.playlistDetailsRoute and docs/cascade-server-plugin-tasks.md.
+
+let _plDetails = null   // the playlist the modal is editing, and what it started from
+const _plArtBust = new Map()   // playlist id -> cache-buster after a picture change
+
+/** The detail header's art URL. It carries no image tag, so after a change
+ *  the old picture would be served from cache without the buster. */
+function playlistArtUrl(playlistId) {
+  const bust = _plArtBust.get(playlistId)
+  return `${jf.url}/Items/${playlistId}/Images/Primary?fillHeight=160&fillWidth=160&quality=80&ApiKey=${jf.token}${bust ? `&v=${bust}` : ''}`
+}
+
+function _setPlDetailsArt(src) {
+  const el = document.getElementById('pl-edit-art')
+  el.textContent = '♪'
+  if (!src) return
+  const img = document.createElement('img')
+  img.alt = ''
+  img.onerror = () => { el.textContent = '♪' }
+  img.src = src
+  el.replaceChildren(img)
+}
+
+function _dropPendingArt() {
+  if (_plDetails?.art && _plDetails.art !== 'remove') URL.revokeObjectURL(_plDetails.art.url)
+  if (_plDetails) _plDetails.art = null
+}
+
+function closePlaylistDetails() {
+  _dropPendingArt()
+  _plDetails = null
+  document.getElementById('pl-edit-art-file').value = ''
   document.getElementById('pl-edit-modal').classList.add('hidden')
+}
+
+async function openPlaylistDetails(playlistId, name) {
+  if (!playlistId) return
+  let it = null
+  try { it = await jfGet(`/Users/${jf.userId}/Items/${playlistId}`, { Fields: 'Overview' }) } catch {}
+  if (it?.CanDelete === false) {
+    showNotice('You do not have permission to edit this playlist.', 'Playlist')
+    return
+  }
+  const route = CascadeCore.playlistDetailsRoute(_cascadePluginCaps, !_cascadePluginAbsent, !!jf.isAdmin)
+  _plDetails = {
+    id: playlistId,
+    route,
+    name: it?.Name || name || '',
+    isPublic: !!it?.IsPublic,
+    overview: typeof it?.Overview === 'string' ? it.Overview : '',
+    hasArt: !!it?.ImageTags?.Primary,
+    art: null,   // null (unchanged), 'remove', or { bytes, type, url }
+    saving: false,
+  }
+  document.getElementById('pl-edit-name').value = _plDetails.name
+  document.getElementById('pl-edit-public').checked = _plDetails.isPublic
+  document.getElementById('pl-edit-overview').value = _plDetails.overview
+  _setPlDetailsArt(_plDetails.hasArt ? playlistArtUrl(playlistId) : null)
+  // Disabled AND guarded in the handlers below.
+  const note = document.getElementById('pl-edit-art-note')
+  note.hidden = !!route
+  note.textContent = route ? '' : 'The picture and description need Cascade Server on this server, or an admin account.'
+  document.getElementById('pl-edit-art-change').disabled = !route
+  document.getElementById('pl-edit-art-remove').disabled = !route || !_plDetails.hasArt
+  document.getElementById('pl-edit-overview').disabled = !route
+  document.getElementById('pl-edit-modal').classList.remove('hidden')
+}
+
+document.getElementById('pl-edit-props').addEventListener('click', () => {
+  openPlaylistDetails(currentPlaylistId, document.getElementById('pl-detail-name').textContent)
 })
+document.getElementById('pl-edit-cancel').addEventListener('click', closePlaylistDetails)
+
+document.getElementById('pl-edit-art-change').addEventListener('click', () => {
+  if (!_plDetails?.route || _plDetails.saving) return
+  document.getElementById('pl-edit-art-file').click()
+})
+
+document.getElementById('pl-edit-art-file').addEventListener('change', async (e) => {
+  const file = e.target.files?.[0]
+  e.target.value = ''
+  if (!file || !_plDetails?.route) return
+  if (file.size > CascadeCore.PLAYLIST_IMAGE_MAX_BYTES) {
+    showNotice('That picture is too large. Use one under 10 MB.', 'Playlist')
+    return
+  }
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  const type = CascadeCore.sniffImageType(bytes)
+  if (!type) { showNotice('Use a JPEG, PNG or WebP picture.', 'Playlist'); return }
+  _dropPendingArt()
+  _plDetails.art = { bytes, type, url: URL.createObjectURL(new Blob([bytes], { type })) }
+  _setPlDetailsArt(_plDetails.art.url)
+  document.getElementById('pl-edit-art-remove').disabled = false
+})
+
+document.getElementById('pl-edit-art-remove').addEventListener('click', () => {
+  if (!_plDetails?.route || _plDetails.saving) return
+  _dropPendingArt()
+  // Removing a picture that was only picked in this dialog just un-picks it.
+  if (_plDetails.hasArt) _plDetails.art = 'remove'
+  _setPlDetailsArt(null)
+  document.getElementById('pl-edit-art-remove').disabled = true
+})
+
+/** One write, checked (CODEMAP rule 1). Resolves to an error message or null. */
+async function _plDetailsWrite(path, init) {
+  try {
+    // Spaced like every other playlist write (createPlaylistWriteGate); the
+    // name, description and picture of one playlist share one gate.
+    const id = path.match(/[0-9a-f]{32}/i)?.[0]
+    if (id) await waitForPlaylistWrite(id)
+    const res = await fetch(`${jf.url}${path}`, init)
+    return res.ok ? null : await CascadeCore.readErrorMessage(res)
+  } catch (e) {
+    return e.message
+  }
+}
+
+async function _savePlaylistOverview(d, overview) {
+  if (d.route === 'plugin') {
+    return _plDetailsWrite(`/CascadeServer/Playlists/${d.id}/Details`, {
+      method: 'PUT',
+      headers: CascadeCore.authHeaders(jf, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ overview }),
+    })
+  }
+  // Jellyfin's item update replaces the whole item, so it takes the full
+  // fetched DTO with one field changed, never a partial body (the metadata
+  // editor's rule too).
+  try {
+    const res = await fetch(`${jf.url}/Items/${d.id}`, { headers: CascadeCore.authHeaders(jf) })
+    if (!res.ok) return await CascadeCore.readErrorMessage(res)
+    const full = await res.json()
+    return _plDetailsWrite(`/Items/${d.id}`, {
+      method: 'POST',
+      headers: CascadeCore.authHeaders(jf, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ ...full, Overview: overview }),
+    })
+  } catch (e) {
+    return e.message
+  }
+}
+
+async function _savePlaylistArt(d) {
+  const plugin = d.route === 'plugin'
+  const path = plugin ? `/CascadeServer/Playlists/${d.id}/Image` : `/Items/${d.id}/Images/Primary`
+  if (d.art === 'remove') return _plDetailsWrite(path, { method: 'DELETE', headers: CascadeCore.authHeaders(jf) })
+  // The plugin takes the raw bytes; Jellyfin's own route reads its body as
+  // base64 text with the image's type as Content-Type.
+  return _plDetailsWrite(path, {
+    method: 'POST',
+    headers: CascadeCore.authHeaders(jf, { 'Content-Type': d.art.type }),
+    body: plugin ? d.art.bytes : CascadeCore.bytesToBase64(d.art.bytes),
+  })
+}
+
 document.getElementById('pl-edit-save').addEventListener('click', async () => {
+  const d = _plDetails
+  if (!d || d.saving) return
   const name = document.getElementById('pl-edit-name').value.trim()
   if (!name) { showNotice('Playlist name cannot be empty.', 'Playlist'); return }
   const isPublic = document.getElementById('pl-edit-public').checked
+  const overview = document.getElementById('pl-edit-overview').value.trim().slice(0, CascadeCore.PLAYLIST_OVERVIEW_MAX)
+  d.saving = true
+  const saveBtn = document.getElementById('pl-edit-save')
+  saveBtn.disabled = true
+  const failed = []
   try {
-    await waitForPlaylistWrite(currentPlaylistId)
-    const res = await fetch(`${jf.url}/Playlists/${currentPlaylistId}`, {
-      method: 'POST',
-      headers: CascadeCore.authHeaders(jf, { 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ Name: name, IsPublic: isPublic })
-    })
-    if (!res.ok) throw new Error(await CascadeCore.readErrorMessage(res))
-    plCurrentIsPublic = isPublic
-    document.getElementById('pl-detail-name').textContent = name
-    document.getElementById('pl-edit-modal').classList.add('hidden')
-    showToast('Playlist updated')
-    await playlistMutated(currentPlaylistId)
-  } catch (e) {
-    showNotice(`Could not update the playlist.\n\n${e.message}`, 'Playlist')
+    // Each part is written only if it changed, and its starting value moves
+    // forward only once it saved, so pressing Save again after a failure
+    // resends just what failed.
+    if (name !== d.name || isPublic !== d.isPublic) {
+      const err = await _plDetailsWrite(`/Playlists/${d.id}`, {
+        method: 'POST',
+        headers: CascadeCore.authHeaders(jf, { 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ Name: name, IsPublic: isPublic }),
+      })
+      if (err) failed.push(`Name and public: ${err}`)
+      else {
+        d.name = name
+        d.isPublic = isPublic
+        if (currentPlaylistId === d.id) {
+          document.getElementById('pl-detail-name').textContent = name
+          plCurrentIsPublic = isPublic
+        }
+      }
+    }
+    if (d.route && overview !== d.overview) {
+      const err = await _savePlaylistOverview(d, overview)
+      if (err) failed.push(`Description: ${err}`)
+      else {
+        d.overview = overview
+        if (currentPlaylistId === d.id) showPlaylistOverview(overview)
+      }
+    }
+    if (d.route && d.art) {
+      const err = await _savePlaylistArt(d)
+      if (err) failed.push(`Picture: ${err}`)
+      else {
+        d.hasArt = d.art !== 'remove'
+        _dropPendingArt()
+        _plArtBust.set(d.id, Date.now())
+        if (currentPlaylistId === d.id) {
+          document.getElementById('pl-detail-art').innerHTML = d.hasArt
+            ? `<img src="${playlistArtUrl(d.id)}" alt="" onerror="this.parentElement.textContent='♪'">` : '♪'
+        }
+      }
+    }
+  } finally {
+    d.saving = false
+    saveBtn.disabled = false
   }
+  // The index shows names and pictures, and re-fetches them next time it is
+  // drawn. Nothing about the tracks changed, so the open list stays as is.
+  delete document.getElementById('playlists-grid').dataset.loaded
+  if (failed.length) {
+    showNotice(`Some changes did not save.\n\n${failed.join('\n')}`, 'Playlist')
+    return
+  }
+  closePlaylistDetails()
+  showToast('Playlist updated')
 })
+
+/** The description under the playlist's name in its detail header. */
+function showPlaylistOverview(text) {
+  const el = document.getElementById('pl-detail-overview')
+  el.textContent = text || ''
+  el.hidden = !text
+}
 
 function showPlaylistDetailShell(name) {
   document.getElementById('playlist-index').style.display = 'none'
@@ -3389,8 +3593,13 @@ async function openPlaylist(playlistId, name) {
   document.getElementById('btn-edit-playlist').style.display = ''
   const artEl = document.getElementById('pl-detail-art')
   artEl.style.background = ''
-  const plArtUrl = `${jf.url}/Items/${playlistId}/Images/Primary?fillHeight=160&fillWidth=160&quality=80&ApiKey=${jf.token}`
-  artEl.innerHTML = `<img src="${plArtUrl}" alt="" onerror="this.innerHTML='♪'">`
+  artEl.innerHTML = `<img src="${playlistArtUrl(playlistId)}" alt="" onerror="this.parentElement.textContent='♪'">`
+  // The description is not in the track list's response, so it comes from the
+  // item itself, without holding up the tracks.
+  showPlaylistOverview('')
+  jfGet(`/Users/${jf.userId}/Items/${playlistId}`, { Fields: 'Overview' })
+    .then(it => { if (currentPlaylistId === playlistId) showPlaylistOverview(typeof it?.Overview === 'string' ? it.Overview : '') })
+    .catch(() => {})
 
   try {
     renderOfflineButtons()
@@ -3651,10 +3860,31 @@ function addSmartRuleRow(rule) {
 document.getElementById('smart-pl-add-rule').addEventListener('click', () => addSmartRuleRow(null))
 
 let _smartPlEditingId = null   // set while the modal edits an existing def, null while creating one
+// Which kind the shared modal is making: 'normal' (a real Jellyfin playlist)
+// or 'smart' (a local rule-based definition). Only "New Playlist" offers the
+// choice; editing a smart playlist is always 'smart'.
+let _newPlMode = 'smart'
+
+function setNewPlaylistMode(mode) {
+  _newPlMode = mode === 'normal' && !_smartPlEditingId ? 'normal' : 'smart'
+  const normal = _newPlMode === 'normal'
+  const normalBtn = document.getElementById('new-pl-mode-normal')
+  const smartBtn = document.getElementById('new-pl-mode-smart')
+  normalBtn.classList.toggle('active', normal)
+  smartBtn.classList.toggle('active', !normal)
+  normalBtn.setAttribute('aria-pressed', String(normal))
+  smartBtn.setAttribute('aria-pressed', String(!normal))
+  document.getElementById('new-pl-normal-fields').hidden = !normal
+  document.getElementById('new-pl-smart-fields').hidden = normal
+  document.getElementById('smart-pl-modal-title').textContent =
+    _smartPlEditingId ? 'Edit smart playlist' : normal ? 'New playlist' : 'New smart playlist'
+}
 
 function openSmartPlaylistEditor(def) {
   _smartPlEditingId = def ? def.id : null
-  document.getElementById('smart-pl-modal-title').textContent = def ? 'Edit smart playlist' : 'New smart playlist'
+  // .seg-control sets display itself, so the hidden attribute would lose to it.
+  document.getElementById('new-pl-mode').style.display = def ? 'none' : ''
+  setNewPlaylistMode('smart')
   document.getElementById('smart-pl-name').value = def?.name || ''
   document.getElementById('smart-pl-match').value = def?.match || 'all'
   document.getElementById('smart-pl-sort-by').value = def?.sortBy || 'name'
@@ -3667,14 +3897,78 @@ function openSmartPlaylistEditor(def) {
   document.getElementById('smart-pl-modal').classList.remove('hidden')
 }
 
-document.getElementById('btn-new-smart-playlist').addEventListener('click', () => openSmartPlaylistEditor(null))
+/** "New Playlist": the same modal with the Normal / Smart switch showing,
+ *  starting on Normal since a plain playlist is the common case. */
+function openNewPlaylistModal() {
+  openSmartPlaylistEditor(null)
+  document.getElementById('new-pl-public').checked = false
+  setNewPlaylistMode('normal')
+  document.getElementById('smart-pl-name').focus()
+}
+
+document.getElementById('btn-new-playlist').addEventListener('click', openNewPlaylistModal)
+document.getElementById('new-pl-mode-normal').addEventListener('click', () => setNewPlaylistMode('normal'))
+document.getElementById('new-pl-mode-smart').addEventListener('click', () => setNewPlaylistMode('smart'))
+
+// The Playlists index only re-fetches when shown with its loaded flag cleared,
+// and a playlist made from its own header leaves it showing - so redraw it
+// now rather than leaving the new card missing until the next visit.
+function reloadPlaylistIndexIfShown() {
+  delete document.getElementById('playlists-grid').dataset.loaded
+  const index = document.getElementById('playlist-index')
+  if (document.getElementById('view-playlists').classList.contains('active') && index.style.display !== 'none') loadPlaylists()
+}
+
+/** A real, empty Jellyfin playlist. Name, owner and media type go in the query
+ *  like every other create call here; IsPublic only exists on the JSON body
+ *  (CreatePlaylistDto). Returns the new id, or null after telling the user. */
+async function createEmptyPlaylist(name, isPublic) {
+  try {
+    const res = await fetch(`${jf.url}/Playlists?Name=${encodeURIComponent(name)}&UserId=${encodeURIComponent(jf.userId)}&MediaType=Audio`, {
+      method: 'POST',
+      headers: CascadeCore.authHeaders(jf, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ Name: name, Ids: [], UserId: jf.userId, MediaType: 'Audio', IsPublic: isPublic })
+    })
+    if (!res.ok) throw new Error(await CascadeCore.readErrorMessage(res))
+    const data = await res.json().catch(() => null)
+    return typeof data?.Id === 'string' && data.Id ? data.Id : ''
+  } catch (e) {
+    showNotice(`Could not create the playlist.\n\n${e.message}`, 'Playlist')
+    return null
+  }
+}
 
 document.getElementById('smart-pl-cancel').addEventListener('click', () => {
   document.getElementById('smart-pl-modal').classList.add('hidden')
 })
 
+let _newPlSaving = false
+
 document.getElementById('smart-pl-save').addEventListener('click', async () => {
   const name = document.getElementById('smart-pl-name').value.trim()
+  if (_newPlMode === 'normal' && !_smartPlEditingId) {
+    if (!name) { showNotice('Give this playlist a name.', 'Playlist'); return }
+    // Guarded here, not only by disabling the button: a second press while
+    // the first request is in flight would create the playlist twice.
+    if (_newPlSaving) return
+    _newPlSaving = true
+    const saveBtn = document.getElementById('smart-pl-save')
+    saveBtn.disabled = true
+    try {
+      const id = await createEmptyPlaylist(name, document.getElementById('new-pl-public').checked)
+      if (id == null) return
+      document.getElementById('smart-pl-modal').classList.add('hidden')
+      showToast(`Playlist "${name}" created`)
+      reloadPlaylistIndexIfShown()
+      // The server answers with the new id; an older one that does not still
+      // made the playlist, which the reloaded index now shows.
+      if (id) openPlaylist(id, name)
+    } finally {
+      _newPlSaving = false
+      saveBtn.disabled = false
+    }
+    return
+  }
   if (!name) { showNotice('Give this smart playlist a name.', 'Smart Playlist'); return }
   const rules = [...document.querySelectorAll('#smart-pl-rules .smart-pl-rule')].map(row => {
     const field = row.querySelector('.spl-field').value
@@ -3698,7 +3992,7 @@ document.getElementById('smart-pl-save').addEventListener('click', async () => {
   userSmartPlaylists = merged
   await saveUserSmartPlaylists()
   document.getElementById('smart-pl-modal').classList.add('hidden')
-  delete document.getElementById('playlists-grid').dataset.loaded
+  reloadPlaylistIndexIfShown()
   showToast(_smartPlEditingId ? 'Smart playlist updated' : 'Smart playlist created')
   if (currentSmartKind === raw.id) await refreshPlaylistDetail()
 })
@@ -7162,6 +7456,15 @@ async function migrateDeviceId(serverUrl, username, password, token, userId) {
 }
 
 async function init() {
+  // Before anything authenticates: the edition and machine name go into the
+  // auth header, which is how the server's Devices screen tells this desktop
+  // build apart from the Apple and Android apps.
+  const identity = CascadeCore.setClientIdentity({
+    client: CascadeCore.ELECTRON_EDITION,
+    device: CascadeCore.desktopDeviceName(window.cascade.platform),
+  })
+  const editionEl = document.getElementById('app-edition')
+  if (editionEl) editionEl.textContent = identity.client
   // Before anything authenticates: the device id goes into the auth header.
   deviceId = await window.cascade.store.get('deviceId')
   if (!deviceId) {
@@ -9295,6 +9598,11 @@ document.getElementById('ov-translate-btn').addEventListener('click', () => onTr
 // keeps moving from its current speed toward the new target instead of
 // restarting from a standstill, which is what makes back-to-back line changes
 // read as one continuous glide instead of a stutter-restart.
+//
+// The stepping is CascadeCore.stepSpring (src/core/spring.ts), in fixed small
+// substeps. One explicit step per frame diverged below about 25 fps, which a
+// fullscreen game starving Cascade's frames reliably caused: the lyrics flung
+// or shook on every new line whenever Cascade was not in front.
 // Lyric motion, shared by both lyric springs and tunable live from DevTools
 // (cascadeDebug.lyricMotion). Tuned by eye against Apple Music, 2026-09-23:
 // overdamped (critical damping for 250 would be ~31.6), so lines ease in and
@@ -9318,16 +9626,16 @@ function createSpring(onUpdate, motion = LYRIC_MOTION) {
 
   function frame(ts) {
     if (lastTs == null) lastTs = ts
-    const dt = Math.min((ts - lastTs) / 1000, 0.05)  // clamp so a stalled tab doesn't fling on resume
+    // A gap long enough to mean nothing was drawn snaps instead of animating
+    // a stale move (see SPRING_SNAP_GAP_S), so no clamp is needed here.
+    const dt = (ts - lastTs) / 1000
     lastTs = ts
     if (targetFn) target = targetFn()
 
-    const accel = (target - pos) * motion.stiffness - vel * motion.damping
-    vel += accel * dt
-    pos += vel * dt
-
-    const settled = Math.abs(target - pos) < 0.05 && Math.abs(vel) < 0.05
-    if (settled) { pos = target; vel = 0 }
+    const next = CascadeCore.stepSpring({ pos, vel }, target, dt, motion)
+    pos = next.pos
+    vel = next.vel
+    const settled = next.settled
     onUpdate(pos)
 
     if (!settled) raf = requestAnimationFrame(frame)
@@ -9953,7 +10261,7 @@ function showItemCtxMenu(kind, item, el, x, y, onDetail) {
   // playlist is - see menuItemsForKind) rather than adding two more rows that
   // would only ever apply to one kind.
   const renameLabel = document.getElementById('ictx-rename-label')
-  if (renameLabel) renameLabel.textContent = kind === 'user-smart-playlist' ? 'Edit rules…' : 'Rename…'
+  if (renameLabel) renameLabel.textContent = kind === 'user-smart-playlist' ? 'Edit rules…' : kind === 'playlist' ? 'Details…' : 'Rename…'
   const deleteLabel = document.getElementById('ictx-delete-label')
   if (deleteLabel) deleteLabel.textContent = kind === 'user-smart-playlist' ? 'Delete smart playlist' : 'Delete playlist'
   // _applyAdminGating() gates ictx-delete on jf.canDelete for a real playlist's
@@ -10119,10 +10427,10 @@ document.getElementById('ictx-mark-unplayed').addEventListener('click', () => {
   if (_ictxItem) setItemPlayed(_ictxItem, false)
 })
 
-// Rename reuses the exact same modal/save-handler as the playlist detail
-// view's "Rename / Public…" (pl-edit-props / pl-edit-save below) - it just has
-// to seed currentPlaylistId/plCurrentIsPublic itself first, the same way
-// btn-edit-playlist's handler does, since this card was never opened.
+// A real playlist's "Details…" opens the same modal as the detail view's
+// Details button. It works on its own copy of the playlist id, so opening it
+// from a card no longer repoints currentPlaylistId at a playlist that is not
+// the one on screen.
 document.getElementById('ictx-rename').addEventListener('click', async () => {
   hideItemCtxMenu()
   if (_ictxKind === 'user-smart-playlist' && _ictxItem) {
@@ -10131,15 +10439,7 @@ document.getElementById('ictx-rename').addEventListener('click', async () => {
     return
   }
   if (_ictxKind !== 'playlist' || !_ictxItem) return
-  currentPlaylistId = _ictxItem.Id
-  currentSmartKind = null
-  try {
-    const it = await jfGet(`/Users/${jf.userId}/Items/${_ictxItem.Id}`)
-    plCurrentIsPublic = !!it.IsPublic
-  } catch { plCurrentIsPublic = false }
-  document.getElementById('pl-edit-name').value = _ictxItem.Name
-  document.getElementById('pl-edit-public').checked = plCurrentIsPublic
-  document.getElementById('pl-edit-modal').classList.remove('hidden')
+  openPlaylistDetails(_ictxItem.Id, _ictxItem.Name)
 })
 
 // Delete reuses deleteItemFromServer (defined with "Delete media" above) - a
@@ -10738,7 +11038,7 @@ async function openLyricsEditorFor(item) {
   const seed = item.Id === queue[queueIndex]?.Id && !lyricsCredit ? (lyricsData || []) : []
   // Pass `volume`, not audio.volume: mid-crossfade the element is partway
   // through a fade and would hand the editor whatever that transient value is.
-  window.cascade.lyricsEditor.open({ item, jf, lyricsData: seed, volume, lyricsUrl: cascadeLyricsUrl(item.Id) })
+  window.cascade.lyricsEditor.open({ item, jf: { ...jf, ...CascadeCore.clientIdentity() }, lyricsData: seed, volume, lyricsUrl: cascadeLyricsUrl(item.Id) })
 }
 
 // Spicy Lyrics' own sync editor, its fork of the AMLL TTML Tool, which its
@@ -10774,7 +11074,7 @@ const SPICY_TTML_TOOL_URL = 'https://tool.community.spicylyrics.org/'
 // window itself checks jf.isAdmin again before its save button does anything.
 function openMetadataEditorFor(item) {
   if (!item || !jf.isAdmin) return
-  window.cascade.metadataEditor.open({ item, jf })
+  window.cascade.metadataEditor.open({ item, jf: { ...jf, ...CascadeCore.clientIdentity() } })
 }
 
 // Refresh whatever already-loaded views hold the edited item. Same local
@@ -12619,6 +12919,121 @@ document.getElementById('tp-lyric-reset').addEventListener('click', () => {
   syncLyricKnobs()
 })
 
+// ── Presets (Theme panel > Share a look) ────────────────────────────────────
+// A preset is the theme (mode, gradient, album art accent, background dim and
+// blend, font) and/or the lyrics style (knobs plus text size). The format and
+// every check live in src/core/presets.ts; this reads the live controls and
+// applies a preset through the same save paths those controls use, so an
+// imported look is stored exactly as if it had been set by hand.
+
+let _presetBusy = false
+
+/** The current look as a preset, limited to the parts switched on, or null
+ *  (after saying why) when both are off. */
+function currentPreset() {
+  const withTheme = document.getElementById('tp-preset-theme').checked
+  const withLyrics = document.getElementById('tp-preset-lyrics').checked
+  if (!withTheme && !withLyrics) {
+    showNotice('Switch on colors, lyrics style, or both to make a preset.', 'Preset')
+    return null
+  }
+  const theme = withTheme ? {
+    mode: _isLightTheme() ? 'light' : 'dark',
+    gradStart: document.getElementById('grad-start').value,
+    gradEnd: document.getElementById('grad-end').value,
+    albumArt: themeAlbumArt,
+    bgDim: parseFloat(document.getElementById('tp-bg-dim').value),
+    bgBlend: document.getElementById('tp-bg-blend').checked,
+    font: { preset: document.getElementById('tp-font-preset').value, custom: document.getElementById('tp-font-custom').value },
+  } : undefined
+  const lyrics = withLyrics ? {
+    style: CascadeCore.lyricStyleChanges(lyricStyle),
+    lyricScale: parseFloat(document.getElementById('tp-lyric-scale').value),
+  } : undefined
+  return CascadeCore.buildPreset({ name: document.getElementById('tp-preset-name').value, theme, lyrics })
+}
+
+/** Applies a parsed (already validated) preset. Parts it does not carry are
+ *  left alone. */
+async function applyPreset(preset) {
+  const t = preset.theme
+  if (t) {
+    setThemeMode(t.mode)
+    document.getElementById('grad-start').value = t.gradStart
+    document.getElementById('grad-end').value = t.gradEnd
+    applyGradient(t.gradStart, t.gradEnd)
+    // Saves the theme key too, with the mode and gradient set just above.
+    setAlbumArtAccent(t.albumArt)
+    markActivePreset()
+    await saveUiFont(t.font.preset, t.font.custom)
+    await loadUiFont()
+  }
+  if (preset.lyrics) {
+    await saveLyricStyle(preset.lyrics.style)
+    syncLyricKnobs()
+  }
+  // Text size, background dim and blend share one store key (npTuning), so
+  // they are written together from whichever side the preset carries.
+  if (t || preset.lyrics) {
+    const [scale, dim, blend] = _npTuningInputValues()
+    await saveNpTuning(preset.lyrics ? preset.lyrics.lyricScale : scale, t ? t.bgDim : dim, t ? t.bgBlend : blend)
+    await loadNpTuning()
+  }
+  document.getElementById('tp-preset-name').value = preset.name === 'Untitled' ? '' : preset.name
+}
+
+async function importPresetText(text) {
+  const r = CascadeCore.parsePreset(text)
+  if (!r.ok) { showNotice(r.error, 'Preset'); return }
+  await applyPreset(r.preset)
+  showToast(`Applied "${r.preset.name}"`)
+}
+
+/** Toasts are dev-only, so a button that has nothing visible to show for
+ *  itself (a copy, a save) says it worked in its own label for a moment. */
+function flashPresetButton(btn, label) {
+  const original = btn.dataset.label || btn.textContent
+  btn.dataset.label = original
+  btn.textContent = label
+  clearTimeout(btn._flashTimer)
+  btn._flashTimer = setTimeout(() => { btn.textContent = original }, 1600)
+}
+
+/** One preset action at a time: a second press while a dialog is open would
+ *  otherwise stack another dialog or apply twice. */
+async function runPresetAction(fn) {
+  if (_presetBusy) return
+  _presetBusy = true
+  try { await fn() } catch (e) { showNotice(`Something went wrong with the preset.\n\n${e.message}`, 'Preset') }
+  finally { _presetBusy = false }
+}
+
+document.getElementById('tp-preset-export').addEventListener('click', () => runPresetAction(async () => {
+  const preset = currentPreset()
+  if (!preset) return
+  const res = await window.cascade.presets.save(CascadeCore.presetFileName(preset.name), CascadeCore.serializePreset(preset))
+  if (res.ok) flashPresetButton(document.getElementById('tp-preset-export'), 'Exported')
+  else if (!res.canceled) showNotice(`Could not save the preset.\n\n${res.error || ''}`, 'Preset')
+}))
+
+document.getElementById('tp-preset-copy').addEventListener('click', () => runPresetAction(async () => {
+  const preset = currentPreset()
+  if (!preset) return
+  await window.cascade.clipboard.write(CascadeCore.serializePreset(preset))
+  flashPresetButton(document.getElementById('tp-preset-copy'), 'Copied')
+}))
+
+document.getElementById('tp-preset-import').addEventListener('click', () => runPresetAction(async () => {
+  const res = await window.cascade.presets.open()
+  if (res.canceled) return
+  if (!res.ok) { showNotice(`Could not open the preset.\n\n${res.error || ''}`, 'Preset'); return }
+  await importPresetText(res.text)
+}))
+
+document.getElementById('tp-preset-paste').addEventListener('click', () => runPresetAction(async () => {
+  await importPresetText(await window.cascade.clipboard.read())
+}))
+
 document.getElementById('seg-dark').addEventListener('click', () => { setThemeMode('dark'); saveTheme() })
 document.getElementById('seg-light').addEventListener('click', () => { setThemeMode('light'); saveTheme() })
 
@@ -12887,7 +13302,9 @@ function debugPanelText() {
     ? `${p.hit ? 'HIT' : 'MISS'}${p.readyState !== undefined ? ` rs=${p.readyState}${p.readyState < 4 ? ' COLD' : ''}` : ''} (${p.from}, ${Math.round((Date.now() - p.at) / 1000)}s ago)`
     : 'none yet'
 
+  const ident = CascadeCore.clientIdentity()
   return [
+    `client: ${ident.client} ${appVersion} on ${ident.device}   deviceId: ${deviceId}`,
     `playing: ${!audio.paused}   live deck: ${audio.id}   pos: ${audio.currentTime.toFixed(1)}s / ${mediaDuration().toFixed(1)}s`,
     `item: ${item ? `${item.Name}  (${item.Id})` : 'none'}`,
     '',
