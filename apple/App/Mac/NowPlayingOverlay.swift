@@ -141,6 +141,7 @@ private struct OverlayContent: View {
             favoriteOverride = nil
             playedOverride = nil
         }
+        .newLyricDefaultsPrompt()
         .sheet(isPresented: $addingToPlaylist) {
             if let track = player.item { AddToPlaylistSheet(track: track).environment(state) }
         }

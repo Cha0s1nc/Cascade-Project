@@ -217,6 +217,73 @@ final class StyleTuning {
     private func save() {
         UserDefaults.standard.set(changes, forKey: Self.storeKey)
     }
+
+    // MARK: New defaults
+
+    /// Bumped each time the shipped defaults are re-baked, with the knobs that
+    /// moved. Someone who never touched those knobs gets the new values by
+    /// themselves (only changes are stored); someone who did is asked, once,
+    /// whether to take the new ones. Revision 2: the stable build's own tuning
+    /// (2026-10-06). A new bake adds the next number and its knobs here.
+    static let defaultsRevision = 2
+    static let knobsChanged: [Int: [String]] = [
+        2: ["browsingBlur", "unsungOpacity", "heldFullSeconds", "heldMinStrength", "heldLift",
+            "heldScale", "heldSettle", "heldSettleSeconds", "lyricsDelay"],
+    ]
+    private static let defaultsSeenKey = "cascade.styleTuningDefaultsSeen"
+
+    /// The re-baked knobs this person set themselves since the defaults they
+    /// last saw, so the new values do not reach them unasked. Empty: nothing
+    /// to ask, and `markDefaultsSeen` can be called quietly.
+    var knobsWithNewDefaults: [Knob] {
+        let seen = UserDefaults.standard.object(forKey: Self.defaultsSeenKey) as? Int ?? 1
+        guard seen < Self.defaultsRevision else { return [] }
+        let moved = Set((seen + 1...Self.defaultsRevision).flatMap { Self.knobsChanged[$0] ?? [] })
+        let mine = changes
+        return Self.knobs.filter { moved.contains($0.key) && mine[$0.key] != nil }
+    }
+
+    /// Puts those knobs back to the new defaults; the rest of the tuning stays.
+    func applyNewDefaults() {
+        let defaults = Values()
+        var v = values
+        for knob in knobsWithNewDefaults { v[keyPath: knob.path] = defaults[keyPath: knob.path] }
+        values = v
+        markDefaultsSeen()
+    }
+
+    func markDefaultsSeen() {
+        UserDefaults.standard.set(Self.defaultsRevision, forKey: Self.defaultsSeenKey)
+    }
+}
+
+extension View {
+    /// Asks once, when Now Playing opens, whether to take re-baked lyric
+    /// defaults over the knobs this person tuned themselves.
+    func newLyricDefaultsPrompt() -> some View { modifier(NewLyricDefaultsPrompt()) }
+}
+
+private struct NewLyricDefaultsPrompt: ViewModifier {
+    @State private var knobs: [StyleTuning.Knob] = []
+    @State private var asking = false
+
+    func body(content: Content) -> some View {
+        content
+            .task {
+                let pending = StyleTuning.shared.knobsWithNewDefaults
+                if pending.isEmpty { StyleTuning.shared.markDefaultsSeen(); return }
+                // A beat after opening, so it does not land on the transition.
+                try? await Task.sleep(for: .milliseconds(600))
+                knobs = pending
+                asking = true
+            }
+            .alert("New lyric defaults", isPresented: $asking) {
+                Button("Use the New Defaults") { StyleTuning.shared.applyNewDefaults() }
+                Button("Keep Mine", role: .cancel) { StyleTuning.shared.markDefaultsSeen() }
+            } message: {
+                Text("Cascade's lyric look was retuned. You changed \(knobs.count == 1 ? "one of these settings" : "\(knobs.count) of these settings") yourself: \(knobs.map(\.label).joined(separator: ", ")). Use the new defaults for them, or keep yours?")
+            }
+    }
 }
 
 #if os(iOS)

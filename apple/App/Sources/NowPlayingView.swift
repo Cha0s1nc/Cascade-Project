@@ -78,6 +78,7 @@ struct NowPlayingView: View {
             tvBody
             #else
             iosBody
+                .newLyricDefaultsPrompt()
             #endif
         }
         .background { NowPlayingBackground(itemId: artId, behindLyrics: lyricsShowing) }
