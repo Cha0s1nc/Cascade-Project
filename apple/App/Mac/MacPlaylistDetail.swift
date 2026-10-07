@@ -26,6 +26,12 @@ struct MacPlaylistDetail: View {
     @State private var canEdit = true
     @State private var showingProps = false
     @State private var propsName = ""
+    /// Description and picture, written only when changed (the desktop's
+    /// details editor). The overview as loaded, to tell.
+    @State private var propsOverview = ""
+    @State private var loadedOverview = ""
+    @State private var newImage: Data?
+    @State private var removingImage = false
     /// A rename this page made, held until the server reads it back the same.
     @State private var writtenName: String?
     @State private var confirmingDelete = false
@@ -92,8 +98,8 @@ struct MacPlaylistDetail: View {
                         .help("Refresh")
                     if isReal {
                         Button(editing ? "Done" : "Edit") { toggleEditing() }
-                        Button { propsName = name; showingProps = true } label: { Image(systemName: "pencil") }
-                            .help("Rename or make public")
+                        Button { openProps() } label: { Image(systemName: "pencil") }
+                            .help("Name, picture, description and public")
                         Button(role: .destructive) { confirmingDelete = true } label: { Image(systemName: "trash") }
                             .disabled(!state.canDelete)
                             .help(state.canDelete ? "Delete playlist" : "Needs delete permission")
@@ -249,11 +255,75 @@ struct MacPlaylistDetail: View {
         }
     }
 
+    /// Who may set the picture and description: the plugin lets the owner,
+    /// Jellyfin alone only an admin.
+    private var detailsRoute: PlaylistDetails.Route? {
+        PlaylistDetails.route(capabilities: state.cascadePluginInfo.capabilities,
+                              pluginPresent: state.cascadePluginApi != nil, isAdmin: state.isAdmin)
+    }
+
+    private func openProps() {
+        propsName = name
+        newImage = nil
+        removingImage = false
+        propsOverview = ""
+        loadedOverview = ""
+        showingProps = true
+        guard let playlist = playlistItem, let client = state.client else { return }
+        Task {
+            let overview = (try? await client.playlistOverview(playlist.id)) ?? ""
+            loadedOverview = overview
+            if propsOverview.isEmpty { propsOverview = overview }
+        }
+    }
+
+    private func choosePicture() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.jpeg, .png, .webP]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let data = try? Data(contentsOf: url) else { return writeError = "Could not read that file." }
+        guard data.count <= PlaylistDetails.maxImageBytes else { return writeError = PlaylistDetails.ImageError.tooLarge.description }
+        guard PlaylistDetails.imageType(data) != nil else { return writeError = PlaylistDetails.ImageError.notAnImage.description }
+        newImage = data
+        removingImage = false
+    }
+
     private var propsSheet: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Rename Playlist").font(.headline)
+            Text("Edit Playlist").font(.headline)
             TextField("Name", text: $propsName)
             Toggle("Public", isOn: $isPublic)
+            if detailsRoute != nil, let playlist = playlistItem {
+                HStack(spacing: 12) {
+                    Group {
+                        if let newImage, let image = PlatformImage(data: newImage) {
+                            Image(platformImage: image).resizable().aspectRatio(contentMode: .fill)
+                        } else if removingImage {
+                            Rectangle().fill(.quaternary).overlay(Image(systemName: "music.note").foregroundStyle(.secondary))
+                        } else {
+                            ArtworkView(itemId: playlist.id, size: 64)
+                        }
+                    }
+                    .frame(width: 64, height: 64)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    VStack(alignment: .leading, spacing: 6) {
+                        Button("Choose Picture\u{2026}", action: choosePicture)
+                        Button("Remove Picture") { newImage = nil; removingImage = true }
+                            .disabled(removingImage)
+                    }
+                }
+                Text("Description").font(.caption).foregroundStyle(.secondary)
+                TextEditor(text: $propsOverview)
+                    .font(.body)
+                    .frame(height: 80)
+                    .overlay(RoundedRectangle(cornerRadius: 5).stroke(.separator))
+                    .onChange(of: propsOverview) { _, text in
+                        if text.count > PlaylistDetails.overviewMax { propsOverview = String(text.prefix(PlaylistDetails.overviewMax)) }
+                    }
+            } else {
+                Text("A picture and description need the Cascade Server plugin, or an admin account.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             HStack {
                 Spacer()
                 Button("Cancel") { showingProps = false }
@@ -263,21 +333,46 @@ struct MacPlaylistDetail: View {
             }
         }
         .padding(20)
-        .frame(width: 320)
+        .frame(width: 380)
     }
 
+    /// Each part is written only if it changed; anything that fails is listed,
+    /// and the sheet stays open so Save tries just those again.
     private func saveProps() async {
         let trimmed = propsName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let playlist = playlistItem, !trimmed.isEmpty, let client = state.client else { return }
+        var failed: [String] = []
         do {
             try await client.updatePlaylist(playlist.id, name: trimmed, isPublic: isPublic)
             name = trimmed
             writtenName = trimmed
-            showingProps = false
-            state.playlistMutated()
         } catch {
-            writeError = error.localizedDescription
+            failed.append("Name and public: \(error.localizedDescription)")
         }
+        if let route = detailsRoute {
+            let overview = propsOverview.trimmingCharacters(in: .whitespacesAndNewlines)
+            if overview != loadedOverview.trimmingCharacters(in: .whitespacesAndNewlines) {
+                do {
+                    try await client.setPlaylistOverview(playlist.id, overview, route: route)
+                    loadedOverview = overview
+                } catch {
+                    failed.append("Description: \(error.localizedDescription)")
+                }
+            }
+            if newImage != nil || removingImage {
+                do {
+                    if let newImage { try await client.setPlaylistImage(playlist.id, newImage, route: route) }
+                    else { try await client.removePlaylistImage(playlist.id, route: route) }
+                    ArtworkCache.bust(playlist.id)
+                    newImage = nil
+                    removingImage = false
+                } catch {
+                    failed.append("Picture: \(error)")
+                }
+            }
+        }
+        state.playlistMutated()
+        if failed.isEmpty { showingProps = false } else { writeError = "Some changes did not save.\n\n" + failed.joined(separator: "\n") }
     }
 
     private func saveAsPlaylist() async {

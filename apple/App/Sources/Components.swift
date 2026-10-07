@@ -29,6 +29,16 @@ enum ArtworkCache {
     /// Pixel sizes are asked for in a few steps, not every size a frame
     /// passes through: a cover that animates, or a window being resized,
     /// would otherwise fetch the same picture once per point of width.
+    /// Bumped when an item's picture is replaced or removed here. Jellyfin's
+    /// image URL carries no tag, so without it the memory and disk caches kept
+    /// the old picture; the revision goes into the cache key and the URL.
+    static var revisions: [String: Int] = [:]
+
+    static func bust(_ itemId: String) {
+        revisions[itemId, default: 0] += 1
+        latest.removeObject(forKey: "\(itemId)|1.0|Primary" as NSString)
+    }
+
     nonisolated static func bucket(_ pixels: Int) -> Int {
         let steps = [64, 128, 192, 256, 384, 512, 768, 1024, 1536, 2048]
         return steps.first { $0 >= pixels } ?? 2048
@@ -57,8 +67,12 @@ struct ArtworkView: View {
     /// must not keep showing the last one's cover while the new one loads.
     @State private var loaded: (key: NSString, image: PlatformImage)?
 
+    private var revision: Int { itemId.flatMap { ArtworkCache.revisions[$0] } ?? 0 }
     private var key: NSString? {
-        itemId.map { aspect == 1 && imageType == "Primary" ? "\($0)|\(pixels)" : "\($0)|\(pixels)|\(aspect)|\(imageType)" } as NSString?
+        itemId.map { id in
+            let base = aspect == 1 && imageType == "Primary" ? "\(id)|\(pixels)" : "\(id)|\(pixels)|\(aspect)|\(imageType)"
+            return revision == 0 ? base : "\(base)|r\(revision)"
+        } as NSString?
     }
     private var pixels: Int { ArtworkCache.bucket(Int(size * 2)) }
     /// The item and shape without the size, for ArtworkCache.latest.
@@ -109,7 +123,9 @@ struct ArtworkView: View {
             let url = aspect == 1 && imageType == "Primary"
                 ? await client.imageUrl(itemId: itemId, size: pixels)
                 : await client.imageUrl(itemId: itemId, type: imageType, width: pixels, height: Int(CGFloat(pixels) / aspect))
-            guard let url,
+            // A replaced picture asks past every cache, the server's included.
+            let fetchUrl = revision == 0 ? url : url.flatMap { URL(string: $0.absoluteString + "&v=\(revision)") }
+            guard let url = fetchUrl,
                   let (data, response) = try? await ProxyConnection.shared.session(for: url).data(from: url) else { return }
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             // 404 is the normal "this item has no art"; anything else is worth knowing.

@@ -201,6 +201,18 @@ public actor JellyfinClient {
         return try await send(request)
     }
 
+    /// A body that is not JSON (image bytes, base64 text), sent as is with
+    /// its own Content-Type. Checked like every other write.
+    @discardableResult
+    public func sendBody(_ path: String, method: String, contentType: String, body: Data,
+                         params: [String: String?] = [:]) async throws -> Data {
+        var request = URLRequest(url: try makeURL(path, params))
+        request.httpMethod = method
+        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        return try await send(request)
+    }
+
     @discardableResult
     public func delete(_ path: String, params: [String: String?] = [:]) async throws -> Data {
         var request = URLRequest(url: try makeURL(path, params))
