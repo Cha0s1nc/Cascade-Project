@@ -52,7 +52,11 @@ export interface Preset {
   lyrics?: PresetLyrics
 }
 
-export type PresetResult = { ok: true; preset: Preset } | { ok: false; error: string }
+// Both sides name both fields so renderer.js, checked as JS without
+// strictNullChecks, can still read `error` after testing `ok`.
+export type PresetResult =
+  | { ok: true; preset: Preset; error?: undefined }
+  | { ok: false; error: string; preset?: undefined }
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === 'object' && !Array.isArray(v)

@@ -32,3 +32,50 @@ export function moveSelectedToBottom(items: JfItem[], selected: ReadonlySet<stri
   for (const item of items) (selected.has(entryIdOf(item)) ? sel : rest).push(item)
   return [...rest, ...sel]
 }
+
+// ── Playlist details: picture and description ───────────────────────────────
+
+/** Largest picture accepted for a playlist, the same cap Cascade Server's
+ *  playlist image route enforces (docs/cascade-server-plugin-tasks.md). */
+export const PLAYLIST_IMAGE_MAX_BYTES = 10 * 1024 * 1024
+
+/** Longest description accepted, matching the plugin route. */
+export const PLAYLIST_OVERVIEW_MAX = 2000
+
+export type PlaylistImageType = 'image/jpeg' | 'image/png' | 'image/webp'
+
+/**
+ * What an image file really is, from its first bytes, or null for anything
+ * else. The file picker's own type comes from the extension, and a renamed
+ * file would be sent to the server under the wrong Content-Type.
+ */
+export function sniffImageType(bytes: Uint8Array): PlaylistImageType | null {
+  const at = (i: number, ...v: number[]) => v.every((b, k) => bytes[i + k] === b)
+  if (bytes.length >= 3 && at(0, 0xff, 0xd8, 0xff)) return 'image/jpeg'
+  if (bytes.length >= 8 && at(0, 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return 'image/png'
+  // RIFF....WEBP
+  if (bytes.length >= 12 && at(0, 0x52, 0x49, 0x46, 0x46) && at(8, 0x57, 0x45, 0x42, 0x50)) return 'image/webp'
+  return null
+}
+
+/**
+ * How a playlist's picture and description can be changed for this user:
+ * through Cascade Server, which lets the playlist's owner do it; through
+ * Jellyfin's own routes, which require an admin; or not at all. The plugin
+ * is preferred even for an admin, so both kinds of account take one path.
+ */
+export function playlistDetailsRoute(pluginCaps: ReadonlySet<string>, pluginPresent: boolean, isAdmin: boolean): 'plugin' | 'admin' | null {
+  if (pluginPresent && pluginCaps.has('playlist-edit')) return 'plugin'
+  return isAdmin ? 'admin' : null
+}
+
+/** Bytes to base64, in chunks: Jellyfin's own image upload route takes the
+ *  body as base64 text, and spreading a multi-megabyte array into one
+ *  String.fromCharCode call overflows the stack. */
+export function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  }
+  return btoa(binary)
+}

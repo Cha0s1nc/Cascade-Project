@@ -3223,38 +3223,239 @@ document.getElementById('pl-edit-bottom').addEventListener('click', () => {
   savePlaylistIds(moveSelectedToBottom(currentPlaylistItems, plEditSelected), 'Moved to bottom')
 })
 
-// Rename + public/private. One small modal for both since they're the same
-// UpdatePlaylistDto request - reuses .modal-overlay/.modal-card/.modal-input/
-// .modal-btn verbatim (no new modal CSS) and the existing .toggle switch used
-// throughout Settings.
-document.getElementById('pl-edit-props').addEventListener('click', () => {
-  document.getElementById('pl-edit-name').value = document.getElementById('pl-detail-name').textContent
-  document.getElementById('pl-edit-public').checked = plCurrentIsPublic
-  document.getElementById('pl-edit-modal').classList.remove('hidden')
-})
-document.getElementById('pl-edit-cancel').addEventListener('click', () => {
+// ── Playlist details (picture, name, description, public) ───────────────────
+// One modal for everything about a playlist that is not its tracks. Name and
+// public go through Jellyfin's own POST /Playlists/{id}, which the owner may
+// use. Picture and description cannot: Jellyfin requires an admin for both
+// (POST /Items/{id}/Images/Primary and POST /Items/{id}), so they go through
+// Cascade Server's playlist-edit routes when it offers them, which let the
+// owner do it, and Jellyfin's routes for an admin otherwise. With neither,
+// those controls are disabled and say why. See
+// CascadeCore.playlistDetailsRoute and docs/cascade-server-plugin-tasks.md.
+
+let _plDetails = null   // the playlist the modal is editing, and what it started from
+const _plArtBust = new Map()   // playlist id -> cache-buster after a picture change
+
+/** The detail header's art URL. It carries no image tag, so after a change
+ *  the old picture would be served from cache without the buster. */
+function playlistArtUrl(playlistId) {
+  const bust = _plArtBust.get(playlistId)
+  return `${jf.url}/Items/${playlistId}/Images/Primary?fillHeight=160&fillWidth=160&quality=80&ApiKey=${jf.token}${bust ? `&v=${bust}` : ''}`
+}
+
+function _setPlDetailsArt(src) {
+  const el = document.getElementById('pl-edit-art')
+  el.textContent = '♪'
+  if (!src) return
+  const img = document.createElement('img')
+  img.alt = ''
+  img.onerror = () => { el.textContent = '♪' }
+  img.src = src
+  el.replaceChildren(img)
+}
+
+function _dropPendingArt() {
+  if (_plDetails?.art && _plDetails.art !== 'remove') URL.revokeObjectURL(_plDetails.art.url)
+  if (_plDetails) _plDetails.art = null
+}
+
+function closePlaylistDetails() {
+  _dropPendingArt()
+  _plDetails = null
+  document.getElementById('pl-edit-art-file').value = ''
   document.getElementById('pl-edit-modal').classList.add('hidden')
+}
+
+async function openPlaylistDetails(playlistId, name) {
+  if (!playlistId) return
+  let it = null
+  try { it = await jfGet(`/Users/${jf.userId}/Items/${playlistId}`, { Fields: 'Overview' }) } catch {}
+  if (it?.CanDelete === false) {
+    showNotice('You do not have permission to edit this playlist.', 'Playlist')
+    return
+  }
+  const route = CascadeCore.playlistDetailsRoute(_cascadePluginCaps, !_cascadePluginAbsent, !!jf.isAdmin)
+  _plDetails = {
+    id: playlistId,
+    route,
+    name: it?.Name || name || '',
+    isPublic: !!it?.IsPublic,
+    overview: typeof it?.Overview === 'string' ? it.Overview : '',
+    hasArt: !!it?.ImageTags?.Primary,
+    art: null,   // null (unchanged), 'remove', or { bytes, type, url }
+    saving: false,
+  }
+  document.getElementById('pl-edit-name').value = _plDetails.name
+  document.getElementById('pl-edit-public').checked = _plDetails.isPublic
+  document.getElementById('pl-edit-overview').value = _plDetails.overview
+  _setPlDetailsArt(_plDetails.hasArt ? playlistArtUrl(playlistId) : null)
+  // Disabled AND guarded in the handlers below.
+  const note = document.getElementById('pl-edit-art-note')
+  note.hidden = !!route
+  note.textContent = route ? '' : 'The picture and description need Cascade Server on this server, or an admin account.'
+  document.getElementById('pl-edit-art-change').disabled = !route
+  document.getElementById('pl-edit-art-remove').disabled = !route || !_plDetails.hasArt
+  document.getElementById('pl-edit-overview').disabled = !route
+  document.getElementById('pl-edit-modal').classList.remove('hidden')
+}
+
+document.getElementById('pl-edit-props').addEventListener('click', () => {
+  openPlaylistDetails(currentPlaylistId, document.getElementById('pl-detail-name').textContent)
 })
+document.getElementById('pl-edit-cancel').addEventListener('click', closePlaylistDetails)
+
+document.getElementById('pl-edit-art-change').addEventListener('click', () => {
+  if (!_plDetails?.route || _plDetails.saving) return
+  document.getElementById('pl-edit-art-file').click()
+})
+
+document.getElementById('pl-edit-art-file').addEventListener('change', async (e) => {
+  const file = e.target.files?.[0]
+  e.target.value = ''
+  if (!file || !_plDetails?.route) return
+  if (file.size > CascadeCore.PLAYLIST_IMAGE_MAX_BYTES) {
+    showNotice('That picture is too large. Use one under 10 MB.', 'Playlist')
+    return
+  }
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  const type = CascadeCore.sniffImageType(bytes)
+  if (!type) { showNotice('Use a JPEG, PNG or WebP picture.', 'Playlist'); return }
+  _dropPendingArt()
+  _plDetails.art = { bytes, type, url: URL.createObjectURL(new Blob([bytes], { type })) }
+  _setPlDetailsArt(_plDetails.art.url)
+  document.getElementById('pl-edit-art-remove').disabled = false
+})
+
+document.getElementById('pl-edit-art-remove').addEventListener('click', () => {
+  if (!_plDetails?.route || _plDetails.saving) return
+  _dropPendingArt()
+  // Removing a picture that was only picked in this dialog just un-picks it.
+  if (_plDetails.hasArt) _plDetails.art = 'remove'
+  _setPlDetailsArt(null)
+  document.getElementById('pl-edit-art-remove').disabled = true
+})
+
+/** One write, checked (CODEMAP rule 1). Resolves to an error message or null. */
+async function _plDetailsWrite(path, init) {
+  try {
+    const res = await fetch(`${jf.url}${path}`, init)
+    return res.ok ? null : await CascadeCore.readErrorMessage(res)
+  } catch (e) {
+    return e.message
+  }
+}
+
+async function _savePlaylistOverview(d, overview) {
+  if (d.route === 'plugin') {
+    return _plDetailsWrite(`/CascadeServer/Playlists/${d.id}/Details`, {
+      method: 'PUT',
+      headers: CascadeCore.authHeaders(jf, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ overview }),
+    })
+  }
+  // Jellyfin's item update replaces the whole item, so it takes the full
+  // fetched DTO with one field changed, never a partial body (the metadata
+  // editor's rule too).
+  try {
+    const res = await fetch(`${jf.url}/Items/${d.id}`, { headers: CascadeCore.authHeaders(jf) })
+    if (!res.ok) return await CascadeCore.readErrorMessage(res)
+    const full = await res.json()
+    return _plDetailsWrite(`/Items/${d.id}`, {
+      method: 'POST',
+      headers: CascadeCore.authHeaders(jf, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ ...full, Overview: overview }),
+    })
+  } catch (e) {
+    return e.message
+  }
+}
+
+async function _savePlaylistArt(d) {
+  const plugin = d.route === 'plugin'
+  const path = plugin ? `/CascadeServer/Playlists/${d.id}/Image` : `/Items/${d.id}/Images/Primary`
+  if (d.art === 'remove') return _plDetailsWrite(path, { method: 'DELETE', headers: CascadeCore.authHeaders(jf) })
+  // The plugin takes the raw bytes; Jellyfin's own route reads its body as
+  // base64 text with the image's type as Content-Type.
+  return _plDetailsWrite(path, {
+    method: 'POST',
+    headers: CascadeCore.authHeaders(jf, { 'Content-Type': d.art.type }),
+    body: plugin ? d.art.bytes : CascadeCore.bytesToBase64(d.art.bytes),
+  })
+}
+
 document.getElementById('pl-edit-save').addEventListener('click', async () => {
+  const d = _plDetails
+  if (!d || d.saving) return
   const name = document.getElementById('pl-edit-name').value.trim()
   if (!name) { showNotice('Playlist name cannot be empty.', 'Playlist'); return }
   const isPublic = document.getElementById('pl-edit-public').checked
+  const overview = document.getElementById('pl-edit-overview').value.trim().slice(0, CascadeCore.PLAYLIST_OVERVIEW_MAX)
+  d.saving = true
+  const saveBtn = document.getElementById('pl-edit-save')
+  saveBtn.disabled = true
+  const failed = []
   try {
-    const res = await fetch(`${jf.url}/Playlists/${currentPlaylistId}`, {
-      method: 'POST',
-      headers: CascadeCore.authHeaders(jf, { 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ Name: name, IsPublic: isPublic })
-    })
-    if (!res.ok) throw new Error(await CascadeCore.readErrorMessage(res))
-    plCurrentIsPublic = isPublic
-    document.getElementById('pl-detail-name').textContent = name
-    document.getElementById('pl-edit-modal').classList.add('hidden')
-    showToast('Playlist updated')
-    await playlistMutated(currentPlaylistId)
-  } catch (e) {
-    showNotice(`Could not update the playlist.\n\n${e.message}`, 'Playlist')
+    // Each part is written only if it changed, and its starting value moves
+    // forward only once it saved, so pressing Save again after a failure
+    // resends just what failed.
+    if (name !== d.name || isPublic !== d.isPublic) {
+      const err = await _plDetailsWrite(`/Playlists/${d.id}`, {
+        method: 'POST',
+        headers: CascadeCore.authHeaders(jf, { 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ Name: name, IsPublic: isPublic }),
+      })
+      if (err) failed.push(`Name and public: ${err}`)
+      else {
+        d.name = name
+        d.isPublic = isPublic
+        if (currentPlaylistId === d.id) {
+          document.getElementById('pl-detail-name').textContent = name
+          plCurrentIsPublic = isPublic
+        }
+      }
+    }
+    if (d.route && overview !== d.overview) {
+      const err = await _savePlaylistOverview(d, overview)
+      if (err) failed.push(`Description: ${err}`)
+      else {
+        d.overview = overview
+        if (currentPlaylistId === d.id) showPlaylistOverview(overview)
+      }
+    }
+    if (d.route && d.art) {
+      const err = await _savePlaylistArt(d)
+      if (err) failed.push(`Picture: ${err}`)
+      else {
+        d.hasArt = d.art !== 'remove'
+        _dropPendingArt()
+        _plArtBust.set(d.id, Date.now())
+        if (currentPlaylistId === d.id) {
+          document.getElementById('pl-detail-art').innerHTML = d.hasArt
+            ? `<img src="${playlistArtUrl(d.id)}" alt="" onerror="this.parentElement.textContent='♪'">` : '♪'
+        }
+      }
+    }
+  } finally {
+    d.saving = false
+    saveBtn.disabled = false
   }
+  // The index shows names and pictures, and re-fetches them next time it is
+  // drawn. Nothing about the tracks changed, so the open list stays as is.
+  delete document.getElementById('playlists-grid').dataset.loaded
+  if (failed.length) {
+    showNotice(`Some changes did not save.\n\n${failed.join('\n')}`, 'Playlist')
+    return
+  }
+  closePlaylistDetails()
+  showToast('Playlist updated')
 })
+
+/** The description under the playlist's name in its detail header. */
+function showPlaylistOverview(text) {
+  const el = document.getElementById('pl-detail-overview')
+  el.textContent = text || ''
+  el.hidden = !text
+}
 
 function showPlaylistDetailShell(name) {
   document.getElementById('playlist-index').style.display = 'none'
@@ -3382,8 +3583,13 @@ async function openPlaylist(playlistId, name) {
   document.getElementById('btn-edit-playlist').style.display = ''
   const artEl = document.getElementById('pl-detail-art')
   artEl.style.background = ''
-  const plArtUrl = `${jf.url}/Items/${playlistId}/Images/Primary?fillHeight=160&fillWidth=160&quality=80&ApiKey=${jf.token}`
-  artEl.innerHTML = `<img src="${plArtUrl}" alt="" onerror="this.innerHTML='♪'">`
+  artEl.innerHTML = `<img src="${playlistArtUrl(playlistId)}" alt="" onerror="this.parentElement.textContent='♪'">`
+  // The description is not in the track list's response, so it comes from the
+  // item itself, without holding up the tracks.
+  showPlaylistOverview('')
+  jfGet(`/Users/${jf.userId}/Items/${playlistId}`, { Fields: 'Overview' })
+    .then(it => { if (currentPlaylistId === playlistId) showPlaylistOverview(typeof it?.Overview === 'string' ? it.Overview : '') })
+    .catch(() => {})
 
   try {
     renderOfflineButtons()
@@ -10043,7 +10249,7 @@ function showItemCtxMenu(kind, item, el, x, y, onDetail) {
   // playlist is - see menuItemsForKind) rather than adding two more rows that
   // would only ever apply to one kind.
   const renameLabel = document.getElementById('ictx-rename-label')
-  if (renameLabel) renameLabel.textContent = kind === 'user-smart-playlist' ? 'Edit rules…' : 'Rename…'
+  if (renameLabel) renameLabel.textContent = kind === 'user-smart-playlist' ? 'Edit rules…' : kind === 'playlist' ? 'Details…' : 'Rename…'
   const deleteLabel = document.getElementById('ictx-delete-label')
   if (deleteLabel) deleteLabel.textContent = kind === 'user-smart-playlist' ? 'Delete smart playlist' : 'Delete playlist'
   // _applyAdminGating() gates ictx-delete on jf.canDelete for a real playlist's
@@ -10209,10 +10415,10 @@ document.getElementById('ictx-mark-unplayed').addEventListener('click', () => {
   if (_ictxItem) setItemPlayed(_ictxItem, false)
 })
 
-// Rename reuses the exact same modal/save-handler as the playlist detail
-// view's "Rename / Public…" (pl-edit-props / pl-edit-save below) - it just has
-// to seed currentPlaylistId/plCurrentIsPublic itself first, the same way
-// btn-edit-playlist's handler does, since this card was never opened.
+// A real playlist's "Details…" opens the same modal as the detail view's
+// Details button. It works on its own copy of the playlist id, so opening it
+// from a card no longer repoints currentPlaylistId at a playlist that is not
+// the one on screen.
 document.getElementById('ictx-rename').addEventListener('click', async () => {
   hideItemCtxMenu()
   if (_ictxKind === 'user-smart-playlist' && _ictxItem) {
@@ -10221,15 +10427,7 @@ document.getElementById('ictx-rename').addEventListener('click', async () => {
     return
   }
   if (_ictxKind !== 'playlist' || !_ictxItem) return
-  currentPlaylistId = _ictxItem.Id
-  currentSmartKind = null
-  try {
-    const it = await jfGet(`/Users/${jf.userId}/Items/${_ictxItem.Id}`)
-    plCurrentIsPublic = !!it.IsPublic
-  } catch { plCurrentIsPublic = false }
-  document.getElementById('pl-edit-name').value = _ictxItem.Name
-  document.getElementById('pl-edit-public').checked = plCurrentIsPublic
-  document.getElementById('pl-edit-modal').classList.remove('hidden')
+  openPlaylistDetails(_ictxItem.Id, _ictxItem.Name)
 })
 
 // Delete reuses deleteItemFromServer (defined with "Delete media" above) - a
