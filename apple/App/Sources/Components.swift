@@ -16,6 +16,23 @@ enum ArtworkCache {
         cache.totalCostLimit = 96 << 20   // bytes of decoded pixels
         return cache
     }()
+
+    /// The last cover decoded for each item (and shape), whatever its size:
+    /// shown while a different size loads, so a cover that changes size
+    /// never drops to the placeholder in between.
+    static let latest: NSCache<NSString, PlatformImage> = {
+        let cache = NSCache<NSString, PlatformImage>()
+        cache.countLimit = 400
+        return cache
+    }()
+
+    /// Pixel sizes are asked for in a few steps, not every size a frame
+    /// passes through: a cover that animates, or a window being resized,
+    /// would otherwise fetch the same picture once per point of width.
+    nonisolated static func bucket(_ pixels: Int) -> Int {
+        let steps = [64, 128, 192, 256, 384, 512, 768, 1024, 1536, 2048]
+        return steps.first { $0 >= pixels } ?? 2048
+    }
 }
 
 /// Album art with a placeholder that keeps the same square footprint, so a grid
@@ -43,12 +60,16 @@ struct ArtworkView: View {
     private var key: NSString? {
         itemId.map { aspect == 1 && imageType == "Primary" ? "\($0)|\(pixels)" : "\($0)|\(pixels)|\(aspect)|\(imageType)" } as NSString?
     }
-    private var pixels: Int { Int(size * 2) }
+    private var pixels: Int { ArtworkCache.bucket(Int(size * 2)) }
+    /// The item and shape without the size, for ArtworkCache.latest.
+    private var shapeKey: NSString? {
+        itemId.map { "\($0)|\(aspect)|\(imageType)" } as NSString?
+    }
 
     var body: some View {
         let image = key.flatMap { key in
             loaded?.key == key ? loaded?.image : ArtworkCache.images.object(forKey: key)
-        }
+        } ?? shapeKey.flatMap { ArtworkCache.latest.object(forKey: $0) }
         ZStack {
             if let image {
                 Image(platformImage: image).resizable().aspectRatio(contentMode: .fill)
@@ -62,12 +83,16 @@ struct ArtworkView: View {
         .frame(width: fillsFrame ? nil : size, height: fillsFrame ? nil : size / aspect)
         .aspectRatio(aspect, contentMode: .fit)
         .clipShape(ProportionalRoundedRectangle())
-        .task(id: itemId) {
+        // Keyed by the whole cache key, not just the item: a frame that
+        // changes size (Now Playing's cover as its controls hide) asks for a
+        // new pixel size, and keyed by item it stayed on the placeholder.
+        .task(id: key) {
             // The URL carries the token (ApiKey), so it can only be built once
             // there is a signed-in client.
             guard let itemId, let key, let client = state.client else { return }
             if let hit = ArtworkCache.images.object(forKey: key) {
                 loaded = (key, hit)
+                if let shapeKey { ArtworkCache.latest.setObject(hit, forKey: shapeKey) }
                 return
             }
             // A downloaded cover first: with the server away, the network
@@ -78,6 +103,7 @@ struct ArtworkView: View {
                 ArtworkCache.images.setObject(ready, forKey: key,
                                               cost: ready.pixelArea * 4)
                 loaded = (key, ready)
+                if let shapeKey { ArtworkCache.latest.setObject(ready, forKey: shapeKey) }
                 return
             }
             let url = aspect == 1 && imageType == "Primary"
@@ -107,6 +133,7 @@ struct ArtworkView: View {
             ArtworkCache.images.setObject(ready, forKey: key,
                                           cost: ready.pixelArea * 4)
             loaded = (key, ready)
+            if let shapeKey { ArtworkCache.latest.setObject(ready, forKey: shapeKey) }
         }
     }
 }

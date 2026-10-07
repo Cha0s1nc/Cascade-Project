@@ -117,8 +117,9 @@ private struct OverlayContent: View {
         .foregroundStyle(ink)
         .environment(\.lyricInk, ink)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // The window's toolbar stays over this (hiding it took the traffic lights with it, and a
-        // window you cannot close is not one to leave people in): the header below sits clear of it.
+        // The window's toolbar (Music/Video, search, theme) is the library's, not Now Playing's:
+        // hidden while this is open, as the video player does. The traffic lights stay.
+        .background(ToolbarHider())
         .onContinuousHover { _ in poke() }
         .simultaneousGesture(TapGesture().onEnded { poke() })
         .task(id: "\(wake)|\(player.isPaused)") {
@@ -490,5 +491,38 @@ struct LyricsTimingMenu: View {
 
     private func nudge(_ delay: Double, _ by: Double) {
         StyleTuning.shared.values.lyricsDelay = ((delay + by) * 20).rounded() / 20
+    }
+}
+
+/// Hides the window's toolbar while it is on screen and puts it back after,
+/// through the NSWindow, since SwiftUI's own toolbar visibility took the
+/// traffic lights with it.
+private struct ToolbarHider: NSViewRepresentable {
+    final class Coordinator {
+        weak var window: NSWindow?
+        var wasVisible: Bool?
+        var titleWas: NSWindow.TitleVisibility?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            guard let window = view.window, let toolbar = window.toolbar else { return }
+            context.coordinator.window = window
+            context.coordinator.wasVisible = toolbar.isVisible
+            context.coordinator.titleWas = window.titleVisibility
+            toolbar.isVisible = false
+            window.titleVisibility = .hidden
+        }
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {}
+
+    static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
+        if let wasVisible = coordinator.wasVisible { coordinator.window?.toolbar?.isVisible = wasVisible }
+        if let titleWas = coordinator.titleWas { coordinator.window?.titleVisibility = titleWas }
     }
 }

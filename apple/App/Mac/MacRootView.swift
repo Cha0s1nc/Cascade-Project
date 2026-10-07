@@ -96,6 +96,8 @@ struct MacRootView: View {
         // launch, to check it without clicking (UI scripting is not allowed).
         .onAppear {
             if let raw = UserDefaults.standard.string(forKey: "cascade.section"), let s = MacSection(rawValue: raw) { section = s }
+            // `-cascade.nowPlaying YES` opens Now Playing (paused on a restored queue: nothing plays).
+            if UserDefaults.standard.bool(forKey: "cascade.nowPlaying") { state.nowPlayingOpen = true }
         }
         #endif
     }
