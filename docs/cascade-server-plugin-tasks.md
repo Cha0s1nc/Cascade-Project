@@ -1,10 +1,11 @@
 # Cascade Server plugin tasks
 
-A brief for an agent working in the **CascadeServer** repository (`Cha0s1nc/CascadeServer`, the Jellyfin plugin), not in this one. It covers the three features that need server work:
+A brief for an agent working in the **CascadeServer** repository (`Cha0s1nc/CascadeServer`, the Jellyfin plugin), not in this one. It covers the four features that need server work:
 
 - **A. Server style:** a theme and lyrics look an admin sets for everyone, offered as the default or enforced.
 - **B. Explicit marking:** Jellyfin has no explicit flag, so the plugin works one out and serves it.
 - **C. Playlist picture and description for owners:** Jellyfin only lets admins set them.
+- **D. Animated album art:** a looping video cover from an admin's own `cover.mp4` sidecar, or from TIDAL using the admin's own TIDAL developer app.
 
 The Cascade client side is built later, in `Cascade-Project`, against the **Contract** section below. Treat that section as the deliverable: if you change a route or a JSON shape, change it here too, in this file on this branch (`fixes/plan-items` in `Cha0s1nc/Cascade-Project`), so the client is built against what you shipped.
 
@@ -178,11 +179,141 @@ Confirm those property names in Jellyfin's `Playlist` class for 10.11 and 12. An
 
 Add `canEditPlaylist` to nothing: Cascade checks per playlist by trying, and shows the 403 message.
 
+### D. Animated album art (capability `animated-art`)
+
+A looping video cover for an album, shown by Cascade's now-playing view. It comes from two sources:
+
+- **A sidecar the admin supplies:** a `cover.mp4` (or another name from the settings) in the album's folder, put there by hand or uploaded through the route below.
+- **TIDAL,** looked up with the admin's **own** TIDAL developer app. About 8% of albums have one: a live check of 301 albums found 25.
+
+Cascade already plays animated covers stored as the album's Primary image (GIF or WebP, see `animatedArtUrl` in `renderer.js`), so this adds video covers on top; it does not replace that path.
+
+#### Why the admin brings their own TIDAL app
+
+Confirmed against TIDAL's API docs and its [Developer Terms](https://developer.tidal.com/documentation/guidelines-developer-terms-1_0) (v1.0, 2023-09-12):
+
+- **No shared credentials.** The terms forbid disclosing or transferring a developer account to anyone else (section IV) and letting others "publicly access" the Developer Tools (section II). So Cascade cannot ship one app's credentials, and no one can run a public lookup service for other servers.
+- **"Sign in with TIDAL" does not remove the developer app.** TIDAL's official API offers only two ways in: client credentials, and the authorization code flow with PKCE. There is no device-code flow. The authorization code flow still needs a registered app's client id and a redirect URI registered in advance on that app. Every Jellyfin server has a different address, so the redirect cannot point at the server. It would have to be one app (Cascade's) with a fixed redirect, which brings back the shared-app problems above: Cascade's author becomes the TIDAL developer for every server, all servers share one quota, and the app must pass TIDAL's review. A user login also adds nothing here: the catalog, cover art included, works with client credentials alone.
+- **Never use TIDAL's own client ids** (the ones the official apps and some open-source libraries use). The terms forbid masking your identity or your offering's identity (section I).
+- **So:** the admin creates an app at developer.tidal.com and pastes its client id and secret into the plugin settings, as they do the SpicyLyrics key. Each server is then its own non-commercial developer use with its own quota. Approval is only needed for a quota extension (section IV), which one server looking albums up as they are played should not need.
+
+#### Rules the TIDAL side must follow
+
+From the same terms, section II. These are requirements, not suggestions:
+
+- **On demand only.** Look an album up when a client asks for its art. Never add TIDAL to a library-wide pass like `DownloadLyricsTask`, and never prefetch. The terms forbid spiders and tools that "retrieve, duplicate, or index" TIDAL content.
+- **Temporary cache only.** TIDAL allows "temporary caching of metadata and cover art" and says "Do not store TIDAL Content indefinitely". Use the SpicyLyrics pattern (`LyricStore/SpicyLyricsCache.cs` and `Tasks/PruneSpicyLyricsCacheTask.cs`): a 25-day TTL, deleted on read when expired, swept on every write and by a daily task. After expiry, look the album up again, so an album whose video was removed loses it.
+- **Never write a TIDAL file into the media folders,** never as a sidecar, and never into the upload store below. Only into the TIDAL cache in the data dir.
+- **Do not alter the file.** Picking one of TIDAL's ready-made sizes is fine; cropping, overlays or re-encoding are not.
+- **Keep the credentials admin-only.** They live in `PluginConfiguration`, which only admins can read. Never log them or return them from a route.
+
+#### Settings
+
+Added to `PluginConfiguration` and a new "Animated album art" section on `Web/status.html`.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `TidalClientId`, `TidalClientSecret` | empty | The admin's TIDAL app. Either empty means TIDAL is off. |
+| `TidalCountryCode` | `"US"` | Sent as `countryCode`. The catalog differs by country. |
+| `TidalArtSize` | `1080` | Which of TIDAL's square sizes to keep: `320`, `640`, `750`, `1080` or `1280`. Use the nearest available when the exact one is missing. The 1280 file measured about 3.6 MB for 10 seconds. |
+| `TidalArtDelivery` | `"cache"` | `"cache"`: download into the 25-day cache and serve it from this server, so clients only ever talk to Jellyfin. `"direct"`: cache only the lookup result and give Cascade TIDAL's own file URL, so no video is stored on the server (TIDAL's file URLs need no login). |
+| `AnimatedArtSourceOrder` | `"sidecar-first"` | `"sidecar-first"`, `"tidal-first"`, `"sidecar-only"` or `"tidal-only"`. A sidecar is an admin's deliberate choice, so it wins by default. |
+| `AnimatedArtSidecarNames` | `["cover.mp4", "cover.webm"]` | File names looked for in the album folder, in order. The first one is used when saving an `.mp4` upload, the first `.webm` name when saving a WebM. |
+| `AnimatedArtMaxUploadMb` | `50` | Largest upload accepted. |
+| `AnimatedArtEditUsers` | `[]` | Users besides admins who may upload, remove and link. Same shape and check as `ServerWideSpotifyLinkUsers`. |
+
+Add `canEditAnimatedArt` (bool, for this user) to `/CascadeServer/Info`, next to `canEditExplicit`.
+
+The plugin page says plainly that TIDAL lookups send the album's barcode (and sometimes ISRCs) to TIDAL, and links the TIDAL Developer Terms. It also has a short how-to for creating the TIDAL app and a **Test** button. The button calls `POST /CascadeServer/AnimatedArt/TidalTest` (admins only), which gets a token and fetches one known album. It answers `{ "ok": true }` or `{ "ok": false, "error": "..." }`, following `Api/SpicyLyricsTestController.cs`.
+
+#### Contract
+
+The `{albumId}` in every route is a MusicAlbum id. An Audio id is accepted too and resolved to its album, since Cascade often only has the track. Answer 404 for anything else.
+
+`GET /CascadeServer/AnimatedArt/{albumId}`, any user:
+
+```json
+{
+  "source": "sidecar",
+  "url": "/CascadeServer/AnimatedArt/<albumId>/File",
+  "contentType": "video/mp4",
+  "width": 1080,
+  "height": 1080,
+  "updatedUtc": "2026-10-07T12:00:00Z",
+  "pending": false
+}
+```
+
+- `source` is `"sidecar"`, `"tidal"` or `null`. With `null`, every other field except `pending` is `null`.
+- `url` is relative to the server, except with `TidalArtDelivery` `"direct"`, where a TIDAL result is TIDAL's absolute `https://resources.tidal.com/...` URL.
+- `width` and `height` are `null` for a sidecar unless the plugin can read them cheaply.
+- `updatedUtc` changes when the file changes, so Cascade can bust its own cache.
+- `pending` is `true` when nothing is ready yet but a TIDAL lookup or download was just queued. Cascade asks again once, a few seconds later.
+- This route never waits on a download. A TIDAL lookup is at most two small requests, so it may run inline with a 5-second budget. On timeout, answer `pending: true` and let it finish in the background.
+
+`GET /CascadeServer/AnimatedArt/{albumId}/File`, any user. Streams the file with range support (`PhysicalFile(..., enableRangeProcessing: true)`), with the right `Content-Type`. Answers 404 when there is none.
+- A `<video>` element cannot send headers, so this route must accept Jellyfin's `api_key` query parameter. Check that `[Authorize]` does on both 10.11 and 12.
+- This route only serves files: a sidecar, an upload, or a TIDAL cache entry that has not expired. Never proxy TIDAL live.
+
+`PUT /CascadeServer/AnimatedArt/{albumId}`, admins and `AnimatedArtEditUsers` (403 otherwise). The body is the raw file, with `Content-Type` `video/mp4` or `video/webm`.
+- Check the magic bytes (`ftyp` at offset 4 for MP4, `1A 45 DF A3` for WebM) and answer 400 when they do not match.
+- Answer 413 over `AnimatedArtMaxUploadMb`.
+- Save it into the album folder under the first matching name from `AnimatedArtSidecarNames`, replacing an existing file of that name. Write to a temporary name and move it into place.
+- When the folder is not writable (a read-only mount), fall back to `{DataDir}/animated-art/uploads/{albumId}.mp4` (or `.webm`), as `SaveLyrics` falls back to the data dir. The GET then reports it as `"sidecar"` all the same.
+- Answers 204.
+
+Finding the album folder: a MusicAlbum's `Path` is normally its folder. When it is null, or the album's tracks span more than one folder, use the folder of the first track by disc and track number. Confirm against Jellyfin's `MusicAlbum` on 10.11 and 12.
+
+`DELETE /CascadeServer/AnimatedArt/{albumId}`, same permission. Removes the sidecar or upload only, never the TIDAL cache. Answers 204, or 404 when there was none.
+
+`PUT /CascadeServer/AnimatedArt/{albumId}/TidalAlbum`, same permission. Links an album by hand when automatic matching fails, like "Link a Spotify track":
+
+```json
+{ "tidalAlbumId": "240189283" }
+```
+
+- `null` removes the link.
+- Validate the id by fetching it (400 when TIDAL does not know it), then clear that album's cache entry and miss so the next GET looks again.
+- Answers 204.
+- Keep links in `tidal-links.json` in the data dir, in the `SpotifyIdStore` shape. A link is an id the admin chose, not TIDAL content, so it is kept until removed.
+
+`POST /CascadeServer/AnimatedArt/{albumId}/Refresh`, same permission. Drops that album's TIDAL cache entry and miss. Answers 204.
+
+#### Finding the album on TIDAL
+
+First hit wins:
+
+1. **Manual link** from the route above.
+2. **Barcode (UPC/EAN):** `GET https://openapi.tidal.com/v2/albums?countryCode=<cc>&filter[barcodeId]=<barcode>&include=coverArt`. This was tested live and is exact per edition. It matters: the Dolby Atmos edition of RENAISSANCE (`251380836`) has only a still, while the stereo edition (`240189283`) has the video.
+   - The plugin does not read barcodes today. Try, in order:
+     - the first track's `BARCODE` or `UPC` tag, with the TagLib# reference from section B;
+     - the album's MusicBrainz release id (Jellyfin's `MusicBrainzAlbum` provider id) through `https://musicbrainz.org/ws/2/release/<mbid>?fmt=json`, field `barcode`. MusicBrainz needs a descriptive `User-Agent` and at most one request per second.
+   - Confirm both work on 10.11 and 12.
+3. **ISRC:** `GET /v2/tracks?countryCode=<cc>&filter[isrc]=<isrc>&include=albums`, using the album's first one or two tracks. An ISRC is shared by every release of a recording. A live test of one returned an *instrumental* edition. So accept an album only when its normalised title matches (the same normalising as section B) and its `numberOfItems` matches the local track count.
+4. **Nothing else.** TIDAL's search answered `400 INVALID_RESOURCE_ID` for every query made with client credentials, and fuzzy text matching would pick wrong editions anyway. No match means no TIDAL art.
+
+From the album's included `artworks`, take the one with `attributes.mediaType == "VIDEO"`, and from its `files` the one whose `meta.width` matches `TidalArtSize`. None means a miss.
+
+**Token:** `POST https://auth.tidal.com/v1/oauth2/token` with HTTP Basic auth (client id and secret) and `grant_type=client_credentials`. Keep it in memory until a minute before `expires_in`. Send `accept: application/vnd.api+json` on API calls. On a 401, get a new token and retry once. On a 429, honour `Retry-After` and give up on this album for now (answer `pending: false`, `source: null`) rather than block.
+
+**Cache:** in `{DataDir}/animated-art/tidal/`:
+- `{albumId}.mp4`, plus `{albumId}.json` with `{ TidalAlbumId, ArtworkId, Width, Href, FetchedUtc }`;
+- with `"direct"` delivery, only the `.json`;
+- a 25-day TTL as above;
+- misses saved to disk (not in memory like SpicyLyrics' misses) for 7 days. With about 92% of albums missing, an in-memory miss list reset by every restart would re-ask TIDAL for the same albums over and over;
+- clearing the TIDAL settings deletes the whole TIDAL cache, since the terms want copies gone when access ends (section VI).
+
+**Scheduled task:** add the TIDAL cache to the daily sweep, either as a new "Prune animated art cache" task or folded into `PruneSpicyLyricsCacheTask` (renamed to cover both). Nothing else runs on a schedule.
+
+#### What Cascade will do with it
+
+Context, not plugin work. When `animated-art` is listed, the now-playing view asks the GET for the album and plays the `url` in a muted, looping `<video>`. That takes priority over the GIF/WebP check and the iTunes upgrade, and the still stays as the poster. Grids keep stills, for the same reason `renderer.js` gives for GIF/WebP. Uploading, removing and "Link a TIDAL album" go in the album's context menu, shown when `canEditAnimatedArt` is true.
+
 ## Manual test checklist
 
 Run it against a dev Jellyfin 10.11 server with two users, an admin and a normal user, and on 12 if you can.
 
-1. **`/CascadeServer/Info`** lists the three new capabilities, and `canEditExplicit` is right for each user.
+1. **`/CascadeServer/Info`** lists the four new capabilities, and `canEditExplicit` and `canEditAnimatedArt` are right for each user.
 2. **Style:**
    - a normal user's PUT gets 403;
    - an admin's PUT of a preset copied from Cascade's Share a look page round-trips through GET;
@@ -200,7 +331,17 @@ Run it against a dev Jellyfin 10.11 server with two users, an admin and a normal
    - another normal user gets 403;
    - a PNG sent as `image/jpeg` gets 400;
    - the new picture shows in Jellyfin's web client.
-5. **Builds:** both targets build, and the plugin page loads and saves the new settings.
+5. **Animated art:**
+   - an album with a hand-placed `cover.mp4` answers `source: "sidecar"`, and `/File` plays in a browser `<video>` using `?api_key=` and seeks (range requests work);
+   - an admin's upload lands in the album folder; with the library mounted read-only it lands in the data dir and still answers `"sidecar"`;
+   - a normal user's upload gets 403; a PNG sent as `video/mp4` gets 400; a file over the limit gets 413;
+   - with the admin's TIDAL app set, the Test button passes, and an album tagged with barcode `196589246974` (RENAISSANCE, stereo) answers `source: "tidal"`, while `196589525444` (the Atmos edition) answers `null`;
+   - with `"direct"` delivery nothing lands in `animated-art/tidal/` except `.json` files, and `url` is a `resources.tidal.com` address;
+   - a cache entry with its time set back past 25 days is gone after the daily sweep, and the next GET fetches it again;
+   - a manual TIDAL link wins over the barcode, and `null` removes it;
+   - clearing the TIDAL settings empties the TIDAL cache;
+   - nothing in a library-wide task calls TIDAL (check the server log during "Download lyrics").
+6. **Builds:** both targets build, and the plugin page loads and saves the new settings.
 
 ## Report back
 
@@ -208,4 +349,5 @@ Report:
 - the CascadeServer branch and commit;
 - anything in the Contract you changed (and the change made here);
 - what you found about TagLib# availability on 12 and about tags surviving a refresh;
+- where barcodes came from in practice (tags, MusicBrainz, neither), and whether `[Authorize]` accepts `api_key` on both versions;
 - which checklist items you ran.
