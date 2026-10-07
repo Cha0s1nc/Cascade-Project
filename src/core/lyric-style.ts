@@ -47,8 +47,7 @@ export const LYRIC_KNOBS: readonly LyricKnob[] = [
   { key: 'heldMinStrength', section: 'Karaoke', label: 'Held note: short note strength', min: 0, max: 1, step: 0.05, value: 0.45 },
   { key: 'heldLift', section: 'Karaoke', label: 'Held note lift (em)', min: 0, max: 0.4, step: 0.01, value: 0.16, css: '--emph-lift', unit: 'em' },
   { key: 'heldScale', section: 'Karaoke', label: 'Held note swell', min: 1, max: 1.4, step: 0.01, value: 1.19, css: '--emph-scale' },
-  { key: 'heldSettle', section: 'Karaoke', label: 'Held note settle', min: 0, max: 1, step: 0.05, value: 0.7 },
-  { key: 'heldSettleSeconds', section: 'Karaoke', label: 'Held note settle time (s)', min: 0, max: 2, step: 0.05, value: 0.4 },
+  { key: 'heldSettleSeconds', section: 'Karaoke', label: 'Held note release time (s)', min: 0, max: 2, step: 0.05, value: 0.4 },
   { key: 'backgroundVocalSize', section: 'Karaoke', label: 'Background vocal size', min: 0.4, max: 1, step: 0.01, value: 0.64, css: '--ly-bg-vocal-size', unit: 'em' },
   { key: 'backgroundVocalOpacity', section: 'Karaoke', label: 'Background vocal opacity', min: 0, max: 1, step: 0.01, value: 0.85, css: '--ly-bg-vocal-opacity' },
 
@@ -83,7 +82,7 @@ export function lyricStyleFrom(stored: unknown): LyricStyle {
 export const LYRIC_DEFAULTS_REVISION = 2
 export const LYRIC_DEFAULTS_CHANGED: Readonly<Record<number, readonly string[]>> = {
   2: ['browsingBlur', 'unsungOpacity', 'heldFullSeconds', 'heldMinStrength', 'heldLift',
-    'heldScale', 'heldSettle', 'heldSettleSeconds', 'lyricsDelay'],
+    'heldScale', 'heldSettleSeconds', 'lyricsDelay'],
 }
 
 /** The re-baked knobs this person changed themselves since the defaults they
@@ -142,8 +141,9 @@ export function easeInOut(t: number): number {
  * from the note's length (a 1 s hold gets heldMinStrength, heldFullSeconds or
  * longer gets all of it), each letter rises from when the fill reaches it
  * until the note ends (over at least 0.35 s, so a letter reached near the end
- * does not pop), then settles to heldSettle of its peak over
- * heldSettleSeconds and holds there until the line changes.
+ * does not pop), then eases back to nothing over heldSettleSeconds once the
+ * note is sung, so the word returns to the normal sung look rather than
+ * staying swollen until the line changes (it used to hold a share of its peak).
  */
 export function heldSwell(sinceLit: number, untilEnd: number, held: number, style: LyricStyle): number {
   if (!(sinceLit >= 0)) return 0
@@ -153,5 +153,5 @@ export function heldSwell(sinceLit: number, untilEnd: number, held: number, styl
   const rise = Math.max(untilEnd, 0.35)
   if (sinceLit < rise) return strength * easeInOut(sinceLit / rise)
   const settle = style.heldSettleSeconds > 0 ? Math.min(1, (sinceLit - rise) / style.heldSettleSeconds) : 1
-  return strength * (1 - (1 - style.heldSettle) * easeInOut(settle))
+  return strength * (1 - easeInOut(settle))
 }

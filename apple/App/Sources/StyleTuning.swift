@@ -49,7 +49,6 @@ final class StyleTuning {
         var heldLift = 0.16
         var heldScale = 1.19
         /// What is kept of the peak once the note ends, until the line does.
-        var heldSettle = 0.7
         var heldSettleSeconds = 0.4
         /// Lyrics drawn this much later than the audio clock (negative: earlier).
         /// A little early by default: a line takes its fade to light up, so
@@ -106,8 +105,7 @@ final class StyleTuning {
         Knob(section: "Karaoke", label: "Held note: short note strength", path: \.heldMinStrength, range: 0...1, step: 0.05, key: "heldMinStrength"),
         Knob(section: "Karaoke", label: "Held note lift (em)", path: \.heldLift, range: 0...0.4, step: 0.01, key: "heldLift"),
         Knob(section: "Karaoke", label: "Held note swell", path: \.heldScale, range: 1...1.4, step: 0.01, key: "heldScale"),
-        Knob(section: "Karaoke", label: "Held note settle", path: \.heldSettle, range: 0...1, step: 0.05, key: "heldSettle"),
-        Knob(section: "Karaoke", label: "Held note settle time (s)", path: \.heldSettleSeconds, range: 0...2, step: 0.05, key: "heldSettleSeconds"),
+        Knob(section: "Karaoke", label: "Held note release time (s)", path: \.heldSettleSeconds, range: 0...2, step: 0.05, key: "heldSettleSeconds"),
         Knob(section: "Karaoke", label: "Background vocal size", path: \.backgroundVocalSize, range: 0.4...1, step: 0.01, key: "backgroundVocalSize"),
         Knob(section: "Karaoke", label: "Background vocal opacity", path: \.backgroundVocalOpacity, range: 0...1, step: 0.01, key: "backgroundVocalOpacity"),
         Knob(section: "Motion", label: "Line fade (s)", path: \.fadeSeconds, range: 0...2, step: 0.05, key: "fadeSeconds"),
@@ -168,9 +166,9 @@ final class StyleTuning {
         PresetGroup(title: "Held Notes",
                     footer: "How much a long, held note swells and glows. Spicy Lyrics only.",
                     presets: [
-                        Preset(name: "Subtle", settings: [\.heldLift: 0.05, \.heldScale: 1.04, \.heldMinStrength: 0.2, \.heldSettle: 0.5]),
-                        .standard("Expressive", [\.heldLift, \.heldScale, \.heldMinStrength, \.heldSettle]),
-                        Preset(name: "Dramatic", settings: [\.heldLift: 0.18, \.heldScale: 1.15, \.heldMinStrength: 0.45, \.heldSettle: 0.75]),
+                        Preset(name: "Subtle", settings: [\.heldLift: 0.05, \.heldScale: 1.04, \.heldMinStrength: 0.2]),
+                        .standard("Expressive", [\.heldLift, \.heldScale, \.heldMinStrength]),
+                        Preset(name: "Dramatic", settings: [\.heldLift: 0.18, \.heldScale: 1.15, \.heldMinStrength: 0.45]),
                     ]),
         PresetGroup(title: "Background",
                     footer: "The cover's colors behind the player, and how far they darken under lyrics.",
@@ -228,7 +226,7 @@ final class StyleTuning {
     static let defaultsRevision = 2
     static let knobsChanged: [Int: [String]] = [
         2: ["browsingBlur", "unsungOpacity", "heldFullSeconds", "heldMinStrength", "heldLift",
-            "heldScale", "heldSettle", "heldSettleSeconds", "lyricsDelay"],
+            "heldScale", "heldSettleSeconds", "lyricsDelay"],
     ]
     private static let defaultsSeenKey = "cascade.styleTuningDefaultsSeen"
 

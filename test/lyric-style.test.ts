@@ -44,19 +44,20 @@ test('easeInOut matches cubic-bezier(0.42, 0, 0.58, 1) at its known points', () 
   for (let t = 0; t < 1; t += 0.05) assert.ok(easeInOut(t + 0.05) >= easeInOut(t), 'monotonic')
 })
 
-test('heldSwell: longer holds swell more, rise until the note ends, then settle', () => {
+test('heldSwell: longer holds swell more, rise until the note ends, then go back to normal', () => {
   // Pinned rather than the defaults, which are tuned by ear and move: full
-  // after 3 s, 0.3 at 1 s, settle to 0.6 over 0.6 s.
-  const s = lyricStyleFrom({ heldFullSeconds: 3, heldMinStrength: 0.3, heldSettle: 0.6, heldSettleSeconds: 0.6 })
+  // after 3 s, 0.3 at 1 s, released over 0.6 s.
+  const s = lyricStyleFrom({ heldFullSeconds: 3, heldMinStrength: 0.3, heldSettleSeconds: 0.6 })
   assert.equal(heldSwell(-0.1, 1, 1, s), 0)
   // Peak strength by length: 1 s hold 0.3, 2 s halfway, 3 s and longer full.
   assert.ok(Math.abs(heldSwell(1, 1, 1, s) - 0.3) < 1e-6)
   assert.ok(Math.abs(heldSwell(2, 2, 2, s) - 0.65) < 1e-6)
   assert.ok(Math.abs(heldSwell(5, 5, 5, s) - 1) < 1e-6)
-  // Rising until the note ends, then settled to 60% of the peak.
+  // Rising until the note ends, easing off after, and back to nothing once released.
   assert.ok(heldSwell(1, 4, 4, s) < heldSwell(3, 4, 4, s))
-  assert.ok(Math.abs(heldSwell(4 + 0.6, 4, 4, s) - 0.6) < 1e-6)
-  assert.ok(Math.abs(heldSwell(30, 4, 4, s) - 0.6) < 1e-6)
+  assert.ok(heldSwell(4 + 0.3, 4, 4, s) < heldSwell(4, 4, 4, s))
+  assert.equal(heldSwell(4 + 0.6, 4, 4, s), 0)
+  assert.equal(heldSwell(30, 4, 4, s), 0)
   // A letter reached near the end still takes 0.35 s to rise, not a pop.
   assert.ok(heldSwell(0.1, 0.05, 4, s) < heldSwell(0.34, 0.05, 4, s))
 })

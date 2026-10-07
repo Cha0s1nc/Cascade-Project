@@ -246,7 +246,9 @@ private enum LyricStyle {
     /// strength comes from the note's length (a 1 s hold gets
     /// heldMinStrength, heldFullSeconds or longer gets it all), and each
     /// letter rises from when the fill reaches it until the note ends, then
-    /// settles to heldSettle of its peak until the line changes. A letter
+    /// eases back to nothing over heldSettleSeconds, so a sung note returns to
+    /// the normal sung look instead of staying swollen until the line
+    /// changes (as the desktop does; both used to hold a share). A letter
     /// reached near the end still rises over at least 0.35 s rather than
     /// popping. Tunable live; a guess at the curve until it is measured
     /// against a recording, as the desktop's fixed 1.7 s swell was.
@@ -257,7 +259,7 @@ private enum LyricStyle {
         let rise = max(untilEnd, 0.35)
         if sinceLit < rise { return strength * UnitCurve.easeInOut.value(at: sinceLit / rise) }
         let settle = v.heldSettleSeconds > 0 ? min(1, (sinceLit - rise) / v.heldSettleSeconds) : 1
-        return strength * (1 - (1 - v.heldSettle) * UnitCurve.easeInOut.value(at: settle))
+        return strength * (1 - UnitCurve.easeInOut.value(at: settle))
     }
 
     /// Opacity, blur and size (as a share of `size`) for a line `distance`
