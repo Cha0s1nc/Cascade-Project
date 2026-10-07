@@ -47,6 +47,8 @@
          copied into the plugin zip; Jellyfin provides these at runtime. -->
     <PackageReference Include="Jellyfin.Controller" Version="$(JellyfinPackageVersion)" PrivateAssets="All" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="$(LoggingPackageVersion)" PrivateAssets="All" />
+    <!-- Jellyfin ships TagLibSharp 2.3.0 on both 10.11 and 12, so it is not copied into the zip. -->
+    <PackageReference Include="TagLibSharp" Version="2.3.0" PrivateAssets="All" ExcludeAssets="runtime" />
   </ItemGroup>
 
   <ItemGroup>

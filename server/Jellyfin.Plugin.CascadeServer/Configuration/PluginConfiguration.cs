@@ -49,4 +49,19 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>Gets or sets when the server style last changed, as an ISO 8601 UTC time; empty when never.</summary>
     public string ServerStyleUpdatedUtc { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the users (ids, any Guid format) who may set an explicit rating by hand,
+    /// besides administrators.
+    /// </summary>
+    public string[] ExplicitEditUsers { get; set; } = [];
+
+    /// <summary>Gets or sets whether Deezer is asked about songs the file's own tag says nothing about.</summary>
+    public bool ExplicitLookupDeezer { get; set; } = true;
+
+    /// <summary>Gets or sets whether iTunes Search is asked about songs the file's own tag says nothing about.</summary>
+    public bool ExplicitLookupItunes { get; set; } = true;
+
+    /// <summary>Gets or sets whether explicit songs get an "Explicit" tag in Jellyfin, for other clients to filter on.</summary>
+    public bool MirrorExplicitTag { get; set; }
 }

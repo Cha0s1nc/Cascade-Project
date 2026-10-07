@@ -17,6 +17,9 @@
 
   <ItemGroup>
     <Compile Include="..\Jellyfin.Plugin.CascadeServer\Style\StylePreset.cs" Link="Pure\StylePreset.cs" />
+    <Compile Include="..\Jellyfin.Plugin.CascadeServer\Media\Sniff.cs" Link="Pure\Sniff.cs" />
+    <Compile Include="..\Jellyfin.Plugin.CascadeServer\Explicit\TitleMatch.cs" Link="Pure\TitleMatch.cs" />
+    <Compile Include="..\Jellyfin.Plugin.CascadeServer\Explicit\ExplicitRules.cs" Link="Pure\ExplicitRules.cs" />
   </ItemGroup>
 
 </Project>

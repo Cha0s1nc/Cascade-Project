@@ -41,6 +41,34 @@
                         </div>
                         <div id="csLinkUsers">Loading users…</div>
                     </div>
+                    <div class="verticalSection">
+                        <h3>Explicit songs</h3>
+                        <div class="fieldDescription" style="margin-bottom:0.8em;">
+                            Jellyfin has no explicit flag, so this plugin works one out for each song: a rating set by hand,
+                            then the advisory tag inside the file, then the lookups below. A match needs the same artist and
+                            title and a length within 3 seconds, otherwise the song stays unknown. Run the
+                            <strong>Find explicit songs</strong> scheduled task to check the whole library.
+                        </div>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label><input is="emby-checkbox" type="checkbox" id="csExplicitDeezer" /><span>Ask Deezer</span></label>
+                        </div>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label><input is="emby-checkbox" type="checkbox" id="csExplicitItunes" /><span>Ask iTunes Search</span></label>
+                            <div class="fieldDescription checkboxFieldDescription">
+                                Both send a song's artist and title (and ISRC when the file has one) to that service, one request
+                                per second at most. Songs the file's own tag already answers are never sent.
+                            </div>
+                        </div>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label><input is="emby-checkbox" type="checkbox" id="csMirrorExplicitTag" /><span>Also tag explicit songs "Explicit" in Jellyfin</span></label>
+                            <div class="fieldDescription checkboxFieldDescription">
+                                So other Jellyfin apps can filter on it. A metadata refresh set to replace all metadata may
+                                remove the tag until the next run of the task.
+                            </div>
+                        </div>
+                        <h4>Who can set explicit ratings by hand</h4>
+                        <div id="csExplicitUsers">Loading users…</div>
+                    </div>
                     <button is="emby-button" type="submit" class="raised button-submit block"><span>Save</span></button>
                 </form>
 
@@ -261,13 +289,13 @@
             // Guids compared without dashes or case, however they were saved.
             function normId(id) { return String(id || '').replace(/-/g, '').toLowerCase(); }
 
-            function renderLinkUsers(users, allowed) {
+            function renderUserList(target, cls, users, allowed) {
                 var set = {};
                 (allowed || []).forEach(function (id) { set[normId(id)] = true; });
-                page.querySelector('#csLinkUsers').innerHTML = users.map(function (u) {
+                page.querySelector(target).innerHTML = users.map(function (u) {
                     var admin = !!(u.Policy && u.Policy.IsAdministrator);
                     return '<label style="display:flex;align-items:center;gap:0.5em;margin:0.2em 0;">' +
-                        '<input is="emby-checkbox" type="checkbox" class="csLinkUser" data-id="' + escapeHtml(u.Id) + '"' +
+                        '<input is="emby-checkbox" type="checkbox" class="' + cls + '" data-id="' + escapeHtml(u.Id) + '"' +
                         (admin || set[normId(u.Id)] ? ' checked' : '') + (admin ? ' disabled' : '') + ' />' +
                         '<span>' + escapeHtml(u.Name) + (admin ? ' (administrator)' : '') + '</span></label>';
                 }).join('') || 'No users.';
@@ -278,7 +306,11 @@
                     var config = r[0];
                     page.querySelector('#csDisableSidecarWrites').checked = !!config.DisableSidecarWrites;
                     page.querySelector('#csSpicyKey').value = config.SpicyLyricsSecretKey || '';
-                    renderLinkUsers(r[1] || [], config.ServerWideSpotifyLinkUsers);
+                    renderUserList('#csLinkUsers', 'csLinkUser', r[1] || [], config.ServerWideSpotifyLinkUsers);
+                    renderUserList('#csExplicitUsers', 'csExplicitUser', r[1] || [], config.ExplicitEditUsers);
+                    page.querySelector('#csExplicitDeezer').checked = config.ExplicitLookupDeezer !== false;
+                    page.querySelector('#csExplicitItunes').checked = config.ExplicitLookupItunes !== false;
+                    page.querySelector('#csMirrorExplicitTag').checked = !!config.MirrorExplicitTag;
                 });
             }
 
@@ -289,9 +321,16 @@
                     config.DisableSidecarWrites = page.querySelector('#csDisableSidecarWrites').checked;
                     config.SpicyLyricsSecretKey = page.querySelector('#csSpicyKey').value.trim();
                     // Administrators are implied, so only the users actually picked are saved.
-                    config.ServerWideSpotifyLinkUsers = Array.prototype.slice.call(page.querySelectorAll('.csLinkUser'))
-                        .filter(function (el) { return el.checked && !el.disabled; })
-                        .map(function (el) { return el.getAttribute('data-id'); });
+                    function picked(cls) {
+                        return Array.prototype.slice.call(page.querySelectorAll('.' + cls))
+                            .filter(function (el) { return el.checked && !el.disabled; })
+                            .map(function (el) { return el.getAttribute('data-id'); });
+                    }
+                    config.ServerWideSpotifyLinkUsers = picked('csLinkUser');
+                    config.ExplicitEditUsers = picked('csExplicitUser');
+                    config.ExplicitLookupDeezer = page.querySelector('#csExplicitDeezer').checked;
+                    config.ExplicitLookupItunes = page.querySelector('#csExplicitItunes').checked;
+                    config.MirrorExplicitTag = page.querySelector('#csMirrorExplicitTag').checked;
                     return ApiClient.updatePluginConfiguration(PLUGIN_ID, config);
                 }).then(function (result) {
                     Dashboard.processPluginConfigurationUpdateResult(result);
