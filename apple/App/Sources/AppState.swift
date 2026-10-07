@@ -33,6 +33,17 @@ final class AppState {
     /// Bumped by Command-comma; the Mac shell shows its Settings section.
     var settingsRequests = 0
 
+    #if os(macOS)
+    /// Last session's queue, offered in a corner card rather than put back
+    /// unasked. Nil once taken, dismissed or timed out.
+    var restoreOffer: RestoreOffer?
+    struct RestoreOffer: Identifiable {
+        let id = UUID()
+        let queue: RestoredQueue
+        let accept: @MainActor () -> Void
+    }
+    #endif
+
     /// From the user's Policy (Permissions). False until it has been read and
     /// for any failure: gated items stay dimmed rather than offered and refused.
     private(set) var isAdmin = false
@@ -340,6 +351,7 @@ final class AppState {
         #if os(macOS)
         playbackPersistence?.stop(clearingSavedQueue: true)
         playbackPersistence = nil
+        restoreOffer = nil
         #endif
         await player?.stop()
         // Stops this account's downloads and hides them from whoever is next.
@@ -408,6 +420,9 @@ final class AppState {
         #if os(macOS)
         playbackPersistence?.stop()
         playbackPersistence = PlaybackPersistence(player: player, client: client)
+        playbackPersistence?.offerRestore = { [weak self] queue, accept in
+            self?.restoreOffer = RestoreOffer(queue: queue, accept: accept)
+        }
         playbackPersistence?.start()
         #endif
         if let offline {

@@ -22,6 +22,9 @@ final class PlaybackPersistence {
     private var quitObserver: NSObjectProtocol?
     /// The last queue written, so an unchanged one is not written every 5 s.
     private var lastSaved: String?
+    /// Called with last session's queue instead of putting it back unasked;
+    /// the app offers it, and calls `accept` if the person wants it.
+    var offerRestore: ((_ queue: RestoredQueue, _ accept: @escaping @MainActor () -> Void) -> Void)?
 
     static let volumeKey = "cascade.volume"
     static let repeatKey = "cascade.repeatMode"
@@ -119,9 +122,14 @@ final class PlaybackPersistence {
         // Something started (or a room was joined) while the tracks were fetched.
         guard player.item == nil, player.transportGate == nil,
               let restored = CascadeKit.restoreQueue(saved, items: items) else { return }
-        player.adoptRestoredQueue(restored, shuffled: !restored.unshuffled.isEmpty, repeatMode: player.repeatMode)
-        // What was just restored is what is saved: writing it back at once
-        // would only replay the same bytes.
-        lastSaved = player.savedQueue()?.json
+        let accept: @MainActor () -> Void = { [weak self] in
+            // Still nothing playing: a song started while the offer was up wins.
+            guard let self, self.player.item == nil, self.player.transportGate == nil else { return }
+            self.player.adoptRestoredQueue(restored, shuffled: !restored.unshuffled.isEmpty, repeatMode: self.player.repeatMode)
+            // What was just restored is what is saved: writing it back at once
+            // would only replay the same bytes.
+            self.lastSaved = self.player.savedQueue()?.json
+        }
+        if let offerRestore { offerRestore(restored, accept) } else { accept() }
     }
 }

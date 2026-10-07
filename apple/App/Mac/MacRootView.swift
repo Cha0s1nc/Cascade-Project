@@ -69,6 +69,16 @@ struct MacRootView: View {
                 PlayerBar(player: player)
             }
         }
+        // Over the library's bottom corner, just above the player bar.
+        .overlay(alignment: .bottomTrailing) {
+            if let offer = state.restoreOffer, !state.nowPlayingOpen {
+                RestoreQueueCard(offer: offer)
+                    .padding(.trailing, 16)
+                    .padding(.bottom, 76)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: state.restoreOffer?.id)
         .overlay {
             // Full-window layers over the split view and the player bar: Now Playing, then a
             // video above everything.
