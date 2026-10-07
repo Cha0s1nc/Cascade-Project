@@ -170,9 +170,9 @@ extension LyricsModel {
 // - those changes ease over 0.55 s on cubic-bezier(0.16, 1, 0.3, 1), and each
 //   upcoming line starts 90 ms after the one before (up to three), so the
 //   stack cascades instead of moving as one block;
-// - the current line is moved into place by a spring of stiffness 250,
-//   damping 50, and held high (12% down) as in Apple Music, not centred as
-//   on the desktop;
+// - the current line glides into place on a 0.6 s spring with no bounce,
+//   and is held high (12% down) as in Apple Music, not centred as on the
+//   desktop;
 // - karaoke words sit at 40% white and fill with white behind a soft edge
 //   0.6 em wide, and a word the fill has reached lifts 0.04 em over 0.6 s;
 // - scrolling by hand shows every line full size at 0.8 with a shadow, until the
@@ -217,7 +217,10 @@ private enum LyricStyle {
     /// cubic-bezier(0.16, 1, 0.3, 1) over 0.55 s, the line fade and blur.
     static var fade: Animation { .timingCurve(0.16, 1, 0.3, 1, duration: v.fadeSeconds) }
     static var ripple: Double { v.rippleSeconds }
-    static let scroll = Animation.interpolatingSpring(stiffness: 250, damping: 50)
+    /// The glide to the next line: a 0.6 s spring with no bounce. The old one
+    /// (stiffness 250, damping 50) was overdamped, so it lunged and then
+    /// crawled the last few points into place.
+    static let scroll = Animation.spring(duration: 0.6, bounce: 0)
     /// Where the current line is held: a share of the lyrics area's height.
     static var anchor: UnitPoint { UnitPoint(x: 0, y: v.currentLinePosition) }
     /// The word lift: cubic-bezier(0.25, 0.8, 0.25, 1) over 0.6 s.
@@ -293,6 +296,9 @@ struct LyricsView: View {
     /// The current line, from a clock of its own rather than the player's
     /// half-second position, so a line changes on its beat.
     @State private var active: Int?
+    /// The lines lit as current: more than one while lines overlap (a duet,
+    /// background vocals running on), as on the desktop.
+    @State private var group: ClosedRange<Int>?
     @State private var browsing = false
     @State private var settleTask: Task<Void, Never>?
 
@@ -346,7 +352,7 @@ struct LyricsView: View {
             try? await Task.sleep(for: .seconds(Self.settleSeconds))
             guard !Task.isCancelled else { return }
             withAnimation(LyricStyle.fade) { browsing = false }
-            withAnimation(LyricStyle.scroll) { proxy.scrollTo(active ?? 0, anchor: LyricStyle.anchor) }
+            withAnimation(LyricStyle.scroll) { proxy.scrollTo(scrollTarget, anchor: LyricStyle.anchor) }
         }
     }
 
@@ -357,7 +363,7 @@ struct LyricsView: View {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(lines.indices, id: \.self) { index in
                             LyricLineView(line: lines[index],
-                                          distance: Lyrics.lineDistance(index, active: active),
+                                          distance: Lyrics.lineDistance(index, group: group),
                                           browsing: browsing, emphasis: emphasis, player: player,
                                           translation: translation(index))
                                 .id(index)
@@ -392,22 +398,22 @@ struct LyricsView: View {
                             try? await Task.sleep(for: .seconds(Self.settleSeconds))
                             guard !Task.isCancelled else { return }
                             withAnimation(LyricStyle.fade) { browsing = false }
-                            withAnimation(LyricStyle.scroll) { proxy.scrollTo(active ?? 0, anchor: LyricStyle.anchor) }
+                            withAnimation(LyricStyle.scroll) { proxy.scrollTo(scrollTarget, anchor: LyricStyle.anchor) }
                         }
                     }
                 }
                 #endif
-                .onChange(of: active) { _, index in
+                .onChange(of: group) { _, _ in
                     guard !browsing else { return }
-                    withAnimation(LyricStyle.scroll) { proxy.scrollTo(index ?? 0, anchor: LyricStyle.anchor) }
+                    withAnimation(LyricStyle.scroll) { proxy.scrollTo(scrollTarget, anchor: LyricStyle.anchor) }
                 }
                 .onAppear {
-                    active = currentIndex()
-                    proxy.scrollTo(active ?? 0, anchor: LyricStyle.anchor)
+                    (active, group) = current()
+                    proxy.scrollTo(scrollTarget, anchor: LyricStyle.anchor)
                     // Again after the first layout: the scroll above can land
                     // before the lines have sizes, and while paused nothing
                     // moves them again, which left the current line low.
-                    DispatchQueue.main.async { proxy.scrollTo(active ?? 0, anchor: LyricStyle.anchor) }
+                    DispatchQueue.main.async { proxy.scrollTo(scrollTarget, anchor: LyricStyle.anchor) }
                 }
             }
         }
@@ -415,16 +421,26 @@ struct LyricsView: View {
             // 20 Hz is ample for line changes; the active line's word fill
             // runs on its own per-frame timeline.
             while !Task.isCancelled {
-                let index = currentIndex()
+                let (index, lit) = current()
                 if index != active { active = index }
+                if lit != group { group = lit }
                 try? await Task.sleep(for: .milliseconds(50))
             }
         }
     }
 
-    private func currentIndex() -> Int? {
-        Lyrics.activeLineIndex(lines, at: LyricStyle.nowTicks(player))
+    /// The current line and the group lit with it, the desktop's
+    /// currentLyricIndex and activeLyricRange.
+    private func current() -> (Int?, ClosedRange<Int>?) {
+        let now = LyricStyle.nowTicks(player)
+        guard let base = Lyrics.activeLineIndex(lines, at: now) else { return (nil, nil) }
+        let index = Lyrics.currentLineIndex(lines, base: base, at: now)
+        return (index, Lyrics.activeRange(lines, index, at: now))
     }
+
+    /// A group scrolls as one block from its first line, so the earlier
+    /// singer is not pushed off the top while still being sung.
+    private var scrollTarget: Int { group?.lowerBound ?? active ?? 0 }
 }
 
 private struct LyricLineView: View {
@@ -459,6 +475,9 @@ private struct LyricLineView: View {
                         .multilineTextAlignment(line.opposite ? .trailing : .leading)
                 }
             }
+            // A duet's second voice sits in from the right edge rather than
+            // hugging it, so it reads as the other singer, not overflow.
+            .padding(.trailing, line.opposite ? LyricStyle.size * scale * 0.8 : 0)
             .frame(maxWidth: .infinity, alignment: side)
             .scaleEffect(look.scale, anchor: line.opposite ? .topTrailing : .topLeading)
         }
@@ -485,7 +504,9 @@ private struct LyricLineView: View {
             // waiting and as words once current, a line could rewrap the
             // moment it became current. Only the current line's timeline
             // runs; the rest sit unsung, as on the desktop.
-            TimelineView(.animation(minimumInterval: 1.0 / 60, paused: distance != 0 || player.isPaused)) { _ in
+            // At the display's own rate: capped at 60 a second, the fill stepped
+            // every other frame on a 120 Hz screen.
+            TimelineView(.animation(minimumInterval: nil, paused: distance != 0 || player.isPaused)) { _ in
                 let now = distance == 0 ? LyricStyle.nowTicks(player) : Int.min
                 VStack(alignment: line.opposite ? .trailing : .leading, spacing: 0) {
                     wordFlow(words, now: now)
@@ -643,9 +664,10 @@ struct LyricsCreditView: View {
     @Environment(\.lyricInk) private var ink
 
     var body: some View {
+        // Body size: at caption 2 it read as fine print under the lyrics.
         Text(text)
-            .font(.caption2)
-            .foregroundStyle(ink.opacity(0.6))
+            .font(.body.weight(.medium))
+            .foregroundStyle(ink.opacity(0.7))
             .tint(ink.opacity(0.85))
             .frame(maxWidth: .infinity, alignment: .leading)
     }

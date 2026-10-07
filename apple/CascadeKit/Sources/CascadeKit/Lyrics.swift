@@ -171,6 +171,54 @@ public enum Lyrics {
         index - (active ?? -1)
     }
 
+    // MARK: Several lines at once (the desktop's currentLyricIndex and activeLyricRange)
+
+    private static func lastEnd(_ words: [LyricWord]?) -> Int? { words?.last?.end }
+
+    /// When a line is sung to: the later of its last word's end and its last
+    /// background word's. Nil when nothing says (plain LRC).
+    public static func lineEndTicks(_ line: LyricLine) -> Int? {
+        [lastEnd(line.words), lastEnd(line.background)].compactMap { $0 }.max()
+    }
+
+    /// Which line is current, given `base` (the last one already started):
+    /// once a karaoke line is completely sung, background vocals included, the
+    /// next one is, rather than sitting dim until its own start.
+    public static func currentLineIndex(_ lines: [LyricLine], base: Int, at now: Int) -> Int {
+        guard lines.indices.contains(base), base + 1 < lines.count, !(lines[base].words ?? []).isEmpty,
+              let lead = lastEnd(lines[base].words) else { return base }
+        let end = max(lead, lastEnd(lines[base].background) ?? lead)
+        return now >= end ? base + 1 : base
+    }
+
+    /// The lines to light as current around `index`. When a line starts while
+    /// the one before is still being sung (a duet, a call and response, a
+    /// background vocal running on), both stay lit until all of the group is
+    /// sung, as Apple Music does, instead of the first going dark mid-word.
+    /// Only lines still sung when the current one began, not a chain of
+    /// overlaps: chaining lit a whole verse whose lines each ran into the next.
+    public static func activeRange(_ lines: [LyricLine], _ index: Int, at now: Int) -> ClosedRange<Int> {
+        guard lines.indices.contains(index) else { return index...index }
+        let current = lines[index]
+        var first = index
+        var groupEnd = lineEndTicks(current) ?? Int.min
+        while first > 0 {
+            guard let previousEnd = lineEndTicks(lines[first - 1]), current.start < previousEnd else { break }
+            first -= 1
+            groupEnd = max(groupEnd, previousEnd)
+        }
+        // Lit until every line in it is sung: an earlier line's background
+        // can outlast the line that overlapped it.
+        return first < index && now < groupEnd ? first...index : index...index
+    }
+
+    /// Signed distance from the current group: negative is past, positive is
+    /// upcoming, 0 is any line in the group.
+    public static func lineDistance(_ index: Int, group: ClosedRange<Int>?) -> Int {
+        guard let group else { return index + 1 }
+        return index < group.lowerBound ? index - group.lowerBound : index > group.upperBound ? index - group.upperBound : 0
+    }
+
     private static func trimEnd(_ s: String) -> String {
         String(s.reversed().drop { $0.isWhitespace }.reversed())
     }
