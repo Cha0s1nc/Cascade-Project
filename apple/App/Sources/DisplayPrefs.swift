@@ -197,7 +197,7 @@ struct DisplaySettingsSection: View {
                            ["Up and left", "Up", "Up and right", "Right", "Down and right", "Down", "Down and left", "Left"])
                 }
                 picker("Hold", $prefs.coverSliceHold, ["Half and half", "Mostly the old cover", "Mostly the new cover", "No hold, sweep across the fade"])
-                seconds("Cut in", $prefs.coverSliceIn, CoverSlice.sliceInRange)
+                if prefs.coverSliceHold != .sweep { seconds("Cut in", $prefs.coverSliceIn, CoverSlice.sliceInRange) }
                 seconds("Slide out", $prefs.coverSlideOut, CoverSlice.slideOutRange)
                 picker("Easing", $prefs.coverSliceEasing, ["Smooth", "Snappy", "Linear"])
                 if prefs.coverSliceStyle == .slice {

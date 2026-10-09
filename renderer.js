@@ -10942,7 +10942,7 @@ function _syncDisplayPrefControls() {
   // Only the rows that do something for the style picked.
   const on = displayPrefs.coverSlice, style = displayPrefs.coverSliceStyle
   const shown = {
-    'cover-slice-style-row': on, 'cover-slice-in-row': on, 'cover-slide-out-row': on,
+    'cover-slice-style-row': on, 'cover-slice-in-row': on && displayPrefs.coverSliceHold !== 'sweep', 'cover-slide-out-row': on,
     'cover-slice-direction-row': on && style !== 'fade', 'cover-slice-hold-row': on, 'cover-slice-easing-row': on,
     'cover-slice-seam-row': on && style === 'slice', 'cover-slice-glow-row': on && style === 'slice' && displayPrefs.coverSliceSeam !== 'off',
     'cover-slice-shadow-row': on && style !== 'fade', 'color-fade-seconds-row': displayPrefs.colorFade,
