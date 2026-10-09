@@ -102,6 +102,10 @@ struct SettingsView: View {
                 }
             }
 
+            #if os(iOS)
+            DisplaySettingsSection()
+            #endif
+
             Section {
                 Toggle("Auto-Skip Intros and Credits", isOn: $autoSkipSegments)
             } header: {

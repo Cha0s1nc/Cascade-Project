@@ -466,7 +466,7 @@ function _setArtStill(host, url) {
 // album's cover.mp4, or one from TIDAL. Album id -> playable URL or null.
 const _coverVideoCache = new Map()
 async function pluginCoverVideoUrl(albumId) {
-  if (!albumId || !_cascadePluginCaps.has('animated-art')) return null
+  if (!albumId || !displayPrefs.videoCovers || !_cascadePluginCaps.has('animated-art')) return null
   if (_coverVideoCache.has(albumId)) return _coverVideoCache.get(albumId)
   try {
     const r = await fetch(`${jf.url}/CascadeServer/AnimatedArt/${encodeURIComponent(albumId)}`, {
@@ -7645,6 +7645,7 @@ async function init() {
   await loadUiFont()
   await loadNpTuning()
   await loadLyricStyle()
+  await loadDisplayPrefs()
   await initDiscordRpc()
 
   crossfadeEnabled = (await window.cascade.store.get('crossfadeEnabled')) === true
@@ -10781,6 +10782,60 @@ function probeCascadePlugin() {
   return _cascadePluginProbed
 }
 
+// ── Display preferences ──────────────────────────────────────────────────────
+// The transitions and Cascade Server extras in Settings > Playback, under the
+// keys the Apple apps' DisplayPrefs uses, so their settings import is a copy.
+const displayPrefs = {
+  coverSlice: true, coverSliceIn: 0.8, coverSlideOut: 1.2,
+  colorFade: true, colorFadeSeconds: 0.7,
+  explicitMarks: true, videoCovers: true,
+}
+const DISPLAY_PREF_RANGES = { coverSliceIn: [0.2, 2], coverSlideOut: [0.3, 3], colorFadeSeconds: [0.2, 2] }
+
+async function loadDisplayPrefs() {
+  for (const key of Object.keys(displayPrefs)) {
+    const v = await window.cascade.store.get(key)
+    const range = DISPLAY_PREF_RANGES[key]
+    if (range && typeof v === 'number' && Number.isFinite(v)) displayPrefs[key] = Math.min(range[1], Math.max(range[0], v))
+    else if (!range && typeof v === 'boolean') displayPrefs[key] = v
+  }
+  ART_SLICE.sliceIn = displayPrefs.coverSliceIn
+  ART_SLICE.slideOut = displayPrefs.coverSlideOut
+  _syncDisplayPrefControls()
+}
+
+function _syncDisplayPrefControls() {
+  const set = (id, on) => { const el = document.getElementById(id); if (el) el.checked = on }
+  set('cover-slice-toggle', displayPrefs.coverSlice)
+  set('color-fade-toggle', displayPrefs.colorFade)
+  set('explicit-marks-toggle', displayPrefs.explicitMarks)
+  set('video-covers-toggle', displayPrefs.videoCovers)
+  for (const [id, key] of [['cover-slice-in', 'coverSliceIn'], ['cover-slide-out', 'coverSlideOut'], ['color-fade-seconds', 'colorFadeSeconds']]) {
+    const el = document.getElementById(id)
+    if (el) { el.value = String(displayPrefs[key]); document.getElementById(id + '-value').textContent = `${displayPrefs[key].toFixed(1)}s` }
+  }
+  for (const [row, on] of [['cover-slice-in-row', displayPrefs.coverSlice], ['cover-slide-out-row', displayPrefs.coverSlice], ['color-fade-seconds-row', displayPrefs.colorFade]]) {
+    const el = document.getElementById(row); if (el) el.style.display = on ? '' : 'none'
+  }
+}
+
+async function setDisplayPref(key, value) {
+  displayPrefs[key] = value
+  ART_SLICE.sliceIn = displayPrefs.coverSliceIn
+  ART_SLICE.slideOut = displayPrefs.coverSlideOut
+  _syncDisplayPrefControls()
+  await window.cascade.store.set(key, value)
+}
+
+for (const [id, key] of [['cover-slice-toggle', 'coverSlice'], ['color-fade-toggle', 'colorFade'], ['explicit-marks-toggle', 'explicitMarks'], ['video-covers-toggle', 'videoCovers']]) {
+  document.getElementById(id)?.addEventListener('change', e => setDisplayPref(key, e.target.checked))
+}
+for (const [id, key] of [['cover-slice-in', 'coverSliceIn'], ['cover-slide-out', 'coverSlideOut'], ['color-fade-seconds', 'colorFadeSeconds']]) {
+  const el = document.getElementById(id)
+  el?.addEventListener('input', e => { document.getElementById(id + '-value').textContent = `${parseFloat(e.target.value).toFixed(1)}s` })
+  el?.addEventListener('change', e => setDisplayPref(key, parseFloat(e.target.value)))
+}
+
 // ── Cover slice on crossfade ─────────────────────────────────────────────────
 //
 // docs/demos/album-art-slice-transition.html, for real: when a crossfade
@@ -10824,7 +10879,7 @@ const _easeOutCubic = u => 1 - Math.pow(1 - u, 3)
 /** Lays the outgoing cover over the art, uncut. False when there is nothing to cut. */
 function prepareArtSlice() {
   _removeArtSlice()
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return false
+  if (!displayPrefs.coverSlice || matchMedia('(prefers-reduced-motion: reduce)').matches) return false
   const layers = []
   for (const id of ['ov-art', 'np-art']) {
     const host = document.getElementById(id)
@@ -11021,7 +11076,7 @@ function _resetExplicit() {
 /** The badge for a song already known to be explicit, else '' (and the song
  *  is asked about, once). '' without the plugin's explicit marks. */
 function explicitBadgeHtml(id) {
-  if (!id || !_cascadePluginCaps.has('explicit')) return ''
+  if (!id || !displayPrefs.explicitMarks || !_cascadePluginCaps.has('explicit')) return ''
   if (_explicitIds.has(id)) return EXPLICIT_BADGE
   if (!_explicitAsked.has(id)) {
     _explicitAsked.add(id)
@@ -13402,7 +13457,6 @@ function applyAlbumArtTheme(imgEl) {
 // the crossfade itself while one runs (set at its handover), briefly for any
 // other song change. Only the first colors for a song fade; the sharper
 // cover's second pass (the iTunes upgrade) just settles under the same fade.
-const OV_COLOR_FADE_MS = 700
 let _ovColorFadeUntil = 0   // performance.now() the crossfade ends, set at its handover
 let _ovColorsFor = null     // the song the background's colors are for
 
@@ -13414,8 +13468,9 @@ function fadeOverlayColors(overlay) {
   if (!prev || !overlay.classList.contains('art-theme') || !overlay.style.backgroundImage) return
   const left = _ovColorFadeUntil - performance.now()
   _ovColorFadeUntil = 0
-  const ms = left > OV_COLOR_FADE_MS ? left : OV_COLOR_FADE_MS
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  const skipMs = displayPrefs.colorFadeSeconds * 1000
+  const ms = left > skipMs ? left : skipMs
+  if (!displayPrefs.colorFade || matchMedia('(prefers-reduced-motion: reduce)').matches) return
   for (const a of prev.getAnimations()) a.cancel()
   prev.style.backgroundImage = overlay.style.backgroundImage
   prev.style.backgroundColor = overlay.style.backgroundColor

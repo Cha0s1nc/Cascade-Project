@@ -321,6 +321,12 @@ public enum ElectronSettingsImport {
         rows.append(blob("lyricStyle", "cascade.lyricStyle"))
         rows.append(blob("npTuning", "cascade.npTuning"))
 
+        // Transitions and Cascade Server extras (the desktop's displayPrefs, DisplayPrefs here).
+        for key in ["coverSlice", "colorFade", "explicitMarks", "videoCovers"] { rows.append(bool(key, "cascade." + key)) }
+        for (key, range) in [("coverSliceIn", 0.2...2.0), ("coverSlideOut", 0.3...3.0), ("colorFadeSeconds", 0.2...2.0)] {
+            rows.append(simple(key, "cascade." + key, import: { double($0, range) }, export: { double($0, range) }))
+        }
+
         // Look.
         rows.append(blob("theme", "cascade.theme"))
         rows.append(blob("uiFont", "cascade.uiFont"))

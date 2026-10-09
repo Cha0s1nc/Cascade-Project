@@ -133,3 +133,45 @@ private struct DiagonalSeam: Shape {
         return p.offsetBy(dx: r.minX, dy: r.minY)
     }
 }
+
+#if !os(tvOS)
+/// Settings for DisplayPrefs: the crossfade cover slice, the background color
+/// fade, and Cascade Server's explicit marks and video covers. The Mac's
+/// Playback tab and the iPhone's Settings show it.
+struct DisplaySettingsSection: View {
+    @Bindable private var prefs = DisplayPrefs.shared
+
+    var body: some View {
+        Section {
+            Toggle("Slice covers on crossfade", isOn: $prefs.coverSlice)
+            if prefs.coverSlice {
+                seconds("Cut in", $prefs.coverSliceIn, CoverSlice.sliceInRange)
+                seconds("Slide out", $prefs.coverSlideOut, CoverSlice.slideOutRange)
+            }
+            Toggle("Fade background colors between songs", isOn: $prefs.colorFade)
+            if prefs.colorFade { seconds("Fade on skip", $prefs.colorFadeSeconds, DisplayPrefs.colorFadeRange) }
+        } header: {
+            Text("Transitions")
+        } footer: {
+            Text("During a crossfade the old cover is cut away along the diagonal and the background's colors fade with the music; on a skip the colors fade for the set time. The slice needs Crossfade on; the color fade needs the album-art colors. Reduce Motion turns both off.")
+        }
+        Section {
+            Toggle("Explicit marks", isOn: $prefs.explicitMarks)
+            Toggle("Video covers", isOn: $prefs.videoCovers)
+        } header: {
+            Text("Cascade Server")
+        } footer: {
+            Text("With Cascade Server 1.1 on your server: an E after explicit songs, and an album's cover.mp4 playing in place of its cover.")
+        }
+    }
+
+    private func seconds(_ name: String, _ value: Binding<Double>, _ range: ClosedRange<Double>) -> some View {
+        LabeledContent(name) {
+            HStack {
+                Slider(value: value, in: range, step: 0.1).frame(maxWidth: 180).accessibilityLabel(name)
+                Text(String(format: "%.1f s", value.wrappedValue)).monospacedDigit().frame(width: 44, alignment: .trailing)
+            }
+        }
+    }
+}
+#endif

@@ -159,6 +159,7 @@ private struct LibraryTab: View {
 
 private struct PlaybackTab: View {
     @Environment(AppState.self) private var state
+    @AppStorage("cascade.autoSkipSegments") private var autoSkipSegments = false
     @State private var crossfade = 0
     @State private var crossfadeLength = 6
 
@@ -198,8 +199,16 @@ private struct PlaybackTab: View {
                     Text("Below the original, the server converts to AAC at that rate; it applies from the next track. Normalization evens out loudness using the server's scan (Jellyfin's LUFS scan has to be on); By Album keeps an album's own dynamics. Crossfade blends the end of each song into the next; off keeps albums gapless.")
                 }
 
+                DisplaySettingsSection()
                 OutputDeviceSettings()
                 RadioSettingsSection()
+                Section {
+                    Toggle("Auto-skip intros and credits", isOn: $autoSkipSegments)
+                } header: {
+                    Text("Video")
+                } footer: {
+                    Text("Skips an intro or the end credits as soon as it starts, once each. Needs Jellyfin 10.10 or later with something that finds them, such as the Intro Skipper plugin. The Skip button still shows when this is off.")
+                }
 
                 Section {
                     EQPanel(title: "Music", profile: Binding(get: { state.equalizer(for: .music) }, set: { state.setEqualizer($0, for: .music) }))

@@ -1020,6 +1020,80 @@
                   </div>
                 </div>
               </div>
+              <!-- renderer.js displayPrefs; the Apple apps' DisplayPrefs keeps the same keys. -->
+              <div class="settings-group">
+                <div class="sg-title">Transitions</div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Slice covers on crossfade</span>
+                    <span class="setting-desc">The old cover is cut away along the diagonal while the songs crossfade. Needs Crossfade on.</span>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="cover-slice-toggle">
+                    <span class="toggle-track"></span>
+                  </label>
+                </div>
+                <div class="setting-row" id="cover-slice-in-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Cut in</span>
+                  </div>
+                  <div class="setting-slider-row">
+                    <input type="range" id="cover-slice-in" min="0.2" max="2" step="0.1" value="0.8">
+                    <span class="eq-band-value" id="cover-slice-in-value">0.8s</span>
+                  </div>
+                </div>
+                <div class="setting-row" id="cover-slide-out-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Slide out</span>
+                  </div>
+                  <div class="setting-slider-row">
+                    <input type="range" id="cover-slide-out" min="0.3" max="3" step="0.1" value="1.2">
+                    <span class="eq-band-value" id="cover-slide-out-value">1.2s</span>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Fade background colors between songs</span>
+                    <span class="setting-desc">With the album-art colors on, the background fades over the crossfade, or for the time below on a skip.</span>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="color-fade-toggle">
+                    <span class="toggle-track"></span>
+                  </label>
+                </div>
+                <div class="setting-row" id="color-fade-seconds-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Fade on skip</span>
+                  </div>
+                  <div class="setting-slider-row">
+                    <input type="range" id="color-fade-seconds" min="0.2" max="2" step="0.1" value="0.7">
+                    <span class="eq-band-value" id="color-fade-seconds-value">0.7s</span>
+                  </div>
+                </div>
+              </div>
+              <div class="settings-group">
+                <div class="sg-title">Cascade Server</div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Explicit marks</span>
+                    <span class="setting-desc">An E after explicit songs. Needs Cascade Server 1.1 on your server.</span>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="explicit-marks-toggle">
+                    <span class="toggle-track"></span>
+                  </label>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Video covers</span>
+                    <span class="setting-desc">An album's cover.mp4 plays in place of its cover. Needs Cascade Server 1.1 on your server.</span>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="video-covers-toggle">
+                    <span class="toggle-track"></span>
+                  </label>
+                </div>
+              </div>
             </section>
             <section class="settings-section" id="section-lyrics" role="tabpanel" aria-labelledby="sn-lyrics">
               <!-- Server-only mode decides which lyrics sources are even offered
