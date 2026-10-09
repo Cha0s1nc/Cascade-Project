@@ -40,6 +40,7 @@ struct MainView: View {
         tabs
         #else
         tabsWithPlayer
+        .phoneSetup()
         .sheet(isPresented: $showingNowPlaying) {
             if let player = state.player {
                 NowPlayingView(player: player)
