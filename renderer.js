@@ -6365,6 +6365,9 @@ function _handOverAtFadeStart(nextIndex, incoming, fadeSecs) {
   // Laid over the art now, before playCurrentTrack() moves it to the new
   // track, from copies of the covers on screen (already decoded): startArtSlice.
   const slicing = !sameCover && !isVideoItem(queue[nextIndex]) && prepareArtSlice()
+  // The next song's lyrics roll in under the last song's (see _ovKeepGhost),
+  // if they arrive while the fade runs.
+  if (!isVideoItem(queue[nextIndex])) _lyricsRollUntil = performance.now() + Math.max(fadeSecs, 3) * 1000
   if (outgoingItem) reportPlaybackStopped(outgoingItem.Id, Math.round(outgoing.currentTime * 10000000))
 
   audio = incoming
@@ -9471,14 +9474,17 @@ function _drawQueueRows(container) {
 async function renderOverlayLyrics() {
   const body = document.getElementById('ov-lyrics-body')
   const item = queue[queueIndex]
-  if (!item) { body.innerHTML = '<div class="lyrics-empty" style="padding:40px 0;text-align:center">Nothing playing</div>'; return }
+  if (!item) { _ovDropGhost(); body.innerHTML = '<div class="lyrics-empty" style="padding:40px 0;text-align:center">Nothing playing</div>'; return }
+  _ovKeepGhost()
 
   if (!lyricsData.length) {
-    body.innerHTML = skeletonHTML('lyrics', 1)
+    // Under a crossfade the last song's lines stay up (the ghost) instead of a skeleton.
+    body.innerHTML = _ovGhost ? '' : skeletonHTML('lyrics', 1)
     const gen    = ++_lyricsFetchGen
     const result = await fetchLyricsWaterfall(item)
     if (gen !== _lyricsFetchGen) return
     if (result?.instrumental) {
+      _ovDropGhost()
       body.innerHTML = '<div class="lyrics-empty" style="padding:40px 0;text-align:center">This track is instrumental</div>'
       return
     }
@@ -9487,6 +9493,7 @@ async function renderOverlayLyrics() {
       lyricsSource = null
       lyricsCredit = null
       updateSourcePills()
+      _ovDropGhost()
       body.innerHTML = `<div class="lyrics-empty" style="padding:40px 0;text-align:center">No lyrics available${_linkSpotifyButton()}</div>`
       return
     }
@@ -9499,12 +9506,22 @@ async function renderOverlayLyrics() {
   }
 
   if (!lyricsData.length) {
+    _ovDropGhost()
     body.innerHTML = `<div class="lyrics-empty" style="padding:40px 0;text-align:center">No lyrics available${_linkSpotifyButton()}</div>`
     return
   }
 
   renderOverlayLyricLines()
   _resetOverlayManualScroll()
+  const nowSecRoll = audio.currentTime + _lyricLead
+  if (_ovGhost) {
+    let idx = 0
+    for (let i = 0; i < lyricsData.length; i++) if (lyricsData[i].Start != null && lyricsData[i].Start / 10000000 <= nowSecRoll) idx = i
+    _ovRollIn(idx)
+    detectOverlayLyricsLanguage()
+    ensureLyricsTranslation()
+    return
+  }
 
   // Jump to a neutral position instantly, then let the spring glide in to the
   // actual current line - no CSS-transition reflow trick needed since jumpTo()
@@ -9820,7 +9837,56 @@ function createSpring(onUpdate, motion = LYRIC_MOTION) {
 const ovLyricsSpring = createSpring(pos => {
   const el = document.getElementById('ov-lyrics-body')
   if (el) el.style.transform = `translateY(${pos}px)`
+  // The last song's lines ride the same glide up and out (see _ovRollIn).
+  if (_ovGhost?.startPos != null) _ovGhost.el.style.transform = `translateY(${_ovGhost.baseY + pos - _ovGhost.startPos}px)`
 })
+
+// ── Lyrics roll on crossfade ─────────────────────────────────────────────────
+// On a crossfade the next song's lyrics come up from below as the last song's
+// roll off the top, one continuous glide, instead of the view emptying and
+// jumping to the new song's first line. At the handover the old lines are kept
+// as a ghost (a copy, frozen where they were) while the new ones load; when
+// they arrive, their scroll starts most of a panel lower and springs to the
+// current line, and the ghost moves up with it and fades.
+let _lyricsRollUntil = 0   // performance.now() until which a new sheet rolls in (set at a crossfade's handover)
+let _ovGhost = null        // { el, baseY, startPos }
+
+/** Keeps the lines on screen as a ghost, once, for a crossfade's new sheet. */
+function _ovKeepGhost() {
+  const body = document.getElementById('ov-lyrics-body')
+  if (_ovGhost || performance.now() > _lyricsRollUntil || !body?.querySelector('.ov-lyric-line')) return
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  const ghost = body.cloneNode(true)
+  ghost.removeAttribute('id')
+  ghost.classList.add('ov-lyrics-ghost')
+  ghost.setAttribute('aria-hidden', 'true')
+  Object.assign(ghost.style, { top: `${body.offsetTop}px`, left: `${body.offsetLeft}px`, width: `${body.offsetWidth}px` })
+  body.parentNode.insertBefore(ghost, body)
+  _ovGhost = { el: ghost, baseY: parseFloat(/translateY\((-?[\d.]+)px\)/.exec(body.style.transform)?.[1] ?? '0') || 0, startPos: null }
+}
+
+function _ovDropGhost() {
+  if (!_ovGhost) return
+  const { el } = _ovGhost
+  _ovGhost = null
+  el.animate([{ opacity: getComputedStyle(el).opacity }, { opacity: 0 }], { duration: 400, fill: 'forwards' })
+    .finished.then(() => el.remove()).catch(() => el.remove())
+}
+
+/** The new sheet is drawn: start it below and let the spring bring it (and the ghost) up. */
+function _ovRollIn(initialIdx) {
+  const panel = document.getElementById('ov-panel-lyrics')
+  updateOverlayLyricsActive(initialIdx, true)
+  const target = ovLyricsBaseY
+  const start = target + panel.clientHeight * 0.75
+  _ovGhost.startPos = start
+  ovLyricsSpring.jumpTo(start)
+  ovLyricsSpring.setTarget(target)
+  _ovGhost.el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 900, easing: 'ease-in', fill: 'forwards' })
+  const ghost = _ovGhost
+  setTimeout(() => { if (_ovGhost === ghost) { _ovGhost = null; ghost.el.remove() } }, 950)
+  _lyricsRollUntil = 0
+}
 
 const sideLyricsSpring = createSpring(pos => {
   const el = document.getElementById('lyrics-inner')

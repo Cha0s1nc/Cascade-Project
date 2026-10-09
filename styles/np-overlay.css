@@ -474,3 +474,6 @@ html[data-theme="light"] #ov-panel-lyrics.browsing .ov-lyric-line.active { color
 .art-slice .slice-img { position: absolute; width: 70.7107%; height: 70.7107%; left: 14.6447%; top: 14.6447%; object-fit: cover; display: block; will-change: transform; user-select: none; border-radius: 0; }
 .slice-seam { position: absolute; inset: 0; will-change: transform, opacity; opacity: 0; }
 .slice-seam::after { content: ''; position: absolute; top: 0; bottom: 0; right: -1px; width: 2px; background: #fff; box-shadow: 0 0 6px 2px rgba(255,255,255,0.65); }
+
+/* The last song's lyrics during a crossfade, rolling off the top (renderer.js _ovKeepGhost). */
+.ov-lyrics-ghost { position: absolute; pointer-events: none; will-change: transform, opacity; }
