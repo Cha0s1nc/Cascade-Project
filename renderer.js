@@ -9891,7 +9891,61 @@ function _ovRollIn(initialIdx) {
 const sideLyricsSpring = createSpring(pos => {
   const el = document.getElementById('lyrics-inner')
   if (el) el.style.transform = `translateY(${pos}px)`
+  if (_sideGhost?.startPos != null) _sideGhost.el.style.transform = `translateY(${_sideGhost.baseY + pos - _sideGhost.startPos}px)`
 })
+
+// The side panel's lyrics roll, as the overlay's (_ovKeepGhost): the last song's
+// lines stay as a ghost inside the panel through the next sheet's fetch, then
+// ride the spring off the top as the new ones come up from below.
+let _sideGhost = null      // { el, baseY, startPos }
+
+function _sideKeepGhost() {
+  const body = document.getElementById('lyrics-body')
+  const inner = document.getElementById('lyrics-inner')
+  if (_sideGhost || performance.now() > _lyricsRollUntil || !inner?.querySelector('.lyrics-line')) return
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  const ghost = inner.cloneNode(true)
+  ghost.removeAttribute('id')
+  ghost.classList.add('lyrics-ghost')
+  ghost.setAttribute('aria-hidden', 'true')
+  Object.assign(ghost.style, { top: `${inner.offsetTop}px`, left: `${inner.offsetLeft}px`, width: `${inner.offsetWidth}px` })
+  inner.remove()
+  body.appendChild(ghost)
+  _sideGhost = { el: ghost, baseY: parseFloat(/translateY\((-?[\d.]+)px\)/.exec(inner.style.transform)?.[1] ?? '0') || 0, startPos: null }
+}
+
+function _sideDropGhost() {
+  if (!_sideGhost) return
+  const { el } = _sideGhost
+  _sideGhost = null
+  el.animate([{ opacity: getComputedStyle(el).opacity }, { opacity: 0 }], { duration: 400, fill: 'forwards' })
+    .finished.then(() => el.remove()).catch(() => el.remove())
+}
+
+/** Replaces what the side panel shows, keeping a rolling ghost. */
+function _sideSetBody(html) {
+  const body = document.getElementById('lyrics-body')
+  if (!_sideGhost) { body.innerHTML = html; return }
+  for (const child of [...body.children]) if (child !== _sideGhost.el) child.remove()
+  _sideGhost.el.insertAdjacentHTML('beforebegin', html)
+}
+
+function _sideRollIn() {
+  if (!_sideGhost || !lyricsData.length) return
+  const nowSec = audio.currentTime + _lyricLead
+  let idx = 0
+  for (let i = 0; i < lyricsData.length; i++) if (lyricsData[i].Start != null && lyricsData[i].Start / 10000000 <= nowSec) idx = i
+  _applySideLyricsActive(idx, true)
+  const inner = document.getElementById('lyrics-inner')
+  const target = parseFloat(/translateY\((-?[\d.]+)px\)/.exec(inner?.style.transform || '')?.[1] ?? '0') || 0
+  const start = target + document.getElementById('lyrics-body').clientHeight * 0.75
+  _sideGhost.startPos = start
+  sideLyricsSpring.jumpTo(start)
+  sideLyricsSpring.setTarget(target)
+  _sideGhost.el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 900, easing: 'ease-in', fill: 'forwards' })
+  const ghost = _sideGhost
+  setTimeout(() => { if (_sideGhost === ghost) { _sideGhost = null; ghost.el.remove() } }, 950)
+}
 
 // First line of the overlay's current group; lastOverlayLyricsIdx is the last.
 // They differ only while lines overlap (see activeLyricRange).
@@ -12061,9 +12115,11 @@ async function fetchLyrics() {
   const item = queue[queueIndex]
   const body = document.getElementById('lyrics-body')
   const translateBar = document.getElementById('lyrics-translate-bar')
-  if (!item) { body.innerHTML = '<div class="lyrics-empty">Nothing playing</div>'; return }
+  if (!item) { _sideDropGhost(); body.innerHTML = '<div class="lyrics-empty">Nothing playing</div>'; return }
 
-  body.innerHTML = skeletonHTML('lyrics', 1)
+  // Under a crossfade the last song's lines stay up (the ghost) instead of a skeleton.
+  _sideKeepGhost()
+  _sideSetBody(_sideGhost ? '' : skeletonHTML('lyrics', 1))
   translateBar.classList.remove('visible')
   lyricsData = []
   lyricsTranslated = []
@@ -12074,7 +12130,8 @@ async function fetchLyrics() {
   if (gen !== _lyricsFetchGen) return  // a newer fetch superseded this one
 
   if (result?.instrumental) {
-    body.innerHTML = '<div class="lyrics-empty">This track is instrumental</div>'
+    _sideDropGhost()
+    _sideSetBody('<div class="lyrics-empty">This track is instrumental</div>')
     return
   }
   _showLyricsFetchToast(result)
@@ -12082,7 +12139,8 @@ async function fetchLyrics() {
     lyricsSource = null
     lyricsCredit = null
     updateSourcePills()
-    body.innerHTML = `<div class="lyrics-empty">No lyrics available for this track${_linkSpotifyButton()}</div>`
+    _sideDropGhost()
+    _sideSetBody(`<div class="lyrics-empty">No lyrics available for this track${_linkSpotifyButton()}</div>`)
     return
   }
   lyricsData   = result.lines
@@ -12090,6 +12148,7 @@ async function fetchLyrics() {
   lyricsCredit = result.credit || null
   updateSourcePills()
   renderLyrics()
+  _sideRollIn()
   detectAndShowTranslateBar()
   ensureLyricsTranslation()
   _stopWordLoop()
@@ -12120,7 +12179,7 @@ function renderLyrics() {
 
   // Wrap in a translateY-driven inner div - position is spring-animated in JS
   // (see sideLyricsSpring), not CSS transitions, so no transition property here.
-  body.innerHTML = `<div id="lyrics-inner" style="will-change:transform;padding-bottom:50%">${lines}</div>`
+  _sideSetBody(`<div id="lyrics-inner" style="will-change:transform;padding-bottom:50%">${lines}</div>`)
   sideLyricsSpring.jumpTo(0)  // fresh element, don't carry over the previous track's position
 
   body.querySelectorAll('.lyrics-line.seekable').forEach(el => {
