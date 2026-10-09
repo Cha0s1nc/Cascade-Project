@@ -15,7 +15,7 @@ struct PlayerBar: View {
             // The artist is a link of its own, so the button stops short of it.
             HStack(spacing: 10) {
                 Button(action: openNowPlaying) {
-                    ArtworkView(itemId: player.item?.albumId ?? player.item?.id, size: 44)
+                    ArtworkView(itemId: player.item?.albumId ?? player.item?.id, size: 44, animated: true)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Open Now Playing")

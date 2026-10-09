@@ -122,7 +122,7 @@ struct NowPlayingView: View {
     private var tvBody: some View {
         HStack(alignment: .top, spacing: 60) {
             VStack(spacing: 24) {
-                ArtworkView(itemId: artId, size: 480)
+                ArtworkView(itemId: artId, size: 480, animated: true)
                     .focusable()
                     .onTapGesture { player.togglePlayPause() }
                     .onMoveCommand { direction in
@@ -291,7 +291,7 @@ struct NowPlayingView: View {
     /// animated around a fixed-size view). Loaded once at the big size.
     private func movingArtwork(resolution: CGFloat) -> some View {
         let big = mode == .artwork
-        return ArtworkView(itemId: artId, size: resolution, fillsFrame: true)
+        return ArtworkView(itemId: artId, size: resolution, fillsFrame: true, animated: true)
             .shadow(color: .black.opacity(big ? 0.35 : 0.2), radius: big ? 24 : 6, y: big ? 12 : 3)
             // Apple's artwork breathes with playback: full size while playing,
             // eased back a little when paused. Only the big one does.

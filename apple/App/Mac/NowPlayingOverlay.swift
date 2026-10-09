@@ -222,7 +222,7 @@ private struct OverlayContent: View {
 
     /// The cover, with Favorite, Add to Playlist and View Album over it while the pointer is on it.
     private func art(side: CGFloat) -> some View {
-        ArtworkView(itemId: artId, size: side, fillsFrame: true)
+        ArtworkView(itemId: artId, size: side, fillsFrame: true, animated: true)
             .frame(width: side, height: side)
             .brightness(artHovering ? -0.25 : 0)
             .saturation(artHovering ? 0.7 : 1)

@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 import CascadeKit
 
 // The pieces every browsing screen shares, so artwork loading and row layout
@@ -61,6 +62,9 @@ struct ArtworkView: View {
     var aspect: CGFloat = 1
     /// Jellyfin's image type: "Primary", or "Backdrop" for a page's header.
     var imageType = "Primary"
+    /// Play the album's video cover over the still, when Cascade Server has
+    /// one (Now Playing and the player bar; grids stay still).
+    var animated = false
 
     @Environment(AppState.self) private var state
     /// Tagged with its key: the same view can be handed a different item, and
@@ -93,6 +97,7 @@ struct ArtworkView: View {
                     .font(.system(size: size * 0.3))
                     .foregroundStyle(.secondary)
             }
+            if animated, let itemId { CoverVideo(albumId: itemId) }
         }
         .frame(width: fillsFrame ? nil : size, height: fillsFrame ? nil : size / aspect)
         .aspectRatio(aspect, contentMode: .fit)
@@ -401,3 +406,119 @@ private struct SkeletonPulse: ViewModifier {
             }
     }
 }
+
+// MARK: - Video covers
+
+/// Cascade Server's video cover for an album (the animated-art capability),
+/// looping and muted over the still; nothing without the plugin or a video.
+private struct CoverVideo: View {
+    let albumId: String
+    @Environment(AppState.self) private var state
+    @State private var url: URL?
+
+    var body: some View {
+        // A base view, so the task runs with no video showing yet.
+        ZStack {
+            Color.clear
+            if let url { LoopingVideo(url: url).transition(.opacity) }
+        }
+        .allowsHitTesting(false)
+        .animation(.easeIn(duration: 0.3), value: url)
+        .task(id: albumId) {
+            url = nil
+            guard state.cascadePluginInfo.capabilities.contains("animated-art"), let client = state.client else { return }
+            url = await CoverVideos.url(albumId: albumId, client: client)
+        }
+    }
+}
+
+/// Answers per album, so moving between Now Playing and the player bar does
+/// not ask again. TIDAL's "still fetching" is not kept as an answer.
+@MainActor
+enum CoverVideos {
+    private static var known: [String: URL?] = [:]
+
+    static func url(albumId: String, client: JellyfinClient) async -> URL? {
+        if let answer = known[albumId] { return answer }
+        let (url, pending) = await client.coverVideo(albumId: albumId)
+        if !pending {
+            if known.count > 200 { known.removeAll() }
+            known[albumId] = url
+        }
+        return url
+    }
+}
+
+/// A muted video on a loop, filling its frame.
+private final class LoopingPlayer {
+    let player = AVQueuePlayer()
+    private var looper: AVPlayerLooper?
+
+    init(url: URL) {
+        player.isMuted = true
+        player.preventsDisplaySleepDuringVideoPlayback = false
+        player.allowsExternalPlayback = false
+        looper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(url: url))
+        player.play()
+    }
+
+    func stop() {
+        player.pause()
+        looper?.disableLooping()
+        looper = nil
+    }
+}
+
+#if os(macOS)
+private struct LoopingVideo: NSViewRepresentable {
+    let url: URL
+
+    final class Coordinator { var looping: LoopingPlayer? }
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> PlayerLayerView {
+        let view = PlayerLayerView()
+        view.playerLayer.videoGravity = .resizeAspectFill
+        view.playerLayer.backgroundColor = nil
+        let looping = LoopingPlayer(url: url)
+        context.coordinator.looping = looping
+        view.playerLayer.player = looping.player
+        return view
+    }
+
+    func updateNSView(_ view: PlayerLayerView, context: Context) {}
+
+    static func dismantleNSView(_ view: PlayerLayerView, coordinator: Coordinator) {
+        coordinator.looping?.stop()
+        view.playerLayer.player = nil
+    }
+}
+#else
+private final class LoopingVideoView: UIView {
+    override class var layerClass: AnyClass { AVPlayerLayer.self }
+    var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
+}
+
+private struct LoopingVideo: UIViewRepresentable {
+    let url: URL
+
+    final class Coordinator { var looping: LoopingPlayer? }
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> LoopingVideoView {
+        let view = LoopingVideoView()
+        view.playerLayer.videoGravity = .resizeAspectFill
+        let looping = LoopingPlayer(url: url)
+        context.coordinator.looping = looping
+        view.playerLayer.player = looping.player
+        return view
+    }
+
+    func updateUIView(_ view: LoopingVideoView, context: Context) {}
+
+    static func dismantleUIView(_ view: LoopingVideoView, coordinator: Coordinator) {
+        coordinator.looping?.stop()
+        view.playerLayer.player = nil
+    }
+}
+#endif
