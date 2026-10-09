@@ -54,23 +54,74 @@ public struct ServerStyle: Equatable, Sendable {
         }
     }
 
+    /// Which Now Playing tuning values a person stored themselves.
+    public struct TuningSet: Equatable, Sendable {
+        public var bgDim = false, bgBlend = false, lyricScale = false
+        public init(bgDim: Bool = false, bgBlend: Bool = false, lyricScale: Bool = false) {
+            (self.bgDim, self.bgBlend, self.lyricScale) = (bgDim, bgBlend, lyricScale)
+        }
+        public static let all = TuningSet(bgDim: true, bgBlend: true, lyricScale: true)
+
+        public init(stored json: String?) {
+            let object = json.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] } ?? [:]
+            self.init(bgDim: object["bgDim"] != nil, bgBlend: object["bgBlend"] != nil, lyricScale: object["lyricScale"] != nil)
+        }
+    }
+
     /// The colors and Now Playing tuning to use. `colorsSet` and `tuningSet`
-    /// say whether the person stored those themselves (see colorsSet(stored:)).
-    public func layered(theme: ThemeSettings, colorsSet: Bool, tuning: NPTuning.Values, tuningSet: Bool)
+    /// say what the person stored themselves (see colorsSet(stored:)).
+    public func layered(theme: ThemeSettings, colorsSet: Bool, tuning: NPTuning.Values, tuningSet: TuningSet)
         -> (theme: ThemeSettings, tuning: NPTuning.Values) {
         var outTheme = theme, outTuning = tuning
         if let t = preset?.theme {
             if themePart == .force || (themePart == .fill && !colorsSet) {
                 (outTheme.gradStart, outTheme.gradEnd, outTheme.albumArt) = (t.gradStart, t.gradEnd, t.albumArt)
             }
-            if themePart == .force || (themePart == .fill && !tuningSet) {
-                (outTuning.bgDim, outTuning.bgBlend) = (t.bgDim, t.bgBlend)
-            }
+            if themePart == .force || (themePart == .fill && !tuningSet.bgDim) { outTuning.bgDim = t.bgDim }
+            if themePart == .force || (themePart == .fill && !tuningSet.bgBlend) { outTuning.bgBlend = t.bgBlend }
         }
-        if let l = preset?.lyrics, lyricsPart == .force || (lyricsPart == .fill && !tuningSet) {
+        if let l = preset?.lyrics, lyricsPart == .force || (lyricsPart == .fill && !tuningSet.lyricScale) {
             outTuning.lyricScale = l.lyricScale
         }
         return (outTheme, outTuning)
+    }
+
+    // MARK: Saving under a style
+    //
+    // A value that only shows the server's look through is not the person's
+    // own: saving it would keep the server's look after an admin turned the
+    // style off (switching light/dark saves the whole theme). What they had
+    // stored, or nothing, stays instead. The desktop's ownValue.
+
+    /// The theme to store for `shown`.
+    public func ownTheme(_ shown: ThemeSettings, stored: String?) -> ThemeSettings {
+        guard themePart != .none, let t = preset?.theme else { return shown }
+        let mine = ThemeSettings(stored: stored)
+        var out = shown
+        if shown.gradStart == t.gradStart, shown.gradEnd == t.gradEnd { (out.gradStart, out.gradEnd) = (mine.gradStart, mine.gradEnd) }
+        if shown.albumArt == t.albumArt { out.albumArt = mine.albumArt }
+        return out
+    }
+
+    /// The tuning to store for `shown`, as JSON with only the person's own values.
+    public func ownTuning(_ shown: NPTuning.Values, stored: String?) -> String {
+        let mine = stored.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] } ?? [:]
+        var object: [String: Any] = ["lyricScale": shown.lyricScale, "bgDim": shown.bgDim, "bgBlend": shown.bgBlend]
+        if themePart != .none, let t = preset?.theme {
+            if shown.bgDim == t.bgDim { object["bgDim"] = mine["bgDim"] }
+            if shown.bgBlend == t.bgBlend { object["bgBlend"] = mine["bgBlend"] }
+        }
+        if lyricsPart != .none, let l = preset?.lyrics, shown.lyricScale == l.lyricScale { object["lyricScale"] = mine["lyricScale"] }
+        let data = (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// The lyric knob changes to store for `changes`.
+    public func ownLyricChanges(_ changes: [String: Double], stored: [String: Double]) -> [String: Double] {
+        guard lyricsPart != .none, let server = preset?.lyrics?.style else { return changes }
+        var out = changes
+        for (key, value) in server where changes[key] == value { out[key] = stored[key] }
+        return out
     }
 
     /// Whether a stored theme carries colors the person chose: off the shipped

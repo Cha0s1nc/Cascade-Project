@@ -15,7 +15,11 @@ final class MacTheme {
 
     var settings: ThemeSettings {
         didSet {
-            if !layering { UserDefaults.standard.set(settings.encoded(), forKey: "cascade.theme") }
+            if !layering {
+                // Under a server style, only what is the person's own (ServerStyle.ownTheme).
+                let d = UserDefaults.standard
+                d.set(serverStyle.ownTheme(settings, stored: d.string(forKey: "cascade.theme")).encoded(), forKey: "cascade.theme")
+            }
             // Turning art accent off drops what the last cover gave, so the gradient is what shows.
             if !settings.albumArt { art = nil }
         }
@@ -23,7 +27,11 @@ final class MacTheme {
 
     /// Background dim, blend and (kept for the import) lyric scale.
     var tuning: NPTuning.Values {
-        didSet { if !layering { UserDefaults.standard.set(tuning.encoded(), forKey: "cascade.npTuning") } }
+        didSet {
+            guard !layering else { return }
+            let d = UserDefaults.standard
+            d.set(serverStyle.ownTuning(tuning, stored: d.string(forKey: "cascade.npTuning")), forKey: "cascade.npTuning")
+        }
     }
 
     /// The server's look (CascadeKit's ServerStyle), layered over the stored
@@ -38,7 +46,7 @@ final class MacTheme {
         let d = UserDefaults.standard
         let storedTheme = d.string(forKey: "cascade.theme"), storedTuning = d.string(forKey: "cascade.npTuning")
         let look = style.layered(theme: ThemeSettings(stored: storedTheme), colorsSet: ServerStyle.colorsSet(stored: storedTheme),
-                                 tuning: NPTuning.Values(stored: storedTuning), tuningSet: storedTuning != nil)
+                                 tuning: NPTuning.Values(stored: storedTuning), tuningSet: ServerStyle.TuningSet(stored: storedTuning))
         layering = true
         settings = look.theme
         tuning = look.tuning

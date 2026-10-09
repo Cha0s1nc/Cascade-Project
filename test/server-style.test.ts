@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { layeredLook, layeredLyricChanges, parseServerStyle, serverStylePart, SERVER_STYLE_OFF } from '../src/core/server-style.ts'
+import { layeredLook, layeredLyricChanges, ownValue, parseServerStyle, serverStylePart, SERVER_STYLE_OFF } from '../src/core/server-style.ts'
 
 const preset = {
   format: 'cascade-preset', version: 1, name: 'House',
@@ -27,19 +27,32 @@ test('default fills only what the person never set', () => {
   const s = parseServerStyle({ mode: 'default', preset })
   assert.deepEqual(layeredLyricChanges({ pastBlur: 1, lineGap: 9 }, s), { pastBlur: 1, lineGap: 9 })
   assert.deepEqual(layeredLyricChanges(null, s), { pastBlur: 3 })
-  const fresh = layeredLook(mine, { colors: false, tuning: false }, s)
+  const fresh = layeredLook(mine, { colors: false, bgDim: false, bgBlend: false, lyricScale: false }, s)
   assert.equal(fresh.gradStart, '#111111'); assert.equal(fresh.bgDim, 0.5); assert.equal(fresh.lyricScale, 1.2)
-  assert.deepEqual(layeredLook(mine, { colors: true, tuning: true }, s), mine)
+  assert.deepEqual(layeredLook(mine, { colors: true, bgDim: true, bgBlend: true, lyricScale: true }, s), mine)
 })
 
 test('enforced puts the server look over the person\'s own', () => {
   const s = parseServerStyle({ mode: 'enforced', enforce: { theme: true, lyrics: true }, preset })
   assert.deepEqual(layeredLyricChanges({ pastBlur: 1, lineGap: 9 }, s), { pastBlur: 3 })
-  const look = layeredLook(mine, { colors: true, tuning: true }, s)
+  const look = layeredLook(mine, { colors: true, bgDim: true, bgBlend: true, lyricScale: true }, s)
   assert.equal(look.gradEnd, '#222222'); assert.equal(look.albumArt, true); assert.equal(look.bgBlend, false); assert.equal(look.lyricScale, 1.2)
 })
 
 test('off leaves everything as the person has it', () => {
-  assert.deepEqual(layeredLook(mine, { colors: false, tuning: false }, SERVER_STYLE_OFF), mine)
+  assert.deepEqual(layeredLook(mine, { colors: false, bgDim: false, bgBlend: false, lyricScale: false }, SERVER_STYLE_OFF), mine)
   assert.deepEqual(layeredLyricChanges({ lineGap: 9 }, SERVER_STYLE_OFF), { lineGap: 9 })
+})
+
+test('a value that only shows the server look through is not saved as the person\'s own', () => {
+  assert.equal(ownValue('#111111', '#111111', undefined, true), undefined)
+  assert.equal(ownValue('#111111', '#111111', '#abcdef', true), '#abcdef')
+  assert.equal(ownValue('#999999', '#111111', '#abcdef', true), '#999999')
+  assert.equal(ownValue('#111111', '#111111', '#abcdef', false), '#111111')
+})
+
+test('tuning values fill one by one', () => {
+  const s = parseServerStyle({ mode: 'default', preset })
+  const look = layeredLook(mine, { colors: true, bgDim: true, bgBlend: false, lyricScale: false }, s)
+  assert.equal(look.bgDim, 0.16); assert.equal(look.bgBlend, false); assert.equal(look.lyricScale, 1.2)
 })

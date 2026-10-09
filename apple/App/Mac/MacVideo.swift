@@ -133,6 +133,9 @@ private struct WindowReader: NSViewRepresentable {
 
     private final class ReaderView: NSView {
         var found: ((NSWindow) -> Void)?
+        // Spans the window behind the player; with the video in the corner it
+        // would otherwise take the library's clicks.
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             if let window { DispatchQueue.main.async { [found] in found?(window) } }

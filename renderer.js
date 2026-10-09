@@ -12798,11 +12798,22 @@ function markActivePreset() {
 }
 
 async function saveTheme() {
+  let gradStart = document.getElementById('grad-start').value
+  let gradEnd = document.getElementById('grad-end').value
+  let albumArt = themeAlbumArt
+  // Under a server style the controls can be showing the server's colors:
+  // those are not the person's own (CascadeCore.ownValue), so switching
+  // light/dark keeps what they had stored.
+  const server = CascadeCore.serverStylePart(_serverStyle, 'theme') !== 'none' ? _serverStyle.preset.theme : null
+  if (server) {
+    let stored = {}
+    try { stored = JSON.parse(await window.cascade.store.get('theme') || '{}') || {} } catch {}
+    if (gradStart === server.gradStart && gradEnd === server.gradEnd) { gradStart = stored.gradStart; gradEnd = stored.gradEnd }
+    albumArt = CascadeCore.ownValue(albumArt, server.albumArt, stored.albumArt, true)
+  }
   await window.cascade.store.set('theme', JSON.stringify({
     mode: document.documentElement.getAttribute('data-theme') || 'dark',
-    gradStart: document.getElementById('grad-start').value,
-    gradEnd: document.getElementById('grad-end').value,
-    albumArt: themeAlbumArt,
+    gradStart, gradEnd, albumArt,
   }))
 }
 
@@ -12819,7 +12830,7 @@ async function loadTheme() {
   const look = CascadeCore.layeredLook({
     gradStart: hasGradient ? t.gradStart : def.start, gradEnd: hasGradient ? t.gradEnd : def.end,
     albumArt: !!t?.albumArt, bgDim: 0, bgBlend: true, lyricScale: 1,
-  }, { colors: colorsSet, tuning: true }, _serverStyle)
+  }, { colors: colorsSet, bgDim: true, bgBlend: true, lyricScale: true }, _serverStyle)
   document.getElementById('grad-start').value = look.gradStart
   document.getElementById('grad-end').value = look.gradEnd
   const wasAlbumArt = themeAlbumArt
@@ -12916,8 +12927,23 @@ function applyNpTuning(lyricScale, bgDim, bgBlend) {
 }
 
 async function saveNpTuning(lyricScale, bgDim, bgBlend) {
-  await window.cascade.store.set('npTuning', JSON.stringify({ lyricScale, bgDim, bgBlend }))
   applyNpTuning(lyricScale, bgDim, bgBlend)
+  // Each value that only shows the server style through stays as stored (or
+  // unset), so it keeps filling in for this person (CascadeCore.ownValue).
+  const t = _serverStyle.preset?.theme, l = _serverStyle.preset?.lyrics
+  let own = { lyricScale, bgDim, bgBlend }
+  if (_serverStyle.mode !== 'off') {
+    let stored = {}
+    try { stored = JSON.parse(await window.cascade.store.get('npTuning') || '{}') || {} } catch {}
+    const theme = CascadeCore.serverStylePart(_serverStyle, 'theme') !== 'none'
+    const lyrics = CascadeCore.serverStylePart(_serverStyle, 'lyrics') !== 'none'
+    own = {
+      lyricScale: CascadeCore.ownValue(lyricScale, l?.lyricScale, stored.lyricScale, lyrics),
+      bgDim: CascadeCore.ownValue(bgDim, t?.bgDim, stored.bgDim, theme),
+      bgBlend: CascadeCore.ownValue(bgBlend, t?.bgBlend, stored.bgBlend, theme),
+    }
+  }
+  await window.cascade.store.set('npTuning', JSON.stringify(own))
 }
 
 // ── Lyrics look (Theme panel > Lyrics) ──────────────────────────────────────
@@ -12938,7 +12964,18 @@ function applyLyricStyle(style) {
 
 async function saveLyricStyle(style) {
   applyLyricStyle(style)
-  await window.cascade.store.set('lyricStyle', JSON.stringify(CascadeCore.lyricStyleChanges(lyricStyle)))
+  const changes = CascadeCore.lyricStyleChanges(lyricStyle)
+  // Knobs only showing the server style through stay as stored (CascadeCore.ownValue).
+  if (CascadeCore.serverStylePart(_serverStyle, 'lyrics') !== 'none') {
+    let stored = {}
+    try { stored = JSON.parse(await window.cascade.store.get('lyricStyle') || '{}') || {} } catch {}
+    const server = _serverStyle.preset.lyrics.style
+    for (const key of Object.keys(server)) {
+      const v = CascadeCore.ownValue(changes[key], server[key], stored[key], true)
+      if (v === undefined) delete changes[key]; else changes[key] = v
+    }
+  }
+  await window.cascade.store.set('lyricStyle', JSON.stringify(changes))
 }
 
 async function loadLyricStyle() {
@@ -12985,11 +13022,10 @@ async function loadNpTuning() {
       lyricScale = t.lyricScale; bgDim = t.bgDim; bgBlend = t.bgBlend
     }
   } catch {}
-  const stored = lyricScale !== undefined || bgDim !== undefined || bgBlend !== undefined
   const look = CascadeCore.layeredLook({
     gradStart: '', gradEnd: '', albumArt: false,
     bgDim: CascadeCore.clampBgDim(bgDim), bgBlend: CascadeCore.clampBgBlend(bgBlend), lyricScale: CascadeCore.clampLyricScale(lyricScale),
-  }, { colors: true, tuning: stored }, _serverStyle)
+  }, { colors: true, bgDim: bgDim !== undefined, bgBlend: bgBlend !== undefined, lyricScale: lyricScale !== undefined }, _serverStyle)
   lyricScale = look.lyricScale; bgDim = look.bgDim; bgBlend = look.bgBlend
   applyNpTuning(lyricScale, bgDim, bgBlend)
   const scaleInput = document.getElementById('tp-lyric-scale')

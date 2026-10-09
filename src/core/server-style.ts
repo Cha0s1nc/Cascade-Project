@@ -61,20 +61,28 @@ export interface ThemeLook {
   lyricScale: number
 }
 
-/** The look to use. `set` says which of the person's values they stored
- *  themselves: the colors (gradient and album-art accent, kept together) and
- *  the Now Playing tuning (background dim and blend, and the lyric size).
- *  Values not stored are the shipped defaults in `user`. */
-export function layeredLook(user: ThemeLook, set: { colors: boolean; tuning: boolean }, s: ServerStyle): ThemeLook {
+/** Which of a person's values they stored themselves: the colors (gradient
+ *  and album-art accent, kept together) and each Now Playing tuning value. */
+export interface LookSet { colors: boolean; bgDim: boolean; bgBlend: boolean; lyricScale: boolean }
+
+/** The look to use. Values not stored are the shipped defaults in `user`. */
+export function layeredLook(user: ThemeLook, set: LookSet, s: ServerStyle): ThemeLook {
   const out = { ...user }
   const t = s.preset?.theme, l = s.preset?.lyrics
   const theme = serverStylePart(s, 'theme'), lyrics = serverStylePart(s, 'lyrics')
   if (t && (theme === 'force' || (theme === 'fill' && !set.colors))) {
     out.gradStart = t.gradStart; out.gradEnd = t.gradEnd; out.albumArt = t.albumArt
   }
-  if (t && (theme === 'force' || (theme === 'fill' && !set.tuning))) {
-    out.bgDim = t.bgDim; out.bgBlend = t.bgBlend
-  }
-  if (l && (lyrics === 'force' || (lyrics === 'fill' && !set.tuning))) out.lyricScale = l.lyricScale
+  if (t && (theme === 'force' || (theme === 'fill' && !set.bgDim))) out.bgDim = t.bgDim
+  if (t && (theme === 'force' || (theme === 'fill' && !set.bgBlend))) out.bgBlend = t.bgBlend
+  if (l && (lyrics === 'force' || (lyrics === 'fill' && !set.lyricScale))) out.lyricScale = l.lyricScale
   return out
+}
+
+/** What to save for one setting while a server style is on: a value that only
+ *  shows the server's look through is not the person's own, so what they had
+ *  stored (or nothing) stays. Otherwise switching light/dark, or moving one
+ *  slider, would keep the server's look after the admin turned it off. */
+export function ownValue<T>(shown: T, server: T | undefined, stored: T | undefined, active: boolean): T | undefined {
+  return active && server !== undefined && shown === server ? stored : shown
 }

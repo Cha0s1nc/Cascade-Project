@@ -245,7 +245,9 @@ final class StyleTuning {
     }
 
     private func save() {
-        UserDefaults.standard.set(changes, forKey: Self.storeKey)
+        // Under a server style, only the person's own (ServerStyle.ownLyricChanges).
+        let stored = UserDefaults.standard.dictionary(forKey: Self.storeKey) as? [String: Double] ?? [:]
+        UserDefaults.standard.set(serverStyle.ownLyricChanges(changes, stored: stored), forKey: Self.storeKey)
     }
 
     // MARK: New defaults
