@@ -10,6 +10,7 @@
 
 import type { JellyfinClient } from './jellyfin.ts'
 import type { ServerConfig } from './types.ts'
+import { parseDisplayMessage, type ServerMessage } from './server-messages.ts'
 
 /** What the host platform must be able to do for a remote to be useful. */
 export interface RemoteHandlers {
@@ -29,6 +30,8 @@ export interface RemoteHandlers {
   volumeDown(): void
   toggleMute(): void
   setMute(muted: boolean): void
+  /** A message an admin sent this session from the dashboard (DisplayMessage). */
+  showMessage?(message: ServerMessage): void
 }
 
 /** Return false to refuse an incoming command (see ownership.ts). */
@@ -59,6 +62,8 @@ export const SUPPORTED_COMMANDS = [
   'SetVolume', 'ToggleMute', 'Mute', 'Unmute',
   'VolumeUp', 'VolumeDown',
   'Play', 'PlayState',
+  // Messages from the dashboard. Not playback, so not gated (see handleMessage).
+  'DisplayMessage',
 ] as const
 
 export class RemoteControl {
@@ -232,6 +237,13 @@ export class RemoteControl {
         return
 
       case 'GeneralCommand':
+        // A message is for the person, not the player: it shows in a
+        // Waterfall room or under a cast too.
+        if (msg.Data?.Name === 'DisplayMessage') {
+          const message = parseDisplayMessage(msg.Data?.Arguments)
+          if (message) this.handlers.showMessage?.(message)
+          return
+        }
         if (!this.gate()) return
         this.handleGeneralCommand(msg.Data)
         return

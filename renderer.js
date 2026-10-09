@@ -886,6 +886,23 @@ async function connect(serverUrl, token, userId) {
 
 let _remote = null
 
+// A message an admin sent this session from Jellyfin's dashboard: a card at the
+// top until closed, or for as long as the sender asked. Text only.
+let _serverMessageTimer = null
+function showServerMessage(message) {
+  const card = document.getElementById('server-message')
+  document.getElementById('server-message-title').textContent = message.header
+  document.getElementById('server-message-body').textContent = message.text
+  document.getElementById('server-message-body').hidden = !message.text
+  card.classList.remove('hidden')
+  clearTimeout(_serverMessageTimer)
+  if (message.timeoutMs) _serverMessageTimer = setTimeout(() => card.classList.add('hidden'), message.timeoutMs)
+}
+document.getElementById('server-message-close').addEventListener('click', () => {
+  clearTimeout(_serverMessageTimer)
+  document.getElementById('server-message').classList.add('hidden')
+})
+
 function startRemoteControl() {
   if (_remote) _remote.stop()
 
@@ -928,6 +945,7 @@ function startRemoteControl() {
     volumeDown()    { applyRemoteVolume(volume - 0.1) },
     toggleMute()    { applyRemoteMute(!audio.muted) },
     setMute(muted)  { applyRemoteMute(muted) },
+    showMessage(message) { showServerMessage(message) },
   }, playbackIsLocallyOwned)
 
   // Not fatal - playback works fine without it - but it must be visible.
@@ -7017,9 +7035,8 @@ window.cascade.miniPlayer.onControl(async (raw) => {
 // ── Settings ──────────────────────────────────────────────────────────────────
 
 async function loadSettingsFields() {
-  document.getElementById('s-url').value  = await window.cascade.store.get('serverUrl') || ''
-  document.getElementById('s-user').value = await window.cascade.store.get('username') || ''
-  document.getElementById('s-pass').value = ''
+  document.getElementById('s-url').textContent  = await window.cascade.store.get('serverUrl') || ''
+  document.getElementById('s-user').textContent = await window.cascade.store.get('username') || ''
   document.getElementById('s-headers').value = CascadeCore.formatHeaderLines(await window.cascade.connection.getHeaders())
   document.getElementById('s-headers-error').textContent = ''
 
@@ -7270,57 +7287,18 @@ document.getElementById('s-cert-reset').addEventListener('click', async () => {
   showToast('Certificate choice cleared. Cascade asks again the next time your server wants one.')
 })
 
-document.getElementById('btn-save-settings').addEventListener('click', async () => {
-  const url = document.getElementById('s-url').value.trim()
-  const user = document.getElementById('s-user').value.trim()
-  const pass = document.getElementById('s-pass').value
-
-  if (!url || !user) return
-
-  // Headers first: a proxy that wants them refuses everything below without.
+// The proxy headers are the one connection setting changed in place: the
+// server and the account are Sign out, as on the Mac.
+document.getElementById('s-headers-save').addEventListener('click', async () => {
+  const url = await window.cascade.store.get('serverUrl')
+  if (!url) return
   const parsed = CascadeCore.parseHeaderLines(document.getElementById('s-headers').value)
   document.getElementById('s-headers-error').textContent = parsed.errors.join(' ')
   if (parsed.errors.length) return
   await window.cascade.connection.set(url, parsed.headers)
-
-  // Persist URL and username immediately so they survive a failed connection attempt
-  await window.cascade.store.set('serverUrl', url)
-  await window.cascade.store.set('username', user)
-
-  try {
-    // No password is ever stored (the token is the session), so an empty field
-    // means "keep the current session": sending an empty password just 401s.
-    // If the existing token still works against this URL, keep it and save.
-    if (!pass) {
-      const token = await window.cascade.store.get('token')
-      const userId = await window.cascade.store.get('userId')
-      if (!token || !userId) { promptReauth('Sign in again to change these.'); return }
-      await connect(url, token, userId)
-      const okStatus = document.getElementById('save-status')
-      okStatus.classList.add('visible')
-      setTimeout(() => okStatus.classList.remove('visible'), 2500)
-      return
-    }
-
-    const auth = await jfAuth(url, user, pass)
-    await window.cascade.store.set('token', auth.AccessToken)
-    await window.cascade.store.set('userId', auth.User.Id)
-    await window.cascade.store.set('deviceIdMigrated', true)  // fresh login, current device id
-
-    const status = document.getElementById('save-status')
-    status.classList.add('visible')
-    setTimeout(() => status.classList.remove('visible'), 2500)
-
-    await connect(url, auth.AccessToken, auth.User.Id)
-  } catch (e) {
-    const msg = e.message || ''
-    if (msg.includes('401') || msg.toLowerCase().includes('unauthorized'))
-      alert('Incorrect username or password.')
-    else if (msg.includes('Failed to fetch') || msg.includes('NetworkError'))
-      alert('Could not reach the server. Check your URL.')
-    else
-      alert(`Connection failed: ${msg}`)
-  }
+  const status = document.getElementById('save-status')
+  status.classList.add('visible')
+  setTimeout(() => status.classList.remove('visible'), 2500)
 })
 
 document.getElementById('btn-logout').addEventListener('click', async () => {
@@ -7403,9 +7381,16 @@ function probeQuickConnect() {
   _qcProbeTimer = setTimeout(async () => {
     const url = document.getElementById('setup-url').value.trim().replace(/\/+$/, '')
     const btn = document.getElementById('setup-quickconnect')
-    if (!url) { btn.style.display = 'none'; return }
+    if (!url) { btn.style.display = 'none'; document.getElementById('setup-disclaimer').hidden = true; return }
     const applied = await applySetupConnection(url, { report: false, probe: true })
-    if (!applied) { btn.style.display = 'none'; return }
+    const disclaimer = document.getElementById('setup-disclaimer')
+    if (!applied) { btn.style.display = 'none'; disclaimer.hidden = true; return }
+    CascadeCore.fetchLoginDisclaimer(url).then(text => {
+      // Only if the address has not changed since.
+      if (document.getElementById('setup-url').value.trim().replace(/\/+$/, '') !== url) return
+      disclaimer.textContent = text
+      disclaimer.hidden = !text
+    })
     // Without its headers a proxy refuses the check, which says nothing about
     // Quick Connect: offer it, and pressing it sends the headers and finds out.
     btn.style.display = (applied === 'withheld' || await CascadeCore.quickConnectEnabled(url)) ? '' : 'none'

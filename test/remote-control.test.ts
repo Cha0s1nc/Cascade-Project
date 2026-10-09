@@ -26,6 +26,7 @@ function recorder() {
     volumeDown:    () => { log.push('volDown') },
     toggleMute:    () => { log.push('toggleMute') },
     setMute:       m  => { log.push(`mute:${m}`) },
+    showMessage:   m  => { log.push(`message:${m.header}:${m.text}:${m.timeoutMs}`) },
   }
   return { log, handlers }
 }
@@ -136,8 +137,17 @@ test('every declared command has a handler', () => {
   for (const Name of generalOnly) {
     remote.handleMessage({
       MessageType: 'GeneralCommand',
-      Data: { Name, Arguments: { Volume: '50' } },
+      Data: { Name, Arguments: { Volume: '50', Header: 'H', Text: 'T' } },
     })
   }
   assert.equal(log.length, generalOnly.length, `unhandled command among ${generalOnly.join(', ')}`)
+})
+
+test('a dashboard message shows even when commands are gated', () => {
+  // A Waterfall room or a cast gates playback, never a message for the person.
+  const { log, remote } = build(() => false)
+  remote.handleMessage({ MessageType: 'GeneralCommand', Data: { Name: 'DisplayMessage', Arguments: { Header: 'Hi', Text: 'Restart at 2', TimeoutMs: '4000' } } })
+  remote.handleMessage({ MessageType: 'GeneralCommand', Data: { Name: 'DisplayMessage', Arguments: {} } })
+  remote.handleMessage({ MessageType: 'GeneralCommand', Data: { Name: 'Mute', Arguments: {} } })
+  assert.deepEqual(log, ['message:Hi:Restart at 2:4000'])
 })

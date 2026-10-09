@@ -129,3 +129,6 @@ textarea.setting-input { resize: vertical; min-height: 56px; font-family: var(--
 .setup-spinner { width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--accent1); border-radius: 50%; animation: spin 0.75s linear infinite; }
 .setup-loading-text { font-size: 13px; color: var(--text2); }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* A read-only value in a settings row (Account's server and user). */
+.setting-value { font-size: 13px; color: var(--text2); max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: text; }

@@ -120,3 +120,11 @@ input[type="range"]:disabled { opacity: 0.4; cursor: default; }
 .restore-card-timer-fill.running { width: 0; transition: width var(--restore-seconds, 20s) linear; }
 .restore-card-close { background: none; border: none; color: var(--text2); font-size: 12px; cursor: pointer; padding: 4px 6px; }
 .restore-card-close:hover { color: var(--text); }
+
+/* A message from the server's admin (renderer.js showServerMessage): top centre, over everything. */
+.server-message { position: fixed; top: 48px; left: 50%; transform: translateX(-50%); z-index: 2000; display: flex; align-items: flex-start; gap: 12px; max-width: min(520px, calc(100vw - 32px)); padding: 12px 12px 12px 16px; background: var(--surface2); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.35); transition: opacity 0.25s, transform 0.25s; }
+.server-message.hidden { opacity: 0; transform: translate(-50%, -12px); pointer-events: none; }
+.server-message-text { min-width: 0; }
+.server-message-title { font-size: 13px; font-weight: 600; color: var(--text); }
+.server-message-body { font-size: 12px; color: var(--text2); margin-top: 3px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 40vh; overflow-y: auto; }
+.setup-disclaimer { margin: 14px 0 0; font-size: 11.5px; line-height: 1.45; color: var(--text2); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow-y: auto; }

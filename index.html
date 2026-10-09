@@ -1211,28 +1211,29 @@
             <section class="settings-section" id="section-account" role="tabpanel" aria-labelledby="sn-account">
               <div class="settings-group">
                 <div class="sg-title">Account</div>
+                <!-- Shown, not edited, as on the Mac: a different server or account
+                     is Sign out, then the sign-in screen. -->
                 <div class="setting-row">
                   <div class="setting-label">
-                    <span class="setting-name">Server URL</span>
-                    <span class="setting-desc">e.g. http://192.168.1.10:8096</span>
+                    <span class="setting-name">Server</span>
+                    <span class="setting-desc">To use another server or account, sign out.</span>
                   </div>
-                  <input class="setting-input" id="s-url" type="text" placeholder="http://localhost:8096" />
+                  <span class="setting-value" id="s-url"></span>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-label"><span class="setting-name">Username</span></div>
-                  <input class="setting-input" id="s-user" type="text" placeholder="Username" />
-                </div>
-                <div class="setting-row">
-                  <div class="setting-label"><span class="setting-name">Password</span></div>
-                  <input class="setting-input" id="s-pass" type="password" placeholder="Password" />
+                  <div class="setting-label"><span class="setting-name">Signed in as</span></div>
+                  <span class="setting-value" id="s-user"></span>
                 </div>
                 <div class="setting-row">
                   <div class="setting-label">
                     <span class="setting-name">Reverse proxy headers</span>
-                    <span class="setting-desc">For a server behind Cloudflare Access, Authelia or similar. One Name: Value per line, sent only to this server. Authorization and Host cannot be set. Saved on this computer with your other connection settings. Applied when you save.</span>
+                    <span class="setting-desc">For a server behind Cloudflare Access, Authelia or similar. One Name: Value per line, sent only to this server. Authorization and Host cannot be set. Saved on this computer with your other connection settings.</span>
                     <span class="setting-desc" id="s-headers-error" style="color:var(--red)"></span>
                   </div>
-                  <textarea class="setting-input" id="s-headers" rows="3" spellcheck="false" autocomplete="off" placeholder="CF-Access-Client-Id: ..."></textarea>
+                  <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
+                    <textarea class="setting-input" id="s-headers" rows="3" spellcheck="false" autocomplete="off" placeholder="CF-Access-Client-Id: ..."></textarea>
+                    <button class="btn btn-secondary" id="s-headers-save" type="button">Save headers</button>
+                  </div>
                 </div>
                 <div class="setting-row">
                   <div class="setting-label">
@@ -1265,7 +1266,6 @@
               <div class="settings-actions">
                 <span class="save-status" id="save-status">Saved ✓</span>
                 <button class="btn btn-danger" id="btn-logout">Sign out</button>
-                <button class="btn btn-primary" id="btn-save-settings">Save &amp; reconnect</button>
               </div>
             </section>
             <section class="settings-section" id="section-about" role="tabpanel" aria-labelledby="sn-about">
@@ -1389,6 +1389,8 @@
     </details>
     <div class="setup-error" id="setup-error"></div>
     <button class="setup-btn" id="setup-connect">Connect</button>
+    <!-- The server's login disclaimer (Branding), as Jellyfin's own sign-in page shows it. -->
+    <p class="setup-disclaimer" id="setup-disclaimer" hidden></p>
     <!-- Shown only once we know the server actually offers Quick Connect. -->
     <button class="setup-btn setup-btn-alt" id="setup-quickconnect" style="display:none">Sign in with a code instead</button>
     <div class="setup-loading" id="setup-loading">
@@ -2192,6 +2194,15 @@
   </div>
   <button class="modal-btn modal-btn-accent" id="restore-card-yes">Restore</button>
   <button class="restore-card-close" id="restore-card-no" aria-label="Dismiss" data-tip="Dismiss">✕</button>
+</div>
+
+<!-- A message an admin sent from Jellyfin's dashboard (renderer.js showServerMessage). -->
+<div class="server-message hidden" id="server-message" role="alert">
+  <div class="server-message-text">
+    <div class="server-message-title" id="server-message-title"></div>
+    <div class="server-message-body" id="server-message-body"></div>
+  </div>
+  <button class="restore-card-close" id="server-message-close" aria-label="Dismiss" data-tip="Dismiss">✕</button>
 </div>
 
 <!-- Waterfall: same-server synced listening (beta) -->
