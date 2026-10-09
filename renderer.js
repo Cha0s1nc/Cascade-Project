@@ -8736,7 +8736,11 @@ function pokeOverlayControls() {
 
 ;['pointermove', 'pointerdown', 'wheel', 'keydown'].forEach(type =>
   document.getElementById('np-overlay').addEventListener(type, pokeOverlayControls, { passive: true }))
-onDeck('play', pokeOverlayControls)
+// Play only restarts the hide timer when the controls are already up (after a
+// pause, say). A song starting by itself (a crossfade's handover, the next
+// track) leaves hidden controls hidden, so the cover slice plays over a clean
+// overlay instead of the controls popping back for it.
+onDeck('play', () => { if (!document.getElementById('np-overlay').classList.contains('idle')) pokeOverlayControls() })
 onDeck('pause', pokeOverlayControls)
 
 // Any empty part of the bar opens the overlay, not just the left section: the
