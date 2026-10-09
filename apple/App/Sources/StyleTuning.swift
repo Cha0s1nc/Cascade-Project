@@ -54,6 +54,9 @@ final class StyleTuning {
         /// A little early by default: a line takes its fade to light up, so
         /// one that starts on the beat reads as late. Apple Music leads too.
         var lyricsDelay = -0.05
+        /// The scroll alone heads for the next line this many seconds early, so
+        /// it is mostly there when the line lights. 0 scrolls with the highlight.
+        var scrollLead = 0.0
         var backgroundVocalSize = 0.64
         var backgroundVocalOpacity = 0.85
         var bgSaturation = 1.0
@@ -84,6 +87,7 @@ final class StyleTuning {
 
     static let knobs: [Knob] = [
         Knob(section: "Lyrics layout", label: "Lyrics timing (s)", path: \.lyricsDelay, range: -2...2, step: 0.05, key: "lyricsDelay"),
+        Knob(section: "Lyrics layout", label: "Scroll ahead (s)", path: \.scrollLead, range: 0...1, step: 0.05, key: "scrollLead"),
         Knob(section: "Lyrics layout", label: "Text size", path: \.lyricSize, range: 18...60, step: 1, key: "lyricSize"),
         Knob(section: "Lyrics layout", label: "Current line position", path: \.currentLinePosition, range: 0...0.6, step: 0.01, key: "currentLinePosition"),
         Knob(section: "Lyrics layout", label: "Line gap", path: \.lineGap, range: 0...40, step: 1, key: "lineGap"),

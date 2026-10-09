@@ -9821,6 +9821,18 @@ function _scanLyricsBaseIdx(nowSec, fromIdx) {
   return baseIdx
 }
 
+// The line (and its group's first) the scroll heads for when the Scroll ahead
+// knob is on: the one current scrollLead seconds from now, if that is past the
+// lit one. Null leaves the scroll on the lit line, as before.
+function _lyricScrollAhead(nowSec, baseIdx, activeIdx) {
+  const lead = lyricStyle.scrollLead
+  if (!(lead > 0)) return null
+  const t = nowSec + lead
+  const idx = CascadeCore.currentLyricIndex(lyricsData, _scanLyricsBaseIdx(t, Math.max(0, baseIdx)), t * 10_000_000)
+  if (!(idx > activeIdx)) return null
+  return [idx, CascadeCore.activeLyricRange(lyricsData, idx, t * 10_000_000)[0]]
+}
+
 // Returns the translateY that would center a given line, independent of the
 // element's current transform (offsetTop is unaffected by CSS transforms).
 function _ovLyricsTranslateYFor(idx) {
@@ -9891,14 +9903,19 @@ onDeck('timeupdate', () => {
   // Overlapping lines (a duet, a call and response) stay lit together until
   // the later one ends: activeLyricRange in src/core/lyrics.ts.
   const [first] = CascadeCore.activeLyricRange(lyricsData, activeIdx, nowSec * 10_000_000)
+  const ahead = _lyricScrollAhead(nowSec, baseIdx, activeIdx)
+  const aheadKey = ahead ? ahead.join(':') : ''
 
-  if (activeIdx === lastOverlayLyricsIdx && first === ovActiveFirst) return
+  if (activeIdx === lastOverlayLyricsIdx && first === ovActiveFirst && aheadKey === ovAheadKey) return
   lastOverlayLyricsIdx = activeIdx
+  ovAheadKey = aheadKey
   // Always a glide. An early promotion (a karaoke line sung before the next
   // one's start) used to jump there instantly, and SpicyLyrics' syncs make
   // nearly every change early, so every line change was a snap.
   updateOverlayLyricsActive(activeIdx, false, first)
+  if (ahead) _scrollOverlayLyricsTo(ahead[0], false, ahead[1])
 })
+let ovAheadKey = ''
 
 // Update overlay when track changes
 const _baseUpdateNP = updateNowPlaying
@@ -11636,10 +11653,14 @@ onDeck('timeupdate', () => {
   const activeIdx = CascadeCore.currentLyricIndex(lyricsData, baseIdx, nowSec * 10_000_000)
   // Overlapping lines stay lit together, as in the overlay above.
   const [first] = CascadeCore.activeLyricRange(lyricsData, activeIdx, nowSec * 10_000_000)
+  const ahead = _lyricScrollAhead(nowSec, baseIdx, activeIdx)
+  const aheadKey = ahead ? ahead.join(':') : ''
 
-  if (activeIdx === lastLyricsIdx && first === lyricsActiveFirst) return
-  _applySideLyricsActive(activeIdx, false, first)   // always a glide, as in the overlay above
+  if (activeIdx === lastLyricsIdx && first === lyricsActiveFirst && aheadKey === sideAheadKey) return
+  sideAheadKey = aheadKey
+  _applySideLyricsActive(activeIdx, false, first, ahead)   // always a glide, as in the overlay above
 })
+let sideAheadKey = ''
 
 // Highlight and centre one line in the side panel. Split out of the timeupdate
 // handler so a re-render (a translation arriving, say) can put the highlight
@@ -11648,7 +11669,7 @@ onDeck('timeupdate', () => {
 // They differ only while lines overlap (see activeLyricRange).
 let lyricsActiveFirst = -1
 
-function _applySideLyricsActive(activeIdx, instant, first = activeIdx) {
+function _applySideLyricsActive(activeIdx, instant, first = activeIdx, ahead = null) {
   lastLyricsIdx = activeIdx
   lyricsActiveFirst = first
   const body = document.getElementById('lyrics-body')
@@ -11659,10 +11680,12 @@ function _applySideLyricsActive(activeIdx, instant, first = activeIdx) {
 
   if (!lyricsScrollSuppressed) {
     const inner = document.getElementById('lyrics-inner')
-    const target = inner?.querySelector(`.lyrics-line[data-idx="${activeIdx}"]`)
+    // With Scroll ahead on, the line coming up rather than the lit one.
+    const [toIdx, toFirst] = ahead || [activeIdx, first]
+    const target = inner?.querySelector(`.lyrics-line[data-idx="${toIdx}"]`)
     if (target) {
       // A group of overlapping lines is centred as one block.
-      const top = inner.querySelector(`.lyrics-line[data-idx="${first}"]`) || target
+      const top = inner.querySelector(`.lyrics-line[data-idx="${toFirst}"]`) || target
       const centreOn = () => body.clientHeight / 2 - (top.offsetTop + target.offsetTop + target.offsetHeight) / 2
       if (instant) sideLyricsSpring.jumpTo(centreOn())
       else sideLyricsSpring.setTarget(centreOn)   // re-measured per frame, see createSpring

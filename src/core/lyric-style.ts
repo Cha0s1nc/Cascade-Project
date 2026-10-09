@@ -56,6 +56,9 @@ export const LYRIC_KNOBS: readonly LyricKnob[] = [
   // Negative is earlier, as in the Apple app: a line takes its fade to light
   // up, so one drawn exactly on the beat reads as late.
   { key: 'lyricsDelay', section: 'Motion', label: 'Lyrics timing (s)', min: -2, max: 2, step: 0.05, value: -0.05 },
+  // The scroll alone heads for the next line this early, so it is mostly
+  // there when that line lights; the highlight keeps to the timing above.
+  { key: 'scrollLead', section: 'Motion', label: 'Scroll ahead (s)', min: 0, max: 1, step: 0.05, value: 0 },
 ]
 
 export type LyricStyle = Record<string, number>

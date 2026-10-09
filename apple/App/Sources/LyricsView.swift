@@ -301,6 +301,8 @@ struct LyricsView: View {
     /// The lines lit as current: more than one while lines overlap (a duet,
     /// background vocals running on), as on the desktop.
     @State private var group: ClosedRange<Int>?
+    /// The line the scroll is on: the group's first, or ahead of it (aheadTarget).
+    @State private var scrollLine: Int?
     @State private var browsing = false
     @State private var settleTask: Task<Void, Never>?
 
@@ -405,12 +407,13 @@ struct LyricsView: View {
                     }
                 }
                 #endif
-                .onChange(of: group) { _, _ in
+                .onChange(of: scrollLine) { _, _ in
                     guard !browsing else { return }
                     withAnimation(LyricStyle.scroll) { proxy.scrollTo(scrollTarget, anchor: LyricStyle.anchor) }
                 }
                 .onAppear {
                     (active, group) = current()
+                    scrollLine = aheadTarget()
                     proxy.scrollTo(scrollTarget, anchor: LyricStyle.anchor)
                     // Again after the first layout: the scroll above can land
                     // before the lines have sizes, and while paused nothing
@@ -426,6 +429,8 @@ struct LyricsView: View {
                 let (index, lit) = current()
                 if index != active { active = index }
                 if lit != group { group = lit }
+                let ahead = aheadTarget()
+                if ahead != scrollLine { scrollLine = ahead }
                 try? await Task.sleep(for: .milliseconds(50))
             }
         }
@@ -433,8 +438,8 @@ struct LyricsView: View {
 
     /// The current line and the group lit with it, the desktop's
     /// currentLyricIndex and activeLyricRange.
-    private func current() -> (Int?, ClosedRange<Int>?) {
-        let now = LyricStyle.nowTicks(player)
+    private func current(aheadSeconds: Double = 0) -> (Int?, ClosedRange<Int>?) {
+        let now = LyricStyle.nowTicks(player) + Int(aheadSeconds * Double(Lyrics.ticksPerSecond))
         guard let base = Lyrics.activeLineIndex(lines, at: now) else { return (nil, nil) }
         let index = Lyrics.currentLineIndex(lines, base: base, at: now)
         return (index, Lyrics.activeRange(lines, index, at: now))
@@ -442,7 +447,18 @@ struct LyricsView: View {
 
     /// A group scrolls as one block from its first line, so the earlier
     /// singer is not pushed off the top while still being sung.
-    private var scrollTarget: Int { group?.lowerBound ?? active ?? 0 }
+    private var scrollTarget: Int { scrollLine ?? group?.lowerBound ?? active ?? 0 }
+
+    /// Where the scroll heads: the lit group, or with Scroll ahead on, the one
+    /// coming up that many seconds from now (never back past the lit one).
+    private func aheadTarget() -> Int? {
+        let lit = group?.lowerBound ?? active
+        let lead = StyleTuning.shared.values.scrollLead
+        guard lead > 0 else { return lit }
+        let (index, range) = current(aheadSeconds: lead)
+        guard let next = range?.lowerBound ?? index, next > (active ?? -1) else { return lit }
+        return next
+    }
 }
 
 private struct LyricLineView: View {
