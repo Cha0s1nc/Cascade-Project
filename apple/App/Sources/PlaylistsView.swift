@@ -1,5 +1,8 @@
 import SwiftUI
 import CascadeKit
+#if os(iOS)
+import PhotosUI
+#endif
 
 /// The user's playlists, and a button to make a new one. Editing a playlist
 /// happens on its own page.
@@ -161,6 +164,7 @@ struct PlaylistDetailView: View {
     @State private var renaming = false
     @State private var newName = ""
     @State private var confirmingDelete = false
+    @State private var editingDetails = false
 
     init(playlist: JfItem) {
         self.playlist = playlist
@@ -227,7 +231,19 @@ struct PlaylistDetailView: View {
             Text("The songs stay in your library.")
         }
         .writeErrorAlert($writeError)
+        #if os(iOS)
+        .sheet(isPresented: $editingDetails) {
+            if let route = detailsRoute { PlaylistDetailsSheet(playlist: playlist, route: route) }
+        }
+        #endif
         .task { await load() }
+    }
+
+    /// Who may set the picture and description: the plugin lets the owner,
+    /// Jellyfin alone only an admin.
+    private var detailsRoute: PlaylistDetails.Route? {
+        PlaylistDetails.route(capabilities: state.cascadePluginInfo.capabilities,
+                              pluginPresent: state.cascadePluginApi != nil, isAdmin: state.isAdmin)
     }
 
     private var header: some View {
@@ -264,6 +280,14 @@ struct PlaylistDetailView: View {
                     Label("Rename", systemImage: "pencil").labelStyle(.iconOnly)
                 }
                 .buttonStyle(.bordered)
+                #if os(iOS)
+                if detailsRoute != nil {
+                    Button { editingDetails = true } label: {
+                        Label("Picture and Description", systemImage: "photo").labelStyle(.iconOnly)
+                    }
+                    .buttonStyle(.bordered)
+                }
+                #endif
                 Button(role: .destructive) {
                     confirmingDelete = true
                 } label: {
@@ -337,3 +361,130 @@ struct PlaylistDetailView: View {
         }
     }
 }
+
+#if os(iOS)
+/// A playlist's picture and description (the Mac's Edit Playlist sheet has
+/// the same). Photos often hands over HEIC, which the server does not take,
+/// so a picked photo goes up as a JPEG, scaled to fit the size limit.
+struct PlaylistDetailsSheet: View {
+    let playlist: JfItem
+    let route: PlaylistDetails.Route
+
+    @Environment(AppState.self) private var state
+    @Environment(\.dismiss) private var dismiss
+    @State private var picked: PhotosPickerItem?
+    @State private var newImage: Data?
+    @State private var removingImage = false
+    @State private var overview = ""
+    @State private var loadedOverview = ""
+    @State private var saving = false
+    @State private var writeError: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Picture") {
+                    HStack(spacing: 16) {
+                        Group {
+                            if let newImage, let image = UIImage(data: newImage) {
+                                Image(uiImage: image).resizable().aspectRatio(contentMode: .fill)
+                            } else if removingImage {
+                                Rectangle().fill(.quaternary).overlay(Image(systemName: "music.note").foregroundStyle(.secondary))
+                            } else {
+                                ArtworkView(itemId: playlist.id, size: 80)
+                            }
+                        }
+                        .frame(width: 80, height: 80)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        VStack(alignment: .leading, spacing: 10) {
+                            PhotosPicker("Choose Photo", selection: $picked, matching: .images)
+                            Button("Remove Picture", role: .destructive) { newImage = nil; removingImage = true }
+                                .disabled(removingImage)
+                        }
+                    }
+                }
+                Section("Description") {
+                    TextField("Description", text: $overview, axis: .vertical)
+                        .lineLimit(3...8)
+                        .onChange(of: overview) { _, text in
+                            if text.count > PlaylistDetails.overviewMax { overview = String(text.prefix(PlaylistDetails.overviewMax)) }
+                        }
+                }
+            }
+            .navigationTitle("Edit Playlist")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { Task { await save() } }.disabled(saving)
+                }
+            }
+            .onChange(of: picked) { _, item in
+                guard let item else { return }
+                Task {
+                    guard let data = try? await item.loadTransferable(type: Data.self),
+                          let jpeg = Self.jpeg(data) else { return writeError = PlaylistDetails.ImageError.notAnImage.description }
+                    newImage = jpeg
+                    removingImage = false
+                }
+            }
+            .task {
+                guard let client = state.client else { return }
+                let text = (try? await client.playlistOverview(playlist.id)) ?? ""
+                loadedOverview = text
+                if overview.isEmpty { overview = text }
+            }
+            .writeErrorAlert($writeError)
+        }
+    }
+
+    /// Any photo as a JPEG under the size limit: scaled down until it fits.
+    static func jpeg(_ data: Data) -> Data? {
+        guard let image = UIImage(data: data) else { return nil }
+        var side: CGFloat = 1600
+        while side >= 200 {
+            let scale = min(1, side / max(image.size.width, image.size.height))
+            let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            let jpeg = UIGraphicsImageRenderer(size: size, format: format).jpegData(withCompressionQuality: 0.85) {
+                _ in image.draw(in: CGRect(origin: .zero, size: size))
+            }
+            if jpeg.count <= PlaylistDetails.maxImageBytes { return jpeg }
+            side /= 1.5
+        }
+        return nil
+    }
+
+    /// Each part is written only if it changed; anything that fails is listed
+    /// and the sheet stays open, as on the Mac.
+    private func save() async {
+        guard let client = state.client else { return }
+        saving = true
+        defer { saving = false }
+        var failed: [String] = []
+        let text = overview.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text != loadedOverview.trimmingCharacters(in: .whitespacesAndNewlines) {
+            do {
+                try await client.setPlaylistOverview(playlist.id, text, route: route)
+                loadedOverview = text
+            } catch {
+                failed.append("Description: \(error.localizedDescription)")
+            }
+        }
+        if newImage != nil || removingImage {
+            do {
+                if let newImage { try await client.setPlaylistImage(playlist.id, newImage, route: route) }
+                else { try await client.removePlaylistImage(playlist.id, route: route) }
+                ArtworkCache.bust(playlist.id)
+                newImage = nil
+                removingImage = false
+            } catch {
+                failed.append("Picture: \(error)")
+            }
+        }
+        state.playlistMutated()
+        if failed.isEmpty { dismiss() } else { writeError = "Some changes did not save.\n\n" + failed.joined(separator: "\n") }
+    }
+}
+#endif
