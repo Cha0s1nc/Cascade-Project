@@ -88,28 +88,29 @@ struct MacLyricsBody: View {
 
     var body: some View {
         let model = ui.lyrics
-        if let lines = model.lines {
+        // Each song's sheet is its own view (LyricsRoll keys it by song), so a new song's lyrics
+        // start from their own top; through a crossfade they roll in from below.
+        LyricsRoll(player: player, model: model) { lines in
             VStack(spacing: 8) {
                 LyricsView(lines: lines, player: player, emphasis: model.credit != nil, synced: model.synced,
                            translations: ui.translator.showing ? ui.translator.byIndex : [:])
-                    // A new song's lyrics start from their own top, not scrolled to wherever
-                    // the last song's were.
-                    .id(player.item?.id)
                 // Pinned under the lyrics, with the controls or without: SpicyLyrics' terms want
                 // it visible, not tucked away.
                 if let credit = model.credit { LyricsCreditView(credit: credit) }
             }
-        } else if model.isLoading {
-            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            VStack(spacing: 12) {
-                Text(model.instrumental ? "This track is instrumental" : "No lyrics available")
-                    .foregroundStyle(.secondary)
-                if !model.instrumental, state.cascadePluginInfo.spotifyLink, player.item != nil {
-                    Button("Link a Spotify track") { ui.linkingSpotify = true }
+        } placeholder: {
+            if model.isLoading {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                VStack(spacing: 12) {
+                    Text(model.instrumental ? "This track is instrumental" : "No lyrics available")
+                        .foregroundStyle(.secondary)
+                    if !model.instrumental, state.cascadePluginInfo.spotifyLink, player.item != nil {
+                        Button("Link a Spotify track") { ui.linkingSpotify = true }
+                    }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }

@@ -31,6 +31,9 @@ public final class PlaybackService {
     /// Set as a fade starts between songs with different covers; `cutAt` is set
     /// when it ends, early or not. Left in place after, harmlessly in the past.
     public private(set) var crossfadeArt: CrossfadeArt?
+    /// When the last crossfade handed over to the next song, cover change or not
+    /// (the lyrics roll keeps the last song's lyrics up through it).
+    public private(set) var lastCrossfade: Date?
 
     #if DEBUG
     /// Debug builds: runs the cover slice from `outgoing` to the cover on screen
@@ -40,6 +43,8 @@ public final class PlaybackService {
         crossfadeArt = CrossfadeArt(outgoing: outgoing, incoming: current, started: Date(), duration: duration)
     }
     public func debugCutCoverSlice() { crossfadeArt?.cutAt = Date() }
+    /// Debug builds: the next song change counts as a crossfade's (the lyrics roll).
+    public func debugMarkCrossfade() { lastCrossfade = Date() }
     #endif
     /// The queue and where we are in it. Views read `queue.items` to draw an
     /// up-next list and `queue.index` to highlight the current row.
@@ -1118,6 +1123,7 @@ public final class PlaybackService {
         // `resolved`, then adopts the new one; the tail's transcode, if any,
         // is abandoned when the tail stops.
         let outgoingArt = item.map { $0.albumId ?? $0.id }
+        lastCrossfade = Date()
         handOver(to: next)
         let incomingArt = item.map { $0.albumId ?? $0.id }
         if let outgoingArt, let incomingArt, outgoingArt != incomingArt {

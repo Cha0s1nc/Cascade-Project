@@ -10,6 +10,10 @@ import CascadeKit
 @Observable
 final class LyricsModel {
     private(set) var lines: [LyricLine]?
+    /// The song `lines` are for, so a view can tell the last song's sheet from the next's
+    /// (LyricsRoll); nil with no lines.
+    private(set) var linesFor: String?
+    @ObservationIgnored private var loadingFor: String?
     private(set) var credit: SpicyCredit?
     /// False for untimed lyrics, drawn as a still page.
     private(set) var synced = true
@@ -42,6 +46,7 @@ final class LyricsModel {
         guard key != loadedKey else { return }
         show(nil)
         loadedKey = key
+        loadingFor = item?.id
         #if DEBUG
         // Launch with -cascade.debugLyrics YES (Enhanced LRC) or
         // -cascade.debugSpicy YES (a SpicyLyrics reply, through the real
@@ -89,6 +94,7 @@ final class LyricsModel {
 
     private func show(_ result: LyricsResult?, tried: [String: LyricsFetchStatus] = [:]) {
         lines = result.flatMap { $0.lines.isEmpty ? nil : $0.lines }
+        linesFor = lines == nil ? nil : loadingFor
         credit = result?.credit
         synced = result?.synced ?? true
         instrumental = result?.instrumental ?? false
@@ -790,3 +796,44 @@ private struct WheelWatcher: NSViewRepresentable {
     }
 }
 #endif
+
+/// Through a crossfade, the last song's lyrics stay up while the next song's load, then the
+/// new sheet rolls in from below as the old one rolls off the top and fades: the desktop's
+/// lyrics roll. Any other change (a skip, a pick) swaps at once, as before, and so does
+/// everything under Reduce Motion.
+struct LyricsRoll<Sheet: View, Placeholder: View>: View {
+    let player: PlaybackService
+    let model: LyricsModel
+    @ViewBuilder let sheet: ([LyricLine]) -> Sheet
+    @ViewBuilder let placeholder: () -> Placeholder
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The last sheet shown, kept through the crossfade's load.
+    @State private var last: (id: String, lines: [LyricLine])?
+
+    private var rolling: Bool {
+        guard !reduceMotion, let at = player.lastCrossfade else { return false }
+        return Date().timeIntervalSince(at) < 8
+    }
+
+    var body: some View {
+        let current: (id: String, lines: [LyricLine])? = model.lines.map { (model.linesFor ?? "", $0) }
+        let shown = current ?? (rolling && model.isLoading ? last : nil)
+        ZStack {
+            if let shown {
+                // Always the roll: a removed view keeps the transition it was last drawn with,
+                // which was before the crossfade. Whether it plays is the animation's call
+                // below (none swaps at once).
+                sheet(shown.lines)
+                    .id(shown.id)
+                    .transition(.asymmetric(insertion: .move(edge: .bottom),
+                                            removal: .move(edge: .top).combined(with: .opacity)))
+            } else {
+                placeholder()
+            }
+        }
+        .clipped()
+        .animation(rolling ? .spring(duration: 0.9, bounce: 0) : nil, value: shown?.id)
+        .onChange(of: model.linesFor) { if let current { last = current } }
+        .onAppear { if let current { last = current } }
+    }
+}
