@@ -6363,6 +6363,8 @@ function _handOverAtFadeStart(nextIndex, incoming, fadeSecs) {
   renderQueuePanel()
   _cfTail = { deck: outgoing, timer: setTimeout(() => { _cutCrossfadeTail(); _schedulePrefetch() }, fadeSecs * 1000) }
   if (slicing) startArtSlice(fadeSecs)
+  // The background's colors follow the fade too, when they arrive.
+  _ovColorFadeUntil = performance.now() + fadeSecs * 1000
 }
 
 // Stop the previous track's fade-out and give the new one full gain. The
@@ -13389,10 +13391,36 @@ function applyAlbumArtTheme(imgEl) {
   }
 
   randomizeDrift()
+  fadeOverlayColors(overlay)
   // Set gradient directly on the overlay - no z-index/clipping issues
   overlay.style.backgroundColor = _blobBaseColor()
   setOverlayBackgroundImage(overlay, buildBlobBackground(_blobColors, light))
   overlay.classList.add('art-theme')
+}
+
+// The background's colors fade from the last song's instead of jumping: over
+// the crossfade itself while one runs (set at its handover), briefly for any
+// other song change. Only the first colors for a song fade; the sharper
+// cover's second pass (the iTunes upgrade) just settles under the same fade.
+const OV_COLOR_FADE_MS = 700
+let _ovColorFadeUntil = 0   // performance.now() the crossfade ends, set at its handover
+let _ovColorsFor = null     // the song the background's colors are for
+
+function fadeOverlayColors(overlay) {
+  const songId = queue[queueIndex]?.Id ?? null
+  if (songId === _ovColorsFor) return
+  _ovColorsFor = songId
+  const prev = document.getElementById('ov-bg-prev')
+  if (!prev || !overlay.classList.contains('art-theme') || !overlay.style.backgroundImage) return
+  const left = _ovColorFadeUntil - performance.now()
+  _ovColorFadeUntil = 0
+  const ms = left > OV_COLOR_FADE_MS ? left : OV_COLOR_FADE_MS
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  for (const a of prev.getAnimations()) a.cancel()
+  prev.style.backgroundImage = overlay.style.backgroundImage
+  prev.style.backgroundColor = overlay.style.backgroundColor
+  const fade = prev.animate([{ opacity: 1 }, { opacity: 0 }], { duration: ms, easing: 'ease-in-out', fill: 'forwards' })
+  fade.finished.then(() => { prev.style.backgroundImage = ''; prev.style.backgroundColor = '' }).catch(() => {})
 }
 
 function clearAlbumArtTheme() {

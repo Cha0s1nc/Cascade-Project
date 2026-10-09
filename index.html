@@ -1437,6 +1437,8 @@
 
 <!-- Full-screen now-playing overlay -->
 <div class="np-overlay" id="np-overlay">
+  <!-- The last song's background colors, fading out over the new ones (renderer.js fadeOverlayColors). -->
+  <div id="ov-bg-prev"></div>
   <div id="ov-bg-pulse"></div>
   <div class="np-overlay-header">
     <button class="np-overlay-title" id="np-overlay-collapse" title="Close now playing (Esc)" aria-label="Close now playing">

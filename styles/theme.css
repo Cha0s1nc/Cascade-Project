@@ -14,7 +14,10 @@
   z-index: 1;
 }
 .np-overlay.art-theme #ov-bg-pulse { display: block; }
-.np-overlay.art-theme > *:not(#ov-bg-pulse) { position: relative; z-index: 2; }
+.np-overlay.art-theme > *:not(#ov-bg-pulse):not(#ov-bg-prev) { position: relative; z-index: 2; }
+/* The previous song's blobs, over the new ones and under everything else,
+   faded out by opacity alone so the compositor runs it. */
+#ov-bg-prev { position: absolute; inset: 0; pointer-events: none; z-index: 0; opacity: 0; will-change: opacity; }
 /* Tint panels so content stays readable over the blob background */
 .np-overlay.art-theme .np-overlay-left { background: rgba(0,0,0,0.25); }
 .np-overlay.art-theme .np-overlay-right { background: rgba(0,0,0,0.1); }
