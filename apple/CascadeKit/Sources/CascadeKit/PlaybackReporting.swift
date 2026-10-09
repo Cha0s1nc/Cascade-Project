@@ -105,13 +105,20 @@ struct StoppedReport: Encodable {
 /// and these fire on a timer where a thrown error would be noise. The next
 /// check-in re-syncs.
 public enum PlaybackReporter {
+    /// Debug builds only (`-cascade.noReports YES`): nothing goes to the
+    /// server, so testing playback on a real library leaves its resume
+    /// points and history alone.
+    nonisolated(unsafe) public static var muted = false
+
     /// Whether the server took it: this is the report a play is counted on.
     @discardableResult
     public static func start(_ client: JellyfinClient, _ state: PlaybackState) async -> Bool {
-        (try? await client.postRaw("/Sessions/Playing", body: PlaybackReport(state), timeout: reportTimeout)) != nil
+        if muted { return true }
+        return (try? await client.postRaw("/Sessions/Playing", body: PlaybackReport(state), timeout: reportTimeout)) != nil
     }
 
     public static func progress(_ client: JellyfinClient, _ state: PlaybackState) async {
+        if muted { return }
         let event = state.isPaused ? "Pause" : "TimeUpdate"
         _ = try? await client.postRaw("/Sessions/Playing/Progress",
                                       body: PlaybackReport(state, eventName: event), timeout: reportTimeout)
@@ -119,6 +126,7 @@ public enum PlaybackReporter {
 
     /// Playback ended. Drives play history, so position matters.
     public static func stopped(_ client: JellyfinClient, _ state: PlaybackState) async {
+        if muted { return }
         _ = try? await client.postRaw("/Sessions/Playing/Stopped", body: StoppedReport(
             itemId: state.itemId,
             positionTicks: max(0, state.positionTicks),

@@ -15,6 +15,9 @@ struct CascadeApp: App {
         // images cache-control: public, but the default cache holds only a
         // few megabytes, so scrolling back up re-downloaded every cover.
         URLCache.shared = URLCache(memoryCapacity: 64 << 20, diskCapacity: 512 << 20)
+        #if DEBUG
+        PlaybackReporter.muted = UserDefaults.standard.bool(forKey: "cascade.noReports")
+        #endif
     }
 
     var body: some Scene {

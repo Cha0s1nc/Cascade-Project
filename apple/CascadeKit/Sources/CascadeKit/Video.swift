@@ -138,7 +138,7 @@ public enum VideoPlayback {
             throw JellyfinError(status: 0, message: "The server offered no way to play this.")
         }
         if let transcodingUrl = source.transcodingUrl {
-            guard let url = withoutStartTicks(config.url + transcodingUrl) else {
+            guard let url = transcodeURL(config.url + transcodingUrl) else {
                 throw JellyfinError(status: 0, message: "Bad transcoding URL")
             }
             return ResolvedStream(url: url, playSessionId: info.playSessionId, mediaSourceId: source.id,
@@ -153,10 +153,18 @@ public enum VideoPlayback {
     }
 
     /// The server's transcode URL with any start position taken off, so the
-    /// stream is the whole film (see resolve).
-    static func withoutStartTicks(_ url: String) -> URL? {
+    /// stream is the whole film (see resolve), and, for HLS, asking for every
+    /// text subtitle in the manifest. Jellyfin lists them only when a subtitle
+    /// was chosen up front or this flag is set (DynamicHlsHelper, 10.11), so
+    /// without it a film had no captions to pick from.
+    static func transcodeURL(_ url: String) -> URL? {
         guard var c = URLComponents(string: url) else { return nil }
-        c.queryItems = c.queryItems?.filter { $0.name.caseInsensitiveCompare("StartTimeTicks") != .orderedSame }
+        var items = (c.queryItems ?? []).filter { $0.name.caseInsensitiveCompare("StartTimeTicks") != .orderedSame }
+        if c.path.lowercased().hasSuffix(".m3u8"),
+           !items.contains(where: { $0.name.caseInsensitiveCompare("EnableSubtitlesInManifest") == .orderedSame }) {
+            items.append(URLQueryItem(name: "EnableSubtitlesInManifest", value: "true"))
+        }
+        c.queryItems = items.isEmpty ? nil : items
         return c.url
     }
 

@@ -667,24 +667,41 @@ struct VideoPlayerView: UIViewControllerRepresentable {
 #endif
 
 #if os(macOS)
-/// Apple's picture, with our own controls over it (App/Mac/MacVideoControls):
-/// AVPlayerView's scrubber cannot show chapter ticks, host our subtitle and
-/// audio pickers, or share its idle timer with the window's traffic lights.
-/// It still draws the video and the subtitles.
+/// The picture, with our own controls over it (App/Mac/MacVideoControls):
+/// Apple's scrubber cannot show chapter ticks, host our subtitle and audio
+/// pickers, or share its idle timer with the window's traffic lights. A bare
+/// AVPlayerLayer rather than AVPlayerView, since Picture in Picture needs the
+/// layer; it still draws the subtitles the stream has selected.
 struct VideoPlayerView: NSViewRepresentable {
     let session: VideoSession
+    /// Handed the layer once, for Picture in Picture.
+    var onLayer: ((AVPlayerLayer) -> Void)? = nil
 
-    func makeNSView(context: Context) -> AVPlayerView {
-        let view = AVPlayerView()
-        view.player = session.player
-        view.controlsStyle = .none
-        view.videoGravity = .resizeAspect
+    func makeNSView(context: Context) -> PlayerLayerView {
+        let view = PlayerLayerView()
+        view.playerLayer.player = session.player
+        onLayer?(view.playerLayer)
         return view
     }
 
-    func updateNSView(_ view: AVPlayerView, context: Context) {
-        if view.player !== session.player { view.player = session.player }
+    func updateNSView(_ view: PlayerLayerView, context: Context) {
+        if view.playerLayer.player !== session.player { view.playerLayer.player = session.player }
     }
+}
+
+final class PlayerLayerView: NSView {
+    let playerLayer = AVPlayerLayer()
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        playerLayer.videoGravity = .resizeAspect
+        playerLayer.backgroundColor = NSColor.black.cgColor
+        wantsLayer = true
+    }
+
+    required init?(coder: NSCoder) { fatalError("not from a nib") }
+
+    override func makeBackingLayer() -> CALayer { playerLayer }
 }
 #endif
 

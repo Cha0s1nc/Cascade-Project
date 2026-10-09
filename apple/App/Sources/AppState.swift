@@ -91,6 +91,9 @@ final class AppState {
 
     /// The movie or episodes playing, shown full screen while set.
     var videoSession: VideoSession?
+    /// The Mac's video is shrunk to a corner (or out in Picture in Picture)
+    /// while the library is used; it keeps playing.
+    var videoMinimized = false
 
     /// Plays movies or episodes in Apple's player, pausing any music first.
     func playVideo(_ items: [JfItem], startIndex: Int = 0, audioStreamIndex: Int? = nil, resume: Bool = true) async {
@@ -106,6 +109,7 @@ final class AppState {
         player?.lockScreenSuspended = true
         let session = videoSession ?? VideoSession(client: client, config: config)
         videoSession = session
+        videoMinimized = false
         // The Video EQ curve (video agent: the music service only holds it).
         session.setEqualizer(equalizer(for: .video))
         #if os(macOS)
@@ -134,6 +138,7 @@ final class AppState {
     func closeVideo() {
         guard let session = videoSession else { return }
         videoSession = nil
+        videoMinimized = false
         Task {
             await session.stop()
             player?.lockScreenSuspended = false

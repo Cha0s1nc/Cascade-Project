@@ -55,9 +55,15 @@ struct MediaTrackLabelTests {
 
 struct VideoResumeTests {
     @Test func theTranscodeURLLosesItsStartSoTheStreamIsTheWholeFilm() {
-        let url = VideoPlayback.withoutStartTicks("https://s/videos/1/master.m3u8?MediaSourceId=a&StartTimeTicks=42000000000&api_key=k")
-        #expect(url?.absoluteString == "https://s/videos/1/master.m3u8?MediaSourceId=a&api_key=k")
-        #expect(VideoPlayback.withoutStartTicks("https://s/videos/1/master.m3u8?api_key=k")?.absoluteString == "https://s/videos/1/master.m3u8?api_key=k")
+        let url = VideoPlayback.transcodeURL("https://s/videos/1/master.m3u8?MediaSourceId=a&StartTimeTicks=42000000000&api_key=k")
+        #expect(url?.absoluteString == "https://s/videos/1/master.m3u8?MediaSourceId=a&api_key=k&EnableSubtitlesInManifest=true")
+    }
+
+    @Test func anHLSStreamAsksForItsSubtitlesOnce() {
+        #expect(VideoPlayback.transcodeURL("https://s/videos/1/master.m3u8?api_key=k&enableSubtitlesInManifest=false")?.absoluteString
+                == "https://s/videos/1/master.m3u8?api_key=k&enableSubtitlesInManifest=false", "a choice the server made is left alone")
+        #expect(VideoPlayback.transcodeURL("https://s/videos/1/stream.mp4?api_key=k")?.absoluteString
+                == "https://s/videos/1/stream.mp4?api_key=k", "not HLS: no manifest to put them in")
     }
 }
 

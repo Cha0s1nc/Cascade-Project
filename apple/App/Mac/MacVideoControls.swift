@@ -51,16 +51,34 @@ struct MacVideoOverlay: View {
         return item.name ?? ""
     }
 
+    /// Below the title bar strip, which keeps clicks for dragging the window:
+    /// a close button up there did nothing.
     private var topBar: some View {
-        HStack(spacing: 12) {
-            // Clear of the traffic lights, which share this strip.
-            Text(title).font(.headline).lineLimit(1).padding(.leading, 72)
-            Spacer()
-            Button { controller.requestClose() } label: { Image(systemName: "xmark") }
-                .accessibilityLabel("Close video")
+        ZStack {
+            // As Now Playing's: down to the corner, still playing.
+            Button { controller.minimize() } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "chevron.down").font(.system(size: 12, weight: .bold))
+                    Text("Minimize").font(.caption.weight(.semibold))
+                }
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .contentShape(Rectangle())
+            }
+            .help("Keep playing in the corner (Esc)")
+            .accessibilityLabel("Minimize video")
+            HStack(spacing: 16) {
+                Text(title).font(.headline).lineLimit(1)
+                Spacer()
+                if controller.pip.isSupported {
+                    Button { controller.pip.toggle() } label: { Image(systemName: "pip.enter") }
+                        .help("Picture in Picture").accessibilityLabel("Picture in Picture")
+                }
+                Button { controller.requestClose() } label: { Image(systemName: "xmark") }
+                    .help("Stop the video").accessibilityLabel("Stop the video")
+            }
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, 16).padding(.vertical, 10)
+        .padding(.horizontal, 16).padding(.bottom, 10).padding(.top, 34)
         .background(LinearGradient(colors: [.black.opacity(0.6), .clear], startPoint: .top, endPoint: .bottom))
     }
 
