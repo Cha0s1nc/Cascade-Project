@@ -39,6 +39,9 @@ struct MacItemMenuExtras: View {
                     }
                     .disabled(!state.isAdmin)
                 }
+                if item.type == "Playlist" {
+                    Button("Rename\u{2026}", systemImage: "pencil") { renamePlaylist() }
+                }
                 if visible.deleteItem {
                     Button(state.canDelete ? "Delete Playlist" : "Delete Playlist (Needs delete permission)",
                            systemImage: "trash", role: .destructive) {
@@ -69,6 +72,28 @@ struct MacItemMenuExtras: View {
                         .replacingOccurrences(of: "/", with: "-")
                     try await client.downloadItem(itemId: track.id, to: folder.appendingPathComponent(name))
                 }
+            } catch { NSAlert(error: error).runModal() }
+        }
+    }
+
+    /// The desktop's card menu Rename: a name prompt, then the server, then every list.
+    private func renamePlaylist() {
+        let alert = NSAlert()
+        alert.messageText = "Rename Playlist"
+        let field = NSTextField(string: item.name ?? "")
+        field.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Rename")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name != item.name, let client = state.client else { return }
+        let id = item.id
+        Task {
+            do {
+                try await client.renamePlaylist(id, to: name)
+                state.playlistMutated()
             } catch { NSAlert(error: error).runModal() }
         }
     }

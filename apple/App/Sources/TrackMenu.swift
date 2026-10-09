@@ -199,6 +199,13 @@ private struct ItemContextMenu: ViewModifier {
                 Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") {
                     withTracks { await state.player?.addToQueue($0) }
                 }
+                if let device = state.controlledDevice, let client = state.client {
+                    // The ids go in the query string, which Jellyfin caps at 8 KB: 200 is about 6.6 KB,
+                    // so a bigger artist starts with its first 200 (as on the desktop).
+                    Button("Play on \(device.name)", systemImage: "hifispeaker") {
+                        withTracks { tracks in try? await client.play(Array(tracks.prefix(200)).map(\.id), on: device.id) }
+                    }
+                }
                 Button("Instant Mix", systemImage: "wand.and.stars") {
                     Task { await state.player?.playInstantMix(from: item.id) }
                 }

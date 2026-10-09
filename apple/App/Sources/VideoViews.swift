@@ -29,8 +29,44 @@ struct PosterTile: View {
             .frame(width: posterWidth)
         }
         .buttonStyle(.plain)
+        #if os(macOS)
+        .modifier(PosterMenu(item: item))
+        #endif
     }
 }
+
+#if os(macOS)
+/// The desktop's poster card menu: play (or resume) a movie, open its page,
+/// mark it played or not.
+private struct PosterMenu: ViewModifier {
+    let item: JfItem
+    @Environment(AppState.self) private var state
+    @Environment(\.showLibraryItem) private var showLibraryItem
+    @Environment(\.openItem) private var openItem
+    /// The played state as toggled here, until the grid reloads.
+    @State private var played: Bool?
+
+    private var isPlayed: Bool { played ?? item.userData?.played ?? false }
+
+    func body(content: Content) -> some View {
+        content.contextMenu {
+            if item.type == "Movie" {
+                Button((item.userData?.playbackPositionTicks ?? 0) > 0 ? "Resume" : "Play", systemImage: "play") {
+                    Task { await state.playVideoItem(item) }
+                }
+            }
+            Button("Go to Details", systemImage: "info.circle") {
+                if let openItem { openItem(item) } else { showLibraryItem?(item) }
+            }
+            Button(isPlayed ? "Mark Unplayed" : "Mark Played", systemImage: isPlayed ? "eye.slash" : "eye") {
+                guard let client = state.client else { return }
+                let target = !isPlayed
+                Task { if (try? await client.setPlayed(target, itemId: item.id)) != nil { played = target } }
+            }
+        }
+    }
+}
+#endif
 
 /// An episode or a movie to resume, as a 16:9 still that plays at once.
 struct VideoStillTile: View {
