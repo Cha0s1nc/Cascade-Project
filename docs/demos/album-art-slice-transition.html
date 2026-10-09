@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Album Art Slice</title>
+<style>
+/* Layout: the art stage on the left, transport, timeline and timings on the
+   right; one column under 760px. Colors are Cascade's own (styles/base.css,
+   styles/theme.css), dark first like the app. */
+:root {
+  --bg: #111113; --surface: #1c1c1e; --surface2: #2c2c2e; --border: #3a3a3c;
+  --accent: #6e4ff6; --accent-soft: rgba(110,79,246,0.30); --on-accent: #ffffff;
+  --text: #f5f5f7; --text2: #aeaeb2; --text3: #8e8e93;
+  --song-a: #f59e5b; --song-b: #38bdf8;
+  --shadow: rgba(0,0,0,0.55);
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f2f2f7; --surface: #ffffff; --surface2: #e5e5ea; --border: #d1d1d6;
+    --accent-soft: rgba(110,79,246,0.18);
+    --text: #1c1c1e; --text2: #636366; --text3: #6e6e73;
+    --song-a: #d9741f; --song-b: #0284c7;
+    --shadow: rgba(0,0,0,0.22);
+    color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #f2f2f7; --surface: #ffffff; --surface2: #e5e5ea; --border: #d1d1d6;
+  --accent-soft: rgba(110,79,246,0.18);
+  --text: #1c1c1e; --text2: #636366; --text3: #6e6e73;
+  --song-a: #d9741f; --song-b: #0284c7;
+  --shadow: rgba(0,0,0,0.22);
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text); font-family: var(--font);
+  font-size: 14px; line-height: 1.45; -webkit-font-smoothing: antialiased;
+  padding-block: 32px 48px; padding-inline: 16px;
+}
+main { max-width: 980px; margin: 0 auto; display: grid; gap: 28px; }
+:where(button, input, label):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+header h1 { margin: 0 0 6px; font-size: 22px; font-weight: 650; letter-spacing: -0.01em; text-wrap: balance; }
+header p { margin: 0; color: var(--text2); max-width: 62ch; }
+
+.layout { display: grid; grid-template-columns: minmax(0, 420px) minmax(0, 1fr); gap: 36px; align-items: start; }
+@media (max-width: 760px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+
+/* ── Art stage ── */
+.stage-col { display: grid; gap: 18px; }
+.stage {
+  position: relative; width: 100%; max-width: 100%; aspect-ratio: 1;
+  border-radius: 10px; overflow: hidden; background: var(--surface2);
+  box-shadow: 0 22px 50px var(--shadow);
+}
+.stage img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; user-select: none; -webkit-user-drag: none; }
+.layer { position: absolute; inset: 0; }
+#layerB { z-index: 1; }
+/* The outgoing art sits on top and is clipped to the part of the square above
+   the cut. The filter lives on the wrapper so the shadow follows the clipped
+   edge and falls onto the incoming art below it. */
+#layerA { z-index: 2; filter: drop-shadow(3px 3px 8px rgba(0,0,0,0.45)); }
+#seam { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3; pointer-events: none; overflow: visible; }
+
+.tracks { display: grid; gap: 10px; }
+.track { display: grid; grid-template-columns: 10px minmax(0, 1fr) 92px; align-items: center; gap: 12px; }
+.swatch { width: 10px; height: 10px; border-radius: 3px; }
+.track .meta { min-width: 0; }
+.track .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.track .artist { color: var(--text2); font-size: 12px; }
+.gain { display: grid; gap: 4px; justify-items: end; }
+.gain .bar { width: 100%; height: 4px; border-radius: 2px; background: var(--surface2); overflow: hidden; }
+.gain .fill { height: 100%; width: 0%; }
+.gain .val { font: 11px/1 var(--mono); color: var(--text3); font-variant-numeric: tabular-nums; }
+
+/* ── Controls column ── */
+.panel { display: grid; gap: 26px; min-width: 0; }
+.status { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.phase {
+  display: inline-flex; align-items: center; gap: 8px; padding: 5px 11px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--border); font-weight: 600; font-size: 13px;
+}
+.phase .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text3); }
+.clock { font: 13px/1 var(--mono); color: var(--text2); font-variant-numeric: tabular-nums; }
+
+.transport { display: flex; flex-wrap: wrap; gap: 8px; }
+button, .file-btn {
+  font: inherit; font-size: 13px; font-weight: 600; color: var(--text);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 14px; cursor: pointer; transition: background 0.12s ease, border-color 0.12s ease;
+}
+button:hover, .file-btn:hover { background: var(--surface2); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); min-width: 88px; }
+button.primary:hover { filter: brightness(1.08); background: var(--accent); }
+button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+
+h2 { margin: 0 0 12px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text3); }
+
+/* ── Timeline ── */
+.tl { display: grid; grid-template-columns: 58px minmax(0, 1fr); row-gap: 8px; column-gap: 10px; align-items: center; }
+.tl .lbl { font-size: 12px; color: var(--text2); }
+.tl .lane { position: relative; height: 18px; border-radius: 4px; background: var(--surface); }
+.tl .seg { position: absolute; top: 0; bottom: 0; border-radius: 4px; }
+.tl .lanes-wrap { grid-column: 2; grid-row: 1 / 4; align-self: stretch; position: relative; pointer-events: none; }
+.playhead { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--text); border-radius: 1px; }
+.seg.hold { background-image: repeating-linear-gradient(135deg, var(--accent-soft) 0 6px, transparent 6px 12px); background-color: var(--accent-soft); }
+.scrub { grid-column: 2; grid-row: 5; width: 100%; margin: 4px 0 0; accent-color: var(--accent); }
+.ticks { grid-column: 2; grid-row: 4; position: relative; height: 14px; font: 10px/1 var(--mono); color: var(--text3); font-variant-numeric: tabular-nums; }
+.ticks span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 12px; font-size: 12px; color: var(--text2); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+
+/* ── Timings ── */
+.knobs { display: grid; gap: 14px; }
+.knob { display: grid; grid-template-columns: minmax(0, 1fr) 52px; gap: 4px 12px; align-items: center; }
+.knob label { font-weight: 600; font-size: 13px; }
+.knob output { font: 12px/1 var(--mono); color: var(--text2); text-align: right; font-variant-numeric: tabular-nums; }
+.knob input { grid-column: 1 / -1; width: 100%; margin: 0; accent-color: var(--accent); }
+.knob small { grid-column: 1 / -1; color: var(--text3); font-size: 12px; }
+
+.files { display: flex; flex-wrap: wrap; gap: 8px; }
+.file-btn input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.file-btn:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.note { margin: 10px 0 0; color: var(--text3); font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Album Art Slice</h1>
+    <p>The outgoing cover is cut from the bottom-right corner to the middle when the crossfade starts, stays half and half while both songs play, then the cut slides off through the top-left corner once the first song is gone.</p>
+  </header>
+
+  <div class="layout">
+    <section class="stage-col" aria-label="Now playing">
+      <div class="stage" id="stage">
+        <div class="layer" id="layerB"><img id="artB" alt="Incoming album art"></div>
+        <div class="layer" id="layerA"><img id="artA" alt="Outgoing album art"></div>
+        <svg id="seam" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          <defs>
+            <filter id="glow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="1.4"></feGaussianBlur></filter>
+          </defs>
+          <line id="seamGlow" x1="0" y1="0" x2="0" y2="0" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" filter="url(#glow)" opacity="0"></line>
+          <line id="seamLine" x1="0" y1="0" x2="0" y2="0" stroke="#ffffff" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linecap="round" opacity="0"></line>
+        </svg>
+      </div>
+
+      <div class="tracks">
+        <div class="track">
+          <span class="swatch" style="background: var(--song-a)"></span>
+          <div class="meta"><div class="name" id="nameA">Golden Hour</div><div class="artist" id="artistA">Lumen Tide</div></div>
+          <div class="gain"><div class="bar"><div class="fill" id="gainA" style="background: var(--song-a)"></div></div><span class="val" id="gainAVal">1.00</span></div>
+        </div>
+        <div class="track">
+          <span class="swatch" style="background: var(--song-b)"></span>
+          <div class="meta"><div class="name" id="nameB">Night Drive</div><div class="artist" id="artistB">Neon Atlas</div></div>
+          <div class="gain"><div class="bar"><div class="fill" id="gainB" style="background: var(--song-b)"></div></div><span class="val" id="gainBVal">0.00</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" aria-label="Transition controls">
+      <div class="status">
+        <span class="phase" id="phase" role="status"><span class="dot" id="phaseDot"></span><span id="phaseText">Song A playing</span></span>
+        <span class="clock" id="clock">0:00.0 / 0:00.0</span>
+      </div>
+
+      <div class="transport">
+        <button class="primary" id="playBtn" type="button">Pause</button>
+        <button id="restartBtn" type="button">Restart</button>
+        <button id="jumpBtn" type="button">Jump to crossfade</button>
+        <button id="loopBtn" type="button" aria-pressed="true">Loop</button>
+        <button id="soundBtn" type="button" aria-pressed="false">Sound off</button>
+      </div>
+
+      <div>
+        <h2>Timeline</h2>
+        <div class="tl" id="tl">
+          <span class="lbl" style="grid-row: 1">Song A</span><div class="lane" id="laneA" style="grid-column: 2; grid-row: 1"></div>
+          <span class="lbl" style="grid-row: 2">Song B</span><div class="lane" id="laneB" style="grid-column: 2; grid-row: 2"></div>
+          <span class="lbl" style="grid-row: 3">Art</span><div class="lane" id="laneArt" style="grid-column: 2; grid-row: 3"></div>
+          <div class="lanes-wrap"><div class="playhead" id="playhead"></div></div>
+          <div class="ticks" id="ticks"></div>
+          <input class="scrub" id="scrub" type="range" min="0" max="10" step="0.01" value="0" aria-label="Scrub the timeline">
+        </div>
+        <div class="legend">
+          <span><i style="background: var(--accent)"></i>Slice in / slide out</span>
+          <span><i class="seg hold" style="position: static"></i>Half and half (crossfade)</span>
+        </div>
+      </div>
+
+      <div>
+        <h2>Timings</h2>
+        <div class="knobs">
+          <div class="knob">
+            <label for="xf">Crossfade</label><output id="xfOut" for="xf">6.0s</output>
+            <input id="xf" type="range" min="2" max="12" step="1" value="6">
+            <small>How long both songs overlap. The art holds half and half for this whole stretch. Cascade's default is 6s.</small>
+          </div>
+          <div class="knob">
+            <label for="sliceIn">Slice in</label><output id="sliceInOut" for="sliceIn">0.8s</output>
+            <input id="sliceIn" type="range" min="0.2" max="2" step="0.1" value="0.8">
+            <small>The cut travels from the bottom-right corner to the middle as the crossfade begins.</small>
+          </div>
+          <div class="knob">
+            <label for="slideOut">Slide out</label><output id="slideOutOut" for="slideOut">1.2s</output>
+            <input id="slideOut" type="range" min="0.3" max="3" step="0.1" value="1.2">
+            <small>After song A has faded out, the cut carries on to the top-left corner.</small>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h2>Your own covers</h2>
+        <div class="files">
+          <label class="file-btn">Replace cover A<input id="fileA" type="file" accept="image/*"></label>
+          <label class="file-btn">Replace cover B<input id="fileB" type="file" accept="image/*"></label>
+        </div>
+        <p class="note">The sample covers are drawn by this page. Images you pick stay in your browser.</p>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script>
+(() => {
+  'use strict'
+
+  // ── Sample covers, drawn once to canvas ──────────────────────────────────
+  function rng(seed) {
+    return () => {
+      seed |= 0; seed = (seed + 0x6D2B79F5) | 0
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+    }
+  }
+
+  function label(ctx, text, x, y, size, weight, color, spacing) {
+    ctx.save()
+    ctx.fillStyle = color
+    ctx.font = `${weight} ${size}px -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif`
+    if ('letterSpacing' in ctx) ctx.letterSpacing = `${spacing}px`
+    ctx.textBaseline = 'alphabetic'
+    ctx.fillText(text, x, y)
+    ctx.restore()
+  }
+
+  function grain(ctx, S, seed, alpha) {
+    const r = rng(seed)
+    for (let i = 0; i < 9000; i++) {
+      ctx.fillStyle = r() > 0.5 ? `rgba(255,255,255,${alpha})` : `rgba(0,0,0,${alpha})`
+      ctx.fillRect(r() * S, r() * S, 1.6, 1.6)
+    }
+  }
+
+  function goldenHour(S) {
+    const c = document.createElement('canvas'); c.width = c.height = S
+    const ctx = c.getContext('2d')
+    const horizon = S * 0.63
+
+    const sky = ctx.createLinearGradient(0, 0, 0, horizon)
+    sky.addColorStop(0, '#2a0f3d'); sky.addColorStop(0.55, '#b83a6b'); sky.addColorStop(1, '#f7a35c')
+    ctx.fillStyle = sky; ctx.fillRect(0, 0, S, horizon)
+    const sea = ctx.createLinearGradient(0, horizon, 0, S)
+    sea.addColorStop(0, '#22305a'); sea.addColorStop(1, '#0b1024')
+    ctx.fillStyle = sea; ctx.fillRect(0, horizon, S, S - horizon)
+
+    // Striped sun, cut by the horizon.
+    const sun = document.createElement('canvas'); sun.width = sun.height = S
+    const sx = sun.getContext('2d')
+    const cx = S * 0.5, cy = horizon - S * 0.02, r = S * 0.25
+    const sg = sx.createLinearGradient(0, cy - r, 0, cy + r)
+    sg.addColorStop(0, '#ffe08a'); sg.addColorStop(1, '#ff6a3d')
+    sx.fillStyle = sg; sx.beginPath(); sx.arc(cx, cy, r, 0, Math.PI * 2); sx.fill()
+    sx.globalCompositeOperation = 'destination-out'
+    for (let i = 0; i < 6; i++) {
+      const y = cy - r * 0.15 + i * r * 0.2
+      sx.fillRect(0, y, S, 3 + i * 3.2)
+    }
+    sx.fillRect(0, horizon, S, S)
+    ctx.drawImage(sun, 0, 0)
+
+    // Reflection on the water.
+    const r1 = rng(7)
+    for (let i = 0; i < 26; i++) {
+      const t = i / 26
+      const y = horizon + 8 + t * (S - horizon - 30)
+      const w = (1 - t) * S * 0.42 * (0.55 + r1() * 0.45)
+      ctx.fillStyle = `rgba(255, ${150 + Math.round(70 * (1 - t))}, 90, ${0.75 * (1 - t) + 0.08})`
+      ctx.fillRect(cx - w / 2 + (r1() - 0.5) * 30, y, w, 2 + (1 - t) * 3)
+    }
+
+    label(ctx, 'LUMEN TIDE', S * 0.07, S * 0.11, S * 0.032, 600, 'rgba(255,236,214,0.85)', S * 0.012)
+    label(ctx, 'Golden Hour', S * 0.07, S * 0.93, S * 0.085, 750, '#ffe9d1', -1)
+    grain(ctx, S, 11, 0.05)
+    return c.toDataURL('image/jpeg', 0.92)
+  }
+
+  function nightDrive(S) {
+    const c = document.createElement('canvas'); c.width = c.height = S
+    const ctx = c.getContext('2d')
+    const horizon = S * 0.56
+
+    const sky = ctx.createLinearGradient(0, 0, 0, horizon)
+    sky.addColorStop(0, '#05071a'); sky.addColorStop(0.7, '#1c1450'); sky.addColorStop(1, '#4a1f6e')
+    ctx.fillStyle = sky; ctx.fillRect(0, 0, S, horizon)
+    ctx.fillStyle = '#07061a'; ctx.fillRect(0, horizon, S, S - horizon)
+
+    const r = rng(42)
+    for (let i = 0; i < 140; i++) {
+      ctx.fillStyle = `rgba(255,255,255,${0.25 + r() * 0.7})`
+      const s = r() < 0.08 ? 2.6 : 1.4
+      ctx.fillRect(r() * S, r() * horizon * 0.85, s, s)
+    }
+
+    // Mountain ridges.
+    const ridge = (base, amp, color, seed) => {
+      const rr = rng(seed)
+      ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(0, horizon)
+      let y = base
+      for (let x = 0; x <= S; x += S / 14) {
+        y = base - rr() * amp
+        ctx.lineTo(x, y)
+      }
+      ctx.lineTo(S, horizon); ctx.closePath(); ctx.fill()
+    }
+    ridge(horizon - S * 0.04, S * 0.16, '#2a1650', 3)
+    ridge(horizon, S * 0.09, '#170c33', 9)
+
+    // Horizon glow.
+    const glow = ctx.createLinearGradient(0, horizon - 20, 0, horizon + 20)
+    glow.addColorStop(0, 'rgba(255,79,216,0)'); glow.addColorStop(0.5, 'rgba(255,79,216,0.9)'); glow.addColorStop(1, 'rgba(255,79,216,0)')
+    ctx.fillStyle = glow; ctx.fillRect(0, horizon - 20, S, 40)
+
+    // Perspective grid.
+    ctx.strokeStyle = 'rgba(56, 225, 255, 0.75)'; ctx.lineWidth = 2
+    for (let k = 1; k <= 12; k++) {
+      const y = horizon + (S - horizon) * Math.pow(k / 12, 2)
+      ctx.globalAlpha = 0.25 + 0.75 * (k / 12)
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(S, y); ctx.stroke()
+    }
+    ctx.globalAlpha = 1
+    for (let k = -10; k <= 10; k++) {
+      ctx.beginPath(); ctx.moveTo(S / 2 + k * 10, horizon); ctx.lineTo(S / 2 + k * S * 0.16, S); ctx.stroke()
+    }
+
+    label(ctx, 'NEON ATLAS', S * 0.07, S * 0.11, S * 0.032, 600, 'rgba(190,240,255,0.85)', S * 0.012)
+    label(ctx, 'Night Drive', S * 0.07, S * 0.47, S * 0.085, 750, '#e9f7ff', -1)
+    grain(ctx, S, 23, 0.05)
+    return c.toDataURL('image/jpeg', 0.92)
+  }
+
+  const $ = id => document.getElementById(id)
+  $('artA').src = goldenHour(800)
+  $('artB').src = nightDrive(800)
+
+  // ── Timing model ─────────────────────────────────────────────────────────
+  // Song A plays alone for LEAD seconds, then the crossfade starts. The art
+  // timeline hangs off the crossfade window [c0, c1]:
+  //   c0 .. sliceEnd   cut moves bottom-right corner -> middle (ease out)
+  //   sliceEnd .. c1   held half and half while both songs play
+  //   c1 .. slideEnd   cut moves middle -> top-left corner (ease in-out)
+  const LEAD = 4, TAIL = 3.5
+  const cfg = { xf: 6, sliceIn: 0.8, slideOut: 1.2 }
+
+  function plan() {
+    const c0 = LEAD, c1 = LEAD + cfg.xf
+    const sliceEnd = c0 + Math.min(cfg.sliceIn, cfg.xf)
+    const slideEnd = c1 + cfg.slideOut
+    return { c0, c1, sliceEnd, slideEnd, total: slideEnd + TAIL }
+  }
+
+  const easeOutCubic = u => 1 - Math.pow(1 - u, 3)
+  const easeInOutCubic = u => u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2
+
+  // s is the cut's position along the bottom-right -> top-left diagonal, as
+  // the line x + y = s in unit-square coordinates: 2 is the bottom-right
+  // corner (nothing cut yet), 1 is the anti-diagonal (half and half), 0 is
+  // the top-left corner (all of cover B).
+  function cutAt(t, P) {
+    if (t < P.c0) return { s: 2, phase: 'a', u: 0 }
+    if (t < P.sliceEnd) { const u = (t - P.c0) / (P.sliceEnd - P.c0); return { s: 2 - easeOutCubic(u), phase: 'slice', u } }
+    if (t < P.c1) return { s: 1, phase: 'hold', u: (t - P.sliceEnd) / Math.max(P.c1 - P.sliceEnd, 1e-6) }
+    if (t < P.slideEnd) { const u = (t - P.c1) / (P.slideEnd - P.c1); return { s: 1 - easeInOutCubic(u), phase: 'slide', u } }
+    return { s: 0, phase: 'b', u: 1 }
+  }
+
+  // Equal-power crossfade, so the meters read like a real A/B deck handoff.
+  function gainsAt(t, P) {
+    if (t <= P.c0) return [1, 0]
+    if (t >= P.c1) return [0, 1]
+    const u = (t - P.c0) / (P.c1 - P.c0)
+    return [Math.cos(u * Math.PI / 2), Math.sin(u * Math.PI / 2)]
+  }
+
+  // Cover A keeps the region x + y <= s.
+  const pct = v => (v * 100).toFixed(3) + '%'
+  function clipFor(s) {
+    if (s >= 2) return 'none'
+    if (s <= 0) return 'polygon(0% 0%, 0% 0%, 0% 0%)'
+    if (s >= 1) return `polygon(0% 0%, 100% 0%, 100% ${pct(s - 1)}, ${pct(s - 1)} 100%, 0% 100%)`
+    return `polygon(0% 0%, ${pct(s)} 0%, 0% ${pct(s)})`
+  }
+  function seamFor(s) {
+    return s >= 1 ? [100, (s - 1) * 100, (s - 1) * 100, 100] : [s * 100, 0, 0, s * 100]
+  }
+
+  // ── Sound (optional) ─────────────────────────────────────────────────────
+  // Two soft chords stand in for the songs, gained by the same curve.
+  let audio = null, soundOn = false
+  function makeAudio() {
+    const ac = new (window.AudioContext || window.webkitAudioContext)()
+    const master = ac.createGain(); master.gain.value = 0; master.connect(ac.destination)
+    const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1400; lp.connect(master)
+    const deck = (freqs, type) => {
+      const g = ac.createGain(); g.gain.value = 0; g.connect(lp)
+      freqs.forEach((f, i) => {
+        const o = ac.createOscillator(); o.type = type; o.frequency.value = f; o.detune.value = (i - 1) * 4
+        const og = ac.createGain(); og.gain.value = 0.22
+        o.connect(og); og.connect(g); o.start()
+      })
+      return g
+    }
+    return { ac, master, a: deck([220, 277.18, 329.63, 440], 'triangle'), b: deck([196, 233.08, 293.66, 392], 'sine') }
+  }
+  function setSound(on) {
+    soundOn = on
+    $('soundBtn').setAttribute('aria-pressed', String(on))
+    $('soundBtn').textContent = on ? 'Sound on' : 'Sound off'
+    if (on && !audio) audio = makeAudio()
+    if (audio) {
+      if (on) audio.ac.resume()
+      audio.master.gain.setTargetAtTime(on && playing ? 0.12 : 0, audio.ac.currentTime, 0.05)
+    }
+  }
+
+  // ── Timeline drawing ─────────────────────────────────────────────────────
+  let P = plan()
+  const at = v => (v / P.total * 100) + '%'
+  function seg(lane, from, to, style, cls) {
+    const d = document.createElement('div')
+    d.className = 'seg' + (cls ? ' ' + cls : '')
+    d.style.left = at(from); d.style.width = `calc(${at(to)} - ${at(from)})`
+    if (style) d.style.background = style
+    lane.appendChild(d)
+  }
+  function fmt(t) {
+    const m = Math.floor(t / 60), s = t - m * 60
+    return `${m}:${s.toFixed(1).padStart(4, '0')}`
+  }
+  function buildTimeline() {
+    P = plan()
+    for (const id of ['laneA', 'laneB', 'laneArt']) $(id).textContent = ''
+    seg($('laneA'), 0, P.c1, 'var(--song-a)')
+    seg($('laneB'), P.c0, P.total, 'var(--song-b)')
+    seg($('laneArt'), P.c0, P.sliceEnd, 'var(--accent)')
+    if (P.c1 > P.sliceEnd) seg($('laneArt'), P.sliceEnd, P.c1, null, 'hold')
+    seg($('laneArt'), P.c1, P.slideEnd, 'var(--accent)')
+
+    const ticks = $('ticks'); ticks.textContent = ''
+    for (const [v, txt] of [[0, '0s'], [P.c0, fmt(P.c0)], [P.c1, fmt(P.c1)], [P.total, fmt(P.total)]]) {
+      const s = document.createElement('span'); s.style.left = at(v); s.textContent = txt
+      if (v === 0) s.style.transform = 'none'
+      if (v === P.total) s.style.transform = 'translateX(-100%)'
+      ticks.appendChild(s)
+    }
+    $('scrub').max = String(P.total)
+  }
+
+  // ── Render ───────────────────────────────────────────────────────────────
+  const PHASES = {
+    a: ['Song A playing', 'var(--song-a)'],
+    slice: ['Slicing in from the corner', 'var(--accent)'],
+    hold: ['Crossfade, half and half', 'var(--accent)'],
+    slide: ['Sliding to the top-left', 'var(--accent)'],
+    b: ['Song B playing', 'var(--song-b)'],
+  }
+  let lastPhase = ''
+
+  function render() {
+    const cut = cutAt(t, P)
+    $('artA').style.clipPath = clipFor(cut.s)
+
+    const [x1, y1, x2, y2] = seamFor(cut.s)
+    let seamOpacity = 0
+    if (cut.phase === 'slice') seamOpacity = 1
+    else if (cut.phase === 'hold') seamOpacity = 0.55
+    else if (cut.phase === 'slide') seamOpacity = 0.55 + 0.45 * Math.min(cut.u * 4, 1) - Math.max(0, (cut.u - 0.75) / 0.25)
+    for (const id of ['seamLine', 'seamGlow']) {
+      const l = $(id)
+      l.setAttribute('x1', x1); l.setAttribute('y1', y1); l.setAttribute('x2', x2); l.setAttribute('y2', y2)
+    }
+    $('seamLine').setAttribute('opacity', Math.max(0, seamOpacity).toFixed(3))
+    // The glow flares while the blade is moving and settles while it holds.
+    const flare = cut.phase === 'slice' ? 1 - 0.5 * cut.u : cut.phase === 'slide' ? 0.5 + 0.5 * Math.sin(cut.u * Math.PI) : 0.5
+    $('seamGlow').setAttribute('opacity', (Math.max(0, seamOpacity) * flare).toFixed(3))
+
+    const [ga, gb] = gainsAt(t, P)
+    $('gainA').style.width = (ga * 100).toFixed(1) + '%'
+    $('gainB').style.width = (gb * 100).toFixed(1) + '%'
+    $('gainAVal').textContent = ga.toFixed(2)
+    $('gainBVal').textContent = gb.toFixed(2)
+    if (audio && soundOn) {
+      audio.a.gain.setTargetAtTime(ga, audio.ac.currentTime, 0.03)
+      audio.b.gain.setTargetAtTime(gb, audio.ac.currentTime, 0.03)
+    }
+
+    if (cut.phase !== lastPhase) {
+      lastPhase = cut.phase
+      $('phaseText').textContent = PHASES[cut.phase][0]
+      $('phaseDot').style.background = PHASES[cut.phase][1]
+    }
+    $('clock').textContent = `${fmt(t)} / ${fmt(P.total)}`
+    $('playhead').style.left = at(t)
+    $('scrub').value = String(t)
+  }
+
+  // ── Playback loop ────────────────────────────────────────────────────────
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  let t = 1.5, playing = !reduceMotion, loop = true, last = performance.now()
+
+  function setPlaying(on) {
+    playing = on
+    $('playBtn').textContent = on ? 'Pause' : 'Play'
+    if (audio) audio.master.gain.setTargetAtTime(on && soundOn ? 0.12 : 0, audio.ac.currentTime, 0.05)
+  }
+  function tick(now) {
+    const dt = Math.min((now - last) / 1000, 0.1)
+    last = now
+    if (playing) {
+      t += dt
+      if (t >= P.total) {
+        if (loop) t = 0
+        else { t = P.total; setPlaying(false) }
+      }
+    }
+    render()
+    requestAnimationFrame(tick)
+  }
+
+  $('playBtn').addEventListener('click', () => {
+    if (!playing && t >= P.total) t = 0
+    setPlaying(!playing)
+  })
+  $('restartBtn').addEventListener('click', () => { t = 0; setPlaying(true) })
+  $('jumpBtn').addEventListener('click', () => { t = Math.max(0, P.c0 - 1); setPlaying(true) })
+  $('loopBtn').addEventListener('click', () => {
+    loop = !loop
+    $('loopBtn').setAttribute('aria-pressed', String(loop))
+  })
+  $('soundBtn').addEventListener('click', () => setSound(!soundOn))
+  $('scrub').addEventListener('input', e => { t = parseFloat(e.target.value) || 0 })
+  document.addEventListener('keydown', e => {
+    if (e.code !== 'Space' || e.target.closest('input, button, label')) return
+    e.preventDefault(); $('playBtn').click()
+  })
+
+  for (const [id, key] of [['xf', 'xf'], ['sliceIn', 'sliceIn'], ['slideOut', 'slideOut']]) {
+    $(id).addEventListener('input', e => {
+      cfg[key] = parseFloat(e.target.value)
+      $(id + 'Out').textContent = cfg[key].toFixed(1) + 's'
+      buildTimeline()
+      t = Math.min(t, P.total)
+    })
+  }
+
+  for (const [inputId, imgId, nameId, artistId] of [['fileA', 'artA', 'nameA', 'artistA'], ['fileB', 'artB', 'nameB', 'artistB']]) {
+    $(inputId).addEventListener('change', e => {
+      const f = e.target.files && e.target.files[0]
+      if (!f) return
+      $(imgId).src = URL.createObjectURL(f)
+      $(nameId).textContent = f.name.replace(/\.[^.]+$/, '')
+      $(artistId).textContent = 'Your cover'
+    })
+  }
+
+  buildTimeline()
+  setPlaying(playing)
+  requestAnimationFrame(now => { last = now; tick(now) })
+})()
+</script>
+</body>
+</html>
