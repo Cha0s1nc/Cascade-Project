@@ -156,6 +156,9 @@ final class AppState {
     let offline: OfflineLibrary? = nil
     #endif
 
+    /// The last message an admin sent this session from the dashboard, until closed.
+    var serverMessage: ServerMessage?
+
     /// The other device picked in the Devices sheet: song menus offer
     /// "Play on" it while one is picked.
     var controlledDevice: (id: String, name: String)?
@@ -449,6 +452,8 @@ final class AppState {
         // Castable from other Jellyfin clients for as long as this player lives.
         remoteControl?.stop()
         remoteControl = RemoteControl(client: client, player: player)
+        // Messages an admin sends from Jellyfin's dashboard (ServerMessageCard shows them).
+        remoteControl?.onMessage = { [weak self] in self?.serverMessage = $0 }
         // A cast and a Waterfall room never both drive this player: the room
         // wins, and remote volume is refused in one (see Ownership).
         remoteControl?.ownership = { [weak self] in

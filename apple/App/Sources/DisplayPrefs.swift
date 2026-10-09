@@ -175,3 +175,56 @@ struct DisplaySettingsSection: View {
     }
 }
 #endif
+
+/// A message an admin sent from Jellyfin's dashboard (AppState.serverMessage): a card at
+/// the top until closed, or for as long as the sender asked. Text only.
+struct ServerMessageCard: ViewModifier {
+    @Environment(AppState.self) private var state
+
+    func body(content: Content) -> some View {
+        content.overlay(alignment: .top) {
+            if let message = state.serverMessage {
+                HStack(alignment: .top, spacing: 12) {
+                    RoundedRectangle(cornerRadius: 1.5).fill(Color.accentColor).frame(width: 3)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(message.header).font(.callout.weight(.semibold))
+                        if !message.text.isEmpty {
+                            Text(message.text).font(.footnote).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    Button { close(message) } label: { Image(systemName: "xmark").font(.caption.weight(.bold)) }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("Dismiss")
+                }
+                // As tall as the text: the stripe alone would stretch it down the window.
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(12)
+                .frame(maxWidth: 520)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                .shadow(color: .black.opacity(0.25), radius: 12, y: 4)
+                .padding(.top, 12)
+                .padding(.horizontal, 16)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.isStaticText)
+                .task(id: message.id) {
+                    guard let timeout = message.timeout else { return }
+                    try? await Task.sleep(for: .seconds(timeout))
+                    if !Task.isCancelled { close(message) }
+                }
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: state.serverMessage?.id)
+    }
+
+    private func close(_ message: ServerMessage) {
+        if state.serverMessage?.id == message.id { state.serverMessage = nil }
+    }
+}
+
+extension View {
+    func serverMessages() -> some View { modifier(ServerMessageCard()) }
+}

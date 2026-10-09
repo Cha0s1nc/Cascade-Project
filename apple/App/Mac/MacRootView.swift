@@ -94,6 +94,8 @@ struct MacRootView: View {
             NowPlayingOverlay()
             MacVideoHost()
         }
+        // A message from the server's admin, over all of it.
+        .serverMessages()
         // The one presenter for every track and tile menu in the window:
         // Add to Playlist, Media Info, the delete dialogs.
         .trackActionHost()

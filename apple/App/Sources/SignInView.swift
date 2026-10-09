@@ -15,6 +15,8 @@ struct SignInView: View {
     /// The code on screen while a QuickConnect request is waiting for approval.
     @State private var quickConnectCode: String?
     @State private var quickConnectTask: Task<Void, Never>?
+    /// The server's login disclaimer (Branding), as Jellyfin's own sign-in page shows it.
+    @State private var disclaimer = ""
 
     var body: some View {
         #if os(macOS)
@@ -96,6 +98,11 @@ struct SignInView: View {
             }
             Button(busy ? "Signing in..." : "Sign in", action: submit)
                 .disabled(busy || server.isEmpty || username.isEmpty)
+            if !disclaimer.isEmpty {
+                Section {
+                    Text(disclaimer).font(.footnote).foregroundStyle(.secondary)
+                }
+            }
         }
         .navigationTitle("Cascade")
         // Re-checked as the address is typed; .task(id:) cancels the previous
@@ -104,9 +111,11 @@ struct SignInView: View {
             ProxyConnection.shared.setServer(server)
             quickConnectAvailable = false
             try? await Task.sleep(for: .milliseconds(500))
-            guard !Task.isCancelled, !server.isEmpty else { return }
+            guard !Task.isCancelled, !server.isEmpty else { disclaimer = ""; return }
+            async let text = ServerMessage.fetchLoginDisclaimer(serverURL: server)
             let available = await QuickConnect.isEnabled(serverUrl: server)
-            if !Task.isCancelled { quickConnectAvailable = available }
+            let said = await text
+            if !Task.isCancelled { quickConnectAvailable = available; disclaimer = said }
         }
         .onDisappear { quickConnectTask?.cancel() }
         .onAppear {

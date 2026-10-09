@@ -19,6 +19,7 @@ struct MainView: View {
 
     var body: some View {
         content
+            .serverMessages()
             .fullScreenCover(isPresented: Binding(
                 get: { state.videoSession != nil },
                 set: { if !$0 { state.closeVideo() } })) {

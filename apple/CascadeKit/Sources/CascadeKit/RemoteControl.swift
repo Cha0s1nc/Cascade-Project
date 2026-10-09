@@ -16,6 +16,8 @@ public enum RemoteCommand: Equatable, Sendable {
     case setMute(Bool)
     /// The server's keep-alive interval, in seconds.
     case forceKeepAlive(seconds: Int)
+    /// A message an admin sent this session from the dashboard.
+    case message(ServerMessage)
 
     public enum PlayMode: String, Sendable { case now = "PlayNow", next = "PlayNext", last = "PlayLast" }
 
@@ -54,6 +56,7 @@ public enum RemoteCommand: Equatable, Sendable {
             case "ToggleMute": return .toggleMute
             case "Mute": return .setMute(true)
             case "Unmute": return .setMute(false)
+            case "DisplayMessage": return ServerMessage.parse(args).map { .message($0) }
             default: return nil
             }
         default:
@@ -80,7 +83,11 @@ public final class RemoteControl {
     /// whole registration refused with a 400, leaving the app invisible as a
     /// target. Only what `apply` handles: a declared command with no handler
     /// is a dead button in the controller.
-    nonisolated static let supportedCommands = ["SetVolume", "ToggleMute", "Mute", "Unmute", "VolumeUp", "VolumeDown", "Play", "PlayState"]
+    nonisolated static let supportedCommands = ["SetVolume", "ToggleMute", "Mute", "Unmute", "VolumeUp", "VolumeDown", "Play", "PlayState",
+                                                "DisplayMessage"]
+
+    /// Messages from the dashboard (DisplayMessage), for the app to show.
+    public var onMessage: (@MainActor (ServerMessage) -> Void)?
 
     private let client: JellyfinClient
     private weak var player: PlaybackService?
@@ -179,7 +186,7 @@ public final class RemoteControl {
     /// is the socket's own housekeeping and always passes.
     nonisolated static func accepts(_ command: RemoteCommand, in state: OwnershipState) -> Bool {
         switch command {
-        case .forceKeepAlive: return true
+        case .forceKeepAlive, .message: return true
         case .setVolume, .volumeUp, .volumeDown, .toggleMute, .setMute:
             return Ownership.acceptsRemoteVolumeCommand(state)
         default: return Ownership.acceptsRemoteCommand(state)
@@ -192,6 +199,7 @@ public final class RemoteControl {
     public var ownership: (@MainActor () -> OwnershipState)?
 
     private func apply(_ command: RemoteCommand) async {
+        if case .message(let message) = command { onMessage?(message); return }
         guard let player else { return }
         guard Self.accepts(command, in: ownership?() ?? OwnershipState()) else { return }
         // A controller's play or skip would wake the paused song under a
@@ -223,6 +231,7 @@ public final class RemoteControl {
         case .volumeDown: player.setVolume(player.volume - 0.1)
         case .toggleMute: player.setMuted(!player.isMuted)
         case .setMute(let muted): player.setMuted(muted)
+        case .message: break   // handled above, before the player
         }
     }
 }
