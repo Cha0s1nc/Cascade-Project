@@ -455,9 +455,11 @@ const _animatedArtCache = new Map()
 function _setArtStill(host, url) {
   if (!host) return
   const video = host.querySelector('.art-video')
+  const slice = host.querySelector('.art-slice')
   host.innerHTML = url ? `<img src="${url}" alt="" onerror="this.innerHTML='♪'">` : '♪'
   const cur = queue[queueIndex]
   if (video && cur && video.dataset.album === (cur.AlbumId || cur.Id)) host.appendChild(video)
+  if (slice) host.appendChild(slice)
 }
 
 // Video covers from Cascade Server (the `animated-art` capability): the
@@ -6341,6 +6343,10 @@ async function startCrossfade(nextIndex) {
 function _handOverAtFadeStart(nextIndex, incoming, fadeSecs) {
   const outgoing = audio
   const outgoingItem = queue[queueIndex]
+  // The cover on screen now, before playCurrentTrack() moves it to the new
+  // track: the slice cuts this one away (startArtSlice).
+  const outgoingArt = _currentHighResArtUrl
+  const sameCover = (outgoingItem?.AlbumId || outgoingItem?.Id) === (queue[nextIndex]?.AlbumId || queue[nextIndex]?.Id)
   if (outgoingItem) reportPlaybackStopped(outgoingItem.Id, Math.round(outgoing.currentTime * 10000000))
 
   audio = incoming
@@ -6356,12 +6362,14 @@ function _handOverAtFadeStart(nextIndex, incoming, fadeSecs) {
   _cfNextResolved = null
   renderQueuePanel()
   _cfTail = { deck: outgoing, timer: setTimeout(() => { _cutCrossfadeTail(); _schedulePrefetch() }, fadeSecs * 1000) }
+  if (!sameCover && !isVideoItem(queue[nextIndex])) startArtSlice(outgoingArt, fadeSecs)
 }
 
 // Stop the previous track's fade-out and give the new one full gain. The
 // prefetch waits for this: the deck the tail plays on is the one it loads.
 function _cutCrossfadeTail() {
   if (!_cfTail) return
+  endArtSlice()
   const { deck, timer } = _cfTail
   _cfTail = null
   clearTimeout(timer)
@@ -10767,6 +10775,101 @@ function probeCascadePlugin() {
   return _cascadePluginProbed
 }
 
+// ── Cover slice on crossfade ─────────────────────────────────────────────────
+//
+// docs/demos/album-art-slice-transition.html, for real: when a crossfade
+// starts, the outgoing cover (on top of the incoming one) is cut from the
+// bottom-right corner to the diagonal, holds half and half while both songs
+// play, then the cut slides off through the top-left corner once the old song
+// has faded. A crossfade cut short (pause, skip, seek) slides it out at once.
+// Skipped for two songs with the same cover, for video, and under Reduce Motion.
+//
+// The cut is the line x + y = s across the unit square: 2 is the bottom-right
+// corner (nothing cut), 1 the diagonal (half and half), 0 the top-left corner
+// (all new cover). Worked out from the clock every frame, so a redraw of the
+// art box (which keeps the layer, see _setArtStill) cannot knock it off.
+const ART_SLICE = { sliceIn: 0.8, slideOut: 1.2 }
+let _slice = null   // { start, holdEnd, slideFrom, raf }
+
+const _easeOutCubic = u => 1 - Math.pow(1 - u, 3)
+const _easeInOutCubic = u => u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2
+
+/** Where the cut is at `now` (seconds), before any slide out. */
+function _sliceHeldAt(now) {
+  const into = now - _slice.start
+  const sliceIn = Math.min(ART_SLICE.sliceIn, _slice.holdEnd - _slice.start)
+  return into < sliceIn ? 2 - _easeOutCubic(Math.max(0, into) / sliceIn) : 1
+}
+
+function _sliceClip(s) {
+  const pct = v => (v * 100).toFixed(3) + '%'
+  if (s >= 2) return 'none'
+  if (s <= 0) return 'polygon(0% 0%, 0% 0%, 0% 0%)'
+  if (s >= 1) return `polygon(0% 0%, 100% 0%, 100% ${pct(s - 1)}, ${pct(s - 1)} 100%, 0% 100%)`
+  return `polygon(0% 0%, ${pct(s)} 0%, 0% ${pct(s)})`
+}
+
+function startArtSlice(url, fadeSecs) {
+  _removeArtSlice()
+  if (!url || !(fadeSecs > 0) || matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  const now = performance.now() / 1000
+  _slice = { start: now, holdEnd: now + fadeSecs, slideFrom: null, raf: 0 }
+  const img = `<div class="art-slice-layer"><img src="${esc(url)}" alt="" draggable="false"></div>`
+  // The seam only on the big cover; on the player bar's it would be a smudge.
+  const seam = `<svg class="art-slice-seam" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+    <line class="seam-glow" stroke="#fff" stroke-width="2.4" stroke-linecap="round" filter="url(#art-slice-glow)"/>
+    <line class="seam-line" stroke="#fff" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linecap="round"/>
+    <defs><filter id="art-slice-glow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="1.4"/></filter></defs>
+  </svg>`
+  document.getElementById('np-art')?.insertAdjacentHTML('beforeend', `<div class="art-slice" aria-hidden="true">${img}</div>`)
+  document.getElementById('ov-art')?.insertAdjacentHTML('beforeend', `<div class="art-slice" aria-hidden="true">${img}${seam}</div>`)
+  _drawArtSlice()
+}
+
+/** The old song is gone, or its fade was cut short: slide the cut out from wherever it is. */
+function endArtSlice() {
+  if (!_slice || _slice.slideFrom) return
+  const now = performance.now() / 1000
+  _slice.slideFrom = { at: Math.min(now, _slice.holdEnd), s: _sliceHeldAt(Math.min(now, _slice.holdEnd)) }
+}
+
+function _removeArtSlice() {
+  if (_slice) cancelAnimationFrame(_slice.raf)
+  _slice = null
+  document.querySelectorAll('.art-slice').forEach(el => el.remove())
+}
+
+function _drawArtSlice() {
+  if (!_slice) return
+  const now = performance.now() / 1000
+  // The fade's own end slides it out too, in case the tail timer is late.
+  if (!_slice.slideFrom && now >= _slice.holdEnd) endArtSlice()
+  let s, phase, u = 0
+  if (_slice.slideFrom) {
+    u = Math.min(1, (now - _slice.slideFrom.at) / ART_SLICE.slideOut)
+    s = _slice.slideFrom.s * (1 - _easeInOutCubic(u))
+    phase = 'slide'
+    if (u >= 1) { _removeArtSlice(); return }
+  } else {
+    s = _sliceHeldAt(now)
+    phase = s > 1 ? 'in' : 'hold'
+    if (phase === 'in') u = (2 - s)
+  }
+  const clip = _sliceClip(s)
+  const [x1, y1, x2, y2] = s >= 1 ? [100, (s - 1) * 100, (s - 1) * 100, 100] : [s * 100, 0, 0, s * 100]
+  // Bright while the blade moves, settled while it holds, gone as it leaves.
+  const seam = phase === 'in' ? 1 : phase === 'hold' ? 0.55 : Math.max(0, 0.55 + 0.45 * Math.min(u * 4, 1) - Math.max(0, (u - 0.75) / 0.25))
+  const flare = phase === 'in' ? 1 - 0.5 * u : phase === 'slide' ? 0.5 + 0.5 * Math.sin(u * Math.PI) : 0.5
+  for (const el of document.querySelectorAll('.art-slice')) {
+    el.querySelector('img').style.clipPath = clip
+    for (const line of el.querySelectorAll('line')) {
+      line.setAttribute('x1', x1); line.setAttribute('y1', y1); line.setAttribute('x2', x2); line.setAttribute('y2', y2)
+      line.setAttribute('opacity', (line.classList.contains('seam-glow') ? seam * flare : seam).toFixed(3))
+    }
+  }
+  _slice.raf = requestAnimationFrame(_drawArtSlice)
+}
+
 // ── Server style ─────────────────────────────────────────────────────────────
 //
 // A look an admin sets in Cascade Server for everyone (src/core/server-style.ts):
@@ -11132,6 +11235,16 @@ window.cascade.lyricsEditor.onSaved(itemId => _reloadLyricsFor(itemId))
 //   cascadeDebug.spicy()           no id: look the playing track up on MusicBrainz first
 //   cascadeDebug.spotifyId()       just the lookup, for the playing track
 window.cascadeDebug = {
+  // Try the crossfade cover slice without waiting for one:
+  //   cascadeDebug.artSlice()            the previous song's cover over this one, a 6 s fade
+  //   cascadeDebug.artSlice(url, 4)      any image; cascadeDebug.artSliceCut() cuts it short
+  artSlice(url, fadeSecs = 6) {
+    const prev = queue[queueIndex - 1]
+    const src = url || (prev && artUrl(prev.AlbumId || prev.Id, prev.AlbumPrimaryImageTag || prev.ImageTags?.Primary))
+    if (!src) { console.warn('[cascadeDebug] no previous song with a cover; pass an image url'); return }
+    startArtSlice(src, fadeSecs)
+  },
+  artSliceCut() { endArtSlice() },
   // Tune the lyric motion live:  cascadeDebug.lyricMotion({ stiffness: 150 })
   // stiffness: how hard lines are pulled to centre (higher = quicker).
   // damping: how much the movement is resisted (2 * sqrt(stiffness) = settles
