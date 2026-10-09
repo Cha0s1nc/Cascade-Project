@@ -15,6 +15,14 @@ final class DisplayPrefs {
     var coverSlice: Bool { didSet { save(coverSlice, "coverSlice") } }
     var coverSliceIn: Double { didSet { save(coverSliceIn, "coverSliceIn") } }
     var coverSlideOut: Double { didSet { save(coverSlideOut, "coverSlideOut") } }
+    /// How it looks and moves; the seam glow and edge shadow are times their default strength.
+    var coverSliceStyle: CoverSlice.Style { didSet { save(coverSliceStyle.rawValue, "coverSliceStyle") } }
+    var coverSliceDirection: CoverSlice.Direction { didSet { save(coverSliceDirection.rawValue, "coverSliceDirection") } }
+    var coverSliceHold: CoverSlice.Hold { didSet { save(coverSliceHold.rawValue, "coverSliceHold") } }
+    var coverSliceEasing: CoverSlice.Easing { didSet { save(coverSliceEasing.rawValue, "coverSliceEasing") } }
+    var coverSliceSeam: CoverSlice.Seam { didSet { save(coverSliceSeam.rawValue, "coverSliceSeam") } }
+    var coverSliceGlow: Double { didSet { save(coverSliceGlow, "coverSliceGlow") } }
+    var coverSliceShadow: Double { didSet { save(coverSliceShadow, "coverSliceShadow") } }
     /// The Now Playing background's colors fade between songs: over a crossfade,
     /// or in `colorFadeSeconds` for any other change.
     var colorFade: Bool { didSet { save(colorFade, "colorFade") } }
@@ -31,7 +39,17 @@ final class DisplayPrefs {
         func number(_ k: String, _ fallback: Double, _ range: ClosedRange<Double>) -> Double {
             (d.object(forKey: "cascade." + k) as? Double).map { min(max($0, range.lowerBound), range.upperBound) } ?? fallback
         }
+        func choice<T: RawRepresentable>(_ k: String, _ fallback: T) -> T where T.RawValue == String {
+            d.string(forKey: "cascade." + k).flatMap(T.init(rawValue:)) ?? fallback
+        }
         coverSlice = bool("coverSlice")
+        coverSliceStyle = choice("coverSliceStyle", .slice)
+        coverSliceDirection = choice("coverSliceDirection", .upLeft)
+        coverSliceHold = choice("coverSliceHold", .half)
+        coverSliceEasing = choice("coverSliceEasing", .smooth)
+        coverSliceSeam = choice("coverSliceSeam", .white)
+        coverSliceGlow = number("coverSliceGlow", 1, CoverSlice.strengthRange)
+        coverSliceShadow = number("coverSliceShadow", 1, CoverSlice.strengthRange)
         coverSliceIn = number("coverSliceIn", CoverSlice.sliceInDefault, CoverSlice.sliceInRange)
         coverSlideOut = number("coverSlideOut", CoverSlice.slideOutDefault, CoverSlice.slideOutRange)
         colorFade = bool("colorFade")
@@ -44,10 +62,10 @@ final class DisplayPrefs {
 }
 
 /// The crossfade cover slice over a cover (CoverSlice): the outgoing cover on
-/// top, cut along the diagonal, with the seam (on big covers) and the edge
-/// shadow. Draws nothing outside a crossfade that changes the cover, while
-/// turned off, or under Reduce Motion. Put it over the incoming cover, in the
-/// same frame and clip shape.
+/// top, cut, faded or pushed as DisplayPrefs says, with the seam (on big
+/// covers) and the edge shadow. Draws nothing outside a crossfade that changes
+/// the cover, while turned off, or under Reduce Motion. Put it over the
+/// incoming cover, in the same frame and clip shape.
 struct CoverSliceOverlay: View {
     let player: PlaybackService
     var size: CGFloat = 400
@@ -64,10 +82,11 @@ struct CoverSliceOverlay: View {
                 TimelineView(.animation) { context in
                     let t = context.date.timeIntervalSince(art.started)
                     let cutAt = art.cutAt.map { $0.timeIntervalSince(art.started) }
-                    if let s = CoverSlice.cut(at: t, fade: art.duration, cutAt: cutAt,
-                                              sliceIn: prefs.coverSliceIn, slideOut: prefs.coverSlideOut) {
-                        slice(art: art, s: s, glow: CoverSlice.seam(at: t, fade: art.duration, cutAt: cutAt,
-                                                                    sliceIn: prefs.coverSliceIn, slideOut: prefs.coverSlideOut))
+                    if let s = CoverSlice.cut(at: t, fade: art.duration, cutAt: cutAt, sliceIn: prefs.coverSliceIn,
+                                              slideOut: prefs.coverSlideOut, hold: prefs.coverSliceHold, easing: prefs.coverSliceEasing) {
+                        slice(art: art, s: s, prefs: prefs,
+                              glow: CoverSlice.seam(at: t, fade: art.duration, cutAt: cutAt, sliceIn: prefs.coverSliceIn,
+                                                    slideOut: prefs.coverSlideOut, hold: prefs.coverSliceHold, easing: prefs.coverSliceEasing))
                     }
                 }
             }
@@ -85,52 +104,79 @@ struct CoverSliceOverlay: View {
         }
     }
 
-    private func slice(art: CrossfadeArt, s: Double, glow: Double) -> some View {
-        ZStack {
-            // The size the cover on screen was loaded at, so this is the cached image, not a fresh decode.
-            ArtworkView(itemId: art.outgoing, size: size, fillsFrame: true)
-                .mask(DiagonalKeep(s: s))
-                .compositingGroup()
-                .shadow(color: .black.opacity(0.45), radius: showsSeam ? 6 : 2, x: showsSeam ? 3 : 1, y: showsSeam ? 3 : 1)
-            if showsSeam {
-                DiagonalSeam(s: s).stroke(.white, style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                    .blur(radius: 2.5).opacity(glow * 0.8)
-                DiagonalSeam(s: s).stroke(.white, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
-                    .opacity(glow)
+    @ViewBuilder
+    private func slice(art: CrossfadeArt, s: Double, prefs: DisplayPrefs, glow: Double) -> some View {
+        let move = prefs.coverSliceDirection.move
+        let shadow = Color.black.opacity(0.45 * prefs.coverSliceShadow)
+        let (radius, offset): (CGFloat, CGFloat) = showsSeam ? (6, 3) : (2, 1)
+        // The size the cover on screen was loaded at, so this is the cached image, not a fresh decode.
+        let outgoing = ArtworkView(itemId: art.outgoing, size: size, fillsFrame: true)
+        switch prefs.coverSliceStyle {
+        case .fade:
+            outgoing.opacity(s / 2)
+        case .push:
+            // ponytail: a diagonal push would leave two corners empty, so it pushes sideways only.
+            let (px, py) = prefs.coverSliceDirection.isDiagonal ? (move.x, 0) : move
+            let along = 1 - s / 2
+            GeometryReader { g in
+                ZStack {
+                    outgoing.offset(x: px * along * g.size.width, y: py * along * g.size.height)
+                    ArtworkView(itemId: art.incoming, size: size, fillsFrame: true)
+                        .shadow(color: shadow, radius: radius)
+                        .offset(x: px * (along - 1) * g.size.width, y: py * (along - 1) * g.size.height)
+                }
+            }
+        case .slice:
+            let seam = prefs.coverSliceSeam
+            let color = seam == .accent ? Color.accentColor : .white
+            ZStack {
+                outgoing
+                    .mask(SliceCut(s: s, move: move))
+                    .compositingGroup()
+                    .shadow(color: shadow, radius: radius, x: -move.x * offset, y: -move.y * offset)
+                if showsSeam && seam != .off {
+                    SliceCut(s: s, move: move, edgeOnly: true).stroke(color, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                        .blur(radius: 2.5 * prefs.coverSliceGlow).opacity(min(1, glow * 0.8 * prefs.coverSliceGlow))
+                    SliceCut(s: s, move: move, edgeOnly: true).stroke(color, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                        .opacity(glow)
+                }
             }
         }
     }
 }
 
-/// The part of the square on the outgoing side of the cut x + y = s.
-private struct DiagonalKeep: Shape {
+/// The part of the square still on the outgoing side of the cut, or the cut
+/// itself (`edgeOnly`). Drawn for a cut moving up and left (x + y = s) or
+/// straight left or up (at s / 2 across), then mirrored for the other ways.
+private struct SliceCut: Shape {
     let s: Double
-    func path(in r: CGRect) -> Path {
-        var p = Path()
-        let (w, h) = (r.width, r.height)
-        if s >= 2 { p.addRect(r); return p }
-        if s <= 0 { return p }
-        if s >= 1 {
-            p.addLines([CGPoint(x: 0, y: 0), CGPoint(x: w, y: 0), CGPoint(x: w, y: (s - 1) * h),
-                        CGPoint(x: (s - 1) * w, y: h), CGPoint(x: 0, y: h)])
-        } else {
-            p.addLines([CGPoint(x: 0, y: 0), CGPoint(x: s * w, y: 0), CGPoint(x: 0, y: s * h)])
-        }
-        p.closeSubpath()
-        return p.offsetBy(dx: r.minX, dy: r.minY)
-    }
-}
+    let move: (x: Double, y: Double)
+    var edgeOnly = false
 
-/// The cut itself, corner to corner of the part still showing.
-private struct DiagonalSeam: Shape {
-    let s: Double
     func path(in r: CGRect) -> Path {
         var p = Path()
         let (w, h) = (r.width, r.height)
-        guard s > 0, s < 2 else { return p }
-        if s >= 1 { p.move(to: CGPoint(x: w, y: (s - 1) * h)); p.addLine(to: CGPoint(x: (s - 1) * w, y: h)) }
-        else { p.move(to: CGPoint(x: s * w, y: 0)); p.addLine(to: CGPoint(x: 0, y: s * h)) }
-        return p.offsetBy(dx: r.minX, dy: r.minY)
+        guard s > 0, s < 2 else {
+            if s >= 2 && !edgeOnly { p.addRect(r) }
+            return p
+        }
+        if move.x != 0 && move.y != 0 {
+            let points = s >= 1
+                ? [CGPoint(x: w, y: (s - 1) * h), CGPoint(x: (s - 1) * w, y: h)]
+                : [CGPoint(x: s * w, y: 0), CGPoint(x: 0, y: s * h)]
+            if edgeOnly { p.addLines(points) }
+            else if s >= 1 { p.addLines([CGPoint(x: 0, y: 0), CGPoint(x: w, y: 0)] + points + [CGPoint(x: 0, y: h)]); p.closeSubpath() }
+            else { p.addLines([CGPoint(x: 0, y: 0)] + points); p.closeSubpath() }
+        } else if move.y == 0 {
+            let x = s / 2 * w
+            if edgeOnly { p.addLines([CGPoint(x: x, y: 0), CGPoint(x: x, y: h)]) } else { p.addRect(CGRect(x: 0, y: 0, width: x, height: h)) }
+        } else {
+            let y = s / 2 * h
+            if edgeOnly { p.addLines([CGPoint(x: 0, y: y), CGPoint(x: w, y: y)]) } else { p.addRect(CGRect(x: 0, y: 0, width: w, height: y)) }
+        }
+        let flipX = move.x > 0, flipY = move.y > 0
+        let mirror = CGAffineTransform(a: flipX ? -1 : 1, b: 0, c: 0, d: flipY ? -1 : 1, tx: flipX ? w : 0, ty: flipY ? h : 0)
+        return p.applying(mirror).offsetBy(dx: r.minX, dy: r.minY)
     }
 }
 
@@ -143,17 +189,29 @@ struct DisplaySettingsSection: View {
 
     var body: some View {
         Section {
-            Toggle("Slice covers on crossfade", isOn: $prefs.coverSlice)
+            Toggle("Animate covers on crossfade", isOn: $prefs.coverSlice)
             if prefs.coverSlice {
+                picker("Style", $prefs.coverSliceStyle, ["Slice", "Fade", "Push"])
+                if prefs.coverSliceStyle != .fade {
+                    picker("Direction", $prefs.coverSliceDirection,
+                           ["Up and left", "Up", "Up and right", "Right", "Down and right", "Down", "Down and left", "Left"])
+                }
+                picker("Hold", $prefs.coverSliceHold, ["Half and half", "Mostly the old cover", "Mostly the new cover", "No hold, sweep across the fade"])
                 seconds("Cut in", $prefs.coverSliceIn, CoverSlice.sliceInRange)
                 seconds("Slide out", $prefs.coverSlideOut, CoverSlice.slideOutRange)
+                picker("Easing", $prefs.coverSliceEasing, ["Smooth", "Snappy", "Linear"])
+                if prefs.coverSliceStyle == .slice {
+                    picker("Seam", $prefs.coverSliceSeam, ["White", "Accent color", "Off"])
+                    if prefs.coverSliceSeam != .off { percent("Seam glow", $prefs.coverSliceGlow) }
+                }
+                if prefs.coverSliceStyle != .fade { percent("Edge shadow", $prefs.coverSliceShadow) }
             }
             Toggle("Fade background colors between songs", isOn: $prefs.colorFade)
             if prefs.colorFade { seconds("Fade on skip", $prefs.colorFadeSeconds, DisplayPrefs.colorFadeRange) }
         } header: {
             Text("Transitions")
         } footer: {
-            Text("During a crossfade the old cover is cut away along the diagonal and the background's colors fade with the music; on a skip the colors fade for the set time. The slice needs Crossfade on; the color fade needs the album-art colors. Reduce Motion turns both off.")
+            Text("During a crossfade the old cover makes way for the new one (Slice cuts it away, Fade dissolves it, Push slides the new one in; a diagonal push goes straight sideways) and the background's colors fade with the music; on a skip the colors fade for the set time. The slice needs Crossfade on; the color fade needs the album-art colors. Reduce Motion turns both off.")
         }
         Section {
             Toggle("Explicit marks", isOn: $prefs.explicitMarks)
@@ -162,6 +220,23 @@ struct DisplaySettingsSection: View {
             Text("Cascade Server")
         } footer: {
             Text("With Cascade Server 1.1 on your server: an E after explicit songs, and an album's cover.mp4 playing in place of its cover.")
+        }
+    }
+
+    /// A menu over a CoverSlice choice, its cases labeled in order.
+    private func picker<T: CaseIterable & Hashable>(_ name: String, _ value: Binding<T>, _ labels: [String]) -> some View
+    where T.AllCases: RandomAccessCollection {
+        Picker(name, selection: value) {
+            ForEach(Array(zip(T.allCases, labels)), id: \.0) { Text($0.1).tag($0.0) }
+        }
+    }
+
+    private func percent(_ name: String, _ value: Binding<Double>) -> some View {
+        LabeledContent(name) {
+            HStack {
+                Slider(value: value, in: CoverSlice.strengthRange, step: 0.05).frame(maxWidth: 180).accessibilityLabel(name)
+                Text("\(Int((value.wrappedValue * 100).rounded()))%").monospacedDigit().frame(width: 44, alignment: .trailing)
+            }
         }
     }
 

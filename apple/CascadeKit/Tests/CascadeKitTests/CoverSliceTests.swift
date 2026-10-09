@@ -29,4 +29,23 @@ struct CoverSliceTests {
         #expect(CoverSlice.seam(at: 3, fade: 6) == 0.55)
         #expect(CoverSlice.seam(at: 6 + 1.19, fade: 6) < 0.05)
     }
+
+    @Test func theHoldPointAndSweep() {
+        #expect(CoverSlice.cut(at: 3, fade: 6, hold: .old) == 1.4)
+        #expect(CoverSlice.cut(at: 3, fade: 6, hold: .new) == 0.6)
+        // A sweep crosses the whole fade, half way at half time, and is done when it ends.
+        #expect(abs(CoverSlice.cut(at: 3, fade: 6, hold: .sweep)! - 1) < 1e-9)
+        #expect(CoverSlice.cut(at: 6, fade: 6, hold: .sweep) == nil)
+        // Cut short mid-sweep, it slides out from there.
+        let at = CoverSlice.cut(at: 1.5, fade: 6, hold: .sweep)!
+        #expect(CoverSlice.cut(at: 1.5, fade: 6, cutAt: 1.5, hold: .sweep) == at)
+    }
+
+    @Test func easingsRunZeroToOne() {
+        for e in CoverSlice.Easing.allCases {
+            #expect(e.into(0) == 0 && abs(e.into(1) - 1) < 1e-9 && e.out(0) == 0 && abs(e.out(1) - 1) < 1e-9)
+            #expect(abs(e.out(0.5) - 0.5) < 1e-9)
+        }
+        #expect(CoverSlice.Easing.linear.into(0.25) == 0.25)
+    }
 }

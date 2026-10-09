@@ -323,7 +323,15 @@ public enum ElectronSettingsImport {
 
         // Transitions and Cascade Server extras (the desktop's displayPrefs, DisplayPrefs here).
         for key in ["coverSlice", "colorFade", "explicitMarks", "videoCovers"] { rows.append(bool(key, "cascade." + key)) }
-        for (key, range) in [("coverSliceIn", 0.2...2.0), ("coverSlideOut", 0.3...3.0), ("colorFadeSeconds", 0.2...2.0)] {
+        for (key, cases) in [("coverSliceStyle", CoverSlice.Style.allCases.map(\.rawValue)),
+                             ("coverSliceDirection", CoverSlice.Direction.allCases.map(\.rawValue)),
+                             ("coverSliceHold", CoverSlice.Hold.allCases.map(\.rawValue)),
+                             ("coverSliceEasing", CoverSlice.Easing.allCases.map(\.rawValue)),
+                             ("coverSliceSeam", CoverSlice.Seam.allCases.map(\.rawValue))] {
+            rows.append(enumeration(key, "cascade." + key, Set(cases)))
+        }
+        for (key, range) in [("coverSliceIn", 0.2...2.0), ("coverSlideOut", 0.3...3.0), ("colorFadeSeconds", 0.2...2.0),
+                             ("coverSliceGlow", CoverSlice.strengthRange), ("coverSliceShadow", CoverSlice.strengthRange)] {
             rows.append(simple(key, "cascade." + key, import: { double($0, range) }, export: { double($0, range) }))
         }
 
