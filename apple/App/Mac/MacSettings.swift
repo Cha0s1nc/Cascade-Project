@@ -147,11 +147,51 @@ struct MacSettingsView: View {
 // MARK: - Library
 
 private struct LibraryTab: View {
+    @Environment(AppState.self) private var state
+    @State private var scanStatus: String?
+    @State private var refreshed = false
+
     var body: some View {
         Form {
             LibrarySettingsSection()
+            // The desktop's two rows, kept apart so which is which is never in doubt: Scan
+            // asks the server (admins only), Refresh only reloads what Cascade shows.
+            Section {
+                LabeledContent {
+                    Button("Scan Server") { scan() }.disabled(!state.isAdmin)
+                } label: {
+                    Text("Scan library on server")
+                    Text(scanStatus ?? (state.isAdmin
+                        ? "Looks for files added or removed outside Jellyfin. Runs in the background; results show up once it finishes."
+                        : "Needs a Jellyfin admin account."))
+                }
+                LabeledContent {
+                    Button(refreshed ? "Refreshed" : "Refresh Now") {
+                        state.libraryMutated()
+                        refreshed = true
+                    }
+                } label: {
+                    Text("Refresh app")
+                    Text("Reloads songs, albums, artists, playlists, movies, shows and Home from what the server has now.")
+                }
+            } header: {
+                Text("Maintenance")
+            }
         }
         .formStyle(.grouped)
+    }
+
+    private func scan() {
+        guard state.isAdmin, let client = state.client else { return }
+        scanStatus = "Starting a scan\u{2026}"
+        Task {
+            do {
+                _ = try await client.postRaw("/Library/Refresh", body: String?.none)
+                scanStatus = "Scan started. New and removed files show up once it finishes."
+            } catch {
+                scanStatus = "Could not start a scan: \(error.localizedDescription)"
+            }
+        }
     }
 }
 
@@ -250,6 +290,13 @@ private struct LyricsTab: View {
                          ? "Lyrics come only from Cascade Server: Spicy Lyrics, then lyrics saved on the server."
                          : "Cascade also asks Kugou, LRCLIB and Jellyfin, which sends each song's title and artist to Kugou and LRCLIB.")
                 }
+            } else {
+                // As the desktop: shown, off, and saying why, rather than gone.
+                Section {
+                    Toggle("Server-only lyrics", isOn: .constant(false)).disabled(true)
+                } footer: {
+                    Text("Needs the Cascade Server plugin, which was not found on this server. Without it, lyrics come from Kugou, LRCLIB and Jellyfin.")
+                }
             }
             LyricsSettingsSection()
         }
@@ -298,6 +345,10 @@ private struct AccountTab: View {
                 LabeledContent("Server", value: state.config?.url ?? "")
                 LabeledContent("Signed in as", value: username ?? "")
             }
+
+            // The headers a reverse proxy in front of the server needs, as on the desktop's
+            // Account page (the sign-in screen has the same section).
+            ProxySettingsSection()
 
             Section {
                 SecureField("Current password", text: $currentPassword)

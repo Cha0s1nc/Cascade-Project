@@ -20,7 +20,8 @@ struct LibrarySettingsSection: View {
     private var musicOn: Set<String> { selected.isEmpty ? Set(musicLibraries.map(\.id)) : selected }
 
     var body: some View {
-        Form {
+        // Sections only: Settings > Library and the first-run wizard each put it in their form.
+        Group {
             Section {
                 if let error {
                     Text(error).foregroundStyle(.secondary)

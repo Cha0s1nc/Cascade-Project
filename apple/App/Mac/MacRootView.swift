@@ -39,7 +39,11 @@ struct MacRootView: View {
                     // outgoing stack used to take it, and the new one sat on its root.
                     TabStack(opening: Binding(
                         get: { pending?.section == section ? pending?.item : nil },
-                        set: { if $0 == nil { pending = nil } })) { section.root }
+                        set: { if $0 == nil { pending = nil } })) {
+                            // Rebuilt (so reloaded) when the library changes underneath it: Settings >
+                            // Refresh, a metadata edit, a delete. Pages pushed on top stay put.
+                            section.root.id(state.libraryRevision)
+                        }
                         .id(section)
                 }
             }
