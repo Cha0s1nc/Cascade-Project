@@ -469,11 +469,15 @@ html[data-theme="light"] #ov-panel-lyrics.browsing .ov-lyric-line.active { color
    box instead of being redrawn. */
 .art-slice { position: absolute; inset: 0; pointer-events: none; z-index: 2; border-radius: inherit; overflow: hidden; }
 .slice-frame { position: absolute; width: 141.4214%; height: 141.4214%; left: -20.7107%; top: -20.7107%; transform: rotate(45deg); }
-.slice-keep { position: absolute; inset: 0; overflow: hidden; will-change: transform; box-shadow: 6px 0 14px rgba(0,0,0,0.45); }
-.np-art .slice-keep { box-shadow: 2px 0 4px rgba(0,0,0,0.45); }
+.slice-keep { position: absolute; inset: 0; overflow: hidden; will-change: transform; box-shadow: 6px 0 14px rgba(0,0,0,var(--slice-shadow-a, 0.45)); }
+.np-art .slice-keep { box-shadow: 2px 0 4px rgba(0,0,0,var(--slice-shadow-a, 0.45)); }
 .art-slice .slice-img { position: absolute; width: 70.7107%; height: 70.7107%; left: 14.6447%; top: 14.6447%; object-fit: cover; display: block; will-change: transform; user-select: none; border-radius: 0; }
 .slice-seam { position: absolute; inset: 0; will-change: transform, opacity; opacity: 0; }
-.slice-seam::after { content: ''; position: absolute; top: 0; bottom: 0; right: -1px; width: 2px; background: #fff; box-shadow: 0 0 6px 2px rgba(255,255,255,0.65); }
+.slice-seam::after { content: ''; position: absolute; top: 0; bottom: 0; right: -1px; width: 2px; background: var(--seam-color, #fff); box-shadow: var(--seam-glow, 0 0 6px 2px rgba(255,255,255,0.65)); }
+/* The fade and push styles: whole covers, faded or pushed (renderer.js _sliceFrames). */
+.art-slice .slice-fade, .art-slice .slice-old, .art-slice .slice-new { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; will-change: transform, opacity; user-select: none; border-radius: 0; }
+.art-slice .slice-new { box-shadow: 0 0 14px rgba(0,0,0,var(--slice-shadow-a, 0.45)); }
+.np-art .art-slice .slice-new { box-shadow: 0 0 4px rgba(0,0,0,var(--slice-shadow-a, 0.45)); }
 
 /* The last song's lyrics during a crossfade, rolling off the top (renderer.js _ovKeepGhost). */
 .ov-lyrics-ghost { position: absolute; pointer-events: none; will-change: transform, opacity; }

@@ -1025,13 +1025,52 @@
                 <div class="sg-title">Transitions</div>
                 <div class="setting-row">
                   <div class="setting-label">
-                    <span class="setting-name">Slice covers on crossfade</span>
-                    <span class="setting-desc">The old cover is cut away along the diagonal while the songs crossfade. Needs Crossfade on.</span>
+                    <span class="setting-name">Animate covers on crossfade</span>
+                    <span class="setting-desc">The old cover makes way for the new one while the songs crossfade. Needs Crossfade on.</span>
                   </div>
                   <label class="toggle">
                     <input type="checkbox" id="cover-slice-toggle">
                     <span class="toggle-track"></span>
                   </label>
+                </div>
+                <div class="setting-row" id="cover-slice-style-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Style</span>
+                    <span class="setting-desc">Slice cuts the old cover away, Fade dissolves it, Push slides the new one in.</span>
+                  </div>
+                  <select class="setting-input" id="cover-slice-style">
+                    <option value="slice">Slice</option>
+                    <option value="fade">Fade</option>
+                    <option value="push">Push</option>
+                  </select>
+                </div>
+                <div class="setting-row" id="cover-slice-direction-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Direction</span>
+                    <span class="setting-desc">The way the cut moves. Push goes straight sideways on a diagonal.</span>
+                  </div>
+                  <select class="setting-input" id="cover-slice-direction">
+                    <option value="up-left">Up and left</option>
+                    <option value="up">Up</option>
+                    <option value="up-right">Up and right</option>
+                    <option value="right">Right</option>
+                    <option value="down-right">Down and right</option>
+                    <option value="down">Down</option>
+                    <option value="down-left">Down and left</option>
+                    <option value="left">Left</option>
+                  </select>
+                </div>
+                <div class="setting-row" id="cover-slice-hold-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Hold</span>
+                    <span class="setting-desc">Where it waits while both songs play.</span>
+                  </div>
+                  <select class="setting-input" id="cover-slice-hold">
+                    <option value="half">Half and half</option>
+                    <option value="old">Mostly the old cover</option>
+                    <option value="new">Mostly the new cover</option>
+                    <option value="sweep">No hold, sweep across the fade</option>
+                  </select>
                 </div>
                 <div class="setting-row" id="cover-slice-in-row">
                   <div class="setting-label">
@@ -1049,6 +1088,45 @@
                   <div class="setting-slider-row">
                     <input type="range" id="cover-slide-out" min="0.3" max="3" step="0.1" value="1.2">
                     <span class="eq-band-value" id="cover-slide-out-value">1.2s</span>
+                  </div>
+                </div>
+                <div class="setting-row" id="cover-slice-easing-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Easing</span>
+                  </div>
+                  <select class="setting-input" id="cover-slice-easing">
+                    <option value="smooth">Smooth</option>
+                    <option value="snappy">Snappy</option>
+                    <option value="linear">Linear</option>
+                  </select>
+                </div>
+                <div class="setting-row" id="cover-slice-seam-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Seam</span>
+                    <span class="setting-desc">The glowing edge on the cut, in Now Playing.</span>
+                  </div>
+                  <select class="setting-input" id="cover-slice-seam">
+                    <option value="white">White</option>
+                    <option value="accent">Accent color</option>
+                    <option value="off">Off</option>
+                  </select>
+                </div>
+                <div class="setting-row" id="cover-slice-glow-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Seam glow</span>
+                  </div>
+                  <div class="setting-slider-row">
+                    <input type="range" id="cover-slice-glow" min="0" max="2" step="0.05" value="1">
+                    <span class="eq-band-value" id="cover-slice-glow-value">100%</span>
+                  </div>
+                </div>
+                <div class="setting-row" id="cover-slice-shadow-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Edge shadow</span>
+                  </div>
+                  <div class="setting-slider-row">
+                    <input type="range" id="cover-slice-shadow" min="0" max="2" step="0.05" value="1">
+                    <span class="eq-band-value" id="cover-slice-shadow-value">100%</span>
                   </div>
                 </div>
                 <div class="setting-row">

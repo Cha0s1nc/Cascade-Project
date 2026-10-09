@@ -10892,20 +10892,39 @@ function probeCascadePlugin() {
 // keys the Apple apps' DisplayPrefs uses, so their settings import is a copy.
 const displayPrefs = {
   coverSlice: true, coverSliceIn: 0.8, coverSlideOut: 1.2,
+  coverSliceStyle: 'slice', coverSliceDirection: 'up-left', coverSliceHold: 'half', coverSliceEasing: 'smooth',
+  coverSliceSeam: 'white', coverSliceGlow: 1, coverSliceShadow: 1,
   colorFade: true, colorFadeSeconds: 0.7,
   explicitMarks: true, videoCovers: true,
 }
-const DISPLAY_PREF_RANGES = { coverSliceIn: [0.2, 2], coverSlideOut: [0.3, 3], colorFadeSeconds: [0.2, 2] }
+const DISPLAY_PREF_RANGES = { coverSliceIn: [0.2, 2], coverSlideOut: [0.3, 3], coverSliceGlow: [0, 2], coverSliceShadow: [0, 2], colorFadeSeconds: [0.2, 2] }
+const DISPLAY_PREF_CHOICES = {
+  coverSliceStyle: ['slice', 'fade', 'push'],
+  coverSliceDirection: ['up-left', 'up', 'up-right', 'right', 'down-right', 'down', 'down-left', 'left'],
+  coverSliceHold: ['half', 'old', 'new', 'sweep'],
+  coverSliceEasing: ['smooth', 'snappy', 'linear'],
+  coverSliceSeam: ['white', 'accent', 'off'],
+}
+// Sliders: [element id, key, shown as seconds or percent]
+const DISPLAY_PREF_SLIDERS = [
+  ['cover-slice-in', 'coverSliceIn', 's'], ['cover-slide-out', 'coverSlideOut', 's'],
+  ['cover-slice-glow', 'coverSliceGlow', '%'], ['cover-slice-shadow', 'coverSliceShadow', '%'],
+  ['color-fade-seconds', 'colorFadeSeconds', 's'],
+]
+const DISPLAY_PREF_MENUS = [
+  ['cover-slice-style', 'coverSliceStyle'], ['cover-slice-direction', 'coverSliceDirection'],
+  ['cover-slice-hold', 'coverSliceHold'], ['cover-slice-easing', 'coverSliceEasing'], ['cover-slice-seam', 'coverSliceSeam'],
+]
+const _prefText = (v, unit) => unit === '%' ? `${Math.round(v * 100)}%` : `${v.toFixed(1)}s`
 
 async function loadDisplayPrefs() {
   for (const key of Object.keys(displayPrefs)) {
     const v = await window.cascade.store.get(key)
-    const range = DISPLAY_PREF_RANGES[key]
-    if (range && typeof v === 'number' && Number.isFinite(v)) displayPrefs[key] = Math.min(range[1], Math.max(range[0], v))
-    else if (!range && typeof v === 'boolean') displayPrefs[key] = v
+    const range = DISPLAY_PREF_RANGES[key], choices = DISPLAY_PREF_CHOICES[key]
+    if (range) { if (typeof v === 'number' && Number.isFinite(v)) displayPrefs[key] = Math.min(range[1], Math.max(range[0], v)) }
+    else if (choices) { if (choices.includes(v)) displayPrefs[key] = v }
+    else if (typeof v === 'boolean') displayPrefs[key] = v
   }
-  ART_SLICE.sliceIn = displayPrefs.coverSliceIn
-  ART_SLICE.slideOut = displayPrefs.coverSlideOut
   _syncDisplayPrefControls()
 }
 
@@ -10915,19 +10934,24 @@ function _syncDisplayPrefControls() {
   set('color-fade-toggle', displayPrefs.colorFade)
   set('explicit-marks-toggle', displayPrefs.explicitMarks)
   set('video-covers-toggle', displayPrefs.videoCovers)
-  for (const [id, key] of [['cover-slice-in', 'coverSliceIn'], ['cover-slide-out', 'coverSlideOut'], ['color-fade-seconds', 'colorFadeSeconds']]) {
+  for (const [id, key, unit] of DISPLAY_PREF_SLIDERS) {
     const el = document.getElementById(id)
-    if (el) { el.value = String(displayPrefs[key]); document.getElementById(id + '-value').textContent = `${displayPrefs[key].toFixed(1)}s` }
+    if (el) { el.value = String(displayPrefs[key]); document.getElementById(id + '-value').textContent = _prefText(displayPrefs[key], unit) }
   }
-  for (const [row, on] of [['cover-slice-in-row', displayPrefs.coverSlice], ['cover-slide-out-row', displayPrefs.coverSlice], ['color-fade-seconds-row', displayPrefs.colorFade]]) {
-    const el = document.getElementById(row); if (el) el.style.display = on ? '' : 'none'
+  for (const [id, key] of DISPLAY_PREF_MENUS) { const el = document.getElementById(id); if (el) el.value = displayPrefs[key] }
+  // Only the rows that do something for the style picked.
+  const on = displayPrefs.coverSlice, style = displayPrefs.coverSliceStyle
+  const shown = {
+    'cover-slice-style-row': on, 'cover-slice-in-row': on, 'cover-slide-out-row': on,
+    'cover-slice-direction-row': on && style !== 'fade', 'cover-slice-hold-row': on, 'cover-slice-easing-row': on,
+    'cover-slice-seam-row': on && style === 'slice', 'cover-slice-glow-row': on && style === 'slice' && displayPrefs.coverSliceSeam !== 'off',
+    'cover-slice-shadow-row': on && style !== 'fade', 'color-fade-seconds-row': displayPrefs.colorFade,
   }
+  for (const [row, show] of Object.entries(shown)) { const el = document.getElementById(row); if (el) el.style.display = show ? '' : 'none' }
 }
 
 async function setDisplayPref(key, value) {
   displayPrefs[key] = value
-  ART_SLICE.sliceIn = displayPrefs.coverSliceIn
-  ART_SLICE.slideOut = displayPrefs.coverSlideOut
   _syncDisplayPrefControls()
   await window.cascade.store.set(key, value)
 }
@@ -10935,10 +10959,13 @@ async function setDisplayPref(key, value) {
 for (const [id, key] of [['cover-slice-toggle', 'coverSlice'], ['color-fade-toggle', 'colorFade'], ['explicit-marks-toggle', 'explicitMarks'], ['video-covers-toggle', 'videoCovers']]) {
   document.getElementById(id)?.addEventListener('change', e => setDisplayPref(key, e.target.checked))
 }
-for (const [id, key] of [['cover-slice-in', 'coverSliceIn'], ['cover-slide-out', 'coverSlideOut'], ['color-fade-seconds', 'colorFadeSeconds']]) {
+for (const [id, key, unit] of DISPLAY_PREF_SLIDERS) {
   const el = document.getElementById(id)
-  el?.addEventListener('input', e => { document.getElementById(id + '-value').textContent = `${parseFloat(e.target.value).toFixed(1)}s` })
+  el?.addEventListener('input', e => { document.getElementById(id + '-value').textContent = _prefText(parseFloat(e.target.value), unit) })
   el?.addEventListener('change', e => setDisplayPref(key, parseFloat(e.target.value)))
+}
+for (const [id, key] of DISPLAY_PREF_MENUS) {
+  document.getElementById(id)?.addEventListener('change', e => setDisplayPref(key, e.target.value))
 }
 
 // ── Cover slice on crossfade ─────────────────────────────────────────────────
@@ -10949,42 +10976,78 @@ for (const [id, key] of [['cover-slice-in', 'coverSliceIn'], ['cover-slide-out',
 // play, then the cut slides off through the top-left corner once the old song
 // has faded. A crossfade cut short (pause, skip, seek) slides it out at once.
 // Skipped for two songs with the same cover, for video, and under Reduce Motion.
+// That is the default; Settings > Playback > Transitions picks the style
+// (slice, fade, push), direction, hold, easing, seam and shadow (displayPrefs).
 //
 // Built for the compositor, since the handover and the fade's end are the
 // busiest moments the app has (new title, lyrics, cover colors, the next
-// stream loading): the cut is a 45° frame whose clipping box slides along the
-// diagonal while the cover inside slides back the other way, so the cover
-// stays put and only its visible part moves. Every change is a transform run
+// stream loading): the cut is a turned frame whose clipping box slides across
+// it while the cover inside slides back the other way, so the cover stays put
+// and only its visible part moves. Every change is a transform or opacity run
 // by element.animate(), which the GPU keeps going while the main thread is
 // busy; nothing is repainted per frame (the edge shadow is a box-shadow that
 // moves with the box). The outgoing cover is a copy of the image already on
 // screen, so nothing decodes, and the cut waits (briefly) for the new cover
 // to decode before it starts uncovering it.
 //
-// The cut is the line x + y = s across the unit square: 2 is the bottom-right
-// corner (nothing cut), 1 the diagonal (half and half), 0 the top-left corner.
-const ART_SLICE = { sliceIn: 0.8, slideOut: 1.2, waitForCover: 0.4 }
-const SLICE_EASE_IN = 'cubic-bezier(0.33, 1, 0.68, 1)'      // ease-out cubic, as the demo
-const SLICE_EASE_OUT = 'cubic-bezier(0.65, 0, 0.35, 1)'     // ease-in-out cubic
-let _slice = null   // { layers, holdEnd, cutStart, cutDur, slideTimer, sliding, anims }
+// Every style runs on one number, s: 2 is all old cover, 1 half and half, 0
+// all new. For the default slice it is the cut x + y = s across the unit square.
+const SLICE_WAIT_FOR_COVER = 0.4
+// [cut in, slide out]: ease-out then ease-in-out, in cubic (the demo's) or quint.
+const SLICE_EASINGS = {
+  smooth: ['cubic-bezier(0.33, 1, 0.68, 1)', 'cubic-bezier(0.65, 0, 0.35, 1)'],
+  snappy: ['cubic-bezier(0.22, 1, 0.36, 1)', 'cubic-bezier(0.83, 0, 0.17, 1)'],
+  linear: ['linear', 'linear'],
+}
+// Where the cut waits while both songs play; a sweep never waits.
+const SLICE_HOLDS = { half: 1, old: 1.4, new: 0.6, sweep: 0 }
+// The way the cut, or the old cover, moves.
+const SLICE_MOVES = { 'up-left': [-1, -1], up: [0, -1], 'up-right': [1, -1], right: [1, 0], 'down-right': [1, 1], down: [0, 1], 'down-left': [-1, 1], left: [-1, 0] }
+let _slice = null   // { layers, style, geo, holdEnd, sliding, anims, from, to }
 
-/** The three transforms for a cut at s; each is a straight line in s, so the
- *  animations' easing is the cut's own. */
-function _sliceFrames(s) {
+function _sliceGeometry() {
+  const [mx, my] = SLICE_MOVES[displayPrefs.coverSliceDirection] || SLICE_MOVES['up-left']
+  const diagonal = mx !== 0 && my !== 0
   return {
-    keep: `translateX(${((s / 2 - 1) * 100).toFixed(4)}%)`,
-    img: `translateX(${((1 - s / 2) * 141.4214).toFixed(4)}%) rotate(-45deg)`,
-    seam: `translateX(${((s / 2 - 1) * 100).toFixed(4)}%)`,
+    // The frame's x axis points where the cut comes from; a diagonal frame is
+    // the square's diagonal long, so its cut sweeps corner to corner.
+    turn: Math.atan2(-my, -mx) * 180 / Math.PI,
+    frame: diagonal ? 141.4214 : 100,
+    // ponytail: a diagonal push would leave two corners empty, so it pushes sideways only.
+    push: diagonal ? [mx, 0] : [mx, my],
   }
 }
 
-/** Where an ease-out or ease-in-out cubic cut is, for a fade cut short. */
-const _easeOutCubic = u => 1 - Math.pow(1 - u, 3)
+/** Every animated property for s, by the slice-* class it goes on; each is a
+ *  straight line in s, so the animations' easing is the cut's own. */
+function _sliceFrames(s, g) {
+  const t = s / 2 - 1, pc = n => `${(n * 100).toFixed(4)}%`
+  const [px, py] = g.push
+  return {
+    keep: { transform: `translateX(${pc(t)})` },
+    img: { transform: `translateX(${pc(-t * g.frame / 100)}) rotate(${-g.turn}deg)` },
+    seam: { transform: `translateX(${pc(t)})` },
+    fade: { opacity: s / 2 },
+    old: { transform: `translate(${pc(-t * px)}, ${pc(-t * py)})` },
+    new: { transform: `translate(${pc((-t - 1) * px)}, ${pc((-t - 1) * py)})` },
+  }
+}
+
+function _sliceCopy(img, cls) {
+  const copy = img.cloneNode(false)
+  copy.removeAttribute('onerror'); copy.removeAttribute('id'); copy.className = cls; copy.alt = ''
+  return copy
+}
 
 /** Lays the outgoing cover over the art, uncut. False when there is nothing to cut. */
 function prepareArtSlice() {
   _removeArtSlice()
   if (!displayPrefs.coverSlice || matchMedia('(prefers-reduced-motion: reduce)').matches) return false
+  const style = DISPLAY_PREF_CHOICES.coverSliceStyle.includes(displayPrefs.coverSliceStyle) ? displayPrefs.coverSliceStyle : 'slice'
+  const geo = _sliceGeometry()
+  const f = _sliceFrames(2, geo)
+  const seamColor = displayPrefs.coverSliceSeam === 'accent' ? 'var(--accent)' : '#fff'
+  const glow = displayPrefs.coverSliceGlow
   const layers = []
   for (const id of ['ov-art', 'np-art']) {
     const host = document.getElementById(id)
@@ -10993,20 +11056,31 @@ function prepareArtSlice() {
     const layer = document.createElement('div')
     layer.className = 'art-slice'
     layer.setAttribute('aria-hidden', 'true')
-    layer.innerHTML = `<div class="slice-frame"><div class="slice-keep"></div>${id === 'ov-art' ? '<div class="slice-seam"></div>' : ''}</div>`
-    const img = shown.cloneNode(false)
-    img.removeAttribute('onerror'); img.removeAttribute('id'); img.className = 'slice-img'; img.alt = ''
-    layer.querySelector('.slice-keep').appendChild(img)
-    const f = _sliceFrames(2)
-    layer.querySelector('.slice-keep').style.transform = f.keep
-    img.style.transform = f.img
-    const seam = layer.querySelector('.slice-seam')
-    if (seam) seam.style.transform = f.seam
+    layer.style.setProperty('--slice-shadow-a', String(0.45 * displayPrefs.coverSliceShadow))
+    if (style === 'slice') {
+      const seam = id === 'ov-art' && displayPrefs.coverSliceSeam !== 'off'
+      layer.innerHTML = `<div class="slice-frame"><div class="slice-keep"></div>${seam ? '<div class="slice-seam"></div>' : ''}</div>`
+      const frame = layer.querySelector('.slice-frame'), inner = 10000 / geo.frame
+      Object.assign(frame.style, { width: `${geo.frame}%`, height: `${geo.frame}%`, left: `${(100 - geo.frame) / 2}%`, top: `${(100 - geo.frame) / 2}%`, transform: `rotate(${geo.turn}deg)` })
+      const img = _sliceCopy(shown, 'slice-img')
+      Object.assign(img.style, { width: `${inner}%`, height: `${inner}%`, left: `${(100 - inner) / 2}%`, top: `${(100 - inner) / 2}%` })
+      layer.querySelector('.slice-keep').appendChild(img)
+      if (seam) {
+        layer.style.setProperty('--seam-color', seamColor)
+        layer.style.setProperty('--seam-glow', `0 0 ${6 * glow}px ${2 * glow}px color-mix(in srgb, ${seamColor} ${Math.min(100, 65 * glow)}%, transparent)`)
+      }
+    } else {
+      layer.appendChild(_sliceCopy(shown, style === 'fade' ? 'slice-fade' : 'slice-old'))
+    }
+    for (const [part, props] of Object.entries(f)) {
+      const el = layer.querySelector('.slice-' + part)
+      if (el) Object.assign(el.style, props)
+    }
     host.appendChild(layer)
     layers.push(layer)
   }
   if (!layers.length) return false
-  _slice = { layers, holdEnd: 0, cutStart: 0, cutDur: 0, slideTimer: 0, sliding: false, anims: [] }
+  _slice = { layers, style, geo, holdEnd: 0, sliding: false, anims: [], from: 2, to: 2 }
   return true
 }
 
@@ -11017,14 +11091,25 @@ async function startArtSlice(fadeSecs) {
   slice.holdEnd = performance.now() + fadeSecs * 1000
   const incoming = document.querySelector('#ov-art > img')
   if (incoming) {
-    await Promise.race([incoming.decode().catch(() => {}), new Promise(r => setTimeout(r, ART_SLICE.waitForCover * 1000))])
+    await Promise.race([incoming.decode().catch(() => {}), new Promise(r => setTimeout(r, SLICE_WAIT_FOR_COVER * 1000))])
   }
   if (_slice !== slice || slice.sliding) return
+  // A push carries a copy of the new cover in behind the old one.
+  if (slice.style === 'push') {
+    for (const layer of slice.layers) {
+      const shown = layer.parentElement?.querySelector(':scope > img')
+      if (!shown) continue
+      const copy = _sliceCopy(shown, 'slice-new')
+      Object.assign(copy.style, _sliceFrames(2, slice.geo).new)
+      layer.appendChild(copy)
+    }
+  }
   const left = slice.holdEnd - performance.now()
   if (left <= 0) { endArtSlice(); return }
-  slice.cutStart = performance.now()
-  slice.cutDur = Math.min(ART_SLICE.sliceIn * 1000, left)
-  _animateSlice(2, 1, slice.cutDur, SLICE_EASE_IN, 'in')
+  const [easeIn, easeOut] = SLICE_EASINGS[displayPrefs.coverSliceEasing] || SLICE_EASINGS.smooth
+  const hold = SLICE_HOLDS[displayPrefs.coverSliceHold] ?? 1
+  if (hold === 0) _animateSlice(2, 0, left, easeOut, 'in')
+  else _animateSlice(2, hold, Math.min(displayPrefs.coverSliceIn * 1000, left), easeIn, 'in')
 }
 
 /** The old song is gone, or its fade was cut short: slide the cut out from wherever it is. */
@@ -11032,13 +11117,12 @@ function endArtSlice() {
   const slice = _slice
   if (!slice || slice.sliding) return
   slice.sliding = true
-  // Where the cut is now: still on its way in, at the diagonal, or not started.
-  let s = 2
-  if (slice.cutStart) {
-    const u = Math.min(1, (performance.now() - slice.cutStart) / slice.cutDur)
-    s = 2 - _easeOutCubic(u)
-  }
-  _animateSlice(s, 0, ART_SLICE.slideOut * 1000 * Math.min(1, s), SLICE_EASE_OUT, 'out')
+  // Where the cut is now: on its way in, holding, or not started (from = to = 2).
+  const p = slice.anims[0]?.effect?.getComputedTiming().progress
+  const s = slice.from + (slice.to - slice.from) * (p ?? 1)
+  if (s <= 0.001) { _removeArtSlice(); return }
+  const easeOut = (SLICE_EASINGS[displayPrefs.coverSliceEasing] || SLICE_EASINGS.smooth)[1]
+  _animateSlice(s, 0, displayPrefs.coverSlideOut * 1000 * Math.min(1, s), easeOut, 'out')
     .then(() => { if (_slice === slice) _removeArtSlice() })
 }
 
@@ -11046,14 +11130,16 @@ function _animateSlice(from, to, ms, easing, phase) {
   const slice = _slice
   for (const a of slice.anims) { a.commitStyles?.(); a.cancel() }
   slice.anims = []
-  const a = _sliceFrames(from), b = _sliceFrames(to)
+  slice.from = from; slice.to = to
+  const a = _sliceFrames(from, slice.geo), b = _sliceFrames(to, slice.geo)
   const opts = { duration: Math.max(1, ms), easing, fill: 'forwards' }
   for (const layer of slice.layers) {
-    slice.anims.push(layer.querySelector('.slice-keep').animate([{ transform: a.keep }, { transform: b.keep }], opts))
-    slice.anims.push(layer.querySelector('.slice-img').animate([{ transform: a.img }, { transform: b.img }], opts))
+    for (const part of Object.keys(a)) {
+      const el = layer.querySelector('.slice-' + part)
+      if (el) slice.anims.push(el.animate([a[part], b[part]], opts))
+    }
     const seam = layer.querySelector('.slice-seam')
     if (seam) {
-      slice.anims.push(seam.animate([{ transform: a.seam }, { transform: b.seam }], opts))
       // Bright while the blade moves in, settled while it holds, gone as it leaves.
       const glow = phase === 'in' ? [{ opacity: 1 }, { opacity: 0.55 }] : [{ opacity: 0.55 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }]
       slice.anims.push(seam.animate(glow, { duration: Math.max(1, ms), easing: 'linear', fill: 'forwards' }))
