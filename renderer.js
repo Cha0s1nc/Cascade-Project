@@ -6343,10 +6343,10 @@ async function startCrossfade(nextIndex) {
 function _handOverAtFadeStart(nextIndex, incoming, fadeSecs) {
   const outgoing = audio
   const outgoingItem = queue[queueIndex]
-  // The cover on screen now, before playCurrentTrack() moves it to the new
-  // track: the slice cuts this one away (startArtSlice).
-  const outgoingArt = _currentHighResArtUrl
   const sameCover = (outgoingItem?.AlbumId || outgoingItem?.Id) === (queue[nextIndex]?.AlbumId || queue[nextIndex]?.Id)
+  // Laid over the art now, before playCurrentTrack() moves it to the new
+  // track, from copies of the covers on screen (already decoded): startArtSlice.
+  const slicing = !sameCover && !isVideoItem(queue[nextIndex]) && prepareArtSlice()
   if (outgoingItem) reportPlaybackStopped(outgoingItem.Id, Math.round(outgoing.currentTime * 10000000))
 
   audio = incoming
@@ -6362,7 +6362,7 @@ function _handOverAtFadeStart(nextIndex, incoming, fadeSecs) {
   _cfNextResolved = null
   renderQueuePanel()
   _cfTail = { deck: outgoing, timer: setTimeout(() => { _cutCrossfadeTail(); _schedulePrefetch() }, fadeSecs * 1000) }
-  if (!sameCover && !isVideoItem(queue[nextIndex])) startArtSlice(outgoingArt, fadeSecs)
+  if (slicing) startArtSlice(fadeSecs)
 }
 
 // Stop the previous track's fade-out and give the new one full gain. The
@@ -10784,90 +10784,122 @@ function probeCascadePlugin() {
 // has faded. A crossfade cut short (pause, skip, seek) slides it out at once.
 // Skipped for two songs with the same cover, for video, and under Reduce Motion.
 //
+// Built for the compositor, since the handover and the fade's end are the
+// busiest moments the app has (new title, lyrics, cover colors, the next
+// stream loading): the cut is a 45° frame whose clipping box slides along the
+// diagonal while the cover inside slides back the other way, so the cover
+// stays put and only its visible part moves. Every change is a transform run
+// by element.animate(), which the GPU keeps going while the main thread is
+// busy; nothing is repainted per frame (the edge shadow is a box-shadow that
+// moves with the box). The outgoing cover is a copy of the image already on
+// screen, so nothing decodes, and the cut waits (briefly) for the new cover
+// to decode before it starts uncovering it.
+//
 // The cut is the line x + y = s across the unit square: 2 is the bottom-right
-// corner (nothing cut), 1 the diagonal (half and half), 0 the top-left corner
-// (all new cover). Worked out from the clock every frame, so a redraw of the
-// art box (which keeps the layer, see _setArtStill) cannot knock it off.
-const ART_SLICE = { sliceIn: 0.8, slideOut: 1.2 }
-let _slice = null   // { start, holdEnd, slideFrom, raf }
+// corner (nothing cut), 1 the diagonal (half and half), 0 the top-left corner.
+const ART_SLICE = { sliceIn: 0.8, slideOut: 1.2, waitForCover: 0.4 }
+const SLICE_EASE_IN = 'cubic-bezier(0.33, 1, 0.68, 1)'      // ease-out cubic, as the demo
+const SLICE_EASE_OUT = 'cubic-bezier(0.65, 0, 0.35, 1)'     // ease-in-out cubic
+let _slice = null   // { layers, holdEnd, cutStart, cutDur, slideTimer, sliding, anims }
 
+/** The three transforms for a cut at s; each is a straight line in s, so the
+ *  animations' easing is the cut's own. */
+function _sliceFrames(s) {
+  return {
+    keep: `translateX(${((s / 2 - 1) * 100).toFixed(4)}%)`,
+    img: `translateX(${((1 - s / 2) * 141.4214).toFixed(4)}%) rotate(-45deg)`,
+    seam: `translateX(${((s / 2 - 1) * 100).toFixed(4)}%)`,
+  }
+}
+
+/** Where an ease-out or ease-in-out cubic cut is, for a fade cut short. */
 const _easeOutCubic = u => 1 - Math.pow(1 - u, 3)
-const _easeInOutCubic = u => u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2
 
-/** Where the cut is at `now` (seconds), before any slide out. */
-function _sliceHeldAt(now) {
-  const into = now - _slice.start
-  const sliceIn = Math.min(ART_SLICE.sliceIn, _slice.holdEnd - _slice.start)
-  return into < sliceIn ? 2 - _easeOutCubic(Math.max(0, into) / sliceIn) : 1
-}
-
-function _sliceClip(s) {
-  const pct = v => (v * 100).toFixed(3) + '%'
-  if (s >= 2) return 'none'
-  if (s <= 0) return 'polygon(0% 0%, 0% 0%, 0% 0%)'
-  if (s >= 1) return `polygon(0% 0%, 100% 0%, 100% ${pct(s - 1)}, ${pct(s - 1)} 100%, 0% 100%)`
-  return `polygon(0% 0%, ${pct(s)} 0%, 0% ${pct(s)})`
-}
-
-function startArtSlice(url, fadeSecs) {
+/** Lays the outgoing cover over the art, uncut. False when there is nothing to cut. */
+function prepareArtSlice() {
   _removeArtSlice()
-  if (!url || !(fadeSecs > 0) || matchMedia('(prefers-reduced-motion: reduce)').matches) return
-  const now = performance.now() / 1000
-  _slice = { start: now, holdEnd: now + fadeSecs, slideFrom: null, raf: 0 }
-  const img = `<div class="art-slice-layer"><img src="${esc(url)}" alt="" draggable="false"></div>`
-  // The seam only on the big cover; on the player bar's it would be a smudge.
-  const seam = `<svg class="art-slice-seam" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-    <line class="seam-glow" stroke="#fff" stroke-width="2.4" stroke-linecap="round" filter="url(#art-slice-glow)"/>
-    <line class="seam-line" stroke="#fff" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linecap="round"/>
-    <defs><filter id="art-slice-glow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="1.4"/></filter></defs>
-  </svg>`
-  document.getElementById('np-art')?.insertAdjacentHTML('beforeend', `<div class="art-slice" aria-hidden="true">${img}</div>`)
-  document.getElementById('ov-art')?.insertAdjacentHTML('beforeend', `<div class="art-slice" aria-hidden="true">${img}${seam}</div>`)
-  _drawArtSlice()
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return false
+  const layers = []
+  for (const id of ['ov-art', 'np-art']) {
+    const host = document.getElementById(id)
+    const shown = host?.querySelector(':scope > img')
+    if (!shown?.complete || !shown.naturalWidth) continue
+    const layer = document.createElement('div')
+    layer.className = 'art-slice'
+    layer.setAttribute('aria-hidden', 'true')
+    layer.innerHTML = `<div class="slice-frame"><div class="slice-keep"></div>${id === 'ov-art' ? '<div class="slice-seam"></div>' : ''}</div>`
+    const img = shown.cloneNode(false)
+    img.removeAttribute('onerror'); img.removeAttribute('id'); img.className = 'slice-img'; img.alt = ''
+    layer.querySelector('.slice-keep').appendChild(img)
+    const f = _sliceFrames(2)
+    layer.querySelector('.slice-keep').style.transform = f.keep
+    img.style.transform = f.img
+    const seam = layer.querySelector('.slice-seam')
+    if (seam) seam.style.transform = f.seam
+    host.appendChild(layer)
+    layers.push(layer)
+  }
+  if (!layers.length) return false
+  _slice = { layers, holdEnd: 0, cutStart: 0, cutDur: 0, slideTimer: 0, sliding: false, anims: [] }
+  return true
+}
+
+/** Starts the cut once the new cover can be shown under it (or after a short wait). */
+async function startArtSlice(fadeSecs) {
+  const slice = _slice
+  if (!slice) return
+  slice.holdEnd = performance.now() + fadeSecs * 1000
+  const incoming = document.querySelector('#ov-art > img')
+  if (incoming) {
+    await Promise.race([incoming.decode().catch(() => {}), new Promise(r => setTimeout(r, ART_SLICE.waitForCover * 1000))])
+  }
+  if (_slice !== slice || slice.sliding) return
+  const left = slice.holdEnd - performance.now()
+  if (left <= 0) { endArtSlice(); return }
+  slice.cutStart = performance.now()
+  slice.cutDur = Math.min(ART_SLICE.sliceIn * 1000, left)
+  _animateSlice(2, 1, slice.cutDur, SLICE_EASE_IN, 'in')
 }
 
 /** The old song is gone, or its fade was cut short: slide the cut out from wherever it is. */
 function endArtSlice() {
-  if (!_slice || _slice.slideFrom) return
-  const now = performance.now() / 1000
-  _slice.slideFrom = { at: Math.min(now, _slice.holdEnd), s: _sliceHeldAt(Math.min(now, _slice.holdEnd)) }
+  const slice = _slice
+  if (!slice || slice.sliding) return
+  slice.sliding = true
+  // Where the cut is now: still on its way in, at the diagonal, or not started.
+  let s = 2
+  if (slice.cutStart) {
+    const u = Math.min(1, (performance.now() - slice.cutStart) / slice.cutDur)
+    s = 2 - _easeOutCubic(u)
+  }
+  _animateSlice(s, 0, ART_SLICE.slideOut * 1000 * Math.min(1, s), SLICE_EASE_OUT, 'out')
+    .then(() => { if (_slice === slice) _removeArtSlice() })
+}
+
+function _animateSlice(from, to, ms, easing, phase) {
+  const slice = _slice
+  for (const a of slice.anims) { a.commitStyles?.(); a.cancel() }
+  slice.anims = []
+  const a = _sliceFrames(from), b = _sliceFrames(to)
+  const opts = { duration: Math.max(1, ms), easing, fill: 'forwards' }
+  for (const layer of slice.layers) {
+    slice.anims.push(layer.querySelector('.slice-keep').animate([{ transform: a.keep }, { transform: b.keep }], opts))
+    slice.anims.push(layer.querySelector('.slice-img').animate([{ transform: a.img }, { transform: b.img }], opts))
+    const seam = layer.querySelector('.slice-seam')
+    if (seam) {
+      slice.anims.push(seam.animate([{ transform: a.seam }, { transform: b.seam }], opts))
+      // Bright while the blade moves in, settled while it holds, gone as it leaves.
+      const glow = phase === 'in' ? [{ opacity: 1 }, { opacity: 0.55 }] : [{ opacity: 0.55 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }]
+      slice.anims.push(seam.animate(glow, { duration: Math.max(1, ms), easing: 'linear', fill: 'forwards' }))
+    }
+  }
+  return Promise.all(slice.anims.map(x => x.finished.catch(() => {})))
 }
 
 function _removeArtSlice() {
-  if (_slice) cancelAnimationFrame(_slice.raf)
+  if (_slice) for (const a of _slice.anims) a.cancel()
   _slice = null
   document.querySelectorAll('.art-slice').forEach(el => el.remove())
-}
-
-function _drawArtSlice() {
-  if (!_slice) return
-  const now = performance.now() / 1000
-  // The fade's own end slides it out too, in case the tail timer is late.
-  if (!_slice.slideFrom && now >= _slice.holdEnd) endArtSlice()
-  let s, phase, u = 0
-  if (_slice.slideFrom) {
-    u = Math.min(1, (now - _slice.slideFrom.at) / ART_SLICE.slideOut)
-    s = _slice.slideFrom.s * (1 - _easeInOutCubic(u))
-    phase = 'slide'
-    if (u >= 1) { _removeArtSlice(); return }
-  } else {
-    s = _sliceHeldAt(now)
-    phase = s > 1 ? 'in' : 'hold'
-    if (phase === 'in') u = (2 - s)
-  }
-  const clip = _sliceClip(s)
-  const [x1, y1, x2, y2] = s >= 1 ? [100, (s - 1) * 100, (s - 1) * 100, 100] : [s * 100, 0, 0, s * 100]
-  // Bright while the blade moves, settled while it holds, gone as it leaves.
-  const seam = phase === 'in' ? 1 : phase === 'hold' ? 0.55 : Math.max(0, 0.55 + 0.45 * Math.min(u * 4, 1) - Math.max(0, (u - 0.75) / 0.25))
-  const flare = phase === 'in' ? 1 - 0.5 * u : phase === 'slide' ? 0.5 + 0.5 * Math.sin(u * Math.PI) : 0.5
-  for (const el of document.querySelectorAll('.art-slice')) {
-    el.querySelector('img').style.clipPath = clip
-    for (const line of el.querySelectorAll('line')) {
-      line.setAttribute('x1', x1); line.setAttribute('y1', y1); line.setAttribute('x2', x2); line.setAttribute('y2', y2)
-      line.setAttribute('opacity', (line.classList.contains('seam-glow') ? seam * flare : seam).toFixed(3))
-    }
-  }
-  _slice.raf = requestAnimationFrame(_drawArtSlice)
 }
 
 // ── Server style ─────────────────────────────────────────────────────────────
@@ -11239,10 +11271,15 @@ window.cascadeDebug = {
   //   cascadeDebug.artSlice()            the previous song's cover over this one, a 6 s fade
   //   cascadeDebug.artSlice(url, 4)      any image; cascadeDebug.artSliceCut() cuts it short
   artSlice(url, fadeSecs = 6) {
+    // The cover on screen goes out; `url` (or the previous song's cover) comes in.
     const prev = queue[queueIndex - 1]
     const src = url || (prev && artUrl(prev.AlbumId || prev.Id, prev.AlbumPrimaryImageTag || prev.ImageTags?.Primary))
     if (!src) { console.warn('[cascadeDebug] no previous song with a cover; pass an image url'); return }
-    startArtSlice(src, fadeSecs)
+    if (!prepareArtSlice()) { console.warn('[cascadeDebug] no cover on screen to cut'); return }
+    _setArtStill(document.getElementById('np-art'), src)
+    _setArtStill(document.getElementById('ov-art'), src)
+    startArtSlice(fadeSecs)
+    setTimeout(endArtSlice, fadeSecs * 1000)
   },
   artSliceCut() { endArtSlice() },
   // Tune the lyric motion live:  cascadeDebug.lyricMotion({ stiffness: 150 })

@@ -462,11 +462,15 @@ html[data-theme="light"] #ov-panel-lyrics.browsing .ov-lyric-line.active { color
 .np-art { position: relative; }
 .np-art .art-video, .np-overlay-art .art-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; pointer-events: none; }
 
-/* The crossfade cover slice (renderer.js startArtSlice): the outgoing cover on
-   top, clipped to the part above the cut. The shadow sits on the wrapper so it
-   follows the clipped edge onto the incoming cover. */
+/* The crossfade cover slice (renderer.js prepareArtSlice). A 45° frame over the
+   cover: .slice-keep is its clipping box, slid along the diagonal; the cover
+   inside slides back the other way, so it stays put while its visible part
+   shrinks. Transforms only, run by the compositor; the shadow moves with the
+   box instead of being redrawn. */
 .art-slice { position: absolute; inset: 0; pointer-events: none; z-index: 2; border-radius: inherit; overflow: hidden; }
-.art-slice-layer { position: absolute; inset: 0; filter: drop-shadow(3px 3px 8px rgba(0,0,0,0.45)); }
-.art-slice-layer img { width: 100%; height: 100%; object-fit: cover; display: block; user-select: none; }
-.np-art .art-slice-layer { filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.45)); }
-.art-slice-seam { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.slice-frame { position: absolute; width: 141.4214%; height: 141.4214%; left: -20.7107%; top: -20.7107%; transform: rotate(45deg); }
+.slice-keep { position: absolute; inset: 0; overflow: hidden; will-change: transform; box-shadow: 6px 0 14px rgba(0,0,0,0.45); }
+.np-art .slice-keep { box-shadow: 2px 0 4px rgba(0,0,0,0.45); }
+.art-slice .slice-img { position: absolute; width: 70.7107%; height: 70.7107%; left: 14.6447%; top: 14.6447%; object-fit: cover; display: block; will-change: transform; user-select: none; border-radius: 0; }
+.slice-seam { position: absolute; inset: 0; will-change: transform, opacity; opacity: 0; }
+.slice-seam::after { content: ''; position: absolute; top: 0; bottom: 0; right: -1px; width: 2px; background: #fff; box-shadow: 0 0 6px 2px rgba(255,255,255,0.65); }
