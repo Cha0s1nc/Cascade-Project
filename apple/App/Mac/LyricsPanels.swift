@@ -14,6 +14,33 @@ final class MacNowPlayingUI {
     enum RightPanel { case queue, lyrics }
     var rightPanel = RightPanel.queue
     var sidePanelOpen = false
+    /// The playing song's favorite as toggled here, until the next song: the player bar, the
+    /// overlay and their menus share it, so a heart toggled in one is right in the others.
+    var favorite: (id: String, on: Bool)?
+
+    func isFavorite(_ item: JfItem?) -> Bool {
+        guard let item else { return false }
+        if let favorite, favorite.id == item.id { return favorite.on }
+        return item.userData?.isFavorite ?? false
+    }
+
+    /// The override as TrackMenuItems takes it.
+    func favoriteBinding(_ id: String) -> Binding<Bool?> {
+        Binding(get: { [weak self] in self?.favorite.flatMap { $0.id == id ? $0.on : nil } },
+                set: { [weak self] in self?.favorite = $0.map { (id, $0) } })
+    }
+
+    /// Flips only once the server has accepted it (CODEMAP rule 1).
+    func toggleFavorite(_ item: JfItem?, client: JellyfinClient?) {
+        guard let item, let client else { return }
+        let target = !isFavorite(item)
+        Task {
+            do {
+                try await client.setFavorite(target, itemId: item.id)
+                favorite = (item.id, target)
+            } catch {}
+        }
+    }
     var historyOpen = false
     /// Bumped by "Reload lyrics", so the load runs again for a source that was only down.
     var reloadTick = 0

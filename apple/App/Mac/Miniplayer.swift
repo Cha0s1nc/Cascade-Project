@@ -49,11 +49,11 @@ private struct MiniplayerBody: View {
     @State private var lastBump = Date.distantPast
     @State private var volumeHud: Float?
     @State private var hudTask: Task<Void, Never>?
-    @State private var favoriteOverride: Bool?
     @FocusState private var focused: Bool
 
     private var item: JfItem? { player.item }
-    private var isFavorite: Bool { favoriteOverride ?? item?.userData?.isFavorite ?? false }
+    /// Shared with the player bar and Now Playing (MacNowPlayingUI), so the hearts agree.
+    private var isFavorite: Bool { MacNowPlayingUI.shared.isFavorite(item) }
     private var artId: String? { item?.albumId ?? item?.id }
 
     var body: some View {
@@ -93,7 +93,7 @@ private struct MiniplayerBody: View {
             try? await Task.sleep(for: .seconds(MiniSize.idleSeconds))
             if !Task.isCancelled { idle = true }
         }
-        .onChange(of: item?.id) { favoriteOverride = nil }
+        .onChange(of: item?.id) { if MacNowPlayingUI.shared.favorite?.id != item?.id { MacNowPlayingUI.shared.favorite = nil } }
         // Lyrics are asked for only while shown, as in the overlay; the model is the same one.
         .task(id: [item?.id ?? "", String(describing: state.cascadePluginApi),
                    "\(state.cascadePluginInfo.capabilities.sorted())", "\(state.serverOnlyLyrics)",
@@ -322,17 +322,7 @@ private struct MiniplayerBody: View {
         }
     }
 
-    private func toggleFavorite() {
-        guard let id = item?.id, let client = state.client else { return }
-        let target = !isFavorite
-        // Flips only once the server has accepted it.
-        Task {
-            do {
-                try await client.setFavorite(target, itemId: id)
-                if player.item?.id == id { favoriteOverride = target }
-            } catch {}
-        }
-    }
+    private func toggleFavorite() { MacNowPlayingUI.shared.toggleFavorite(item, client: state.client) }
 }
 
 /// The thin position bar. A drag shows its target locally and seeks once on release, so a drag

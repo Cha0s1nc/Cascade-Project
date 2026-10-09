@@ -83,7 +83,6 @@ private struct OverlayContent: View {
 
     /// Overrides of the playing item's snapshot, which a server answer does not update. Reset on
     /// every track change.
-    @State private var favoriteOverride: Bool?
     @State private var playedOverride: Bool?
     @State private var addingToPlaylist = false
     /// The controls fold away after 3 s without a sign of life, while something is playing; the
@@ -103,7 +102,7 @@ private struct OverlayContent: View {
     private var artTheme: Bool { theme.settings.albumArt }
     private var ink: Color { light ? Color(red: 28 / 255, green: 28 / 255, blue: 30 / 255) : .white }
     private var showingLyrics: Bool { ui.rightPanel == .lyrics }
-    private var isFavorite: Bool { favoriteOverride ?? player.item?.userData?.isFavorite ?? false }
+    private var isFavorite: Bool { ui.isFavorite(player.item) }
     /// A white scrim over each part in light mode with album art, so text reads over the blobs.
     private var scrim: Color { light && artTheme ? .white.opacity(theme.tuning.bgDim) : .clear }
 
@@ -145,7 +144,7 @@ private struct OverlayContent: View {
             else if !idle { wake += 1 }
         }
         .task(id: player.item?.id) {
-            favoriteOverride = nil
+            if ui.favorite?.id != player.item?.id { ui.favorite = nil }
             playedOverride = nil
         }
         .newLyricDefaultsPrompt()
@@ -265,17 +264,7 @@ private struct OverlayContent: View {
         .accessibilityLabel(label)
     }
 
-    private func toggleFavorite() {
-        guard let id = player.item?.id, let client = state.client else { return }
-        let target = !isFavorite
-        // Flips only once the server has accepted it (CODEMAP rule 1).
-        Task {
-            do {
-                try await client.setFavorite(target, itemId: id)
-                if player.item?.id == id { favoriteOverride = target }
-            } catch {}
-        }
-    }
+    private func toggleFavorite() { ui.toggleFavorite(player.item, client: state.client) }
 
     private func viewAlbum() {
         guard let albumId = player.item?.albumId, let client = state.client else { return }
@@ -406,7 +395,7 @@ private struct OverlayContent: View {
     private var moreMenu: some View {
         Menu {
             if let track = player.item {
-                TrackMenuItems(track: track, favorite: $favoriteOverride, played: $playedOverride,
+                TrackMenuItems(track: track, favorite: ui.favoriteBinding(track.id), played: $playedOverride,
                                addingToPlaylist: $addingToPlaylist, nowPlaying: true)
             }
             Section {

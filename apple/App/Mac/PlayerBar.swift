@@ -7,6 +7,9 @@ import CascadeKit
 struct PlayerBar: View {
     let player: PlaybackService
     @Environment(AppState.self) private var state
+    @Environment(\.openWindow) private var openWindow
+    @State private var playedOverride: Bool?
+    @State private var addingToPlaylist = false
     private var ui: MacNowPlayingUI { .shared }
 
     var body: some View {
@@ -20,6 +23,14 @@ struct PlayerBar: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Open Now Playing")
+                // The desktop's right-click on the bar's cover: the Now Playing menu.
+                .contextMenu {
+                    if let track = player.item {
+                        TrackMenuItems(track: track, favorite: ui.favoriteBinding(track.id), played: $playedOverride,
+                                       addingToPlaylist: $addingToPlaylist, nowPlaying: true)
+                        Section { SleepTimerMenu(player: player) }
+                    }
+                }
                 VStack(alignment: .leading, spacing: 2) {
                     Button(action: openNowPlaying) {
                         Text(player.item?.name ?? "Not playing").lineLimit(1).explicitMark(player.item?.id ?? "")
@@ -29,8 +40,19 @@ struct PlayerBar: View {
                                id: (player.item?.albumArtists?.first ?? player.item?.artistItems?.first)?.id)
                         .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
+                Spacer(minLength: 0)
+                if player.item != nil {
+                    let liked = ui.isFavorite(player.item)
+                    Button { ui.toggleFavorite(player.item, client: state.client) } label: {
+                        Image(systemName: liked ? "heart.fill" : "heart")
+                    }
+                    .buttonStyle(.hover)
+                    .foregroundStyle(liked ? Color(red: 1, green: 0.42, blue: 0.54) : .secondary)
+                    .help(liked ? "Unfavorite" : "Favorite")
+                    .accessibilityLabel(liked ? "Unfavorite" : "Favorite")
+                }
             }
-            .frame(width: 240, alignment: .leading)
+            .frame(width: 260, alignment: .leading)
 
             VStack(spacing: 4) {
                 HStack(spacing: 18) {
@@ -66,6 +88,11 @@ struct PlayerBar: View {
                 .foregroundStyle(ui.sidePanelOpen ? MacTheme.shared.accent : .secondary)
                 .help("Lyrics")
                 .accessibilityLabel("Lyrics")
+                Button { openWindow(id: "miniplayer") } label: { Image(systemName: "pip") }
+                    .buttonStyle(.hover)
+                    .foregroundStyle(.secondary)
+                    .help("Miniplayer")
+                    .accessibilityLabel("Open the miniplayer")
                 HStack(spacing: 6) {
                     Image(systemName: player.isMuted ? "speaker.slash.fill" : "speaker.fill")
                         .onTapGesture { player.setMuted(!player.isMuted) }
@@ -90,6 +117,10 @@ struct PlayerBar: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: openNowPlaying)
         .disabled(player.item == nil)
+        .sheet(isPresented: $addingToPlaylist) {
+            if let track = player.item { AddToPlaylistSheet(track: track).environment(state) }
+        }
+        .onChange(of: player.item?.id) { playedOverride = nil }
     }
 
     private func openNowPlaying() {
