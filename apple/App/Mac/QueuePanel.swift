@@ -153,6 +153,13 @@ struct QueuePanel: View {
                 }
             }
             Spacer()
+            if index + 1 < items.count {
+                Button("Clear") { player.clearQueue(upNextOnly: true) }
+                    .buttonStyle(.hover)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .help("Remove everything after this song")
+            }
             // The end time moves while paused, so it is refreshed on a timer; with repeat or
             // auto-mix on there is no end.
             TimelineView(.periodic(from: .now, by: 30)) { _ in

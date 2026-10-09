@@ -460,6 +460,18 @@ public final class PlaybackService {
         syncPreload()
     }
 
+    /// The desktop's Clear (clearQueueTracks): everything but the playing track,
+    /// or with `upNextOnly` just what comes after it, History kept. The song
+    /// keeps playing either way.
+    public func clearQueue(upNextOnly: Bool) {
+        let i = queue.index
+        guard queue.items.indices.contains(i) else { return }
+        let offsets = upNextOnly ? IndexSet(integersIn: (i + 1)..<queue.items.count)
+                                 : IndexSet(queue.items.indices).subtracting(IndexSet(integer: i))
+        guard !offsets.isEmpty else { return }
+        removeQueueItems(at: offsets)
+    }
+
     /// Play a queue row, keeping the queue as it is.
     public func jump(to index: Int) async {
         guard queue.items.indices.contains(index) else { return }

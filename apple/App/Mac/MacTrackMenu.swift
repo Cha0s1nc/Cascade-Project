@@ -233,9 +233,8 @@ struct MacTracksMenu: View {
             if nowPlaying {
                 Section {
                     Button("Stop", systemImage: "stop.fill") { Task { await state.player?.stop() } }
-                    // The desktop's Clear left the song playing and the screen
-                    // stale; stopping is what clearing the queue has to mean.
-                    Button("Clear Queue", systemImage: "xmark.bin") { Task { await state.player?.stop() } }
+                    // As the desktop's: the playing song stays and keeps playing.
+                    Button("Clear Queue", systemImage: "xmark.bin") { state.player?.clearQueue(upNextOnly: false) }
                 }
             }
         }
