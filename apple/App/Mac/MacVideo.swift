@@ -364,6 +364,11 @@ final class MacVideoController {
             say(session.isMuted ? "Muted" : "Unmuted")
         case "f": toggleFullscreen()
         case "c": say(session.toggleSubtitles() ?? "No subtitles")
+        case "s":
+            // As the desktop: skip the intro or credits on screen now.
+            guard let segment = session.activeSegment else { return false }
+            say(segment.skipLabel)
+            session.skipSegment()
         case "0"..."9":
             if let target = VideoControls.tenthTarget(Int(String(ch))!, duration: session.duration) { session.seek(to: target) }
         case ",": session.step(forward: false)

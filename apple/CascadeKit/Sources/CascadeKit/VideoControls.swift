@@ -64,6 +64,7 @@ public enum VideoControls {
         ("M", "Mute"),
         ("F", "Fullscreen"),
         ("C", "Subtitles on or off"),
+        ("S", "Skip the intro or credits"),
         ("0 \u{2013} 9", "Jump to 0% \u{2013} 90%"),
         ("Home  /  End", "Start or end"),
         (",  /  .", "Previous or next frame (while paused)"),
@@ -71,7 +72,7 @@ public enum VideoControls {
         ("Shift+P  /  Shift+N", "Previous or next episode"),
         ("\u{2325}\u{2190}  /  \u{2325}\u{2192}", "Previous or next chapter"),
         ("?", "This list"),
-        ("Esc", "Close"),
+        ("Esc", "Leave fullscreen, then minimize (Mac)"),
     ]
 }
 

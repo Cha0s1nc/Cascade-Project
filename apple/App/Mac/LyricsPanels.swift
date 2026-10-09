@@ -222,14 +222,44 @@ struct TranslateButton: View {
     }
 }
 
-/// Everything above a lyrics panel's lines: the source pill and the Translate button.
+/// Everything above a lyrics panel's lines: the source pill, the Translate button and Edit.
 struct LyricsPanelHeader: View {
     var body: some View {
         HStack(spacing: 8) {
             LyricsSourcePill()
             Spacer()
             TranslateButton()
+            LyricsEditButton()
         }
+    }
+}
+
+/// The desktop's pencil (lyrics-edit-btn): Cascade's lyrics editor for this song, or, with
+/// Spicy Lyrics on screen, Spicy Lyrics' own TTML tool in the browser, since Cascade's editor
+/// never takes its lyrics. Needs the Cascade Server plugin, and says so when it is missing.
+struct LyricsEditButton: View {
+    @Environment(AppState.self) private var state
+    @Environment(\.openWindow) private var openWindow
+    static let spicyTool = URL(string: "https://tool.community.spicylyrics.org/")!
+
+    var body: some View {
+        let spicy = MacNowPlayingUI.shared.lyrics.credit != nil
+        let available = state.cascadePluginApi != nil && state.player?.item != nil
+        Button {
+            if spicy { NSWorkspace.shared.open(Self.spicyTool); return }
+            guard let id = state.player?.item?.id else { return }
+            openLyricsEditor(itemId: id, state: state, openWindow: openWindow)
+        } label: {
+            Image(systemName: "pencil")
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 8).padding(.vertical, 5)
+                .background(Capsule().fill(Color.primary.opacity(0.1)))
+        }
+        .buttonStyle(.plain)
+        .disabled(!available)
+        .help(state.cascadePluginApi == nil ? "Editing lyrics needs the Cascade Server plugin on your server"
+              : spicy ? "Open Spicy Lyrics' TTML tool in your browser" : "Edit lyrics")
+        .accessibilityLabel("Edit lyrics")
     }
 }
 
