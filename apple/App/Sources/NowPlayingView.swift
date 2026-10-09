@@ -93,7 +93,8 @@ struct NowPlayingView: View {
         // turning up, server-only, a Spotify link made here or on the server.
         .task(id: [player.item?.id ?? "", String(describing: state.cascadePluginApi),
                    "\(state.cascadePluginInfo.capabilities.sorted())", "\(state.serverOnlyLyrics)",
-                   state.localSpotifyLinks[player.item?.id ?? ""] ?? "", "\(state.lyricsRevision)"]) {
+                   state.localSpotifyLinks[player.item?.id ?? ""] ?? "", "\(state.lyricsRevision)",
+                   LyricsPrefs.shared.forcedSource.rawValue]) {
             await lyrics.load(item: player.item, state: state)
             #if os(iOS)
             // The new lyrics, or their absence: translate from wherever the song is.
@@ -324,6 +325,23 @@ struct NowPlayingView: View {
 
     /// Everything that is not worth a button of its own: the same actions as a
     /// track row's long-press menu, then the sleep timer.
+    #if os(iOS)
+    /// Which source the lyrics come from, Auto by default: the Mac's Source
+    /// picker (Settings and the pill in Now Playing).
+    private var lyricsSourceMenu: some View {
+        let serverOnly = state.serverOnlyLyrics && state.cascadePluginApi != nil
+        let prefs = LyricsPrefs.shared
+        return Picker(selection: Binding(
+            get: { prefs.forcedSource.isValid(serverOnly: serverOnly) ? prefs.forcedSource : .auto },
+            set: { prefs.forcedSource = $0 })) {
+            ForEach(LyricsSourceChoice.choices(serverOnly: serverOnly), id: \.self) { Text($0.menuLabel).tag($0) }
+        } label: {
+            Label("Lyrics Source", systemImage: "quote.bubble")
+        }
+        .pickerStyle(.menu)
+    }
+    #endif
+
     private var moreMenu: some View {
         Menu {
             if let track = player.item {
@@ -339,6 +357,7 @@ struct NowPlayingView: View {
                         translation.toggle()
                     }
                 }
+                lyricsSourceMenu
                 Button("Control Devices\u{2026}", systemImage: "hifispeaker.2") { controllingDevices = true }
                 if state.cascadePluginInfo.spotifyLink {
                     Button("Link Spotify Track\u{2026}", systemImage: "link") { linkingSpotify = true }
