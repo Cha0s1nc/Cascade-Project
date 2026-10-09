@@ -450,6 +450,40 @@ const _animatedArtCache = new Map()
 // album's first - and since that throw escaped updateNowPlaying uncaught, it
 // took the whole tail of it with it: the track name and artist, the mediaSession
 // metadata, and the Discord presence push all stopped running.
+/** Puts a still cover in the player bar's or overlay's art, keeping a video
+ *  cover (pluginCoverVideoUrl) that is over it when it is the playing album's. */
+function _setArtStill(host, url) {
+  if (!host) return
+  const video = host.querySelector('.art-video')
+  host.innerHTML = url ? `<img src="${url}" alt="" onerror="this.innerHTML='♪'">` : '♪'
+  const cur = queue[queueIndex]
+  if (video && cur && video.dataset.album === (cur.AlbumId || cur.Id)) host.appendChild(video)
+}
+
+// Video covers from Cascade Server (the `animated-art` capability): the
+// album's cover.mp4, or one from TIDAL. Album id -> playable URL or null.
+const _coverVideoCache = new Map()
+async function pluginCoverVideoUrl(albumId) {
+  if (!albumId || !_cascadePluginCaps.has('animated-art')) return null
+  if (_coverVideoCache.has(albumId)) return _coverVideoCache.get(albumId)
+  try {
+    const r = await fetch(`${jf.url}/CascadeServer/AnimatedArt/${encodeURIComponent(albumId)}`, {
+      headers: CascadeCore.authHeaders(jf), signal: AbortSignal.timeout(8000),
+    })
+    const info = r.ok ? await r.json() : null
+    // A video element sends no headers, so the key goes in the query (the
+    // plugin's /File route accepts it).
+    const url = info?.source && typeof info.url === 'string' && info.url.startsWith('/')
+      ? `${jf.url}${info.url}?api_key=${encodeURIComponent(jf.token)}` : null
+    // "pending" (TIDAL still being asked) is not remembered as no.
+    if (url || !info?.pending) _coverVideoCache.set(albumId, url)
+    if (_coverVideoCache.size > 200) _coverVideoCache.delete(_coverVideoCache.keys().next().value)
+    return url
+  } catch {
+    return null
+  }
+}
+
 async function animatedArtUrl(artItemId) {
   if (_animatedArtCache.has(artItemId)) {
     const v = _animatedArtCache.get(artItemId)
@@ -5506,12 +5540,7 @@ function updateNowPlaying(item) {
   const art = artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
   _currentHighResArtUrl = art  // Jellyfin 600px as immediate baseline
   _animatedArtItemId = null    // reset for new track
-  const artEl = document.getElementById('np-art')
-  if (art) {
-    artEl.innerHTML = `<img src="${art}" alt="" onerror="this.innerHTML='♪'">`
-  } else {
-    artEl.innerHTML = '♪'
-  }
+  _setArtStill(document.getElementById('np-art'), art)
 
   // Upgrade the still to the animated original if the library has one. Videos
   // are skipped - a poster is a poster.
@@ -5522,8 +5551,20 @@ function updateNowPlaying(item) {
       if (!animUrl || queue[queueIndex]?.Id !== animItemId) return  // track changed
       _animatedArtItemId = animItemId
       _currentHighResArtUrl = animUrl
-      document.getElementById('np-art').innerHTML = `<img src="${animUrl}" alt="" onerror="this.innerHTML='♪'">`
-      document.getElementById('ov-art').innerHTML = `<img src="${animUrl}" alt="" onerror="this.innerHTML='♪'">`
+      _setArtStill(document.getElementById('np-art'), animUrl)
+      _setArtStill(document.getElementById('ov-art'), animUrl)
+    }).catch(() => {})
+    // Or a video cover from Cascade Server (cover.mp4 beside the album, or
+    // TIDAL), over the still: the still stays underneath for the background
+    // and the album-art accent, which read an image.
+    pluginCoverVideoUrl(artItemId).then(videoUrl => {
+      if (!videoUrl || queue[queueIndex]?.Id !== animItemId) return
+      const tag = `<video class="art-video" data-album="${esc(artItemId)}" src="${esc(videoUrl)}" autoplay loop muted playsinline disablepictureinpicture aria-hidden="true" onerror="this.remove()"></video>`
+      for (const id of ['np-art', 'ov-art']) {
+        const host = document.getElementById(id)
+        host.querySelector('.art-video')?.remove()
+        host.insertAdjacentHTML('beforeend', tag)
+      }
     }).catch(() => {})
   }
   document.getElementById('np-info').innerHTML = `
@@ -5597,9 +5638,9 @@ function updateNowPlaying(item) {
       _currentHighResArtUrl = itunesUrl
       _currentBgArtUrl = itunesUrl
       // Update status bar art
-      document.getElementById('np-art').innerHTML = `<img src="${itunesUrl}" alt="" onerror="this.innerHTML='♪'">`
+      _setArtStill(document.getElementById('np-art'), itunesUrl)
       // Update overlay art if open
-      document.getElementById('ov-art').innerHTML = `<img src="${itunesUrl}" alt="" onerror="this.innerHTML='♪'">`
+      _setArtStill(document.getElementById('ov-art'), itunesUrl)
       // Update OS Now Playing widget
       if ('mediaSession' in navigator && navigator.mediaSession.metadata) {
         navigator.mediaSession.metadata.artwork = [{ src: itunesUrl, sizes: '600x600', type: 'image/jpeg' }]
@@ -9133,8 +9174,7 @@ function syncOverlayState() {
 
   // Art - prefer high-res (iTunes if available, else Jellyfin 600px)
   const art = _currentHighResArtUrl || artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
-  const artEl = document.getElementById('ov-art')
-  artEl.innerHTML = art ? `<img src="${art}" alt="" onerror="this.innerHTML='♪'">` : '♪'
+  _setArtStill(document.getElementById('ov-art'), art)
 
   // Info - wrapped so the marquee has an inline-block track to translate
   document.getElementById('ov-track').innerHTML  = `<span class="np-scroll-inner">${esc(item.Name || '')}${explicitBadgeHtml(item.Id)}</span>`

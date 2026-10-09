@@ -457,3 +457,7 @@ html[data-theme="light"] #ov-panel-lyrics.browsing .ov-lyric-line.active { color
 #ov-keys kbd { font-family: var(--font); font-weight: 600; white-space: pre; color: #fff; }
 #ov-keys span { color: rgba(255,255,255,0.75); }
 @media (prefers-reduced-motion: reduce) { #ov-osd { transition: none; } }
+
+/* Cascade Server's video cover, over the still (renderer.js pluginCoverVideoUrl). */
+.np-art { position: relative; }
+.np-art .art-video, .np-overlay-art .art-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; pointer-events: none; }
