@@ -162,3 +162,10 @@
 /* Offline: only what works without a server stays reachable. */
 body.offline-mode .nav-item:not([data-view="downloads"]):not([data-view="settings"]) { opacity: 0.4; pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { .dl-bar > span { transition: none; } }
+
+/* Cascade Server's explicit mark, after a song's title (renderer.js explicitBadgeHtml). */
+.explicit-badge {
+  display: inline-block; margin-left: 5px; padding: 0 3px; border-radius: 2px;
+  font-size: 9px; font-weight: 700; line-height: 12px; vertical-align: 1px;
+  color: var(--bg); background: var(--text2);
+}

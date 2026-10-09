@@ -2776,7 +2776,7 @@ function trackRowHtml(item, i, opts = {}) {
     <div class="track-num">${i + 1}</div>
     ${trackThumbHtml(art)}
     <div style="min-width:0">
-      <div class="track-title">${esc(item.Name)}</div>
+      <div class="track-title">${esc(item.Name)}${explicitBadgeHtml(item.Id)}</div>
       <div class="track-artist${artistCls}"${artistAttrs}>${esc(artistName)}</div>
     </div>
     <div class="track-album-name${albumCls}"${albumAttrs}>${esc(item.Album || '')}</div>
@@ -5528,7 +5528,7 @@ function updateNowPlaying(item) {
   }
   document.getElementById('np-info').innerHTML = `
     <span class="np-scroll-inner">
-      <span class="np-title">${esc(item.Name)}</span>
+      <span class="np-title">${esc(item.Name)}${explicitBadgeHtml(item.Id)}</span>
       <span class="np-sep">-</span>
       <span class="np-artist">${esc(secondaryLine(item))}</span>
     </span>
@@ -9134,7 +9134,7 @@ function syncOverlayState() {
   artEl.innerHTML = art ? `<img src="${art}" alt="" onerror="this.innerHTML='♪'">` : '♪'
 
   // Info - wrapped so the marquee has an inline-block track to translate
-  document.getElementById('ov-track').innerHTML  = `<span class="np-scroll-inner">${esc(item.Name || '')}</span>`
+  document.getElementById('ov-track').innerHTML  = `<span class="np-scroll-inner">${esc(item.Name || '')}${explicitBadgeHtml(item.Id)}</span>`
   document.getElementById('ov-artist').innerHTML = `<span class="np-scroll-inner">${esc(item.AlbumArtist || item.Artists?.[0] || '')}</span>`
   refreshMarquees()
 
@@ -10633,6 +10633,7 @@ function cascadeLyricsUrl(itemId) {
 function probeCascadePlugin() {
   _cascadePluginApi = 'server'
   _cascadePluginCaps = new Set()
+  _resetExplicit()
   const statusOf = async (path) => {
     try {
       const r = await fetch(`${jf.url}/${path}`, {
@@ -10665,8 +10666,74 @@ function probeCascadePlugin() {
     // out a working feature because the network hiccuped.
     _cascadePluginAbsent = probe === 'absent'
     _applyCascadePluginAvailability()
+    // Rows drawn before the answer came in ask now.
+    if (_cascadePluginCaps.has('explicit')) {
+      document.querySelectorAll('.track-row[data-id]').forEach(row => explicitBadgeHtml(row.dataset.id))
+      if (queue[queueIndex]) explicitBadgeHtml(queue[queueIndex].Id)
+    }
   })()
   return _cascadePluginProbed
+}
+
+// ── Explicit marks ───────────────────────────────────────────────────────────
+//
+// Jellyfin has no explicit flag; Cascade Server (the `explicit` capability)
+// works one out per song and answers from what it already knows, queueing the
+// rest. A row asks for its song as it is drawn; the asks are gathered into one
+// request per screenful (the plugin takes 500 at a time) and, once per
+// session, the answer's explicit songs get an E in whatever is on screen.
+const EXPLICIT_BADGE = '<span class="explicit-badge" title="Explicit" aria-label="Explicit">E</span>'
+let _explicitIds = new Set()
+let _explicitAsked = new Set()
+let _explicitPending = []
+let _explicitTimer = null
+
+function _resetExplicit() {
+  _explicitIds = new Set(); _explicitAsked = new Set(); _explicitPending = []
+  clearTimeout(_explicitTimer); _explicitTimer = null
+}
+
+/** The badge for a song already known to be explicit, else '' (and the song
+ *  is asked about, once). '' without the plugin's explicit marks. */
+function explicitBadgeHtml(id) {
+  if (!id || !_cascadePluginCaps.has('explicit')) return ''
+  if (_explicitIds.has(id)) return EXPLICIT_BADGE
+  if (!_explicitAsked.has(id)) {
+    _explicitAsked.add(id)
+    _explicitPending.push(id)
+    _explicitTimer ??= setTimeout(_flushExplicit, 60)
+  }
+  return ''
+}
+
+async function _flushExplicit() {
+  _explicitTimer = null
+  const asked = _explicitAsked
+  while (_explicitPending.length) {
+    const ids = _explicitPending.splice(0, 500)
+    try {
+      const r = await fetch(`${jf.url}/CascadeServer/Explicit/Query`, {
+        method: 'POST',
+        headers: { ...CascadeCore.authHeaders(jf), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ Ids: ids }),
+        signal: AbortSignal.timeout(10000),
+      })
+      if (!r.ok || asked !== _explicitAsked) continue   // failed, or signed out meanwhile
+      const items = (await r.json())?.items
+      for (const [id, rating] of Object.entries(items || {})) {
+        if (rating === 'explicit' && !_explicitIds.has(id)) { _explicitIds.add(id); _showExplicit(id) }
+      }
+    } catch { /* best effort: no badge is the same as before */ }
+  }
+}
+
+function _showExplicit(id) {
+  const add = el => { if (el && !el.querySelector('.explicit-badge')) el.insertAdjacentHTML('beforeend', EXPLICIT_BADGE) }
+  document.querySelectorAll(`.track-row[data-id="${CSS.escape(id)}"] .track-title`).forEach(add)
+  if (queue[queueIndex]?.Id === id) {
+    add(document.querySelector('#np-info .np-title'))
+    add(document.querySelector('#ov-track .np-scroll-inner'))
+  }
 }
 
 /** Disables what depends on the plugin once probeCascadePlugin() has found it
