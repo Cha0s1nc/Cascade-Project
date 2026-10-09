@@ -62,6 +62,7 @@
           <button class="seg-btn" data-thememode="light" id="seg-light">Light</button>
         </div>
       </div>
+      <span class="tp-hint" id="tp-server-style-note" hidden></span>
       <div class="tp-navs">
         <button class="tp-nav" data-open="colors"><span class="tp-nav-swatch" aria-hidden="true"></span><span class="tp-nav-name">Colors</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></button>
         <button class="tp-nav" data-open="lyrics"><span class="tp-nav-name">Lyrics</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></button>
@@ -188,6 +189,19 @@
         <button class="tp-reset-all" id="tp-preset-paste">Paste text</button>
       </div>
       <span class="tp-hint">Importing replaces only the parts the preset includes.</span>
+      <!-- Admins with Cascade Server: the look above for everyone on the server
+           (renderer.js publishServerStyle). -->
+      <div id="tp-server-style" hidden>
+        <div class="tp-divider"></div>
+        <div class="tp-label">Server style</div>
+        <span class="tp-hint" id="tp-server-style-status"></span>
+        <div class="tp-preset-actions">
+          <button class="tp-reset-all" id="tp-server-style-default">Offer to everyone</button>
+          <button class="tp-reset-all" id="tp-server-style-enforce">Enforce for everyone</button>
+        </div>
+        <button class="tp-reset-all" id="tp-server-style-off">Turn off server style</button>
+        <span class="tp-hint">Offered fills in whatever people have not changed. Enforced is over their own. Uses the parts switched on under Include.</span>
+      </div>
     </div>
   </div>
 

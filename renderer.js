@@ -7552,6 +7552,9 @@ async function init() {
     if (el) el.textContent = `v${v}`
   })
 
+  // Last session's server style, so the look is right before sign-in finishes;
+  // fetchServerStyle() replaces it once the plugin answers.
+  try { _serverStyle = CascadeCore.parseServerStyle(JSON.parse(await window.cascade.store.get('serverStyle') || 'null')) } catch {}
   await loadTheme()
   buildPresets()
   await loadUiFont()
@@ -10666,6 +10669,7 @@ function probeCascadePlugin() {
     // out a working feature because the network hiccuped.
     _cascadePluginAbsent = probe === 'absent'
     _applyCascadePluginAvailability()
+    fetchServerStyle()
     // Rows drawn before the answer came in ask now.
     if (_cascadePluginCaps.has('explicit')) {
       document.querySelectorAll('.track-row[data-id]').forEach(row => explicitBadgeHtml(row.dataset.id))
@@ -10674,6 +10678,98 @@ function probeCascadePlugin() {
   })()
   return _cascadePluginProbed
 }
+
+// ── Server style ─────────────────────────────────────────────────────────────
+//
+// A look an admin sets in Cascade Server for everyone (src/core/server-style.ts):
+// layered over each person's own settings when they are applied, never saved
+// into them. Cached so the next launch starts with it.
+let _serverStyle = CascadeCore.SERVER_STYLE_OFF
+
+async function fetchServerStyle() {
+  let next = CascadeCore.SERVER_STYLE_OFF, raw = null
+  if (_cascadePluginCaps.has('server-style')) {
+    try {
+      const r = await fetch(`${jf.url}/CascadeServer/Style`, { headers: CascadeCore.authHeaders(jf), signal: AbortSignal.timeout(8000) })
+      if (!r.ok) return   // keep what we have rather than drop a style on a hiccup
+      raw = await r.json()
+      next = CascadeCore.parseServerStyle(raw)
+    } catch { return }
+  }
+  _applyServerStyleAdminUi()
+  if (JSON.stringify(next) === JSON.stringify(_serverStyle)) { applyServerStyleLocks(); return }
+  _serverStyle = next
+  await window.cascade.store.set('serverStyle', next.mode === 'off' ? null : JSON.stringify(raw))
+  await reapplyLook()
+}
+
+async function reapplyLook() {
+  await loadTheme()
+  await loadNpTuning()
+  await loadLyricStyle()
+}
+
+/** Controls the server enforces are shown but cannot be changed, with a line
+ *  saying why. Light/dark mode and the font are always the person's own. */
+function applyServerStyleLocks() {
+  const theme = CascadeCore.serverStylePart(_serverStyle, 'theme') === 'force'
+  const lyrics = CascadeCore.serverStylePart(_serverStyle, 'lyrics') === 'force'
+  for (const id of ['grad-start', 'grad-end', 'toggle-album-art', 'tp-bg-dim', 'tp-bg-blend']) {
+    const el = document.getElementById(id); if (el) el.disabled = theme
+  }
+  document.querySelector('.tp-colors')?.classList.toggle('server-locked', theme)
+  document.getElementById('tp-presets')?.classList.toggle('server-locked', theme)
+  for (const el of document.querySelectorAll('#tp-lyric-knobs input, #tp-lyric-scale, #tp-lyric-reset')) el.disabled = lyrics
+  const note = document.getElementById('tp-server-style-note')
+  if (note) {
+    const what = theme && lyrics ? 'colors and lyrics look' : theme ? 'colors' : lyrics ? 'lyrics look' : ''
+    note.hidden = !what
+    note.textContent = what ? `Your server sets the ${what} for everyone.` : ''
+  }
+}
+
+function _applyServerStyleAdminUi() {
+  const box = document.getElementById('tp-server-style')
+  if (!box) return
+  box.hidden = !(jf.isAdmin && _cascadePluginCaps.has('server-style'))
+  const status = document.getElementById('tp-server-style-status')
+  const s = _serverStyle
+  status.textContent = s.mode === 'off' ? 'Off. Everyone uses their own look.'
+    : s.mode === 'default' ? `Offered: "${s.preset?.name}" is the look for anything people have not changed.`
+    : `Enforced: "${s.preset?.name}" is over everyone's own ${[s.enforceTheme && 'colors', s.enforceLyrics && 'lyrics'].filter(Boolean).join(' and ')}.`
+  document.getElementById('tp-server-style-off').disabled = s.mode === 'off'
+}
+
+async function publishServerStyle(mode) {
+  let body = { mode }
+  if (mode !== 'off') {
+    const preset = currentPreset()
+    if (!preset) return
+    if (mode === 'enforced') {
+      const parts = [preset.theme && 'colors', preset.lyrics && 'lyrics look'].filter(Boolean).join(' and ')
+      const ok = await showChoice('Enforce for everyone?', `Everyone on this server gets this ${parts} over their own, and cannot change it until you turn it off. Light or dark mode and the font stay theirs.`, 'Enforce', 'Cancel')
+      if (!ok) return
+    }
+    body = { mode, enforce: { theme: mode === 'enforced' && !!preset.theme, lyrics: mode === 'enforced' && !!preset.lyrics }, preset }
+  }
+  const r = await fetch(`${jf.url}/CascadeServer/Style`, {
+    method: mode === 'off' ? 'DELETE' : 'PUT',
+    headers: { ...CascadeCore.authHeaders(jf), 'Content-Type': 'application/json' },
+    body: mode === 'off' ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(10000),
+  })
+  if (!r.ok) {
+    let msg = `The server said ${r.status}.`
+    try { msg = (await r.json())?.error || msg } catch {}
+    showNotice(`Could not set the server style.\n\n${msg}`, 'Server style')
+    return
+  }
+  await fetchServerStyle()
+}
+
+document.getElementById('tp-server-style-default').addEventListener('click', () => runPresetAction(() => publishServerStyle('default')))
+document.getElementById('tp-server-style-enforce').addEventListener('click', () => runPresetAction(() => publishServerStyle('enforced')))
+document.getElementById('tp-server-style-off').addEventListener('click', () => runPresetAction(() => publishServerStyle('off')))
 
 // ── Explicit marks ───────────────────────────────────────────────────────────
 //
@@ -12656,21 +12752,31 @@ async function saveTheme() {
 }
 
 async function loadTheme() {
-  try {
-    const raw = await window.cascade.store.get('theme')
-    if (!raw) return
-    const t = JSON.parse(raw)
-    if (t.mode === 'light') setThemeMode('light')
-    if (t.gradStart && t.gradEnd) {
-      document.getElementById('grad-start').value = t.gradStart
-      document.getElementById('grad-end').value = t.gradEnd
-      applyGradient(t.gradStart, t.gradEnd)
-    }
-    if (t.albumArt) {
-      themeAlbumArt = true
-      document.getElementById('toggle-album-art').checked = true
-    }
-  } catch {}
+  let t = null
+  try { t = JSON.parse(await window.cascade.store.get('theme') || 'null') } catch {}
+  if (t?.mode === 'light') setThemeMode('light')
+  // The server style (src/core/server-style.ts) layers over what is stored and
+  // is never saved into it. "Set" colors are ones moved off the shipped
+  // gradient, since switching light/dark alone also writes this key.
+  const def = CascadeCore.PRESET_DEFAULT_GRADIENT
+  const hasGradient = !!(t?.gradStart && t?.gradEnd)
+  const colorsSet = !!t?.albumArt || (hasGradient && (t.gradStart !== def.start || t.gradEnd !== def.end))
+  const look = CascadeCore.layeredLook({
+    gradStart: hasGradient ? t.gradStart : def.start, gradEnd: hasGradient ? t.gradEnd : def.end,
+    albumArt: !!t?.albumArt, bgDim: 0, bgBlend: true, lyricScale: 1,
+  }, { colors: colorsSet, tuning: true }, _serverStyle)
+  document.getElementById('grad-start').value = look.gradStart
+  document.getElementById('grad-end').value = look.gradEnd
+  const wasAlbumArt = themeAlbumArt
+  themeAlbumArt = look.albumArt
+  document.getElementById('toggle-album-art').checked = look.albumArt
+  if (look.albumArt) {
+    const img = document.querySelector('#ov-art img') || document.querySelector('#np-art img')
+    if (img) themeFromArtUrl(img.src)
+  } else {
+    if (wasAlbumArt) clearAlbumArtTheme()
+    applyGradient(look.gradStart, look.gradEnd)
+  }
   buildPresets()
   updateAccentLock()
 }
@@ -12783,8 +12889,9 @@ async function saveLyricStyle(style) {
 async function loadLyricStyle() {
   let stored = null
   try { stored = JSON.parse(await window.cascade.store.get('lyricStyle') || 'null') } catch {}
-  applyLyricStyle(stored)
+  applyLyricStyle(CascadeCore.layeredLyricChanges(stored, _serverStyle))
   renderLyricKnobs()
+  applyServerStyleLocks()
 }
 
 // Re-baked lyric defaults reach everyone who never touched those knobs by
@@ -12823,9 +12930,12 @@ async function loadNpTuning() {
       lyricScale = t.lyricScale; bgDim = t.bgDim; bgBlend = t.bgBlend
     }
   } catch {}
-  lyricScale = CascadeCore.clampLyricScale(lyricScale)
-  bgDim = CascadeCore.clampBgDim(bgDim)
-  bgBlend = CascadeCore.clampBgBlend(bgBlend)
+  const stored = lyricScale !== undefined || bgDim !== undefined || bgBlend !== undefined
+  const look = CascadeCore.layeredLook({
+    gradStart: '', gradEnd: '', albumArt: false,
+    bgDim: CascadeCore.clampBgDim(bgDim), bgBlend: CascadeCore.clampBgBlend(bgBlend), lyricScale: CascadeCore.clampLyricScale(lyricScale),
+  }, { colors: true, tuning: stored }, _serverStyle)
+  lyricScale = look.lyricScale; bgDim = look.bgDim; bgBlend = look.bgBlend
   applyNpTuning(lyricScale, bgDim, bgBlend)
   const scaleInput = document.getElementById('tp-lyric-scale')
   const dimInput = document.getElementById('tp-bg-dim')
@@ -13170,6 +13280,8 @@ async function applyPreset(preset) {
     await loadNpTuning()
   }
   document.getElementById('tp-preset-name').value = preset.name === 'Untitled' ? '' : preset.name
+  // What the server enforces stays on top of an imported look.
+  if (_serverStyle.mode !== 'off') await reapplyLook()
 }
 
 async function importPresetText(text) {
