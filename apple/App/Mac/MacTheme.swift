@@ -15,7 +15,7 @@ final class MacTheme {
 
     var settings: ThemeSettings {
         didSet {
-            UserDefaults.standard.set(settings.encoded(), forKey: "cascade.theme")
+            if !layering { UserDefaults.standard.set(settings.encoded(), forKey: "cascade.theme") }
             // Turning art accent off drops what the last cover gave, so the gradient is what shows.
             if !settings.albumArt { art = nil }
         }
@@ -23,7 +23,26 @@ final class MacTheme {
 
     /// Background dim, blend and (kept for the import) lyric scale.
     var tuning: NPTuning.Values {
-        didSet { UserDefaults.standard.set(tuning.encoded(), forKey: "cascade.npTuning") }
+        didSet { if !layering { UserDefaults.standard.set(tuning.encoded(), forKey: "cascade.npTuning") } }
+    }
+
+    /// The server's look (CascadeKit's ServerStyle), layered over the stored
+    /// settings by applyServerStyle and never saved into them.
+    private(set) var serverStyle = ServerStyle.off
+    @ObservationIgnored private var layering = false
+    /// The server enforces the colors and background: the panel shows them locked.
+    var colorsLocked: Bool { serverStyle.themePart == .force }
+
+    func applyServerStyle(_ style: ServerStyle) {
+        serverStyle = style
+        let d = UserDefaults.standard
+        let storedTheme = d.string(forKey: "cascade.theme"), storedTuning = d.string(forKey: "cascade.npTuning")
+        let look = style.layered(theme: ThemeSettings(stored: storedTheme), colorsSet: ServerStyle.colorsSet(stored: storedTheme),
+                                 tuning: NPTuning.Values(stored: storedTuning), tuningSet: storedTuning != nil)
+        layering = true
+        settings = look.theme
+        tuning = look.tuning
+        layering = false
     }
 
     private(set) var fontPreset: String

@@ -296,6 +296,9 @@ final class AppState {
         // there is one to bring across, are what it should find.
         MacSettingsImport.runOnce()
         #endif
+        // Last session's server style, so the look is right before sign-in
+        // finishes; refreshServerStyle replaces it once the plugin answers.
+        applyServerStyle(ServerStyle.parse(UserDefaults.standard.data(forKey: Self.serverStyleKey) ?? Data()))
         // Before restore() builds the client: a proxy that wants a header refuses
         // even the first request without it.
         ProxyConnection.shared.setHeaders(ProxyHeaderStore.load())
@@ -476,7 +479,54 @@ final class AppState {
                 cascadePluginInfo = info
                 if info.capabilities.contains("explicit") { explicitRatings = ExplicitRatings(client: client) }
             }
+            // Also with no plugin: a style cached from another server goes.
+            if self.client === client { await refreshServerStyle() }
         }
+    }
+
+    // MARK: Server style
+
+    private static let serverStyleKey = "cascade.serverStyle"
+
+    /// The look an admin set in Cascade Server for everyone, layered over this
+    /// person's own (MacTheme, StyleTuning). Off when the plugin has none.
+    func refreshServerStyle() async {
+        guard let client else { return }
+        var style = ServerStyle.off
+        var data: Data?
+        if cascadePluginInfo.capabilities.contains("server-style") {
+            // A failed fetch keeps the style we have rather than drop it on a hiccup.
+            guard let fetched = try? await client.getData("/CascadeServer/Style"), self.client === client else { return }
+            data = fetched
+            style = ServerStyle.parse(fetched)
+        }
+        UserDefaults.standard.set(style.mode == .off ? nil : data, forKey: Self.serverStyleKey)
+        if style != StyleTuning.shared.serverStyle { applyServerStyle(style) }
+    }
+
+    func applyServerStyle(_ style: ServerStyle) {
+        StyleTuning.shared.applyServerStyle(style)
+        #if os(macOS)
+        MacTheme.shared.applyServerStyle(style)
+        #endif
+    }
+
+    /// Admins: puts `preset` on the server for everyone (or turns it off with nil).
+    func publishServerStyle(_ preset: CascadePreset?, enforce: Bool) async throws {
+        guard let client else { return }
+        if let preset {
+            let presetObject = try JSONSerialization.jsonObject(with: Data(preset.serialized().utf8))
+            let body: [String: Any] = [
+                "mode": enforce ? "enforced" : "default",
+                "enforce": ["theme": enforce && preset.theme != nil, "lyrics": enforce && preset.lyrics != nil],
+                "preset": presetObject,
+            ]
+            try await client.sendBody("/CascadeServer/Style", method: "PUT", contentType: "application/json",
+                                      body: try JSONSerialization.data(withJSONObject: body))
+        } else {
+            _ = try await client.delete("/CascadeServer/Style")
+        }
+        await refreshServerStyle()
     }
 
     func setEqualizer(_ profile: EQProfile) {

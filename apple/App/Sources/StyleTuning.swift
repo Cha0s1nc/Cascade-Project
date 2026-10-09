@@ -1,4 +1,5 @@
 import SwiftUI
+import CascadeKit
 
 /// Live knobs for the Now Playing look, the Swift side of the desktop's
 /// cascadeDebug.lyricMotion: every lyric and background value that is a
@@ -196,7 +197,34 @@ final class StyleTuning {
 
     private static let storeKey = "cascade.styleTuning"
 
-    var values: Values { didSet { save() } }
+    var values: Values { didSet { if !layering { save() } } }
+
+    /// The server's lyrics look (CascadeKit's ServerStyle), layered over the
+    /// stored changes by applyServerStyle and never saved into them.
+    private(set) var serverStyle = ServerStyle.off
+    @ObservationIgnored private var layering = false
+    var lyricsLocked: Bool { serverStyle.lyricsPart == .force }
+
+    func applyServerStyle(_ style: ServerStyle) {
+        serverStyle = style
+        var layered = style.layeredLyricChanges(UserDefaults.standard.dictionary(forKey: Self.storeKey) as? [String: Double] ?? [:])
+        #if os(macOS)
+        // The desktop sizes lyrics by lyricScale, here the lyricSize knob
+        // (LookPresets: 1 is 30 pt).
+        if let scale = style.preset?.lyrics?.lyricScale,
+           style.lyricsPart == .force || (style.lyricsPart == .fill && layered["lyricSize"] == nil) {
+            layered["lyricSize"] = scale * 30
+        }
+        #endif
+        var v = Values()
+        for knob in Self.knobs {
+            // Clamped here: the server's numbers come from someone else's preset.
+            if let x = layered[knob.key] { v[keyPath: knob.path] = min(max(x, knob.range.lowerBound), knob.range.upperBound) }
+        }
+        layering = true
+        values = v
+        layering = false
+    }
 
     private init() {
         var v = Values()

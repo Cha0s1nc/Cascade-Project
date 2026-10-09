@@ -86,6 +86,8 @@ private struct ThemeColorsPage: View {
     var body: some View {
         let locked = theme.settings.albumArt
         Form {
+            if theme.colorsLocked { ServerStyleNote(what: "colors") }
+            Group {
             Section("Gradient") {
                 HStack {
                     colorWell("Start", hex: $theme.settings.gradStart)
@@ -126,6 +128,8 @@ private struct ThemeColorsPage: View {
                     }
                 }
             }
+            }
+            .disabled(theme.colorsLocked)
         }
         .formStyle(.grouped)
         .navigationTitle("Colors")
@@ -178,10 +182,12 @@ private struct ThemeLyricsPage: View {
 
     var body: some View {
         Form {
+            if tuning.lyricsLocked { ServerStyleNote(what: "lyrics look") }
             Section {
                 Text("Full-screen lyrics in Now Playing. Changes show right away.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Group {
             ForEach(StyleTuning.presetGroups) { group in
                 Section {
                     presetPicker(group)
@@ -200,6 +206,8 @@ private struct ThemeLyricsPage: View {
                 Button("Reset all lyric settings", role: .destructive) { tuning.values = .init() }
                     .disabled(tuning.changes.isEmpty)
             }
+            }
+            .disabled(tuning.lyricsLocked)
         }
         .formStyle(.grouped)
         .navigationTitle("Lyrics")
@@ -253,5 +261,16 @@ private struct KnobRow: View {
         }
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { tuning.values[keyPath: knob.path] = standard }
+    }
+}
+
+/// Over a page whose settings the server style enforces (ServerStyle).
+private struct ServerStyleNote: View {
+    let what: String
+    var body: some View {
+        Section {
+            Label("Your server sets the \(what) for everyone.", systemImage: "server.rack")
+                .font(.callout).foregroundStyle(.secondary)
+        }
     }
 }

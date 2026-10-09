@@ -49,6 +49,12 @@ enum LookPresets {
             tuning.lyricScale = l.lyricScale
             theme.tuning = tuning
         }
+        // What the server enforces stays on top of an imported look.
+        let server = StyleTuning.shared.serverStyle
+        if server.mode != .off {
+            StyleTuning.shared.applyServerStyle(server)
+            theme.applyServerStyle(server)
+        }
     }
 }
 
@@ -56,6 +62,8 @@ enum LookPresets {
 struct SharePresetSection: View {
     @AppStorage("cascade.presetName") private var name = "My Cascade look"
     @State private var status: (ok: Bool, text: String)?
+    @State private var confirmingEnforce = false
+    @Environment(AppState.self) private var state
 
     private static let type = UTType(filenameExtension: CascadePreset.fileExtension, conformingTo: .json) ?? .json
 
@@ -81,6 +89,53 @@ struct SharePresetSection: View {
             Text("Share a Look")
         } footer: {
             Text("The theme and the lyrics look, as a file or text that Cascade on the desktop or another Mac can open.")
+        }
+        if state.isAdmin, state.cascadePluginInfo.capabilities.contains("server-style") {
+            serverStyleSection
+        }
+    }
+
+    /// Admins with Cascade Server: this look for everyone on the server.
+    private var serverStyleSection: some View {
+        let s = StyleTuning.shared.serverStyle
+        return Section {
+            Text(serverStyleStatus(s)).font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Button("Offer to Everyone") { publish(enforce: false) }
+                Button("Enforce for Everyone\u{2026}") { confirmingEnforce = true }
+            }
+            Button("Turn Off Server Style") { publish(off: true) }.disabled(s.mode == .off)
+        } header: {
+            Text("Server Style")
+        } footer: {
+            Text("Offered fills in whatever people have not changed. Enforced is over their own. Light or dark mode and the font stay theirs.")
+        }
+        .confirmationDialog("Enforce this look for everyone?", isPresented: $confirmingEnforce) {
+            Button("Enforce") { publish(enforce: true) }
+        } message: {
+            Text("Everyone on this server gets these colors and lyrics over their own, and cannot change them until you turn it off.")
+        }
+    }
+
+    private func serverStyleStatus(_ s: ServerStyle) -> String {
+        switch s.mode {
+        case .off: return "Off. Everyone uses their own look."
+        case .default: return "Offered: \u{201C}\(s.preset?.name ?? "")\u{201D} is the look for anything people have not changed."
+        case .enforced:
+            let parts = [s.enforceTheme ? "colors" : nil, s.enforceLyrics ? "lyrics" : nil].compactMap { $0 }.joined(separator: " and ")
+            return "Enforced: \u{201C}\(s.preset?.name ?? "")\u{201D} is over everyone\u{2019}s own \(parts)."
+        }
+    }
+
+    private func publish(enforce: Bool = false, off: Bool = false) {
+        let preset = off ? nil : LookPresets.current(name: name)
+        Task {
+            do {
+                try await state.publishServerStyle(preset, enforce: enforce)
+                status = (true, off ? "Server style turned off." : enforce ? "Enforced for everyone." : "Offered to everyone.")
+            } catch {
+                status = (false, "Could not set the server style: \(error.localizedDescription)")
+            }
         }
     }
 
