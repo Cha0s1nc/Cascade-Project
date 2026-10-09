@@ -41,6 +41,7 @@ struct PlayerBar: View {
                     Button { player.togglePlayPause() } label: {
                         Image(systemName: player.isPaused ? "play.fill" : "pause.fill").font(.title2)
                     }
+                    .buttonStyle(.plain)
                     .accessibilityLabel(player.isPaused ? "Play" : "Pause")
                     Button { Task { await player.next() } } label: { Image(systemName: "forward.fill") }
                         .accessibilityLabel("Next")
@@ -50,7 +51,7 @@ struct PlayerBar: View {
                     .foregroundStyle(player.repeatMode == .none ? .secondary : MacTheme.shared.accent)
                     .accessibilityLabel("Repeat")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.hover)
                 Scrubber(player: player)
             }
             .frame(maxWidth: 520)
@@ -60,7 +61,7 @@ struct PlayerBar: View {
                 Button { ui.sidePanelOpen.toggle() } label: {
                     Image(systemName: ui.sidePanelOpen ? "quote.bubble.fill" : "quote.bubble")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.hover)
                 .foregroundStyle(ui.sidePanelOpen ? MacTheme.shared.accent : .secondary)
                 .help("Lyrics")
                 .accessibilityLabel("Lyrics")

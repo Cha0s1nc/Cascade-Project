@@ -93,3 +93,33 @@ struct MacSlider: View {
         }
     }
 }
+
+/// A plain icon button that lights up softly under the pointer, as the
+/// desktop's controls do. The highlight bleeds past the label rather than
+/// padding it, so swapping it in for .plain moves nothing. The big play and
+/// pause buttons keep .plain: their own fill already says "button".
+struct HoverButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View { Lit(configuration: configuration) }
+
+    private struct Lit: View {
+        let configuration: Configuration
+        @State private var hovering = false
+        @Environment(\.isEnabled) private var isEnabled
+
+        var body: some View {
+            let lit = hovering && isEnabled
+            configuration.label
+                .contentShape(Rectangle())
+                .padding(5)
+                .background(RoundedRectangle(cornerRadius: 7)
+                    .fill(.foreground.opacity(lit ? (configuration.isPressed ? 0.18 : 0.1) : 0)))
+                .padding(-5)
+                .onHover { hovering = $0 }
+                .animation(.easeOut(duration: 0.12), value: lit)
+        }
+    }
+}
+
+extension ButtonStyle where Self == HoverButtonStyle {
+    static var hover: HoverButtonStyle { HoverButtonStyle() }
+}

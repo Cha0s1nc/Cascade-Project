@@ -44,7 +44,7 @@ struct RestoreQueueCard: View {
             .buttonStyle(.borderedProminent)
             .keyboardShortcut(.defaultAction)
             Button { close() } label: { Image(systemName: "xmark").font(.caption.weight(.bold)) }
-                .buttonStyle(.plain)
+                .buttonStyle(.hover)
                 .foregroundStyle(.secondary)
                 .accessibilityLabel("Dismiss")
         }

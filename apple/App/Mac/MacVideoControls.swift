@@ -77,7 +77,7 @@ struct MacVideoOverlay: View {
                     .help("Stop the video").accessibilityLabel("Stop the video")
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hover)
         .padding(.horizontal, 16).padding(.bottom, 10).padding(.top, 34)
         .background(LinearGradient(colors: [.black.opacity(0.6), .clear], startPoint: .top, endPoint: .bottom))
     }
@@ -93,6 +93,7 @@ struct MacVideoOverlay: View {
                 Button { session.togglePlayPause() } label: {
                     Image(systemName: session.isPlaying ? "pause.fill" : "play.fill").font(.title2).frame(width: 28)
                 }
+                .buttonStyle(.plain)
                 .accessibilityLabel(session.isPlaying ? "Pause" : "Play")
                 Button { session.skip(by: VideoControls.skipSeconds) } label: { Image(systemName: "goforward.10") }
                     .accessibilityLabel("Forward 10 seconds")
@@ -117,7 +118,7 @@ struct MacVideoOverlay: View {
                 Button { controller.toggleFullscreen() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
                     .accessibilityLabel("Fullscreen")
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hover)
             .menuStyle(.button).menuIndicator(.hidden)
         }
         .padding(.horizontal, 16).padding(.bottom, 12).padding(.top, 20)

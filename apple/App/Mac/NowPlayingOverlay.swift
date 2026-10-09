@@ -179,12 +179,12 @@ private struct OverlayContent: View {
                 .padding(.horizontal, 10).padding(.vertical, 6)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hover)
             .help("Close Now Playing (Esc)")
             .accessibilityLabel("Close Now Playing")
             HStack {
                 Spacer()
-                ThemePanelButton().buttonStyle(.plain).foregroundStyle(ink.opacity(0.6))
+                ThemePanelButton().buttonStyle(.hover).foregroundStyle(ink.opacity(0.6))
             }
             .padding(.trailing, 20)
         }
@@ -344,6 +344,7 @@ private struct OverlayContent: View {
                     .background(Circle().fill(MacTheme.shared.accent))
                     .contentShape(Circle())
             }
+            .buttonStyle(.plain)
             .accessibilityLabel(player.isPaused ? "Play" : "Pause")
             Button { Task { await player.next() } } label: { Image(systemName: "forward.fill").font(.system(size: 22 * u)) }
                 .accessibilityLabel("Next")
@@ -353,7 +354,7 @@ private struct OverlayContent: View {
             .foregroundStyle(player.repeatMode == .none ? ink.opacity(0.7) : MacTheme.shared.accent)
             .accessibilityLabel("Repeat")
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hover)
     }
 
     private var volume: some View {
@@ -361,7 +362,7 @@ private struct OverlayContent: View {
             Button { player.setMuted(!player.isMuted) } label: {
                 Image(systemName: player.isMuted ? "speaker.slash.fill" : "speaker.fill")
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hover)
             .accessibilityLabel(player.isMuted ? "Unmute" : "Mute")
             MacSlider(value: Double(player.isMuted ? 0 : player.volume), height: 4 * u, fill: ink.opacity(0.6), label: "Volume") {
                 if player.isMuted { player.setMuted(false) }
@@ -385,7 +386,7 @@ private struct OverlayContent: View {
                     .frame(width: 36, height: 30)
                     .background(Circle().fill(showingLyrics ? ink.opacity(0.18) : .clear))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hover)
             .help("Lyrics")
             .accessibilityLabel("Lyrics")
             .accessibilityValue(showingLyrics ? "Showing" : "")
@@ -419,7 +420,7 @@ private struct OverlayContent: View {
                 .frame(width: 36, height: 30)
         }
         .menuStyle(.button)
-        .buttonStyle(.plain)
+        .buttonStyle(.hover)
         .menuIndicator(.hidden)
         .fixedSize()
         .accessibilityLabel("More")

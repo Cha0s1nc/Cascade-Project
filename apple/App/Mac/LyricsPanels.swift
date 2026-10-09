@@ -221,7 +221,7 @@ struct SideLyricsPanel: View {
                 Text("Lyrics").font(.headline)
                 Spacer()
                 Button { ui.sidePanelOpen = false } label: { Image(systemName: "xmark") }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.hover)
                     .foregroundStyle(.secondary)
                     .help("Close lyrics")
                     .accessibilityLabel("Close lyrics")

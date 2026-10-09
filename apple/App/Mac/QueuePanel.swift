@@ -47,7 +47,7 @@ struct QueuePanel: View {
                         .frame(width: 28, height: 24)
                         .background(Capsule().fill(player.autoMix ? MacTheme.shared.accent.opacity(0.3) : .clear))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.hover)
                 .foregroundStyle(player.autoMix ? MacTheme.shared.accent : .secondary)
                 .help("Auto-mix similar tracks when the queue ends")
                 .accessibilityLabel("Auto-mix")
@@ -209,7 +209,7 @@ private struct QueueRow: View {
                 Button {
                     player.removeQueueItems(at: IndexSet(integer: index))
                 } label: { Image(systemName: "xmark") }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.hover)
                     .foregroundStyle(.secondary)
                     .opacity(hovering ? 1 : 0)
                     .help("Remove from queue")

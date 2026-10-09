@@ -181,7 +181,7 @@ private struct MiniplayerBody: View {
                 .foregroundStyle(isFavorite ? Color(red: 1, green: 0.42, blue: 0.54) : .white)
                 .font(.system(size: 16))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hover)
         .help(isFavorite ? "Unfavorite" : "Favorite")
         .accessibilityLabel(isFavorite ? "Unfavorite" : "Favorite")
     }
@@ -193,12 +193,13 @@ private struct MiniplayerBody: View {
             Button { player.togglePlayPause() } label: {
                 Image(systemName: player.isPaused ? "play.fill" : "pause.fill").font(.system(size: size + 6))
             }
+            .buttonStyle(.plain)
             .accessibilityLabel(player.isPaused ? "Play" : "Pause")
             Button { Task { await player.next() } } label: { Image(systemName: "forward.fill") }
                 .accessibilityLabel("Next")
         }
         .font(.system(size: size))
-        .buttonStyle(.plain)
+        .buttonStyle(.hover)
         .frame(maxWidth: .infinity)
         .foregroundStyle(.white)
     }
@@ -249,7 +250,7 @@ private struct MiniplayerBody: View {
                 .help("Repeat")
                 .accessibilityLabel("Repeat")
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hover)
     }
 
     private var upNext: some View {
