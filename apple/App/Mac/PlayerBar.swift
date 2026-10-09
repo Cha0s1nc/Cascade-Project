@@ -75,7 +75,7 @@ struct PlayerBar: View {
                     .accessibilityLabel("Repeat")
                 }
                 .buttonStyle(.hover)
-                Scrubber(player: player)
+                if player.isRadio { LiveBadge().frame(height: 18) } else { Scrubber(player: player) }
             }
             .frame(maxWidth: 520)
 
@@ -150,5 +150,19 @@ struct Scrubber: View {
             .accessibilityLabel("Position")
             Text(clock(player.durationSeconds)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
         }
+    }
+}
+
+/// Internet radio in place of a scrubber: a stream has no length to scrub (the desktop's
+/// red LIVE badge, in the bar and the miniplayer).
+struct LiveBadge: View {
+    var body: some View {
+        Text("LIVE")
+            .font(.system(size: 9, weight: .bold))
+            .tracking(0.4)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 5).padding(.vertical, 1)
+            .background(Color(red: 0.94, green: 0.27, blue: 0.27), in: RoundedRectangle(cornerRadius: 3))
+            .accessibilityLabel("Live stream")
     }
 }

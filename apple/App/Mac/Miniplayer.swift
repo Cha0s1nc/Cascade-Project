@@ -332,9 +332,13 @@ private struct MiniProgress: View {
     @State private var dragging: Double?
 
     var body: some View {
+        if player.isRadio { LiveBadge().frame(maxWidth: .infinity, alignment: .leading) } else { bar }
+    }
+
+    private var bar: some View {
         let duration = max(player.durationSeconds, 1)
         let shown = dragging ?? player.positionSeconds
-        VStack(spacing: 2) {
+        return VStack(spacing: 2) {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(.white.opacity(0.25))
