@@ -10381,6 +10381,11 @@ function showItemCtxMenu(kind, item, el, x, y, onDetail) {
 
   const playLabel = document.getElementById('ictx-play-label')
   if (playLabel) playLabel.textContent = kind === 'artist' ? 'Play all' : (kind === 'video' && resumeTicks(item)) ? 'Resume' : 'Play'
+  // As on song menus: only while a device is picked in the Devices panel, and
+  // only for music (a remote session's video playback is its own business).
+  const device = vis.play && kind !== 'video' && kind !== 'series' ? _dpCurrentSession() : null
+  document.getElementById('ictx-play-on-device').classList.toggle('hidden', !device)
+  if (device) document.getElementById('ictx-play-on-device-label').textContent = `Play on ${device.DeviceName || device.Client || 'device'}`
   const shuffleLabel = document.getElementById('ictx-shuffle-label')
   if (shuffleLabel) shuffleLabel.textContent = kind === 'artist' ? 'Shuffle all' : 'Shuffle'
   const detailLabel = document.getElementById('ictx-view-detail-label')
@@ -10446,6 +10451,15 @@ document.getElementById('ictx-play').addEventListener('click', async () => {
   if (_ictxKind === 'video') { playVideo([_ictxItem], 0, resumeTicks(_ictxItem) || 0); return }
   const tracks = await _ictxTracks()
   if (tracks.length) playItems(tracks, 0, _ictxItem.Name)
+})
+
+document.getElementById('ictx-play-on-device').addEventListener('click', async () => {
+  hideItemCtxMenu()
+  if (!_ictxItem) return
+  // The ids ride in the query string, and Jellyfin's server refuses a request
+  // line over 8 KB: 200 ids is about 6.6 KB. A bigger artist starts with its first 200.
+  const tracks = (await _ictxTracks()).slice(0, 200)
+  if (tracks.length) _dpPlayItemsOnDevice(tracks)
 })
 
 document.getElementById('ictx-shuffle').addEventListener('click', async () => {
