@@ -167,7 +167,7 @@ struct MacPlaylistDetail: View {
             PlayingIndicator(itemId: track.id)
             ArtworkView(itemId: track.albumId ?? track.id, size: 28)
             VStack(alignment: .leading, spacing: 1) {
-                Text(track.name ?? "").lineLimit(1)
+                Text(track.name ?? "").lineLimit(1).explicitMark(track.id)
                 Text(track.albumArtist ?? track.artists?.first ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()

@@ -202,6 +202,7 @@ private struct OverlayContent: View {
                 art(side: side)
                 VStack(spacing: 3) {
                     Text(player.item?.name ?? "Nothing playing").font(.title3.weight(.semibold)).lineLimit(1)
+                        .explicitMark(player.item?.id ?? "")
                     ArtistLink(name: player.item?.albumArtist ?? player.item?.artists?.first ?? "",
                                id: (player.item?.albumArtists?.first ?? player.item?.artistItems?.first)?.id)
                         .foregroundStyle(ink.opacity(0.7)).lineLimit(1)

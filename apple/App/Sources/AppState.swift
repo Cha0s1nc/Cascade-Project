@@ -16,6 +16,8 @@ final class AppState {
     /// Which route family the server's Cascade plugin answers on, once probed.
     /// Nil until then, and stays nil when the plugin is absent: no lyrics.
     private(set) var cascadePluginApi: CascadePluginApi?
+    /// Explicit marks, when the plugin offers them (ExplicitBadge reads it).
+    private(set) var explicitRatings: ExplicitRatings?
     /// Makes this app a target for "play on" from other Jellyfin clients.
     private var remoteControl: RemoteControl?
     /// Listening along with others (Waterfall). One per sign-in, like the player.
@@ -377,6 +379,7 @@ final class AppState {
         closeVideo()
         controlledDevice = nil
         cascadePluginApi = nil
+        explicitRatings = nil
         cascadePluginInfo = .init()
         for list in browseLists.values { list.task?.cancel() }
         browseLists = [:]
@@ -462,6 +465,7 @@ final class AppState {
             if self.client === client { hasLiveTv = access }
         }
         cascadePluginApi = nil
+        explicitRatings = nil
         cascadePluginInfo = .init()
         Task {
             let (probe, api, info) = await client.probeCascadePlugin()
@@ -470,6 +474,7 @@ final class AppState {
             if probe != .absent, self.client === client {
                 cascadePluginApi = api
                 cascadePluginInfo = info
+                if info.capabilities.contains("explicit") { explicitRatings = ExplicitRatings(client: client) }
             }
         }
     }

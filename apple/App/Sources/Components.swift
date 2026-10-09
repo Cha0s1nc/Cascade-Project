@@ -181,6 +181,7 @@ struct TrackRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(track.name ?? "Unknown")
                     .lineLimit(1)
+                    .explicitMark(track.id)
                 Text(track.albumArtist ?? track.artists?.first ?? "")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -197,6 +198,43 @@ struct TrackRow: View {
         .contentShape(Rectangle())
         .modifier(OptionalTrackMenu(track: track, enabled: showsMenu))
     }
+}
+
+/// The "E" after an explicit song's title, from Cascade Server's explicit
+/// marks; the title as it was without the plugin or for a song not marked.
+/// The title asks about its song as it appears, so a whole list goes in one
+/// request (ExplicitRatings).
+private struct ExplicitMark: ViewModifier {
+    let itemId: String
+    @Environment(AppState.self) private var state
+
+    func body(content: Content) -> some View {
+        if let ratings = state.explicitRatings {
+            HStack(spacing: 5) {
+                content
+                if ratings.isExplicit(itemId) { ExplicitBadge() }
+            }
+            // By id, not on appear: the player bar's title stays put as songs change.
+            .task(id: itemId) { if !itemId.isEmpty { ratings.want(itemId) } }
+        } else {
+            content
+        }
+    }
+}
+
+struct ExplicitBadge: View {
+    var body: some View {
+        Text("E")
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(.background)
+            .frame(width: 13, height: 13)
+            .background(.secondary, in: RoundedRectangle(cornerRadius: 2.5))
+            .accessibilityLabel("Explicit")
+    }
+}
+
+extension View {
+    func explicitMark(_ itemId: String) -> some View { modifier(ExplicitMark(itemId: itemId)) }
 }
 
 private struct OptionalTrackMenu: ViewModifier {

@@ -122,7 +122,7 @@ private struct SongsTable: View {
                 cell(track) {
                     HStack(spacing: 8) {
                         ArtworkView(itemId: track.albumId ?? track.id, size: 32)
-                        Text(track.songTitle).lineLimit(1)
+                        Text(track.songTitle).lineLimit(1).explicitMark(track.id)
                     }
                 }
             }

@@ -110,6 +110,7 @@ struct AlbumDetailView: View {
                     .frame(width: 28, alignment: .trailing)
                 Text(track.name ?? "Unknown")
                     .lineLimit(1)
+                    .explicitMark(track.id)
                 Spacer(minLength: 8)
                 if let ticks = track.runTimeTicks {
                     Text(clock(seconds(fromTicks: ticks)))

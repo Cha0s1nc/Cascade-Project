@@ -21,7 +21,7 @@ struct PlayerBar: View {
                 .accessibilityLabel("Open Now Playing")
                 VStack(alignment: .leading, spacing: 2) {
                     Button(action: openNowPlaying) {
-                        Text(player.item?.name ?? "Not playing").lineLimit(1)
+                        Text(player.item?.name ?? "Not playing").lineLimit(1).explicitMark(player.item?.id ?? "")
                     }
                     .buttonStyle(.plain)
                     ArtistLink(name: player.item?.albumArtist ?? player.item?.artists?.first ?? "",
