@@ -1,15 +1,31 @@
 import SwiftUI
 import CascadeKit
 
-#if os(iOS)
+#if os(iOS) || os(macOS)
 /// Downloaded albums and playlists. Drawn entirely from what was saved, so
 /// it works with no server at all, which is the point of it. tvOS has no
 /// downloads: its storage is a cache the system empties as it likes.
 struct DownloadsView: View {
     @Environment(AppState.self) private var state
     @State private var confirmingRemoveAll = false
+    #if os(macOS)
+    private static let device = "Mac"
+    #else
+    private static let device = "iPhone"
+    #endif
 
     var body: some View {
+        if let offline = state.offline, offline.index.collections.isEmpty, offline.lastError == nil {
+            // Centred on its own: inside the list it sat in the top corner on the Mac.
+            ContentUnavailableView("No Downloads", systemImage: "arrow.down.circle",
+                                   description: Text("Download an album or playlist from its menu to play it without a connection."))
+                .navigationTitle("Downloads")
+        } else {
+            list
+        }
+    }
+
+    private var list: some View {
         List {
             if let offline = state.offline {
                 if let message = offline.lastError {
@@ -18,6 +34,12 @@ struct DownloadsView: View {
                 ForEach(offline.index.collections) { collection in
                     NavigationLink(value: AppRoute.downloaded(collection.id)) {
                         DownloadRow(collection: collection)
+                    }
+                    // The Mac has no swipe to delete.
+                    .contextMenu {
+                        Button("Remove Download", systemImage: "trash", role: .destructive) {
+                            Task { await offline.remove(collection.id) }
+                        }
                     }
                 }
                 .onDelete { offsets in
@@ -31,7 +53,7 @@ struct DownloadsView: View {
                     Section {
                         Button("Remove All Downloads", role: .destructive) { confirmingRemoveAll = true }
                     } footer: {
-                        Text("\(ByteCountFormatter.string(fromByteCount: Int64(offline.index.totalBytes), countStyle: .file)) on this iPhone")
+                        Text("\(ByteCountFormatter.string(fromByteCount: Int64(offline.index.totalBytes), countStyle: .file)) on this \(Self.device)")
                     }
                 }
             }

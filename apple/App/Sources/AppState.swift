@@ -150,7 +150,7 @@ final class AppState {
 
     /// Downloaded albums and playlists. One for the app's life, not per
     /// sign-in: it owns the background download session. None on tvOS.
-    #if os(iOS)
+    #if os(iOS) || os(macOS)
     let offline: OfflineLibrary? = OfflineLibrary()
     #else
     let offline: OfflineLibrary? = nil

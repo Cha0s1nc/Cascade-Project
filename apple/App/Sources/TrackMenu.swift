@@ -181,6 +181,11 @@ private struct ItemContextMenu: ViewModifier {
 
     private var isFavorite: Bool { favorite ?? item.userData?.isFavorite ?? false }
     private var artist: JfNameId? { item.type == "MusicAlbum" ? item.albumArtists?.first : nil }
+    #if os(macOS)
+    private let offlineLabel = "Download for Offline"
+    #else
+    private let offlineLabel = "Download"
+    #endif
 
     func body(content: Content) -> some View {
         content.contextMenu {
@@ -221,14 +226,15 @@ private struct ItemContextMenu: ViewModifier {
                     }
                 }
             }
-            #if os(iOS)
+            #if os(iOS) || os(macOS)
             if let offline = state.offline, item.type == "MusicAlbum" || item.type == "Playlist" {
                 if offline.isDownloaded(item.id) {
                     Button("Remove Download", systemImage: "trash", role: .destructive) {
                         Task { await offline.remove(item.id) }
                     }
                 } else if let client = state.client {
-                    Button("Download", systemImage: "arrow.down.circle") {
+                    // "for Offline" on the Mac, beside its Download... that saves the files to a folder.
+                    Button(offlineLabel, systemImage: "arrow.down.circle") {
                         Task { await offline.download(item, client: client) }
                     }
                 }

@@ -187,12 +187,12 @@ struct MacRootView: View {
 }
 
 enum MacSection: String, Hashable, Identifiable, CaseIterable {
-    case home, albums, artists, songs, playlists, genres, history, radio, movies, shows, settings
+    case home, albums, artists, songs, playlists, genres, history, radio, downloads, movies, shows, settings
 
     var id: Self { self }
 
     static func sidebar(for mode: AppState.BrowseMode) -> [MacSection] {
-        mode == .video ? [.home, .movies, .shows] : [.home, .albums, .artists, .songs, .playlists, .genres, .history, .radio]
+        mode == .video ? [.home, .movies, .shows] : [.home, .albums, .artists, .songs, .playlists, .genres, .history, .radio, .downloads]
     }
 
     var title: String {
@@ -205,6 +205,7 @@ enum MacSection: String, Hashable, Identifiable, CaseIterable {
         case .genres: "Genres"
         case .history: "History"
         case .radio: "Radio"
+        case .downloads: "Downloads"
         case .movies: "Movies"
         case .shows: "TV Shows"
         case .settings: "Settings"
@@ -221,6 +222,7 @@ enum MacSection: String, Hashable, Identifiable, CaseIterable {
         case .genres: "guitars"
         case .history: "clock"
         case .radio: "dot.radiowaves.left.and.right"
+        case .downloads: "arrow.down.circle"
         case .movies: "film"
         case .shows: "tv"
         case .settings: "gear"
@@ -237,6 +239,7 @@ enum MacSection: String, Hashable, Identifiable, CaseIterable {
         case .genres: GenresView()
         case .history: HistoryView()
         case .radio: RadioView()
+        case .downloads: DownloadsView()
         case .movies: VideoGridView(kind: .movies)
         case .shows: VideoGridView(kind: .shows)
         case .settings: SettingsView()

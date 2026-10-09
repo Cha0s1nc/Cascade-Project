@@ -42,7 +42,7 @@ extension View {
                 case .genres: GenresView()
                 case .history: HistoryView()
                 case .smartPlaylist(let kind): SmartPlaylistView(kind: kind)
-                #if os(iOS)
+                #if os(iOS) || os(macOS)
                 case .downloads: DownloadsView()
                 case .downloaded(let id): DownloadedCollectionView(id: id)
                 #else
