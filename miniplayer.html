@@ -126,6 +126,8 @@ body.away .close-btn { opacity: 0; }
 .info { flex: 1; min-width: 0; cursor: pointer; }
 .title, .artist { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .title { font-size: 13px; font-weight: 600; color: #fff; }
+.live-badge { display: inline-block; margin-right: 6px; padding: 0 4px; border-radius: 3px; background: #ef4444; color: #fff; font-size: 9px; font-weight: 700; letter-spacing: 0.04em; line-height: 14px; vertical-align: 1px; }
+.scrub[hidden] { display: none; }
 .artist { font-size: 12px; color: rgba(255,255,255,0.6); margin-top: 2px; }
 
 .icon-btn {
@@ -374,7 +376,7 @@ body.away .close-btn { opacity: 0; }
   <div class="stack">
     <div class="meta">
       <div class="info" id="info" title="Back to Cascade">
-        <div class="title" id="title">Nothing playing</div>
+        <div class="title"><span class="live-badge" id="live" hidden>LIVE</span><span id="title">Nothing playing</span></div>
         <div class="artist" id="artist"></div>
       </div>
       <button class="icon-btn like" id="btn-like" title="Favorite" aria-label="Favorite" aria-pressed="false">
@@ -482,6 +484,8 @@ window.miniPlayer.onState((state) => {
   _state = state
   if (!state || !state.itemId) {
     $('title').textContent = 'Nothing playing'
+    $('live').hidden = true
+    document.querySelector('.scrub').hidden = false
     $('artist').textContent = ''
     setArt(null)
     setProgress(0, 0)
@@ -495,6 +499,9 @@ window.miniPlayer.onState((state) => {
   }
 
   $('title').textContent = state.title || ''
+  // Radio: a LIVE badge, and no scrubber for a stream with no end.
+  $('live').hidden = !state.live
+  document.querySelector('.scrub').hidden = !!state.live
   $('artist').textContent = state.subtitle || ''
   setArt(state.artUrl)
   if (!_seeking) setProgress(state.positionSec, state.durationSec)

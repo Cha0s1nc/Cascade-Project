@@ -44,6 +44,8 @@ export interface MiniplayerState {
   repeat: 'none' | 'all' | 'one'
   /** Whether the current track is a favorite, for the heart button. */
   isFavorite: boolean
+  /** A live stream (internet radio): no length to scrub, a LIVE badge instead. */
+  live: boolean
   /** 0-1, the user's volume (not a mid-crossfade deck level). */
   volume: number
   /** SpicyLyrics credit for the lyrics shown, or null for any other source.
@@ -187,7 +189,7 @@ export function buildMiniplayerState(
     isFavorite?: boolean, volume?: number,
     credit?: { provider?: unknown, uploader?: { name?: unknown } | null, maker?: { name?: unknown } | null } | null,
     sheet?: MiniplayerSheet | null, queue?: MiniplayerQueueItem[], queueStart?: number, now?: number,
-    shuffle?: boolean, autoMix?: boolean, repeat?: unknown,
+    shuffle?: boolean, autoMix?: boolean, repeat?: unknown, live?: boolean,
   } = {},
 ): MiniplayerState {
   const safePos = Number.isFinite(positionSec) && positionSec > 0 ? positionSec : 0
@@ -210,6 +212,7 @@ export function buildMiniplayerState(
     queue: Array.isArray(extra.queue) ? extra.queue.slice(0, MINIPLAYER_QUEUE_MAX) : [],
     queueStart: Number.isInteger(extra.queueStart) && (extra.queueStart as number) >= 0 ? extra.queueStart as number : 0,
     isFavorite: !!extra.isFavorite,
+    live: !!extra.live,
     volume: Number.isFinite(extra.volume) ? Math.max(0, Math.min(1, extra.volume as number)) : 1,
     credit: miniplayerCredit(extra.credit),
   }

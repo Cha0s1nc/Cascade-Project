@@ -5700,7 +5700,8 @@ function pushMiniplayerState() {
   // line of the script has executed.
   const isFavorite = !!document.getElementById('btn-like')?.classList.contains('liked')
   window.cascade.miniPlayer.updateState(CascadeCore.buildMiniplayerState(track, !audio.paused, mediaPosition(), mediaDuration(), _mpSheetId,
-    { isFavorite, volume, credit: lyricsCredit, sheet, queue: upNext, queueStart, shuffle, autoMix: autoMixEnabled, repeat: repeatMode }))
+    { isFavorite, volume, credit: lyricsCredit, sheet, queue: upNext, queueStart, shuffle, autoMix: autoMixEnabled, repeat: repeatMode,
+      live: CascadeCore.isRadioItem(item) }))
 }
 
 // Derived from the DOM, never cached: _drawSongRows() replaces rows.innerHTML on every
