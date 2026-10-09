@@ -128,14 +128,21 @@ private struct OverlayContent: View {
         .background(ToolbarHider())
         .onContinuousHover { _ in poke() }
         .simultaneousGesture(TapGesture().onEnded { poke() })
-        .task(id: "\(wake)|\(player.isPaused)") {
+        .task(id: wake) {
             idle = false
             // Paused is not idle: hiding the controls of something that is going nowhere reads as
             // broken, and pause is when you are most likely to reach for them.
             guard !player.isPaused else { return }
             try? await Task.sleep(for: .seconds(3))
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, !player.isPaused else { return }
             withAnimation(.easeInOut(duration: 0.35)) { idle = true }
+        }
+        // Pausing brings the controls back. Playing restarts the hide timer only when they are
+        // showing: a song starting by itself (a crossfade, the next track) leaves hidden
+        // controls hidden, so the cover slice plays over a clean screen (the desktop does the same).
+        .onChange(of: player.isPaused) { _, paused in
+            if paused { if idle { withAnimation(.easeInOut(duration: 0.2)) { idle = false } } }
+            else if !idle { wake += 1 }
         }
         .task(id: player.item?.id) {
             favoriteOverride = nil
@@ -224,6 +231,7 @@ private struct OverlayContent: View {
     private func art(side: CGFloat) -> some View {
         ArtworkView(itemId: artId, size: side, fillsFrame: true, animated: true)
             .frame(width: side, height: side)
+            .overlay { CoverSliceOverlay(player: player, size: side).clipShape(ProportionalRoundedRectangle()) }
             .brightness(artHovering ? -0.25 : 0)
             .saturation(artHovering ? 0.7 : 1)
             .overlay {

@@ -214,7 +214,7 @@ private struct ExplicitMark: ViewModifier {
     @Environment(AppState.self) private var state
 
     func body(content: Content) -> some View {
-        if let ratings = state.explicitRatings {
+        if let ratings = state.explicitRatings, DisplayPrefs.shared.explicitMarks {
             HStack(spacing: 5) {
                 content
                 if ratings.isExplicit(itemId) { ExplicitBadge() }
@@ -426,7 +426,8 @@ private struct CoverVideo: View {
         .animation(.easeIn(duration: 0.3), value: url)
         .task(id: albumId) {
             url = nil
-            guard state.cascadePluginInfo.capabilities.contains("animated-art"), let client = state.client else { return }
+            guard DisplayPrefs.shared.videoCovers, state.cascadePluginInfo.capabilities.contains("animated-art"),
+                  let client = state.client else { return }
             url = await CoverVideos.url(albumId: albumId, client: client)
         }
     }

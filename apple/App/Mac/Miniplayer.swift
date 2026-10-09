@@ -165,6 +165,7 @@ private struct MiniplayerBody: View {
 
     private var cover: some View {
         ArtworkView(itemId: artId, size: 300, fillsFrame: true)
+            .overlay { CoverSliceOverlay(player: player, size: 300).clipShape(ProportionalRoundedRectangle()) }
     }
 
     private func titleBlock(size: CGFloat) -> some View {

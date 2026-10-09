@@ -110,18 +110,29 @@ struct NowPlayingBackground: View {
     @Environment(AppState.self) private var state
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private static let fadeSeconds = 1.0
+    /// How long the colors take to change: over the crossfade while one is
+    /// changing the cover (the desktop's fadeOverlayColors), the setting's
+    /// length for any other change, and at once with the fade turned off.
+    private func fadeSeconds(changedAt: Date) -> Double {
+        let prefs = DisplayPrefs.shared
+        guard prefs.colorFade else { return 0.001 }
+        if let art = state.player?.crossfadeArt, abs(changedAt.timeIntervalSince(art.started)) < 3 {
+            return max(prefs.colorFadeSeconds, art.started.addingTimeInterval(art.duration).timeIntervalSince(changedAt))
+        }
+        return prefs.colorFadeSeconds
+    }
 
     var body: some View {
         let backdrop = CoverBackdrop.shared
         let (colors, drift, previous, changedAt) = (backdrop.colors, backdrop.drift, backdrop.previous, backdrop.changedAt)
         let tune = StyleTuning.shared.values
+        let fadeLength = fadeSeconds(changedAt: changedAt)
         TimelineView(.animation(minimumInterval: AlbumColors.frameInterval, paused: reduceMotion)) { timeline in
             let now = timeline.date
             let t = reduceMotion ? 0 : now.timeIntervalSinceReferenceDate * tune.bgSpeed
             // Under Reduce Motion the timeline is paused and its date stale,
             // so a fade measured against it could sit at zero forever.
-            let fade = reduceMotion ? 1 : min(1, max(0, now.timeIntervalSince(changedAt) / Self.fadeSeconds))
+            let fade = reduceMotion ? 1 : min(1, max(0, now.timeIntervalSince(changedAt) / fadeLength))
             Canvas { context, size in
                 let base = light ? AlbumColors.baseLight : AlbumColors.base
                 context.fill(Path(CGRect(origin: .zero, size: size)),
@@ -144,7 +155,7 @@ struct NowPlayingBackground: View {
             Color.black
                 .opacity(behindLyrics && !light ? Self.lyricsDim(colors, tune) : 0)
                 .animation(.easeInOut(duration: 0.6), value: behindLyrics)
-                .animation(.easeInOut(duration: Self.fadeSeconds), value: colors)
+                .animation(.easeInOut(duration: fadeLength), value: colors)
         }
         .ignoresSafeArea()
         .accessibilityHidden(true)

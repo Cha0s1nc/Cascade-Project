@@ -124,6 +124,7 @@ struct NowPlayingView: View {
         HStack(alignment: .top, spacing: 60) {
             VStack(spacing: 24) {
                 ArtworkView(itemId: artId, size: 480, animated: true)
+                    .overlay { CoverSliceOverlay(player: player, size: 480).clipShape(ProportionalRoundedRectangle()) }
                     .focusable()
                     .onTapGesture { player.togglePlayPause() }
                     .onMoveCommand { direction in
@@ -293,6 +294,7 @@ struct NowPlayingView: View {
     private func movingArtwork(resolution: CGFloat) -> some View {
         let big = mode == .artwork
         return ArtworkView(itemId: artId, size: resolution, fillsFrame: true, animated: true)
+            .overlay { CoverSliceOverlay(player: player, size: resolution).clipShape(ProportionalRoundedRectangle()) }
             .shadow(color: .black.opacity(big ? 0.35 : 0.2), radius: big ? 24 : 6, y: big ? 12 : 3)
             // Apple's artwork breathes with playback: full size while playing,
             // eased back a little when paused. Only the big one does.

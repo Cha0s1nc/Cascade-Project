@@ -27,6 +27,20 @@ public final class PlaybackService {
     // MARK: - What a view can read
 
     public private(set) var item: JfItem?
+    /// The crossfade now changing the cover, for the cover slice (CoverSlice).
+    /// Set as a fade starts between songs with different covers; `cutAt` is set
+    /// when it ends, early or not. Left in place after, harmlessly in the past.
+    public private(set) var crossfadeArt: CrossfadeArt?
+
+    #if DEBUG
+    /// Debug builds: runs the cover slice from `outgoing` to the cover on screen
+    /// without waiting for a crossfade (the desktop's cascadeDebug.artSlice).
+    public func debugCoverSlice(outgoing: String, duration: Double = 6) {
+        guard let current = item.map({ $0.albumId ?? $0.id }) else { return }
+        crossfadeArt = CrossfadeArt(outgoing: outgoing, incoming: current, started: Date(), duration: duration)
+    }
+    public func debugCutCoverSlice() { crossfadeArt?.cutAt = Date() }
+    #endif
     /// The queue and where we are in it. Views read `queue.items` to draw an
     /// up-next list and `queue.index` to highlight the current row.
     public private(set) var queue = QueueOrder()
@@ -1091,7 +1105,12 @@ public final class PlaybackService {
         // The handover's stopped report still reads the old stream from
         // `resolved`, then adopts the new one; the tail's transcode, if any,
         // is abandoned when the tail stops.
+        let outgoingArt = item.map { $0.albumId ?? $0.id }
         handOver(to: next)
+        let incomingArt = item.map { $0.albumId ?? $0.id }
+        if let outgoingArt, let incomingArt, outgoingArt != incomingArt {
+            crossfadeArt = CrossfadeArt(outgoing: outgoingArt, incoming: incomingArt, started: Date(), duration: fade)
+        }
 
         let started = ContinuousClock.now
         fadeTask = Task { [weak self] in
@@ -1119,6 +1138,7 @@ public final class PlaybackService {
     private func endCrossfade() {
         fadeTask?.cancel()
         fadeTask = nil
+        if crossfadeArt != nil, crossfadeArt?.cutAt == nil { crossfadeArt?.cutAt = Date() }
         if let tail {
             self.tail = nil
             tail.deck.pause()
