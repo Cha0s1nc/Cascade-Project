@@ -25,6 +25,8 @@ struct MacSlider: View {
     @State private var dragging = false
     @State private var commitTask: Task<Void, Never>?
     @FocusState private var focused: Bool
+    /// Focus came from a click or drag, not Tab: no ring then, as Apple Music.
+    @State private var clicked = false
 
     var body: some View {
         GeometryReader { bar in
@@ -49,6 +51,7 @@ struct MacSlider: View {
                 DragGesture(minimumDistance: 0)
                     .onChanged { drag in
                         dragging = true
+                        clicked = true
                         onChange(min(1, max(0, drag.location.x / max(bar.size.width, 1))))
                     }
                     .onEnded { drag in
@@ -60,7 +63,14 @@ struct MacSlider: View {
         }
         .frame(height: max(18, height * 3 + 6))
         .focusable()
+        .focusEffectDisabled()
         .focused($focused)
+        .onChange(of: focused) { _, now in if !now { clicked = false } }
+        .overlay {
+            if focused && !clicked {
+                RoundedRectangle(cornerRadius: 4).stroke(Color.accentColor.opacity(0.7), lineWidth: 2).padding(-3)
+            }
+        }
         .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow, .pageUp, .pageDown, .home, .end]) { press in
             let next: Double
             switch press.key {
