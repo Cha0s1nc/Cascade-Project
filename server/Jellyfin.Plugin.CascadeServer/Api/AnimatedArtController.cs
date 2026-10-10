@@ -73,7 +73,7 @@ public class AnimatedArtController : ControllerBase
         });
     }
 
-    /// <summary>Streams the video, with range support. Accepts Jellyfin's <c>api_key</c> query parameter, since a video element sends no headers.</summary>
+    /// <summary>Streams the video, with range support. Accepts Jellyfin's <c>ApiKey</c> query parameter (not the legacy <c>api_key</c>, which Jellyfin 12 refuses by default), since a video element sends no headers.</summary>
     /// <param name="albumId">A MusicAlbum id, or a song's.</param>
     /// <response code="200">The file.</response>
     /// <response code="404">There is none.</response>
