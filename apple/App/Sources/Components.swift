@@ -434,19 +434,27 @@ private struct CoverVideo: View {
 }
 
 /// Answers per album, so moving between Now Playing and the player bar does
-/// not ask again. TIDAL's "still fetching" is not kept as an answer.
+/// not ask again. TIDAL's "still fetching" is not kept as an answer, but retried.
 @MainActor
 enum CoverVideos {
     private static var known: [String: URL?] = [:]
 
     static func url(albumId: String, client: JellyfinClient) async -> URL? {
         if let answer = known[albumId] { return answer }
-        let (url, pending) = await client.coverVideo(albumId: albumId)
-        if !pending {
+        // "Pending" is TIDAL still being asked, or its video still downloading (a second
+        // or so): ask again a few times. The caller's task ends this when the album changes.
+        for attempt in 0..<6 {
+            if attempt > 0 {
+                try? await Task.sleep(for: .seconds(3))
+                if Task.isCancelled { return nil }
+            }
+            let (url, pending) = await client.coverVideo(albumId: albumId)
+            if pending { continue }
             if known.count > 200 { known.removeAll() }
             known[albumId] = url
+            return url
         }
-        return url
+        return nil
     }
 }
 

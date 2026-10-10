@@ -465,25 +465,31 @@ function _setArtStill(host, url) {
 // Video covers from Cascade Server (the `animated-art` capability): the
 // album's cover.mp4, or one from TIDAL. Album id -> playable URL or null.
 const _coverVideoCache = new Map()
-async function pluginCoverVideoUrl(albumId) {
+async function pluginCoverVideoUrl(albumId, stillWanted = () => true) {
   if (!albumId || !displayPrefs.videoCovers || !_cascadePluginCaps.has('animated-art')) return null
   if (_coverVideoCache.has(albumId)) return _coverVideoCache.get(albumId)
-  try {
-    const r = await fetch(`${jf.url}/CascadeServer/AnimatedArt/${encodeURIComponent(albumId)}`, {
-      headers: CascadeCore.authHeaders(jf), signal: AbortSignal.timeout(8000),
-    })
-    const info = r.ok ? await r.json() : null
-    // A video element sends no headers, so the key goes in the query (the
-    // plugin's /File route accepts it).
-    const url = info?.source && typeof info.url === 'string' && info.url.startsWith('/')
-      ? `${jf.url}${info.url}?api_key=${encodeURIComponent(jf.token)}` : null
-    // "pending" (TIDAL still being asked) is not remembered as no.
-    if (url || !info?.pending) _coverVideoCache.set(albumId, url)
-    if (_coverVideoCache.size > 200) _coverVideoCache.delete(_coverVideoCache.keys().next().value)
-    return url
-  } catch {
-    return null
+  // "pending" is TIDAL still being asked, or its video still downloading (a
+  // second or so): ask again a few times while the album is still showing.
+  for (let attempt = 0; attempt < 6; attempt++) {
+    if (attempt) { await new Promise(r => setTimeout(r, 3000)); if (!stillWanted()) return null }
+    try {
+      const r = await fetch(`${jf.url}/CascadeServer/AnimatedArt/${encodeURIComponent(albumId)}`, {
+        headers: CascadeCore.authHeaders(jf), signal: AbortSignal.timeout(8000),
+      })
+      const info = r.ok ? await r.json() : null
+      // A video element sends no headers, so the key goes in the query (the
+      // plugin's /File route accepts it).
+      const url = info?.source && typeof info.url === 'string' && info.url.startsWith('/')
+        ? `${jf.url}${info.url}?api_key=${encodeURIComponent(jf.token)}` : null
+      if (info?.pending) continue
+      _coverVideoCache.set(albumId, url)
+      if (_coverVideoCache.size > 200) _coverVideoCache.delete(_coverVideoCache.keys().next().value)
+      return url
+    } catch {
+      return null
+    }
   }
+  return null
 }
 
 async function animatedArtUrl(artItemId) {
@@ -5577,7 +5583,7 @@ function updateNowPlaying(item) {
     // Or a video cover from Cascade Server (cover.mp4 beside the album, or
     // TIDAL), over the still: the still stays underneath for the background
     // and the album-art accent, which read an image.
-    pluginCoverVideoUrl(artItemId).then(videoUrl => {
+    pluginCoverVideoUrl(artItemId, () => queue[queueIndex]?.Id === animItemId).then(videoUrl => {
       if (!videoUrl || queue[queueIndex]?.Id !== animItemId) return
       const tag = `<video class="art-video" data-album="${esc(artItemId)}" src="${esc(videoUrl)}" autoplay loop muted playsinline disablepictureinpicture aria-hidden="true" onerror="this.remove()"></video>`
       for (const id of ['np-art', 'ov-art']) {
