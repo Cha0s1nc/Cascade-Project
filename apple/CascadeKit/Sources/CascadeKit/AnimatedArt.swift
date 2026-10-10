@@ -10,7 +10,7 @@ public extension JellyfinClient {
         guard let reply: Reply = try? await get("/CascadeServer/AnimatedArt/\(albumId)") else { return (nil, false) }
         guard reply.source != nil, let path = reply.url, path.hasPrefix("/"),
               var c = URLComponents(string: currentConfig.url + path) else { return (nil, reply.pending == true) }
-        c.queryItems = [URLQueryItem(name: "api_key", value: currentConfig.token)]
+        c.queryItems = [URLQueryItem(name: "ApiKey", value: currentConfig.token)]
         return (c.url, false)
     }
 }

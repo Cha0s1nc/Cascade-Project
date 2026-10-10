@@ -480,7 +480,7 @@ async function pluginCoverVideoUrl(albumId, stillWanted = () => true) {
       // A video element sends no headers, so the key goes in the query (the
       // plugin's /File route accepts it).
       const url = info?.source && typeof info.url === 'string' && info.url.startsWith('/')
-        ? `${jf.url}${info.url}?api_key=${encodeURIComponent(jf.token)}` : null
+        ? `${jf.url}${info.url}?ApiKey=${encodeURIComponent(jf.token)}` : null
       if (info?.pending) continue
       _coverVideoCache.set(albumId, url)
       if (_coverVideoCache.size > 200) _coverVideoCache.delete(_coverVideoCache.keys().next().value)
