@@ -19,6 +19,7 @@
     <JellyfinPackageVersion>10.11.0</JellyfinPackageVersion>
     <LoggingPackageVersion>9.0.10</LoggingPackageVersion>
     <JellyfinVersionPart>10</JellyfinVersionPart>
+    <SkiaSharpVersion>3.116.1</SkiaSharpVersion>
   </PropertyGroup>
 
   <!-- Built against 12.0, not 12.1, so it also loads on 12.0 servers. -->
@@ -27,6 +28,7 @@
     <JellyfinPackageVersion>12.0.0</JellyfinPackageVersion>
     <LoggingPackageVersion>10.0.11</LoggingPackageVersion>
     <JellyfinVersionPart>12</JellyfinVersionPart>
+    <SkiaSharpVersion>3.119.4</SkiaSharpVersion>
     <DefineConstants>$(DefineConstants);JELLYFIN12</DefineConstants>
   </PropertyGroup>
 
@@ -49,6 +51,9 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="$(LoggingPackageVersion)" PrivateAssets="All" />
     <!-- Jellyfin ships TagLibSharp 2.3.0 on both 10.11 and 12, so it is not copied into the zip. -->
     <PackageReference Include="TagLibSharp" Version="2.3.0" PrivateAssets="All" ExcludeAssets="runtime" />
+    <!-- Jellyfin ships SkiaSharp too (3.116.1 on 10.11, 3.119.4 on 12), for decoding animated WebP
+         covers, which its ffmpeg cannot. The exact server version, and never copied into the zip. -->
+    <PackageReference Include="SkiaSharp" Version="$(SkiaSharpVersion)" PrivateAssets="All" ExcludeAssets="runtime;native" />
   </ItemGroup>
 
   <ItemGroup>

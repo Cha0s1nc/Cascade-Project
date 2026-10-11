@@ -11,6 +11,7 @@ using Jellyfin.Plugin.CascadeServer.Media;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Net;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -38,12 +39,12 @@ public class AnimatedArtController : ControllerBase
     /// <summary>Initialises a new instance of <see cref="AnimatedArtController"/>.</summary>
     public AnimatedArtController(
         ILibraryManager libraryManager, IApplicationPaths paths, IAuthorizationContext auth,
-        IHttpClientFactory httpClientFactory, ILogger<AnimatedArtController> logger)
+        IHttpClientFactory httpClientFactory, IMediaEncoder mediaEncoder, ILogger<AnimatedArtController> logger)
     {
         _libraryManager = libraryManager;
         _paths = paths;
         _auth = auth;
-        _service = new AnimatedArtService(paths, httpClientFactory, logger);
+        _service = new AnimatedArtService(paths, httpClientFactory, logger, mediaEncoder.EncoderPath);
     }
 
     /// <summary>The body of the link route.</summary>
@@ -163,7 +164,11 @@ public class AnimatedArtController : ControllerBase
         try
         {
             var folder = AnimatedArtService.AlbumFolder(album, AnimatedArtService.Tracks(album));
-            foreach (var path in AllSidecars(album.Id, folder).Where(System.IO.File.Exists))
+            // An animated image in the folder is the cover too, so it goes, with the video made from it.
+            // (An upload leaves it alone: the uploaded video already outranks it.)
+            System.Collections.Generic.IEnumerable<string> images = folder is null ? []
+                : AnimatedImage.Names.Select(n => Path.Combine(folder, n)).Where(AnimatedArtService.IsAnimatedFile);
+            foreach (var path in AllSidecars(album.Id, folder).Concat(images).Where(System.IO.File.Exists))
             {
                 System.IO.File.Delete(path);
                 removed = true;
@@ -174,6 +179,7 @@ public class AnimatedArtController : ControllerBase
             return Conflict(new { error = "The sidecar is in a folder this server cannot write to, so it cannot remove it." });
         }
 
+        foreach (var path in ImageToVideo.Files(_paths, album.Id).Where(System.IO.File.Exists)) System.IO.File.Delete(path);
         return removed ? NoContent() : NotFound();
     }
 

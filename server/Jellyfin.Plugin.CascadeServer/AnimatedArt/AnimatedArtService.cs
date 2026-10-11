@@ -47,13 +47,16 @@ public sealed class AnimatedArtService
     private readonly IApplicationPaths _paths;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger _logger;
+    private readonly string _ffmpeg;
 
     /// <summary>Initialises a new instance of <see cref="AnimatedArtService"/>.</summary>
-    public AnimatedArtService(IApplicationPaths paths, IHttpClientFactory httpClientFactory, ILogger logger)
+    /// <param name="ffmpeg">Jellyfin's ffmpeg, which turns animated images into video.</param>
+    public AnimatedArtService(IApplicationPaths paths, IHttpClientFactory httpClientFactory, ILogger logger, string ffmpeg)
     {
         _paths = paths;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
+        _ffmpeg = ffmpeg;
     }
 
     /// <summary>Where a sidecar that could not be put in the album folder is kept.</summary>
@@ -95,8 +98,12 @@ public sealed class AnimatedArtService
         return names.Length > 0 ? names : ["cover.mp4", "cover.webm"];
     }
 
-    /// <summary>The sidecar or upload for the album, if there is one.</summary>
-    public Art? FindLocal(MusicAlbum album, List<Audio> tracks)
+    /// <summary>
+    /// The sidecar or upload for the album, if there is one: a video in the folder, then an upload,
+    /// then an animated GIF, WebP or APNG in the folder, served as the MP4 it was turned into.
+    /// <c>Pending</c> while that is being made; <paramref name="convert"/> starts it.
+    /// </summary>
+    public (Art? Art, bool Pending) FindLocal(MusicAlbum album, List<Audio> tracks, bool convert)
     {
         var folder = AlbumFolder(album, tracks);
         var candidates = new List<string>();
@@ -106,10 +113,40 @@ public sealed class AnimatedArtService
         foreach (var path in candidates)
         {
             if (!System.IO.File.Exists(path)) continue;
-            return new Art("sidecar", FileUrl(album.Id), TidalParse.VideoContentType(path)!, null, null, System.IO.File.GetLastWriteTimeUtc(path), path);
+            return (new Art("sidecar", FileUrl(album.Id), TidalParse.VideoContentType(path)!, null, null, System.IO.File.GetLastWriteTimeUtc(path), path), false);
         }
 
-        return null;
+        if (folder is null) return (null, false);
+        foreach (var path in AnimatedImage.Names.Select(n => Path.Combine(folder, n)))
+        {
+            if (!IsAnimatedFile(path)) continue;
+            if (ImageToVideo.Ready(_paths, album.Id, path) is { } mp4)
+            {
+                return (new Art("sidecar", FileUrl(album.Id), "video/mp4", null, null, System.IO.File.GetLastWriteTimeUtc(mp4), mp4), false);
+            }
+
+            if (ImageToVideo.Failed(_paths, album.Id, path)) continue;
+            if (convert) ImageToVideo.Start(_paths, _ffmpeg, _logger, album.Id, path);
+            return (null, true);
+        }
+
+        return (null, false);
+    }
+
+    /// <summary>Whether the file is there and an animated image (<see cref="AnimatedImage.IsAnimated"/>).</summary>
+    public static bool IsAnimatedFile(string path)
+    {
+        try
+        {
+            using var f = System.IO.File.OpenRead(path);
+            var head = new byte[AnimatedImage.HeadBytes];
+            var n = f.ReadAtLeast(head, head.Length, throwOnEndOfStream: false);
+            return AnimatedImage.IsAnimated(head.AsSpan(0, n));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     /// <summary>What can be served from this server right now. Asks TIDAL nothing.</summary>
@@ -117,7 +154,7 @@ public sealed class AnimatedArtService
     {
         foreach (var source in Sources())
         {
-            var art = source == "sidecar" ? FindLocal(album, tracks) : CachedTidal(album.Id, serveFilesOnly: true);
+            var art = source == "sidecar" ? FindLocal(album, tracks, convert: false).Art : CachedTidal(album.Id, serveFilesOnly: true);
             if (art is not null) return art;
         }
 
@@ -132,8 +169,10 @@ public sealed class AnimatedArtService
         {
             if (source == "sidecar")
             {
-                var local = FindLocal(album, tracks);
+                var (local, converting) = FindLocal(album, tracks, convert: true);
                 if (local is not null) return new Answer(local, false);
+                // An animated image being turned into video wins over TIDAL; ask again shortly.
+                if (converting) return new Answer(null, true);
                 continue;
             }
 
