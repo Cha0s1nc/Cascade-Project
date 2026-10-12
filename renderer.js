@@ -6039,6 +6039,12 @@ onDeck('seeked', () => {
 // Both scrubbers show the same numbers, so they are filled from one place -
 // they used to be two near-identical handlers reading audio.currentTime, and
 // only one of them got fixed the first time the offset mattered.
+// While a seek is being picked (a drag, or arrow keys before they settle), the
+// seconds it is headed for: the bar shows it, the right-hand time reads it, and
+// the left one keeps counting the song as it plays. Playback would otherwise
+// paint over the drag on every tick and snap it back. Null otherwise.
+let _scrubTarget = null
+
 function syncProgressUI() {
   const cur = mediaPosition()
   const dur = mediaDuration()
@@ -6046,13 +6052,15 @@ function syncProgressUI() {
   // render that as a literal "Infinity:00" rather than failing loudly, so it
   // needs its own label, and the bar stays at 0% rather than NaN%.
   const live = !isFinite(dur)
-  const durText = live ? 'LIVE' : fmtTime(dur)
-  const pct = !live && dur ? `${Math.min(100, (cur / dur) * 100)}%` : '0%'
+  const scrub = !live && dur && _scrubTarget != null
+  const shown = scrub ? _scrubTarget : cur
+  const durText = live ? 'LIVE' : fmtTime(scrub ? _scrubTarget : dur)
+  const pct = !live && dur ? `${Math.min(100, (shown / dur) * 100)}%` : '0%'
 
   document.getElementById('prog-cur').textContent = fmtTime(cur)
   document.getElementById('prog-dur').textContent = durText
   document.getElementById('prog-fill').style.width = pct
-  setBarAriaNow(document.getElementById('prog-bar'), cur, dur, fmtTime(cur))
+  setBarAriaNow(document.getElementById('prog-bar'), shown, dur, fmtTime(shown))
 
   pushMiniplayerState()
 
@@ -6060,7 +6068,7 @@ function syncProgressUI() {
   document.getElementById('ov-cur').textContent = fmtTime(cur)
   document.getElementById('ov-dur').textContent = durText
   document.getElementById('ov-prog-fill').style.width = pct
-  setBarAriaNow(document.getElementById('ov-prog-bar'), cur, dur, fmtTime(cur))
+  setBarAriaNow(document.getElementById('ov-prog-bar'), shown, dur, fmtTime(shown))
 }
 
 onDeck('timeupdate', syncProgressUI)
@@ -6811,7 +6819,7 @@ function setBarAriaNow(bar, now, max, text) {
  *  transcode re-requests the stream, so seeking per pixel or per keypress would
  *  fire a request storm at the server, while the fill and time label still track
  *  live so the interaction feels immediate. */
-function wireProgressBar(barId, fillId, curId) {
+function wireProgressBar(barId) {
   const bar = document.getElementById(barId)
   wireBar(bar, {
     // A live radio stream's duration is Infinity - never a seekable target,
@@ -6823,12 +6831,17 @@ function wireProgressBar(barId, fillId, curId) {
     bigStep:  () => { const dur = mediaDuration(); return dur && isFinite(dur) ? 30 / dur : 0.1 },
     onChange: (ratio) => {
       const dur = mediaDuration()
-      if (!isFinite(dur)) return
-      document.getElementById(fillId).style.width = `${ratio * 100}%`
-      if (dur) document.getElementById(curId).textContent = fmtTime(ratio * dur)
-      setBarAriaNow(bar, ratio * dur, dur, fmtTime(ratio * dur))
+      if (!dur || !isFinite(dur)) return
+      _scrubTarget = ratio * dur
+      syncProgressUI()
     },
-    onCommit: (ratio) => { const dur = mediaDuration(); if (dur && isFinite(dur)) seekTo(ratio * dur) },
+    // Held on the target until the seek has landed, so the bar never shows the old spot in between.
+    onCommit: async (ratio) => {
+      const dur = mediaDuration()
+      if (dur && isFinite(dur)) await seekTo(ratio * dur).catch(() => {})
+      _scrubTarget = null
+      syncProgressUI()
+    },
   })
 }
 
@@ -6844,7 +6857,7 @@ function wireVolumeBar(barId) {
   })
 }
 
-wireProgressBar('prog-bar', 'prog-fill', 'prog-cur')
+wireProgressBar('prog-bar')
 wireVolumeBar('vol-bar')
 
 document.getElementById('btn-mute').addEventListener('click', () => {
@@ -8909,7 +8922,7 @@ document.getElementById('ov-repeat').addEventListener('click', () => {
   document.getElementById('btn-repeat').click()
 })
 // Overlay progress bar - shares wireProgressBar() with the statusbar one.
-wireProgressBar('ov-prog-bar', 'ov-prog-fill', 'ov-cur')
+wireProgressBar('ov-prog-bar')
 
 // ── Video controls ────────────────────────────────────────────────────────────
 //
