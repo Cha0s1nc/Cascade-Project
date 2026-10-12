@@ -9,7 +9,7 @@ A native Android client for Cascade, a Jellyfin music player (video is secondary
 - **Desktop (Electron):** the repo root. `renderer.js` (one large file), `index.html`, `styles/`, and the pure, tested logic in `src/core/*.ts` (bundled as the global `CascadeCore`). This is the original and the feature reference.
 - **Apple (Swift):** `apple/`. iOS, tvOS and a native Mac app. `apple/CascadeKit/` is a Swift package of pure logic ported from `src/core` with its tests; `apple/App/Sources/` is the SwiftUI app shared by iOS and tvOS; `apple/App/Mac/` is Mac-only. Read `apple/CODEMAP.md` first: it is the closest model for what you are doing (a native app built from the desktop's logic).
 
-The Android app goes in **`android/`**, as a standard Gradle project with the wrapper checked in and the app module at `android/app`. Use the application id `xyz.chaosinc.cascade`, matching the Apple bundle id. Use **Kotlin, Jetpack Compose and Media3 (ExoPlayer plus MediaSessionService)**. An older Flutter attempt exists in a separate local repo (`Cascade-Android`, never finished, described by its own last commit as broken); it is not the base and nothing should be copied from it.
+The Android app goes in **`android/`**, as a standard Gradle project with the wrapper checked in and the app module at `android/app`. Use the application id `xyz.chaosinc.cascade.android`, following the Apple apps (`xyz.chaosinc.cascade.ios`, `xyz.chaosinc.cascade.tvos`). Use **Kotlin, Jetpack Compose and Media3 (ExoPlayer plus MediaSessionService)**. An older Flutter attempt exists in a separate local repo (`Cascade-Android`, never finished, described by its own last commit as broken); it is not the base and nothing should be copied from it.
 
 ## Ground rules (from the maintainer)
 
