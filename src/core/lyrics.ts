@@ -57,6 +57,25 @@ export function currentLyricIndex(lines: LyricLine[], baseIdx: number, nowTicks:
   return baseIdx
 }
 
+/** How close a line must follow the one before to count as tight. */
+export const TIGHT_GAP_TICKS = 5_000_000   // 0.5s
+
+/**
+ * The line after `activeIdx` when it is tight (starts within TIGHT_GAP_TICKS
+ * of the active line's end, without overlapping it) and starts within
+ * `leadTicks` from now, so the scroll can head there early. Null otherwise,
+ * including when the active line's end is unknown (plain LRC).
+ */
+export function tightScrollTarget(lines: LyricLine[], activeIdx: number, nowTicks: number, leadTicks: number): number | null {
+  const cur = lines[activeIdx], next = lines[activeIdx + 1]
+  if (!cur || next?.Start == null || !(leadTicks > 0)) return null
+  const end = lineEndTicks(cur)
+  if (end == null) return null
+  const gap = next.Start - end
+  if (gap < 0 || gap > TIGHT_GAP_TICKS) return null
+  return next.Start - nowTicks <= leadTicks ? activeIdx + 1 : null
+}
+
 /** When a line is sung to: the latest of its own End, its last word's and
  *  its last background word's. Null when nothing says (plain LRC). */
 export function lineEndTicks(line: LyricLine): number | null {

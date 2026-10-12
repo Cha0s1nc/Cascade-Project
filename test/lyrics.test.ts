@@ -6,7 +6,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseLRC, parseKrc, lyricsTextMatch, isEmphasisWord, currentLyricIndex, activeLyricRange } from '../src/core/lyrics.ts'
+import { parseLRC, parseKrc, lyricsTextMatch, isEmphasisWord, currentLyricIndex, activeLyricRange, tightScrollTarget } from '../src/core/lyrics.ts'
 
 const SEC = 10_000_000   // ticks per second
 const MS = 10_000        // ticks per millisecond
@@ -191,4 +191,21 @@ test('activeLyricRange: only lines still sung when the current one began, not a 
   // Two earlier lines both still going when the current one began: both lit.
   assert.deepEqual(activeLyricRange([l(0, 12), l(4, 12), l(8, 12)], 2, 10 * SEC), [0, 2])
   assert.deepEqual(activeLyricRange([l(0, null), l(1, null)], 1, 2 * SEC), [1, 1])
+})
+
+test('tightScrollTarget: a close next line pulls the scroll early, an overlap or a wide gap does not', () => {
+  const s = (sec: number) => sec * 10_000_000
+  const lines = [
+    { Text: 'a', Start: s(0), End: s(2) },
+    { Text: 'b', Start: s(2.3), End: s(4) },   // 0.3s after a: tight
+    { Text: 'c', Start: s(5), End: s(7) },     // 1s after b: not
+    { Text: 'd', Start: s(6.5), End: s(8) },   // overlaps c: the duet case
+  ]
+  const lead = s(0.4)
+  assert.equal(tightScrollTarget(lines, 0, s(1.95), lead), 1)
+  assert.equal(tightScrollTarget(lines, 0, s(1.8), lead), null, 'not yet within the lead')
+  assert.equal(tightScrollTarget(lines, 1, s(4.8), lead), null, 'gap too wide')
+  assert.equal(tightScrollTarget(lines, 2, s(6.4), lead), null, 'overlap')
+  assert.equal(tightScrollTarget(lines, 0, s(1.95), 0), null, 'knob off')
+  assert.equal(tightScrollTarget([{ Text: 'a', Start: 0 }, { Text: 'b', Start: s(1) }], 0, s(0.9), lead), null, 'no end known')
 })
