@@ -138,3 +138,7 @@ html[data-theme="light"] .lsd-item:hover:not(.active) { color: #f5f5f7; }
 /* The next song's lyrics under the last line; the divider's look is in np-overlay.css. */
 #lyrics-inner .lyrics-next-divider, .lyrics-ghost .lyrics-next-divider { color: var(--text); font-size: 20px; height: calc(2 * (1.35em + 20px)); }
 .lyrics-line.lyric-preview { opacity: 0.18; }
+
+/* Untimed lyrics: a list you scroll yourself, every line readable. */
+.lyrics-body.plain { overflow-y: auto; }
+.lyrics-body.plain .lyrics-line { opacity: 0.92; }

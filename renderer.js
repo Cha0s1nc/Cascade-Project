@@ -9533,6 +9533,15 @@ async function renderOverlayLyrics() {
     return
   }
 
+  if (_lyricsPlain()) {
+    // From the top, with room above the first line.
+    ovLyricsBaseY = 40 - (body.querySelector('.ov-lyric-line[data-idx="0"]')?.offsetTop || 0)
+    ovLyricsSpring.jumpTo(ovLyricsBaseY)
+    detectOverlayLyricsLanguage()
+    ensureLyricsTranslation()
+    return
+  }
+
   // Jump to a neutral position instantly, then let the spring glide in to the
   // actual current line - no CSS-transition reflow trick needed since jumpTo()
   // bypasses the animation loop entirely.
@@ -9552,6 +9561,7 @@ async function renderOverlayLyrics() {
 
 function renderOverlayLyricLines() {
   const body = document.getElementById('ov-lyrics-body')
+  body.classList.toggle('plain', _lyricsPlain())
   body.innerHTML = lyricsData.map((line, i) => {
     const hasTimestamp = line.Start != null
     // The original always stays, karaoke fill included; a translation sits
@@ -10018,6 +10028,7 @@ function _sideRollIn() {
 let ovActiveFirst = -1
 
 function updateOverlayLyricsActive(activeIdx, instant, first = activeIdx) {
+  if (_lyricsPlain()) return   // nothing to follow
   const body = document.getElementById('ov-lyrics-body')
   const panel = document.getElementById('ov-panel-lyrics')
   ovActiveFirst = first
@@ -10096,6 +10107,10 @@ function _lyricScrollAhead(nowSec, baseIdx, activeIdx) {
   return [idx, CascadeCore.activeLyricRange(lyricsData, idx, t * 10_000_000)[0]]
 }
 
+// Untimed lyrics (LRCLIB's plain text): a page to read, every line shown and
+// nothing followed, rather than the first line lit and the rest blurred away.
+const _lyricsPlain = () => lyricsData.length > 0 && lyricsData.every(l => l.Start == null)
+
 // The lit line, moved to the next one tightScrollLead seconds early when that
 // follows it closely (tightScrollTarget): the highlight and the scroll go
 // together, so back-to-back lines do not arrive late.
@@ -10137,6 +10152,13 @@ updateNowPlaying = function(item) { _ovLyricsReset(item); lastOverlayLyricsIdx =
 document.getElementById('ov-panel-lyrics').addEventListener('wheel', (e) => {
   if (!lyricsData.length) return
   e.preventDefault()
+  if (_lyricsPlain()) {
+    // A page: it stays where it is scrolled to, between the first line at the top and the last mid-panel.
+    const top = 40 - (document.querySelector('#ov-lyrics-body .ov-lyric-line[data-idx="0"]')?.offsetTop || 0)
+    ovLyricsBaseY = Math.min(top, Math.max(_ovLyricsTranslateYFor(lyricsData.length - 1), ovLyricsBaseY - e.deltaY))
+    ovLyricsSpring.setPos(ovLyricsBaseY)
+    return
+  }
   const minY = _ovLyricsTranslateYFor(lyricsData.length - 1)
   const maxY = _ovLyricsTranslateYFor(0)
   const wantedY = ovLyricsBaseY + ovLyricsManualOffset - e.deltaY
@@ -10158,7 +10180,7 @@ document.getElementById('ov-panel-lyrics').addEventListener('wheel', (e) => {
 }, { passive: false })
 
 onDeck('timeupdate', () => {
-  if (!overlayOpen || !overlayLyricsOpen || !lyricsData.length) return
+  if (!overlayOpen || !overlayLyricsOpen || !lyricsData.length || _lyricsPlain()) return
   // Same lookahead as word-fill (_wordHighlightFrame) so the last word's fill
   // animation and the line-promotion check complete in lockstep - no gap in
   // either direction (mid-fill cutoff if promotion is earlier, a visible
@@ -12341,6 +12363,9 @@ function renderLyrics() {
   // (see sideLyricsSpring), not CSS transitions, so no transition property here.
   _sideSetBody(`<div id="lyrics-inner" style="will-change:transform;padding-bottom:50%">${lines}</div>`)
   sideLyricsSpring.jumpTo(0)  // fresh element, don't carry over the previous track's position
+  // Untimed lyrics are a plain list to scroll (_lyricsPlain), not a sheet that follows the song.
+  body.classList.toggle('plain', _lyricsPlain())
+  if (_lyricsPlain()) body.scrollTop = 0
   _refreshLyricsPreviews(true)
 
   body.querySelectorAll('.lyrics-line.seekable').forEach(el => {
@@ -12365,7 +12390,7 @@ let lyricsScrollSuppressed = false
 let lyricsScrollTimer = null
 
 onDeck('timeupdate', () => {
-  if (!lyricsData.length) return
+  if (!lyricsData.length || _lyricsPlain()) return
   // Nothing below is visible with the panel closed, and all of it is expensive:
   // a class pass over every line, then clientHeight/offsetTop reads that force
   // synchronous layout, then a spring that starts its own rAF. Safe to bail
@@ -12403,6 +12428,7 @@ let sideAheadKey = ''
 let lyricsActiveFirst = -1
 
 function _applySideLyricsActive(activeIdx, instant, first = activeIdx, ahead = null) {
+  if (_lyricsPlain()) return   // nothing to follow
   lastLyricsIdx = activeIdx
   lyricsActiveFirst = first
   const body = document.getElementById('lyrics-body')

@@ -488,3 +488,6 @@ html[data-theme="light"] #ov-panel-lyrics.browsing .ov-lyric-line.active { color
 .lyrics-next-divider::after { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 2px; margin-top: -1px; border-radius: 1px; background: currentColor; opacity: 0.35; }
 #ov-lyrics-body .lyrics-next-divider, .ov-lyrics-ghost .lyrics-next-divider { color: white; font-size: calc(clamp(22px, 3vw, 50px) * var(--np-lyric-scale, 1)); height: calc(2 * (1.25em + var(--ly-line-gap, 8px))); margin: 0 56px; max-width: calc(min(900px, 92%) - 112px); }
 .ov-lyric-line.lyric-preview { opacity: var(--ly-next3-opacity, 0.1); filter: blur(var(--ly-next3-blur, 4px)); }
+
+/* Untimed lyrics (renderer.js _lyricsPlain): every line readable, none followed. */
+#ov-lyrics-body.plain .ov-lyric-line { opacity: 0.92; filter: none; transform: none; transition: none; }
