@@ -10084,19 +10084,24 @@ function _scanLyricsBaseIdx(nowSec, fromIdx) {
   return baseIdx
 }
 
-// The line (and its group's first) the scroll heads for ahead of the lit one:
-// the one current scrollLead seconds from now, when that knob is on, or a
-// tight next line tightScrollLead seconds before it starts (tightScrollTarget).
-// Null leaves the scroll on the lit line, as before.
+// The line (and its group's first) the scroll heads for when the Scroll ahead
+// knob is on: the one current scrollLead seconds from now, if that is past the
+// lit one. Null leaves the scroll on the lit line, as before.
 function _lyricScrollAhead(nowSec, baseIdx, activeIdx) {
   const lead = lyricStyle.scrollLead
-  if (lead > 0) {
-    const t = nowSec + lead
-    const idx = CascadeCore.currentLyricIndex(lyricsData, _scanLyricsBaseIdx(t, Math.max(0, baseIdx)), t * 10_000_000)
-    if (idx > activeIdx) return [idx, CascadeCore.activeLyricRange(lyricsData, idx, t * 10_000_000)[0]]
-  }
-  const tight = CascadeCore.tightScrollTarget(lyricsData, activeIdx, nowSec * 10_000_000, (lyricStyle.tightScrollLead || 0) * 10_000_000)
-  return tight == null ? null : [tight, tight]
+  if (!(lead > 0)) return null
+  const t = nowSec + lead
+  const idx = CascadeCore.currentLyricIndex(lyricsData, _scanLyricsBaseIdx(t, Math.max(0, baseIdx)), t * 10_000_000)
+  if (!(idx > activeIdx)) return null
+  return [idx, CascadeCore.activeLyricRange(lyricsData, idx, t * 10_000_000)[0]]
+}
+
+// The lit line, moved to the next one tightScrollLead seconds early when that
+// follows it closely (tightScrollTarget): the highlight and the scroll go
+// together, so back-to-back lines do not arrive late.
+function _lyricFocusIdx(nowSec, baseIdx) {
+  const idx = CascadeCore.currentLyricIndex(lyricsData, baseIdx, nowSec * 10_000_000)
+  return CascadeCore.tightScrollTarget(lyricsData, idx, nowSec * 10_000_000, (lyricStyle.tightScrollLead || 0) * 10_000_000) ?? idx
 }
 
 // Returns the translateY that would center a given line, independent of the
@@ -10165,7 +10170,7 @@ onDeck('timeupdate', () => {
   // Karaoke: promote early once a line (background vocals included) is sung,
   // and hold a line while its background vocals run into the next one. Shared
   // with the side panel; see currentLyricIndex in src/core/lyrics.ts.
-  const activeIdx = CascadeCore.currentLyricIndex(lyricsData, baseIdx, nowSec * 10_000_000)
+  const activeIdx = _lyricFocusIdx(nowSec, baseIdx)
   // Overlapping lines (a duet, a call and response) stay lit together until
   // the later one ends: activeLyricRange in src/core/lyrics.ts.
   const [first] = CascadeCore.activeLyricRange(lyricsData, activeIdx, nowSec * 10_000_000)
@@ -12378,7 +12383,7 @@ onDeck('timeupdate', () => {
   // Karaoke: promote early once a line (background vocals included) is sung,
   // and hold a line while its background vocals run into the next one. Shared
   // with the overlay; see currentLyricIndex in src/core/lyrics.ts.
-  const activeIdx = CascadeCore.currentLyricIndex(lyricsData, baseIdx, nowSec * 10_000_000)
+  const activeIdx = _lyricFocusIdx(nowSec, baseIdx)
   // Overlapping lines stay lit together, as in the overlay above.
   const [first] = CascadeCore.activeLyricRange(lyricsData, activeIdx, nowSec * 10_000_000)
   const ahead = _lyricScrollAhead(nowSec, baseIdx, activeIdx)

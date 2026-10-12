@@ -60,9 +60,9 @@ export const LYRIC_KNOBS: readonly LyricKnob[] = [
   // there when that line lights; the highlight keeps to the timing above.
   { key: 'scrollLead', section: 'Motion', label: 'Scroll ahead (s)', min: 0, max: 1, step: 0.05, value: 0 },
   // Only for a line that follows the one before closely (within half a second
-  // of its end, without overlapping it): the scroll heads for it this early,
-  // so back-to-back lines do not arrive late. 0 turns it off.
-  { key: 'tightScrollLead', section: 'Motion', label: 'Scroll ahead on tight lines (s)', min: 0, max: 1, step: 0.05, value: 0.4 },
+  // of its end, without overlapping it): it lights, and the scroll heads for
+  // it, this early, so back-to-back lines do not arrive late. 0 turns it off.
+  { key: 'tightScrollLead', section: 'Motion', label: 'Scroll ahead on tight lines (s)', min: 0, max: 1, step: 0.05, value: 0.25 },
 ]
 
 export type LyricStyle = Record<string, number>
