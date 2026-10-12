@@ -37,12 +37,55 @@ final class LyricsModel {
     /// whole waterfall on every track, as the desktop once did.
     private static var cache: [String: LyricsOutcome] = [:]
 
-    func load(item: JfItem?, state: AppState) async {
+    /// The song playback moves on to by itself and its lyrics, for the preview under the last
+    /// line (LyricsRoll); nil while loading, or when it has no timed lyrics.
+    private(set) var next: (id: String, lines: [LyricLine])?
+    @ObservationIgnored private var nextKey: String?
+
+    /// What changes the answer for an item: the plugin, server-only, a Spotify link, a forced source.
+    private func key(_ item: JfItem?, _ state: AppState) -> String {
         let plugin = state.cascadePluginApi.map { (api: $0, info: state.cascadePluginInfo) }
         let spotifyId = item.flatMap { state.localSpotifyLinks[$0.id] }
-        let forced = LyricsPrefs.shared.forcedSource
-        let key = [item?.id ?? "", String(describing: plugin?.api), "\(plugin?.info.capabilities.sorted() ?? [])",
-                   "\(state.serverOnlyLyrics)", spotifyId ?? "", "\(state.lyricsRevision)", forced.rawValue].joined(separator: "|")
+        return [item?.id ?? "", String(describing: plugin?.api), "\(plugin?.info.capabilities.sorted() ?? [])",
+                "\(state.serverOnlyLyrics)", spotifyId ?? "", "\(state.lyricsRevision)",
+                LyricsPrefs.shared.forcedSource.rawValue].joined(separator: "|")
+    }
+
+    /// The next song's lyrics, through the same cache, so the sheet is ready when it plays.
+    func loadNext(item: JfItem?, state: AppState) async {
+        guard let item, item.type == "Audio", state.client != nil else { nextKey = nil; next = nil; return }
+        let key = key(item, state)
+        guard key != nextKey else { return }
+        nextKey = key
+        next = nil
+        let outcome = await fetch(item, key: key, state: state)
+        guard nextKey == key, let result = outcome.result, result.synced, !result.instrumental, !result.lines.isEmpty else { return }
+        next = (item.id, result.lines)
+    }
+
+    private func fetch(_ item: JfItem, key: String, state: AppState) async -> LyricsOutcome {
+        if let hit = Self.cache[key] { return hit }
+        guard let client = state.client else { return LyricsOutcome(result: nil, tried: [:]) }
+        let plugin = state.cascadePluginApi.map { (api: $0, info: state.cascadePluginInfo) }
+        let track = LyricsWaterfall.Track(id: item.id, title: item.name ?? "",
+                                          artist: item.albumArtist ?? item.artists?.first ?? "", album: item.album ?? "",
+                                          durationSeconds: Double(item.runTimeTicks ?? 0) / Double(Lyrics.ticksPerSecond))
+        #if os(macOS)
+        let platform = "Mac"
+        #else
+        let platform = "iOS"
+        #endif
+        let outcome = await LyricsWaterfall.fetchDetailed(track, client: client, plugin: plugin,
+                                                          serverOnly: state.serverOnlyLyrics,
+                                                          spotifyId: state.localSpotifyLinks[item.id],
+                                                          userAgent: "Cascade/\(state.appVersion) (\(platform); Jellyfin music client)",
+                                                          forced: LyricsPrefs.shared.forcedSource)
+        Self.cache[key] = outcome
+        return outcome
+    }
+
+    func load(item: JfItem?, state: AppState) async {
+        let key = key(item, state)
         guard key != loadedKey else { return }
         show(nil)
         loadedKey = key
@@ -61,25 +104,13 @@ final class LyricsModel {
             return
         }
         #endif
-        guard let item, let client = state.client else { return }
+        guard let item, state.client != nil else { return }
         if let hit = Self.cache[key] {
             show(hit.result, tried: hit.tried)
             return
         }
         isLoading = true
-        let track = LyricsWaterfall.Track(id: item.id, title: item.name ?? "",
-                                          artist: item.albumArtist ?? item.artists?.first ?? "", album: item.album ?? "",
-                                          durationSeconds: Double(item.runTimeTicks ?? 0) / Double(Lyrics.ticksPerSecond))
-        #if os(macOS)
-        let platform = "Mac"
-        #else
-        let platform = "iOS"
-        #endif
-        let outcome = await LyricsWaterfall.fetchDetailed(track, client: client, plugin: plugin,
-                                                          serverOnly: state.serverOnlyLyrics, spotifyId: spotifyId,
-                                                          userAgent: "Cascade/\(state.appVersion) (\(platform); Jellyfin music client)",
-                                                          forced: forced)
-        Self.cache[key] = outcome
+        let outcome = await fetch(item, key: key, state: state)
         // A newer track may have started while this one was in flight.
         guard loadedKey == key else { return }
         show(outcome.result, tried: outcome.tried)
@@ -297,6 +328,11 @@ struct LyricsView: View {
     /// The on-device translation of each line, by index, shown under it. Empty
     /// while off or on tvOS, which has no Translation framework.
     var translations: [Int: String] = [:]
+    /// The last song's lines above a divider, while playback has just moved on into this one
+    /// (LyricsRoll): the scroll carries on from them instead of the sheet starting over.
+    var previous: [LyricLine]?
+    /// The next song's lines under a divider after the last line, dim and still.
+    var next: [LyricLine]?
 
     @Environment(\.lyricInk) private var ink
     @Environment(\.lyricScale) private var scale
@@ -311,6 +347,8 @@ struct LyricsView: View {
     @State private var scrollLine: Int?
     @State private var browsing = false
     @State private var settleTask: Task<Void, Never>?
+    /// The carried-on last song's last line still shows lit (see `previous`).
+    @State private var previousLit = true
 
     /// How long manual browsing holds after the last scroll before the lyrics spring back to
     /// the current line: 2.5 s on a phone, 2.2 s on the desktop's wheel.
@@ -371,6 +409,21 @@ struct LyricsView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
+                        // Their own identities: a ForEach's are scroll targets too, and plain numbers
+                        // would be taken for this song's lines.
+                        if let previous {
+                            ForEach(previous.indices.map(OtherSongLine.previous), id: \.self) { key in
+                                let index = key.index
+                                // Its last line was lit when the song ended: it stays so, sung through,
+                                // then settles with the rest (previousLit), so nothing below moves at once.
+                                let lit = previousLit && index == previous.count - 1
+                                LyricLineView(line: previous[index], distance: lit ? 0 : -1, browsing: browsing, emphasis: emphasis,
+                                              player: player, translation: nil, finished: true)
+                                    .id(key)
+                                    .accessibilityHidden(true)
+                            }
+                            LyricsDivider()
+                        }
                         ForEach(lines.indices, id: \.self) { index in
                             LyricLineView(line: lines[index],
                                           distance: Lyrics.lineDistance(index, group: group),
@@ -384,6 +437,17 @@ struct LyricsView: View {
                                     Task { await player.seek(to: start + StyleTuning.shared.values.lyricsDelay) }
                                 }
                                 #endif
+                        }
+                        if let next {
+                            LyricsDivider()
+                            // As the lines three ahead look, which is how tall they are once current.
+                            ForEach(next.indices.map(OtherSongLine.next), id: \.self) { key in
+                                let index = key.index
+                                LyricLineView(line: next[index], distance: 3, browsing: browsing, emphasis: emphasis,
+                                              player: player, translation: nil)
+                                    .id(key)
+                                    .accessibilityHidden(true)
+                            }
                         }
                     }
                     // Room for the first and last lines to reach the current
@@ -417,6 +481,24 @@ struct LyricsView: View {
                     guard !browsing else { return }
                     withAnimation(LyricStyle.scroll) { proxy.scrollTo(scrollTarget, anchor: LyricStyle.anchor) }
                 }
+                // A new song in the same sheet (LyricsRoll's carry-on): glide to it even when its
+                // line number happens to match the last song's.
+                .onChange(of: lines.first?.start) { _, _ in
+                    if previous != nil { withAnimation(LyricStyle.fade) { previousLit = false } }
+                    guard !browsing else { return }
+                    withAnimation(LyricStyle.scroll) { proxy.scrollTo(scrollTarget, anchor: LyricStyle.anchor) }
+                }
+                // The last song's lines leave from above once the glide is over: put the current
+                // line straight back where it was, so nothing visibly moves.
+                .onChange(of: previous == nil) { _, gone in
+                    guard gone else { return }
+                    previousLit = true
+                    guard !browsing else { return }
+                    var still = Transaction()
+                    still.disablesAnimations = true
+                    withTransaction(still) { proxy.scrollTo(scrollTarget, anchor: LyricStyle.anchor) }
+                    DispatchQueue.main.async { withTransaction(still) { proxy.scrollTo(scrollTarget, anchor: LyricStyle.anchor) } }
+                }
                 .onAppear {
                     (active, group) = current()
                     scrollLine = aheadTarget()
@@ -447,7 +529,10 @@ struct LyricsView: View {
     private func current(aheadSeconds: Double = 0) -> (Int?, ClosedRange<Int>?) {
         let now = LyricStyle.nowTicks(player) + Int(aheadSeconds * Double(Lyrics.ticksPerSecond))
         guard let base = Lyrics.activeLineIndex(lines, at: now) else { return (nil, nil) }
-        let index = Lyrics.currentLineIndex(lines, base: base, at: now)
+        var index = Lyrics.currentLineIndex(lines, base: base, at: now)
+        // A tight next line takes over early, highlight and scroll together.
+        let tight = Int(StyleTuning.shared.values.tightScrollLead * Double(Lyrics.ticksPerSecond))
+        index = Lyrics.tightNextIndex(lines, after: index, at: now, lead: tight) ?? index
         return (index, Lyrics.activeRange(lines, index, at: now))
     }
 
@@ -475,6 +560,8 @@ private struct LyricLineView: View {
     let player: PlaybackService
     /// The English line to show under the original, if any.
     var translation: String?
+    /// Lit but over: every word sung, no clock (the last song's last line, carried on from).
+    var finished = false
 
     @Environment(\.lyricInk) private var ink
     @Environment(\.lyricScale) private var scale
@@ -530,8 +617,8 @@ private struct LyricLineView: View {
             // runs; the rest sit unsung, as on the desktop.
             // At the display's own rate: capped at 60 a second, the fill stepped
             // every other frame on a 120 Hz screen.
-            TimelineView(.animation(minimumInterval: nil, paused: distance != 0 || player.isPaused)) { _ in
-                let now = distance == 0 ? LyricStyle.nowTicks(player) : Int.min
+            TimelineView(.animation(minimumInterval: nil, paused: distance != 0 || finished || player.isPaused)) { _ in
+                let now = finished ? Int.max : distance == 0 ? LyricStyle.nowTicks(player) : Int.min
                 VStack(alignment: line.opposite ? .trailing : .leading, spacing: 0) {
                     wordFlow(words, now: now)
                     if let background = line.background {
@@ -797,34 +884,82 @@ private struct WheelWatcher: NSViewRepresentable {
 }
 #endif
 
-/// Through a crossfade, the last song's lyrics stay up while the next song's load, then the
-/// new sheet rolls in from below as the old one rolls off the top and fades: the desktop's
-/// lyrics roll. Any other change (a skip, a pick) swaps at once, as before, and so does
-/// everything under Reduce Motion.
+/// A line of the last or next song in a sheet (LyricsView), told apart from this song's line numbers.
+private enum OtherSongLine: Hashable {
+    case previous(Int), next(Int)
+    var index: Int {
+        switch self {
+        case .previous(let i), .next(let i): i
+        }
+    }
+}
+
+/// The line between two songs' lyrics, two lines of space tall (the desktop's .lyrics-next-divider).
+private struct LyricsDivider: View {
+    @Environment(\.lyricInk) private var ink
+    @Environment(\.lyricScale) private var scale
+
+    var body: some View {
+        Capsule()
+            .fill(ink.opacity(0.35))
+            .frame(height: 2)
+            .frame(maxWidth: .infinity)
+            .frame(height: 2 * (LyricStyle.size * scale * 1.25 + 2 * LyricStyle.lineGap))
+            .accessibilityHidden(true)
+    }
+}
+
+/// What a lyrics panel shows: this song's lines, with the last song's above while playback
+/// has just moved on, and the next song's below.
+struct LyricsSheet {
+    let lines: [LyricLine]
+    var previous: [LyricLine]?
+    var next: [LyricLine]?
+}
+
+/// The next song's lyrics sit under the last line (LyricsModel.next). When playback moves
+/// on by itself, through a crossfade or at a song's end, the sheet stays the same view with
+/// the new song's lines where the preview was, so the scroll just carries on; the last song's
+/// lines leave from above once it settles. Without a preview to carry on into, the new sheet
+/// rolls in from below as the old one rolls off the top. A skip or a pick swaps at once, and
+/// so does everything under Reduce Motion.
 struct LyricsRoll<Sheet: View, Placeholder: View>: View {
     let player: PlaybackService
     let model: LyricsModel
-    @ViewBuilder let sheet: ([LyricLine]) -> Sheet
+    @ViewBuilder let sheet: (LyricsSheet) -> Sheet
     @ViewBuilder let placeholder: () -> Placeholder
+    @Environment(AppState.self) private var state
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// The last sheet shown, kept through the crossfade's load.
-    @State private var last: (id: String, lines: [LyricLine])?
+
+    private struct Shown {
+        /// The view's identity: a song's id, kept by the songs carried on into from it.
+        var sheetID: String
+        var songID: String
+        var lines: [LyricLine]
+        var previous: [LyricLine]?
+        var preview: (id: String, lines: [LyricLine])?
+    }
+
+    @State private var shown: Shown?
 
     private var rolling: Bool {
-        guard !reduceMotion, let at = player.lastCrossfade else { return false }
+        guard !reduceMotion, let at = player.lastAutoAdvance else { return false }
         return Date().timeIntervalSince(at) < 8
     }
 
+    /// The next song's lyrics, when they are for the song playback moves on to now.
+    private var matchingNext: (id: String, lines: [LyricLine])? {
+        guard let next = model.next, next.id == player.autoNextItem?.id else { return nil }
+        return next
+    }
+
     var body: some View {
-        let current: (id: String, lines: [LyricLine])? = model.lines.map { (model.linesFor ?? "", $0) }
-        let shown = current ?? (rolling && model.isLoading ? last : nil)
         ZStack {
             if let shown {
                 // Always the roll: a removed view keeps the transition it was last drawn with,
-                // which was before the crossfade. Whether it plays is the animation's call
-                // below (none swaps at once).
-                sheet(shown.lines)
-                    .id(shown.id)
+                // which was before the change. Whether it plays is the animation's call below.
+                sheet(LyricsSheet(lines: shown.lines, previous: shown.previous, next: shown.preview?.lines))
+                    .id(shown.sheetID)
                     .transition(.asymmetric(insertion: .move(edge: .bottom),
                                             removal: .move(edge: .top).combined(with: .opacity)))
             } else {
@@ -832,8 +967,38 @@ struct LyricsRoll<Sheet: View, Placeholder: View>: View {
             }
         }
         .clipped()
-        .animation(rolling ? .spring(duration: 0.9, bounce: 0) : nil, value: shown?.id)
-        .onChange(of: model.linesFor) { if let current { last = current } }
-        .onAppear { if let current { last = current } }
+        .animation(rolling ? .spring(duration: 0.9, bounce: 0) : nil, value: shown?.sheetID)
+        .onAppear(perform: update)
+        .onChange(of: model.linesFor) { update() }
+        .onChange(of: model.lines?.first?.start) { update() }
+        .onChange(of: model.isLoading) { update() }
+        .onChange(of: model.next?.id) { update() }
+        .onChange(of: player.autoNextItem?.id) { update() }
+        // The next song's lyrics, loaded ahead through the same cache.
+        .task(id: player.autoNextItem?.id) { await model.loadNext(item: player.autoNextItem, state: state) }
+        // The last song's lines go once the carry-on has settled.
+        .task(id: shown?.previous == nil ? "" : shown?.songID ?? "") {
+            guard shown?.previous != nil else { return }
+            try? await Task.sleep(for: .seconds(2.5))
+            guard !Task.isCancelled else { return }
+            shown?.previous = nil
+        }
+    }
+
+    private func update() {
+        guard let lines = model.lines, let songID = model.linesFor else {
+            // Through a carry-on's load the last song's sheet stays up; otherwise the placeholder.
+            if !(rolling && model.isLoading) { shown = nil }
+            return
+        }
+        if shown?.songID == songID {
+            shown?.lines = lines
+            // The preview follows the queue, but only under the song that is playing.
+            if songID == player.item?.id { shown?.preview = matchingNext }
+        } else if rolling, let last = shown, last.preview?.id == songID {
+            shown = Shown(sheetID: last.sheetID, songID: songID, lines: lines, previous: last.lines, preview: matchingNext)
+        } else {
+            shown = Shown(sheetID: songID, songID: songID, lines: lines, preview: matchingNext)
+        }
     }
 }

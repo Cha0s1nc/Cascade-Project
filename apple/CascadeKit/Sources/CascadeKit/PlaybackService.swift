@@ -31,9 +31,17 @@ public final class PlaybackService {
     /// Set as a fade starts between songs with different covers; `cutAt` is set
     /// when it ends, early or not. Left in place after, harmlessly in the past.
     public private(set) var crossfadeArt: CrossfadeArt?
-    /// When the last crossfade handed over to the next song, cover change or not
-    /// (the lyrics roll keeps the last song's lyrics up through it).
-    public private(set) var lastCrossfade: Date?
+    /// When playback last moved on to the next song by itself, through a crossfade or at a
+    /// song's end, rather than by a skip or a pick (the lyrics roll carries on into it).
+    public private(set) var lastAutoAdvance: Date?
+
+    /// The song playback moves on to by itself: the next in the queue, the first again under
+    /// repeat-all, nothing under repeat-one or at the end. The lyrics preview it.
+    public var autoNextItem: JfItem? {
+        guard case .play(let index) = advanceOnEnd(length: queue.items.count, index: queue.index, repeatMode: repeatMode),
+              index != queue.index else { return nil }
+        return queue.items[index]
+    }
 
     #if DEBUG
     /// Debug builds: runs the cover slice from `outgoing` to the cover on screen
@@ -44,7 +52,7 @@ public final class PlaybackService {
     }
     public func debugCutCoverSlice() { crossfadeArt?.cutAt = Date() }
     /// Debug builds: the next song change counts as a crossfade's (the lyrics roll).
-    public func debugMarkCrossfade() { lastCrossfade = Date() }
+    public func debugMarkCrossfade() { lastAutoAdvance = Date() }
     #endif
     /// The queue and where we are in it. Views read `queue.items` to draw an
     /// up-next list and `queue.index` to highlight the current row.
@@ -907,6 +915,7 @@ public final class PlaybackService {
             await seek(to: 0)
             if !isPaused { player.play() }
         case .play(let index):
+            lastAutoAdvance = Date()
             if let preload, preload.index == index, preload.itemId == queue.items[index].id,
                player.items().contains(preload.playerItem) {
                 handOver(to: preload)
@@ -1123,7 +1132,7 @@ public final class PlaybackService {
         // `resolved`, then adopts the new one; the tail's transcode, if any,
         // is abandoned when the tail stops.
         let outgoingArt = item.map { $0.albumId ?? $0.id }
-        lastCrossfade = Date()
+        lastAutoAdvance = Date()
         handOver(to: next)
         let incomingArt = item.map { $0.albumId ?? $0.id }
         if let outgoingArt, let incomingArt, outgoingArt != incomingArt {

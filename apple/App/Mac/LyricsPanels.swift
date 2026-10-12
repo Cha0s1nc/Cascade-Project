@@ -89,11 +89,13 @@ struct MacLyricsBody: View {
     var body: some View {
         let model = ui.lyrics
         // Each song's sheet is its own view (LyricsRoll keys it by song), so a new song's lyrics
-        // start from their own top; through a crossfade they roll in from below.
-        LyricsRoll(player: player, model: model) { lines in
+        // start from their own top; when playback moves on by itself they carry on from the
+        // last song's, with the next song's previewed under the last line.
+        LyricsRoll(player: player, model: model) { sheet in
             VStack(spacing: 8) {
-                LyricsView(lines: lines, player: player, emphasis: model.credit != nil, synced: model.synced,
-                           translations: ui.translator.showing ? ui.translator.byIndex : [:])
+                LyricsView(lines: sheet.lines, player: player, emphasis: model.credit != nil, synced: model.synced,
+                           translations: ui.translator.showing ? ui.translator.byIndex : [:],
+                           previous: sheet.previous, next: sheet.next)
                 // Pinned under the lyrics, with the controls or without: SpicyLyrics' terms want
                 // it visible, not tucked away.
                 if let credit = model.credit { LyricsCreditView(credit: credit) }

@@ -128,6 +128,17 @@ struct LyricGroupTests {
         LyricLine(start: Int(s * Double(sec)), text: t, words: e.map { [w(t, s, $0)] })
     }
 
+    @Test func aTightNextLineLightsEarlyButNotAnOverlapOrAWideGap() {
+        let lines = [line(0, 2), line(2.3, 4), line(5, 7), line(6.5, 8)]
+        let lead = sec * 4 / 10
+        #expect(Lyrics.tightNextIndex(lines, after: 0, at: Int(1.95 * Double(sec)), lead: lead) == 1)
+        #expect(Lyrics.tightNextIndex(lines, after: 0, at: Int(1.8 * Double(sec)), lead: lead) == nil, "not yet")
+        #expect(Lyrics.tightNextIndex(lines, after: 1, at: Int(4.8 * Double(sec)), lead: lead) == nil, "gap too wide")
+        #expect(Lyrics.tightNextIndex(lines, after: 2, at: Int(6.4 * Double(sec)), lead: lead) == nil, "overlap")
+        #expect(Lyrics.tightNextIndex(lines, after: 0, at: Int(1.95 * Double(sec)), lead: 0) == nil, "off")
+        #expect(Lyrics.tightNextIndex([line(0, nil), line(1, nil)], after: 0, at: Int(0.9 * Double(sec)), lead: lead) == nil, "no end")
+    }
+
     @Test func waitsForBackgroundVocalsBeforeMovingOn() {
         var lead = line(10, 12, "lead")
         lead.background = [w("ooh", 12, 15)]

@@ -181,6 +181,23 @@ public enum Lyrics {
         [lastEnd(line.words), lastEnd(line.background)].compactMap { $0 }.max()
     }
 
+    /// How close a line must follow the one before to count as tight.
+    public static let tightGapTicks = ticksPerSecond / 2
+
+    /// The line after `index` when it is tight (starts within tightGapTicks of
+    /// the line's end, without overlapping it) and starts within `lead` from
+    /// now, so it can light and be scrolled to early: back-to-back lines would
+    /// otherwise arrive late. Nil otherwise, and when the end is unknown (plain
+    /// LRC). The desktop's tightScrollTarget.
+    public static func tightNextIndex(_ lines: [LyricLine], after index: Int, at now: Int, lead: Int) -> Int? {
+        guard lead > 0, lines.indices.contains(index), index + 1 < lines.count,
+              let end = lineEndTicks(lines[index]) else { return nil }
+        let next = lines[index + 1].start
+        let gap = next - end
+        guard gap >= 0, gap <= tightGapTicks, next - now <= lead else { return nil }
+        return index + 1
+    }
+
     /// Which line is current, given `base` (the last one already started):
     /// once a karaoke line is completely sung, background vocals included, the
     /// next one is, rather than sitting dim until its own start.

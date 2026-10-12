@@ -614,11 +614,13 @@ struct NowPlayingView: View {
 
     @ViewBuilder private var lyricsPanel: some View {
         // Each song's sheet is its own view (LyricsRoll keys it by song), so a new song's
-        // lyrics start from their own top; through a crossfade they roll in from below.
-        LyricsRoll(player: player, model: lyrics) { lines in
+        // lyrics start from their own top; when playback moves on by itself they carry on
+        // from the last song's, with the next song's previewed under the last line.
+        LyricsRoll(player: player, model: lyrics) { sheet in
             VStack(spacing: 8) {
-                LyricsView(lines: lines, player: player, emphasis: lyrics.credit != nil, synced: lyrics.synced,
-                           translations: translation.isOn ? translation.translations : [:])
+                LyricsView(lines: sheet.lines, player: player, emphasis: lyrics.credit != nil, synced: lyrics.synced,
+                           translations: translation.isOn ? translation.translations : [:],
+                           previous: sheet.previous, next: sheet.next)
                     .lyricsTranslationTask(translation)
                 // Pinned under the lyrics, on screen with the controls or
                 // without: SpicyLyrics' terms want it visible, not tucked away.
