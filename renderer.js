@@ -5505,6 +5505,7 @@ async function _prefetchUpcoming() {
     if (!_lyricsCache.has(item.Id)) {
       await fetchLyricsWaterfall(item).catch(() => {})
       if (session !== _prefetchSession) break
+      if (i === start) _refreshLyricsPreviews()
     }
     await new Promise(r => setTimeout(r, 400))    // brief gap between API calls
   }
@@ -6154,12 +6155,13 @@ onDeck('ended', () => {
 
   let next = queueIndex + 1
   if (next >= queue.length) {
-    if (repeatMode === 'all') { queueIndex = 0; playCurrentTrack(); return }
+    if (repeatMode === 'all') { _rollLyricsToNext(); queueIndex = 0; playCurrentTrack(); return }
     // Instant mix is a music feature. Asking Jellyfin for one "similar to" the
     // last episode of a season would either fail or queue up something random.
     if (autoMixEnabled && item && !isVideoItem(item)) continueWithAutoMix(item)
     return
   }
+  _rollLyricsToNext()
   queueIndex = next
   playCurrentTrack()
 })
@@ -6462,6 +6464,7 @@ function finishCrossfade(nextIndex, incoming) {
   _cfActive = false
   _cfOtherDeck = null
 
+  if (!isVideoItem(queue[nextIndex])) _rollLyricsToNext()
   queueIndex = nextIndex
   // The incoming deck has been playing throughout the fade, so no fresh
   // `play` event fires here to restart the EQ loop or the lyrics word loop
@@ -9239,6 +9242,7 @@ document.getElementById('btn-automix').addEventListener('click', () => {
 })
 
 function renderQueuePanel() {
+  _refreshLyricsPreviews()   // the next song may be a different one now
   const container = document.getElementById('ov-queue-rows')
   const panel     = document.getElementById('ov-panel-queue')
   const follower  = isWaterfallFollower()
@@ -9557,6 +9561,7 @@ function renderOverlayLyricLines() {
     const trans = lyricTranslationFor(i)
     return `<div class="ov-lyric-line${hasTimestamp ? ' seekable' : ''}${line.Opposite ? ' opposite' : ''}" data-idx="${i}"${hasTimestamp ? ` data-start="${line.Start}"` : ''}>${content}${trans ? `<div class="ov-lyric-trans">${esc(trans)}</div>` : ''}</div>`
   }).join('')
+  _refreshLyricsPreviews(true)
   body.querySelectorAll('.ov-lyric-line.seekable').forEach(el => {
     el.addEventListener('click', () => {
       const ticks = parseInt(el.dataset.start)
@@ -9847,6 +9852,59 @@ const ovLyricsSpring = createSpring(pos => {
   if (_ovGhost?.startPos != null) _ovGhost.el.style.transform = `translateY(${_ovGhost.baseY + pos - _ovGhost.startPos}px)`
 })
 
+// ── The next song's lyrics under the last line ──────────────────────────────
+// Once the next song's lyrics are cached (_prefetchUpcoming), its lines sit
+// under this song's last line, dimmed, after a divider two lines tall, so the
+// end of a sheet is not a cliff. When playback moves on by itself (a
+// crossfade or a song ending), the new sheet's roll starts exactly where
+// those preview lines are (_previewAlignedStart), so the scroll just carries on.
+
+/** The song playback moves to by itself, and its cached lyrics; null when there are none to show. */
+function _nextSongLyrics() {
+  if (repeatMode === 'one') return null
+  const next = queue[queueIndex + 1] ?? (repeatMode === 'all' && queue.length > 1 ? queue[0] : null)
+  if (!next?.Id || isVideoItem(next)) return null
+  const cached = _lyricsCache.get(next.Id)
+  return cached?.lines?.length && !cached.instrumental ? { id: next.Id, lines: cached.lines, credit: !!cached.credit } : null
+}
+
+/** Adds, swaps or removes the preview in both lyric views; `force` after a view was redrawn. */
+function _refreshLyricsPreviews(force = false) {
+  const next = _nextSongLyrics()
+  const key = next ? next.id : ''
+  for (const [id, lineCls, wordCls] of [['ov-lyrics-body', 'ov-lyric-line', 'ov-lyric-word'], ['lyrics-inner', 'lyrics-line', 'lyric-word']]) {
+    const body = document.getElementById(id)
+    if (!body?.querySelector('[data-idx]')) continue
+    if (!force && body.dataset.nextPreview === key) continue
+    body.querySelectorAll('.lyric-preview, .lyrics-next-divider').forEach(el => el.remove())
+    body.dataset.nextPreview = key
+    if (!next) continue
+    body.insertAdjacentHTML('beforeend', '<div class="lyrics-next-divider" aria-hidden="true"></div>' + next.lines.map(line =>
+      `<div class="${lineCls} lyric-preview${line.Opposite ? ' opposite' : ''}" aria-hidden="true">${line.Words ? lyricWordSpans(line, wordCls, next.credit) : esc(line.Text || '')}</div>`).join(''))
+  }
+}
+
+/** Playback is moving on by itself: the next sheet rolls in under this one's. */
+function _rollLyricsToNext() {
+  _lyricsRollUntil = Math.max(_lyricsRollUntil, performance.now() + 3000)
+}
+
+/**
+ * Where a rolling-in sheet's scroll starts so its first line lands on the
+ * ghost's preview of it; null without a preview (the old glide from below).
+ * Measured on screen, so nothing depends on how the two are positioned.
+ */
+function _previewAlignedStart(ghostEl, firstLine, spring, target) {
+  const preview = ghostEl?.querySelector('.lyric-preview')
+  // Only a preview of the song now loading (the queue can change under a fade).
+  if (!preview || !firstLine || ghostEl.dataset.nextPreview !== queue[queueIndex]?.Id) return null
+  spring.jumpTo(target)
+  const start = target + preview.getBoundingClientRect().top - firstLine.getBoundingClientRect().top
+  // The real lines take the previews' place; the ghost's copies would double them.
+  ghostEl.querySelectorAll('.lyric-preview').forEach(el => { el.style.visibility = 'hidden' })
+  return start
+}
+
 // ── Lyrics roll on crossfade ─────────────────────────────────────────────────
 // On a crossfade the next song's lyrics come up from below as the last song's
 // roll off the top, one continuous glide, instead of the view emptying and
@@ -9884,7 +9942,8 @@ function _ovRollIn(initialIdx) {
   const panel = document.getElementById('ov-panel-lyrics')
   updateOverlayLyricsActive(initialIdx, true)
   const target = ovLyricsBaseY
-  const start = target + panel.clientHeight * 0.75
+  const start = _previewAlignedStart(_ovGhost.el, document.querySelector('#ov-lyrics-body .ov-lyric-line[data-idx="0"]'), ovLyricsSpring, target)
+    ?? target + panel.clientHeight * 0.75
   _ovGhost.startPos = start
   ovLyricsSpring.jumpTo(start)
   ovLyricsSpring.setTarget(target)
@@ -9944,7 +10003,8 @@ function _sideRollIn() {
   _applySideLyricsActive(idx, true)
   const inner = document.getElementById('lyrics-inner')
   const target = parseFloat(/translateY\((-?[\d.]+)px\)/.exec(inner?.style.transform || '')?.[1] ?? '0') || 0
-  const start = target + document.getElementById('lyrics-body').clientHeight * 0.75
+  const start = _previewAlignedStart(_sideGhost.el, inner?.querySelector('.lyrics-line[data-idx="0"]'), sideLyricsSpring, target)
+    ?? target + document.getElementById('lyrics-body').clientHeight * 0.75
   _sideGhost.startPos = start
   sideLyricsSpring.jumpTo(start)
   sideLyricsSpring.setTarget(target)
@@ -9961,7 +10021,7 @@ function updateOverlayLyricsActive(activeIdx, instant, first = activeIdx) {
   const body = document.getElementById('ov-lyrics-body')
   const panel = document.getElementById('ov-panel-lyrics')
   ovActiveFirst = first
-  body.querySelectorAll('.ov-lyric-line').forEach(el => {
+  body.querySelectorAll('.ov-lyric-line[data-idx]').forEach(el => {
     const idx = parseInt(el.dataset.idx)
     // Signed distance from the current group: negative = past, positive =
     // upcoming, 0 = any line in the group.
@@ -12276,6 +12336,7 @@ function renderLyrics() {
   // (see sideLyricsSpring), not CSS transitions, so no transition property here.
   _sideSetBody(`<div id="lyrics-inner" style="will-change:transform;padding-bottom:50%">${lines}</div>`)
   sideLyricsSpring.jumpTo(0)  // fresh element, don't carry over the previous track's position
+  _refreshLyricsPreviews(true)
 
   body.querySelectorAll('.lyrics-line.seekable').forEach(el => {
     el.style.cursor = 'pointer'
@@ -12340,7 +12401,8 @@ function _applySideLyricsActive(activeIdx, instant, first = activeIdx, ahead = n
   lastLyricsIdx = activeIdx
   lyricsActiveFirst = first
   const body = document.getElementById('lyrics-body')
-  body.querySelectorAll('.lyrics-line[data-idx]').forEach(el => {
+  // The sheet only: a rolling ghost of the last song (_sideKeepGhost) shares the panel.
+  document.getElementById('lyrics-inner')?.querySelectorAll('.lyrics-line[data-idx]').forEach(el => {
     const idx = parseInt(el.dataset.idx)
     el.classList.toggle('active', idx >= first && idx <= activeIdx)
   })
