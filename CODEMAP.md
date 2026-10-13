@@ -1,6 +1,6 @@
 # Cascade code map
 
-This map covers the desktop app at the repo root. The iOS and tvOS app lives in `apple/` and has its own map, `apple/CODEMAP.md`. The release and repo plan is in `docs/release-pipeline-plan.md`.
+This map covers the desktop app at the repo root. The iOS and tvOS app lives in `apple/` and has its own map, `apple/CODEMAP.md`; the Android app is in `android/`, mapped in `android/CODEMAP.md`. The release and repo plan is in `docs/release-pipeline-plan.md`.
 
 **Describes `dev` at `edd2fad`. Every line number below was re-derived at that state, not carried over. Line numbers rot fast: if a landmark is not where this says, re-grep and fix the line here rather than trusting it.**
 
@@ -28,7 +28,7 @@ Verify with `npm run build:ts && npm run typecheck && npm test`.
 
 ## Edition labels
 
-The server's Devices and Activity screens tell Cascade's editions apart by the auth header's `Client`: `Cascade Electron` (this app, every OS), `Cascade iOS`, `Cascade tvOS`, and `Cascade Mac` for the native port on `mac-swift-port`. `Device` is the machine (`Windows`, `Mac`, `Linux`, `iPhone`, `iPad`, `Apple TV`). Desktop sets it once in `init()` through `CascadeCore.setClientIdentity()`, before anything authenticates; `authHeader()` reads it, and the lyrics and metadata editor windows get it in the `jf` they are opened with. Apple's is `cascadeEdition` in `JellyfinClient.swift`. The server keys a device on `DeviceId`, so the Mac port keeping Electron's id renames the device rather than adding one. Nothing matches on the old plain `Cascade`.
+The server's Devices and Activity screens tell Cascade's editions apart by the auth header's `Client`: `Cascade Electron` (this app, every OS), `Cascade iOS`, `Cascade tvOS`, `Cascade Mac` for the native port on `mac-swift-port`, and `Cascade Android` (`ClientIdentity.ANDROID_EDITION` in `android/core`). `Device` is the machine (`Windows`, `Mac`, `Linux`, `iPhone`, `iPad`, `Apple TV`). Desktop sets it once in `init()` through `CascadeCore.setClientIdentity()`, before anything authenticates; `authHeader()` reads it, and the lyrics and metadata editor windows get it in the `jf` they are opened with. Apple's is `cascadeEdition` in `JellyfinClient.swift`. The server keys a device on `DeviceId`, so the Mac port keeping Electron's id renames the device rather than adding one. Nothing matches on the old plain `Cascade`.
 
 ## Rules this codebase learned the hard way
 
