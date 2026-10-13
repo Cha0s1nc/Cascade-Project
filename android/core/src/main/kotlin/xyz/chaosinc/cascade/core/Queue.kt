@@ -5,7 +5,7 @@ package xyz.chaosinc.cascade.core
 // These rules once lived in the desktop's renderer.js on the grounds that they
 // were "mostly button painting". Only the buttons were. The decisions
 // underneath, where shuffle puts the currently playing track and what a queue
-// does when it runs out, are real behaviour every platform has to reproduce
+// does when it runs out, are real behavior every platform has to reproduce
 // exactly, so they live here and each host keeps its own buttons. Ported from
 // CascadeKit's Queue.swift with its tests.
 

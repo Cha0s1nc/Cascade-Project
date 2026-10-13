@@ -227,7 +227,7 @@ private fun WordFlow(words: List<LyricWord>, now: Long, emphasis: Boolean, tunin
 /**
  * One karaoke word: dim, filled with white up to its progress behind a soft
  * edge 0.6 em wide, lifted a little once the fill has reached it. The edge's
- * centre slides from 0.3 em before the word to 0.3 em past it, so an unsung
+ * center slides from 0.3 em before the word to 0.3 em past it, so an unsung
  * word is fully dim and a sung one fully lit (lyric-karaoke.js's --p).
  */
 @Composable
@@ -244,9 +244,9 @@ private fun KaraokeWord(text: String, progress: Float, sung: Boolean, tuning: Ly
             modifier = Modifier.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }.drawWithContent {
                 drawContent()
                 val width = size.width.coerceAtLeast(1f)
-                val centre = progress * width + (progress * 2 - 1) * edge
+                val center = progress * width + (progress * 2 - 1) * edge
                 drawRect(Brush.horizontalGradient(0f to Color.White, 1f to Color.Transparent,
-                    startX = centre - edge, endX = centre + edge), blendMode = BlendMode.DstIn)
+                    startX = center - edge, endX = center + edge), blendMode = BlendMode.DstIn)
             })
     }
 }

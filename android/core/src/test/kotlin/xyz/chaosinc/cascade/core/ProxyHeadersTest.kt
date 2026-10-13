@@ -145,6 +145,6 @@ class ServerMessageTest {
             ServerMessage.loginDisclaimerText("<p>Welcome to <b>Chaos</b> &amp; friends.</p><p>Be nice.<br>Thanks</p>"))
         assertEquals("alert(1)ok", ServerMessage.loginDisclaimerText("<script>alert(1)</script>ok"))
         assertEquals("", ServerMessage.loginDisclaimerText(null))
-        assertEquals("café —", ServerMessage.loginDisclaimerText("caf&#233; &#x2014;"))
+        assertEquals("caf\u00e9 \u2014", ServerMessage.loginDisclaimerText("caf&#233; &#x2014;"))
     }
 }

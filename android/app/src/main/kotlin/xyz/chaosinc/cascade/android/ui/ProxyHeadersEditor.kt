@@ -34,11 +34,11 @@ import xyz.chaosinc.cascade.core.ProxyHeaders
  * encrypted with the token.
  */
 @Composable
-fun ProxyHeadersEditor(onDone: () -> Unit) {
+fun ProxyHeadersEditor(onDone: () -> Unit, modifier: Modifier = Modifier) {
     val state = appState
     var text by remember { mutableStateOf(ProxyHeaders.format(state.proxy.headers)) }
     var errors by remember { mutableStateOf<List<String>>(emptyList()) }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).imePadding().padding(24.dp),
+    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).imePadding().padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Reverse proxy headers", style = MaterialTheme.typography.headlineSmall)
         Text("For a server behind Cloudflare Access or a similar proxy. One per line, as Name: Value. Sent only to your server's own address.",

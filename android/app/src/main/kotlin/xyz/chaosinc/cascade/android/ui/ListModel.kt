@@ -11,12 +11,19 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import xyz.chaosinc.cascade.core.JfItem
 import xyz.chaosinc.cascade.core.mergeLibraryCopies
+import xyz.chaosinc.cascade.core.sortedLikeServer
 
 /**
  * A browsing list that loads in pages of 200, as the iPhone's Songs and Albums
- * do, and survives going into an item and back (it lives with the screen's
- * navigation entry). Every page is merged with what came before, because a
- * copy of an album in a second library can land on a later page.
+ * do (loadPaged in Navigation.swift), and survives going into an item and
+ * back (it lives with the screen's navigation entry).
+ *
+ * The offset is a server offset applied to every selected library, so it
+ * moves by the page size, not by how many items came back merged. With more
+ * than one library, everything loaded is merged and re-sorted on each page:
+ * a song sits at a different offset in each library, so its copies can
+ * arrive pages apart, and a later page from one library can hold items that
+ * belong ahead of another's. The list ends when a page brings nothing new.
  *
  * `bind` with a new key (another sort, a filter, a library change) starts
  * over; the same key keeps what is loaded.
@@ -32,14 +39,25 @@ class ListModel : ViewModel() {
     private var loader: (suspend (start: Int, limit: Int?) -> List<JfItem>)? = null
     private var job: Job? = null
     private var raw = emptyList<JfItem>()
+    private var seen = HashSet<String>()
+    private var nextStart = 0
+    private var sortBy: String? = null
+    private var sortOrder: String? = null
+    private var generations = 0
 
-    fun bind(key: Any, pageSize: Int? = PAGE, loader: suspend (start: Int, limit: Int?) -> List<JfItem>) {
+    fun bind(key: Any, pageSize: Int? = PAGE, sortBy: String? = null, sortOrder: String? = null,
+             loader: suspend (start: Int, limit: Int?) -> List<JfItem>) {
         if (key == this.key) return
         this.key = key
         this.pageSize = pageSize
         this.loader = loader
+        this.sortBy = sortBy
+        this.sortOrder = sortOrder
         job?.cancel()
+        generations++
         raw = emptyList()
+        seen = HashSet()
+        nextStart = 0
         items = emptyList()
         exhausted = false
         error = null
@@ -52,28 +70,33 @@ class ListModel : ViewModel() {
         val k = key ?: return
         val l = loader ?: return
         key = null
-        bind(k, pageSize, l)
+        bind(k, pageSize, sortBy, sortOrder, l)
     }
 
     fun loadMore() {
         if (loading || exhausted) return
         val load = loader ?: return
         loading = true
-        val start = raw.size
+        val start = nextStart
+        val generation = ++generations
         job = viewModelScope.launch {
             try {
                 val page = withContext(Dispatchers.IO) { load(start, pageSize) }
-                raw = raw + page
-                items = mergeLibraryCopies(raw)
-                // A short page is the last one. Several libraries each return a
-                // page, so "short" is judged on what came back in total.
-                exhausted = pageSize == null || page.size < pageSize!!
+                val fresh = page.filter { seen.add(it.id) }
+                raw = raw + fresh
+                val libraries = raw.mapTo(HashSet()) { it.sourceLibrary ?: -1 }.size
+                items = if (libraries <= 1) raw
+                else withContext(Dispatchers.Default) { sortedLikeServer(mergeLibraryCopies(raw), sortBy, sortOrder) }
+                nextStart = start + (pageSize ?: 0)
+                exhausted = pageSize == null || fresh.isEmpty()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 error = e.message ?: "Could not load"
             } finally {
-                loading = false
+                // A load cancelled by a new bind finishes after the new one has
+                // started; it must not mark that one as done.
+                if (generation == generations) loading = false
             }
         }
     }

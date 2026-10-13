@@ -141,10 +141,10 @@ private val droppedTypes = setOf(
 ).map { it.toInt() }.toSet()
 
 /**
- * Lowercased, compatibility-normalised, and stripped of punctuation, symbols
+ * Lowercased, compatibility-normalized, and stripped of punctuation, symbols
  * and spaces, so "Mr. Brightside" and "mr brightside" compare equal.
  */
-internal fun normalise(s: String?): String {
+internal fun normalize(s: String?): String {
     val folded = Normalizer.normalize(s ?: "", Normalizer.Form.NFKC).lowercase()
     val out = StringBuilder()
     var i = 0
@@ -158,11 +158,11 @@ internal fun normalise(s: String?): String {
 
 /** What makes two songs, albums or artists the same, or null for anything else. */
 private fun contentKey(item: JfItem): String? {
-    val name = normalise(item.name)
+    val name = normalize(item.name)
     if (name.isEmpty()) return null
     return when (item.type) {
-        "Audio" -> "a|$name|${normalise(item.artists?.firstOrNull() ?: item.albumArtist)}"
-        "MusicAlbum" -> "m|$name|${normalise(item.albumArtist ?: item.artists?.firstOrNull())}"
+        "Audio" -> "a|$name|${normalize(item.artists?.firstOrNull() ?: item.albumArtist)}"
+        "MusicAlbum" -> "m|$name|${normalize(item.albumArtist ?: item.artists?.firstOrNull())}"
         "MusicArtist" -> "r|$name"
         else -> null
     }

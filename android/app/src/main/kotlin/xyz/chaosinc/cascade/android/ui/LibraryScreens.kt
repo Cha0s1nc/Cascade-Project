@@ -234,7 +234,7 @@ fun AlbumsScreen(nav: Nav) {
             // Jellyfin keeps no album play date: this order comes from the tracks, in one go.
             model.bind(Triple(key, prefs, "played"), null) { _, _ -> client.recentlyPlayedAlbums(filter = prefs.filter) }
         } else {
-            model.bind(Triple(key, prefs, "paged"), ListModel.PAGE) { start, limit ->
+            model.bind(Triple(key, prefs, "paged"), ListModel.PAGE, sortBy, prefs.direction.serverValue) { start, limit ->
                 client.albums(limit ?: 500, start, sortBy, prefs.direction.serverValue, filter = prefs.filter)
             }
         }
@@ -258,7 +258,7 @@ fun ArtistsScreen(nav: Nav) {
     LaunchedEffect(key, prefs) {
         // Jellyfin filters artists by the artist's own genre metadata, which is
         // empty, so artists have no genre filter, as on the desktop.
-        model.bind(key to prefs, ListModel.PAGE) { start, limit ->
+        model.bind(key to prefs, ListModel.PAGE, field.serverSortBy, prefs.direction.serverValue) { start, limit ->
             client.artists(limit ?: 500, start, field.serverSortBy, prefs.direction.serverValue, prefs.filter.copy(genre = null, decade = null))
         }
     }
@@ -281,7 +281,7 @@ fun SongsScreen(nav: Nav) {
     LaunchedEffect(key) { decades = runCatching { withContext(Dispatchers.IO) { BrowseFilter.decades(client.years("Audio")) } }.getOrDefault(emptyList()) }
     val model: ListModel = viewModel(key = "songs")
     LaunchedEffect(key, field, direction, filter) {
-        model.bind(listOf(key, field, direction, filter), ListModel.PAGE) { start, limit ->
+        model.bind(listOf(key, field, direction, filter), ListModel.PAGE, field.serverSortBy, direction.serverValue) { start, limit ->
             client.songs(limit, start, field.serverSortBy, direction.serverValue, filter = filter)
         }
     }

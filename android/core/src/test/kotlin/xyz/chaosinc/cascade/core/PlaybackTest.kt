@@ -24,7 +24,7 @@ class ResumeTicksTest {
         assertEquals(0L, resumeTicks(item(position = 0)))
     }
 
-    @Test fun honoursAStoredPosition() {
+    @Test fun honorsAStoredPosition() {
         assertEquals(300_000_000L, resumeTicks(item(300_000_000, 2_400_000_000)))
     }
 

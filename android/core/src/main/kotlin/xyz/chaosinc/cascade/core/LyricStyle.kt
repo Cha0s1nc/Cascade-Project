@@ -25,7 +25,7 @@ object LyricStyle {
         LyricKnob("tightScrollLead", "Lyrics layout", "Scroll ahead on tight lines (s)", 0.0, 1.0, 0.05, 0.25),
         LyricKnob("lyricSize", "Lyrics layout", "Text size", 18.0, 60.0, 1.0, 30.0),
         // A phone keeps the current line high, as Apple Music does; the
-        // desktop centres it (0.5).
+        // desktop centers it (0.5).
         LyricKnob("currentLinePosition", "Lyrics layout", "Current line position", 0.0, 0.6, 0.01, 0.12),
         LyricKnob("lineGap", "Lyrics layout", "Line gap", 0.0, 40.0, 1.0, 8.0),
         LyricKnob("pastScale", "Past lines", "Size", 0.4, 1.0, 0.01, 0.75),
