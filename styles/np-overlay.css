@@ -40,7 +40,9 @@ html[data-platform="linux"] .np-overlay-theme { right: var(--caption-reserve); }
 .np-overlay-title svg { width: 15px; height: 15px; transition: transform 0.12s; }
 .np-overlay-title:hover svg { transform: translateY(2px); }
 @media (prefers-reduced-motion: reduce) { .np-overlay-title:hover svg { transform: none; } }
-.np-overlay-body { flex: 1; display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; }
+/* minmax(0, 1fr): a plain 1fr column grows to fit its widest unbreakable content, so a long
+   title (a marquee line never wraps) pushed the queue and lyrics panel aside. It scrolls instead. */
+.np-overlay-body { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); overflow: hidden; }
 /* Left: big art + info + controls */
 /* No divider between this column and the queue/lyrics panel. A hard 1px
    line was doing nothing the whitespace and the panel's own background did
