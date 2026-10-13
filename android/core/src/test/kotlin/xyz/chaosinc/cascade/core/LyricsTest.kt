@@ -472,3 +472,47 @@ class ServerLyricsTest {
         assertEquals(listOf("one", "two"), r.lines.map { it.text })
     }
 }
+
+class LyricStyleTest {
+    @Test fun storedValuesAreClampedAndUnknownKeysIgnored() {
+        val v = LyricStyle.fromStored("""{"lyricSize":200,"pastOpacity":0.5,"nope":1,"lineGap":"wide"}""")
+        assertEquals(60.0, v["lyricSize"]!!, 0.0)
+        assertEquals(0.5, v["pastOpacity"]!!, 0.0)
+        assertEquals(8.0, v["lineGap"]!!, 0.0)
+        assertFalse(v.containsKey("nope"))
+        assertEquals(LyricStyle.defaults, LyricStyle.fromStored("not json"))
+        assertEquals(LyricStyle.defaults, LyricStyle.fromStored(null))
+    }
+
+    @Test fun onlyChangesAreStored() {
+        assertEquals("{}", LyricStyle.stored(LyricStyle.defaults))
+        val changed = LyricStyle.defaults + ("pastBlur" to 1.0)
+        assertEquals("""{"pastBlur":1.0}""", LyricStyle.stored(changed))
+        assertEquals(changed, LyricStyle.fromStored(LyricStyle.stored(changed)))
+    }
+
+    @Test fun theIphoneDefaultsHoldTheCurrentLineHigh() {
+        assertEquals(0.12, LyricStyle.defaults["currentLinePosition"]!!, 0.0)
+        assertEquals(30.0, LyricStyle.defaults["lyricSize"]!!, 0.0)
+    }
+
+    @Test fun looksByDistance() {
+        val t = LyricTuning()
+        assertEquals(LineLook(1.0, 0.0, 1.0), t.look(0, false))
+        assertEquals(LineLook(0.3, 3.5, 0.75), t.look(-2, false))
+        assertEquals(LineLook(0.15, 2.5, 1.0), t.look(1, false))
+        assertEquals(0.0, t.look(9, false).opacity, 0.0)
+        assertEquals(LineLook(0.8, 2.5, 1.0), t.look(4, true))
+    }
+
+    @Test fun aHeldNoteSwellsMoreTheLongerItIsAndSettlesAfter() {
+        val t = LyricTuning()
+        assertEquals(0.0, t.swell(-0.1, 1.0, 2.0), 0.0)
+        // At the end of a full-length hold: all of it.
+        assertEquals(1.0, t.swell(1.5, 1.5, 1.5), 1e-9)
+        // A one-second hold peaks at the short-note strength.
+        assertEquals(0.45, t.swell(1.0, 1.0, 1.0), 1e-9)
+        // Released after the settle time.
+        assertEquals(0.0, t.swell(1.5 + 0.4, 1.5, 1.5), 1e-9)
+    }
+}
