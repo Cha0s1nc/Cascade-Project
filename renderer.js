@@ -5512,18 +5512,32 @@ async function _prefetchUpcoming() {
 }
 
 // Marquee: measure a clipping container and scroll its .np-scroll-inner if the text
-// overflows. Used by the statusbar and both fullscreen overlay lines.
+// overflows. Used by the statusbar and both fullscreen overlay lines. As Apple Music
+// does it: a pause, then one way at a steady speed with a copy following a gap
+// behind, so the loop is seamless instead of sliding back.
+const MARQUEE = { gap: 48, speed: 30, hold: 2500 }   // px, px/s, ms at the start of each pass
 function applyMarquee(el) {
   const inner = el?.querySelector('.np-scroll-inner')
   if (!inner) return
-  inner.style.animation = 'none'
+  for (const a of el.getAnimations({ subtree: true })) a.cancel()
+  el.querySelectorAll('.np-scroll-copy').forEach(c => c.remove())
   el.classList.remove('marquee-on')
-  const overflow = inner.scrollWidth - el.clientWidth
-  if (overflow > 4) { // dead-zone absorbs subpixel rounding
-    inner.style.setProperty('--marquee-dist', `-${overflow + 8}px`)
-    inner.style.animation = `np-marquee ${Math.max(5, overflow / 25)}s ease-in-out infinite` // ~25px/s
-    el.classList.add('marquee-on')
-  }
+  if (inner.scrollWidth - el.clientWidth <= 4) return   // dead-zone absorbs subpixel rounding
+  el.classList.add('marquee-on')
+  const copy = inner.cloneNode(true)
+  copy.classList.add('np-scroll-copy')
+  copy.setAttribute('aria-hidden', 'true')
+  copy.querySelectorAll('[id]').forEach(n => n.removeAttribute('id'))
+  copy.style.marginLeft = `${MARQUEE.gap}px`
+  el.appendChild(copy)
+  const dist = inner.offsetWidth + MARQUEE.gap
+  const duration = MARQUEE.hold + (dist / MARQUEE.speed) * 1000
+  const frames = [
+    { transform: 'translateX(0)' },
+    { transform: 'translateX(0)', offset: MARQUEE.hold / duration },
+    { transform: `translateX(${-dist}px)` },
+  ]
+  for (const part of [inner, copy]) part.animate(frames, { duration, iterations: Infinity, easing: 'linear' })
 }
 
 const MARQUEE_IDS = ['np-info', 'ov-track', 'ov-artist']
@@ -11413,6 +11427,7 @@ function _showExplicit(id) {
   if (queue[queueIndex]?.Id === id) {
     add(document.querySelector('#np-info .np-title'))
     add(document.querySelector('#ov-track .np-scroll-inner'))
+    refreshMarquees()   // the badge widens the line, and a scrolling copy needs it too
   }
 }
 

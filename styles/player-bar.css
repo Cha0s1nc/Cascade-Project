@@ -9,11 +9,8 @@
 .np-title { font-size: 12px; font-weight: 500; color: var(--text); }
 .np-artist { font-size: 11px; color: var(--text3); }
 .np-sep { color: var(--text3); font-size: 11px; margin: 0 2px; }
-@keyframes np-marquee {
-  0%, 12%   { transform: translateX(0); }
-  45%, 55%  { transform: translateX(var(--marquee-dist, 0px)); }
-  88%, 100% { transform: translateX(0); }
-}
+/* Room for the scrolling copy that follows the line (renderer.js applyMarquee). */
+.marquee-on { white-space: nowrap; }
 .np-empty { font-size: 11px; color: var(--text3); }
 .np-like-btn { background: none; border: none; color: var(--text3); cursor: pointer; padding: 0; margin-left: 8px; display: flex; align-items: center; transition: color 0.15s, transform 0.1s; flex-shrink: 0; }
 .np-like-btn:hover { color: #ff6b8a; }
