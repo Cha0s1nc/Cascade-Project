@@ -1,8 +1,5 @@
 /* ── Album art fullscreen theme ── */
 /* Background gradient is set directly on the overlay via JS inline style */
-.np-overlay.art-theme {
-  transition: transform 0.38s cubic-bezier(0.4,0,0.2,1);
-}
 /* #ov-bg-pulse is now purely a beat-darkening overlay (black, variable opacity) */
 #ov-bg-pulse {
   display: none;

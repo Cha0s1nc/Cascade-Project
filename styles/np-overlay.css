@@ -1,6 +1,11 @@
 /* ── Full-screen now-playing overlay ── */
-.np-overlay { position: fixed; inset: 0; background: var(--bg); z-index: 300; display: flex; flex-direction: column; transform: translateY(100%); transition: transform 0.38s cubic-bezier(0.4,0,0.2,1); pointer-events: none; overflow: hidden; }
-.np-overlay.open { transform: translateY(0); pointer-events: all; }
+/* Hidden once it has slid away, not just moved off-screen. Its header (and a
+   film's title strip) are window drag regions, and on macOS Electron does not
+   always recompute those when only a transform moves them, so a closed player
+   could leave a drag region over the titlebar that swallowed every click there
+   (the media switcher, the theme button). Hidden, it has none. */
+.np-overlay { position: fixed; inset: 0; background: var(--bg); z-index: 300; display: flex; flex-direction: column; transform: translateY(100%); visibility: hidden; transition: transform 0.38s cubic-bezier(0.4,0,0.2,1), visibility 0s linear 0.38s; pointer-events: none; overflow: hidden; }
+.np-overlay.open { transform: translateY(0); visibility: visible; transition: transform 0.38s cubic-bezier(0.4,0,0.2,1), visibility 0s; pointer-events: all; }
 .np-overlay-header { display: flex; align-items: center; justify-content: center; min-height: 44px; padding: 12px 20px; flex-shrink: 0; -webkit-app-region: drag; }
 /* Reserved on both sides so the chevron centers on the window, not on
    whatever is left beside the traffic lights or caption buttons. */
