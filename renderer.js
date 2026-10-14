@@ -344,7 +344,7 @@ async function fetchItunesDiscography(artist) {
   }
   const inFlight = (async () => {
     try {
-      const a = await fetch(
+      const a = await webFetch(
         `https://itunes.apple.com/search?term=${encodeURIComponent(artist)}&entity=musicArtist&limit=1`,
         { signal: AbortSignal.timeout(7000) }
       )
@@ -354,7 +354,7 @@ async function fetchItunesDiscography(artist) {
       // pickItunesArt to match titles against, which is exactly how you get a
       // confident wrong cover.
       if (!hit?.artistId || !CascadeCore.itunesArtistMatches(hit.artistName || '', artist)) return []
-      const r = await fetch(
+      const r = await webFetch(
         `https://itunes.apple.com/lookup?id=${hit.artistId}&entity=album&limit=200`,
         { signal: AbortSignal.timeout(7000) }
       )
@@ -395,7 +395,7 @@ async function fetchItunesArt(artist, album) {
   const inFlight = (async () => {
     try {
       const term = encodeURIComponent(`${artist} ${album}`.trim())
-      const r = await fetch(
+      const r = await webFetch(
         `https://itunes.apple.com/search?term=${term}&entity=album&limit=15&media=music`,
         { signal: AbortSignal.timeout(7000) }
       )
@@ -476,7 +476,7 @@ async function pluginCoverVideoUrl(albumId, stillWanted = () => true) {
   for (let attempt = 0; attempt < 6; attempt++) {
     if (attempt) { await new Promise(r => setTimeout(r, 3000)); if (!stillWanted()) return null }
     try {
-      const r = await fetch(`${jf.url}/CascadeServer/AnimatedArt/${encodeURIComponent(albumId)}`, {
+      const r = await jfFetch(`${jf.url}/CascadeServer/AnimatedArt/${encodeURIComponent(albumId)}`, {
         headers: CascadeCore.authHeaders(jf), signal: AbortSignal.timeout(8000),
       })
       const info = r.ok ? await r.json() : null
@@ -508,7 +508,7 @@ async function animatedArtUrl(artItemId) {
   const inFlight = (async () => {
     try {
       const url = jfClient.originalArtUrl(artItemId)
-      const r = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(5000) })
+      const r = await jfFetch(url, { method: 'HEAD', signal: AbortSignal.timeout(5000) })
       // ponytail: HEAD only. If some Jellyfin build ever refuses it, this reads
       // as "not animated" and the still is used - which is today's behaviour,
       // so the failure mode is exactly the status quo. Swap in a ranged GET if
@@ -771,6 +771,21 @@ function showToast(msg, duration = 2200) {
 // sent: both 10.11 and 12 fall back to the signed-in user (RequestHelpers.GetUserId).
 /** @type {(path: string, params?: Record<string, any>) => Promise<any>} */
 const jfGet  = (path, params = {}) => jfClient.get(path, params)
+
+// Every request outside jfClient goes through one of these two, so Offline
+// Mode refuses it before anything is sent (docs/offline-mode-plan.md, section
+// 2): jfFetch for the Jellyfin server (writes, the Cascade plugin, lyrics),
+// webFetch for other services (iTunes, MusicBrainz, LRCLIB). Main also blocks
+// the server's origin while the switch is on; this is what keeps the
+// unreachable state quiet too, and what callers catch. test/offline-guard
+// fails on a new raw fetch( in this file.
+/** @type {(input: string, init?: RequestInit) => Promise<Response>} */
+const jfFetch = (input, init) => jfClient.offline
+  ? Promise.reject(new CascadeCore.OfflineError())
+  // offline-ok: the guard itself.
+  : fetch(input, init)
+/** @type {(input: string, init?: RequestInit) => Promise<Response>} */
+const webFetch = jfFetch
 
 // Items by id, in chunks: past roughly 240 ids the URL outgrows the server's
 // request line limit and Jellyfin answers 414, failing the whole lookup. A
@@ -1356,7 +1371,7 @@ document.getElementById('s-refresh-server').addEventListener('click', async () =
   // server call that would just 403 anyway.
   if (!jf.isAdmin) return
   try {
-    const res = await fetch(`${jf.url}/Library/Refresh`, { method: 'POST', headers: CascadeCore.authHeaders(jf) })
+    const res = await jfFetch(`${jf.url}/Library/Refresh`, { method: 'POST', headers: CascadeCore.authHeaders(jf) })
     if (!res.ok) throw new Error(String(res.status))
     // Async on the server - it scans in the background and this response says
     // nothing about when it finishes, so there is nothing to await here.
@@ -3323,7 +3338,7 @@ const waitForPlaylistWrite = CascadeCore.createPlaylistWriteGate()
 async function savePlaylistIds(newItems, successMsg) {
   try {
     await waitForPlaylistWrite(currentPlaylistId)
-    const res = await fetch(`${jf.url}/Playlists/${currentPlaylistId}`, {
+    const res = await jfFetch(`${jf.url}/Playlists/${currentPlaylistId}`, {
       method: 'POST',
       headers: CascadeCore.authHeaders(jf, { 'Content-Type': 'application/json' }),
       body: JSON.stringify({ Ids: newItems.map(i => i.Id) })
@@ -3382,7 +3397,7 @@ async function _plDetailsWrite(path, init) {
     // name, description and picture of one playlist share one gate.
     const id = path.match(/[0-9a-f]{32}/i)?.[0]
     if (id) await waitForPlaylistWrite(id)
-    const res = await fetch(`${jf.url}${path}`, init)
+    const res = await jfFetch(`${jf.url}${path}`, init)
     return res.ok ? null : await CascadeCore.readErrorMessage(res)
   } catch (e) {
     return e.message
@@ -3401,7 +3416,7 @@ async function _savePlaylistOverview(d, overview) {
   // fetched DTO with one field changed, never a partial body (the metadata
   // editor's rule too).
   try {
-    const res = await fetch(`${jf.url}/Items/${d.id}`, { headers: CascadeCore.authHeaders(jf) })
+    const res = await jfFetch(`${jf.url}/Items/${d.id}`, { headers: CascadeCore.authHeaders(jf) })
     if (!res.ok) return await CascadeCore.readErrorMessage(res)
     const full = await res.json()
     return _plDetailsWrite(`/Items/${d.id}`, {
@@ -3710,7 +3725,7 @@ function wirePlaylistRowDrag(rowsEl, items) {
       try {
         const entryId = moved.PlaylistItemId || moved.Id
         await waitForPlaylistWrite(currentPlaylistId)
-        const res = await fetch(`${jf.url}/Playlists/${currentPlaylistId}/Items/${entryId}/Move/${to}`, {
+        const res = await jfFetch(`${jf.url}/Playlists/${currentPlaylistId}/Items/${entryId}/Move/${to}`, {
           method: 'POST', headers: CascadeCore.authHeaders(jf)
         })
         if (!res.ok) throw new Error(res.status)
@@ -3752,7 +3767,7 @@ const SMART_PLAYLISTS = {
     name: 'Favorites',
     icon: '<svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>',
     gradient: 'linear-gradient(135deg,#f472b6,#dc2626)',
-    async fetch() {
+    async jfFetch() {
       const data = await jfGetMerged(`/Items`, {
         IncludeItemTypes: 'Audio', Recursive: true, Filters: 'IsFavorite',
         SortBy: 'SortName', SortOrder: 'Ascending',
@@ -3765,7 +3780,7 @@ const SMART_PLAYLISTS = {
     name: 'Most Played',
     icon: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>',
     gradient: 'linear-gradient(135deg,#60a5fa,#059669)',
-    async fetch() {
+    async jfFetch() {
       // Ask each library for its own top 200 by play count (server-side sorted),
       // then merge and re-sort/slice client-side - a per-library cap could otherwise
       // leave the true top 100 overall incomplete once multiple libraries are merged.
@@ -3893,7 +3908,7 @@ document.getElementById('btn-save-as-playlist').addEventListener('click', async 
   const name = sp.name
   try {
     const ids = currentPlaylistItems.map(i => encodeURIComponent(i.Id)).join(',')
-    const res = await fetch(`${jf.url}/Playlists?Name=${encodeURIComponent(name)}&Ids=${ids}&UserId=${encodeURIComponent(jf.userId)}&MediaType=Audio`, {
+    const res = await jfFetch(`${jf.url}/Playlists?Name=${encodeURIComponent(name)}&Ids=${ids}&UserId=${encodeURIComponent(jf.userId)}&MediaType=Audio`, {
       method: 'POST',
       headers: CascadeCore.authHeaders(jf)
     })
@@ -4059,7 +4074,7 @@ function reloadPlaylistIndexIfShown() {
  *  (CreatePlaylistDto). Returns the new id, or null after telling the user. */
 async function createEmptyPlaylist(name, isPublic) {
   try {
-    const res = await fetch(`${jf.url}/Playlists?Name=${encodeURIComponent(name)}&UserId=${encodeURIComponent(jf.userId)}&MediaType=Audio`, {
+    const res = await jfFetch(`${jf.url}/Playlists?Name=${encodeURIComponent(name)}&UserId=${encodeURIComponent(jf.userId)}&MediaType=Audio`, {
       method: 'POST',
       headers: CascadeCore.authHeaders(jf, { 'Content-Type': 'application/json' }),
       body: JSON.stringify({ Name: name, Ids: [], UserId: jf.userId, MediaType: 'Audio', IsPublic: isPublic })
@@ -4520,7 +4535,7 @@ document.getElementById('tctx-view-artist').addEventListener('click', () => {
 async function refreshItemMetadata(item) {
   if (!item || !jf.isAdmin) return
   try {
-    const res = await fetch(`${jf.url}/Items/${item.Id}/Refresh?MetadataRefreshMode=FullRefresh&ImageRefreshMode=FullRefresh&ReplaceAllMetadata=false&ReplaceAllImages=false`, {
+    const res = await jfFetch(`${jf.url}/Items/${item.Id}/Refresh?MetadataRefreshMode=FullRefresh&ImageRefreshMode=FullRefresh&ReplaceAllMetadata=false&ReplaceAllImages=false`, {
       method: 'POST', headers: CascadeCore.authHeaders(jf)
     })
     if (!res.ok) throw new Error(String(res.status))
@@ -4562,7 +4577,7 @@ document.getElementById('tctx-pl-remove').addEventListener('click', async () => 
   if (!entryId) { showNotice('This row is missing its playlist entry ID, so it cannot be removed.', 'Playlist'); return }
   try {
     await waitForPlaylistWrite(currentPlaylistId)
-    const res = await fetch(`${jf.url}/Playlists/${currentPlaylistId}/Items?EntryIds=${encodeURIComponent(entryId)}`, {
+    const res = await jfFetch(`${jf.url}/Playlists/${currentPlaylistId}/Items?EntryIds=${encodeURIComponent(entryId)}`, {
       method: 'DELETE', headers: CascadeCore.authHeaders(jf)
     })
     if (!res.ok) throw new Error(res.status)
@@ -7009,7 +7024,7 @@ async function toggleLike(item) {
   if (!item) return
   const isLiked = isCurrent ? likeBtn.classList.contains('liked') : !!item.UserData?.IsFavorite
   try {
-    const res = await fetch(`${jf.url}/UserFavoriteItems/${item.Id}?userId=${encodeURIComponent(jf.userId)}`, {
+    const res = await jfFetch(`${jf.url}/UserFavoriteItems/${item.Id}?userId=${encodeURIComponent(jf.userId)}`, {
       method: isLiked ? 'DELETE' : 'POST',
       headers: CascadeCore.authHeaders(jf)
     })
@@ -8169,6 +8184,7 @@ async function serverAnswers() {
   const serverUrl = await window.cascade.store.get('serverUrl')
   if (!serverUrl) return false
   try {
+    // offline-ok: the probe is how the unreachable state ends, so it must go out.
     const r = await fetch(`${serverUrl.replace(/\/+$/, '')}/System/Ping`, { signal: AbortSignal.timeout(5000) })
     return r.ok
   } catch {
@@ -8265,7 +8281,7 @@ async function replayOfflinePlays() {
       if (p.userId !== jf.userId) { await window.cascade.offline.addPlay(p); continue }
       let status = 0
       try {
-        const res = await fetch(`${jf.url}/UserPlayedItems/${p.itemId}?userId=${encodeURIComponent(p.userId)}&datePlayed=${encodeURIComponent(p.date)}`,
+        const res = await jfFetch(`${jf.url}/UserPlayedItems/${p.itemId}?userId=${encodeURIComponent(p.userId)}&datePlayed=${encodeURIComponent(p.date)}`,
           { method: 'POST', headers: CascadeCore.authHeaders(jf) })
         status = res.status
         if (res.ok) continue
@@ -10599,7 +10615,7 @@ async function atpLoadPlaylists() {
         try {
           const ids = items.map(i => encodeURIComponent(i.Id)).join(',')
           await waitForPlaylistWrite(el.dataset.id)
-          const res = await fetch(`${jf.url}/Playlists/${el.dataset.id}/Items?Ids=${ids}&UserId=${encodeURIComponent(jf.userId)}`, {
+          const res = await jfFetch(`${jf.url}/Playlists/${el.dataset.id}/Items?Ids=${ids}&UserId=${encodeURIComponent(jf.userId)}`, {
             method: 'POST',
             headers: CascadeCore.authHeaders(jf)
           })
@@ -10679,7 +10695,7 @@ async function atpCreatePlaylist() {
   if (!name || !item) return
   document.getElementById('atp-create-confirm').disabled = true
   try {
-    const res = await fetch(`${jf.url}/Playlists?Name=${encodeURIComponent(name)}&Ids=${encodeURIComponent(item.Id)}&UserId=${encodeURIComponent(jf.userId)}&MediaType=Audio`, {
+    const res = await jfFetch(`${jf.url}/Playlists?Name=${encodeURIComponent(name)}&Ids=${encodeURIComponent(item.Id)}&UserId=${encodeURIComponent(jf.userId)}&MediaType=Audio`, {
       method: 'POST',
       headers: CascadeCore.authHeaders(jf)
     })
@@ -10798,7 +10814,7 @@ async function deleteItemFromServer(item, { confirmMsg, onDeleted }) {
   if (!jf.canDelete) return
   if (!confirm(confirmMsg)) return
   try {
-    const res = await fetch(`${jf.url}/Items/${item.Id}`, {
+    const res = await jfFetch(`${jf.url}/Items/${item.Id}`, {
       method: 'DELETE', headers: CascadeCore.authHeaders(jf)
     })
     // The response was never read, so a 403 (e.g. a library outside this
@@ -11074,7 +11090,7 @@ document.getElementById('ictx-view-detail').addEventListener('click', () => {
  *  silently doing nothing. */
 async function setItemPlayed(item, played) {
   try {
-    const res = await fetch(`${jf.url}/UserPlayedItems/${item.Id}?userId=${encodeURIComponent(jf.userId)}`, {
+    const res = await jfFetch(`${jf.url}/UserPlayedItems/${item.Id}?userId=${encodeURIComponent(jf.userId)}`, {
       method: played ? 'POST' : 'DELETE', headers: CascadeCore.authHeaders(jf)
     })
     if (!res.ok) throw new Error(String(res.status))
@@ -11216,7 +11232,7 @@ function probeCascadePlugin() {
   _resetExplicit()
   const statusOf = async (path) => {
     try {
-      const r = await fetch(`${jf.url}/${path}`, {
+      const r = await jfFetch(`${jf.url}/${path}`, {
         headers: CascadeCore.authHeaders(jf),
         signal: AbortSignal.timeout(8000),
       })
@@ -11534,7 +11550,7 @@ async function fetchServerStyle() {
   let next = CascadeCore.SERVER_STYLE_OFF, raw = null
   if (_cascadePluginCaps.has('server-style')) {
     try {
-      const r = await fetch(`${jf.url}/CascadeServer/Style`, { headers: CascadeCore.authHeaders(jf), signal: AbortSignal.timeout(8000) })
+      const r = await jfFetch(`${jf.url}/CascadeServer/Style`, { headers: CascadeCore.authHeaders(jf), signal: AbortSignal.timeout(8000) })
       if (!r.ok) return   // keep what we have rather than drop a style on a hiccup
       raw = await r.json()
       next = CascadeCore.parseServerStyle(raw)
@@ -11596,7 +11612,7 @@ async function publishServerStyle(mode) {
     }
     body = { mode, enforce: { theme: mode === 'enforced' && !!preset.theme, lyrics: mode === 'enforced' && !!preset.lyrics }, preset }
   }
-  const r = await fetch(`${jf.url}/CascadeServer/Style`, {
+  const r = await jfFetch(`${jf.url}/CascadeServer/Style`, {
     method: mode === 'off' ? 'DELETE' : 'PUT',
     headers: { ...CascadeCore.authHeaders(jf), 'Content-Type': 'application/json' },
     body: mode === 'off' ? undefined : JSON.stringify(body),
@@ -11652,7 +11668,7 @@ async function _flushExplicit() {
   while (_explicitPending.length) {
     const ids = _explicitPending.splice(0, 500)
     try {
-      const r = await fetch(`${jf.url}/CascadeServer/Explicit/Query`, {
+      const r = await jfFetch(`${jf.url}/CascadeServer/Explicit/Query`, {
         method: 'POST',
         headers: { ...CascadeCore.authHeaders(jf), 'Content-Type': 'application/json' },
         body: JSON.stringify({ Ids: ids }),
@@ -11796,7 +11812,7 @@ async function openSpotifyLinkModal() {
   // What it is linked to now: a hand link can be removed, handing the song
   // back to the automatic lookup.
   try {
-    const r = await fetch(`${jf.url}/CascadeServer/SpotifyId/${item.Id}`, { headers: CascadeCore.authHeaders(jf) })
+    const r = await jfFetch(`${jf.url}/CascadeServer/SpotifyId/${item.Id}`, { headers: CascadeCore.authHeaders(jf) })
     const cur = r.ok ? await r.json() : null
     if (_spotifyLinkItem !== item) return
     if (cur?.spotifyId && !input.value) input.value = `https://open.spotify.com/track/${cur.spotifyId}`
@@ -11813,7 +11829,7 @@ async function _spotifyLinkRequest(method, body) {
   const item = _spotifyLinkItem
   const error = document.getElementById('spotify-link-error')
   try {
-    const r = await fetch(`${jf.url}/CascadeServer/SpotifyId/${item.Id}`, {
+    const r = await jfFetch(`${jf.url}/CascadeServer/SpotifyId/${item.Id}`, {
       method,
       headers: CascadeCore.authHeaders(jf, body ? { 'Content-Type': 'application/json' } : {}),
       body: body ? JSON.stringify(body) : undefined,
@@ -11937,7 +11953,7 @@ window.cascadeDebug = {
     const durationMs = (item.RunTimeTicks || 0) / 10_000
     const q = s => `"${s.replace(/["\\]/g, '\\$&')}"`
     const mb = async url => {
-      const r = await fetch(url)
+      const r = await webFetch(url)
       if (!r.ok) throw new Error(`MusicBrainz HTTP ${r.status}`)
       return r.json()
     }
@@ -11965,7 +11981,7 @@ window.cascadeDebug = {
     if (!spotifyId) spotifyId = await this.spotifyId(cur)
     if (!spotifyId) return
     const id = String(spotifyId || '').trim().replace(/^spotify:track:/, '').replace(/^https?:\/\/open\.spotify\.com\/track\//, '').split('?')[0]
-    const r = await fetch(`${jf.url}/CascadeServer/SpicyLyrics/${encodeURIComponent(id)}`, { headers: CascadeCore.authHeaders(jf) })
+    const r = await jfFetch(`${jf.url}/CascadeServer/SpicyLyrics/${encodeURIComponent(id)}`, { headers: CascadeCore.authHeaders(jf) })
     const body = await r.json().catch(() => null)
     if (!r.ok) return console.error(`[cascadeDebug] HTTP ${r.status}`, body ?? '(no body; 404 with no body means the plugin is older than this route, 401/403 means not an admin)')
     const conv = CascadeCore.convertSpicyLyrics(body.spicy)
@@ -12393,7 +12409,7 @@ async function _lyricsWaterfall(item) {
       // own files. A forced karaoke/synced choice means exactly those files.
       const url = !wantType && _cascadePluginCaps.has('syllable')
         ? `${cascadeLyricsUrl(item.Id)}?syllable=true${_localSpotifyParam(item.Id)}` : cascadeLyricsUrl(item.Id)
-      const r = await fetch(url,
+      const r = await jfFetch(url,
         { headers: CascadeCore.authHeaders(jf), signal: AbortSignal.timeout(8000) })
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       let d = await r.json()
@@ -12411,7 +12427,7 @@ async function _lyricsWaterfall(item) {
         }
         // Unusable SpicyLyrics body: ask again for the plugin's own files
         // rather than showing nothing when they exist.
-        const r2 = await fetch(cascadeLyricsUrl(item.Id),
+        const r2 = await jfFetch(cascadeLyricsUrl(item.Id),
           { headers: CascadeCore.authHeaders(jf), signal: AbortSignal.timeout(8000) })
         if (!r2.ok) throw new Error(`HTTP ${r2.status}`)
         d = await r2.json()
@@ -12452,7 +12468,7 @@ async function _lyricsWaterfall(item) {
       return { lines, source: 'Kugou' }
     }],
     ['LRCLIB', async () => {
-      const r = await fetch(
+      const r = await webFetch(
         `https://lrclib.net/api/get?artist_name=${artist}&track_name=${title}&album_name=${album}&duration=${duration}`, sig)
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       const d = await r.json()
@@ -12469,7 +12485,7 @@ async function _lyricsWaterfall(item) {
       return null
     }],
     ['Jellyfin', async () => {
-      const r = await fetch(`${jf.url}/Audio/${item.Id}/Lyrics`,
+      const r = await jfFetch(`${jf.url}/Audio/${item.Id}/Lyrics`,
         { headers: CascadeCore.authHeaders(jf), ...sig })
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       const d = await r.json()
@@ -12511,7 +12527,7 @@ async function _lyricsWaterfall(item) {
   const spicyProm = (async () => {
     await _cascadePluginProbed
     if (_cascadePluginAbsent || !_cascadePluginCaps.has('syllable')) return null
-    const r = await fetch(`${cascadeLyricsUrl(item.Id)}?syllable=true&spicyOnly=true${_localSpotifyParam(item.Id)}`, { headers: CascadeCore.authHeaders(jf), ...sig })
+    const r = await jfFetch(`${cascadeLyricsUrl(item.Id)}?syllable=true&spicyOnly=true${_localSpotifyParam(item.Id)}`, { headers: CascadeCore.authHeaders(jf), ...sig })
     if (!r.ok) return null
     const d = await r.json()
     if (d?.type !== 'syllable') return null
@@ -13965,6 +13981,8 @@ const NEUTRAL_ART_SAT = 0.18
 // rather than only its colours.
 function themeFromArtUrl(art) {
   if (!art) return
+  // offline-ok: art is a downloaded cover (cascade-offline://) as often as the
+  // server's; offline, main's block or no network answers a server URL.
   fetch(art)
     .then(r => r.blob())
     .then(blob => {

@@ -660,7 +660,7 @@ async function wfCreate() {
   // Re-read in case Settings changed since load.
   await wfLoadPermissions()
 
-  const res = await fetch(`${await wfRelayBase()}/create`, { method: 'POST' })
+  const res = await webFetch(`${await wfRelayBase()}/create`, { method: 'POST' })
   if (!res.ok) throw new Error('Could not create a room.')
   const { code } = await res.json()
   await wfOpenSocket(code, true)
