@@ -98,7 +98,8 @@ final class AppState {
     var videoMinimized = false
 
     /// Plays movies or episodes in Apple's player, pausing any music first.
-    func playVideo(_ items: [JfItem], startIndex: Int = 0, audioStreamIndex: Int? = nil, resume: Bool = true) async {
+    func playVideo(_ items: [JfItem], startIndex: Int = 0, audioStreamIndex: Int? = nil, resume: Bool = true,
+                   startTicks: Int? = nil) async {
         guard let client, let config else { return }
         // A guest's pause would go to the host (the transport gate) and stop
         // the whole room, or explain host control at an odd moment: leave the
@@ -117,7 +118,8 @@ final class AppState {
         #if os(macOS)
         session.follow(player)
         #endif
-        await session.play(items, startIndex: startIndex, audioStreamIndex: audioStreamIndex, resume: resume)
+        await session.play(items, startIndex: startIndex, audioStreamIndex: audioStreamIndex, resume: resume,
+                           startTicks: startTicks)
     }
 
     /// One tile's worth: an episode plays on through the rest of its season.

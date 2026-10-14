@@ -200,3 +200,33 @@ struct SeeksLocallyTests {
         #expect(!stream("http://h/Audio/x/universal?Container=mp3", direct: false).seeksLocally)
     }
 }
+
+@Suite("continueEpisode")
+struct ContinueEpisodeTests {
+    private let t = 10_000_000
+    private func ep(_ id: String, _ played: String?, _ position: Int = 0, _ isPlayed: Bool = false) -> JfItem {
+        var data = JfUserData(playbackPositionTicks: position, played: isPlayed)
+        data.lastPlayedDate = played
+        return JfItem(id: id, runTimeTicks: 1000 * t, userData: data)
+    }
+
+    @Test func movesOnFromTheLastFinishedEpisode() {
+        let c = continueEpisode([ep("1", "2026-01-01T00:00:00.0000000Z", 0, true), ep("2", "2026-02-01T00:00:00.0000000Z", 0, true), ep("3", nil)])
+        #expect(c?.index == 2 && c?.startTicks == 0)
+    }
+
+    @Test func resumesARewatchEvenOnAPlayedEpisode() {
+        let c = continueEpisode([ep("1", "2026-03-01T00:00:00.0000000Z", 300 * t, true), ep("2", "2026-02-01T00:00:00.0000000Z", 0, true)])
+        #expect(c?.index == 0 && c?.startTicks == 300 * t)
+    }
+
+    @Test func pastNinetyFivePercentCountsAsFinished() {
+        let c = continueEpisode([ep("1", "2026-01-01T00:00:00.0000000Z", 990 * t), ep("2", nil)])
+        #expect(c?.index == 1 && c?.startTicks == 0)
+    }
+
+    @Test func nothingWatchedOrTheFinaleLastMeansNone() {
+        #expect(continueEpisode([ep("1", nil), ep("2", nil)]) == nil)
+        #expect(continueEpisode([ep("1", "2026-01-01T00:00:00.0000000Z", 0, true), ep("2", "2026-02-01T00:00:00.0000000Z", 0, true)]) == nil)
+    }
+}

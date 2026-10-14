@@ -26,6 +26,26 @@ public func resumeTicks(for item: JfItem?) -> Int {
     return ticks
 }
 
+/// Where to pick a series back up, from its episodes in watch order: the episode watched
+/// most recently (lastPlayedDate, which a rewatch updates too), resumed where it was left, or
+/// the one after it when it was finished. Nil when nothing has been watched, or the last thing
+/// watched was the final episode. The desktop's continueEpisode.
+///
+/// Unlike resumeTicks, a position counts even on an episode already marked played: Jellyfin
+/// keeps that mark while you rewatch, and stores the new position beside it.
+public func continueEpisode(_ episodes: [JfItem]) -> (index: Int, startTicks: Int)? {
+    // ponytail: Jellyfin writes these dates in one fixed ISO 8601 UTC shape, so they sort as text.
+    guard let last = episodes.indices.filter({ episodes[$0].userData?.lastPlayedDate != nil })
+        .max(by: { episodes[$0].userData!.lastPlayedDate! < episodes[$1].userData!.lastPlayedDate! }) else { return nil }
+    let episode = episodes[last]
+    let position = episode.userData?.playbackPositionTicks ?? 0
+    let total = episode.runTimeTicks ?? 0
+    if position > 0, !(total > 0 && Double(position) > Double(total) * resumeCompleteRatio) {
+        return (last, position)
+    }
+    return last + 1 < episodes.count ? (last + 1, 0) : nil
+}
+
 /// Put a start offset on a transcoding URL.
 ///
 /// A progressive transcode is a body the server encodes as it sends, so the

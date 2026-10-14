@@ -162,17 +162,18 @@ struct SeriesDetailView: View {
     @State private var seasons: [JfItem] = []
     @State private var season: String?
     @State private var episodes: [JfItem] = []
-    @State private var next: JfItem?
+    /// Where you left off (continueEpisode): the episode, and where in it to start.
+    @State private var resumeAt: (episode: JfItem, startTicks: Int)?
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 VideoHeader(item: series)
-                if let next {
+                if let resumeAt {
                     Button {
-                        Task { await state.playVideoItem(next) }
+                        Task { await playFromHere(resumeAt.episode, startTicks: resumeAt.startTicks) }
                     } label: {
-                        Label("\(nextStarted ? "Resume" : "Play") \(VideoPlayback.episodeCode(next) ?? "")", systemImage: "play.fill")
+                        Label(continueTitle(resumeAt.episode, resumeAt.startTicks), systemImage: "play.fill")
                     }
                     .buttonStyle(.borderedProminent)
                     .padding(.horizontal)
@@ -207,13 +208,14 @@ struct SeriesDetailView: View {
         .task {
             guard let client = state.client, seasons.isEmpty else { return }
             seasons = (try? await client.seasons(of: series.id)) ?? []
-            next = try? await client.nextUp(seriesId: series.id, limit: 1).first
-            season = next?.seasonId ?? seasons.first?.id
+            await findWhereLeftOff(client)
+            // Open on that episode's season rather than the first.
+            season = resumeAt?.episode.seasonId ?? seasons.first?.id
         }
-        // What was watched moves Next Up and the progress bars on.
+        // What was watched moves Continue and the progress bars on.
         .task(id: state.videoRevision) {
             guard state.videoRevision > 0, let client = state.client, !seasons.isEmpty else { return }
-            next = try? await client.nextUp(seriesId: series.id, limit: 1).first
+            await findWhereLeftOff(client)
             episodes = (try? await client.episodes(of: series.id, season: season)) ?? episodes
         }
         .task(id: season) {
@@ -222,7 +224,25 @@ struct SeriesDetailView: View {
         }
     }
 
-    private var nextStarted: Bool { (next?.userData?.playbackPositionTicks ?? 0) > 0 }
+    /// The episode watched last, resumed, or the one after it. Jellyfin's Next Up only finds
+    /// the next unwatched episode, so on a rewatch it showed nothing or the wrong one.
+    private func findWhereLeftOff(_ client: JellyfinClient) async {
+        guard let all = try? await client.episodes(of: series.id) else { return }
+        resumeAt = continueEpisode(all).map { (all[$0.index], $0.startTicks) }
+    }
+
+    private func continueTitle(_ episode: JfItem, _ startTicks: Int) -> String {
+        let code = VideoPlayback.episodeCode(episode) ?? episode.name ?? "Episode"
+        return startTicks > 0 ? "Resume \(code) at \(clock(seconds(fromTicks: startTicks)))" : "Continue with \(code)"
+    }
+
+    /// Its whole season becomes the queue, as a tap on the episode does, so it rolls on.
+    private func playFromHere(_ episode: JfItem, startTicks: Int) async {
+        guard let client = state.client,
+              let season = try? await client.episodes(of: series.id, season: episode.seasonId),
+              let index = season.firstIndex(where: { $0.id == episode.id }) else { return }
+        await state.playVideo(season, startIndex: index, startTicks: startTicks)
+    }
 }
 
 private struct EpisodeRow: View {

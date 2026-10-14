@@ -96,8 +96,10 @@ final class VideoSession {
         }
     }
 
-    /// `resume` picks up at the saved position; otherwise from the start.
-    func play(_ items: [JfItem], startIndex: Int = 0, audioStreamIndex: Int? = nil, resume: Bool = true) async {
+    /// `resume` picks up at the saved position; otherwise from the start. `startTicks`, when
+    /// given, is where to start instead (a show's Continue, which may resume a rewatch).
+    func play(_ items: [JfItem], startIndex: Int = 0, audioStreamIndex: Int? = nil, resume: Bool = true,
+              startTicks: Int? = nil) async {
         guard items.indices.contains(startIndex) else { return }
         queue = items
         index = startIndex
@@ -105,10 +107,10 @@ final class VideoSession {
         #if os(iOS) || os(macOS)
         claimLockScreen()
         #endif
-        await load(resume: resume)
+        await load(resume: resume, startTicks: startTicks)
     }
 
-    private func load(resume: Bool) async {
+    private func load(resume: Bool, startTicks: Int? = nil) async {
         await reportStopped()
         let item = queue[index]
         self.item = item
@@ -124,7 +126,7 @@ final class VideoSession {
         // The list's MediaStreams say it before the first frame does.
         let video = item.mediaStreams?.first { $0.type == "Video" }
         isLandscapeVideo = video.flatMap { v in v.width.flatMap { w in v.height.map { h in w > h } } }
-        let start = resume ? resumeTicks(for: item) : 0
+        let start = startTicks ?? (resume ? resumeTicks(for: item) : 0)
         do {
             let stream = try await VideoPlayback.resolve(client: client, config: config, item: item,
                                                          audioStreamIndex: audioStreamIndex)
