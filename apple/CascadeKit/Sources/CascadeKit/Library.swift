@@ -25,7 +25,7 @@ public extension JellyfinClient {
     /// every music library if they have not picked yet.
     func musicLibraries() async throws -> [JfItem] {
         let music = try await views().filter { $0.collectionType == "music" }
-        let chosen = currentConfig.libraryIds
+        let chosen = libraryScope
         guard !chosen.isEmpty else { return music }
         return music.filter { chosen.contains($0.id) }
     }
@@ -39,7 +39,7 @@ public extension JellyfinClient {
     /// library genuinely is more than one request; they used to run one after
     /// another, which is most of why a multi-library screen felt slow.
     func itemsAcrossLibraries(_ params: [String: String?], path: String = "/Items") async throws -> [JfItem] {
-        var libraries = currentConfig.libraryIds
+        var libraries = libraryScope
         // Nothing picked means the whole server, and one unscoped query covers
         // that, but it cannot say which library an item came from, so an album
         // in two music libraries showed twice. With two or more, ask each one.
@@ -197,7 +197,7 @@ public extension JellyfinClient {
     /// desktop. /Items/Filters takes one parentId, so it is asked per library.
     func years(of itemType: String) async throws -> [Int] {
         struct Filters: Decodable { var years: [Int]? }
-        let libraries = currentConfig.libraryIds
+        let libraries = libraryScope
         var years = Set<Int>()
         for parent in libraries.isEmpty ? [nil] : libraries.map(Optional.some) {
             let found: Filters = try await get("/Items/Filters", params: [

@@ -36,6 +36,12 @@ public final class OfflineLibrary {
     @ObservationIgnored private let delegate: DownloadDelegate
     @ObservationIgnored private var session: URLSession!
     @ObservationIgnored private var replaying = false
+    /// Called after every change to the index is saved: AppState hands the
+    /// new catalog to the client while Offline Mode is on.
+    @ObservationIgnored public var onChange: (@MainActor () -> Void)?
+    /// Offline Mode is on: no transfer is started, and the running ones were
+    /// cancelled (they start again from resume() once back online).
+    public private(set) var paused = false
 
     /// Handed over by the app delegate when iOS relaunches the app to finish
     /// downloads in the background; called once the session has delivered
@@ -181,6 +187,11 @@ public final class OfflineLibrary {
     public func download(_ collection: JfItem, client: JellyfinClient) async {
         lastError = nil
         guard owner != nil else { return }
+        // Offline the client answers from the downloads themselves.
+        guard !paused, await !client.isOffline else {
+            lastError = "Downloading needs your server. Turn Offline Mode off first."
+            return
+        }
         do {
             var list = collection.type == "Playlist"
                 ? try await client.tracks(inPlaylist: collection.id)
@@ -204,7 +215,7 @@ public final class OfflineLibrary {
     /// after a relaunch, a failure, or a new request.
     public func resume(client: JellyfinClient) async {
         lastError = nil
-        guard let owner else { return }
+        guard let owner, !paused, await !client.isOffline else { return }
         let config = await client.currentConfig
         let running = Set(await session.allTasks.compactMap(\.taskDescription))
         for id in index.pending where OfflineIndex.isSafeId(id)
@@ -247,6 +258,84 @@ public final class OfflineLibrary {
         for collection in index.collections { await remove(collection.id) }
     }
 
+    // MARK: - Offline Mode
+
+    /// Stops every transfer while Offline Mode is on, or allows them again.
+    /// Nothing is lost: what was cut off is still pending, and resume()
+    /// starts it once the app is back online.
+    public func setPaused(_ on: Bool) async {
+        paused = on
+        guard on else { return }
+        for task in await session.allTasks { task.cancel() }
+        await refreshActive()
+    }
+
+    /// The server's library list (/UserViews), kept so Offline Mode lists
+    /// the same libraries.
+    public func setLibraries(_ views: [JfItem]) {
+        guard owner != nil else { return }
+        let before = index
+        index.setLibraries(views)
+        if index != before { save() }
+    }
+
+    /// The signed-in user and their policy, for permissions while offline.
+    public func setUser(_ user: OfflineIndex.User?) {
+        guard owner != nil, index.user != user else { return }
+        index.setUser(user)
+        save()
+    }
+
+    /// Lyrics found while online, kept with the track for Offline Mode.
+    public func setLyrics(_ trackId: String, source: String, synced: Bool, lines: [LyricLine],
+                          credit: SpicyCredit? = nil) {
+        guard owner != nil else { return }
+        index.setLyrics(trackId, source: source, synced: synced, lines: lines, now: Date(), credit: credit)
+        save()
+    }
+
+    /// Keeps what a lyrics search found for a downloaded track. Nothing, or
+    /// an instrumental, is not kept: the next search online may do better.
+    public func keepLyrics(_ result: LyricsResult?, for trackId: String) {
+        guard let result, !result.instrumental, !result.lines.isEmpty else { return }
+        setLyrics(trackId, source: OfflineIndex.StoredLyrics.sourceKey(label: result.source, hasCredit: result.credit != nil),
+                  synced: result.synced, lines: result.lines, credit: result.credit)
+    }
+
+    /// Moves downloads out of the placeholder libraries: each stored library
+    /// is asked which of the unplaced items it holds, 100 ids at a time. Run
+    /// online after the library list is stored; offline it does nothing.
+    public func placeDownloads(client: JellyfinClient) async {
+        guard owner != nil, await !client.isOffline else { return }
+        let unplaced = index.unplacedTrackIds
+        guard !unplaced.isEmpty else { return }
+        let owner = self.owner
+        for library in index.libraries {
+            for start in stride(from: 0, to: unplaced.count, by: 100) {
+                let ids = Array(unplaced[start..<min(start + 100, unplaced.count)])
+                guard let found: JfItemsResponse = try? await client.get("/Items", params: [
+                    "ids": ids.joined(separator: ","), "parentId": library.id, "recursive": "true",
+                ]) else { continue }
+                // Signed out or switched account meanwhile: not this index.
+                guard self.owner == owner else { return }
+                let held = (found.items ?? []).map(\.id)
+                if !held.isEmpty {
+                    index.assignLibrary(held, to: library.id)
+                    save()
+                }
+            }
+        }
+    }
+
+    /// Free and total space on the disk the downloads are on.
+    public func diskSpace() -> (free: Int64, total: Int64)? {
+        let keys: Set<URLResourceKey> = [.volumeAvailableCapacityForImportantUsageKey, .volumeTotalCapacityKey]
+        guard let values = try? base.resourceValues(forKeys: keys),
+              let free = values.volumeAvailableCapacityForImportantUsage,
+              let total = values.volumeTotalCapacity else { return nil }
+        return (free, Int64(total))
+    }
+
     // MARK: - Plays made while the server was away
 
     public func recordPlay(_ itemId: String, userId: String, at date: Date) {
@@ -285,6 +374,7 @@ public final class OfflineLibrary {
     private func save() {
         guard let root, let data = index.encoded() else { return }
         try? data.write(to: root.appending(path: "index.json"), options: .atomic)
+        onChange?()
     }
 
     private func refreshActive() async {

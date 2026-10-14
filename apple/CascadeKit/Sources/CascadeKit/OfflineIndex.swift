@@ -128,6 +128,50 @@ public struct OfflineIndex: Codable, Sendable, Equatable {
         /// SpicyLyrics are kept no longer than the plugin's own cache may
         /// keep them (spicyLyricsDays); every other source never expires.
         public var expiresAt: Date?
+        /// SpicyLyrics' credit, which must show wherever they do.
+        public var credit: SpicyCredit?
+
+        public init(source: String, synced: Bool, lines: [LyricLine], savedAt: Date, expiresAt: Date?,
+                    credit: SpicyCredit? = nil) {
+            self.source = source
+            self.synced = synced
+            self.lines = lines
+            self.savedAt = savedAt
+            self.expiresAt = expiresAt
+            self.credit = credit
+        }
+
+        enum CodingKeys: String, CodingKey { case source, synced, lines, savedAt, expiresAt, credit }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            source = try c.decode(String.self, forKey: .source)
+            synced = (try? c.decodeIfPresent(Bool.self, forKey: .synced)) ?? false
+            lines = try c.decode([LyricLine].self, forKey: .lines)
+            savedAt = try c.decode(Date.self, forKey: .savedAt)
+            expiresAt = try? c.decodeIfPresent(Date.self, forKey: .expiresAt)
+            // A credit that does not read leaves the lyrics, not the track, out.
+            credit = (try? c.decodeIfPresent(SpicyCredit.self, forKey: .credit)) ?? nil
+        }
+
+        /// The key a source is stored under, from the label the lyrics
+        /// search reports (LyricSources). SpicyLyrics are told apart by their
+        /// credit, since their label is the provider's name. The same rule as
+        /// the desktop's lyricsSourceKey.
+        public static func sourceKey(label: String, hasCredit: Bool) -> String {
+            if hasCredit { return "spicy" }
+            let l = label.lowercased()
+            if l.hasPrefix("kugou") { return "kugou" }
+            if l.hasPrefix("lrclib") { return "lrclib" }
+            if l.hasPrefix("jellyfin") { return "jellyfin" }
+            return "cascade"
+        }
+
+        /// How the lyrics UI names where these came from.
+        public var sourceLabel: String {
+            if let credit { return credit.provider }
+            return ["cascade": "Cascade", "kugou": "Kugou", "lrclib": "LRCLIB", "jellyfin": "Jellyfin"][source] ?? source
+        }
     }
 
     /// An external text subtitle saved beside a video, as WebVTT.
@@ -407,10 +451,12 @@ public struct OfflineIndex: Codable, Sendable, Equatable {
     }
 
     /// Saves a track's lyrics. SpicyLyrics get an expiry spicyLyricsDays out.
-    public mutating func setLyrics(_ trackId: String, source: String, synced: Bool, lines: [LyricLine], now: Date) {
+    public mutating func setLyrics(_ trackId: String, source: String, synced: Bool, lines: [LyricLine], now: Date,
+                                   credit: SpicyCredit? = nil) {
         guard tracks[trackId] != nil, !source.isEmpty, !lines.isEmpty else { return }
         let expires = source == "spicy" ? now.addingTimeInterval(Double(Self.spicyLyricsDays) * 86_400) : nil
-        tracks[trackId]?.lyrics = StoredLyrics(source: source, synced: synced, lines: lines, savedAt: now, expiresAt: expires)
+        tracks[trackId]?.lyrics = StoredLyrics(source: source, synced: synced, lines: lines, savedAt: now, expiresAt: expires,
+                                               credit: credit.flatMap { $0.provider.isEmpty ? nil : $0 })
     }
 
     public mutating func dropLyrics(_ trackId: String) { tracks[trackId]?.lyrics = nil }

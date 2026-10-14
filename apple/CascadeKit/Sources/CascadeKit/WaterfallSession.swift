@@ -76,6 +76,7 @@ public final class WaterfallSession {
     // MARK: - Starting and leaving
 
     public func create(relayBase: String, name: String, allowGuestAdds: Bool, allowGuestControl: Bool) async throws {
+        try OfflineGate.shared.check()
         guard let url = URL(string: base(relayBase) + "/create") else { throw failure("That relay address is not valid.") }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -159,6 +160,7 @@ public final class WaterfallSession {
     }
 
     private func open(_ room: String, relayBase: String, name: String, as role: Role) async throws {
+        try OfflineGate.shared.check()
         leave()
         struct Info: Decodable { var id: String? }
         serverId = (try? await client.get("/System/Info/Public", as: Info.self))?.id

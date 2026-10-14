@@ -134,6 +134,7 @@ public enum Kugou {
 
     /// The best match's lyrics as KRC text, or nil.
     public static func krc(title: String, artist: String, durationMs: Int, session: URLSession = .shared) async throws -> String? {
+        try OfflineGate.shared.check()
         var search = URLComponents(string: "https://lyrics.kugou.com/search")!
         search.queryItems = [.init(name: "ver", value: "1"), .init(name: "man", value: "yes"), .init(name: "client", value: "pc"),
                              .init(name: "keyword", value: "\(artist) - \(title)"), .init(name: "duration", value: String(durationMs))]
@@ -156,6 +157,7 @@ public enum Kugou {
 public enum LRCLIB {
     public static func lyrics(title: String, artist: String, album: String, durationSeconds: Int,
                               userAgent: String, session: URLSession = .shared) async throws -> LyricsResult? {
+        try OfflineGate.shared.check()
         var url = URLComponents(string: "https://lrclib.net/api/get")!
         url.queryItems = [.init(name: "artist_name", value: artist), .init(name: "track_name", value: title),
                           .init(name: "album_name", value: album), .init(name: "duration", value: String(durationSeconds))]
@@ -224,6 +226,13 @@ public extension JellyfinClient {
 
     func removeSpotifyLink(itemId: String) async throws {
         _ = try await delete("/CascadeServer/SpotifyId/\(itemId)")
+    }
+}
+
+public extension LyricsResult {
+    /// Lyrics saved with a download, shown offline as they were found.
+    init(stored: OfflineIndex.StoredLyrics) {
+        self.init(lines: stored.lines, credit: stored.credit, synced: stored.synced, source: stored.sourceLabel)
     }
 }
 

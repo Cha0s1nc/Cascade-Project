@@ -28,6 +28,40 @@ public struct SpicyCredit: Sendable, Equatable {
     public var maker: SpicyContributor?
 }
 
+// Saved with a download (OfflineIndex.StoredLyrics) in the desktop's JSON
+// shape: { provider, uploader: { name, url }, maker }. Read back with the
+// same https rule, and a contributor that does not parse is left out rather
+// than failing the whole credit.
+extension SpicyContributor: Codable {
+    enum CodingKeys: String, CodingKey { case name, url }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        url = SpicyLyrics.safeCreditURL(try? c.decodeIfPresent(String.self, forKey: .url))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(name, forKey: .name)
+        try c.encodeIfPresent(url?.absoluteString, forKey: .url)
+    }
+}
+
+extension SpicyCredit: Codable {
+    enum CodingKeys: String, CodingKey { case provider, uploader, maker }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        provider = try c.decode(String.self, forKey: .provider)
+        guard !provider.isEmpty else {
+            throw DecodingError.dataCorruptedError(forKey: .provider, in: c, debugDescription: "empty provider")
+        }
+        uploader = (try? c.decodeIfPresent(SpicyContributor.self, forKey: .uploader)) ?? nil
+        maker = (try? c.decodeIfPresent(SpicyContributor.self, forKey: .maker)) ?? nil
+    }
+}
+
 public struct SpicyConversion: Sendable, Equatable {
     public var lines: [LyricLine]
     public var credit: SpicyCredit
