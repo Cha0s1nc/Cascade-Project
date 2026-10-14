@@ -4947,12 +4947,24 @@ async function openSeries(seriesId) {
   body.innerHTML = skeletonHTML('track', 4)
 
   try {
-    const [series, seasonsData] = await Promise.all([
+    const [series, seasonsData, allEpisodes] = await Promise.all([
       jfGet(`/Users/${jf.userId}/Items/${seriesId}`, { Fields: 'Overview,Genres' }),
       jfGet(`/Shows/${seriesId}/Seasons`, { UserId: jf.userId, Fields: 'UserData' }),
+      // Every episode with its watch state, light, for the Continue button.
+      jfGet(`/Shows/${seriesId}/Episodes`, { UserId: jf.userId, EnableImages: false }).catch(() => null),
     ])
     _currentSeries = series
     const seasons = seasonsData.Items || []
+    // Where you left off: the episode watched last, resumed, or the one after it.
+    const episodes = allEpisodes?.Items || []
+    const cont = CascadeCore.continueEpisode(episodes)
+    const contEp = cont && episodes[cont.index]
+    const contLabel = contEp && (() => {
+      const code = `S${contEp.ParentIndexNumber ?? '?'}:E${contEp.IndexNumber ?? '?'}`
+      return cont.startTicks ? `Resume ${code} at ${fmtTime(cont.startTicks / 10_000_000)}` : `Continue with ${code}`
+    })()
+    // Open on that episode's season rather than the first.
+    const startSeason = Math.max(0, contEp ? seasons.findIndex(s => s.Id === contEp.SeasonId) : 0)
 
     const art = artUrl(series.Id, series.ImageTags?.Primary)
     const meta = [series.ProductionYear, `${seasons.length} season${seasons.length !== 1 ? 's' : ''}`,
@@ -4965,11 +4977,12 @@ async function openSeries(seriesId) {
           <div class="vd-title">${esc(series.Name)}</div>
           <div class="vd-meta">${esc(meta)}</div>
           <div class="vd-overview">${esc(series.Overview || '')}</div>
+          ${contLabel ? `<div class="vd-actions"><button class="shuffle-all-btn" id="series-continue" title="${esc(contEp.Name || '')}">${esc(contLabel)}</button></div>` : ''}
         </div>
       </div>
       <div class="season-tabs" id="season-tabs">${
         seasons.map((s, i) =>
-          `<button class="season-tab${i === 0 ? ' active' : ''}">${esc(s.Name)}</button>`
+          `<button class="season-tab${i === startSeason ? ' active' : ''}">${esc(s.Name)}</button>`
         ).join('')
       }</div>
       <div id="episode-list"></div>`
@@ -4984,7 +4997,21 @@ async function openSeries(seriesId) {
       })
     })
 
-    if (seasons.length) loadEpisodes(seriesId, seasons[0].Id)
+    // Its whole season becomes the queue, as a click on the episode does, so it rolls on to the next.
+    document.getElementById('series-continue')?.addEventListener('click', async () => {
+      try {
+        const data = await jfGet(`/Shows/${seriesId}/Episodes`, {
+          SeasonId: contEp.SeasonId, UserId: jf.userId, Fields: 'Overview,MediaStreams,MediaSources,UserData',
+        })
+        const eps = data.Items || []
+        const i = eps.findIndex(e => e.Id === contEp.Id)
+        if (i >= 0) playVideo(eps, i, cont.startTicks)
+      } catch {
+        showToast('Could not load that episode')
+      }
+    })
+
+    if (seasons.length) loadEpisodes(seriesId, seasons[startSeason].Id)
     else document.getElementById('episode-list').innerHTML =
       `<div class="empty-state">No seasons found</div>`
   } catch {

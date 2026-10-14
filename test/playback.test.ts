@@ -1,7 +1,8 @@
 import { test, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { JellyfinClient } from '../src/core/jellyfin.ts'
-import { resolveStream, isHlsUrl, chapterList, chapterAt, chapterTarget, universalStreamUrl, stopActiveEncoding, DEFAULT_MAX_BITRATE, resumeTicks, neededAudioStreamIndex, withoutAudioCodecs
+import { resolveStream, isHlsUrl, chapterList, chapterAt, chapterTarget, universalStreamUrl, stopActiveEncoding, DEFAULT_MAX_BITRATE, resumeTicks, neededAudioStreamIndex, withoutAudioCodecs,
+  continueEpisode,
 } from '../src/core/playback.ts'
 import { ELECTRON_PROFILE, buildElectronProfile } from '../src/core/profiles/electron.ts'
 import type { ServerConfig, JfMediaStream } from '../src/core/types.ts'
@@ -597,4 +598,21 @@ test('chapterTarget: forward to the next start, back like a previous button', ()
   assert.equal(chapterTarget(ch, 61, -1), 0, 'just started b: back to a')
   assert.equal(chapterTarget(ch, 1, -1), 0, 'the first chapter restarts itself')
   assert.equal(chapterTarget([{ sec: 10, name: 'x' }, { sec: 20, name: 'y' }], 5, -1), null)
+})
+
+test('continueEpisode: resumes the episode watched last, or moves on from a finished one', () => {
+  const T = 10_000_000
+  const ep = (id: string, played: string | undefined, pos = 0, isPlayed = false) =>
+    ({ Id: id, RunTimeTicks: 1000 * T, UserData: { LastPlayedDate: played, PlaybackPositionTicks: pos, Played: isPlayed } }) as any
+  // Finished episode 2 most recently: on to 3.
+  assert.deepEqual(continueEpisode([ep('1', '2026-01-01T00:00:00Z', 0, true), ep('2', '2026-02-01T00:00:00Z', 0, true), ep('3', undefined)]),
+    { index: 2, startTicks: 0 })
+  // A rewatch: episode 1 is marked played but has a fresh position and the latest date.
+  assert.deepEqual(continueEpisode([ep('1', '2026-03-01T00:00:00Z', 300 * T, true), ep('2', '2026-02-01T00:00:00Z', 0, true)]),
+    { index: 0, startTicks: 300 * T })
+  // Past 95% counts as finished.
+  assert.deepEqual(continueEpisode([ep('1', '2026-01-01T00:00:00Z', 990 * T), ep('2', undefined)]), { index: 1, startTicks: 0 })
+  // Nothing watched, or the finale was the last thing watched: no button.
+  assert.equal(continueEpisode([ep('1', undefined), ep('2', undefined)]), null)
+  assert.equal(continueEpisode([ep('1', '2026-01-01T00:00:00Z', 0, true), ep('2', '2026-02-01T00:00:00Z', 0, true)]), null)
 })

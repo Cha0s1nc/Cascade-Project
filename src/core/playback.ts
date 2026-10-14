@@ -225,6 +225,32 @@ export function resumeTicks(item: JfItem | null | undefined): number {
 }
 
 /**
+ * Where to pick a series back up, from its episodes in watch order: the
+ * episode watched most recently (UserData.LastPlayedDate, which a rewatch
+ * updates too), resumed where it was left, or the one after it when it was
+ * finished. Null when nothing has been watched, or the last thing watched was
+ * the final episode.
+ *
+ * Unlike resumeTicks, a position counts even on an episode already marked
+ * played: Jellyfin keeps Played set while you rewatch, and stores the new
+ * position beside it.
+ */
+export function continueEpisode(episodes: readonly JfItem[]): { index: number; startTicks: number } | null {
+  let last = -1
+  let lastAt = -Infinity
+  episodes.forEach((ep, i) => {
+    const at = Date.parse(ep.UserData?.LastPlayedDate ?? '')
+    if (at > lastAt) { lastAt = at; last = i }
+  })
+  if (last < 0) return null
+  const ep = episodes[last]
+  const pos = ep.UserData?.PlaybackPositionTicks || 0
+  const total = ep.RunTimeTicks || 0
+  if (pos > 0 && !(total && pos > total * RESUME_COMPLETE_RATIO)) return { index: last, startTicks: pos }
+  return last + 1 < episodes.length ? { index: last + 1, startTicks: 0 } : null
+}
+
+/**
  * The pre-B1 stream URL, kept as a fallback.
  *
  * If PlaybackInfo fails (older server, network blip, unexpected shape) this
