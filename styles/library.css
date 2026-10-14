@@ -101,20 +101,30 @@
 .pl-detail-header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
 .pl-detail-art { width: 80px; height: 80px; border-radius: 8px; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 36px; flex-shrink: 0; }
 .pl-detail-art img { width: 100%; height: 100%; object-fit: cover; }
-/* A playlist the user may edit: the cover opens its details (renderer.js
-   setPlaylistArtEditable). A small pencil in the corner says so at rest; on
-   hover or focus the cover dims under a larger one and gets a soft ring. */
-.pl-detail-art.editable { position: relative; cursor: pointer; transition: box-shadow 0.15s; }
-.pl-detail-art.editable::before, .pl-detail-art.editable::after { content: ''; position: absolute; pointer-events: none; transition: all 0.15s; }
-.pl-detail-art.editable::before { inset: 0; background: rgba(0,0,0,0.5); opacity: 0; }
-.pl-detail-art.editable::after {
-  right: 5px; bottom: 5px; width: 20px; height: 20px; border-radius: 50%;
-  background: rgba(0,0,0,0.55) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 20h9'/%3E%3Cpath d='M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z'/%3E%3C/svg%3E") center / 11px no-repeat;
-  opacity: 0.85;
-}
-.pl-detail-art.editable:hover, .pl-detail-art.editable:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--accent-glow), 0 0 0 1px var(--accent); }
-.pl-detail-art.editable:hover::before, .pl-detail-art.editable:focus-visible::before { opacity: 1; }
-.pl-detail-art.editable:hover::after, .pl-detail-art.editable:focus-visible::after { right: calc(50% - 15px); bottom: calc(50% - 15px); width: 30px; height: 30px; background-size: 17px; background-color: transparent; opacity: 1; }
+/* A playlist's own cover is bigger than an album's, room for Change and
+   Remove picture, which show over it on hover in Edit mode (renderer.js
+   "Playlist details, edited in place"). */
+.pl-art-wrap { position: relative; flex-shrink: 0; border-radius: 8px; }
+#pl-detail-art { width: 148px; height: 148px; font-size: 56px; }
+.pl-art-actions { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; gap: 12px; border-radius: 8px; background: rgba(0,0,0,0.5); opacity: 0; transition: opacity 0.15s; }
+#playlist-detail.edit-mode .pl-art-wrap.can-edit .pl-art-actions { display: flex; }
+#playlist-detail.edit-mode .pl-art-wrap.can-edit:hover .pl-art-actions,
+#playlist-detail.edit-mode .pl-art-wrap.can-edit:focus-within .pl-art-actions { opacity: 1; }
+.pl-art-wrap:not(.has-art) #pl-art-remove { display: none; }
+.pl-art-btn { width: 38px; height: 38px; border-radius: 50%; border: none; background: rgba(255,255,255,0.16); color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background 0.12s, transform 0.12s; }
+.pl-art-btn:hover { background: rgba(255,255,255,0.28); transform: scale(1.06); }
+.pl-art-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--accent); }
+.pl-detail-info { min-width: 0; flex: 1; max-width: 560px; }
+/* The name and description as fields while editing: a faint box, brighter on hover and focus. */
+#playlist-detail.edit-mode .pl-detail-name[contenteditable] { width: fit-content; min-width: 220px; max-width: 520px; border-radius: 6px; padding: 2px 6px; margin-left: -6px; outline: 1px solid var(--border); cursor: text; transition: outline-color 0.12s, background 0.12s; }
+#playlist-detail.edit-mode .pl-detail-name[contenteditable]:hover { background: var(--surface2); }
+#playlist-detail.edit-mode .pl-detail-name[contenteditable]:focus { outline: 2px solid var(--accent); background: var(--surface2); }
+#playlist-detail.edit-mode .pl-detail-overview { display: none; }
+.pl-detail-overview-input { display: block; width: 100%; max-width: 520px; box-sizing: border-box; margin-top: 8px; padding: 6px 8px; margin-left: -8px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--text2); font: inherit; font-size: 12px; line-height: 1.45; resize: none; overflow: hidden; transition: border-color 0.12s, background 0.12s; }
+.pl-detail-overview-input:hover { background: var(--surface2); }
+.pl-detail-overview-input:focus { outline: none; border-color: var(--accent); background: var(--surface2); color: var(--text); }
+.pl-detail-overview-input[hidden] { display: none; }
+.pl-public-toggle { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text2); margin-right: 8px; }
 .pl-detail-name { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 4px; }
 .pl-detail-meta { font-size: 12px; color: var(--text3); }
 .pl-detail-overview { margin-top: 6px; max-width: 520px; font-size: 12px; color: var(--text2); line-height: 1.45; white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }

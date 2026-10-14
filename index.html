@@ -653,11 +653,22 @@
             Back to Playlists
           </button>
           <div class="pl-detail-header">
-            <div class="pl-detail-art" id="pl-detail-art">♪</div>
-            <div>
-              <div class="pl-detail-name" id="pl-detail-name"></div>
+            <!-- In Edit mode, hovering the cover shows Change and Remove picture,
+                 the name becomes a text field and a description field shows
+                 (renderer.js "Playlist details, edited in place"). -->
+            <div class="pl-art-wrap" id="pl-art-wrap">
+              <div class="pl-detail-art" id="pl-detail-art">♪</div>
+              <div class="pl-art-actions">
+                <button type="button" class="pl-art-btn" id="pl-art-change" title="Change picture" aria-label="Change picture"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
+                <button type="button" class="pl-art-btn" id="pl-art-remove" title="Remove picture" aria-label="Remove picture"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg></button>
+              </div>
+              <input type="file" id="pl-edit-art-file" accept="image/jpeg,image/png,image/webp" hidden>
+            </div>
+            <div class="pl-detail-info">
+              <div class="pl-detail-name" id="pl-detail-name" spellcheck="false"></div>
               <div class="pl-detail-meta" id="pl-detail-meta"></div>
               <div class="pl-detail-overview" id="pl-detail-overview" hidden></div>
+              <textarea class="pl-detail-overview-input" id="pl-detail-overview-input" rows="2" maxlength="2000" placeholder="Add a description" aria-label="Description" hidden></textarea>
             </div>
             <button id="pl-detail-refresh" title="Refresh this playlist" style="background:none;border:none;color:var(--text3);cursor:pointer;padding:2px 4px;font-size:14px;line-height:1;border-radius:4px;transition:color 0.15s;" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--text3)'">↻</button>
             <div style="margin-left:auto;display:flex;gap:8px">
@@ -678,8 +689,12 @@
             </div>
           </div>
           <!-- Edit mode toolbar: bulk move/remove act on the checkbox selection,
-               the cover (pl-detail-art) opens pl-edit-modal. Hidden outside edit mode. -->
+               the name, description, picture and Public switch edit in place. Hidden outside edit mode. -->
           <div class="pl-edit-toolbar" id="pl-edit-toolbar">
+            <div class="pl-public-toggle" title="Public playlists show for everyone on the server">
+              <span>Public</span>
+              <label class="toggle"><input type="checkbox" id="pl-edit-public" aria-label="Public playlist"><span class="toggle-track"></span></label>
+            </div>
             <span class="pl-edit-count" id="pl-edit-count">0 selected</span>
             <button class="shuffle-all-btn" id="pl-edit-top" disabled>Move to top</button>
             <button class="shuffle-all-btn" id="pl-edit-bottom" disabled>Move to bottom</button>
@@ -2135,33 +2150,6 @@
      Jellyfin's own POST /Playlists/{id}; picture and description need either
      an admin (Jellyfin requires elevation for both) or Cascade Server's
      playlist-edit routes, which let the owner do it (see openPlaylistDetails). -->
-<div class="modal-overlay hidden" id="pl-edit-modal">
-  <div class="modal-card" style="max-height:none;">
-    <div class="modal-title">Playlist details</div>
-    <div class="pl-details-art-row">
-      <div class="pl-details-art" id="pl-edit-art">♪</div>
-      <div class="pl-details-art-actions">
-        <button class="modal-btn" id="pl-edit-art-change" type="button">Change picture…</button>
-        <button class="modal-btn" id="pl-edit-art-remove" type="button">Remove picture</button>
-        <div class="wf-note" id="pl-edit-art-note" hidden></div>
-      </div>
-      <input type="file" id="pl-edit-art-file" accept="image/jpeg,image/png,image/webp" hidden>
-    </div>
-    <input class="modal-input" id="pl-edit-name" placeholder="Playlist name…" maxlength="100" style="width:100%;box-sizing:border-box;margin-bottom:10px;" />
-    <textarea class="modal-input pl-details-overview" id="pl-edit-overview" placeholder="Description (optional)" maxlength="2000" rows="3"></textarea>
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-      <span style="font-size:12px;color:var(--text2)">Public playlist</span>
-      <label class="toggle">
-        <input type="checkbox" id="pl-edit-public">
-        <span class="toggle-track"></span>
-      </label>
-    </div>
-    <div class="modal-actions">
-      <button class="modal-btn" id="pl-edit-cancel">Cancel</button>
-      <button class="modal-btn modal-btn-accent" id="pl-edit-save">Save</button>
-    </div>
-  </div>
-</div>
 <!-- Smart playlist rule builder: create or edit a locally-stored definition
      (see CascadeCore.parseSmartPlaylists/toItemsQuery/applySmartPlaylistRules
      in src/core/smart-playlist.ts). Reuses .modal-overlay/.modal-card/
