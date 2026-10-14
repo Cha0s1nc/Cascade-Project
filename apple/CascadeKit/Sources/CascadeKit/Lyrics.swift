@@ -6,14 +6,15 @@ import Foundation
 //
 // All times are ticks, Jellyfin's convention: 100 ns, so 1 s = 10,000,000.
 
-public struct LyricWord: Sendable, Equatable {
+public struct LyricWord: Sendable, Equatable, Codable {
     public var start: Int
     /// The next word's start; the last word of a line takes the next line's.
     public var end: Int?
     public var text: String
 }
 
-public struct LyricLine: Sendable, Equatable {
+/// Codable so the offline catalog can keep a track's lyrics already parsed.
+public struct LyricLine: Sendable, Equatable, Codable {
     public var start: Int
     public var text: String
     /// Nil for plain LRC; set for karaoke (word-level) formats.

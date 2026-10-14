@@ -36,6 +36,10 @@ public struct JfMediaStream: Codable, Sendable {
     public var language: String?
     public var displayTitle: String?
     public var isDefault: Bool?
+    public var isForced: Bool?
+    /// A subtitle in a file beside the video rather than inside it.
+    public var isExternal: Bool?
+    public var channels: Int?
     /// Frames per second of a video stream, for stepping a frame at a time.
     public var realFrameRate: Double?
     /// Video streams only: the picture's size, so the player knows a film is
@@ -54,6 +58,8 @@ public struct JfMediaSourceRef: Codable, Sendable {
     /// Bits per second. How mergeLibraryCopies picks between two copies of a
     /// song, so it is only asked for when more than one library is browsed.
     public var bitrate: Int?
+    /// Bytes, for the download manager's sizes before a file arrives.
+    public var size: Int?
 }
 
 /// A track, album, artist or playlist. Jellyfin returns one shape for all of
@@ -127,6 +133,17 @@ public struct JfItem: Codable, Sendable, Identifiable, Hashable {
     public var backdropImageTags: [String]?
     public var officialRating: String?
     public var communityRating: Double?
+    public var seriesPrimaryImageTag: String?
+    public var seasonName: String?
+
+    // Kept by the offline catalog (OfflineIndex) so Offline Mode answers what
+    // the screens ask without a server: genres with their ids (the GenreIds
+    // filter), a video's chapters, whether this user may edit it, and a
+    // playlist's public flag.
+    public var genreItems: [JfNameId]?
+    public var chapters: [JfChapter]?
+    public var canDelete: Bool?
+    public var isPublic: Bool?
 
     public init(id: String, name: String? = nil, type: String? = nil,
                 runTimeTicks: Int? = nil, userData: JfUserData? = nil) {
