@@ -156,6 +156,17 @@ List, per screen, every request it sends and the params it uses, on both platfor
 
 Bundle a GPL ffmpeg build per platform (compatible with Cascade's GPLv3), about 60 to 80 MB each. Download originals at full speed, then remux, or re-encode with VideoToolbox, NVENC or QuickSync, locally. Only worth it if phase 3 shows the server-side re-encode path is common and slow.
 
+## For the agent building this
+
+- Work on the `offline-mode` branch (made from `dev` for this). Open a pull request into `dev` when a phase is done and do not merge it yourself; never push to `stable`.
+- Read this plan, the root `CODEMAP.md` and `apple/CODEMAP.md` first, and write the phase 0 map before changing code.
+- **Never write a release marker in a commit subject line**: no `[BETA]`, no `Release (x.x.X)`, no bracketed platform list such as `[desktop]`. Markers in a first line on `dev` or `stable` start real builds and releases. Pull requests into `dev` are checked for them.
+- Commit messages end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`, with no session links. No em dashes anywhere, code included. American English. Do not hard-wrap Markdown.
+- No new dependencies without asking in the pull request (phase 5's ffmpeg is the one planned exception, and it is optional).
+- You cannot reach the maintainer's servers from the cloud, and their production server must never be written to. Mock the network in tests. Jellyfin's public demo server (demo.jellyfin.org) can be used for a read-only smoke test if it is up; nothing may depend on it.
+- You likely cannot run the apps' UI or an emulator. In each pull request, list plainly what was built and tested and what still needs checking on a real device by the maintainer.
+- Desktop: `npm test` and `npm run typecheck` must pass. Apple: `swift test` in `apple/CascadeKit`, and the `CascadeMac`, `CascadeiOS` and `CascadetvOS` schemes must build (tvOS gets none of this feature but must still compile).
+
 ## Testing rules
 
 - Never write to the production server (`jellyfin.chaosinc.xyz`); use jellyfin12 on rogserver for live checks, and block playback reports while testing (see the project's notes).
