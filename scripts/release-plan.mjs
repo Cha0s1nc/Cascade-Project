@@ -53,6 +53,10 @@ function pushedRange(before, after) {
   }
 }
 
+// The native Mac app is not ready to ship (2026-10-13): CI builds none, even
+// when a release names [mac]. Set to false to turn its builds back on.
+const NATIVE_MAC_OFF = true
+
 const command = process.argv[2]
 if (command === 'plan') {
   const range = env.EVENT === 'push' ? pushedRange(env.BEFORE, env.AFTER) : { messages: [], files: [] }
@@ -63,8 +67,10 @@ if (command === 'plan') {
     files: range.files,
     lastVersion: (env.LAST_VERSION ?? '').replace(/^v/, ''),
     tags: (env.TAGS ?? '').split('\n').map(s => s.trim()).filter(Boolean),
-    // The native Mac app lives in apple/, beside the iOS and tvOS one.
-    available: PLATFORMS.filter(p => p === 'desktop' || existsSync(p === 'mac' ? 'apple' : p)),
+    // The native Mac app lives in apple/, beside the iOS and tvOS one. It is
+    // switched off for now (NATIVE_MAC_OFF): never available, so no marker or
+    // manual run builds or publishes it.
+    available: PLATFORMS.filter(p => !(p === 'mac' && NATIVE_MAC_OFF) && (p === 'desktop' || existsSync(p === 'mac' ? 'apple' : p))),
     dispatch: { bump: env.INPUT_BUMP, platforms: env.INPUT_PLATFORMS, beta: env.INPUT_BETA === 'true' },
   })
   console.error(`Plan: ${plan.mode} ${plan.version || ''} [${plan.platforms.join(', ')}] (${plan.reason})`)

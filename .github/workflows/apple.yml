@@ -59,7 +59,10 @@ jobs:
           -destination 'generic/platform=tvOS Simulator'
           CODE_SIGNING_ALLOWED=NO build
 
+      # Off while the native Mac app is not ready (NATIVE_MAC_OFF in
+      # scripts/release-plan.mjs). Remove the if to build it again.
       - name: Build for macOS
+        if: false
         run: >
           xcodebuild -project Cascade.xcodeproj -scheme CascadeMac
           -destination 'generic/platform=macOS'
