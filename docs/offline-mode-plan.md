@@ -169,6 +169,13 @@ Done (`docs/offline-request-map.md`). It also moved both apps off the item route
 - `src/core/offline-index.ts` and `OfflineIndex.swift`: version 2 with migration from version 1 (tested with a real version 1 file, its items landing in the placeholder library), the wider `slimItem` (section 1's field list), library ids and the stored libraries, the stored user, `UserData` with offline changes on top, the history snapshot, video collections (movie, season, series) and their removal rules, per-item subtitle files, lyrics.
 - `src/core/offline-query.ts` and `CascadeKit/OfflineQuery.swift`: the engine, tested case by case from the phase 0 map. Shared fixture cases (the same catalog and request, the same expected answer) keep the two in step.
 
+Done on `offline-mode`, with these notes for phase 2:
+
+- Both engines answer every route in the request map's checklist and pass the same 73 cases in `test/fixtures/offline-query.json`. Keep one engine per catalog state (`offlineQuery(index)`, `OfflineQuery.Engine(index)`), not one per request. Measured on 20,000 songs: about 50 ms to build on the desktop, about 115 ms in Swift on Linux, then about 10 ms and 75 ms a request.
+- The placeholder libraries only show if the app's fan-out asks for them. While Offline Mode is on, the swap point must add `placeholderLibraryIds()` / `OfflineQuery.placeholderLibraryIds` to the library ids a screen fans out over, so items not yet placed still appear.
+- The online library lookup (plan section 1, "Library ids") should also refresh each stored item with the fields version 1 never kept: `ArtistItems`, `GenreItems`, `UserData`, `DateCreated`. Version 1 items have none of them, so offline they are missing from the artist and genre lists until refreshed.
+- Not yet verified on a Mac: the Apple half was built and tested on Linux with `scripts/swift-linux-check.sh` (the pure files only). `swift test` and the three schemes must be run before phase 2 builds on it.
+
 ### Phase 2: the switch, the swap and the manager
 
 - Settings switch, the three states, the probe, the pill and the banner.

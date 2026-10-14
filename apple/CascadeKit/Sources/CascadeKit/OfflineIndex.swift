@@ -33,7 +33,7 @@ public struct OfflineIndex: Codable, Sendable, Equatable {
         /// index, or until the library is looked up: library(of:) then answers
         /// the placeholder for its kind.
         public var library: String?
-        public var lyrics: Lyrics?
+        public var lyrics: StoredLyrics?
         public var subs: [Subtitle]?
         public var segments: [Segment]?
         /// The Cascade plugin's explicit flag, so the badge shows offline.
@@ -119,7 +119,7 @@ public struct OfflineIndex: Codable, Sendable, Equatable {
 
     /// Lyrics saved with a track, already parsed: the waterfall's answer at
     /// download time.
-    public struct Lyrics: Codable, Sendable, Equatable {
+    public struct StoredLyrics: Codable, Sendable, Equatable {
         /// "cascade", "spicy", "kugou", "lrclib", "jellyfin".
         public var source: String
         public var synced: Bool
@@ -307,7 +307,7 @@ public struct OfflineIndex: Codable, Sendable, Equatable {
 
     /// Lyrics saved with a track, or nil when there are none or they have
     /// expired (SpicyLyrics past spicyLyricsDays: shown no longer).
-    public func lyrics(of trackId: String, now: Date) -> Lyrics? {
+    public func lyrics(of trackId: String, now: Date) -> StoredLyrics? {
         guard let l = tracks[trackId]?.lyrics else { return nil }
         if let expires = l.expiresAt, expires <= now { return nil }
         return l
@@ -410,7 +410,7 @@ public struct OfflineIndex: Codable, Sendable, Equatable {
     public mutating func setLyrics(_ trackId: String, source: String, synced: Bool, lines: [LyricLine], now: Date) {
         guard tracks[trackId] != nil, !source.isEmpty, !lines.isEmpty else { return }
         let expires = source == "spicy" ? now.addingTimeInterval(Double(Self.spicyLyricsDays) * 86_400) : nil
-        tracks[trackId]?.lyrics = Lyrics(source: source, synced: synced, lines: lines, savedAt: now, expiresAt: expires)
+        tracks[trackId]?.lyrics = StoredLyrics(source: source, synced: synced, lines: lines, savedAt: now, expiresAt: expires)
     }
 
     public mutating func dropLyrics(_ trackId: String) { tracks[trackId]?.lyrics = nil }

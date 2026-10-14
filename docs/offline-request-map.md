@@ -421,6 +421,8 @@ Phase 2's "nothing is sent to the network" in Offline Mode reaches these too:
 
 ## The engine's scope, as a checklist
 
+Built in phase 1 (`src/core/offline-query.ts`, `CascadeKit/OfflineQuery.swift`), each item tested in `test/fixtures/offline-query.json`.
+
 What phase 1 builds and tests, both platforms, from the tables above. Params match case-insensitively. Both apps send only the current item routes since `8b17d3e`, so the obsolete `/Users/{uid}/Items...` forms are not answered.
 
 - `GET /Items`: params `IncludeItemTypes` (`Audio`, `MusicAlbum`, `MusicArtist`, `Playlist`, `Movie`, `Series`, `Episode`, comma lists), `ParentId` (a library, album, playlist, series or season id), `Ids`, `ArtistIds`, `AlbumArtistIds`, `GenreIds`, `Genres`, `Artists`, `Years`, `SearchTerm`, `Recursive`, `Filters` (`IsPlayed`, `IsFavorite`, `IsResumable`), `IsFavorite`, `IsPlayed`, `SortBy` (keys in finding 6), `SortOrder`, `StartIndex`, `Limit`; `Fields`, `EnableImages`, `EnableUserData` accepted and ignored. Reply `{ Items, TotalRecordCount, StartIndex }`.
