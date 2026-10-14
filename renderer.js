@@ -255,7 +255,8 @@ function greeting() {
 
 // A downloaded album's cover comes from disk (cascade-offline://), so it still
 // shows with no server and loads without a round trip with one.
-const artUrl       = (itemId, tag) => (_offline.art.has(itemId) ? `cascade-offline://local/art/${itemId}.jpg` : null) || jfClient.artUrl(itemId, tag)
+// Offline, art not on disk is a placeholder rather than a request.
+const artUrl       = (itemId, tag) => (_offline.art.has(itemId) ? `cascade-offline://local/art/${itemId}.jpg` : null) || (jfClient.offline ? null : jfClient.artUrl(itemId, tag))
 const artistArtUrl = (itemId)      => jfClient.artistArtUrl(itemId)
 
 // ── Skeleton loaders ──────────────────────────────────────────────────────────
@@ -7826,7 +7827,9 @@ async function init() {
     document.getElementById('setup-advanced').open = true
   }
   // The probe normally runs as the user types; a pre-filled URL never fires that.
-  if (serverUrl) probeQuickConnect()
+  // Only when the form stays up: signed in, it would reach the server before
+  // a saved Offline Mode switch is read, and promptReauth probes on its own.
+  if (serverUrl && !(token && userId)) probeQuickConnect()
 
   ;({ token, userId } = await migrateDeviceId(serverUrl, username, legacyPassword, token, userId))
   if (legacyPassword !== undefined) await window.cascade.store.delete('password')
@@ -7923,6 +7926,7 @@ window.cascade.offline.onEvent((event) => {
 async function toggleOfflineDownload(kind, item) {
   if (!item?.Id) return
   if (offlineCollection(item.Id)) { await removeOfflineDownload(item.Id); return }
+  if (jfClient.offline) { showNotice('Downloading needs your server. Turn Offline Mode off first.', 'Downloads'); return }
   if (jf.canDownload === false) {
     showNotice('This account is not allowed to download media. An admin can turn it on in the Jellyfin dashboard.', 'Downloads')
     return
@@ -7942,6 +7946,30 @@ async function toggleOfflineDownload(kind, item) {
   }
   await refreshOffline()
   placeOfflineDownloads().catch(() => {})
+  saveOfflineLyrics(music).catch(() => {})
+}
+
+/** Finds each downloaded song's lyrics the way playback would and saves them
+ *  with the download, so they show offline. Two at a time, to keep the
+ *  lyrics sources and the plugin from seeing a burst; stops if the app goes
+ *  offline partway. */
+async function saveOfflineLyrics(tracks) {
+  const queue = tracks.filter(t => t?.Id)
+  const worker = async () => {
+    while (queue.length && !jfClient.offline) {
+      const t = queue.shift()
+      let out = null
+      try { out = await fetchLyricsWaterfall(t) } catch {}
+      if (!out?.lines?.length || out.instrumental) continue
+      await window.cascade.offline.setLyrics(t.Id, {
+        source: CascadeCore.lyricsSourceKey(String(out.source || ''), !!out.credit),
+        synced: out.lines.some(l => l.Start > 0),
+        lines: out.lines,
+        credit: out.credit || null,
+      }).catch(() => {})
+    }
+  }
+  await Promise.all([worker(), worker()])
 }
 
 async function removeOfflineDownload(id) {
@@ -7960,9 +7988,12 @@ function renderOfflineButtons() {
 function paintOfflineButton(buttonId, id) {
   const btn = document.getElementById(buttonId)
   if (!btn) return
-  btn.style.display = id ? '' : 'none'
-  if (!id) return
-  const c = offlineCollection(id)
+  const c = id ? offlineCollection(id) : null
+  // Offline, a page can only show what is downloaded: the button removes it,
+  // and there is nothing to start.
+  const shown = !!id && (!!c || !jfClient.offline)
+  btn.style.display = shown ? '' : 'none'
+  if (!shown) return
   const done = !!c && c.done === c.total
   btn.classList.toggle('on', done)
   btn.title = c ? 'Remove this download' : 'Download for offline listening'
@@ -8002,21 +8033,47 @@ function dlCardHtml(c) {
   <div class="dl-tracks" data-dl-tracks="${esc(id)}" hidden></div>`
 }
 
+/** The download manager: what is downloading, what is downloaded, and the
+ *  space it takes (docs/offline-mode-plan.md, section 7). A collection moves
+ *  from Downloading to its kind once every song is on disk; the 'changed'
+ *  event that brings its last song redraws this. */
 function renderDownloadsView() {
-  const list = document.getElementById('downloads-list')
-  document.getElementById('downloads-banner').hidden = _offlineState !== 'unreachable'
-  document.getElementById('downloads-total').textContent = _offline.collections.length
-    ? `${_offline.collections.length} ${_offline.collections.length === 1 ? 'collection' : 'collections'} · ${fmtBytes(_offline.totalBytes)}` : ''
-  if (!_offline.collections.length) {
-    list.innerHTML = '<div class="empty-state">Nothing downloaded yet. Open an album or a playlist and press Download, or right-click one.</div>'
-    return
-  }
-  list.innerHTML = _offline.collections.map(dlCardHtml).join('')
+  const all = _offline.collections
+  document.getElementById('downloads-total').textContent = all.length
+    ? `${all.length} ${all.length === 1 ? 'collection' : 'collections'} · ${fmtBytes(_offline.totalBytes)}` : ''
+  renderDownloadsStorage()
+  const active = all.filter(c => c.done < c.total)
+  const done = all.filter(c => c.done === c.total)
+  fillDownloadCards(document.getElementById('downloads-active'), active)
+  fillDownloadCards(document.getElementById('downloads-list'), done)
+  document.getElementById('downloads-active-section').hidden = !active.length
+  document.getElementById('downloads-done-section').hidden = !done.length
+  document.getElementById('downloads-empty').hidden = all.length > 0
+  updateDownloadCards()
+}
+
+/** How much the downloads take and how much room the disk has left. */
+async function renderDownloadsStorage() {
+  const el = document.getElementById('downloads-storage')
+  let disk = null
+  try { disk = await window.cascade.offline.disk() } catch {}
+  const parts = []
+  if (_offline.totalBytes > 0) parts.push(`Downloads use ${fmtBytes(_offline.totalBytes)}`)
+  if (disk && Number.isFinite(disk.free)) parts.push(`${fmtBytes(disk.free)} free on this disk`)
+  el.textContent = parts.join(' · ')
+}
+
+function fillDownloadCards(list, collections) {
+  list.innerHTML = collections.map(dlCardHtml).join('')
   for (const card of list.querySelectorAll('.dl-card')) {
     const id = card.dataset.dlId
     card.querySelector('[data-dl="play"]').addEventListener('click', () => playDownloaded(id))
     card.querySelector('[data-dl="songs"]').addEventListener('click', () => toggleDownloadedSongs(id))
-    card.querySelector('[data-dl="retry"]').addEventListener('click', () => window.cascade.offline.resume(offlineSession()))
+    card.querySelector('[data-dl="retry"]').addEventListener('click', () => {
+      // Retrying fetches from the server, which Offline Mode does not reach.
+      if (jfClient.offline) { showNotice('Downloads continue when Offline Mode is off.', 'Downloads'); return }
+      window.cascade.offline.resume(offlineSession())
+    })
     card.querySelector('[data-dl="remove"]').addEventListener('click', async () => {
       const name = offlineCollection(id)?.item.Name || 'this download'
       if (!confirm(`Remove "${name}" from your downloads? Songs another download still uses stay.`)) return
@@ -8025,14 +8082,13 @@ function renderDownloadsView() {
     })
     if (_dlOpen.has(id)) showDownloadedSongs(id)
   }
-  updateDownloadCards()
 }
 
 /** Progress, sizes and failures, set in place: progress events arrive several
  *  times a second and a rebuild would swap a button under the pointer. */
 function updateDownloadCards() {
   if (_currentView !== 'downloads') return
-  for (const card of document.querySelectorAll('#downloads-list .dl-card')) {
+  for (const card of document.querySelectorAll('#view-downloads .dl-card')) {
     const c = offlineCollection(card.dataset.dlId)
     if (!c) continue
     let partial = 0
@@ -8058,7 +8114,7 @@ function updateDownloadCards() {
     }
     card.classList.toggle('done', c.done === c.total)
     card.querySelector('.dl-bar > span').style.width = `${c.total ? ((c.done + partial) / c.total) * 100 : 0}%`
-    card.querySelector('[data-dl="retry"]').hidden = !failed.length || moving
+    card.querySelector('[data-dl="retry"]').hidden = !failed.length || moving || jfClient.offline
     card.querySelector('[data-dl="play"]').disabled = c.done === 0
     card.querySelector('[data-dl="songs"]').disabled = c.done === 0
   }
@@ -8112,12 +8168,16 @@ let _offlineEngine = null
 let _connectedOnline = false
 let _probeAttempt = 0
 let _probeTimer = null
+/** The parsed catalog behind the engine, for what is not a server route:
+ *  the lyrics saved with each download. */
+let _offlineCatalog = null
 
 async function refreshOfflineEngine() {
   if (!CascadeCore.isOffline(_offlineState)) return
   let catalog = null
   try { catalog = await window.cascade.offline.catalog() } catch {}
-  const engine = CascadeCore.offlineQuery(CascadeCore.parseIndex(catalog))
+  _offlineCatalog = CascadeCore.parseIndex(catalog)
+  const engine = CascadeCore.offlineQuery(_offlineCatalog)
   _offlineEngine = engine
   jfClient.setOfflineSource((path, params) => engine.answer(path, params))
 }
@@ -8138,6 +8198,7 @@ async function setOfflineState(next, { reload = true } = {}) {
     await refreshOfflineEngine()
   } else {
     _offlineEngine = null
+    _offlineCatalog = null
     jfClient.setOfflineSource(null)
   }
   document.body.classList.toggle('offline-on', off)
@@ -8228,13 +8289,19 @@ jfClient.onFailure = (status) => {
 window.addEventListener('offline', checkForDrop)
 window.addEventListener('online', () => { if (_offlineState === 'unreachable') probeServer() })
 
-/** The pill in the top bar and the banner when it turned on by itself. */
+/** The pill and the banner show by body class (offline-on, offline-auto);
+ *  this keeps their words and the Settings switch in step. */
 function renderOfflineIndicators() {
-  const banner = document.getElementById('downloads-banner')
-  if (banner) banner.hidden = _offlineState !== 'unreachable'
+  document.getElementById('offline-pill').title = _offlineState === 'manual'
+    ? 'Offline Mode is on: only what is downloaded shows'
+    : "Your server isn't answering: only what is downloaded shows"
+  const toggle = /** @type {HTMLInputElement} */ (document.getElementById('s-offline-toggle'))
+  toggle.checked = _offlineState === 'manual'
 }
 
-document.getElementById('downloads-retry').addEventListener('click', () => probeServer())
+document.getElementById('offline-retry').addEventListener('click', () => probeServer())
+document.getElementById('offline-pill').addEventListener('click', () => showView('downloads'))
+document.getElementById('s-offline-toggle').addEventListener('change', (e) => setOfflineSwitch(/** @type {HTMLInputElement} */ (e.target).checked))
 
 /** Moves downloads out of the placeholder libraries: each library is asked
  *  which of them it holds (100 ids a request), and their stored fields are
@@ -10906,7 +10973,7 @@ function showItemCtxMenu(kind, item, el, x, y, onDetail) {
   // the grid DTO; anything else has no such concept, so mark-played/unplayed
   // stay hidden rather than guessing (see menuItemsForKind's isPlayed handling).
   const isPlayed = (kind === 'video' || kind === 'series') ? !!item?.UserData?.Played : undefined
-  const vis = CascadeCore.menuItemsForKind(kind, { isPlayed })
+  const vis = CascadeCore.menuItemsForKind(kind, { isPlayed, offline: jfClient.offline })
   // An album with no AlbumArtist has nowhere for "Go to artist" to go.
   if (kind === 'album' && !item?.AlbumArtist) vis.goArtist = false
 
@@ -10930,6 +10997,8 @@ function showItemCtxMenu(kind, item, el, x, y, onDetail) {
   if (favLabel) favLabel.textContent = item?.UserData?.IsFavorite ? 'Unfavorite' : 'Favorite'
   const offlineLabel = document.getElementById('ictx-offline-label')
   if (offlineLabel) offlineLabel.textContent = offlineCollection(item?.Id) ? 'Remove download' : 'Download for offline'
+  // Offline there is nothing to start: only a download can be removed.
+  if (jfClient.offline && !offlineCollection(item?.Id)) document.getElementById('ictx-offline').classList.add('hidden')
   // A user smart playlist repurposes the rename/delete rows (its own
   // definition, never gated on server delete permission the way a real
   // playlist is - see menuItemsForKind) rather than adding two more rows that
@@ -12375,6 +12444,13 @@ function fetchLyricsWaterfall(item) {
 }
 
 async function _lyricsWaterfall(item) {
+  // Offline, the only lyrics are the ones saved with the download. Not
+  // cached: going back online should search again.
+  if (jfClient.offline) {
+    const saved = _offlineCatalog ? CascadeCore.lyricsOf(_offlineCatalog, item.Id, new Date()) : null
+    _lastFetchStatus = { Cascade: null, Kugou: null, LRCLIB: null, Jellyfin: null }
+    return saved ? { lines: saved.lines, source: CascadeCore.lyricsSourceLabel(saved), credit: saved.credit, tried: {} } : null
+  }
   const forced = lyricsForcedSource && lyricsForcedSource !== 'auto' ? lyricsForcedSource : null
 
   // Bypass cache when a source is forced so the user always gets a fresh fetch

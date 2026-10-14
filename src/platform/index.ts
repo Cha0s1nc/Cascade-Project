@@ -13,6 +13,7 @@ import type { JfItem } from '../core/types.ts'
 import type { OfflineIndex } from '../core/offline-index.ts'
 import type { OfflineState } from '../core/offline-mode.ts'
 import type { LyricLine } from '../core/lyrics.ts'
+import type { SpicyCredit } from '../core/spicy-lyrics.ts'
 
 /** What the main process tells the renderer about offline downloads. */
 export interface OfflineSummary {
@@ -201,7 +202,9 @@ export interface DesktopCapabilities {
     /** Items the server says are in this library: they move out of the
      *  placeholder, and their stored fields are refreshed from these. */
     place(libraryId: string, items: JfItem[]): Promise<void>
-    setLyrics(trackId: string, lyrics: { source: string; synced: boolean; lines: LyricLine[] }): Promise<void>
+    /** Lyrics found while online, saved with the track for Offline Mode.
+     *  `source` is lyricsSourceKey's; SpicyLyrics keeps its credit. */
+    setLyrics(trackId: string, lyrics: { source: string; synced: boolean; lines: LyricLine[]; credit?: SpicyCredit | null }): Promise<void>
     /** Free and total bytes on the disk the downloads are on. */
     disk(): Promise<{ free: number; total: number } | null>
     /** Offline Mode's state, for main: the switch blocks the server's origin

@@ -16,6 +16,10 @@ export interface MenuItemOptions {
    *  e.g. nothing populated UserData yet) hides both mark-played rows rather
    *  than guessing. */
   isPlayed?: boolean
+  /** Offline Mode is on: rows that need the server are left out
+   *  (docs/offline-mode-plan.md, section 3). Favorite and mark played come
+   *  back once changes made offline are queued (phase 4). */
+  offline?: boolean
 }
 
 export interface MenuItemVisibility {
@@ -52,6 +56,20 @@ const NONE: MenuItemVisibility = {
  * six kinds with mostly-disjoint action sets is a lookup, not an abstraction.
  */
 export function menuItemsForKind(kind: MenuItemKind, opts: MenuItemOptions = {}): MenuItemVisibility {
+  const rows = onlineMenuItems(kind, opts)
+  if (!opts.offline) return rows
+  return {
+    ...rows,
+    instantMix: false, addPlaylist: false, download: false, favorite: false, markPlayed: false, markUnplayed: false,
+    refreshMeta: false, editMeta: false,
+    // A smart playlist of your own is a local definition: editing or deleting
+    // it needs no server. A real playlist's do.
+    rename: kind === 'user-smart-playlist' && rows.rename,
+    deleteItem: kind === 'user-smart-playlist' && rows.deleteItem,
+  }
+}
+
+function onlineMenuItems(kind: MenuItemKind, opts: MenuItemOptions): MenuItemVisibility {
   switch (kind) {
     case 'album':
       return { ...NONE, play: true, playNext: true, playLast: true, shuffle: true, instantMix: true,

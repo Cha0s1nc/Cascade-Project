@@ -132,3 +132,20 @@ test('only an album and a real playlist offer an offline download', () => {
     assert.equal(menuItemsForKind(kind).offline, false, kind)
   }
 })
+
+test('offline, only rows that need no server stay', () => {
+  const album = menuItemsForKind('album', { offline: true })
+  assert.equal(album.play, true)
+  assert.equal(album.offline, true, 'removing a download needs no server')
+  assert.equal(album.goArtist, true)
+  for (const k of ['instantMix', 'addPlaylist', 'download', 'favorite', 'refreshMeta', 'editMeta'] as const) assert.equal(album[k], false, k)
+  const playlist = menuItemsForKind('playlist', { offline: true })
+  assert.equal(playlist.rename, false)
+  assert.equal(playlist.deleteItem, false)
+  const mine = menuItemsForKind('user-smart-playlist', { offline: true })
+  assert.equal(mine.rename, true, 'a local smart playlist is edited locally')
+  assert.equal(mine.deleteItem, true)
+  const video = menuItemsForKind('video', { isPlayed: false, offline: true })
+  assert.equal(video.markPlayed, false)
+  assert.deepEqual(menuItemsForKind('album', { offline: false }), menuItemsForKind('album'))
+})

@@ -17,6 +17,7 @@
 
 import type { JfItem, JfNameId } from './types.ts'
 import type { LyricLine, LyricWord } from './lyrics.ts'
+import type { SpicyCredit, SpicyContributor } from './spicy-lyrics.ts'
 
 export const INDEX_VERSION = 2
 
@@ -32,6 +33,25 @@ export interface OfflineLyrics {
   /** SpicyLyrics are kept no longer than the plugin's own cache may keep them
    *  (SPICY_LYRICS_DAYS); every other source never expires. ISO 8601 or null. */
   expiresAt: string | null
+  /** What the lyrics UI must show beside SpicyLyrics lyrics, offline too. */
+  credit?: SpicyCredit
+}
+
+/** The source a lyrics result is stored under, from the label the waterfall
+ *  gives it. A result carrying a credit is SpicyLyrics, whatever its label. */
+export function lyricsSourceKey(label: string, hasCredit: boolean): string {
+  if (hasCredit) return 'spicy'
+  const l = label.toLowerCase()
+  if (l.startsWith('kugou')) return 'kugou'
+  if (l.startsWith('lrclib')) return 'lrclib'
+  if (l.startsWith('jellyfin')) return 'jellyfin'
+  return 'cascade'
+}
+
+/** How a stored source is named in the lyrics UI. */
+export function lyricsSourceLabel(lyrics: OfflineLyrics): string {
+  if (lyrics.credit) return lyrics.credit.provider
+  return ({ cascade: 'Cascade', kugou: 'Kugou', lrclib: 'LRCLIB', jellyfin: 'Jellyfin' } as Record<string, string>)[lyrics.source] ?? lyrics.source
 }
 
 /** An external text subtitle saved beside a video, as WebVTT. */
@@ -468,13 +488,16 @@ export function reconcile(index: OfflineIndex, filesOnDisk: Iterable<string>): s
 }
 
 /** Saves a track's lyrics. SpicyLyrics get an expiry SPICY_LYRICS_DAYS out. */
-export function setLyrics(index: OfflineIndex, trackId: string, lyrics: { source: string; synced: boolean; lines: LyricLine[] }, now: Date): void {
+export function setLyrics(index: OfflineIndex, trackId: string,
+  lyrics: { source: string; synced: boolean; lines: LyricLine[]; credit?: SpicyCredit | null }, now: Date): void {
   const t = index.tracks[trackId]
   if (!t) return
   const lines = parseLyricLines(lyrics.lines)
   if (!lines.length || typeof lyrics.source !== 'string' || !lyrics.source) return
   const expires = lyrics.source === 'spicy' ? new Date(now.getTime() + SPICY_LYRICS_DAYS * 86_400_000).toISOString() : null
   t.lyrics = { source: lyrics.source, synced: !!lyrics.synced, lines, savedAt: now.toISOString(), expiresAt: expires }
+  const credit = parseCredit(lyrics.credit)
+  if (credit) t.lyrics.credit = credit
 }
 
 export function dropLyrics(index: OfflineIndex, trackId: string): void {
@@ -594,6 +617,16 @@ function parseLyricLines(v: unknown): LyricLine[] {
   return out
 }
 
+function parseContributor(v: unknown): SpicyContributor | null {
+  if (!isPlainObject(v) || typeof v.name !== 'string') return null
+  return { name: v.name, url: typeof v.url === 'string' ? v.url : null }
+}
+
+function parseCredit(v: unknown): SpicyCredit | undefined {
+  if (!isPlainObject(v) || typeof v.provider !== 'string' || !v.provider) return undefined
+  return { provider: v.provider, uploader: parseContributor(v.uploader), maker: parseContributor(v.maker) }
+}
+
 function parseLyrics(v: unknown): OfflineLyrics | undefined {
   if (!isPlainObject(v) || typeof v.source !== 'string' || !v.source) return undefined
   const lines = parseLyricLines(v.lines)
@@ -602,7 +635,10 @@ function parseLyrics(v: unknown): OfflineLyrics | undefined {
   // SpicyLyrics with no readable expiry are treated as already expired rather
   // than kept for good.
   const expiresAt = isoDate(v.expiresAt) ?? (v.source === 'spicy' ? savedAt : null)
-  return { source: v.source, synced: v.synced === true, lines, savedAt, expiresAt }
+  const out: OfflineLyrics = { source: v.source, synced: v.synced === true, lines, savedAt, expiresAt }
+  const credit = parseCredit(v.credit)
+  if (credit) out.credit = credit
+  return out
 }
 
 function parseSubtitles(v: unknown): OfflineSubtitle[] {

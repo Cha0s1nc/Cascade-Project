@@ -8,6 +8,7 @@ import {
   libraryOf, librariesInUse, setLibraries, assignLibrary, unplacedTrackIds, PLACEHOLDER_LIBRARIES,
   setLyrics, lyricsOf, expiredLyricsTrackIds, dropLyrics, SPICY_LYRICS_DAYS, setSubtitles, setSegments, setExplicit,
   setUser, setHistory, historyEntriesOf, MAX_HISTORY_ENTRIES, indexedFiles, isSafeSubtitlePath, collectionOf, refreshItems,
+  lyricsSourceKey, lyricsSourceLabel,
 } from '../src/core/offline-index.ts'
 import type { JfItem } from '../src/core/types.ts'
 
@@ -203,4 +204,18 @@ test('a refresh fills in what version 1 never kept and keeps what the copy lacks
   assert.equal(item.UserData?.PlayCount, 3)
   assert.equal(item.NormalizationGain, -6.2, 'a list copy has no gain; the stored one stays')
   assert.equal(index.tracks['not-downloaded'], undefined)
+})
+
+test('SpicyLyrics keep their credit; sources are stored by key and shown by name', () => {
+  const index = emptyIndex()
+  addCollection(index, { Id: 'a', Type: 'MusicAlbum' }, [track('t1')])
+  const credit = { provider: 'Spicy Lyrics', uploader: { name: 'kai', url: 'https://x' }, maker: null, extra: 1 }
+  setLyrics(index, 't1', { source: lyricsSourceKey('Spicy Lyrics', true), synced: true, lines: [{ Start: 0, End: 1, Text: 'la', Words: null }], credit } as never, new Date())
+  const back = parseIndex(JSON.parse(JSON.stringify(index)))
+  assert.deepEqual(back.tracks.t1.lyrics?.credit, { provider: 'Spicy Lyrics', uploader: { name: 'kai', url: 'https://x' }, maker: null })
+  assert.equal(back.tracks.t1.lyrics?.source, 'spicy')
+  assert.ok(back.tracks.t1.lyrics?.expiresAt)
+  assert.equal(lyricsSourceLabel(back.tracks.t1.lyrics!), 'Spicy Lyrics')
+  assert.deepEqual(['Kugou', 'LRCLIB (plain)', 'Jellyfin', 'Karaoke', 'Cascade'].map(l => lyricsSourceKey(l, false)),
+    ['kugou', 'lrclib', 'jellyfin', 'cascade', 'cascade'])
 })
