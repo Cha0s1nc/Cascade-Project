@@ -8115,7 +8115,9 @@ async function setOfflineState(next, { reload = true } = {}) {
   const before = _offlineState
   if (next === before) return
   _offlineState = next
-  window.cascade.offline.setMode(next).catch(() => {})
+  // Awaited: turning the switch off must lift main's block before the
+  // reconnect below sends anything, or that reconnect is cancelled.
+  await window.cascade.offline.setMode(next).catch(() => {})
   const off = CascadeCore.isOffline(next)
   if (off) {
     await refreshOfflineEngine()
