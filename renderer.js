@@ -3390,8 +3390,29 @@ async function openPlaylistDetails(playlistId, name) {
   document.getElementById('pl-edit-modal').classList.remove('hidden')
 }
 
-document.getElementById('pl-edit-props').addEventListener('click', () => {
+// The cover is the way into a playlist's details (name, picture, description):
+// a button, with a pencil on hover, once the playlist is known to be the user's.
+function setPlaylistArtEditable(on) {
+  const art = document.getElementById('pl-detail-art')
+  art.classList.toggle('editable', on)
+  if (on) {
+    art.setAttribute('role', 'button')
+    art.tabIndex = 0
+    art.title = 'Edit details'
+    art.setAttribute('aria-label', 'Edit playlist details')
+  } else {
+    for (const a of ['role', 'tabindex', 'title', 'aria-label']) art.removeAttribute(a)
+  }
+}
+function openPlaylistDetailsFromArt() {
+  if (!currentPlaylistId || !document.getElementById('pl-detail-art').classList.contains('editable')) return
   openPlaylistDetails(currentPlaylistId, document.getElementById('pl-detail-name').textContent)
+}
+document.getElementById('pl-detail-art').addEventListener('click', openPlaylistDetailsFromArt)
+document.getElementById('pl-detail-art').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return
+  e.preventDefault()
+  openPlaylistDetailsFromArt()
 })
 document.getElementById('pl-edit-cancel').addEventListener('click', closePlaylistDetails)
 
@@ -3680,11 +3701,17 @@ async function openPlaylist(playlistId, name) {
   const artEl = document.getElementById('pl-detail-art')
   artEl.style.background = ''
   artEl.innerHTML = `<img src="${playlistArtUrl(playlistId)}" alt="" onerror="this.parentElement.textContent='♪'">`
+  setPlaylistArtEditable(false)
   // The description is not in the track list's response, so it comes from the
-  // item itself, without holding up the tracks.
+  // item itself, without holding up the tracks. Its CanDelete says whether this
+  // user may edit it (the same test Edit makes), which makes the cover the way in.
   showPlaylistOverview('')
   jfGet(`/Users/${jf.userId}/Items/${playlistId}`, { Fields: 'Overview' })
-    .then(it => { if (currentPlaylistId === playlistId) showPlaylistOverview(typeof it?.Overview === 'string' ? it.Overview : '') })
+    .then(it => {
+      if (currentPlaylistId !== playlistId) return
+      showPlaylistOverview(typeof it?.Overview === 'string' ? it.Overview : '')
+      setPlaylistArtEditable(it?.CanDelete !== false)
+    })
     .catch(() => {})
 
   try {
@@ -3815,6 +3842,7 @@ async function openSmartPlaylist(kind) {
   renderOfflineButtons()   // no id: a smart playlist has nothing on the server to download
   document.getElementById('pl-detail-art').style.background = sp.gradient
   document.getElementById('pl-detail-art').innerHTML = sp.icon
+  setPlaylistArtEditable(false)   // a smart playlist's rules are behind its own button
 
   try {
     renderPlaylistDetailItems(await sp.fetch(), false)
@@ -10397,8 +10425,9 @@ async function atpLoadPlaylists() {
       IncludeItemTypes: 'Playlist', Recursive: true, SortBy: 'SortName'
     })
     list.innerHTML = (data.Items || []).map(pl =>
-      `<div class="modal-pl-item" data-id="${pl.Id}">${esc(pl.Name)}</div>`
+      `<div class="modal-pl-item" data-id="${pl.Id}" data-name="${esc(pl.Name)}"><span>${esc(pl.Name)}</span></div>`
     ).join('') || '<div style="font-size:12px;color:var(--text3);text-align:center;padding:20px 0">No playlists</div>'
+    _atpMarkContaining(list)
     list.querySelectorAll('.modal-pl-item').forEach(el => {
       el.addEventListener('click', async () => {
         const raw = _atpTargetItem || queue[queueIndex]
@@ -10416,7 +10445,7 @@ async function atpLoadPlaylists() {
             const errMsg = await CascadeCore.readErrorMessage(res)
             showNotice(`Could not add to that playlist.\n\n${errMsg}`, 'Playlist')
           } else {
-            showToast(items.length > 1 ? `Added ${items.length} tracks to "${el.textContent}"` : `Added to "${el.textContent}"`)
+            showToast(items.length > 1 ? `Added ${items.length} tracks to "${el.dataset.name}"` : `Added to "${el.dataset.name}"`)
             playlistMutated(el.dataset.id)
           }
         } catch (e) {
@@ -10427,6 +10456,31 @@ async function atpLoadPlaylists() {
       })
     })
   } catch { list.innerHTML = '<div style="font-size:12px;color:var(--text3);text-align:center;padding:20px 0">Failed to load</div>' }
+}
+
+/**
+ * A check on each playlist that already holds what is being added (all of it,
+ * when it is several songs). Jellyfin cannot be asked which playlists hold a
+ * song: an Ids or name filter on a playlist's items is ignored (checked on
+ * 12.2), so each playlist's track ids are fetched, light, every time the popup
+ * opens. Never stale, and filled in as each answer lands.
+ * ponytail: one request per playlist per open; cache per playlist if huge playlists make it slow.
+ */
+function _atpMarkContaining(list) {
+  const raw = _atpTargetItem || queue[queueIndex]
+  const ids = (Array.isArray(raw) ? raw : raw ? [raw] : []).map(i => i.Id)
+  if (!ids.length) return
+  list.querySelectorAll('.modal-pl-item').forEach(el => {
+    jfGet(`/Users/${jf.userId}/Items`, { ParentId: el.dataset.id, EnableImages: false, EnableUserData: false, Fields: '' })
+      .then(d => {
+        const held = new Set((d.Items || []).map(i => i.Id))
+        if (!ids.every(id => held.has(id)) || !el.isConnected) return
+        el.classList.add('has-item')
+        el.title = ids.length > 1 ? 'Already holds these songs' : 'Already in this playlist'
+        el.insertAdjacentHTML('beforeend', '<span class="modal-pl-check" aria-label="Already added">✓</span>')
+      })
+      .catch(() => {})
+  })
 }
 
 document.getElementById('ctx-add-playlist').addEventListener('click', () => {
