@@ -81,7 +81,7 @@ export interface JfItem {
   MediaStreams?: JfMediaStream[]
   MediaSources?: { Id?: string, Container?: string, Bitrate?: number }[]
 
-  /** Only on library views (/Users/{id}/Views) - 'music', 'musicvideos', etc.
+  /** Only on library views (/UserViews) - 'music', 'musicvideos', etc.
    *  Used to filter the library picker down to music libraries. */
   CollectionType?: string
 

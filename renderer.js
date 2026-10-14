@@ -760,6 +760,12 @@ function showToast(msg, duration = 2200) {
 // endpoints and /System/Info alike, so the client's JfItemsResponse default is
 // wrong for most of them. src/ code calls jfClient.get directly and does get
 // the strict types.
+//
+// Library reads use /Items, /Items/{id} and /UserViews, never the
+// /Users/{userId}/Items, /Users/{userId}/Items/{id} and /Users/{userId}/Views
+// forms: those are marked Obsolete in Jellyfin 12 (checked in the v12.0 source)
+// and 12.0 already deleted other routes it had marked that way. No userId is
+// sent: both 10.11 and 12 fall back to the signed-in user (RequestHelpers.GetUserId).
 /** @type {(path: string, params?: Record<string, any>) => Promise<any>} */
 const jfGet  = (path, params = {}) => jfClient.get(path, params)
 
@@ -771,7 +777,7 @@ async function jfItemsByIds(ids, fields) {
   const chunks = []
   for (let i = 0; i < ids.length; i += 100) chunks.push(ids.slice(i, i + 100))
   const pages = await Promise.all(chunks.map(c =>
-    jfGet(`/Users/${jf.userId}/Items`, { Ids: c.join(','), Fields: fields }).catch(() => null)))
+    jfGet(`/Items`, { Ids: c.join(','), Fields: fields }).catch(() => null)))
   return pages.flatMap(p => p?.Items || [])
 }
 const jfAuth = (serverUrl, username, password) =>
@@ -814,7 +820,7 @@ async function connect(serverUrl, token, userId) {
   // unhandled rejection while nothing is awaiting it yet. A null result means
   // populateLibraryPicker just fetches normally, so the slow path is exactly
   // what it was before.
-  const viewsPromise = jfGet(`/Users/${userId}/Views`).catch(() => null)
+  const viewsPromise = jfGet(`/UserViews`).catch(() => null)
 
   // Verify the token is still valid with a lightweight ping, retry up to 3x
   let verified = false
@@ -1366,7 +1372,7 @@ let radioEnabled = false       // user has confirmed their Live TV channels are 
  *  server and takes Movies and TV down with it. */
 async function populateLibraryPicker(prefetched = null) {
   try {
-    const data = (prefetched && await prefetched) || await jfGet(`/Users/${jf.userId}/Views`)
+    const data = (prefetched && await prefetched) || await jfGet(`/UserViews`)
     _musicLibs = (data.Items || []).filter(i =>
       i.CollectionType === 'music' || i.CollectionType === 'musicvideos'
     )
@@ -2177,7 +2183,7 @@ async function loadHome() {
 async function loadRecentlyPlayed() {
   const grid = document.getElementById('rp-grid')
   try {
-    const data = await jfGetMerged(`/Users/${jf.userId}/Items`, {
+    const data = await jfGetMerged(`/Items`, {
       SortBy: 'DatePlayed',
       SortOrder: 'Descending',
       IncludeItemTypes: 'Audio',
@@ -2218,7 +2224,7 @@ function rpCard(item) {
 async function loadRecentlyAdded() {
   const grid = document.getElementById('home-recent-albums')
   try {
-    const data = await jfGetMerged(`/Users/${jf.userId}/Items`, {
+    const data = await jfGetMerged(`/Items`, {
       SortBy: 'DateCreated',
       SortOrder: 'Descending',
       IncludeItemTypes: 'MusicAlbum',
@@ -2470,7 +2476,7 @@ async function loadAlbums() {
   await loadLibPrefs('albums')
   try {
     const params = { SortBy: 'SortName', SortOrder: 'Ascending', IncludeItemTypes: 'MusicAlbum', Recursive: true, Fields: 'SortName,Genres,ProductionYear,UserData', Limit: 500 }
-    const data = await jfGetAllPaged(`/Users/${jf.userId}/Items`, params)
+    const data = await jfGetAllPaged(`/Items`, params)
     data.Items.sort(bySortName)   // the merge only kept SortBy within each library
     setLibItems('albums', data.Items)
   } catch (e) {
@@ -2532,7 +2538,7 @@ let _openAlbumItem = null   // the album page's own item, for its Download butto
 /** Track query shared by the album detail view and the album context menu's
  *  Play/Play next/Play last/Shuffle/Add to playlist actions. */
 async function fetchAlbumTracks(albumId) {
-  const data = await jfGet(`/Users/${jf.userId}/Items`, {
+  const data = await jfGet(`/Items`, {
     ParentId: albumId,
     SortBy: 'ParentIndexNumber,IndexNumber,SortName',
     IncludeItemTypes: 'Audio',
@@ -2553,7 +2559,7 @@ async function openAlbum(albumId) {
 
   try {
     const [album, tracks] = await Promise.all([
-      jfGet(`/Users/${jf.userId}/Items/${albumId}`),
+      jfGet(`/Items/${albumId}`),
       fetchAlbumTracks(albumId)
     ])
     currentAlbumTracks = tracks
@@ -2644,7 +2650,7 @@ async function loadArtists() {
 // every other view: a plain get ignored the library selection and listed an
 // album or song once per library that held it.
 async function fetchArtistSongs(artistId) {
-  const data = await jfGetMerged(`/Users/${jf.userId}/Items`, {
+  const data = await jfGetMerged(`/Items`, {
     ArtistIds: artistId, IncludeItemTypes: 'Audio', Recursive: true,
     SortBy: 'Album,ParentIndexNumber,IndexNumber',
     Fields: 'AlbumId,AlbumPrimaryImageTag'
@@ -2737,8 +2743,8 @@ async function openArtist(artistId, name) {
 
   try {
     const [artistItem, albumsData, songs, similar] = await Promise.all([
-      jfGet(`/Users/${jf.userId}/Items/${artistId}`, { Fields: 'Overview' }).catch(() => null),
-      jfGetMerged(`/Users/${jf.userId}/Items`, {
+      jfGet(`/Items/${artistId}`, { Fields: 'Overview' }).catch(() => null),
+      jfGetMerged(`/Items`, {
         ArtistIds: artistId, IncludeItemTypes: 'MusicAlbum', Recursive: true,
         SortBy: 'ProductionYear,SortName', SortOrder: 'Descending'
       }),
@@ -2862,7 +2868,7 @@ function fetchAllSongs() {
     // jfGetAllPaged instead of jfGetMerged so libraries over 500 tracks aren't
     // silently truncated.
     const params = { SortBy: 'SortName', SortOrder: 'Ascending', IncludeItemTypes: 'Audio', Recursive: true, Fields: 'AlbumId,AlbumPrimaryImageTag,UserData,DateCreated', Limit: 500 }
-    const data = await jfGetAllPaged(`/Users/${jf.userId}/Items`, params)
+    const data = await jfGetAllPaged(`/Items`, params)
     // The library selection changed mid-fetch: these are the old libraries' songs.
     if (_songsFetch !== p) return
     allSongs = data.Items || []
@@ -3097,7 +3103,7 @@ async function loadPlaylists() {
   grid.dataset.loaded = '1'
   await Promise.all([loadUserSmartPlaylists(), loadLibPrefs('playlists')])
   try {
-    const data = await jfGet(`/Users/${jf.userId}/Items`, {
+    const data = await jfGet(`/Items`, {
       SortBy: 'SortName',
       SortOrder: 'Ascending',
       IncludeItemTypes: 'Playlist',
@@ -3256,7 +3262,7 @@ document.getElementById('btn-edit-playlist').addEventListener('click', async () 
   // allowed to make then fails loudly via the catch blocks below, same as
   // remove-from-playlist and drag-reorder already do for every playlist today.
   try {
-    const it = await jfGet(`/Users/${jf.userId}/Items/${currentPlaylistId}`, { Fields: 'Overview' })
+    const it = await jfGet(`/Items/${currentPlaylistId}`, { Fields: 'Overview' })
     if (it.CanDelete === false) {
       showNotice('You do not have permission to edit this playlist.', 'Playlist')
       return
@@ -3698,7 +3704,7 @@ async function openPlaylist(playlistId, name) {
   // The description is not in the track list's response, so it comes from the
   // item itself, without holding up the tracks.
   showPlaylistOverview('')
-  jfGet(`/Users/${jf.userId}/Items/${playlistId}`, { Fields: 'Overview' })
+  jfGet(`/Items/${playlistId}`, { Fields: 'Overview' })
     .then(it => { if (currentPlaylistId === playlistId) showPlaylistOverview(typeof it?.Overview === 'string' ? it.Overview : '') })
     .catch(() => {})
 
@@ -3719,7 +3725,7 @@ const SMART_PLAYLISTS = {
     icon: '<svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>',
     gradient: 'linear-gradient(135deg,#f472b6,#dc2626)',
     async fetch() {
-      const data = await jfGetMerged(`/Users/${jf.userId}/Items`, {
+      const data = await jfGetMerged(`/Items`, {
         IncludeItemTypes: 'Audio', Recursive: true, Filters: 'IsFavorite',
         SortBy: 'SortName', SortOrder: 'Ascending',
         Fields: 'AlbumId,AlbumPrimaryImageTag'
@@ -3735,7 +3741,7 @@ const SMART_PLAYLISTS = {
       // Ask each library for its own top 200 by play count (server-side sorted),
       // then merge and re-sort/slice client-side - a per-library cap could otherwise
       // leave the true top 100 overall incomplete once multiple libraries are merged.
-      const data = await jfGetMerged(`/Users/${jf.userId}/Items`, {
+      const data = await jfGetMerged(`/Items`, {
         IncludeItemTypes: 'Audio', Recursive: true,
         SortBy: 'PlayCount', SortOrder: 'Descending', Limit: 200,
         Fields: 'AlbumId,AlbumPrimaryImageTag'
@@ -3794,7 +3800,7 @@ function userSmartPlaylistCardHtml(def) {
  *  actually decides membership, sort and limit. */
 async function fetchUserSmartPlaylist(def) {
   const query = CascadeCore.toItemsQuery(def)
-  const data = await jfGetAllPaged(`/Users/${jf.userId}/Items`, {
+  const data = await jfGetAllPaged(`/Items`, {
     IncludeItemTypes: 'Audio', Recursive: true,
     Fields: 'AlbumId,AlbumPrimaryImageTag,Genres,DateCreated',
     ...query
@@ -4141,7 +4147,7 @@ async function loadGenres() {
 }
 
 async function fetchGenreAlbums(genreId) {
-  const data = await jfGetAllPaged(`/Users/${jf.userId}/Items`, {
+  const data = await jfGetAllPaged(`/Items`, {
     // GenreIds, not Genres (a name) - a genre name containing '|' would break
     // the pipe-delimited Genres filter.
     GenreIds: genreId, IncludeItemTypes: 'MusicAlbum', Recursive: true,
@@ -4152,7 +4158,7 @@ async function fetchGenreAlbums(genreId) {
 }
 
 async function fetchGenreSongs(genreId) {
-  const data = await jfGetAllPaged(`/Users/${jf.userId}/Items`, {
+  const data = await jfGetAllPaged(`/Items`, {
     GenreIds: genreId, IncludeItemTypes: 'Audio', Recursive: true,
     Fields: 'AlbumId,AlbumPrimaryImageTag,UserData,DateCreated,SortName', SortBy: 'SortName', SortOrder: 'Ascending', Limit: 500,
   })
@@ -4193,7 +4199,7 @@ async function openGenre(genreId, name) {
 
   try {
     const [genre, albums, songs] = await Promise.all([
-      jfGet(`/Users/${jf.userId}/Items/${genreId}`).catch(() => null),
+      jfGet(`/Items/${genreId}`).catch(() => null),
       fetchGenreAlbums(genreId),
       fetchGenreSongs(genreId),
     ])
@@ -4246,7 +4252,7 @@ async function loadHistory() {
     // a library is only meaningful sorted by that library's own order - with
     // more than one library merged, only a client-side re-sort by
     // LastPlayedDate afterward gives a correct global newest-first order.
-    const data = await jfGetAllPaged(`/Users/${jf.userId}/Items`, {
+    const data = await jfGetAllPaged(`/Items`, {
       SortBy: 'DatePlayed', SortOrder: 'Descending',
       IncludeItemTypes: 'Audio', Filters: 'IsPlayed', Recursive: true,
       Fields: 'AlbumId,AlbumPrimaryImageTag,UserData,SortName', Limit: 500,
@@ -4805,7 +4811,7 @@ async function loadPosterGrid(name, gridId, itemType, sub, onPick, libs, ids) {
     render: (raw, prefs) => renderPosterGridView(gridId, sub, onPick, kind, libs, raw, prefs),
   })
   await loadLibPrefs(name)
-  const path = `/Users/${jf.userId}/Items`
+  const path = `/Items`
   const params = {
     SortBy: 'SortName', SortOrder: 'Ascending',
     IncludeItemTypes: itemType, Recursive: true,
@@ -4849,7 +4855,7 @@ async function loadContinueWatching() {
   const Fields = 'UserData,ProductionYear,SeriesPrimaryImageTag'
   try {
     const [resume, nextUp] = await Promise.all([
-      jfClient.getMerged(`/Users/${jf.userId}/Items`, {
+      jfClient.getMerged(`/Items`, {
         SortBy: 'DatePlayed', SortOrder: 'Descending',
         IncludeItemTypes: 'Movie,Episode', Filters: 'IsResumable',
         Recursive: true, Fields, Limit: 24,
@@ -4918,7 +4924,7 @@ async function openMovie(movieId) {
     // MediaStreams is what applySubtitles() reads, and MediaSources is needed to
     // build a subtitle URL - neither comes back on the grid query, so the detail
     // fetch is where the item becomes playable.
-    const movie = await jfGet(`/Users/${jf.userId}/Items/${movieId}`,
+    const movie = await jfGet(`/Items/${movieId}`,
       { Fields: 'Overview,MediaStreams,MediaSources,Genres' })
 
     const art = artUrl(movie.Id, movie.ImageTags?.Primary)
@@ -4963,7 +4969,7 @@ async function openSeries(seriesId) {
 
   try {
     const [series, seasonsData, allEpisodes] = await Promise.all([
-      jfGet(`/Users/${jf.userId}/Items/${seriesId}`, { Fields: 'Overview,Genres' }),
+      jfGet(`/Items/${seriesId}`, { Fields: 'Overview,Genres' }),
       jfGet(`/Shows/${seriesId}/Seasons`, { UserId: jf.userId, Fields: 'UserData' }),
       // Every episode with its watch state, light, for the Continue button.
       jfGet(`/Shows/${seriesId}/Episodes`, { UserId: jf.userId, EnableImages: false }).catch(() => null),
@@ -5280,7 +5286,7 @@ async function loadChapters(item) {
   renderChapterMarks()
   if (!item || !isVideoItem(item)) return
   try {
-    const full = await jfGet(`/Users/${jf.userId}/Items/${item.Id}`, { Fields: 'Chapters' })
+    const full = await jfGet(`/Items/${item.Id}`, { Fields: 'Chapters' })
     // Skipped past it while the request was out: these are someone else's.
     if (queue[queueIndex]?.Id !== item.Id) return
     _chapters = CascadeCore.chapterList(full.Chapters, item.RunTimeTicks)
@@ -8358,7 +8364,7 @@ const _normGainCache = new Map()   // 'track:<id>' or 'album:<id>' -> Normalizat
  *  server has none for it. */
 async function _normalizationDb(id, key) {
   if (_normGainCache.has(key)) return _normGainCache.get(key)
-  const full = await jfGet(`/Users/${jf.userId}/Items/${id}`, {})
+  const full = await jfGet(`/Items/${id}`, {})
   const db = Number.isFinite(full?.NormalizationGain) ? full.NormalizationGain : null
   _normGainCache.set(key, db)
   return db
@@ -10408,7 +10414,7 @@ async function atpLoadPlaylists() {
   const list = document.getElementById('atp-list')
   list.innerHTML = '<div class="skel skel-text" style="width:100%;height:30px"></div><div class="skel skel-text" style="width:100%;height:30px"></div><div class="skel skel-text" style="width:100%;height:30px"></div>'
   try {
-    const data = await jfGet(`/Users/${jf.userId}/Items`, {
+    const data = await jfGet(`/Items`, {
       IncludeItemTypes: 'Playlist', Recursive: true, SortBy: 'SortName'
     })
     list.innerHTML = (data.Items || []).map(pl =>
@@ -10458,7 +10464,7 @@ function _atpMarkContaining(list) {
   const ids = (Array.isArray(raw) ? raw : raw ? [raw] : []).map(i => i.Id)
   if (!ids.length) return
   list.querySelectorAll('.modal-pl-item').forEach(el => {
-    jfGet(`/Users/${jf.userId}/Items`, { ParentId: el.dataset.id, EnableImages: false, EnableUserData: false, Fields: '' })
+    jfGet(`/Items`, { ParentId: el.dataset.id, EnableImages: false, EnableUserData: false, Fields: '' })
       .then(d => {
         const held = new Set((d.Items || []).map(i => i.Id))
         if (!ids.every(id => held.has(id)) || !el.isConnected) return
@@ -10547,7 +10553,7 @@ async function openMediaInfoFor(item) {
   const grid = document.getElementById('mi-grid')
   modal.classList.remove('hidden')
   try {
-    const d = await jfGet(`/Users/${jf.userId}/Items/${item.Id}`)
+    const d = await jfGet(`/Items/${item.Id}`)
     const ms = (d.RunTimeTicks || 0) / 10000
     const rows = [
       ['Title', d.Name],
@@ -12029,7 +12035,7 @@ window.cascade.metadataEditor.onSaved(async (itemId) => {
 
   if (queue[queueIndex]?.Id !== itemId) return
   try {
-    const res = await jfGet(`/Users/${jf.userId}/Items`, {
+    const res = await jfGet(`/Items`, {
       Ids: itemId,
       Fields: 'AlbumId,AlbumPrimaryImageTag,UserData',
     })
@@ -13244,14 +13250,14 @@ async function runSearch(query) {
     const wantShows   = showLibIds.length  > 0
 
     const [songsRes, albumsRes, artistsRes, moviesRes, showsRes] = await Promise.allSettled([
-      jfGetMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 10, IncludeItemTypes: 'Audio', Fields: 'AlbumId,AlbumPrimaryImageTag' }),
-      jfGetMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 8,  IncludeItemTypes: 'MusicAlbum' }),
+      jfGetMerged(`/Items`, { SearchTerm: query, Recursive: true, Limit: 10, IncludeItemTypes: 'Audio', Fields: 'AlbumId,AlbumPrimaryImageTag' }),
+      jfGetMerged(`/Items`, { SearchTerm: query, Recursive: true, Limit: 8,  IncludeItemTypes: 'MusicAlbum' }),
       jfGetMerged(`/Artists`,                  { SearchTerm: query, UserId: jf.userId, Limit: 8 }),
       wantMovies
-        ? jfClient.getMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 8, IncludeItemTypes: 'Movie', Fields: 'ProductionYear' }, movieLibIds)
+        ? jfClient.getMerged(`/Items`, { SearchTerm: query, Recursive: true, Limit: 8, IncludeItemTypes: 'Movie', Fields: 'ProductionYear' }, movieLibIds)
         : Promise.resolve({ Items: [] }),
       wantShows
-        ? jfClient.getMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 8, IncludeItemTypes: 'Series', Fields: 'ProductionYear' }, showLibIds)
+        ? jfClient.getMerged(`/Items`, { SearchTerm: query, Recursive: true, Limit: 8, IncludeItemTypes: 'Series', Fields: 'ProductionYear' }, showLibIds)
         : Promise.resolve({ Items: [] }),
     ])
     // jfGetMerged returns up to Limit x libraryCount - trim back to the intended size.

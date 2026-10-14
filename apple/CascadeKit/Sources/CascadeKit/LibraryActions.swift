@@ -202,8 +202,10 @@ public extension JellyfinClient {
         try await delete("/Items/\(itemId)")
     }
 
+    /// /Items/{id}, not /Users/{userId}/Items/{id}: Jellyfin 12 marks that one
+    /// Obsolete, and both are the same handler.
     func mediaDetail(itemId: String) async throws -> MediaDetail {
-        try await get("/Users/\(currentConfig.userId)/Items/\(itemId)")
+        try await get("/Items/\(itemId)", params: ["userId": currentConfig.userId])
     }
 
     /// The item as the server holds it, for the metadata editor to change a
