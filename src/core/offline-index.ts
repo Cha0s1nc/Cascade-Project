@@ -404,6 +404,17 @@ export function addCollection(index: OfflineIndex, collection: JfItem, items: Jf
   }
 }
 
+/** Refreshes stored items from a fresher copy the server sent: fields the
+ *  copy has replace the stored ones, fields it lacks are kept (a list query
+ *  carries no NormalizationGain, the stored single-item fetch did). How items
+ *  from version 1 gain the ids and user data it never kept. */
+export function refreshItems(index: OfflineIndex, items: JfItem[]): void {
+  for (const fresh of items) {
+    const t = fresh?.Id ? index.tracks[fresh.Id] : undefined
+    if (t) t.item = slimItem({ ...t.item, ...fresh } as JfItem)
+  }
+}
+
 export function markReady(index: OfflineIndex, trackId: string, file: string, bytes: number): void {
   const t = index.tracks[trackId]
   if (!t) return

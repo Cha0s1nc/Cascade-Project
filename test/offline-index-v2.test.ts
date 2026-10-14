@@ -7,7 +7,7 @@ import {
   INDEX_VERSION, emptyIndex, parseIndex, addCollection, markReady, removeCollection, reconcile, readyFile,
   libraryOf, librariesInUse, setLibraries, assignLibrary, unplacedTrackIds, PLACEHOLDER_LIBRARIES,
   setLyrics, lyricsOf, expiredLyricsTrackIds, dropLyrics, SPICY_LYRICS_DAYS, setSubtitles, setSegments, setExplicit,
-  setUser, setHistory, historyEntriesOf, MAX_HISTORY_ENTRIES, indexedFiles, isSafeSubtitlePath, collectionOf,
+  setUser, setHistory, historyEntriesOf, MAX_HISTORY_ENTRIES, indexedFiles, isSafeSubtitlePath, collectionOf, refreshItems,
 } from '../src/core/offline-index.ts'
 import type { JfItem } from '../src/core/types.ts'
 
@@ -190,4 +190,17 @@ test('a collection of an unknown kind is not read back', () => {
   const raw = JSON.parse(JSON.stringify(v1))
   raw.collections.push({ item: { Id: 'f1', Type: 'Folder' }, trackIds: [TRACK_1] })
   assert.equal(collectionOf(parseIndex(raw), 'f1'), undefined)
+})
+
+test('a refresh fills in what version 1 never kept and keeps what the copy lacks', () => {
+  const index = parseIndex(v1)
+  refreshItems(index, [
+    { Id: TRACK_1, Name: 'Intro', ArtistItems: [{ Id: 'art1', Name: 'The Lanterns' }], UserData: { PlayCount: 3 } },
+    { Id: 'not-downloaded', Name: 'x' },
+  ])
+  const item = index.tracks[TRACK_1].item
+  assert.deepEqual(item.ArtistItems, [{ Id: 'art1', Name: 'The Lanterns' }])
+  assert.equal(item.UserData?.PlayCount, 3)
+  assert.equal(item.NormalizationGain, -6.2, 'a list copy has no gain; the stored one stays')
+  assert.equal(index.tracks['not-downloaded'], undefined)
 })

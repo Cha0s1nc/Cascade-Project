@@ -29,6 +29,7 @@ const WindowState = require('./build/window-state')
 const CustomHeaders = require('./build/custom-headers')
 // Offline downloads: the pure index rules from src/core/offline-index.ts, and the main-process side in offline.js.
 const OfflineIndex = require('./build/offline-index')
+const OfflineMode = require('./build/offline-mode')
 const { createOffline } = require('./offline')
 const crypto = require('crypto')
 const { pathToFileURL } = require('url')
@@ -555,7 +556,7 @@ function createWindow() {
   // silently cost the media keys, the F12 devtools binding and the update
   // check there. None of this needs a painted window, only a loaded one.
   win.webContents.once('did-finish-load', () => {
-    if (app.isPackaged) setTimeout(checkForUpdates, 5000)
+    if (app.isPackaged) setTimeout(checkForUpdatesUnlessOffline, 5000)
 
     // Not on Windows: registering the media keys as global shortcuts makes
     // Chromium drop its Windows media integration, so Cascade vanished from
@@ -700,7 +701,21 @@ ipcMain.handle('store-delete', (_e, key) => {
 let connectionServerUrl = store.get('serverUrl') || null
 let connectionHeaders = CustomHeaders.sanitizeCustomHeaders(store.get('customHeaders'))
 
+// Offline Mode's state, from the renderer (src/core/offline-mode.ts). Starts
+// from the saved switch so nothing reaches the server before the renderer has
+// said so: a person who turned Offline Mode on meant every request.
+let offlineState = store.get('offlineMode') === true ? 'manual' : 'online'
+
 function installConnectionHeaders() {
+  // While the switch is on, nothing reaches the server: the renderer's own
+  // calls refuse first (jfClient, jfFetch), and this is the backstop that
+  // also catches images, media elements and anything missed. Only the
+  // server's origin; never in the unreachable state, whose probe must go out.
+  session.defaultSession.webRequest.onBeforeRequest({ urls: ['<all_urls>'] }, (details, callback) => {
+    const block = OfflineMode.blocksServer(offlineState) && !!connectionServerUrl
+      && CustomHeaders.requestOrigin(details.url) === CustomHeaders.requestOrigin(connectionServerUrl)
+    callback(block ? { cancel: true } : {})
+  })
   session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['<all_urls>'] }, (details, callback) => {
     const extra = CustomHeaders.headersForRequest(details.url, connectionServerUrl, connectionHeaders)
     if (!extra.length) { callback({}); return }
@@ -723,6 +738,21 @@ ipcMain.handle('connection-set', (_e, serverUrl, headers, persist = true) => {
   else store.delete('customHeaders')
   return connectionHeaders
 })
+
+ipcMain.handle('offline-mode', (_e, state) => {
+  if (state !== 'online' && state !== 'manual' && state !== 'unreachable') return
+  const before = offlineState
+  offlineState = state
+  // Back online: the check that was skipped (or any, since an update may have
+  // shipped meanwhile) runs now rather than at the next launch.
+  if (OfflineMode.updateCheckDue(before, offlineState) && app.isPackaged) checkForUpdates()
+})
+
+/** The launch check, unless Offline Mode is on: then it waits for the way
+ *  back online (offline-mode above). */
+function checkForUpdatesUnlessOffline() {
+  if (OfflineMode.checksUpdates(offlineState)) checkForUpdates()
+}
 
 const offline = createOffline({
   app, ipcMain, net, protocol,

@@ -19,8 +19,11 @@ let _restoredResume = null   // { sec } while a restored queue's track waits for
 // Offline downloads (see the section of that name). Declared up here because
 // artUrl() and resolveTrackStream() read it from the very first render.
 let _offline = { ready: {}, art: new Set(), collections: [], totalBytes: 0, active: [], failed: {}, plays: 0 }
-/** The server could not be reached at launch: only downloads and playback work. */
-let _offlineMode = false
+/** Offline Mode: 'online', 'manual' (the Settings switch) or 'unreachable'
+ *  (turned on by itself). See the section "Offline Mode" and
+ *  src/core/offline-mode.ts. */
+/** @type {'online' | 'manual' | 'unreachable'} */
+let _offlineState = 'online'
 /** Live bytes per track being downloaded, from the main process's progress events. */
 const _offlineProgress = new Map()
 
@@ -822,11 +825,16 @@ async function connect(serverUrl, token, userId) {
   // what it was before.
   const viewsPromise = jfGet(`/UserViews`).catch(() => null)
 
+  // Offline (Offline Mode set jfClient's source before calling this), every
+  // read below answers from the downloads, so the same steps draw the app
+  // from them. What needs the server itself is skipped further down.
+  const offline = jfClient.offline
+
   // Verify the token is still valid with a lightweight ping, retry up to 3x
-  let verified = false
-  let userInfo = null
+  let verified = offline
+  let userInfo = offline ? await jfGet(`/Users/${userId}`).catch(() => null) : null
   let lastError = null
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  for (let attempt = 1; attempt <= 3 && !verified; attempt++) {
     showLoading(attempt === 1 ? 'Connecting…' : `Retrying… (${attempt}/3)`)
     try {
       userInfo = await jfGet(`/Users/${userId}`)
@@ -871,24 +879,35 @@ async function connect(serverUrl, token, userId) {
   applyRadioNavVisibility()
   _applyAdminGating()
 
-  startRemoteControl()
-  probeCascadePlugin()  // not awaited - cheap, and nothing here depends on the result yet
+  if (!offline) {
+    startRemoteControl()
+    probeCascadePlugin()  // not awaited - cheap, and nothing here depends on the result yet
+  }
   // This account's downloads (another's are never shown or resumed). Back
   // online: carry on with downloads that were waiting, and tell the server
   // about plays made while it was out of reach.
   await window.cascade.offline.setOwner(jf.userId)
   await refreshOffline()
-  window.cascade.offline.resume(offlineSession()).catch(() => {})
-  replayOfflinePlays()
+  if (!offline) {
+    window.cascade.offline.resume(offlineSession()).catch(() => {})
+    replayOfflinePlays()
+    // What Offline Mode needs to know later: who this is, which libraries
+    // there are, and which library each download is in.
+    window.cascade.offline.setUser(userInfo).catch(() => {})
+    viewsPromise.then(v => v && window.cascade.offline.setLibraries(v.Items || []))
+      .then(() => placeOfflineDownloads()).catch(() => {})
+  }
   await populateLibraryPicker(viewsPromise)
   invalidateLibraryViews()
+  invalidateVideoViews()
   await loadHome()
   await restoreLastQueue()
+  _connectedOnline = !offline
   // Both sit over a populated app rather than a blank one, hence after loadHome.
   // The wizard runs itself off its stored revision, so an ordinary launch on the
   // current revision shows nothing - and when it does run it has already marked
   // the video intro seen, since its library step covers the same ground.
-  if (!await maybeShowSetupWizard()) await maybeShowVideoIntro()
+  if (!offline && !await maybeShowSetupWizard()) await maybeShowVideoIntro()
 }
 
 // ── Remote control (cast target) ─────────────────────────────────────────────
@@ -1378,13 +1397,22 @@ async function populateLibraryPicker(prefetched = null) {
     )
     _movieLibs = (data.Items || []).filter(i => i.CollectionType === 'movies')
     _showLibs  = (data.Items || []).filter(i => i.CollectionType === 'tvshows')
-    await migrateVideoLibraryIds()
+    // Offline, the views are only the libraries holding downloads. The saved
+    // choice is used as it is and nothing is written: trimming it to what is
+    // downloaded and saving that would quietly lose the person's selection.
+    const offline = jfClient.offline
+    if (!offline) await migrateVideoLibraryIds()
     await loadVideoLibrarySelection()
     await loadCollapsedLibs()
     const savedRaw = await window.cascade.store.get('libraryIds')
     let savedIds = []
     try { savedIds = savedRaw ? JSON.parse(savedRaw) : [] } catch {}
     singleLibraryMode = (await window.cascade.store.get('singleLibraryMode')) === true
+    if (offline) {
+      jf.libraryIds = savedIds.length ? savedIds : _musicLibs.map(l => l.Id)
+      renderLibraryPicker()
+      return
+    }
 
     // First connect selects everything; single mode only ever holds one
     if (!savedIds.length && _musicLibs.length) savedIds = _musicLibs.map(l => l.Id)
@@ -7796,17 +7824,26 @@ async function init() {
 
   if (serverUrl && token && userId) {
     document.getElementById('setup-overlay').classList.add('hidden')
+    // The switch left on stays on: nothing goes to the server, the app opens
+    // on the downloads.
+    if ((await window.cascade.store.get('offlineMode')) === true) {
+      await setOfflineState('manual', { reload: false })
+      await connect(serverUrl, token, userId).catch(e => console.error('[cascade] offline start failed:', e))
+      return
+    }
     try {
       await connect(serverUrl, token, userId)
     } catch (e) {
-      if (e?.status === 401 || e?.status === 403) {
+      if (CascadeCore.failureKind(e?.status) === 'auth') {
         // The token was rejected: Jellyfin tokens only die when revoked (signed
         // out, device removed in the dashboard), so this is a real sign-in, not a
         // refresh. There is no stored password to retry with, by design.
         promptReauth('Your session expired. Sign in again with a code, or enter your password.')
-      } else if (_offline.collections.length) {
-        // The server never answered and there is music on disk: open on that.
-        enterOfflineMode()
+      } else if (CascadeCore.failureKind(e?.status) === 'unreachable' && _offline.collections.length) {
+        // The server never answered and there is something on disk: Offline
+        // Mode turns on by itself and the app opens on the downloads.
+        await setOfflineState('unreachable', { reload: false })
+        await connect(serverUrl, token, userId).catch(err => console.error('[cascade] offline start failed:', err))
       } else {
         promptReauth('Could not reach your server. Check your connection or the address, then sign in again.')
       }
@@ -7853,6 +7890,8 @@ async function refreshOffline() {
   let summary
   try { summary = await window.cascade.offline.summary() } catch { return }
   _offline = { ...summary, art: new Set(summary.art) }
+  // Offline, the engine answers from the catalog as it is now.
+  if (CascadeCore.isOffline(_offlineState)) await refreshOfflineEngine()
   for (const id of [..._offlineProgress.keys()]) if (!summary.active.some(a => a.id === id)) _offlineProgress.delete(id)
   renderOfflineButtons()
   if (_currentView === 'downloads') renderDownloadsView()
@@ -7887,6 +7926,7 @@ async function toggleOfflineDownload(kind, item) {
     return
   }
   await refreshOffline()
+  placeOfflineDownloads().catch(() => {})
 }
 
 async function removeOfflineDownload(id) {
@@ -7949,7 +7989,7 @@ function dlCardHtml(c) {
 
 function renderDownloadsView() {
   const list = document.getElementById('downloads-list')
-  document.getElementById('downloads-banner').hidden = !_offlineMode
+  document.getElementById('downloads-banner').hidden = _offlineState !== 'unreachable'
   document.getElementById('downloads-total').textContent = _offline.collections.length
     ? `${_offline.collections.length} ${_offline.collections.length === 1 ? 'collection' : 'collections'} · ${fmtBytes(_offline.totalBytes)}` : ''
   if (!_offline.collections.length) {
@@ -8040,39 +8080,166 @@ function toggleDownloadedSongs(id) {
   showDownloadedSongs(id)
 }
 
-// ── Offline mode ──
-// Launched with no reachable server: the sign-in prompt would be wrong (the
-// token is fine) and the library has nothing to show, so the app opens on the
-// Downloads, which play from disk. It leaves offline mode by itself when the
-// network comes back, or on "Try again".
+// ── Offline Mode ──
+// The normal app showing only what is downloaded (docs/offline-mode-plan.md).
+// Three states, whose rules are src/core/offline-mode.ts: 'manual' is the
+// Settings switch and sends nothing to the server (main blocks its origin
+// too); 'unreachable' turned on by itself when the server stopped answering,
+// probes on a backoff and on a network change, and turns off when it answers.
+// While either is on, jfClient answers every read from the downloads
+// (setOfflineSource), so the screens are the same screens.
 
-function enterOfflineMode() {
-  _offlineMode = true
-  document.body.classList.add('offline-mode')
-  showView('downloads')
-  refreshOffline()
+/** The query engine over the catalog as it is now; rebuilt when the
+ *  downloads change while offline. */
+let _offlineEngine = null
+/** Whether this launch has a session the server confirmed: until it does, a
+ *  failed request is the sign-in's business, not a drop. */
+let _connectedOnline = false
+let _probeAttempt = 0
+let _probeTimer = null
+
+async function refreshOfflineEngine() {
+  if (!CascadeCore.isOffline(_offlineState)) return
+  let catalog = null
+  try { catalog = await window.cascade.offline.catalog() } catch {}
+  const engine = CascadeCore.offlineQuery(CascadeCore.parseIndex(catalog))
+  _offlineEngine = engine
+  jfClient.setOfflineSource((path, params) => engine.answer(path, params))
 }
 
-async function leaveOfflineModeIfReachable() {
-  if (!_offlineMode) return
-  const serverUrl = await window.cascade.store.get('serverUrl')
-  const token = await window.cascade.store.get('token')
-  const userId = await window.cascade.store.get('userId')
+/** Moves to a state. Offline, the reads come from the downloads and the
+ *  library views are redrawn from them; back online, a full connect() draws
+ *  them from the server again and sends what happened offline.
+ *  `reload: false` is launch, where connect() draws everything next. */
+async function setOfflineState(next, { reload = true } = {}) {
+  const before = _offlineState
+  if (next === before) return
+  _offlineState = next
+  window.cascade.offline.setMode(next).catch(() => {})
+  const off = CascadeCore.isOffline(next)
+  if (off) {
+    await refreshOfflineEngine()
+  } else {
+    _offlineEngine = null
+    jfClient.setOfflineSource(null)
+  }
+  document.body.classList.toggle('offline-on', off)
+  document.body.classList.toggle('offline-auto', next === 'unreachable')
+  renderOfflineIndicators()
+  if (next === 'unreachable') scheduleProbe(true)
+  else clearProbe()
+  if (!reload) return
+  if (before === 'online' && off) await redrawOffline()
+  else if (next === 'online') await reconnectOnline()
+}
+
+/** Everything on screen came from the server: draw it from the downloads. */
+async function redrawOffline() {
+  _remote?.stop()
+  _connectedOnline = false
+  await populateLibraryPicker()
+  invalidateLibraryViews()
+  invalidateVideoViews()
+  await loadHome()
+  if (_currentView !== 'home') showView(_currentView)
+}
+
+async function reconnectOnline() {
+  const [serverUrl, token, userId] = await Promise.all(['serverUrl', 'token', 'userId'].map(k => window.cascade.store.get(k)))
   if (!serverUrl || !token || !userId) return
   try {
     await connect(serverUrl, token, userId)
+    if (_currentView !== 'home') showView(_currentView)
   } catch (e) {
-    if (e?.status === 401 || e?.status === 403) { _offlineMode = false; document.body.classList.remove('offline-mode'); promptReauth('Your session expired. Sign in again with a code, or enter your password.') }
-    return   // still out of reach: stay on the downloads
+    if (CascadeCore.failureKind(e?.status) === 'auth') promptReauth('Your session expired. Sign in again with a code, or enter your password.')
+    else await setOfflineState('unreachable')
   }
-  _offlineMode = false
-  document.body.classList.remove('offline-mode')
-  document.getElementById('downloads-banner').hidden = true
-  showView('home')
 }
 
-document.getElementById('downloads-retry').addEventListener('click', leaveOfflineModeIfReachable)
-window.addEventListener('online', leaveOfflineModeIfReachable)
+/** The Settings switch. Stays on across launches until turned off. */
+async function setOfflineSwitch(on) {
+  await window.cascade.store.set('offlineMode', !!on)
+  await setOfflineState(CascadeCore.nextOfflineState(_offlineState, { type: 'switch', on: !!on }))
+}
+
+/** Whether the server answers at all: its public ping, briefly. */
+async function serverAnswers() {
+  const serverUrl = await window.cascade.store.get('serverUrl')
+  if (!serverUrl) return false
+  try {
+    const r = await fetch(`${serverUrl.replace(/\/+$/, '')}/System/Ping`, { signal: AbortSignal.timeout(5000) })
+    return r.ok
+  } catch {
+    return false
+  }
+}
+
+function clearProbe() {
+  clearTimeout(_probeTimer)
+  _probeTimer = null
+}
+
+function scheduleProbe(reset) {
+  clearProbe()
+  if (reset) _probeAttempt = 0
+  _probeTimer = setTimeout(probeServer, CascadeCore.probeDelayMs(_probeAttempt++))
+}
+
+async function probeServer() {
+  if (_offlineState !== 'unreachable') return
+  if (await serverAnswers()) await setOfflineState(CascadeCore.nextOfflineState(_offlineState, { type: 'reachable' }))
+  else if (_offlineState === 'unreachable') scheduleProbe(false)
+}
+
+/** A request found no server. One failed request is not a drop: the ping
+ *  decides, so a blip never flips the app. */
+let _checkingDrop = false
+async function checkForDrop() {
+  if (_checkingDrop || _offlineState !== 'online' || !_connectedOnline) return
+  _checkingDrop = true
+  try {
+    if (!await serverAnswers() && _offlineState === 'online') await setOfflineState('unreachable')
+  } finally {
+    _checkingDrop = false
+  }
+}
+
+jfClient.onFailure = (status) => {
+  if (CascadeCore.failureKind(status) === 'unreachable') checkForDrop()
+}
+window.addEventListener('offline', checkForDrop)
+window.addEventListener('online', () => { if (_offlineState === 'unreachable') probeServer() })
+
+/** The pill in the top bar and the banner when it turned on by itself. */
+function renderOfflineIndicators() {
+  const banner = document.getElementById('downloads-banner')
+  if (banner) banner.hidden = _offlineState !== 'unreachable'
+}
+
+document.getElementById('downloads-retry').addEventListener('click', () => probeServer())
+
+/** Moves downloads out of the placeholder libraries: each library is asked
+ *  which of them it holds (100 ids a request), and their stored fields are
+ *  refreshed from the answer, which fills in what version 1 never kept. */
+async function placeOfflineDownloads() {
+  if (jfClient.offline) return
+  let catalog = null
+  try { catalog = await window.cascade.offline.catalog() } catch {}
+  if (!catalog) return
+  const index = CascadeCore.parseIndex(catalog)
+  const unplaced = CascadeCore.unplacedTrackIds(index)
+  if (!unplaced.length) return
+  for (const lib of index.libraries) {
+    for (let i = 0; i < unplaced.length; i += 100) {
+      const ids = unplaced.slice(i, i + 100)
+      const found = await jfGet('/Items', {
+        Ids: ids.join(','), ParentId: lib.Id, Recursive: true,
+        Fields: 'Genres,DateCreated,SortName,ProductionYear,Overview,MediaSources',
+      }).catch(() => null)
+      if (found?.Items?.length) await window.cascade.offline.place(lib.Id, found.Items)
+    }
+  }
+}
 
 // ── Plays made while the server was out of reach ──
 // Jellyfin counts a play when playback STARTS, so a start report it never heard

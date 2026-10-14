@@ -33,6 +33,13 @@ const cascade: ElectronPlatform = {
     addPlay:  (play) => ipcRenderer.invoke('offline-play-add', play),
     takePlays: () => ipcRenderer.invoke('offline-plays-take'),
     onEvent:  (cb) => { ipcRenderer.on('offline-event', (_e, event) => cb(event)) },
+    catalog:  () => ipcRenderer.invoke('offline-catalog'),
+    setLibraries: (views) => ipcRenderer.invoke('offline-set-libraries', views),
+    setUser:  (user) => ipcRenderer.invoke('offline-set-user', user),
+    place:    (libraryId, items) => ipcRenderer.invoke('offline-place', libraryId, items),
+    setLyrics: (trackId, lyrics) => ipcRenderer.invoke('offline-set-lyrics', trackId, lyrics),
+    disk:     () => ipcRenderer.invoke('offline-disk'),
+    setMode:  (state) => ipcRenderer.invoke('offline-mode', state),
   },
   clipboard: {
     write: (text) => ipcRenderer.invoke('clipboard-write', text),

@@ -10,6 +10,9 @@
 // bridge and its type surface cannot drift apart.
 
 import type { JfItem } from '../core/types.ts'
+import type { OfflineIndex } from '../core/offline-index.ts'
+import type { OfflineState } from '../core/offline-mode.ts'
+import type { LyricLine } from '../core/lyrics.ts'
 
 /** What the main process tells the renderer about offline downloads. */
 export interface OfflineSummary {
@@ -188,6 +191,22 @@ export interface DesktopCapabilities {
     addPlay(play: { itemId: string; userId: string; date: string }): Promise<void>
     takePlays(): Promise<{ itemId: string; userId: string; date: string }[]>
     onEvent(cb: (event: OfflineEvent) => void): void
+    /** The whole catalog, for Offline Mode's query engine; null with nobody
+     *  signed in. */
+    catalog(): Promise<OfflineIndex | null>
+    /** The server's libraries (/UserViews), so the catalog can name them. */
+    setLibraries(views: JfItem[]): Promise<void>
+    /** The signed-in user (/Users/{id}), for permissions while offline. */
+    setUser(user: unknown): Promise<void>
+    /** Items the server says are in this library: they move out of the
+     *  placeholder, and their stored fields are refreshed from these. */
+    place(libraryId: string, items: JfItem[]): Promise<void>
+    setLyrics(trackId: string, lyrics: { source: string; synced: boolean; lines: LyricLine[] }): Promise<void>
+    /** Free and total bytes on the disk the downloads are on. */
+    disk(): Promise<{ free: number; total: number } | null>
+    /** Offline Mode's state, for main: the switch blocks the server's origin
+     *  and update checks wait while offline. */
+    setMode(state: OfflineState): Promise<void>
   }
 
   checkForUpdates?(): Promise<UpdateCheckResult>
