@@ -583,6 +583,7 @@ final class AppState {
     func download(_ item: JfItem) async {
         guard let offline, let client, !isOffline else { return }
         await offline.download(item, client: client)
+        await offline.placeDownloads(client: client)
         await keepLyrics(for: offline.tracks(of: item.id), client: client)
     }
 
