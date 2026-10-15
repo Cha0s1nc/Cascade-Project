@@ -182,6 +182,14 @@ The plan is `docs/offline-mode-plan.md`; the requests the engine answers are lis
 - `src/core/offline-query.ts`: `offlineQuery(index).answer(path, params)` answers a GET in Jellyfin's shape. It answers only ready items. Unknown routes come back as an empty list marked `unknownRoute`, never a network call. Keep one engine per catalog state: parts are built lazily and kept (about 50 ms to build for 20,000 songs, then about 10 ms a request). Sorting compares lowercased text by code point, never `localeCompare`, so the Apple engine orders identically.
 - `test/fixtures/offline-query.json` is shared with CascadeKit's `OfflineQueryTests`. **A change to either engine's behavior needs a case there, and both engines passing it.**
 
+## Offline Mode, phase 2 (the switch, the swap, the guard)
+
+- `src/core/offline-mode.ts` (pure, tested): the three states (`online`, `manual`, `unreachable`), `nextOfflineState`, the probe backoff (30 s doubling to 5 minutes), `failureKind` (no answer, 502, 503 and 504 are unreachable; 401 and 403 are the session, never Offline Mode), `blocksServer` (manual only) and the update-check rules. Apple's `OfflineMode.swift` is the same rules.
+- The swap: `jfClient.setOfflineSource(...)` makes every `jfClient` read answer from the query engine, and adds the placeholder library ids to any fan-out over libraries. Writes through `jfClient` throw `OfflineError`.
+- The guard: everything else the renderer sends to the server goes through `jfFetch` (`renderer.js`, near `const jfFetch`), anything else on the web through `webFetch`; both refuse while offline. `test/offline-guard.test.ts` fails on a raw `fetch(` in `renderer.js`, `waterfall.js` or `lyric-karaoke.js` unless a comment right above it says `offline-ok:` and why.
+- Main's backstop: while manual, `onBeforeRequest` in `main.js` cancels every request to the server's origin (images and media elements included). Off while unreachable, so the probe gets through. Update checks wait while offline and run once on the way back online.
+- `placeOfflineDownloads()` (`renderer.js`) moves downloads out of the placeholder libraries and refreshes their stored fields (`refreshItems`); it runs at sign-in and right after each download. Lyrics are saved with each download (`saveOfflineLyrics`).
+
 ## Measured, not worth building
 
 Taken with the debug panel's resources section on Apple Silicon, playing real audio on the live deck. Recorded so these are not rebuilt on a hunch.
