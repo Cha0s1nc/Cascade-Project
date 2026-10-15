@@ -116,7 +116,7 @@ Extend today's queued plays into a queue of user-data changes, each with its tim
 
 ### 6. Video downloads
 
-Asked per item: a movie, an episode, a season or a whole series (later episodes added as they arrive, optional).
+Asked per item: a movie, an episode, a season or a whole series. Downloading a series offers a toggle, "Download new episodes as they arrive", chosen per series at download time and changeable later from the download manager.
 
 1. **Ask the server** with PlaybackInfo and a **download device profile**: an MP4 container, the video codecs this device decodes in hardware, AAC (Apple: also AC3 and E-AC3), external text subtitles.
 2. **Three outcomes:**
@@ -124,7 +124,7 @@ Asked per item: a movie, an episode, a season or a whole series (later episodes 
    - **Remux:** only the container or audio needs changing (the usual case for an MKV with H.264 or HEVC): download the server's progressive transcode with video copied. Close to network speed, since the server does no video work.
    - **Re-encode:** the video codec is unplayable here, or image subtitles (PGS) must be burned in: the same progressive download, slower. The download manager says so ("Converting on the server") with an estimate, and the person can cancel.
 3. **Subtitles:** text subtitles saved as WebVTT beside the file; image subtitles offered only as burned in.
-4. **Quality:** a setting for video downloads: Original (default on desktop and Mac), 1080p or 720p (default 1080p on iPhone, for space). Anything below original forces the re-encode path.
+4. **Quality:** a setting for video downloads: Original, 1080p or 720p. Defaults (decided): Original on desktop and Mac, 1080p on iPhone, for space. Anything below original forces the re-encode path.
 5. **Playback:** the desktop plays the file through `cascade-offline://` with the subtitle tracks added as `<track>` elements; Apple plays the local file with `AVPlayer` and the subtitles side-loaded. Resume, chapters and intro skip come from the catalog. Trickplay thumbnails are skipped offline at first.
 
 Open question for phase 3's start: a progressive transcode saved to disk is a fragmented MP4, which both players accept, but seeking in it can be slow without an index. Test on real files first; if it is a problem, remux the finished file locally (desktop: the optional ffmpeg; Apple: `AVAssetExportSession` with passthrough, which handles MP4 to MP4).
@@ -135,7 +135,7 @@ Above Settings in the sidebar on the desktop and the Mac, in both modes; on the 
 
 - **Downloading:** each item with progress, speed, the outcome from section 6 (Downloading, Converting on the server), pause, resume and cancel.
 - **Downloaded:** grouped Music, Movies, TV, with sizes, play, and remove.
-- **Storage:** total used, free space on the disk, and a storage limit setting (no limit by default on desktop and Mac; asked on the iPhone). Option to remove watched episodes after a day.
+- **Storage:** total used, free space on the disk, and a storage limit setting (no limit by default on desktop and Mac; asked on the iPhone). Option to remove watched episodes a day after they are finished: on by default on the iPhone (decided), off on desktop and Mac. On the iPhone it must be disclosed, not only sit in Settings: say it where the person downloads an episode, season or series ("Watched episodes are removed a day after you finish them", with a way to turn it off right there) and beside the setting in the download manager.
 - **Where:** desktop downloads move to a folder the person can choose (default as today).
 
 ### 8. Platform notes
@@ -223,8 +223,8 @@ Bundle a GPL ffmpeg build per platform (compatible with Cascade's GPLv3), about 
 - Pure logic (catalog rules, the engine, sync coalescing and conflicts) is tested in `test/` and `CascadeKit/Tests` before any screen uses it.
 - Each phase ends with a check on real hardware for what tests cannot see: background downloads on the iPhone, playback, subtitles, and no network traffic in Offline Mode.
 
-## Questions for the maintainer before phase 3
+## Decisions for phase 3 (maintainer, 2026-10-14)
 
-- Video download quality defaults (proposed above: Original on desktop and Mac, 1080p on iPhone).
-- Whether a series download should keep pulling new episodes as they arrive.
-- Whether removing watched episodes should be on by default on the iPhone.
+- Video download quality defaults: Original on desktop and Mac, 1080p on iPhone.
+- New episodes of a downloaded series: a toggle offered when the series is downloaded, not a global setting.
+- Remove watched episodes: on by default on the iPhone, disclosed where episodes are downloaded and in the download manager (section 7).
