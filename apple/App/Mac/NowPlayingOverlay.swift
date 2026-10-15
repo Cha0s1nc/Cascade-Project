@@ -235,9 +235,12 @@ private struct OverlayContent: View {
             .saturation(artHovering ? 0.7 : 1)
             .overlay {
                 HStack(spacing: 14) {
-                    artButton(isFavorite ? "heart.fill" : "heart", label: isFavorite ? "Unfavorite" : "Favorite",
-                              tint: isFavorite ? Color(red: 1, green: 0.42, blue: 0.54) : .white, action: toggleFavorite)
-                    artButton("text.badge.plus", label: "Add to playlist") { addingToPlaylist = true }
+                    // Both write to the server.
+                    if !state.isOffline {
+                        artButton(isFavorite ? "heart.fill" : "heart", label: isFavorite ? "Unfavorite" : "Favorite",
+                                  tint: isFavorite ? Color(red: 1, green: 0.42, blue: 0.54) : .white, action: toggleFavorite)
+                        artButton("text.badge.plus", label: "Add to playlist") { addingToPlaylist = true }
+                    }
                     artButton("square.stack", label: "View album", action: viewAlbum)
                 }
                 .opacity(artHovering ? 1 : 0)
@@ -401,7 +404,7 @@ private struct OverlayContent: View {
             Section {
                 SleepTimerMenu(player: player)
                 LyricsTimingMenu()
-                if state.cascadePluginInfo.spotifyLink, player.item != nil {
+                if state.cascadePluginInfo.spotifyLink, player.item != nil, !state.isOffline {
                     Button("Link Spotify Track\u{2026}", systemImage: "link") { ui.linkingSpotify = true }
                 }
             }

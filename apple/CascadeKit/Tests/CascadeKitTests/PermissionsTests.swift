@@ -74,6 +74,21 @@ struct ContextMenuKindTests {
         #expect(!v.play && v.viewDetail && v.markPlayed)
     }
 
+    @Test func offlineTheRowsThatNeedTheServerGo() {
+        let album = menuItems(for: .album, offline: true)
+        #expect(album.play && album.shuffle && album.playNext && album.playLast && album.goArtist)
+        #expect(!album.instantMix && !album.addPlaylist && !album.download && !album.favorite)
+        #expect(!album.refreshMeta && !album.editMeta)
+        let playlist = menuItems(for: .playlist, offline: true)
+        #expect(playlist.play && !playlist.rename && !playlist.deleteItem)
+        // Your own smart playlist is local: still yours to edit and delete.
+        let mine = menuItems(for: .userSmartPlaylist, offline: true)
+        #expect(mine.rename && mine.deleteItem && !mine.addPlaylist)
+        let video = menuItems(for: .video, isPlayed: false, offline: true)
+        #expect(video.play && !video.markPlayed)
+        #expect(menuItems(for: .album, offline: false) == menuItems(for: .album))
+    }
+
     @Test func aPlaylistCanBeRenamedAndDeleted() {
         let v = menuItems(for: .playlist)
         #expect(v.play && v.shuffle && v.rename && v.deleteItem && v.playNext && v.playLast && v.addPlaylist)

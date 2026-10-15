@@ -169,6 +169,8 @@ struct MacTracksMenu: View {
     private var isFavorite: Bool { favorite?.wrappedValue ?? tracks.first?.userData?.isFavorite ?? false }
     private var isPlayed: Bool { played?.wrappedValue ?? tracks.first?.userData?.played ?? false }
     private var canNavigate: Bool { showLibraryItem != nil || openItem != nil }
+    /// Offline Mode: what needs the server is left out, as on the desktop.
+    private var offline: Bool { state.isOffline }
 
     var body: some View {
         if tracks.isEmpty {
@@ -182,53 +184,57 @@ struct MacTracksMenu: View {
                 Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") {
                     Task { await state.player?.addToQueue(tracks) }
                 }
-                if let device = state.controlledDevice {
+                if let device = state.controlledDevice, !offline {
                     Button("Play on \(device.name)", systemImage: "hifispeaker") {
                         run { try await $0.play(tracks.map(\.id), on: device.id) }
                     }
                 }
-                if let single {
+                if let single, !offline {
                     // One count everywhere (50), where the desktop used 25 from the More menu.
                     Button("Instant Mix", systemImage: "wand.and.stars") {
                         Task { await state.player?.playInstantMix(from: single.id) }
                     }
                 }
             }
-            Section {
-                Button(isFavorite ? "Unfavorite" : "Favorite", systemImage: isFavorite ? "heart.slash" : "heart") {
-                    let target = !isFavorite
-                    run { client in for t in tracks { try await client.setFavorite(target, itemId: t.id) } }
-                        then: { favorite?.wrappedValue = target }
-                }
-                Button(isPlayed ? "Mark as Unplayed" : "Mark as Played", systemImage: isPlayed ? "circle" : "checkmark.circle") {
-                    let target = !isPlayed
-                    run { client in for t in tracks { try await client.setPlayed(target, itemId: t.id) } }
-                        then: { played?.wrappedValue = target }
-                }
-                Button("Add to Playlist\u{2026}", systemImage: "text.badge.plus") {
-                    if let actions {
-                        actions.playlistTracks = tracks
-                        actions.addingToPlaylist = true
-                    } else {
-                        addingToPlaylist?.wrappedValue = true
+            if !offline {
+                Section {
+                    Button(isFavorite ? "Unfavorite" : "Favorite", systemImage: isFavorite ? "heart.slash" : "heart") {
+                        let target = !isFavorite
+                        run { client in for t in tracks { try await client.setFavorite(target, itemId: t.id) } }
+                            then: { favorite?.wrappedValue = target }
+                    }
+                    Button(isPlayed ? "Mark as Unplayed" : "Mark as Played", systemImage: isPlayed ? "circle" : "checkmark.circle") {
+                        let target = !isPlayed
+                        run { client in for t in tracks { try await client.setPlayed(target, itemId: t.id) } }
+                            then: { played?.wrappedValue = target }
+                    }
+                    Button("Add to Playlist\u{2026}", systemImage: "text.badge.plus") {
+                        if let actions {
+                            actions.playlistTracks = tracks
+                            actions.addingToPlaylist = true
+                        } else {
+                            addingToPlaylist?.wrappedValue = true
+                        }
                     }
                 }
             }
             if let single {
                 singleItems(single)
             }
-            if let playlist {
+            if let playlist, !offline {
                 Section {
                     Button("Remove from Playlist", systemImage: "minus.circle", role: .destructive) { playlist.remove(tracks) }
                 }
             }
-            Section {
-                gated(tracks.count > 1 ? "Delete \(tracks.count) Items" : "Delete Media", "trash", allowed: state.canDelete,
-                      note: "Needs delete permission", role: .destructive) {
-                    guard state.canDelete else { return }
-                    actions?.deleting = tracks
+            if !offline {
+                Section {
+                    gated(tracks.count > 1 ? "Delete \(tracks.count) Items" : "Delete Media", "trash", allowed: state.canDelete,
+                          note: "Needs delete permission", role: .destructive) {
+                        guard state.canDelete else { return }
+                        actions?.deleting = tracks
+                    }
+                    .disabled(actions == nil && state.canDelete)
                 }
-                .disabled(actions == nil && state.canDelete)
             }
             if nowPlaying {
                 Section {
@@ -246,11 +252,13 @@ struct MacTracksMenu: View {
             if actions != nil {
                 Button("Media Info\u{2026}", systemImage: "info.circle") { actions?.info = track }
             }
-            Button("Download\u{2026}", systemImage: "arrow.down.circle") { download(track) }
-            Button("Copy Stream URL", systemImage: "link") {
-                guard let config = state.config, let url = copyableStreamURL(config: config, item: track) else { return }
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(url.absoluteString, forType: .string)
+            if !offline {
+                Button("Download\u{2026}", systemImage: "arrow.down.circle") { download(track) }
+                Button("Copy Stream URL", systemImage: "link") {
+                    guard let config = state.config, let url = copyableStreamURL(config: config, item: track) else { return }
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(url.absoluteString, forType: .string)
+                }
             }
         }
         if canNavigate {
@@ -263,21 +271,23 @@ struct MacTracksMenu: View {
                 }
             }
         }
-        Section {
-            gated("Refresh Metadata", "arrow.clockwise", allowed: state.isAdmin, note: "Admin only") {
-                guard state.isAdmin else { return }
-                run { try await $0.refreshMetadata(itemId: track.id) }
+        if !offline {
+            Section {
+                gated("Refresh Metadata", "arrow.clockwise", allowed: state.isAdmin, note: "Admin only") {
+                    guard state.isAdmin else { return }
+                    run { try await $0.refreshMetadata(itemId: track.id) }
+                }
+                gated("Edit Metadata\u{2026}", "pencil", allowed: state.isAdmin, note: "Admin only") {
+                    guard state.isAdmin else { return }
+                    openWindow(id: "metadata-editor", value: track.id)
+                }
+                gated("Edit Images\u{2026}", "photo", allowed: state.isAdmin, note: "Admin only") {
+                    guard state.isAdmin, let base = state.config?.url,
+                          let url = URL(string: "\(base)/web/index.html#/details?id=\(track.id)") else { return }
+                    openURL(url)
+                }
+                Button("Edit Lyrics\u{2026}", systemImage: "text.quote") { openLyricsEditor(itemId: track.id, state: state, openWindow: openWindow) }
             }
-            gated("Edit Metadata\u{2026}", "pencil", allowed: state.isAdmin, note: "Admin only") {
-                guard state.isAdmin else { return }
-                openWindow(id: "metadata-editor", value: track.id)
-            }
-            gated("Edit Images\u{2026}", "photo", allowed: state.isAdmin, note: "Admin only") {
-                guard state.isAdmin, let base = state.config?.url,
-                      let url = URL(string: "\(base)/web/index.html#/details?id=\(track.id)") else { return }
-                openURL(url)
-            }
-            Button("Edit Lyrics\u{2026}", systemImage: "text.quote") { openLyricsEditor(itemId: track.id, state: state, openWindow: openWindow) }
         }
     }
 

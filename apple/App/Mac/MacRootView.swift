@@ -24,6 +24,7 @@ struct MacRootView: View {
         // AppKit lists and forms in the columns ignore a SwiftUI inset, so
         // Settings and the sidebar's own Settings row ran under the bar.
         VStack(spacing: 0) {
+            OfflineBanner()
             NavigationSplitView {
                 sidebar
                     .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 280)
@@ -59,7 +60,16 @@ struct MacRootView: View {
                         .pickerStyle(.segmented)
                     }
                 }
-                ToolbarItem(placement: .primaryAction) { MacConnectButtons() }
+                ToolbarItem(placement: .primaryAction) {
+                    // Offline, it opens Downloads; Waterfall and other devices
+                    // both need the server.
+                    if state.isOffline {
+                        Button { section = .downloads; query = "" } label: { OfflinePill() }
+                            .buttonStyle(.plain)
+                    } else {
+                        MacConnectButtons()
+                    }
+                }
                 ToolbarItem(placement: .primaryAction) { ThemePanelButton() }
             }
             .searchable(text: $query, placement: .toolbar,
@@ -112,7 +122,7 @@ struct MacRootView: View {
         // Leaving a mode strands a section only that mode has; Home and
         // Settings are in both, so they stay.
         .onChange(of: state.browseMode) {
-            if section != .settings, !MacSection.sidebar(for: state.browseMode).contains(section) { section = .home }
+            if !MacSection.pinned.contains(section), !MacSection.sidebar(for: state.browseMode).contains(section) { section = .home }
         }
         .frame(minWidth: 800, minHeight: 560)
         // List rows at the desktop's spacing (its track and queue rows are 45
@@ -142,17 +152,23 @@ struct MacRootView: View {
         .environment(\.sidebarRowSize, .large)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             // Pinned under the list so it is always there, like the desktop's.
+            // Downloads above Settings, in both modes: offline it is where
+            // everything is, whichever mode is showing.
             VStack(spacing: 0) {
                 Divider()
-                Button { section = .settings; query = "" } label: {
-                    Label("Settings", systemImage: "gear")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 6).padding(.horizontal, 10)
-                        .background(section == .settings ? Color.accentColor.opacity(0.22) : .clear,
-                                    in: RoundedRectangle(cornerRadius: 6))
-                        .contentShape(Rectangle())
+                VStack(spacing: 2) {
+                    ForEach(MacSection.pinned.filter { $0 != .downloads || state.offline != nil }) { item in
+                        Button { section = item; query = "" } label: {
+                            Label(item.title, systemImage: item.symbol)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 6).padding(.horizontal, 10)
+                                .background(section == item ? Color.accentColor.opacity(0.22) : .clear,
+                                            in: RoundedRectangle(cornerRadius: 6))
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
-                .buttonStyle(.plain)
                 .padding(8)
             }
         }
@@ -168,7 +184,7 @@ struct MacRootView: View {
             case .shows: !libraries.isLoaded || !libraries.showLibraries.isEmpty
             // Opted in and allowed Live TV; otherwise the row only leads to
             // a 403 or a prompt nobody asked for. Settings turns it on.
-            case .radio: state.showsRadio
+            case .radio: state.showsRadio && !state.isOffline
             default: true
             }
         }
@@ -194,8 +210,11 @@ enum MacSection: String, Hashable, Identifiable, CaseIterable {
     var id: Self { self }
 
     static func sidebar(for mode: AppState.BrowseMode) -> [MacSection] {
-        mode == .video ? [.home, .movies, .shows] : [.home, .albums, .artists, .songs, .playlists, .genres, .history, .radio, .downloads]
+        mode == .video ? [.home, .movies, .shows] : [.home, .albums, .artists, .songs, .playlists, .genres, .history, .radio]
     }
+
+    /// Under the list, in both modes.
+    static let pinned: [MacSection] = [.downloads, .settings]
 
     var title: String {
         switch self {

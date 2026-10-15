@@ -247,7 +247,7 @@ struct LyricsEditButton: View {
 
     var body: some View {
         let spicy = MacNowPlayingUI.shared.lyrics.credit != nil
-        let available = state.cascadePluginApi != nil && state.player?.item != nil
+        let available = state.cascadePluginApi != nil && state.player?.item != nil && !state.isOffline
         Button {
             if spicy { NSWorkspace.shared.open(Self.spicyTool); return }
             guard let id = state.player?.item?.id else { return }

@@ -187,6 +187,8 @@ Done on `offline-mode`, with these notes for phase 2:
 - Lyrics download with tracks.
 - Done when: with Offline Mode on and the network cable out, every music screen shows only downloaded music and plays it, and nothing is sent to the network (check with the network log on the desktop and a proxy on Apple).
 
+**Phase 2 status (handoff, 2026-10-15).** Desktop: done and smoke-tested in Electron under Xvfb (manual and unreachable states, zero requests to the server while manual, lyrics read from the catalog). Apple CascadeKit: done (`OfflineMode.swift`, the swap in `JellyfinClient.send`, `OfflineLibrary` bookkeeping, `OfflineModeTests`), passing on the Linux harness. Apple app layer: written but not yet compiled anywhere: `AppState` (state, probe, `NWPathMonitor`, `download(_:)` with lyrics), `OfflineViews.swift` (pill, banner, switch), the Mac sidebar and toolbar, iPhone toolbar and Settings, the rebuilt `DownloadsView`, offline gating in the menus and Now Playing, saved lyrics in `LyricsView`, and the Mac updater waiting while offline. Next: get the CascadeiOS, CascadetvOS and CascadeMac schemes building on Xcode 27 (Swift 6 strict concurrency), then update both CODEMAPs, the request map and PR #8's body.
+
 ### Phase 3: video
 
 - Download profiles (desktop from the existing Electron device profile; Apple from `DeviceProfile.swift`'s video profile), the three outcomes, subtitles, quality setting.

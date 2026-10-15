@@ -48,7 +48,7 @@ final class LyricsModel {
         let spotifyId = item.flatMap { state.localSpotifyLinks[$0.id] }
         return [item?.id ?? "", String(describing: plugin?.api), "\(plugin?.info.capabilities.sorted() ?? [])",
                 "\(state.serverOnlyLyrics)", spotifyId ?? "", "\(state.lyricsRevision)",
-                LyricsPrefs.shared.forcedSource.rawValue].joined(separator: "|")
+                LyricsPrefs.shared.forcedSource.rawValue, "\(state.isOffline)"].joined(separator: "|")
     }
 
     /// The next song's lyrics, through the same cache, so the sheet is ready when it plays.
@@ -64,21 +64,22 @@ final class LyricsModel {
     }
 
     private func fetch(_ item: JfItem, key: String, state: AppState) async -> LyricsOutcome {
+        // Offline the only lyrics are the ones saved with the download. Not
+        // cached: back online the sources are asked again.
+        if state.isOffline {
+            let saved = state.offline?.index.lyrics(of: item.id, now: Date())
+            return LyricsOutcome(result: saved.map(LyricsResult.init(stored:)), tried: [:])
+        }
         if let hit = Self.cache[key] { return hit }
         guard let client = state.client else { return LyricsOutcome(result: nil, tried: [:]) }
         let plugin = state.cascadePluginApi.map { (api: $0, info: state.cascadePluginInfo) }
         let track = LyricsWaterfall.Track(id: item.id, title: item.name ?? "",
                                           artist: item.albumArtist ?? item.artists?.first ?? "", album: item.album ?? "",
                                           durationSeconds: Double(item.runTimeTicks ?? 0) / Double(Lyrics.ticksPerSecond))
-        #if os(macOS)
-        let platform = "Mac"
-        #else
-        let platform = "iOS"
-        #endif
         let outcome = await LyricsWaterfall.fetchDetailed(track, client: client, plugin: plugin,
                                                           serverOnly: state.serverOnlyLyrics,
                                                           spotifyId: state.localSpotifyLinks[item.id],
-                                                          userAgent: "Cascade/\(state.appVersion) (\(platform); Jellyfin music client)",
+                                                          userAgent: state.lyricsUserAgent,
                                                           forced: LyricsPrefs.shared.forcedSource)
         Self.cache[key] = outcome
         return outcome

@@ -198,6 +198,28 @@ private final class FailureLog: @unchecked Sendable {
         #expect(await client.imageUrl(itemId: "alb1") != nil)
     }
 
+    @Test func theProbeGoesOutEvenOffline() async throws {
+        let client = client()
+        await client.setOfflineCatalog(try OfflineQueryTests.catalog())
+        #expect(await client.serverAnswers())
+        CountingProtocol.status = nil
+        #expect(await !client.serverAnswers())
+        CountingProtocol.status = 503
+        #expect(await !client.serverAnswers())
+        #expect(CountingProtocol.requests == 3)
+    }
+
+    @Test func aClientCanStartOffline() async throws {
+        CountingProtocol.requests = 0
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.protocolClasses = [CountingProtocol.self]
+        let client = JellyfinClient(config: ServerConfig(url: "http://jf.test", token: "tok", userId: "user1", deviceId: "dev"),
+                                    session: URLSession(configuration: cfg), offlineCatalog: try OfflineQueryTests.catalog())
+        #expect(await client.isOffline)
+        _ = try await client.getData("/UserViews")
+        #expect(CountingProtocol.requests == 0)
+    }
+
     @Test func failuresAreReportedForDropDetection() async throws {
         let client = client()
         let log = FailureLog()

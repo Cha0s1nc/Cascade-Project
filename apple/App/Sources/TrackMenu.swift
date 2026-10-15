@@ -91,26 +91,31 @@ struct TrackMenuItems: View {
             Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") {
                 Task { await state.player?.addToQueue([track]) }
             }
-            Button("Instant Mix", systemImage: "wand.and.stars") {
-                Task { await state.player?.playInstantMix(from: track.id) }
-            }
-            // Picked in Control Devices; the desktop's "Play on <device>".
-            if let device = state.controlledDevice {
-                Button("Play on \(device.name)", systemImage: "hifispeaker") {
-                    Task { try? await state.client?.play([track.id], on: device.id) }
+            // Offline Mode leaves out what needs the server, as the desktop does.
+            if !state.isOffline {
+                Button("Instant Mix", systemImage: "wand.and.stars") {
+                    Task { await state.player?.playInstantMix(from: track.id) }
+                }
+                // Picked in Control Devices; the desktop's "Play on <device>".
+                if let device = state.controlledDevice {
+                    Button("Play on \(device.name)", systemImage: "hifispeaker") {
+                        Task { try? await state.client?.play([track.id], on: device.id) }
+                    }
                 }
             }
         }
-        Section {
-            Button(isFavorite ? "Unfavorite" : "Favorite", systemImage: isFavorite ? "heart.slash" : "heart") {
-                toggleFavorite()
-            }
-            Button(isPlayed ? "Mark as Unplayed" : "Mark as Played",
-                   systemImage: isPlayed ? "circle" : "checkmark.circle") {
-                togglePlayed()
-            }
-            Button("Add to Playlist…", systemImage: "text.badge.plus") {
-                addingToPlaylist = true
+        if !state.isOffline {
+            Section {
+                Button(isFavorite ? "Unfavorite" : "Favorite", systemImage: isFavorite ? "heart.slash" : "heart") {
+                    toggleFavorite()
+                }
+                Button(isPlayed ? "Mark as Unplayed" : "Mark as Played",
+                       systemImage: isPlayed ? "circle" : "checkmark.circle") {
+                    togglePlayed()
+                }
+                Button("Add to Playlist…", systemImage: "text.badge.plus") {
+                    addingToPlaylist = true
+                }
             }
         }
         if openItem != nil {
@@ -204,25 +209,30 @@ private struct ItemContextMenu: ViewModifier {
                 Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") {
                     withTracks { await state.player?.addToQueue($0) }
                 }
-                if let device = state.controlledDevice, let client = state.client {
-                    // The ids go in the query string, which Jellyfin caps at 8 KB: 200 is about 6.6 KB,
-                    // so a bigger artist starts with its first 200 (as on the desktop).
-                    Button("Play on \(device.name)", systemImage: "hifispeaker") {
-                        withTracks { tracks in try? await client.play(Array(tracks.prefix(200)).map(\.id), on: device.id) }
+                // Offline Mode leaves out what needs the server, as the desktop does.
+                if !state.isOffline {
+                    if let device = state.controlledDevice, let client = state.client {
+                        // The ids go in the query string, which Jellyfin caps at 8 KB: 200 is about 6.6 KB,
+                        // so a bigger artist starts with its first 200 (as on the desktop).
+                        Button("Play on \(device.name)", systemImage: "hifispeaker") {
+                            withTracks { tracks in try? await client.play(Array(tracks.prefix(200)).map(\.id), on: device.id) }
+                        }
+                    }
+                    Button("Instant Mix", systemImage: "wand.and.stars") {
+                        Task { await state.player?.playInstantMix(from: item.id) }
                     }
                 }
-                Button("Instant Mix", systemImage: "wand.and.stars") {
-                    Task { await state.player?.playInstantMix(from: item.id) }
-                }
             }
-            Section {
-                Button(isFavorite ? "Unfavorite" : "Favorite", systemImage: isFavorite ? "heart.slash" : "heart") {
-                    toggleFavorite()
-                }
-                Button("Add to Playlist\u{2026}", systemImage: "text.badge.plus") {
-                    withTracks { tracks in
-                        playlistTracks = tracks
-                        addingToPlaylist = true
+            if !state.isOffline {
+                Section {
+                    Button(isFavorite ? "Unfavorite" : "Favorite", systemImage: isFavorite ? "heart.slash" : "heart") {
+                        toggleFavorite()
+                    }
+                    Button("Add to Playlist\u{2026}", systemImage: "text.badge.plus") {
+                        withTracks { tracks in
+                            playlistTracks = tracks
+                            addingToPlaylist = true
+                        }
                     }
                 }
             }
@@ -232,10 +242,10 @@ private struct ItemContextMenu: ViewModifier {
                     Button("Remove Download", systemImage: "trash", role: .destructive) {
                         Task { await offline.remove(item.id) }
                     }
-                } else if let client = state.client {
+                } else if !state.isOffline {
                     // "for Offline" on the Mac, beside its Download... that saves the files to a folder.
                     Button(offlineLabel, systemImage: "arrow.down.circle") {
-                        Task { await offline.download(item, client: client) }
+                        Task { await state.download(item) }
                     }
                 }
             }

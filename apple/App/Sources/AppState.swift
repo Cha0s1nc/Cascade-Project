@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import Observation
 import CascadeKit
 
@@ -308,7 +309,9 @@ final class AppState {
         // even the first request without it.
         ProxyConnection.shared.setHeaders(ProxyHeaderStore.load())
         ProxyConnection.shared.setServer(UserDefaults.standard.string(forKey: "cascade.serverUrl"))
+        offline?.onChange = { [weak self] in self?.offlineCatalogChanged() }
         restore()
+        watchNetwork()
     }
 
     /// Bring back the last session without asking for a password again.
@@ -369,6 +372,16 @@ final class AppState {
         restoreOffer = nil
         #endif
         await player?.stop()
+        probeTask?.cancel()
+        probeTask = nil
+        // A dropped server is this account's business; the switch is a setting
+        // and stays. Not through setOfflineState, which would start this
+        // account's online services on the way out.
+        if offlineState == .unreachable {
+            offlineState = .online
+            OfflineGate.shared.set(.online)
+            await offline?.setPaused(false)
+        }
         // Stops this account's downloads and hides them from whoever is next.
         offline?.setOwner(nil)
         Keychain.remove("token")
@@ -412,8 +425,12 @@ final class AppState {
 
     private func adopt(_ config: ServerConfig) {
         self.config = config
-        let client = JellyfinClient(config: config)
+        // This account's downloads; another's are never listed or resumed.
+        // First, so a client that starts in Offline Mode has them to answer from.
+        offline?.setOwner(config.userId)
+        let client = JellyfinClient(config: config, offlineCatalog: isOffline ? offline?.index ?? OfflineIndex() : nil)
         self.client = client
+        Task { await client.onFailure { [weak self] status in Task { @MainActor [weak self] in self?.checkForDrop(status) } } }
         // Rebuilt with the client so the player never holds a stale token or a
         // stale library selection.
         let player = PlaybackService(client: client, config: config)
@@ -441,16 +458,48 @@ final class AppState {
         }
         playbackPersistence?.start()
         #endif
+        waterfall?.leave()
+        waterfall = WaterfallSession(client: client, player: player)
+        remoteControl?.stop()
+        remoteControl = nil
+        hasLiveTv = false
+        setPolicy(nil)   // a previous account's rights must not outlive it
+        // Offline these come from the catalog (the engine answers /Users/{id}).
+        Task {
+            let policy = try? await client.userPolicy()
+            if self.client === client { setPolicy(policy) }
+        }
+        Task {
+            let access = (try? await client.hasLiveTvAccess()) ?? false
+            if self.client === client { hasLiveTv = access }
+        }
+        cascadePluginApi = nil
+        explicitRatings = nil
+        cascadePluginInfo = .init()
+        if isOffline {
+            // The system may have carried last session's transfers on.
+            Task { await offline?.setPaused(true) }
+        } else {
+            startOnlineServices()
+        }
+    }
+
+    /// What only works with the server: being a cast target, the plugin's
+    /// lyrics and style, sending what happened offline, and keeping the
+    /// catalog's library list, user and placements current. At sign-in, and
+    /// again each time Offline Mode turns off.
+    private func startOnlineServices() {
+        guard let client, let player, let config else { return }
         if let offline {
-            // This account's downloads; another's are never listed or resumed.
-            offline.setOwner(config.userId)
             Task {
                 await offline.resume(client: client)
                 await offline.replayPlays(client: client)
+                if let views = try? await client.views(), self.client === client { offline.setLibraries(views) }
+                if let user = try? await client.get("/Users/\(config.userId)", as: OfflineIndex.User.self),
+                   self.client === client { offline.setUser(user) }
+                await offline.placeDownloads(client: client)
             }
         }
-        waterfall?.leave()
-        waterfall = WaterfallSession(client: client, player: player)
         // Castable from other Jellyfin clients for as long as this player lives.
         remoteControl?.stop()
         remoteControl = RemoteControl(client: client, player: player)
@@ -464,19 +513,6 @@ final class AppState {
                                   guestAddsAllowed: room?.guestAddsAllowed)
         }
         remoteControl?.start()
-        hasLiveTv = false
-        setPolicy(nil)   // a previous account's rights must not outlive it
-        Task {
-            let policy = try? await client.userPolicy()
-            if self.client === client { setPolicy(policy) }
-        }
-        Task {
-            let access = (try? await client.hasLiveTvAccess()) ?? false
-            if self.client === client { hasLiveTv = access }
-        }
-        cascadePluginApi = nil
-        explicitRatings = nil
-        cascadePluginInfo = .init()
         Task {
             let (probe, api, info) = await client.probeCascadePlugin()
             // 'unknown' counts as present: a network hiccup must not hide
@@ -491,6 +527,168 @@ final class AppState {
         }
     }
 
+    // MARK: Offline Mode
+
+    private static let offlineSwitchKey = "cascade.offlineMode"
+
+    /// Online, the Settings switch (manual, kept across launches), or no
+    /// server (unreachable, probed until it answers). OfflineMode.swift has
+    /// the rules; this acts on them.
+    private(set) var offlineState: OfflineState = {
+        let state: OfflineState = UserDefaults.standard.bool(forKey: AppState.offlineSwitchKey) ? .manual : .online
+        OfflineGate.shared.set(state)
+        return state
+    }()
+    var isOffline: Bool { OfflineMode.isOffline(offlineState) }
+    @ObservationIgnored private var probeAttempt = 0
+    @ObservationIgnored private var probeTask: Task<Void, Never>?
+    @ObservationIgnored private var checkingDrop = false
+    @ObservationIgnored private var pathMonitor: NWPathMonitor?
+
+    /// The Settings switch. Stays on across launches until turned off.
+    func setOfflineSwitch(_ on: Bool) async {
+        UserDefaults.standard.set(on, forKey: Self.offlineSwitchKey)
+        await setOfflineState(OfflineMode.next(offlineState, .setSwitch(on)))
+    }
+
+    /// Moves to a state. Offline, the client answers from the downloads and
+    /// transfers stop; back online, what needs the server starts again and
+    /// every screen reloads from it.
+    private func setOfflineState(_ next: OfflineState) async {
+        let before = offlineState
+        guard next != before else { return }
+        offlineState = next
+        OfflineGate.shared.set(next)
+        if OfflineMode.isOffline(next) {
+            await offline?.setPaused(true)
+            await client?.setOfflineCatalog(offline?.index ?? OfflineIndex())
+            remoteControl?.stop()
+            remoteControl = nil
+            if waterfall?.isActive == true { waterfall?.leave(reason: "Left the Waterfall room: Offline Mode is on.") }
+        } else {
+            await client?.setOfflineCatalog(nil)
+            await offline?.setPaused(false)
+            startOnlineServices()
+        }
+        if !OfflineMode.isOffline(before) || !OfflineMode.isOffline(next) { libraryMutated() }
+        if next == .unreachable { scheduleProbe(reset: true) } else { probeTask?.cancel(); probeTask = nil }
+        #if os(macOS)
+        if OfflineMode.updateCheckDue(from: before, to: next) { UpdateService.shared.checkWhenBackOnline() }
+        #endif
+    }
+
+    /// Downloads an album or playlist, then finds each song's lyrics the way
+    /// the lyrics view would and keeps them with it, so they show offline.
+    func download(_ item: JfItem) async {
+        guard let offline, let client, !isOffline else { return }
+        await offline.download(item, client: client)
+        await keepLyrics(for: offline.tracks(of: item.id), client: client)
+    }
+
+    /// Two at a time, to keep the lyrics sources and the plugin from seeing a
+    /// burst; stops if the app goes offline partway. Songs that already have
+    /// lyrics saved (in another download) are not asked again.
+    private func keepLyrics(for tracks: [JfItem], client: JellyfinClient) async {
+        guard let offline else { return }
+        let plugin = cascadePluginApi.map { (api: $0, info: cascadePluginInfo) }
+        let serverOnly = serverOnlyLyrics
+        let userAgent = lyricsUserAgent
+        let wanted = tracks.filter { offline.index.lyrics(of: $0.id, now: Date()) == nil }
+        for start in stride(from: 0, to: wanted.count, by: 2) {
+            guard !isOffline, self.client === client else { return }
+            let pair = wanted[start..<min(start + 2, wanted.count)].map { item in
+                (item.id, LyricsWaterfall.Track(id: item.id, title: item.name ?? "",
+                                                artist: item.albumArtist ?? item.artists?.first ?? "", album: item.album ?? "",
+                                                durationSeconds: Double(item.runTimeTicks ?? 0) / Double(Lyrics.ticksPerSecond)),
+                 localSpotifyLinks[item.id])
+            }
+            await withTaskGroup(of: (String, LyricsResult?).self) { group in
+                for (id, track, spotifyId) in pair {
+                    group.addTask {
+                        (id, await LyricsWaterfall.fetch(track, client: client, plugin: plugin, serverOnly: serverOnly,
+                                                         spotifyId: spotifyId, userAgent: userAgent))
+                    }
+                }
+                for await (id, result) in group { offline.keepLyrics(result, for: id) }
+            }
+        }
+    }
+
+    /// How the lyrics sources are told who is asking (LRCLIB asks every client to).
+    var lyricsUserAgent: String {
+        #if os(macOS)
+        let platform = "Mac"
+        #else
+        let platform = "iOS"
+        #endif
+        return "Cascade/\(appVersion) (\(platform); Jellyfin music client)"
+    }
+
+    /// The catalog changed (a download finished, lyrics were saved): offline,
+    /// the client answers from the new one.
+    private func offlineCatalogChanged() {
+        guard isOffline, let client, let index = offline?.index else { return }
+        Task { await client.setOfflineCatalog(index) }
+    }
+
+    /// Retry from the banner: asks the server now rather than at the next probe.
+    func retryServer() async {
+        guard offlineState == .unreachable else { return }
+        await probeServer()
+    }
+
+    private func scheduleProbe(reset: Bool) {
+        probeTask?.cancel()
+        if reset { probeAttempt = 0 }
+        let delay = OfflineMode.probeDelay(attempt: probeAttempt)
+        probeAttempt += 1
+        probeTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            await self?.probeServer()
+        }
+    }
+
+    private func probeServer() async {
+        guard offlineState == .unreachable, let client else { return }
+        if await client.serverAnswers() {
+            await setOfflineState(OfflineMode.next(offlineState, .reachable))
+        } else if offlineState == .unreachable {
+            scheduleProbe(reset: false)
+        }
+    }
+
+    /// A request found no server. One failed request is not a drop: the ping
+    /// decides, so a blip never flips the app. A 401 is the session's
+    /// business, never Offline Mode.
+    private func checkForDrop(_ status: Int?) {
+        guard OfflineMode.failureKind(status: status) == .unreachable, offlineState == .online,
+              !checkingDrop, let client else { return }
+        checkingDrop = true
+        Task {
+            defer { checkingDrop = false }
+            if await !client.serverAnswers(), offlineState == .online, self.client === client {
+                await setOfflineState(OfflineMode.next(offlineState, .unreachable))
+            }
+        }
+    }
+
+    /// A network change: lost, it may be a drop; back, the server is asked
+    /// at once rather than at the next probe.
+    private func watchNetwork() {
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            let up = path.status == .satisfied
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if up, self.offlineState == .unreachable { await self.probeServer() }
+                if !up, self.offlineState == .online { self.checkForDrop(nil) }
+            }
+        }
+        monitor.start(queue: DispatchQueue(label: "cascade.offline.path"))
+        pathMonitor = monitor
+    }
+
     // MARK: Server style
 
     private static let serverStyleKey = "cascade.serverStyle"
@@ -498,7 +696,8 @@ final class AppState {
     /// The look an admin set in Cascade Server for everyone, layered over this
     /// person's own (MacTheme, StyleTuning). Off when the plugin has none.
     func refreshServerStyle() async {
-        guard let client else { return }
+        // Offline the plugin cannot be asked, and the style already applied stays.
+        guard let client, !isOffline else { return }
         var style = ServerStyle.off
         var data: Data?
         if cascadePluginInfo.capabilities.contains("server-style") {

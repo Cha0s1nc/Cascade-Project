@@ -118,9 +118,12 @@ public actor JellyfinClient {
     private let injectedSession: URLSession?
     private var session: URLSession { injectedSession ?? ProxyConnection.shared.session }
 
-    public init(config: ServerConfig, session: URLSession? = nil) {
+    /// `offlineCatalog` starts it in Offline Mode, so not even the first
+    /// request of a launch with the switch on reaches the server.
+    public init(config: ServerConfig, session: URLSession? = nil, offlineCatalog: OfflineIndex? = nil) {
         self.config = config
         self.injectedSession = session
+        self.offlineEngine = offlineCatalog.map { OfflineQuery.Engine($0) }
     }
 
     /// Sign-in replaces the whole config, so callers hold the client and swap
@@ -160,6 +163,17 @@ public actor JellyfinClient {
     }
 
     public func onFailure(_ handler: (@Sendable (Int?) -> Void)?) { failureHandler = handler }
+
+    /// Whether the server answers at all: its public ping, briefly. Sent
+    /// whatever the offline state, since it is how the unreachable state
+    /// ends; it carries no token and changes nothing.
+    public func serverAnswers() async -> Bool {
+        guard let url = URL(string: config.url + "/System/Ping") else { return false }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5
+        guard let (_, response) = try? await session.data(for: request) else { return false }
+        return (response as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } ?? false
+    }
 
     private func makeURL(_ path: String, _ params: [String: String?]) throws -> URL {
         guard var components = URLComponents(string: config.url + path) else {
