@@ -329,11 +329,16 @@ public final class OfflineLibrary {
 
     /// Free and total space on the disk the downloads are on.
     public func diskSpace() -> (free: Int64, total: Int64)? {
+        // tvOS has no downloads, and no "important usage" capacity either.
+        #if os(tvOS)
+        return nil
+        #else
         let keys: Set<URLResourceKey> = [.volumeAvailableCapacityForImportantUsageKey, .volumeTotalCapacityKey]
         guard let values = try? base.resourceValues(forKeys: keys),
               let free = values.volumeAvailableCapacityForImportantUsage,
               let total = values.volumeTotalCapacity else { return nil }
         return (free, Int64(total))
+        #endif
     }
 
     // MARK: - Plays made while the server was away
