@@ -315,11 +315,13 @@ public final class OfflineLibrary {
                 let ids = Array(unplaced[start..<min(start + 100, unplaced.count)])
                 guard let found: JfItemsResponse = try? await client.get("/Items", params: [
                     "ids": ids.joined(separator: ","), "parentId": library.id, "recursive": "true",
+                    "fields": "Genres,DateCreated,SortName,ProductionYear,Overview,MediaSources",
                 ]) else { continue }
                 // Signed out or switched account meanwhile: not this index.
                 guard self.owner == owner else { return }
                 let held = (found.items ?? []).map(\.id)
                 if !held.isEmpty {
+                    index.refresh(found.items ?? [])
                     index.assignLibrary(held, to: library.id)
                     save()
                 }

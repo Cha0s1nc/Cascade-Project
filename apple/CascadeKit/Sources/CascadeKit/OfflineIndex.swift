@@ -322,6 +322,24 @@ public struct OfflineIndex: Codable, Sendable, Equatable {
         for id in trackIds where tracks[id] != nil { tracks[id]?.library = libraryId }
     }
 
+    /// Fills in, from a fresh server answer, the fields version 1 never kept
+    /// (the desktop's refreshItems). Anything the answer leaves out is kept.
+    public mutating func refresh(_ items: [JfItem]) {
+        for fresh in items {
+            guard var item = tracks[fresh.id]?.item else { continue }
+            item.artistItems = fresh.artistItems ?? item.artistItems
+            item.albumArtists = fresh.albumArtists ?? item.albumArtists
+            item.genreItems = fresh.genreItems ?? item.genreItems
+            item.genres = fresh.genres ?? item.genres
+            item.userData = fresh.userData ?? item.userData
+            item.dateCreated = fresh.dateCreated ?? item.dateCreated
+            item.sortName = fresh.sortName ?? item.sortName
+            item.productionYear = fresh.productionYear ?? item.productionYear
+            item.overview = fresh.overview ?? item.overview
+            tracks[fresh.id]?.item = item
+        }
+    }
+
     // MARK: - Reading
 
     public func collection(_ id: String) -> Collection? { collections.first { $0.id == id } }

@@ -88,6 +88,23 @@ struct OfflineIndexV2Tests {
         #expect(index.library(of: Self.track1) == music.id)
     }
 
+    @Test func placingFillsInWhatVersion1NeverKept() {
+        var index = OfflineIndex.decode(Self.version1)
+        let before = index.tracks[Self.track1]!.item
+        var fresh = JfItem(id: Self.track1, type: "Audio")
+        fresh.artistItems = [JfNameId(id: "a1", name: "A")]
+        fresh.genreItems = [JfNameId(id: "g1", name: "Rock")]
+        fresh.dateCreated = "2024-01-01T00:00:00Z"
+        index.refresh([fresh, JfItem(id: "not-downloaded")])
+        let after = index.tracks[Self.track1]!.item
+        #expect(after.artistItems?.first?.id == "a1")
+        #expect(after.genreItems?.first?.name == "Rock")
+        #expect(after.dateCreated == "2024-01-01T00:00:00Z")
+        #expect(after.name == before.name)
+        #expect(after.album == before.album)
+        #expect(index.tracks["not-downloaded"] == nil)
+    }
+
     @Test func eachKindHasItsOwnPlaceholder() {
         var index = OfflineIndex()
         index.add(JfItem(id: "m1", type: "Movie"), tracks: [JfItem(id: "m1", type: "Movie")])

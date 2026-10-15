@@ -430,7 +430,8 @@ final class AppState {
         offline?.setOwner(config.userId)
         let client = JellyfinClient(config: config, offlineCatalog: isOffline ? offline?.index ?? OfflineIndex() : nil)
         self.client = client
-        Task { await client.onFailure { [weak self] status in Task { @MainActor [weak self] in self?.checkForDrop(status) } } }
+        let onFailure: @Sendable (Int?) -> Void = { [weak self] status in Task { @MainActor in self?.checkForDrop(status) } }
+        Task { await client.onFailure(onFailure) }
         // Rebuilt with the client so the player never holds a stale token or a
         // stale library selection.
         let player = PlaybackService(client: client, config: config)
@@ -660,9 +661,10 @@ final class AppState {
 
     /// A request found no server. One failed request is not a drop: the ping
     /// decides, so a blip never flips the app. A 401 is the session's
-    /// business, never Offline Mode.
+    /// business, never Offline Mode. Not on tvOS, which has no downloads: an
+    /// empty catalog there would read as an empty library, not a lost server.
     private func checkForDrop(_ status: Int?) {
-        guard OfflineMode.failureKind(status: status) == .unreachable, offlineState == .online,
+        guard offline != nil, OfflineMode.failureKind(status: status) == .unreachable, offlineState == .online,
               !checkingDrop, let client else { return }
         checkingDrop = true
         Task {
