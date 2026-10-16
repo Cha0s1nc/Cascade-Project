@@ -683,3 +683,18 @@ extension JfItem {
         self.collectionType = collectionType
     }
 }
+
+/// direct: the original file. remux: the server's MP4 with the video copied,
+/// close to network speed. reencode: the video is encoded again, which takes
+/// real time on the server.
+public enum DownloadOutcome: String, Codable, Sendable {
+    case direct, remux, reencode
+
+    public var label: String {
+        switch self {
+        case .reencode: "Converting on the server"
+        case .remux: "Downloading (repackaged by the server)"
+        case .direct: "Downloading"
+        }
+    }
+}

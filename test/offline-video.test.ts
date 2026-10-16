@@ -137,6 +137,15 @@ test('a followed series fetches episodes added after the follow, not old or watc
   assert.equal(collectionOf(index, 'show')?.follow, undefined)
 })
 
+test("Jellyfin's seven-digit dates count for the follow and remove-watched", () => {
+  const index = emptyIndex()
+  addCollection(index, series, [ep('e1', { UserData: { Played: true, LastPlayedDate: '2026-10-01T10:00:00.1234567Z' } })])
+  setFollow(index, 'show', true, t0)
+  assert.deepEqual(newEpisodes(index, 'show', [ep('e2', { DateCreated: '2026-10-15T21:54:34.1234567Z' })]).map(e => e.Id), ['e2'])
+  markReady(index, 'e1', 'media/e1.mp4', 10, new Date('2026-10-01T09:00:00Z'))
+  assert.deepEqual(watchedToRemove(index, new Date('2026-10-03T00:00:00Z')), ['e1'])
+})
+
 test('remove-watched never comes back through the follow', () => {
   const index = emptyIndex()
   const fresh = later(5000).toISOString()

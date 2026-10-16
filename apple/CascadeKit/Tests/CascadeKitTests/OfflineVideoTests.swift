@@ -194,6 +194,16 @@ struct OfflineVideoTests {
         #expect(index.library(amongAncestors: [JfItem(id: "root")]) == nil)
     }
 
+    @Test func jellyfinsSevenDigitDatesRead() {
+        #expect(OfflineIndex.parseDate("2026-10-15T21:54:34.1234567Z") == ISO8601DateFormatter().date(from: "2026-10-15T21:54:34Z"))
+        var index = OfflineIndex()
+        index.add(Self.series, tracks: [])
+        index.setFollow("show", on: true, now: ISO8601DateFormatter().date(from: "2026-10-01T00:00:00Z")!)
+        var e = Self.ep("e9")
+        e.dateCreated = "2026-10-15T21:54:34.1234567Z"
+        #expect(index.newEpisodes("show", from: [e]).map(\.id) == ["e9"])
+    }
+
     @Test func aTranscodesTaskNameCarriesItsRuntime() {
         let name = OfflineIndex.taskName(owner: "u1", itemId: "abc", transcodeRunTicks: 123)
         #expect(OfflineIndex.parseTaskName(name)?.itemId == "abc")
