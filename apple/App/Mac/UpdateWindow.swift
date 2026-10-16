@@ -92,6 +92,14 @@ final class UpdateService {
         #endif
     }
 
+    /// Offline Mode just turned off: the check a launch would run, now, so
+    /// an update missed while offline shows right away.
+    func checkWhenBackOnline() {
+        #if !DEBUG
+        Task { await check(manual: false) }
+        #endif
+    }
+
     private func get(_ url: URL, timeout: TimeInterval = 15) async throws -> Data {
         var request = URLRequest(url: url, timeoutInterval: timeout)
         request.setValue("cascade-updater", forHTTPHeaderField: "User-Agent")
@@ -179,6 +187,12 @@ final class UpdateService {
 
     func check(manual: Bool) async {
         guard status != .checking else { return }
+        // Offline Mode: nothing is asked of GitHub. The check AppState runs
+        // once the app is back online (checkWhenBackOnline) stands in for it.
+        if OfflineGate.shared.isOffline {
+            status = manual ? .failed("Updates are checked once Offline Mode is off.") : .idle
+            return
+        }
         status = .checking
         do {
             guard let (release, build) = try await newestBuild(.mac),

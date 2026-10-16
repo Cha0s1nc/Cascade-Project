@@ -386,6 +386,41 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
     // Hands every queued play over and empties the queue; the renderer puts
     // back the ones the server did not accept yet.
     ipcMain.handle('offline-plays-take', () => { const plays = index.plays; index.plays = []; saveNow(); return plays })
+
+    // ── Offline Mode ──
+    // The catalog the renderer's query engine answers from, and what the
+    // renderer learns online that the catalog keeps for later. Everything
+    // arriving here is checked by the same rules as what is read from disk.
+    ipcMain.handle('offline-catalog', () => owner ? index : null)
+    ipcMain.handle('offline-set-libraries', (_e, views) => {
+      if (!owner || !Array.isArray(views)) return
+      Offline.setLibraries(index, views)
+      scheduleSave()
+    })
+    ipcMain.handle('offline-set-user', (_e, user) => {
+      if (!owner) return
+      Offline.setUser(index, user)
+      scheduleSave()
+    })
+    ipcMain.handle('offline-place', (_e, libraryId, items) => {
+      if (!owner || typeof libraryId !== 'string' || !Array.isArray(items)) return
+      const ids = items.map(i => i?.Id).filter(Offline.isSafeId)
+      Offline.refreshItems(index, items.filter(i => Offline.isSafeId(i?.Id)))
+      Offline.assignLibrary(index, ids, libraryId)
+      scheduleSave()
+      emit({ type: 'changed' })
+    })
+    ipcMain.handle('offline-set-lyrics', (_e, trackId, lyrics) => {
+      if (!owner || !Offline.isSafeId(trackId) || !lyrics) return
+      Offline.setLyrics(index, trackId, lyrics, new Date())
+      scheduleSave()
+    })
+    ipcMain.handle('offline-disk', () => {
+      try {
+        const s = fs.statfsSync(root || app.getPath('userData'))
+        return { free: s.bavail * s.bsize, total: s.blocks * s.bsize }
+      } catch { return null }
+    })
   }
 
   function flush() { try { if (saveTimer) saveNow() } catch {} }

@@ -1,0 +1,1521 @@
+{
+ "about": "Shared cases for the offline query engine: src/core/offline-query.ts (test/offline-query.test.ts) and CascadeKit OfflineQuery.swift (OfflineQueryTests.swift) must give the same answer to each. ids is the answer's Items in order (or the array, for a bare array answer); body is a partial match. Arrays in body match element by element and must be the same length.",
+ "catalog": {
+  "version": 2,
+  "tracks": {
+   "trk1": {
+    "item": {
+     "Id": "trk1",
+     "Name": "Intro",
+     "Type": "Audio",
+     "MediaType": "Audio",
+     "Album": "First Light",
+     "AlbumId": "alb1",
+     "AlbumArtist": "The Lanterns",
+     "Artists": [
+      "The Lanterns"
+     ],
+     "ArtistItems": [
+      {
+       "Id": "art1",
+       "Name": "The Lanterns"
+      }
+     ],
+     "AlbumArtists": [
+      {
+       "Id": "art1",
+       "Name": "The Lanterns"
+      }
+     ],
+     "IndexNumber": 1,
+     "ParentIndexNumber": 1,
+     "ProductionYear": 2019,
+     "DateCreated": "2026-01-10T00:00:00Z",
+     "Genres": [
+      "Rock"
+     ],
+     "GenreItems": [
+      {
+       "Id": "gen1",
+       "Name": "Rock"
+      }
+     ],
+     "AlbumPrimaryImageTag": "tag-alb1",
+     "RunTimeTicks": 2000000000,
+     "UserData": {
+      "Played": true,
+      "PlayCount": 2,
+      "LastPlayedDate": "2026-09-30T18:00:00Z",
+      "IsFavorite": false
+     },
+     "NormalizationGain": -6.2
+    },
+    "file": "media/trk1.flac",
+    "bytes": 1000,
+    "library": "libmusic"
+   },
+   "trk2": {
+    "item": {
+     "Id": "trk2",
+     "Name": "Harbor",
+     "Type": "Audio",
+     "MediaType": "Audio",
+     "Album": "First Light",
+     "AlbumId": "alb1",
+     "AlbumArtist": "The Lanterns",
+     "Artists": [
+      "The Lanterns",
+      "Mira Vale"
+     ],
+     "ArtistItems": [
+      {
+       "Id": "art1",
+       "Name": "The Lanterns"
+      },
+      {
+       "Id": "art2",
+       "Name": "Mira Vale"
+      }
+     ],
+     "AlbumArtists": [
+      {
+       "Id": "art1",
+       "Name": "The Lanterns"
+      }
+     ],
+     "IndexNumber": 2,
+     "ParentIndexNumber": 1,
+     "ProductionYear": 2019,
+     "DateCreated": "2026-01-10T00:00:00Z",
+     "Genres": [
+      "Rock"
+     ],
+     "GenreItems": [
+      {
+       "Id": "gen1",
+       "Name": "Rock"
+      }
+     ],
+     "AlbumPrimaryImageTag": "tag-alb1",
+     "RunTimeTicks": 2000000000,
+     "UserData": {
+      "Played": false,
+      "PlayCount": 0,
+      "IsFavorite": false
+     }
+    },
+    "file": "media/trk2.flac",
+    "bytes": 1000,
+    "library": "libmusic"
+   },
+   "trk3": {
+    "item": {
+     "Id": "trk3",
+     "Name": "Tide",
+     "Type": "Audio",
+     "MediaType": "Audio",
+     "Album": "First Light",
+     "AlbumId": "alb1",
+     "AlbumArtist": "The Lanterns",
+     "Artists": [
+      "The Lanterns"
+     ],
+     "ArtistItems": [
+      {
+       "Id": "art1",
+       "Name": "The Lanterns"
+      }
+     ],
+     "AlbumArtists": [
+      {
+       "Id": "art1",
+       "Name": "The Lanterns"
+      }
+     ],
+     "IndexNumber": 3,
+     "ParentIndexNumber": 1,
+     "ProductionYear": 2019,
+     "DateCreated": "2026-01-10T00:00:00Z",
+     "Genres": [
+      "Rock"
+     ],
+     "GenreItems": [
+      {
+       "Id": "gen1",
+       "Name": "Rock"
+      }
+     ],
+     "AlbumPrimaryImageTag": "tag-alb1",
+     "RunTimeTicks": 2000000000
+    },
+    "file": null,
+    "bytes": 0,
+    "library": "libmusic"
+   },
+   "trk4": {
+    "item": {
+     "Id": "trk4",
+     "Name": "Café Blue",
+     "Type": "Audio",
+     "MediaType": "Audio",
+     "Album": "Night Bus",
+     "AlbumId": "alb2",
+     "AlbumArtist": "Mira Vale",
+     "Artists": [
+      "Mira Vale"
+     ],
+     "ArtistItems": [
+      {
+       "Id": "art2",
+       "Name": "Mira Vale"
+      }
+     ],
+     "AlbumArtists": [
+      {
+       "Id": "art2",
+       "Name": "Mira Vale"
+      }
+     ],
+     "IndexNumber": 1,
+     "ParentIndexNumber": 1,
+     "ProductionYear": 2023,
+     "DateCreated": "2026-03-01T00:00:00Z",
+     "Genres": [
+      "Jazz"
+     ],
+     "GenreItems": [
+      {
+       "Id": "gen2",
+       "Name": "Jazz"
+      }
+     ],
+     "AlbumPrimaryImageTag": "tag-alb2",
+     "RunTimeTicks": 2000000000,
+     "UserData": {
+      "Played": true,
+      "PlayCount": 5,
+      "LastPlayedDate": "2026-10-01T08:00:00Z",
+      "IsFavorite": true
+     }
+    },
+    "file": "media/trk4.flac",
+    "bytes": 1000,
+    "library": "libmusic2"
+   },
+   "trk5": {
+    "item": {
+     "Id": "trk5",
+     "Name": "Zeta",
+     "Type": "Audio",
+     "MediaType": "Audio",
+     "Album": "Night Bus",
+     "AlbumId": "alb2",
+     "AlbumArtist": "Mira Vale",
+     "Artists": [
+      "Mira Vale"
+     ],
+     "ArtistItems": [
+      {
+       "Id": "art2",
+       "Name": "Mira Vale"
+      }
+     ],
+     "AlbumArtists": [
+      {
+       "Id": "art2",
+       "Name": "Mira Vale"
+      }
+     ],
+     "IndexNumber": 2,
+     "ParentIndexNumber": 1,
+     "ProductionYear": 2023,
+     "DateCreated": "2026-03-01T00:00:00Z",
+     "Genres": [
+      "Jazz"
+     ],
+     "GenreItems": [
+      {
+       "Id": "gen2",
+       "Name": "Jazz"
+      }
+     ],
+     "AlbumPrimaryImageTag": "tag-alb2",
+     "RunTimeTicks": 2000000000,
+     "UserData": {
+      "Played": false,
+      "PlayCount": 0
+     }
+    },
+    "file": "media/trk5.flac",
+    "bytes": 1000,
+    "library": "libmusic2"
+   },
+   "trk6": {
+    "item": {
+     "Id": "trk6",
+     "Name": "Lumière",
+     "Type": "Audio",
+     "MediaType": "Audio",
+     "Album": "Singles",
+     "AlbumId": "alb3",
+     "AlbumArtist": "Échos",
+     "Artists": [
+      "Échos"
+     ],
+     "ArtistItems": [
+      {
+       "Id": "art3",
+       "Name": "Échos"
+      }
+     ],
+     "AlbumArtists": [
+      {
+       "Id": "art3",
+       "Name": "Échos"
+      }
+     ],
+     "IndexNumber": 1,
+     "ParentIndexNumber": 1,
+     "ProductionYear": 2024,
+     "DateCreated": "2026-05-05T00:00:00Z",
+     "Genres": [],
+     "GenreItems": [],
+     "AlbumPrimaryImageTag": "tag-alb3",
+     "RunTimeTicks": 2000000000
+    },
+    "file": "media/trk6.flac",
+    "bytes": 1000
+   },
+   "mov1": {
+    "item": {
+     "Id": "mov1",
+     "Name": "The Long Night",
+     "SortName": "Long Night",
+     "Type": "Movie",
+     "MediaType": "Video",
+     "ProductionYear": 2021,
+     "DateCreated": "2026-08-01T00:00:00Z",
+     "OfficialRating": "PG-13",
+     "Genres": [
+      "Drama"
+     ],
+     "GenreItems": [
+      {
+       "Id": "gen3",
+       "Name": "Drama"
+      }
+     ],
+     "RunTimeTicks": 72000000000,
+     "UserData": {
+      "Played": false,
+      "PlaybackPositionTicks": 1000,
+      "LastPlayedDate": "2026-10-05T20:00:00Z"
+     },
+     "MediaSources": [
+      {
+       "Id": "mov1",
+       "Container": "mkv",
+       "Bitrate": 8000000
+      }
+     ],
+     "MediaStreams": [
+      {
+       "Type": "Video",
+       "Index": 0,
+       "Codec": "h264"
+      },
+      {
+       "Type": "Subtitle",
+       "Index": 2,
+       "Codec": "srt",
+       "Language": "eng",
+       "IsExternal": true
+      }
+     ],
+     "Chapters": [
+      {
+       "StartPositionTicks": 0,
+       "Name": "Opening"
+      },
+      {
+       "StartPositionTicks": 6000000000,
+       "Name": "Storm"
+      }
+     ]
+    },
+    "file": "media/mov1.mp4",
+    "bytes": 5000,
+    "library": "libfilms",
+    "segments": [
+     {
+      "Type": "Intro",
+      "StartTicks": 0,
+      "EndTicks": 900000000
+     }
+    ]
+   },
+   "mov2": {
+    "item": {
+     "Id": "mov2",
+     "Name": "Abyss",
+     "Type": "Movie",
+     "MediaType": "Video",
+     "ProductionYear": 1989,
+     "DateCreated": "2025-01-01T00:00:00Z",
+     "UserData": {
+      "Played": true
+     }
+    },
+    "file": "media/mov2.mp4",
+    "bytes": 4000,
+    "library": "libfilms"
+   },
+   "epi1": {
+    "item": {
+     "Id": "epi1",
+     "Name": "Arrival",
+     "Type": "Episode",
+     "MediaType": "Video",
+     "SeriesId": "shw1",
+     "SeriesName": "Harbor Lights",
+     "SeasonId": "sea1",
+     "SeasonName": "Season 1",
+     "ParentIndexNumber": 1,
+     "IndexNumber": 1,
+     "DateCreated": "2026-06-01T00:00:00Z",
+     "UserData": {
+      "Played": true,
+      "LastPlayedDate": "2026-10-03T21:00:00Z"
+     }
+    },
+    "file": "media/epi1.mkv",
+    "bytes": 3000,
+    "library": "libtv"
+   },
+   "epi2": {
+    "item": {
+     "Id": "epi2",
+     "Name": "Undertow",
+     "Type": "Episode",
+     "MediaType": "Video",
+     "SeriesId": "shw1",
+     "SeriesName": "Harbor Lights",
+     "SeasonId": "sea1",
+     "SeasonName": "Season 1",
+     "ParentIndexNumber": 1,
+     "IndexNumber": 2,
+     "DateCreated": "2026-06-01T00:00:00Z",
+     "UserData": {
+      "Played": false
+     }
+    },
+    "file": "media/epi2.mkv",
+    "bytes": 3000,
+    "library": "libtv"
+   },
+   "epi3": {
+    "item": {
+     "Id": "epi3",
+     "Name": "Return",
+     "Type": "Episode",
+     "MediaType": "Video",
+     "SeriesId": "shw1",
+     "SeriesName": "Harbor Lights",
+     "SeasonId": "sea2",
+     "SeasonName": "Season 2",
+     "ParentIndexNumber": 2,
+     "IndexNumber": 1,
+     "DateCreated": "2026-07-01T00:00:00Z",
+     "UserData": {
+      "Played": false
+     }
+    },
+    "file": "media/epi3.mkv",
+    "bytes": 3000,
+    "library": "libtv"
+   }
+  },
+  "collections": [
+   {
+    "item": {
+     "Id": "alb1",
+     "Name": "First Light",
+     "Type": "MusicAlbum",
+     "AlbumArtist": "The Lanterns",
+     "AlbumArtists": [
+      {
+       "Id": "art1",
+       "Name": "The Lanterns"
+      }
+     ],
+     "ProductionYear": 2019,
+     "SortName": "first light",
+     "ImageTags": {
+      "Primary": "tag-alb1"
+     },
+     "ChildCount": 3
+    },
+    "trackIds": [
+     "trk1",
+     "trk2",
+     "trk3"
+    ]
+   },
+   {
+    "item": {
+     "Id": "alb2",
+     "Name": "Night Bus",
+     "Type": "MusicAlbum",
+     "AlbumArtist": "Mira Vale",
+     "AlbumArtists": [
+      {
+       "Id": "art2",
+       "Name": "Mira Vale"
+      }
+     ],
+     "ProductionYear": 2023,
+     "ImageTags": {
+      "Primary": "tag-alb2"
+     },
+     "ChildCount": 2,
+     "UserData": {
+      "IsFavorite": true
+     }
+    },
+    "trackIds": [
+     "trk4",
+     "trk5"
+    ]
+   },
+   {
+    "item": {
+     "Id": "pls1",
+     "Name": "Road Trip",
+     "Type": "Playlist",
+     "IsPublic": true,
+     "CanDelete": true
+    },
+    "trackIds": [
+     "trk5",
+     "trk6",
+     "trk1",
+     "trk3"
+    ]
+   },
+   {
+    "item": {
+     "Id": "mov1",
+     "Name": "The Long Night",
+     "Type": "Movie"
+    },
+    "trackIds": [
+     "mov1"
+    ]
+   },
+   {
+    "item": {
+     "Id": "mov2",
+     "Name": "Abyss",
+     "Type": "Movie"
+    },
+    "trackIds": [
+     "mov2"
+    ]
+   },
+   {
+    "item": {
+     "Id": "shw1",
+     "Name": "Harbor Lights",
+     "Type": "Series"
+    },
+    "trackIds": [
+     "epi1",
+     "epi2",
+     "epi3"
+    ]
+   }
+  ],
+  "containers": {
+   "shw1": {
+    "Id": "shw1",
+    "Name": "Harbor Lights",
+    "Type": "Series",
+    "ProductionYear": 2025,
+    "Genres": [
+     "Drama"
+    ],
+    "GenreItems": [
+     {
+      "Id": "gen3",
+      "Name": "Drama"
+     }
+    ]
+   },
+   "sea1": {
+    "Id": "sea1",
+    "Name": "Season 1",
+    "Type": "Season",
+    "SeriesId": "shw1",
+    "IndexNumber": 1
+   }
+  },
+  "libraries": [
+   {
+    "Id": "libmusic",
+    "Name": "Music",
+    "CollectionType": "music"
+   },
+   {
+    "Id": "libmusic2",
+    "Name": "Live Recordings",
+    "CollectionType": "music"
+   },
+   {
+    "Id": "libfilms",
+    "Name": "Films",
+    "CollectionType": "movies"
+   },
+   {
+    "Id": "libtv",
+    "Name": "TV",
+    "CollectionType": "tvshows"
+   }
+  ],
+  "user": {
+   "Id": "user1",
+   "Name": "Kai",
+   "Policy": {
+    "IsAdministrator": false,
+    "EnableContentDownloading": true
+   }
+  },
+  "history": null,
+  "plays": []
+ },
+ "cases": [
+  {
+   "name": "desktop albums grid",
+   "path": "/Items",
+   "params": {
+    "SortBy": "SortName",
+    "SortOrder": "Ascending",
+    "IncludeItemTypes": "MusicAlbum",
+    "Recursive": true,
+    "Fields": "SortName,Genres,ProductionYear,UserData",
+    "Limit": 500,
+    "StartIndex": 0
+   },
+   "ids": [
+    "alb1",
+    "alb2",
+    "alb3"
+   ],
+   "total": 3
+  },
+  {
+   "name": "apple albums grid, lowercase params",
+   "path": "/Items",
+   "params": {
+    "userId": "user1",
+    "recursive": "true",
+    "includeItemTypes": "MusicAlbum",
+    "sortBy": "SortName,AlbumArtist,Album",
+    "sortOrder": "Ascending",
+    "limit": "200",
+    "startIndex": "0"
+   },
+   "ids": [
+    "alb1",
+    "alb2",
+    "alb3"
+   ],
+   "total": 3
+  },
+  {
+   "name": "albums paged",
+   "path": "/Items",
+   "params": {
+    "IncludeItemTypes": "MusicAlbum",
+    "SortBy": "SortName",
+    "StartIndex": 1,
+    "Limit": 1
+   },
+   "ids": [
+    "alb2"
+   ],
+   "total": 3,
+   "body": {
+    "StartIndex": 1
+   }
+  },
+  {
+   "name": "album fan-out: first library",
+   "path": "/Items",
+   "params": {
+    "IncludeItemTypes": "MusicAlbum",
+    "Recursive": true,
+    "ParentId": "libmusic"
+   },
+   "ids": [
+    "alb1"
+   ]
+  },
+  {
+   "name": "album fan-out: second library",
+   "path": "/Items",
+   "params": {
+    "includeItemTypes": "MusicAlbum",
+    "parentId": "libmusic2"
+   },
+   "ids": [
+    "alb2"
+   ]
+  },
+  {
+   "name": "album fan-out: placeholder library",
+   "path": "/Items",
+   "params": {
+    "IncludeItemTypes": "MusicAlbum",
+    "ParentId": "cascade-offline-music"
+   },
+   "ids": [
+    "alb3"
+   ]
+  },
+  {
+   "name": "a derived album carries its track's fields",
+   "path": "/Items/alb3",
+   "params": {},
+   "body": {
+    "Name": "Singles",
+    "Type": "MusicAlbum",
+    "AlbumArtist": "Échos",
+    "ChildCount": 1,
+    "ImageTags": {
+     "Primary": "tag-alb3"
+    }
+   }
+  },
+  {
+   "name": "album tracks: only what is on disk, in disc and track order",
+   "path": "/Items",
+   "params": {
+    "ParentId": "alb1",
+    "SortBy": "ParentIndexNumber,IndexNumber,SortName",
+    "IncludeItemTypes": "Audio",
+    "Recursive": true
+   },
+   "ids": [
+    "trk1",
+    "trk2"
+   ]
+  },
+  {
+   "name": "apple album tracks with no type",
+   "path": "/Items",
+   "params": {
+    "userId": "user1",
+    "parentId": "alb1",
+    "sortBy": "ParentIndexNumber,IndexNumber,SortName"
+   },
+   "ids": [
+    "trk1",
+    "trk2"
+   ]
+  },
+  {
+   "name": "recently added albums",
+   "path": "/Items",
+   "params": {
+    "SortBy": "DateCreated",
+    "SortOrder": "Descending",
+    "IncludeItemTypes": "MusicAlbum",
+    "Limit": 24,
+    "Recursive": true
+   },
+   "ids": [
+    "alb3",
+    "alb2",
+    "alb1"
+   ]
+  },
+  {
+   "name": "album by year filter",
+   "path": "/Items",
+   "params": {
+    "IncludeItemTypes": "MusicAlbum",
+    "years": "2019,2020"
+   },
+   "ids": [
+    "alb1"
+   ]
+  },
+  {
+   "name": "favorite albums",
+   "path": "/Items",
+   "params": {
+    "includeItemTypes": "MusicAlbum",
+    "isFavorite": "true"
+   },
+   "ids": [
+    "alb2"
+   ]
+  },
+  {
+   "name": "recently played",
+   "path": "/Items",
+   "params": {
+    "SortBy": "DatePlayed",
+    "SortOrder": "Descending",
+    "IncludeItemTypes": "Audio",
+    "Filters": "IsPlayed",
+    "Limit": 24,
+    "Recursive": true
+   },
+   "ids": [
+    "trk4",
+    "trk1"
+   ]
+  },
+  {
+   "name": "favorites smart playlist",
+   "path": "/Items",
+   "params": {
+    "IncludeItemTypes": "Audio",
+    "Recursive": true,
+    "Filters": "IsFavorite",
+    "SortBy": "SortName",
+    "SortOrder": "Ascending"
+   },
+   "ids": [
+    "trk4"
+   ]
+  },
+  {
+   "name": "most played",
+   "path": "/Items",
+   "params": {
+    "IncludeItemTypes": "Audio",
+    "Recursive": true,
+    "SortBy": "PlayCount",
+    "SortOrder": "Descending",
+    "Limit": 200
+   },
+   "ids": [
+    "trk4",
+    "trk1",
+    "trk2",
+    "trk5",
+    "trk6"
+   ]
+  },
+  {
+   "name": "unplayed songs",
+   "path": "/Items",
+   "params": {
+    "includeItemTypes": "Audio",
+    "isPlayed": "false",
+    "sortBy": "SortName"
+   },
+   "ids": [
+    "trk2",
+    "trk6",
+    "trk5"
+   ]
+  },
+  {
+   "name": "search folds accents and case",
+   "path": "/Items",
+   "params": {
+    "SearchTerm": "CAFE",
+    "IncludeItemTypes": "Audio",
+    "Recursive": true,
+    "Limit": 10
+   },
+   "ids": [
+    "trk4"
+   ]
+  },
+  {
+   "name": "apple music search across kinds",
+   "path": "/Items",
+   "params": {
+    "userId": "user1",
+    "searchTerm": "lumi",
+    "includeItemTypes": "Audio,MusicAlbum,MusicArtist",
+    "recursive": "true",
+    "limit": "60"
+   },
+   "ids": [
+    "trk6"
+   ]
+  },
+  {
+   "name": "songs by genre id",
+   "path": "/Items",
+   "params": {
+    "GenreIds": "gen2",
+    "IncludeItemTypes": "Audio",
+    "Recursive": true,
+    "SortBy": "SortName"
+   },
+   "ids": [
+    "trk4",
+    "trk5"
+   ]
+  },
+  {
+   "name": "songs by genre name (smart playlist)",
+   "path": "/Items",
+   "params": {
+    "IncludeItemTypes": "Audio",
+    "Recursive": true,
+    "Genres": "rock"
+   },
+   "ids": [
+    "trk2",
+    "trk1"
+   ]
+  },
+  {
+   "name": "songs by artist name (smart playlist)",
+   "path": "/Items",
+   "params": {
+    "IncludeItemTypes": "Audio",
+    "Artists": "mira vale"
+   },
+   "ids": [
+    "trk4",
+    "trk2",
+    "trk5"
+   ]
+  },
+  {
+   "name": "artist songs by id include features",
+   "path": "/Items",
+   "params": {
+    "ArtistIds": "art2",
+    "IncludeItemTypes": "Audio",
+    "Recursive": true,
+    "SortBy": "Album,ParentIndexNumber,IndexNumber"
+   },
+   "ids": [
+    "trk2",
+    "trk4",
+    "trk5"
+   ]
+  },
+  {
+   "name": "artist albums, desktop ArtistIds",
+   "path": "/Items",
+   "params": {
+    "ArtistIds": "art2",
+    "IncludeItemTypes": "MusicAlbum",
+    "Recursive": true,
+    "SortBy": "ProductionYear,SortName",
+    "SortOrder": "Descending"
+   },
+   "ids": [
+    "alb2",
+    "alb1"
+   ]
+  },
+  {
+   "name": "artist albums, apple albumArtistIds",
+   "path": "/Items",
+   "params": {
+    "albumArtistIds": "art2",
+    "includeItemTypes": "MusicAlbum",
+    "recursive": "true",
+    "sortBy": "ProductionYear,SortName",
+    "sortOrder": "Descending"
+   },
+   "ids": [
+    "alb2"
+   ]
+  },
+  {
+   "name": "items by id skip what is not on disk",
+   "path": "/Items",
+   "params": {
+    "Ids": "trk1,trk3,art2"
+   },
+   "ids": [
+    "trk1",
+    "art2"
+   ]
+  },
+  {
+   "name": "ids are matched without case or dashes",
+   "path": "/Items",
+   "params": {
+    "Ids": "TRK1"
+   },
+   "ids": [
+    "trk1"
+   ]
+  },
+  {
+   "name": "playlists grid",
+   "path": "/Items",
+   "params": {
+    "SortBy": "SortName",
+    "SortOrder": "Ascending",
+    "IncludeItemTypes": "Playlist",
+    "Recursive": true
+   },
+   "ids": [
+    "pls1"
+   ]
+  },
+  {
+   "name": "playlist count is what is on disk",
+   "path": "/Items/pls1",
+   "params": {},
+   "body": {
+    "ChildCount": 3,
+    "Type": "Playlist"
+   }
+  },
+  {
+   "name": "playlist tracks in playlist order",
+   "path": "/Playlists/pls1/Items",
+   "params": {
+    "UserId": "user1",
+    "Fields": "AlbumId"
+   },
+   "ids": [
+    "trk5",
+    "trk6",
+    "trk1"
+   ],
+   "total": 3
+  },
+  {
+   "name": "playlist entries carry an entry id",
+   "path": "/Playlists/pls1/Items",
+   "params": {},
+   "body": {
+    "Items": [
+     {
+      "PlaylistItemId": "trk5"
+     },
+     {
+      "PlaylistItemId": "trk6"
+     },
+     {
+      "PlaylistItemId": "trk1"
+     }
+    ]
+   }
+  },
+  {
+   "name": "playlist via ParentId keeps its order",
+   "path": "/Items",
+   "params": {
+    "ParentId": "pls1",
+    "EnableImages": false,
+    "EnableUserData": false,
+    "Fields": ""
+   },
+   "ids": [
+    "trk5",
+    "trk6",
+    "trk1"
+   ]
+  },
+  {
+   "name": "playlist dto",
+   "path": "/Playlists/pls1",
+   "params": {},
+   "body": {
+    "OpenAccess": true,
+    "ItemIds": [
+     "trk5",
+     "trk6",
+     "trk1"
+    ]
+   }
+  },
+  {
+   "name": "jellyfin 12: playlists holding an album's songs",
+   "path": "/Items",
+   "params": {
+    "IncludeItemTypes": "Playlist",
+    "ParentId": "alb1"
+   },
+   "ids": [
+    "pls1"
+   ]
+  },
+  {
+   "name": "unknown playlist",
+   "path": "/Playlists/nope/Items",
+   "params": {},
+   "status": 404
+  },
+  {
+   "name": "artists grid",
+   "path": "/Artists",
+   "params": {
+    "UserId": "user1",
+    "SortBy": "SortName",
+    "SortOrder": "Ascending",
+    "Limit": 500
+   },
+   "ids": [
+    "art2",
+    "art1",
+    "art3"
+   ],
+   "total": 3
+  },
+  {
+   "name": "album artists",
+   "path": "/Artists/AlbumArtists",
+   "params": {
+    "userId": "user1",
+    "sortBy": "SortName",
+    "sortOrder": "Ascending"
+   },
+   "ids": [
+    "art2",
+    "art1",
+    "art3"
+   ]
+  },
+  {
+   "name": "artists in one library",
+   "path": "/Artists",
+   "params": {
+    "ParentId": "libmusic"
+   },
+   "ids": [
+    "art2",
+    "art1"
+   ]
+  },
+  {
+   "name": "album artists in one library leave out features",
+   "path": "/Artists/AlbumArtists",
+   "params": {
+    "parentId": "libmusic"
+   },
+   "ids": [
+    "art1"
+   ]
+  },
+  {
+   "name": "artist search folds accents",
+   "path": "/Artists",
+   "params": {
+    "SearchTerm": "echos",
+    "UserId": "user1",
+    "Limit": 8
+   },
+   "ids": [
+    "art3"
+   ]
+  },
+  {
+   "name": "persons as album artists",
+   "path": "/Persons",
+   "params": {
+    "personTypes": "AlbumArtist",
+    "parentId": "libmusic2"
+   },
+   "ids": [
+    "art2"
+   ]
+  },
+  {
+   "name": "persons of another kind",
+   "path": "/Persons",
+   "params": {
+    "personTypes": "Actor"
+   },
+   "ids": []
+  },
+  {
+   "name": "favorite artists: none known offline",
+   "path": "/Artists/AlbumArtists",
+   "params": {
+    "isFavorite": "true"
+   },
+   "ids": []
+  },
+  {
+   "name": "artist item",
+   "path": "/Items/art2",
+   "params": {},
+   "body": {
+    "Name": "Mira Vale",
+    "Type": "MusicArtist"
+   }
+  },
+  {
+   "name": "music genres",
+   "path": "/MusicGenres",
+   "params": {
+    "UserId": "user1"
+   },
+   "ids": [
+    "gen2",
+    "gen1"
+   ]
+  },
+  {
+   "name": "music genres in one library",
+   "path": "/MusicGenres",
+   "params": {
+    "ParentId": "libmusic2"
+   },
+   "ids": [
+    "gen2"
+   ]
+  },
+  {
+   "name": "video genres",
+   "path": "/Genres",
+   "params": {
+    "includeItemTypes": "Movie",
+    "parentId": "libfilms",
+    "sortBy": "SortName"
+   },
+   "ids": [
+    "gen3"
+   ]
+  },
+  {
+   "name": "genre item",
+   "path": "/Items/gen1",
+   "params": {},
+   "body": {
+    "Name": "Rock",
+    "Type": "MusicGenre"
+   }
+  },
+  {
+   "name": "genre albums",
+   "path": "/Items",
+   "params": {
+    "GenreIds": "gen1",
+    "IncludeItemTypes": "MusicAlbum",
+    "Recursive": true,
+    "SortBy": "SortName"
+   },
+   "ids": [
+    "alb1"
+   ]
+  },
+  {
+   "name": "one track with its gain",
+   "path": "/Items/trk1",
+   "params": {
+    "userId": "user1"
+   },
+   "body": {
+    "Name": "Intro",
+    "NormalizationGain": -6.2,
+    "UserData": {
+     "PlayCount": 2
+    }
+   }
+  },
+  {
+   "name": "a track not on disk is not found",
+   "path": "/Items/trk3",
+   "params": {},
+   "status": 404
+  },
+  {
+   "name": "unknown id",
+   "path": "/Items/nothere",
+   "params": {},
+   "status": 404
+  },
+  {
+   "name": "library item",
+   "path": "/Items/libfilms",
+   "params": {},
+   "body": {
+    "Name": "Films",
+    "CollectionType": "movies",
+    "Type": "CollectionFolder"
+   }
+  },
+  {
+   "name": "libraries in use, placeholder last",
+   "path": "/UserViews",
+   "params": {
+    "userId": "user1"
+   },
+   "ids": [
+    "libmusic",
+    "libmusic2",
+    "libfilms",
+    "libtv",
+    "cascade-offline-music"
+   ]
+  },
+  {
+   "name": "the stored user",
+   "path": "/Users/user1",
+   "params": {},
+   "body": {
+    "Name": "Kai",
+    "Policy": {
+     "EnableContentDownloading": true
+    }
+   }
+  },
+  {
+   "name": "another user",
+   "path": "/Users/someone",
+   "params": {},
+   "status": 404
+  },
+  {
+   "name": "movies grid",
+   "path": "/Items",
+   "params": {
+    "SortBy": "SortName",
+    "SortOrder": "Ascending",
+    "IncludeItemTypes": "Movie",
+    "Recursive": true,
+    "Fields": "UserData,ProductionYear,Genres",
+    "Limit": 500,
+    "ParentId": "libfilms"
+   },
+   "ids": [
+    "mov2",
+    "mov1"
+   ]
+  },
+  {
+   "name": "shows grid",
+   "path": "/Items",
+   "params": {
+    "includeItemTypes": "Series",
+    "recursive": "true",
+    "parentId": "libtv",
+    "sortBy": "SortName"
+   },
+   "ids": [
+    "shw1"
+   ]
+  },
+  {
+   "name": "movie page keeps streams and chapters",
+   "path": "/Items/mov1",
+   "params": {},
+   "body": {
+    "OfficialRating": "PG-13",
+    "MediaSources": [
+     {
+      "Id": "mov1"
+     }
+    ],
+    "MediaStreams": [
+     {
+      "Type": "Video"
+     },
+     {
+      "Type": "Subtitle",
+      "Index": 2
+     }
+    ],
+    "Chapters": [
+     {
+      "Name": "Opening"
+     },
+     {
+      "Name": "Storm"
+     }
+    ]
+   }
+  },
+  {
+   "name": "continue watching",
+   "path": "/Items",
+   "params": {
+    "SortBy": "DatePlayed",
+    "SortOrder": "Descending",
+    "IncludeItemTypes": "Movie,Episode",
+    "Filters": "IsResumable",
+    "Recursive": true,
+    "Limit": 24,
+    "ParentId": "libfilms"
+   },
+   "ids": [
+    "mov1"
+   ]
+  },
+  {
+   "name": "seasons, one made from its episodes",
+   "path": "/Shows/shw1/Seasons",
+   "params": {
+    "UserId": "user1",
+    "Fields": "UserData"
+   },
+   "ids": [
+    "sea1",
+    "sea2"
+   ]
+  },
+  {
+   "name": "a made season carries the episode's fields",
+   "path": "/Items/sea2",
+   "params": {},
+   "body": {
+    "Name": "Season 2",
+    "Type": "Season",
+    "SeriesId": "shw1",
+    "IndexNumber": 2
+   }
+  },
+  {
+   "name": "a season's episodes",
+   "path": "/Shows/shw1/Episodes",
+   "params": {
+    "SeasonId": "sea1",
+    "UserId": "user1"
+   },
+   "ids": [
+    "epi1",
+    "epi2"
+   ]
+  },
+  {
+   "name": "every episode",
+   "path": "/Shows/shw1/Episodes",
+   "params": {
+    "userId": "user1"
+   },
+   "ids": [
+    "epi1",
+    "epi2",
+    "epi3"
+   ]
+  },
+  {
+   "name": "next up",
+   "path": "/Shows/NextUp",
+   "params": {
+    "UserId": "user1",
+    "Limit": 24,
+    "EnableResumable": false
+   },
+   "ids": [
+    "epi2"
+   ]
+  },
+  {
+   "name": "next up in a library with no shows",
+   "path": "/Shows/NextUp",
+   "params": {
+    "parentId": "libfilms"
+   },
+   "ids": []
+  },
+  {
+   "name": "latest movies, a bare array",
+   "path": "/Items/Latest",
+   "params": {
+    "userId": "user1",
+    "includeItemTypes": "Movie",
+    "parentId": "libfilms",
+    "limit": "20",
+    "groupItems": "false"
+   },
+   "ids": [
+    "mov1",
+    "mov2"
+   ]
+  },
+  {
+   "name": "latest episodes",
+   "path": "/Items/Latest",
+   "params": {
+    "includeItemTypes": "Episode",
+    "parentId": "libtv",
+    "limit": "2"
+   },
+   "ids": [
+    "epi3",
+    "epi1"
+   ]
+  },
+  {
+   "name": "decade and rating filters",
+   "path": "/Items/Filters",
+   "params": {
+    "userId": "user1",
+    "parentId": "libfilms",
+    "includeItemTypes": "Movie",
+    "recursive": "true"
+   },
+   "body": {
+    "Years": [
+     1989,
+     2021
+    ],
+    "OfficialRatings": [
+     "PG-13"
+    ],
+    "Genres": [
+     "Drama"
+    ]
+   }
+  },
+  {
+   "name": "intro skip",
+   "path": "/MediaSegments/mov1",
+   "params": {},
+   "body": {
+    "Items": [
+     {
+      "Type": "Intro",
+      "StartTicks": 0,
+      "EndTicks": 900000000
+     }
+    ],
+    "TotalRecordCount": 1
+   }
+  },
+  {
+   "name": "no segments",
+   "path": "/MediaSegments/trk1",
+   "params": {},
+   "body": {
+    "Items": [],
+    "TotalRecordCount": 0
+   }
+  },
+  {
+   "name": "instant mix is not answered",
+   "path": "/Items/trk1/InstantMix",
+   "params": {
+    "UserId": "user1"
+   },
+   "unknownRoute": true,
+   "ids": []
+  },
+  {
+   "name": "sessions are not answered",
+   "path": "/Sessions",
+   "params": {
+    "controllableByUserId": "user1"
+   },
+   "unknownRoute": true,
+   "ids": []
+  },
+  {
+   "name": "similar artists are not answered",
+   "path": "/Artists/art1/Similar",
+   "params": {},
+   "unknownRoute": true,
+   "ids": []
+  }
+ ]
+}

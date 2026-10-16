@@ -138,12 +138,29 @@ test('parseIndex drops tracks no collection holds, bad plays and mismatched ids'
   assert.deepEqual(back.plays, [{ itemId: '1', userId: 'u-1', date: '2026-02-03T04:05:06.000Z' }])
 })
 
-test('slimItem keeps what a row needs and nothing heavy', () => {
+test('slimItem keeps what the screens read, checked for type, and nothing heavy', () => {
   const slim = slimItem({
+    Id: '1', Name: 'Song', Type: 'Audio', Album: 'A', AlbumId: 'x', Artists: ['Me', 7], RunTimeTicks: 5,
+    ImageTags: { Primary: 'tag', Backdrop: 'b' }, UserData: { PlayCount: 4, Played: true, Key: 'k' },
+    MediaStreams: [{ Type: 'Audio' }], Path: '/music/a.flac', ProductionYear: 'nineteen',
+    ArtistItems: [{ Id: 'r1', Name: 'Me' }, { Name: 'no id' }], GenreItems: [{ Id: 'g1', Name: 'Rock' }],
+    MediaSources: [{ Id: 's1', Bitrate: 900, Path: '/x', MediaStreams: [] }, { Id: 's2' }],
+  } as unknown as JfItem)
+  assert.deepEqual(slim, {
     Id: '1', Name: 'Song', Type: 'Audio', Album: 'A', AlbumId: 'x', Artists: ['Me'], RunTimeTicks: 5,
-    ImageTags: { Primary: 'tag' }, UserData: { PlayCount: 4 }, MediaStreams: [{ Type: 'Audio' }],
-  } as JfItem)
-  assert.deepEqual(slim, { Id: '1', Name: 'Song', Type: 'Audio', Album: 'A', AlbumId: 'x', Artists: ['Me'], RunTimeTicks: 5, ImageTags: { Primary: 'tag' } })
+    ImageTags: { Primary: 'tag' }, UserData: { PlayCount: 4, Played: true },
+    ArtistItems: [{ Id: 'r1', Name: 'Me' }], GenreItems: [{ Id: 'g1', Name: 'Rock' }],
+    MediaSources: [{ Id: 's1', Bitrate: 900 }],
+  }, 'an audio track keeps no streams; a wrong type is dropped, not stored')
+})
+
+test('slimItem keeps a video\'s streams and chapters', () => {
+  const slim = slimItem({
+    Id: 'm', Type: 'Movie', MediaStreams: [{ Type: 'Subtitle', Index: 3, Codec: 'srt', IsExternal: true, Path: '/s.srt' }],
+    Chapters: [{ StartPositionTicks: 0, Name: 'Start', ImageTag: 'x' }, { Name: 'no start' }],
+  } as unknown as JfItem)
+  assert.deepEqual(slim.MediaStreams, [{ Type: 'Subtitle', Codec: 'srt', Index: 3, IsExternal: true }])
+  assert.deepEqual(slim.Chapters, [{ StartPositionTicks: 0, Name: 'Start' }])
 })
 
 test('the extension comes from the file name, then the MIME type', () => {

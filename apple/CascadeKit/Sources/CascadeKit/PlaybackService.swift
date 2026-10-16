@@ -593,6 +593,17 @@ public final class PlaybackService {
         isTranscoding = false
 
         let startTicks = override ?? resumeTicks(for: item)
+        // Offline, only a downloaded song can play: a stream would be a
+        // request to the server. Screens list only downloads then; this is a
+        // queue from before the switch.
+        if offline?.localFile(item.id) == nil, await client.isOffline {
+            guard token == loadToken else { return }
+            player.pause()
+            isLoading = false
+            isPaused = true
+            error = "This song is not downloaded, so it cannot play offline."
+            return
+        }
         let stream = await stream(for: item, startTicks: startTicks)
         // A later play() or stop() won the race; its result is the real one.
         guard token == loadToken else { return }
@@ -1001,6 +1012,9 @@ public final class PlaybackService {
     }
 
     private func fetchPreload(_ index: Int, _ next: JfItem, _ token: Int) async {
+        // Offline, a song that is not downloaded is not preloaded; load()
+        // says why when it is reached.
+        if offline?.localFile(next.id) == nil, await client.isOffline { return }
         let stream = await stream(for: next)
         guard token == preloadToken else { return abandon(stream) }
         // Warms the gain cache, so the handover applies it without a wait.

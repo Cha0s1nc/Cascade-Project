@@ -6,15 +6,17 @@
 
 export type BrowseMode = 'music' | 'video'
 
-/** Which view names belong to each mode. Home and Settings are in neither -
- *  they show in both modes, so they are simply absent from both lists. */
+/** Which view names belong to each mode. Home, Downloads and Settings are in
+ *  neither - they show in both modes, so they are simply absent from both
+ *  lists. Downloads holds music and video alike (docs/offline-mode-plan.md,
+ *  section 7). */
 export const MODE_VIEWS: Record<BrowseMode, string[]> = {
-  music: ['albums', 'artists', 'songs', 'playlists', 'genres', 'history', 'downloads', 'radio'],
+  music: ['albums', 'artists', 'songs', 'playlists', 'genres', 'history', 'radio'],
   video: ['movies', 'shows'],
 }
 
 /** The mode a given view/nav name belongs to, or null if it is shown in
- *  both (home, settings). Used to auto-switch mode when something (a search
+ *  both (home, downloads, settings). Used to auto-switch mode when something (a search
  *  result, a now-playing "view album", a remote command) navigates into a
  *  view the current mode is hiding, so a deep link never lands on a view
  *  that silently does nothing. */

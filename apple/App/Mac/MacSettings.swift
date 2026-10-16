@@ -153,29 +153,34 @@ private struct LibraryTab: View {
 
     var body: some View {
         Form {
-            LibrarySettingsSection()
-            // The desktop's two rows, kept apart so which is which is never in doubt: Scan
-            // asks the server (admins only), Refresh only reloads what Cascade shows.
-            Section {
-                LabeledContent {
-                    Button("Scan Server") { scan() }.disabled(!state.isAdmin)
-                } label: {
-                    Text("Scan library on server")
-                    Text(scanStatus ?? (state.isAdmin
-                        ? "Looks for files added or removed outside Jellyfin. Runs in the background; results show up once it finishes."
-                        : "Needs a Jellyfin admin account."))
-                }
-                LabeledContent {
-                    Button(refreshed ? "Refreshed" : "Refresh Now") {
-                        state.libraryMutated()
-                        refreshed = true
+            OfflineModeSection()
+            // Offline the libraries listed are the downloads', and a change
+            // would overwrite the saved choice; a scan needs the server.
+            if !state.isOffline {
+                LibrarySettingsSection()
+                // The desktop's two rows, kept apart so which is which is never in doubt: Scan
+                // asks the server (admins only), Refresh only reloads what Cascade shows.
+                Section {
+                    LabeledContent {
+                        Button("Scan Server") { scan() }.disabled(!state.isAdmin)
+                    } label: {
+                        Text("Scan library on server")
+                        Text(scanStatus ?? (state.isAdmin
+                            ? "Looks for files added or removed outside Jellyfin. Runs in the background; results show up once it finishes."
+                            : "Needs a Jellyfin admin account."))
                     }
-                } label: {
-                    Text("Refresh app")
-                    Text("Reloads songs, albums, artists, playlists, movies, shows and Home from what the server has now.")
+                    LabeledContent {
+                        Button(refreshed ? "Refreshed" : "Refresh Now") {
+                            state.libraryMutated()
+                            refreshed = true
+                        }
+                    } label: {
+                        Text("Refresh app")
+                        Text("Reloads songs, albums, artists, playlists, movies, shows and Home from what the server has now.")
+                    }
+                } header: {
+                    Text("Maintenance")
                 }
-            } header: {
-                Text("Maintenance")
             }
         }
         .formStyle(.grouped)

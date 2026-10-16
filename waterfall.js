@@ -337,7 +337,7 @@ async function wfHandleEnqueue(from, p) {
 
   let items = []
   try {
-    const res = await jfGet(`/Users/${jf.userId}/Items`, { Ids: ids.join(','), Fields: WF_ITEM_FIELDS })
+    const res = await jfGet(`/Items`, { Ids: ids.join(','), Fields: WF_ITEM_FIELDS })
     items = res.Items || []
   } catch {}
 
@@ -660,7 +660,7 @@ async function wfCreate() {
   // Re-read in case Settings changed since load.
   await wfLoadPermissions()
 
-  const res = await fetch(`${await wfRelayBase()}/create`, { method: 'POST' })
+  const res = await webFetch(`${await wfRelayBase()}/create`, { method: 'POST' })
   if (!res.ok) throw new Error('Could not create a room.')
   const { code } = await res.json()
   await wfOpenSocket(code, true)

@@ -196,10 +196,10 @@ test('activeLyricRange: only lines still sung when the current one began, not a 
 test('tightScrollTarget: a close next line pulls the scroll early, an overlap or a wide gap does not', () => {
   const s = (sec: number) => sec * 10_000_000
   const lines = [
-    { Text: 'a', Start: s(0), End: s(2) },
-    { Text: 'b', Start: s(2.3), End: s(4) },   // 0.3s after a: tight
-    { Text: 'c', Start: s(5), End: s(7) },     // 1s after b: not
-    { Text: 'd', Start: s(6.5), End: s(8) },   // overlaps c: the duet case
+    { Text: 'a', Start: s(0), End: s(2), Words: null },
+    { Text: 'b', Start: s(2.3), End: s(4), Words: null },   // 0.3s after a: tight
+    { Text: 'c', Start: s(5), End: s(7), Words: null },     // 1s after b: not
+    { Text: 'd', Start: s(6.5), End: s(8), Words: null },   // overlaps c: the duet case
   ]
   const lead = s(0.4)
   assert.equal(tightScrollTarget(lines, 0, s(1.95), lead), 1)
@@ -207,5 +207,5 @@ test('tightScrollTarget: a close next line pulls the scroll early, an overlap or
   assert.equal(tightScrollTarget(lines, 1, s(4.8), lead), null, 'gap too wide')
   assert.equal(tightScrollTarget(lines, 2, s(6.4), lead), null, 'overlap')
   assert.equal(tightScrollTarget(lines, 0, s(1.95), 0), null, 'knob off')
-  assert.equal(tightScrollTarget([{ Text: 'a', Start: 0 }, { Text: 'b', Start: s(1) }], 0, s(0.9), lead), null, 'no end known')
+  assert.equal(tightScrollTarget([{ Text: 'a', Start: 0, End: null, Words: null }, { Text: 'b', Start: s(1), End: null, Words: null }], 0, s(0.9), lead), null, 'no end known')
 })

@@ -21,7 +21,7 @@ struct MacItemMenuExtras: View {
 
     var body: some View {
         if let kind {
-            let visible = menuItems(for: kind)
+            let visible = menuItems(for: kind, offline: state.isOffline)
             Section {
                 if visible.download { Button("Download\u{2026}", systemImage: "arrow.down.circle") { downloadAlbum() } }
                 if visible.refreshMeta {
@@ -39,7 +39,7 @@ struct MacItemMenuExtras: View {
                     }
                     .disabled(!state.isAdmin)
                 }
-                if item.type == "Playlist" {
+                if item.type == "Playlist", visible.rename {
                     Button("Rename\u{2026}", systemImage: "pencil") { renamePlaylist() }
                 }
                 if visible.deleteItem {

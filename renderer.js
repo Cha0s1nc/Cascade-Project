@@ -19,8 +19,11 @@ let _restoredResume = null   // { sec } while a restored queue's track waits for
 // Offline downloads (see the section of that name). Declared up here because
 // artUrl() and resolveTrackStream() read it from the very first render.
 let _offline = { ready: {}, art: new Set(), collections: [], totalBytes: 0, active: [], failed: {}, plays: 0 }
-/** The server could not be reached at launch: only downloads and playback work. */
-let _offlineMode = false
+/** Offline Mode: 'online', 'manual' (the Settings switch) or 'unreachable'
+ *  (turned on by itself). See the section "Offline Mode" and
+ *  src/core/offline-mode.ts. */
+/** @type {'online' | 'manual' | 'unreachable'} */
+let _offlineState = 'online'
 /** Live bytes per track being downloaded, from the main process's progress events. */
 const _offlineProgress = new Map()
 
@@ -252,7 +255,8 @@ function greeting() {
 
 // A downloaded album's cover comes from disk (cascade-offline://), so it still
 // shows with no server and loads without a round trip with one.
-const artUrl       = (itemId, tag) => (_offline.art.has(itemId) ? `cascade-offline://local/art/${itemId}.jpg` : null) || jfClient.artUrl(itemId, tag)
+// Offline, art not on disk is a placeholder rather than a request.
+const artUrl       = (itemId, tag) => (_offline.art.has(itemId) ? `cascade-offline://local/art/${itemId}.jpg` : null) || (jfClient.offline ? null : jfClient.artUrl(itemId, tag))
 const artistArtUrl = (itemId)      => jfClient.artistArtUrl(itemId)
 
 // ── Skeleton loaders ──────────────────────────────────────────────────────────
@@ -341,7 +345,7 @@ async function fetchItunesDiscography(artist) {
   }
   const inFlight = (async () => {
     try {
-      const a = await fetch(
+      const a = await webFetch(
         `https://itunes.apple.com/search?term=${encodeURIComponent(artist)}&entity=musicArtist&limit=1`,
         { signal: AbortSignal.timeout(7000) }
       )
@@ -351,7 +355,7 @@ async function fetchItunesDiscography(artist) {
       // pickItunesArt to match titles against, which is exactly how you get a
       // confident wrong cover.
       if (!hit?.artistId || !CascadeCore.itunesArtistMatches(hit.artistName || '', artist)) return []
-      const r = await fetch(
+      const r = await webFetch(
         `https://itunes.apple.com/lookup?id=${hit.artistId}&entity=album&limit=200`,
         { signal: AbortSignal.timeout(7000) }
       )
@@ -392,7 +396,7 @@ async function fetchItunesArt(artist, album) {
   const inFlight = (async () => {
     try {
       const term = encodeURIComponent(`${artist} ${album}`.trim())
-      const r = await fetch(
+      const r = await webFetch(
         `https://itunes.apple.com/search?term=${term}&entity=album&limit=15&media=music`,
         { signal: AbortSignal.timeout(7000) }
       )
@@ -473,7 +477,7 @@ async function pluginCoverVideoUrl(albumId, stillWanted = () => true) {
   for (let attempt = 0; attempt < 6; attempt++) {
     if (attempt) { await new Promise(r => setTimeout(r, 3000)); if (!stillWanted()) return null }
     try {
-      const r = await fetch(`${jf.url}/CascadeServer/AnimatedArt/${encodeURIComponent(albumId)}`, {
+      const r = await jfFetch(`${jf.url}/CascadeServer/AnimatedArt/${encodeURIComponent(albumId)}`, {
         headers: CascadeCore.authHeaders(jf), signal: AbortSignal.timeout(8000),
       })
       const info = r.ok ? await r.json() : null
@@ -505,7 +509,7 @@ async function animatedArtUrl(artItemId) {
   const inFlight = (async () => {
     try {
       const url = jfClient.originalArtUrl(artItemId)
-      const r = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(5000) })
+      const r = await jfFetch(url, { method: 'HEAD', signal: AbortSignal.timeout(5000) })
       // ponytail: HEAD only. If some Jellyfin build ever refuses it, this reads
       // as "not animated" and the still is used - which is today's behaviour,
       // so the failure mode is exactly the status quo. Swap in a ranged GET if
@@ -760,8 +764,29 @@ function showToast(msg, duration = 2200) {
 // endpoints and /System/Info alike, so the client's JfItemsResponse default is
 // wrong for most of them. src/ code calls jfClient.get directly and does get
 // the strict types.
+//
+// Library reads use /Items, /Items/{id} and /UserViews, never the
+// /Users/{userId}/Items, /Users/{userId}/Items/{id} and /Users/{userId}/Views
+// forms: those are marked Obsolete in Jellyfin 12 (checked in the v12.0 source)
+// and 12.0 already deleted other routes it had marked that way. No userId is
+// sent: both 10.11 and 12 fall back to the signed-in user (RequestHelpers.GetUserId).
 /** @type {(path: string, params?: Record<string, any>) => Promise<any>} */
 const jfGet  = (path, params = {}) => jfClient.get(path, params)
+
+// Every request outside jfClient goes through one of these two, so Offline
+// Mode refuses it before anything is sent (docs/offline-mode-plan.md, section
+// 2): jfFetch for the Jellyfin server (writes, the Cascade plugin, lyrics),
+// webFetch for other services (iTunes, MusicBrainz, LRCLIB). Main also blocks
+// the server's origin while the switch is on; this is what keeps the
+// unreachable state quiet too, and what callers catch. test/offline-guard
+// fails on a new raw fetch( in this file.
+/** @type {(input: string, init?: RequestInit) => Promise<Response>} */
+const jfFetch = (input, init) => jfClient.offline
+  ? Promise.reject(new CascadeCore.OfflineError())
+  // offline-ok: the guard itself.
+  : fetch(input, init)
+/** @type {(input: string, init?: RequestInit) => Promise<Response>} */
+const webFetch = jfFetch
 
 // Items by id, in chunks: past roughly 240 ids the URL outgrows the server's
 // request line limit and Jellyfin answers 414, failing the whole lookup. A
@@ -771,7 +796,7 @@ async function jfItemsByIds(ids, fields) {
   const chunks = []
   for (let i = 0; i < ids.length; i += 100) chunks.push(ids.slice(i, i + 100))
   const pages = await Promise.all(chunks.map(c =>
-    jfGet(`/Users/${jf.userId}/Items`, { Ids: c.join(','), Fields: fields }).catch(() => null)))
+    jfGet(`/Items`, { Ids: c.join(','), Fields: fields }).catch(() => null)))
   return pages.flatMap(p => p?.Items || [])
 }
 const jfAuth = (serverUrl, username, password) =>
@@ -814,13 +839,18 @@ async function connect(serverUrl, token, userId) {
   // unhandled rejection while nothing is awaiting it yet. A null result means
   // populateLibraryPicker just fetches normally, so the slow path is exactly
   // what it was before.
-  const viewsPromise = jfGet(`/Users/${userId}/Views`).catch(() => null)
+  const viewsPromise = jfGet(`/UserViews`).catch(() => null)
+
+  // Offline (Offline Mode set jfClient's source before calling this), every
+  // read below answers from the downloads, so the same steps draw the app
+  // from them. What needs the server itself is skipped further down.
+  const offline = jfClient.offline
 
   // Verify the token is still valid with a lightweight ping, retry up to 3x
-  let verified = false
-  let userInfo = null
+  let verified = offline
+  let userInfo = offline ? await jfGet(`/Users/${userId}`).catch(() => null) : null
   let lastError = null
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  for (let attempt = 1; attempt <= 3 && !verified; attempt++) {
     showLoading(attempt === 1 ? 'Connecting…' : `Retrying… (${attempt}/3)`)
     try {
       userInfo = await jfGet(`/Users/${userId}`)
@@ -865,24 +895,35 @@ async function connect(serverUrl, token, userId) {
   applyRadioNavVisibility()
   _applyAdminGating()
 
-  startRemoteControl()
-  probeCascadePlugin()  // not awaited - cheap, and nothing here depends on the result yet
+  if (!offline) {
+    startRemoteControl()
+    probeCascadePlugin()  // not awaited - cheap, and nothing here depends on the result yet
+  }
   // This account's downloads (another's are never shown or resumed). Back
   // online: carry on with downloads that were waiting, and tell the server
   // about plays made while it was out of reach.
   await window.cascade.offline.setOwner(jf.userId)
   await refreshOffline()
-  window.cascade.offline.resume(offlineSession()).catch(() => {})
-  replayOfflinePlays()
+  if (!offline) {
+    window.cascade.offline.resume(offlineSession()).catch(() => {})
+    replayOfflinePlays()
+    // What Offline Mode needs to know later: who this is, which libraries
+    // there are, and which library each download is in.
+    window.cascade.offline.setUser(userInfo).catch(() => {})
+    viewsPromise.then(v => v && window.cascade.offline.setLibraries(v.Items || []))
+      .then(() => placeOfflineDownloads()).catch(() => {})
+  }
   await populateLibraryPicker(viewsPromise)
   invalidateLibraryViews()
+  invalidateVideoViews()
   await loadHome()
   await restoreLastQueue()
+  _connectedOnline = !offline
   // Both sit over a populated app rather than a blank one, hence after loadHome.
   // The wizard runs itself off its stored revision, so an ordinary launch on the
   // current revision shows nothing - and when it does run it has already marked
   // the video intro seen, since its library step covers the same ground.
-  if (!await maybeShowSetupWizard()) await maybeShowVideoIntro()
+  if (!offline && !await maybeShowSetupWizard()) await maybeShowVideoIntro()
 }
 
 // ── Remote control (cast target) ─────────────────────────────────────────────
@@ -1331,7 +1372,7 @@ document.getElementById('s-refresh-server').addEventListener('click', async () =
   // server call that would just 403 anyway.
   if (!jf.isAdmin) return
   try {
-    const res = await fetch(`${jf.url}/Library/Refresh`, { method: 'POST', headers: CascadeCore.authHeaders(jf) })
+    const res = await jfFetch(`${jf.url}/Library/Refresh`, { method: 'POST', headers: CascadeCore.authHeaders(jf) })
     if (!res.ok) throw new Error(String(res.status))
     // Async on the server - it scans in the background and this response says
     // nothing about when it finishes, so there is nothing to await here.
@@ -1366,19 +1407,28 @@ let radioEnabled = false       // user has confirmed their Live TV channels are 
  *  server and takes Movies and TV down with it. */
 async function populateLibraryPicker(prefetched = null) {
   try {
-    const data = (prefetched && await prefetched) || await jfGet(`/Users/${jf.userId}/Views`)
+    const data = (prefetched && await prefetched) || await jfGet(`/UserViews`)
     _musicLibs = (data.Items || []).filter(i =>
       i.CollectionType === 'music' || i.CollectionType === 'musicvideos'
     )
     _movieLibs = (data.Items || []).filter(i => i.CollectionType === 'movies')
     _showLibs  = (data.Items || []).filter(i => i.CollectionType === 'tvshows')
-    await migrateVideoLibraryIds()
+    // Offline, the views are only the libraries holding downloads. The saved
+    // choice is used as it is and nothing is written: trimming it to what is
+    // downloaded and saving that would quietly lose the person's selection.
+    const offline = jfClient.offline
+    if (!offline) await migrateVideoLibraryIds()
     await loadVideoLibrarySelection()
     await loadCollapsedLibs()
     const savedRaw = await window.cascade.store.get('libraryIds')
     let savedIds = []
     try { savedIds = savedRaw ? JSON.parse(savedRaw) : [] } catch {}
     singleLibraryMode = (await window.cascade.store.get('singleLibraryMode')) === true
+    if (offline) {
+      jf.libraryIds = savedIds.length ? savedIds : _musicLibs.map(l => l.Id)
+      renderLibraryPicker()
+      return
+    }
 
     // First connect selects everything; single mode only ever holds one
     if (!savedIds.length && _musicLibs.length) savedIds = _musicLibs.map(l => l.Id)
@@ -2177,7 +2227,7 @@ async function loadHome() {
 async function loadRecentlyPlayed() {
   const grid = document.getElementById('rp-grid')
   try {
-    const data = await jfGetMerged(`/Users/${jf.userId}/Items`, {
+    const data = await jfGetMerged(`/Items`, {
       SortBy: 'DatePlayed',
       SortOrder: 'Descending',
       IncludeItemTypes: 'Audio',
@@ -2218,7 +2268,7 @@ function rpCard(item) {
 async function loadRecentlyAdded() {
   const grid = document.getElementById('home-recent-albums')
   try {
-    const data = await jfGetMerged(`/Users/${jf.userId}/Items`, {
+    const data = await jfGetMerged(`/Items`, {
       SortBy: 'DateCreated',
       SortOrder: 'Descending',
       IncludeItemTypes: 'MusicAlbum',
@@ -2470,7 +2520,7 @@ async function loadAlbums() {
   await loadLibPrefs('albums')
   try {
     const params = { SortBy: 'SortName', SortOrder: 'Ascending', IncludeItemTypes: 'MusicAlbum', Recursive: true, Fields: 'SortName,Genres,ProductionYear,UserData', Limit: 500 }
-    const data = await jfGetAllPaged(`/Users/${jf.userId}/Items`, params)
+    const data = await jfGetAllPaged(`/Items`, params)
     data.Items.sort(bySortName)   // the merge only kept SortBy within each library
     setLibItems('albums', data.Items)
   } catch (e) {
@@ -2532,7 +2582,7 @@ let _openAlbumItem = null   // the album page's own item, for its Download butto
 /** Track query shared by the album detail view and the album context menu's
  *  Play/Play next/Play last/Shuffle/Add to playlist actions. */
 async function fetchAlbumTracks(albumId) {
-  const data = await jfGet(`/Users/${jf.userId}/Items`, {
+  const data = await jfGet(`/Items`, {
     ParentId: albumId,
     SortBy: 'ParentIndexNumber,IndexNumber,SortName',
     IncludeItemTypes: 'Audio',
@@ -2553,7 +2603,7 @@ async function openAlbum(albumId) {
 
   try {
     const [album, tracks] = await Promise.all([
-      jfGet(`/Users/${jf.userId}/Items/${albumId}`),
+      jfGet(`/Items/${albumId}`),
       fetchAlbumTracks(albumId)
     ])
     currentAlbumTracks = tracks
@@ -2644,7 +2694,7 @@ async function loadArtists() {
 // every other view: a plain get ignored the library selection and listed an
 // album or song once per library that held it.
 async function fetchArtistSongs(artistId) {
-  const data = await jfGetMerged(`/Users/${jf.userId}/Items`, {
+  const data = await jfGetMerged(`/Items`, {
     ArtistIds: artistId, IncludeItemTypes: 'Audio', Recursive: true,
     SortBy: 'Album,ParentIndexNumber,IndexNumber',
     Fields: 'AlbumId,AlbumPrimaryImageTag'
@@ -2737,8 +2787,8 @@ async function openArtist(artistId, name) {
 
   try {
     const [artistItem, albumsData, songs, similar] = await Promise.all([
-      jfGet(`/Users/${jf.userId}/Items/${artistId}`, { Fields: 'Overview' }).catch(() => null),
-      jfGetMerged(`/Users/${jf.userId}/Items`, {
+      jfGet(`/Items/${artistId}`, { Fields: 'Overview' }).catch(() => null),
+      jfGetMerged(`/Items`, {
         ArtistIds: artistId, IncludeItemTypes: 'MusicAlbum', Recursive: true,
         SortBy: 'ProductionYear,SortName', SortOrder: 'Descending'
       }),
@@ -2862,7 +2912,7 @@ function fetchAllSongs() {
     // jfGetAllPaged instead of jfGetMerged so libraries over 500 tracks aren't
     // silently truncated.
     const params = { SortBy: 'SortName', SortOrder: 'Ascending', IncludeItemTypes: 'Audio', Recursive: true, Fields: 'AlbumId,AlbumPrimaryImageTag,UserData,DateCreated', Limit: 500 }
-    const data = await jfGetAllPaged(`/Users/${jf.userId}/Items`, params)
+    const data = await jfGetAllPaged(`/Items`, params)
     // The library selection changed mid-fetch: these are the old libraries' songs.
     if (_songsFetch !== p) return
     allSongs = data.Items || []
@@ -3097,7 +3147,7 @@ async function loadPlaylists() {
   grid.dataset.loaded = '1'
   await Promise.all([loadUserSmartPlaylists(), loadLibPrefs('playlists')])
   try {
-    const data = await jfGet(`/Users/${jf.userId}/Items`, {
+    const data = await jfGet(`/Items`, {
       SortBy: 'SortName',
       SortOrder: 'Ascending',
       IncludeItemTypes: 'Playlist',
@@ -3256,7 +3306,7 @@ document.getElementById('btn-edit-playlist').addEventListener('click', async () 
   // allowed to make then fails loudly via the catch blocks below, same as
   // remove-from-playlist and drag-reorder already do for every playlist today.
   try {
-    const it = await jfGet(`/Users/${jf.userId}/Items/${currentPlaylistId}`, { Fields: 'Overview' })
+    const it = await jfGet(`/Items/${currentPlaylistId}`, { Fields: 'Overview' })
     if (it.CanDelete === false) {
       showNotice('You do not have permission to edit this playlist.', 'Playlist')
       return
@@ -3289,7 +3339,7 @@ const waitForPlaylistWrite = CascadeCore.createPlaylistWriteGate()
 async function savePlaylistIds(newItems, successMsg) {
   try {
     await waitForPlaylistWrite(currentPlaylistId)
-    const res = await fetch(`${jf.url}/Playlists/${currentPlaylistId}`, {
+    const res = await jfFetch(`${jf.url}/Playlists/${currentPlaylistId}`, {
       method: 'POST',
       headers: CascadeCore.authHeaders(jf, { 'Content-Type': 'application/json' }),
       body: JSON.stringify({ Ids: newItems.map(i => i.Id) })
@@ -3348,7 +3398,7 @@ async function _plDetailsWrite(path, init) {
     // name, description and picture of one playlist share one gate.
     const id = path.match(/[0-9a-f]{32}/i)?.[0]
     if (id) await waitForPlaylistWrite(id)
-    const res = await fetch(`${jf.url}${path}`, init)
+    const res = await jfFetch(`${jf.url}${path}`, init)
     return res.ok ? null : await CascadeCore.readErrorMessage(res)
   } catch (e) {
     return e.message
@@ -3367,7 +3417,7 @@ async function _savePlaylistOverview(d, overview) {
   // fetched DTO with one field changed, never a partial body (the metadata
   // editor's rule too).
   try {
-    const res = await fetch(`${jf.url}/Items/${d.id}`, { headers: CascadeCore.authHeaders(jf) })
+    const res = await jfFetch(`${jf.url}/Items/${d.id}`, { headers: CascadeCore.authHeaders(jf) })
     if (!res.ok) return await CascadeCore.readErrorMessage(res)
     const full = await res.json()
     return _plDetailsWrite(`/Items/${d.id}`, {
@@ -3676,7 +3726,7 @@ function wirePlaylistRowDrag(rowsEl, items) {
       try {
         const entryId = moved.PlaylistItemId || moved.Id
         await waitForPlaylistWrite(currentPlaylistId)
-        const res = await fetch(`${jf.url}/Playlists/${currentPlaylistId}/Items/${entryId}/Move/${to}`, {
+        const res = await jfFetch(`${jf.url}/Playlists/${currentPlaylistId}/Items/${entryId}/Move/${to}`, {
           method: 'POST', headers: CascadeCore.authHeaders(jf)
         })
         if (!res.ok) throw new Error(res.status)
@@ -3698,7 +3748,7 @@ async function openPlaylist(playlistId, name) {
   // The description is not in the track list's response, so it comes from the
   // item itself, without holding up the tracks.
   showPlaylistOverview('')
-  jfGet(`/Users/${jf.userId}/Items/${playlistId}`, { Fields: 'Overview' })
+  jfGet(`/Items/${playlistId}`, { Fields: 'Overview' })
     .then(it => { if (currentPlaylistId === playlistId) showPlaylistOverview(typeof it?.Overview === 'string' ? it.Overview : '') })
     .catch(() => {})
 
@@ -3718,8 +3768,8 @@ const SMART_PLAYLISTS = {
     name: 'Favorites',
     icon: '<svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>',
     gradient: 'linear-gradient(135deg,#f472b6,#dc2626)',
-    async fetch() {
-      const data = await jfGetMerged(`/Users/${jf.userId}/Items`, {
+    async jfFetch() {
+      const data = await jfGetMerged(`/Items`, {
         IncludeItemTypes: 'Audio', Recursive: true, Filters: 'IsFavorite',
         SortBy: 'SortName', SortOrder: 'Ascending',
         Fields: 'AlbumId,AlbumPrimaryImageTag'
@@ -3731,11 +3781,11 @@ const SMART_PLAYLISTS = {
     name: 'Most Played',
     icon: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>',
     gradient: 'linear-gradient(135deg,#60a5fa,#059669)',
-    async fetch() {
+    async jfFetch() {
       // Ask each library for its own top 200 by play count (server-side sorted),
       // then merge and re-sort/slice client-side - a per-library cap could otherwise
       // leave the true top 100 overall incomplete once multiple libraries are merged.
-      const data = await jfGetMerged(`/Users/${jf.userId}/Items`, {
+      const data = await jfGetMerged(`/Items`, {
         IncludeItemTypes: 'Audio', Recursive: true,
         SortBy: 'PlayCount', SortOrder: 'Descending', Limit: 200,
         Fields: 'AlbumId,AlbumPrimaryImageTag'
@@ -3794,7 +3844,7 @@ function userSmartPlaylistCardHtml(def) {
  *  actually decides membership, sort and limit. */
 async function fetchUserSmartPlaylist(def) {
   const query = CascadeCore.toItemsQuery(def)
-  const data = await jfGetAllPaged(`/Users/${jf.userId}/Items`, {
+  const data = await jfGetAllPaged(`/Items`, {
     IncludeItemTypes: 'Audio', Recursive: true,
     Fields: 'AlbumId,AlbumPrimaryImageTag,Genres,DateCreated',
     ...query
@@ -3859,7 +3909,7 @@ document.getElementById('btn-save-as-playlist').addEventListener('click', async 
   const name = sp.name
   try {
     const ids = currentPlaylistItems.map(i => encodeURIComponent(i.Id)).join(',')
-    const res = await fetch(`${jf.url}/Playlists?Name=${encodeURIComponent(name)}&Ids=${ids}&UserId=${encodeURIComponent(jf.userId)}&MediaType=Audio`, {
+    const res = await jfFetch(`${jf.url}/Playlists?Name=${encodeURIComponent(name)}&Ids=${ids}&UserId=${encodeURIComponent(jf.userId)}&MediaType=Audio`, {
       method: 'POST',
       headers: CascadeCore.authHeaders(jf)
     })
@@ -4025,7 +4075,7 @@ function reloadPlaylistIndexIfShown() {
  *  (CreatePlaylistDto). Returns the new id, or null after telling the user. */
 async function createEmptyPlaylist(name, isPublic) {
   try {
-    const res = await fetch(`${jf.url}/Playlists?Name=${encodeURIComponent(name)}&UserId=${encodeURIComponent(jf.userId)}&MediaType=Audio`, {
+    const res = await jfFetch(`${jf.url}/Playlists?Name=${encodeURIComponent(name)}&UserId=${encodeURIComponent(jf.userId)}&MediaType=Audio`, {
       method: 'POST',
       headers: CascadeCore.authHeaders(jf, { 'Content-Type': 'application/json' }),
       body: JSON.stringify({ Name: name, Ids: [], UserId: jf.userId, MediaType: 'Audio', IsPublic: isPublic })
@@ -4141,7 +4191,7 @@ async function loadGenres() {
 }
 
 async function fetchGenreAlbums(genreId) {
-  const data = await jfGetAllPaged(`/Users/${jf.userId}/Items`, {
+  const data = await jfGetAllPaged(`/Items`, {
     // GenreIds, not Genres (a name) - a genre name containing '|' would break
     // the pipe-delimited Genres filter.
     GenreIds: genreId, IncludeItemTypes: 'MusicAlbum', Recursive: true,
@@ -4152,7 +4202,7 @@ async function fetchGenreAlbums(genreId) {
 }
 
 async function fetchGenreSongs(genreId) {
-  const data = await jfGetAllPaged(`/Users/${jf.userId}/Items`, {
+  const data = await jfGetAllPaged(`/Items`, {
     GenreIds: genreId, IncludeItemTypes: 'Audio', Recursive: true,
     Fields: 'AlbumId,AlbumPrimaryImageTag,UserData,DateCreated,SortName', SortBy: 'SortName', SortOrder: 'Ascending', Limit: 500,
   })
@@ -4193,7 +4243,7 @@ async function openGenre(genreId, name) {
 
   try {
     const [genre, albums, songs] = await Promise.all([
-      jfGet(`/Users/${jf.userId}/Items/${genreId}`).catch(() => null),
+      jfGet(`/Items/${genreId}`).catch(() => null),
       fetchGenreAlbums(genreId),
       fetchGenreSongs(genreId),
     ])
@@ -4246,7 +4296,7 @@ async function loadHistory() {
     // a library is only meaningful sorted by that library's own order - with
     // more than one library merged, only a client-side re-sort by
     // LastPlayedDate afterward gives a correct global newest-first order.
-    const data = await jfGetAllPaged(`/Users/${jf.userId}/Items`, {
+    const data = await jfGetAllPaged(`/Items`, {
       SortBy: 'DatePlayed', SortOrder: 'Descending',
       IncludeItemTypes: 'Audio', Filters: 'IsPlayed', Recursive: true,
       Fields: 'AlbumId,AlbumPrimaryImageTag,UserData,SortName', Limit: 500,
@@ -4486,7 +4536,7 @@ document.getElementById('tctx-view-artist').addEventListener('click', () => {
 async function refreshItemMetadata(item) {
   if (!item || !jf.isAdmin) return
   try {
-    const res = await fetch(`${jf.url}/Items/${item.Id}/Refresh?MetadataRefreshMode=FullRefresh&ImageRefreshMode=FullRefresh&ReplaceAllMetadata=false&ReplaceAllImages=false`, {
+    const res = await jfFetch(`${jf.url}/Items/${item.Id}/Refresh?MetadataRefreshMode=FullRefresh&ImageRefreshMode=FullRefresh&ReplaceAllMetadata=false&ReplaceAllImages=false`, {
       method: 'POST', headers: CascadeCore.authHeaders(jf)
     })
     if (!res.ok) throw new Error(String(res.status))
@@ -4528,7 +4578,7 @@ document.getElementById('tctx-pl-remove').addEventListener('click', async () => 
   if (!entryId) { showNotice('This row is missing its playlist entry ID, so it cannot be removed.', 'Playlist'); return }
   try {
     await waitForPlaylistWrite(currentPlaylistId)
-    const res = await fetch(`${jf.url}/Playlists/${currentPlaylistId}/Items?EntryIds=${encodeURIComponent(entryId)}`, {
+    const res = await jfFetch(`${jf.url}/Playlists/${currentPlaylistId}/Items?EntryIds=${encodeURIComponent(entryId)}`, {
       method: 'DELETE', headers: CascadeCore.authHeaders(jf)
     })
     if (!res.ok) throw new Error(res.status)
@@ -4805,7 +4855,7 @@ async function loadPosterGrid(name, gridId, itemType, sub, onPick, libs, ids) {
     render: (raw, prefs) => renderPosterGridView(gridId, sub, onPick, kind, libs, raw, prefs),
   })
   await loadLibPrefs(name)
-  const path = `/Users/${jf.userId}/Items`
+  const path = `/Items`
   const params = {
     SortBy: 'SortName', SortOrder: 'Ascending',
     IncludeItemTypes: itemType, Recursive: true,
@@ -4849,7 +4899,7 @@ async function loadContinueWatching() {
   const Fields = 'UserData,ProductionYear,SeriesPrimaryImageTag'
   try {
     const [resume, nextUp] = await Promise.all([
-      jfClient.getMerged(`/Users/${jf.userId}/Items`, {
+      jfClient.getMerged(`/Items`, {
         SortBy: 'DatePlayed', SortOrder: 'Descending',
         IncludeItemTypes: 'Movie,Episode', Filters: 'IsResumable',
         Recursive: true, Fields, Limit: 24,
@@ -4918,7 +4968,7 @@ async function openMovie(movieId) {
     // MediaStreams is what applySubtitles() reads, and MediaSources is needed to
     // build a subtitle URL - neither comes back on the grid query, so the detail
     // fetch is where the item becomes playable.
-    const movie = await jfGet(`/Users/${jf.userId}/Items/${movieId}`,
+    const movie = await jfGet(`/Items/${movieId}`,
       { Fields: 'Overview,MediaStreams,MediaSources,Genres' })
 
     const art = artUrl(movie.Id, movie.ImageTags?.Primary)
@@ -4963,7 +5013,7 @@ async function openSeries(seriesId) {
 
   try {
     const [series, seasonsData, allEpisodes] = await Promise.all([
-      jfGet(`/Users/${jf.userId}/Items/${seriesId}`, { Fields: 'Overview,Genres' }),
+      jfGet(`/Items/${seriesId}`, { Fields: 'Overview,Genres' }),
       jfGet(`/Shows/${seriesId}/Seasons`, { UserId: jf.userId, Fields: 'UserData' }),
       // Every episode with its watch state, light, for the Continue button.
       jfGet(`/Shows/${seriesId}/Episodes`, { UserId: jf.userId, EnableImages: false }).catch(() => null),
@@ -5280,7 +5330,7 @@ async function loadChapters(item) {
   renderChapterMarks()
   if (!item || !isVideoItem(item)) return
   try {
-    const full = await jfGet(`/Users/${jf.userId}/Items/${item.Id}`, { Fields: 'Chapters' })
+    const full = await jfGet(`/Items/${item.Id}`, { Fields: 'Chapters' })
     // Skipped past it while the request was out: these are someone else's.
     if (queue[queueIndex]?.Id !== item.Id) return
     _chapters = CascadeCore.chapterList(full.Chapters, item.RunTimeTicks)
@@ -6975,7 +7025,7 @@ async function toggleLike(item) {
   if (!item) return
   const isLiked = isCurrent ? likeBtn.classList.contains('liked') : !!item.UserData?.IsFavorite
   try {
-    const res = await fetch(`${jf.url}/UserFavoriteItems/${item.Id}?userId=${encodeURIComponent(jf.userId)}`, {
+    const res = await jfFetch(`${jf.url}/UserFavoriteItems/${item.Id}?userId=${encodeURIComponent(jf.userId)}`, {
       method: isLiked ? 'DELETE' : 'POST',
       headers: CascadeCore.authHeaders(jf)
     })
@@ -7777,7 +7827,9 @@ async function init() {
     document.getElementById('setup-advanced').open = true
   }
   // The probe normally runs as the user types; a pre-filled URL never fires that.
-  if (serverUrl) probeQuickConnect()
+  // Only when the form stays up: signed in, it would reach the server before
+  // a saved Offline Mode switch is read, and promptReauth probes on its own.
+  if (serverUrl && !(token && userId)) probeQuickConnect()
 
   ;({ token, userId } = await migrateDeviceId(serverUrl, username, legacyPassword, token, userId))
   if (legacyPassword !== undefined) await window.cascade.store.delete('password')
@@ -7790,17 +7842,26 @@ async function init() {
 
   if (serverUrl && token && userId) {
     document.getElementById('setup-overlay').classList.add('hidden')
+    // The switch left on stays on: nothing goes to the server, the app opens
+    // on the downloads.
+    if ((await window.cascade.store.get('offlineMode')) === true) {
+      await setOfflineState('manual', { reload: false })
+      await connect(serverUrl, token, userId).catch(e => console.error('[cascade] offline start failed:', e))
+      return
+    }
     try {
       await connect(serverUrl, token, userId)
     } catch (e) {
-      if (e?.status === 401 || e?.status === 403) {
+      if (CascadeCore.failureKind(e?.status) === 'auth') {
         // The token was rejected: Jellyfin tokens only die when revoked (signed
         // out, device removed in the dashboard), so this is a real sign-in, not a
         // refresh. There is no stored password to retry with, by design.
         promptReauth('Your session expired. Sign in again with a code, or enter your password.')
-      } else if (_offline.collections.length) {
-        // The server never answered and there is music on disk: open on that.
-        enterOfflineMode()
+      } else if (CascadeCore.failureKind(e?.status) === 'unreachable' && _offline.collections.length) {
+        // The server never answered and there is something on disk: Offline
+        // Mode turns on by itself and the app opens on the downloads.
+        await setOfflineState('unreachable', { reload: false })
+        await connect(serverUrl, token, userId).catch(err => console.error('[cascade] offline start failed:', err))
       } else {
         promptReauth('Could not reach your server. Check your connection or the address, then sign in again.')
       }
@@ -7847,6 +7908,8 @@ async function refreshOffline() {
   let summary
   try { summary = await window.cascade.offline.summary() } catch { return }
   _offline = { ...summary, art: new Set(summary.art) }
+  // Offline, the engine answers from the catalog as it is now.
+  if (CascadeCore.isOffline(_offlineState)) await refreshOfflineEngine()
   for (const id of [..._offlineProgress.keys()]) if (!summary.active.some(a => a.id === id)) _offlineProgress.delete(id)
   renderOfflineButtons()
   if (_currentView === 'downloads') renderDownloadsView()
@@ -7863,6 +7926,7 @@ window.cascade.offline.onEvent((event) => {
 async function toggleOfflineDownload(kind, item) {
   if (!item?.Id) return
   if (offlineCollection(item.Id)) { await removeOfflineDownload(item.Id); return }
+  if (jfClient.offline) { showNotice('Downloading needs your server. Turn Offline Mode off first.', 'Downloads'); return }
   if (jf.canDownload === false) {
     showNotice('This account is not allowed to download media. An admin can turn it on in the Jellyfin dashboard.', 'Downloads')
     return
@@ -7881,6 +7945,31 @@ async function toggleOfflineDownload(kind, item) {
     return
   }
   await refreshOffline()
+  placeOfflineDownloads().catch(() => {})
+  saveOfflineLyrics(music).catch(() => {})
+}
+
+/** Finds each downloaded song's lyrics the way playback would and saves them
+ *  with the download, so they show offline. Two at a time, to keep the
+ *  lyrics sources and the plugin from seeing a burst; stops if the app goes
+ *  offline partway. */
+async function saveOfflineLyrics(tracks) {
+  const queue = tracks.filter(t => t?.Id)
+  const worker = async () => {
+    while (queue.length && !jfClient.offline) {
+      const t = queue.shift()
+      let out = null
+      try { out = await fetchLyricsWaterfall(t) } catch {}
+      if (!out?.lines?.length || out.instrumental) continue
+      await window.cascade.offline.setLyrics(t.Id, {
+        source: CascadeCore.lyricsSourceKey(String(out.source || ''), !!out.credit),
+        synced: out.lines.some(l => l.Start > 0),
+        lines: out.lines,
+        credit: out.credit || null,
+      }).catch(() => {})
+    }
+  }
+  await Promise.all([worker(), worker()])
 }
 
 async function removeOfflineDownload(id) {
@@ -7899,9 +7988,12 @@ function renderOfflineButtons() {
 function paintOfflineButton(buttonId, id) {
   const btn = document.getElementById(buttonId)
   if (!btn) return
-  btn.style.display = id ? '' : 'none'
-  if (!id) return
-  const c = offlineCollection(id)
+  const c = id ? offlineCollection(id) : null
+  // Offline, a page can only show what is downloaded: the button removes it,
+  // and there is nothing to start.
+  const shown = !!id && (!!c || !jfClient.offline)
+  btn.style.display = shown ? '' : 'none'
+  if (!shown) return
   const done = !!c && c.done === c.total
   btn.classList.toggle('on', done)
   btn.title = c ? 'Remove this download' : 'Download for offline listening'
@@ -7941,21 +8033,47 @@ function dlCardHtml(c) {
   <div class="dl-tracks" data-dl-tracks="${esc(id)}" hidden></div>`
 }
 
+/** The download manager: what is downloading, what is downloaded, and the
+ *  space it takes (docs/offline-mode-plan.md, section 7). A collection moves
+ *  from Downloading to its kind once every song is on disk; the 'changed'
+ *  event that brings its last song redraws this. */
 function renderDownloadsView() {
-  const list = document.getElementById('downloads-list')
-  document.getElementById('downloads-banner').hidden = !_offlineMode
-  document.getElementById('downloads-total').textContent = _offline.collections.length
-    ? `${_offline.collections.length} ${_offline.collections.length === 1 ? 'collection' : 'collections'} · ${fmtBytes(_offline.totalBytes)}` : ''
-  if (!_offline.collections.length) {
-    list.innerHTML = '<div class="empty-state">Nothing downloaded yet. Open an album or a playlist and press Download, or right-click one.</div>'
-    return
-  }
-  list.innerHTML = _offline.collections.map(dlCardHtml).join('')
+  const all = _offline.collections
+  document.getElementById('downloads-total').textContent = all.length
+    ? `${all.length} ${all.length === 1 ? 'collection' : 'collections'} · ${fmtBytes(_offline.totalBytes)}` : ''
+  renderDownloadsStorage()
+  const active = all.filter(c => c.done < c.total)
+  const done = all.filter(c => c.done === c.total)
+  fillDownloadCards(document.getElementById('downloads-active'), active)
+  fillDownloadCards(document.getElementById('downloads-list'), done)
+  document.getElementById('downloads-active-section').hidden = !active.length
+  document.getElementById('downloads-done-section').hidden = !done.length
+  document.getElementById('downloads-empty').hidden = all.length > 0
+  updateDownloadCards()
+}
+
+/** How much the downloads take and how much room the disk has left. */
+async function renderDownloadsStorage() {
+  const el = document.getElementById('downloads-storage')
+  let disk = null
+  try { disk = await window.cascade.offline.disk() } catch {}
+  const parts = []
+  if (_offline.totalBytes > 0) parts.push(`Downloads use ${fmtBytes(_offline.totalBytes)}`)
+  if (disk && Number.isFinite(disk.free)) parts.push(`${fmtBytes(disk.free)} free on this disk`)
+  el.textContent = parts.join(' · ')
+}
+
+function fillDownloadCards(list, collections) {
+  list.innerHTML = collections.map(dlCardHtml).join('')
   for (const card of list.querySelectorAll('.dl-card')) {
     const id = card.dataset.dlId
     card.querySelector('[data-dl="play"]').addEventListener('click', () => playDownloaded(id))
     card.querySelector('[data-dl="songs"]').addEventListener('click', () => toggleDownloadedSongs(id))
-    card.querySelector('[data-dl="retry"]').addEventListener('click', () => window.cascade.offline.resume(offlineSession()))
+    card.querySelector('[data-dl="retry"]').addEventListener('click', () => {
+      // Retrying fetches from the server, which Offline Mode does not reach.
+      if (jfClient.offline) { showNotice('Downloads continue when Offline Mode is off.', 'Downloads'); return }
+      window.cascade.offline.resume(offlineSession())
+    })
     card.querySelector('[data-dl="remove"]').addEventListener('click', async () => {
       const name = offlineCollection(id)?.item.Name || 'this download'
       if (!confirm(`Remove "${name}" from your downloads? Songs another download still uses stay.`)) return
@@ -7964,14 +8082,13 @@ function renderDownloadsView() {
     })
     if (_dlOpen.has(id)) showDownloadedSongs(id)
   }
-  updateDownloadCards()
 }
 
 /** Progress, sizes and failures, set in place: progress events arrive several
  *  times a second and a rebuild would swap a button under the pointer. */
 function updateDownloadCards() {
   if (_currentView !== 'downloads') return
-  for (const card of document.querySelectorAll('#downloads-list .dl-card')) {
+  for (const card of document.querySelectorAll('#view-downloads .dl-card')) {
     const c = offlineCollection(card.dataset.dlId)
     if (!c) continue
     let partial = 0
@@ -7997,7 +8114,7 @@ function updateDownloadCards() {
     }
     card.classList.toggle('done', c.done === c.total)
     card.querySelector('.dl-bar > span').style.width = `${c.total ? ((c.done + partial) / c.total) * 100 : 0}%`
-    card.querySelector('[data-dl="retry"]').hidden = !failed.length || moving
+    card.querySelector('[data-dl="retry"]').hidden = !failed.length || moving || jfClient.offline
     card.querySelector('[data-dl="play"]').disabled = c.done === 0
     card.querySelector('[data-dl="songs"]').disabled = c.done === 0
   }
@@ -8034,39 +8151,180 @@ function toggleDownloadedSongs(id) {
   showDownloadedSongs(id)
 }
 
-// ── Offline mode ──
-// Launched with no reachable server: the sign-in prompt would be wrong (the
-// token is fine) and the library has nothing to show, so the app opens on the
-// Downloads, which play from disk. It leaves offline mode by itself when the
-// network comes back, or on "Try again".
+// ── Offline Mode ──
+// The normal app showing only what is downloaded (docs/offline-mode-plan.md).
+// Three states, whose rules are src/core/offline-mode.ts: 'manual' is the
+// Settings switch and sends nothing to the server (main blocks its origin
+// too); 'unreachable' turned on by itself when the server stopped answering,
+// probes on a backoff and on a network change, and turns off when it answers.
+// While either is on, jfClient answers every read from the downloads
+// (setOfflineSource), so the screens are the same screens.
 
-function enterOfflineMode() {
-  _offlineMode = true
-  document.body.classList.add('offline-mode')
-  showView('downloads')
-  refreshOffline()
+/** The query engine over the catalog as it is now; rebuilt when the
+ *  downloads change while offline. */
+let _offlineEngine = null
+/** Whether this launch has a session the server confirmed: until it does, a
+ *  failed request is the sign-in's business, not a drop. */
+let _connectedOnline = false
+let _probeAttempt = 0
+let _probeTimer = null
+/** The parsed catalog behind the engine, for what is not a server route:
+ *  the lyrics saved with each download. */
+let _offlineCatalog = null
+
+async function refreshOfflineEngine() {
+  if (!CascadeCore.isOffline(_offlineState)) return
+  let catalog = null
+  try { catalog = await window.cascade.offline.catalog() } catch {}
+  _offlineCatalog = CascadeCore.parseIndex(catalog)
+  const engine = CascadeCore.offlineQuery(_offlineCatalog)
+  _offlineEngine = engine
+  jfClient.setOfflineSource((path, params) => engine.answer(path, params))
 }
 
-async function leaveOfflineModeIfReachable() {
-  if (!_offlineMode) return
-  const serverUrl = await window.cascade.store.get('serverUrl')
-  const token = await window.cascade.store.get('token')
-  const userId = await window.cascade.store.get('userId')
+/** Moves to a state. Offline, the reads come from the downloads and the
+ *  library views are redrawn from them; back online, a full connect() draws
+ *  them from the server again and sends what happened offline.
+ *  `reload: false` is launch, where connect() draws everything next. */
+async function setOfflineState(next, { reload = true } = {}) {
+  const before = _offlineState
+  if (next === before) return
+  _offlineState = next
+  // Awaited: turning the switch off must lift main's block before the
+  // reconnect below sends anything, or that reconnect is cancelled.
+  await window.cascade.offline.setMode(next).catch(() => {})
+  const off = CascadeCore.isOffline(next)
+  if (off) {
+    await refreshOfflineEngine()
+  } else {
+    _offlineEngine = null
+    _offlineCatalog = null
+    jfClient.setOfflineSource(null)
+  }
+  document.body.classList.toggle('offline-on', off)
+  document.body.classList.toggle('offline-auto', next === 'unreachable')
+  renderOfflineIndicators()
+  if (next === 'unreachable') scheduleProbe(true)
+  else clearProbe()
+  if (!reload) return
+  if (before === 'online' && off) await redrawOffline()
+  else if (next === 'online') await reconnectOnline()
+}
+
+/** Everything on screen came from the server: draw it from the downloads. */
+async function redrawOffline() {
+  _remote?.stop()
+  _connectedOnline = false
+  await populateLibraryPicker()
+  invalidateLibraryViews()
+  invalidateVideoViews()
+  await loadHome()
+  if (_currentView !== 'home') showView(_currentView)
+}
+
+async function reconnectOnline() {
+  const [serverUrl, token, userId] = await Promise.all(['serverUrl', 'token', 'userId'].map(k => window.cascade.store.get(k)))
   if (!serverUrl || !token || !userId) return
   try {
     await connect(serverUrl, token, userId)
+    if (_currentView !== 'home') showView(_currentView)
   } catch (e) {
-    if (e?.status === 401 || e?.status === 403) { _offlineMode = false; document.body.classList.remove('offline-mode'); promptReauth('Your session expired. Sign in again with a code, or enter your password.') }
-    return   // still out of reach: stay on the downloads
+    if (CascadeCore.failureKind(e?.status) === 'auth') promptReauth('Your session expired. Sign in again with a code, or enter your password.')
+    else await setOfflineState('unreachable')
   }
-  _offlineMode = false
-  document.body.classList.remove('offline-mode')
-  document.getElementById('downloads-banner').hidden = true
-  showView('home')
 }
 
-document.getElementById('downloads-retry').addEventListener('click', leaveOfflineModeIfReachable)
-window.addEventListener('online', leaveOfflineModeIfReachable)
+/** The Settings switch. Stays on across launches until turned off. */
+async function setOfflineSwitch(on) {
+  await window.cascade.store.set('offlineMode', !!on)
+  await setOfflineState(CascadeCore.nextOfflineState(_offlineState, { type: 'switch', on: !!on }))
+}
+
+/** Whether the server answers at all: its public ping, briefly. */
+async function serverAnswers() {
+  const serverUrl = await window.cascade.store.get('serverUrl')
+  if (!serverUrl) return false
+  try {
+    // offline-ok: the probe is how the unreachable state ends, so it must go out.
+    const r = await fetch(`${serverUrl.replace(/\/+$/, '')}/System/Ping`, { signal: AbortSignal.timeout(5000) })
+    return r.ok
+  } catch {
+    return false
+  }
+}
+
+function clearProbe() {
+  clearTimeout(_probeTimer)
+  _probeTimer = null
+}
+
+function scheduleProbe(reset) {
+  clearProbe()
+  if (reset) _probeAttempt = 0
+  _probeTimer = setTimeout(probeServer, CascadeCore.probeDelayMs(_probeAttempt++))
+}
+
+async function probeServer() {
+  if (_offlineState !== 'unreachable') return
+  if (await serverAnswers()) await setOfflineState(CascadeCore.nextOfflineState(_offlineState, { type: 'reachable' }))
+  else if (_offlineState === 'unreachable') scheduleProbe(false)
+}
+
+/** A request found no server. One failed request is not a drop: the ping
+ *  decides, so a blip never flips the app. */
+let _checkingDrop = false
+async function checkForDrop() {
+  if (_checkingDrop || _offlineState !== 'online' || !_connectedOnline) return
+  _checkingDrop = true
+  try {
+    if (!await serverAnswers() && _offlineState === 'online') await setOfflineState('unreachable')
+  } finally {
+    _checkingDrop = false
+  }
+}
+
+jfClient.onFailure = (status) => {
+  if (CascadeCore.failureKind(status) === 'unreachable') checkForDrop()
+}
+window.addEventListener('offline', checkForDrop)
+window.addEventListener('online', () => { if (_offlineState === 'unreachable') probeServer() })
+
+/** The pill and the banner show by body class (offline-on, offline-auto);
+ *  this keeps their words and the Settings switch in step. */
+function renderOfflineIndicators() {
+  document.getElementById('offline-pill').title = _offlineState === 'manual'
+    ? 'Offline Mode is on: only what is downloaded shows'
+    : "Your server isn't answering: only what is downloaded shows"
+  const toggle = /** @type {HTMLInputElement} */ (document.getElementById('s-offline-toggle'))
+  toggle.checked = _offlineState === 'manual'
+}
+
+document.getElementById('offline-retry').addEventListener('click', () => probeServer())
+document.getElementById('offline-pill').addEventListener('click', () => showView('downloads'))
+document.getElementById('s-offline-toggle').addEventListener('change', (e) => setOfflineSwitch(/** @type {HTMLInputElement} */ (e.target).checked))
+
+/** Moves downloads out of the placeholder libraries: each library is asked
+ *  which of them it holds (100 ids a request), and their stored fields are
+ *  refreshed from the answer, which fills in what version 1 never kept. */
+async function placeOfflineDownloads() {
+  if (jfClient.offline) return
+  let catalog = null
+  try { catalog = await window.cascade.offline.catalog() } catch {}
+  if (!catalog) return
+  const index = CascadeCore.parseIndex(catalog)
+  const unplaced = CascadeCore.unplacedTrackIds(index)
+  if (!unplaced.length) return
+  for (const lib of index.libraries) {
+    for (let i = 0; i < unplaced.length; i += 100) {
+      const ids = unplaced.slice(i, i + 100)
+      const found = await jfGet('/Items', {
+        Ids: ids.join(','), ParentId: lib.Id, Recursive: true,
+        Fields: 'Genres,DateCreated,SortName,ProductionYear,Overview,MediaSources',
+      }).catch(() => null)
+      if (found?.Items?.length) await window.cascade.offline.place(lib.Id, found.Items)
+    }
+  }
+}
 
 // ── Plays made while the server was out of reach ──
 // Jellyfin counts a play when playback STARTS, so a start report it never heard
@@ -8090,7 +8348,7 @@ async function replayOfflinePlays() {
       if (p.userId !== jf.userId) { await window.cascade.offline.addPlay(p); continue }
       let status = 0
       try {
-        const res = await fetch(`${jf.url}/UserPlayedItems/${p.itemId}?userId=${encodeURIComponent(p.userId)}&datePlayed=${encodeURIComponent(p.date)}`,
+        const res = await jfFetch(`${jf.url}/UserPlayedItems/${p.itemId}?userId=${encodeURIComponent(p.userId)}&datePlayed=${encodeURIComponent(p.date)}`,
           { method: 'POST', headers: CascadeCore.authHeaders(jf) })
         status = res.status
         if (res.ok) continue
@@ -8358,7 +8616,7 @@ const _normGainCache = new Map()   // 'track:<id>' or 'album:<id>' -> Normalizat
  *  server has none for it. */
 async function _normalizationDb(id, key) {
   if (_normGainCache.has(key)) return _normGainCache.get(key)
-  const full = await jfGet(`/Users/${jf.userId}/Items/${id}`, {})
+  const full = await jfGet(`/Items/${id}`, {})
   const db = Number.isFinite(full?.NormalizationGain) ? full.NormalizationGain : null
   _normGainCache.set(key, db)
   return db
@@ -10408,7 +10666,7 @@ async function atpLoadPlaylists() {
   const list = document.getElementById('atp-list')
   list.innerHTML = '<div class="skel skel-text" style="width:100%;height:30px"></div><div class="skel skel-text" style="width:100%;height:30px"></div><div class="skel skel-text" style="width:100%;height:30px"></div>'
   try {
-    const data = await jfGet(`/Users/${jf.userId}/Items`, {
+    const data = await jfGet(`/Items`, {
       IncludeItemTypes: 'Playlist', Recursive: true, SortBy: 'SortName'
     })
     list.innerHTML = (data.Items || []).map(pl =>
@@ -10424,7 +10682,7 @@ async function atpLoadPlaylists() {
         try {
           const ids = items.map(i => encodeURIComponent(i.Id)).join(',')
           await waitForPlaylistWrite(el.dataset.id)
-          const res = await fetch(`${jf.url}/Playlists/${el.dataset.id}/Items?Ids=${ids}&UserId=${encodeURIComponent(jf.userId)}`, {
+          const res = await jfFetch(`${jf.url}/Playlists/${el.dataset.id}/Items?Ids=${ids}&UserId=${encodeURIComponent(jf.userId)}`, {
             method: 'POST',
             headers: CascadeCore.authHeaders(jf)
           })
@@ -10458,7 +10716,7 @@ function _atpMarkContaining(list) {
   const ids = (Array.isArray(raw) ? raw : raw ? [raw] : []).map(i => i.Id)
   if (!ids.length) return
   list.querySelectorAll('.modal-pl-item').forEach(el => {
-    jfGet(`/Users/${jf.userId}/Items`, { ParentId: el.dataset.id, EnableImages: false, EnableUserData: false, Fields: '' })
+    jfGet(`/Items`, { ParentId: el.dataset.id, EnableImages: false, EnableUserData: false, Fields: '' })
       .then(d => {
         const held = new Set((d.Items || []).map(i => i.Id))
         if (!ids.every(id => held.has(id)) || !el.isConnected) return
@@ -10504,7 +10762,7 @@ async function atpCreatePlaylist() {
   if (!name || !item) return
   document.getElementById('atp-create-confirm').disabled = true
   try {
-    const res = await fetch(`${jf.url}/Playlists?Name=${encodeURIComponent(name)}&Ids=${encodeURIComponent(item.Id)}&UserId=${encodeURIComponent(jf.userId)}&MediaType=Audio`, {
+    const res = await jfFetch(`${jf.url}/Playlists?Name=${encodeURIComponent(name)}&Ids=${encodeURIComponent(item.Id)}&UserId=${encodeURIComponent(jf.userId)}&MediaType=Audio`, {
       method: 'POST',
       headers: CascadeCore.authHeaders(jf)
     })
@@ -10547,7 +10805,7 @@ async function openMediaInfoFor(item) {
   const grid = document.getElementById('mi-grid')
   modal.classList.remove('hidden')
   try {
-    const d = await jfGet(`/Users/${jf.userId}/Items/${item.Id}`)
+    const d = await jfGet(`/Items/${item.Id}`)
     const ms = (d.RunTimeTicks || 0) / 10000
     const rows = [
       ['Title', d.Name],
@@ -10623,7 +10881,7 @@ async function deleteItemFromServer(item, { confirmMsg, onDeleted }) {
   if (!jf.canDelete) return
   if (!confirm(confirmMsg)) return
   try {
-    const res = await fetch(`${jf.url}/Items/${item.Id}`, {
+    const res = await jfFetch(`${jf.url}/Items/${item.Id}`, {
       method: 'DELETE', headers: CascadeCore.authHeaders(jf)
     })
     // The response was never read, so a 403 (e.g. a library outside this
@@ -10715,7 +10973,7 @@ function showItemCtxMenu(kind, item, el, x, y, onDetail) {
   // the grid DTO; anything else has no such concept, so mark-played/unplayed
   // stay hidden rather than guessing (see menuItemsForKind's isPlayed handling).
   const isPlayed = (kind === 'video' || kind === 'series') ? !!item?.UserData?.Played : undefined
-  const vis = CascadeCore.menuItemsForKind(kind, { isPlayed })
+  const vis = CascadeCore.menuItemsForKind(kind, { isPlayed, offline: jfClient.offline })
   // An album with no AlbumArtist has nowhere for "Go to artist" to go.
   if (kind === 'album' && !item?.AlbumArtist) vis.goArtist = false
 
@@ -10739,6 +10997,8 @@ function showItemCtxMenu(kind, item, el, x, y, onDetail) {
   if (favLabel) favLabel.textContent = item?.UserData?.IsFavorite ? 'Unfavorite' : 'Favorite'
   const offlineLabel = document.getElementById('ictx-offline-label')
   if (offlineLabel) offlineLabel.textContent = offlineCollection(item?.Id) ? 'Remove download' : 'Download for offline'
+  // Offline there is nothing to start: only a download can be removed.
+  if (jfClient.offline && !offlineCollection(item?.Id)) document.getElementById('ictx-offline').classList.add('hidden')
   // A user smart playlist repurposes the rename/delete rows (its own
   // definition, never gated on server delete permission the way a real
   // playlist is - see menuItemsForKind) rather than adding two more rows that
@@ -10899,7 +11159,7 @@ document.getElementById('ictx-view-detail').addEventListener('click', () => {
  *  silently doing nothing. */
 async function setItemPlayed(item, played) {
   try {
-    const res = await fetch(`${jf.url}/UserPlayedItems/${item.Id}?userId=${encodeURIComponent(jf.userId)}`, {
+    const res = await jfFetch(`${jf.url}/UserPlayedItems/${item.Id}?userId=${encodeURIComponent(jf.userId)}`, {
       method: played ? 'POST' : 'DELETE', headers: CascadeCore.authHeaders(jf)
     })
     if (!res.ok) throw new Error(String(res.status))
@@ -11041,7 +11301,7 @@ function probeCascadePlugin() {
   _resetExplicit()
   const statusOf = async (path) => {
     try {
-      const r = await fetch(`${jf.url}/${path}`, {
+      const r = await jfFetch(`${jf.url}/${path}`, {
         headers: CascadeCore.authHeaders(jf),
         signal: AbortSignal.timeout(8000),
       })
@@ -11359,7 +11619,7 @@ async function fetchServerStyle() {
   let next = CascadeCore.SERVER_STYLE_OFF, raw = null
   if (_cascadePluginCaps.has('server-style')) {
     try {
-      const r = await fetch(`${jf.url}/CascadeServer/Style`, { headers: CascadeCore.authHeaders(jf), signal: AbortSignal.timeout(8000) })
+      const r = await jfFetch(`${jf.url}/CascadeServer/Style`, { headers: CascadeCore.authHeaders(jf), signal: AbortSignal.timeout(8000) })
       if (!r.ok) return   // keep what we have rather than drop a style on a hiccup
       raw = await r.json()
       next = CascadeCore.parseServerStyle(raw)
@@ -11421,7 +11681,7 @@ async function publishServerStyle(mode) {
     }
     body = { mode, enforce: { theme: mode === 'enforced' && !!preset.theme, lyrics: mode === 'enforced' && !!preset.lyrics }, preset }
   }
-  const r = await fetch(`${jf.url}/CascadeServer/Style`, {
+  const r = await jfFetch(`${jf.url}/CascadeServer/Style`, {
     method: mode === 'off' ? 'DELETE' : 'PUT',
     headers: { ...CascadeCore.authHeaders(jf), 'Content-Type': 'application/json' },
     body: mode === 'off' ? undefined : JSON.stringify(body),
@@ -11477,7 +11737,7 @@ async function _flushExplicit() {
   while (_explicitPending.length) {
     const ids = _explicitPending.splice(0, 500)
     try {
-      const r = await fetch(`${jf.url}/CascadeServer/Explicit/Query`, {
+      const r = await jfFetch(`${jf.url}/CascadeServer/Explicit/Query`, {
         method: 'POST',
         headers: { ...CascadeCore.authHeaders(jf), 'Content-Type': 'application/json' },
         body: JSON.stringify({ Ids: ids }),
@@ -11621,7 +11881,7 @@ async function openSpotifyLinkModal() {
   // What it is linked to now: a hand link can be removed, handing the song
   // back to the automatic lookup.
   try {
-    const r = await fetch(`${jf.url}/CascadeServer/SpotifyId/${item.Id}`, { headers: CascadeCore.authHeaders(jf) })
+    const r = await jfFetch(`${jf.url}/CascadeServer/SpotifyId/${item.Id}`, { headers: CascadeCore.authHeaders(jf) })
     const cur = r.ok ? await r.json() : null
     if (_spotifyLinkItem !== item) return
     if (cur?.spotifyId && !input.value) input.value = `https://open.spotify.com/track/${cur.spotifyId}`
@@ -11638,7 +11898,7 @@ async function _spotifyLinkRequest(method, body) {
   const item = _spotifyLinkItem
   const error = document.getElementById('spotify-link-error')
   try {
-    const r = await fetch(`${jf.url}/CascadeServer/SpotifyId/${item.Id}`, {
+    const r = await jfFetch(`${jf.url}/CascadeServer/SpotifyId/${item.Id}`, {
       method,
       headers: CascadeCore.authHeaders(jf, body ? { 'Content-Type': 'application/json' } : {}),
       body: body ? JSON.stringify(body) : undefined,
@@ -11762,7 +12022,7 @@ window.cascadeDebug = {
     const durationMs = (item.RunTimeTicks || 0) / 10_000
     const q = s => `"${s.replace(/["\\]/g, '\\$&')}"`
     const mb = async url => {
-      const r = await fetch(url)
+      const r = await webFetch(url)
       if (!r.ok) throw new Error(`MusicBrainz HTTP ${r.status}`)
       return r.json()
     }
@@ -11790,7 +12050,7 @@ window.cascadeDebug = {
     if (!spotifyId) spotifyId = await this.spotifyId(cur)
     if (!spotifyId) return
     const id = String(spotifyId || '').trim().replace(/^spotify:track:/, '').replace(/^https?:\/\/open\.spotify\.com\/track\//, '').split('?')[0]
-    const r = await fetch(`${jf.url}/CascadeServer/SpicyLyrics/${encodeURIComponent(id)}`, { headers: CascadeCore.authHeaders(jf) })
+    const r = await jfFetch(`${jf.url}/CascadeServer/SpicyLyrics/${encodeURIComponent(id)}`, { headers: CascadeCore.authHeaders(jf) })
     const body = await r.json().catch(() => null)
     if (!r.ok) return console.error(`[cascadeDebug] HTTP ${r.status}`, body ?? '(no body; 404 with no body means the plugin is older than this route, 401/403 means not an admin)')
     const conv = CascadeCore.convertSpicyLyrics(body.spicy)
@@ -12029,7 +12289,7 @@ window.cascade.metadataEditor.onSaved(async (itemId) => {
 
   if (queue[queueIndex]?.Id !== itemId) return
   try {
-    const res = await jfGet(`/Users/${jf.userId}/Items`, {
+    const res = await jfGet(`/Items`, {
       Ids: itemId,
       Fields: 'AlbumId,AlbumPrimaryImageTag,UserData',
     })
@@ -12184,6 +12444,13 @@ function fetchLyricsWaterfall(item) {
 }
 
 async function _lyricsWaterfall(item) {
+  // Offline, the only lyrics are the ones saved with the download. Not
+  // cached: going back online should search again.
+  if (jfClient.offline) {
+    const saved = _offlineCatalog ? CascadeCore.lyricsOf(_offlineCatalog, item.Id, new Date()) : null
+    _lastFetchStatus = { Cascade: null, Kugou: null, LRCLIB: null, Jellyfin: null }
+    return saved ? { lines: saved.lines, source: CascadeCore.lyricsSourceLabel(saved), credit: saved.credit, tried: {} } : null
+  }
   const forced = lyricsForcedSource && lyricsForcedSource !== 'auto' ? lyricsForcedSource : null
 
   // Bypass cache when a source is forced so the user always gets a fresh fetch
@@ -12218,7 +12485,7 @@ async function _lyricsWaterfall(item) {
       // own files. A forced karaoke/synced choice means exactly those files.
       const url = !wantType && _cascadePluginCaps.has('syllable')
         ? `${cascadeLyricsUrl(item.Id)}?syllable=true${_localSpotifyParam(item.Id)}` : cascadeLyricsUrl(item.Id)
-      const r = await fetch(url,
+      const r = await jfFetch(url,
         { headers: CascadeCore.authHeaders(jf), signal: AbortSignal.timeout(8000) })
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       let d = await r.json()
@@ -12236,7 +12503,7 @@ async function _lyricsWaterfall(item) {
         }
         // Unusable SpicyLyrics body: ask again for the plugin's own files
         // rather than showing nothing when they exist.
-        const r2 = await fetch(cascadeLyricsUrl(item.Id),
+        const r2 = await jfFetch(cascadeLyricsUrl(item.Id),
           { headers: CascadeCore.authHeaders(jf), signal: AbortSignal.timeout(8000) })
         if (!r2.ok) throw new Error(`HTTP ${r2.status}`)
         d = await r2.json()
@@ -12277,7 +12544,7 @@ async function _lyricsWaterfall(item) {
       return { lines, source: 'Kugou' }
     }],
     ['LRCLIB', async () => {
-      const r = await fetch(
+      const r = await webFetch(
         `https://lrclib.net/api/get?artist_name=${artist}&track_name=${title}&album_name=${album}&duration=${duration}`, sig)
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       const d = await r.json()
@@ -12294,7 +12561,7 @@ async function _lyricsWaterfall(item) {
       return null
     }],
     ['Jellyfin', async () => {
-      const r = await fetch(`${jf.url}/Audio/${item.Id}/Lyrics`,
+      const r = await jfFetch(`${jf.url}/Audio/${item.Id}/Lyrics`,
         { headers: CascadeCore.authHeaders(jf), ...sig })
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       const d = await r.json()
@@ -12336,7 +12603,7 @@ async function _lyricsWaterfall(item) {
   const spicyProm = (async () => {
     await _cascadePluginProbed
     if (_cascadePluginAbsent || !_cascadePluginCaps.has('syllable')) return null
-    const r = await fetch(`${cascadeLyricsUrl(item.Id)}?syllable=true&spicyOnly=true${_localSpotifyParam(item.Id)}`, { headers: CascadeCore.authHeaders(jf), ...sig })
+    const r = await jfFetch(`${cascadeLyricsUrl(item.Id)}?syllable=true&spicyOnly=true${_localSpotifyParam(item.Id)}`, { headers: CascadeCore.authHeaders(jf), ...sig })
     if (!r.ok) return null
     const d = await r.json()
     if (d?.type !== 'syllable') return null
@@ -13244,14 +13511,14 @@ async function runSearch(query) {
     const wantShows   = showLibIds.length  > 0
 
     const [songsRes, albumsRes, artistsRes, moviesRes, showsRes] = await Promise.allSettled([
-      jfGetMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 10, IncludeItemTypes: 'Audio', Fields: 'AlbumId,AlbumPrimaryImageTag' }),
-      jfGetMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 8,  IncludeItemTypes: 'MusicAlbum' }),
+      jfGetMerged(`/Items`, { SearchTerm: query, Recursive: true, Limit: 10, IncludeItemTypes: 'Audio', Fields: 'AlbumId,AlbumPrimaryImageTag' }),
+      jfGetMerged(`/Items`, { SearchTerm: query, Recursive: true, Limit: 8,  IncludeItemTypes: 'MusicAlbum' }),
       jfGetMerged(`/Artists`,                  { SearchTerm: query, UserId: jf.userId, Limit: 8 }),
       wantMovies
-        ? jfClient.getMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 8, IncludeItemTypes: 'Movie', Fields: 'ProductionYear' }, movieLibIds)
+        ? jfClient.getMerged(`/Items`, { SearchTerm: query, Recursive: true, Limit: 8, IncludeItemTypes: 'Movie', Fields: 'ProductionYear' }, movieLibIds)
         : Promise.resolve({ Items: [] }),
       wantShows
-        ? jfClient.getMerged(`/Users/${jf.userId}/Items`, { SearchTerm: query, Recursive: true, Limit: 8, IncludeItemTypes: 'Series', Fields: 'ProductionYear' }, showLibIds)
+        ? jfClient.getMerged(`/Items`, { SearchTerm: query, Recursive: true, Limit: 8, IncludeItemTypes: 'Series', Fields: 'ProductionYear' }, showLibIds)
         : Promise.resolve({ Items: [] }),
     ])
     // jfGetMerged returns up to Limit x libraryCount - trim back to the intended size.
@@ -13790,6 +14057,8 @@ const NEUTRAL_ART_SAT = 0.18
 // rather than only its colours.
 function themeFromArtUrl(art) {
   if (!art) return
+  // offline-ok: art is a downloaded cover (cascade-offline://) as often as the
+  // server's; offline, main's block or no network answers a server URL.
   fetch(art)
     .then(r => r.blob())
     .then(blob => {

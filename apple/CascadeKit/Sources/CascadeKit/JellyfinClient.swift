@@ -118,9 +118,12 @@ public actor JellyfinClient {
     private let injectedSession: URLSession?
     private var session: URLSession { injectedSession ?? ProxyConnection.shared.session }
 
-    public init(config: ServerConfig, session: URLSession? = nil) {
+    /// `offlineCatalog` starts it in Offline Mode, so not even the first
+    /// request of a launch with the switch on reaches the server.
+    public init(config: ServerConfig, session: URLSession? = nil, offlineCatalog: OfflineIndex? = nil) {
         self.config = config
         self.injectedSession = session
+        self.offlineEngine = offlineCatalog.map { OfflineQuery.Engine($0) }
     }
 
     /// Sign-in replaces the whole config, so callers hold the client and swap
@@ -128,6 +131,49 @@ public actor JellyfinClient {
     /// still being used somewhere.
     public func update(config: ServerConfig) { self.config = config }
     public var currentConfig: ServerConfig { config }
+
+    // MARK: Offline Mode
+
+    /// While set, nothing reaches the server: a GET is answered from the
+    /// downloads by the offline engine, in the server's JSON, so every call
+    /// site decodes it as it would a reply; any other request throws
+    /// OfflineError. Built here from the catalog, so the engine never leaves
+    /// the actor.
+    private var offlineEngine: OfflineQuery.Engine?
+    /// Told about each request that failed while online: the HTTP status, or
+    /// nil when nothing answered. AppState reads drops from it.
+    private var failureHandler: (@Sendable (Int?) -> Void)?
+
+    /// Turns Offline Mode on with the catalog as it is now (call again when
+    /// it changes), or off with nil.
+    public func setOfflineCatalog(_ index: OfflineIndex?) {
+        offlineEngine = index.map { OfflineQuery.Engine($0) }
+    }
+
+    public var isOffline: Bool { offlineEngine != nil }
+
+    /// The libraries a music query is scoped to: the saved choice, and
+    /// offline also the placeholder libraries older downloads sit in, which
+    /// the server never listed, so no saved choice can hold them. The
+    /// desktop's libraries().
+    public var libraryScope: [String] {
+        let ids = config.libraryIds
+        guard offlineEngine != nil, !ids.isEmpty else { return ids }
+        return ids + OfflineIndex.placeholderOrder.compactMap { OfflineIndex.placeholderLibraries[$0]?.id }
+    }
+
+    public func onFailure(_ handler: (@Sendable (Int?) -> Void)?) { failureHandler = handler }
+
+    /// Whether the server answers at all: its public ping, briefly. Sent
+    /// whatever the offline state, since it is how the unreachable state
+    /// ends; it carries no token and changes nothing.
+    public func serverAnswers() async -> Bool {
+        guard let url = URL(string: config.url + "/System/Ping") else { return false }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5
+        guard let (_, response) = try? await session.data(for: request) else { return false }
+        return (response as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } ?? false
+    }
 
     private func makeURL(_ path: String, _ params: [String: String?]) throws -> URL {
         guard var components = URLComponents(string: config.url + path) else {
@@ -148,10 +194,19 @@ public actor JellyfinClient {
     }
 
     private func send(_ request: URLRequest) async throws -> Data {
+        if let offlineEngine {
+            return try OfflineMode.answer(request, base: config.url, engine: offlineEngine)
+        }
         var request = request
         request.setValue(authHeader(appVersion: cascadeAppVersion, deviceId: config.deviceId, token: config.token),
                          forHTTPHeaderField: "Authorization")
-        let (data, response) = try await session.data(for: request)
+        let data: Data, response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            if OfflineMode.isNoAnswer(error) { failureHandler?(nil) }
+            throw error
+        }
         guard let http = response as? HTTPURLResponse else {
             throw JellyfinError(status: 0, message: "No HTTP response")
         }
@@ -160,6 +215,7 @@ public actor JellyfinClient {
         // and one mutated local state anyway, so a refused delete looked
         // identical to a successful one.
         guard (200..<300).contains(http.statusCode) else {
+            failureHandler?(http.statusCode)
             throw JellyfinError(status: http.statusCode, message: errorMessage(response: http, body: data))
         }
         return data
@@ -221,6 +277,8 @@ public actor JellyfinClient {
     }
 
     /// Primary image URL for an item. No tag means no art, so no URL.
+    /// Offline, none: the art views read the downloaded cover first, and a
+    /// cover that is not on disk is a placeholder rather than a request.
     public func artUrl(itemId: String, tag: String?) -> URL? {
         guard tag != nil else { return nil }
         return imageUrl(itemId: itemId)
@@ -229,12 +287,14 @@ public actor JellyfinClient {
     /// Any image type at a given box, for posters (2:3), stills (16:9) and
     /// backdrops, which a square request would crop.
     public func imageUrl(itemId: String, type: String, width: Int, height: Int) -> URL? {
-        URL(string: "\(config.url)/Items/\(itemId)/Images/\(type)"
+        guard offlineEngine == nil else { return nil }
+        return URL(string: "\(config.url)/Items/\(itemId)/Images/\(type)"
             + "?fillHeight=\(height)&fillWidth=\(width)&quality=90&ApiKey=\(config.token)")
     }
 
     public func imageUrl(itemId: String, size: Int = 600) -> URL? {
-        URL(string: "\(config.url)/Items/\(itemId)/Images/Primary"
+        guard offlineEngine == nil else { return nil }
+        return URL(string: "\(config.url)/Items/\(itemId)/Images/Primary"
             + "?fillHeight=\(size)&fillWidth=\(size)&quality=90&ApiKey=\(config.token)")
     }
 }

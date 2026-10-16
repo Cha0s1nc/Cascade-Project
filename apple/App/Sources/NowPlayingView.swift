@@ -360,8 +360,11 @@ struct NowPlayingView: View {
                     }
                 }
                 lyricsSourceMenu
-                Button("Control Devices\u{2026}", systemImage: "hifispeaker.2") { controllingDevices = true }
-                if state.cascadePluginInfo.spotifyLink {
+                // Other devices and Spotify links both need the server.
+                if !state.isOffline {
+                    Button("Control Devices\u{2026}", systemImage: "hifispeaker.2") { controllingDevices = true }
+                }
+                if state.cascadePluginInfo.spotifyLink, !state.isOffline {
                     Button("Link Spotify Track\u{2026}", systemImage: "link") { linkingSpotify = true }
                 }
                 #endif
@@ -642,7 +645,7 @@ struct NowPlayingView: View {
                     .foregroundStyle(.white.opacity(0.5))
                 #if os(iOS)
                 // The way in when SpicyLyrics could not find the song itself.
-                if !lyrics.instrumental, state.cascadePluginInfo.spotifyLink {
+                if !lyrics.instrumental, state.cascadePluginInfo.spotifyLink, !state.isOffline {
                     Button("Link a Spotify Track") { linkingSpotify = true }
                         .buttonStyle(.bordered)
                         .tint(.white)

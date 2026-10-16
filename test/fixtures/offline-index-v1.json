@@ -1,0 +1,38 @@
+{
+  "tracks": {
+    "a1b2c3d4e5f60718293a4b5c6d7e8f90": {
+      "item": {
+        "Id": "a1b2c3d4e5f60718293a4b5c6d7e8f90", "Name": "Intro", "Type": "Audio", "MediaType": "Audio",
+        "Album": "First Light", "AlbumId": "0aa1bb2cc3dd4ee5ff60718293a4b5c6", "AlbumArtist": "The Lanterns",
+        "Artists": ["The Lanterns"], "AlbumPrimaryImageTag": "f0e1d2c3b4a5", "RunTimeTicks": 1835000000,
+        "IndexNumber": 1, "ParentIndexNumber": 1, "ProductionYear": 2019, "SortName": "0001 - 0001 - intro",
+        "NormalizationGain": -6.2, "ImageTags": { "Primary": "f0e1d2c3b4a5" }
+      },
+      "file": "media/a1b2c3d4e5f60718293a4b5c6d7e8f90.flac",
+      "bytes": 21456789
+    },
+    "b2c3d4e5f60718293a4b5c6d7e8f90a1": {
+      "item": {
+        "Id": "b2c3d4e5f60718293a4b5c6d7e8f90a1", "Name": "Harbor", "Type": "Audio", "MediaType": "Audio",
+        "Album": "First Light", "AlbumId": "0aa1bb2cc3dd4ee5ff60718293a4b5c6", "AlbumArtist": "The Lanterns",
+        "Artists": ["The Lanterns", "Mira Vale"], "AlbumPrimaryImageTag": "f0e1d2c3b4a5", "RunTimeTicks": 2412000000,
+        "IndexNumber": 2, "ParentIndexNumber": 1, "ProductionYear": 2019, "SortName": "0001 - 0002 - harbor"
+      },
+      "file": null,
+      "bytes": 0
+    }
+  },
+  "collections": [
+    {
+      "item": {
+        "Id": "0aa1bb2cc3dd4ee5ff60718293a4b5c6", "Name": "First Light", "Type": "MusicAlbum",
+        "AlbumArtist": "The Lanterns", "ProductionYear": 2019, "ChildCount": 2, "SortName": "first light",
+        "ImageTags": { "Primary": "f0e1d2c3b4a5" }
+      },
+      "trackIds": ["a1b2c3d4e5f60718293a4b5c6d7e8f90", "b2c3d4e5f60718293a4b5c6d7e8f90a1"]
+    }
+  ],
+  "plays": [
+    { "itemId": "a1b2c3d4e5f60718293a4b5c6d7e8f90", "userId": "5f6e7d8c-9b0a-4c1d-8e2f-3a4b5c6d7e8f", "date": "2026-09-30T18:22:41.000Z" }
+  ]
+}

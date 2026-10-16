@@ -26,6 +26,22 @@ export interface JfMediaStream {
   IsForced?: boolean
   /** False for bitmap subtitles (PGS, VOBSUB), which a <track> cannot render. */
   IsTextSubtitleStream?: boolean
+  IsExternal?: boolean
+  Channels?: number
+  Width?: number
+  Height?: number
+}
+
+/** A name with the id it refers to, as Jellyfin nests artists and genres in
+ *  an item (ArtistItems, AlbumArtists, GenreItems). */
+export interface JfNameId {
+  Id: string
+  Name?: string
+}
+
+export interface JfChapter {
+  StartPositionTicks?: number
+  Name?: string
 }
 
 /** A track, album, artist, or playlist. Jellyfin returns one shape for all of
@@ -79,9 +95,19 @@ export interface JfItem {
   ParentIndexNumber?: number
   /** Populated with Fields=MediaStreams. Drives subtitle track selection. */
   MediaStreams?: JfMediaStream[]
-  MediaSources?: { Id?: string, Container?: string, Bitrate?: number }[]
+  MediaSources?: { Id?: string, Container?: string, Bitrate?: number, Size?: number }[]
+  Chapters?: JfChapter[]
 
-  /** Only on library views (/Users/{id}/Views) - 'music', 'musicvideos', etc.
+  ArtistItems?: JfNameId[]
+  AlbumArtists?: JfNameId[]
+  GenreItems?: JfNameId[]
+
+  NormalizationGain?: number
+  OfficialRating?: string
+  CommunityRating?: number
+  BackdropImageTags?: string[]
+
+  /** Only on library views (/UserViews) - 'music', 'musicvideos', etc.
    *  Used to filter the library picker down to music libraries. */
   CollectionType?: string
 

@@ -76,7 +76,7 @@ private struct LibraryToolbar: ViewModifier {
     func body(content: Content) -> some View {
         content
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItemGroup(placement: .topBarLeading) {
                     @Bindable var state = state
                     Button {
                         state.browseMode = state.browseMode == .music ? .video : .music
@@ -84,6 +84,9 @@ private struct LibraryToolbar: ViewModifier {
                         Image(systemName: state.browseMode == .music ? "film" : "music.note")
                     }
                     .accessibilityLabel(state.browseMode == .music ? "Browse Video" : "Browse Music")
+                    if state.isOffline {
+                        NavigationLink(value: AppRoute.downloads) { OfflinePill() }
+                    }
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     NavigationLink(value: AppRoute.search) {
@@ -96,11 +99,14 @@ private struct LibraryToolbar: ViewModifier {
                         Image(systemName: "arrow.down.circle")
                     }
                     .accessibilityLabel("Downloads")
-                    Button { controllingDevices = true } label: {
-                        Image(systemName: state.controlledDevice == nil && state.waterfall?.isActive != true
-                              ? "hifispeaker.2" : "hifispeaker.2.fill")
+                    // Other devices and Waterfall both need the server.
+                    if !state.isOffline {
+                        Button { controllingDevices = true } label: {
+                            Image(systemName: state.controlledDevice == nil && state.waterfall?.isActive != true
+                                  ? "hifispeaker.2" : "hifispeaker.2.fill")
+                        }
+                        .accessibilityLabel("Control Devices")
                     }
-                    .accessibilityLabel("Control Devices")
                     NavigationLink(value: AppRoute.settings) {
                         Image(systemName: "gear")
                     }
@@ -108,6 +114,7 @@ private struct LibraryToolbar: ViewModifier {
                 }
             }
             .sheet(isPresented: $controllingDevices) { DevicesSheet().environment(state) }
+            .safeAreaInset(edge: .top, spacing: 0) { OfflineBanner() }
     }
 }
 #endif

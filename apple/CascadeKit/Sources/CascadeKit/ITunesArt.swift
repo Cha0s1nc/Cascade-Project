@@ -101,6 +101,7 @@ public actor ITunesArt {
     public init(fetch: @escaping Fetch) { self.fetch = fetch }
 
     public static let urlSessionFetch: Fetch = { url in
+        try OfflineGate.shared.check()
         var req = URLRequest(url: url); req.timeoutInterval = 7
         let (data, resp) = try await URLSession.shared.data(for: req)
         return (data, (resp as? HTTPURLResponse)?.statusCode ?? 0)

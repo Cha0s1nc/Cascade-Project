@@ -2,6 +2,7 @@
 // which exist on webOS/Tizen and in React Native.
 
 import type { JfItem, JfItemsResponse, JfAuthResult, JfParams, ServerConfig } from './types.ts'
+import { placeholderLibraryIds } from './offline-query.ts'
 
 const EMPTY_RESPONSE: JfItemsResponse = { Items: [], TotalRecordCount: 0 }
 
@@ -311,11 +312,59 @@ export async function quickConnectAuthorize(config: ServerConfig, code: string):
   return await res.json() === true
 }
 
+/** Thrown instead of sending a request while Offline Mode is on: the caller
+ *  shows "Not available offline" rather than a network error. */
+export class OfflineError extends Error {
+  readonly offline = true
+  constructor(message = 'Not available offline') {
+    super(message)
+    this.name = 'OfflineError'
+  }
+}
+
+/** An answer to a GET from the offline catalog (offline-query.ts). */
+export type OfflineSource = (path: string, params: JfParams) => { status: number, body: unknown }
+
+/** A failed request with the HTTP status, when the server gave one. */
+export class JellyfinHttpError extends Error {
+  readonly status: number
+  constructor(status: number, statusText: string) {
+    super(`${status} ${statusText}`)
+    this.status = status
+  }
+}
+
 export class JellyfinClient {
   // Written out longhand rather than as a constructor parameter property:
   // Node's strip-only TypeScript mode (what `npm test` uses) rejects those,
   // since they emit code instead of only removing types.
   private readonly getConfig: () => ServerConfig
+
+  /** While set, Offline Mode is on: every GET is answered from it and no
+   *  request goes out (docs/offline-mode-plan.md, section 2). This is the one
+   *  swap point for the reads, so the screens and every src/core module
+   *  handed this client switch together. */
+  private offlineSource: OfflineSource | null = null
+
+  /** Told about every request that failed, with its HTTP status, or null
+   *  when there was no answer at all: how a drop mid-session is noticed. */
+  onFailure: ((status: number | null) => void) | null = null
+
+  setOfflineSource(source: OfflineSource | null): void {
+    this.offlineSource = source
+  }
+
+  get offline(): boolean {
+    return this.offlineSource !== null
+  }
+
+  /** The libraries a query fans out over. Offline, a chosen list also covers
+   *  the placeholder libraries, where downloads whose library is not known
+   *  yet are kept, so they show whatever the person chose (plan, section 1). */
+  private libraries(libraryIds?: string[]): string[] {
+    const ids = libraryIds ?? this.config.libraryIds ?? []
+    return this.offlineSource && ids.length ? [...ids, ...placeholderLibraryIds()] : ids
+  }
 
   /**
    * Takes a *getter* rather than a config object because the renderer replaces
@@ -344,6 +393,11 @@ export class JellyfinClient {
   }
 
   async get<T = JfItemsResponse>(path: string, params: JfParams = {}): Promise<T> {
+    if (this.offlineSource) {
+      const answer = this.offlineSource(path, params)
+      if (answer.status !== 200) throw new JellyfinHttpError(answer.status, 'Not downloaded')
+      return answer.body as T
+    }
     const { url } = this.config
     const target = new URL(`${url}${path}`)
 
@@ -354,12 +408,28 @@ export class JellyfinClient {
       target.searchParams.set(k, String(v))
     }
 
-    const res = await fetch(target, { headers: this.headers() })
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+    const res = await this.send(target, { headers: this.headers() })
+    if (!res.ok) throw this.failed(res)
     return res.json() as Promise<T>
   }
 
+  /** fetch, telling onFailure when nothing answered. */
+  private async send(target: URL, init: RequestInit): Promise<Response> {
+    try {
+      return await fetch(target, init)
+    } catch (e) {
+      this.onFailure?.(null)
+      throw e
+    }
+  }
+
+  private failed(res: Response): JellyfinHttpError {
+    this.onFailure?.(res.status)
+    return new JellyfinHttpError(res.status, res.statusText)
+  }
+
   async post<T>(path: string, body: unknown, params: JfParams = {}): Promise<T> {
+    if (this.offlineSource) throw new OfflineError()
     const { url } = this.config
     const target = new URL(`${url}${path}`)
     for (const [k, v] of Object.entries(params)) {
@@ -367,12 +437,12 @@ export class JellyfinClient {
       target.searchParams.set(k, String(v))
     }
 
-    const res = await fetch(target, {
+    const res = await this.send(target, {
       method: 'POST',
       headers: this.headers({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(body),
     })
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+    if (!res.ok) throw this.failed(res)
     // Some POSTs answer 204 with no body (/Sessions/Capabilities/Full does).
     // Parsing that as JSON threw "Unexpected end of JSON input", which made
     // remote-control registration fail on every start.
@@ -389,6 +459,7 @@ export class JellyfinClient {
    * carrying on.
    */
   async del(path: string, params: JfParams = {}): Promise<boolean> {
+    if (this.offlineSource) return false
     const { url } = this.config
     const target = new URL(`${url}${path}`)
     for (const [k, v] of Object.entries(params)) {
@@ -415,7 +486,7 @@ export class JellyfinClient {
    * music libraries and a music query never touches the movie ones.
    */
   async getMerged(path: string, params: JfParams = {}, libraryIds?: string[]): Promise<JfItemsResponse> {
-    const ids = libraryIds ?? this.config.libraryIds ?? []
+    const ids = this.libraries(libraryIds)
     if (!ids.length) return this.get<JfItemsResponse>(path, params)
 
     const { query, strip } = withDedupeFields(params, ids)
@@ -433,7 +504,7 @@ export class JellyfinClient {
    * single unlabelled group, mirroring `getMerged`'s no-library behaviour.
    */
   async getGrouped(path: string, params: JfParams = {}, libraryIds?: string[]): Promise<{ libraryId: string, items: JfItem[] }[]> {
-    const ids = libraryIds ?? this.config.libraryIds ?? []
+    const ids = this.libraries(libraryIds)
     if (!ids.length) {
       const res = await this.get<JfItemsResponse>(path, params)
       return [{ libraryId: '', items: res.Items || [] }]
@@ -444,7 +515,7 @@ export class JellyfinClient {
         .catch(() => EMPTY_RESPONSE)
     ))
 
-    return ids.map((libId, i) => ({ libraryId: libId, items: results[i].Items || [] }))
+    return this.shown(ids.map((libId, i) => ({ libraryId: libId, items: results[i].Items || [] })))
   }
 
   /**
@@ -453,7 +524,7 @@ export class JellyfinClient {
    * fetched in parallel once the first page reveals TotalRecordCount.
    */
   async getAllPaged(path: string, params: JfParams = {}, libraryIds?: string[]): Promise<JfItemsResponse> {
-    const configured = libraryIds ?? this.config.libraryIds
+    const configured = this.libraries(libraryIds)
     const ids: (string | null)[] = configured?.length ? configured : [null]
     const { query, strip } = withDedupeFields(params, configured ?? [])
 
@@ -465,11 +536,17 @@ export class JellyfinClient {
 
   /** `getGrouped`, but paging each library to the end like `getAllPaged`. */
   async getAllGrouped(path: string, params: JfParams = {}, libraryIds?: string[]): Promise<{ libraryId: string, items: JfItem[] }[]> {
-    const ids = libraryIds ?? this.config.libraryIds ?? []
+    const ids = this.libraries(libraryIds)
     if (!ids.length) return [{ libraryId: '', items: await this.getAll(path, params) }]
 
     const results = await Promise.all(ids.map(libId => this.getAll(path, { ...params, ParentId: libId })))
-    return ids.map((libId, i) => ({ libraryId: libId, items: results[i] }))
+    return this.shown(ids.map((libId, i) => ({ libraryId: libId, items: results[i] })))
+  }
+
+  /** Offline, a library with nothing downloaded is not a group worth a
+   *  heading. Online every chosen library shows, empty or not. */
+  private shown(groups: { libraryId: string, items: JfItem[] }[]): { libraryId: string, items: JfItem[] }[] {
+    return this.offlineSource ? groups.filter(g => g.items.length) : groups
   }
 
   /** Every item one query matches, paged by params.Limit. The pages after the

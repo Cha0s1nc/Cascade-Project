@@ -24,8 +24,23 @@ struct SettingsView: View {
         #endif
     }
 
+    /// The Downloads row's value: how much is saved.
+    private var downloadsSummary: String {
+        guard let offline = state.offline, !offline.index.collections.isEmpty else { return "None" }
+        return ByteCountFormatter.string(fromByteCount: Int64(offline.index.totalBytes), countStyle: .file)
+    }
+
     @ViewBuilder private var phoneBody: some View {
         List {
+            #if os(iOS)
+            OfflineModeSection()
+            Section {
+                NavigationLink(value: AppRoute.downloads) {
+                    LabeledContent("Downloads", value: downloadsSummary)
+                }
+            }
+            #endif
+
             Section("Account") {
                 LabeledContent("Server", value: state.config?.url ?? "")
                 LabeledContent("Signed in as", value: username ?? "")
@@ -33,23 +48,27 @@ struct SettingsView: View {
 
             ProxySettingsSection()
 
-            Section {
-                LoadingOverlay(isLoading: isLoading, error: error, isEmpty: libraries.isEmpty)
-                ForEach(libraries) { library in
-                    Toggle(library.name ?? "Unknown", isOn: Binding(
-                        get: { isOn(library.id) },
-                        set: { setEnabled(library.id, $0) }
-                    ))
-                    // The last library cannot be switched off: with nothing
-                    // left there is nothing to browse.
-                    .disabled(isOn(library.id) && enabledCount == 1)
+            // Offline the list is the downloads' libraries, and a change
+            // here would overwrite the saved choice: it waits for the server.
+            if !state.isOffline {
+                Section {
+                    LoadingOverlay(isLoading: isLoading, error: error, isEmpty: libraries.isEmpty)
+                    ForEach(libraries) { library in
+                        Toggle(library.name ?? "Unknown", isOn: Binding(
+                            get: { isOn(library.id) },
+                            set: { setEnabled(library.id, $0) }
+                        ))
+                        // The last library cannot be switched off: with nothing
+                        // left there is nothing to browse.
+                        .disabled(isOn(library.id) && enabledCount == 1)
+                    }
+                } header: {
+                    Text("Libraries")
+                } footer: {
+                    Text(selected.isEmpty
+                         ? "Showing all libraries."
+                         : "Showing \(selected.count) of \(libraries.count) libraries.")
                 }
-            } header: {
-                Text("Libraries")
-            } footer: {
-                Text(selected.isEmpty
-                     ? "Showing all libraries."
-                     : "Showing \(selected.count) of \(libraries.count) libraries.")
             }
 
             if let player = state.player {
@@ -129,7 +148,7 @@ struct SettingsView: View {
                 }
             }
 
-            if quickConnectEnabled {
+            if quickConnectEnabled && !state.isOffline {
                 Section {
                     TextField("Code", text: $approveCode)
                         #if os(iOS)
@@ -162,15 +181,17 @@ struct SettingsView: View {
                 Text("Which library the tabs show.")
             }
 
-            Section {
-                NavigationLink {
-                    WaterfallView()
-                } label: {
-                    LabeledContent("Waterfall", value: state.waterfall?.isActive == true
-                                   ? (state.waterfall?.role == .host ? "Hosting" : "In a Room") : "Off")
+            if !state.isOffline {
+                Section {
+                    NavigationLink {
+                        WaterfallView()
+                    } label: {
+                        LabeledContent("Waterfall", value: state.waterfall?.isActive == true
+                                       ? (state.waterfall?.role == .host ? "Hosting" : "In a Room") : "Off")
+                    }
+                } footer: {
+                    Text("Listen along with others on this server.")
                 }
-            } footer: {
-                Text("Listen along with others on this server.")
             }
 
             Section {
@@ -202,7 +223,8 @@ struct SettingsView: View {
             // Every music library, not musicLibraries(): that one is filtered
             // to the current selection, so after picking one library the
             // others vanished from this list and could never be picked again.
-            if let url = state.config?.url {
+            // Asks the server directly, not through the client: not offline.
+            if let url = state.config?.url, !state.isOffline {
                 quickConnectEnabled = await QuickConnect.isEnabled(serverUrl: url)
             }
             do { libraries = try await client.views().filter { $0.collectionType == "music" } }

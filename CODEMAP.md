@@ -173,6 +173,23 @@ Mirrors the Apple app's design (`apple/CODEMAP.md`, "Offline downloads").
 - Offline plays: a failed start report (`reportStart` now resolves true or false) queues the play in the main process, and it is replayed as `POST /UserPlayedItems/{id}?userId&datePlayed` on reconnect and after a later report succeeds. 400 and 404 drop a play, anything else keeps it.
 - Not built: transcoded downloads, offline lyrics, an offline mode for the library tabs. Volume normalization offline falls back to unity unless the gain was in the downloaded item.
 
+## Offline Mode, phase 1 (catalog version 2 and the query engine)
+
+The plan is `docs/offline-mode-plan.md`; the requests the engine answers are listed in `docs/offline-request-map.md`. Nothing in the app calls either piece yet (phase 2 wires them).
+- `src/core/offline-index.ts` is now catalog version 2. It keeps version 1's `tracks` / `collections` / `plays` shape, so `offline.js` and the renderer read it unchanged, and a version 1 `index.json` (no `version`) reads as is (`test/fixtures/offline-index-v1.json`). `tracks` holds every file-backed item, movies and episodes included, despite the name. `slimItem` keeps every field a screen reads, type-checked, because it also reads what came off the disk. Video keeps its streams and chapters; audio does not need them.
+- Libraries: each track may carry `library`. `libraryOf()` answers that, or the placeholder for its kind (`PLACEHOLDER_LIBRARIES`, ids `cascade-offline-music` / `-movies` / `-shows`) when it is missing or no longer listed. Everything from version 1 starts in the placeholder.
+- SpicyLyrics saved with a track expire after `SPICY_LYRICS_DAYS` (25). `lyricsOf()` stops answering them then, and an unreadable expiry counts as expired.
+- `src/core/offline-query.ts`: `offlineQuery(index).answer(path, params)` answers a GET in Jellyfin's shape. It answers only ready items. Unknown routes come back as an empty list marked `unknownRoute`, never a network call. Keep one engine per catalog state: parts are built lazily and kept (about 50 ms to build for 20,000 songs, then about 10 ms a request). Sorting compares lowercased text by code point, never `localeCompare`, so the Apple engine orders identically.
+- `test/fixtures/offline-query.json` is shared with CascadeKit's `OfflineQueryTests`. **A change to either engine's behavior needs a case there, and both engines passing it.**
+
+## Offline Mode, phase 2 (the switch, the swap, the guard)
+
+- `src/core/offline-mode.ts` (pure, tested): the three states (`online`, `manual`, `unreachable`), `nextOfflineState`, the probe backoff (30 s doubling to 5 minutes), `failureKind` (no answer, 502, 503 and 504 are unreachable; 401 and 403 are the session, never Offline Mode), `blocksServer` (manual only) and the update-check rules. Apple's `OfflineMode.swift` is the same rules.
+- The swap: `jfClient.setOfflineSource(...)` makes every `jfClient` read answer from the query engine, and adds the placeholder library ids to any fan-out over libraries. Writes through `jfClient` throw `OfflineError`.
+- The guard: everything else the renderer sends to the server goes through `jfFetch` (`renderer.js`, near `const jfFetch`), anything else on the web through `webFetch`; both refuse while offline. `test/offline-guard.test.ts` fails on a raw `fetch(` in `renderer.js`, `waterfall.js` or `lyric-karaoke.js` unless a comment right above it says `offline-ok:` and why.
+- Main's backstop: while manual, `onBeforeRequest` in `main.js` cancels every request to the server's origin (images and media elements included). Off while unreachable, so the probe gets through. Update checks wait while offline and run once on the way back online.
+- `placeOfflineDownloads()` (`renderer.js`) moves downloads out of the placeholder libraries and refreshes their stored fields (`refreshItems`); it runs at sign-in and right after each download. Lyrics are saved with each download (`saveOfflineLyrics`).
+
 ## Measured, not worth building
 
 Taken with the debug panel's resources section on Apple Silicon, playing real audio on the live deck. Recorded so these are not rebuilt on a hunch.

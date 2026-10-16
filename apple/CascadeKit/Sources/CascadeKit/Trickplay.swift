@@ -83,11 +83,13 @@ public struct VideoDetails: Sendable, Equatable {
 
 public extension JellyfinClient {
     /// Chapters and the trickplay manifest in one request. A failed request is
-    /// a video without either, never an error.
+    /// a video without either, never an error. /Items/{id} takes no fields
+    /// parameter and returns both by itself; /Users/{userId}/Items/{id}, used
+    /// here before, is the same handler and marked Obsolete in Jellyfin 12.
     func videoDetails(for item: JfItem) async -> VideoDetails {
         struct Response: Decodable { var chapters: [JfChapter]?; var trickplay: [String: [String: TrickplayInfo]]? }
-        guard let r: Response = try? await get("/Users/\(currentConfig.userId)/Items/\(item.id)",
-                                               params: ["fields": "Chapters,Trickplay"]) else {
+        guard let r: Response = try? await get("/Items/\(item.id)",
+                                               params: ["userId": currentConfig.userId]) else {
             return VideoDetails(chapters: [], trickplay: nil)
         }
         return VideoDetails(chapters: Chapters.list(r.chapters, runTimeTicks: item.runTimeTicks), trickplay: r.trickplay)
