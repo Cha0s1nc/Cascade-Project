@@ -30,6 +30,7 @@ const CustomHeaders = require('./build/custom-headers')
 // Offline downloads: the pure index rules from src/core/offline-index.ts, and the main-process side in offline.js.
 const OfflineIndex = require('./build/offline-index')
 const OfflineMode = require('./build/offline-mode')
+const OfflineVideo = require('./build/offline-video')
 const { createOffline } = require('./offline')
 const crypto = require('crypto')
 const { pathToFileURL } = require('url')
@@ -760,6 +761,7 @@ const offline = createOffline({
   getServerUrl: () => connectionServerUrl,
   headersFor: (url) => CustomHeaders.headersForRequest(url, connectionServerUrl, connectionHeaders),
   Offline: OfflineIndex,
+  Video: OfflineVideo,
 })
 offline.register()
 

@@ -51,7 +51,9 @@ export interface CodecCondition {
  */
 export interface CodecProfile {
   Type: MediaKind
-  Codec: string
+  /** Comma-separated. Absent applies to every codec (checked on jellyfin12:
+   *  a Height condition with no codec capped HEVC and H.264 alike). */
+  Codec?: string
   Conditions: CodecCondition[]
 }
 

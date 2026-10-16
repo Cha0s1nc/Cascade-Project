@@ -1,0 +1,235 @@
+{
+  "about": "PlaybackInfo answers for video downloads, recorded from jellyfin12 (Jellyfin 12.2.0) on 2026-10-15 with ApiKey redacted. outcome is what the server ran, read from its ffmpeg log where noted. Shared by test/offline-video.test.ts and CascadeKit OfflineVideoTests.",
+  "cases": [
+    {
+      "name": "direct-mp4",
+      "note": "H.264/AAC MP4: the original file",
+      "runTimeTicks": 48750000000,
+      "source": {
+        "SupportsDirectPlay": true,
+        "Size": 1659857445,
+        "MediaStreams": [
+          {
+            "Type": "Video",
+            "Index": 0,
+            "Codec": "h264",
+            "Width": 1920,
+            "Height": 1080,
+            "BitRate": 2499542
+          }
+        ]
+      },
+      "outcome": "direct"
+    },
+    {
+      "name": "remux-dts-mkv",
+      "note": "H.264/DTS MKV over the server remote bitrate cap (6 Mbps): ffmpeg ran h264_nvenc",
+      "runTimeTicks": 12900000000,
+      "source": {
+        "SupportsDirectPlay": false,
+        "Size": 1168179304,
+        "MediaStreams": [
+          {
+            "Type": "Video",
+            "Index": 0,
+            "Codec": "h264",
+            "Width": 1920,
+            "Height": 1080,
+            "BitRate": 7608702
+          }
+        ],
+        "TranscodingUrl": "/videos/97948d49-136c-08b4-425b-b9ed0a601413/stream.mp4?DeviceId=cascade-phase3-test&MediaSourceId=97948d49136c08b4425bb9ed0a601413&VideoCodec=h264,hevc&AudioCodec=aac&AudioStreamIndex=1&VideoBitrate=5616000&AudioBitrate=384000&MaxFramerate=23.976025&PlaySessionId=1d5a9b3f3b1a48b49cde6c1c8f258a50&ApiKey=REDACTED&TranscodingMaxAudioChannels=2&RequireAvc=false&EnableAudioVbrEncoding=true&Tag=349fdde527aa08655b5812d0452f00c8&h264-level=41&h264-videobitdepth=8&h264-profile=high&TranscodeReasons=AudioCodecNotSupported,ContainerBitrateExceedsLimit"
+      },
+      "outcome": "reencode"
+    },
+    {
+      "name": "hevc-mkv-desktop",
+      "note": "HEVC/E-AC3 MKV, desktop with HEVC: video copied into MP4, audio to AAC",
+      "runTimeTicks": 6737280000,
+      "source": {
+        "SupportsDirectPlay": false,
+        "Size": 184726547,
+        "MediaStreams": [
+          {
+            "Type": "Video",
+            "Index": 0,
+            "Codec": "hevc",
+            "Width": 1920,
+            "Height": 1080,
+            "BitRate": 2193485
+          }
+        ],
+        "TranscodingUrl": "/videos/74f296ef-ffac-91d8-9577-e9f6490217e8/stream.mp4?DeviceId=cascade-phase3-test&MediaSourceId=74f296efffac91d89577e9f6490217e8&VideoCodec=h264,hevc&AudioCodec=aac&AudioStreamIndex=1&VideoBitrate=5616000&AudioBitrate=384000&MaxFramerate=23.976025&PlaySessionId=6a60c3c673ec421d890b88eca82a9807&ApiKey=REDACTED&TranscodingMaxAudioChannels=2&RequireAvc=false&EnableAudioVbrEncoding=true&Tag=7ee38051a7bdde52893b3661e3e36def&hevc-level=120&hevc-videobitdepth=8&hevc-profile=main&TranscodeReasons=VideoCodecNotSupported,AudioCodecNotSupported"
+      },
+      "outcome": "remux"
+    },
+    {
+      "name": "hevc-mkv-apple",
+      "note": "HEVC/E-AC3 MKV, Apple: ffmpeg ran -codec:v:0 copy -codec:a:0 copy",
+      "runTimeTicks": 6737280000,
+      "source": {
+        "SupportsDirectPlay": false,
+        "Size": 184726547,
+        "MediaStreams": [
+          {
+            "Type": "Video",
+            "Index": 0,
+            "Codec": "hevc",
+            "Width": 1920,
+            "Height": 1080,
+            "BitRate": 2193485
+          }
+        ],
+        "TranscodingUrl": "/videos/74f296ef-ffac-91d8-9577-e9f6490217e8/stream.mp4?DeviceId=cascade-phase3-test&MediaSourceId=74f296efffac91d89577e9f6490217e8&VideoCodec=h264,hevc&AudioCodec=eac3&AudioStreamIndex=1&VideoBitrate=5776000&AudioBitrate=224000&AudioSampleRate=48000&MaxFramerate=23.976025&PlaySessionId=f645309f02bd489d896eb6bd10f94014&ApiKey=REDACTED&TranscodingMaxAudioChannels=6&RequireAvc=false&EnableAudioVbrEncoding=true&Tag=7ee38051a7bdde52893b3661e3e36def&hevc-level=120&hevc-videobitdepth=8&hevc-profile=main&hevc-audiochannels=2&TranscodeReasons=ContainerNotSupported"
+      },
+      "outcome": "remux"
+    },
+    {
+      "name": "dts-mkv-apple",
+      "note": "H.264/DTS MKV over the remote cap on Apple: re-encoded",
+      "runTimeTicks": 12900000000,
+      "source": {
+        "SupportsDirectPlay": false,
+        "Size": 1168179304,
+        "MediaStreams": [
+          {
+            "Type": "Video",
+            "Index": 0,
+            "Codec": "h264",
+            "Width": 1920,
+            "Height": 1080,
+            "BitRate": 7608702
+          }
+        ],
+        "TranscodingUrl": "/videos/97948d49-136c-08b4-425b-b9ed0a601413/stream.mp4?DeviceId=cascade-phase3-test&MediaSourceId=97948d49136c08b4425bb9ed0a601413&VideoCodec=h264,hevc&AudioCodec=aac,ac3,eac3&AudioStreamIndex=1&VideoBitrate=5360000&AudioBitrate=640000&MaxFramerate=23.976025&PlaySessionId=93a9f174dd8946659fb4ee7a0a568fdb&ApiKey=REDACTED&TranscodingMaxAudioChannels=6&RequireAvc=false&EnableAudioVbrEncoding=true&Tag=349fdde527aa08655b5812d0452f00c8&h264-level=41&h264-videobitdepth=8&h264-profile=high&TranscodeReasons=AudioCodecNotSupported,ContainerBitrateExceedsLimit"
+      },
+      "outcome": "reencode"
+    },
+    {
+      "name": "cap1080-of-1080",
+      "note": "1080p cap on a 1080p file: the original file",
+      "runTimeTicks": 48750000000,
+      "source": {
+        "SupportsDirectPlay": true,
+        "Size": 1659857445,
+        "MediaStreams": [
+          {
+            "Type": "Video",
+            "Index": 0,
+            "Codec": "h264",
+            "Width": 1920,
+            "Height": 1080,
+            "BitRate": 2499542
+          }
+        ]
+      },
+      "outcome": "direct"
+    },
+    {
+      "name": "cap720-of-1080",
+      "note": "720p cap on a 1080p file: ffmpeg scaled with h264_nvenc",
+      "runTimeTicks": 48750000000,
+      "source": {
+        "SupportsDirectPlay": false,
+        "Size": 1659857445,
+        "MediaStreams": [
+          {
+            "Type": "Video",
+            "Index": 0,
+            "Codec": "h264",
+            "Width": 1920,
+            "Height": 1080,
+            "BitRate": 2499542
+          }
+        ],
+        "TranscodingUrl": "/videos/30a93599-614c-843e-8875-267af82ea612/stream.mp4?DeviceId=cascade-phase3-test&MediaSourceId=30a93599614c843e8875267af82ea612&VideoCodec=h264,hevc&AudioCodec=aac&AudioStreamIndex=1&VideoBitrate=5775999&AudioBitrate=224001&MaxFramerate=23.976&MaxWidth=1280&MaxHeight=720&PlaySessionId=a1981f0802094ad88c4173108ee0a3ea&ApiKey=REDACTED&TranscodingMaxAudioChannels=2&RequireAvc=false&EnableAudioVbrEncoding=true&Tag=d7cebaefe6d6084e6b9ddd4555a6c4b1&h264-level=41&h264-videobitdepth=8&h264-profile=high&TranscodeReasons=VideoResolutionNotSupported,AudioChannelsNotSupported"
+      },
+      "outcome": "reencode"
+    },
+    {
+      "name": "cap720-hevc-apple",
+      "note": "720p cap on a 1080p HEVC file: re-encoded",
+      "runTimeTicks": 6737280000,
+      "source": {
+        "SupportsDirectPlay": false,
+        "Size": 184726547,
+        "MediaStreams": [
+          {
+            "Type": "Video",
+            "Index": 0,
+            "Codec": "hevc",
+            "Width": 1920,
+            "Height": 1080,
+            "BitRate": 2193485
+          }
+        ],
+        "TranscodingUrl": "/videos/74f296ef-ffac-91d8-9577-e9f6490217e8/stream.mp4?DeviceId=cascade-phase3-test&MediaSourceId=74f296efffac91d89577e9f6490217e8&VideoCodec=h264,hevc&AudioCodec=eac3&AudioStreamIndex=1&VideoBitrate=5776000&AudioBitrate=224000&AudioSampleRate=48000&MaxFramerate=23.976025&MaxWidth=1280&MaxHeight=720&PlaySessionId=46c24d4d40e94332a824482c58704fcb&ApiKey=REDACTED&TranscodingMaxAudioChannels=6&RequireAvc=false&EnableAudioVbrEncoding=true&Tag=7ee38051a7bdde52893b3661e3e36def&hevc-level=120&hevc-videobitdepth=8&hevc-profile=main&hevc-audiochannels=2&TranscodeReasons=ContainerNotSupported,VideoResolutionNotSupported"
+      },
+      "outcome": "reencode"
+    },
+    {
+      "name": "burn-in",
+      "note": "a picture subtitle burned in: always a re-encode (synthetic: no PGS on jellyfin12)",
+      "runTimeTicks": 6737280000,
+      "source": {
+        "SupportsDirectPlay": false,
+        "Size": 184726547,
+        "MediaStreams": [
+          {
+            "Type": "Video",
+            "Index": 0,
+            "Codec": "hevc",
+            "Width": 1920,
+            "Height": 1080,
+            "BitRate": 2193485
+          }
+        ],
+        "TranscodingUrl": "/videos/74f296ef-ffac-91d8-9577-e9f6490217e8/stream.mp4?DeviceId=cascade-phase3-test&MediaSourceId=74f296efffac91d89577e9f6490217e8&VideoCodec=h264,hevc&AudioCodec=aac&AudioStreamIndex=1&VideoBitrate=5616000&AudioBitrate=384000&MaxFramerate=23.976025&PlaySessionId=6a60c3c673ec421d890b88eca82a9807&ApiKey=REDACTED&TranscodingMaxAudioChannels=2&RequireAvc=false&EnableAudioVbrEncoding=true&Tag=7ee38051a7bdde52893b3661e3e36def&hevc-level=120&hevc-videobitdepth=8&hevc-profile=main&TranscodeReasons=VideoCodecNotSupported,AudioCodecNotSupported&SubtitleMethod=Encode&SubtitleStreamIndex=3"
+      },
+      "outcome": "reencode"
+    },
+    {
+      "name": "vc1",
+      "note": "a codec the URL does not allow (synthetic)",
+      "runTimeTicks": 12900000000,
+      "source": {
+        "SupportsDirectPlay": false,
+        "Size": 1168179304,
+        "MediaStreams": [
+          {
+            "Type": "Video",
+            "Index": 0,
+            "Codec": "vc1",
+            "Width": 1920,
+            "Height": 1080,
+            "BitRate": 2000000
+          }
+        ],
+        "TranscodingUrl": "/videos/97948d49-136c-08b4-425b-b9ed0a601413/stream.mp4?DeviceId=cascade-phase3-test&MediaSourceId=97948d49136c08b4425bb9ed0a601413&VideoCodec=h264,hevc&AudioCodec=aac&AudioStreamIndex=1&VideoBitrate=5616000&AudioBitrate=384000&MaxFramerate=23.976025&PlaySessionId=1d5a9b3f3b1a48b49cde6c1c8f258a50&ApiKey=REDACTED&TranscodingMaxAudioChannels=2&RequireAvc=false&EnableAudioVbrEncoding=true&Tag=349fdde527aa08655b5812d0452f00c8&h264-level=41&h264-videobitdepth=8&h264-profile=high&TranscodeReasons=AudioCodecNotSupported,ContainerBitrateExceedsLimit"
+      },
+      "outcome": "reencode"
+    },
+    {
+      "name": "hevc-10bit-over-8bit-limit",
+      "note": "the URL limits HEVC to 8-bit (synthetic source)",
+      "runTimeTicks": 6737280000,
+      "source": {
+        "SupportsDirectPlay": false,
+        "Size": 184726547,
+        "MediaStreams": [
+          {
+            "Type": "Video",
+            "Index": 0,
+            "Codec": "hevc",
+            "Width": 1920,
+            "Height": 1080,
+            "BitRate": 2193485,
+            "BitDepth": 10
+          }
+        ],
+        "TranscodingUrl": "/videos/74f296ef-ffac-91d8-9577-e9f6490217e8/stream.mp4?DeviceId=cascade-phase3-test&MediaSourceId=74f296efffac91d89577e9f6490217e8&VideoCodec=h264,hevc&AudioCodec=aac&AudioStreamIndex=1&VideoBitrate=5616000&AudioBitrate=384000&MaxFramerate=23.976025&PlaySessionId=6a60c3c673ec421d890b88eca82a9807&ApiKey=REDACTED&TranscodingMaxAudioChannels=2&RequireAvc=false&EnableAudioVbrEncoding=true&Tag=7ee38051a7bdde52893b3661e3e36def&hevc-level=120&hevc-videobitdepth=8&hevc-profile=main&TranscodeReasons=VideoCodecNotSupported,AudioCodecNotSupported"
+      },
+      "outcome": "reencode"
+    }
+  ]
+}

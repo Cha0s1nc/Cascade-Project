@@ -9,8 +9,9 @@
 // one's downloads (Jellyfin user ids are GUIDs, unique across servers, and the
 // same account reached at another address keeps its music):
 //   index.json        the one index, relative paths only, validated when read
-//   media/<id>.<ext>  a finished track; media/<id>.partial while it downloads
-//   art/<id>.jpg      cover art, so the Downloads view works with no server
+//   media/<id>.<ext>  a finished track, movie or episode; media/<id>.partial while it downloads
+//   subs/<id>.<n>.vtt a video's text subtitle stream n, as WebVTT
+//   art/<id>.jpg      cover art, posters and episode stills, so the Downloads view works with no server
 // ponytail: a user deleted on the server leaves its folder behind; add a
 // cleanup when someone asks where the disk space went.
 
@@ -32,8 +33,9 @@ const SAVE_DEBOUNCE_MS = 500
  * @param {() => string | null} deps.getServerUrl
  * @param {(url: string) => {name: string, value: string}[]} deps.headersFor  custom reverse proxy headers for a URL
  * @param {typeof import('./src/core/offline-index')} deps.Offline  build/offline-index.js
+ * @param {typeof import('./src/core/offline-video')} deps.Video  build/offline-video.js
  */
-function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, headersFor, Offline }) {
+function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, headersFor, Offline, Video }) {
   const base = path.join(app.getPath('userData'), 'offline')
   /** The signed-in account's folder, or null with nobody signed in: then every
    *  call answers empty and the protocol serves nothing. */
@@ -41,6 +43,7 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
   let root = null
   let mediaDir = null
   let artDir = null
+  let subsDir = null
   let indexFile = null
 
   /** Replaced (never mutated into another account's) on every owner change, so
@@ -50,8 +53,12 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
   let art = new Set()
   /** What the renderer last told us about who is signed in. Memory only. */
   let session = null
-  /** id -> { received, total, controller } */
+  /** id -> { received, total, controller, video, outcome, estimate, startedAt } */
   const active = new Map()
+  /** The video download profile, built by the renderer from what this
+   *  machine decodes and the quality setting (offline-video.ts). Null until
+   *  it says: a video waits rather than guess. */
+  let videoProfile = null
   /** id -> message, for downloads that failed since the last attempt. */
   const failed = new Map()
   let running = false
@@ -73,10 +80,11 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
     owner = next
     index = Offline.emptyIndex()
     art = new Set()
-    if (!owner) { root = mediaDir = artDir = indexFile = null; return }
+    if (!owner) { root = mediaDir = artDir = subsDir = indexFile = null; return }
     root = path.join(base, owner)
     mediaDir = path.join(root, 'media')
     artDir = path.join(root, 'art')
+    subsDir = path.join(root, 'subs')
     indexFile = path.join(root, 'index.json')
     load()
   }
@@ -84,14 +92,15 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
   function load() {
     fs.mkdirSync(mediaDir, { recursive: true })
     fs.mkdirSync(artDir, { recursive: true })
+    fs.mkdirSync(subsDir, { recursive: true })
     try { index = Offline.parseIndex(JSON.parse(fs.readFileSync(indexFile, 'utf8'))) } catch { index = Offline.emptyIndex() }
 
     // The disk is the truth about files. A ready track whose file is gone goes
     // back to pending; a file nobody lists (an unfinished download, one that
     // finished after its collection was removed) is deleted.
-    const onDisk = fs.readdirSync(mediaDir).map(f => `media/${f}`)
+    const onDisk = [...fs.readdirSync(mediaDir).map(f => `media/${f}`), ...fs.readdirSync(subsDir).map(f => `subs/${f}`)]
     for (const stray of Offline.reconcile(index, onDisk)) {
-      if (Offline.isSafeMediaPath(stray)) fs.rmSync(path.join(root, stray), { force: true })
+      if (Offline.isSafeMediaPath(stray) || Offline.isSafeSubtitlePath(stray)) fs.rmSync(path.join(root, stray), { force: true })
     }
     art = new Set(fs.readdirSync(artDir).filter(f => Offline.isSafeArtPath(`art/${f}`)).map(f => f.slice(0, -4)))
     for (const f of fs.readdirSync(artDir)) if (f.endsWith('.partial')) fs.rmSync(path.join(artDir, f), { force: true })
@@ -123,18 +132,28 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
   /** Everything the app needs to know at a glance. Track lists are separate. */
   function summary() {
     const ready = {}
-    for (const [id, t] of Object.entries(index.tracks)) if (t.file) ready[id] = urlFor(t.file)
+    /** A ready video's saved subtitles, as <track> sources. */
+    const subs = {}
+    for (const [id, t] of Object.entries(index.tracks)) {
+      if (!t.file) continue
+      ready[id] = urlFor(t.file)
+      if (t.subs) subs[id] = t.subs.map(x => ({ ...x, url: urlFor(x.file) }))
+    }
     return {
       ready,
+      subs,
       art: [...art],
       collections: index.collections.map(c => ({
         item: c.item,
         trackIds: c.trackIds,
+        follow: !!c.follow,
         ...Offline.collectionProgress(index, c.item.Id),
         bytes: Offline.collectionBytes(index, c.item.Id),
       })),
       totalBytes: Offline.totalBytes(index),
-      active: [...active.entries()].map(([id, a]) => ({ id, received: a.received, total: a.total })),
+      active: [...active.entries()].map(([id, a]) => ({
+        id, received: a.received, total: a.total, outcome: a.outcome, estimate: a.estimate, startedAt: a.startedAt,
+      })),
       failed: Object.fromEntries(failed),
       plays: index.plays.length,
     }
@@ -155,17 +174,113 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
     return headers
   }
 
+  const isVideoId = (id) => { const type = index.tracks[id]?.item.Type; return type === 'Movie' || type === 'Episode' }
+
+  /**
+   * How to fetch a movie or episode: the original when it plays here, else
+   * the server's progressive MP4 (offline-video.ts says which and why). Asked
+   * afresh every time a download starts: a TranscodingUrl carries the token
+   * and a session that ends, so it is never stored. Text subtitles and the
+   * intro and credits segments are saved first; they are small.
+   */
+  async function planVideo(id, state) {
+    const server = getServerUrl().replace(/\/+$/, '')
+    const t = index.tracks[id]
+    const url = `${server}/Items/${id}/PlaybackInfo?UserId=${encodeURIComponent(owner)}`
+    const res = await net.fetch(url, {
+      method: 'POST', signal: state.controller.signal,
+      headers: { ...requestHeaders(url), 'Content-Type': 'application/json' },
+      body: JSON.stringify(Video.downloadPlaybackInfoBody(owner, videoProfile, t.burnIn ?? null)),
+    })
+    state.reachedServer = true
+    if (!res.ok) throw Object.assign(new Error(`The server answered HTTP ${res.status}.`), { judged: true })
+    const info = await res.json()
+    const source = info?.MediaSources?.[0]
+    if (!source) throw Object.assign(new Error('The server offered no way to download this.'), { judged: true })
+    const outcome = Video.downloadOutcome(source)
+    // Only a path on this server: the auth header must never go anywhere else.
+    if (outcome !== 'direct' && !/^\/[^/\\]/.test(String(source.TranscodingUrl))) {
+      throw Object.assign(new Error('The server offered no way to download this.'), { judged: true })
+    }
+    state.outcome = outcome
+    state.estimate = Video.estimatedBytes(outcome, source, t.item.RunTimeTicks)
+    state.playSessionId = typeof info.PlaySessionId === 'string' ? info.PlaySessionId : null
+    Offline.setOutcome(index, id, outcome)
+    emit({ type: 'progress', id, received: 0, total: null, outcome: state.outcome, estimate: state.estimate, startedAt: state.startedAt })
+    await saveVideoExtras(id, source, server, state)
+    return outcome === 'direct' ? `${server}/Items/${id}/Download` : `${server}${source.TranscodingUrl}`
+  }
+
+  /** Text subtitles as WebVTT beside the file, and the media segments. A
+   *  failure here costs those extras, never the film. */
+  async function saveVideoExtras(id, source, server, state) {
+    const mine = index
+    const subs = []
+    for (const s of source.MediaStreams || []) {
+      if (s?.Type !== 'Subtitle' || !s.IsTextSubtitleStream || !Number.isInteger(s.Index) || !Offline.isSafeId(source.Id)) continue
+      const file = `subs/${id}.${s.Index}.vtt`
+      if (!Offline.isSafeSubtitlePath(file)) continue
+      const url = `${server}/Videos/${id}/${source.Id}/Subtitles/${s.Index}/0/Stream.vtt`
+      try {
+        const res = await net.fetch(url, { headers: requestHeaders(url), signal: state.controller.signal })
+        if (!res.ok) continue
+        const body = Buffer.from(await res.arrayBuffer())
+        if (index !== mine) return
+        fs.writeFileSync(path.join(root, file), body)
+        subs.push({ index: s.Index, file, language: s.Language, title: s.DisplayTitle, isDefault: !!s.IsDefault, isForced: !!s.IsForced })
+      } catch { if (state.controller.signal.aborted) return }
+    }
+    Offline.setSubtitles(index, id, subs)
+    try {
+      const url = `${server}/MediaSegments/${id}`
+      const res = await net.fetch(url, { headers: requestHeaders(url), signal: state.controller.signal })
+      if (res.ok && index === mine) Offline.setSegments(index, id, (await res.json())?.Items || [])
+    } catch {}
+    scheduleSave()
+  }
+
+  /** Stops the server's encode for a transcode nobody will finish reading.
+   *  Never without a session id: without one the server stops every encode
+   *  this device has, a film being watched included. */
+  function stopEncoding(state) {
+    const server = getServerUrl()
+    const deviceId = /DeviceId="([^"]+)"/.exec(session?.authorization || '')?.[1]
+    if (!server || !state.playSessionId || !deviceId) return
+    const url = `${server.replace(/\/+$/, '')}/Videos/ActiveEncodings?deviceId=${encodeURIComponent(deviceId)}&playSessionId=${encodeURIComponent(state.playSessionId)}`
+    net.fetch(url, { method: 'DELETE', headers: requestHeaders(url) }).catch(() => {})
+  }
+
+  /** Where a downloaded fragmented MP4 ends, reading box headers only. */
+  function fragmentEnd(file) {
+    let fd = null
+    try {
+      fd = fs.openSync(file, 'r')
+      const size = fs.fstatSync(fd).size
+      return Video.fragmentedEndSeconds((offset, length) => {
+        const buf = Buffer.alloc(length)
+        return buf.subarray(0, fs.readSync(fd, buf, 0, length, offset))
+      }, size)
+    } catch { return null } finally { if (fd !== null) fs.closeSync(fd) }
+  }
+
   async function downloadTrack(id) {
     const server = getServerUrl()
-    const url = `${server.replace(/\/+$/, '')}/Items/${id}/Download`
+    const video = isVideoId(id)
     const mine = index
     const dir = root
     const partial = path.join(mediaDir, `${id}.partial`)
-    const state = { received: 0, total: null, reachedServer: false, controller: new AbortController() }
+    const state = {
+      received: 0, total: null, reachedServer: false, controller: new AbortController(),
+      video, outcome: null, estimate: null, playSessionId: null, startedAt: Date.now(),
+    }
     active.set(id, state)
     emit({ type: 'progress', id, received: 0, total: null })
     let out = null
     try {
+      if (video && index.user?.Policy?.EnableContentDownloading === false) {
+        throw Object.assign(new Error('The server does not allow this account to download. An admin can turn on media downloading for it.'), { judged: true })
+      }
+      const url = video ? await planVideo(id, state) : `${server.replace(/\/+$/, '')}/Items/${id}/Download`
       const res = await net.fetch(url, { headers: requestHeaders(url), signal: state.controller.signal })
       state.reachedServer = true
       const announced = Number(res.headers.get('content-length'))
@@ -182,16 +297,21 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
           state.received += chunk.length
           if (!out.write(chunk)) await new Promise(r => out.once('drain', r))
           const now = Date.now()
-          if (now - lastEmit >= PROGRESS_MS) { lastEmit = now; emit({ type: 'progress', id, received: state.received, total: state.total }) }
+          if (now - lastEmit >= PROGRESS_MS) { lastEmit = now; emit({ type: 'progress', id, received: state.received, total: state.total, outcome: state.outcome, estimate: state.estimate, startedAt: state.startedAt }) }
         }
         await new Promise((resolve, reject) => { out.once('error', reject); out.end(resolve) })
         out = null
       }
 
-      const verdict = Offline.judgeDownload({
+      const judged = Offline.judgeDownload({
         status: res.status, expected: state.total, received: state.received,
-        contentDisposition: res.headers.get('content-disposition'), contentType: res.headers.get('content-type'),
+        contentDisposition: res.headers.get('content-disposition'), contentType: res.headers.get('content-type'), video,
       })
+      // A transcode has no length to check: its last fragment must reach the end.
+      const verdict = judged.ok && video && state.outcome !== 'direct'
+        && !Video.isWholeTranscode(fragmentEnd(partial), mine.tracks[id]?.item.RunTimeTicks)
+        ? { ok: /** @type {false} */ (false), message: 'The server stopped converting partway. Try again.' }
+        : judged
       // Dropped by a removal, or the account signed out, while it ran: the
       // file is nobody's now.
       if (index !== mine || !index.tracks[id]) { fs.rmSync(partial, { force: true }); return }
@@ -199,15 +319,19 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
 
       const file = `media/${id}.${verdict.ext}`
       fs.renameSync(partial, path.join(dir, file))
-      Offline.markReady(index, id, file, state.received)
+      Offline.markReady(index, id, file, state.received, new Date())
       failed.delete(id)
       scheduleSave()
       emit({ type: 'track-done', id, url: urlFor(file) })
     } catch (e) {
       try { out?.destroy() } catch {}
       fs.rmSync(partial, { force: true })
+      // Cancelled or cut off: the server would go on encoding for nobody.
+      if (state.outcome && state.outcome !== 'direct') stopEncoding(state)
       if (state.controller.signal.aborted || index !== mine) return
-      if (state.reachedServer) {
+      if (e?.judged) {
+        failed.set(id, e.message)
+      } else if (state.reachedServer) {
         // Cut off partway: this track failed, the next may well be fine.
         failed.set(id, 'The download was interrupted.')
       } else {
@@ -232,19 +356,45 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
       const workers = Array.from({ length: PARALLEL }, async () => {
         while (true) {
           if (networkDown || index !== mine || !session) return
-          const id = Offline.pendingTrackIds(index).find(t => !active.has(t) && !failed.has(t))
+          // One video at a time beside music (plan section 8): a film is
+          // gigabytes, and a re-encode is the server's GPU for a while.
+          const videoBusy = [...active.values()].some(a => a.video)
+          const id = Offline.pendingTrackIds(index).find(t => !active.has(t) && !failed.has(t)
+            && (!isVideoId(t) || (!videoBusy && videoProfile)))
           if (!id) return
           await downloadTrack(id)
         }
       })
       // Covers alongside the tracks, so the Downloads view is not bare until the last one lands.
       await Promise.all([...workers, fetchMissingArt()])
+      // And once more for anything asked for while this queue ran.
+      if (index === mine) await fetchMissingArt()
     } finally {
       running = false
       emit({ type: 'changed' })
       // Another account signed in while this one's queue wound down.
       if (index !== mine) pump()
     }
+  }
+
+  /** Art worth keeping: every collection's, each track's album, and for
+   *  video the poster or still of each item, its series and its season. */
+  function artIds() {
+    const ids = new Set()
+    for (const c of index.collections) {
+      ids.add(c.item.Id)
+      for (const id of c.trackIds) {
+        const item = index.tracks[id]?.item
+        if (!item) continue
+        if (item.AlbumId) ids.add(item.AlbumId)
+        if (item.Type === 'Movie' || item.Type === 'Episode') {
+          ids.add(id)
+          if (item.SeriesId) ids.add(item.SeriesId)
+          if (item.SeasonId) ids.add(item.SeasonId)
+        }
+      }
+    }
+    return ids
   }
 
   /** Covers for every album and playlist asked for, and each track's album, so
@@ -255,10 +405,7 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
     const mine = index
     const dir = artDir
     const ids = new Set()
-    for (const c of index.collections) {
-      ids.add(c.item.Id)
-      for (const id of c.trackIds) { const a = index.tracks[id]?.item.AlbumId; if (a) ids.add(a) }
-    }
+    for (const id of artIds()) ids.add(id)
     for (const id of ids) {
       if (index !== mine || !session) return
       if (art.has(id) || !Offline.isSafeId(id)) continue
@@ -295,7 +442,7 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
     protocol.handle('cascade-offline', async (req) => {
       const url = new URL(req.url)
       const rel = decodeURIComponent(url.pathname).replace(/^\/+/, '')
-      const allowed = Offline.isSafeMediaPath(rel)
+      const allowed = Offline.isSafeMediaPath(rel) || Offline.isSafeSubtitlePath(rel)
         ? Offline.indexedFiles(index).has(rel)
         : Offline.isSafeArtPath(rel) && art.has(rel.slice(4, -4))
       if (!root || url.host !== 'local' || !allowed) return new Response('Not found', { status: 404 })
@@ -333,6 +480,15 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
     }
   }
 
+  /** Deletes files nothing in the index holds now, and art nothing uses. */
+  function deleteOrphans(orphans) {
+    for (const file of orphans) {
+      if (Offline.isSafeMediaPath(file) || Offline.isSafeSubtitlePath(file)) fs.rmSync(path.join(root, file), { force: true })
+    }
+    const keep = artIds()
+    for (const id of [...art]) if (!keep.has(id)) { fs.rmSync(path.join(artDir, `${id}.jpg`), { force: true }); art.delete(id) }
+  }
+
   function register() {
     // The renderer says who is signed in: at launch (from the store, so offline
     // mode finds that account's music), on every sign-in, and null on sign-out.
@@ -340,10 +496,13 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
     ipcMain.handle('offline-summary', () => summary())
     ipcMain.handle('offline-tracks', (_e, collectionId) => Offline.isSafeId(collectionId) ? tracksOf(collectionId) : [])
 
-    ipcMain.handle('offline-add', (_e, collection, tracks, s) => {
+    ipcMain.handle('offline-add', (_e, collection, tracks, s, opts) => {
       if (!owner || !collection || !Offline.isSafeId(collection.Id) || !Array.isArray(tracks) || !tracks.length) return false
       takeSession(s)
-      Offline.addCollection(index, collection, tracks)
+      Offline.addCollection(index, collection, tracks, Array.isArray(opts?.containers) ? opts.containers : [])
+      // A picture subtitle burned in: asked for one movie or episode at a time.
+      if (tracks.length === 1 && Number.isInteger(opts?.burnIn)) Offline.setBurnIn(index, tracks[0].Id, opts.burnIn)
+      if (opts?.follow === true) Offline.setFollow(index, collection.Id, true, new Date())
       for (const id of index.collections[0].trackIds) failed.delete(id)
       saveNow()
       emit({ type: 'changed' })
@@ -357,11 +516,7 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
       // Stop what is downloading for tracks nobody wants now.
       for (const [id, a] of active) if (!index.tracks[id]) a.controller.abort()
       for (const id of [...failed.keys()]) if (!index.tracks[id]) failed.delete(id)
-      for (const file of orphans) if (Offline.isSafeMediaPath(file)) fs.rmSync(path.join(root, file), { force: true })
-      // A cover only the removed collection used.
-      const keep = new Set()
-      for (const c of index.collections) { keep.add(c.item.Id); for (const id of c.trackIds) { const a = index.tracks[id]?.item.AlbumId; if (a) keep.add(a) } }
-      for (const id of [...art]) if (!keep.has(id)) { fs.rmSync(path.join(artDir, `${id}.jpg`), { force: true }); art.delete(id) }
+      deleteOrphans(orphans)
       saveNow()
       emit({ type: 'changed' })
       return true
@@ -374,6 +529,47 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
       takeSession(s)
       failed.clear()
       pump()
+    })
+
+    // ── Video ──
+    ipcMain.handle('offline-video-profile', (_e, profile) => {
+      // Only shape-checked: it goes to the server as the download's profile.
+      if (!profile || typeof profile !== 'object' || !Array.isArray(profile.TranscodingProfiles) || JSON.stringify(profile).length > 20000) return
+      videoProfile = profile
+      if (owner && session) pump()
+    })
+    ipcMain.handle('offline-follow', (_e, seriesId, on) => {
+      if (!owner || !Offline.isSafeId(seriesId)) return
+      Offline.setFollow(index, seriesId, !!on, new Date())
+      saveNow()
+      emit({ type: 'changed' })
+    })
+    // New episodes of a followed series, found by the renderer while online.
+    ipcMain.handle('offline-add-episodes', (_e, seriesId, items, s, containers) => {
+      if (!owner || !Offline.isSafeId(seriesId) || !Array.isArray(items) || !items.length) return
+      takeSession(s)
+      Offline.addToCollection(index, seriesId, items)
+      for (const c of Array.isArray(containers) ? containers : []) {
+        if (c?.Type === 'Season' && Offline.isSafeId(c.Id) && !index.containers[c.Id]) index.containers[c.Id] = Offline.slimItem(c)
+      }
+      saveNow()
+      emit({ type: 'changed' })
+      pump()
+    })
+    ipcMain.handle('offline-watched', (_e, id) => {
+      if (!owner || !Offline.isSafeId(id) || !index.tracks[id]) return
+      Offline.markWatched(index, id, new Date())
+      scheduleSave()
+    })
+    // "Remove watched episodes": the renderer asks when the setting is on.
+    ipcMain.handle('offline-remove-watched', () => {
+      if (!owner) return 0
+      const ids = Offline.watchedToRemove(index, new Date())
+      if (!ids.length) return 0
+      deleteOrphans(Offline.removeTracks(index, ids))
+      saveNow()
+      emit({ type: 'changed' })
+      return ids.length
     })
 
     ipcMain.handle('offline-play-add', (_e, play) => {

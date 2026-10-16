@@ -92,6 +92,16 @@ export interface OfflineTrack {
   segments?: OfflineSegment[]
   /** The Cascade plugin's explicit flag, so the badge shows offline. */
   explicit?: boolean
+  /** When the file landed (ISO 8601): an episode finished before it was
+   *  downloaded is not "watched" for removal. */
+  readyAt?: string
+  /** When this device played it to the end (ISO 8601). */
+  watchedAt?: string
+  /** Video: what the server did to make the file (offline-video.ts). */
+  outcome?: 'direct' | 'remux' | 'reencode'
+  /** Video: a picture subtitle's stream index to burn into the picture, as
+   *  asked at download time; the only way such subtitles show offline. */
+  burnIn?: number
 }
 
 /** What the person asked for: an album, a playlist, a movie, a season or a
@@ -100,6 +110,12 @@ export interface OfflineCollection {
   item: JfItem
   /** The album's or playlist's own order; a show's episodes in show order. */
   trackIds: string[]
+  /** A series only: "Download new episodes as they arrive" is on, since this
+   *  time (ISO 8601). Episodes added to the server after it are fetched. */
+  follow?: string
+  /** A series only: episodes removed as watched, never fetched again by the
+   *  follow (the server may not know yet that they were watched). */
+  skip?: string[]
 }
 
 /** A library as /UserViews names it. */
@@ -179,7 +195,7 @@ export const SPICY_LYRICS_DAYS = 25
 const MEDIA_TYPES = new Set(['Audio', 'Movie', 'Episode'])
 
 /** The item types a collection may be. */
-const COLLECTION_TYPES = new Set(['MusicAlbum', 'Playlist', 'Movie', 'Season', 'Series'])
+const COLLECTION_TYPES = new Set(['MusicAlbum', 'Playlist', 'Movie', 'Episode', 'Season', 'Series'])
 
 // ── Libraries ────────────────────────────────────────────────────────────────
 
@@ -216,6 +232,38 @@ export function libraryOf(index: OfflineIndex, trackId: string): string | null {
 /** Items still in a placeholder library, for the online lookup to place. */
 export const unplacedTrackIds = (index: OfflineIndex): string[] =>
   Object.keys(index.tracks).filter(id => isPlaceholderLibrary(libraryOf(index, id) ?? '')).sort()
+
+/**
+ * Unplaced items grouped by what they share a library with: a track by its
+ * album, an episode by its show, anything else by itself. Each group's
+ * library is one /Items/{id}/Ancestors request on the group's id.
+ *
+ * Not `GET /Items?Ids=...&ParentId=<library>`, which this lookup was first
+ * built on: Jellyfin (12.2, checked on jellyfin12) ignores ParentId when Ids
+ * is given and answers every id for every library, which put each download
+ * in whichever library was asked last.
+ */
+export function placementGroups(index: OfflineIndex, trackIds: string[]): Map<string, string[]> {
+  const groups = new Map<string, string[]>()
+  for (const id of trackIds) {
+    const item = index.tracks[id]?.item
+    if (!item) continue
+    const key = [item.AlbumId, item.SeriesId, id].find(isSafeId) ?? id
+    groups.set(key, [...(groups.get(key) ?? []), id])
+  }
+  return groups
+}
+
+/** The stored library among an item's ancestors (/Items/{id}/Ancestors, a
+ *  bare array, nearest first), or null when none of them is one. */
+export function libraryFromAncestors(index: OfflineIndex, ancestors: unknown): string | null {
+  if (!Array.isArray(ancestors)) return null
+  const stored = new Set(index.libraries.map(l => l.Id))
+  for (const a of ancestors) {
+    if (isPlainObject(a) && typeof a.Id === 'string' && stored.has(a.Id)) return a.Id
+  }
+  return null
+}
 
 /** The libraries Offline Mode lists (/UserViews): every stored library that
  *  holds a downloaded item, then each placeholder that holds one. */
@@ -435,11 +483,125 @@ export function refreshItems(index: OfflineIndex, items: JfItem[]): void {
   }
 }
 
-export function markReady(index: OfflineIndex, trackId: string, file: string, bytes: number): void {
+export function markReady(index: OfflineIndex, trackId: string, file: string, bytes: number, now?: Date): void {
   const t = index.tracks[trackId]
   if (!t) return
   t.file = file
   t.bytes = bytes
+  if (now) t.readyAt = now.toISOString()
+}
+
+/** This device played it to the end. */
+export function markWatched(index: OfflineIndex, trackId: string, now: Date): void {
+  const t = index.tracks[trackId]
+  if (t) t.watchedAt = now.toISOString()
+}
+
+export function setOutcome(index: OfflineIndex, trackId: string, outcome: 'direct' | 'remux' | 'reencode'): void {
+  const t = index.tracks[trackId]
+  if (t) t.outcome = outcome
+}
+
+/** A picture subtitle to burn in, chosen when the download was asked for. */
+export function setBurnIn(index: OfflineIndex, trackId: string, streamIndex: number | null): void {
+  const t = index.tracks[trackId]
+  if (!t) return
+  if (streamIndex !== null && Number.isInteger(streamIndex) && streamIndex >= 0) t.burnIn = streamIndex
+  else delete t.burnIn
+}
+
+// ── New episodes and watched ones ────────────────────────────────────────────
+
+/** Most episode ids a followed series remembers as removed. */
+export const MAX_SKIPPED_EPISODES = 5000
+
+/** Turns "Download new episodes as they arrive" on or off for a downloaded
+ *  series. Turning it on counts from now: what was on the server already was
+ *  downloaded with the series, or deliberately left out. */
+export function setFollow(index: OfflineIndex, seriesId: string, on: boolean, now: Date): void {
+  const c = collectionOf(index, seriesId)
+  if (!c || c.item.Type !== 'Series') return
+  if (on) { if (!c.follow) c.follow = now.toISOString() }
+  else delete c.follow
+}
+
+/**
+ * The episodes a followed series should fetch now, from the server's list of
+ * its episodes: added after the follow started, not already downloaded, not
+ * watched, and not one removed as watched (the server may still think it is
+ * unwatched when this runs). Empty when the series is not followed.
+ */
+export function newEpisodes(index: OfflineIndex, seriesId: string, episodes: JfItem[]): JfItem[] {
+  const c = collectionOf(index, seriesId)
+  const since = c?.follow ? Date.parse(c.follow) : NaN
+  if (!c || !Number.isFinite(since)) return []
+  const held = new Set(c.trackIds)
+  const skip = new Set(c.skip ?? [])
+  return episodes.filter(e => e?.Id && isSafeId(e.Id) && e.Type === 'Episode'
+    && !held.has(e.Id) && !skip.has(e.Id) && !e.UserData?.Played
+    && Date.parse(e.DateCreated ?? '') > since)
+}
+
+/** Adds items to a collection already asked for, after the ones it has. */
+export function addToCollection(index: OfflineIndex, collectionId: string, items: JfItem[]): void {
+  const c = collectionOf(index, collectionId)
+  if (!c) return
+  for (const t of items) {
+    if (!t?.Id || !isSafeId(t.Id) || (t.Type !== undefined && !MEDIA_TYPES.has(t.Type)) || c.trackIds.includes(t.Id)) continue
+    c.trackIds.push(t.Id)
+    if (!index.tracks[t.Id]) index.tracks[t.Id] = { item: slimItem(t), file: null, bytes: 0 }
+  }
+}
+
+/** A watched episode is removed this long after it was finished. */
+export const REMOVE_WATCHED_AFTER_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Downloaded episodes finished at least a day ago, for "Remove watched
+ * episodes". Finished means played to the end on this device, or marked
+ * played on the server (the catalog's UserData, refreshed online) at a time
+ * after the file landed: an episode someone downloads to watch again is not
+ * removed for having been watched years ago. Movies are never removed.
+ */
+export function watchedToRemove(index: OfflineIndex, now: Date): string[] {
+  const out: string[] = []
+  for (const [id, t] of Object.entries(index.tracks)) {
+    if (t.item.Type !== 'Episode' || !t.file) continue
+    let finished = t.watchedAt ? Date.parse(t.watchedAt) : NaN
+    if (!Number.isFinite(finished) && t.item.UserData?.Played && t.item.UserData.LastPlayedDate && t.readyAt) {
+      const played = Date.parse(t.item.UserData.LastPlayedDate)
+      if (played > Date.parse(t.readyAt)) finished = played
+    }
+    if (Number.isFinite(finished) && now.getTime() - finished >= REMOVE_WATCHED_AFTER_MS) out.push(id)
+  }
+  return out.sort()
+}
+
+/**
+ * Removes single items (watched episodes) from every collection that holds
+ * them. A followed series remembers them so the follow never fetches them
+ * again, and stays even with no episode left, to receive new ones; any other
+ * collection left empty goes. Returns the files now nobody's, to delete.
+ */
+export function removeTracks(index: OfflineIndex, ids: string[]): string[] {
+  const drop = new Set(ids)
+  for (const c of index.collections) {
+    const removed = c.trackIds.filter(id => drop.has(id))
+    if (!removed.length) continue
+    c.trackIds = c.trackIds.filter(id => !drop.has(id))
+    if (c.follow) c.skip = [...(c.skip ?? []), ...removed].slice(-MAX_SKIPPED_EPISODES)
+  }
+  index.collections = index.collections.filter(c => c.trackIds.length || c.follow)
+  const kept = new Set(index.collections.flatMap(c => c.trackIds))
+  const orphaned: string[] = []
+  for (const [id, t] of Object.entries(index.tracks)) {
+    if (kept.has(id)) continue
+    if (t.file) orphaned.push(t.file)
+    for (const s of t.subs ?? []) orphaned.push(s.file)
+    delete index.tracks[id]
+  }
+  pruneContainers(index)
+  return orphaned.sort()
 }
 
 /** Containers nothing downloaded still belongs to. */
@@ -721,6 +883,12 @@ export function parseIndex(raw: unknown): OfflineIndex {
       const segments = parseSegments(v.segments)
       if (segments.length) track.segments = segments
       if (v.explicit === true) track.explicit = true
+      const readyAt = file ? isoDate(v.readyAt) : null
+      if (readyAt) track.readyAt = readyAt
+      const watchedAt = isoDate(v.watchedAt)
+      if (watchedAt) track.watchedAt = watchedAt
+      if (v.outcome === 'direct' || v.outcome === 'remux' || v.outcome === 'reencode') track.outcome = v.outcome
+      if (Number.isInteger(v.burnIn) && (v.burnIn as number) >= 0) track.burnIn = v.burnIn as number
       index.tracks[id] = track
     }
   }
@@ -732,7 +900,13 @@ export function parseIndex(raw: unknown): OfflineIndex {
       if (typeof c.item.Type === 'string' && !COLLECTION_TYPES.has(c.item.Type)) continue
       seen.add(c.item.Id)
       const ids = Array.isArray(c.trackIds) ? c.trackIds.filter((id): id is string => typeof id === 'string' && !!index.tracks[id]) : []
-      index.collections.push({ item: slimItem(c.item as unknown as JfItem), trackIds: ids })
+      const collection: OfflineCollection = { item: slimItem(c.item as unknown as JfItem), trackIds: ids }
+      const follow = collection.item.Type === 'Series' ? isoDate(c.follow) : null
+      if (follow) {
+        collection.follow = follow
+        if (Array.isArray(c.skip)) collection.skip = c.skip.filter(isSafeId).slice(-MAX_SKIPPED_EPISODES)
+      }
+      index.collections.push(collection)
     }
   }
 
@@ -785,16 +959,24 @@ const AUDIO_FILE_EXTENSIONS = new Set([
  *  sends the original's), then the MIME type; null when neither says audio.
  *  A file name only counts when it names audio: an error page a proxy
  *  answered 200 with is not a track, whatever it is called. */
-export function fileExtensionFor(contentDisposition: string | null | undefined, contentType: string | null | undefined): string | null {
+export function fileExtensionFor(contentDisposition: string | null | undefined, contentType: string | null | undefined, video = false): string | null {
   const name = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(contentDisposition ?? '')?.[1]
   if (name) {
     const dot = name.lastIndexOf('.')
     const ext = dot >= 0 ? name.slice(dot + 1).toLowerCase() : ''
-    if (AUDIO_FILE_EXTENSIONS.has(ext)) return ext
+    if ((video ? VIDEO_FILE_EXTENSIONS : AUDIO_FILE_EXTENSIONS).has(ext)) return ext
   }
   const mime = (contentType ?? '').split(';')[0].trim().toLowerCase()
-  return AUDIO_EXTENSIONS[mime] ?? null
+  return (video ? VIDEO_EXTENSIONS : AUDIO_EXTENSIONS)[mime] ?? null
 }
+
+const VIDEO_EXTENSIONS: Record<string, string> = {
+  'video/mp4': 'mp4', 'video/x-matroska': 'mkv', 'video/webm': 'webm', 'video/quicktime': 'mov', 'video/x-m4v': 'm4v',
+}
+
+/** Extensions a downloaded movie or episode may be saved under: the original
+ *  (whatever the device plays) or the server's MP4. */
+const VIDEO_FILE_EXTENSIONS = new Set([...Object.values(VIDEO_EXTENSIONS), 'avi', 'ts', 'm2ts', 'mpg', 'mpeg', 'wmv', 'ogv'])
 
 export type DownloadVerdict =
   | { ok: true; ext: string }
@@ -813,6 +995,7 @@ export function judgeDownload(r: {
   received: number
   contentDisposition?: string | null
   contentType?: string | null
+  video?: boolean
 }): DownloadVerdict {
   if (r.status < 200 || r.status >= 300) {
     return { ok: false, message: r.status === 403
@@ -822,8 +1005,8 @@ export function judgeDownload(r: {
   if (r.received <= 0 || (r.expected !== null && r.received !== r.expected)) {
     return { ok: false, message: 'A download was cut short.' }
   }
-  const ext = fileExtensionFor(r.contentDisposition, r.contentType)
-  if (!ext) return { ok: false, message: 'The server sent something that is not a music file.' }
+  const ext = fileExtensionFor(r.contentDisposition, r.contentType, r.video)
+  if (!ext) return { ok: false, message: r.video ? 'The server sent something that is not a video file.' : 'The server sent something that is not a music file.' }
   return { ok: true, ext }
 }
 
@@ -855,9 +1038,11 @@ export function parseByteRange(header: string | null | undefined, size: number):
 }
 
 const CONTENT_TYPES: Record<string, string> = {
-  flac: 'audio/flac', mp3: 'audio/mpeg', m4a: 'audio/mp4', mp4: 'audio/mp4', aac: 'audio/aac', ogg: 'audio/ogg',
-  opus: 'audio/ogg', wav: 'audio/wav', webm: 'audio/webm', wma: 'audio/x-ms-wma', mka: 'audio/x-matroska',
-  jpg: 'image/jpeg',
+  flac: 'audio/flac', mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', ogg: 'audio/ogg',
+  opus: 'audio/ogg', wav: 'audio/wav', wma: 'audio/x-ms-wma', mka: 'audio/x-matroska',
+  // A media element plays audio from a video type, not always the reverse.
+  mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', mkv: 'video/x-matroska', webm: 'video/webm',
+  jpg: 'image/jpeg', vtt: 'text/vtt',
 }
 
 /** What to tell the media element a stored file is, from its extension. */

@@ -198,6 +198,22 @@ body.offline-auto .offline-banner { display: flex; }
 .dl-tracks { margin: -4px 0 12px; }
 .dl-tracks .track-list { margin-top: 0; }
 .shuffle-all-btn.on { color: var(--accent); border-color: var(--accent); }
+/* Video downloads: the manager's settings, a series' follow switch, and the
+   episode list under a downloaded season or show. */
+.dl-settings { display: flex; flex-wrap: wrap; gap: 8px 22px; align-items: center; font-size: 12px; color: var(--text2); margin: -4px 0 18px; }
+.dl-setting { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
+.dl-setting select { font: inherit; color: var(--text); background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; }
+.dl-follow { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text2); margin-top: 6px; cursor: pointer; }
+.dl-eps { margin: -4px 0 12px; }
+.dl-ep { display: flex; justify-content: space-between; gap: 12px; padding: 7px 12px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+.dl-ep:hover { background: var(--surface2); }
+.dl-ep[aria-disabled="true"] { opacity: 0.5; cursor: default; }
+.dl-ep-time { color: var(--text3); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.vd-dl-note { font-size: 12px; color: var(--text3); }
+.ep-dl { background: none; border: none; color: var(--text3); cursor: pointer; padding: 2px 4px; border-radius: 4px; margin-left: 6px; vertical-align: middle; }
+.ep-dl:hover { color: var(--text); }
+.ep-dl.on { color: var(--accent); }
+body.offline-on .ep-dl:not(.on) { display: none; }
 @media (prefers-reduced-motion: reduce) { .dl-bar > span { transition: none; } }
 
 /* Cascade Server's explicit mark, after a song's title (renderer.js explicitBadgeHtml). */
