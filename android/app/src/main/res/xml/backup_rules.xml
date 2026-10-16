@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The secrets file holds ciphertext sealed by a Keystore key that never
+     leaves this device, so a restored copy could never be opened: leave it out. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="cascade.secure.xml" />
+</full-backup-content>
