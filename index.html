@@ -805,6 +805,17 @@
           <span class="dl-total" id="downloads-total"></span>
         </div>
         <div class="dl-storage" id="downloads-storage"></div>
+        <!-- Video download settings: they live here, beside what they change. -->
+        <div class="dl-settings">
+          <label class="dl-setting">Video quality
+            <select id="dl-video-quality">
+              <option value="original">Original</option>
+              <option value="1080p">1080p</option>
+              <option value="720p">720p</option>
+            </select>
+          </label>
+          <label class="dl-setting"><input type="checkbox" id="dl-remove-watched"> Remove watched episodes a day after you finish them</label>
+        </div>
         <div class="dl-section" id="downloads-active-section" hidden>
           <div class="dl-section-title">Downloading</div>
           <div id="downloads-active"></div>
@@ -813,7 +824,15 @@
           <div class="dl-section-title">Music</div>
           <div id="downloads-list"></div>
         </div>
-        <div class="empty-state" id="downloads-empty" hidden>Nothing downloaded yet. Open an album or a playlist and press Download, or right-click one.</div>
+        <div class="dl-section" id="downloads-movies-section" hidden>
+          <div class="dl-section-title">Movies</div>
+          <div id="downloads-movies"></div>
+        </div>
+        <div class="dl-section" id="downloads-tv-section" hidden>
+          <div class="dl-section-title">TV</div>
+          <div id="downloads-tv"></div>
+        </div>
+        <div class="empty-state" id="downloads-empty" hidden>Nothing downloaded yet. Open an album, a playlist, a movie or a show and press Download, or right-click an album or playlist.</div>
       </div>
 
       <!-- Settings -->

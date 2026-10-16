@@ -580,8 +580,10 @@ const resolveTrackStream = (itemId, kind = 'Audio', opts = {}) => {
   // A downloaded track plays from disk, before the server is asked anything:
   // it is the file the person chose to keep, it needs no transcode, and with
   // no network there is nobody to ask. Direct, from the start, no session.
-  const local = kind === 'Audio' ? _offline.ready[itemId] : null
-  if (local) return Promise.resolve({ url: local, playSessionId: null, mediaSourceId: null, direct: true, startTicks: 0 })
+  // A downloaded movie or episode too: its subtitles are files beside it
+  // (applySubtitles reads `local`), and it seeks on the element.
+  const local = _offline.ready[itemId]
+  if (local) return Promise.resolve({ url: local, playSessionId: null, mediaSourceId: null, direct: true, startTicks: 0, local: true })
   return resolveStream(jfClient, jf, itemId, currentDeviceProfile(), maxStreamingBitrate, kind, opts)
 }
 
@@ -912,7 +914,9 @@ async function connect(serverUrl, token, userId) {
     window.cascade.offline.setUser(userInfo).catch(() => {})
     viewsPromise.then(v => v && window.cascade.offline.setLibraries(v.Items || []))
       .then(() => placeOfflineDownloads()).catch(() => {})
+    syncFollowedSeries().catch(() => {})
   }
+  sweepWatchedEpisodes()
   await populateLibraryPicker(viewsPromise)
   invalidateLibraryViews()
   invalidateVideoViews()
@@ -4957,7 +4961,11 @@ function episodeCode(item) {
 
 // ── Movie detail ──
 
+/** The movie whose page is open, for its Download button. */
+let _openMovie = null
+
 async function openMovie(movieId) {
+  _openMovie = null
   document.getElementById('movies-index').style.display = 'none'
   const detail = document.getElementById('movie-detail')
   detail.style.display = ''
@@ -4975,6 +4983,8 @@ async function openMovie(movieId) {
     const meta = [movie.ProductionYear, fmtRuntime(movie.RunTimeTicks), (movie.Genres || []).slice(0, 3).join(', ')]
       .filter(Boolean).join('  ·  ')
     const resume = resumeTicks(movie)
+    // Picture subtitles can only be burned into a download (a re-encode).
+    const pictureSubs = (movie.MediaStreams || []).filter(s => s.Type === 'Subtitle' && s.IsTextSubtitleStream === false)
 
     body.innerHTML = `
       <div class="vd-header">
@@ -4986,6 +4996,11 @@ async function openMovie(movieId) {
           <div class="vd-actions">
             ${resume ? `<button class="shuffle-all-btn" id="movie-resume">Resume from ${fmtTime(resume / 10_000_000)}</button>` : ''}
             <button class="shuffle-all-btn" id="movie-play">${resume ? 'Play from start' : 'Play'}</button>
+            <button class="shuffle-all-btn" id="movie-download" style="display:none"></button>
+            ${pictureSubs.length ? `<select class="vd-dl-note" id="movie-burnin" title="Picture subtitles can only be burned into a download, which the server converts">
+              <option value="">No burned-in subtitles</option>
+              ${pictureSubs.map(s => `<option value="${s.Index}">Burn in ${esc(s.DisplayTitle || s.Language || `track ${s.Index}`)}</option>`).join('')}
+            </select>` : ''}
           </div>
         </div>
       </div>`
@@ -4995,6 +5010,12 @@ async function openMovie(movieId) {
     document.getElementById('movie-play').onclick = () => playVideo([movie], 0, 0)
     document.getElementById('movie-resume')?.addEventListener('click',
       () => playVideo([movie], 0, resume))
+    _openMovie = movie
+    document.getElementById('movie-download').onclick = () => {
+      const burn = /** @type {HTMLSelectElement | null} */ (document.getElementById('movie-burnin'))?.value
+      toggleVideoDownload('movie', movie, { burnIn: burn ? Number(burn) : null })
+    }
+    renderVideoDownloadButtons()
   } catch {
     body.innerHTML = `<div class="empty-state">Could not load this movie</div>`
   }
@@ -5003,6 +5024,8 @@ async function openMovie(movieId) {
 // ── Series detail ──
 
 let _currentSeries = null
+/** The season whose episodes are showing, for its Download button. */
+let _currentSeason = null
 
 async function openSeries(seriesId) {
   document.getElementById('shows-index').style.display = 'none'
@@ -5042,14 +5065,18 @@ async function openSeries(seriesId) {
           <div class="vd-title">${esc(series.Name)}</div>
           <div class="vd-meta">${esc(meta)}</div>
           <div class="vd-overview">${esc(series.Overview || '')}</div>
-          ${contLabel ? `<div class="vd-actions"><button class="shuffle-all-btn" id="series-continue" title="${esc(contEp.Name || '')}">${esc(contLabel)}</button></div>` : ''}
+          <div class="vd-actions">
+            ${contLabel ? `<button class="shuffle-all-btn" id="series-continue" title="${esc(contEp.Name || '')}">${esc(contLabel)}</button>` : ''}
+            <button class="shuffle-all-btn" id="series-download" data-label="Download show" style="display:none"></button>
+          </div>
+          <label class="dl-follow"><input type="checkbox" id="series-follow"> Download new episodes as they arrive</label>
         </div>
       </div>
       <div class="season-tabs" id="season-tabs">${
         seasons.map((s, i) =>
           `<button class="season-tab${i === startSeason ? ' active' : ''}">${esc(s.Name)}</button>`
         ).join('')
-      }</div>
+      }<button class="shuffle-all-btn" id="season-download" data-label="Download season" style="display:none"></button></div>
       <div id="episode-list"></div>`
 
     // Closes over `seasons` by index rather than reading an id back out of a
@@ -5058,9 +5085,20 @@ async function openSeries(seriesId) {
       tab.addEventListener('click', () => {
         document.querySelectorAll('#season-tabs .season-tab').forEach(t => t.classList.remove('active'))
         tab.classList.add('active')
+        _currentSeason = seasons[i]
         loadEpisodes(seriesId, seasons[i].Id)
       })
     })
+    document.getElementById('series-download').onclick = () => toggleVideoDownload('series', series,
+      { follow: /** @type {HTMLInputElement} */ (document.getElementById('series-follow')).checked })
+    // Before the show is downloaded the box is the choice made with it; after,
+    // it changes the download (the download manager has the same switch).
+    document.getElementById('series-follow').addEventListener('change', (e) => {
+      if (offlineCollection(series.Id)) window.cascade.offline.follow(series.Id, /** @type {HTMLInputElement} */ (e.target).checked).then(refreshOffline)
+    })
+    document.getElementById('season-download').onclick = () => {
+      if (_currentSeason) toggleVideoDownload('season', { ...(_currentSeason), SeriesId: series.Id, SeriesName: series.Name })
+    }
 
     // Its whole season becomes the queue, as a click on the episode does, so it rolls on to the next.
     document.getElementById('series-continue')?.addEventListener('click', async () => {
@@ -5076,6 +5114,8 @@ async function openSeries(seriesId) {
       }
     })
 
+    _currentSeason = seasons[startSeason] || null
+    renderVideoDownloadButtons()
     if (seasons.length) loadEpisodes(seriesId, seasons[startSeason].Id)
     else document.getElementById('episode-list').innerHTML =
       `<div class="empty-state">No seasons found</div>`
@@ -5109,9 +5149,16 @@ async function loadEpisodes(seriesId, seasonId) {
           <div class="ep-title">${esc(num + (ep.Name || ''))}</div>
           <div class="ep-overview">${esc(ep.Overview || '')}</div>
         </div>
-        <div class="ep-time">${ep.UserData?.Played ? '<span class="ep-watched">✓</span> ' : ''}${fmtRuntime(ep.RunTimeTicks)}</div>
+        <div class="ep-time">${ep.UserData?.Played ? '<span class="ep-watched">✓</span> ' : ''}${fmtRuntime(ep.RunTimeTicks)}<button class="ep-dl" data-id="${esc(ep.Id)}" type="button" aria-label="Download">${DL_ICON}</button></div>
       </div>`
     }).join('')
+    list.querySelectorAll('.ep-dl').forEach((b, i) => b.addEventListener('click', (e) => {
+      e.stopPropagation()
+      const ep = eps[i]
+      if (!offlineCollection(ep.Id) && isVideoHeld(ep.Id)) { showNotice('This episode is downloaded with its season or show. Remove that in Downloads.', 'Downloads'); return }
+      toggleVideoDownload('episode', ep)
+    }))
+    renderVideoDownloadButtons()
 
     // The whole season becomes the queue, so finishing one episode rolls into
     // the next through the existing `ended` handler. No second queue.
@@ -5431,6 +5478,20 @@ onDeck('timeupdate', () => { if (_segments.length) _syncSkipButton() })
 function applySubtitles(item, resolved) {
   audio.querySelectorAll('track').forEach(t => t.remove())
   if (!isVideoItem(item)) return
+
+  // A download plays its own WebVTT files, saved beside it.
+  if (resolved?.local) {
+    for (const s of _offline.subs?.[item.Id] || []) {
+      const track = document.createElement('track')
+      track.kind = 'subtitles'
+      track.label = s.title || s.language || `Track ${s.index}`
+      if (s.language) track.srclang = s.language
+      track.src = s.url
+      audio.appendChild(track)
+      track.track.mode = (s.isDefault || s.isForced) ? 'showing' : 'disabled'
+    }
+    return
+  }
 
   const sourceId = resolved?.mediaSourceId
   if (!sourceId) return
@@ -6065,9 +6126,11 @@ function reportPlaybackStart(itemId) {
   startProgressReporting()
 }
 
-function reportPlaybackStopped(itemId, positionTicks) {
+/** `item`: when the queue no longer holds it (stopPlayback clears it first). */
+function reportPlaybackStopped(itemId, positionTicks, item) {
   _reportingActive = false
   stopProgressReporting()
+  noteOfflineWatched(item || queue.find(q => q?.Id === itemId), positionTicks ?? Math.round(mediaPosition() * 10_000_000))
   CascadeCore.reportStopped(jfClient, playbackSnapshot(itemId, positionTicks))
 }
 
@@ -6105,7 +6168,7 @@ function stopPlayback() {
 
   // A channel has no finite position to report and Jellyfin has nothing
   // meaningful to do with a played-state update against a TvChannel item.
-  if (item && !radio) reportPlaybackStopped(item.Id, positionTicks)
+  if (item && !radio) reportPlaybackStopped(item.Id, positionTicks, item)
 
   window.cascade.discord.clear()
   document.getElementById('np-art').innerHTML = '♪'
@@ -7836,7 +7899,9 @@ async function init() {
 
   // Before anything draws a cover or resolves a stream: what is downloaded is
   // what works with no server. Each account has its own downloads, and the
-  // saved one is whose music offline mode plays.
+  // saved one is whose music offline mode plays. The video settings first:
+  // main holds videos back until it has their profile.
+  await loadVideoDownloadSettings()
   await window.cascade.offline.setOwner(serverUrl && token && userId ? userId : null)
   await refreshOffline()
 
@@ -7977,12 +8042,190 @@ async function removeOfflineDownload(id) {
   await refreshOffline()
 }
 
+// ── Video downloads ──
+// Movies, episodes, seasons and whole shows (docs/offline-mode-plan.md,
+// section 6). The main process negotiates each file with the server using the
+// download profile set here (src/core/offline-video.ts says how, and why the
+// file is kept as the server sends it); this side asks for them, follows
+// shows for new episodes and removes watched ones.
+
+/** What a downloaded video keeps: its page, the player, the subtitle and
+ *  audio pickers, chapters, resume and the follow's date check read these. */
+const VIDEO_DL_FIELDS = 'Overview,MediaStreams,MediaSources,Genres,Chapters,DateCreated,SortName,OfficialRating,CommunityRating,UserData,ProductionYear'
+
+let _videoDownloadQuality = 'original'
+/** Off by default here (the plan's decision); the iPhone defaults it on. */
+let _removeWatchedEpisodes = false
+
+async function loadVideoDownloadSettings() {
+  _videoDownloadQuality = CascadeCore.parseVideoQuality(await window.cascade.store.get('videoDownloadQuality'), 'original')
+  _removeWatchedEpisodes = (await window.cascade.store.get('removeWatchedEpisodes')) === true
+  const quality = /** @type {HTMLSelectElement} */ (document.getElementById('dl-video-quality'))
+  const removeWatched = /** @type {HTMLInputElement} */ (document.getElementById('dl-remove-watched'))
+  quality.value = _videoDownloadQuality
+  removeWatched.checked = _removeWatchedEpisodes
+  pushVideoDownloadProfile()
+}
+
+/** Main holds videos back until it has this: built from what this machine
+ *  decodes (the same probe playback uses) and the quality setting. */
+function pushVideoDownloadProfile() {
+  window.cascade.offline.setVideoProfile(CascadeCore.downloadProfile(currentDeviceProfile(), /** @type {any} */ (_videoDownloadQuality),
+    { audioCodecs: 'aac', maxAudioChannels: '2' })).catch(() => {})
+}
+
+document.getElementById('dl-video-quality').addEventListener('change', async (e) => {
+  _videoDownloadQuality = CascadeCore.parseVideoQuality(/** @type {HTMLSelectElement} */ (e.target).value)
+  await window.cascade.store.set('videoDownloadQuality', _videoDownloadQuality)
+  pushVideoDownloadProfile()
+})
+document.getElementById('dl-remove-watched').addEventListener('change', async (e) => {
+  _removeWatchedEpisodes = /** @type {HTMLInputElement} */ (e.target).checked
+  await window.cascade.store.set('removeWatchedEpisodes', _removeWatchedEpisodes)
+  sweepWatchedEpisodes()
+})
+
+/** Removes episodes finished over a day ago, when the setting is on: at
+ *  launch, hourly, and after a downloaded episode stops. */
+async function sweepWatchedEpisodes() {
+  if (!_removeWatchedEpisodes) return
+  const n = await window.cascade.offline.removeWatched().catch(() => 0)
+  if (n) refreshOffline()
+}
+setInterval(sweepWatchedEpisodes, 60 * 60 * 1000)
+
+/** A downloaded video stopped 90 percent in or more: watched, as far as
+ *  removing watched episodes goes. */
+function noteOfflineWatched(item, positionTicks) {
+  if (!item || !isVideoItem(item) || !_offline.ready[item.Id]) return
+  if (!CascadeCore.isWatchedPosition(positionTicks, item.RunTimeTicks)) return
+  window.cascade.offline.watched(item.Id).then(() => sweepWatchedEpisodes()).catch(() => {})
+}
+
+/** The show and seasons episodes belong to, so their pages work offline. */
+async function videoContainers(seriesId, seasonId) {
+  if (!seriesId) return []
+  const [series, seasons] = await Promise.all([
+    jfGet(`/Items/${seriesId}`, { Fields: 'Overview,Genres,DateCreated,SortName,ProductionYear,OfficialRating,CommunityRating' }).catch(() => null),
+    jfGet(`/Shows/${seriesId}/Seasons`, { UserId: jf.userId }).catch(() => null),
+  ])
+  return [series, ...(seasons?.Items || []).filter(s => !seasonId || s.Id === seasonId)].filter(Boolean)
+}
+
+/** Asks for a movie, an episode, a season or a whole show, or removes it
+ *  when it is already asked for. opts.burnIn: a picture subtitle's stream
+ *  index (a movie or episode alone); opts.follow: a show fetches new
+ *  episodes as they arrive. */
+async function toggleVideoDownload(kind, item, opts = {}) {
+  if (!item?.Id) return
+  if (offlineCollection(item.Id)) {
+    if (!confirm(`Remove "${item.Name || 'this'}" from your downloads?`)) return
+    await removeOfflineDownload(item.Id)
+    return
+  }
+  if (jfClient.offline) { showNotice('Downloading needs your server. Turn Offline Mode off first.', 'Downloads'); return }
+  if (jf.canDownload === false) {
+    showNotice('This account is not allowed to download media. An admin can turn it on in the Jellyfin dashboard.', 'Downloads')
+    return
+  }
+  let items, collection, containers
+  try {
+    if (kind === 'movie' || kind === 'episode') {
+      const full = await jfGet(`/Items/${item.Id}`, { Fields: VIDEO_DL_FIELDS })
+      items = [full]
+      collection = full
+      containers = kind === 'episode' ? await videoContainers(full.SeriesId, full.SeasonId) : []
+    } else if (kind === 'season') {
+      const data = await jfGet(`/Shows/${item.SeriesId}/Episodes`, { SeasonId: item.Id, UserId: jf.userId, Fields: VIDEO_DL_FIELDS })
+      items = data.Items || []
+      collection = { Id: item.Id, Name: item.Name, Type: 'Season', SeriesId: item.SeriesId, SeriesName: item.SeriesName, IndexNumber: item.IndexNumber, ImageTags: item.ImageTags }
+      containers = await videoContainers(item.SeriesId, item.Id)
+    } else {
+      const data = await jfGet(`/Shows/${item.Id}/Episodes`, { UserId: jf.userId, Fields: VIDEO_DL_FIELDS })
+      items = data.Items || []
+      collection = { Id: item.Id, Name: item.Name, Type: 'Series', ImageTags: item.ImageTags, ProductionYear: item.ProductionYear, Overview: item.Overview, Genres: item.Genres }
+      containers = await videoContainers(item.Id, null)
+    }
+  } catch {
+    showNotice('Could not read that from the server.', 'Downloads')
+    return
+  }
+  items = items.filter(i => i?.Type === 'Movie' || i?.Type === 'Episode')
+  if (!items.length) { showNotice('There is nothing to download in that.', 'Downloads'); return }
+  const ok = await window.cascade.offline.add(collection, items, offlineSession(),
+    { burnIn: opts.burnIn ?? null, follow: !!opts.follow, containers })
+  if (!ok) { showNotice('Could not start the download.', 'Downloads'); return }
+  await refreshOffline()
+  placeOfflineDownloads().catch(() => {})
+}
+
+/** Fetches the new episodes of every show followed for them. Online only:
+ *  after sign-in and hourly. */
+let _followSyncing = false
+async function syncFollowedSeries() {
+  const followed = _offline.collections.filter(c => c.follow)
+  if (jfClient.offline || _followSyncing || !followed.length) return
+  _followSyncing = true
+  try {
+    const index = CascadeCore.parseIndex(await window.cascade.offline.catalog())
+    for (const c of followed) {
+      const data = await jfGet(`/Shows/${c.item.Id}/Episodes`, { UserId: jf.userId, Fields: VIDEO_DL_FIELDS }).catch(() => null)
+      const fresh = CascadeCore.newEpisodes(index, c.item.Id, data?.Items || [])
+      if (fresh.length) await window.cascade.offline.addEpisodes(c.item.Id, fresh, offlineSession(), await videoContainers(c.item.Id, null))
+    }
+  } finally {
+    _followSyncing = false
+  }
+  refreshOffline()
+}
+setInterval(() => syncFollowedSeries().catch(() => {}), 60 * 60 * 1000)
+
+/** The Download button of a movie, episode, season or show page. Offline it
+ *  only removes, as the album button does. */
+function paintVideoDownloadButton(btn, id) {
+  if (!btn) return
+  const c = id ? offlineCollection(id) : null
+  const shown = !!id && (!!c || !jfClient.offline)
+  btn.style.display = shown ? '' : 'none'
+  if (!shown) return
+  const done = !!c && c.done === c.total
+  btn.classList.toggle('on', done)
+  btn.title = c ? 'Remove this download' : 'Download to watch without a connection'
+  btn.innerHTML = `${DL_ICON} ${!c ? (btn.dataset.label || 'Download') : done ? 'Downloaded' : `Downloading ${c.done}/${c.total}`}`
+}
+
+/** Whether an episode is on disk or on its way, by itself or with its season or show. */
+const isVideoHeld = (id) => _offline.collections.some(c => c.trackIds.includes(id))
+
+/** The movie, show and season pages' buttons, the follow switch and the
+ *  episode list's icons, after the downloads changed. */
+function renderVideoDownloadButtons() {
+  paintVideoDownloadButton(document.getElementById('movie-download'), _openMovie?.Id)
+  const burn = document.getElementById('movie-burnin')
+  if (burn) burn.style.display = _openMovie && !offlineCollection(_openMovie.Id) && !jfClient.offline ? '' : 'none'
+  paintVideoDownloadButton(document.getElementById('series-download'), _currentSeries?.Id)
+  paintVideoDownloadButton(document.getElementById('season-download'), _currentSeason?.Id)
+  const follow = /** @type {HTMLInputElement | null} */ (document.getElementById('series-follow'))
+  if (follow) {
+    const c = _currentSeries ? offlineCollection(_currentSeries.Id) : null
+    if (c) follow.checked = c.follow
+    follow.closest('label').style.display = c || !jfClient.offline ? '' : 'none'
+  }
+  for (const b of document.querySelectorAll('#episode-list .ep-dl')) {
+    const id = /** @type {HTMLElement} */ (b).dataset.id
+    const held = isVideoHeld(id)
+    b.classList.toggle('on', held)
+    b.setAttribute('title', offlineCollection(id) ? 'Remove this download' : held ? 'Downloaded with its season or show' : 'Download this episode')
+  }
+}
+
 const DL_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>'
 
 /** The Download button on the open album and on the open playlist. */
 function renderOfflineButtons() {
   paintOfflineButton('btn-offline-album', _openAlbumItem?.Id)
   paintOfflineButton('btn-offline-playlist', currentSmartKind ? null : currentPlaylistId)
+  renderVideoDownloadButtons()
 }
 
 function paintOfflineButton(buttonId, id) {
@@ -8013,19 +8256,29 @@ document.getElementById('btn-offline-playlist').addEventListener('click', () => 
 /** Which collections have their song list open, kept across a redraw. */
 const _dlOpen = new Set()
 
+const VIDEO_COLLECTIONS = new Set(['Movie', 'Episode', 'Season', 'Series'])
+const isVideoCollection = (c) => VIDEO_COLLECTIONS.has(c.item.Type)
+/** Collections whose items are worth listing: a season or show's episodes. */
+const listsItems = (c) => !isVideoCollection(c) || c.item.Type === 'Season' || c.item.Type === 'Series'
+
 function dlCardHtml(c) {
   const id = c.item.Id
-  const art = artUrl(id, c.item.ImageTags?.Primary)
+  const video = isVideoCollection(c)
+  const glyph = video ? '🎞' : '♪'
+  // A season's own art is often missing: its show's poster stands in.
+  const art = artUrl(id, c.item.ImageTags?.Primary) || (c.item.SeriesId ? artUrl(c.item.SeriesId, 'x') : '')
+  const name = c.item.Type === 'Season' && c.item.SeriesName ? `${c.item.SeriesName}: ${c.item.Name || ''}` : (c.item.Name || '')
   return `<div class="dl-card" data-dl-id="${esc(id)}">
-    <div class="dl-art">${art ? `<img src="${esc(art)}" alt="" onerror="this.parentNode.textContent='♪'">` : '♪'}</div>
+    <div class="dl-art">${art ? `<img src="${esc(art)}" alt="" onerror="this.parentNode.textContent='${glyph}'">` : glyph}</div>
     <div class="dl-info">
-      <div class="dl-name">${esc(c.item.Name || '')}</div>
+      <div class="dl-name">${esc(name)}</div>
       <div class="dl-meta"></div>
       <div class="dl-bar"><span></span></div>
+      ${c.item.Type === 'Series' ? `<label class="dl-follow"><input type="checkbox" data-dl="follow"${c.follow ? ' checked' : ''}> Download new episodes as they arrive</label>` : ''}
     </div>
     <div class="dl-actions">
       <button class="shuffle-all-btn" data-dl="play" type="button">Play</button>
-      <button class="shuffle-all-btn" data-dl="songs" type="button">Songs</button>
+      <button class="shuffle-all-btn" data-dl="songs" type="button"${listsItems(c) ? '' : ' hidden'}>${video ? 'Episodes' : 'Songs'}</button>
       <button class="shuffle-all-btn" data-dl="retry" type="button" hidden>Try again</button>
       <button class="shuffle-all-btn" data-dl="remove" type="button">Remove</button>
     </div>
@@ -8042,12 +8295,20 @@ function renderDownloadsView() {
   document.getElementById('downloads-total').textContent = all.length
     ? `${all.length} ${all.length === 1 ? 'collection' : 'collections'} · ${fmtBytes(_offline.totalBytes)}` : ''
   renderDownloadsStorage()
+  // A followed show with every episode removed as watched waits in TV.
   const active = all.filter(c => c.done < c.total)
   const done = all.filter(c => c.done === c.total)
+  const music = done.filter(c => !isVideoCollection(c))
+  const movies = done.filter(c => c.item.Type === 'Movie')
+  const tv = done.filter(c => isVideoCollection(c) && c.item.Type !== 'Movie')
   fillDownloadCards(document.getElementById('downloads-active'), active)
-  fillDownloadCards(document.getElementById('downloads-list'), done)
+  fillDownloadCards(document.getElementById('downloads-list'), music)
+  fillDownloadCards(document.getElementById('downloads-movies'), movies)
+  fillDownloadCards(document.getElementById('downloads-tv'), tv)
   document.getElementById('downloads-active-section').hidden = !active.length
-  document.getElementById('downloads-done-section').hidden = !done.length
+  document.getElementById('downloads-done-section').hidden = !music.length
+  document.getElementById('downloads-movies-section').hidden = !movies.length
+  document.getElementById('downloads-tv-section').hidden = !tv.length
   document.getElementById('downloads-empty').hidden = all.length > 0
   updateDownloadCards()
 }
@@ -8075,10 +8336,16 @@ function fillDownloadCards(list, collections) {
       window.cascade.offline.resume(offlineSession())
     })
     card.querySelector('[data-dl="remove"]').addEventListener('click', async () => {
-      const name = offlineCollection(id)?.item.Name || 'this download'
-      if (!confirm(`Remove "${name}" from your downloads? Songs another download still uses stay.`)) return
+      const c = offlineCollection(id)
+      const name = c?.item.Name || 'this download'
+      const what = c && isVideoCollection(c) ? 'Episodes' : 'Songs'
+      // Cancelling a download in progress stops the server's conversion too (offline.js).
+      if (!confirm(`Remove "${name}" from your downloads? ${what} another download still uses stay.`)) return
       _dlOpen.delete(id)
       await removeOfflineDownload(id)
+    })
+    card.querySelector('[data-dl="follow"]')?.addEventListener('change', (e) => {
+      window.cascade.offline.follow(id, /** @type {HTMLInputElement} */ (e.target).checked).then(refreshOffline)
     })
     if (_dlOpen.has(id)) showDownloadedSongs(id)
   }
@@ -8093,16 +8360,23 @@ function updateDownloadCards() {
     if (!c) continue
     let partial = 0
     let moving = false
+    /** The video transferring now, which says what the server is doing. */
+    let videoStatus = ''
     for (const id of c.trackIds) {
       if (_offline.ready[id]) continue
       const p = _offlineProgress.get(id)
       if (!p) continue
       moving = true
-      if (p.total) partial += Math.min(1, p.received / p.total)
+      const size = p.total || p.estimate
+      if (size) partial += Math.min(1, p.received / size)
+      if (p.outcome) videoStatus = videoProgressText(p)
     }
     const failed = c.trackIds.filter(id => _offline.failed[id])
-    const kind = c.item.Type === 'Playlist' ? 'Playlist' : 'Album'
-    const meta = [kind, `${c.done} of ${c.total} ${c.total === 1 ? 'song' : 'songs'}`, fmtBytes(c.bytes)]
+    const video = isVideoCollection(c)
+    const kind = { Playlist: 'Playlist', MusicAlbum: 'Album', Movie: 'Movie', Episode: 'Episode', Season: 'Season', Series: 'Show' }[c.item.Type] || 'Album'
+    const unit = video ? (c.total === 1 ? 'episode' : 'episodes') : (c.total === 1 ? 'song' : 'songs')
+    const count = c.item.Type === 'Movie' || c.item.Type === 'Episode' ? null : `${c.done} of ${c.total} ${unit}`
+    const meta = [kind, count, fmtBytes(c.bytes), videoStatus].filter(Boolean)
     const metaEl = card.querySelector('.dl-meta')
     metaEl.textContent = meta.join(' · ')
     if (failed.length) {
@@ -8117,7 +8391,19 @@ function updateDownloadCards() {
     card.querySelector('[data-dl="retry"]').hidden = !failed.length || moving || jfClient.offline
     card.querySelector('[data-dl="play"]').disabled = c.done === 0
     card.querySelector('[data-dl="songs"]').disabled = c.done === 0
+    card.querySelector('[data-dl="remove"]').textContent = c.done < c.total ? 'Cancel' : 'Remove'
   }
+}
+
+/** "Converting on the server · about 12 minutes left": what the server is
+ *  doing for a video, and how long at the rate so far. */
+function videoProgressText(p) {
+  const label = CascadeCore.outcomeLabel(p.outcome)
+  const secs = p.startedAt ? (Date.now() - p.startedAt) / 1000 : 0
+  const left = secs > 3 ? CascadeCore.secondsLeft(p.received, p.total || p.estimate || null, p.received / secs) : null
+  if (left === null) return label
+  const mins = Math.round(left / 60)
+  return `${label} · about ${mins <= 1 ? 'a minute' : `${mins} minutes`} left`
 }
 
 async function downloadedTracks(id) {
@@ -8127,12 +8413,34 @@ async function downloadedTracks(id) {
 
 async function playDownloaded(id) {
   const items = await downloadedTracks(id)
-  if (items.length) playItems(items, 0, offlineCollection(id)?.item.Name)
+  if (!items.length) return
+  const c = offlineCollection(id)
+  if (c && isVideoCollection(c)) {
+    // Where the person left off, as the show page's Continue does.
+    const cont = items.length > 1 ? CascadeCore.continueEpisode(items) : null
+    if (cont) playVideo(items, cont.index, cont.startTicks)
+    else playVideo(items, 0, resumeTicks(items[0]))
+    return
+  }
+  playItems(items, 0, c?.item.Name)
 }
 
 async function showDownloadedSongs(id) {
   const box = document.querySelector(`[data-dl-tracks="${CSS.escape(id)}"]`)
   if (!box) return
+  const c = offlineCollection(id)
+  if (c && isVideoCollection(c)) {
+    const items = await downloadedTracks(id)
+    box.innerHTML = `<div class="dl-eps">${items.map((ep, i) => `<div class="dl-ep" data-i="${i}">
+      <span>${esc(`${ep.ParentIndexNumber != null ? `S${ep.ParentIndexNumber}:E${ep.IndexNumber ?? '?'} ` : ''}${ep.Name || ''}`)}</span>
+      <span class="dl-ep-time">${ep.UserData?.Played ? '✓ ' : ''}${fmtRuntime(ep.RunTimeTicks)}</span></div>`).join('')}</div>`
+    box.querySelectorAll('.dl-ep').forEach(el => el.addEventListener('click', () => {
+      const i = Number(/** @type {HTMLElement} */ (el).dataset.i)
+      playVideo(items, i, resumeTicks(items[i]))
+    }))
+    box.hidden = false
+    return
+  }
   const items = await downloadedTracks(id)
   box.innerHTML = `<div class="track-list"><div id="dl-rows-${esc(id)}">${items.map((t, i) => trackRowHtml(t, i)).join('')}</div></div>`
   box.querySelectorAll('.track-row').forEach(el => {
@@ -8303,9 +8611,11 @@ document.getElementById('offline-retry').addEventListener('click', () => probeSe
 document.getElementById('offline-pill').addEventListener('click', () => showView('downloads'))
 document.getElementById('s-offline-toggle').addEventListener('change', (e) => setOfflineSwitch(/** @type {HTMLInputElement} */ (e.target).checked))
 
-/** Moves downloads out of the placeholder libraries: each library is asked
- *  which of them it holds (100 ids a request), and their stored fields are
- *  refreshed from the answer, which fills in what version 1 never kept. */
+/** Moves downloads out of the placeholder libraries: each album, show or
+ *  movie asks the server for its ancestors and takes the stored library
+ *  among them (CascadeCore.placementGroups says why not Ids with ParentId),
+ *  and its items' stored fields are refreshed from a fresh copy, which fills
+ *  in what version 1 never kept. */
 async function placeOfflineDownloads() {
   if (jfClient.offline) return
   let catalog = null
@@ -8314,14 +8624,16 @@ async function placeOfflineDownloads() {
   const index = CascadeCore.parseIndex(catalog)
   const unplaced = CascadeCore.unplacedTrackIds(index)
   if (!unplaced.length) return
-  for (const lib of index.libraries) {
-    for (let i = 0; i < unplaced.length; i += 100) {
-      const ids = unplaced.slice(i, i + 100)
+  for (const [groupId, ids] of CascadeCore.placementGroups(index, unplaced)) {
+    const ancestors = await jfGet(`/Items/${groupId}/Ancestors`, { UserId: jf.userId }).catch(() => null)
+    const lib = CascadeCore.libraryFromAncestors(index, ancestors)
+    if (!lib) continue
+    for (let i = 0; i < ids.length; i += 100) {
       const found = await jfGet('/Items', {
-        Ids: ids.join(','), ParentId: lib.Id, Recursive: true,
+        Ids: ids.slice(i, i + 100).join(','), UserId: jf.userId,
         Fields: 'Genres,DateCreated,SortName,ProductionYear,Overview,MediaSources',
       }).catch(() => null)
-      if (found?.Items?.length) await window.cascade.offline.place(lib.Id, found.Items)
+      if (found?.Items?.length) await window.cascade.offline.place(lib, found.Items)
     }
   }
 }
@@ -9499,7 +9811,9 @@ const audioTrackDropdown = document.getElementById('audio-track-dropdown')
 document.getElementById('ov-audio-track').addEventListener('click', (e) => {
   e.stopPropagation()
   const item = queue[queueIndex]
-  const streams = (item?.MediaStreams || []).filter(s => s.Type === 'Audio')
+  // A download holds the one track it was saved with (a remux keeps only
+  // that one), and there is no server to ask for another.
+  const streams = _offline.ready[item?.Id] ? [] : (item?.MediaStreams || []).filter(s => s.Type === 'Audio')
 
   audioTrackDropdown.innerHTML = streams.length > 1
     ? ['<div class="ov-dd-head">Audio</div>',

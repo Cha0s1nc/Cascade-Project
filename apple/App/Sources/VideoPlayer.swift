@@ -39,9 +39,20 @@ final class VideoSession {
     private(set) var trackLabels: [AVMediaSelectionOption: String] = [:]
     /// Bumped on a selection, so the menus redraw their checkmarks.
     private(set) var selectionRevision = 0
+    /// A downloaded video's saved subtitles (WebVTT), drawn over the picture:
+    /// AVPlayer offers only subtitles inside the stream, and a downloaded file
+    /// has none it can show. Empty for a stream.
+    private(set) var sideSubtitles: [(label: String, vtt: WebVTT)] = []
+    /// Which of them shows, or nil for off.
+    private(set) var sideSubtitle: Int?
+    /// The cue showing now.
+    private(set) var sideText: String?
 
     private let client: JellyfinClient
     private let config: ServerConfig
+    /// Downloads: a downloaded video plays from its file (nil on tvOS).
+    private let offline: OfflineLibrary?
+    @ObservationIgnored private var cueObserver: Any?
     private var queue: [JfItem] = []
     private var index = 0
     private var audioStreamIndex: Int?
@@ -68,9 +79,10 @@ final class VideoSession {
     @ObservationIgnored private var tap: TapContext?
     private(set) var equalizer = EQProfile()
 
-    init(client: JellyfinClient, config: ServerConfig) {
+    init(client: JellyfinClient, config: ServerConfig, offline: OfflineLibrary? = nil) {
         self.client = client
         self.config = config
+        self.offline = offline
         // AVPlayer's own default already follows the system's caption
         // preferences (Settings > Accessibility > Subtitles & Captioning).
         player.appliesMediaSelectionCriteriaAutomatically = true
@@ -121,6 +133,9 @@ final class VideoSession {
         subtitleGroup = nil
         audioGroup = nil
         trackLabels = [:]
+        sideSubtitles = []
+        sideSubtitle = nil
+        sideText = nil
         time = 0
         duration = 0
         // The list's MediaStreams say it before the first frame does.
@@ -128,13 +143,18 @@ final class VideoSession {
         isLandscapeVideo = video.flatMap { v in v.width.flatMap { w in v.height.map { h in w > h } } }
         let start = startTicks ?? (resume ? resumeTicks(for: item) : 0)
         do {
-            let stream = try await VideoPlayback.resolve(client: client, config: config, item: item,
-                                                         audioStreamIndex: audioStreamIndex)
+            // A download plays from its file before the server is asked
+            // anything: it needs no transcode, and offline there is nobody to ask.
+            let local = offline?.localFile(item.id)
+            let stream = if let local { ResolvedStream.localFile(local) } else {
+                try await VideoPlayback.resolve(client: client, config: config, item: item, audioStreamIndex: audioStreamIndex)
+            }
             guard self.item?.id == item.id else { return }
             resolved = stream
             // Through ProxyConnection: AVPlayer's own networking needs the reverse
             // proxy headers set on the asset.
-            let playerItem = AVPlayerItem(asset: ProxyConnection.shared.asset(url: stream.url))
+            let playerItem = AVPlayerItem(asset: local.map { AVURLAsset(url: $0) } ?? ProxyConnection.shared.asset(url: stream.url))
+            if local != nil { loadSideSubtitles(for: item) }
             tap = nil
             if stream.direct, equalizer.enabled {
                 let context = TapContext()
@@ -290,6 +310,37 @@ final class VideoSession {
         }
     }
 
+    /// Reads a download's saved WebVTT files, shows the default or forced
+    /// one, and follows the clock a few times a second for the cue.
+    private func loadSideSubtitles(for item: JfItem) {
+        let saved = offline?.subtitles(of: item.id) ?? []
+        sideSubtitles = saved.compactMap { s in
+            guard let text = try? String(contentsOf: s.url, encoding: .utf8) else { return nil }
+            return (s.subtitle.title ?? s.subtitle.language ?? "Track \(s.subtitle.index)", WebVTT(text))
+        }
+        sideSubtitle = saved.firstIndex { $0.subtitle.isDefault == true || $0.subtitle.isForced == true }
+            .flatMap { $0 < sideSubtitles.count ? $0 : nil }
+        if let cueObserver { player.removeTimeObserver(cueObserver) }
+        cueObserver = nil
+        guard !sideSubtitles.isEmpty else { return }
+        cueObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.1, preferredTimescale: 600),
+                                                     queue: .main) { [weak self] t in
+            MainActor.assumeIsolated { self?.updateCue(t.seconds) }
+        }
+    }
+
+    private func updateCue(_ seconds: Double) {
+        let text = sideSubtitle.flatMap { $0 < sideSubtitles.count ? sideSubtitles[$0].vtt.text(at: seconds) : nil }
+        if text != sideText { sideText = text }
+    }
+
+    /// Nil turns the saved subtitles off.
+    func selectSide(_ index: Int?) {
+        sideSubtitle = index
+        selectionRevision += 1
+        updateCue(player.currentTime().seconds)
+    }
+
     /// The server's name for a track, which tells five English tracks apart.
     func label(for option: AVMediaSelectionOption) -> String {
         trackLabels[option] ?? option.displayName
@@ -375,8 +426,13 @@ final class VideoSession {
     /// Where the person stopped is what the server resumes from next time.
     private func reportStopped() async {
         reportTask?.cancel()
-        guard item != nil, let resolved else { return }
+        guard let item, let resolved else { return }
         let snapshot = state()
+        // A download played 90 percent in: watched, for "Remove watched episodes".
+        if offline?.localFile(item.id) != nil,
+           OfflineVideo.isWatched(positionTicks: snapshot.positionTicks, runTimeTicks: item.runTimeTicks) {
+            offline?.markWatched(item.id)
+        }
         self.resolved = nil
         await PlaybackReporter.stopped(client, snapshot)
         if !resolved.direct { await stopActiveEncoding(client: client, config: config, playSessionId: resolved.playSessionId) }
@@ -637,6 +693,8 @@ final class VideoSession {
         segmentTask?.cancel()
         if let timeObserver { player.removeTimeObserver(timeObserver) }
         timeObserver = nil
+        if let cueObserver { player.removeTimeObserver(cueObserver) }
+        cueObserver = nil
         #if os(iOS) || os(macOS)
         releaseLockScreen()
         #endif
@@ -755,3 +813,42 @@ struct VideoScreen: View {
     }
 }
 #endif
+
+
+/// A downloaded video's saved subtitle cue, over the bottom of the picture
+/// (VideoSession.sideSubtitles says why they are drawn here).
+struct SideSubtitleOverlay: View {
+    let session: VideoSession
+
+    var body: some View {
+        if let text = session.sideText {
+            Text(text)
+                .font(.title3.weight(.semibold))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.white)
+                .shadow(color: .black, radius: 2)
+                .padding(.horizontal, 10).padding(.vertical, 4)
+                .background(.black.opacity(0.45), in: .rect(cornerRadius: 6))
+                .padding(.bottom, 48)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .allowsHitTesting(false)
+        }
+    }
+}
+
+/// The saved subtitles as menu entries, for a download (no stream subtitles).
+struct SideSubtitleChoices: View {
+    let session: VideoSession
+
+    var body: some View {
+        let _ = session.selectionRevision
+        Button { session.selectSide(nil) } label: {
+            if session.sideSubtitle == nil { Label("Off", systemImage: "checkmark") } else { Text("Off") }
+        }
+        ForEach(Array(session.sideSubtitles.enumerated()), id: \.offset) { i, sub in
+            Button { session.selectSide(i) } label: {
+                if session.sideSubtitle == i { Label(sub.label, systemImage: "checkmark") } else { Text(sub.label) }
+            }
+        }
+    }
+}

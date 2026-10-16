@@ -60,6 +60,7 @@ struct MacVideoScreen: View {
         ZStack {
             Color.black
             VideoPlayerView(session: session) { controller.pip.attach($0) }
+            SideSubtitleOverlay(session: session)
             if minimized {
                 MiniVideoControls(controller: controller)
             } else {

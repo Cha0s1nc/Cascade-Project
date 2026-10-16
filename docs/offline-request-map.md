@@ -163,6 +163,8 @@ Smart playlist definitions are local; the rules are re-checked client-side (`app
 
 No server reads: the view reads the index over IPC. Downloading reads the item lists above (`fetchAlbumTracks`, `fetchPlaylistTracks`), then `offline.js` fetches `GET /Items/{id}/Download` (160) and `GET /Items/{id}/Images/Primary?maxWidth=600&quality=90&format=Jpg` (265).
 
+Video downloads (phase 3) ask, per movie or episode, `POST /Items/{id}/PlaybackInfo` with the download profile (`offline-video.ts`), then fetch the original (`GET /Items/{id}/Download`) or the server's progressive MP4 (the `TranscodingUrl`, a path on the same server), each text subtitle as `GET /Videos/{id}/{mediaSourceId}/Subtitles/{index}/0/Stream.vtt`, and `GET /MediaSegments/{id}`; a cancelled transcode sends `DELETE /Videos/ActiveEncodings?deviceId&playSessionId`. A season or show reads `GET /Shows/{id}/Episodes` and `GET /Shows/{id}/Seasons`; a followed show rereads its episodes at sign-in and hourly. Placement reads `GET /Items/{id}/Ancestors` once per album, show or movie, then `GET /Items?Ids=...` for fresh fields (Jellyfin 12.2 ignores `ParentId` when `Ids` is given). All online only.
+
 ### Settings (`settings`)
 
 `GET /UserViews` (library picker), the plugin probe and server style above, Quick Connect approval (`POST /QuickConnect/Authorize`), library scan (`POST /Library/Refresh`, 1340), server style publish (`PUT`/`DELETE /CascadeServer/Style`, 11430).
@@ -311,6 +313,8 @@ Helpers are in `CascadeKit`; screens are in `App/Sources` (all platforms) and `A
 ### Downloads (`DownloadsView`)
 
 No server reads. Starting a download reads `tracks(inAlbum:)` or `tracks(inPlaylist:)`, then `OfflineLibrary` downloads `GET /Items/{id}/Download` through the background session and the cover through `ProxyConnection`.
+
+Video downloads (phase 3) ask, per movie or episode, `POST /Items/{id}/PlaybackInfo` with the download profile (`OfflineVideo.swift`), then fetch the original (`GET /Items/{id}/Download`) or the server's progressive MP4 (the `TranscodingUrl`, a path on the same server), each text subtitle as `GET /Videos/{id}/{mediaSourceId}/Subtitles/{index}/0/Stream.vtt`, and `GET /MediaSegments/{id}`; a cancelled transcode sends `DELETE /Videos/ActiveEncodings?deviceId&playSessionId`. A season or show reads `GET /Shows/{id}/Episodes` and `GET /Shows/{id}/Seasons`; a followed show rereads its episodes at sign-in and when Downloads opens. Placement reads `GET /Items/{id}/Ancestors` once per album, show or movie, then `GET /Items?Ids=...` for fresh fields (Jellyfin 12.2 ignores `ParentId` when `Ids` is given). All online only.
 
 ### Settings
 

@@ -15,8 +15,9 @@ import Observation
 /// signs in next never sees, plays or resumes the last account's downloads.
 /// Jellyfin user ids are GUIDs, unique across servers. Inside each:
 ///   index.json          OfflineIndex
-///   media/<id>.<ext>    one file per track, shared between collections
-///   art/<id>.jpg        600 px covers for collections and their albums
+///   media/<id>.<ext>    one file per track, movie or episode, shared between collections
+///   subs/<id>.<n>.vtt   a video's text subtitle stream n, as WebVTT
+///   art/<id>.jpg        600 px covers, posters and episode stills
 /// ponytail: a user deleted on the server leaves its folder behind.
 @MainActor
 @Observable
@@ -42,6 +43,42 @@ public final class OfflineLibrary {
     /// Offline Mode is on: no transfer is started, and the running ones were
     /// cancelled (they start again from resume() once back online).
     public private(set) var paused = false
+
+    /// One transfer as the Downloads screen shows it.
+    public struct Transfer: Sendable, Equatable {
+        public var received: Int64 = 0
+        /// The length the server sent, nil for a transcode (it sends none).
+        public var expected: Int64?
+        /// Video only: what the server is doing, and roughly how big it gets.
+        public var outcome: DownloadOutcome?
+        public var estimate: Int?
+        public var startedAt = Date()
+
+        /// "Converting on the server · about 12 minutes left".
+        public var status: String? {
+            guard let outcome else { return nil }
+            let secs = Date().timeIntervalSince(startedAt)
+            let size = expected.map(Int.init) ?? estimate
+            guard secs > 3, let left = OfflineVideo.secondsLeft(received: Int(received), estimate: size,
+                                                                  bytesPerSecond: Double(received) / secs) else { return outcome.label }
+            let mins = Int((Double(left) / 60).rounded())
+            return "\(outcome.label) · about \(mins <= 1 ? "a minute" : "\(mins) minutes") left"
+        }
+
+        public var fraction: Double? {
+            guard let size = expected.map(Double.init) ?? estimate.map(Double.init), size > 0 else { return nil }
+            return min(1, Double(received) / size)
+        }
+    }
+    /// Transfers by item id, updated a few times a second.
+    public private(set) var transfers: [String: Transfer] = [:]
+    /// The quality videos are asked for at (AppState keeps it set from the setting).
+    @ObservationIgnored public var videoQuality: VideoQuality = .platformDefault
+    /// The client the last resume ran with: a finished video starts the next
+    /// one, and a cancelled transcode stops the server's encode with it.
+    @ObservationIgnored private var lastClient: JellyfinClient?
+    /// A running transcode's session, to stop its encode when cancelled.
+    @ObservationIgnored private var playSessions: [String: String] = [:]
 
     /// Handed over by the app delegate when iOS relaunches the app to finish
     /// downloads in the background; called once the session has delivered
@@ -123,14 +160,15 @@ public final class OfflineLibrary {
     private func load(_ root: URL) {
         let fm = FileManager.default
         adoptFlatLayout(into: root)
-        for dir in ["media", "art"] {
+        for dir in ["media", "art", "subs"] {
             try? fm.createDirectory(at: root.appending(path: dir), withIntermediateDirectories: true)
         }
         index = OfflineIndex.decode(try? Data(contentsOf: root.appending(path: "index.json")))
         art = Set(((try? fm.contentsOfDirectory(atPath: root.appending(path: "art").path)) ?? [])
             .filter { $0.hasSuffix(".jpg") }.map { String($0.dropLast(4)) })
         let media = Set(((try? fm.contentsOfDirectory(atPath: root.appending(path: "media").path)) ?? [])
-            .map { "media/\($0)" })
+            .map { "media/\($0)" } + ((try? fm.contentsOfDirectory(atPath: root.appending(path: "subs").path)) ?? [])
+            .map { "subs/\($0)" })
         let before = index
         for stray in index.reconcile(filesOnDisk: media) { try? fm.removeItem(at: root.appending(path: stray)) }
         if index != before { save() }
@@ -215,11 +253,19 @@ public final class OfflineLibrary {
     /// after a relaunch, a failure, or a new request.
     public func resume(client: JellyfinClient) async {
         lastError = nil
+        lastClient = client
         guard let owner, !paused, await !client.isOffline else { return }
         let config = await client.currentConfig
-        let running = Set(await session.allTasks.compactMap(\.taskDescription))
-        for id in index.pending where OfflineIndex.isSafeId(id)
-            && !running.contains(OfflineIndex.taskName(owner: owner, itemId: id)) {
+        let running = Set(await session.allTasks.compactMap { OfflineIndex.parseTaskName($0.taskDescription)?.itemId })
+        // One video at a time beside music (plan section 8): a film is
+        // gigabytes, and a re-encode is the server's GPU for a while.
+        var videoBusy = running.contains(where: isVideo)
+        for id in index.pending where OfflineIndex.isSafeId(id) && !running.contains(id) {
+            if isVideo(id) {
+                guard !videoBusy else { continue }
+                videoBusy = await startVideo(id, client: client, config: config, owner: owner)
+                continue
+            }
             guard let url = URL(string: "\(config.url)/Items/\(id)/Download") else { continue }
             var request = URLRequest(url: url)
             request.setValue(authHeader(appVersion: cascadeAppVersion, deviceId: config.deviceId, token: config.token),
@@ -235,27 +281,248 @@ public final class OfflineLibrary {
     }
 
     /// Deletes a collection and every file no other collection still uses.
+    /// Cancelling one still downloading stops the server's conversion too.
     public func remove(_ collectionId: String) async {
-        guard let root, let owner else { return }
-        let orphans = index.remove(collectionId)
+        guard root != nil else { return }
+        deleteOrphans(index.remove(collectionId))
         save()
+        await cancelUnwanted()
+    }
+
+    private func deleteOrphans(_ orphans: [String]) {
+        guard let root else { return }
         let fm = FileManager.default
         for file in orphans { try? fm.removeItem(at: root.appending(path: file)) }
-        let wantedArt = Set(index.collections.map(\.id) + index.tracks.values.compactMap(\.item.albumId))
-        for id in art.subtracting(wantedArt) {
+        for id in art.subtracting(artIds()) {
             try? fm.removeItem(at: root.appending(path: "art/\(id).jpg"))
             art.remove(id)
         }
+    }
+
+    /// Transfers for items nobody wants now: cancelled, and a transcode's
+    /// encode on the server stopped.
+    private func cancelUnwanted() async {
+        guard let owner else { return }
         for task in await session.allTasks {
             guard let name = OfflineIndex.parseTaskName(task.taskDescription), name.owner == owner,
                   index.tracks[name.itemId] == nil else { continue }
             task.cancel()
+            transfers[name.itemId] = nil
+            if let sessionId = playSessions.removeValue(forKey: name.itemId), let client = lastClient {
+                await stopActiveEncoding(client: client, config: await client.currentConfig, playSessionId: sessionId)
+            }
         }
         await refreshActive()
     }
 
+    /// Art worth keeping: every collection's, each track's album, and for
+    /// video each item's poster or still, its series' and its season's.
+    private func artIds() -> Set<String> {
+        var ids = Set(index.collections.map(\.id))
+        for t in index.tracks.values {
+            if let a = t.item.albumId { ids.insert(a) }
+            if t.item.type == "Movie" || t.item.type == "Episode" {
+                ids.insert(t.item.id)
+                if let s = t.item.seriesId { ids.insert(s) }
+                if let s = t.item.seasonId { ids.insert(s) }
+            }
+        }
+        return ids
+    }
+
     public func removeAll() async {
         for collection in index.collections { await remove(collection.id) }
+    }
+
+    // MARK: - Video
+
+    /// What a downloaded video keeps: its page, the player, the menus,
+    /// chapters, resume, and the follow's date check read these.
+    public static let videoFields = "Overview,MediaStreams,MediaSources,Genres,Chapters,DateCreated,SortName,OfficialRating,CommunityRating,ProductionYear"
+
+    public enum VideoKind: Sendable { case movie, episode, season, series }
+
+    func isVideo(_ id: String) -> Bool {
+        let type = index.tracks[id]?.item.type
+        return type == "Movie" || type == "Episode"
+    }
+
+    /// Saves a movie, an episode, a season (`item.seriesId` set) or a whole
+    /// show. `burnIn`: a picture subtitle burned into a single video.
+    /// `follow`: a show fetches new episodes as they arrive.
+    public func downloadVideo(_ item: JfItem, kind: VideoKind, follow: Bool = false, burnIn: Int? = nil,
+                              client: JellyfinClient) async {
+        lastError = nil
+        guard owner != nil else { return }
+        guard !paused, await !client.isOffline else {
+            lastError = "Downloading needs your server. Turn Offline Mode off first."
+            return
+        }
+        let userId = await client.currentConfig.userId
+        do {
+            var collection = item
+            var items: [JfItem]
+            var seriesId: String?
+            switch kind {
+            case .movie, .episode:
+                let full: JfItem = try await client.get("/Items/\(item.id)", params: ["userId": userId, "fields": Self.videoFields])
+                collection = full
+                items = [full]
+                seriesId = full.seriesId
+            case .season:
+                let r: JfItemsResponse = try await client.get("/Shows/\(item.seriesId ?? "")/Episodes", params: [
+                    "userId": userId, "seasonId": item.id, "fields": Self.videoFields])
+                items = r.items ?? []
+                seriesId = item.seriesId
+            case .series:
+                let r: JfItemsResponse = try await client.get("/Shows/\(item.id)/Episodes", params: [
+                    "userId": userId, "fields": Self.videoFields])
+                items = r.items ?? []
+                seriesId = item.id
+            }
+            items = items.filter { $0.type == "Movie" || $0.type == "Episode" }
+            guard !items.isEmpty else { lastError = "There is nothing to download in that."; return }
+            let containers = await Self.containers(seriesId: seriesId, client: client)
+            index.add(collection, tracks: items, containers: containers)
+            if items.count == 1 { index.setBurnIn(items[0].id, burnIn) }
+            if follow { index.setFollow(item.id, on: true, now: Date()) }
+            save()
+            await saveArt(Array(artIds().subtracting(art)).sorted(), client: client)
+            await resume(client: client)
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    /// The show and its seasons, so their pages work offline.
+    private static func containers(seriesId: String?, client: JellyfinClient) async -> [JfItem] {
+        guard let seriesId else { return [] }
+        let series = try? await client.item(id: seriesId)
+        let seasons = (try? await client.seasons(of: seriesId)) ?? []
+        return (series.map { [$0] } ?? []) + seasons
+    }
+
+    /// Asks the server how to fetch a video and starts it: the original when
+    /// it plays here, else its progressive MP4 (OfflineVideo says which).
+    /// Asked afresh at every start: a TranscodingUrl carries the token and a
+    /// session that ends, so it is never stored. Answers whether it started.
+    private func startVideo(_ id: String, client: JellyfinClient, config: ServerConfig, owner: String) async -> Bool {
+        let request = OfflineVideo.Request(userId: config.userId, profile: OfflineVideo.downloadProfile(videoQuality),
+                                           burnIn: index.tracks[id]?.burnIn)
+        let info: OfflineVideo.Info
+        do {
+            info = try await client.post("/Items/\(id)/PlaybackInfo", body: request, params: ["UserId": config.userId])
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+        guard self.owner == owner, let source = info.mediaSources?.first else { return false }
+        let outcome = OfflineVideo.outcome(source)
+        let url: URL?
+        if outcome == .direct {
+            url = URL(string: "\(config.url)/Items/\(id)/Download")
+        } else if let path = source.transcodingUrl, path.hasPrefix("/"), !path.hasPrefix("//") {
+            // Only a path on this server: the token must never go anywhere else.
+            url = URL(string: config.url + path)
+        } else {
+            url = nil
+        }
+        guard let url else { lastError = "The server offered no way to download this."; return false }
+        let runTicks = index.tracks[id]?.item.runTimeTicks
+        index.setOutcome(id, outcome)
+        save()
+        transfers[id] = Transfer(outcome: outcome, estimate: OfflineVideo.estimatedBytes(outcome, source, runTimeTicks: runTicks))
+        if outcome != .direct { playSessions[id] = info.playSessionId }
+        await saveVideoExtras(id, source: source, client: client)
+        var request2 = URLRequest(url: url)
+        request2.setValue(authHeader(appVersion: cascadeAppVersion, deviceId: config.deviceId, token: config.token),
+                          forHTTPHeaderField: "Authorization")
+        for h in ProxyConnection.shared.headersToSend(for: url) { request2.setValue(h.value, forHTTPHeaderField: h.name) }
+        let task = session.downloadTask(with: request2)
+        // A transcode carries its runtime in its name: the delegate checks the
+        // finished file reaches it (it has no length to check).
+        task.taskDescription = OfflineIndex.taskName(owner: owner, itemId: id, transcodeRunTicks: outcome == .direct ? nil : runTicks)
+        task.resume()
+        return true
+    }
+
+    /// Text subtitles as WebVTT beside the file, and the media segments. A
+    /// failure costs those extras, never the film.
+    private func saveVideoExtras(_ id: String, source: OfflineVideo.Source, client: JellyfinClient) async {
+        guard let root, let sourceId = source.id, OfflineIndex.isSafeId(sourceId) else { return }
+        var subs: [OfflineIndex.Subtitle] = []
+        for s in source.mediaStreams ?? [] where s.type == "Subtitle" && s.isTextSubtitleStream == true {
+            guard let i = s.index, let data = try? await client.getData("/Videos/\(id)/\(sourceId)/Subtitles/\(i)/0/Stream.vtt"),
+                  self.root == root else { continue }
+            let file = "subs/\(id).\(i).vtt"
+            guard OfflineIndex.isSafeSubtitlePath(file), (try? data.write(to: root.appending(path: file), options: .atomic)) != nil else { continue }
+            subs.append(OfflineIndex.Subtitle(index: i, file: file, language: s.language, title: s.displayTitle,
+                                              isDefault: s.isDefault, isForced: s.isForced))
+        }
+        index.setSubtitles(id, subs)
+        struct Segments: Decodable {
+            struct Item: Decodable { var type: String?; var startTicks: Int?; var endTicks: Int? }
+            var items: [Item]?
+        }
+        if let data = try? await client.getData("/MediaSegments/\(id)"),
+           let found = try? JSON.decoder.decode(Segments.self, from: data) {
+            index.setSegments(id, (found.items ?? []).compactMap { s in
+                guard let type = s.type, let start = s.startTicks, let end = s.endTicks else { return nil }
+                return OfflineIndex.Segment(type: type, startTicks: start, endTicks: end)
+            })
+        }
+        save()
+    }
+
+    /// A downloaded video's saved subtitles, with their files.
+    public func subtitles(of itemId: String) -> [(subtitle: OfflineIndex.Subtitle, url: URL)] {
+        guard let root, index.readyFile(itemId) != nil else { return [] }
+        return (index.tracks[itemId]?.subs ?? []).map { ($0, root.appending(path: $0.file)) }
+    }
+
+    /// "Download new episodes as they arrive", changed after the download.
+    public func setFollow(_ seriesId: String, on: Bool) {
+        guard owner != nil else { return }
+        index.setFollow(seriesId, on: on, now: Date())
+        save()
+    }
+
+    /// Fetches the new episodes of every followed show. Online only: at
+    /// sign-in and when the Downloads screen opens.
+    public func syncFollowed(client: JellyfinClient) async {
+        guard owner != nil, !paused, await !client.isOffline else { return }
+        let userId = await client.currentConfig.userId
+        for c in index.collections where c.follow != nil {
+            guard let r: JfItemsResponse = try? await client.get("/Shows/\(c.id)/Episodes", params: [
+                "userId": userId, "fields": Self.videoFields]) else { continue }
+            let fresh = index.newEpisodes(c.id, from: r.items ?? [])
+            guard !fresh.isEmpty else { continue }
+            index.addToCollection(c.id, fresh)
+            for container in await Self.containers(seriesId: c.id, client: client) where container.type == "Season" {
+                if index.containers[container.id] == nil { index.containers[container.id] = container }
+            }
+            save()
+        }
+        await resume(client: client)
+    }
+
+    /// This device played a video to the end.
+    public func markWatched(_ itemId: String) {
+        guard owner != nil, index.tracks[itemId] != nil else { return }
+        index.markWatched(itemId, now: Date())
+        save()
+    }
+
+    /// "Remove watched episodes": episodes finished over a day ago go.
+    /// Answers how many.
+    @discardableResult
+    public func removeWatched() -> Int {
+        guard owner != nil else { return 0 }
+        let ids = index.watchedToRemove(now: Date())
+        guard !ids.isEmpty else { return 0 }
+        deleteOrphans(index.removeTracks(ids))
+        save()
+        return ids.count
     }
 
     // MARK: - Offline Mode
@@ -267,6 +534,7 @@ public final class OfflineLibrary {
         paused = on
         guard on else { return }
         for task in await session.allTasks { task.cancel() }
+        transfers = [:]
         await refreshActive()
     }
 
@@ -310,21 +578,23 @@ public final class OfflineLibrary {
         let unplaced = index.unplacedTrackIds
         guard !unplaced.isEmpty else { return }
         let owner = self.owner
-        for library in index.libraries {
-            for start in stride(from: 0, to: unplaced.count, by: 100) {
-                let ids = Array(unplaced[start..<min(start + 100, unplaced.count)])
-                guard let found: JfItemsResponse = try? await client.get("/Items", params: [
-                    "ids": ids.joined(separator: ","), "parentId": library.id, "recursive": "true",
+        let userId = await client.currentConfig.userId
+        // One ancestors request per album, show or movie (placementGroups
+        // says why not Ids with ParentId), then fresh copies of its items.
+        for (group, ids) in index.placementGroups(unplaced) {
+            guard let ancestors: [JfItem] = try? await client.get("/Items/\(group)/Ancestors", params: ["userId": userId]),
+                  self.owner == owner, let library = index.library(amongAncestors: ancestors) else { continue }
+            for start in stride(from: 0, to: ids.count, by: 100) {
+                let chunk = Array(ids[start..<min(start + 100, ids.count)])
+                let found: JfItemsResponse? = try? await client.get("/Items", params: [
+                    "ids": chunk.joined(separator: ","), "userId": userId,
                     "fields": "Genres,DateCreated,SortName,ProductionYear,Overview,MediaSources",
-                ]) else { continue }
+                ])
                 // Signed out or switched account meanwhile: not this index.
                 guard self.owner == owner else { return }
-                let held = (found.items ?? []).map(\.id)
-                if !held.isEmpty {
-                    index.refresh(found.items ?? [])
-                    index.assignLibrary(held, to: library.id)
-                    save()
-                }
+                index.refresh(found?.items ?? [])
+                index.assignLibrary(chunk, to: library)
+                save()
             }
         }
     }
@@ -393,17 +663,28 @@ public final class OfflineLibrary {
 
     private func handle(_ event: DownloadDelegate.Event) {
         switch event {
+        case .progress(let id, let received, let expected):
+            var t = transfers[id] ?? Transfer()
+            t.received = received
+            t.expected = expected
+            transfers[id] = t
         case .finished(let taskOwner, let id, let file, let bytes):
             active.remove(id)
+            transfers[id] = nil
+            playSessions[id] = nil
             if taskOwner == owner, index.tracks[id] != nil {
-                index.markReady(id, file: file, bytes: bytes)
+                index.markReady(id, file: file, bytes: bytes, now: Date())
                 save()
+                // The next video waits for this one.
+                if isVideo(id), let client = lastClient { Task { await resume(client: client) } }
             } else {
                 // Removed while it downloaded, or its account signed out.
                 try? FileManager.default.removeItem(at: base.appending(path: taskOwner).appending(path: file))
             }
         case .failed(let id, let message):
             active.remove(id)
+            transfers[id] = nil
+            playSessions[id] = nil
             lastError = message
             debugLog("download of \(id) failed: \(message)")
         case .eventsDelivered:
@@ -448,6 +729,7 @@ public final class OfflineLibrary {
 /// only the result hops to the main actor.
 final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     enum Event: Sendable {
+        case progress(id: String, received: Int64, expected: Int64?)
         case finished(owner: String, id: String, file: String, bytes: Int)
         case failed(id: String, message: String)
         case eventsDelivered
@@ -456,21 +738,37 @@ final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked S
     let base: URL
     /// Set once, before the session that calls this is created.
     var onEvent: (@Sendable (Event) -> Void)?
+    /// When each transfer last said how far it got: a few times a second is
+    /// plenty. URLSession calls this delegate on one serial queue.
+    private var lastProgress: [Int: Date] = [:]
 
     init(base: URL) { self.base = base }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
+                    totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        guard let name = OfflineIndex.parseTaskName(downloadTask.taskDescription) else { return }
+        let now = Date()
+        if let last = lastProgress[downloadTask.taskIdentifier], now.timeIntervalSince(last) < 0.5 { return }
+        lastProgress[downloadTask.taskIdentifier] = now
+        onEvent?(.progress(id: name.itemId, received: totalBytesWritten,
+                           expected: totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : nil))
+    }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         // A task from a build before per-account folders has no owner: it is
         // dropped, and resume asks again under the account that signs in.
         guard let name = OfflineIndex.parseTaskName(downloadTask.taskDescription) else { return }
         let root = base.appending(path: name.owner, directoryHint: .isDirectory)
-        onEvent?(Self.place(location, owner: name.owner, id: name.itemId, response: downloadTask.response, root: root))
+        lastProgress[downloadTask.taskIdentifier] = nil
+        onEvent?(Self.place(location, owner: name.owner, id: name.itemId, response: downloadTask.response, root: root,
+                            transcodeRunTicks: OfflineIndex.transcodeRunTicks(downloadTask.taskDescription)))
     }
 
     /// A background download "finishes" on any response, error pages
     /// included, so the status and length are checked before the bytes are
     /// trusted as a track.
-    static func place(_ location: URL, owner: String, id: String, response: URLResponse?, root: URL) -> Event {
+    static func place(_ location: URL, owner: String, id: String, response: URLResponse?, root: URL,
+                      transcodeRunTicks: Int? = nil) -> Event {
         let http = response as? HTTPURLResponse
         let status = http?.statusCode ?? 0
         guard (200..<300).contains(status) else {
@@ -484,7 +782,25 @@ final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked S
             return .failed(id: id, message: "A download was cut short.")
         }
         guard let ext = OfflineIndex.fileExtension(suggestedFilename: http?.suggestedFilename, mimeType: http?.mimeType) else {
-            return .failed(id: id, message: "The server sent something that is not a music file.")
+            return .failed(id: id, message: "The server sent something that is not a media file.")
+        }
+        if let runTicks = transcodeRunTicks {
+            // No length to check: the last fragment must reach the end, or the
+            // server stopped partway (a full transcode folder once did that).
+            guard let handle = try? FileHandle(forUpdating: location) else { return .failed(id: id, message: "A download was cut short.") }
+            defer { try? handle.close() }
+            let read: (Int, Int) -> [UInt8] = { offset, length in
+                (try? handle.seek(toOffset: UInt64(offset))).flatMap { _ in try? handle.read(upToCount: length) }.map(Array.init) ?? []
+            }
+            guard OfflineVideo.isWholeTranscode(endSeconds: OfflineVideo.fragmentedEndSeconds(read: read, fileSize: size),
+                                                runTimeTicks: runTicks) else {
+                return .failed(id: id, message: "The server stopped converting partway. Try again.")
+            }
+            // Jellyfin tags HEVC hev1 here, which AVFoundation will not open.
+            for offset in OfflineVideo.hvc1RetagOffsets(read: read, fileSize: size) {
+                try? handle.seek(toOffset: UInt64(offset))
+                try? handle.write(contentsOf: Data("hvc1".utf8))
+            }
         }
         let file = "media/\(id).\(ext)"
         guard OfflineIndex.isSafeMediaPath(file) else { return .failed(id: id, message: "Bad item id.") }

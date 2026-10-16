@@ -12,6 +12,8 @@
 import type { JfItem } from '../core/types.ts'
 import type { OfflineIndex } from '../core/offline-index.ts'
 import type { OfflineState } from '../core/offline-mode.ts'
+import type { DeviceProfile } from '../core/playback.ts'
+import type { DownloadOutcome } from '../core/offline-video.ts'
 import type { LyricLine } from '../core/lyrics.ts'
 import type { SpicyCredit } from '../core/spicy-lyrics.ts'
 
@@ -19,18 +21,32 @@ import type { SpicyCredit } from '../core/spicy-lyrics.ts'
 export interface OfflineSummary {
   /** Track id to the cascade-offline:// URL of its finished file. */
   ready: Record<string, string>
+  /** A ready video's saved subtitles, each with its cascade-offline:// URL. */
+  subs: Record<string, { index: number; file: string; url: string; language?: string; title?: string; isDefault?: boolean; isForced?: boolean }[]>
   /** Item ids that have a cover on disk (cascade-offline://local/art/<id>.jpg). */
   art: string[]
-  collections: { item: JfItem; trackIds: string[]; done: number; total: number; bytes: number }[]
+  /** `follow`: a series fetching new episodes as they arrive. */
+  collections: { item: JfItem; trackIds: string[]; follow: boolean; done: number; total: number; bytes: number }[]
   totalBytes: number
-  active: { id: string; received: number; total: number | null }[]
+  active: OfflineProgress[]
   failed: Record<string, string>
   /** Plays waiting to be sent to the server. */
   plays: number
 }
 
+/** One transfer: bytes so far, the length if the server sent one, and for a
+ *  video what the server is doing and how big it will roughly be. */
+export interface OfflineProgress {
+  id: string
+  received: number
+  total: number | null
+  outcome?: DownloadOutcome | null
+  estimate?: number | null
+  startedAt?: number
+}
+
 export type OfflineEvent =
-  | { type: 'progress'; id: string; received: number; total: number | null }
+  | ({ type: 'progress' } & OfflineProgress)
   | { type: 'track-done'; id: string; url: string }
   | { type: 'art'; id: string }
   | { type: 'changed' }
@@ -186,7 +202,20 @@ export interface DesktopCapabilities {
     setOwner(userId: string | null): Promise<void>
     summary(): Promise<OfflineSummary>
     tracks(collectionId: string): Promise<{ item: JfItem; ready: boolean }[]>
-    add(collection: JfItem, tracks: JfItem[], session: { authorization: string }): Promise<boolean>
+    /** `burnIn`: a picture subtitle to burn into a single video. `follow`:
+     *  a series fetches new episodes as they arrive. `containers`: the series
+     *  and seasons the episodes belong to. */
+    add(collection: JfItem, tracks: JfItem[], session: { authorization: string },
+      opts?: { burnIn?: number | null; follow?: boolean; containers?: JfItem[] }): Promise<boolean>
+    /** The video download profile (offline-video.ts downloadProfile). Videos
+     *  wait until it is set. */
+    setVideoProfile(profile: DeviceProfile): Promise<void>
+    follow(seriesId: string, on: boolean): Promise<void>
+    addEpisodes(seriesId: string, items: JfItem[], session: { authorization: string }, containers?: JfItem[]): Promise<void>
+    /** This device played a video to the end. */
+    watched(id: string): Promise<void>
+    /** Removes episodes watched over a day ago; answers how many. */
+    removeWatched(): Promise<number>
     remove(collectionId: string): Promise<boolean>
     resume(session: { authorization: string }): Promise<void>
     addPlay(play: { itemId: string; userId: string; date: string }): Promise<void>
