@@ -111,7 +111,7 @@ final class AppState {
         player?.pause()
         // The video takes the lock screen until it closes.
         player?.lockScreenSuspended = true
-        let session = videoSession ?? VideoSession(client: client, config: config)
+        let session = videoSession ?? VideoSession(client: client, config: config, offline: offline)
         videoSession = session
         videoMinimized = false
         // The Video EQ curve (video agent: the music service only holds it).
@@ -158,6 +158,46 @@ final class AppState {
     #else
     let offline: OfflineLibrary? = nil
     #endif
+
+    /// The quality movies and episodes download at: Original on the Mac,
+    /// 1080p on the iPhone (VideoQuality.platformDefault).
+    var videoDownloadQuality = VideoQuality(stored: UserDefaults.standard.string(forKey: "cascade.videoDownloadQuality"),
+                                            fallback: .platformDefault) {
+        didSet {
+            UserDefaults.standard.set(videoDownloadQuality.rawValue, forKey: "cascade.videoDownloadQuality")
+            offline?.videoQuality = videoDownloadQuality
+        }
+    }
+
+    /// Remove downloaded episodes a day after they are finished. On by default
+    /// on the iPhone, for space, and said so wherever episodes are downloaded
+    /// and beside this setting; off on the Mac (the maintainer's decision).
+    var removeWatchedEpisodes = UserDefaults.standard.object(forKey: "cascade.removeWatchedEpisodes") as? Bool
+        ?? AppState.removeWatchedDefault {
+        didSet {
+            UserDefaults.standard.set(removeWatchedEpisodes, forKey: "cascade.removeWatchedEpisodes")
+            sweepWatchedEpisodes()
+        }
+    }
+
+    #if os(macOS)
+    static let removeWatchedDefault = false
+    #else
+    static let removeWatchedDefault = true
+    #endif
+
+    /// Removes episodes finished over a day ago, when the setting is on: at
+    /// sign-in, back online, and when the Downloads screen opens.
+    func sweepWatchedEpisodes() {
+        if removeWatchedEpisodes { offline?.removeWatched() }
+    }
+
+    /// Downloads a movie, an episode, a season or a whole show.
+    func downloadVideo(_ item: JfItem, kind: OfflineLibrary.VideoKind, follow: Bool = false, burnIn: Int? = nil) async {
+        guard let offline, let client, !isOffline else { return }
+        await offline.downloadVideo(item, kind: kind, follow: follow, burnIn: burnIn, client: client)
+        await offline.placeDownloads(client: client)
+    }
 
     /// The last message an admin sent this session from the dashboard, until closed.
     var serverMessage: ServerMessage?
@@ -310,6 +350,7 @@ final class AppState {
         ProxyConnection.shared.setHeaders(ProxyHeaderStore.load())
         ProxyConnection.shared.setServer(UserDefaults.standard.string(forKey: "cascade.serverUrl"))
         offline?.onChange = { [weak self] in self?.offlineCatalogChanged() }
+        offline?.videoQuality = videoDownloadQuality
         restore()
         watchNetwork()
     }
@@ -499,6 +540,8 @@ final class AppState {
                 if let user = try? await client.get("/Users/\(config.userId)", as: OfflineIndex.User.self),
                    self.client === client { offline.setUser(user) }
                 await offline.placeDownloads(client: client)
+                await offline.syncFollowed(client: client)
+                self.sweepWatchedEpisodes()
             }
         }
         // Castable from other Jellyfin clients for as long as this player lives.

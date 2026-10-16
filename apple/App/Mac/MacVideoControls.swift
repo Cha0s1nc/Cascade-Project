@@ -168,10 +168,13 @@ struct MacVideoOverlay: View {
                         else { Text(session.label(for: option)) }
                     }
                 }
+            } else if !session.sideSubtitles.isEmpty {
+                // A download's saved subtitles (VideoSession.sideSubtitles).
+                SideSubtitleChoices(session: session)
             } else {
                 Text("None available")
             }
-        } label: { Image(systemName: on == nil ? "captions.bubble" : "captions.bubble.fill") }
+        } label: { Image(systemName: on == nil && session.sideSubtitle == nil ? "captions.bubble" : "captions.bubble.fill") }
         .accessibilityLabel("Subtitles")
     }
 

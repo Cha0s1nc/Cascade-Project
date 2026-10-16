@@ -39,6 +39,8 @@ public struct JfMediaStream: Codable, Sendable {
     public var isForced: Bool?
     /// A subtitle in a file beside the video rather than inside it.
     public var isExternal: Bool?
+    /// False for picture subtitles (PGS, VobSub), which only show burned in.
+    public var isTextSubtitleStream: Bool?
     public var channels: Int?
     /// Frames per second of a video stream, for stepping a frame at a time.
     public var realFrameRate: Double?

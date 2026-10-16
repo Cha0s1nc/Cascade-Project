@@ -21,7 +21,7 @@ struct DownloadsView: View {
         if let offline = state.offline, offline.index.collections.isEmpty, offline.lastError == nil {
             // Centred on its own: inside the list it sat in the top corner on the Mac.
             ContentUnavailableView("No Downloads", systemImage: "arrow.down.circle",
-                                   description: Text("Download an album or playlist from its menu to play it without a connection."))
+                                   description: Text("Download an album or playlist from its menu, or a movie or show from its page, to play it without a connection."))
                 .navigationTitle("Downloads")
         } else {
             list
@@ -44,11 +44,29 @@ struct DownloadsView: View {
                 } header: {
                     Text("Storage")
                 }
+                @Bindable var state = state
+                Section {
+                    Picker("Quality", selection: $state.videoDownloadQuality) {
+                        ForEach(VideoQuality.allCases, id: \.self) { Text($0.label).tag($0) }
+                    }
+                    Toggle("Remove Watched Episodes", isOn: $state.removeWatchedEpisodes)
+                } header: {
+                    Text("Movies and TV")
+                } footer: {
+                    // Beside the setting, as the plan asks: it deletes things.
+                    Text(state.removeWatchedEpisodes
+                         ? "Watched episodes are removed a day after you finish them. Movies are kept."
+                         : "Below Original, the server converts each video, which takes longer.")
+                }
                 if let message = offline.lastError {
                     Text(message).font(.footnote).foregroundStyle(.red)
                 }
                 let downloading = offline.index.collections.filter { !isDone($0, offline) }
                 let done = offline.index.collections.filter { isDone($0, offline) }
+                let video: Set<String> = ["Movie", "Episode", "Season", "Series"]
+                let music = done.filter { !video.contains($0.item.type ?? "") }
+                let movies = done.filter { $0.item.type == "Movie" }
+                let tv = done.filter { video.contains($0.item.type ?? "") && $0.item.type != "Movie" }
                 if !downloading.isEmpty {
                     Section {
                         rows(downloading, offline)
@@ -60,8 +78,14 @@ struct DownloadsView: View {
                         }
                     }
                 }
-                if !done.isEmpty {
-                    Section("Music") { rows(done, offline) }
+                if !music.isEmpty {
+                    Section("Music") { rows(music, offline) }
+                }
+                if !movies.isEmpty {
+                    Section("Movies") { rows(movies, offline) }
+                }
+                if !tv.isEmpty {
+                    Section("TV") { rows(tv, offline) }
                 }
                 if offline.index.collections.isEmpty {
                     ContentUnavailableView("No Downloads", systemImage: "arrow.down.circle",
@@ -78,7 +102,11 @@ struct DownloadsView: View {
         // Nothing while offline: OfflineLibrary waits for the server.
         .task {
             disk = state.offline?.diskSpace()
-            if let offline = state.offline, let client = state.client { await offline.resume(client: client) }
+            state.sweepWatchedEpisodes()
+            if let offline = state.offline, let client = state.client {
+                await offline.resume(client: client)
+                await offline.syncFollowed(client: client)
+            }
         }
         .confirmationDialog("Remove every download from this device?", isPresented: $confirmingRemoveAll,
                             titleVisibility: .visible) {
@@ -94,7 +122,13 @@ struct DownloadsView: View {
             }
             // The Mac has no swipe to delete.
             .contextMenu {
-                Button("Remove Download", systemImage: "trash", role: .destructive) {
+                if collection.item.type == "Series" {
+                    let on = collection.follow != nil
+                    Button(on ? "Stop Downloading New Episodes" : "Download New Episodes as They Arrive",
+                           systemImage: on ? "bell.slash" : "bell") { offline.setFollow(collection.id, on: !on) }
+                }
+                Button(offline.index.progress(collection.id).done < offline.index.progress(collection.id).total
+                       ? "Cancel Download" : "Remove Download", systemImage: "trash", role: .destructive) {
                     Task { await offline.remove(collection.id) }
                 }
             }
@@ -116,15 +150,28 @@ private struct DownloadRow: View {
 
     var body: some View {
         let progress = state.offline?.index.progress(collection.id) ?? (done: 0, total: 0)
+        let type = collection.item.type ?? ""
+        let video = ["Movie", "Episode", "Season", "Series"].contains(type)
+        let unit = video ? (progress.total == 1 ? "episode" : "episodes") : (progress.total == 1 ? "song" : "songs")
+        // The video moving now, which says what the server is doing.
+        let transfer = collection.trackIds.lazy.compactMap { state.offline?.transfers[$0] }.first
         HStack(spacing: 12) {
             ArtworkView(itemId: collection.id, size: 56)
             VStack(alignment: .leading, spacing: 2) {
-                Text(collection.item.name ?? "Untitled").lineLimit(1)
-                Text(progress.done == progress.total
-                     ? (progress.total == 1 ? "1 song" : "\(progress.total) songs")
-                     : "\(progress.done) of \(progress.total) songs downloaded")
+                Text(rowTitle).lineLimit(1)
+                Text(type == "Movie" || type == "Episode"
+                     ? (progress.done == progress.total ? (type == "Movie" ? "Movie" : "Episode") : "Waiting")
+                     : progress.done == progress.total
+                        ? "\(progress.total) \(unit)" + (collection.follow != nil ? " · new episodes download" : "")
+                        : "\(progress.done) of \(progress.total) \(unit) downloaded")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if let status = transfer?.status {
+                    Text(status).font(.caption).foregroundStyle(.secondary)
+                }
+                if let fraction = transfer?.fraction {
+                    ProgressView(value: fraction)
+                }
             }
             Spacer()
             if state.offline?.isTransferring(collection.id) == true {
@@ -134,16 +181,27 @@ private struct DownloadRow: View {
                 // Offline nothing transfers: waiting, not failed.
                 Image(systemName: state.isOffline ? "pause.circle" : "exclamationmark.circle")
                     .foregroundStyle(.secondary)
-                    .accessibilityLabel(state.isOffline ? "Waiting for your server" : "Some songs did not download")
+                    .accessibilityLabel(state.isOffline ? "Waiting for your server" : "Some items did not download")
             }
         }
     }
+
+    /// A season reads as its show's: "Show: Season 2".
+    private var rowTitle: String {
+        let name = collection.item.name ?? "Untitled"
+        if collection.item.type == "Season", let show = collection.item.seriesName { return "\(show): \(name)" }
+        return name
+    }
 }
 
-/// One downloaded album or playlist, from the saved copy.
+/// One downloaded album, playlist, movie, season or show, from the saved copy.
 struct DownloadedCollectionView: View {
     let id: String
     @Environment(AppState.self) private var state
+
+    private var isVideo: Bool {
+        ["Movie", "Episode", "Season", "Series"].contains(state.offline?.index.collection(id)?.item.type ?? "")
+    }
 
     var body: some View {
         let tracks = state.offline?.tracks(of: id) ?? []
@@ -155,10 +213,11 @@ struct DownloadedCollectionView: View {
                 let ready = state.offline?.localFile(track.id) != nil
                 Button {
                     let start = playable.firstIndex { $0.id == track.id } ?? 0
-                    Task { await state.player?.play(playable, startIndex: start) }
+                    if isVideo { Task { await state.playVideo(playable, startIndex: start) } }
+                    else { Task { await state.player?.play(playable, startIndex: start) } }
                 } label: {
                     HStack {
-                        TrackRow(track: track)
+                        if isVideo { VideoRow(item: track) } else { TrackRow(track: track) }
                         if !ready {
                             Image(systemName: "arrow.down.circle.dotted")
                                 .foregroundStyle(.secondary)
@@ -172,7 +231,7 @@ struct DownloadedCollectionView: View {
         }
         .navigationTitle(state.offline?.savedItem(id)?.name ?? "Download")
         .toolbar {
-            if !playable.isEmpty {
+            if !playable.isEmpty && !isVideo {
                 Button("Shuffle", systemImage: "shuffle") {
                     Task { await playShuffled(playable, on: state.player) }
                 }
@@ -214,3 +273,28 @@ struct DownloadButton: View {
         #endif
     }
 }
+
+
+#if os(iOS) || os(macOS)
+/// A downloaded movie or episode in a list: its code, name and length.
+private struct VideoRow: View {
+    let item: JfItem
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ArtworkView(itemId: item.id, size: 64, aspect: 16.0 / 9.0)
+            VStack(alignment: .leading, spacing: 2) {
+                Text([VideoPlayback.episodeCode(item), item.name].compactMap { $0 }.joined(separator: "  ")).lineLimit(2)
+                if let ticks = item.runTimeTicks, seconds(fromTicks: ticks) >= 60 {
+                    Text("\(Int(seconds(fromTicks: ticks) / 60)) min").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 0)
+            if item.userData?.played == true {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(.secondary).accessibilityLabel("Watched")
+            }
+        }
+        .contentShape(Rectangle())
+    }
+}
+#endif

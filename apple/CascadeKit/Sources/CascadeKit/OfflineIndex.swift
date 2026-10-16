@@ -38,6 +38,16 @@ public struct OfflineIndex: Codable, Sendable, Equatable {
         public var segments: [Segment]?
         /// The Cascade plugin's explicit flag, so the badge shows offline.
         public var explicit: Bool?
+        /// When the file landed: an episode finished before it was downloaded
+        /// is not "watched" for removal.
+        public var readyAt: Date?
+        /// When this device played it to the end.
+        public var watchedAt: Date?
+        /// Video: what the server did to make the file (OfflineVideo).
+        public var outcome: DownloadOutcome?
+        /// Video: a picture subtitle's stream index to burn in, asked for at
+        /// download time; the only way such subtitles show offline.
+        public var burnIn: Int?
 
         public init(item: JfItem, file: String? = nil, bytes: Int = 0) {
             self.item = item
@@ -51,6 +61,12 @@ public struct OfflineIndex: Codable, Sendable, Equatable {
     public struct Collection: Codable, Sendable, Equatable, Identifiable {
         public var item: JfItem
         public var trackIds: [String]
+        /// A series only: "Download new episodes as they arrive" is on, since
+        /// then. Episodes added to the server after it are fetched.
+        public var follow: Date? = nil
+        /// A series only: episodes removed as watched, never fetched again by
+        /// the follow (the server may not know yet that they were watched).
+        public var skip: [String]? = nil
         public var id: String { item.id }
     }
 
@@ -254,7 +270,7 @@ public struct OfflineIndex: Codable, Sendable, Equatable {
     /// The item types that are files of their own.
     static let mediaTypes: Set<String> = ["Audio", "Movie", "Episode"]
     /// The item types a collection may be.
-    static let collectionTypes: Set<String> = ["MusicAlbum", "Playlist", "Movie", "Season", "Series"]
+    static let collectionTypes: Set<String> = ["MusicAlbum", "Playlist", "Movie", "Episode", "Season", "Series"]
 
     // MARK: - Libraries
 
@@ -419,9 +435,10 @@ public struct OfflineIndex: Codable, Sendable, Equatable {
         }
     }
 
-    public mutating func markReady(_ trackId: String, file: String, bytes: Int) {
+    public mutating func markReady(_ trackId: String, file: String, bytes: Int, now: Date? = nil) {
         tracks[trackId]?.file = file
         tracks[trackId]?.bytes = bytes
+        if let now, tracks[trackId] != nil { tracks[trackId]?.readyAt = now }
     }
 
     /// Containers nothing downloaded still belongs to.
@@ -546,6 +563,8 @@ public struct OfflineIndex: Codable, Sendable, Equatable {
                 let valid = segments.filter { $0.endTicks > $0.startTicks }
                 index.tracks[id]?.segments = valid.isEmpty ? nil : valid
             }
+            if let burn = track.burnIn, burn < 0 { index.tracks[id]?.burnIn = nil }
+            if track.file == nil { index.tracks[id]?.readyAt = nil }
             // SpicyLyrics with no expiry are treated as expired rather than
             // kept for good.
             if let l = track.lyrics, l.source == "spicy", l.expiresAt == nil {
@@ -555,6 +574,9 @@ public struct OfflineIndex: Codable, Sendable, Equatable {
         let known = Set(index.tracks.keys)
         for i in index.collections.indices {
             index.collections[i].trackIds.removeAll { !known.contains($0) }
+            if index.collections[i].item.type != "Series" { index.collections[i].follow = nil }
+            if index.collections[i].follow == nil { index.collections[i].skip = nil }
+            index.collections[i].skip = index.collections[i].skip.map { Array($0.filter(Self.isSafeId).suffix(Self.maxSkippedEpisodes)) }
         }
         index.collections.removeAll { $0.item.type.map { !Self.collectionTypes.contains($0) } ?? false }
         index.containers = index.containers.filter { Self.isSafeId($0.key) && $0.value.id == $0.key
@@ -586,12 +608,24 @@ public struct OfflineIndex: Codable, Sendable, Equatable {
     /// A background download's name: the account and the track. The session
     /// outlives a sign-out, so a transfer that finishes after one says whose
     /// folder it belongs to.
-    public static func taskName(owner: String, itemId: String) -> String { "\(owner)/\(itemId)" }
+    /// A transcode adds its item's runtime, which the finished file is
+    /// checked against (it has no length to check).
+    public static func taskName(owner: String, itemId: String, transcodeRunTicks: Int? = nil) -> String {
+        "\(owner)/\(itemId)" + (transcodeRunTicks.map { "/\($0)" } ?? "")
+    }
 
     public static func parseTaskName(_ name: String?) -> (owner: String, itemId: String)? {
         let parts = (name ?? "").split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-        guard parts.count == 2, isSafeUserId(parts[0]), isSafeId(parts[1]) else { return nil }
+        guard parts.count == 2 || (parts.count == 3 && Int(parts[2]) != nil),
+              isSafeUserId(parts[0]), isSafeId(parts[1]) else { return nil }
         return (parts[0], parts[1])
+    }
+
+    /// The runtime a transcode's task name carries, or nil for any other.
+    public static func transcodeRunTicks(_ name: String?) -> Int? {
+        guard parseTaskName(name) != nil else { return nil }
+        let parts = (name ?? "").split(separator: "/")
+        return parts.count == 3 ? Int(parts[2]) : nil
     }
 
     /// Whether a queued play the server refused should be dropped rather

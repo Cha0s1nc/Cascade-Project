@@ -53,6 +53,7 @@ struct CascadeVideoPlayer: View {
         ZStack {
             Color.black.ignoresSafeArea()
             PlayerLayer(player: session.player, pip: pip).ignoresSafeArea()
+            SideSubtitleOverlay(session: session)
             Color.clear.contentShape(.rect).ignoresSafeArea()
                 .onTapGesture { toggleControls() }
                 .accessibilityHidden(true)
@@ -104,6 +105,9 @@ struct CascadeVideoPlayer: View {
             Spacer(minLength: 8)
             if let group = session.subtitleGroup {
                 selectionMenu(group, systemImage: "captions.bubble", label: "Subtitles")
+            } else if !session.sideSubtitles.isEmpty {
+                Menu { SideSubtitleChoices(session: session) } label: { CircleIcon(systemImage: "captions.bubble") }
+                    .accessibilityLabel("Subtitles")
             }
             if let group = session.audioGroup {
                 selectionMenu(group, systemImage: "waveform", label: "Audio")

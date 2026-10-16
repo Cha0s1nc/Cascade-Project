@@ -137,6 +137,7 @@ struct MovieDetailView: View {
                 PlayButtons(item: item, started: resumeTicks(for: item) > 0, audioIndex: $audioIndex) { resume in
                     Task { await state.playVideo([item], audioStreamIndex: audioIndex, resume: resume) }
                 }
+                VideoDownloadButton(item: item, kind: .movie).padding(.horizontal)
                 if let overview = item.overview { Text(overview).padding(.horizontal) }
             }
             .padding(.bottom)
@@ -164,6 +165,8 @@ struct SeriesDetailView: View {
     @State private var episodes: [JfItem] = []
     /// Where you left off (continueEpisode): the episode, and where in it to start.
     @State private var resumeAt: (episode: JfItem, startTicks: Int)?
+    /// "Download new episodes as they arrive", before the show is downloaded.
+    @State private var followChoice = false
 
     var body: some View {
         ScrollView {
@@ -179,21 +182,34 @@ struct SeriesDetailView: View {
                     .padding(.horizontal)
                 }
                 if let overview = series.overview { Text(overview).padding(.horizontal) }
-                if seasons.count > 1 {
-                    Picker("Season", selection: $season) {
-                        ForEach(seasons) { Text($0.name ?? "Season").tag(Optional($0.id)) }
-                    }
-                    .pickerStyle(.menu)
-                    .padding(.horizontal)
+                VStack(alignment: .leading, spacing: 8) {
+                    VideoDownloadButton(item: series, kind: .series, title: "Download Show", follow: followChoice)
+                    FollowSeriesToggle(seriesId: series.id, choice: $followChoice)
                 }
+                .padding(.horizontal)
+                HStack {
+                    if seasons.count > 1 {
+                        Picker("Season", selection: $season) {
+                            ForEach(seasons) { Text($0.name ?? "Season").tag(Optional($0.id)) }
+                        }
+                        .pickerStyle(.menu)
+                    }
+                    if let current = seasons.first(where: { $0.id == season }) {
+                        VideoDownloadButton(item: seasonItem(current), kind: .season, title: "Download Season")
+                    }
+                }
+                .padding(.horizontal)
                 LazyVStack(alignment: .leading, spacing: 14) {
                     ForEach(Array(episodes.enumerated()), id: \.element.id) { index, episode in
-                        Button {
-                            Task { await state.playVideo(episodes, startIndex: index) }
-                        } label: {
-                            EpisodeRow(episode: episode, played: episode.userData?.played == true)
+                        HStack(alignment: .top) {
+                            Button {
+                                Task { await state.playVideo(episodes, startIndex: index) }
+                            } label: {
+                                EpisodeRow(episode: episode, played: episode.userData?.played == true)
+                            }
+                            .buttonStyle(.plain)
+                            VideoDownloadButton(item: episode, kind: .episode, compact: true)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal)
@@ -222,6 +238,14 @@ struct SeriesDetailView: View {
             guard let client = state.client else { return }
             episodes = (try? await client.episodes(of: series.id, season: season)) ?? []
         }
+    }
+
+    /// A season knows its show, for the season's download.
+    private func seasonItem(_ season: JfItem) -> JfItem {
+        var s = season
+        s.seriesId = series.id
+        s.seriesName = series.name
+        return s
     }
 
     /// The episode watched last, resumed, or the one after it. Jellyfin's Next Up only finds

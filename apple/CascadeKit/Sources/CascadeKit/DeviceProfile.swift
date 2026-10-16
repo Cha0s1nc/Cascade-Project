@@ -56,6 +56,35 @@ public struct SubtitleProfile: Codable, Sendable {
     public var method: String
 }
 
+/// A condition the server checks a stream against ("Height <= 720").
+public struct ProfileCondition: Codable, Sendable, Equatable {
+    public var condition: String
+    public var property: String
+    public var value: String
+    public var isRequired: Bool
+
+    public init(condition: String, property: String, value: String, isRequired: Bool) {
+        self.condition = condition
+        self.property = property
+        self.value = value
+        self.isRequired = isRequired
+    }
+}
+
+/// Limits on a codec. No codec applies to every codec (checked on jellyfin12:
+/// a Height condition with none capped HEVC and H.264 alike).
+public struct CodecProfile: Codable, Sendable, Equatable {
+    public var type: MediaKind
+    public var codec: String?
+    public var conditions: [ProfileCondition]
+
+    public init(type: MediaKind, codec: String? = nil, conditions: [ProfileCondition]) {
+        self.type = type
+        self.codec = codec
+        self.conditions = conditions
+    }
+}
+
 /// What this client tells the server it can decode.
 ///
 /// The server trusts every claim in here, so a wrong one does not produce an
@@ -67,15 +96,18 @@ public struct DeviceProfile: Codable, Sendable {
     public var directPlayProfiles: [DirectPlayProfile]
     public var transcodingProfiles: [TranscodingProfile]
     public var subtitleProfiles: [SubtitleProfile]
+    /// Only the download profile sets these (OfflineVideo.swift).
+    public var codecProfiles: [CodecProfile]?
 
     public init(name: String? = nil, maxStreamingBitrate: Int? = nil,
                 directPlayProfiles: [DirectPlayProfile], transcodingProfiles: [TranscodingProfile],
-                subtitleProfiles: [SubtitleProfile] = []) {
+                subtitleProfiles: [SubtitleProfile] = [], codecProfiles: [CodecProfile]? = nil) {
         self.name = name
         self.maxStreamingBitrate = maxStreamingBitrate
         self.directPlayProfiles = directPlayProfiles
         self.transcodingProfiles = transcodingProfiles
         self.subtitleProfiles = subtitleProfiles
+        self.codecProfiles = codecProfiles
     }
 }
 

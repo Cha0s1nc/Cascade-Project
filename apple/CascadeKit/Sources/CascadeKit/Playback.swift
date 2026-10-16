@@ -82,6 +82,11 @@ public struct ResolvedStream: Sendable, Equatable {
     /// lists every segment from 0), so a seek moves the player rather than
     /// asking the server for a new stream.
     public var seeksLocally: Bool { direct || isHlsUrl(url.absoluteString) }
+
+    /// A downloaded file: played as it is, from the start, with no session.
+    public static func localFile(_ url: URL) -> ResolvedStream {
+        ResolvedStream(url: url, playSessionId: nil, mediaSourceId: nil, direct: true, startTicks: 0)
+    }
 }
 
 // MARK: - PlaybackInfo wire shapes
