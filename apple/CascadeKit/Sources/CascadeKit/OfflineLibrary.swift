@@ -720,15 +720,22 @@ public final class OfflineLibrary {
     /// replays the plays if it matched (holds them if not), refreshes every
     /// download's user data and takes a new snapshot.
     public func sync(client: JellyfinClient) async {
-        guard owner != nil, !syncing, await !client.isOffline else { return }
+        guard owner != nil, !syncing, await !client.isOffline else {
+            debugLog("offline sync skipped (owner \(owner != nil), syncing \(syncing))")
+            return
+        }
         syncing = true
         defer { syncing = false }
         let owner = self.owner
         var replay = false
         if !index.plays.isEmpty, !index.playsHeld {
             // No answer: nothing can be told, so it all waits for the next time.
-            guard let list = await Self.history(client), self.owner == owner else { return }
+            guard let list = await Self.history(client), self.owner == owner else {
+                debugLog("offline sync: no history from the server, \(index.plays.count) plays wait")
+                return
+            }
             replay = OfflineSync.catchUp(plays: index.plays, history: index.history, held: false, server: list) == .replay
+            debugLog("offline sync: history \(replay ? "matches, replaying" : "moved on, holding") \(index.plays.count) plays")
             if !replay {
                 index.playsHeld = true
                 save()
