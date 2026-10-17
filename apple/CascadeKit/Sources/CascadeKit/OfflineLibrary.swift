@@ -677,7 +677,11 @@ public final class OfflineLibrary {
     /// A sync is running: the snapshot waits for it, since the first thing
     /// it does is compare the server's history with the one kept.
     @ObservationIgnored private var syncing = false
+    /// Asked for while one ran: it runs once more when that one ends.
+    @ObservationIgnored private var syncAgain = false
     @ObservationIgnored private var snapshotTask: Task<Void, Never>?
+    /// History fetches tried before the plays wait for the next time online.
+    static let syncTries = 3
 
     /// The plays wait for the person to add or discard them.
     public var heldPlays: Int { index.playsHeld ? index.plays.count : 0 }
@@ -719,19 +723,33 @@ public final class OfflineLibrary {
     /// Back online: compares the history first, then sends the changes,
     /// replays the plays if it matched (holds them if not), refreshes every
     /// download's user data and takes a new snapshot.
-    public func sync(client: JellyfinClient) async {
-        guard owner != nil, !syncing, await !client.isOffline else {
-            debugLog("offline sync skipped (owner \(owner != nil), syncing \(syncing))")
+    public func sync(client: JellyfinClient, attempt: Int = 1) async {
+        guard owner != nil, await !client.isOffline else { return }
+        guard !syncing else {
+            debugLog("offline sync asked for during one: runs again after it")
+            syncAgain = true
             return
         }
         syncing = true
-        defer { syncing = false }
+        syncAgain = false
+        defer {
+            syncing = false
+            if syncAgain { Task { await self.sync(client: client) } }
+        }
         let owner = self.owner
         var replay = false
         if !index.plays.isEmpty, !index.playsHeld {
-            // No answer: nothing can be told, so it all waits for the next time.
+            // No answer: nothing can be told yet. Tried again shortly, then it
+            // all waits for the next time online.
             guard let list = await Self.history(client), self.owner == owner else {
-                debugLog("offline sync: no history from the server, \(index.plays.count) plays wait")
+                debugLog("offline sync: no history from the server (try \(attempt)), \(index.plays.count) plays wait")
+                if attempt < Self.syncTries {
+                    Task { [weak self] in
+                        try? await Task.sleep(for: .seconds(15))
+                        guard let self, self.owner == owner else { return }
+                        await self.sync(client: client, attempt: attempt + 1)
+                    }
+                }
                 return
             }
             replay = OfflineSync.catchUp(plays: index.plays, history: index.history, held: false, server: list) == .replay

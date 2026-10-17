@@ -8729,7 +8729,11 @@ function queueVideoPosition(item, ticks) {
 /** A sync is running: the snapshot waits for it, since the first thing it
  *  does is compare the server's history with the one kept. */
 let _syncing = false
+/** Asked for while one ran: it runs once more when that one ends. */
+let _syncAgain = false
 let _snapshotTimer = null
+/** History fetches tried before the plays wait for the next connect. */
+const SYNC_TRIES = 3
 
 /** A few seconds after a report lands, one request rather than one a song. */
 function scheduleHistorySnapshot() {
@@ -8752,16 +8756,24 @@ async function takeHistorySnapshot(fromSync = false) {
 /** Back online (every online connect()): compares the history, then sends
  *  the rest in the background. Returns once the compare is done, so nothing
  *  this app sends can change the history before it is read. */
-async function syncOffline() {
-  if (_syncing || jfClient.offline || !jf?.url) return
+async function syncOffline(attempt = 1) {
+  if (jfClient.offline || !jf?.url) return
+  if (_syncing) { _syncAgain = true; return }
   _syncing = true
+  _syncAgain = false
   let replay = false
   try {
     const catalog = CascadeCore.parseIndex(await window.cascade.offline.catalog())
     if (catalog.plays.length && !catalog.playsHeld) {
       const list = await jfGet('/Items', { ...CascadeCore.HISTORY_QUERY, UserId: jf.userId }).catch(() => null)
-      // No answer: nothing can be told, so it all waits for the next time.
-      if (!list?.Items) { _syncing = false; return }
+      // No answer: nothing can be told yet. Tried again shortly, then it all
+      // waits for the next connect.
+      if (!list?.Items) {
+        _syncing = false
+        const userId = jf.userId
+        if (attempt < SYNC_TRIES) setTimeout(() => { if (jf?.userId === userId) syncOffline(attempt + 1) }, 15000)
+        return
+      }
       replay = CascadeCore.playsCatchUp(catalog, list.Items) === 'replay'
       if (!replay) {
         await window.cascade.offline.holdPlays(true)
@@ -8773,7 +8785,11 @@ async function syncOffline() {
     _syncing = false
     return
   }
-  finishOfflineSync(replay).catch(() => {}).finally(() => { _syncing = false; scheduleOfflineRefresh() })
+  finishOfflineSync(replay).catch(() => {}).finally(() => {
+    _syncing = false
+    scheduleOfflineRefresh()
+    if (_syncAgain) syncOffline()
+  })
 }
 
 async function finishOfflineSync(replay) {

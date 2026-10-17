@@ -225,6 +225,7 @@ Done on `offline-mode`, with these notes for phase 2:
   - The iPhone at all: the storage limit question, background downloads under a limit.
   - The desktop on Windows and Linux.
   - A refetch of Spicy Lyrics that had actually expired (the rule is tested).
+- The first Mac run hit a silent skip: in its second round the queued play was neither replayed nor held, and nothing was logged. That run's test helper was itself broken (401s), and the clean second run did not repeat it, so the cause was not pinned down. It can only have been a sync asked for while one was running, or a history fetch that came back empty. Neither drops a sync any more: one asked for mid-run runs again afterward, a failed compare is retried (three tries, 15 s apart), and debug builds log each decision. Both were checked against a stubbed server in the desktop app.
 - Found while testing, not fixed here: on the desktop, songs asked for while a video is downloading wait until the video finishes. The download pump's second worker exits when only videos are pending, and a later request does not wake it.
 
 ### Phase 5 (optional): local ffmpeg on the desktop

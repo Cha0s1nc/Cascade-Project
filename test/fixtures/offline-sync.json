@@ -787,6 +787,180 @@
     }
    ],
    "expected": "hold"
+  },
+  {
+   "name": "recorded from jellyfin12: the same history, its 6 and 7 digit and trimmed fractions as sent",
+   "history": {
+    "takenAt": "2026-10-17T23:46:40.000Z",
+    "entries": [
+     {
+      "Id": "d97645eb76ca778dc4d6888aebdef3be",
+      "LastPlayedDate": "2026-10-17T23:46:26.0000000Z",
+      "PlayCount": 1
+     },
+     {
+      "Id": "a7fa5b0523e080bc7a3d49a4d4917d51",
+      "LastPlayedDate": "2026-10-17T23:21:27.47Z",
+      "PlayCount": 1
+     },
+     {
+      "Id": "4bf67f0947becebf514c6371f3c046aa",
+      "LastPlayedDate": "2026-10-01T06:29:20.111726Z",
+      "PlayCount": 1
+     },
+     {
+      "Id": "02f2381e9a3b3ffc179102ab36aaf4a0",
+      "LastPlayedDate": "2026-09-26T20:50:02.6679282Z",
+      "PlayCount": 1
+     }
+    ]
+   },
+   "playsHeld": false,
+   "plays": [
+    {
+     "itemId": "db4ab34d16a38f1590d5b659e5b3b44f",
+     "userId": "f3704af6aa24418ebfc420b0dfc978f7",
+     "date": "2026-10-17T23:46:45.000Z"
+    }
+   ],
+   "server": [
+    {
+     "Id": "d97645eb76ca778dc4d6888aebdef3be",
+     "Name": "",
+     "Type": "Audio",
+     "UserData": {
+      "LastPlayedDate": "2026-10-17T23:46:26.0000000Z",
+      "PlayCount": 1,
+      "Played": true,
+      "PlaybackPositionTicks": 0,
+      "IsFavorite": false
+     }
+    },
+    {
+     "Id": "a7fa5b0523e080bc7a3d49a4d4917d51",
+     "Name": "",
+     "Type": "Audio",
+     "UserData": {
+      "LastPlayedDate": "2026-10-17T23:21:27.47Z",
+      "PlayCount": 1,
+      "Played": true,
+      "PlaybackPositionTicks": 0,
+      "IsFavorite": false
+     }
+    },
+    {
+     "Id": "4bf67f0947becebf514c6371f3c046aa",
+     "Name": "",
+     "Type": "Audio",
+     "UserData": {
+      "LastPlayedDate": "2026-10-01T06:29:20.111726Z",
+      "PlayCount": 1,
+      "Played": true,
+      "PlaybackPositionTicks": 0,
+      "IsFavorite": false
+     }
+    },
+    {
+     "Id": "02f2381e9a3b3ffc179102ab36aaf4a0",
+     "Name": "",
+     "Type": "Audio",
+     "UserData": {
+      "LastPlayedDate": "2026-09-26T20:50:02.6679282Z",
+      "PlayCount": 1,
+      "Played": true,
+      "PlaybackPositionTicks": 0,
+      "IsFavorite": false
+     }
+    }
+   ],
+   "expected": "replay"
+  },
+  {
+   "name": "recorded from jellyfin12: a song played again on another device meanwhile",
+   "history": {
+    "takenAt": "2026-10-17T23:46:40.000Z",
+    "entries": [
+     {
+      "Id": "d97645eb76ca778dc4d6888aebdef3be",
+      "LastPlayedDate": "2026-10-17T23:46:26.0000000Z",
+      "PlayCount": 1
+     },
+     {
+      "Id": "a7fa5b0523e080bc7a3d49a4d4917d51",
+      "LastPlayedDate": "2026-10-17T23:21:27.47Z",
+      "PlayCount": 1
+     },
+     {
+      "Id": "4bf67f0947becebf514c6371f3c046aa",
+      "LastPlayedDate": "2026-10-01T06:29:20.111726Z",
+      "PlayCount": 1
+     },
+     {
+      "Id": "02f2381e9a3b3ffc179102ab36aaf4a0",
+      "LastPlayedDate": "2026-09-26T20:50:02.6679282Z",
+      "PlayCount": 1
+     }
+    ]
+   },
+   "playsHeld": false,
+   "plays": [
+    {
+     "itemId": "db4ab34d16a38f1590d5b659e5b3b44f",
+     "userId": "f3704af6aa24418ebfc420b0dfc978f7",
+     "date": "2026-10-17T23:46:45.000Z"
+    }
+   ],
+   "server": [
+    {
+     "Id": "4bf67f0947becebf514c6371f3c046aa",
+     "Name": "",
+     "Type": "Audio",
+     "UserData": {
+      "LastPlayedDate": "2026-10-17T23:46:52.597Z",
+      "PlayCount": 2,
+      "Played": true,
+      "PlaybackPositionTicks": 0,
+      "IsFavorite": false
+     }
+    },
+    {
+     "Id": "d97645eb76ca778dc4d6888aebdef3be",
+     "Name": "",
+     "Type": "Audio",
+     "UserData": {
+      "LastPlayedDate": "2026-10-17T23:46:26.0000000Z",
+      "PlayCount": 1,
+      "Played": true,
+      "PlaybackPositionTicks": 0,
+      "IsFavorite": false
+     }
+    },
+    {
+     "Id": "a7fa5b0523e080bc7a3d49a4d4917d51",
+     "Name": "",
+     "Type": "Audio",
+     "UserData": {
+      "LastPlayedDate": "2026-10-17T23:21:27.47Z",
+      "PlayCount": 1,
+      "Played": true,
+      "PlaybackPositionTicks": 0,
+      "IsFavorite": false
+     }
+    },
+    {
+     "Id": "02f2381e9a3b3ffc179102ab36aaf4a0",
+     "Name": "",
+     "Type": "Audio",
+     "UserData": {
+      "LastPlayedDate": "2026-09-26T20:50:02.6679282Z",
+      "PlayCount": 1,
+      "Played": true,
+      "PlaybackPositionTicks": 0,
+      "IsFavorite": false
+     }
+    }
+   ],
+   "expected": "hold"
   }
  ],
  "replayOrder": {
