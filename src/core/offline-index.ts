@@ -162,6 +162,26 @@ export interface HistorySnapshot {
  *  play. `date` is ISO 8601. */
 export interface OfflinePlay { itemId: string; userId: string; date: string }
 
+/** A change to an item's user data made offline, with its time (plan,
+ *  section 5): where watching stopped, a played or unplayed mark (by hand,
+ *  or by watching to the end), a favorite. offline-sync.ts coalesces them
+ *  per item and decides which still win against the server. */
+export interface UserDataChange {
+  itemId: string
+  userId: string
+  /** ISO 8601. */
+  at: string
+  kind: 'position' | 'played' | 'favorite'
+  /** position: where it stopped, in ticks. */
+  ticks?: number
+  /** played: true for played (or watched to the end), false for unplayed. */
+  played?: boolean
+  /** favorite: the new value, and the one before it, so a favorite toggled
+   *  twice comes to no change. */
+  favorite?: boolean
+  was?: boolean
+}
+
 export interface OfflineIndex {
   version: typeof INDEX_VERSION
   tracks: Record<string, OfflineTrack>
@@ -175,10 +195,16 @@ export interface OfflineIndex {
   user: OfflineUser | null
   history: HistorySnapshot | null
   plays: OfflinePlay[]
+  /** User data changed offline, oldest first. */
+  changes: UserDataChange[]
+  /** The server's history had moved on when the app came back, so the plays
+   *  wait for the person to add or discard them. */
+  playsHeld: boolean
 }
 
 export const emptyIndex = (): OfflineIndex => ({
   version: INDEX_VERSION, tracks: {}, collections: [], containers: {}, libraries: [], user: null, history: null, plays: [],
+  changes: [], playsHeld: false,
 })
 
 /** Most plays kept while offline. A year of listening on a plane is not 5000. */
@@ -704,15 +730,92 @@ export function historyEntriesOf(items: JfItem[]): HistoryEntry[] {
   }))
 }
 
+/** Keeps the server's history, and writes its dates and counts into the
+ *  downloads it lists, so History and Recently Played offline read as the
+ *  server did when the app was last online. */
 export function setHistory(index: OfflineIndex, items: JfItem[], takenAt: Date): void {
   index.history = { takenAt: takenAt.toISOString(), entries: historyEntriesOf(items) }
+  for (const e of index.history.entries) {
+    for (const item of storedCopies(index, e.Id)) {
+      const ud = item.UserData ?? (item.UserData = {})
+      ud.Played = true
+      ud.PlayCount = e.PlayCount
+      if (e.LastPlayedDate) ud.LastPlayedDate = e.LastPlayedDate
+    }
+  }
+  overlayPending(index, new Set(index.history.entries.map(e => e.Id)))
 }
 
-/** Queues a play for replay. Newest are kept past the cap. */
+/** Queues a play for replay, and counts it in the catalog so the offline
+ *  History shows it on top. Newest are kept past the cap. */
 export function addPlay(index: OfflineIndex, play: OfflinePlay): void {
   index.plays.push(play)
   if (index.plays.length > MAX_QUEUED_PLAYS) index.plays.splice(0, index.plays.length - MAX_QUEUED_PLAYS)
+  applyPlay(index, play)
 }
+
+/** Queues a user data change and shows it in the catalog at once. */
+export function addChange(index: OfflineIndex, change: UserDataChange): void {
+  index.changes.push(change)
+  if (index.changes.length > MAX_QUEUED_PLAYS) index.changes.splice(0, index.changes.length - MAX_QUEUED_PLAYS)
+  applyChange(index, change)
+}
+
+/** Replaces the stored user data with the server's (GET /Items?Ids=...),
+ *  then lays what is still queued back on top. */
+export function refreshUserData(index: OfflineIndex, items: JfItem[]): void {
+  const ids = new Set<string>()
+  for (const fresh of items) {
+    if (!fresh || !isSafeId(fresh.Id) || !isPlainObject(fresh.UserData)) continue
+    const ud = slimItem({ Id: fresh.Id, UserData: fresh.UserData } as JfItem).UserData
+    for (const item of storedCopies(index, fresh.Id)) item.UserData = { ...ud }
+    ids.add(fresh.Id)
+  }
+  overlayPending(index, ids)
+}
+
+/** Every id the catalog stores user data for: files, collections, shows. */
+export const userDataIds = (index: OfflineIndex): string[] =>
+  [...new Set([...Object.keys(index.tracks), ...index.collections.map(c => c.item.Id), ...Object.keys(index.containers)])]
+
+/** The stored copies of an item: its file's, its collection's, its show's. */
+function storedCopies(index: OfflineIndex, id: string): JfItem[] {
+  const out: JfItem[] = []
+  if (index.tracks[id]) out.push(index.tracks[id].item)
+  for (const c of index.collections) if (c.item.Id === id) out.push(c.item)
+  if (index.containers[id]) out.push(index.containers[id])
+  return out
+}
+
+function applyPlay(index: OfflineIndex, play: OfflinePlay): void {
+  for (const item of storedCopies(index, play.itemId)) {
+    const ud = item.UserData ?? (item.UserData = {})
+    ud.Played = true
+    ud.PlayCount = (ud.PlayCount ?? 0) + 1
+    if (!ud.LastPlayedDate || Date.parse(ud.LastPlayedDate) < Date.parse(play.date)) ud.LastPlayedDate = play.date
+  }
+}
+
+function applyChange(index: OfflineIndex, c: UserDataChange): void {
+  for (const item of storedCopies(index, c.itemId)) {
+    const ud = item.UserData ?? (item.UserData = {})
+    if (c.kind === 'favorite') ud.IsFavorite = !!c.favorite
+    else if (c.kind === 'position') { ud.PlaybackPositionTicks = c.ticks ?? 0; ud.LastPlayedDate = c.at }
+    else if (c.played) { ud.Played = true; ud.PlaybackPositionTicks = 0; ud.LastPlayedDate = c.at }
+    else { ud.Played = false; ud.PlaybackPositionTicks = 0 }
+  }
+}
+
+/** Queued plays and changes for these items, applied again over fresher data. */
+function overlayPending(index: OfflineIndex, ids: Set<string>): void {
+  for (const p of index.plays) if (ids.has(p.itemId)) applyPlay(index, p)
+  for (const c of index.changes) if (ids.has(c.itemId)) applyChange(index, c)
+}
+
+/** Whether a download of `adding` bytes would take the downloads past the
+ *  storage limit (null: no limit). */
+export const overStorageLimit = (usedBytes: number, adding: number, limitBytes: number | null): boolean =>
+  limitBytes !== null && limitBytes > 0 && usedBytes + adding > limitBytes
 
 /** Whether a queued play the server refused should be dropped rather than
  *  retried. The item is gone (deleted or re-scanned since) or the request can
@@ -858,6 +961,21 @@ function parseHistory(v: unknown): HistorySnapshot | null {
   return { takenAt, entries }
 }
 
+/** A queued change, checked like anything read from disk (or sent by the
+ *  renderer). */
+export function parseChange(v: unknown): UserDataChange | null {
+  if (!isPlainObject(v) || !isSafeId(v.itemId) || !isSafeUserId(v.userId)) return null
+  const at = isoDate(v.at)
+  if (!at) return null
+  const base = { itemId: v.itemId, userId: v.userId, at }
+  if (v.kind === 'position' && isFiniteNumber(v.ticks) && v.ticks >= 0) return { ...base, kind: 'position', ticks: Math.round(v.ticks) }
+  if (v.kind === 'played' && typeof v.played === 'boolean') return { ...base, kind: 'played', played: v.played }
+  if (v.kind === 'favorite' && typeof v.favorite === 'boolean') {
+    return { ...base, kind: 'favorite', favorite: v.favorite, was: typeof v.was === 'boolean' ? v.was : !v.favorite }
+  }
+  return null
+}
+
 /**
  * A stored index, validated: it is read from disk, where anything can be. A
  * path that could leave the offline folder is dropped (the track goes back to
@@ -929,6 +1047,14 @@ export function parseIndex(raw: unknown): OfflineIndex {
     }
     if (index.plays.length > MAX_QUEUED_PLAYS) index.plays.splice(0, index.plays.length - MAX_QUEUED_PLAYS)
   }
+  if (Array.isArray(raw.changes)) {
+    for (const c of raw.changes) {
+      const change = parseChange(c)
+      if (change) index.changes.push(change)
+    }
+    if (index.changes.length > MAX_QUEUED_PLAYS) index.changes.splice(0, index.changes.length - MAX_QUEUED_PLAYS)
+  }
+  index.playsHeld = raw.playsHeld === true && index.plays.length > 0
 
   // A track no collection holds is nobody's: it would never be listed, played
   // from a Downloads row, or removed.

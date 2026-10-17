@@ -64,6 +64,8 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
   let running = false
   let networkDown = false
   let saveTimer = null
+  /** The storage limit in bytes the renderer set, or null for none. */
+  let limitBytes = null
 
   // ── Index on disk ──────────────────────────────────────────────────────────
 
@@ -156,6 +158,9 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
       })),
       failed: Object.fromEntries(failed),
       plays: index.plays.length,
+      playsHeld: index.playsHeld,
+      changes: index.changes.length,
+      limitBytes,
     }
   }
 
@@ -281,6 +286,12 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
         throw Object.assign(new Error('The server does not allow this account to download. An admin can turn on media downloading for it.'), { judged: true })
       }
       const url = video ? await planVideo(id, state) : `${server.replace(/\/+$/, '')}/Items/${id}/Download`
+      // The storage limit: by the size known before asking (a song's, a
+      // video's estimate), and again as bytes arrive (a transcode announces
+      // nothing).
+      const used = () => Offline.totalBytes(mine) + [...active.entries()].reduce((n, [k, a]) => n + (k === id ? 0 : a.received), 0)
+      const limitError = () => Object.assign(new Error('Your storage limit is reached. Raise it or remove downloads in Downloads.'), { judged: true })
+      if (Offline.overStorageLimit(used(), state.estimate ?? mine.tracks[id]?.item.MediaSources?.[0]?.Size ?? 0, limitBytes)) throw limitError()
       const res = await net.fetch(url, { headers: requestHeaders(url), signal: state.controller.signal })
       state.reachedServer = true
       const announced = Number(res.headers.get('content-length'))
@@ -295,6 +306,7 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
         let lastEmit = 0
         for await (const chunk of res.body) {
           state.received += chunk.length
+          if (Offline.overStorageLimit(used(), state.received, limitBytes)) throw limitError()
           if (!out.write(chunk)) await new Promise(r => out.once('drain', r))
           const now = Date.now()
           if (now - lastEmit >= PROGRESS_MS) { lastEmit = now; emit({ type: 'progress', id, received: state.received, total: state.total, outcome: state.outcome, estimate: state.estimate, startedAt: state.startedAt }) }
@@ -582,6 +594,48 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
     // Hands every queued play over and empties the queue; the renderer puts
     // back the ones the server did not accept yet.
     ipcMain.handle('offline-plays-take', () => { const plays = index.plays; index.plays = []; saveNow(); return plays })
+    // Plays held for the person's choice (the server's history moved on).
+    ipcMain.handle('offline-plays-hold', (_e, held) => {
+      if (!owner) return
+      index.playsHeld = held === true && index.plays.length > 0
+      saveNow()
+      emit({ type: 'changed' })
+    })
+    ipcMain.handle('offline-plays-discard', () => {
+      if (!owner) return
+      index.plays = []
+      index.playsHeld = false
+      saveNow()
+      emit({ type: 'changed' })
+    })
+    // Positions, played marks and favorites changed offline.
+    ipcMain.handle('offline-change-add', (_e, change) => {
+      const c = Offline.parseChange(change)
+      if (!owner || !c) return
+      Offline.addChange(index, c)
+      scheduleSave()
+    })
+    ipcMain.handle('offline-changes-take', () => { const changes = index.changes; index.changes = []; saveNow(); return changes })
+    ipcMain.handle('offline-set-history', (_e, items) => {
+      if (!owner || !Array.isArray(items)) return
+      Offline.setHistory(index, items, new Date())
+      scheduleSave()
+    })
+    ipcMain.handle('offline-set-user-data', (_e, items) => {
+      if (!owner || !Array.isArray(items)) return
+      Offline.refreshUserData(index, items)
+      scheduleSave()
+    })
+    ipcMain.handle('offline-limit', (_e, bytes) => {
+      const next = Number.isFinite(bytes) && bytes > 0 ? bytes : null
+      const raised = next === null || (limitBytes !== null && next > limitBytes)
+      limitBytes = next
+      // Downloads stopped by the old limit may fit now.
+      if (raised) {
+        for (const [id, message] of failed) if (message.startsWith('Your storage limit')) failed.delete(id)
+        if (session) pump()
+      }
+    })
 
     // ── Offline Mode ──
     // The catalog the renderer's query engine answers from, and what the

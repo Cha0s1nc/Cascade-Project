@@ -17,8 +17,8 @@ export interface MenuItemOptions {
    *  than guessing. */
   isPlayed?: boolean
   /** Offline Mode is on: rows that need the server are left out
-   *  (docs/offline-mode-plan.md, section 3). Favorite and mark played come
-   *  back once changes made offline are queued (phase 4). */
+   *  (docs/offline-mode-plan.md, section 3). Favorite and mark played stay:
+   *  they are queued and sent once back online (offline-sync.ts). */
   offline?: boolean
 }
 
@@ -60,7 +60,7 @@ export function menuItemsForKind(kind: MenuItemKind, opts: MenuItemOptions = {})
   if (!opts.offline) return rows
   return {
     ...rows,
-    instantMix: false, addPlaylist: false, download: false, favorite: false, markPlayed: false, markUnplayed: false,
+    instantMix: false, addPlaylist: false, download: false,
     refreshMeta: false, editMeta: false,
     // A smart playlist of your own is a local definition: editing or deleting
     // it needs no server. A real playlist's do.

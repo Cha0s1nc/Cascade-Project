@@ -805,6 +805,13 @@
           <span class="dl-total" id="downloads-total"></span>
         </div>
         <div class="dl-storage" id="downloads-storage"></div>
+        <!-- Plays held back online because the server's history had moved on
+             (docs/offline-mode-plan.md, section 5). -->
+        <div class="dl-held" id="downloads-held" hidden>
+          <span id="downloads-held-text"></span>
+          <button class="shuffle-all-btn" id="downloads-held-add" type="button">Add to history</button>
+          <button class="shuffle-all-btn" id="downloads-held-discard" type="button">Discard</button>
+        </div>
         <!-- Video download settings: they live here, beside what they change. -->
         <div class="dl-settings">
           <label class="dl-setting">Video quality
@@ -815,6 +822,18 @@
             </select>
           </label>
           <label class="dl-setting"><input type="checkbox" id="dl-remove-watched"> Remove watched episodes a day after you finish them</label>
+          <label class="dl-setting">Storage limit
+            <select id="dl-storage-limit">
+              <option value="0">No limit</option>
+              <option value="5">5 GB</option>
+              <option value="10">10 GB</option>
+              <option value="25">25 GB</option>
+              <option value="50">50 GB</option>
+              <option value="100">100 GB</option>
+              <option value="250">250 GB</option>
+              <option value="500">500 GB</option>
+            </select>
+          </label>
         </div>
         <div class="dl-section" id="downloads-active-section" hidden>
           <div class="dl-section-title">Downloading</div>
@@ -1885,7 +1904,7 @@
   <div class="ctx-item music-only needs-server" id="ctx-instant-mix">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>Instant mix
   </div>
-  <div class="ctx-item needs-server" id="ctx-favorite">
+  <div class="ctx-item" id="ctx-favorite">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg><span id="ctx-favorite-label">Favorite</span>
   </div>
   <div class="ctx-item" id="ctx-sleep-timer">
@@ -1951,7 +1970,7 @@
   <div class="ctx-item hidden needs-server" id="tctx-play-on-device">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/><path d="M2 12a6 6 0 0 1 6 6"/><path d="M2 16a2 2 0 0 1 2 2"/><line x1="2" y1="20" x2="2.01" y2="20"/></svg><span id="tctx-play-on-device-label">Play on device</span>
   </div>
-  <div class="ctx-item needs-server" id="tctx-favorite">
+  <div class="ctx-item" id="tctx-favorite">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg><span id="tctx-favorite-label">Favorite</span>
   </div>
   <div class="ctx-sep"></div>
