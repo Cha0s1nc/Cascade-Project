@@ -186,6 +186,57 @@ final class AppState {
     static let removeWatchedDefault = true
     #endif
 
+    /// How much space downloads may take, in GB, 0 for no limit. No limit by
+    /// default on the Mac; nil on the iPhone until the person answers the
+    /// question asked at their first download (the plan's decision).
+    var downloadLimitGB: Int? = UserDefaults.standard.object(forKey: AppState.downloadLimitKey) as? Int ?? AppState.downloadLimitDefault {
+        didSet {
+            UserDefaults.standard.set(downloadLimitGB, forKey: Self.downloadLimitKey)
+            applyDownloadLimit()
+        }
+    }
+    static let downloadLimitKey = "cascade.downloadLimitGB"
+    static let downloadLimitChoices = [0, 5, 10, 25, 50, 100, 250]
+    #if os(macOS)
+    static let downloadLimitDefault: Int? = 0
+    #else
+    static let downloadLimitDefault: Int? = nil
+    #endif
+    /// The iPhone's question is showing; the download that asked waits for it.
+    var askingDownloadLimit = false
+    @ObservationIgnored private var afterDownloadLimit: (() async -> Void)?
+
+    private func applyDownloadLimit() {
+        let gb = downloadLimitGB ?? 0
+        offline?.storageLimit = gb > 0 ? Int64(gb) << 30 : nil
+    }
+
+    /// Runs a download once the storage limit is known: at once, or after
+    /// the iPhone's question is answered.
+    private func whenDownloadLimitKnown(_ work: @escaping () async -> Void) async {
+        guard downloadLimitGB != nil else {
+            afterDownloadLimit = work
+            askingDownloadLimit = true
+            return
+        }
+        await work()
+    }
+
+    func answerDownloadLimit(_ gb: Int) {
+        downloadLimitGB = gb
+        askingDownloadLimit = false
+        guard let work = afterDownloadLimit else { return }
+        afterDownloadLimit = nil
+        Task { await work() }
+    }
+
+    /// Keeps the server's play history, for comparing with when back online
+    /// (OfflineSync). History and Home call it when they load.
+    func snapshotHistory() {
+        guard let offline, let client, !isOffline else { return }
+        Task { await offline.snapshotHistory(client: client) }
+    }
+
     /// Removes episodes finished over a day ago, when the setting is on: at
     /// sign-in, back online, and when the Downloads screen opens.
     func sweepWatchedEpisodes() {
@@ -195,8 +246,10 @@ final class AppState {
     /// Downloads a movie, an episode, a season or a whole show.
     func downloadVideo(_ item: JfItem, kind: OfflineLibrary.VideoKind, follow: Bool = false, burnIn: Int? = nil) async {
         guard let offline, let client, !isOffline else { return }
-        await offline.downloadVideo(item, kind: kind, follow: follow, burnIn: burnIn, client: client)
-        await offline.placeDownloads(client: client)
+        await whenDownloadLimitKnown {
+            await offline.downloadVideo(item, kind: kind, follow: follow, burnIn: burnIn, client: client)
+            await offline.placeDownloads(client: client)
+        }
     }
 
     /// The last message an admin sent this session from the dashboard, until closed.
@@ -351,6 +404,7 @@ final class AppState {
         ProxyConnection.shared.setServer(UserDefaults.standard.string(forKey: "cascade.serverUrl"))
         offline?.onChange = { [weak self] in self?.offlineCatalogChanged() }
         offline?.videoQuality = videoDownloadQuality
+        applyDownloadLimit()
         restore()
         watchNetwork()
     }
@@ -473,6 +527,9 @@ final class AppState {
         self.client = client
         let onFailure: @Sendable (Int?) -> Void = { [weak self] status in Task { @MainActor in self?.checkForDrop(status) } }
         Task { await client.onFailure(onFailure) }
+        // Favorites and played marks made in Offline Mode are queued for later.
+        let offline = self.offline
+        Task { await client.onOfflineWrite { change in await offline?.recordChange(change) } }
         // Rebuilt with the client so the player never holds a stale token or a
         // stale library selection.
         let player = PlaybackService(client: client, config: config)
@@ -534,8 +591,10 @@ final class AppState {
         guard let client, let player, let config else { return }
         if let offline {
             Task {
+                // First: it compares the server's history before anything
+                // this app sends can add to it.
+                await offline.sync(client: client)
                 await offline.resume(client: client)
-                await offline.replayPlays(client: client)
                 if let views = try? await client.views(), self.client === client { offline.setLibraries(views) }
                 if let user = try? await client.get("/Users/\(config.userId)", as: OfflineIndex.User.self),
                    self.client === client { offline.setUser(user) }
@@ -591,6 +650,9 @@ final class AppState {
 
     /// The Settings switch. Stays on across launches until turned off.
     func setOfflineSwitch(_ on: Bool) async {
+        // The history as it stands, so going back online can tell whether
+        // anyone played anything elsewhere meanwhile.
+        if on, !isOffline, let offline, let client { await offline.snapshotHistory(client: client) }
         UserDefaults.standard.set(on, forKey: Self.offlineSwitchKey)
         await setOfflineState(OfflineMode.next(offlineState, .setSwitch(on)))
     }
@@ -625,9 +687,11 @@ final class AppState {
     /// the lyrics view would and keeps them with it, so they show offline.
     func download(_ item: JfItem) async {
         guard let offline, let client, !isOffline else { return }
-        await offline.download(item, client: client)
-        await offline.placeDownloads(client: client)
-        await keepLyrics(for: offline.tracks(of: item.id), client: client)
+        await whenDownloadLimitKnown {
+            await offline.download(item, client: client)
+            await offline.placeDownloads(client: client)
+            await self.keepLyrics(for: offline.tracks(of: item.id), client: client)
+        }
     }
 
     /// Two at a time, to keep the lyrics sources and the plugin from seeing a

@@ -434,7 +434,12 @@ final class VideoSession {
             offline?.markWatched(item.id)
         }
         self.resolved = nil
-        await PlaybackReporter.stopped(client, snapshot)
+        // Where it stopped is queued when the server never heard it.
+        if await PlaybackReporter.stopped(client, snapshot) {
+            await offline?.snapshotHistory(client: client, after: .seconds(5))
+        } else {
+            offline?.recordVideoStop(item.id, userId: config.userId, positionTicks: snapshot.positionTicks, runTimeTicks: item.runTimeTicks)
+        }
         if !resolved.direct { await stopActiveEncoding(client: client, config: config, playSessionId: resolved.playSessionId) }
     }
 

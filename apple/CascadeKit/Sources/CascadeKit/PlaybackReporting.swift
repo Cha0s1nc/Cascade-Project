@@ -107,13 +107,14 @@ struct StoppedReport: Encodable {
 public enum PlaybackReporter {
     /// Debug builds only (`-cascade.noReports YES`): nothing goes to the
     /// server, so testing playback on a real library leaves its resume
-    /// points and history alone.
+    /// points and history alone. Offline they still fail, as they would
+    /// unmuted, so what is queued for later can be tested.
     nonisolated(unsafe) public static var muted = false
 
     /// Whether the server took it: this is the report a play is counted on.
     @discardableResult
     public static func start(_ client: JellyfinClient, _ state: PlaybackState) async -> Bool {
-        if muted { return true }
+        if muted { return await !client.isOffline }
         return (try? await client.postRaw("/Sessions/Playing", body: PlaybackReport(state), timeout: reportTimeout)) != nil
     }
 
@@ -124,14 +125,16 @@ public enum PlaybackReporter {
                                       body: PlaybackReport(state, eventName: event), timeout: reportTimeout)
     }
 
-    /// Playback ended. Drives play history, so position matters.
-    public static func stopped(_ client: JellyfinClient, _ state: PlaybackState) async {
-        if muted { return }
-        _ = try? await client.postRaw("/Sessions/Playing/Stopped", body: StoppedReport(
+    /// Playback ended. Drives play history, so position matters. Whether the
+    /// server took it: one it never heard leaves the resume point to queue.
+    @discardableResult
+    public static func stopped(_ client: JellyfinClient, _ state: PlaybackState) async -> Bool {
+        if muted { return await !client.isOffline }
+        return (try? await client.postRaw("/Sessions/Playing/Stopped", body: StoppedReport(
             itemId: state.itemId,
             positionTicks: max(0, state.positionTicks),
             playSessionId: state.playSessionId,
             mediaSourceId: state.mediaSourceId
-        ), timeout: reportTimeout)
+        ), timeout: reportTimeout)) != nil
     }
 }

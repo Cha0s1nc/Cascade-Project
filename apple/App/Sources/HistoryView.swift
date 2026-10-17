@@ -39,6 +39,7 @@ struct HistoryView: View {
 
     private func load() async {
         guard let client = state.client else { return }
+        state.snapshotHistory()
         do {
             items = try await client.playHistory()
             error = nil

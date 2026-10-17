@@ -1698,12 +1698,16 @@ public final class PlaybackService {
         guard !isRadio else { return }
         let snapshot = state()
         let client = self.client
-        enqueueReport { await PlaybackReporter.stopped(client, snapshot) }
+        let offline = self.offline
+        enqueueReport {
+            if await PlaybackReporter.stopped(client, snapshot) { await offline?.snapshotHistory(client: client, after: .seconds(5)) }
+        }
     }
 
     /// Jellyfin counts a play on this report, not the stopped one, so one
-    /// that fails is kept to send later; one that lands means the server is
-    /// back and anything kept can go.
+    /// that fails is kept to send later. One that lands changed the server's
+    /// history: the snapshot follows it a few seconds later, so this
+    /// device's own plays never read as someone else's (OfflineSync).
     private func reportStart() {
         guard !isRadio else { return }
         let snapshot = state()
@@ -1713,7 +1717,7 @@ public final class PlaybackService {
         let startedAt = Date()
         enqueueReport {
             if await PlaybackReporter.start(client, snapshot) {
-                await offline?.replayPlays(client: client)
+                await offline?.snapshotHistory(client: client, after: .seconds(5))
             } else {
                 await offline?.recordPlay(snapshot.itemId, userId: userId, at: startedAt)
             }

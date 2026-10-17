@@ -9,6 +9,7 @@ import CascadeKit
 struct DownloadsView: View {
     @Environment(AppState.self) private var state
     @State private var confirmingRemoveAll = false
+    @State private var confirmingDiscard = false
     /// Free and total bytes on the disk, read when the screen opens.
     @State private var disk: (free: Int64, total: Int64)?
     #if os(macOS)
@@ -41,8 +42,27 @@ struct DownloadsView: View {
                     if let disk {
                         LabeledContent("Free on this \(Self.device)", value: bytes(disk.free))
                     }
+                    @Bindable var state = state
+                    Picker("Storage Limit", selection: Binding(get: { state.downloadLimitGB ?? 0 },
+                                                                set: { state.downloadLimitGB = $0 })) {
+                        ForEach(AppState.downloadLimitChoices, id: \.self) { Text(AppState.limitLabel($0)).tag($0) }
+                    }
                 } header: {
                     Text("Storage")
+                }
+                if offline.heldPlays > 0 {
+                    // The server's history moved on while this device was
+                    // offline (OfflineSync), so the person decides.
+                    Section {
+                        Button("Add to History") { Task { if let client = state.client { await offline.addHeldPlays(client: client) } } }
+                            .disabled(state.isOffline)
+                        Button("Discard", role: .destructive) { confirmingDiscard = true }
+                    } header: {
+                        Text("Plays from Offline")
+                    } footer: {
+                        let n = offline.heldPlays
+                        Text("\(n) \(n == 1 ? "play" : "plays") from while you were offline \(n == 1 ? "was" : "were") not added to your history, because something was played on this account elsewhere meanwhile.")
+                    }
                 }
                 @Bindable var state = state
                 Section {
@@ -107,6 +127,14 @@ struct DownloadsView: View {
                 await offline.resume(client: client)
                 await offline.syncFollowed(client: client)
             }
+        }
+        .confirmationDialog("Discard the plays from while you were offline?", isPresented: $confirmingDiscard,
+                            titleVisibility: .visible) {
+            Button("Discard", role: .destructive) {
+                Task { if let offline = state.offline, let client = state.client { await offline.discardHeldPlays(client: client) } }
+            }
+        } message: {
+            Text("They will not be added to your history.")
         }
         .confirmationDialog("Remove every download from this device?", isPresented: $confirmingRemoveAll,
                             titleVisibility: .visible) {
@@ -276,6 +304,32 @@ struct DownloadButton: View {
 
 
 #if os(iOS) || os(macOS)
+extension AppState {
+    static func limitLabel(_ gb: Int) -> String { gb == 0 ? "No Limit" : "\(gb) GB" }
+}
+
+/// The iPhone asks how much space downloads may take at the first download
+/// (the plan's decision); the Mac starts with no limit and never asks.
+private struct DownloadLimitQuestion: ViewModifier {
+    @Environment(AppState.self) private var state
+
+    func body(content: Content) -> some View {
+        @Bindable var state = state
+        content.confirmationDialog("How much space may downloads use?", isPresented: $state.askingDownloadLimit,
+                                   titleVisibility: .visible) {
+            ForEach(AppState.downloadLimitChoices, id: \.self) { gb in
+                Button(AppState.limitLabel(gb)) { state.answerDownloadLimit(gb) }
+            }
+        } message: {
+            Text("Downloads stop when they reach it. You can change this in Downloads.")
+        }
+    }
+}
+
+extension View {
+    func downloadLimitQuestion() -> some View { modifier(DownloadLimitQuestion()) }
+}
+
 /// A downloaded movie or episode in a list: its code, name and length.
 private struct VideoRow: View {
     let item: JfItem

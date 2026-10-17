@@ -72,6 +72,16 @@ public final class OfflineLibrary {
     }
     /// Transfers by item id, updated a few times a second.
     public private(set) var transfers: [String: Transfer] = [:]
+    /// The storage limit in bytes, nil for none (AppState keeps it set
+    /// from the setting). A download that would pass it is not started.
+    @ObservationIgnored public var storageLimit: Int64?
+    static let limitMessage = "Your storage limit is reached. Raise it or remove downloads in Downloads."
+
+    /// What the downloads take, counting what is on its way.
+    private var usedBytes: Int64 {
+        Int64(index.totalBytes) + transfers.values.reduce(0) { $0 + ($1.expected ?? Int64($1.estimate ?? 0)) }
+    }
+
     /// The quality videos are asked for at (AppState keeps it set from the setting).
     @ObservationIgnored public var videoQuality: VideoQuality = .platformDefault
     /// The client the last resume ran with: a finished video starts the next
@@ -266,7 +276,11 @@ public final class OfflineLibrary {
                 videoBusy = await startVideo(id, client: client, config: config, owner: owner)
                 continue
             }
+            let size = Int64(index.tracks[id]?.item.mediaSources?.first?.size ?? 0)
+            if OfflineIndex.overStorageLimit(used: usedBytes, adding: size, limit: storageLimit) { lastError = Self.limitMessage; continue }
             guard let url = URL(string: "\(config.url)/Items/\(id)/Download") else { continue }
+            // Counted at once, so the next one in this loop sees it.
+            transfers[id] = Transfer(expected: size > 0 ? size : nil)
             var request = URLRequest(url: url)
             request.setValue(authHeader(appVersion: cascadeAppVersion, deviceId: config.deviceId, token: config.token),
                              forHTTPHeaderField: "Authorization")
@@ -429,9 +443,16 @@ public final class OfflineLibrary {
         }
         guard let url else { lastError = "The server offered no way to download this."; return false }
         let runTicks = index.tracks[id]?.item.runTimeTicks
+        let estimate = OfflineVideo.estimatedBytes(outcome, source, runTimeTicks: runTicks)
+        // ponytail: checked by the estimate only; a background transfer
+        // cannot be watched byte by byte once the app is suspended.
+        if OfflineIndex.overStorageLimit(used: usedBytes, adding: Int64(estimate ?? 0), limit: storageLimit) {
+            lastError = Self.limitMessage
+            return false
+        }
         index.setOutcome(id, outcome)
         save()
-        transfers[id] = Transfer(outcome: outcome, estimate: OfflineVideo.estimatedBytes(outcome, source, runTimeTicks: runTicks))
+        transfers[id] = Transfer(outcome: outcome, estimate: estimate)
         if outcome != .direct { playSessions[id] = info.playSessionId }
         await saveVideoExtras(id, source: source, client: client)
         var request2 = URLRequest(url: url)
@@ -613,25 +634,205 @@ public final class OfflineLibrary {
         #endif
     }
 
-    // MARK: - Plays made while the server was away
+    // MARK: - What happened while the server was away
+
+    // docs/offline-mode-plan.md, section 5; the rules are OfflineSync.
+    // Plays are history: replayed only when the server's history still
+    // matches the snapshot kept while online, else held for the person in
+    // Downloads. Positions, played marks and favorites win only over an
+    // older server value.
 
     public func recordPlay(_ itemId: String, userId: String, at date: Date) {
         guard owner != nil else { return }
-        index.plays.append(.init(itemId: itemId, userId: userId, date: date))
+        index.addPlay(.init(itemId: itemId, userId: userId, date: date))
         save()
         debugLog("offline play of \(itemId) queued, \(index.plays.count) waiting")
     }
 
-    /// Sends queued plays with their real time. Each POST adds one to the
-    /// play count, so an entry goes only after the server said yes, and the
-    /// first failure stops the run (the server is still away).
+    /// A favorite or played mark made offline, or where a video stopped.
+    public func recordChange(_ change: OfflineIndex.UserDataChange) {
+        guard owner != nil else { return }
+        index.addChange(change)
+        save()
+    }
+
+    /// A video stopped with no server to tell: played when it was watched
+    /// to the end, as the server would have marked it, else where it stopped.
+    public func recordVideoStop(_ itemId: String, userId: String, positionTicks: Int, runTimeTicks: Int?) {
+        let at = OfflineIndex.isoString(Date())
+        if OfflineVideo.isWatched(positionTicks: positionTicks, runTimeTicks: runTimeTicks) {
+            recordChange(.init(itemId: itemId, userId: userId, at: at, kind: .played, played: true))
+        } else if positionTicks > 0 {
+            recordChange(.init(itemId: itemId, userId: userId, at: at, kind: .position, ticks: positionTicks))
+        }
+    }
+
+    /// A sync is running: the snapshot waits for it, since the first thing
+    /// it does is compare the server's history with the one kept.
+    @ObservationIgnored private var syncing = false
+    @ObservationIgnored private var snapshotTask: Task<Void, Never>?
+
+    /// The plays wait for the person to add or discard them.
+    public var heldPlays: Int { index.playsHeld ? index.plays.count : 0 }
+
+    /// Keeps the server's play history as it is now: after a report lands
+    /// (a few seconds later, one request), on History and Home, and right
+    /// before a manual switch to Offline Mode.
+    public func snapshotHistory(client: JellyfinClient, after delay: Duration? = nil) async {
+        if let delay {
+            snapshotTask?.cancel()
+            snapshotTask = Task { [weak self] in
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled else { return }
+                await self?.snapshotHistory(client: client)
+            }
+            return
+        }
+        guard owner != nil, !syncing, await !client.isOffline else { return }
+        await takeSnapshot(client)
+    }
+
+    /// Not while plays wait for the compare: the snapshot must stay what it
+    /// was when they were made, or it would match whatever happened elsewhere.
+    private func takeSnapshot(_ client: JellyfinClient) async {
+        guard index.plays.isEmpty || index.playsHeld else { return }
+        let owner = self.owner
+        guard let list = await Self.history(client), self.owner == owner, await !client.isOffline else { return }
+        index.setHistory(list, takenAt: Date())
+        save()
+    }
+
+    private static func history(_ client: JellyfinClient) async -> [JfItem]? {
+        var params = OfflineSync.historyQuery
+        params["userId"] = await client.currentConfig.userId
+        let r: JfItemsResponse? = try? await client.get("/Items", params: params)
+        return r?.items
+    }
+
+    /// Back online: compares the history first, then sends the changes,
+    /// replays the plays if it matched (holds them if not), refreshes every
+    /// download's user data and takes a new snapshot.
+    public func sync(client: JellyfinClient) async {
+        guard owner != nil, !syncing, await !client.isOffline else { return }
+        syncing = true
+        defer { syncing = false }
+        let owner = self.owner
+        var replay = false
+        if !index.plays.isEmpty, !index.playsHeld {
+            // No answer: nothing can be told, so it all waits for the next time.
+            guard let list = await Self.history(client), self.owner == owner else { return }
+            replay = OfflineSync.catchUp(plays: index.plays, history: index.history, held: false, server: list) == .replay
+            if !replay {
+                index.playsHeld = true
+                save()
+                debugLog("history moved on while offline: \(index.plays.count) plays held")
+            }
+        }
+        await sendChanges(client)
+        if replay { await replayPlays(client: client) }
+        await refreshUserData(client)
+        await takeSnapshot(client)
+    }
+
+    /// Downloads' Add: the held plays go into the server's history after all.
+    public func addHeldPlays(client: JellyfinClient) async {
+        guard owner != nil, !syncing, await !client.isOffline else { return }
+        syncing = true
+        defer { syncing = false }
+        index.playsHeld = false
+        save()
+        await replayPlays(client: client)
+        await refreshUserData(client)
+        await takeSnapshot(client)
+    }
+
+    /// Downloads' Discard: the held plays are dropped, and the catalog goes
+    /// back to the server's counts.
+    public func discardHeldPlays(client: JellyfinClient) async {
+        guard owner != nil else { return }
+        index.plays = []
+        index.playsHeld = false
+        save()
+        guard await !client.isOffline else { return }
+        await refreshUserData(client)
+        await takeSnapshot(client)
+    }
+
+    /// Positions, played marks and favorites, coalesced per item, each sent
+    /// only when the server's copy is older. A change the server could not
+    /// take yet is kept; one for an item it no longer has (400, 404) is
+    /// dropped, and so is one the server's newer value beat.
+    private func sendChanges(_ client: JellyfinClient) async {
+        let userId = await client.currentConfig.userId
+        let owner = self.owner
+        // Another account's change cannot be sent with this account's token.
+        let mine = index.changes.filter { $0.userId == userId }
+        guard !mine.isEmpty else { return }
+        let updates = OfflineSync.coalesce(mine)
+        var server: [String: JfItem] = [:]
+        let ids = updates.map(\.itemId)
+        for start in stride(from: 0, to: ids.count, by: 100) {
+            let r: JfItemsResponse? = try? await client.get("/Items", params: [
+                "ids": ids[start..<min(start + 100, ids.count)].joined(separator: ","), "userId": userId,
+            ])
+            guard let items = r?.items, self.owner == owner else { return }
+            for item in items { server[item.id] = item }
+        }
+        var settled = Set<String>()
+        send: for u in updates {
+            if let send = OfflineSync.toSend(u, server: server[u.itemId]) {
+                do {
+                    if let body = send.userData {
+                        try await client.postRaw("/UserItems/\(u.itemId)/UserData", body: body, params: ["userId": userId])
+                    }
+                    if let f = send.favorite {
+                        let path = "/UserFavoriteItems/\(u.itemId)"
+                        if f { try await client.postRaw(path, body: Optional<EmptyBody>.none, params: ["userId": userId]) }
+                        else { try await client.delete(path, params: ["userId": userId]) }
+                    }
+                } catch let error as JellyfinError where OfflineIndex.dropsPlay(afterStatus: error.status) {
+                    debugLog("offline change to \(u.itemId) refused (HTTP \(error.status)), dropped")
+                } catch {
+                    // The rest would fail the same way.
+                    debugLog("offline changes stopped: \(error)")
+                    break send
+                }
+            }
+            settled.insert(u.itemId)
+        }
+        guard self.owner == owner else { return }
+        index.changes.removeAll { settled.contains($0.itemId) && mine.contains($0) }
+        save()
+    }
+
+    /// Every downloaded item's user data from the server, so offline lists
+    /// start from its truth next time. A chunk that fails keeps what was
+    /// stored.
+    private func refreshUserData(_ client: JellyfinClient) async {
+        let userId = await client.currentConfig.userId
+        let owner = self.owner
+        let ids = index.userDataIds
+        for start in stride(from: 0, to: ids.count, by: 100) {
+            let r: JfItemsResponse? = try? await client.get("/Items", params: [
+                "ids": ids[start..<min(start + 100, ids.count)].joined(separator: ","), "userId": userId,
+            ])
+            guard self.owner == owner else { return }
+            if let items = r?.items { index.refreshUserData(items) }
+        }
+        save()
+    }
+
+    /// Sends queued plays oldest first with their own dates, so the server's
+    /// history reads as if they had happened online. Each POST adds one to
+    /// the play count, so an entry goes only after the server said yes, and
+    /// the first failure stops the run (the server is still away).
     public func replayPlays(client: JellyfinClient) async {
         guard !replaying, !index.plays.isEmpty else { return }
         replaying = true
         defer { replaying = false }
         let userId = await client.currentConfig.userId
         let stamp = ISO8601DateFormatter()
-        for play in index.plays where play.userId == userId {
+        for play in OfflineSync.oldestFirst(index.plays) where play.userId == userId {
             do {
                 try await client.postRaw("/UserPlayedItems/\(play.itemId)", body: Optional<EmptyBody>.none,
                                          params: ["userId": userId, "datePlayed": stamp.string(from: play.date)])
