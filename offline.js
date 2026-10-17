@@ -665,6 +665,11 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
       Offline.setLyrics(index, trackId, lyrics, new Date())
       scheduleSave()
     })
+    ipcMain.handle('offline-drop-lyrics', (_e, trackId) => {
+      if (!owner || !Offline.isSafeId(trackId)) return
+      Offline.dropLyrics(index, trackId)
+      scheduleSave()
+    })
     ipcMain.handle('offline-disk', () => {
       try {
         const s = fs.statfsSync(root || app.getPath('userData'))

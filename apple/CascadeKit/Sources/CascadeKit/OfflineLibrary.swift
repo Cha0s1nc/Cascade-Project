@@ -583,6 +583,13 @@ public final class OfflineLibrary {
         save()
     }
 
+    /// Forgets a track's saved lyrics: expired SpicyLyrics nothing replaced.
+    public func dropLyrics(_ trackId: String) {
+        guard owner != nil, index.tracks[trackId]?.lyrics != nil else { return }
+        index.dropLyrics(trackId)
+        save()
+    }
+
     /// Keeps what a lyrics search found for a downloaded track. Nothing, or
     /// an instrumental, is not kept: the next search online may do better.
     public func keepLyrics(_ result: LyricsResult?, for trackId: String) {

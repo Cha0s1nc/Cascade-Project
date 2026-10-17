@@ -601,6 +601,7 @@ final class AppState {
                 await offline.placeDownloads(client: client)
                 await offline.syncFollowed(client: client)
                 self.sweepWatchedEpisodes()
+                await self.refreshExpiredLyrics(client: client)
             }
         }
         // Castable from other Jellyfin clients for as long as this player lives.
@@ -697,7 +698,17 @@ final class AppState {
     /// Two at a time, to keep the lyrics sources and the plugin from seeing a
     /// burst; stops if the app goes offline partway. Songs that already have
     /// lyrics saved (in another download) are not asked again.
-    private func keepLyrics(for tracks: [JfItem], client: JellyfinClient) async {
+    /// SpicyLyrics saved with a download stop showing after 25 days; back
+    /// online they are asked for again (a new answer resets the days, or
+    /// another source's never expires) or dropped, never kept for good.
+    private func refreshExpiredLyrics(client: JellyfinClient) async {
+        guard let offline else { return }
+        let expired = offline.index.expiredLyricsTrackIds(now: Date()).compactMap { offline.index.tracks[$0]?.item }
+        if !expired.isEmpty { await keepLyrics(for: expired, client: client, dropMissing: true) }
+    }
+
+    /// `dropMissing`: a track nothing answers for loses what was stored.
+    private func keepLyrics(for tracks: [JfItem], client: JellyfinClient, dropMissing: Bool = false) async {
         guard let offline else { return }
         let plugin = cascadePluginApi.map { (api: $0, info: cascadePluginInfo) }
         let serverOnly = serverOnlyLyrics
@@ -718,7 +729,12 @@ final class AppState {
                                                          spotifyId: spotifyId, userAgent: userAgent))
                     }
                 }
-                for await (id, result) in group { offline.keepLyrics(result, for: id) }
+                for await (id, result) in group {
+                    // Gone offline meanwhile: no answer is not a missing one.
+                    guard !isOffline, self.client === client else { continue }
+                    if let result, !result.instrumental, !result.lines.isEmpty { offline.keepLyrics(result, for: id) }
+                    else if dropMissing { offline.dropLyrics(id) }
+                }
             }
         }
     }

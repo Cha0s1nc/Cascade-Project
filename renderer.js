@@ -915,6 +915,7 @@ async function connect(serverUrl, token, userId) {
     window.cascade.offline.setUser(userInfo).catch(() => {})
     viewsPromise.then(v => v && window.cascade.offline.setLibraries(v.Items || []))
       .then(() => placeOfflineDownloads()).catch(() => {})
+    refreshExpiredLyrics().catch(() => {})
     syncFollowedSeries().catch(() => {})
   }
   sweepWatchedEpisodes()
@@ -8034,15 +8035,20 @@ async function toggleOfflineDownload(kind, item) {
 /** Finds each downloaded song's lyrics the way playback would and saves them
  *  with the download, so they show offline. Two at a time, to keep the
  *  lyrics sources and the plugin from seeing a burst; stops if the app goes
- *  offline partway. */
-async function saveOfflineLyrics(tracks) {
+ *  offline partway. `dropMissing`: a song nothing answers for loses what was
+ *  stored (expired SpicyLyrics are never kept for good). */
+async function saveOfflineLyrics(tracks, { dropMissing = false } = {}) {
   const queue = tracks.filter(t => t?.Id)
   const worker = async () => {
     while (queue.length && !jfClient.offline) {
       const t = queue.shift()
       let out = null
       try { out = await fetchLyricsWaterfall(t) } catch {}
-      if (!out?.lines?.length || out.instrumental) continue
+      if (jfClient.offline) return
+      if (!out?.lines?.length || out.instrumental) {
+        if (dropMissing) await window.cascade.offline.dropLyrics(t.Id).catch(() => {})
+        continue
+      }
       await window.cascade.offline.setLyrics(t.Id, {
         source: CascadeCore.lyricsSourceKey(String(out.source || ''), !!out.credit),
         synced: out.lines.some(l => l.Start > 0),
@@ -8052,6 +8058,17 @@ async function saveOfflineLyrics(tracks) {
     }
   }
   await Promise.all([worker(), worker()])
+}
+
+/** SpicyLyrics saved with a download stop showing after SPICY_LYRICS_DAYS;
+ *  back online they are asked for again (a new answer resets the days, or
+ *  another source's never expires) or dropped. At every online connect(). */
+async function refreshExpiredLyrics() {
+  let catalog = null
+  try { catalog = await window.cascade.offline.catalog() } catch {}
+  const index = CascadeCore.parseIndex(catalog)
+  const expired = CascadeCore.expiredLyricsTrackIds(index, new Date()).map(id => index.tracks[id].item)
+  if (expired.length) await saveOfflineLyrics(expired, { dropMissing: true })
 }
 
 async function removeOfflineDownload(id) {

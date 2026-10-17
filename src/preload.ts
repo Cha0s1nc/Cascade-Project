@@ -50,6 +50,7 @@ const cascade: ElectronPlatform = {
     setUser:  (user) => ipcRenderer.invoke('offline-set-user', user),
     place:    (libraryId, items) => ipcRenderer.invoke('offline-place', libraryId, items),
     setLyrics: (trackId, lyrics) => ipcRenderer.invoke('offline-set-lyrics', trackId, lyrics),
+    dropLyrics: (trackId) => ipcRenderer.invoke('offline-drop-lyrics', trackId),
     disk:     () => ipcRenderer.invoke('offline-disk'),
     setMode:  (state) => ipcRenderer.invoke('offline-mode', state),
   },

@@ -250,6 +250,8 @@ export interface DesktopCapabilities {
     /** Lyrics found while online, saved with the track for Offline Mode.
      *  `source` is lyricsSourceKey's; SpicyLyrics keeps its credit. */
     setLyrics(trackId: string, lyrics: { source: string; synced: boolean; lines: LyricLine[]; credit?: SpicyCredit | null }): Promise<void>
+    /** Forgets a track's saved lyrics (expired SpicyLyrics nothing replaced). */
+    dropLyrics(trackId: string): Promise<void>
     /** Free and total bytes on the disk the downloads are on. */
     disk(): Promise<{ free: number; total: number } | null>
     /** Offline Mode's state, for main: the switch blocks the server's origin
