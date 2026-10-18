@@ -47,6 +47,7 @@ struct HomeView: View {
         // Keyed on the library selection, so changing it in Settings reloads.
         .task(id: state.config?.libraryIds) {
             guard let client = state.client else { return }
+            state.snapshotHistory()
             isLoading = true
             do {
                 async let added = client.recentlyAdded()

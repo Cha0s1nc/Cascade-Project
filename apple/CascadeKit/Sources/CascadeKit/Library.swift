@@ -376,6 +376,8 @@ public extension JellyfinClient {
     /// Note the route: userId is a QUERY parameter, and the older
     /// /Users/{userId}/PlayedItems/{id} route does not exist in 10.11.
     func setPlayed(_ played: Bool, itemId: String) async throws {
+        // Offline it is queued and sent when the server is back.
+        if try await queueOffline(.played, itemId: itemId, played: played) { return }
         let path = "/UserPlayedItems/\(itemId)"
         let params: [String: String?] = ["userId": currentConfig.userId]
         // Both throw on a bad status. A refused write that looked like a
@@ -388,6 +390,7 @@ public extension JellyfinClient {
     }
 
     func setFavorite(_ favorite: Bool, itemId: String) async throws {
+        if try await queueOffline(.favorite, itemId: itemId, favorite: favorite) { return }
         let path = "/UserFavoriteItems/\(itemId)"
         let params: [String: String?] = ["userId": currentConfig.userId]
         if favorite {

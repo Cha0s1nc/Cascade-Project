@@ -80,6 +80,45 @@ public struct OfflineIndex: Codable, Sendable, Equatable {
         public var date: Date
     }
 
+    /// A change to an item's user data made offline, with its time (plan,
+    /// section 5): where watching stopped, a played or unplayed mark (by
+    /// hand, or by watching to the end), a favorite. OfflineSync coalesces
+    /// them per item and decides which still win against the server. Times
+    /// are ISO 8601 text, as the desktop keeps them and the shared fixture
+    /// has them.
+    public struct UserDataChange: Codable, Sendable, Equatable {
+        public enum Kind: String, Codable, Sendable { case position, played, favorite }
+        public var itemId: String
+        public var userId: String
+        public var at: String
+        public var kind: Kind
+        /// position: where it stopped, in ticks.
+        public var ticks: Int?
+        /// played: true for played (or watched to the end), false for unplayed.
+        public var played: Bool?
+        /// favorite: the new value, and the one before it, so a favorite
+        /// toggled twice comes to no change.
+        public var favorite: Bool?
+        public var was: Bool?
+
+        public init(itemId: String, userId: String, at: String, kind: Kind, ticks: Int? = nil,
+                    played: Bool? = nil, favorite: Bool? = nil, was: Bool? = nil) {
+            (self.itemId, self.userId, self.at, self.kind) = (itemId, userId, at, kind)
+            (self.ticks, self.played, self.favorite, self.was) = (ticks, played, favorite, was)
+        }
+
+        /// Whether it could have been written by this app: safe ids, a time,
+        /// and the field its kind needs.
+        var isValid: Bool {
+            guard OfflineIndex.isSafeId(itemId), OfflineIndex.isSafeUserId(userId), OfflineQuery.time(at) != nil else { return false }
+            switch kind {
+            case .position: return (ticks ?? -1) >= 0
+            case .played: return played != nil
+            case .favorite: return favorite != nil
+            }
+        }
+    }
+
     /// A library as /UserViews names it.
     public struct LibraryView: Codable, Sendable, Equatable {
         public var id: String
@@ -242,11 +281,16 @@ public struct OfflineIndex: Codable, Sendable, Equatable {
     public var libraries: [LibraryView] = []
     public var user: User?
     public var history: History?
+    /// User data changed offline, oldest first.
+    public var changes: [UserDataChange] = []
+    /// The server's history had moved on when the app came back, so the
+    /// plays wait for the person to add or discard them.
+    public var playsHeld = false
 
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case version, tracks, collections, plays, albumGains, containers, libraries, user, history
+        case version, tracks, collections, plays, albumGains, containers, libraries, user, history, changes, playsHeld
     }
 
     public init(from decoder: Decoder) throws {
@@ -260,6 +304,8 @@ public struct OfflineIndex: Codable, Sendable, Equatable {
         libraries = (try? c.decodeIfPresent([LibraryView].self, forKey: .libraries)) ?? []
         user = try? c.decodeIfPresent(User.self, forKey: .user)
         history = try? c.decodeIfPresent(History.self, forKey: .history)
+        changes = (try? c.decodeIfPresent([UserDataChange].self, forKey: .changes)) ?? []
+        playsHeld = (try? c.decodeIfPresent(Bool.self, forKey: .playsHeld)) ?? false
     }
 
     /// How long SpicyLyrics may be kept: the plugin's own cache rule.
@@ -527,8 +573,108 @@ public struct OfflineIndex: Codable, Sendable, Equatable {
         }
     }
 
+    /// Keeps the server's history, and writes its dates and counts into the
+    /// downloads it lists, so History and Recently Played offline read as
+    /// the server did when the app was last online.
     public mutating func setHistory(_ items: [JfItem], takenAt: Date) {
-        history = History(takenAt: takenAt, entries: Self.historyEntries(of: items))
+        let entries = Self.historyEntries(of: items)
+        history = History(takenAt: takenAt, entries: entries)
+        for e in entries {
+            updateCopies(e.id) { ud in
+                ud.played = true
+                ud.playCount = e.playCount
+                if let d = e.lastPlayedDate { ud.lastPlayedDate = d }
+            }
+        }
+        overlayPending(Set(entries.map(\.id)))
+    }
+
+    /// Most plays and changes kept while offline.
+    public static let maxQueued = 5000
+
+    /// Queues a play for replay, and counts it in the catalog so the offline
+    /// History shows it on top. Newest are kept past the cap.
+    public mutating func addPlay(_ play: Play) {
+        plays.append(play)
+        if plays.count > Self.maxQueued { plays.removeFirst(plays.count - Self.maxQueued) }
+        apply(play)
+    }
+
+    /// Queues a user data change and shows it in the catalog at once.
+    public mutating func addChange(_ change: UserDataChange) {
+        guard change.isValid else { return }
+        changes.append(change)
+        if changes.count > Self.maxQueued { changes.removeFirst(changes.count - Self.maxQueued) }
+        apply(change)
+    }
+
+    /// Replaces the stored user data with the server's (GET /Items?Ids=...),
+    /// then lays what is still queued back on top.
+    public mutating func refreshUserData(_ items: [JfItem]) {
+        var ids = Set<String>()
+        for fresh in items where Self.isSafeId(fresh.id) {
+            guard let ud = fresh.userData else { continue }
+            updateCopies(fresh.id) { $0 = ud }
+            ids.insert(fresh.id)
+        }
+        overlayPending(ids)
+    }
+
+    /// Every id the catalog stores user data for: files, collections, shows.
+    public var userDataIds: [String] {
+        var seen = Set<String>()
+        return (tracks.keys.sorted() + collections.map(\.item.id) + containers.keys.sorted()).filter { seen.insert($0).inserted }
+    }
+
+    /// Edits every stored copy of an item: its file's, its collection's, its show's.
+    private mutating func updateCopies(_ id: String, _ edit: (inout JfUserData) -> Void) {
+        func change(_ item: inout JfItem) {
+            var ud = item.userData ?? JfUserData()
+            edit(&ud)
+            item.userData = ud
+        }
+        if tracks[id] != nil { change(&tracks[id]!.item) }
+        for i in collections.indices where collections[i].item.id == id { change(&collections[i].item) }
+        if containers[id] != nil { change(&containers[id]!) }
+    }
+
+    static func isoString(_ date: Date) -> String {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f.string(from: date)
+    }
+
+    private mutating func apply(_ play: Play) {
+        let date = Self.isoString(play.date)
+        updateCopies(play.itemId) { ud in
+            ud.played = true
+            ud.playCount = (ud.playCount ?? 0) + 1
+            if (OfflineQuery.time(ud.lastPlayedDate) ?? -.infinity) < play.date.timeIntervalSince1970 * 1000 { ud.lastPlayedDate = date }
+        }
+    }
+
+    private mutating func apply(_ c: UserDataChange) {
+        updateCopies(c.itemId) { ud in
+            switch c.kind {
+            case .favorite: ud.isFavorite = c.favorite == true
+            case .position: ud.playbackPositionTicks = c.ticks ?? 0; ud.lastPlayedDate = c.at
+            case .played where c.played == true: ud.played = true; ud.playbackPositionTicks = 0; ud.lastPlayedDate = c.at
+            case .played: ud.played = false; ud.playbackPositionTicks = 0
+            }
+        }
+    }
+
+    /// Queued plays and changes for these items, applied again over fresher data.
+    private mutating func overlayPending(_ ids: Set<String>) {
+        for p in plays where ids.contains(p.itemId) { apply(p) }
+        for c in changes where ids.contains(c.itemId) { apply(c) }
+    }
+
+    /// Whether a download of `adding` bytes would take the downloads past
+    /// the storage limit (nil: no limit).
+    public static func overStorageLimit(used: Int64, adding: Int64, limit: Int64?) -> Bool {
+        guard let limit, limit > 0 else { return false }
+        return used + adding > limit
     }
 
     // MARK: - Storage
@@ -586,6 +732,8 @@ public struct OfflineIndex: Codable, Sendable, Equatable {
         if let h = index.history {
             index.history?.entries = Array(h.entries.filter { Self.isSafeId($0.id) }.prefix(Self.maxHistoryEntries))
         }
+        index.changes = Array(index.changes.filter(\.isValid).suffix(Self.maxQueued))
+        index.playsHeld = index.playsHeld && !index.plays.isEmpty
         index.pruneContainers()
         return index
     }

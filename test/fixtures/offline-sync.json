@@ -1,0 +1,990 @@
+{
+ "about": "Shared by test/offline-sync.test.ts and CascadeKit's OfflineSyncTests: the same queued changes, server answers and expected results.",
+ "coalesce": [
+  {
+   "name": "only the last position matters",
+   "changes": [
+    {
+     "itemId": "a1",
+     "userId": "u1",
+     "at": "2026-10-16T10:00:00.000Z",
+     "kind": "position",
+     "ticks": 100
+    },
+    {
+     "itemId": "a1",
+     "userId": "u1",
+     "at": "2026-10-16T11:00:00.000Z",
+     "kind": "position",
+     "ticks": 200
+    }
+   ],
+   "expected": [
+    {
+     "itemId": "a1",
+     "userId": "u1",
+     "at": "2026-10-16T11:00:00.000Z",
+     "userData": {
+      "PlaybackPositionTicks": 200,
+      "LastPlayedDate": "2026-10-16T11:00:00.000Z"
+     }
+    }
+   ]
+  },
+  {
+   "name": "a favorite toggled twice is no change",
+   "changes": [
+    {
+     "itemId": "a1",
+     "userId": "u1",
+     "at": "2026-10-16T10:00:00.000Z",
+     "kind": "favorite",
+     "favorite": true,
+     "was": false
+    },
+    {
+     "itemId": "a1",
+     "userId": "u1",
+     "at": "2026-10-16T11:00:00.000Z",
+     "kind": "favorite",
+     "favorite": false,
+     "was": true
+    }
+   ],
+   "expected": []
+  },
+  {
+   "name": "a favorite once",
+   "changes": [
+    {
+     "itemId": "a1",
+     "userId": "u1",
+     "at": "2026-10-16T10:00:00.000Z",
+     "kind": "favorite",
+     "favorite": true,
+     "was": false
+    }
+   ],
+   "expected": [
+    {
+     "itemId": "a1",
+     "userId": "u1",
+     "at": "2026-10-16T10:00:00.000Z",
+     "favorite": true
+    }
+   ]
+  },
+  {
+   "name": "watched halfway, then marked played",
+   "changes": [
+    {
+     "itemId": "a1",
+     "userId": "u1",
+     "at": "2026-10-16T10:00:00.000Z",
+     "kind": "position",
+     "ticks": 300
+    },
+    {
+     "itemId": "a1",
+     "userId": "u1",
+     "at": "2026-10-16T11:00:00.000Z",
+     "kind": "played",
+     "played": true
+    }
+   ],
+   "expected": [
+    {
+     "itemId": "a1",
+     "userId": "u1",
+     "at": "2026-10-16T11:00:00.000Z",
+     "userData": {
+      "PlaybackPositionTicks": 0,
+      "Played": true,
+      "LastPlayedDate": "2026-10-16T11:00:00.000Z"
+     }
+    }
+   ]
+  },
+  {
+   "name": "played, then started again",
+   "changes": [
+    {
+     "itemId": "a1",
+     "userId": "u1",
+     "at": "2026-10-16T10:00:00.000Z",
+     "kind": "played",
+     "played": true
+    },
+    {
+     "itemId": "a1",
+     "userId": "u1",
+     "at": "2026-10-16T11:00:00.000Z",
+     "kind": "position",
+     "ticks": 400
+    }
+   ],
+   "expected": [
+    {
+     "itemId": "a1",
+     "userId": "u1",
+     "at": "2026-10-16T11:00:00.000Z",
+     "userData": {
+      "PlaybackPositionTicks": 400,
+      "Played": true,
+      "LastPlayedDate": "2026-10-16T11:00:00.000Z"
+     }
+    }
+   ]
+  },
+  {
+   "name": "marked unplayed after watching",
+   "changes": [
+    {
+     "itemId": "a1",
+     "userId": "u1",
+     "at": "2026-10-16T10:00:00.000Z",
+     "kind": "position",
+     "ticks": 500
+    },
+    {
+     "itemId": "a1",
+     "userId": "u1",
+     "at": "2026-10-16T11:00:00.000Z",
+     "kind": "played",
+     "played": false
+    }
+   ],
+   "expected": [
+    {
+     "itemId": "a1",
+     "userId": "u1",
+     "at": "2026-10-16T11:00:00.000Z",
+     "userData": {
+      "PlaybackPositionTicks": 0,
+      "Played": false,
+      "LastPlayedDate": "2026-10-16T10:00:00.000Z"
+     }
+    }
+   ]
+  },
+  {
+   "name": "changes are applied in time order, whatever the queue order",
+   "changes": [
+    {
+     "itemId": "a1",
+     "userId": "u1",
+     "at": "2026-10-16T11:00:00.000Z",
+     "kind": "position",
+     "ticks": 200
+    },
+    {
+     "itemId": "a1",
+     "userId": "u1",
+     "at": "2026-10-16T10:00:00.000Z",
+     "kind": "position",
+     "ticks": 100
+    }
+   ],
+   "expected": [
+    {
+     "itemId": "a1",
+     "userId": "u1",
+     "at": "2026-10-16T11:00:00.000Z",
+     "userData": {
+      "PlaybackPositionTicks": 200,
+      "LastPlayedDate": "2026-10-16T11:00:00.000Z"
+     }
+    }
+   ]
+  },
+  {
+   "name": "items keep the order they were first changed in, each on its own",
+   "changes": [
+    {
+     "itemId": "b1",
+     "userId": "u1",
+     "at": "2026-10-16T09:00:00.000Z",
+     "kind": "favorite",
+     "favorite": false,
+     "was": true
+    },
+    {
+     "itemId": "a1",
+     "userId": "u1",
+     "at": "2026-10-16T10:00:00.000Z",
+     "kind": "position",
+     "ticks": 1
+    },
+    {
+     "itemId": "b1",
+     "userId": "u1",
+     "at": "2026-10-16T12:00:00.000Z",
+     "kind": "position",
+     "ticks": 2
+    }
+   ],
+   "expected": [
+    {
+     "itemId": "b1",
+     "userId": "u1",
+     "at": "2026-10-16T12:00:00.000Z",
+     "favorite": false,
+     "userData": {
+      "PlaybackPositionTicks": 2,
+      "LastPlayedDate": "2026-10-16T12:00:00.000Z"
+     }
+    },
+    {
+     "itemId": "a1",
+     "userId": "u1",
+     "at": "2026-10-16T10:00:00.000Z",
+     "userData": {
+      "PlaybackPositionTicks": 1,
+      "LastPlayedDate": "2026-10-16T10:00:00.000Z"
+     }
+    }
+   ]
+  }
+ ],
+ "decide": [
+  {
+   "name": "the server's value is older: the offline position wins",
+   "update": {
+    "itemId": "a1",
+    "userId": "u1",
+    "at": "2026-10-16T11:00:00.000Z",
+    "userData": {
+     "PlaybackPositionTicks": 600,
+     "LastPlayedDate": "2026-10-16T11:00:00.000Z"
+    }
+   },
+   "server": {
+    "Id": "a1",
+    "UserData": {
+     "LastPlayedDate": "2026-10-16T09:00:00.0000000Z",
+     "PlaybackPositionTicks": 50,
+     "Played": false
+    }
+   },
+   "expected": {
+    "userData": {
+     "PlaybackPositionTicks": 600,
+     "LastPlayedDate": "2026-10-16T11:00:00.000Z"
+    }
+   }
+  },
+  {
+   "name": "a newer position set elsewhere stays",
+   "update": {
+    "itemId": "a1",
+    "userId": "u1",
+    "at": "2026-10-16T11:00:00.000Z",
+    "userData": {
+     "PlaybackPositionTicks": 600,
+     "LastPlayedDate": "2026-10-16T11:00:00.000Z"
+    }
+   },
+   "server": {
+    "Id": "a1",
+    "UserData": {
+     "LastPlayedDate": "2026-10-16T12:00:00.0000000Z",
+     "PlaybackPositionTicks": 900
+    }
+   },
+   "expected": null
+  },
+  {
+   "name": "the same time is not older",
+   "update": {
+    "itemId": "a1",
+    "userId": "u1",
+    "at": "2026-10-16T11:00:00.000Z",
+    "userData": {
+     "PlaybackPositionTicks": 600,
+     "LastPlayedDate": "2026-10-16T11:00:00.000Z"
+    }
+   },
+   "server": {
+    "Id": "a1",
+    "UserData": {
+     "LastPlayedDate": "2026-10-16T11:00:00.0000000Z"
+    }
+   },
+   "expected": null
+  },
+  {
+   "name": "never played on the server",
+   "update": {
+    "itemId": "a1",
+    "userId": "u1",
+    "at": "2026-10-16T11:00:00.000Z",
+    "userData": {
+     "PlaybackPositionTicks": 600,
+     "LastPlayedDate": "2026-10-16T11:00:00.000Z"
+    }
+   },
+   "server": {
+    "Id": "a1",
+    "UserData": {
+     "Played": false
+    }
+   },
+   "expected": {
+    "userData": {
+     "PlaybackPositionTicks": 600,
+     "LastPlayedDate": "2026-10-16T11:00:00.000Z"
+    }
+   }
+  },
+  {
+   "name": "the server no longer has the item",
+   "update": {
+    "itemId": "a1",
+    "userId": "u1",
+    "at": "2026-10-16T11:00:00.000Z",
+    "userData": {
+     "PlaybackPositionTicks": 600,
+     "LastPlayedDate": "2026-10-16T11:00:00.000Z"
+    }
+   },
+   "server": null,
+   "expected": null
+  },
+  {
+   "name": "what the server already holds is left out",
+   "update": {
+    "itemId": "a1",
+    "userId": "u1",
+    "at": "2026-10-16T11:00:00.000Z",
+    "favorite": true,
+    "userData": {
+     "PlaybackPositionTicks": 0,
+     "Played": true,
+     "LastPlayedDate": "2026-10-16T11:00:00.000Z"
+    }
+   },
+   "server": {
+    "Id": "a1",
+    "UserData": {
+     "LastPlayedDate": "2026-10-16T08:00:00.0000000Z",
+     "Played": true,
+     "PlaybackPositionTicks": 0,
+     "IsFavorite": false
+    }
+   },
+   "expected": {
+    "favorite": true
+   }
+  },
+  {
+   "name": "nothing left to send",
+   "update": {
+    "itemId": "a1",
+    "userId": "u1",
+    "at": "2026-10-16T11:00:00.000Z",
+    "favorite": true
+   },
+   "server": {
+    "Id": "a1",
+    "UserData": {
+     "IsFavorite": true
+    }
+   },
+   "expected": null
+  }
+ ],
+ "catchUp": [
+  {
+   "name": "nothing was played elsewhere: replay",
+   "history": {
+    "takenAt": "2026-10-15T21:00:00.000Z",
+    "entries": [
+     {
+      "Id": "s1",
+      "LastPlayedDate": "2026-10-15T20:00:00.0000000Z",
+      "PlayCount": 3
+     },
+     {
+      "Id": "s2",
+      "LastPlayedDate": "2026-10-15T20:00:00.0000000Z",
+      "PlayCount": 1
+     },
+     {
+      "Id": "s3",
+      "LastPlayedDate": "2026-10-15T19:00:00.0000000Z",
+      "PlayCount": 2
+     }
+    ]
+   },
+   "playsHeld": false,
+   "plays": [
+    {
+     "itemId": "p1",
+     "userId": "u1",
+     "date": "2026-10-16T10:00:00.000Z"
+    },
+    {
+     "itemId": "p2",
+     "userId": "u1",
+     "date": "2026-10-16T11:00:00.000Z"
+    }
+   ],
+   "server": [
+    {
+     "Id": "s1",
+     "UserData": {
+      "LastPlayedDate": "2026-10-15T20:00:00.0000000Z",
+      "PlayCount": 3,
+      "Played": true
+     }
+    },
+    {
+     "Id": "s2",
+     "UserData": {
+      "LastPlayedDate": "2026-10-15T20:00:00.0000000Z",
+      "PlayCount": 1,
+      "Played": true
+     }
+    },
+    {
+     "Id": "s3",
+     "UserData": {
+      "LastPlayedDate": "2026-10-15T19:00:00.0000000Z",
+      "PlayCount": 2,
+      "Played": true
+     }
+    }
+   ],
+   "expected": "replay"
+  },
+  {
+   "name": "two plays with one date come back in the other order: still a match",
+   "history": {
+    "takenAt": "2026-10-15T21:00:00.000Z",
+    "entries": [
+     {
+      "Id": "s1",
+      "LastPlayedDate": "2026-10-15T20:00:00.0000000Z",
+      "PlayCount": 3
+     },
+     {
+      "Id": "s2",
+      "LastPlayedDate": "2026-10-15T20:00:00.0000000Z",
+      "PlayCount": 1
+     },
+     {
+      "Id": "s3",
+      "LastPlayedDate": "2026-10-15T19:00:00.0000000Z",
+      "PlayCount": 2
+     }
+    ]
+   },
+   "playsHeld": false,
+   "plays": [
+    {
+     "itemId": "p1",
+     "userId": "u1",
+     "date": "2026-10-16T10:00:00.000Z"
+    },
+    {
+     "itemId": "p2",
+     "userId": "u1",
+     "date": "2026-10-16T11:00:00.000Z"
+    }
+   ],
+   "server": [
+    {
+     "Id": "s2",
+     "UserData": {
+      "LastPlayedDate": "2026-10-15T20:00:00.0000000Z",
+      "PlayCount": 1,
+      "Played": true
+     }
+    },
+    {
+     "Id": "s1",
+     "UserData": {
+      "LastPlayedDate": "2026-10-15T20:00:00.0000000Z",
+      "PlayCount": 3,
+      "Played": true
+     }
+    },
+    {
+     "Id": "s3",
+     "UserData": {
+      "LastPlayedDate": "2026-10-15T19:00:00.0000000Z",
+      "PlayCount": 2,
+      "Played": true
+     }
+    }
+   ],
+   "expected": "replay"
+  },
+  {
+   "name": "someone played something elsewhere: hold",
+   "history": {
+    "takenAt": "2026-10-15T21:00:00.000Z",
+    "entries": [
+     {
+      "Id": "s1",
+      "LastPlayedDate": "2026-10-15T20:00:00.0000000Z",
+      "PlayCount": 3
+     },
+     {
+      "Id": "s2",
+      "LastPlayedDate": "2026-10-15T20:00:00.0000000Z",
+      "PlayCount": 1
+     },
+     {
+      "Id": "s3",
+      "LastPlayedDate": "2026-10-15T19:00:00.0000000Z",
+      "PlayCount": 2
+     }
+    ]
+   },
+   "playsHeld": false,
+   "plays": [
+    {
+     "itemId": "p1",
+     "userId": "u1",
+     "date": "2026-10-16T10:00:00.000Z"
+    },
+    {
+     "itemId": "p2",
+     "userId": "u1",
+     "date": "2026-10-16T11:00:00.000Z"
+    }
+   ],
+   "server": [
+    {
+     "Id": "x9",
+     "UserData": {
+      "LastPlayedDate": "2026-10-16T09:30:00.0000000Z",
+      "PlayCount": 1,
+      "Played": true
+     }
+    },
+    {
+     "Id": "s1",
+     "UserData": {
+      "LastPlayedDate": "2026-10-15T20:00:00.0000000Z",
+      "PlayCount": 3,
+      "Played": true
+     }
+    },
+    {
+     "Id": "s2",
+     "UserData": {
+      "LastPlayedDate": "2026-10-15T20:00:00.0000000Z",
+      "PlayCount": 1,
+      "Played": true
+     }
+    },
+    {
+     "Id": "s3",
+     "UserData": {
+      "LastPlayedDate": "2026-10-15T19:00:00.0000000Z",
+      "PlayCount": 2,
+      "Played": true
+     }
+    }
+   ],
+   "expected": "hold"
+  },
+  {
+   "name": "someone played a song again elsewhere: hold",
+   "history": {
+    "takenAt": "2026-10-15T21:00:00.000Z",
+    "entries": [
+     {
+      "Id": "s1",
+      "LastPlayedDate": "2026-10-15T20:00:00.0000000Z",
+      "PlayCount": 3
+     },
+     {
+      "Id": "s2",
+      "LastPlayedDate": "2026-10-15T20:00:00.0000000Z",
+      "PlayCount": 1
+     },
+     {
+      "Id": "s3",
+      "LastPlayedDate": "2026-10-15T19:00:00.0000000Z",
+      "PlayCount": 2
+     }
+    ]
+   },
+   "playsHeld": false,
+   "plays": [
+    {
+     "itemId": "p1",
+     "userId": "u1",
+     "date": "2026-10-16T10:00:00.000Z"
+    },
+    {
+     "itemId": "p2",
+     "userId": "u1",
+     "date": "2026-10-16T11:00:00.000Z"
+    }
+   ],
+   "server": [
+    {
+     "Id": "s3",
+     "UserData": {
+      "LastPlayedDate": "2026-10-16T09:30:00.0000000Z",
+      "PlayCount": 3,
+      "Played": true
+     }
+    },
+    {
+     "Id": "s1",
+     "UserData": {
+      "LastPlayedDate": "2026-10-15T20:00:00.0000000Z",
+      "PlayCount": 3,
+      "Played": true
+     }
+    },
+    {
+     "Id": "s2",
+     "UserData": {
+      "LastPlayedDate": "2026-10-15T20:00:00.0000000Z",
+      "PlayCount": 1,
+      "Played": true
+     }
+    }
+   ],
+   "expected": "hold"
+  },
+  {
+   "name": "no snapshot was ever taken: hold",
+   "history": null,
+   "playsHeld": false,
+   "plays": [
+    {
+     "itemId": "p1",
+     "userId": "u1",
+     "date": "2026-10-16T10:00:00.000Z"
+    },
+    {
+     "itemId": "p2",
+     "userId": "u1",
+     "date": "2026-10-16T11:00:00.000Z"
+    }
+   ],
+   "server": [
+    {
+     "Id": "s1",
+     "UserData": {
+      "LastPlayedDate": "2026-10-15T20:00:00.0000000Z",
+      "PlayCount": 3,
+      "Played": true
+     }
+    },
+    {
+     "Id": "s2",
+     "UserData": {
+      "LastPlayedDate": "2026-10-15T20:00:00.0000000Z",
+      "PlayCount": 1,
+      "Played": true
+     }
+    },
+    {
+     "Id": "s3",
+     "UserData": {
+      "LastPlayedDate": "2026-10-15T19:00:00.0000000Z",
+      "PlayCount": 2,
+      "Played": true
+     }
+    }
+   ],
+   "expected": "hold"
+  },
+  {
+   "name": "no plays waiting: nothing to do",
+   "history": {
+    "takenAt": "2026-10-15T21:00:00.000Z",
+    "entries": [
+     {
+      "Id": "s1",
+      "LastPlayedDate": "2026-10-15T20:00:00.0000000Z",
+      "PlayCount": 3
+     },
+     {
+      "Id": "s2",
+      "LastPlayedDate": "2026-10-15T20:00:00.0000000Z",
+      "PlayCount": 1
+     },
+     {
+      "Id": "s3",
+      "LastPlayedDate": "2026-10-15T19:00:00.0000000Z",
+      "PlayCount": 2
+     }
+    ]
+   },
+   "playsHeld": false,
+   "plays": [],
+   "server": [],
+   "expected": "none"
+  },
+  {
+   "name": "plays already held stay held",
+   "history": {
+    "takenAt": "2026-10-15T21:00:00.000Z",
+    "entries": [
+     {
+      "Id": "s1",
+      "LastPlayedDate": "2026-10-15T20:00:00.0000000Z",
+      "PlayCount": 3
+     },
+     {
+      "Id": "s2",
+      "LastPlayedDate": "2026-10-15T20:00:00.0000000Z",
+      "PlayCount": 1
+     },
+     {
+      "Id": "s3",
+      "LastPlayedDate": "2026-10-15T19:00:00.0000000Z",
+      "PlayCount": 2
+     }
+    ]
+   },
+   "playsHeld": true,
+   "plays": [
+    {
+     "itemId": "p1",
+     "userId": "u1",
+     "date": "2026-10-16T10:00:00.000Z"
+    },
+    {
+     "itemId": "p2",
+     "userId": "u1",
+     "date": "2026-10-16T11:00:00.000Z"
+    }
+   ],
+   "server": [
+    {
+     "Id": "s1",
+     "UserData": {
+      "LastPlayedDate": "2026-10-15T20:00:00.0000000Z",
+      "PlayCount": 3,
+      "Played": true
+     }
+    },
+    {
+     "Id": "s2",
+     "UserData": {
+      "LastPlayedDate": "2026-10-15T20:00:00.0000000Z",
+      "PlayCount": 1,
+      "Played": true
+     }
+    },
+    {
+     "Id": "s3",
+     "UserData": {
+      "LastPlayedDate": "2026-10-15T19:00:00.0000000Z",
+      "PlayCount": 2,
+      "Played": true
+     }
+    }
+   ],
+   "expected": "hold"
+  },
+  {
+   "name": "recorded from jellyfin12: the same history, its 6 and 7 digit and trimmed fractions as sent",
+   "history": {
+    "takenAt": "2026-10-17T23:46:40.000Z",
+    "entries": [
+     {
+      "Id": "d97645eb76ca778dc4d6888aebdef3be",
+      "LastPlayedDate": "2026-10-17T23:46:26.0000000Z",
+      "PlayCount": 1
+     },
+     {
+      "Id": "a7fa5b0523e080bc7a3d49a4d4917d51",
+      "LastPlayedDate": "2026-10-17T23:21:27.47Z",
+      "PlayCount": 1
+     },
+     {
+      "Id": "4bf67f0947becebf514c6371f3c046aa",
+      "LastPlayedDate": "2026-10-01T06:29:20.111726Z",
+      "PlayCount": 1
+     },
+     {
+      "Id": "02f2381e9a3b3ffc179102ab36aaf4a0",
+      "LastPlayedDate": "2026-09-26T20:50:02.6679282Z",
+      "PlayCount": 1
+     }
+    ]
+   },
+   "playsHeld": false,
+   "plays": [
+    {
+     "itemId": "db4ab34d16a38f1590d5b659e5b3b44f",
+     "userId": "f3704af6aa24418ebfc420b0dfc978f7",
+     "date": "2026-10-17T23:46:45.000Z"
+    }
+   ],
+   "server": [
+    {
+     "Id": "d97645eb76ca778dc4d6888aebdef3be",
+     "Name": "",
+     "Type": "Audio",
+     "UserData": {
+      "LastPlayedDate": "2026-10-17T23:46:26.0000000Z",
+      "PlayCount": 1,
+      "Played": true,
+      "PlaybackPositionTicks": 0,
+      "IsFavorite": false
+     }
+    },
+    {
+     "Id": "a7fa5b0523e080bc7a3d49a4d4917d51",
+     "Name": "",
+     "Type": "Audio",
+     "UserData": {
+      "LastPlayedDate": "2026-10-17T23:21:27.47Z",
+      "PlayCount": 1,
+      "Played": true,
+      "PlaybackPositionTicks": 0,
+      "IsFavorite": false
+     }
+    },
+    {
+     "Id": "4bf67f0947becebf514c6371f3c046aa",
+     "Name": "",
+     "Type": "Audio",
+     "UserData": {
+      "LastPlayedDate": "2026-10-01T06:29:20.111726Z",
+      "PlayCount": 1,
+      "Played": true,
+      "PlaybackPositionTicks": 0,
+      "IsFavorite": false
+     }
+    },
+    {
+     "Id": "02f2381e9a3b3ffc179102ab36aaf4a0",
+     "Name": "",
+     "Type": "Audio",
+     "UserData": {
+      "LastPlayedDate": "2026-09-26T20:50:02.6679282Z",
+      "PlayCount": 1,
+      "Played": true,
+      "PlaybackPositionTicks": 0,
+      "IsFavorite": false
+     }
+    }
+   ],
+   "expected": "replay"
+  },
+  {
+   "name": "recorded from jellyfin12: a song played again on another device meanwhile",
+   "history": {
+    "takenAt": "2026-10-17T23:46:40.000Z",
+    "entries": [
+     {
+      "Id": "d97645eb76ca778dc4d6888aebdef3be",
+      "LastPlayedDate": "2026-10-17T23:46:26.0000000Z",
+      "PlayCount": 1
+     },
+     {
+      "Id": "a7fa5b0523e080bc7a3d49a4d4917d51",
+      "LastPlayedDate": "2026-10-17T23:21:27.47Z",
+      "PlayCount": 1
+     },
+     {
+      "Id": "4bf67f0947becebf514c6371f3c046aa",
+      "LastPlayedDate": "2026-10-01T06:29:20.111726Z",
+      "PlayCount": 1
+     },
+     {
+      "Id": "02f2381e9a3b3ffc179102ab36aaf4a0",
+      "LastPlayedDate": "2026-09-26T20:50:02.6679282Z",
+      "PlayCount": 1
+     }
+    ]
+   },
+   "playsHeld": false,
+   "plays": [
+    {
+     "itemId": "db4ab34d16a38f1590d5b659e5b3b44f",
+     "userId": "f3704af6aa24418ebfc420b0dfc978f7",
+     "date": "2026-10-17T23:46:45.000Z"
+    }
+   ],
+   "server": [
+    {
+     "Id": "4bf67f0947becebf514c6371f3c046aa",
+     "Name": "",
+     "Type": "Audio",
+     "UserData": {
+      "LastPlayedDate": "2026-10-17T23:46:52.597Z",
+      "PlayCount": 2,
+      "Played": true,
+      "PlaybackPositionTicks": 0,
+      "IsFavorite": false
+     }
+    },
+    {
+     "Id": "d97645eb76ca778dc4d6888aebdef3be",
+     "Name": "",
+     "Type": "Audio",
+     "UserData": {
+      "LastPlayedDate": "2026-10-17T23:46:26.0000000Z",
+      "PlayCount": 1,
+      "Played": true,
+      "PlaybackPositionTicks": 0,
+      "IsFavorite": false
+     }
+    },
+    {
+     "Id": "a7fa5b0523e080bc7a3d49a4d4917d51",
+     "Name": "",
+     "Type": "Audio",
+     "UserData": {
+      "LastPlayedDate": "2026-10-17T23:21:27.47Z",
+      "PlayCount": 1,
+      "Played": true,
+      "PlaybackPositionTicks": 0,
+      "IsFavorite": false
+     }
+    },
+    {
+     "Id": "02f2381e9a3b3ffc179102ab36aaf4a0",
+     "Name": "",
+     "Type": "Audio",
+     "UserData": {
+      "LastPlayedDate": "2026-09-26T20:50:02.6679282Z",
+      "PlayCount": 1,
+      "Played": true,
+      "PlaybackPositionTicks": 0,
+      "IsFavorite": false
+     }
+    }
+   ],
+   "expected": "hold"
+  }
+ ],
+ "replayOrder": {
+  "plays": [
+   {
+    "itemId": "p2",
+    "userId": "u1",
+    "date": "2026-10-16T11:00:00.000Z"
+   },
+   {
+    "itemId": "p1",
+    "userId": "u1",
+    "date": "2026-10-16T10:00:00.000Z"
+   },
+   {
+    "itemId": "p3",
+    "userId": "u1",
+    "date": "2026-10-16T11:00:00.000Z"
+   }
+  ],
+  "expected": [
+   "p1",
+   "p2",
+   "p3"
+  ]
+ }
+}

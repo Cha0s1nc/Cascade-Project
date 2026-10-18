@@ -206,6 +206,28 @@ Done on `offline-mode`, with these notes for phase 2:
 - Storage limit and remove-watched.
 - Done when: an episode watched halfway offline shows that position on the server after reconnecting, and does not overwrite a newer position set elsewhere; songs played offline appear in the server's history at their real times when nothing was played elsewhere, and are held for the person's choice when something was.
 
+**Phase 4 status (2026-10-17).** Desktop and Apple: done (branch `offline-mode-phase4`). The pure rules are `src/core/offline-sync.ts` and `CascadeKit/OfflineSync.swift`, both passing `test/fixtures/offline-sync.json`. Remove-watched landed in phase 3. Also in this phase: expired Spicy Lyrics are refetched through the lyrics waterfall when the app is back online, or dropped from the catalog when nothing answers, so they are never kept past their 25 days. Decisions and findings:
+
+- Changes queue only offline (or when a report fails), coalesce per item, and are sent before the plays are replayed. That order matters: a replayed play moves the server's LastPlayedDate, which would otherwise beat a favorite made earlier offline.
+- Favorites follow the LastPlayedDate rule as written, but Jellyfin keeps no date for a favorite, so LastPlayedDate is only a stand-in. A favorite made offline loses to anything played on that item elsewhere afterward. Worth revisiting if that bites.
+- The snapshot is never retaken while plays wait for the compare. A successful start report no longer replays plays, because that report itself changes the history. A play queued during a short blip online now waits for the next connect.
+- Positions are queued for video only. Jellyfin keeps no resume point for songs, and a song's play covers it.
+- jellyfin12 (12.2) honors `LastPlayedDate` in a `POST /UserItems/{id}/UserData` body, and leaves fields that are not sent unchanged. It rejects the `X-Emby-Token` header with 401; the full `Authorization: MediaBrowser ... Token=` form works.
+- Seen on jellyfin12, desktop (Electron, a throwaway profile):
+  - An episode downloaded as the original and watched to 5:55 in manual Offline Mode had that position on the server after reconnecting, with the offline time.
+  - A second episode, given a newer position by another write while the app was offline, kept it.
+  - Two songs played offline appeared at the top of the server's history at their real times.
+  - A song played offline after another play elsewhere was held, Downloads offered Add or Discard, and Discard put the catalog back to the server's counts.
+  - A storage limit just above the current use refused a new album before any byte landed.
+- Seen on jellyfin12, Mac (a debug copy with reports muted, driven by a temporary hook): the same cases, through `OfflineLibrary.sync`, plus a favorite made offline through `setFavorite`, which was queued and sent.
+- Not seen:
+  - The Mac's capture from the real video player (the hook recorded the stop the way `VideoPlayer` does).
+  - The iPhone at all: the storage limit question, background downloads under a limit.
+  - The desktop on Windows and Linux.
+  - A refetch of Spicy Lyrics that had actually expired (the rule is tested).
+- The first Mac run hit a silent skip: in its second round the queued play was neither replayed nor held, and nothing was logged. That run's test helper was itself broken (401s), and the clean second run did not repeat it, so the cause was not pinned down. It can only have been a sync asked for while one was running, or a history fetch that came back empty. Neither drops a sync any more: one asked for mid-run runs again afterward, a failed compare is retried (three tries, 15 s apart), and debug builds log each decision. Both were checked against a stubbed server in the desktop app.
+- Found while testing, not fixed here: on the desktop, songs asked for while a video is downloading wait until the video finishes. The download pump's second worker exits when only videos are pending, and a later request does not wake it.
+
 ### Phase 5 (optional): local ffmpeg on the desktop
 
 Bundle a GPL ffmpeg build per platform (compatible with Cascade's GPLv3), about 60 to 80 MB each. Download originals at full speed, then remux, or re-encode with VideoToolbox, NVENC or QuickSync, locally. Only worth it if phase 3 shows the server-side re-encode path is common and slow.

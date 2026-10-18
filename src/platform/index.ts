@@ -10,7 +10,7 @@
 // bridge and its type surface cannot drift apart.
 
 import type { JfItem } from '../core/types.ts'
-import type { OfflineIndex } from '../core/offline-index.ts'
+import type { OfflineIndex, UserDataChange } from '../core/offline-index.ts'
 import type { OfflineState } from '../core/offline-mode.ts'
 import type { DeviceProfile } from '../core/playback.ts'
 import type { DownloadOutcome } from '../core/offline-video.ts'
@@ -32,6 +32,11 @@ export interface OfflineSummary {
   failed: Record<string, string>
   /** Plays waiting to be sent to the server. */
   plays: number
+  /** The plays wait for the person to add or discard them. */
+  playsHeld: boolean
+  /** User data changes waiting to be sent. */
+  changes: number
+  limitBytes: number | null
 }
 
 /** One transfer: bytes so far, the length if the server sent one, and for a
@@ -220,6 +225,17 @@ export interface DesktopCapabilities {
     resume(session: { authorization: string }): Promise<void>
     addPlay(play: { itemId: string; userId: string; date: string }): Promise<void>
     takePlays(): Promise<{ itemId: string; userId: string; date: string }[]>
+    /** Holds the plays for the person's choice, or lets them go. */
+    holdPlays(held: boolean): Promise<void>
+    discardPlays(): Promise<void>
+    addChange(change: UserDataChange): Promise<void>
+    takeChanges(): Promise<UserDataChange[]>
+    /** The server's play history (offline-sync.ts HISTORY_QUERY's answer). */
+    setHistory(items: JfItem[]): Promise<void>
+    /** Fresh user data for downloaded items (GET /Items?Ids=...). */
+    setUserData(items: JfItem[]): Promise<void>
+    /** The storage limit in bytes, or null for none. */
+    setLimit(bytes: number | null): Promise<void>
     onEvent(cb: (event: OfflineEvent) => void): void
     /** The whole catalog, for Offline Mode's query engine; null with nobody
      *  signed in. */
@@ -234,6 +250,8 @@ export interface DesktopCapabilities {
     /** Lyrics found while online, saved with the track for Offline Mode.
      *  `source` is lyricsSourceKey's; SpicyLyrics keeps its credit. */
     setLyrics(trackId: string, lyrics: { source: string; synced: boolean; lines: LyricLine[]; credit?: SpicyCredit | null }): Promise<void>
+    /** Forgets a track's saved lyrics (expired SpicyLyrics nothing replaced). */
+    dropLyrics(trackId: string): Promise<void>
     /** Free and total bytes on the disk the downloads are on. */
     disk(): Promise<{ free: number; total: number } | null>
     /** Offline Mode's state, for main: the switch blocks the server's origin

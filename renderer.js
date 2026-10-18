@@ -18,7 +18,7 @@ let _unshuffledQueue = []   // original order saved when shuffle is enabled
 let _restoredResume = null   // { sec } while a restored queue's track waits for play (see Last queue)
 // Offline downloads (see the section of that name). Declared up here because
 // artUrl() and resolveTrackStream() read it from the very first render.
-let _offline = { ready: {}, art: new Set(), collections: [], totalBytes: 0, active: [], failed: {}, plays: 0 }
+let _offline = { ready: {}, art: new Set(), collections: [], totalBytes: 0, active: [], failed: {}, plays: 0, playsHeld: false, changes: 0, limitBytes: null }
 /** Offline Mode: 'online', 'manual' (the Settings switch) or 'unreachable'
  *  (turned on by itself). See the section "Offline Mode" and
  *  src/core/offline-mode.ts. */
@@ -908,12 +908,14 @@ async function connect(serverUrl, token, userId) {
   await refreshOffline()
   if (!offline) {
     window.cascade.offline.resume(offlineSession()).catch(() => {})
-    replayOfflinePlays()
+    // Before anything else can add to the server's history.
+    await syncOffline()
     // What Offline Mode needs to know later: who this is, which libraries
     // there are, and which library each download is in.
     window.cascade.offline.setUser(userInfo).catch(() => {})
     viewsPromise.then(v => v && window.cascade.offline.setLibraries(v.Items || []))
       .then(() => placeOfflineDownloads()).catch(() => {})
+    refreshExpiredLyrics().catch(() => {})
     syncFollowedSeries().catch(() => {})
   }
   sweepWatchedEpisodes()
@@ -2226,6 +2228,7 @@ async function loadHome() {
   loadRecentlyPlayed()
   loadRecentlyAdded()
   loadContinueWatching()
+  takeHistorySnapshot()
 }
 
 async function loadRecentlyPlayed() {
@@ -4293,6 +4296,7 @@ document.getElementById('btn-shuffle-genre').addEventListener('click', () => shu
 let currentHistoryItems = []
 
 async function loadHistory() {
+  takeHistorySnapshot()
   const rows = document.getElementById('history-rows')
   rows.innerHTML = skeletonHTML('track', 6)
   try {
@@ -6120,8 +6124,10 @@ function reportPlaybackStart(itemId) {
     // Jellyfin counts a play on this report, so one it never heard (offline) is
     // kept and sent later as a played-at update. Music only: a film or a radio
     // channel has no play to lose.
+    // A report that landed changed the server's history: the snapshot
+    // follows it, so this device's own plays never read as someone else's.
     if (!ok) { if (item && !isVideoItem(item) && !CascadeCore.isRadioItem(item)) queueOfflinePlay(item.Id) }
-    else if (_offline.plays > 0) replayOfflinePlays()
+    else scheduleHistorySnapshot()
   })
   startProgressReporting()
 }
@@ -6130,8 +6136,15 @@ function reportPlaybackStart(itemId) {
 function reportPlaybackStopped(itemId, positionTicks, item) {
   _reportingActive = false
   stopProgressReporting()
-  noteOfflineWatched(item || queue.find(q => q?.Id === itemId), positionTicks ?? Math.round(mediaPosition() * 10_000_000))
-  CascadeCore.reportStopped(jfClient, playbackSnapshot(itemId, positionTicks))
+  const stopped = item || queue.find(q => q?.Id === itemId)
+  const ticks = positionTicks ?? Math.round(mediaPosition() * 10_000_000)
+  noteOfflineWatched(stopped, ticks)
+  CascadeCore.reportStopped(jfClient, playbackSnapshot(itemId, ticks)).then(ok => {
+    // Where a video stopped is what the server resumes from next time: one
+    // it never heard (offline) is queued with its time and sent later.
+    if (ok) scheduleHistorySnapshot()
+    else if (stopped && isVideoItem(stopped) && !CascadeCore.isRadioItem(stopped)) queueVideoPosition(stopped, ticks)
+  })
 }
 
 // Fires on the interval and on every play/pause/seek/volume change, so a
@@ -7088,12 +7101,17 @@ async function toggleLike(item) {
   if (!item) return
   const isLiked = isCurrent ? likeBtn.classList.contains('liked') : !!item.UserData?.IsFavorite
   try {
-    const res = await jfFetch(`${jf.url}/UserFavoriteItems/${item.Id}?userId=${encodeURIComponent(jf.userId)}`, {
-      method: isLiked ? 'DELETE' : 'POST',
-      headers: CascadeCore.authHeaders(jf)
-    })
-    // Read the response rather than assume success - see CODEMAP rule 1.
-    if (!res.ok) throw new Error(String(res.status))
+    // Offline it is queued and sent when the server is back.
+    if (jfClient.offline) {
+      await queueOfflineChange({ itemId: item.Id, kind: 'favorite', favorite: !isLiked, was: isLiked })
+    } else {
+      const res = await jfFetch(`${jf.url}/UserFavoriteItems/${item.Id}?userId=${encodeURIComponent(jf.userId)}`, {
+        method: isLiked ? 'DELETE' : 'POST',
+        headers: CascadeCore.authHeaders(jf)
+      })
+      // Read the response rather than assume success - see CODEMAP rule 1.
+      if (!res.ok) throw new Error(String(res.status))
+    }
     if (!item.UserData) item.UserData = {}
     item.UserData.IsFavorite = !isLiked
     if (isCurrent) {
@@ -8017,15 +8035,20 @@ async function toggleOfflineDownload(kind, item) {
 /** Finds each downloaded song's lyrics the way playback would and saves them
  *  with the download, so they show offline. Two at a time, to keep the
  *  lyrics sources and the plugin from seeing a burst; stops if the app goes
- *  offline partway. */
-async function saveOfflineLyrics(tracks) {
+ *  offline partway. `dropMissing`: a song nothing answers for loses what was
+ *  stored (expired SpicyLyrics are never kept for good). */
+async function saveOfflineLyrics(tracks, { dropMissing = false } = {}) {
   const queue = tracks.filter(t => t?.Id)
   const worker = async () => {
     while (queue.length && !jfClient.offline) {
       const t = queue.shift()
       let out = null
       try { out = await fetchLyricsWaterfall(t) } catch {}
-      if (!out?.lines?.length || out.instrumental) continue
+      if (jfClient.offline) return
+      if (!out?.lines?.length || out.instrumental) {
+        if (dropMissing) await window.cascade.offline.dropLyrics(t.Id).catch(() => {})
+        continue
+      }
       await window.cascade.offline.setLyrics(t.Id, {
         source: CascadeCore.lyricsSourceKey(String(out.source || ''), !!out.credit),
         synced: out.lines.some(l => l.Start > 0),
@@ -8035,6 +8058,17 @@ async function saveOfflineLyrics(tracks) {
     }
   }
   await Promise.all([worker(), worker()])
+}
+
+/** SpicyLyrics saved with a download stop showing after SPICY_LYRICS_DAYS;
+ *  back online they are asked for again (a new answer resets the days, or
+ *  another source's never expires) or dropped. At every online connect(). */
+async function refreshExpiredLyrics() {
+  let catalog = null
+  try { catalog = await window.cascade.offline.catalog() } catch {}
+  const index = CascadeCore.parseIndex(catalog)
+  const expired = CascadeCore.expiredLyricsTrackIds(index, new Date()).map(id => index.tracks[id].item)
+  if (expired.length) await saveOfflineLyrics(expired, { dropMissing: true })
 }
 
 async function removeOfflineDownload(id) {
@@ -8065,7 +8099,21 @@ async function loadVideoDownloadSettings() {
   quality.value = _videoDownloadQuality
   removeWatched.checked = _removeWatchedEpisodes
   pushVideoDownloadProfile()
+  // No limit by default here (the plan's decision); the iPhone asks.
+  const limit = Number(await window.cascade.store.get('downloadLimitGB')) || 0
+  const limitSelect = /** @type {HTMLSelectElement} */ (document.getElementById('dl-storage-limit'))
+  limitSelect.value = String(limit)
+  window.cascade.offline.setLimit(limit > 0 ? limit * 2 ** 30 : null).catch(() => {})
 }
+
+document.getElementById('dl-storage-limit').addEventListener('change', async (e) => {
+  const gb = Number(/** @type {HTMLSelectElement} */ (e.target).value) || 0
+  await window.cascade.store.set('downloadLimitGB', gb)
+  await window.cascade.offline.setLimit(gb > 0 ? gb * 2 ** 30 : null)
+  refreshOffline()
+})
+document.getElementById('downloads-held-add').addEventListener('click', () => addHeldPlays())
+document.getElementById('downloads-held-discard').addEventListener('click', () => discardHeldPlays())
 
 /** Main holds videos back until it has this: built from what this machine
  *  decodes (the same probe playback uses) and the quality setting. */
@@ -8295,6 +8343,12 @@ function renderDownloadsView() {
   document.getElementById('downloads-total').textContent = all.length
     ? `${all.length} ${all.length === 1 ? 'collection' : 'collections'} · ${fmtBytes(_offline.totalBytes)}` : ''
   renderDownloadsStorage()
+  const held = _offline.playsHeld && _offline.plays > 0
+  document.getElementById('downloads-held').hidden = !held
+  if (held) {
+    const n = _offline.plays
+    document.getElementById('downloads-held-text').textContent = `${n} ${n === 1 ? 'play' : 'plays'} from while you were offline ${n === 1 ? 'was' : 'were'} not added to your history, because something was played on this account elsewhere meanwhile.`
+  }
   // A followed show with every episode removed as watched waits in TV.
   const active = all.filter(c => c.done < c.total)
   const done = all.filter(c => c.done === c.total)
@@ -8320,6 +8374,7 @@ async function renderDownloadsStorage() {
   try { disk = await window.cascade.offline.disk() } catch {}
   const parts = []
   if (_offline.totalBytes > 0) parts.push(`Downloads use ${fmtBytes(_offline.totalBytes)}`)
+  if (_offline.limitBytes) parts.push(`limit ${fmtBytes(_offline.limitBytes)}`)
   if (disk && Number.isFinite(disk.free)) parts.push(`${fmtBytes(disk.free)} free on this disk`)
   el.textContent = parts.join(' · ')
 }
@@ -8544,6 +8599,9 @@ async function reconnectOnline() {
 
 /** The Settings switch. Stays on across launches until turned off. */
 async function setOfflineSwitch(on) {
+  // The history as it stands, so going back online can tell whether anyone
+  // played anything elsewhere meanwhile.
+  if (on && !jfClient.offline) await takeHistorySnapshot()
   await window.cascade.store.set('offlineMode', !!on)
   await setOfflineState(CascadeCore.nextOfflineState(_offlineState, { type: 'switch', on: !!on }))
 }
@@ -8638,22 +8696,181 @@ async function placeOfflineDownloads() {
   }
 }
 
-// ── Plays made while the server was out of reach ──
-// Jellyfin counts a play when playback STARTS, so a start report it never heard
-// is a play lost. Those are kept (in the main process, across a restart) and
-// sent as a played-at update once the server answers.
+// ── What happened while the server was out of reach ──
+// docs/offline-mode-plan.md, section 5; the rules are src/core/offline-sync.ts.
+// Jellyfin counts a play when playback STARTS, so a start report it never
+// heard is a play lost; a stop report it never heard is a lost resume point.
+// Both are kept (in the main process, across a restart) with favorites and
+// played marks made offline, and sent once the server answers:
+// - plays are history, replayed only when the server's history still matches
+//   the snapshot kept while online, else held for the person in Downloads;
+// - positions, played marks and favorites win only over an older server value.
 
 function queueOfflinePlay(itemId) {
   window.cascade.offline.addPlay({ itemId, userId: jf.userId, date: new Date().toISOString() })
     .then(() => scheduleOfflineRefresh()).catch(() => {})
 }
 
+/** A favorite or played mark made offline, or where a video stopped. */
+async function queueOfflineChange(change) {
+  await window.cascade.offline.addChange({ ...change, userId: jf.userId, at: new Date().toISOString() })
+  scheduleOfflineRefresh()
+}
+
+/** A video stopped with no server to tell: played when it was watched to
+ *  the end, as the server would have marked it, else where it stopped. */
+function queueVideoPosition(item, ticks) {
+  const watched = CascadeCore.isWatchedPosition(ticks, item.RunTimeTicks)
+  if (!watched && !(ticks > 0)) return
+  queueOfflineChange(watched ? { itemId: item.Id, kind: 'played', played: true } : { itemId: item.Id, kind: 'position', ticks })
+    .catch(() => {})
+}
+
+/** A sync is running: the snapshot waits for it, since the first thing it
+ *  does is compare the server's history with the one kept. */
+let _syncing = false
+/** Asked for while one ran: it runs once more when that one ends. */
+let _syncAgain = false
+let _snapshotTimer = null
+/** History fetches tried before the plays wait for the next connect. */
+const SYNC_TRIES = 3
+
+/** A few seconds after a report lands, one request rather than one a song. */
+function scheduleHistorySnapshot() {
+  clearTimeout(_snapshotTimer)
+  _snapshotTimer = setTimeout(() => takeHistorySnapshot(), 5000)
+}
+
+/** Keeps the server's play history as it is now. Not while plays wait for
+ *  the compare: the snapshot must stay what it was when they were made, or
+ *  the compare would match whatever happened elsewhere. */
+async function takeHistorySnapshot(fromSync = false) {
+  if (jfClient.offline || !jf?.url || (_syncing && !fromSync)) return
+  let summary = null
+  try { summary = await window.cascade.offline.summary() } catch {}
+  if (!summary || (summary.plays > 0 && !summary.playsHeld)) return
+  const list = await jfGet('/Items', { ...CascadeCore.HISTORY_QUERY, UserId: jf.userId }).catch(() => null)
+  if (list?.Items && !jfClient.offline) await window.cascade.offline.setHistory(list.Items).catch(() => {})
+}
+
+/** Back online (every online connect()): compares the history, then sends
+ *  the rest in the background. Returns once the compare is done, so nothing
+ *  this app sends can change the history before it is read. */
+async function syncOffline(attempt = 1) {
+  if (jfClient.offline || !jf?.url) return
+  if (_syncing) { _syncAgain = true; return }
+  _syncing = true
+  _syncAgain = false
+  let replay = false
+  try {
+    const catalog = CascadeCore.parseIndex(await window.cascade.offline.catalog())
+    if (catalog.plays.length && !catalog.playsHeld) {
+      const list = await jfGet('/Items', { ...CascadeCore.HISTORY_QUERY, UserId: jf.userId }).catch(() => null)
+      // No answer: nothing can be told yet. Tried again shortly, then it all
+      // waits for the next connect.
+      if (!list?.Items) {
+        _syncing = false
+        const userId = jf.userId
+        if (attempt < SYNC_TRIES) setTimeout(() => { if (jf?.userId === userId) syncOffline(attempt + 1) }, 15000)
+        return
+      }
+      replay = CascadeCore.playsCatchUp(catalog, list.Items) === 'replay'
+      if (!replay) {
+        await window.cascade.offline.holdPlays(true)
+        const n = catalog.plays.length
+        showToast(`${n} ${n === 1 ? 'play' : 'plays'} from offline are waiting in Downloads`)
+      }
+    }
+  } catch {
+    _syncing = false
+    return
+  }
+  finishOfflineSync(replay).catch(() => {}).finally(() => {
+    _syncing = false
+    scheduleOfflineRefresh()
+    if (_syncAgain) syncOffline()
+  })
+}
+
+async function finishOfflineSync(replay) {
+  await sendOfflineChanges()
+  if (replay) await replayOfflinePlays()
+  await refreshOfflineUserData()
+  await takeHistorySnapshot(true)
+}
+
+/** Positions, played marks and favorites, coalesced per item, each sent only
+ *  when the server's copy is older. A change the server could not take yet is
+ *  kept; one for an item it no longer has (400, 404) is dropped. */
+async function sendOfflineChanges() {
+  const changes = await window.cascade.offline.takeChanges().catch(() => [])
+  if (!changes.length) return
+  const keep = (list) => Promise.all(list.map(c => window.cascade.offline.addChange(c).catch(() => {})))
+  // Another account's change cannot be sent with this account's token.
+  const mine = changes.filter(c => c.userId === jf.userId)
+  await keep(changes.filter(c => c.userId !== jf.userId))
+  const updates = CascadeCore.coalesceChanges(mine)
+  const server = new Map()
+  const ids = updates.map(u => u.itemId)
+  for (let i = 0; i < ids.length; i += 100) {
+    const r = await jfGet('/Items', { Ids: ids.slice(i, i + 100).join(','), UserId: jf.userId }).catch(() => null)
+    if (!r?.Items) { await keep(mine); return }
+    for (const it of r.Items) server.set(it.Id, it)
+  }
+  for (let i = 0; i < updates.length; i++) {
+    const u = updates[i]
+    const send = CascadeCore.updateToSend(u, server.get(u.itemId) ?? null)
+    if (!send) continue
+    const result = await sendUserDataUpdate(u.itemId, send)
+    if (result === 'ok' || result === 'drop') continue
+    // No answer at all: the rest would fail the same way.
+    const left = new Set(result === 'down' ? updates.slice(i).map(x => x.itemId) : [u.itemId])
+    await keep(mine.filter(c => left.has(c.itemId)))
+    if (result === 'down') return
+  }
+}
+
+/** 'ok', 'drop' (the server will never take it), 'later' or 'down'. */
+async function sendUserDataUpdate(itemId, send) {
+  const q = `userId=${encodeURIComponent(jf.userId)}`
+  const calls = []
+  if (send.userData) {
+    calls.push([`/UserItems/${itemId}/UserData?${q}`, {
+      method: 'POST', headers: CascadeCore.authHeaders(jf, { 'Content-Type': 'application/json' }), body: JSON.stringify(send.userData),
+    }])
+  }
+  if (send.favorite !== undefined) {
+    calls.push([`/UserFavoriteItems/${itemId}?${q}`, { method: send.favorite ? 'POST' : 'DELETE', headers: CascadeCore.authHeaders(jf) }])
+  }
+  for (const [path, init] of calls) {
+    let status = 0
+    try { status = (await jfFetch(`${jf.url}${path}`, init)).status } catch { /* still unreachable */ }
+    if (status >= 200 && status < 300) continue
+    if (CascadeCore.dropsPlay(status)) return 'drop'
+    return status === 0 ? 'down' : 'later'
+  }
+  return 'ok'
+}
+
+/** Every downloaded item's user data from the server, so offline lists start
+ *  from its truth next time. A chunk that fails keeps what was stored. */
+async function refreshOfflineUserData() {
+  let catalog = null
+  try { catalog = await window.cascade.offline.catalog() } catch {}
+  const ids = CascadeCore.userDataIds(CascadeCore.parseIndex(catalog))
+  if (!ids.length) return
+  const items = await jfItemsByIds(ids)
+  if (items.length) await window.cascade.offline.setUserData(items).catch(() => {})
+}
+
 let _replayingPlays = false
+/** Sends the queued plays oldest first with their own dates, so the
+ *  server's history reads as if they had happened online. */
 async function replayOfflinePlays() {
   if (_replayingPlays || !jf?.url) return
   _replayingPlays = true
   try {
-    const plays = await window.cascade.offline.takePlays()
+    const plays = CascadeCore.playsOldestFirst(await window.cascade.offline.takePlays())
     for (let i = 0; i < plays.length; i++) {
       const p = plays[i]
       // Another account's play cannot be sent with this account's token. Keep it.
@@ -8676,6 +8893,34 @@ async function replayOfflinePlays() {
     _replayingPlays = false
     scheduleOfflineRefresh()
   }
+}
+
+/** Downloads' Add: the held plays go into the server's history after all. */
+async function addHeldPlays() {
+  if (jfClient.offline) { showNotice('Plays are added once Offline Mode is off.', 'Downloads'); return }
+  if (_syncing) return
+  _syncing = true
+  try {
+    await window.cascade.offline.holdPlays(false)
+    await replayOfflinePlays()
+    await refreshOfflineUserData()
+    await takeHistorySnapshot(true)
+  } finally {
+    _syncing = false
+    refreshOffline()
+  }
+}
+
+/** Downloads' Discard: the held plays are dropped, and the catalog goes back
+ *  to the server's counts. */
+async function discardHeldPlays() {
+  if (!confirm('Discard the plays from while you were offline? They will not be added to your history.')) return
+  await window.cascade.offline.discardPlays()
+  if (!jfClient.offline) {
+    await refreshOfflineUserData()
+    await takeHistorySnapshot()
+  }
+  refreshOffline()
 }
 
 // ── Full-screen now-playing overlay ──────────────────────────────────────────
@@ -11473,10 +11718,14 @@ document.getElementById('ictx-view-detail').addEventListener('click', () => {
  *  silently doing nothing. */
 async function setItemPlayed(item, played) {
   try {
-    const res = await jfFetch(`${jf.url}/UserPlayedItems/${item.Id}?userId=${encodeURIComponent(jf.userId)}`, {
-      method: played ? 'POST' : 'DELETE', headers: CascadeCore.authHeaders(jf)
-    })
-    if (!res.ok) throw new Error(String(res.status))
+    if (jfClient.offline) {
+      await queueOfflineChange({ itemId: item.Id, kind: 'played', played })
+    } else {
+      const res = await jfFetch(`${jf.url}/UserPlayedItems/${item.Id}?userId=${encodeURIComponent(jf.userId)}`, {
+        method: played ? 'POST' : 'DELETE', headers: CascadeCore.authHeaders(jf)
+      })
+      if (!res.ok) throw new Error(String(res.status))
+    }
     // Keeps a re-opened menu on the same card showing the right toggle for the
     // rest of this session, without a round trip back to the grid's own fetch.
     if (item.UserData) item.UserData.Played = played

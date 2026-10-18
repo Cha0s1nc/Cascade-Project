@@ -77,7 +77,8 @@ struct ContextMenuKindTests {
     @Test func offlineTheRowsThatNeedTheServerGo() {
         let album = menuItems(for: .album, offline: true)
         #expect(album.play && album.shuffle && album.playNext && album.playLast && album.goArtist)
-        #expect(!album.instantMix && !album.addPlaylist && !album.download && !album.favorite)
+        #expect(!album.instantMix && !album.addPlaylist && !album.download)
+        #expect(album.favorite, "a favorite made offline is queued")
         #expect(!album.refreshMeta && !album.editMeta)
         let playlist = menuItems(for: .playlist, offline: true)
         #expect(playlist.play && !playlist.rename && !playlist.deleteItem)
@@ -85,7 +86,7 @@ struct ContextMenuKindTests {
         let mine = menuItems(for: .userSmartPlaylist, offline: true)
         #expect(mine.rename && mine.deleteItem && !mine.addPlaylist)
         let video = menuItems(for: .video, isPlayed: false, offline: true)
-        #expect(video.play && !video.markPlayed)
+        #expect(video.play && video.markPlayed, "queued too")
         #expect(menuItems(for: .album, offline: false) == menuItems(for: .album))
     }
 

@@ -186,6 +186,8 @@ struct OfflineIndexV2Tests {
         #expect(index.expiredLyricsTrackIds(now: saved.addingTimeInterval(25 * day)) == ["t1"])
         index.dropLyrics("t1")
         #expect(index.expiredLyricsTrackIds(now: saved.addingTimeInterval(25 * day)).isEmpty)
+        #expect(index.tracks["t1"]?.lyrics == nil, "the expired lines are gone from the catalog")
+        #expect(index.tracks["t2"]?.lyrics != nil, "a source that never expires is kept")
 
         // Stored lyrics survive a save.
         #expect(OfflineIndex.decode(index.encoded()).tracks["t2"]?.lyrics?.lines == lines)

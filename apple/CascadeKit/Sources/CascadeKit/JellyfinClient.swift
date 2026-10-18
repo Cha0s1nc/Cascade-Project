@@ -164,6 +164,22 @@ public actor JellyfinClient {
 
     public func onFailure(_ handler: (@Sendable (Int?) -> Void)?) { failureHandler = handler }
 
+    /// Where a favorite or played mark made in Offline Mode goes instead of
+    /// the server: OfflineLibrary's queue (setFavorite, setPlayed).
+    private var offlineWriteHandler: (@Sendable (OfflineIndex.UserDataChange) async -> Void)?
+    public func onOfflineWrite(_ handler: (@Sendable (OfflineIndex.UserDataChange) async -> Void)?) { offlineWriteHandler = handler }
+
+    /// Queues the change when Offline Mode is on and something takes it.
+    /// False online: the caller sends it.
+    func queueOffline(_ kind: OfflineIndex.UserDataChange.Kind, itemId: String, played: Bool? = nil,
+                      favorite: Bool? = nil) async throws -> Bool {
+        guard offlineEngine != nil else { return false }
+        guard let offlineWriteHandler else { throw OfflineError() }
+        await offlineWriteHandler(.init(itemId: itemId, userId: config.userId, at: OfflineIndex.isoString(Date()), kind: kind,
+                                        played: played, favorite: favorite, was: favorite.map { !$0 }))
+        return true
+    }
+
     /// Whether the server answers at all: its public ping, briefly. Sent
     /// whatever the offline state, since it is how the unreachable state
     /// ends; it carries no token and changes nothing.

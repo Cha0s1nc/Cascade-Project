@@ -64,7 +64,11 @@ All in `renderer.js` unless named. `jfGetMerged` and `jfGetAllPaged` fan out per
 | Server style | `GET /CascadeServer/Style` | none | `fetchServerStyle()` 11368 |
 | Remote control | WebSocket `/socket`, `POST /Sessions/Capabilities/Full` | | `src/core/remote-control.ts` |
 | Restore last queue | `GET /Items` | `Ids` (100 per request), `Fields=AlbumId,AlbumPrimaryImageTag,UserData,MediaStreams,MediaSources` | `restoreLastQueue()` 5146 via `jfItemsByIds()` |
-| Replay offline plays | `POST /UserPlayedItems/{id}` | `userId`, `datePlayed` | `replayOfflinePlays()` 8099 |
+| Replay offline plays | `POST /UserPlayedItems/{id}` | `userId`, `datePlayed` | `replayOfflinePlays()`, only when the history matches the snapshot or the person chose Add |
+| History snapshot and the reconnect compare | `GET /Items` | `Filters=IsPlayed`, `SortBy=DatePlayed`, `SortOrder=Descending`, `Recursive`, `IncludeItemTypes=Audio,Movie,Episode`, `Limit=200`, `UserId` | `takeHistorySnapshot()`, `syncOffline()` (`HISTORY_QUERY`) |
+| Send offline positions and played marks | `POST /UserItems/{id}/UserData` | `userId`, body `PlaybackPositionTicks`, `Played`, `LastPlayedDate` | `sendOfflineChanges()` |
+| Send offline favorites | `POST`/`DELETE /UserFavoriteItems/{id}` | `userId` | `sendOfflineChanges()` |
+| Refresh downloads' user data | `GET /Items` | `Ids` (100 per request) | `refreshOfflineUserData()` |
 
 ### Home (`data-view="home"`)
 
@@ -221,7 +225,11 @@ Helpers are in `CascadeKit`; screens are in `App/Sources` (all platforms) and `A
 | Server style | `GET /CascadeServer/Style` | none | `AppState` 506 |
 | Remote control | WebSocket, `POST /Sessions/Capabilities/Full` | | `RemoteControl.swift` |
 | Restore last queue (Mac) | `GET /Items` | `ids` (chunked), `fields=DateCreated,PrimaryImageAspectRatio,MediaSources` | `restoredItems(ids:)` (`QueuePersistence.swift`), `PlaybackPersistence` 121 |
-| Replay offline plays | `POST /UserPlayedItems/{id}` | `userId`, `datePlayed` | `OfflineLibrary.replayPlays` |
+| Replay offline plays | `POST /UserPlayedItems/{id}` | `userId`, `datePlayed` | `OfflineLibrary.replayPlays`, only when the history matches the snapshot or the person chose Add |
+| History snapshot and the reconnect compare | `GET /Items` | the desktop's `HISTORY_QUERY` (`OfflineSync.historyQuery`) | `OfflineLibrary.snapshotHistory`, `sync` |
+| Send offline positions and played marks | `POST /UserItems/{id}/UserData` | `userId`, body `PlaybackPositionTicks`, `Played`, `LastPlayedDate` | `OfflineLibrary.sendChanges` |
+| Send offline favorites | `POST`/`DELETE /UserFavoriteItems/{id}` | `userId` | `OfflineLibrary.sendChanges` |
+| Refresh downloads' user data | `GET /Items` | `ids` (100 per request) | `OfflineLibrary.refreshUserData` |
 | Libraries (also inside every merged query when none are chosen) | `GET /UserViews` | `userId` | `views()` (`Library.swift`) |
 
 ### Home, Music mode (`HomeView`)

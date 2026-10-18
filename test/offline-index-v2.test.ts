@@ -143,6 +143,8 @@ test('SpicyLyrics expire after the plugin\'s 25 days; other sources never do', (
   assert.deepEqual(expiredLyricsTrackIds(index, after), ['t1'])
   dropLyrics(index, 't1')
   assert.deepEqual(expiredLyricsTrackIds(index, after), [])
+  assert.equal(index.tracks.t1.lyrics, undefined, 'the expired lines are gone from the catalog')
+  assert.ok(index.tracks.t2.lyrics, 'a source that never expires is kept')
 })
 
 test('SpicyLyrics with an unreadable expiry are treated as expired, not kept', () => {

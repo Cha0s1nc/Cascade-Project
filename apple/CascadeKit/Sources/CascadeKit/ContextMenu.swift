@@ -21,11 +21,11 @@ public struct MenuItemVisibility: Sendable, Equatable {
 
 /// `offline`: Offline Mode is on, and rows that need the server are left out
 /// (docs/offline-mode-plan.md, section 3), as the desktop's are. Favorite and
-/// mark played come back once changes made offline are queued (phase 4).
+/// mark played stay: they are queued and sent once back online (OfflineSync).
 public func menuItems(for kind: MenuItemKind, isPlayed: Bool? = nil, offline: Bool = false) -> MenuItemVisibility {
     var v = onlineMenuItems(for: kind, isPlayed: isPlayed)
     guard offline else { return v }
-    (v.instantMix, v.addPlaylist, v.download, v.favorite, v.markPlayed, v.markUnplayed) = (false, false, false, false, false, false)
+    (v.instantMix, v.addPlaylist, v.download) = (false, false, false)
     (v.refreshMeta, v.editMeta) = (false, false)
     // A smart playlist of your own is a local definition: editing or deleting
     // it needs no server. A real playlist's do.
