@@ -62,6 +62,8 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
   /** id -> message, for downloads that failed since the last attempt. */
   const failed = new Map()
   let running = false
+  /** The download workers alive now, PARALLEL at most. */
+  const workers = new Set()
   let networkDown = false
   let saveTimer = null
 
@@ -346,14 +348,11 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
     }
   }
 
-  /** Runs until nothing is pending, a few tracks at once. One loop at a time. */
-  async function pump() {
-    if (running || !owner || !session || !getServerUrl()) return
-    running = true
-    networkDown = false
-    const mine = index
-    try {
-      const workers = Array.from({ length: PARALLEL }, async () => {
+  /** Starts workers up to PARALLEL, each taking pending tracks until none it
+   *  may take is left. */
+  function startWorkers(mine) {
+    while (workers.size < PARALLEL) {
+      const w = (async () => {
         while (true) {
           if (networkDown || index !== mine || !session) return
           // One video at a time beside music (plan section 8): a film is
@@ -364,9 +363,27 @@ function createOffline({ app, ipcMain, net, protocol, getWindow, getServerUrl, h
           if (!id) return
           await downloadTrack(id)
         }
-      })
+      })().finally(() => workers.delete(w))
+      workers.add(w)
+    }
+  }
+
+  /** Runs until nothing is pending, a few tracks at once. One loop at a time;
+   *  work asked for while it runs tops its workers back up, since one that
+   *  found only videos behind a running video has already gone. */
+  async function pump() {
+    if (!owner || !session || !getServerUrl()) return
+    if (running) return startWorkers(index)
+    running = true
+    networkDown = false
+    const mine = index
+    try {
+      startWorkers(mine)
       // Covers alongside the tracks, so the Downloads view is not bare until the last one lands.
-      await Promise.all([...workers, fetchMissingArt()])
+      const art = fetchMissingArt()
+      // Late workers join the set, so wait until it drains.
+      while (workers.size) await Promise.all(workers)
+      await art
       // And once more for anything asked for while this queue ran.
       if (index === mine) await fetchMissingArt()
     } finally {
