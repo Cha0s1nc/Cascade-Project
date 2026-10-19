@@ -13,6 +13,9 @@ import type { JfItem, JfMediaStream, JfNameId } from './types.ts'
 import type { DeviceProfile } from './playback.ts'
 import { ELECTRON_PROFILE } from './profiles/electron.ts'
 import type { LocalUserData } from './local-user-data.ts'
+// The main process reads one bundle (build/local-scan.js), so the user data
+// rules the renderer shares come along.
+export { applyLocalChange, parseLocalChange, parseUserData, setLocalUserData, type LocalChange, type LocalUserData } from './local-user-data.ts'
 import {
   type OfflineIndex, type OfflineSubtitle, emptyIndex, addCollection, markReady, setLibraries, setSubtitles, setUser, isSafeId,
 } from './offline-index.ts'

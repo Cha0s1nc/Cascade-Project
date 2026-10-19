@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, clipboard, shell, Menu, globalShortcut, TouchBar, protocol, net, screen, session, dialog } = require('electron')
+const { app, BrowserWindow, ipcMain, clipboard, shell, Menu, globalShortcut, TouchBar, protocol, net, screen, session, dialog, nativeImage } = require('electron')
 
 // A main-process throw before the window is shown means no window and, for a
 // rejection, not even a message: Electron shows a dialog for an uncaught
@@ -32,6 +32,10 @@ const OfflineIndex = require('./build/offline-index')
 const OfflineMode = require('./build/offline-mode')
 const OfflineVideo = require('./build/offline-video')
 const { createOffline } = require('./offline')
+// Local mode: a folder on this computer as the library. Pure rules from
+// src/core/local-scan.ts; the walk, the tags and the protocol in local-library.js.
+const LocalScan = require('./build/local-scan')
+const { createLocalLibrary } = require('./local-library')
 const crypto = require('crypto')
 const { pathToFileURL } = require('url')
 const Store = require('electron-store')
@@ -55,12 +59,16 @@ const Store = require('electron-store')
 // locally", so it read as a missing model rather than a blocked request.
 // cascade-offline plays downloaded music (see offline.js). `stream` is what lets
 // a media element read it and seek: without it a <video> cannot play the
-// scheme's responses at all.
+// scheme's responses at all. cascade-local is the same for Local mode's folder
+// (see local-library.js).
 protocol.registerSchemesAsPrivileged([{
   scheme: 'cascade-model',
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
 }, {
   scheme: 'cascade-offline',
+  privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
+}, {
+  scheme: 'cascade-local',
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
 }])
 
@@ -580,11 +588,12 @@ app.whenReady().then(() => {
   registerModelProtocol()
   installConnectionHeaders()
   offline.registerProtocol()
+  localLibrary.registerProtocol()
   createWindow()
 })
 
 // A debounced index write must not be lost to a quit.
-app.on('before-quit', () => offline.flush())
+app.on('before-quit', () => { offline.flush(); localLibrary.flush() })
 
 app.on('window-all-closed', () => {
   globalShortcut.unregisterAll()
@@ -681,11 +690,15 @@ ipcMain.on('set-window-buttons-visible', (_e, visible) => {
 // IPC: store
 ipcMain.handle('store-get', (_e, key) => store.get(key))
 ipcMain.handle('store-set', (_e, key, value) => {
+  // Local mode's folder is set only from its own picker (local-library.js):
+  // every file it serves is resolved under it.
+  if (key === 'localLibraryRoot') return
   // The server URL decides where custom headers go, so keep it in step.
   if (key === 'serverUrl') connectionServerUrl = typeof value === 'string' ? value : null
   return store.set(key, value)
 })
 ipcMain.handle('store-delete', (_e, key) => {
+  if (key === 'localLibraryRoot') return
   if (key === 'serverUrl') connectionServerUrl = null
   return store.delete(key)
 })
@@ -764,6 +777,14 @@ const offline = createOffline({
   Video: OfflineVideo,
 })
 offline.register()
+
+const localLibrary = createLocalLibrary({
+  app, ipcMain, protocol, dialog, nativeImage, store,
+  getWindow: () => win,
+  Local: LocalScan,
+  Offline: OfflineIndex,
+})
+localLibrary.register()
 
 // A client certificate. Electron can only answer with one from the operating
 // system's certificate store (a .p12 file cannot be handed to it), so the
