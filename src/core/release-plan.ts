@@ -225,9 +225,10 @@ export function planRelease(input: PlanInput): Plan {
   // commit on its own) means everything. Changes to an explicit-only app alone
   // mean nothing, not everything.
   const chosen = list ?? (appsTouched(input.files).length ? platformsFromFiles(input.files) : [...DEFAULT_PLATFORMS])
+  const onlyExplicit = (reason: string) => none(`${reason}, but only explicit-only apps changed: name them, e.g. [${EXPLICIT_ONLY.join(', ')}]`)
 
   if (input.branch === 'stable') {
-    if (bump) return release('release', bumpVersion(input.lastVersion, bump), available(chosen), false, `${bump} release marker`)
+    if (bump) return chosen.length ? release('release', bumpVersion(input.lastVersion, bump), available(chosen), false, `${bump} release marker`) : onlyExplicit(`${bump} release marker`)
     const built = available(platformsFromFiles(input.files))
     return built.length
       ? { mode: 'build', version: '', tag: '', platforms: built, prerelease: false, publish: false, reason: 'no release marker: build only' }
@@ -235,7 +236,7 @@ export function planRelease(input: PlanInput): Plan {
   }
 
   if (input.branch === 'dev' && isBeta(subjects)) {
-    return release('beta', betaVersion(bump), available(chosen), true, '[BETA] marker on dev')
+    return chosen.length ? release('beta', betaVersion(bump), available(chosen), true, '[BETA] marker on dev') : onlyExplicit('[BETA] marker on dev')
   }
 
   return none(`push to ${input.branch} without a [BETA] marker`)

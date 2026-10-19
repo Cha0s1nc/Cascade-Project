@@ -176,6 +176,8 @@ test('android is built only when named: not by a lone marker, [all], android/ ch
   assert.deepEqual(stable(['Release (x.x.X) [all]']).platforms, ['desktop', 'apple'])
   // Android changes alone are not "no app files", so they do not release everything else.
   assert.equal(stable(['Release (x.x.X)'], ['android/app/build.gradle.kts']).mode, 'none')
+  assert.match(stable(['Release (x.x.X)'], ['android/app/build.gradle.kts']).reason, /name them, e\.g\. \[mac, android\]/)
+  assert.match(planRelease(base({ branch: 'dev', messages: ['[BETA]'], files: ['android/x.kt'], available: [...all] })).reason, /only explicit-only apps changed/)
   assert.equal(stable(['Fix a thing'], ['android/app/build.gradle.kts']).mode, 'none')
   assert.deepEqual(stable(['Release (x.x.X) [android]']).platforms, ['android'])
   const d = (dispatch: PlanInput['dispatch']) => planRelease(base({ event: 'workflow_dispatch', branch: 'dev', available: [...all], dispatch }))
