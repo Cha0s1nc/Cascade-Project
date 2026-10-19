@@ -12,13 +12,13 @@ export const PLATFORMS: readonly Platform[] = ['desktop', 'mac', 'apple', 'andro
 
 /**
  * Built only when a marker or manual run names it (`[mac]`, `[desktop, mac]`).
- * `[all]`, a marker with no list, a manual "all", and changes under `apple/`
- * leave it out, so the native Mac DMG cannot land in a stable release before
- * the maintainer asks for it: docs/mac-native-plan.md, "Defaults and sunset"
- * step 1 (it ships as an explicit [BETA] first). Flipping it on at parity is
- * emptying this list.
+ * `[all]`, a marker with no list, a manual "all", and changed files leave it
+ * out, so an app cannot land in a stable release before the maintainer asks
+ * for it. `mac`: docs/mac-native-plan.md, "Defaults and sunset" step 1 (it
+ * ships as an explicit [BETA] first). `android`: the APK is unsigned and has
+ * not run on a device yet. Flipping one on is removing it from this list.
  */
-export const EXPLICIT_ONLY: readonly Platform[] = ['mac']
+export const EXPLICIT_ONLY: readonly Platform[] = ['mac', 'android']
 const DEFAULT_PLATFORMS: readonly Platform[] = PLATFORMS.filter(p => !EXPLICIT_ONLY.includes(p))
 
 /**
@@ -105,16 +105,23 @@ export function platformListOf(messages: readonly string[]): Platform[] | null {
 }
 
 /**
- * Which platforms a set of changed files touches. `apple/` is two apps, the
- * iOS and tvOS one and the native Mac one, which share its sources; it means
- * mac too once mac is no longer EXPLICIT_ONLY. `android/` is its own; docs,
- * the changelog, license files and CI configuration build nothing by
- * themselves; everything else is the desktop app at the root.
+ * Which platforms a set of changed files builds: the apps they touch, less
+ * the EXPLICIT_ONLY ones.
  */
 export function platformsFromFiles(files: readonly string[]): Platform[] {
+  return appsTouched(files).filter(p => !EXPLICIT_ONLY.includes(p))
+}
+
+/**
+ * Which apps a set of changed files touches. `apple/` is two apps, the iOS
+ * and tvOS one and the native Mac one, which share its sources. `android/` is
+ * its own; docs, the changelog, license files and CI configuration touch
+ * nothing by themselves; everything else is the desktop app at the root.
+ */
+function appsTouched(files: readonly string[]): Platform[] {
   const hit = new Set<Platform>()
   for (const f of files) {
-    if (f.startsWith('apple/')) { hit.add('apple'); if (!EXPLICIT_ONLY.includes('mac')) hit.add('mac') }
+    if (f.startsWith('apple/')) { hit.add('apple'); hit.add('mac') }
     else if (f.startsWith('android/')) hit.add('android')
     else if (/^(docs\/|\.github\/|\.claude\/)/.test(f)) continue
     else if (/^[^/]+\.md$/i.test(f) || /^LICENSE/.test(f)) continue
@@ -215,8 +222,9 @@ export function planRelease(input: PlanInput): Plan {
   const bump = bumpOf(subjects)
   const list = platformListOf(subjects)
   // A marker with no platform list and no changed app files (an empty trigger
-  // commit on its own) means everything.
-  const chosen = list ?? (platformsFromFiles(input.files).length ? platformsFromFiles(input.files) : [...DEFAULT_PLATFORMS])
+  // commit on its own) means everything. Changes to an explicit-only app alone
+  // mean nothing, not everything.
+  const chosen = list ?? (appsTouched(input.files).length ? platformsFromFiles(input.files) : [...DEFAULT_PLATFORMS])
 
   if (input.branch === 'stable') {
     if (bump) return release('release', bumpVersion(input.lastVersion, bump), available(chosen), false, `${bump} release marker`)

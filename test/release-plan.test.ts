@@ -28,9 +28,10 @@ test('isBeta reads [BETA] in any case', () => {
 test('platformListOf reads bracket lists and ignores brackets that are not platforms', () => {
   assert.deepEqual(platformListOf(['Release (x.x.X) [android, desktop]']), ['desktop', 'android'])
   assert.deepEqual(platformListOf(['[BETA] [apple]']), ['apple'])
-  // [all] leaves out mac: it is built only when named (EXPLICIT_ONLY).
-  assert.deepEqual(platformListOf(['[all]']), ['desktop', 'apple', 'android'])
-  assert.deepEqual(platformListOf(['[all] [mac]']), ['desktop', 'mac', 'apple', 'android'])
+  // [all] leaves out mac and android: they are built only when named (EXPLICIT_ONLY).
+  assert.deepEqual(platformListOf(['[all]']), ['desktop', 'apple'])
+  assert.deepEqual(platformListOf(['[all] [mac]']), ['desktop', 'mac', 'apple'])
+  assert.deepEqual(platformListOf(['[all, android]']), ['desktop', 'apple', 'android'])
   assert.deepEqual(platformListOf(['[Desktop]', 'and [apple]']), ['desktop', 'apple'])
   assert.deepEqual(platformListOf(['[BETA] [mac]']), ['mac'])
   assert.equal(platformListOf(['[BETA]', '[WIP] desktop', '[desktop, wip]']), null)
@@ -40,7 +41,8 @@ test('platformsFromFiles maps folders to apps, and docs or CI to nothing', () =>
   // apple/ builds iOS and tvOS; the native Mac app waits to be named.
   assert.deepEqual(platformsFromFiles(['apple/App/Sources/X.swift']), ['apple'])
   assert.deepEqual(platformsFromFiles(['apple/App/Mac/MacRootView.swift', 'renderer.js']), ['desktop', 'apple'])
-  assert.deepEqual(platformsFromFiles(['renderer.js', 'android/app/build.gradle']), ['desktop', 'android'])
+  // So does the Android app.
+  assert.deepEqual(platformsFromFiles(['renderer.js', 'android/app/build.gradle']), ['desktop'])
   assert.deepEqual(platformsFromFiles(['README.md', 'CHANGELOG.md', 'docs/plan.md', '.github/workflows/build.yml', 'LICENSE']), [])
   assert.deepEqual(platformsFromFiles(['src/core/queue.ts']), ['desktop'])
   assert.deepEqual(platformsFromFiles(['assets/icon.png']), ['desktop'])
@@ -165,6 +167,20 @@ test('mac is built only when named: not by a lone marker, [all] or apple/ change
   assert.deepEqual(stable(['Release (x.x.X)'], ['apple/App/Mac/X.swift']).platforms, ['apple'])
   assert.deepEqual(stable(['Release (x.x.X) [desktop, mac]']).platforms, ['desktop', 'mac'])
   assert.deepEqual(stable(['Release (x.x.X) [all, mac]']).platforms, ['desktop', 'mac', 'apple'])
+})
+
+test('android is built only when named: not by a lone marker, [all], android/ changes or a manual "all"', () => {
+  const all = ['desktop', 'apple', 'android'] as const
+  const stable = (messages: string[], files: string[] = []) => planRelease(base({ messages, files, available: [...all] }))
+  assert.deepEqual(stable(['Release (x.x.X)']).platforms, ['desktop', 'apple'])
+  assert.deepEqual(stable(['Release (x.x.X) [all]']).platforms, ['desktop', 'apple'])
+  // Android changes alone are not "no app files", so they do not release everything else.
+  assert.equal(stable(['Release (x.x.X)'], ['android/app/build.gradle.kts']).mode, 'none')
+  assert.equal(stable(['Fix a thing'], ['android/app/build.gradle.kts']).mode, 'none')
+  assert.deepEqual(stable(['Release (x.x.X) [android]']).platforms, ['android'])
+  const d = (dispatch: PlanInput['dispatch']) => planRelease(base({ event: 'workflow_dispatch', branch: 'dev', available: [...all], dispatch }))
+  assert.deepEqual(d({ platforms: 'all' }).platforms, ['desktop', 'apple'])
+  assert.deepEqual(d({ platforms: 'android' }).platforms, ['android'])
 })
 
 test('versionsFor carries each Mac build over on its own', () => {
