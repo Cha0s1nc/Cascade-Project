@@ -933,11 +933,11 @@ public final class PlaybackService {
             } else if let preload, preload.parked, preload.index == index,
                       preload.itemId == queue.items[index].id {
                 // Crossfade was on but never started (a seek past its start,
-                // or too little left): the parked track follows straight on.
-                player.removeAllItems()
-                player.insert(preload.playerItem, after: nil)
-                player.play()
-                handOver(to: preload)
+                // too little left, or a next track slow to get going): the
+                // parked track follows straight on, on the deck it belongs to.
+                endCrossfade()
+                _ = startOnOtherDeck(preload)
+                crossOver(to: preload, fade: nil)
             } else {
                 queue.index = index
                 await load(queue.items[index])
@@ -1058,9 +1058,11 @@ public final class PlaybackService {
         // load() fallback both expect the finished item to still be there.
         player.actionAtItemEnd = .pause
         clearCrossfadeObserver()
+        cancelWarmup()
         guard let preload else { return }
         self.preload = nil
-        if !preload.parked { player.remove(preload.playerItem) }
+        // A parked item may be on the other deck from a warm-up.
+        if preload.parked { otherDeck.remove(preload.playerItem) } else { player.remove(preload.playerItem) }
         abandon(preload.stream)
     }
 
@@ -1091,6 +1093,8 @@ public final class PlaybackService {
     @ObservationIgnored private var fadeIn: Float = 1
     @ObservationIgnored private var fadeOut: Float = 1
     @ObservationIgnored private var fadeTask: Task<Void, Never>?
+    /// Waiting for the next track to start playing before its fade begins.
+    @ObservationIgnored private var warmup: Task<Void, Never>?
     @ObservationIgnored private var crossfadeObserver: (deck: AVQueuePlayer, token: Any)?
 
     private func clearCrossfadeObserver() {
@@ -1121,33 +1125,92 @@ public final class PlaybackService {
         crossfadeObserver = (player, token)
     }
 
+    /// Starts the parked track, silent, on the other deck, and fades once it
+    /// is really playing. The parked item has only loaded its duration, not
+    /// any audio: a fade clocked from play() ran on over silence while it
+    /// buffered, and the song came in late and already loud (the desktop's
+    /// _waitForPlayable).
     private func beginCrossfade() {
         clearCrossfadeObserver()
-        guard crossfadeSeconds > 0, !isPaused, tail == nil, let next = preload, next.parked,
-              let outgoing = currentPlayerItem, let resolved else { return }
+        guard crossfadeSeconds > 0, !isPaused, tail == nil, warmup == nil, let next = preload, next.parked,
+              let outgoing = currentPlayerItem, resolved != nil else { return }
         let remaining = outgoing.duration.seconds - player.currentTime().seconds
         // Too little left: the parked track follows at the end instead.
-        guard let fade = Crossfade.duration(configured: crossfadeSeconds, remaining: remaining) else { return }
-        debugLog("crossfade \(String(format: "%.1f", fade)) s into #\(next.index + 1)")
+        guard Crossfade.duration(configured: crossfadeSeconds, remaining: remaining) != nil else { return }
 
+        let incoming = startOnOtherDeck(next)
+        warmup = Task { [weak self] in
+            let started = ContinuousClock.now
+            while incoming.timeControlStatus != .playing {
+                // Bounded, so a stream that never gets going cannot hold the
+                // fade forever. It stays parked and follows at the end.
+                guard started.duration(to: .now) < .seconds(4) else {
+                    debugLog("crossfade: #\(next.index + 1) not playing after 4 s, follows at the end")
+                    self?.cancelWarmup()
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(20))
+                if Task.isCancelled { return }
+            }
+            debugLog("crossfade: #\(next.index + 1) playing after \(started.duration(to: .now))")
+            guard let self else { return }
+            self.warmup = nil
+            // The wait came out of what is left of this track: fade for what
+            // remains now, or cut over when that is too little.
+            let remaining = (self.currentPlayerItem?.duration.seconds ?? 0) - self.player.currentTime().seconds
+            self.crossOver(to: next, fade: Crossfade.duration(configured: self.crossfadeSeconds, remaining: remaining))
+        }
+    }
+
+    /// The other deck with the parked track playing on it, at no volume. An
+    /// AVPlayerItem belongs to the first player it joins, for good, so the
+    /// parked one only ever plays on this deck (a warm-up may have left it here).
+    private func startOnOtherDeck(_ next: Preload) -> AVQueuePlayer {
+        let deck = otherDeck
+        if deck.items().first !== next.playerItem {
+            deck.removeAllItems()
+            deck.insert(next.playerItem, after: nil)
+        }
+        deck.actionAtItemEnd = .pause
+        deck.isMuted = isMuted
+        deck.volume = 0
+        deck.play()
+        return deck
+    }
+
+    /// Stops a warm-up that has not become a fade. Its item stays on the
+    /// other deck, back at its start.
+    private func cancelWarmup() {
+        guard let warmup else { return }
+        warmup.cancel()
+        self.warmup = nil
+        otherDeck.pause()
+        if otherDeck.currentTime() > .zero { otherDeck.seek(to: .zero) }
+    }
+
+    /// Swaps the decks onto the parked track, already playing on the other
+    /// one, and fades across `fade` seconds, or cuts straight over when nil.
+    private func crossOver(to next: Preload, fade: Double?) {
+        guard let outgoing = currentPlayerItem, let resolved else { return }
+        debugLog(fade.map { "crossfade \(String(format: "%.1f", $0)) s into #\(next.index + 1)" } ?? "cut over to #\(next.index + 1)")
         let incoming = otherDeck
-        incoming.removeAllItems()
-        incoming.insert(next.playerItem, after: nil)
-        incoming.actionAtItemEnd = .pause
-        incoming.isMuted = isMuted
         tail = (player, outgoing, resolved, normalizationVolume)
         otherDeck = player
         player = incoming
         fadeIn = 0
         fadeOut = 1
         applyVolumes()
-        player.play()
         // The handover's stopped report still reads the old stream from
         // `resolved`, then adopts the new one; the tail's transcode, if any,
         // is abandoned when the tail stops.
         let outgoingArt = item.map { $0.albumId ?? $0.id }
         lastAutoAdvance = Date()
         handOver(to: next)
+        guard let fade else {
+            endCrossfade()
+            scheduleCrossfade()
+            return
+        }
         let incomingArt = item.map { $0.albumId ?? $0.id }
         if let outgoingArt, let incomingArt, outgoingArt != incomingArt {
             crossfadeArt = CrossfadeArt(outgoing: outgoingArt, incoming: incomingArt, started: Date(), duration: fade)
@@ -1177,6 +1240,7 @@ public final class PlaybackService {
     /// Stops the tail and puts the playing deck at full level. Also how a
     /// fade is cut short.
     private func endCrossfade() {
+        cancelWarmup()
         fadeTask?.cancel()
         fadeTask = nil
         if crossfadeArt != nil, crossfadeArt?.cutAt == nil { crossfadeArt?.cutAt = Date() }
@@ -1485,7 +1549,7 @@ public final class PlaybackService {
         lines.append("deck A (current): \(status(player))")
         lines.append("deck B: \(status(otherDeck))")
         if crossfadeSeconds > 0 {
-            lines.append("crossfade: \(Int(crossfadeSeconds)) s" + (tail == nil ? ", idle" : String(format: ", fading (in %.2f, out %.2f)", fadeIn, fadeOut)))
+            lines.append("crossfade: \(Int(crossfadeSeconds)) s" + (tail == nil ? (warmup != nil ? ", waiting for the next track to play" : ", idle") : String(format: ", fading (in %.2f, out %.2f)", fadeIn, fadeOut)))
         } else {
             lines.append("crossfade: off (gapless)")
         }
