@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- The secrets file holds ciphertext sealed by a Keystore key that never
-     leaves this device, so a restored copy could never be opened: leave it out. -->
+     leaves this device, so a restored copy could never be opened: leave it out.
+     The device id is per install: a restored phone must not share the old one's. -->
 <full-backup-content>
     <exclude domain="sharedpref" path="cascade.secure.xml" />
+    <exclude domain="sharedpref" path="cascade.device.xml" />
 </full-backup-content>

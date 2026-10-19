@@ -30,11 +30,15 @@ fun interface StreamResolver {
 
 /**
  * A playlist entry whose stream URL is only known once the server has been
- * asked (POST /Items/{id}/PlaybackInfo). ExoPlayer prepares the next entry of
- * its playlist shortly before the current one ends, so the resolve for the
- * next track happens then, under the streaming quality in force at that
- * moment, and the handover stays gapless: the counterpart of the iPhone's
- * syncPreload, done by the player itself.
+ * asked (POST /Items/{id}/PlaybackInfo). With lazy preparation (on in
+ * PlaybackEngine) the player wraps each entry in a MaskingMediaSource that
+ * only prepares this source once a period is created for it: the playing
+ * entry, and the next one once the current has buffered to its end (with the
+ * default load control, up to about 50 s before the end of a long track, at
+ * once for a short one). So a 200-song queue resolves one or two entries,
+ * each under the streaming quality in force at that moment, and the handover
+ * stays gapless: the counterpart of the iPhone's syncPreload, done by the
+ * player itself.
  *
  * Until the answer arrives the source publishes no timeline (the player's
  * masking source shows a placeholder for it). Then it builds the real child:

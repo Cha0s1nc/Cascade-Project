@@ -76,6 +76,9 @@ data class PlayerUiState(
 /** Artwork in the session's metadata goes by this scheme, never by a URL carrying the token. */
 const val ART_SCHEME = "cascade-art"
 
+/** Which playlist entry this is: mediaItemFor's tag, which the resolved child keeps (buildUpon carries it). */
+private val MediaItem.entry: Any get() = localConfiguration?.tag ?: mediaId
+
 /**
  * The one player, for the whole app: an ExoPlayer whose playlist IS the queue,
  * so gapless playback, the notification's transport, headset buttons and
@@ -99,27 +102,38 @@ class PlaybackEngine(private val context: Context, private val app: AppState) {
 
     @Volatile private var client: JellyfinClient? = null
 
-    /** Each entry's latest resolve, for its reports. Keyed by item id. */
-    private val resolutions = ConcurrentHashMap<String, CompletableDeferred<ResolvedStream>>()
+    /**
+     * Each entry's latest resolve, for its reports. Keyed by playlist entry,
+     * not item id: the same track twice in the queue has two play sessions.
+     */
+    private val resolutions = ConcurrentHashMap<Any, CompletableDeferred<ResolvedStream>>()
     /** The same, once answered, for reports that must not wait. */
-    private val resolved = ConcurrentHashMap<String, ResolvedStream>()
+    private val resolved = ConcurrentHashMap<Any, ResolvedStream>()
+
+    /** Tags each playlist entry made by mediaItemFor, so two rows of one track stay apart. */
+    private var nextEntry = 0L
 
     /** What this device decodes, asked once: the profile claims nothing else. */
     val baseProfile: DeviceProfile by lazy { DeviceProfile.android(::hasDecoder) }
 
     private val resolver = StreamResolver { item ->
         val c = client ?: throw IOException("Signed out")
+        val entry = item.entry
         val deferred = CompletableDeferred<ResolvedStream>()
-        resolutions[item.mediaId]?.let { if (!it.isCompleted) it.cancel() }
-        resolutions[item.mediaId] = deferred
+        resolutions[entry]?.let { if (!it.isCompleted) it.cancel() }
+        resolutions[entry] = deferred
         val stream = resolveStream(c, item.mediaId, currentProfile())
-        resolved[item.mediaId] = stream
+        resolved[entry] = stream
         deferred.complete(stream)
         stream
     }
 
     val player: ExoPlayer = ExoPlayer.Builder(context)
         .setMediaSourceFactory(ResolvingMediaSource.Factory(resolver, OkHttpDataSource.Factory(app.http), io))
+        // Load-bearing (and the default): each entry's source, and so its
+        // PlaybackInfo, is only prepared once the player creates a period for
+        // it. Off, every row of the queue would be resolved at once.
+        .setUseLazyPreparation(true)
         .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
         .setHandleAudioBecomingNoisy(true)
         .setWakeMode(C.WAKE_MODE_NETWORK)
@@ -133,7 +147,7 @@ class PlaybackEngine(private val context: Context, private val app: AppState) {
         set(value) = _state.update { it.copy(queue = value) }
 
     /** The entry whose start report went out and whose stopped report has not. */
-    private data class Started(val itemId: String, val serial: Long)
+    private data class Started(val itemId: String, val entry: Any, val serial: Long)
     private var started: Started? = null
     private var serial = 0L
     private var consecutiveErrors = 0
@@ -159,8 +173,8 @@ class PlaybackEngine(private val context: Context, private val app: AppState) {
                 val leftEntry = reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION ||
                     (reason != Player.DISCONTINUITY_REASON_REMOVE && oldPosition.mediaItemIndex != newPosition.mediaItemIndex)
                 if (leftEntry) {
-                    val id = oldPosition.mediaItem?.mediaId
-                    if (id != null && started?.itemId == id) reportStopped(id, oldPosition.positionMs)
+                    val s = started
+                    if (s != null && oldPosition.mediaItem?.entry == s.entry) reportStopped(s, oldPosition.positionMs)
                 } else if (reason == Player.DISCONTINUITY_REASON_SEEK) {
                     reportProgress()
                 }
@@ -183,7 +197,7 @@ class PlaybackEngine(private val context: Context, private val app: AppState) {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 _state.update { it.copy(buffering = playbackState == Player.STATE_BUFFERING, durationMs = duration()) }
                 if (playbackState == Player.STATE_ENDED) {
-                    started?.let { reportStopped(it.itemId, player.duration.coerceAtLeast(0)) }
+                    started?.let { reportStopped(it, player.duration.coerceAtLeast(0)) }
                 }
             }
 
@@ -194,7 +208,7 @@ class PlaybackEngine(private val context: Context, private val app: AppState) {
 
             override fun onPlayerError(error: PlaybackException) {
                 _state.update { it.copy(error = error.message ?: "Playback failed") }
-                started?.let { reportStopped(it.itemId, player.currentPosition) }
+                started?.let { reportStopped(it, player.currentPosition) }
                 // One bad file must not stop the whole queue, but a server that
                 // is gone must not race through it either.
                 consecutiveErrors++
@@ -242,6 +256,7 @@ class PlaybackEngine(private val context: Context, private val app: AppState) {
     fun mediaItemFor(item: JfItem): MediaItem = MediaItem.Builder()
         .setMediaId(item.id)
         .setUri("cascade://item/${item.id}")
+        .setTag(nextEntry++)
         .setMediaMetadata(MediaMetadata.Builder()
             .setTitle(item.name)
             .setArtist(item.artistLine)
@@ -398,7 +413,7 @@ class PlaybackEngine(private val context: Context, private val app: AppState) {
 
     /** Finish the playing entry's reporting before the queue is replaced. */
     private fun endCurrentEntry() {
-        started?.let { reportStopped(it.itemId, player.currentPosition) }
+        started?.let { reportStopped(it, player.currentPosition) }
     }
 
     // MARK: - Reporting
@@ -413,20 +428,21 @@ class PlaybackEngine(private val context: Context, private val app: AppState) {
         playMethod = stream?.playMethod ?: xyz.chaosinc.cascade.core.PlayMethod.DirectPlay,
     )
 
-    private suspend fun streamFor(itemId: String): ResolvedStream? =
-        resolutions[itemId]?.let { withTimeoutOrNull(20_000) { runCatching { it.await() }.getOrNull() } }
+    private suspend fun streamFor(entry: Any): ResolvedStream? =
+        resolutions[entry]?.let { withTimeoutOrNull(20_000) { runCatching { it.await() }.getOrNull() } }
 
     /** True when a start report went out now. */
     private fun reportStartIfNeeded(): Boolean {
         val item = player.currentMediaItem ?: return false
-        if (started?.serial == serial && started?.itemId == item.mediaId) return false
+        val entry = item.entry
+        if (started?.serial == serial && started?.entry == entry) return false
         val id = item.mediaId
-        started = Started(id, serial)
+        started = Started(id, entry, serial)
         val position = player.currentPosition
         val c = client ?: return true
         reports.trySend {
             // Waits for this entry's resolve, so the report carries its play session.
-            val stream = streamFor(id)
+            val stream = streamFor(entry)
             PlaybackReporter.start(c, withContext(Dispatchers.Main) { snapshot(id, position, stream) })
         }
         return true
@@ -435,15 +451,15 @@ class PlaybackEngine(private val context: Context, private val app: AppState) {
     private fun reportProgress() {
         val s = started ?: return
         val c = client ?: return
-        val snap = snapshot(s.itemId, player.currentPosition, resolved[s.itemId])
+        val snap = snapshot(s.itemId, player.currentPosition, resolved[s.entry])
         reports.trySend { PlaybackReporter.progress(c, snap) }
     }
 
-    private fun reportStopped(itemId: String, positionMs: Long) {
+    private fun reportStopped(s: Started, positionMs: Long) {
         started = null
         val c = client ?: return
-        val stream = resolved[itemId]
-        val snap = snapshot(itemId, positionMs, stream)
+        val stream = resolved[s.entry]
+        val snap = snapshot(s.itemId, positionMs, stream)
         reports.trySend {
             PlaybackReporter.stopped(c, snap)
             // A transcode left behind keeps the server's encoder running.

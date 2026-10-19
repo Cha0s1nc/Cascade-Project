@@ -12,6 +12,8 @@ import java.util.UUID
  */
 class Settings(context: Context) {
     val prefs: SharedPreferences = context.getSharedPreferences("cascade", Context.MODE_PRIVATE)
+    /** Kept out of backup and device transfer (res/xml), so a restored phone gets its own id. */
+    private val devicePrefs: SharedPreferences = context.getSharedPreferences("cascade.device", Context.MODE_PRIVATE)
 
     fun string(key: String): String? = prefs.getString(key, null)
     fun putString(key: String, value: String?) = prefs.edit().apply { if (value == null) remove(key) else putString(key, value) }.apply()
@@ -33,10 +35,12 @@ class Settings(context: Context) {
     /**
      * Unique per install. A constant would make every Cascade look like the
      * same device to the server, so remote control could not target one of
-     * them and two installs would collide in the session list.
+     * them and two installs would collide in the session list. A restored
+     * or transferred backup must not carry it either, for the same reason.
      */
     val deviceId: String
-        get() = string(DEVICE_ID) ?: UUID.randomUUID().toString().also { putString(DEVICE_ID, it) }
+        get() = devicePrefs.getString(DEVICE_ID, null)
+            ?: UUID.randomUUID().toString().also { devicePrefs.edit().putString(DEVICE_ID, it).apply() }
 
     companion object {
         const val DEVICE_ID = "cascade.deviceId"
