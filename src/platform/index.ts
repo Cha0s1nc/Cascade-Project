@@ -308,6 +308,17 @@ export interface DesktopCapabilities {
     onEvent(cb: (event: { type: 'progress'; done: number; total: number } | { type: 'changed'; version: number; reason: 'scan' | 'profile' | 'playlist' }) => void): void
   }
 
+  /** SpicyLyrics asked from the app with the person's own key, for when the
+   *  Cascade Server plugin cannot (spicy-client.js). */
+  spicy?: {
+    /** The answer as SpicyLyrics sent it, with the Spotify id that matched,
+     *  or null. Only for the song playing: never a library crawl. */
+    lyrics(q: { itemId: string; title: string; artist: string; album: string; durationSec: number; spotifyId?: string | null }): Promise<{ raw: unknown; spotifyId: string } | null>
+    status(): Promise<{ hasKey: boolean }>
+    /** A public key (sl_pk_...), or null to forget it. */
+    setKey(key: string | null): Promise<{ ok: boolean; error?: string }>
+  }
+
   checkForUpdates?(): Promise<UpdateCheckResult>
   /** Whether this is a Mac that can run the native app (Apple Silicon). */
   canTryNativeMac?(): Promise<boolean>
@@ -417,6 +428,7 @@ export interface ElectronPlatform extends Platform, DesktopCapabilities {
   connection: NonNullable<DesktopCapabilities['connection']>
   offline: NonNullable<DesktopCapabilities['offline']>
   local: NonNullable<DesktopCapabilities['local']>
+  spicy: NonNullable<DesktopCapabilities['spicy']>
   checkForUpdates: NonNullable<DesktopCapabilities['checkForUpdates']>
   canTryNativeMac: NonNullable<DesktopCapabilities['canTryNativeMac']>
   tryNativeMac: NonNullable<DesktopCapabilities['tryNativeMac']>

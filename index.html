@@ -1313,6 +1313,23 @@
                     <option value="cascade-synced" class="lsd-server-only" style="display:none">Synced Only</option>
                   </select>
                 </div>
+                <!-- SpicyLyrics without the plugin (spicy-client.js): Local mode,
+                     or a server without Cascade Server. -->
+                <div class="setting-row" id="s-spicy-key-row" style="align-items:flex-start">
+                  <div class="setting-label">
+                    <span class="setting-name">Spicy Lyrics key</span>
+                    <span class="setting-desc">Word-synced lyrics with background vocals and duets, for Local mode or a server without the Cascade Server plugin (with it, the server's key is used). Make an app in the Spicy Lyrics dashboard with the no-origin option on, and paste its public key (sl_pk_…). For the song playing only, its title, artist and album go to ListenBrainz to find it on Spotify, and that Spotify id to Spicy Lyrics.</span>
+                    <span class="setting-desc" id="s-spicy-key-status"></span>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;flex-shrink:0">
+                    <input class="setting-input" id="s-spicy-key" type="password" placeholder="sl_pk_…" autocomplete="off" spellcheck="false" style="width:220px">
+                    <div style="display:flex;gap:6px">
+                      <button class="btn btn-secondary" id="s-spicy-key-docs" type="button">Spicy Lyrics docs</button>
+                      <button class="btn btn-secondary" id="s-spicy-key-clear" type="button" hidden>Remove</button>
+                      <button class="btn btn-secondary" id="s-spicy-key-save" type="button">Save key</button>
+                    </div>
+                  </div>
+                </div>
                 <div class="setting-row">
                   <div class="setting-label">
                     <span class="setting-name">Lyric Translation</span>

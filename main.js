@@ -36,6 +36,9 @@ const { createOffline } = require('./offline')
 // src/core/local-scan.ts; the walk, the tags and the protocol in local-library.js.
 const LocalScan = require('./build/local-scan')
 const { createLocalLibrary } = require('./local-library')
+// SpicyLyrics without the plugin, with the person's own key (spicy-client.js).
+const SpicyLyrics = require('./build/spicy-lyrics')
+const { createSpicyClient } = require('./spicy-client')
 const crypto = require('crypto')
 const { pathToFileURL } = require('url')
 const Store = require('electron-store')
@@ -691,14 +694,15 @@ ipcMain.on('set-window-buttons-visible', (_e, visible) => {
 ipcMain.handle('store-get', (_e, key) => store.get(key))
 ipcMain.handle('store-set', (_e, key, value) => {
   // Local mode's folder is set only from its own picker (local-library.js):
-  // every file it serves is resolved under it.
-  if (key === 'localLibraryRoot') return
+  // every file it serves is resolved under it. The SpicyLyrics key only
+  // through spicy-set-key, which checks it is a public one.
+  if (key === 'localLibraryRoot' || key === 'spicyLyricsKey') return
   // The server URL decides where custom headers go, so keep it in step.
   if (key === 'serverUrl') connectionServerUrl = typeof value === 'string' ? value : null
   return store.set(key, value)
 })
 ipcMain.handle('store-delete', (_e, key) => {
-  if (key === 'localLibraryRoot') return
+  if (key === 'localLibraryRoot' || key === 'spicyLyricsKey') return
   if (key === 'serverUrl') connectionServerUrl = null
   return store.delete(key)
 })
@@ -785,6 +789,8 @@ const localLibrary = createLocalLibrary({
   Offline: OfflineIndex,
 })
 localLibrary.register()
+
+createSpicyClient({ app, ipcMain, net, store, Spicy: SpicyLyrics }).register()
 
 // A client certificate. Electron can only answer with one from the operating
 // system's certificate store (a .p12 file cannot be handed to it), so the

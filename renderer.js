@@ -3348,7 +3348,7 @@ document.getElementById('btn-edit-playlist').addEventListener('click', async () 
   try {
     const it = await jfGet(`/Items/${currentPlaylistId}`, { Fields: 'Overview' })
     if (it.CanDelete === false) {
-      showNotice('You do not have permission to edit this playlist.', 'Playlist')
+      showNotice(isLocalMode() ? LOCAL_M3U_READ_ONLY : 'You do not have permission to edit this playlist.', 'Playlist')
       return
     }
     plCurrentIsPublic = !!it.IsPublic
@@ -3773,6 +3773,8 @@ function wirePlaylistRowDrag(rowsEl, items) {
         })
         if (!res.ok) throw new Error(res.status)
       } catch (err) {
+        // An .m3u in Local mode is never written: put its own order back.
+        if (isLocalMode() && err?.message === '403') { showNotice(LOCAL_M3U_READ_ONLY, 'Playlist'); refreshPlaylistDetail(); return }
         showNotice('Could not save the new playlist order. It may still be reordered on this device only.', 'Playlist')
       }
     })
@@ -8773,6 +8775,8 @@ function isLocalMode() {
   return _offlineState === 'local'
 }
 
+const LOCAL_M3U_READ_ONLY = 'This playlist is an .m3u file in your folder. Cascade plays it but never changes the file.'
+
 /** A playlist the folder's catalog holds (an .m3u or one made in Cascade). */
 function isLocalPlaylist(id) {
   return isLocalMode() && !!id && !!_offlineCatalog?.collections.some(c => c.item.Type === 'Playlist' && c.item.Id === id)
@@ -8893,9 +8897,7 @@ async function localServerWrite(input, init = {}) {
   if (!op) throw new CascadeCore.OfflineError('Not available in Local mode')
   const result = await window.cascade.local.playlist(op)
   if (!result?.ok) {
-    return new Response(result?.readOnly
-      ? 'This playlist is an .m3u file in your folder. Cascade plays it but never changes the file.'
-      : 'Cascade could not change that playlist.', { status: result?.readOnly ? 403 : 400 })
+    return new Response(result?.readOnly ? LOCAL_M3U_READ_ONLY : 'Cascade could not change that playlist.', { status: result?.readOnly ? 403 : 400 })
   }
   await refreshLocal()
   if (op.kind === 'create') return new Response(JSON.stringify({ Id: result.id }), { status: 200, headers: { 'content-type': 'application/json' } })
@@ -12123,6 +12125,44 @@ let _cascadePluginProbed = Promise.resolve()
 let _cascadePluginCaps = new Set()
 let _spotifyLinkServerWide = true
 
+// ── SpicyLyrics from the app ─────────────────────────────────────────────────
+// For when the plugin cannot ask (docs/local-mode-plan.md, section 6): Local
+// mode always, a Jellyfin server without the plugin otherwise. The main
+// process asks with the person's own public key (spicy-client.js); a server
+// with the plugin keeps asking through it, key or no key here.
+let _spicyKeySet = false
+window.cascade.spicy.status().then(s => { _spicyKeySet = !!s?.hasKey; renderSpicyKeyStatus() }).catch(() => {})
+
+function spicyFromApp() {
+  return _spicyKeySet && (isLocalMode() || _cascadePluginAbsent)
+}
+
+function renderSpicyKeyStatus(message, isError = false) {
+  const el = document.getElementById('s-spicy-key-status')
+  if (!el) return
+  el.textContent = message || (_spicyKeySet ? 'A key is saved on this computer.' : 'No key saved.')
+  el.style.color = isError ? 'var(--red)' : ''
+  document.getElementById('s-spicy-key-clear').hidden = !_spicyKeySet
+}
+
+async function saveSpicyKey(value) {
+  const result = await window.cascade.spicy.setKey(value).catch(() => ({ ok: false, error: 'Could not save the key.' }))
+  if (!result.ok) { renderSpicyKeyStatus(result.error, true); return }
+  _spicyKeySet = value !== null
+  const input = /** @type {HTMLInputElement} */ (document.getElementById('s-spicy-key'))
+  input.value = ''
+  renderSpicyKeyStatus(_spicyKeySet ? 'Saved. Songs you play now ask Spicy Lyrics first.' : 'Key removed.')
+  // What was found without it (or with it) is stale now.
+  _lyricsCache.clear()
+}
+
+document.getElementById('s-spicy-key-save').addEventListener('click', () => {
+  const value = /** @type {HTMLInputElement} */ (document.getElementById('s-spicy-key')).value.trim()
+  if (value) saveSpicyKey(value)
+})
+document.getElementById('s-spicy-key-clear').addEventListener('click', () => saveSpicyKey(null))
+document.getElementById('s-spicy-key-docs').addEventListener('click', () => window.cascade.shell.openExternal('https://developers.spicylyrics.org/docs'))
+
 /** Full URL of the plugin's lyrics GET/POST route for an item. */
 function cascadeLyricsUrl(itemId) {
   return `${jf.url}/${CascadeCore.cascadeLyricsPath(_cascadePluginApi, itemId)}`
@@ -13279,10 +13319,13 @@ function fetchLyricsWaterfall(item) {
   if (isVideoItem(item)) return Promise.resolve(null)
   const forced = lyricsForcedSource && lyricsForcedSource !== 'auto'
   if (forced || _lyricsCache.has(item.Id)) return _lyricsWaterfall(item)
-  let pending = _lyricsInflight.get(item.Id)
+  // A look ahead at the next song skips SpicyLyrics from the app (see
+  // spicyFromApp), so the song playing must not wait on that look's answer.
+  const key = spicyFromApp() && item.Id === queue[queueIndex]?.Id ? `${item.Id}:spicy` : item.Id
+  let pending = _lyricsInflight.get(key)
   if (!pending) {
-    pending = _lyricsWaterfall(item).finally(() => _lyricsInflight.delete(item.Id))
-    _lyricsInflight.set(item.Id, pending)
+    pending = _lyricsWaterfall(item).finally(() => _lyricsInflight.delete(key))
+    _lyricsInflight.set(key, pending)
   }
   return pending
 }
@@ -13457,8 +13500,23 @@ async function _lyricsWaterfall(item) {
   // tracks will not have one. spicyOnly stops the plugin there on a miss
   // instead of reading its files, or fetching Kugou and LRCLIB live, for an
   // answer this ignores. A plugin older than the flag ignores it.
+  // Without the plugin (Local mode, or a server without it), SpicyLyrics comes
+  // from the app with the person's own key, and only for the song playing:
+  // the terms allow fetching on play, never a crawl, and a look ahead at the
+  // next songs or a download's lyrics is not a play. Such an answer is not
+  // cached here, so the song asks again once it plays.
+  const spicySkipped = spicyFromApp() && item.Id !== queue[queueIndex]?.Id
   const spicyProm = (async () => {
     await _cascadePluginProbed
+    if (spicyFromApp()) {
+      if (spicySkipped) return null
+      const found = await window.cascade.spicy.lyrics({
+        itemId: item.Id, title: item.Name || '', artist: item.Artists?.[0] || item.AlbumArtist || '', album: item.Album || '',
+        durationSec: (item.RunTimeTicks || 0) / 10_000_000, spotifyId: _localSpotifyLinks[item.Id] || null,
+      })
+      const conv = found ? CascadeCore.convertSpicyLyrics(found.raw) : null
+      return conv ? { lines: conv.lines, source: conv.credit.provider, credit: conv.credit } : null
+    }
     if (_cascadePluginAbsent || !_cascadePluginCaps.has('syllable')) return null
     const r = await jfFetch(`${cascadeLyricsUrl(item.Id)}?syllable=true&spicyOnly=true${_localSpotifyParam(item.Id)}`, { headers: CascadeCore.authHeaders(jf), ...sig })
     if (!r.ok) return null
@@ -13495,7 +13553,7 @@ async function _lyricsWaterfall(item) {
   if (winner) {
     _lastFetchStatus = tried
     const out = { ...winner, tried }
-    _cachePut(item.Id, out)
+    if (!spicySkipped) _cachePut(item.Id, out)
     return out
   }
 
@@ -13507,7 +13565,7 @@ async function _lyricsWaterfall(item) {
   // whole waterfall, per track, forever. A forced source still bypasses the
   // cache above, and _reloadLyricsFor() stays the escape hatch if a source was
   // merely down rather than actually missing the track.
-  if (!forced) _cachePut(item.Id, null)
+  if (!forced && !spicySkipped) _cachePut(item.Id, null)
   return null
 }
 

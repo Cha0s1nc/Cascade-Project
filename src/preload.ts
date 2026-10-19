@@ -66,6 +66,11 @@ const cascade: ElectronPlatform = {
     lyrics:       (itemId) => ipcRenderer.invoke('local-lyrics', itemId),
     onEvent:      (cb) => { ipcRenderer.on('local-event', (_e, event) => cb(event)) },
   },
+  spicy: {
+    lyrics: (q) => ipcRenderer.invoke('spicy-lyrics', q),
+    status: () => ipcRenderer.invoke('spicy-status'),
+    setKey: (key) => ipcRenderer.invoke('spicy-set-key', key),
+  },
   clipboard: {
     write: (text) => ipcRenderer.invoke('clipboard-write', text),
     read:  () => ipcRenderer.invoke('clipboard-read'),
