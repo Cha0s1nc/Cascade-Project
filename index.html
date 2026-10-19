@@ -289,7 +289,7 @@
       <div class="nav-spacer"></div>
       <!-- The download manager, in both modes, just above Settings
            (docs/offline-mode-plan.md, section 7). -->
-      <div class="nav-item" data-view="downloads">
+      <div class="nav-item not-local" data-view="downloads">
         <div class="nav-bar"></div>
         <div class="nav-icon">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -634,7 +634,7 @@
             <div style="display:flex;gap:8px;align-items:center">
               <!-- One entry point for both kinds: the modal it opens has a
                    Normal / Smart switch (see openNewPlaylistModal). -->
-              <button class="shuffle-all-btn needs-server" id="btn-new-playlist">
+              <button class="shuffle-all-btn needs-server local-ok" id="btn-new-playlist">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                 New Playlist
               </button>
@@ -688,7 +688,7 @@
                    has nothing on the server to point at. -->
               <button class="shuffle-all-btn" id="btn-save-as-playlist" style="display:none">Save as a Playlist</button>
               <button class="shuffle-all-btn" id="btn-offline-playlist" type="button"></button>
-              <button class="shuffle-all-btn needs-server" id="btn-edit-playlist">Edit</button>
+              <button class="shuffle-all-btn needs-server local-ok" id="btn-edit-playlist">Edit</button>
               <button class="shuffle-all-btn" id="btn-shuffle-playlist">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
                 Shuffle
@@ -873,9 +873,36 @@
         <div class="settings-view">
           <div class="settings-panes">
             <section class="settings-section active" id="section-library" role="tabpanel" aria-labelledby="sn-library">
+              <!-- Local mode's folder (local-library.js). Shown only in Local mode. -->
+              <div class="settings-group local-only" id="s-local-group">
+                <div class="sg-title">Local library</div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Folder</span>
+                    <span class="setting-desc" id="s-local-path"></span>
+                    <span class="setting-desc" id="s-local-status"></span>
+                  </div>
+                  <div style="display:flex;gap:8px;flex-shrink:0">
+                    <button class="btn btn-secondary" id="s-local-rescan" type="button">Rescan</button>
+                    <button class="btn btn-secondary" id="s-local-change" type="button">Change folder</button>
+                  </div>
+                </div>
+                <!-- Files Chromium cannot play as they are: listed, never indexed,
+                     since a URL that cannot load sits at readyState 0 with no error. -->
+                <div class="setting-row" id="s-local-unplayable-row" style="align-items:flex-start;display:none">
+                  <div class="setting-label" style="min-width:0">
+                    <span class="setting-name">Can't play these without ffmpeg</span>
+                    <span class="setting-desc">Cascade plays what this computer decodes as it is. These need converting first (ALAC, HEVC in MKV, DTS and the like), which Local mode can't do yet.</span>
+                    <details class="local-unplayable">
+                      <summary id="s-local-unplayable-summary"></summary>
+                      <ul id="s-local-unplayable"></ul>
+                    </details>
+                  </div>
+                </div>
+              </div>
               <div class="settings-group" id="s-library-group">
                 <div class="sg-title">Library</div>
-                <div class="setting-row" id="s-offline-row">
+                <div class="setting-row not-local" id="s-offline-row">
                   <div class="setting-label">
                     <span class="setting-name">Offline Mode</span>
                     <span class="setting-desc">Show only what is downloaded and send nothing to your server. Stays on until you turn it off.</span>
@@ -907,7 +934,7 @@
                 <!-- Kept separate from the music picker on purpose: these ids are
                      never mixed into a music query, so browsing albums does not fan
                      out across a movie library. -->
-                <div class="setting-row" id="s-video-library-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;display:none;">
+                <div class="setting-row not-local" id="s-video-library-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;display:none;">
                   <div class="setting-label">
                     <span class="setting-name">Movie &amp; TV libraries</span>
                     <span class="setting-desc">Off by default. Turn one on to show Movies and TV Shows in the sidebar.</span>
@@ -932,7 +959,7 @@
                 <!-- Scan talks to the server and only an admin account may call it;
                      Refresh app is purely local and works for anyone. Kept as two
                      separate rows so which is which is never ambiguous. -->
-                <div class="setting-row">
+                <div class="setting-row not-local">
                   <div class="setting-label">
                     <span class="setting-name">Scan library on server</span>
                     <span class="setting-desc">Looks for files added or removed outside Jellyfin. Runs in the background - results show up once it finishes, not right away.</span>
@@ -942,7 +969,8 @@
                 <div class="setting-row">
                   <div class="setting-label">
                     <span class="setting-name">Refresh app</span>
-                    <span class="setting-desc">Reloads songs, albums, artists, playlists, movies, shows and Home from what the server has now. Works for any account.</span>
+                    <span class="setting-desc not-local">Reloads songs, albums, artists, playlists, movies, shows and Home from what the server has now. Works for any account.</span>
+                    <span class="setting-desc local-only">Redraws songs, albums, artists, playlists, movies, shows and Home from the last scan. Rescan, above, looks at the folder again.</span>
                   </div>
                   <button class="btn btn-secondary" id="s-refresh-local">Refresh now</button>
                 </div>
@@ -1273,7 +1301,8 @@
                 <div class="setting-row" id="lyrics-source-row">
                   <div class="setting-label">
                     <span class="setting-name">Lyrics Source</span>
-                    <span class="setting-desc">Preferred source. Auto tries each in order: Kugou → LRCLIB → Jellyfin.</span>
+                    <span class="setting-desc not-local">Preferred source. Auto tries each in order: Kugou → LRCLIB → Jellyfin.</span>
+                    <span class="setting-desc local-only">Preferred source. Auto tries each in order: Kugou → LRCLIB → your files (an .lrc beside the song, or lyrics in its tags).</span>
                   </div>
                   <select class="setting-input" id="s-lyrics-source">
                     <option value="auto">Auto (waterfall)</option>
@@ -1366,7 +1395,27 @@
               </div>
             </section>
             <section class="settings-section" id="section-account" role="tabpanel" aria-labelledby="sn-account">
+              <!-- Which kind of library: a Jellyfin server, or a folder (Local
+                   mode). Switching starts the app again on the other one; the
+                   two never mix. -->
               <div class="settings-group">
+                <div class="sg-title">Library source</div>
+                <div class="setting-row not-local">
+                  <div class="setting-label">
+                    <span class="setting-name">Use a folder on this computer</span>
+                    <span class="setting-desc">Play a folder of music and videos with no server. Your Jellyfin sign-in stays saved for switching back.</span>
+                  </div>
+                  <button class="btn btn-secondary" id="s-mode-local" type="button">Use a folder</button>
+                </div>
+                <div class="setting-row local-only">
+                  <div class="setting-label">
+                    <span class="setting-name">Jellyfin server</span>
+                    <span class="setting-desc">Cascade is playing a folder on this computer. Switch to sign in to a Jellyfin server instead, or back to the one you used before.</span>
+                  </div>
+                  <button class="btn btn-secondary" id="s-mode-jellyfin" type="button">Switch to Jellyfin</button>
+                </div>
+              </div>
+              <div class="settings-group not-local">
                 <div class="sg-title">Account</div>
                 <!-- Shown, not edited, as on the Mac: a different server or account
                      is Sign out, then the sign-in screen. -->
@@ -1404,7 +1453,7 @@
                    account. Greyed out (same disabled+data-tip pattern as the
                    admin-only server scan above) when the server itself has
                    Quick Connect switched off - see _applyQuickConnectGating(). -->
-              <div class="settings-group">
+              <div class="settings-group not-local">
                 <div class="sg-title">Quick Connect</div>
                 <div class="setting-row">
                   <div class="setting-label">
@@ -1420,7 +1469,7 @@
                   <span class="setting-desc" id="qc-approve-status"></span>
                 </div>
               </div>
-              <div class="settings-actions">
+              <div class="settings-actions not-local">
                 <span class="save-status" id="save-status">Saved ✓</span>
                 <button class="btn btn-danger" id="btn-logout">Sign out</button>
               </div>
@@ -1550,6 +1599,10 @@
     <p class="setup-disclaimer" id="setup-disclaimer" hidden></p>
     <!-- Shown only once we know the server actually offers Quick Connect. -->
     <button class="setup-btn setup-btn-alt" id="setup-quickconnect" style="display:none">Sign in with a code instead</button>
+    <!-- Local mode (docs/local-mode-plan.md): no server, a folder on this computer. -->
+    <div class="setup-or" aria-hidden="true"><span>or</span></div>
+    <button class="setup-btn setup-btn-alt" id="setup-local" type="button">Use a folder on this computer</button>
+    <p class="setup-local-hint">Play music and videos straight from a folder, with no Jellyfin server.</p>
     <div class="setup-loading" id="setup-loading">
       <div class="setup-spinner"></div>
       <span class="setup-loading-text" id="setup-loading-text">Connecting…</span>
@@ -1911,7 +1964,7 @@
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>Sleep timer
   </div>
   <div class="ctx-sep"></div>
-  <div class="ctx-item music-only needs-server" id="ctx-add-playlist">
+  <div class="ctx-item music-only needs-server local-ok" id="ctx-add-playlist">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add to playlist
   </div>
   <div class="ctx-item needs-server" id="ctx-download">
@@ -1977,7 +2030,7 @@
   <div class="ctx-item needs-server" id="tctx-instant-mix">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/></svg>Instant mix
   </div>
-  <div class="ctx-item needs-server" id="tctx-add-playlist">
+  <div class="ctx-item needs-server local-ok" id="tctx-add-playlist">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add to playlist
   </div>
   <div class="ctx-sep"></div>
@@ -2011,7 +2064,7 @@
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>Edit lyrics
   </div>
   <div class="ctx-sep tctx-pl-only hidden"></div>
-  <div class="ctx-item danger tctx-pl-only hidden needs-server" id="tctx-pl-remove">
+  <div class="ctx-item danger tctx-pl-only hidden needs-server local-ok" id="tctx-pl-remove">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>Remove from playlist
   </div>
   <div class="ctx-sep"></div>
@@ -2139,7 +2192,8 @@
 <div id="lyrics-source-dropdown" class="lyrics-source-dropdown">
   <div class="lsd-item" data-source="auto">
     <span class="lsd-icon">⚡</span>Auto
-    <span class="lsd-hint" id="lsd-auto-hint">Kugou → LRCLIB → Jellyfin</span>
+    <span class="lsd-hint not-local" id="lsd-auto-hint">Kugou → LRCLIB → Jellyfin</span>
+    <span class="lsd-hint local-only">Kugou → LRCLIB → your files</span>
   </div>
   <div class="lsd-sep lsd-non-server"></div>
   <div class="lsd-item lsd-non-server" data-source="Kugou">
@@ -2151,8 +2205,9 @@
     <span class="lsd-hint">Line-synced</span>
   </div>
   <div class="lsd-item lsd-non-server" data-source="Jellyfin">
-    <span class="lsd-icon">◎</span>Jellyfin
-    <span class="lsd-hint">Server-side</span>
+    <span class="lsd-icon">◎</span><span class="not-local">Jellyfin</span><span class="local-only">Your files</span>
+    <span class="lsd-hint not-local">Server-side</span>
+    <span class="lsd-hint local-only">.lrc or tags</span>
   </div>
   <div class="lsd-item lsd-server-only" data-source="cascade-karaoke" style="display:none">
     <span class="lsd-icon">✦</span>Karaoke Only

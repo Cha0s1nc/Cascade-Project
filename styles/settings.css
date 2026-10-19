@@ -121,6 +121,16 @@ textarea.setting-input { resize: vertical; min-height: 56px; font-family: var(--
 .setup-btn:hover { opacity: 0.88; }
 .setup-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .setup-btn-alt { background: var(--surface2); color: var(--text); margin-top: 8px; }
+/* "or", then Local mode's choice under the sign-in form. */
+.setup-or { display: flex; align-items: center; gap: 10px; margin: 18px 0 10px; color: var(--text3); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+.setup-or::before, .setup-or::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.setup-local-hint { font-size: 11px; color: var(--text3); margin-top: 6px; line-height: 1.5; text-align: center; }
+/* Settings > Library: the files Local mode cannot play. */
+.local-unplayable { margin-top: 6px; font-size: 11px; color: var(--text3); }
+.local-unplayable summary { cursor: pointer; color: var(--text2); }
+.local-unplayable ul { margin: 6px 0 0; padding-left: 16px; max-height: 220px; overflow-y: auto; }
+.local-unplayable li { margin-bottom: 4px; word-break: break-all; }
+.local-unplayable li span { display: block; color: var(--text3); word-break: normal; }
 .setup-qc { padding: 8px 0 4px; text-align: center; }
 .setup-qc-code { font-size: 34px; font-weight: 700; letter-spacing: 7px; color: var(--text); margin: 6px 0 10px; font-variant-numeric: tabular-nums; }
 .setup-qc-hint { font-size: 12px; color: var(--text3); line-height: 1.5; margin: 0 0 12px; }

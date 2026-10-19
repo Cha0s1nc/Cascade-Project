@@ -274,7 +274,7 @@ function createLocalLibrary({ app, ipcMain, protocol, dialog, nativeImage, store
     scanning = run
     run.finally(() => {
       if (scanning === run) scanning = null
-      emit({ type: 'changed', version })
+      emit({ type: 'changed', version, reason: 'scan' })
     })
     return run
   }
@@ -611,7 +611,8 @@ function createLocalLibrary({ app, ipcMain, protocol, dialog, nativeImage, store
 
   const newPlaylistId = () => require('crypto').randomUUID().replace(/-/g, '')
 
-  /** Every playlist operation the renderer can ask for, checked. A playlist
+  /** Every playlist operation the renderer can ask for (local-writes.ts
+   *  playlistOpFor), checked again here: IPC input is not trusted. A playlist
    *  from an .m3u file is the file's: Cascade never writes into the folder. */
   function playlistOp(op) {
     if (!op || typeof op !== 'object') return { ok: false }
@@ -626,20 +627,21 @@ function createLocalLibrary({ app, ipcMain, protocol, dialog, nativeImage, store
     const p = state.playlists.find(x => x.Id === op.id)
     if (!p) return { ok: false, readOnly: !!catalog?.index.collections.some(c => c.item.Id === op.id) }
     switch (op.kind) {
-      case 'add': p.trackIds = [...p.trackIds, ...ids(op.ids)].slice(0, Local.MAX_PLAYLIST_ENTRIES); break
-      // By position, so one of two copies of a track can go.
-      case 'remove': {
-        const drop = new Set(Array.isArray(op.positions) ? op.positions.filter(Number.isInteger) : [])
-        p.trackIds = p.trackIds.filter((_, i) => !drop.has(i))
+      case 'add': case 'removeIds':
+        p.trackIds = Local.applyPlaylistOp(p.trackIds, { kind: op.kind, id: p.Id, ids: ids(op.ids) }, Local.MAX_PLAYLIST_ENTRIES)
         break
-      }
+      // A rename alone sends no ids, and must leave the entries as they are.
       case 'set':
-        if (name) p.Name = name
         if (Array.isArray(op.ids)) p.trackIds = ids(op.ids)
+        break
+      case 'move':
+        if (!Offline.isSafeId(op.entryId) || !Number.isInteger(op.to) || op.to < 0) return { ok: false }
+        p.trackIds = Local.applyPlaylistOp(p.trackIds, { kind: 'move', id: p.Id, entryId: op.entryId, to: op.to }, Local.MAX_PLAYLIST_ENTRIES)
         break
       case 'delete': state.playlists = state.playlists.filter(x => x !== p); break
       default: return { ok: false }
     }
+    if (op.kind === 'set' && name) p.Name = name
     return { ok: true, id: p.Id }
   }
 
@@ -690,7 +692,7 @@ function createLocalLibrary({ app, ipcMain, protocol, dialog, nativeImage, store
     ipcMain.handle('local-set-profile', async (_e, p) => {
       const before = JSON.stringify(profile)
       takeProfile(p)
-      if (catalog && JSON.stringify(profile) !== before) { await rebuild(); emit({ type: 'changed', version }) }
+      if (catalog && JSON.stringify(profile) !== before) { await rebuild(); emit({ type: 'changed', version, reason: 'profile' }) }
     })
     // A favorite, a play, a position or a played mark. Answers the item's
     // user data as kept, which the renderer writes into its own copy.
@@ -709,7 +711,8 @@ function createLocalLibrary({ app, ipcMain, protocol, dialog, nativeImage, store
       if (!result.ok) return result
       saveUser()
       setCatalog(build())
-      emit({ type: 'changed', version })
+      // The renderer that asked fetches the new catalog itself.
+      emit({ type: 'changed', version, reason: 'playlist' })
       return result
     })
     ipcMain.handle('local-lyrics', (_e, id) => lyricsFor(id))

@@ -16,6 +16,8 @@ import type { DeviceProfile } from '../core/playback.ts'
 import type { DownloadOutcome } from '../core/offline-video.ts'
 import type { LyricLine } from '../core/lyrics.ts'
 import type { SpicyCredit } from '../core/spicy-lyrics.ts'
+import type { LocalChange, LocalUserData } from '../core/local-user-data.ts'
+import type { LocalPlaylistOp } from '../core/local-writes.ts'
 
 /** What the main process tells the renderer about offline downloads. */
 export interface OfflineSummary {
@@ -37,6 +39,31 @@ export interface OfflineSummary {
   /** User data changes waiting to be sent. */
   changes: number
   limitBytes: number | null
+}
+
+/** Local mode's folder (local-library.js), in the downloads' summary shape
+ *  so playback, art and subtitles read it unchanged. */
+export interface LocalSummary extends OfflineSummary {
+  /** Where art is served from: cascade-local://local/art/. */
+  artBase: string
+  local: {
+    /** Bumped when the catalog changed: fetch it again then. */
+    version: number
+    /** The folder as picked, or null before one is. */
+    root: string | null
+    scanning: boolean
+    /** Files read for tags in the running scan, of how many need it. */
+    progress: { done: number; total: number }
+    /** When the last scan finished (ISO 8601), or null this launch. */
+    lastScan: string | null
+    /** 'missing': the folder could not be opened (a drive not plugged in). */
+    error: string | null
+    /** False when the tag reader could not load: names come from folders. */
+    tagsReadable: boolean
+    counts: { songs: number; movies: number; episodes: number }
+    /** Files this machine cannot play as they are, and why. */
+    unplayable: { rel: string; reason: string }[]
+  }
 }
 
 /** One transfer: bytes so far, the length if the server sent one, and for a
@@ -259,6 +286,28 @@ export interface DesktopCapabilities {
     setMode(state: OfflineState): Promise<void>
   }
 
+  /** Local mode: a folder on this computer as the library (local-library.js). */
+  local?: {
+    /** Loads the last scan and starts a new one in the background. The
+     *  device profile decides what is listed as playable. */
+    start(profile: DeviceProfile): Promise<LocalSummary>
+    summary(): Promise<LocalSummary>
+    /** The whole catalog, for the query engine. */
+    catalog(): Promise<OfflineIndex | null>
+    rescan(): Promise<LocalSummary>
+    /** The OS folder picker. The folder is saved in main; start() again to
+     *  read it. */
+    chooseFolder(): Promise<{ ok: boolean; root?: string; canceled?: boolean; error?: string }>
+    setProfile(profile: DeviceProfile): Promise<void>
+    /** Answers the item's user data as kept, or null when refused. */
+    change(itemId: string, change: LocalChange): Promise<LocalUserData | null>
+    /** `readOnly`: an .m3u file's playlist, which Cascade never writes. */
+    playlist(op: LocalPlaylistOp): Promise<{ ok: boolean; id?: string; readOnly?: boolean }>
+    /** A song's own lyrics: its .lrc, else those in its tags. */
+    lyrics(itemId: string): Promise<{ text: string; synced: boolean } | null>
+    onEvent(cb: (event: { type: 'progress'; done: number; total: number } | { type: 'changed'; version: number; reason: 'scan' | 'profile' | 'playlist' }) => void): void
+  }
+
   checkForUpdates?(): Promise<UpdateCheckResult>
   /** Whether this is a Mac that can run the native app (Apple Silicon). */
   canTryNativeMac?(): Promise<boolean>
@@ -367,6 +416,7 @@ export interface ElectronPlatform extends Platform, DesktopCapabilities {
   download: NonNullable<DesktopCapabilities['download']>
   connection: NonNullable<DesktopCapabilities['connection']>
   offline: NonNullable<DesktopCapabilities['offline']>
+  local: NonNullable<DesktopCapabilities['local']>
   checkForUpdates: NonNullable<DesktopCapabilities['checkForUpdates']>
   canTryNativeMac: NonNullable<DesktopCapabilities['canTryNativeMac']>
   tryNativeMac: NonNullable<DesktopCapabilities['tryNativeMac']>

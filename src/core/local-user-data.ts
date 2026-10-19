@@ -10,6 +10,9 @@
 import type { JfItem } from './types.ts'
 import { type OfflineIndex, isSafeId } from './offline-index.ts'
 
+/** The user Local mode signs in as: there is nobody else. */
+export const LOCAL_USER_ID = 'local'
+
 /** What the person did with an item. */
 export interface LocalUserData {
   IsFavorite?: boolean

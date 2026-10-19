@@ -150,3 +150,19 @@ test('offline, only rows that need no server stay', () => {
   assert.equal(video.markPlayed, true, 'queued too')
   assert.deepEqual(menuItemsForKind('album', { offline: false }), menuItemsForKind('album'))
 })
+
+test('in Local mode playlists are Cascade\'s own, and nothing downloads', () => {
+  for (const kind of ['album', 'artist', 'playlist', 'smart-playlist', 'user-smart-playlist', 'video', 'series'] as const) {
+    const rows = menuItemsForKind(kind, { local: true, offline: true, isPlayed: false })
+    assert.equal(rows.instantMix, false, kind)
+    assert.equal(rows.download, false, kind)
+    assert.equal(rows.offline, false, kind)
+    assert.equal(rows.refreshMeta, false, kind)
+    assert.equal(rows.editMeta, false, kind)
+    assert.equal(rows.addPlaylist, menuItemsForKind(kind).addPlaylist, kind)
+  }
+  const playlist = menuItemsForKind('playlist', { local: true, offline: true })
+  assert.equal(playlist.rename, true)
+  assert.equal(playlist.deleteItem, true)
+  assert.equal(menuItemsForKind('video', { local: true, offline: true, isPlayed: false }).markPlayed, true)
+})

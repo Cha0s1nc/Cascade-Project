@@ -12,10 +12,11 @@ import { createHash } from 'node:crypto'
 import type { JfItem, JfMediaStream, JfNameId } from './types.ts'
 import type { DeviceProfile } from './playback.ts'
 import { ELECTRON_PROFILE } from './profiles/electron.ts'
-import type { LocalUserData } from './local-user-data.ts'
+import { type LocalUserData, LOCAL_USER_ID } from './local-user-data.ts'
 // The main process reads one bundle (build/local-scan.js), so the user data
 // rules the renderer shares come along.
 export { applyLocalChange, parseLocalChange, parseUserData, setLocalUserData, type LocalChange, type LocalUserData } from './local-user-data.ts'
+export { applyPlaylistOp, type LocalPlaylistOp } from './local-writes.ts'
 import {
   type OfflineIndex, type OfflineSubtitle, emptyIndex, addCollection, markReady, setLibraries, setSubtitles, setUser, isSafeId,
 } from './offline-index.ts'
@@ -52,8 +53,7 @@ export const LOCAL_LIBRARIES = {
   tvshows: { Id: 'cascade-local-shows', Name: 'TV Shows', CollectionType: 'tvshows' },
 } as const
 
-/** The user Local mode signs in as: there is nobody else. */
-export const LOCAL_USER_ID = 'local'
+export { LOCAL_USER_ID }
 
 // ── What a file is ───────────────────────────────────────────────────────────
 
@@ -841,7 +841,8 @@ export function buildCatalog(input: LocalBuildInput): LocalCatalog {
     const items = ids.map(trackItem).filter((x): x is JfItem => !!x)
     if (!items.length) continue
     const pid = playlistFileId(p.rel)
-    addCollection(index, { Id: pid, Name: cleanName(baseOf(p.rel)), Type: 'Playlist', ChildCount: items.length, ...ud(pid) }, items)
+    // CanDelete false: the file is the person's, so Cascade offers no editing.
+    addCollection(index, { Id: pid, Name: words(baseOf(p.rel)), Type: 'Playlist', ChildCount: items.length, CanDelete: false, ...ud(pid) }, items)
   }
   for (const p of input.playlists) {
     const items = p.trackIds.map(trackItem).filter((x): x is JfItem => !!x)
