@@ -26,3 +26,8 @@ test('the guard refuses while offline', () => {
   const src = readFileSync(new URL('../renderer.js', import.meta.url), 'utf8')
   assert.match(src, /const jfFetch = \(input, init\) => jfClient\.offline\s*\n\s*\? Promise\.reject\(new CascadeCore\.OfflineError\(\)\)/)
 })
+
+test('the web guard refuses only while Offline Mode is on, not in Local mode', () => {
+  const src = readFileSync(new URL('../renderer.js', import.meta.url), 'utf8')
+  assert.match(src, /const webFetch = \(input, init\) => CascadeCore\.blocksWeb\(_offlineState\)\s*\n\s*\? Promise\.reject\(new CascadeCore\.OfflineError\(\)\)/)
+})

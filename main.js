@@ -741,7 +741,7 @@ ipcMain.handle('connection-set', (_e, serverUrl, headers, persist = true) => {
 })
 
 ipcMain.handle('offline-mode', (_e, state) => {
-  if (state !== 'online' && state !== 'manual' && state !== 'unreachable') return
+  if (!OfflineMode.isOfflineState(state)) return
   const before = offlineState
   offlineState = state
   // Back online: the check that was skipped (or any, since an update may have

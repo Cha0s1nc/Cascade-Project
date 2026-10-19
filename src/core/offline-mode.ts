@@ -7,10 +7,16 @@
 //   off, whatever the network does.
 // - 'unreachable': the server stopped answering. Probed again on a backoff and
 //   on a network change; left by itself when it answers.
+// - 'local': Local mode (docs/local-mode-plan.md): no server at all, the
+//   library is a folder on this computer. Offline as far as the screens go
+//   (the reads answer from a catalog, server features hide), but the rest of
+//   the web is there: lyrics, artwork, translation models, update checks.
+//   Entered and left only by choosing a mode, never by the network.
 //
-// The Apple app's OfflineMode.swift is the same rules.
+// The Apple app's OfflineMode.swift is the same rules for the first three;
+// Local mode is desktop only, so it has no Swift counterpart.
 
-export type OfflineState = 'online' | 'manual' | 'unreachable'
+export type OfflineState = 'online' | 'manual' | 'unreachable' | 'local'
 
 export type OfflineEvent =
   | { type: 'switch', on: boolean }
@@ -23,6 +29,8 @@ export type OfflineEvent =
  *  turning it off goes back online, and the next request finds out whether
  *  the server is really there. */
 export function nextOfflineState(state: OfflineState, event: OfflineEvent): OfflineState {
+  // There is no server to switch away from or to lose.
+  if (state === 'local') return state
   switch (event.type) {
     case 'switch': return event.on ? 'manual' : state === 'manual' ? 'online' : state
     case 'unreachable': return state === 'online' ? 'unreachable' : state
@@ -55,8 +63,17 @@ export function failureKind(status: number | null | undefined): 'unreachable' | 
  *  manual switch: in the unreachable state the probe has to get through. */
 export const blocksServer = (state: OfflineState): boolean => state === 'manual'
 
+/** Whether requests to other services (LRCLIB, iTunes, MusicBrainz) wait too.
+ *  Offline Mode sends nothing anywhere; Local mode has no server but is
+ *  online, so its lyrics and artwork lookups go out. */
+export const blocksWeb = (state: OfflineState): boolean => state === 'manual' || state === 'unreachable'
+
 /** Update checks wait while offline, and one runs as soon as the app is back
  *  online (plan, section 4). */
-export const checksUpdates = (state: OfflineState): boolean => state === 'online'
+export const checksUpdates = (state: OfflineState): boolean => state === 'online' || state === 'local'
 export const updateCheckDue = (before: OfflineState, after: OfflineState): boolean =>
-  before !== 'online' && after === 'online'
+  !checksUpdates(before) && checksUpdates(after)
+
+/** Every state, for checking what crosses IPC. */
+export const isOfflineState = (v: unknown): v is OfflineState =>
+  v === 'online' || v === 'manual' || v === 'unreachable' || v === 'local'

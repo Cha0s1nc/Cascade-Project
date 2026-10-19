@@ -21,8 +21,9 @@ let _restoredResume = null   // { sec } while a restored queue's track waits for
 let _offline = { ready: {}, art: new Set(), collections: [], totalBytes: 0, active: [], failed: {}, plays: 0, playsHeld: false, changes: 0, limitBytes: null }
 /** Offline Mode: 'online', 'manual' (the Settings switch) or 'unreachable'
  *  (turned on by itself). See the section "Offline Mode" and
- *  src/core/offline-mode.ts. */
-/** @type {'online' | 'manual' | 'unreachable'} */
+ *  src/core/offline-mode.ts. 'local' is Local mode, a folder on this computer
+ *  instead of a server (section "Local mode"). */
+/** @type {'online' | 'manual' | 'unreachable' | 'local'} */
 let _offlineState = 'online'
 /** Live bytes per track being downloaded, from the main process's progress events. */
 const _offlineProgress = new Map()
@@ -782,13 +783,20 @@ const jfGet  = (path, params = {}) => jfClient.get(path, params)
 // the server's origin while the switch is on; this is what keeps the
 // unreachable state quiet too, and what callers catch. test/offline-guard
 // fails on a new raw fetch( in this file.
+//
+// They part ways in Local mode (docs/local-mode-plan.md): there is no server,
+// so jfFetch refuses, but the web is there, so webFetch goes out
+// (CascadeCore.blocksWeb).
 /** @type {(input: string, init?: RequestInit) => Promise<Response>} */
 const jfFetch = (input, init) => jfClient.offline
   ? Promise.reject(new CascadeCore.OfflineError())
   // offline-ok: the guard itself.
   : fetch(input, init)
 /** @type {(input: string, init?: RequestInit) => Promise<Response>} */
-const webFetch = jfFetch
+const webFetch = (input, init) => CascadeCore.blocksWeb(_offlineState)
+  ? Promise.reject(new CascadeCore.OfflineError())
+  // offline-ok: the guard itself.
+  : fetch(input, init)
 
 // Items by id, in chunks: past roughly 240 ids the URL outgrows the server's
 // request line limit and Jellyfin answers 414, failing the whole lookup. A
