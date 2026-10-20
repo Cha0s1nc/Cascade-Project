@@ -648,6 +648,8 @@ final class AppState {
     @ObservationIgnored private var probeTask: Task<Void, Never>?
     @ObservationIgnored private var checkingDrop = false
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
+    /// The interfaces the last path had, to tell a network switch from a repeat.
+    @ObservationIgnored private var lastRoute: String?
 
     /// The Settings switch. Stays on across launches until turned off.
     func setOfflineSwitch(_ on: Bool) async {
@@ -800,15 +802,26 @@ final class AppState {
     }
 
     /// A network change: lost, it may be a drop; back, the server is asked
-    /// at once rather than at the next probe.
+    /// at once rather than at the next probe. A switch while still up (Wi-Fi to
+    /// Ethernet or cellular, a VPN reconnecting) can leave a stream hanging on
+    /// the old network, so once the server answers on the new one a stalled song
+    /// restarts where it was. The server's own ping is the test, not a public
+    /// host: a LAN server can answer with no internet, and nothing goes to a
+    /// third party.
     private func watchNetwork() {
         let monitor = NWPathMonitor()
         monitor.pathUpdateHandler = { [weak self] path in
             let up = path.status == .satisfied
+            let route = path.availableInterfaces.map(\.name).joined(separator: ",")
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                let switched = up && self.lastRoute != nil && self.lastRoute != route
+                self.lastRoute = route
                 if up, self.offlineState == .unreachable { await self.probeServer() }
                 if !up, self.offlineState == .online { self.checkForDrop(nil) }
+                if switched, self.offlineState == .online, let client = self.client {
+                    if await client.serverAnswers() { await self.player?.recoverIfStalled() } else { self.checkForDrop(nil) }
+                }
             }
         }
         monitor.start(queue: DispatchQueue(label: "cascade.offline.path"))

@@ -1636,6 +1636,14 @@ public final class PlaybackService {
                           toleranceBefore: .zero, toleranceAfter: .zero)
     }
 
+    /// After a network switch: a song stuck waiting on the old network starts again where it was
+    /// (a station reconnects). A song that is playing or paused is left alone.
+    public func recoverIfStalled() async {
+        guard isStalled, !isPaused, !isLoading, let item, currentPlayerItem != nil else { return }
+        if isRadio { return await loadRadio(item) }
+        await load(item, startTicks: CascadeKit.ticks(fromSeconds: livePositionSeconds))
+    }
+
     private func syncStalled() {
         let waiting = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
         if waiting != isStalled { isStalled = waiting }

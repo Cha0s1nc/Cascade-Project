@@ -8701,6 +8701,26 @@ jfClient.onFailure = (status) => {
 window.addEventListener('offline', checkForDrop)
 window.addEventListener('online', () => { if (_offlineState === 'unreachable') probeServer() })
 
+// A network switch while still online (Wi-Fi to Ethernet, a VPN reconnecting):
+// 'online' never fires for it, and a stream opened on the old network can hang
+// for good. Once the server answers on the new one, a stalled song restarts
+// where it was. The server's own ping is the test rather than a public host
+// like 1.1.1.1: a LAN server can answer with no internet at all, and nothing
+// about a network change goes to a third party.
+let _netChangeTimer = null
+navigator.connection?.addEventListener('change', () => {
+  clearTimeout(_netChangeTimer)
+  // The event comes in bursts while a link settles.
+  _netChangeTimer = setTimeout(async () => {
+    if (_offlineState !== 'online' || !_connectedOnline || blocksLocalPlayback()) return
+    if (!await serverAnswers()) { checkForDrop(); return }
+    const item = queue[queueIndex]
+    if (!item || audio.paused || audio.readyState >= 3) return
+    if (CascadeCore.isRadioItem(item)) playRadioStation(item)
+    else restartStreamAt(mediaPosition(), { renegotiate: true })
+  }, 1500)
+})
+
 /** The pill and the banner show by body class (offline-on, offline-auto);
  *  this keeps their words and the Settings switch in step. */
 function renderOfflineIndicators() {
