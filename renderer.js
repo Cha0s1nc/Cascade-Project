@@ -9679,11 +9679,27 @@ document.addEventListener('keydown', (e) => {
 })
 
 // Lyrics toggle - queue slides left out, lyrics slides right in (and vice versa)
+// overlayLyricsOpen is what the person asked for. A song with no lyrics shows
+// the queue instead (_ovLyricsMissing) and leaves the ask on, so the next song
+// that has lyrics brings them back.
+let _ovLyricsMissing = false
+function _applyOverlayPanels() {
+  const lyrics = overlayLyricsOpen && !_ovLyricsMissing
+  document.getElementById('ov-panel-lyrics').style.transform = lyrics ? 'translateX(0)' : 'translateX(100%)'
+  document.getElementById('ov-panel-queue').style.transform  = lyrics ? 'translateX(-100%)' : 'translateX(0)'
+  const toggle = document.getElementById('ov-lyrics-toggle')
+  toggle.classList.toggle('active', overlayLyricsOpen)
+  toggle.title = overlayLyricsOpen && _ovLyricsMissing ? 'No lyrics for this song. They show again for the next song that has them.' : 'Lyrics'
+}
+function _setOverlayLyricsMissing(missing) {
+  if (_ovLyricsMissing === missing) return
+  _ovLyricsMissing = missing
+  _applyOverlayPanels()
+}
+
 document.getElementById('ov-lyrics-toggle').addEventListener('click', () => {
   overlayLyricsOpen = !overlayLyricsOpen
-  document.getElementById('ov-panel-lyrics').style.transform = overlayLyricsOpen ? 'translateX(0)' : 'translateX(100%)'
-  document.getElementById('ov-panel-queue').style.transform  = overlayLyricsOpen ? 'translateX(-100%)' : 'translateX(0)'
-  document.getElementById('ov-lyrics-toggle').classList.toggle('active', overlayLyricsOpen)
+  _applyOverlayPanels()
   if (overlayLyricsOpen) renderOverlayLyrics()
 })
 
@@ -10410,6 +10426,7 @@ async function renderOverlayLyrics() {
     if (result?.instrumental) {
       _ovDropGhost()
       body.innerHTML = '<div class="lyrics-empty" style="padding:40px 0;text-align:center">This track is instrumental</div>'
+      _setOverlayLyricsMissing(true)
       return
     }
     _showLyricsFetchToast(result)
@@ -10419,6 +10436,7 @@ async function renderOverlayLyrics() {
       updateSourcePills()
       _ovDropGhost()
       body.innerHTML = `<div class="lyrics-empty" style="padding:40px 0;text-align:center">No lyrics available${_linkSpotifyButton()}</div>`
+      _setOverlayLyricsMissing(true)
       return
     }
     lyricsData   = result.lines
@@ -10432,9 +10450,11 @@ async function renderOverlayLyrics() {
   if (!lyricsData.length) {
     _ovDropGhost()
     body.innerHTML = `<div class="lyrics-empty" style="padding:40px 0;text-align:center">No lyrics available${_linkSpotifyButton()}</div>`
+    _setOverlayLyricsMissing(true)
     return
   }
 
+  _setOverlayLyricsMissing(false)
   renderOverlayLyricLines()
   _resetOverlayManualScroll()
   const nowSecRoll = audio.currentTime + _lyricLead

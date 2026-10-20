@@ -62,12 +62,16 @@ struct NowPlayingView: View {
 
     private var artId: String? { player.item?.albumId ?? player.item?.id }
 
+    /// The song has no lyrics (known, not still loading). In lyrics mode the queue shows
+    /// instead, and lyrics mode stays on, so the next song with lyrics shows them.
+    private var lyricsMissing: Bool { lyrics.lines == nil && !lyrics.isLoading }
+
     /// Lyrics are on screen, so the background dims under them.
     private var lyricsShowing: Bool {
         #if os(tvOS)
         lyrics.lines != nil
         #else
-        mode == .lyrics
+        mode == .lyrics && !lyricsMissing
         #endif
     }
     private var isFavorite: Bool { favoriteOverride ?? player.item?.userData?.isFavorite ?? false }
@@ -201,7 +205,7 @@ struct NowPlayingView: View {
                         }
                         .padding(.top, 20)
                         Group {
-                            if mode == .lyrics { lyricsPanel } else { queuePanel }
+                            if lyricsShowing { lyricsPanel } else { queuePanel }
                         }
                         .frame(maxHeight: .infinity)
                         // Slides down and away under the growing artwork, and up
@@ -257,10 +261,10 @@ struct NowPlayingView: View {
         }
         #endif
         // Lyrics mode stays put across skips: the next song's lyrics load in
-        // place, and one without any says so rather than bouncing back to
-        // the artwork.
-        .task(id: "\(mode)|\(controlsWake)") {
-            guard mode == .lyrics else {
+        // place, and one without any shows the queue rather than bouncing back
+        // to the artwork, until a song with lyrics comes along.
+        .task(id: "\(mode)|\(controlsWake)|\(lyricsMissing)") {
+            guard lyricsShowing else {
                 controlsHidden = false
                 controlsWake = 0
                 return
@@ -268,7 +272,7 @@ struct NowPlayingView: View {
             let t = StyleTuning.shared.values
             let idle = controlsWake == 0 ? t.controlsIdleSeconds : t.controlsWokenIdleSeconds
             try? await Task.sleep(for: .seconds(idle))
-            guard !Task.isCancelled, mode == .lyrics else { return }
+            guard !Task.isCancelled, lyricsShowing else { return }
             withAnimation(.easeInOut(duration: 0.35)) { controlsHidden = true }
         }
         .onAppear(perform: updateRouteName)
