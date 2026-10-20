@@ -144,7 +144,8 @@ public final class PlaybackService {
     /// How loud the playing item is right now, 0 to 1, from its audio tap; nil when it has
     /// none (the tap is only attached while the EQ is on, and never just for this). The Mac's
     /// playing-row bars follow it, and fall back to a canned animation on nil.
-    public var tapLevel: Float? { currentTap?.level }
+    /// The playing-row bars from the tap, or nil with no tap attached (the EQ is off).
+    public var tapBars: SIMD8<Float>? { currentTap?.bars }
 
     // MARK: - Internals
 

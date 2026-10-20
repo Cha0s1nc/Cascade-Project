@@ -64,18 +64,13 @@
 .track-row.selected .track-thumb::after { opacity: 1; }
 /* Hide play icon when this row is already playing - show EQ bars instead */
 .track-row.playing .track-thumb::after { opacity: 0 !important; }
-/* EQ bars - now-playing animation */
-.track-eq { position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: center; gap: 2px; padding: 8px 6px 7px; background: rgba(0,0,0,0.5); border-radius: 4px; opacity: 0; pointer-events: none; transition: opacity 0.15s; }
-.track-row.playing .track-thumb .track-eq { opacity: 1; }
-.track-eq i { display: block; width: 3px; height: 14px; border-radius: 1px 1px 0 0; background: white; transform-origin: bottom; animation: eq-bar 0.7s ease-in-out infinite alternate; }
-.track-eq i:nth-child(1) { animation-duration: 0.55s; animation-delay: 0s; }
-.track-eq i:nth-child(2) { animation-duration: 0.75s; animation-delay: -0.25s; }
-.track-eq i:nth-child(3) { animation-duration: 0.6s;  animation-delay: -0.1s; }
-@keyframes eq-bar { from { transform: scaleY(0.25); } to { transform: scaleY(1); } }
-/* Real audio takes over from the CSS animation - see startEqLoop() in renderer.js.
-   The animation stops so it does not fight the transform written each frame; the
-   short transition keeps ~30fps updates from looking steppy. */
-.track-eq.live i { animation: none; transition: transform 0.08s linear; }
+/* EQ bars - drawn only from the real audio (startEqLoop() in renderer.js adds
+   .live while it reads a playing deck). Paused or unreadable shows no bars:
+   there is no placeholder animation. The short transition keeps ~30fps
+   updates from looking steppy. */
+.track-eq { position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: center; gap: 1px; padding: 8px 5px 7px; background: rgba(0,0,0,0.5); border-radius: 4px; opacity: 0; pointer-events: none; transition: opacity 0.15s; }
+.track-row.playing .track-thumb .track-eq.live { opacity: 1; }
+.track-eq i { display: block; width: 2px; height: 14px; border-radius: 1px 1px 0 0; background: white; transform-origin: bottom; transform: scaleY(0.12); transition: transform 0.08s linear; }
 .track-title { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .track-row.playing .track-title { color: #a78bfa; font-weight: 500; }
 .track-artist { font-size: 11px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

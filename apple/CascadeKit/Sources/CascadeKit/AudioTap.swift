@@ -48,11 +48,13 @@ public final class TapContext: @unchecked Sendable {
         history.deallocate()
     }
 
-    /// How loud the last buffer was, 0 to 1, falling away between buffers: the Mac's playing-row
-    /// bars follow it when a tap happens to be attached (the EQ is on). The audio thread only
-    /// try-takes the lock, so a read from the main actor can never make it wait.
-    private let levelStore = OSAllocatedUnfairLock(initialState: Float(0))
-    public var level: Float { levelStore.withLock { $0 } }
+    /// The playing-row bars (PlayingBars), when a tap happens to be attached (the EQ is on).
+    /// Read before the gain, the EQ and the player's volume, so turning the volume down does
+    /// not shrink them. A SIMD value, so the audio thread's write never allocates, and it
+    /// only try-takes the lock, so a read from the main actor can never make it wait.
+    private let barStore = OSAllocatedUnfairLock(initialState: SIMD8<Float>(repeating: PlayingBars.minHeight))
+    public var bars: SIMD8<Float> { barStore.withLock { $0 } }
+    private let spectrum = BarSpectrum()
 
     public func update(profile: EQProfile? = nil, normalization: Float? = nil) {
         settings.withLock {
@@ -102,12 +104,10 @@ public final class TapContext: @unchecked Sendable {
         guard usable else { return }
         refresh()
         let buffers = UnsafeMutableAudioBufferListPointer(list)
-        // Peak of the first channel, before the early return: a flat tap still has a level.
+        // The first channel's spectrum, before the early return: a flat tap still has bars.
         if let first = buffers.first, let data = first.mData?.assumingMemoryBound(to: Float.self) {
-            var peak: Float = 0
-            for n in 0..<min(frames, Int(first.mDataByteSize) / MemoryLayout<Float>.size) { peak = max(peak, abs(data[n])) }
-            let heard = min(1, peak)
-            _ = levelStore.withLockIfAvailable { $0 = max(heard, $0 * 0.85) }
+            let heard = spectrum.measure(data, count: min(frames, Int(first.mDataByteSize) / MemoryLayout<Float>.size))
+            _ = barStore.withLockIfAvailable { $0 = heard }
         }
         if !filtering && gain == 1 { return }
         for (channel, buffer) in buffers.enumerated() where channel < Self.maxChannels {

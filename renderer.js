@@ -148,7 +148,20 @@ function onDeck(type, fn, opts) {
 // times - the crossfade envelope lives entirely in Web Audio gain nodes (see
 // _ensureEqGraph), never on the element, so whichever deck becomes current
 // next already has the right volume with nothing left to sync.
-function setDeckVolume(v) { DECKS.forEach(d => d.volume = v) }
+// Once the Web Audio graph is up, volume is _masterGain, after the analyser,
+// and the elements stay at 1: the element's volume is applied before the tap,
+// so the playing-row bars shrank with the volume knob. volumechange is fired
+// by hand so its listeners still hear about it.
+let _masterGain = null
+function setDeckVolume(v) {
+  if (_masterGain) {
+    _masterGain.gain.value = v
+    DECKS.forEach(d => d.volume = 1)
+    audio.dispatchEvent(new Event('volumechange'))
+  } else {
+    DECKS.forEach(d => d.volume = v)
+  }
+}
 function setDeckMuted(m) { DECKS.forEach(d => d.muted = m) }
 
 /**
@@ -2862,7 +2875,7 @@ document.getElementById('artist-back-btn').addEventListener('click', () => {
 // Shared thumb HTML - includes the EQ bars for the now-playing animation
 function trackThumbHtml(art) {
   const img = art ? `<img src="${art}" alt="" loading="lazy" onerror="this.style.display='none'">` : ''
-  return `<div class="track-thumb">${img}<span class="track-eq"><i></i><i></i><i></i></span></div>`
+  return `<div class="track-thumb">${img}<span class="track-eq">${'<i></i>'.repeat(CascadeCore.EQ_BARS)}</span></div>`
 }
 
 // Shared track-row markup. opts: idxAttr (default 'data-idx'), extraClass, entryId, style.
@@ -6476,7 +6489,7 @@ async function startCrossfade(nextIndex) {
     incoming.src = resolved.url
   }
 
-  incoming.volume = volume   // element volume stays at user volume on both decks always
+  incoming.volume = _masterGain ? 1 : volume   // see setDeckVolume
 
   // Idempotent - already built from the first track's `play` event in the
   // overwhelming majority of cases. Guards against the (never actually
@@ -7041,7 +7054,7 @@ function wireProgressBar(barId) {
 function wireVolumeBar(barId) {
   const bar = document.getElementById(barId)
   wireBar(bar, {
-    getRatio: () => audio.volume,
+    getRatio: () => volume,
     step:     () => 0.05,
     bigStep:  () => 0.2,
     onChange: (ratio) => setVolumeRatio(ratio, bar),
@@ -9014,12 +9027,11 @@ function stopBeatLoop() {
 }
 
 // ── Now-playing equalizer ────────────────────────────────────────────────────
-// Drives the three .track-eq bars from real playback via Web Audio instead of
-// leaving them as a pure CSS loop. eqLevels() (src/core/eq.ts) turns one frame
-// of frequency data into three 0..1 heights - everything here is just wiring:
-// build the graph once, run a throttled rAF loop while something plays, and
-// fall back to the plain CSS animation for the rest of the session if the
-// graph ever produces silence for audio that is actually audible.
+// Drives the .track-eq bars from real playback via Web Audio. eqLevels()
+// (src/core/eq.ts) turns one frame of frequency data into 0..1 heights -
+// everything here is just wiring: build the graph once, run a throttled rAF
+// loop while something plays, and hide the bars for the rest of the session
+// if the graph ever produces silence for audio that is actually audible.
 //
 // Each deck gets its own permanent source + gain node (see _deckSource/
 // _deckGain), both feeding the one shared 5-band EQ stage, then the one
@@ -9130,7 +9142,10 @@ function _ensureEqGraph() {
       _deckNormGainNodes.set(d, normGain)
       _deckGainNodes.set(d, gain)
     })
-    _eqAnalyser.connect(_audioCtx.destination)
+    _masterGain = _audioCtx.createGain()
+    _eqAnalyser.connect(_masterGain)
+    _masterGain.connect(_audioCtx.destination)
+    setDeckVolume(volume)
     _mediaSrc = _deckSource(audio)
     _applyEqToGraph()
     // The graph is built lazily on the first 'play' event (see startEqLoop
@@ -9163,6 +9178,10 @@ function _ensureEqGraph() {
     _eqAnalyser = null
     _eqPreamp = null
     _eqBandNodes = null
+    // The elements are back on the normal output, so they carry the volume again.
+    if (_masterGain) { try { _masterGain.disconnect() } catch {} }
+    _masterGain = null
+    setDeckVolume(volume)
   }
 }
 
@@ -9554,8 +9573,8 @@ function stopEqLoop() {
   // minutes later, so the first frame back reads the whole pause as silence,
   // trips EQ_SILENCE_MS, sets _eqNoSignal and freezes the bars for the session.
   _eqSilentSinceTs = 0
-  // Drop 'live' off whatever currently has it so the CSS animation resumes -
-  // covers both a normal stop and the silence-fallback giving up permanently.
+  // Bars show only while they read real audio: paused, stopped, or a tap that
+  // never produced anything shows no bars at all, not a placeholder loop.
   document.querySelectorAll('.track-eq.live').forEach(el => el.classList.remove('live'))
 }
 
@@ -9571,7 +9590,7 @@ function openOverlay() {
   syncOverlayState()
   renderQueuePanel()
   if (overlayLyricsOpen) renderOverlayLyrics()
-  document.getElementById('ov-vol-fill').style.width = `${audio.volume * 100}%`
+  document.getElementById('ov-vol-fill').style.width = `${volume * 100}%`
 
   // Apply art theme every time the overlay opens - derive the URL from the
   // current queue item directly so we never depend on _currentBgArtUrl being set.
@@ -9977,7 +9996,7 @@ document.addEventListener('keydown', (e) => {
   else if (arrow) skipBy(arrow * ARROW_SECONDS)
   else if (key === 'ArrowUp' || key === 'ArrowDown') {
     nudgeVolume(key === 'ArrowUp' ? 0.05 : -0.05)
-    videoOsd(`Volume ${Math.round(audio.volume * 100)}%`)
+    videoOsd(`Volume ${Math.round(volume * 100)}%`)
   }
   else if (key === 'm') { document.getElementById('btn-mute').click(); videoOsd(audio.muted ? 'Muted' : 'Unmuted') }
   else if (key === 'f') toggleVideoFullscreen()
@@ -10003,7 +10022,7 @@ document.addEventListener('keydown', (e) => {
  *  handler above - setVolumeRatio() does the actual work of keeping both
  *  sliders and the stored setting in step. */
 function nudgeVolume(delta) {
-  setVolumeRatio(audio.volume + delta)
+  setVolumeRatio(volume + delta)
 }
 
 // ── Subtitle picker ──
