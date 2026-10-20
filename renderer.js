@@ -144,25 +144,31 @@ function onDeck(type, fn, opts) {
   DECKS.forEach(d => d.addEventListener(type, e => { if (e.target === audio) fn(e) }, opts))
 }
 
-// Element .volume/.muted must track the user's setting on BOTH decks at all
-// times - the crossfade envelope lives entirely in Web Audio gain nodes (see
-// _ensureEqGraph), never on the element, so whichever deck becomes current
-// next already has the right volume with nothing left to sync.
-// Once the Web Audio graph is up, volume is _masterGain, after the analyser,
-// and the elements stay at 1: the element's volume is applied before the tap,
-// so the playing-row bars shrank with the volume knob. volumechange is fired
-// by hand so its listeners still hear about it.
+// Volume and mute are the same on BOTH decks at all times - the crossfade
+// envelope lives entirely in Web Audio gain nodes (see _ensureEqGraph), never
+// on the element, so whichever deck becomes current next already has the
+// right level with nothing left to sync. Once the graph is up, volume is
+// _masterGain, after the analyser, and the elements stay at 1: an element's
+// volume is applied before the tap, so the playing-row bars shrank with the
+// volume knob. Without a graph (it failed to build) the elements carry it.
+// volumechange is fired by hand so its listeners still hear about a change.
+// Mute goes the same way, so muted playback still has real bars; read it
+// from _muted, not audio.muted.
 let _masterGain = null
+let _muted = false
 function setDeckVolume(v) {
   if (_masterGain) {
-    _masterGain.gain.value = v
-    DECKS.forEach(d => d.volume = 1)
+    _masterGain.gain.value = _muted ? 0 : v
+    DECKS.forEach(d => { d.volume = 1; d.muted = false })
     audio.dispatchEvent(new Event('volumechange'))
   } else {
-    DECKS.forEach(d => d.volume = v)
+    DECKS.forEach(d => { d.volume = v; d.muted = _muted })
   }
 }
-function setDeckMuted(m) { DECKS.forEach(d => d.muted = m) }
+function setDeckMuted(m) {
+  _muted = m
+  setDeckVolume(volume)
+}
 
 /**
  * Sets playback volume to `ratio` (0..1) and keeps everything that depends on it
@@ -1009,7 +1015,7 @@ function startRemoteControl() {
     setVolume(pct)  { applyRemoteVolume(pct / 100) },
     volumeUp()      { applyRemoteVolume(volume + 0.1) },
     volumeDown()    { applyRemoteVolume(volume - 0.1) },
-    toggleMute()    { applyRemoteMute(!audio.muted) },
+    toggleMute()    { applyRemoteMute(!_muted) },
     setMute(muted)  { applyRemoteMute(muted) },
     showMessage(message) { showServerMessage(message) },
   }, playbackIsLocallyOwned)
@@ -6146,7 +6152,7 @@ function playbackSnapshot(itemId, positionTicks) {
     itemId: itemId ?? item?.Id ?? '',
     positionTicks: positionTicks ?? Math.round(mediaPosition() * 10_000_000),
     isPaused: audio.paused,
-    isMuted: audio.muted,
+    isMuted: _muted,
     volumeLevel: Math.round(volume * 100),
     playSessionId: _playSessionId,
     mediaSourceId: _mediaSourceId,
@@ -7089,7 +7095,7 @@ wireProgressBar('prog-bar')
 wireVolumeBar('vol-bar')
 
 document.getElementById('btn-mute').addEventListener('click', () => {
-  setDeckMuted(!audio.muted)
+  setDeckMuted(!_muted)
 })
 
 // Lyrics open button
@@ -8713,9 +8719,13 @@ navigator.connection?.addEventListener('change', () => {
   // The event comes in bursts while a link settles.
   _netChangeTimer = setTimeout(async () => {
     if (_offlineState !== 'online' || !_connectedOnline || blocksLocalPlayback()) return
-    if (!await serverAnswers()) { checkForDrop(); return }
+    // Only for a song that is stuck: Chromium also fires 'change' when its
+    // throughput estimates move during ordinary streaming, and those must
+    // not ping the server over and over.
     const item = queue[queueIndex]
     if (!item || audio.paused || audio.readyState >= 3) return
+    if (!await serverAnswers()) { checkForDrop(); return }
+    if (queue[queueIndex] !== item || audio.paused || audio.readyState >= 3) return
     if (CascadeCore.isRadioItem(item)) playRadioStation(item)
     else restartStreamAt(mediaPosition(), { renegotiate: true })
   }, 1500)
@@ -10058,7 +10068,7 @@ document.addEventListener('keydown', (e) => {
     nudgeVolume(key === 'ArrowUp' ? 0.05 : -0.05)
     videoOsd(`Volume ${Math.round(volume * 100)}%`)
   }
-  else if (key === 'm') { document.getElementById('btn-mute').click(); videoOsd(audio.muted ? 'Muted' : 'Unmuted') }
+  else if (key === 'm') { document.getElementById('btn-mute').click(); videoOsd(_muted ? 'Muted' : 'Unmuted') }
   else if (key === 'f') toggleVideoFullscreen()
   else if (key === 'c') toggleSubtitles()
   else if (key === 's') { if (_activeSegment) skipActiveSegment(); else handled = false }
@@ -15307,7 +15317,7 @@ function debugPanelText() {
     '',
     '── audio diagnosis ──',
     `live peak: ${(() => { const pk = debugLivePeak(); return pk === null ? 'no graph' : `${pk}${pk === 0 && !audio.paused ? '  <- DECODER PRODUCED NOTHING' : ''}` })()}`,
-    `element volume: ${audio.volume.toFixed(2)}   muted: ${audio.muted}`,
+    `volume: ${volume.toFixed(2)}   muted: ${_muted}   via ${_masterGain ? 'gain after the analyser' : 'the element'}`,
     `profile claims decodable: ${decodableVideoAudioCodecs().join(',')}`,
     `withdrawn at runtime: ${[..._undecodableAudioCodecs].join(',') || 'none'}`,
     `decoded audio bytes: ${audio.webkitAudioDecodedByteCount ?? 'n/a'}`,

@@ -35,8 +35,10 @@ private struct ZoomMenuItems: View {
     var body: some View {
         let i = MacZoom.steps.firstIndex { $0 >= zoom - 0.001 } ?? 1
         Divider()
+        // Command-= rather than Command-+: that is the key people press for it (no Shift),
+        // as in Safari.
         Button("Zoom In") { zoom = MacZoom.steps[min(i + 1, MacZoom.steps.count - 1)] }
-            .keyboardShortcut("+", modifiers: .command)
+            .keyboardShortcut("=", modifiers: .command)
             .disabled(i >= MacZoom.steps.count - 1)
         Button("Zoom Out") { zoom = MacZoom.steps[max(i - 1, 0)] }
             .keyboardShortcut("-", modifiers: .command)

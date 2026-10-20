@@ -75,6 +75,7 @@ struct NowPlayingView: View {
         #endif
     }
     private var isFavorite: Bool { favoriteOverride ?? player.item?.userData?.isFavorite ?? false }
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         Group {
@@ -83,6 +84,17 @@ struct NowPlayingView: View {
             #else
             iosBody
                 .newLyricDefaultsPrompt()
+                // Apple Music's grabber: a full-screen cover has no sheet handle, and in
+                // lyrics mode the lyrics' own scrolling can take the swipe down.
+                .overlay(alignment: .top) {
+                    Button { dismiss() } label: {
+                        Capsule().fill(.white.opacity(0.45)).frame(width: 38, height: 5)
+                            .frame(width: 88, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Close Now Playing")
+                }
             #endif
         }
         .background { NowPlayingBackground(itemId: artId, behindLyrics: lyricsShowing) }
