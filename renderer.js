@@ -12283,14 +12283,18 @@ function trailArtSlice(item) {
     layers.push(trail)
   }
   if (!layers.length) return
+  // A push carries the skipped cover in as a copy (.slice-new), part way in
+  // at s. The trailing copy takes over from it where it is, at 2 + s (one
+  // cover width behind the old one), or the cover would jump into place.
+  const pushing = [...document.querySelectorAll('.art-slice .slice-new')].filter(el => el.style.visibility !== 'hidden')
+  const p = slice.anims[0]?.effect?.getComputedTiming().progress
+  const from = pushing.length ? 2 + slice.from + (slice.to - slice.from) * (p ?? 1) : 2
+  for (const el of pushing) el.style.visibility = 'hidden'
   endArtSlice()
-  // A push's incoming copy is the cover now trailing under it; two of the
-  // same cover would show, so the old cover just slides off it instead.
-  for (const el of document.querySelectorAll('.art-slice .slice-new')) el.style.visibility = 'hidden'
   const easeOut = (SLICE_EASINGS[displayPrefs.coverSliceEasing] || SLICE_EASINGS.smooth)[1]
-  // Two units of s, a little slower than the cut's slide-out, so the cut
-  // above (which has at most one unit left) always stays ahead of it.
-  const anims = _animateLayers(layers, 2, 0, displayPrefs.coverSlideOut * 1000 * SLICE_TRAIL, easeOut, 'out')
+  // A little slower than the cut's slide-out, so the cut above (which has at
+  // most one unit of s left against this one's two) always stays ahead of it.
+  const anims = _animateLayers(layers, from, 0, displayPrefs.coverSlideOut * 1000 * SLICE_TRAIL, easeOut, 'out')
   slice.trailAnims.push(...anims)
   slice.running++
   Promise.all(anims.map(x => x.finished.catch(() => {}))).then(() => _sliceSlid(slice))
