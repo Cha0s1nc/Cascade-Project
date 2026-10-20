@@ -49,9 +49,9 @@ struct MetadataEditorView: View {
         HStack(spacing: 12) {
             ArtworkView(itemId: itemId, size: 44)
             VStack(alignment: .leading) {
-                Text(fields.name.isEmpty ? "Loading\u{2026}" : fields.name).font(.headline).lineLimit(1)
+                Text(fields.name.isEmpty ? "Loading\u{2026}" : fields.name).scaledFont(.headline).lineLimit(1)
                 Text([fields.albumArtist, fields.album].filter { !$0.isEmpty }.joined(separator: " - "))
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    .scaledFont(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
         }

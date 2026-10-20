@@ -38,7 +38,7 @@ struct PlayerBar: View {
                     .buttonStyle(.plain)
                     ArtistLink(name: player.item?.albumArtist ?? player.item?.artists?.first ?? "",
                                id: (player.item?.albumArtists?.first ?? player.item?.artistItems?.first)?.id)
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        .scaledFont(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer(minLength: 0)
                 if player.item != nil {
@@ -64,7 +64,7 @@ struct PlayerBar: View {
                     Button { Task { await player.previous() } } label: { Image(systemName: "backward.fill") }
                         .accessibilityLabel("Previous")
                     Button { player.togglePlayPause() } label: {
-                        Image(systemName: player.isPaused ? "play.fill" : "pause.fill").font(.title2)
+                        Image(systemName: player.isPaused ? "play.fill" : "pause.fill").scaledFont(.title2)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(player.isPaused ? "Play" : "Pause")

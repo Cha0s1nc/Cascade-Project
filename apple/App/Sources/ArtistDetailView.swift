@@ -107,7 +107,7 @@ struct ArtistDetailView: View {
             Text("About").font(.title3.bold())
             Text(text)
                 .lineLimit(bioExpanded ? nil : 4)
-                .font(.callout)
+                .scaledFont(.callout)
                 .foregroundStyle(.secondary)
             if text.count > 240 {
                 Button(bioExpanded ? "Less" : "More") { withAnimation { bioExpanded.toggle() } }
@@ -144,7 +144,7 @@ struct ArtistDetailView: View {
                             VStack(spacing: 6) {
                                 ArtworkView(itemId: other.id, size: 110)
                                     .clipShape(Circle())
-                                Text(other.name ?? "").font(.caption).lineLimit(1)
+                                Text(other.name ?? "").scaledFont(.caption).lineLimit(1)
                             }
                             .frame(width: 110)
                         }

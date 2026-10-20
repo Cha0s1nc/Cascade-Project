@@ -71,13 +71,13 @@ struct LyricsEditorView: View {
             ArtworkView(itemId: model.item?.albumId ?? model.item?.id, size: 44).frame(width: 44, height: 44)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             VStack(alignment: .leading, spacing: 2) {
-                Text(model.item?.name ?? "Unknown Track").font(.headline).lineLimit(1)
+                Text(model.item?.name ?? "Unknown Track").scaledFont(.headline).lineLimit(1)
                 Text([model.item?.albumArtist ?? model.item?.artists?.first, model.item?.album].compactMap { $0 }.joined(separator: " - "))
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    .scaledFont(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
             if let status = model.status {
-                Text(status.text).font(.caption).foregroundStyle(status.ok ? .green : .red).lineLimit(1)
+                Text(status.text).scaledFont(.caption).foregroundStyle(status.ok ? .green : .red).lineLimit(1)
             }
             Button { model.toggleStamp() } label: { Label("Stamp Mode", systemImage: "hand.tap") }
                 .disabled(model.lines.isEmpty)
@@ -194,7 +194,7 @@ private struct LineList: View {
         let lineStampNext = model.stampTarget == .line(li)
         return HStack(alignment: .top, spacing: 10) {
             VStack(spacing: 2) {
-                Text("\(li + 1)").font(.caption2).foregroundStyle(.secondary)
+                Text("\(li + 1)").scaledFont(.caption2).foregroundStyle(.secondary)
                 Text(LRCDocument.display(line.start))
                     .font(.caption.monospacedDigit())
                     .padding(.horizontal, 4).padding(.vertical, 1)
@@ -231,7 +231,7 @@ private struct LineList: View {
     }
 
     private func iconButton(_ symbol: String, _ help: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) { Image(systemName: symbol).font(.caption) }
+        Button(action: action) { Image(systemName: symbol).scaledFont(.caption) }
             .buttonStyle(.borderless).help(help).accessibilityLabel(help)
     }
 
@@ -388,7 +388,7 @@ private struct KaraokePreview: View {
         .padding(.horizontal, 12)
     }
 
-    private func hint(_ text: String) -> some View { Text(text).font(.callout).foregroundStyle(.secondary) }
+    private func hint(_ text: String) -> some View { Text(text).scaledFont(.callout).foregroundStyle(.secondary) }
 }
 
 // MARK: - Keys

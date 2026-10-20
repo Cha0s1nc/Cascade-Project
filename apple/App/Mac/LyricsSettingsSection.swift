@@ -22,7 +22,7 @@ struct LyricsSettingsSection: View {
                 ForEach(LyricsSourceChoice.choices(serverOnly: serverMode), id: \.self) { Text($0.menuLabel).tag($0) }
             }
             Text(LyricsSourceChoice.autoHint(serverOnly: serverMode) + ". The pill in Now Playing changes this too.")
-                .font(.caption).foregroundStyle(.secondary)
+                .scaledFont(.caption).foregroundStyle(.secondary)
         }
         Section("Translation") {
             Toggle("Translate lyrics", isOn: Binding(get: { prefs.translationEnabled }, set: {
@@ -30,16 +30,16 @@ struct LyricsSettingsSection: View {
                 MacNowPlayingUI.shared.translator.enabledChanged()
             }))
             Text("Shows an English line under songs in other languages, using Apple Translation on this Mac. Nothing is sent anywhere. Off hides the Translate button.")
-                .font(.caption).foregroundStyle(.secondary)
+                .scaledFont(.caption).foregroundStyle(.secondary)
             if prefs.translationEnabled {
                 if checked {
                     if !installed.isEmpty {
                         Text("Installed in macOS (\(installed.count)): \(installed.joined(separator: ", ")).")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .scaledFont(.caption).foregroundStyle(.secondary)
                     }
                     if !missing.isEmpty {
                         Text("Not installed: \(missing.joined(separator: ", ")).")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .scaledFont(.caption).foregroundStyle(.secondary)
                     }
                 }
                 Button("Open Language & Region") {

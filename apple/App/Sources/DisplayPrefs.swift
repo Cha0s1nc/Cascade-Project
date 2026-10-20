@@ -264,7 +264,7 @@ struct ServerMessageCard: ViewModifier {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(message.header).font(.callout.weight(.semibold))
                         if !message.text.isEmpty {
-                            Text(message.text).font(.footnote).foregroundStyle(.secondary)
+                            Text(message.text).scaledFont(.footnote).foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }

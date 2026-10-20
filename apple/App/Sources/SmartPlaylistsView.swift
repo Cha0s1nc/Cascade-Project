@@ -14,7 +14,7 @@ struct SmartPlaylistShelf: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Smart Playlists").font(.headline).padding(.horizontal)
+            Text("Smart Playlists").scaledFont(.headline).padding(.horizontal)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 16) {
                     ForEach(builtIns, id: \.kind) { entry in
@@ -41,9 +41,9 @@ struct SmartPlaylistShelf: View {
             RoundedRectangle(cornerRadius: 10)
                 .fill(LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing))
                 .frame(width: 120, height: 120)
-                .overlay { Image(systemName: symbol).font(.largeTitle).foregroundStyle(.white) }
-            Text(name).font(.caption).lineLimit(1)
-            Text(subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                .overlay { Image(systemName: symbol).scaledFont(.largeTitle).foregroundStyle(.white) }
+            Text(name).scaledFont(.caption).lineLimit(1)
+            Text(subtitle).scaledFont(.caption2).foregroundStyle(.secondary).lineLimit(1)
         }
         .frame(width: 120, alignment: .leading)
     }

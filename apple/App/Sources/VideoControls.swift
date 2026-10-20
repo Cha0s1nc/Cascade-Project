@@ -96,9 +96,9 @@ struct CascadeVideoPlayer: View {
         HStack(spacing: 12) {
             CircleButton(systemImage: "chevron.down", label: "Close") { close() }
             VStack(alignment: .leading, spacing: 2) {
-                Text(session.item?.name ?? "").font(.headline)
+                Text(session.item?.name ?? "").scaledFont(.headline)
                 if !caption.isEmpty {
-                    Text(caption).font(.caption).foregroundStyle(.white.opacity(0.75))
+                    Text(caption).scaledFont(.caption).foregroundStyle(.white.opacity(0.75))
                 }
             }
             .lineLimit(1)

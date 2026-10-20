@@ -278,7 +278,7 @@ struct SideLyricsPanel: View {
     var body: some View {
         VStack(spacing: 10) {
             HStack {
-                Text("Lyrics").font(.headline)
+                Text("Lyrics").scaledFont(.headline)
                 Spacer()
                 Button { ui.sidePanelOpen = false } label: { Image(systemName: "xmark") }
                     .buttonStyle(.hover)

@@ -67,7 +67,7 @@ struct MacVideoOverlay: View {
             .help("Keep playing in the corner (Esc)")
             .accessibilityLabel("Minimize video")
             HStack(spacing: 16) {
-                Text(title).font(.headline).lineLimit(1)
+                Text(title).scaledFont(.headline).lineLimit(1)
                 Spacer()
                 if controller.pip.isSupported {
                     Button { controller.pip.toggle() } label: { Image(systemName: "pip.enter") }
@@ -91,7 +91,7 @@ struct MacVideoOverlay: View {
                 Button { session.skip(by: -VideoControls.skipSeconds) } label: { Image(systemName: "gobackward.10") }
                     .accessibilityLabel("Back 10 seconds")
                 Button { session.togglePlayPause() } label: {
-                    Image(systemName: session.isPlaying ? "pause.fill" : "play.fill").font(.title2).frame(width: 28)
+                    Image(systemName: session.isPlaying ? "pause.fill" : "play.fill").scaledFont(.title2).frame(width: 28)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(session.isPlaying ? "Pause" : "Play")
@@ -253,7 +253,7 @@ private struct KeysPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Keyboard shortcuts").font(.headline)
+            Text("Keyboard shortcuts").scaledFont(.headline)
             Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 6) {
                 ForEach(VideoControls.shortcuts, id: \.keys) { row in
                     GridRow {

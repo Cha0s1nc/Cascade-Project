@@ -166,7 +166,7 @@ struct MiniPlayer: View {
                     .lineLimit(1)
                 if style != .inline {
                     Text(player.item?.albumArtist ?? player.item?.artists?.first ?? "")
-                        .font(.caption2)
+                        .scaledFont(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -176,7 +176,7 @@ struct MiniPlayer: View {
                 player.togglePlayPause()
             } label: {
                 Image(systemName: player.isPaused ? "play.fill" : "pause.fill")
-                    .font(.title3)
+                    .scaledFont(.title3)
                     .contentTransition(.symbolEffect(.replace))
                     .frame(width: 32, height: 32)
             }
@@ -187,7 +187,7 @@ struct MiniPlayer: View {
                     Task { await player.next() }
                 } label: {
                     Image(systemName: "forward.fill")
-                        .font(.title3)
+                        .scaledFont(.title3)
                         .frame(width: 32, height: 32)
                 }
                 .buttonStyle(.plain)

@@ -277,7 +277,7 @@ private struct MiniplayerBody: View {
                     .buttonStyle(.plain)
                 }
                 if items.isEmpty {
-                    Text("Nothing up next").font(.caption).foregroundStyle(.secondary).padding(.top, 20)
+                    Text("Nothing up next").scaledFont(.caption).foregroundStyle(.secondary).padding(.top, 20)
                 }
             }
         }

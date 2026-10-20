@@ -161,7 +161,7 @@ struct SettingsView: View {
                         .disabled(isApproving || QuickConnect.normalizedCode(approveCode) == nil)
                     if let approveStatus {
                         Text(approveStatus.message)
-                            .font(.caption)
+                            .scaledFont(.caption)
                             .foregroundStyle(approveStatus.ok ? Color.green : Color.red)
                     }
                 } header: {
@@ -369,7 +369,7 @@ private struct PhoneSetupView: View {
                 }
                 Section {
                     Text("All of this is in Settings later, with the equalizer and lyrics options.")
-                        .font(.footnote).foregroundStyle(.secondary)
+                        .scaledFont(.footnote).foregroundStyle(.secondary)
                 }
             }
             .navigationTitle("Set Up Cascade")

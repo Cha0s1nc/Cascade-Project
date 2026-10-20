@@ -142,7 +142,7 @@ struct NowPlayingView: View {
 
                 VStack(spacing: 6) {
                     Text(player.item?.name ?? "Nothing playing")
-                        .font(.title2)
+                        .scaledFont(.title2)
                         .lineLimit(1)
                     Text(player.item?.albumArtist ?? player.item?.artists?.first ?? "")
                         .foregroundStyle(.secondary)
@@ -215,7 +215,7 @@ struct NowPlayingView: View {
                     }
                     if let error = player.error {
                         Text(error)
-                            .font(.caption)
+                            .scaledFont(.caption)
                             .foregroundStyle(.red)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.top, 6)
@@ -546,7 +546,7 @@ struct NowPlayingView: View {
             SystemVolumeSlider().frame(height: 34)
             Image(systemName: "speaker.wave.3.fill")
         }
-        .font(.caption)
+        .scaledFont(.caption)
         .foregroundStyle(.white.opacity(0.55))
     }
 
@@ -586,7 +586,7 @@ struct NowPlayingView: View {
     private func modeButton(_ target: Mode, symbol: String, label: String) -> some View {
         Button { setMode(mode == target ? .artwork : target) } label: {
             Image(systemName: symbol)
-                .font(.title3)
+                .scaledFont(.title3)
                 .frame(width: 44, height: 44)
                 .background(Circle().fill(.white.opacity(mode == target ? 0.22 : 0)))
         }
@@ -675,10 +675,10 @@ struct NowPlayingView: View {
             .padding(.top, 18)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text("Up Next").font(.headline)
+                Text("Up Next").scaledFont(.headline)
                 let upcoming = max(0, player.queue.items.count - player.queue.index - 1)
                 Text(upcoming == 1 ? "1 song" : "\(upcoming) songs")
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.white.opacity(0.55))
             }
 

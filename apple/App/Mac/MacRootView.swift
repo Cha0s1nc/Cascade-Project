@@ -15,6 +15,8 @@ struct MacRootView: View {
     @FocusState private var searchFocused: Bool
     /// Where a deep link wants to go, and the section it belongs to.
     @State private var pending: (section: MacSection, item: JfItem)?
+    /// View > Zoom (MacZoom).
+    @AppStorage(MacZoom.key) private var zoom = 1.0
 
     private var libraries: VideoLibrarySelection { state.videoLibraries }
     private var isSearching: Bool { !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -156,7 +158,10 @@ struct MacRootView: View {
         .frame(minWidth: 800, minHeight: 560)
         // List rows at the desktop's spacing (its track and queue rows are 45
         // and 53 pt): the macOS default packed them into about 24.
-        .environment(\.defaultMinListRowHeight, 44)
+        .environment(\.defaultMinListRowHeight, 44 * zoom)
+        // View > Zoom: every text style, cover and row below reads it (UIScale.swift).
+        .environment(\.uiScale, zoom)
+        .font(.system(size: 13 * zoom))
         #if DEBUG
         // Debug builds only: `-cascade.section songs` opens a section at
         // launch, to check it without clicking (UI scripting is not allowed).

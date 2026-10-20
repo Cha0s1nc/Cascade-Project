@@ -83,7 +83,7 @@ struct SharePresetSection: View {
                 Button("Paste") { use(NSPasteboard.general.string(forType: .string) ?? "") }
             }
             if let status {
-                Text(status.text).font(.caption).foregroundStyle(status.ok ? Color.secondary : Color.red)
+                Text(status.text).scaledFont(.caption).foregroundStyle(status.ok ? Color.secondary : Color.red)
             }
         } header: {
             Text("Share a Look")
@@ -99,7 +99,7 @@ struct SharePresetSection: View {
     private var serverStyleSection: some View {
         let s = StyleTuning.shared.serverStyle
         return Section {
-            Text(serverStyleStatus(s)).font(.caption).foregroundStyle(.secondary)
+            Text(serverStyleStatus(s)).scaledFont(.caption).foregroundStyle(.secondary)
             HStack {
                 Button("Offer to Everyone") { publish(enforce: false) }
                 Button("Enforce for Everyone\u{2026}") { confirmingEnforce = true }

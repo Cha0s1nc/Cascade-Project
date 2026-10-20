@@ -68,14 +68,14 @@ struct HomeView: View {
 
     private func row(_ title: String, albums: [JfItem]) -> some View {
         VStack(alignment: .leading) {
-            Text(title).font(.headline).padding(.horizontal)
+            Text(title).scaledFont(.headline).padding(.horizontal)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 16) {
                     ForEach(albums) { album in
                         NavigationLink(value: album) {
                             VStack(alignment: .leading, spacing: 6) {
                                 ArtworkView(itemId: album.id, size: 150)
-                                Text(album.name ?? "Unknown").font(.caption).lineLimit(1)
+                                Text(album.name ?? "Unknown").scaledFont(.caption).lineLimit(1)
                             }
                             // Pinned to the art: a horizontal ScrollView offers
                             // its children unlimited width, so lineLimit(1)
@@ -98,10 +98,10 @@ struct HomeView: View {
     private func row(_ title: String, tracks: [JfItem], more: AppRoute? = nil) -> some View {
         VStack(alignment: .leading) {
             HStack {
-                Text(title).font(.headline)
+                Text(title).scaledFont(.headline)
                 Spacer()
                 if let more {
-                    NavigationLink("See All", value: more).font(.callout)
+                    NavigationLink("See All", value: more).scaledFont(.callout)
                 }
             }
             .padding(.horizontal)
@@ -113,9 +113,9 @@ struct HomeView: View {
                         } label: {
                             VStack(alignment: .leading, spacing: 6) {
                                 ArtworkView(itemId: track.albumId ?? track.id, size: 150)
-                                Text(track.name ?? "Unknown").font(.caption).lineLimit(1)
+                                Text(track.name ?? "Unknown").scaledFont(.caption).lineLimit(1)
                                 Text(track.albumArtist ?? track.artists?.first ?? "")
-                                    .font(.caption2)
+                                    .scaledFont(.caption2)
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                             }

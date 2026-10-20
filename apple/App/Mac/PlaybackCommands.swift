@@ -18,6 +18,32 @@ struct PlaybackCommands: Commands {
             Button("Settings\u{2026}") { state.settingsRequests += 1 }
                 .keyboardShortcut(",", modifiers: .command)
         }
+        CommandGroup(after: .toolbar) { ZoomMenuItems() }
+    }
+}
+
+/// View > Zoom In, Zoom Out, Actual Size: the main window's text, art and rows (uiScale).
+/// The desktop's View menu zoom, kept sharp rather than scaling a picture of the window.
+enum MacZoom {
+    static let key = "cascade.uiScale"
+    static let steps: [Double] = [0.85, 1, 1.15, 1.3, 1.5, 1.75]
+}
+
+private struct ZoomMenuItems: View {
+    @AppStorage(MacZoom.key) private var zoom = 1.0
+
+    var body: some View {
+        let i = MacZoom.steps.firstIndex { $0 >= zoom - 0.001 } ?? 1
+        Divider()
+        Button("Zoom In") { zoom = MacZoom.steps[min(i + 1, MacZoom.steps.count - 1)] }
+            .keyboardShortcut("+", modifiers: .command)
+            .disabled(i >= MacZoom.steps.count - 1)
+        Button("Zoom Out") { zoom = MacZoom.steps[max(i - 1, 0)] }
+            .keyboardShortcut("-", modifiers: .command)
+            .disabled(i <= 0)
+        Button("Actual Size") { zoom = 1 }
+            .keyboardShortcut("0", modifiers: .command)
+            .disabled(zoom == 1)
     }
 }
 

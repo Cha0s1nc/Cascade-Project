@@ -211,7 +211,7 @@ private struct OverlayContent: View {
                                id: (player.item?.albumArtists?.first ?? player.item?.artistItems?.first)?.id)
                         .foregroundStyle(ink.opacity(0.7)).lineLimit(1)
                 }
-                if let error = player.error { Text(error).font(.caption).foregroundStyle(.red) }
+                if let error = player.error { Text(error).scaledFont(.caption).foregroundStyle(.red) }
                 controls.frame(maxWidth: min(side + 80, 460 * u))
                 Spacer(minLength: 0)
             }
@@ -369,7 +369,7 @@ private struct OverlayContent: View {
             }
             Image(systemName: "speaker.wave.3.fill")
         }
-        .font(.caption)
+        .scaledFont(.caption)
         .foregroundStyle(ink.opacity(0.6))
     }
 

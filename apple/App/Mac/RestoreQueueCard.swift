@@ -22,7 +22,7 @@ struct RestoreQueueCard: View {
             ArtworkView(itemId: current?.albumId ?? current?.id, size: 44)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Pick up where you left off?").font(.callout.weight(.semibold))
-                Text(summary).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(summary).scaledFont(.caption).foregroundStyle(.secondary).lineLimit(1)
                 // The time left, as a bar that runs out.
                 TimelineView(.animation(minimumInterval: 0.25)) { context in
                     let left = max(0, 1 - context.date.timeIntervalSince(started) / Self.lifetime)
