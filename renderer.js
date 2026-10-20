@@ -2110,6 +2110,19 @@ backdrop.addEventListener('click', () => {
   sidenav.classList.remove('expanded')
   backdrop.classList.remove('dim')
 })
+// Keyboard: tabbing into the sidebar opens it so the labels are visible, and
+// tabbing out closes it. :focus-visible keeps a mouse click (which also
+// focuses the item) from re-expanding what showView() just collapsed.
+sidenav.addEventListener('focusin', e => {
+  if (!e.target.matches(':focus-visible')) return
+  sidenav.classList.add('expanded')
+  backdrop.classList.add('dim')
+})
+sidenav.addEventListener('focusout', e => {
+  if (sidenav.contains(e.relatedTarget)) return
+  sidenav.classList.remove('expanded')
+  backdrop.classList.remove('dim')
+})
 
 // ── View routing ──────────────────────────────────────────────────────────────
 
@@ -2231,6 +2244,15 @@ const CATEGORY_BACK_BTN = {
 }
 
 document.querySelectorAll('.nav-item[data-view]').forEach(el => {
+  // The items are divs (their markup nests block children), so they get the
+  // button semantics here rather than by changing the element.
+  el.tabIndex = 0
+  el.setAttribute('role', 'button')
+  el.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ' ') return
+    e.preventDefault()
+    el.click()
+  })
   el.addEventListener('click', () => {
     const name = el.dataset.view
     const wasActive = name === _currentView

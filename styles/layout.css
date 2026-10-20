@@ -7,6 +7,8 @@
 .nav-item { position: relative; display: flex; align-items: center; margin: 2px 6px; padding: 8px 5px; border-radius: 7px; cursor: pointer; white-space: nowrap; min-height: 36px; overflow: hidden; transition: background 0.12s; color: var(--text3); }
 .nav-item:hover { background: rgba(255,255,255,0.05); color: var(--text2); }
 .nav-item.active { background: rgba(255,255,255,0.06); color: var(--text); }
+/* The row clips its overflow, so the default outset ring would be cut off. */
+.nav-item:focus-visible { outline-offset: -2px; }
 .nav-bar { position: absolute; left: -6px; top: 7px; bottom: 7px; width: 3px; border-radius: 0 2px 2px 0; background: var(--accent); opacity: 0; transition: opacity 0.15s; margin-left: 0; }
 .nav-item.active .nav-bar { opacity: 1; }
 .nav-icon { font-size: 15px; width: 26px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
