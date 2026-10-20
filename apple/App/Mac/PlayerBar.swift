@@ -52,7 +52,9 @@ struct PlayerBar: View {
                     .accessibilityLabel(liked ? "Unfavorite" : "Favorite")
                 }
             }
-            .frame(width: 260, alignment: .leading)
+            // The desktop's grid (1fr auto 1fr): the two sides share what the window has
+            // equally, so the controls stay centered and the title gets room as it grows.
+            .frame(minWidth: 200, maxWidth: .infinity, alignment: .leading)
 
             VStack(spacing: 4) {
                 HStack(spacing: 18) {
@@ -77,10 +79,10 @@ struct PlayerBar: View {
                 .buttonStyle(.hover)
                 if player.isRadio { LiveBadge().frame(height: 18) } else { Scrubber(player: player) }
             }
-            .frame(maxWidth: 520)
+            .frame(minWidth: 300, maxWidth: 560)
 
             HStack(spacing: 10) {
-                // The side lyrics panel, over whatever is on screen.
+                // The side lyrics column beside whatever is on screen.
                 Button { ui.sidePanelOpen.toggle() } label: {
                     Image(systemName: ui.sidePanelOpen ? "quote.bubble.fill" : "quote.bubble")
                 }
@@ -106,7 +108,7 @@ struct PlayerBar: View {
                     .frame(width: 110)
                 }
             }
-            .frame(width: 240, alignment: .trailing)
+            .frame(minWidth: 200, maxWidth: .infinity, alignment: .trailing)
             .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 16)

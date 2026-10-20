@@ -201,6 +201,9 @@ struct TrackRow: View {
         }
         // The whole row answers a long press, not just its text.
         .contentShape(Rectangle())
+        #if os(macOS)
+        .desktopTrackRow(track.id)
+        #endif
         .modifier(OptionalTrackMenu(track: track, enabled: showsMenu))
     }
 }

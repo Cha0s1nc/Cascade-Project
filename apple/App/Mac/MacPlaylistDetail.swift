@@ -181,6 +181,7 @@ struct MacPlaylistDetail: View {
                 .foregroundStyle(.secondary).frame(width: 52, alignment: .trailing)
         }
         .contentShape(Rectangle())
+        .desktopTrackRow(track.id)
     }
 
     private func extra(_ track: JfItem) -> String {

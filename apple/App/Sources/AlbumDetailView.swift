@@ -118,6 +118,11 @@ struct AlbumDetailView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            .contentShape(Rectangle())
+            #if os(macOS)
+            .padding(.vertical, 6)
+            .desktopTrackRow(track.id)
+            #endif
         }
         .buttonStyle(.plain)
         .trackContextMenu(track)
