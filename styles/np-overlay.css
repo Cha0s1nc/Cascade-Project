@@ -500,4 +500,6 @@ html[data-theme="light"] #ov-panel-lyrics.browsing .ov-lyric-line.active { color
 .ov-lyric-line.lyric-preview { opacity: var(--ly-next3-opacity, 0.1); filter: blur(var(--ly-next3-blur, 4px)); }
 
 /* Untimed lyrics (renderer.js _lyricsPlain): every line readable, none followed. */
-#ov-lyrics-body.plain .ov-lyric-line { opacity: 0.92; filter: none; transform: none; transition: none; }
+#ov-lyrics-body.plain .ov-lyric-line { opacity: 0.92; filter: none; transform: none; transition: none; font-size: calc(clamp(22px, 3vw, 50px) * var(--np-plain-lyric-scale, 0.8)); }
+/* --np-plain-lyric-scale is displayPrefs.plainLyricScale, the Theme panel's
+   Plain lyrics size: unsynced text sized apart from the synced lines. */
