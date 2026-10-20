@@ -478,11 +478,12 @@ const _animatedArtCache = new Map()
 function _setArtStill(host, url) {
   if (!host) return
   const video = host.querySelector('.art-video')
-  const slice = host.querySelector('.art-slice')
+  // More than one after a skip mid-crossfade (trailArtSlice), kept in order.
+  const slices = host.querySelectorAll('.art-slice')
   host.innerHTML = url ? `<img src="${url}" alt="" onerror="this.innerHTML='♪'">` : '♪'
   const cur = queue[queueIndex]
   if (video && cur && video.dataset.album === (cur.AlbumId || cur.Id)) host.appendChild(video)
-  if (slice) host.appendChild(slice)
+  host.append(...slices)
 }
 
 // Video covers from Cascade Server (the `animated-art` capability): the
@@ -5586,6 +5587,9 @@ async function playCurrentTrack(opts = {}) {
   // Every track change funnels through here, so this is the one place that
   // needs to know to abandon an in-progress crossfade - covers next/prev,
   // queue-row jumps, double-click play, instant mix, everything.
+  // A cover cut still on screen sweeps off whole first, before the cover
+  // under it changes again.
+  trailArtSlice(item)
   cancelCrossfade()
   // Whatever the server was encoding for the outgoing item is now waste. Runs
   // before _playSessionId is replaced by the new stream's.
@@ -6647,6 +6651,7 @@ function _handOverAtFadeStart(nextIndex, incoming, fadeSecs) {
   // Laid over the art now, before playCurrentTrack() moves it to the new
   // track, from copies of the covers on screen (already decoded): startArtSlice.
   const slicing = !sameCover && !isVideoItem(queue[nextIndex]) && prepareArtSlice()
+  if (slicing) _slice.under = queue[nextIndex].AlbumId || queue[nextIndex].Id
   // The next song's lyrics roll in under the last song's (see _ovKeepGhost),
   // if they arrive while the fade runs.
   if (!isVideoItem(queue[nextIndex])) _lyricsRollUntil = performance.now() + Math.max(fadeSecs, 3) * 1000
@@ -12125,7 +12130,10 @@ for (const [id, key] of DISPLAY_PREF_MENUS) {
 // starts, the outgoing cover (on top of the incoming one) is cut from the
 // bottom-right corner to the diagonal, holds half and half while both songs
 // play, then the cut slides off through the top-left corner once the old song
-// has faded. A crossfade cut short (pause, skip, seek) slides it out at once.
+// has faded. A crossfade cut short (pause, seek) slides it out at once. A skip
+// while the cut is on screen lays the skipped song's cover under it and sweeps
+// both off, one behind the other, so the next cover is only ever uncovered
+// whole and never swapped in under the old one (trailArtSlice).
 // Skipped for two songs with the same cover, for video, and under Reduce Motion.
 // That is the default; Settings > Playback > Transitions picks the style
 // (slice, fade, push), direction, hold, easing, seam and shadow (displayPrefs).
@@ -12154,7 +12162,9 @@ const SLICE_EASINGS = {
 const SLICE_HOLDS = { half: 1, old: 1.4, new: 0.6, sweep: 0 }
 // The way the cut, or the old cover, moves.
 const SLICE_MOVES = { 'up-left': [-1, -1], up: [0, -1], 'up-right': [1, -1], right: [1, 0], 'down-right': [1, 1], down: [0, 1], 'down-left': [-1, 1], left: [-1, 0] }
-let _slice = null   // { layers, style, geo, holdEnd, sliding, anims, from, to }
+// A skipped song's cover trails the cut out by this much of the slide-out time.
+const SLICE_TRAIL = 1.4
+let _slice = null   // { layers, style, geo, holdEnd, sliding, anims, from, to, under, trailAnims, running }
 
 function _sliceGeometry() {
   const [mx, my] = SLICE_MOVES[displayPrefs.coverSliceDirection] || SLICE_MOVES['up-left']
@@ -12196,43 +12206,48 @@ function prepareArtSlice() {
   if (!displayPrefs.coverSlice || matchMedia('(prefers-reduced-motion: reduce)').matches) return false
   const style = DISPLAY_PREF_CHOICES.coverSliceStyle.includes(displayPrefs.coverSliceStyle) ? displayPrefs.coverSliceStyle : 'slice'
   const geo = _sliceGeometry()
-  const f = _sliceFrames(2, geo)
-  const seamColor = displayPrefs.coverSliceSeam === 'accent' ? 'var(--accent)' : '#fff'
-  const glow = displayPrefs.coverSliceGlow
   const layers = []
   for (const id of ['ov-art', 'np-art']) {
     const host = document.getElementById(id)
     const shown = host?.querySelector(':scope > img')
     if (!shown?.complete || !shown.naturalWidth) continue
-    const layer = document.createElement('div')
-    layer.className = 'art-slice'
-    layer.setAttribute('aria-hidden', 'true')
-    layer.style.setProperty('--slice-shadow-a', String(0.45 * displayPrefs.coverSliceShadow))
-    if (style === 'slice') {
-      const seam = id === 'ov-art' && displayPrefs.coverSliceSeam !== 'off'
-      layer.innerHTML = `<div class="slice-frame"><div class="slice-keep"></div>${seam ? '<div class="slice-seam"></div>' : ''}</div>`
-      const frame = layer.querySelector('.slice-frame'), inner = 10000 / geo.frame
-      Object.assign(frame.style, { width: `${geo.frame}%`, height: `${geo.frame}%`, left: `${(100 - geo.frame) / 2}%`, top: `${(100 - geo.frame) / 2}%`, transform: `rotate(${geo.turn}deg)` })
-      const img = _sliceCopy(shown, 'slice-img')
-      Object.assign(img.style, { width: `${inner}%`, height: `${inner}%`, left: `${(100 - inner) / 2}%`, top: `${(100 - inner) / 2}%` })
-      layer.querySelector('.slice-keep').appendChild(img)
-      if (seam) {
-        layer.style.setProperty('--seam-color', seamColor)
-        layer.style.setProperty('--seam-glow', `0 0 ${6 * glow}px ${2 * glow}px color-mix(in srgb, ${seamColor} ${Math.min(100, 65 * glow)}%, transparent)`)
-      }
-    } else {
-      layer.appendChild(_sliceCopy(shown, style === 'fade' ? 'slice-fade' : 'slice-old'))
-    }
-    for (const [part, props] of Object.entries(f)) {
-      const el = layer.querySelector('.slice-' + part)
-      if (el) Object.assign(el.style, props)
-    }
+    const layer = _sliceLayer(id, shown, style, geo)
     host.appendChild(layer)
     layers.push(layer)
   }
   if (!layers.length) return false
-  _slice = { layers, style, geo, holdEnd: 0, sliding: false, anims: [], from: 2, to: 2 }
+  _slice = { layers, style, geo, holdEnd: 0, sliding: false, anims: [], from: 2, to: 2, under: null, trailAnims: [], running: 0 }
   return true
+}
+
+/** One host's copy of `shown`, uncut (s = 2), in the chosen style. */
+function _sliceLayer(id, shown, style, geo) {
+  const seamColor = displayPrefs.coverSliceSeam === 'accent' ? 'var(--accent)' : '#fff'
+  const glow = displayPrefs.coverSliceGlow
+  const layer = document.createElement('div')
+  layer.className = 'art-slice'
+  layer.setAttribute('aria-hidden', 'true')
+  layer.style.setProperty('--slice-shadow-a', String(0.45 * displayPrefs.coverSliceShadow))
+  if (style === 'slice') {
+    const seam = id === 'ov-art' && displayPrefs.coverSliceSeam !== 'off'
+    layer.innerHTML = `<div class="slice-frame"><div class="slice-keep"></div>${seam ? '<div class="slice-seam"></div>' : ''}</div>`
+    const frame = layer.querySelector('.slice-frame'), inner = 10000 / geo.frame
+    Object.assign(frame.style, { width: `${geo.frame}%`, height: `${geo.frame}%`, left: `${(100 - geo.frame) / 2}%`, top: `${(100 - geo.frame) / 2}%`, transform: `rotate(${geo.turn}deg)` })
+    const img = _sliceCopy(shown, 'slice-img')
+    Object.assign(img.style, { width: `${inner}%`, height: `${inner}%`, left: `${(100 - inner) / 2}%`, top: `${(100 - inner) / 2}%` })
+    layer.querySelector('.slice-keep').appendChild(img)
+    if (seam) {
+      layer.style.setProperty('--seam-color', seamColor)
+      layer.style.setProperty('--seam-glow', `0 0 ${6 * glow}px ${2 * glow}px color-mix(in srgb, ${seamColor} ${Math.min(100, 65 * glow)}%, transparent)`)
+    }
+  } else {
+    layer.appendChild(_sliceCopy(shown, style === 'fade' ? 'slice-fade' : 'slice-old'))
+  }
+  for (const [part, props] of Object.entries(_sliceFrames(2, geo))) {
+    const el = layer.querySelector('.slice-' + part)
+    if (el) Object.assign(el.style, props)
+  }
+  return layer
 }
 
 /** Starts the cut once the new cover can be shown under it (or after a short wait). */
@@ -12271,36 +12286,86 @@ function endArtSlice() {
   // Where the cut is now: on its way in, holding, or not started (from = to = 2).
   const p = slice.anims[0]?.effect?.getComputedTiming().progress
   const s = slice.from + (slice.to - slice.from) * (p ?? 1)
-  if (s <= 0.001) { _removeArtSlice(); return }
+  if (s <= 0.001) { if (!slice.running) _removeArtSlice(); return }
   const easeOut = (SLICE_EASINGS[displayPrefs.coverSliceEasing] || SLICE_EASINGS.smooth)[1]
+  slice.running++
   _animateSlice(s, 0, displayPrefs.coverSlideOut * 1000 * Math.min(1, s), easeOut, 'out')
-    .then(() => { if (_slice === slice) _removeArtSlice() })
+    .then(() => _sliceSlid(slice))
+}
+
+/** A skip to `item` while the cut is on screen. The cover under the cut (the
+ *  song being skipped) is about to be replaced, which used to swap the next
+ *  cover in under the old one mid-cut. Instead a copy of it goes under the cut
+ *  and sweeps off the whole way behind it, so the next cover is uncovered only
+ *  once both are gone. Two skips in a row stack a third, and so on. */
+function trailArtSlice(item) {
+  const slice = _slice
+  // Not started yet: this is the crossfade handover's own track change.
+  if (!slice || !slice.holdEnd || !item || isVideoItem(item)) return
+  const key = item.AlbumId || item.Id
+  if (key === slice.under) return
+  slice.under = key
+  const layers = []
+  for (const layer of slice.layers) {
+    const host = layer.parentElement
+    const shown = host?.querySelector(':scope > img')
+    if (!host || !shown?.complete || !shown.naturalWidth) continue
+    const trail = _sliceLayer(host.id, shown, slice.style, slice.geo)
+    host.insertBefore(trail, host.querySelector('.art-slice'))
+    layers.push(trail)
+  }
+  if (!layers.length) return
+  // A push carries the skipped cover in as a copy (.slice-new), part way in
+  // at s. The trailing copy takes over from it where it is, at 2 + s (one
+  // cover width behind the old one), or the cover would jump into place.
+  const pushing = [...document.querySelectorAll('.art-slice .slice-new')].filter(el => el.style.visibility !== 'hidden')
+  const p = slice.anims[0]?.effect?.getComputedTiming().progress
+  const from = pushing.length ? 2 + slice.from + (slice.to - slice.from) * (p ?? 1) : 2
+  for (const el of pushing) el.style.visibility = 'hidden'
+  endArtSlice()
+  const easeOut = (SLICE_EASINGS[displayPrefs.coverSliceEasing] || SLICE_EASINGS.smooth)[1]
+  // A little slower than the cut's slide-out, so the cut above (which has at
+  // most one unit of s left against this one's two) always stays ahead of it.
+  const anims = _animateLayers(layers, from, 0, displayPrefs.coverSlideOut * 1000 * SLICE_TRAIL, easeOut, 'out')
+  slice.trailAnims.push(...anims)
+  slice.running++
+  Promise.all(anims.map(x => x.finished.catch(() => {}))).then(() => _sliceSlid(slice))
+}
+
+/** One slide-out finished; the slice goes once every one has. */
+function _sliceSlid(slice) {
+  if (_slice === slice && --slice.running <= 0) _removeArtSlice()
 }
 
 function _animateSlice(from, to, ms, easing, phase) {
   const slice = _slice
   for (const a of slice.anims) { a.commitStyles?.(); a.cancel() }
-  slice.anims = []
   slice.from = from; slice.to = to
-  const a = _sliceFrames(from, slice.geo), b = _sliceFrames(to, slice.geo)
+  slice.anims = _animateLayers(slice.layers, from, to, ms, easing, phase)
+  return Promise.all(slice.anims.map(x => x.finished.catch(() => {})))
+}
+
+function _animateLayers(layers, from, to, ms, easing, phase) {
+  const anims = []
+  const a = _sliceFrames(from, _slice.geo), b = _sliceFrames(to, _slice.geo)
   const opts = { duration: Math.max(1, ms), easing, fill: 'forwards' }
-  for (const layer of slice.layers) {
+  for (const layer of layers) {
     for (const part of Object.keys(a)) {
       const el = layer.querySelector('.slice-' + part)
-      if (el) slice.anims.push(el.animate([a[part], b[part]], opts))
+      if (el) anims.push(el.animate([a[part], b[part]], opts))
     }
     const seam = layer.querySelector('.slice-seam')
     if (seam) {
       // Bright while the blade moves in, settled while it holds, gone as it leaves.
       const glow = phase === 'in' ? [{ opacity: 1 }, { opacity: 0.55 }] : [{ opacity: 0.55 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }]
-      slice.anims.push(seam.animate(glow, { duration: Math.max(1, ms), easing: 'linear', fill: 'forwards' }))
+      anims.push(seam.animate(glow, { duration: Math.max(1, ms), easing: 'linear', fill: 'forwards' }))
     }
   }
-  return Promise.all(slice.anims.map(x => x.finished.catch(() => {})))
+  return anims
 }
 
 function _removeArtSlice() {
-  if (_slice) for (const a of _slice.anims) a.cancel()
+  if (_slice) for (const a of [..._slice.anims, ..._slice.trailAnims]) a.cancel()
   _slice = null
   document.querySelectorAll('.art-slice').forEach(el => el.remove())
 }
