@@ -12015,8 +12015,11 @@ const displayPrefs = {
   coverSliceSeam: 'white', coverSliceGlow: 1, coverSliceShadow: 1,
   colorFade: true, colorFadeSeconds: 0.7,
   explicitMarks: true, videoCovers: true,
+  // Unsynced lyrics' size in Now Playing, apart from the synced size
+  // (lyricScale), since a whole page of plain text reads better smaller.
+  plainLyricScale: 0.8,
 }
-const DISPLAY_PREF_RANGES = { coverSliceIn: [0.2, 2], coverSlideOut: [0.3, 3], coverSliceGlow: [0, 2], coverSliceShadow: [0, 2], colorFadeSeconds: [0.2, 2] }
+const DISPLAY_PREF_RANGES = { plainLyricScale: [0.5, 1.4], coverSliceIn: [0.2, 2], coverSlideOut: [0.3, 3], coverSliceGlow: [0, 2], coverSliceShadow: [0, 2], colorFadeSeconds: [0.2, 2] }
 const DISPLAY_PREF_CHOICES = {
   coverSliceStyle: ['slice', 'fade', 'push'],
   coverSliceDirection: ['up-left', 'up', 'up-right', 'right', 'down-right', 'down', 'down-left', 'left'],
@@ -12028,7 +12031,7 @@ const DISPLAY_PREF_CHOICES = {
 const DISPLAY_PREF_SLIDERS = [
   ['cover-slice-in', 'coverSliceIn', 's'], ['cover-slide-out', 'coverSlideOut', 's'],
   ['cover-slice-glow', 'coverSliceGlow', '%'], ['cover-slice-shadow', 'coverSliceShadow', '%'],
-  ['color-fade-seconds', 'colorFadeSeconds', 's'],
+  ['color-fade-seconds', 'colorFadeSeconds', 's'], ['plain-lyric-scale', 'plainLyricScale', '%'],
 ]
 const DISPLAY_PREF_MENUS = [
   ['cover-slice-style', 'coverSliceStyle'], ['cover-slice-direction', 'coverSliceDirection'],
@@ -12058,6 +12061,7 @@ function _syncDisplayPrefControls() {
     if (el) { el.value = String(displayPrefs[key]); document.getElementById(id + '-value').textContent = _prefText(displayPrefs[key], unit) }
   }
   for (const [id, key] of DISPLAY_PREF_MENUS) { const el = document.getElementById(id); if (el) el.value = displayPrefs[key] }
+  document.documentElement.style.setProperty('--np-plain-lyric-scale', String(displayPrefs.plainLyricScale))
   // Only the rows that do something for the style picked.
   const on = displayPrefs.coverSlice, style = displayPrefs.coverSliceStyle
   const shown = {
