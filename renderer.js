@@ -10589,6 +10589,11 @@ async function renderOverlayLyrics() {
   _setOverlayLyricsMissing(false)
   renderOverlayLyricLines()
   _resetOverlayManualScroll()
+  // A plain sheet sits from the top, with room above the first line. Set
+  // before the roll below too: it springs to ovLyricsBaseY, which still held
+  // the last synced song's scroll and carried a plain sheet off screen until
+  // the pane was reopened.
+  if (_lyricsPlain()) ovLyricsBaseY = 40 - (body.querySelector('.ov-lyric-line[data-idx="0"]')?.offsetTop || 0)
   const nowSecRoll = audio.currentTime + _lyricLead
   if (_ovGhost) {
     let idx = 0
@@ -10600,8 +10605,6 @@ async function renderOverlayLyrics() {
   }
 
   if (_lyricsPlain()) {
-    // From the top, with room above the first line.
-    ovLyricsBaseY = 40 - (body.querySelector('.ov-lyric-line[data-idx="0"]')?.offsetTop || 0)
     ovLyricsSpring.jumpTo(ovLyricsBaseY)
     detectOverlayLyricsLanguage()
     ensureLyricsTranslation()
