@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { eqLevels, MIN_BAR_HEIGHT, EQ_BARS } from '../src/core/eq.ts'
+import { eqLevels, MIN_BAR_HEIGHT, EQ_BARS, LOW_GAIN, LEVEL_SCALE } from '../src/core/eq.ts'
 
 const flat = (count = EQ_BARS) => Array(count).fill(MIN_BAR_HEIGHT)
 
@@ -23,8 +23,8 @@ test('a loud low band raises the first bar and not the last ones', () => {
 })
 
 test('every bar gets its own bins, even from the analyser\'s 32', () => {
-  const bytes = new Uint8Array(32)
-  bytes[31] = 255
+  // Only the top band's bins: the highest ones, well clear of its lower edge.
+  const bytes = new Uint8Array(32).fill(255, 24)
   const levels = eqLevels(bytes)
   assert.ok(levels[EQ_BARS - 1] > MIN_BAR_HEIGHT)
   assert.deepEqual(levels.slice(0, -1), flat(EQ_BARS - 1))
@@ -40,4 +40,10 @@ test('a short or empty array does not throw', () => {
   assert.deepEqual(eqLevels(new Uint8Array(0)), flat())
   assert.deepEqual(eqLevels(new Uint8Array(1)), flat())
   assert.doesNotThrow(() => eqLevels(new Uint8Array(3)))
+})
+
+test('a full-scale signal leaves the low bars room to move', () => {
+  const levels = eqLevels(new Uint8Array(32).fill(255))
+  assert.equal(levels[0], LOW_GAIN * LEVEL_SCALE)
+  assert.ok(levels[0] < 1)
 })

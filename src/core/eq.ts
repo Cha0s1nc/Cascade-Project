@@ -17,6 +17,13 @@ export const EQ_BARS = 7
 export const LOW_GAIN = 1.0
 export const HIGH_GAIN = 2.8
 
+// The bars read the audio before the volume knob, so they look the same at any
+// volume. Unscaled, a normally mastered track pins six of the seven bars at
+// full height (pink noise at -14.5 dBFS came out 0.92 to 1.96 before the
+// clamp), and mimicking a lower volume barely helps: 50% is only 6 dB on a
+// 70 dB window. Halving the height leaves the bars room to move.
+export const LEVEL_SCALE = 0.5
+
 function bandAverage(bytes: ArrayLike<number>, start: number, end: number): number {
   if (end <= start) return 0
   let sum = 0
@@ -25,7 +32,7 @@ function bandAverage(bytes: ArrayLike<number>, start: number, end: number): numb
 }
 
 function toLevel(avg: number, gain: number): number {
-  const v = (avg / 255) * gain
+  const v = (avg / 255) * gain * LEVEL_SCALE
   return Math.min(1, Math.max(MIN_BAR_HEIGHT, v))
 }
 
