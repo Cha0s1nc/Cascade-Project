@@ -323,8 +323,11 @@ html[data-platform="linux"] #ov-video-close { right: calc(var(--caption-reserve,
 .q-chevron { transition: transform 0.2s ease; color: var(--text3); }
 .q-history-toggle[aria-expanded="true"] .q-chevron { transform: rotate(90deg); }
 .q-count { font-size: 11px; font-weight: 500; color: var(--text3); }
-.q-clear { background: none; border: none; cursor: pointer; font-family: var(--font); font-size: 12px; font-weight: 600; color: var(--red); padding: 0; }
-.q-clear:hover { text-decoration: underline; }
+/* Quiet at rest, red only when about to act: a column of red links read as
+   errors on every queue open. */
+.q-clear { background: none; border: none; cursor: pointer; font-family: var(--font); font-size: 12px; font-weight: 600; color: var(--text2); padding: 0; transition: color 0.12s; }
+.q-clear:hover, .q-clear:focus-visible { color: var(--red); text-decoration: underline; }
+.q-panel-title { font-size: 18px; font-weight: 600; color: var(--text); }
 .q-now { position: sticky; top: 0; z-index: 2; padding: 10px 8px 8px; margin: 4px 0; background: rgba(20,20,24,0.72); backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%); border-bottom: 1px solid var(--border); }
 .q-now .q-sect-title { padding: 0 8px 6px; }
 html[data-theme="light"] .q-now { background: rgba(255,255,255,0.72); }
