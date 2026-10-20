@@ -287,3 +287,14 @@ export function lyricsTextMatch(
   // At least 25% of the smaller set must appear in the larger.
   return inter / Math.min(aw.size, bw.size) >= 0.25
 }
+
+/** Whether a track's own tags say it is instrumental: "Instrumental" in the
+ *  title, album or a genre, an "Off Vocal" version, or an "(Inst.)" tag.
+ *  Only used once every lyrics source has come back empty, to say "this is
+ *  instrumental" instead of "no lyrics found"; it never hides lyrics a source
+ *  did return, since a title can say instrumental and still be sung over. */
+export function looksInstrumental(item: { Name?: string; Album?: string; Genres?: string[] } | null | undefined): boolean {
+  if (!item) return false
+  const tagged = /\binstrumentals?\b|\boff[\s-]?vocal\b|[([]\s*inst\.?\s*[)\]]/i
+  return [item.Name, item.Album, ...(item.Genres ?? [])].some(s => !!s && tagged.test(s))
+}

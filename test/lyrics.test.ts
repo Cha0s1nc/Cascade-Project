@@ -6,7 +6,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseLRC, parseKrc, lyricsTextMatch, isEmphasisWord, currentLyricIndex, activeLyricRange, tightScrollTarget } from '../src/core/lyrics.ts'
+import { parseLRC, parseKrc, lyricsTextMatch, isEmphasisWord, currentLyricIndex, activeLyricRange, tightScrollTarget, looksInstrumental } from '../src/core/lyrics.ts'
 
 const SEC = 10_000_000   // ticks per second
 const MS = 10_000        // ticks per millisecond
@@ -208,4 +208,16 @@ test('tightScrollTarget: a close next line pulls the scroll early, an overlap or
   assert.equal(tightScrollTarget(lines, 2, s(6.4), lead), null, 'overlap')
   assert.equal(tightScrollTarget(lines, 0, s(1.95), 0), null, 'knob off')
   assert.equal(tightScrollTarget([{ Text: 'a', Start: 0, End: null, Words: null }, { Text: 'b', Start: s(1), End: null, Words: null }], 0, s(0.9), lead), null, 'no end known')
+})
+
+test('looksInstrumental reads the title, album and genres', () => {
+  assert.equal(looksInstrumental({ Name: 'Blue (Instrumental)' }), true)
+  assert.equal(looksInstrumental({ Name: 'Blue - Instrumental Version' }), true)
+  assert.equal(looksInstrumental({ Name: 'Blue', Album: 'Blue (Instrumentals)' }), true)
+  assert.equal(looksInstrumental({ Name: 'Blue (Off Vocal)' }), true)
+  assert.equal(looksInstrumental({ Name: 'Blue [Inst.]' }), true)
+  assert.equal(looksInstrumental({ Name: 'Blue', Genres: ['Pop', 'Instrumental'] }), true)
+  assert.equal(looksInstrumental({ Name: 'Blue', Album: 'Instruments of Love', Genres: ['Pop'] }), false)
+  assert.equal(looksInstrumental({ Name: 'Install Me' }), false)
+  assert.equal(looksInstrumental(null), false)
 })

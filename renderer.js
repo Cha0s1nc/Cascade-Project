@@ -5816,8 +5816,11 @@ function updateNowPlaying(item) {
   // problem for a different reason: its "title" is a station name, and
   // sending that to LRCLIB/Kugou on every tune-in is a lookup that can only
   // ever miss.
+  // Cleared while the new song's search runs.
+  _lyricsMark = null
+  _applyLyricsMark()
   if (item?.Id && !video && !CascadeCore.isRadioItem(item)) {
-    fetchLyricsWaterfall(item).catch(() => {})
+    fetchLyricsWaterfall(item).then(r => _markLyricsFor(item, r)).catch(() => {})
     _prefetchUpcoming()
   }
 
@@ -9780,7 +9783,40 @@ function _applyOverlayPanels() {
   document.getElementById('ov-panel-queue').style.transform  = lyrics ? 'translateX(-100%)' : 'translateX(0)'
   const toggle = document.getElementById('ov-lyrics-toggle')
   toggle.classList.toggle('active', overlayLyricsOpen)
-  toggle.title = overlayLyricsOpen && _ovLyricsMissing ? 'No lyrics for this song. They show again for the next song that has them.' : 'Lyrics'
+  _applyLyricsMark()
+}
+
+// What the playing song's lyrics search found, shown on both lyrics buttons as
+// a slash through the bubble: null (lyrics, or still looking), 'missing' or
+// 'instrumental'. Release builds have no toast for a miss, so this is the only
+// sign. The buttons stay on, so the next song with lyrics still shows them.
+let _lyricsMark = null
+function _applyLyricsMark() {
+  const next = overlayLyricsOpen ? ' They show again for the next song that has them.' : ''
+  const link = _lyricsMark === 'missing' && _canLinkSpotify() ? ' Right-click to link a Spotify track.' : ''
+  const title = _lyricsMark === 'instrumental' ? 'Instrumental, no lyrics.' + next
+    : _lyricsMark === 'missing' ? 'No lyrics found for this song.' + next + link : 'Lyrics'
+  for (const id of ['btn-lyrics-open', 'ov-lyrics-toggle']) {
+    const btn = document.getElementById(id)
+    btn.classList.toggle('lyrics-none', !!_lyricsMark)
+    btn.title = title
+  }
+}
+/** Marks the lyrics buttons from a lyrics search for `item`, if it is still the playing song. */
+function _markLyricsFor(item, result) {
+  if (!item || queue[queueIndex]?.Id !== item.Id) return
+  _lyricsMark = result?.instrumental ? 'instrumental' : result?.lines?.length ? null : 'missing'
+  _applyLyricsMark()
+}
+// Right-click either lyrics button to link the playing song to Spotify for
+// Spicy Lyrics, without opening the lyrics first to reach the empty state's
+// link button. Works with lyrics too, for replacing a wrong match.
+for (const id of ['btn-lyrics-open', 'ov-lyrics-toggle']) {
+  document.getElementById(id).addEventListener('contextmenu', e => {
+    if (!_canLinkSpotify()) return
+    e.preventDefault()
+    openSpotifyLinkModal()
+  })
 }
 function _setOverlayLyricsMissing(missing) {
   if (_ovLyricsMissing === missing) return
@@ -10514,6 +10550,7 @@ async function renderOverlayLyrics() {
     const gen    = ++_lyricsFetchGen
     const result = await fetchLyricsWaterfall(item)
     if (gen !== _lyricsFetchGen) return
+    _markLyricsFor(item, result)
     if (result?.instrumental) {
       _ovDropGhost()
       body.innerHTML = '<div class="lyrics-empty" style="padding:40px 0;text-align:center">This track is instrumental</div>'
@@ -13199,14 +13236,17 @@ function fetchLyricsWaterfall(item) {
   // routes, because only updateNowPlaying() checked: the lyrics panel and the
   // overlay still sent a movie's title to LRCLIB, Kugou and the plugin.
   if (isVideoItem(item)) return Promise.resolve(null)
+  // Nothing found anywhere, and the track's own tags say it is instrumental:
+  // say so rather than "no lyrics" (looksInstrumental).
+  const orTagged = r => r || (CascadeCore.looksInstrumental(item) ? { instrumental: true } : null)
   const forced = lyricsForcedSource && lyricsForcedSource !== 'auto'
-  if (forced || _lyricsCache.has(item.Id)) return _lyricsWaterfall(item)
+  if (forced || _lyricsCache.has(item.Id)) return _lyricsWaterfall(item).then(orTagged)
   let pending = _lyricsInflight.get(item.Id)
   if (!pending) {
     pending = _lyricsWaterfall(item).finally(() => _lyricsInflight.delete(item.Id))
     _lyricsInflight.set(item.Id, pending)
   }
-  return pending
+  return pending.then(orTagged)
 }
 
 async function _lyricsWaterfall(item) {
@@ -13442,6 +13482,7 @@ async function fetchLyrics() {
 
   const result = await fetchLyricsWaterfall(item)
   if (gen !== _lyricsFetchGen) return  // a newer fetch superseded this one
+  _markLyricsFor(item, result)
 
   if (result?.instrumental) {
     _sideDropGhost()
