@@ -82,6 +82,9 @@ public struct ResolvedStream: Sendable, Equatable {
     /// lists every segment from 0), so a seek moves the player rather than
     /// asking the server for a new stream.
     public var seeksLocally: Bool { direct || isHlsUrl(url.absoluteString) }
+    /// Videos only: every audio track the file has, from PlaybackInfo. A transcode carries
+    /// just the one it was asked for, so this is what an audio menu offers instead.
+    public var audioTracks: [JfMediaStream] = []
 
     /// A downloaded file: played as it is, from the start, with no session.
     public static func localFile(_ url: URL) -> ResolvedStream {

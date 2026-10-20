@@ -62,15 +62,20 @@ struct NowPlayingView: View {
 
     private var artId: String? { player.item?.albumId ?? player.item?.id }
 
+    /// The song has no lyrics (known, not still loading). In lyrics mode the queue shows
+    /// instead, and lyrics mode stays on, so the next song with lyrics shows them.
+    private var lyricsMissing: Bool { lyrics.lines == nil && !lyrics.isLoading }
+
     /// Lyrics are on screen, so the background dims under them.
     private var lyricsShowing: Bool {
         #if os(tvOS)
         lyrics.lines != nil
         #else
-        mode == .lyrics
+        mode == .lyrics && !lyricsMissing
         #endif
     }
     private var isFavorite: Bool { favoriteOverride ?? player.item?.userData?.isFavorite ?? false }
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         Group {
@@ -79,6 +84,17 @@ struct NowPlayingView: View {
             #else
             iosBody
                 .newLyricDefaultsPrompt()
+                // Apple Music's grabber: a full-screen cover has no sheet handle, and in
+                // lyrics mode the lyrics' own scrolling can take the swipe down.
+                .overlay(alignment: .top) {
+                    Button { dismiss() } label: {
+                        Capsule().fill(.white.opacity(0.45)).frame(width: 38, height: 5)
+                            .frame(width: 88, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Close Now Playing")
+                }
             #endif
         }
         .background { NowPlayingBackground(itemId: artId, behindLyrics: lyricsShowing) }
@@ -138,7 +154,7 @@ struct NowPlayingView: View {
 
                 VStack(spacing: 6) {
                     Text(player.item?.name ?? "Nothing playing")
-                        .font(.title2)
+                        .scaledFont(.title2)
                         .lineLimit(1)
                     Text(player.item?.albumArtist ?? player.item?.artists?.first ?? "")
                         .foregroundStyle(.secondary)
@@ -201,7 +217,7 @@ struct NowPlayingView: View {
                         }
                         .padding(.top, 20)
                         Group {
-                            if mode == .lyrics { lyricsPanel } else { queuePanel }
+                            if lyricsShowing { lyricsPanel } else { queuePanel }
                         }
                         .frame(maxHeight: .infinity)
                         // Slides down and away under the growing artwork, and up
@@ -211,7 +227,7 @@ struct NowPlayingView: View {
                     }
                     if let error = player.error {
                         Text(error)
-                            .font(.caption)
+                            .scaledFont(.caption)
                             .foregroundStyle(.red)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.top, 6)
@@ -257,10 +273,10 @@ struct NowPlayingView: View {
         }
         #endif
         // Lyrics mode stays put across skips: the next song's lyrics load in
-        // place, and one without any says so rather than bouncing back to
-        // the artwork.
-        .task(id: "\(mode)|\(controlsWake)") {
-            guard mode == .lyrics else {
+        // place, and one without any shows the queue rather than bouncing back
+        // to the artwork, until a song with lyrics comes along.
+        .task(id: "\(mode)|\(controlsWake)|\(lyricsMissing)") {
+            guard lyricsShowing else {
                 controlsHidden = false
                 controlsWake = 0
                 return
@@ -268,7 +284,7 @@ struct NowPlayingView: View {
             let t = StyleTuning.shared.values
             let idle = controlsWake == 0 ? t.controlsIdleSeconds : t.controlsWokenIdleSeconds
             try? await Task.sleep(for: .seconds(idle))
-            guard !Task.isCancelled, mode == .lyrics else { return }
+            guard !Task.isCancelled, lyricsShowing else { return }
             withAnimation(.easeInOut(duration: 0.35)) { controlsHidden = true }
         }
         .onAppear(perform: updateRouteName)
@@ -295,6 +311,7 @@ struct NowPlayingView: View {
         let big = mode == .artwork
         return ArtworkView(itemId: artId, size: resolution, fillsFrame: true, animated: true)
             .overlay { CoverSliceOverlay(player: player, size: resolution).clipShape(ProportionalRoundedRectangle()) }
+            .overlay { LoadingCoverOverlay(active: player.isWaitingToPlay, large: big).clipShape(ProportionalRoundedRectangle()) }
             .shadow(color: .black.opacity(big ? 0.35 : 0.2), radius: big ? 24 : 6, y: big ? 12 : 3)
             // Apple's artwork breathes with playback: full size while playing,
             // eased back a little when paused. Only the big one does.
@@ -542,7 +559,7 @@ struct NowPlayingView: View {
             SystemVolumeSlider().frame(height: 34)
             Image(systemName: "speaker.wave.3.fill")
         }
-        .font(.caption)
+        .scaledFont(.caption)
         .foregroundStyle(.white.opacity(0.55))
     }
 
@@ -582,7 +599,7 @@ struct NowPlayingView: View {
     private func modeButton(_ target: Mode, symbol: String, label: String) -> some View {
         Button { setMode(mode == target ? .artwork : target) } label: {
             Image(systemName: symbol)
-                .font(.title3)
+                .scaledFont(.title3)
                 .frame(width: 44, height: 44)
                 .background(Circle().fill(.white.opacity(mode == target ? 0.22 : 0)))
         }
@@ -671,10 +688,10 @@ struct NowPlayingView: View {
             .padding(.top, 18)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text("Up Next").font(.headline)
+                Text("Up Next").scaledFont(.headline)
                 let upcoming = max(0, player.queue.items.count - player.queue.index - 1)
                 Text(upcoming == 1 ? "1 song" : "\(upcoming) songs")
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.white.opacity(0.55))
             }
 

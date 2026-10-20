@@ -74,7 +74,7 @@ extension SongsView {
                 Spacer()
                 if isLoading || !items.isEmpty {
                     Text(items.count == 1 ? "1 song" : "\(items.count.formatted()) songs")
-                        .font(.callout).foregroundStyle(.secondary)
+                        .scaledFont(.callout).foregroundStyle(.secondary)
                     if !loadedAll { ProgressView().controlSize(.small) }
                 }
             }
@@ -109,6 +109,7 @@ private struct SongsTable: View {
     @Binding var direction: SortDirection
 
     @Environment(AppState.self) private var state
+    @Environment(\.uiScale) private var uiScale
     @State private var selection = Set<JfItem.ID>()
     @State private var order: [KeyPathComparator<JfItem>] = []
 
@@ -191,9 +192,11 @@ private struct SongsTable: View {
         // no AppState and the app stopped on a fatal error opening Songs.
         content()
             .environment(state)
+            .environment(\.uiScale, uiScale)
+            .font(.system(size: 13 * uiScale))
             // The desktop's row: 45 pt with a 32 pt cover (SONG_ROW_H in
             // renderer.js), not the table's default single tight line.
-            .frame(maxWidth: .infinity, minHeight: 37, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 37 * uiScale, alignment: .leading)
             .contentShape(Rectangle())
             .simultaneousGesture(TapGesture(count: 2).onEnded { play(selected: [track.id], startingAt: track) })
     }

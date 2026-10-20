@@ -37,11 +37,33 @@ public enum LyricLanguages {
         return String(language.rawValue.split(separator: "-").first ?? "")
     }
 
+    /// Scripts English is never written in: kana, Han, Hangul, Cyrillic, Arabic, Hebrew,
+    /// Greek, Thai, Devanagari.
+    static let nonLatin: [ClosedRange<UInt32>] = [
+        0x3040...0x30FF, 0x3400...0x4DBF, 0x4E00...0x9FFF, 0xFF66...0xFF9F, 0x1100...0x11FF,
+        0x3130...0x318F, 0xAC00...0xD7AF, 0x0400...0x04FF, 0x0600...0x06FF, 0x0590...0x05FF,
+        0x0370...0x03FF, 0x0E00...0x0E7F, 0x0900...0x097F,
+    ]
+
+    /// The text to detect a sheet's language from: its lines in a non-Latin script when
+    /// there are enough to matter, else the whole sheet. The desktop's sheetSample: a mostly
+    /// English song with Japanese verses (UN-APEX, TV edit) read as English off the whole
+    /// sheet and was never offered a translation. Lines, not letters, so one stray kanji in
+    /// a credit does not flip an English song.
+    public static func sheetSample(_ lines: [String]) -> String {
+        let filled = lines.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let foreign = filled.filter { line in
+            line.unicodeScalars.lazy.filter { s in nonLatin.contains { $0.contains(s.value) } }.prefix(2).count >= 2
+        }
+        let text = Double(foreign.count) >= max(2, Double(filled.count) * 0.15) ? foreign : filled
+        return String(text.joined(separator: " ").prefix(1000))
+    }
+
     /// Whether to offer translation for these lines: any language that is not English.
     /// Takes the whole sheet rather than the first line, so a Spanish song opening on an
     /// English title line is still offered.
     public static func shouldOffer(_ lines: [String]) -> Bool {
-        let lang = detectLanguage(String(lines.joined(separator: " ").prefix(1000)))
+        let lang = detectLanguage(sheetSample(lines))
         return lang != "" && lang != "en"
     }
 
@@ -80,7 +102,7 @@ public enum LyricLanguages {
     /// The language a sheet would be translated from, or nil when Apple's framework could not
     /// take it. Whether it can on this Mac is the availability check's call, not this one's.
     public static func languageFor(_ lines: [String]) -> String? {
-        let text = String(lines.joined(separator: " ").prefix(1000))
+        let text = sheetSample(lines)
         let lang = detectLanguage(text)
         if lang == "zh" { return chineseScript(text) }
         let key = lang == "ru" || lang == "uk" ? cyrillicLanguage(text) ?? lang : lang

@@ -24,8 +24,8 @@ public enum LyricTranslation {
     /// framework takes ("ja", "ko", "zh-Hans", "es"), or nil when unsure.
     /// Detected over the whole text at once: a single line is too short to tell.
     public static func detectLanguage(of lines: [String]) -> String? {
-        let text = lines.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }.joined(separator: "\n")
+        // A mostly English sheet with verses in another script goes by those verses.
+        let text = LyricLanguages.sheetSample(lines.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) })
         guard text.count >= minimumCharacters else { return nil }
         let recognizer = NLLanguageRecognizer()
         recognizer.processString(text)

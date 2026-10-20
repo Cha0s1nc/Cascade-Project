@@ -72,6 +72,11 @@ public final class PlaybackService {
     /// Between a play() call landing and its stream actually resolving, so a
     /// view can show "loading" rather than a stale track.
     public private(set) var isLoading = false
+    /// The playing deck is waiting on the network (a slow start, a stall mid-song).
+    public private(set) var isStalled = false
+    /// Picked but not sounding yet: resolving, or waiting for data. Views put a wheel over the
+    /// cover, so a skip on a slow connection visibly happened and is not pressed again.
+    public var isWaitingToPlay: Bool { isLoading || (isStalled && !isPaused) }
     public private(set) var positionSeconds: Double = 0
     /// The position right now, read from the player rather than from the
     /// half-second observer behind `positionSeconds`: for the lyrics' word
@@ -144,7 +149,8 @@ public final class PlaybackService {
     /// How loud the playing item is right now, 0 to 1, from its audio tap; nil when it has
     /// none (the tap is only attached while the EQ is on, and never just for this). The Mac's
     /// playing-row bars follow it, and fall back to a canned animation on nil.
-    public var tapLevel: Float? { currentTap?.level }
+    /// The playing-row bars from the tap, or nil with no tap attached (the EQ is off).
+    public var tapBars: SIMD8<Float>? { currentTap?.bars }
 
     // MARK: - Internals
 
@@ -174,6 +180,7 @@ public final class PlaybackService {
     /// and swaps them, so `player` is always the deck that is playing `item`.
     @ObservationIgnored private var player = AVQueuePlayer()
     @ObservationIgnored private var otherDeck = AVQueuePlayer()
+    @ObservationIgnored private var stallWatches: [NSKeyValueObservation] = []
     /// The AVPlayerItem that belongs to `item`. Tracked here rather than read
     /// from player.currentItem, because a queue player moves that on its own,
     /// and an end notification from any other item (a track already skipped
@@ -1197,6 +1204,7 @@ public final class PlaybackService {
         tail = (player, outgoing, resolved, normalizationVolume)
         otherDeck = player
         player = incoming
+        syncStalled()
         fadeIn = 0
         fadeOut = 1
         applyVolumes()
@@ -1628,6 +1636,19 @@ public final class PlaybackService {
                           toleranceBefore: .zero, toleranceAfter: .zero)
     }
 
+    /// After a network switch: a song stuck waiting on the old network starts again where it was
+    /// (a station reconnects). A song that is playing or paused is left alone.
+    public func recoverIfStalled() async {
+        guard isStalled, !isPaused, !isLoading, let item, currentPlayerItem != nil else { return }
+        if isRadio { return await loadRadio(item) }
+        await load(item, startTicks: CascadeKit.ticks(fromSeconds: livePositionSeconds))
+    }
+
+    private func syncStalled() {
+        let waiting = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+        if waiting != isStalled { isStalled = waiting }
+    }
+
     private func observePlayer() {
         // Position comes from the player rather than a wall clock, so pausing,
         // buffering and rate changes are all accounted for without extra code.
@@ -1647,6 +1668,13 @@ public final class PlaybackService {
                     guard let self, time.isNumeric, ObjectIdentifier(self.player) == id else { return }
                     self.positionSeconds = CascadeKit.seconds(fromTicks: self.streamStartTicks) + time.seconds
                 }
+            })
+        }
+
+        // Both decks, since a crossfade swaps which one is `player`.
+        for deck in [player, otherDeck] {
+            stallWatches.append(deck.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
+                Task { @MainActor in self?.syncStalled() }
             })
         }
 

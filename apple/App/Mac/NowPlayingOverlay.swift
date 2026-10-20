@@ -1,9 +1,9 @@
 import SwiftUI
 import CascadeKit
 
-/// The full-window Now Playing layer. Shown while AppState.nowPlayingOpen; while it is closed and
-/// the side lyrics panel is open, it draws that instead, and while neither shows it draws nothing
-/// at all (no timelines running, nothing to hit-test).
+/// The full-window Now Playing layer. Shown while AppState.nowPlayingOpen; otherwise it draws
+/// nothing at all (no timelines running, nothing to hit-test), but stays in the tree: its task
+/// loads the lyrics for both Now Playing and the side panel (MacRootView's inspector).
 struct NowPlayingOverlay: View {
     @Environment(AppState.self) private var state
     private var ui: MacNowPlayingUI { .shared }
@@ -24,10 +24,6 @@ struct NowPlayingOverlay: View {
                         .trackActionHost()
                         .transition(.move(edge: .bottom))
                         .zIndex(2)
-                } else if ui.sidePanelOpen {
-                    SideLyricsPanel(player: player)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
         }
@@ -62,7 +58,6 @@ struct NowPlayingOverlay: View {
             if let track = state.player?.item { SpotifyLinkSheet(track: track).environment(state) }
         }
         .animation(.easeInOut(duration: 0.38), value: state.nowPlayingOpen)
-        .animation(.easeInOut(duration: 0.25), value: ui.sidePanelOpen)
     }
 
     private func syncTranslator() {
@@ -101,7 +96,10 @@ private struct OverlayContent: View {
     private var light: Bool { theme.isLight }
     private var artTheme: Bool { theme.settings.albumArt }
     private var ink: Color { light ? Color(red: 28 / 255, green: 28 / 255, blue: 30 / 255) : .white }
-    private var showingLyrics: Bool { ui.rightPanel == .lyrics }
+    /// Lyrics were asked for. They show unless this song has none (known, not still
+    /// loading): then the queue shows, and the next song with lyrics brings them back.
+    private var wantsLyricsPanel: Bool { ui.rightPanel == .lyrics }
+    private var showingLyrics: Bool { wantsLyricsPanel && !(ui.lyrics.lines == nil && !ui.lyrics.isLoading) }
     private var isFavorite: Bool { ui.isFavorite(player.item) }
     /// A white scrim over each part in light mode with album art, so text reads over the blobs.
     private var scrim: Color { light && artTheme ? .white.opacity(theme.tuning.bgDim) : .clear }
@@ -213,7 +211,7 @@ private struct OverlayContent: View {
                                id: (player.item?.albumArtists?.first ?? player.item?.artistItems?.first)?.id)
                         .foregroundStyle(ink.opacity(0.7)).lineLimit(1)
                 }
-                if let error = player.error { Text(error).font(.caption).foregroundStyle(.red) }
+                if let error = player.error { Text(error).scaledFont(.caption).foregroundStyle(.red) }
                 controls.frame(maxWidth: min(side + 80, 460 * u))
                 Spacer(minLength: 0)
             }
@@ -231,6 +229,7 @@ private struct OverlayContent: View {
         ArtworkView(itemId: artId, size: side, fillsFrame: true, animated: true)
             .frame(width: side, height: side)
             .overlay { CoverSliceOverlay(player: player, size: side).clipShape(ProportionalRoundedRectangle()) }
+            .overlay { LoadingCoverOverlay(active: player.isWaitingToPlay, large: true).clipShape(ProportionalRoundedRectangle()) }
             .brightness(artHovering ? -0.25 : 0)
             .saturation(artHovering ? 0.7 : 1)
             .overlay {
@@ -371,7 +370,7 @@ private struct OverlayContent: View {
             }
             Image(systemName: "speaker.wave.3.fill")
         }
-        .font(.caption)
+        .scaledFont(.caption)
         .foregroundStyle(ink.opacity(0.6))
     }
 
@@ -380,17 +379,17 @@ private struct OverlayContent: View {
             moreMenu
             Spacer()
             Button {
-                withAnimation(.easeInOut(duration: 0.3)) { ui.rightPanel = showingLyrics ? .queue : .lyrics }
+                withAnimation(.easeInOut(duration: 0.3)) { ui.rightPanel = wantsLyricsPanel ? .queue : .lyrics }
             } label: {
-                Image(systemName: showingLyrics ? "quote.bubble.fill" : "quote.bubble")
+                Image(systemName: wantsLyricsPanel ? "quote.bubble.fill" : "quote.bubble")
                     .font(.system(size: 17 * u))
                     .frame(width: 36, height: 30)
-                    .background(Circle().fill(showingLyrics ? ink.opacity(0.18) : .clear))
+                    .background(Circle().fill(wantsLyricsPanel ? ink.opacity(0.18) : .clear))
             }
             .buttonStyle(.hover)
-            .help("Lyrics")
+            .help(wantsLyricsPanel && !showingLyrics ? "No lyrics for this song. They show again for the next song that has them." : "Lyrics")
             .accessibilityLabel("Lyrics")
-            .accessibilityValue(showingLyrics ? "Showing" : "")
+            .accessibilityValue(showingLyrics ? "Showing" : wantsLyricsPanel ? "No lyrics for this song" : "")
         }
     }
 

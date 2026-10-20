@@ -208,12 +208,11 @@ input[type="color"].tp-swatch { width: 100%; height: 30px; border: 1px solid var
   .lyrics-source-dropdown, .ov-more-scrim { transition: none; }
   .hshelf-track { scroll-behavior: auto; }
   .hshelf-arrow, .hshelf-arrow svg { transition: none; }
-  /* Two of the four animations that never stop on their own. The eq bars
-     are decorative and stop outright; the spinner only slows down, because
-     a frozen spinner stops telling the user work is still in flight.
+  /* An animation that never stops on its own. The spinner only slows down,
+     because a frozen spinner stops telling the user work is still in flight.
+     The eq bars follow the music instead of looping, so they need nothing.
      The other two are handled at the end of this stylesheet - their rules
      are defined below this point, and a media query adds no specificity,
      so an override here would lose the cascade and silently do nothing. */
-  .track-eq i { animation: none; }
   .setup-spinner { animation-duration: 3s; }
 }

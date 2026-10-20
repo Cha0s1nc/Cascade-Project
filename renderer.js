@@ -144,12 +144,31 @@ function onDeck(type, fn, opts) {
   DECKS.forEach(d => d.addEventListener(type, e => { if (e.target === audio) fn(e) }, opts))
 }
 
-// Element .volume/.muted must track the user's setting on BOTH decks at all
-// times - the crossfade envelope lives entirely in Web Audio gain nodes (see
-// _ensureEqGraph), never on the element, so whichever deck becomes current
-// next already has the right volume with nothing left to sync.
-function setDeckVolume(v) { DECKS.forEach(d => d.volume = v) }
-function setDeckMuted(m) { DECKS.forEach(d => d.muted = m) }
+// Volume and mute are the same on BOTH decks at all times - the crossfade
+// envelope lives entirely in Web Audio gain nodes (see _ensureEqGraph), never
+// on the element, so whichever deck becomes current next already has the
+// right level with nothing left to sync. Once the graph is up, volume is
+// _masterGain, after the analyser, and the elements stay at 1: an element's
+// volume is applied before the tap, so the playing-row bars shrank with the
+// volume knob. Without a graph (it failed to build) the elements carry it.
+// volumechange is fired by hand so its listeners still hear about a change.
+// Mute goes the same way, so muted playback still has real bars; read it
+// from _muted, not audio.muted.
+let _masterGain = null
+let _muted = false
+function setDeckVolume(v) {
+  if (_masterGain) {
+    _masterGain.gain.value = _muted ? 0 : v
+    DECKS.forEach(d => { d.volume = 1; d.muted = false })
+    audio.dispatchEvent(new Event('volumechange'))
+  } else {
+    DECKS.forEach(d => { d.volume = v; d.muted = _muted })
+  }
+}
+function setDeckMuted(m) {
+  _muted = m
+  setDeckVolume(volume)
+}
 
 /**
  * Sets playback volume to `ratio` (0..1) and keeps everything that depends on it
@@ -996,7 +1015,7 @@ function startRemoteControl() {
     setVolume(pct)  { applyRemoteVolume(pct / 100) },
     volumeUp()      { applyRemoteVolume(volume + 0.1) },
     volumeDown()    { applyRemoteVolume(volume - 0.1) },
-    toggleMute()    { applyRemoteMute(!audio.muted) },
+    toggleMute()    { applyRemoteMute(!_muted) },
     setMute(muted)  { applyRemoteMute(muted) },
     showMessage(message) { showServerMessage(message) },
   }, playbackIsLocallyOwned)
@@ -2862,7 +2881,7 @@ document.getElementById('artist-back-btn').addEventListener('click', () => {
 // Shared thumb HTML - includes the EQ bars for the now-playing animation
 function trackThumbHtml(art) {
   const img = art ? `<img src="${art}" alt="" loading="lazy" onerror="this.style.display='none'">` : ''
-  return `<div class="track-thumb">${img}<span class="track-eq"><i></i><i></i><i></i></span></div>`
+  return `<div class="track-thumb">${img}<span class="track-eq">${'<i></i>'.repeat(CascadeCore.EQ_BARS)}</span></div>`
 }
 
 // Shared track-row markup. opts: idxAttr (default 'data-idx'), extraClass, entryId, style.
@@ -5541,6 +5560,7 @@ async function playCurrentTrack(opts = {}) {
   abandonCurrentEncoding()
 
   const video = isVideoItem(item)
+  let shownEarly = false
 
   // A track already buffered on the idle deck (see _prefetchNext) can be
   // swapped straight in instead of resolving and loading cold - the same
@@ -5566,6 +5586,15 @@ async function playCurrentTrack(opts = {}) {
     adoptResolvedStream(prefetched.resolved)
     audio.play().catch(() => {})
   } else if (!opts.alreadyPlaying) {
+    // On a slow connection the resolve below can take seconds. Showing the
+    // new track only after it meant a skip looked like it did nothing, so
+    // people pressed again and skipped several songs once the network caught
+    // up. The title and cover change now, with a wheel over the cover until
+    // the deck actually plays.
+    updateNowPlaying(item)
+    highlightPlayingRow()
+    shownEarly = true
+    _setTrackLoading(true)
     // Resolving the stream is now a round-trip, so the user can skip again
     // before it lands. Re-read the queue afterwards and bail if they did,
     // otherwise a stale response would start the wrong track.
@@ -5588,6 +5617,15 @@ async function playCurrentTrack(opts = {}) {
     // _audioStreamIndexIsExplicit above. Without this gate, the next track
     // (or _handleUndecodableAudio's own re-resolve) silently recomputed and
     // threw the user's pick away.
+    // A film started from search or a card menu comes from a list fetched
+    // without MediaStreams, so its audio menu said "Only one track" and the
+    // decodable-track check had nothing to read. Filled in once, here, where
+    // every way of starting a video ends up.
+    if (video && !item.MediaStreams && !_offline.ready[item.Id]) {
+      const [full] = await jfItemsByIds([item.Id], 'Overview,MediaStreams,MediaSources,UserData')
+      if (queue[queueIndex]?.Id !== item.Id) return
+      if (full?.MediaStreams) Object.assign(item, { MediaStreams: full.MediaStreams, MediaSources: full.MediaSources })
+    }
     if (video && !_audioStreamIndexIsExplicit) {
       _audioStreamIndex = neededAudioStreamIndex(item.MediaStreams, decodableVideoAudioCodecs())
     } else if (!video) {
@@ -5627,10 +5665,24 @@ async function playCurrentTrack(opts = {}) {
   // already having pointed it here). Cached and idempotent for the prefetch
   // and crossfade cases; a fresh fetch only for a cold load with no prefetch.
   _applyNormalizationToDeck(audio, item)
-  updateNowPlaying(item)
-  highlightPlayingRow()
+  if (!shownEarly) {
+    updateNowPlaying(item)
+    highlightPlayingRow()
+  }
   reportPlaybackStart(item.Id)
 }
+
+/** The wheel over the player bar's and Now Playing's cover (.art-loading):
+ *  on from a track being picked, or the playing one stalling, until it plays. */
+function _setTrackLoading(on) {
+  for (const id of ['np-art', 'ov-art']) document.getElementById(id).classList.toggle('art-loading', on)
+}
+// Not on 'pause' or 'emptied': swapping the src fires those on the way to
+// playing, and the wheel would drop while the new track still loads.
+onDeck('playing', () => _setTrackLoading(false))
+onDeck('error', () => _setTrackLoading(false))
+// A stall mid-song (the network dropping under it) gets the same wheel.
+onDeck('waiting', () => { if (!audio.paused) _setTrackLoading(true) })
 
 let _prefetchSession = 0
 
@@ -6100,7 +6152,7 @@ function playbackSnapshot(itemId, positionTicks) {
     itemId: itemId ?? item?.Id ?? '',
     positionTicks: positionTicks ?? Math.round(mediaPosition() * 10_000_000),
     isPaused: audio.paused,
-    isMuted: audio.muted,
+    isMuted: _muted,
     volumeLevel: Math.round(volume * 100),
     playSessionId: _playSessionId,
     mediaSourceId: _mediaSourceId,
@@ -6467,7 +6519,7 @@ async function startCrossfade(nextIndex) {
     incoming.src = resolved.url
   }
 
-  incoming.volume = volume   // element volume stays at user volume on both decks always
+  incoming.volume = _masterGain ? 1 : volume   // see setDeckVolume
 
   // Idempotent - already built from the first track's `play` event in the
   // overwhelming majority of cases. Guards against the (never actually
@@ -7032,7 +7084,7 @@ function wireProgressBar(barId) {
 function wireVolumeBar(barId) {
   const bar = document.getElementById(barId)
   wireBar(bar, {
-    getRatio: () => audio.volume,
+    getRatio: () => volume,
     step:     () => 0.05,
     bigStep:  () => 0.2,
     onChange: (ratio) => setVolumeRatio(ratio, bar),
@@ -7043,7 +7095,7 @@ wireProgressBar('prog-bar')
 wireVolumeBar('vol-bar')
 
 document.getElementById('btn-mute').addEventListener('click', () => {
-  setDeckMuted(!audio.muted)
+  setDeckMuted(!_muted)
 })
 
 // Lyrics open button
@@ -8655,6 +8707,30 @@ jfClient.onFailure = (status) => {
 window.addEventListener('offline', checkForDrop)
 window.addEventListener('online', () => { if (_offlineState === 'unreachable') probeServer() })
 
+// A network switch while still online (Wi-Fi to Ethernet, a VPN reconnecting):
+// 'online' never fires for it, and a stream opened on the old network can hang
+// for good. Once the server answers on the new one, a stalled song restarts
+// where it was. The server's own ping is the test rather than a public host
+// like 1.1.1.1: a LAN server can answer with no internet at all, and nothing
+// about a network change goes to a third party.
+let _netChangeTimer = null
+navigator.connection?.addEventListener('change', () => {
+  clearTimeout(_netChangeTimer)
+  // The event comes in bursts while a link settles.
+  _netChangeTimer = setTimeout(async () => {
+    if (_offlineState !== 'online' || !_connectedOnline || blocksLocalPlayback()) return
+    // Only for a song that is stuck: Chromium also fires 'change' when its
+    // throughput estimates move during ordinary streaming, and those must
+    // not ping the server over and over.
+    const item = queue[queueIndex]
+    if (!item || audio.paused || audio.readyState >= 3) return
+    if (!await serverAnswers()) { checkForDrop(); return }
+    if (queue[queueIndex] !== item || audio.paused || audio.readyState >= 3) return
+    if (CascadeCore.isRadioItem(item)) playRadioStation(item)
+    else restartStreamAt(mediaPosition(), { renegotiate: true })
+  }, 1500)
+})
+
 /** The pill and the banner show by body class (offline-on, offline-auto);
  *  this keeps their words and the Settings switch in step. */
 function renderOfflineIndicators() {
@@ -9005,12 +9081,11 @@ function stopBeatLoop() {
 }
 
 // ── Now-playing equalizer ────────────────────────────────────────────────────
-// Drives the three .track-eq bars from real playback via Web Audio instead of
-// leaving them as a pure CSS loop. eqLevels() (src/core/eq.ts) turns one frame
-// of frequency data into three 0..1 heights - everything here is just wiring:
-// build the graph once, run a throttled rAF loop while something plays, and
-// fall back to the plain CSS animation for the rest of the session if the
-// graph ever produces silence for audio that is actually audible.
+// Drives the .track-eq bars from real playback via Web Audio. eqLevels()
+// (src/core/eq.ts) turns one frame of frequency data into 0..1 heights -
+// everything here is just wiring: build the graph once, run a throttled rAF
+// loop while something plays, and hide the bars for the rest of the session
+// if the graph ever produces silence for audio that is actually audible.
 //
 // Each deck gets its own permanent source + gain node (see _deckSource/
 // _deckGain), both feeding the one shared 5-band EQ stage, then the one
@@ -9121,7 +9196,10 @@ function _ensureEqGraph() {
       _deckNormGainNodes.set(d, normGain)
       _deckGainNodes.set(d, gain)
     })
-    _eqAnalyser.connect(_audioCtx.destination)
+    _masterGain = _audioCtx.createGain()
+    _eqAnalyser.connect(_masterGain)
+    _masterGain.connect(_audioCtx.destination)
+    setDeckVolume(volume)
     _mediaSrc = _deckSource(audio)
     _applyEqToGraph()
     // The graph is built lazily on the first 'play' event (see startEqLoop
@@ -9154,6 +9232,10 @@ function _ensureEqGraph() {
     _eqAnalyser = null
     _eqPreamp = null
     _eqBandNodes = null
+    // The elements are back on the normal output, so they carry the volume again.
+    if (_masterGain) { try { _masterGain.disconnect() } catch {} }
+    _masterGain = null
+    setDeckVolume(volume)
   }
 }
 
@@ -9545,8 +9627,8 @@ function stopEqLoop() {
   // minutes later, so the first frame back reads the whole pause as silence,
   // trips EQ_SILENCE_MS, sets _eqNoSignal and freezes the bars for the session.
   _eqSilentSinceTs = 0
-  // Drop 'live' off whatever currently has it so the CSS animation resumes -
-  // covers both a normal stop and the silence-fallback giving up permanently.
+  // Bars show only while they read real audio: paused, stopped, or a tap that
+  // never produced anything shows no bars at all, not a placeholder loop.
   document.querySelectorAll('.track-eq.live').forEach(el => el.classList.remove('live'))
 }
 
@@ -9562,7 +9644,7 @@ function openOverlay() {
   syncOverlayState()
   renderQueuePanel()
   if (overlayLyricsOpen) renderOverlayLyrics()
-  document.getElementById('ov-vol-fill').style.width = `${audio.volume * 100}%`
+  document.getElementById('ov-vol-fill').style.width = `${volume * 100}%`
 
   // Apply art theme every time the overlay opens - derive the URL from the
   // current queue item directly so we never depend on _currentBgArtUrl being set.
@@ -9651,11 +9733,27 @@ document.addEventListener('keydown', (e) => {
 })
 
 // Lyrics toggle - queue slides left out, lyrics slides right in (and vice versa)
+// overlayLyricsOpen is what the person asked for. A song with no lyrics shows
+// the queue instead (_ovLyricsMissing) and leaves the ask on, so the next song
+// that has lyrics brings them back.
+let _ovLyricsMissing = false
+function _applyOverlayPanels() {
+  const lyrics = overlayLyricsOpen && !_ovLyricsMissing
+  document.getElementById('ov-panel-lyrics').style.transform = lyrics ? 'translateX(0)' : 'translateX(100%)'
+  document.getElementById('ov-panel-queue').style.transform  = lyrics ? 'translateX(-100%)' : 'translateX(0)'
+  const toggle = document.getElementById('ov-lyrics-toggle')
+  toggle.classList.toggle('active', overlayLyricsOpen)
+  toggle.title = overlayLyricsOpen && _ovLyricsMissing ? 'No lyrics for this song. They show again for the next song that has them.' : 'Lyrics'
+}
+function _setOverlayLyricsMissing(missing) {
+  if (_ovLyricsMissing === missing) return
+  _ovLyricsMissing = missing
+  _applyOverlayPanels()
+}
+
 document.getElementById('ov-lyrics-toggle').addEventListener('click', () => {
   overlayLyricsOpen = !overlayLyricsOpen
-  document.getElementById('ov-panel-lyrics').style.transform = overlayLyricsOpen ? 'translateX(0)' : 'translateX(100%)'
-  document.getElementById('ov-panel-queue').style.transform  = overlayLyricsOpen ? 'translateX(-100%)' : 'translateX(0)'
-  document.getElementById('ov-lyrics-toggle').classList.toggle('active', overlayLyricsOpen)
+  _applyOverlayPanels()
   if (overlayLyricsOpen) renderOverlayLyrics()
 })
 
@@ -9968,9 +10066,9 @@ document.addEventListener('keydown', (e) => {
   else if (arrow) skipBy(arrow * ARROW_SECONDS)
   else if (key === 'ArrowUp' || key === 'ArrowDown') {
     nudgeVolume(key === 'ArrowUp' ? 0.05 : -0.05)
-    videoOsd(`Volume ${Math.round(audio.volume * 100)}%`)
+    videoOsd(`Volume ${Math.round(volume * 100)}%`)
   }
-  else if (key === 'm') { document.getElementById('btn-mute').click(); videoOsd(audio.muted ? 'Muted' : 'Unmuted') }
+  else if (key === 'm') { document.getElementById('btn-mute').click(); videoOsd(_muted ? 'Muted' : 'Unmuted') }
   else if (key === 'f') toggleVideoFullscreen()
   else if (key === 'c') toggleSubtitles()
   else if (key === 's') { if (_activeSegment) skipActiveSegment(); else handled = false }
@@ -9994,7 +10092,7 @@ document.addEventListener('keydown', (e) => {
  *  handler above - setVolumeRatio() does the actual work of keeping both
  *  sliders and the stored setting in step. */
 function nudgeVolume(delta) {
-  setVolumeRatio(audio.volume + delta)
+  setVolumeRatio(volume + delta)
 }
 
 // ── Subtitle picker ──
@@ -10382,6 +10480,7 @@ async function renderOverlayLyrics() {
     if (result?.instrumental) {
       _ovDropGhost()
       body.innerHTML = '<div class="lyrics-empty" style="padding:40px 0;text-align:center">This track is instrumental</div>'
+      _setOverlayLyricsMissing(true)
       return
     }
     _showLyricsFetchToast(result)
@@ -10391,6 +10490,7 @@ async function renderOverlayLyrics() {
       updateSourcePills()
       _ovDropGhost()
       body.innerHTML = `<div class="lyrics-empty" style="padding:40px 0;text-align:center">No lyrics available${_linkSpotifyButton()}</div>`
+      _setOverlayLyricsMissing(true)
       return
     }
     lyricsData   = result.lines
@@ -10404,9 +10504,11 @@ async function renderOverlayLyrics() {
   if (!lyricsData.length) {
     _ovDropGhost()
     body.innerHTML = `<div class="lyrics-empty" style="padding:40px 0;text-align:center">No lyrics available${_linkSpotifyButton()}</div>`
+    _setOverlayLyricsMissing(true)
     return
   }
 
+  _setOverlayLyricsMissing(false)
   renderOverlayLyricLines()
   _resetOverlayManualScroll()
   const nowSecRoll = audio.currentTime + _lyricLead
@@ -15215,7 +15317,7 @@ function debugPanelText() {
     '',
     '── audio diagnosis ──',
     `live peak: ${(() => { const pk = debugLivePeak(); return pk === null ? 'no graph' : `${pk}${pk === 0 && !audio.paused ? '  <- DECODER PRODUCED NOTHING' : ''}` })()}`,
-    `element volume: ${audio.volume.toFixed(2)}   muted: ${audio.muted}`,
+    `volume: ${volume.toFixed(2)}   muted: ${_muted}   via ${_masterGain ? 'gain after the analyser' : 'the element'}`,
     `profile claims decodable: ${decodableVideoAudioCodecs().join(',')}`,
     `withdrawn at runtime: ${[..._undecodableAudioCodecs].join(',') || 'none'}`,
     `decoded audio bytes: ${audio.webkitAudioDecodedByteCount ?? 'n/a'}`,

@@ -12,7 +12,7 @@ struct EQPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text(title).font(.headline)
+                Text(title).scaledFont(.headline)
                 Spacer()
                 Toggle(title, isOn: Binding(get: { profile.enabled }, set: { on in change { $0.enabled = on } }))
                     .labelsHidden()
@@ -44,7 +44,7 @@ struct EQPanel: View {
             } else {
                 // + 0 so a flat curve reads 0.0 rather than -0.0.
                 Text(String(format: "Preamp %+.1f dB: turned down by the biggest boost so boosted bands cannot distort.", profile.effectivePreamp + 0))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .scaledFont(.caption).foregroundStyle(.secondary)
             }
             HStack {
                 Spacer()
@@ -144,8 +144,8 @@ struct EQGraphView: View {
             HStack(spacing: 0) {
                 ForEach(gains.indices, id: \.self) { i in
                     VStack(spacing: 0) {
-                        Text(EQGraph.label(EQProfile.bands[i])).font(.caption2)
-                        Text(String(format: "%.1f dB", gains[i])).font(.caption2).monospacedDigit().foregroundStyle(.secondary)
+                        Text(EQGraph.label(EQProfile.bands[i])).scaledFont(.caption2)
+                        Text(String(format: "%.1f dB", gains[i])).scaledFont(.caption2).monospacedDigit().foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity)
                 }

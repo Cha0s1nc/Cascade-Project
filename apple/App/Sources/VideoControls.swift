@@ -96,9 +96,9 @@ struct CascadeVideoPlayer: View {
         HStack(spacing: 12) {
             CircleButton(systemImage: "chevron.down", label: "Close") { close() }
             VStack(alignment: .leading, spacing: 2) {
-                Text(session.item?.name ?? "").font(.headline)
+                Text(session.item?.name ?? "").scaledFont(.headline)
                 if !caption.isEmpty {
-                    Text(caption).font(.caption).foregroundStyle(.white.opacity(0.75))
+                    Text(caption).scaledFont(.caption).foregroundStyle(.white.opacity(0.75))
                 }
             }
             .lineLimit(1)
@@ -111,6 +111,16 @@ struct CascadeVideoPlayer: View {
             }
             if let group = session.audioGroup {
                 selectionMenu(group, systemImage: "waveform", label: "Audio")
+            } else if !session.serverAudioTracks.isEmpty {
+                Menu {
+                    let current = session.serverAudioIndex
+                    ForEach(session.serverAudioTracks, id: \.index) { track in
+                        Button { Task { await session.selectServerAudio(track.index ?? 0) } } label: {
+                            checked(track.displayTitle ?? track.language ?? "Track \(track.index ?? 0)", current == track.index)
+                        }
+                    }
+                } label: { CircleIcon(systemImage: "waveform") }
+                    .accessibilityLabel("Audio")
             }
             speedMenu
             RoutePicker()

@@ -91,7 +91,7 @@ private struct MiniVideoControls: View {
                 .onTapGesture { controller.restore() }
             if controller.pipActive {
                 Label("Playing in Picture in Picture", systemImage: "pip")
-                    .font(.caption).foregroundStyle(.white.opacity(0.7))
+                    .scaledFont(.caption).foregroundStyle(.white.opacity(0.7))
                     .allowsHitTesting(false)
             }
             if hovering {
@@ -110,7 +110,7 @@ private struct MiniVideoControls: View {
                     Button { controller.requestClose() } label: { Image(systemName: "xmark") }
                         .help("Stop the video").accessibilityLabel("Stop the video")
                 }
-                .font(.title3)
+                .scaledFont(.title3)
                 .buttonStyle(.plain)
                 .foregroundStyle(.white)
             }

@@ -20,6 +20,7 @@ struct PlayerBar: View {
                 Button(action: openNowPlaying) {
                     ArtworkView(itemId: player.item?.albumId ?? player.item?.id, size: 44, animated: true)
                         .overlay { CoverSliceOverlay(player: player, size: 44, showsSeam: false).clipShape(ProportionalRoundedRectangle()) }
+                        .overlay { LoadingCoverOverlay(active: player.isWaitingToPlay).clipShape(ProportionalRoundedRectangle()) }
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Open Now Playing")
@@ -38,7 +39,7 @@ struct PlayerBar: View {
                     .buttonStyle(.plain)
                     ArtistLink(name: player.item?.albumArtist ?? player.item?.artists?.first ?? "",
                                id: (player.item?.albumArtists?.first ?? player.item?.artistItems?.first)?.id)
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        .scaledFont(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer(minLength: 0)
                 if player.item != nil {
@@ -52,7 +53,9 @@ struct PlayerBar: View {
                     .accessibilityLabel(liked ? "Unfavorite" : "Favorite")
                 }
             }
-            .frame(width: 260, alignment: .leading)
+            // The desktop's grid (1fr auto 1fr): the two sides share what the window has
+            // equally, so the controls stay centered and the title gets room as it grows.
+            .frame(minWidth: 200, maxWidth: .infinity, alignment: .leading)
 
             VStack(spacing: 4) {
                 HStack(spacing: 18) {
@@ -62,7 +65,7 @@ struct PlayerBar: View {
                     Button { Task { await player.previous() } } label: { Image(systemName: "backward.fill") }
                         .accessibilityLabel("Previous")
                     Button { player.togglePlayPause() } label: {
-                        Image(systemName: player.isPaused ? "play.fill" : "pause.fill").font(.title2)
+                        Image(systemName: player.isPaused ? "play.fill" : "pause.fill").scaledFont(.title2)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(player.isPaused ? "Play" : "Pause")
@@ -77,10 +80,10 @@ struct PlayerBar: View {
                 .buttonStyle(.hover)
                 if player.isRadio { LiveBadge().frame(height: 18) } else { Scrubber(player: player) }
             }
-            .frame(maxWidth: 520)
+            .frame(minWidth: 300, maxWidth: 560)
 
             HStack(spacing: 10) {
-                // The side lyrics panel, over whatever is on screen.
+                // The side lyrics column beside whatever is on screen.
                 Button { ui.sidePanelOpen.toggle() } label: {
                     Image(systemName: ui.sidePanelOpen ? "quote.bubble.fill" : "quote.bubble")
                 }
@@ -106,7 +109,7 @@ struct PlayerBar: View {
                     .frame(width: 110)
                 }
             }
-            .frame(width: 240, alignment: .trailing)
+            .frame(minWidth: 200, maxWidth: .infinity, alignment: .trailing)
             .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 16)

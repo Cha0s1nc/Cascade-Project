@@ -254,7 +254,7 @@ struct PlaylistDetailView: View {
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
             Text(tracks.count == 1 ? "1 song" : "\(tracks.count) songs")
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
             HStack(spacing: 16) {
                 Button {

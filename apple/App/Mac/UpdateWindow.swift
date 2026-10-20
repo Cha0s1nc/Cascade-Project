@@ -466,7 +466,7 @@ struct UpdateAvailableView: View {
             content(offer)
         } else {
             VStack(spacing: 8) {
-                Text("No update").font(.headline)
+                Text("No update").scaledFont(.headline)
                 Text("Check for updates in Settings > About.").foregroundStyle(.secondary)
             }
             .frame(width: 520, height: 200)
@@ -482,7 +482,7 @@ struct UpdateAvailableView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(switching ? "Switch to the Electron Build" : "Update Available").font(.title2.bold())
                         if let date = offer.released {
-                            Text("Released \(date.formatted(date: .long, time: .omitted))").font(.caption).foregroundStyle(.secondary)
+                            Text("Released \(date.formatted(date: .long, time: .omitted))").scaledFont(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -537,7 +537,7 @@ struct UpdateAvailableView: View {
                     Spacer()
                     Text(String(format: "%.2f MB/s", rate / 1_048_576))
                 }
-                .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                .scaledFont(.caption).monospacedDigit().foregroundStyle(.secondary)
             }
         }
     }

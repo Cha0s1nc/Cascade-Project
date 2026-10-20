@@ -30,7 +30,7 @@ struct DiscordSettingsSection: View {
                     } else { clientId = MacIntegrations.discordClientId }
                 }
             Text("Leave the client ID empty to use Cascade's own application. Discord has to be running on this Mac.")
-                .font(.caption).foregroundStyle(.secondary)
+                .scaledFont(.caption).foregroundStyle(.secondary)
         }
     }
 }

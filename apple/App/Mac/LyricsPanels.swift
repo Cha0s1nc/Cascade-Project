@@ -268,9 +268,9 @@ struct LyricsEditButton: View {
 
 // MARK: - The side panel
 
-/// The lyrics panel that floats over whatever view is on screen, opened from the player bar:
-/// the desktop's fixed `.lyrics-panel`. A narrow strip, so the lyrics run smaller than in Now
-/// Playing.
+/// The lyrics sidebar beside whatever view is on screen, opened from the player bar: the
+/// desktop's `.lyrics-panel`, as a column beside the library (MacRootView), so it pushes the
+/// library over rather than covering it. Narrow, so the lyrics run smaller than in Now Playing.
 struct SideLyricsPanel: View {
     let player: PlaybackService
     private var ui: MacNowPlayingUI { .shared }
@@ -278,7 +278,7 @@ struct SideLyricsPanel: View {
     var body: some View {
         VStack(spacing: 10) {
             HStack {
-                Text("Lyrics").font(.headline)
+                Text("Lyrics").scaledFont(.headline)
                 Spacer()
                 Button { ui.sidePanelOpen = false } label: { Image(systemName: "xmark") }
                     .buttonStyle(.hover)
@@ -292,12 +292,7 @@ struct SideLyricsPanel: View {
         }
         .padding(14)
         .frame(width: 340)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .shadow(color: .black.opacity(0.25), radius: 16, y: 4)
-        // Clear of the toolbar above and the player bar below.
-        .padding(.top, 56)
-        .padding(.bottom, 84)
-        .padding(.trailing, 12)
+        .frame(maxHeight: .infinity)
+        .background(.background)
     }
 }

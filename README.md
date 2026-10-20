@@ -4,7 +4,7 @@
 
 ## What it is
 
-Cascade is a Jellyfin streaming app, originally prioritized for music streaming. It plays movies and TV shows too, alongside the music library, in one app (think iTunes).
+Cascade is a Jellyfin streaming app, originally prioritized for music streaming. It plays movies and TV shows too, alongside the music library, in one app (think iTunes). Fair warning: this app is mostly vibecoded. I do verify whatever Claude creates myself, but I'm not an asshole who wants to hide his usage of AI. If you don't like that, then feel free not to use this app.
 
 ---
 

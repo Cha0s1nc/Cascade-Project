@@ -432,7 +432,7 @@ private struct KnobRow: View {
                     .monospacedDigit()
                     .foregroundStyle(changed ? .orange : .secondary)
             }
-            .font(.subheadline)
+            .scaledFont(.subheadline)
             Slider(value: $tuning.values[dynamicMember: knob.path], in: knob.range, step: knob.step)
         }
         .contentShape(Rectangle())

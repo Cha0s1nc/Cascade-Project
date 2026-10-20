@@ -115,7 +115,7 @@ The server's Devices and Activity screens tell Cascade's editions apart by the a
 - `pushMiniplayerState()` - **3741**. Sends lyrics from the CURRENT line onward, so the miniplayer renders top-down with the active line at the top and does no scrolling of its own.
 
 ### Landmarks for the 2.2.0 work
-- Volume: `setVolumeRatio()` **124** is the single choke point (both bars via `wireVolumeBar()` **4702** / `wireBar()` **4612**, `nudgeVolume()` **6228**, remote control).
+- Volume: once the Web Audio graph is built, volume and mute are `_masterGain` (after the analyser, so the playing-row bars read the music whatever the volume) and the deck elements stay at volume 1, unmuted; read `volume` and `_muted`, never `audio.volume` / `audio.muted`. Without a graph the elements carry both (`setDeckVolume()`). `setVolumeRatio()` **124** is the single choke point (both bars via `wireVolumeBar()` **4702** / `wireBar()` **4612**, `nudgeVolume()` **6228**, remote control).
 - Track lists: `trackRowHtml()` **1818** (shared row markup), `wireTrackRow()` **2553**. Songs view: `renderSongRows()` **1979** / `_drawSongRows()` **2049**, virtualised, **wires its own handlers inline instead of `wireTrackRow`**, so a row behaviour change goes in both. `SONG_ROW_H` **1972** and `QUEUE_ROW_H` **20** must match the CSS row heights. Queue: `_drawQueueRows()` **6370**. Others: `openAlbum()` **1669**, `openArtist()` **1756**, `renderPlaylistDetailItems()` **2337**, search `runSearch()` **8827**.
 - Settings wiring: `loadSettingsFields()` **4878**. Theme save: `saveTheme()` **9022**.
 - Track change: `playCurrentTrack()` **3432**, `updateNowPlaying()` **3604** (mediaSession metadata).

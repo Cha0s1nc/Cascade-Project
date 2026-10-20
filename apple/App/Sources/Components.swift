@@ -51,6 +51,7 @@ enum ArtworkCache {
 /// the first frame, with no placeholder at all.
 struct ArtworkView: View {
     let itemId: String?
+    /// At a zoom of 1; View > Zoom (uiScale) grows it on the Mac.
     var size: CGFloat = 160
     /// Fill whatever square the parent proposes rather than a fixed `size`
     /// one, still loading the image for `size`. For artwork whose frame
@@ -67,6 +68,9 @@ struct ArtworkView: View {
     var animated = false
 
     @Environment(AppState.self) private var state
+    @Environment(\.uiScale) private var uiScale
+    /// The size drawn and fetched. A frame-filling one is sized by its parent, so not zoomed.
+    private var drawn: CGFloat { fillsFrame ? size : size * uiScale }
     /// Tagged with its key: the same view can be handed a different item, and
     /// must not keep showing the last one's cover while the new one loads.
     @State private var loaded: (key: NSString, image: PlatformImage)?
@@ -78,7 +82,7 @@ struct ArtworkView: View {
             return revision == 0 ? base : "\(base)|r\(revision)"
         } as NSString?
     }
-    private var pixels: Int { ArtworkCache.bucket(Int(size * 2)) }
+    private var pixels: Int { ArtworkCache.bucket(Int(drawn * 2)) }
     /// The item and shape without the size, for ArtworkCache.latest.
     private var shapeKey: NSString? {
         itemId.map { "\($0)|\(aspect)|\(imageType)" } as NSString?
@@ -94,12 +98,12 @@ struct ArtworkView: View {
             } else {
                 Rectangle().fill(.quaternary)
                 Image(systemName: aspect == 1 ? "music.note" : "film")
-                    .font(.system(size: size * 0.3))
+                    .font(.system(size: drawn * 0.3))
                     .foregroundStyle(.secondary)
             }
             if animated, let itemId { CoverVideo(albumId: itemId) }
         }
-        .frame(width: fillsFrame ? nil : size, height: fillsFrame ? nil : size / aspect)
+        .frame(width: fillsFrame ? nil : drawn, height: fillsFrame ? nil : drawn / aspect)
         .aspectRatio(aspect, contentMode: .fit)
         .clipShape(ProportionalRoundedRectangle())
         // Keyed by the whole cache key, not just the item: a frame that
@@ -188,7 +192,7 @@ struct TrackRow: View {
                     .lineLimit(1)
                     .explicitMark(track.id)
                 Text(track.albumArtist ?? track.artists?.first ?? "")
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -201,7 +205,31 @@ struct TrackRow: View {
         }
         // The whole row answers a long press, not just its text.
         .contentShape(Rectangle())
+        #if os(macOS)
+        .desktopTrackRow(track.id)
+        #endif
         .modifier(OptionalTrackMenu(track: track, enabled: showsMenu))
+    }
+}
+
+/// The wheel over a cover while its track is picked but not playing yet
+/// (PlaybackService.isWaitingToPlay). It fades in after a beat, so the brief wait at
+/// the start of every song does not flash it.
+struct LoadingCoverOverlay: View {
+    let active: Bool
+    /// The big spinner, for a Now Playing cover.
+    var large = false
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.45)
+            ProgressView().controlSize(large ? .large : .small).tint(.white)
+        }
+        .opacity(active ? 1 : 0)
+        .animation(active ? .easeIn(duration: 0.2).delay(0.3) : .easeOut(duration: 0.15), value: active)
+        .allowsHitTesting(false)
+        .accessibilityHidden(!active)
+        .accessibilityLabel("Loading")
     }
 }
 
@@ -264,6 +292,7 @@ struct ItemGrid: View {
 /// whole (the artist page: its albums sit under its other sections).
 struct ItemTiles: View {
     let items: [JfItem]
+    @Environment(\.uiScale) private var uiScale
 
     #if os(tvOS)
     private let tile: CGFloat = 220
@@ -272,20 +301,20 @@ struct ItemTiles: View {
     #endif
 
     var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: tile), spacing: 16)], spacing: 20) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: tile * uiScale), spacing: 16)], spacing: 20) {
             ForEach(items) { item in
                 NavigationLink(value: item) {
                     VStack(alignment: .leading, spacing: 6) {
                         ArtworkView(itemId: item.id, size: tile)
                         Text(item.name ?? "Unknown")
-                            .font(.caption)
+                            .scaledFont(.caption)
                             .lineLimit(1)
                         // Only what the server actually sent: artists come
                         // without a count, and "0 tracks" under every one
                         // of them was a made-up number.
                         if let subtitle = subtitle(item) {
                             Text(subtitle)
-                                .font(.caption2)
+                                .scaledFont(.caption2)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }

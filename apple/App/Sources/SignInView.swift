@@ -71,7 +71,7 @@ struct SignInView: View {
                         .frame(maxWidth: .infinity)
                         .accessibilityLabel("Quick Connect code \(code.map(String.init).joined(separator: " "))")
                     Text("Enter this code in Jellyfin on a device where you're already signed in: your profile, then Quick Connect.")
-                        .font(.footnote)
+                        .scaledFont(.footnote)
                         .foregroundStyle(.secondary)
                     Button("Cancel", role: .cancel, action: cancelQuickConnect)
                 }
@@ -100,7 +100,7 @@ struct SignInView: View {
                 .disabled(busy || server.isEmpty || username.isEmpty)
             if !disclaimer.isEmpty {
                 Section {
-                    Text(disclaimer).font(.footnote).foregroundStyle(.secondary)
+                    Text(disclaimer).scaledFont(.footnote).foregroundStyle(.secondary)
                 }
             }
         }

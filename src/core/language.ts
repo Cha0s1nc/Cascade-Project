@@ -42,6 +42,31 @@ export function detectLanguage(text: string): string {
   return ISO3_TO_ISO1[iso3] ?? iso3
 }
 
+// Scripts English is never written in. A line with a few of these letters is
+// a line in another language, however much English surrounds it.
+const NON_LATIN = /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}\p{Script=Hangul}\p{Script=Cyrillic}\p{Script=Arabic}\p{Script=Hebrew}\p{Script=Greek}\p{Script=Thai}\p{Script=Devanagari}]/gu
+
+/**
+ * The text to detect a sheet's language from: the lines in a non-Latin script
+ * when there are enough of them to matter, else the whole sheet.
+ *
+ * Detecting over the whole sheet let a mostly English song with Japanese
+ * verses (UN-APEX, TV edit) come back as English and never offer a
+ * translation. Counting lines rather than letters keeps one stray kanji in a
+ * credit from flipping an English song.
+ *
+ * ponytail: Latin-script languages mixed into English (Spanish verses in an
+ * English chorus) still go by the whole sheet; per-line trigram guesses on
+ * short Latin lines call English lines Scots or Dutch. Vote per stanza if
+ * those start slipping through.
+ */
+export function sheetSample(lines: string[]): string {
+  const filled = lines.map(l => l.trim()).filter(Boolean)
+  const foreign = filled.filter(l => (l.match(NON_LATIN)?.length ?? 0) >= 2)
+  const text = foreign.length >= Math.max(2, filled.length * 0.15) ? foreign : filled
+  return text.join(' ').slice(0, 1000)
+}
+
 /**
  * Whether to offer translation for these lyric lines.
  *
@@ -50,6 +75,6 @@ export function detectLanguage(text: string): string {
  * never offered a translation at all.
  */
 export function shouldOfferTranslation(lines: string[]): boolean {
-  const lang = detectLanguage(lines.join(' ').slice(0, 1000))
+  const lang = detectLanguage(sheetSample(lines))
   return lang !== '' && lang !== 'en'
 }

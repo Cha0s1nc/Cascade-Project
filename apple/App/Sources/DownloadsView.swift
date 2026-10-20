@@ -79,7 +79,7 @@ struct DownloadsView: View {
                          : "Below Original, the server converts each video, which takes longer.")
                 }
                 if let message = offline.lastError {
-                    Text(message).font(.footnote).foregroundStyle(.red)
+                    Text(message).scaledFont(.footnote).foregroundStyle(.red)
                 }
                 let downloading = offline.index.collections.filter { !isDone($0, offline) }
                 let done = offline.index.collections.filter { isDone($0, offline) }
@@ -192,10 +192,10 @@ private struct DownloadRow: View {
                      : progress.done == progress.total
                         ? "\(progress.total) \(unit)" + (collection.follow != nil ? " · new episodes download" : "")
                         : "\(progress.done) of \(progress.total) \(unit) downloaded")
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.secondary)
                 if let status = transfer?.status {
-                    Text(status).font(.caption).foregroundStyle(.secondary)
+                    Text(status).scaledFont(.caption).foregroundStyle(.secondary)
                 }
                 if let fraction = transfer?.fraction {
                     ProgressView(value: fraction)
@@ -340,7 +340,7 @@ private struct VideoRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text([VideoPlayback.episodeCode(item), item.name].compactMap { $0 }.joined(separator: "  ")).lineLimit(2)
                 if let ticks = item.runTimeTicks, seconds(fromTicks: ticks) >= 60 {
-                    Text("\(Int(seconds(fromTicks: ticks) / 60)) min").font(.caption).foregroundStyle(.secondary)
+                    Text("\(Int(seconds(fromTicks: ticks) / 60)) min").scaledFont(.caption).foregroundStyle(.secondary)
                 }
             }
             Spacer(minLength: 0)
