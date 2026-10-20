@@ -229,6 +229,7 @@ private struct OverlayContent: View {
         ArtworkView(itemId: artId, size: side, fillsFrame: true, animated: true)
             .frame(width: side, height: side)
             .overlay { CoverSliceOverlay(player: player, size: side).clipShape(ProportionalRoundedRectangle()) }
+            .overlay { LoadingCoverOverlay(active: player.isWaitingToPlay, large: true).clipShape(ProportionalRoundedRectangle()) }
             .brightness(artHovering ? -0.25 : 0)
             .saturation(artHovering ? 0.7 : 1)
             .overlay {

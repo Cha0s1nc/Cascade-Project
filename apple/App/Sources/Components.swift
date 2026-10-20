@@ -212,6 +212,27 @@ struct TrackRow: View {
     }
 }
 
+/// The wheel over a cover while its track is picked but not playing yet
+/// (PlaybackService.isWaitingToPlay). It fades in after a beat, so the brief wait at
+/// the start of every song does not flash it.
+struct LoadingCoverOverlay: View {
+    let active: Bool
+    /// The big spinner, for a Now Playing cover.
+    var large = false
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.45)
+            ProgressView().controlSize(large ? .large : .small).tint(.white)
+        }
+        .opacity(active ? 1 : 0)
+        .animation(active ? .easeIn(duration: 0.2).delay(0.3) : .easeOut(duration: 0.15), value: active)
+        .allowsHitTesting(false)
+        .accessibilityHidden(!active)
+        .accessibilityLabel("Loading")
+    }
+}
+
 /// The "E" after an explicit song's title, from Cascade Server's explicit
 /// marks; the title as it was without the plugin or for a song not marked.
 /// The title asks about its song as it appears, so a whole list goes in one

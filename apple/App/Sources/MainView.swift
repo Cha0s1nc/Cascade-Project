@@ -160,6 +160,7 @@ struct MiniPlayer: View {
     var body: some View {
         HStack(spacing: style == .bar ? 12 : 10) {
             ArtworkView(itemId: player.item?.albumId ?? player.item?.id, size: style == .bar ? 40 : 32)
+                .overlay { LoadingCoverOverlay(active: player.isWaitingToPlay).clipShape(ProportionalRoundedRectangle()) }
             VStack(alignment: .leading, spacing: 1) {
                 Text(player.item?.name ?? "")
                     .font(style == .bar ? .callout : .subheadline.weight(.medium))

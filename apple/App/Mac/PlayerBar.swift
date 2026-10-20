@@ -20,6 +20,7 @@ struct PlayerBar: View {
                 Button(action: openNowPlaying) {
                     ArtworkView(itemId: player.item?.albumId ?? player.item?.id, size: 44, animated: true)
                         .overlay { CoverSliceOverlay(player: player, size: 44, showsSeam: false).clipShape(ProportionalRoundedRectangle()) }
+                        .overlay { LoadingCoverOverlay(active: player.isWaitingToPlay).clipShape(ProportionalRoundedRectangle()) }
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Open Now Playing")

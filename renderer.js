@@ -5554,6 +5554,7 @@ async function playCurrentTrack(opts = {}) {
   abandonCurrentEncoding()
 
   const video = isVideoItem(item)
+  let shownEarly = false
 
   // A track already buffered on the idle deck (see _prefetchNext) can be
   // swapped straight in instead of resolving and loading cold - the same
@@ -5579,6 +5580,15 @@ async function playCurrentTrack(opts = {}) {
     adoptResolvedStream(prefetched.resolved)
     audio.play().catch(() => {})
   } else if (!opts.alreadyPlaying) {
+    // On a slow connection the resolve below can take seconds. Showing the
+    // new track only after it meant a skip looked like it did nothing, so
+    // people pressed again and skipped several songs once the network caught
+    // up. The title and cover change now, with a wheel over the cover until
+    // the deck actually plays.
+    updateNowPlaying(item)
+    highlightPlayingRow()
+    shownEarly = true
+    _setTrackLoading(true)
     // Resolving the stream is now a round-trip, so the user can skip again
     // before it lands. Re-read the queue afterwards and bail if they did,
     // otherwise a stale response would start the wrong track.
@@ -5649,10 +5659,24 @@ async function playCurrentTrack(opts = {}) {
   // already having pointed it here). Cached and idempotent for the prefetch
   // and crossfade cases; a fresh fetch only for a cold load with no prefetch.
   _applyNormalizationToDeck(audio, item)
-  updateNowPlaying(item)
-  highlightPlayingRow()
+  if (!shownEarly) {
+    updateNowPlaying(item)
+    highlightPlayingRow()
+  }
   reportPlaybackStart(item.Id)
 }
+
+/** The wheel over the player bar's and Now Playing's cover (.art-loading):
+ *  on from a track being picked, or the playing one stalling, until it plays. */
+function _setTrackLoading(on) {
+  for (const id of ['np-art', 'ov-art']) document.getElementById(id).classList.toggle('art-loading', on)
+}
+// Not on 'pause' or 'emptied': swapping the src fires those on the way to
+// playing, and the wheel would drop while the new track still loads.
+onDeck('playing', () => _setTrackLoading(false))
+onDeck('error', () => _setTrackLoading(false))
+// A stall mid-song (the network dropping under it) gets the same wheel.
+onDeck('waiting', () => { if (!audio.paused) _setTrackLoading(true) })
 
 let _prefetchSession = 0
 
