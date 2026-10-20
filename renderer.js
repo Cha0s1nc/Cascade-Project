@@ -14780,7 +14780,7 @@ function updateAccentLock() {
   ;[document.querySelector('.tp-colors'), document.getElementById('tp-presets')].forEach(host => {
     if (!host) return
     host.classList.toggle('locked', locked)
-    if (locked) host.setAttribute('data-tip', 'Album art accent overrides this')
+    if (locked) host.setAttribute('data-tip', 'Album art theme overrides this')
     else host.removeAttribute('data-tip')
   })
 }
