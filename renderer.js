@@ -15628,6 +15628,8 @@ async function _ceGlide(apply) {
   }
   for (const i of moving) ranges[i].value = String(before[i])
   requestAnimationFrame(frame)
+  // rAF does not run in a hidden window; the sliders still end where they belong.
+  setTimeout(() => { for (const i of moving) ranges[i].value = String(after[i]) }, 200)
 }
 
 document.getElementById('ce-undo').addEventListener('click', async () => {

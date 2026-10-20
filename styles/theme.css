@@ -222,6 +222,8 @@ input[type="color"].tp-swatch { width: 100%; height: 30px; border: 1px solid var
 .tp-preset-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .tp-reset-all:disabled { opacity: 0.45; cursor: default; }
 .tp-hint { display: block; margin-top: 4px; font-size: 10px; color: var(--text3); }
+/* display: block above would otherwise beat the hidden attribute (the server style note). */
+.tp-hint[hidden] { display: none; }
 .tp-album-row { display: flex; align-items: center; justify-content: space-between; }
 .tp-album-label { display: flex; flex-direction: column; gap: 2px; }
 .tp-album-name { font-size: 12px; font-weight: 500; color: var(--text); }

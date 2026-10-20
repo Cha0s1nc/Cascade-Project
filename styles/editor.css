@@ -53,6 +53,8 @@
 .ce-sect-title { margin: 0 0 4px; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: var(--text); }
 .ce-lock-note { display: none; margin: 0 0 6px; font-size: 12px; color: var(--text3); }
 .ce-sect.locked .ce-lock-note { display: block; }
+.ce-sect.locked .setting-row:has(:disabled) .setting-name,
+.ce-sect.locked .tp-colors-block:has(:disabled) .tp-color-name { color: var(--text3); }
 .ce-menu .setting-row { padding: 9px 0; border-bottom: none; gap: 14px; }
 .ce-menu .setting-desc { font-size: 11.5px; }
 .ce-menu .setting-slider-row { width: 196px; flex-shrink: 0; }
