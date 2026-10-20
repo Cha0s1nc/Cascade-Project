@@ -37,6 +37,9 @@
 /* Solid accent: --grad is reserved for the main play button and the sign-in buttons. */
 .sect-more { font-size: 12px; font-weight: 500; color: var(--accent); cursor: pointer; border: none; background: transparent; }
 .sect-more:hover { text-decoration: underline; }
+/* The accent itself is 3.7:1 on the dark page; tinted toward white it clears 4.5:1 and stays the accent's hue. */
+.sect-more { color: color-mix(in srgb, var(--accent) 60%, white); }
+html[data-theme="light"] .sect-more { color: var(--accent); }
 
 /* Recently played */
 .rp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 4px; margin-bottom: 22px; }

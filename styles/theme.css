@@ -110,6 +110,13 @@ html[data-theme="light"] .np-overlay.art-theme .q-chevron,
 html[data-theme="light"] .np-overlay.art-theme .q-clear { color: rgba(28,28,30,0.68); }
 html[data-theme="light"] .np-overlay.art-theme .q-clear:hover,
 html[data-theme="light"] .np-overlay.art-theme .q-clear:focus-visible { color: var(--red); }
+/* The queue rows' white text above is for the dark wash; on the pale one it
+   disappeared next to the labels that now read. */
+html[data-theme="light"] .np-overlay.art-theme .queue-row-title { color: rgba(28,28,30,0.9); }
+html[data-theme="light"] .np-overlay.art-theme .queue-row-artist,
+html[data-theme="light"] .np-overlay.art-theme .queue-row-dur { color: rgba(28,28,30,0.62); }
+html[data-theme="light"] .np-overlay.art-theme .queue-row:hover { background: rgba(0,0,0,0.05); }
+html[data-theme="light"] .np-overlay.art-theme .queue-row.current { background: rgba(0,0,0,0.08); }
 /* The karaoke active line floats directly on the blobs with no scrim (only
    .browsing gets one, and that scrim is already dark - see dd975bd - so it
    needs no light variant). Everything else in .ov-lyric-line/.ov-lyric-word
