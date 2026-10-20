@@ -25,6 +25,7 @@ struct MacRootView: View {
         // Settings and the sidebar's own Settings row ran under the bar.
         VStack(spacing: 0) {
             OfflineBanner()
+            HStack(spacing: 0) {
             NavigationSplitView {
                 sidebar
                     .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 280)
@@ -71,10 +72,28 @@ struct MacRootView: View {
                     }
                 }
                 ToolbarItem(placement: .primaryAction) { ThemePanelButton() }
+                // In the middle of the bar, as on the desktop. A field of its own: .searchable
+                // with .toolbarPrincipal was sent to the overflow menu with Songs' sort and
+                // filter buttons in the bar.
+                ToolbarItem(placement: .principal) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                        TextField(state.browseMode == .video ? "Search movies and shows" : "Search songs, albums, artists",
+                                  text: $query)
+                            .textFieldStyle(.plain)
+                            .focused($searchFocused)
+                            .onExitCommand { query = ""; searchFocused = false }
+                        if !query.isEmpty {
+                            Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
+                                .buttonStyle(.plain).foregroundStyle(.secondary)
+                                .accessibilityLabel("Clear search")
+                        }
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 5)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 7))
+                    .frame(width: 280)
+                }
             }
-            .searchable(text: $query, placement: .toolbar,
-                        prompt: state.browseMode == .video ? "Search movies and shows" : "Search songs, albums, artists")
-            .searchFocused($searchFocused)
             .background {
                 // Command-K, as on the desktop. A zero-size button rather than a
                 // menu command: the main window is the only place it applies.
@@ -84,6 +103,16 @@ struct MacRootView: View {
                     .opacity(0)
                     .accessibilityHidden(true)
             }
+            // The side lyrics, as a full-height column that pushes the library over instead of
+            // a panel floating over it. A column of its own: .inspector threw inside AppKit's
+            // layout on macOS 27, on the split view and on its detail column alike.
+            if MacNowPlayingUI.shared.sidePanelOpen, let player = state.player {
+                Divider()
+                SideLyricsPanel(player: player)
+                    .transition(.move(edge: .trailing))
+            }
+            }
+            .animation(.easeInOut(duration: 0.25), value: MacNowPlayingUI.shared.sidePanelOpen)
             if let player = state.player {
                 PlayerBar(player: player)
             }
