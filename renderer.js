@@ -3821,13 +3821,17 @@ async function openPlaylist(playlistId, name) {
 
 // ── Smart playlists ─────────────────────────────────────────────────────────────
 // Auto-updating, synthesized from Jellyfin queries rather than real playlist entities.
+// Each one's query is load(), not fetch(): the offline guard's sweep (63089c5)
+// renamed a method called fetch() to jfFetch() while smartPlaylistEntry() kept
+// reading .fetch, so Favorites and Most Played threw on open and showed "Could
+// not load" from 2026-10-14 to 2026-10-20.
 
 const SMART_PLAYLISTS = {
   favorites: {
     name: 'Favorites',
     icon: '<svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>',
     gradient: 'linear-gradient(135deg,#f472b6,#dc2626)',
-    async jfFetch() {
+    async load() {
       const data = await jfGetMerged(`/Items`, {
         IncludeItemTypes: 'Audio', Recursive: true, Filters: 'IsFavorite',
         SortBy: 'SortName', SortOrder: 'Ascending',
@@ -3840,7 +3844,7 @@ const SMART_PLAYLISTS = {
     name: 'Most Played',
     icon: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>',
     gradient: 'linear-gradient(135deg,#60a5fa,#059669)',
-    async jfFetch() {
+    async load() {
       // Ask each library for its own top 200 by play count (server-side sorted),
       // then merge and re-sort/slice client-side - a per-library cap could otherwise
       // leave the true top 100 overall incomplete once multiple libraries are merged.
@@ -3918,7 +3922,7 @@ async function fetchUserSmartPlaylist(def) {
  *  currentSmartKind, e.g.) rather than throwing. */
 function smartPlaylistEntry(kind) {
   const builtin = SMART_PLAYLISTS[kind]
-  if (builtin) return { name: builtin.name, icon: builtin.icon, gradient: builtin.gradient, fetch: builtin.fetch, isUser: false, def: null }
+  if (builtin) return { name: builtin.name, icon: builtin.icon, gradient: builtin.gradient, fetch: builtin.load, isUser: false, def: null }
   const def = userSmartPlaylists.find(d => d.id === kind)
   if (!def) return null
   return { name: def.name, icon: USER_SMART_ICON, gradient: USER_SMART_GRADIENT, fetch: () => fetchUserSmartPlaylist(def), isUser: true, def }
