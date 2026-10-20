@@ -37,6 +37,7 @@ struct MacRootView: View {
                 if isSearching {
                     TabStack { SearchResultsView(query: query).navigationTitle("Search") }
                         .id("search")
+                        .transition(.opacity)
                 } else {
                     // Only the target section's stack sees the item. The section is
                     // scene storage, which can update a beat after the item: the
@@ -49,6 +50,7 @@ struct MacRootView: View {
                             section.root.id(state.libraryRevision)
                         }
                         .id(section)
+                        .transition(.opacity)
                 }
             }
             .toolbar {
@@ -129,6 +131,10 @@ struct MacRootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: state.restoreOffer?.id)
+        // A short crossfade between sidebar sections and in and out of search, where the
+        // page used to swap in a single frame.
+        .animation(.easeOut(duration: 0.18), value: section)
+        .animation(.easeOut(duration: 0.18), value: isSearching)
         .overlay {
             // Full-window layers over the split view and the player bar: Now Playing, then a
             // video above everything.
