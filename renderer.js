@@ -2165,7 +2165,7 @@ function showView(name) {
   if (name === 'movies' && !document.getElementById('movies-grid').dataset.loaded) loadMovies()
   if (name === 'shows' && !document.getElementById('shows-grid').dataset.loaded) loadShows()
   if (name === 'radio' && !document.getElementById('radio-grid').dataset.loaded) loadRadio()
-  if (name === 'settings') loadSettingsFields()
+  if (name === 'settings') { loadSettingsFields(); _syncStyleEntries() }
 }
 
 // ── Settings categories ──────────────────────────────────────────────────────
@@ -2173,8 +2173,8 @@ function showView(name) {
 // new category sits relative to the old: moving right, the old pane leaves to
 // the left and the new one comes in from the right; moving left, the reverse.
 // Click to switch. As a tablist, a focused tab also takes the arrow keys.
-const _settingsTabs = [...document.querySelectorAll('.sn-item')]
-const _settingsPill = document.querySelector('.sn-pill')
+const _settingsTabs = [...document.querySelectorAll('#view-settings .sn-item')]
+const _settingsPill = document.querySelector('#view-settings .sn-pill')
 let _settingsTab = 0
 
 function placeSettingsPill(animate) {
@@ -2220,7 +2220,7 @@ function showSettingsTab(i) {
 }
 
 _settingsTabs.forEach((t, i) => t.addEventListener('click', () => showSettingsTab(i)))
-document.querySelector('.sn-tabs').addEventListener('keydown', e => {
+document.querySelector('#view-settings .sn-tabs').addEventListener('keydown', e => {
   const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0
   if (!step) return
   e.preventDefault()
@@ -2229,7 +2229,7 @@ document.querySelector('.sn-tabs').addEventListener('keydown', e => {
 })
 // Tab widths change when the view is first shown, the window resizes, or the
 // font setting changes; the observer catches all three.
-new ResizeObserver(() => placeSettingsPill(false)).observe(document.querySelector('.sn-tabs'))
+new ResizeObserver(() => placeSettingsPill(false)).observe(document.querySelector('#view-settings .sn-tabs'))
 
 // Categories with an index/detail split - clicking the sidebar item again while
 // already on that category clicks its own back button, which returns to the
@@ -5400,6 +5400,8 @@ function applyVideoMode(on) {
   eqActiveMode = on ? 'video' : 'music'
   _applyEqToGraph()
   const ov = document.getElementById('np-overlay')
+  // Video Now Playing has no editor (the spec's scope): close it first.
+  if (on) closeEditor({ instant: true })
   ov.classList.toggle('video', !!on)
   // Only the current deck may show a picture - the other is mid-crossfade or idle.
   DECKS.forEach(d => d.classList.toggle('deck-hidden', d !== audio))
@@ -5809,6 +5811,8 @@ function secondaryLine(item) {
 
 function updateNowPlaying(item) {
   const video = isVideoItem(item)
+  _syncStyleEntries()
+  _ceQueueMoved()
 
   // Warm the cache for the current song and the next 5 in queue. Movies have no
   // lyrics, and asking LRCLIB and Kugou about one wastes two round-trips per
@@ -6263,6 +6267,8 @@ function stopPlayback() {
   _detachDeck(audio)
   audio.querySelectorAll('track').forEach(t => t.remove())
   queue = []; queueIndex = -1; queueSource = null
+  closeEditor({ instant: true })
+  _syncStyleEntries()
   // Drop video mode after clearing the queue, so the class toggle sees an empty
   // queue and does not try to re-open the overlay.
   applyVideoMode(false)
@@ -9711,6 +9717,7 @@ function openOverlay() {
 }
 
 function closeOverlay() {
+  closeEditor({ instant: true })
   overlayOpen = false
   npOverlay.classList.remove('open')
   stopBeatLoop()
@@ -9733,7 +9740,8 @@ function pokeOverlayControls() {
   // Paused is not idle. Hiding the controls of something that is not going
   // anywhere reads as broken rather than tidy, and pause is exactly when you
   // are most likely to reach for them next.
-  if (!overlayOpen || audio.paused) return
+  // The editor's sidebar is the transport row itself; it must not fold away.
+  if (!overlayOpen || audio.paused || _ce.open) return
   _ovIdleTimer = setTimeout(() => ov.classList.add('idle'), OV_IDLE_MS)
 }
 
@@ -9766,6 +9774,8 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || !overlayOpen) return
   // The shortcut list closes first, the player on the next press.
   if (document.getElementById('ov-keys').classList.contains('open')) { toggleKeysPanel(false); return }
+  // Likewise the customization editor, unless its reset question is up.
+  if (_ce.open) { if (document.getElementById('choice-modal').classList.contains('hidden')) closeEditor(); return }
   closeOverlay()
 })
 
@@ -9775,7 +9785,9 @@ document.addEventListener('keydown', (e) => {
 // that has lyrics brings them back.
 let _ovLyricsMissing = false
 function _applyOverlayPanels() {
-  const lyrics = overlayLyricsOpen && !_ovLyricsMissing
+  // The customization editor keeps the lyrics up whatever the song has: they
+  // are its live preview.
+  const lyrics = (overlayLyricsOpen && !_ovLyricsMissing) || _ce.open
   document.getElementById('ov-panel-lyrics').style.transform = lyrics ? 'translateX(0)' : 'translateX(100%)'
   document.getElementById('ov-panel-queue').style.transform  = lyrics ? 'translateX(-100%)' : 'translateX(0)'
   const toggle = document.getElementById('ov-lyrics-toggle')
@@ -10264,6 +10276,7 @@ document.getElementById('btn-automix').addEventListener('click', () => {
 
 function renderQueuePanel() {
   _refreshLyricsPreviews()   // the next song may be a different one now
+  _ceQueueMoved()             // and the editor's preview previews it
   const container = document.getElementById('ov-queue-rows')
   const panel     = document.getElementById('ov-panel-queue')
   const follower  = isWaterfallFollower()
@@ -12044,8 +12057,10 @@ function probeCascadePlugin() {
 }
 
 // ── Display preferences ──────────────────────────────────────────────────────
-// The transitions and Cascade Server extras in Settings > Playback, under the
-// keys the Apple apps' DisplayPrefs uses, so their settings import is a copy.
+// The cover and color transitions (set in Now Playing's customization editor),
+// the plain lyrics size, and the Cascade Server extras in Settings > Playback,
+// under the keys the Apple apps' DisplayPrefs uses, so their settings import
+// is a copy.
 const displayPrefs = {
   coverSlice: true, coverSliceIn: 0.8, coverSlideOut: 1.2,
   coverSliceStyle: 'slice', coverSliceDirection: 'up-left', coverSliceHold: 'half', coverSliceEasing: 'smooth',
@@ -12056,6 +12071,8 @@ const displayPrefs = {
   // (lyricScale), since a whole page of plain text reads better smaller.
   plainLyricScale: 0.8,
 }
+// The shipped values, for the customization editor's "Reset this tab".
+const DISPLAY_PREF_DEFAULTS = Object.freeze({ ...displayPrefs })
 const DISPLAY_PREF_RANGES = { plainLyricScale: [0.5, 1.4], coverSliceIn: [0.2, 2], coverSlideOut: [0.3, 3], coverSliceGlow: [0, 2], coverSliceShadow: [0, 2], colorFadeSeconds: [0.2, 2] }
 const DISPLAY_PREF_CHOICES = {
   coverSliceStyle: ['slice', 'fade', 'push'],
@@ -12113,7 +12130,11 @@ function _syncDisplayPrefControls() {
 async function setDisplayPref(key, value) {
   displayPrefs[key] = value
   _syncDisplayPrefControls()
+  // A cover setting replays the editor's preview. Sliders only report a
+  // change when let go, so a drag replays once, not on every step.
+  if (key.startsWith('coverSli')) _cePreviewSoon()
   await window.cascade.store.set(key, value)
+  _ceChanged()
 }
 
 for (const [id, key] of [['cover-slice-toggle', 'coverSlice'], ['color-fade-toggle', 'colorFade'], ['explicit-marks-toggle', 'explicitMarks'], ['video-covers-toggle', 'videoCovers']]) {
@@ -12139,8 +12160,9 @@ for (const [id, key] of DISPLAY_PREF_MENUS) {
 // both off, one behind the other, so the next cover is only ever uncovered
 // whole and never swapped in under the old one (trailArtSlice).
 // Skipped for two songs with the same cover, for video, and under Reduce Motion.
-// That is the default; Settings > Playback > Transitions picks the style
-// (slice, fade, push), direction, hold, easing, seam and shadow (displayPrefs).
+// That is the default; the customization editor's Crossfade tab picks the
+// style (slice, fade, push), direction, hold, easing, seam and shadow
+// (displayPrefs), and previews it on a slice of its own (_cePreviewPlay).
 //
 // Built for the compositor, since the handover and the fade's end are the
 // busiest moments the app has (new title, lyrics, cover colors, the next
@@ -12426,7 +12448,9 @@ function applyServerStyleLocks() {
   }
   document.querySelector('.tp-colors')?.classList.toggle('server-locked', theme)
   document.getElementById('tp-presets')?.classList.toggle('server-locked', theme)
-  for (const el of document.querySelectorAll('#tp-lyric-knobs input, #tp-lyric-scale, #tp-lyric-reset')) el.disabled = lyrics
+  for (const el of document.querySelectorAll('#tp-lyric-knobs input, #tp-lyric-knobs button, #tp-lyric-scale')) el.disabled = lyrics
+  // The editor says it once per section rather than once per control.
+  for (const sect of document.querySelectorAll('.ce-sect[data-lock]')) sect.classList.toggle('locked', sect.dataset.lock === 'theme' ? theme : lyrics)
   const note = document.getElementById('tp-server-style-note')
   if (note) {
     const what = theme && lyrics ? 'colors and lyrics look' : theme ? 'colors' : lyrics ? 'lyrics look' : ''
@@ -14501,6 +14525,7 @@ async function saveTheme() {
     mode: document.documentElement.getAttribute('data-theme') || 'dark',
     gradStart, gradEnd, albumArt,
   }))
+  _ceChanged()
 }
 
 async function loadTheme() {
@@ -14549,6 +14574,7 @@ function applyUiFont(preset, custom) {
 async function saveUiFont(preset, custom) {
   await window.cascade.store.set('uiFont', JSON.stringify({ preset, custom }))
   applyUiFont(preset, custom)
+  _ceChanged()
 }
 
 async function loadUiFont() {
@@ -14630,6 +14656,7 @@ async function saveNpTuning(lyricScale, bgDim, bgBlend) {
     }
   }
   await window.cascade.store.set('npTuning', JSON.stringify(own))
+  _ceChanged()
 }
 
 // ── Lyrics look (Theme panel > Lyrics) ──────────────────────────────────────
@@ -14662,6 +14689,7 @@ async function saveLyricStyle(style) {
     }
   }
   await window.cascade.store.set('lyricStyle', JSON.stringify(changes))
+  _ceChanged()
 }
 
 async function loadLyricStyle() {
@@ -14720,6 +14748,14 @@ async function loadNpTuning() {
   if (scaleInput) scaleInput.value = String(lyricScale)
   if (dimInput) dimInput.value = String(bgDim)
   if (blendInput) blendInput.checked = bgBlend
+  _syncNpTuningLabels()
+}
+
+/** The percentages beside the text size and background dim sliders. */
+function _syncNpTuningLabels() {
+  for (const id of ['tp-lyric-scale', 'tp-bg-dim']) {
+    document.getElementById(id + '-value').textContent = `${Math.round(parseFloat(document.getElementById(id).value) * 100)}%`
+  }
 }
 
 /** Reads all three controls' current values, so any one changing saves and
@@ -14732,8 +14768,8 @@ function _npTuningInputValues() {
   ]
 }
 
-document.getElementById('tp-lyric-scale').addEventListener('input', () => saveNpTuning(..._npTuningInputValues()))
-document.getElementById('tp-bg-dim').addEventListener('input', () => saveNpTuning(..._npTuningInputValues()))
+document.getElementById('tp-lyric-scale').addEventListener('input', () => { _syncNpTuningLabels(); saveNpTuning(..._npTuningInputValues()) })
+document.getElementById('tp-bg-dim').addEventListener('input', () => { _syncNpTuningLabels(); saveNpTuning(..._npTuningInputValues()) })
 document.getElementById('tp-bg-blend').addEventListener('change', () => saveNpTuning(..._npTuningInputValues()))
 
 /** Album art accent mode overrides whatever gradient/preset is picked, so
@@ -14935,8 +14971,8 @@ function clearAlbumArtTheme() {
 }
 
 // Wire up theme picker UI
-// The Theme panel has three pages: the main one, and Colors and Lyrics
-// behind their rows. Every way of closing it goes back to the main page.
+// The Theme panel has two pages: the main one, and Share a look behind its
+// row. Every way of closing it goes back to the main page.
 function showThemePage(name) {
   const picker = document.getElementById('theme-picker')
   for (const page of picker.querySelectorAll('.tp-page')) page.classList.toggle('active', page.dataset.page === name)
@@ -14946,15 +14982,14 @@ function closeThemePicker() {
   document.getElementById('theme-picker').classList.remove('open')
   showThemePage('main')
 }
-// Opened from the paintbrush in the title bar or in Now Playing.
-for (const id of ['theme-btn', 'np-theme-btn']) {
-  document.getElementById(id).addEventListener('click', (e) => {
-    e.stopPropagation()
-    const picker = document.getElementById('theme-picker')
-    if (picker.classList.contains('open')) closeThemePicker()
-    else picker.classList.add('open')
-  })
-}
+// Opened from the paintbrush in the title bar. Now Playing's paintbrush opens
+// the customization editor instead (openEditor).
+document.getElementById('theme-btn').addEventListener('click', (e) => {
+  e.stopPropagation()
+  const picker = document.getElementById('theme-picker')
+  if (picker.classList.contains('open')) closeThemePicker()
+  else { _syncStyleEntries(); picker.classList.add('open') }
+})
 document.getElementById('theme-picker').addEventListener('click', (e) => {
   if (e.target.closest('.tp-close')) { closeThemePicker(); return }
   const nav = e.target.closest('[data-open]')
@@ -14962,36 +14997,40 @@ document.getElementById('theme-picker').addEventListener('click', (e) => {
 })
 document.addEventListener('mousedown', (e) => {
   const picker = document.getElementById('theme-picker')
-  if (picker.classList.contains('open') && !picker.contains(e.target) && !e.target.closest('#theme-btn, #np-theme-btn')) {
+  if (picker.classList.contains('open') && !picker.contains(e.target) && !e.target.closest('#theme-btn')) {
     closeThemePicker()
   }
 })
 
-// Lyrics page: one slider per knob, from CascadeCore.LYRIC_KNOBS, each with
-// its value and a reset arrow that shows once it differs from the default.
+// Lyrics tab: one section per CascadeCore.LYRIC_KNOBS section, one slider per
+// knob, each with its value and a reset arrow that shows once it differs from
+// the default.
 function renderLyricKnobs() {
   const box = document.getElementById('tp-lyric-knobs')
   box.replaceChildren()
-  let section = ''
+  let sect = null
   for (const k of CascadeCore.LYRIC_KNOBS) {
-    if (k.section !== section) {
-      section = k.section
-      const h = document.createElement('div')
-      h.className = 'tp-label tp-knob-section'
-      h.textContent = section
-      box.append(h)
+    if (sect?.dataset.section !== k.section) {
+      sect = document.createElement('section')
+      sect.className = 'ce-sect'
+      sect.dataset.lock = 'lyrics'
+      sect.dataset.section = k.section
+      sect.innerHTML = '<h3 class="ce-sect-title"></h3><p class="ce-lock-note">Set by your server admin.</p>'
+      sect.querySelector('h3').textContent = k.section
+      box.append(sect)
     }
     const row = document.createElement('div')
-    row.className = 'tp-knob'
+    row.className = 'setting-row tp-knob'
     row.dataset.key = k.key
-    row.innerHTML = '<div class="tp-knob-head"><span class="tp-knob-name"></span><span class="tp-knob-value"></span>'
-      + '<button class="tp-knob-reset" title="Reset to default" aria-label="Reset to default">↺</button></div>'
-      + '<input type="range" class="tp-range">'
-    row.querySelector('.tp-knob-name').textContent = k.label
+    row.innerHTML = `<div class="setting-label tp-knob-head"><label class="setting-name" for="knob-${k.key}"></label>`
+      + '<button type="button" class="tp-knob-reset" title="Reset to default">↺</button></div>'
+      + `<div class="setting-slider-row"><input type="range" class="tp-range" id="knob-${k.key}"><span class="eq-band-value tp-knob-value"></span></div>`
+    row.querySelector('label').textContent = k.label
+    row.querySelector('.tp-knob-reset').setAttribute('aria-label', `Reset ${k.label} to default`)
     const input = row.querySelector('input')
     Object.assign(input, { min: k.min, max: k.max, step: k.step })
     input.setAttribute('aria-label', `${k.section}: ${k.label}`)
-    box.append(row)
+    sect.append(row)
   }
   syncLyricKnobs()
 }
@@ -15017,10 +15056,6 @@ document.getElementById('tp-lyric-knobs').addEventListener('click', (e) => {
   const row = e.target.closest('.tp-knob-reset') && e.target.closest('.tp-knob')
   if (!row) return
   saveLyricStyle({ ...lyricStyle, [row.dataset.key]: CascadeCore.lyricKnob(row.dataset.key).value })
-  syncLyricKnobs()
-})
-document.getElementById('tp-lyric-reset').addEventListener('click', () => {
-  saveLyricStyle({})
   syncLyricKnobs()
 })
 
@@ -15177,6 +15212,502 @@ function setAlbumArtAccent(enabled) {
 document.getElementById('toggle-album-art').addEventListener('change', (e) => {
   setAlbumArtAccent(e.target.checked)
 })
+
+// ── Customization editor ─────────────────────────────────────────────────────
+//
+// docs/customization-editor-spec.md. Now Playing's paintbrush (or the title bar
+// dropdown's Style button, or Settings > Playback > Cover transitions) turns the
+// left column into a narrow sidebar and puts the look's settings beside the
+// live lyrics. Every control saves the moment it changes, through the save path
+// it always used; the editor adds only a reset per tab and an undo back to how
+// things were when it opened.
+//
+// The sidebar is the player's own art and transport buttons restyled by
+// .editing (styles/editor.css), so it can never disagree with the player.
+// Mode, colors, font and Share a look are the title bar dropdown's own
+// elements, moved in while the editor is open (_ceMoveShared): one set of
+// controls, so the two are in sync by construction.
+//
+// Motion is transforms and opacity only: the art travels into the sidebar by
+// FLIP (_ceFlip), never by animating its size.
+const CE_TABS = ['appearance', 'nowplaying', 'lyrics', 'crossfade', 'presets']
+const CE_EASE = 'cubic-bezier(0.2, 0.7, 0.3, 1)'
+// Every displayPrefs key the editor can change (the Cascade Server extras stay in Settings).
+const CE_DISPLAY_KEYS = Object.keys(DISPLAY_PREF_DEFAULTS).filter(k => k !== 'explicitMarks' && k !== 'videoCovers')
+const CE_NO_SONG_TIP = 'Start playing something to customize Now Playing.'
+const CE_VIDEO_TIP = 'Now Playing for videos has nothing to customize. Play a song to customize it.'
+const CE_RESET_TEXT = {
+  appearance: 'Mode, colors and font go back to how Cascade ships them.',
+  nowplaying: 'The album art theme, background dim and blend, and the color fade go back to how Cascade ships them.',
+  lyrics: 'Both text sizes and every lyrics setting go back to how Cascade ships them.',
+  crossfade: 'The cover animation goes back to how Cascade ships it.',
+  presets: 'Both Include switches turn back on and the name is cleared.',
+}
+// open; tab is remembered for the session only; snapshot is what undo goes back to.
+const _ce = { open: false, tab: 'appearance', snapshot: null, wasLyrics: false, applying: false, previewKey: '', previewTemp: null }
+const _ceTabs = [...document.querySelectorAll('.ce-tabs .sn-item')]
+const _cePill = document.querySelector('.ce-tabs .sn-pill')
+const _ceReduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches
+const _ceNarrow = () => matchMedia('(max-width: 699px)').matches
+
+function _ceCanOpen() {
+  const item = queue[queueIndex]
+  return !!item && !isVideoItem(item)
+}
+
+/** The Style button and the Settings link: disabled with a tooltip saying why
+ *  while there is no song to customize. aria-disabled keeps them focusable, so
+ *  the tooltip shows for keyboard focus too; their handlers check again. */
+function _syncStyleEntries() {
+  const item = queue[queueIndex]
+  const tip = !item ? CE_NO_SONG_TIP : isVideoItem(item) ? CE_VIDEO_TIP : ''
+  for (const id of ['tp-style-btn', 's-customize-np']) {
+    const el = document.getElementById(id)
+    el.setAttribute('aria-disabled', String(!!tip))
+    if (tip) el.setAttribute('data-tip', tip)
+    else el.removeAttribute('data-tip')
+  }
+}
+
+function _ceMoveShared(intoEditor) {
+  for (const el of document.querySelectorAll('[data-share]')) {
+    const to = document.querySelector(`[data-${intoEditor ? 'slot' : 'home'}="${el.dataset.share}"]`)
+    if (to && el.parentElement !== to) to.append(el)
+  }
+}
+
+/** The art and the three transport buttons, which travel between the player
+ *  and the sidebar. */
+const _ceFlipEls = () => [document.querySelector('.np-overlay-art'), ...['ov-prev', 'ov-play', 'ov-next'].map(id => document.getElementById(id))]
+
+/** Runs `mutate` (a layout change) and animates `els` from where they were to
+ *  where they are now, by transform alone. */
+function _ceFlip(els, mutate, ms) {
+  // Measured mid-flight if a flip is still running (a quick reopen), so the
+  // next one starts from where the element is, then takes over from it.
+  const before = els.map(el => el.getBoundingClientRect())
+  for (const el of els) for (const a of el.getAnimations()) if (a.id === 'ce-flip') a.cancel()
+  mutate()
+  const anims = []
+  els.forEach((el, i) => {
+    const a = before[i], b = el.getBoundingClientRect()
+    if (!a.width || !b.width) return
+    const from = `translate(${a.left - b.left}px, ${a.top - b.top}px) scale(${a.width / b.width}, ${a.height / b.height})`
+    anims.push(el.animate([{ transform: from, transformOrigin: '0 0' }, { transform: 'none', transformOrigin: '0 0' }], { duration: ms, easing: CE_EASE, id: 'ce-flip' }))
+  })
+  return Promise.all(anims.map(a => a.finished.catch(() => {})))
+}
+
+/** A layout change with the art's width transition held off, so the art jumps
+ *  to its new size and only the FLIP (or nothing) moves it. */
+function _ceRelayout(mutate, animate, ms) {
+  npOverlay.classList.add('ce-moving')
+  const done = animate ? _ceFlip(_ceFlipEls(), mutate, ms) : (mutate(), npOverlay.offsetWidth, Promise.resolve())
+  done.then(() => npOverlay.classList.remove('ce-moving'))
+}
+
+function openEditor({ tab = _ce.tab, instant = false } = {}) {
+  if (_ce.open || !_ceCanOpen()) return
+  closeThemePicker()
+  if (!overlayOpen) { openOverlay(); instant = true }
+  const menu = document.getElementById('ce-menu')
+  // A close still fading out is dropped first.
+  for (const a of menu.getAnimations()) a.cancel()
+  menu.classList.remove('leaving')
+  menu.removeAttribute('style')
+  _ce.open = true
+  _ceMoveShared(true)
+  _ce.snapshot = _ceSnapshot()
+  document.getElementById('ce-undo').hidden = true
+  _ce.wasLyrics = overlayLyricsOpen
+  overlayLyricsOpen = true
+  clearTimeout(_ovIdleTimer)
+  npOverlay.classList.remove('idle')
+  const reduced = _ceReduced()
+  _ceRelayout(() => { npOverlay.classList.add('editing'); _applyOverlayPanels() }, !instant && !reduced, 350)
+  _ceShowTab(CE_TABS.includes(tab) ? tab : 'appearance', false)
+  if (!_ce.wasLyrics) renderOverlayLyrics()
+  if (!instant) {
+    if (reduced) document.querySelector('.np-overlay-body').animate([{ opacity: 0 }, { opacity: 1 }], { duration: 150, easing: 'linear' })
+    else menu.animate([{ opacity: 0, transform: 'translateX(-32px)' }, { opacity: 1, transform: 'none' }], { duration: 350, delay: 100, easing: CE_EASE, fill: 'backwards' })
+  }
+  document.getElementById('np-theme-btn').setAttribute('aria-expanded', 'true')
+  _ceTabs[CE_TABS.indexOf(_ce.tab)].focus({ preventScroll: true })
+}
+
+/** Instant when Now Playing itself is closing (closeOverlay) or a video took over. */
+function closeEditor({ instant = false } = {}) {
+  if (!_ce.open) return
+  _ce.open = false
+  _ce.snapshot = null
+  _cePreviewStop()
+  clearTimeout(_ce.previewTemp)
+  const menu = document.getElementById('ce-menu')
+  const animate = !instant && overlayOpen && !_ceReduced()
+  const settle = () => {
+    if (_ce.open) return
+    for (const a of menu.getAnimations()) a.cancel()
+    menu.classList.remove('leaving')
+    menu.removeAttribute('style')
+    _ceMoveShared(false)
+  }
+  if (animate) {
+    // Pinned where it is, so the layout can change under it while it fades
+    // and the art travels back at the same time.
+    const r = menu.getBoundingClientRect(), body = menu.parentElement.getBoundingClientRect()
+    Object.assign(menu.style, { left: `${r.left - body.left}px`, top: `${r.top - body.top}px`, width: `${r.width}px`, height: `${r.height}px` })
+    menu.classList.add('leaving')
+    // Held at its end (fill) until settle drops it, so it cannot flash back for a frame.
+    menu.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateX(-32px)' }], { duration: 200, easing: CE_EASE, fill: 'forwards' })
+      .finished.catch(() => {}).then(settle)
+  }
+  _ceSetPreview(false, !instant && overlayOpen)
+  overlayLyricsOpen = _ce.wasLyrics
+  _ceRelayout(() => {
+    npOverlay.classList.remove('editing', 'ce-show-preview')
+    _applyOverlayPanels()
+  }, animate, 300)
+  if (!animate) {
+    settle()
+    if (!instant && overlayOpen) document.querySelector('.np-overlay-body').animate([{ opacity: 0 }, { opacity: 1 }], { duration: 150, easing: 'linear' })
+  }
+  _ceShowPreviewPane(false)
+  document.getElementById('np-theme-btn').setAttribute('aria-expanded', 'false')
+  if (!instant && overlayOpen) document.getElementById('np-theme-btn').focus({ preventScroll: true })
+}
+
+function _cePlacePill(animate) {
+  const t = _ceTabs[CE_TABS.indexOf(_ce.tab)]
+  if (!t.offsetWidth) return   // hidden; the observer below places it on show
+  if (!animate) _cePill.style.transition = 'none'
+  _cePill.style.width = `${t.offsetWidth}px`
+  _cePill.style.transform = `translateX(${t.offsetLeft}px)`
+  if (!animate) { _cePill.offsetWidth; _cePill.style.transition = '' }
+}
+
+function _ceShowTab(name, animate) {
+  const from = document.getElementById(`ce-panel-${_ce.tab}`), to = document.getElementById(`ce-panel-${name}`)
+  _ce.tab = name
+  _ceTabs.forEach(t => {
+    const on = t.dataset.tab === name
+    t.classList.toggle('active', on)
+    t.setAttribute('aria-selected', String(on))
+    t.tabIndex = on ? 0 : -1
+  })
+  _cePlacePill(animate)
+  for (const el of [from, to]) el.getAnimations().forEach(a => a.finish())
+  for (const p of document.querySelectorAll('.ce-panel')) p.classList.toggle('active', p === to)
+  document.getElementById('ce-body').scrollTop = 0
+  if (name === 'crossfade') {
+    document.getElementById('ce-cf-length').textContent = crossfadeEnabled ? `Crossfade length: ${crossfadeSeconds}s.` : 'Crossfade is off.'
+  }
+  _ceSetPreview(name === 'crossfade', animate)
+  if (!animate || from === to) return
+  // The old tab sinks away while the new one rises into place, in one cell.
+  const reduced = _ceReduced()
+  const timing = { duration: reduced ? 150 : 200, easing: reduced ? 'linear' : CE_EASE }
+  from.classList.add('leaving')
+  const out = from.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: reduced ? 'none' : 'translateY(8px)' }], { ...timing, fill: 'forwards' })
+  out.onfinish = () => out.cancel()
+  out.oncancel = () => from.classList.remove('leaving')
+  to.animate([{ opacity: 0, transform: reduced ? 'none' : 'translateY(8px)' }, { opacity: 1, transform: 'none' }], timing)
+}
+
+/** The right pane on the Crossfade tab: the lyrics slide down and fade while
+ *  the preview card rises from below, and the reverse on the way out. Animates
+ *  `translate`, not `transform`, which _applyOverlayPanels owns on the lyrics. */
+function _ceSetPreview(on, animate) {
+  const lyrics = document.getElementById('ov-panel-lyrics'), card = document.getElementById('ce-preview')
+  if (on === npOverlay.classList.contains('ce-crossfade')) { if (on) _cePreviewPlay(); return }
+  for (const el of [lyrics, card]) for (const a of el.getAnimations()) if (a.id === 'ce') a.finish()
+  npOverlay.classList.toggle('ce-crossfade', on)
+  if (on) _cePreviewPlay()
+  else _cePreviewStop()
+  if (!animate) return
+  const reduced = _ceReduced()
+  const timing = { duration: reduced ? 150 : on ? 350 : 300, easing: reduced ? 'linear' : CE_EASE, id: 'ce' }
+  const leaving = on ? lyrics : card, coming = on ? card : lyrics
+  const offLyrics = reduced ? '0 0' : '0 48px', offCard = reduced ? '0 0' : '0 100%'
+  leaving.classList.add(on ? 'ce-leaving' : 'leaving')
+  const out = leaving.animate([{ opacity: 1, translate: '0 0' }, { opacity: 0, translate: on ? offLyrics : offCard }], { ...timing, fill: 'forwards' })
+  out.onfinish = () => out.cancel()
+  out.oncancel = () => leaving.classList.remove('ce-leaving', 'leaving')
+  coming.animate([{ opacity: 0, translate: on ? offCard : offLyrics }, { opacity: 1, translate: '0 0' }], timing)
+}
+
+// Under 700px wide the menu and the preview take turns.
+function _ceShowPreviewPane(on) {
+  clearTimeout(_ce.previewTemp)
+  npOverlay.classList.toggle('ce-show-preview', on)
+  document.getElementById('ce-preview-toggle').textContent = on ? 'Show menu' : 'Show preview'
+}
+
+// ── The crossfade preview ──
+// Its own slice on its own card (#ce-preview-art), never _slice or the
+// player's art, so a real crossfade and the preview never touch each other.
+const _cePrev = { run: 0, slice: null, timers: [] }
+
+function _cePreviewStop() {
+  _cePrev.run++
+  _cePrev.timers.forEach(clearTimeout)
+  _cePrev.timers = []
+  _removeArtSlice(_cePrev.slice)
+  _cePrev.slice = null
+}
+
+const _ceCoverKey = item => item && (item.AlbumId || item.Id)
+const _ceCoverUrl = item => item && artUrl(item.AlbumId || item.Id, item.AlbumPrimaryImageTag || item.ImageTags?.Primary)
+// ponytail: the next song in queue order (repeat-one replays this one); repeat-all wrap and shuffle edge cases ignored, per the spec.
+const _ceNextItem = () => repeatMode === 'one' ? queue[queueIndex] : queue[queueIndex + 1]
+
+/** The card's base image, swapped in place so a slice laid over it stays. */
+function _ceSetPreviewCover(host, url) {
+  let img = host.querySelector(':scope > img')
+  if (!url) { img?.remove(); if (!host.querySelector('.art-slice')) host.textContent = '♪'; return }
+  if (!img) { host.textContent = ''; img = document.createElement('img'); img.alt = ''; host.prepend(img) }
+  if (img.getAttribute('src') !== url) img.src = url
+}
+
+/** Shows the current cover, then (when there is something to show) runs the
+ *  configured transition to the next queued cover, holds it, and resets.
+ *  Restarts from the current cover if called mid-run. Returns how long the
+ *  run takes in ms, or 0 when it does not run. */
+function _cePreviewPlay() {
+  _cePreviewStop()
+  const run = _cePrev.run
+  const cur = queue[queueIndex], next = _ceNextItem()
+  _ce.previewKey = `${cur?.Id}|${next?.Id}|${repeatMode}`
+  const host = document.getElementById('ce-preview-art')
+  const curUrl = _currentHighResArtUrl || _ceCoverUrl(cur)
+  const plan = CascadeCore.coverPreviewPlan({
+    hasNext: !!next, nextIsVideo: isVideoItem(next), sameCover: !!next && _ceCoverKey(next) === _ceCoverKey(cur),
+    coverSlice: displayPrefs.coverSlice, reduceMotion: _ceReduced(), crossfadeOn: crossfadeEnabled, crossfadeSeconds,
+  })
+  _ceSetPreviewCover(host, curUrl)
+  document.getElementById('ce-preview-hint').textContent = plan.notes.join('\n')
+  document.getElementById('ce-replay').disabled = !plan.run
+  const nextUrl = _ceCoverUrl(next)
+  if (!plan.run || !curUrl || !nextUrl) return 0
+  ;(async () => {
+    // Both covers decoded first, so the cut never waits on the network.
+    const incoming = new Image()
+    incoming.src = nextUrl
+    await Promise.all([incoming.decode(), host.querySelector(':scope > img')?.decode()].map(p => p?.catch(() => {})))
+    if (run !== _cePrev.run) return
+    const slice = prepareArtSlice([host])
+    if (!slice) return
+    _cePrev.slice = slice
+    _ceSetPreviewCover(host, nextUrl)
+    startArtSlice(slice, plan.seconds)
+    _cePrev.timers.push(setTimeout(() => endArtSlice(slice), plan.seconds * 1000))
+    // Held on the next cover for a moment once the slide-out is done, then back.
+    _cePrev.timers.push(setTimeout(() => {
+      if (run !== _cePrev.run) return
+      _removeArtSlice(slice)
+      _ceSetPreviewCover(host, curUrl)
+    }, (plan.seconds + displayPrefs.coverSlideOut + 1.5) * 1000))
+  })()
+  return (plan.seconds + displayPrefs.coverSlideOut + 1.5) * 1000
+}
+
+/** A cover setting changed: replay once, after every change in a batch (an
+ *  undo or a reset sets several). Under 700px the preview shows for the run,
+ *  then gives the menu back. */
+let _cePreviewQueued = false
+function _cePreviewSoon() {
+  if (!_ce.open || _ce.tab !== 'crossfade' || _cePreviewQueued) return
+  _cePreviewQueued = true
+  setTimeout(() => {
+    _cePreviewQueued = false
+    if (!_ce.open || _ce.tab !== 'crossfade') return
+    const ms = _cePreviewPlay()
+    if (ms && _ceNarrow() && !npOverlay.classList.contains('ce-show-preview')) {
+      _ceShowPreviewPane(true)
+      _ce.previewTemp = setTimeout(() => _ceShowPreviewPane(false), ms)
+    }
+  }, 0)
+}
+
+/** The song or the queue moved: the sidebar follows by itself (it is the
+ *  player), the preview follows here, and a video closes the editor. */
+function _ceQueueMoved() {
+  if (!_ce.open) return
+  if (!_ceCanOpen()) { closeEditor({ instant: true }); return }
+  if (_ce.tab !== 'crossfade') return
+  const next = _ceNextItem()
+  if (`${queue[queueIndex]?.Id}|${next?.Id}|${repeatMode}` !== _ce.previewKey) _cePreviewPlay()
+}
+
+// ── Undo and reset ──
+
+/** Every value the editor can change, read from where it lives now. */
+function _ceSnapshot() {
+  const [lyricScale, bgDim, bgBlend] = _npTuningInputValues()
+  return {
+    mode: _isLightTheme() ? 'light' : 'dark',
+    gradStart: document.getElementById('grad-start').value,
+    gradEnd: document.getElementById('grad-end').value,
+    albumArt: themeAlbumArt,
+    font: { preset: document.getElementById('tp-font-preset').value, custom: document.getElementById('tp-font-custom').value },
+    lyricScale, bgDim, bgBlend,
+    lyricStyle: { ...lyricStyle },
+    display: Object.fromEntries(CE_DISPLAY_KEYS.map(k => [k, displayPrefs[k]])),
+  }
+}
+
+/** Called by every save path the editor's controls use: shows the undo button
+ *  once anything differs from the snapshot, hides it once nothing does. */
+function _ceChanged() {
+  if (!_ce.open || !_ce.snapshot || _ce.applying) return
+  document.getElementById('ce-undo').hidden = JSON.stringify(_ceSnapshot()) === JSON.stringify(_ce.snapshot)
+}
+
+/** The shipped values of one tab's settings, in _ceSnapshot's shape. */
+function _ceDefaults(tab) {
+  const pick = keys => Object.fromEntries(keys.map(k => [k, DISPLAY_PREF_DEFAULTS[k]]))
+  const g = CascadeCore.PRESET_DEFAULT_GRADIENT
+  if (tab === 'appearance') return { mode: 'dark', gradStart: g.start, gradEnd: g.end, font: { preset: 'system', custom: '' } }
+  if (tab === 'nowplaying') return { albumArt: false, bgDim: CascadeCore.clampBgDim(undefined), bgBlend: CascadeCore.clampBgBlend(undefined), display: pick(['colorFade', 'colorFadeSeconds']) }
+  if (tab === 'lyrics') return { lyricStyle: {}, lyricScale: CascadeCore.clampLyricScale(undefined), display: pick(['plainLyricScale']) }
+  if (tab === 'crossfade') return { display: pick(CE_DISPLAY_KEYS.filter(k => k.startsWith('coverSli'))) }
+  return {}
+}
+
+/** Puts back whatever `v` (part of a snapshot) holds, through the same save
+ *  paths the controls use, in applyPreset's order. What the server admin
+ *  enforces is skipped. */
+async function _ceApply(v) {
+  const themeLocked = CascadeCore.serverStylePart(_serverStyle, 'theme') === 'force'
+  const lyricsLocked = CascadeCore.serverStylePart(_serverStyle, 'lyrics') === 'force'
+  _ce.applying = true
+  try {
+    let themeDirty = false
+    if ('mode' in v) { setThemeMode(v.mode); themeDirty = true }
+    if ('gradStart' in v && !themeLocked) {
+      document.getElementById('grad-start').value = v.gradStart
+      document.getElementById('grad-end').value = v.gradEnd
+      if (!themeAlbumArt) applyGradient(v.gradStart, v.gradEnd)
+      markActivePreset()
+      themeDirty = true
+    }
+    // setAlbumArtAccent saves the theme key too, with the mode and gradient above.
+    if ('albumArt' in v && !themeLocked && v.albumArt !== themeAlbumArt) setAlbumArtAccent(v.albumArt)
+    else if (themeDirty) await saveTheme()
+    if (v.font) { await saveUiFont(v.font.preset, v.font.custom); await loadUiFont() }
+    if (v.lyricStyle && !lyricsLocked) { await saveLyricStyle(v.lyricStyle); syncLyricKnobs() }
+    if ('lyricScale' in v || 'bgDim' in v) {
+      const [scale, dim, blend] = _npTuningInputValues()
+      await saveNpTuning(
+        'lyricScale' in v && !lyricsLocked ? v.lyricScale : scale,
+        'bgDim' in v && !themeLocked ? v.bgDim : dim,
+        'bgBlend' in v && !themeLocked ? v.bgBlend : blend)
+      await loadNpTuning()
+    }
+    for (const [k, x] of Object.entries(v.display || {})) if (displayPrefs[k] !== x) await setDisplayPref(k, x)
+  } finally {
+    _ce.applying = false
+  }
+  _ceChanged()
+}
+
+/** Sliders glide to the values `apply` sets over 150ms instead of jumping
+ *  (display only; the values are already saved). */
+async function _ceGlide(apply) {
+  const ranges = [...document.querySelectorAll('#ce-menu input[type="range"]')]
+  const before = ranges.map(r => parseFloat(r.value))
+  await apply()
+  if (_ceReduced()) return
+  const after = ranges.map(r => parseFloat(r.value))
+  const moving = ranges.map((r, i) => i).filter(i => before[i] !== after[i])
+  if (!moving.length) return
+  const t0 = performance.now()
+  const frame = now => {
+    const p = Math.min(1, (now - t0) / 150), e = 1 - (1 - p) ** 3
+    for (const i of moving) ranges[i].value = String(p < 1 ? before[i] + (after[i] - before[i]) * e : after[i])
+    if (p < 1) requestAnimationFrame(frame)
+  }
+  for (const i of moving) ranges[i].value = String(before[i])
+  requestAnimationFrame(frame)
+}
+
+document.getElementById('ce-undo').addEventListener('click', async () => {
+  const snap = _ce.snapshot
+  if (!snap) return
+  await _ceGlide(() => _ceApply(snap))
+  // Gone after an undo even if a value the admin enforces could not go back.
+  document.getElementById('ce-undo').hidden = true
+  _ceTabs[CE_TABS.indexOf(_ce.tab)].focus({ preventScroll: true })
+})
+
+document.getElementById('ce-menu').addEventListener('click', async (e) => {
+  const tab = e.target.closest('[data-reset]')?.dataset.reset
+  if (!tab) return
+  if (!await showChoice('Reset this tab?', CE_RESET_TEXT[tab], 'Reset', 'Cancel') || !_ce.open) return
+  if (tab === 'presets') {
+    document.getElementById('tp-preset-theme').checked = true
+    document.getElementById('tp-preset-lyrics').checked = true
+    document.getElementById('tp-preset-name').value = ''
+    return
+  }
+  await _ceGlide(() => _ceApply(_ceDefaults(tab)))
+})
+
+// ── Wiring ──
+_ceTabs.forEach(t => t.addEventListener('click', () => _ceShowTab(t.dataset.tab, true)))
+// A real tablist: arrows move between tabs (wrapping), Home and End jump to the ends.
+document.querySelector('.ce-tabs').addEventListener('keydown', e => {
+  const i = CE_TABS.indexOf(_ce.tab)
+  const to = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: CE_TABS.length - 1 }[e.key]
+  if (to === undefined) return
+  e.preventDefault()
+  const n = (to + CE_TABS.length) % CE_TABS.length
+  _ceShowTab(CE_TABS[n], true)
+  _ceTabs[n].focus()
+})
+new ResizeObserver(() => _cePlacePill(false)).observe(document.querySelector('.ce-tabs'))
+document.getElementById('np-theme-btn').addEventListener('click', () => _ce.open ? closeEditor() : openEditor())
+document.getElementById('ce-close').addEventListener('click', () => closeEditor())
+document.getElementById('ce-replay').addEventListener('click', () => _cePreviewPlay())
+document.getElementById('ce-preview-toggle').addEventListener('click', () => _ceShowPreviewPane(!npOverlay.classList.contains('ce-show-preview')))
+document.getElementById('ce-cf-settings').addEventListener('click', () => {
+  // The length row is hidden while crossfade is off, so that jumps to the switch.
+  revealSetting('playback', crossfadeEnabled ? 'crossfade-duration' : 'crossfade-toggle')
+})
+document.getElementById('tp-style-btn').addEventListener('click', () => {
+  if (!_ceCanOpen()) return
+  closeThemePicker()
+  openEditor({ instant: true })
+})
+document.getElementById('s-customize-np').addEventListener('click', () => {
+  if (_ceCanOpen()) openEditor({ tab: 'crossfade', instant: true })
+})
+_syncStyleEntries()
+
+// ── revealSetting ──
+/** Opens Settings on `section` and draws the eye to one setting, the way a
+ *  browser shows a searched setting: its row scrolled to the middle, tinted
+ *  with the accent and fading back over about 2s, and its control focused.
+ *  `id` is the row or any control in it. */
+async function revealSetting(section, id) {
+  if (overlayOpen) closeOverlay()
+  showView('settings')
+  const tab = _settingsTabs.findIndex(t => t.dataset.section === section)
+  if (tab >= 0) showSettingsTab(tab)
+  // After the pane's slide, which also resets the scroll.
+  const pane = document.getElementById(`section-${section}`)
+  await Promise.all(pane.getAnimations().map(a => a.finished.catch(() => {})))
+  const target = document.getElementById(id)
+  const row = target?.closest('.setting-row') || target
+  if (!row?.offsetParent) return
+  row.scrollIntoView({ block: 'center', behavior: _ceReduced() ? 'auto' : 'smooth' })
+  const control = target.matches('input, select, button, textarea') ? target : row.querySelector('input, select, button, textarea')
+  control?.focus({ preventScroll: true, focusVisible: true })
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#6e4ff6'
+  const tint = `color-mix(in srgb, ${accent} 26%, transparent)`
+  row.classList.add('revealed')
+  row.animate([{ backgroundColor: tint }, { backgroundColor: tint, offset: 0.3 }, { backgroundColor: 'transparent' }], { duration: 2000, easing: 'ease-out' })
+    .finished.catch(() => {}).then(() => row.classList.remove('revealed'))
+}
 
 // ── Tooltips ─────────────────────────────────────────────────────────────────
 //
