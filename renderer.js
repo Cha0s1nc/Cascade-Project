@@ -12100,7 +12100,7 @@ const displayPrefs = {
   // (lyricScale), since a whole page of plain text reads better smaller.
   plainLyricScale: 0.55,
 }
-const DISPLAY_PREF_RANGES = { plainLyricScale: [0.5, 1.4], coverSliceIn: [0.2, 2], coverSlideOut: [0.3, 3], coverSliceGlow: [0, 2], coverSliceShadow: [0, 2], colorFadeSeconds: [0.2, 2] }
+const DISPLAY_PREF_RANGES = { plainLyricScale: [0.3, 1.4], coverSliceIn: [0.2, 2], coverSlideOut: [0.3, 3], coverSliceGlow: [0, 2], coverSliceShadow: [0, 2], colorFadeSeconds: [0.2, 2] }
 const DISPLAY_PREF_CHOICES = {
   coverSliceStyle: ['slice', 'fade', 'push'],
   coverSliceDirection: ['up-left', 'up', 'up-right', 'right', 'down-right', 'down', 'down-left', 'left'],
