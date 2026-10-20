@@ -64,6 +64,21 @@ private let udhr: [String: String] = [
 }
 
 @Suite struct TranslationLanguageTests {
+    @Test func readsAMostlyEnglishSheetWithJapaneseVersesAsJapanese() {
+        // UN-APEX (TV edit) read as English off the whole sheet and was never offered.
+        let english = udhr["en"]!.components(separatedBy: ". ")
+        let japanese = udhr["ja"]!.components(separatedBy: "。").filter { !$0.isEmpty }
+        let sheet = english + english + [japanese[0]] + english + [japanese[1]] + english + english
+        #expect(LyricLanguages.languageFor(sheet) == "ja")
+        #expect(LyricTranslation.detectLanguage(of: sheet) == "ja")
+    }
+
+    @Test func oneStrayKanjiLineDoesNotFlipAnEnglishSheet() {
+        let english = udhr["en"]!.components(separatedBy: ". ")
+        let sheet = Array(repeating: english, count: 6).flatMap { $0 } + ["作詞 TK"]
+        #expect(!LyricLanguages.shouldOffer(sheet))
+    }
+
     @Test func namesTheLanguageForTheFiveThatHadModelsOnDesktop() {
         #expect(LyricLanguages.languageFor([udhr["ja"]!]) == "ja")
         #expect(LyricLanguages.languageFor([udhr["ko"]!]) == "ko")

@@ -103,3 +103,18 @@ test('pickTranslationEngine without a Cascade model: Apple or nothing', () => {
   assert.equal(pickTranslationEngine({ ...n, appleEnabled: false, appleStatus: 'installed' }), 'none')
   assert.equal(pickTranslationEngine({ ...n, appleEnabled: true, appleStatus: undefined }), 'none')
 })
+
+// A mostly English song with Japanese verses (UN-APEX, TV edit) used to read
+// as English off the whole sheet and never offer a translation.
+test('a mostly English sheet with Japanese verses reads as Japanese', () => {
+  const english = UDHR.en.split(/(?<=\.) /)
+  const japanese = UDHR.ja.split('。').filter(Boolean)
+  const sheet = [...english, ...english, japanese[0], ...english, japanese[1], ...english, ...english]
+  assert.equal(translationLanguageFor(sheet), 'ja')
+})
+
+test('one stray CJK line does not flip an English sheet', () => {
+  const english = UDHR.en.split(/(?<=\.) /)
+  const sheet = [...english, ...english, ...english, ...english, ...english, ...english, '作詞 TK']
+  assert.equal(translationLanguageFor(sheet), null)
+})
