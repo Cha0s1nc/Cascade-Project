@@ -14,6 +14,8 @@ struct MainView: View {
     @Environment(AppState.self) private var state
     @State private var showingNowPlaying = false
     @State private var tab: AppTab = .home
+    /// Ties Now Playing's zoom to the mini player it grows out of.
+    @Namespace private var nowPlayingZoom
 
     enum AppTab: Hashable { case nowPlaying, home, albums, artists, songs, playlists, movies, shows, search, settings }
 
@@ -43,13 +45,14 @@ struct MainView: View {
         tabsWithPlayer
         .phoneSetup()
         .downloadLimitQuestion()
-        .sheet(isPresented: $showingNowPlaying) {
+        // Full screen rather than a sheet, which left the library peeking out
+        // round its inset top corners. The zoom grows it out of the mini player,
+        // and a swipe down shrinks it back into the pill as you drag.
+        .fullScreenCover(isPresented: $showingNowPlaying) {
             if let player = state.player {
                 NowPlayingView(player: player)
-                    .presentationDragIndicator(.visible)
-                    // Solid, so the sheet's default glass does not show the
-                    // library through the album-art background.
                     .presentationBackground(.black)
+                    .navigationTransition(.zoom(sourceID: "nowPlaying", in: nowPlayingZoom))
             }
         }
         #endif
@@ -101,6 +104,7 @@ struct MainView: View {
                 .tabViewBottomAccessory(isEnabled: player?.item != nil) {
                     if let player {
                         AccessoryMiniPlayer(player: player) { showingNowPlaying = true }
+                            .matchedTransitionSource(id: "nowPlaying", in: nowPlayingZoom)
                     }
                 }
                 .tabBarMinimizeBehavior(.onScrollDown)
@@ -109,6 +113,7 @@ struct MainView: View {
                 tabs
                 if let player, player.item != nil {
                     MiniPlayer(player: player, style: .bar) { showingNowPlaying = true }
+                        .matchedTransitionSource(id: "nowPlaying", in: nowPlayingZoom)
                 }
             }
         }
