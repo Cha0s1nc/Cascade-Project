@@ -116,7 +116,7 @@ public actor JellyfinClient {
     /// Nil means the proxy-aware session, looked up at each call: a header
     /// edit replaces it, so it must not be kept.
     private let injectedSession: URLSession?
-    private var session: URLSession { injectedSession ?? ProxyConnection.shared.session }
+    var session: URLSession { injectedSession ?? ProxyConnection.shared.session }
 
     /// `offlineCatalog` starts it in Offline Mode, so not even the first
     /// request of a launch with the switch on reaches the server.

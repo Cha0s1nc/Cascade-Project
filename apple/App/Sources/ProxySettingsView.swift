@@ -1,6 +1,6 @@
 import SwiftUI
 import CascadeKit
-#if os(iOS)
+#if !os(tvOS)
 import UniformTypeIdentifiers
 #endif
 
@@ -27,7 +27,7 @@ enum ProxyHeaderStore {
     }
 }
 
-/// Headers (and on iOS a client certificate) for a Jellyfin server behind
+/// Headers (and on iOS and the Mac a client certificate) for a Jellyfin server behind
 /// Cloudflare Access, Authelia or an mTLS proxy. Used on the sign-in screen,
 /// where the proxy would otherwise refuse the sign-in itself, and in Settings.
 struct ProxySettingsSection: View {
@@ -36,18 +36,23 @@ struct ProxySettingsSection: View {
     @State private var value = ""
     @State private var problem: String?
 
-    #if os(iOS)
+    #if !os(tvOS)
     @State private var importing = false
     @State private var pickedFile: Data?
     @State private var askingPassphrase = false
     @State private var passphrase = ""
-    @State private var certificate = ClientIdentity.summary()
     @State private var certificateProblem: String?
+    #endif
+    #if os(iOS)
+    @State private var certificate = ClientIdentity.summary()
+    #elseif os(macOS)
+    @State private var choices: [ClientIdentity.Choice] = []
+    @State private var chosen = ClientIdentity.chosen
     #endif
 
     var body: some View {
         section
-        #if os(iOS)
+        #if !os(tvOS)
             .fileImporter(isPresented: $importing, allowedContentTypes: [.pkcs12], onCompletion: picked)
             .alert("Certificate Passphrase", isPresented: $askingPassphrase) {
                 SecureField("Passphrase", text: $passphrase)
@@ -77,7 +82,7 @@ struct ProxySettingsSection: View {
             if let problem {
                 Text(problem).foregroundStyle(.red)
             }
-            #if os(iOS)
+            #if !os(tvOS)
             clientCertificateRows
             #endif
         } header: {
@@ -103,10 +108,32 @@ struct ProxySettingsSection: View {
         ProxyHeaderStore.save(headers)
     }
 
-    #if os(iOS)
+    #if os(macOS)
+    /// Any identity in the keychains, or a .p12 or .pfx imported into the login
+    /// keychain, offered when the server asks for a client certificate.
+    @ViewBuilder private var clientCertificateRows: some View {
+        Picker("Client Certificate", selection: $chosen) {
+            Text("None").tag(String?.none)
+            ForEach(choices) { choice in
+                Text(choice.issuer.map { "\(choice.name) (\($0))" } ?? choice.name).tag(Optional(choice.id))
+            }
+            // A remembered one that left the keychain (or expired) stays visible.
+            if let chosen, !choices.contains(where: { $0.id == chosen }) {
+                Text("Not in the keychain").tag(Optional(chosen))
+            }
+        }
+        .onAppear { choices = ClientIdentity.available() }
+        .onChange(of: chosen) { _, id in
+            if id != ClientIdentity.chosen { ClientIdentity.choose(id) }
+        }
+        Button("Import Certificate File\u{2026}") { importing = true }
+        if let certificateProblem {
+            Text(certificateProblem).foregroundStyle(.red)
+        }
+    }
+    #elseif os(iOS)
     /// A .p12 or .pfx the person picks, kept in the keychain and offered when
-    /// the server asks for a client certificate. AVPlayer does its own
-    /// networking and may not use it: the API, covers and downloads do.
+    /// the server asks for a client certificate.
     @ViewBuilder private var clientCertificateRows: some View {
         if let certificate {
             LabeledContent("Client Certificate", value: certificate)
@@ -121,7 +148,9 @@ struct ProxySettingsSection: View {
             Text(certificateProblem).foregroundStyle(.red)
         }
     }
+    #endif
 
+    #if !os(tvOS)
     private func picked(_ result: Result<URL, Error>) {
         certificateProblem = nil
         switch result {
@@ -145,7 +174,12 @@ struct ProxySettingsSection: View {
         guard let data = pickedFile else { return }
         do {
             try ClientIdentity.save(p12: data, passphrase: passphrase)
+            #if os(iOS)
             certificate = ClientIdentity.summary()
+            #else
+            choices = ClientIdentity.available()
+            chosen = ClientIdentity.chosen
+            #endif
         } catch {
             certificateProblem = error.localizedDescription
         }
