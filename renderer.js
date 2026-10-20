@@ -2646,7 +2646,10 @@ async function openAlbum(albumId) {
     const art = artUrl(album.Id, album.ImageTags?.Primary)
     document.getElementById('album-detail-art').innerHTML = art ? `<img src="${art}" alt="" onerror="this.innerHTML='♪'">` : '♪'
 
-    document.getElementById('album-detail-rows').innerHTML = tracks.map((item, i) => trackRowHtml(item, i)).join('')
+    // albumArtist: drop the per-row thumbnail and Album cell and show an artist
+    // only when it differs from the album's (features, compilations).
+    const rowOpts = { albumArtist: album.AlbumArtist || '' }
+    document.getElementById('album-detail-rows').innerHTML = tracks.map((item, i) => trackRowHtml(item, i, rowOpts)).join('')
     highlightPlayingRow()
 
     document.getElementById('album-detail-rows').querySelectorAll('.track-row').forEach(el => {
@@ -2679,6 +2682,9 @@ document.getElementById('album-detail-meta').addEventListener('keydown', e => {
 
 document.getElementById('btn-play-album').addEventListener('click', () => {
   if (currentAlbumTracks.length) playItems(currentAlbumTracks, 0)
+})
+document.getElementById('btn-shuffle-album').addEventListener('click', () => {
+  shuffleAndPlay(currentAlbumTracks, document.getElementById('album-detail-name').textContent)
 })
 
 // ── Artists ───────────────────────────────────────────────────────────────────
@@ -2894,9 +2900,13 @@ function trackRowHtml(item, i, opts = {}) {
   const dragAttr  = opts.draggable ? ' draggable="true"' : ''
   // Artist/album cells are only clickable when there's something to open -
   // a track with a name but no linked artist/album must not look clickable.
-  const artistName  = item.AlbumArtist || item.Artists?.[0] || ''
-  const artistCls    = artistName ? ' row-link' : ''
-  const artistAttrs  = artistName ? ' data-artist-link tabindex="0"' : ''
+  const onAlbumPage  = opts.albumArtist != null
+  // Album page: only a differing artist is shown, as plain text (the link
+  // opens the album artist, which would not be the name on screen).
+  const featured     = (item.Artists || []).join(', ')
+  const artistName  = onAlbumPage ? (featured && featured !== opts.albumArtist ? featured : '') : (item.AlbumArtist || item.Artists?.[0] || '')
+  const artistCls    = artistName && !onAlbumPage ? ' row-link' : ''
+  const artistAttrs  = artistName && !onAlbumPage ? ' data-artist-link tabindex="0"' : ''
   const albumCls     = item.AlbumId ? ' row-link' : ''
   const albumAttrs   = item.AlbumId ? ' data-album-link tabindex="0"' : ''
   // Both are playlist-detail-only (opts.checkbox / opts.extraVal never set
@@ -2910,12 +2920,12 @@ function trackRowHtml(item, i, opts = {}) {
   return `<div class="${cls}" ${idxAttr}="${i}" data-id="${item.Id}"${entryAttr}${styleAttr}${dragAttr}>
     ${checkHtml}
     <div class="track-num">${i + 1}</div>
-    ${trackThumbHtml(art)}
+    ${trackThumbHtml(onAlbumPage ? '' : art)}
     <div style="min-width:0">
       <div class="track-title">${esc(item.Name)}${explicitBadgeHtml(item.Id)}</div>
-      <div class="track-artist${artistCls}"${artistAttrs}>${esc(artistName)}</div>
+      ${onAlbumPage && !artistName ? '' : `<div class="track-artist${artistCls}"${artistAttrs}>${esc(artistName)}</div>`}
     </div>
-    <div class="track-album-name${albumCls}"${albumAttrs}>${esc(item.Album || '')}</div>
+    ${onAlbumPage ? '' : `<div class="track-album-name${albumCls}"${albumAttrs}>${esc(item.Album || '')}</div>`}
     ${extraHtml}
     <div class="track-dur">${fmtTime((item.RunTimeTicks || 0) / 10000000)}</div>
   </div>`

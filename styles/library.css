@@ -101,6 +101,24 @@
    "Playlist details, edited in place"). */
 .pl-art-wrap { position: relative; flex-shrink: 0; border-radius: 8px; }
 #pl-detail-art { width: 148px; height: 148px; font-size: 56px; }
+/* Album page: a big cover with the title and actions beside it, and a track
+   table with no thumbnail or Album column (every row would repeat the same
+   cover and album name). The row's number and its thumb shell share one cell
+   so the hover play icon and the playing EQ bars still have somewhere to sit. */
+.album-detail-header { align-items: flex-end; gap: 22px; margin-bottom: 24px; }
+#album-detail-art { width: 220px; height: 220px; font-size: 72px; border-radius: 10px; box-shadow: 0 8px 28px rgba(0,0,0,0.3); }
+.album-detail-info { min-width: 0; padding-bottom: 4px; }
+#album-detail-name { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 6px; }
+#album-detail .pl-detail-meta { font-size: 13px; }
+.album-detail-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.album-detail-actions .shuffle-all-btn { padding: 7px 14px; font-size: 12px; }
+#album-detail .tl-head, #album-detail .track-row { grid-template-columns: 36px 1fr 52px; }
+#album-detail .track-row:not(.skel-card) .track-num,
+#album-detail .track-row:not(.skel-card) .track-thumb { grid-area: 1 / 1; }
+#album-detail .track-row:not(.skel-card) .track-thumb { justify-self: center; background: transparent; }
+/* The shared skeleton row still has a thumb and an Album cell. */
+#album-detail .track-row.skel-card .track-thumb,
+#album-detail .track-row.skel-card > :nth-child(4) { display: none; }
 .pl-art-actions { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; gap: 12px; border-radius: 8px; background: rgba(0,0,0,0.5); opacity: 0; transition: opacity 0.15s; }
 #playlist-detail.edit-mode .pl-art-wrap.can-edit .pl-art-actions { display: flex; }
 #playlist-detail.edit-mode .pl-art-wrap.can-edit:hover .pl-art-actions,

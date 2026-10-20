@@ -76,6 +76,8 @@ input[type="range"]:disabled { opacity: 0.4; cursor: default; }
 /* ── Shuffle all button ── */
 .shuffle-all-btn { display: flex; align-items: center; gap: 5px; font-family: var(--font); font-size: 11px; font-weight: 600; background: none; border: 1px solid var(--border); border-radius: 6px; color: var(--text2); padding: 4px 10px; cursor: pointer; transition: background 0.12s, color 0.12s, border-color 0.12s; }
 .shuffle-all-btn:hover { background: var(--surface2); color: var(--text); border-color: var(--accent); }
+.shuffle-all-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.shuffle-all-btn.primary:hover { background: #7c5ff7; border-color: #7c5ff7; color: #fff; }
 .shuffle-all-btn:disabled { opacity: 0.4; cursor: default; pointer-events: none; }
 .shuffle-all-btn svg { flex-shrink: 0; }
 
