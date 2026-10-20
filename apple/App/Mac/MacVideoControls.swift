@@ -189,6 +189,16 @@ struct MacVideoOverlay: View {
                         else { Text(session.label(for: option)) }
                     }
                 }
+            } else if !session.serverAudioTracks.isEmpty {
+                let current = session.serverAudioIndex
+                ForEach(session.serverAudioTracks, id: \.index) { track in
+                    let name = track.displayTitle ?? track.language ?? "Track \(track.index ?? 0)"
+                    Button { Task { await session.selectServerAudio(track.index ?? 0) } } label: {
+                        if current == track.index { Label(name, systemImage: "checkmark") } else { Text(name) }
+                    }
+                }
+            } else {
+                Text("Only one track")
             }
         } label: { Image(systemName: "waveform") }
         .accessibilityLabel("Audio")

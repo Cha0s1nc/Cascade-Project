@@ -137,19 +137,20 @@ public enum VideoPlayback {
         guard let source = info.mediaSources?.first else {
             throw JellyfinError(status: 0, message: "The server offered no way to play this.")
         }
+        let audio = (source.mediaStreams ?? []).filter { $0.type == "Audio" && $0.index != nil }
         if let transcodingUrl = source.transcodingUrl {
             guard let url = transcodeURL(config.url + transcodingUrl) else {
                 throw JellyfinError(status: 0, message: "Bad transcoding URL")
             }
             return ResolvedStream(url: url, playSessionId: info.playSessionId, mediaSourceId: source.id,
-                                  direct: false, startTicks: 0)
+                                  direct: false, startTicks: 0, audioTracks: audio)
         }
         guard source.supportsDirectPlay == true,
               let url = directUrl(config: config, itemId: item.id, source: source, playSessionId: info.playSessionId) else {
             throw JellyfinError(status: 0, message: "This video's format cannot play here, and the server offered no conversion.")
         }
         return ResolvedStream(url: url, playSessionId: info.playSessionId, mediaSourceId: source.id,
-                              direct: true, startTicks: 0)
+                              direct: true, startTicks: 0, audioTracks: audio)
     }
 
     /// The server's transcode URL with any start position taken off, so the

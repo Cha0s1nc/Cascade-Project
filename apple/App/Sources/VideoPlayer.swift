@@ -35,6 +35,9 @@ final class VideoSession {
     /// The stream's subtitle and audio choices, for the iOS menus.
     private(set) var subtitleGroup: AVMediaSelectionGroup?
     private(set) var audioGroup: AVMediaSelectionGroup?
+    /// The file's audio tracks when the stream has no choice of its own (a transcode
+    /// carries only one): picking one asks the server for the stream again.
+    private(set) var serverAudioTracks: [JfMediaStream] = []
     /// What the menus call each track, read once when the stream loads.
     private(set) var trackLabels: [AVMediaSelectionOption: String] = [:]
     /// Bumped on a selection, so the menus redraw their checkmarks.
@@ -132,6 +135,7 @@ final class VideoSession {
         sheets = [:]
         subtitleGroup = nil
         audioGroup = nil
+        serverAudioTracks = []
         trackLabels = [:]
         sideSubtitles = []
         sideSubtitle = nil
@@ -307,6 +311,8 @@ final class VideoSession {
             self.subtitleGroup = legible?.options.isEmpty == false ? legible : nil
             // One audio track is no choice at all.
             self.audioGroup = (audible?.options.count ?? 0) > 1 ? audible : nil
+            let tracks = self.resolved?.audioTracks ?? []
+            self.serverAudioTracks = self.audioGroup == nil && tracks.count > 1 ? tracks : []
         }
     }
 
@@ -339,6 +345,19 @@ final class VideoSession {
         sideSubtitle = index
         selectionRevision += 1
         updateCue(player.currentTime().seconds)
+    }
+
+    /// The server track playing: the one picked, else the file's default.
+    var serverAudioIndex: Int? {
+        audioStreamIndex ?? (serverAudioTracks.first { $0.isDefault == true } ?? serverAudioTracks.first)?.index
+    }
+
+    /// Restarts the stream where it is with another of the file's audio tracks, as the
+    /// desktop's track menu does: the server has to encode a different track.
+    func selectServerAudio(_ index: Int) async {
+        guard index != serverAudioIndex, item != nil else { return }
+        audioStreamIndex = index
+        await load(resume: false, startTicks: positionTicks())
     }
 
     /// The server's name for a track, which tells five English tracks apart.

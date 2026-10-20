@@ -5588,6 +5588,15 @@ async function playCurrentTrack(opts = {}) {
     // _audioStreamIndexIsExplicit above. Without this gate, the next track
     // (or _handleUndecodableAudio's own re-resolve) silently recomputed and
     // threw the user's pick away.
+    // A film started from search or a card menu comes from a list fetched
+    // without MediaStreams, so its audio menu said "Only one track" and the
+    // decodable-track check had nothing to read. Filled in once, here, where
+    // every way of starting a video ends up.
+    if (video && !item.MediaStreams && !_offline.ready[item.Id]) {
+      const [full] = await jfItemsByIds([item.Id], 'Overview,MediaStreams,MediaSources,UserData')
+      if (queue[queueIndex]?.Id !== item.Id) return
+      if (full?.MediaStreams) Object.assign(item, { MediaStreams: full.MediaStreams, MediaSources: full.MediaSources })
+    }
     if (video && !_audioStreamIndexIsExplicit) {
       _audioStreamIndex = neededAudioStreamIndex(item.MediaStreams, decodableVideoAudioCodecs())
     } else if (!video) {

@@ -111,6 +111,16 @@ struct CascadeVideoPlayer: View {
             }
             if let group = session.audioGroup {
                 selectionMenu(group, systemImage: "waveform", label: "Audio")
+            } else if !session.serverAudioTracks.isEmpty {
+                Menu {
+                    let current = session.serverAudioIndex
+                    ForEach(session.serverAudioTracks, id: \.index) { track in
+                        Button { Task { await session.selectServerAudio(track.index ?? 0) } } label: {
+                            checked(track.displayTitle ?? track.language ?? "Track \(track.index ?? 0)", current == track.index)
+                        }
+                    }
+                } label: { CircleIcon(systemImage: "waveform") }
+                    .accessibilityLabel("Audio")
             }
             speedMenu
             RoutePicker()

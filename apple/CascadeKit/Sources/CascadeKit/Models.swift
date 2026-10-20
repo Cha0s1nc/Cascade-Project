@@ -28,7 +28,7 @@ public struct JfUserData: Codable, Sendable {
 }
 
 /// One track inside a media source.
-public struct JfMediaStream: Codable, Sendable {
+public struct JfMediaStream: Codable, Sendable, Equatable {
     /// "Audio", "Video", "Subtitle".
     public var type: String?
     public var index: Int?
