@@ -5589,7 +5589,7 @@ async function playCurrentTrack(opts = {}) {
   // queue-row jumps, double-click play, instant mix, everything.
   // A cover cut still on screen sweeps off whole first, before the cover
   // under it changes again.
-  trailArtSlice(item)
+  trailArtSlice(_slice, item)
   cancelCrossfade()
   // Whatever the server was encoding for the outgoing item is now waste. Runs
   // before _playSessionId is replaced by the new stream's.
@@ -6650,7 +6650,7 @@ function _handOverAtFadeStart(nextIndex, incoming, fadeSecs) {
   const sameCover = (outgoingItem?.AlbumId || outgoingItem?.Id) === (queue[nextIndex]?.AlbumId || queue[nextIndex]?.Id)
   // Laid over the art now, before playCurrentTrack() moves it to the new
   // track, from copies of the covers on screen (already decoded): startArtSlice.
-  const slicing = !sameCover && !isVideoItem(queue[nextIndex]) && prepareArtSlice()
+  const slicing = !sameCover && !isVideoItem(queue[nextIndex]) && prepareCrossfadeSlice()
   if (slicing) _slice.under = queue[nextIndex].AlbumId || queue[nextIndex].Id
   // The next song's lyrics roll in under the last song's (see _ovKeepGhost),
   // if they arrive while the fade runs.
@@ -6670,7 +6670,7 @@ function _handOverAtFadeStart(nextIndex, incoming, fadeSecs) {
   _cfNextResolved = null
   renderQueuePanel()
   _cfTail = { deck: outgoing, timer: setTimeout(() => { _cutCrossfadeTail(); _schedulePrefetch() }, fadeSecs * 1000) }
-  if (slicing) startArtSlice(fadeSecs)
+  if (slicing) startArtSlice(_slice, fadeSecs)
   // The background's colors follow the fade too, when they arrive.
   _ovColorFadeUntil = performance.now() + fadeSecs * 1000
 }
@@ -6679,7 +6679,7 @@ function _handOverAtFadeStart(nextIndex, incoming, fadeSecs) {
 // prefetch waits for this: the deck the tail plays on is the one it loads.
 function _cutCrossfadeTail() {
   if (!_cfTail) return
-  endArtSlice()
+  endArtSlice(_slice)
   const { deck, timer } = _cfTail
   _cfTail = null
   clearTimeout(timer)
@@ -12168,7 +12168,11 @@ const SLICE_HOLDS = { half: 1, old: 1.4, new: 0.6, sweep: 0 }
 const SLICE_MOVES = { 'up-left': [-1, -1], up: [0, -1], 'up-right': [1, -1], right: [1, 0], 'down-right': [1, 1], down: [0, 1], 'down-left': [-1, 1], left: [-1, 0] }
 // A skipped song's cover trails the cut out by this much of the slide-out time.
 const SLICE_TRAIL = 1.4
-let _slice = null   // { layers, style, geo, holdEnd, sliding, anims, from, to, under, trailAnims, running }
+// The real crossfade's slice, on Now Playing's art and the player bar's. Every
+// slice keeps its own state and touches only its own hosts and layers, so the
+// customization editor's preview (its own slice on its own card) and a real
+// crossfade can run at the same time without meeting.
+let _slice = null
 
 function _sliceGeometry() {
   const [mx, my] = SLICE_MOVES[displayPrefs.coverSliceDirection] || SLICE_MOVES['up-left']
@@ -12204,28 +12208,36 @@ function _sliceCopy(img, cls) {
   return copy
 }
 
-/** Lays the outgoing cover over the art, uncut. False when there is nothing to cut. */
-function prepareArtSlice() {
-  _removeArtSlice()
+/** The real crossfade's slice: the outgoing cover laid over Now Playing's art
+ *  and the player bar's, uncut. False when there is nothing to cut, or the
+ *  animation is switched off. */
+function prepareCrossfadeSlice() {
+  _removeArtSlice(_slice)
   if (!displayPrefs.coverSlice || matchMedia('(prefers-reduced-motion: reduce)').matches) return false
+  _slice = prepareArtSlice([document.getElementById('ov-art'), document.getElementById('np-art')])
+  return !!_slice
+}
+
+/** Lays the cover each host shows over it, uncut, and returns the new slice's
+ *  state, or null when no host has a cover to cut. The first host is the one
+ *  whose incoming cover startArtSlice waits for. */
+function prepareArtSlice(hosts) {
   const style = DISPLAY_PREF_CHOICES.coverSliceStyle.includes(displayPrefs.coverSliceStyle) ? displayPrefs.coverSliceStyle : 'slice'
   const geo = _sliceGeometry()
   const layers = []
-  for (const id of ['ov-art', 'np-art']) {
-    const host = document.getElementById(id)
+  for (const host of hosts) {
     const shown = host?.querySelector(':scope > img')
     if (!shown?.complete || !shown.naturalWidth) continue
-    const layer = _sliceLayer(id, shown, style, geo)
+    const layer = _sliceLayer(host, shown, style, geo)
     host.appendChild(layer)
     layers.push(layer)
   }
-  if (!layers.length) return false
-  _slice = { layers, style, geo, holdEnd: 0, sliding: false, anims: [], from: 2, to: 2, under: null, trailAnims: [], running: 0 }
-  return true
+  if (!layers.length) return null
+  return { hosts, layers, trails: [], style, geo, holdEnd: 0, sliding: false, anims: [], from: 2, to: 2, under: null, trailAnims: [], running: 0, removed: false }
 }
 
 /** One host's copy of `shown`, uncut (s = 2), in the chosen style. */
-function _sliceLayer(id, shown, style, geo) {
+function _sliceLayer(host, shown, style, geo) {
   const seamColor = displayPrefs.coverSliceSeam === 'accent' ? 'var(--accent)' : '#fff'
   const glow = displayPrefs.coverSliceGlow
   const layer = document.createElement('div')
@@ -12233,7 +12245,8 @@ function _sliceLayer(id, shown, style, geo) {
   layer.setAttribute('aria-hidden', 'true')
   layer.style.setProperty('--slice-shadow-a', String(0.45 * displayPrefs.coverSliceShadow))
   if (style === 'slice') {
-    const seam = id === 'ov-art' && displayPrefs.coverSliceSeam !== 'off'
+    // The player bar's thumbnail is too small for the glowing seam.
+    const seam = host.id !== 'np-art' && displayPrefs.coverSliceSeam !== 'off'
     layer.innerHTML = `<div class="slice-frame"><div class="slice-keep"></div>${seam ? '<div class="slice-seam"></div>' : ''}</div>`
     const frame = layer.querySelector('.slice-frame'), inner = 10000 / geo.frame
     Object.assign(frame.style, { width: `${geo.frame}%`, height: `${geo.frame}%`, left: `${(100 - geo.frame) / 2}%`, top: `${(100 - geo.frame) / 2}%`, transform: `rotate(${geo.turn}deg)` })
@@ -12255,15 +12268,14 @@ function _sliceLayer(id, shown, style, geo) {
 }
 
 /** Starts the cut once the new cover can be shown under it (or after a short wait). */
-async function startArtSlice(fadeSecs) {
-  const slice = _slice
+async function startArtSlice(slice, fadeSecs) {
   if (!slice) return
   slice.holdEnd = performance.now() + fadeSecs * 1000
-  const incoming = document.querySelector('#ov-art > img')
+  const incoming = slice.hosts[0]?.querySelector(':scope > img')
   if (incoming) {
     await Promise.race([incoming.decode().catch(() => {}), new Promise(r => setTimeout(r, SLICE_WAIT_FOR_COVER * 1000))])
   }
-  if (_slice !== slice || slice.sliding) return
+  if (slice.removed || slice.sliding) return
   // A push carries a copy of the new cover in behind the old one.
   if (slice.style === 'push') {
     for (const layer of slice.layers) {
@@ -12275,25 +12287,24 @@ async function startArtSlice(fadeSecs) {
     }
   }
   const left = slice.holdEnd - performance.now()
-  if (left <= 0) { endArtSlice(); return }
+  if (left <= 0) { endArtSlice(slice); return }
   const [easeIn, easeOut] = SLICE_EASINGS[displayPrefs.coverSliceEasing] || SLICE_EASINGS.smooth
   const hold = SLICE_HOLDS[displayPrefs.coverSliceHold] ?? 1
-  if (hold === 0) _animateSlice(2, 0, left, easeOut, 'in')
-  else _animateSlice(2, hold, Math.min(displayPrefs.coverSliceIn * 1000, left), easeIn, 'in')
+  if (hold === 0) _animateSlice(slice, 2, 0, left, easeOut, 'in')
+  else _animateSlice(slice, 2, hold, Math.min(displayPrefs.coverSliceIn * 1000, left), easeIn, 'in')
 }
 
 /** The old song is gone, or its fade was cut short: slide the cut out from wherever it is. */
-function endArtSlice() {
-  const slice = _slice
+function endArtSlice(slice) {
   if (!slice || slice.sliding) return
   slice.sliding = true
   // Where the cut is now: on its way in, holding, or not started (from = to = 2).
   const p = slice.anims[0]?.effect?.getComputedTiming().progress
   const s = slice.from + (slice.to - slice.from) * (p ?? 1)
-  if (s <= 0.001) { if (!slice.running) _removeArtSlice(); return }
+  if (s <= 0.001) { if (!slice.running) _removeArtSlice(slice); return }
   const easeOut = (SLICE_EASINGS[displayPrefs.coverSliceEasing] || SLICE_EASINGS.smooth)[1]
   slice.running++
-  _animateSlice(s, 0, displayPrefs.coverSlideOut * 1000 * Math.min(1, s), easeOut, 'out')
+  _animateSlice(slice, s, 0, displayPrefs.coverSlideOut * 1000 * Math.min(1, s), easeOut, 'out')
     .then(() => _sliceSlid(slice))
 }
 
@@ -12302,8 +12313,7 @@ function endArtSlice() {
  *  cover in under the old one mid-cut. Instead a copy of it goes under the cut
  *  and sweeps off the whole way behind it, so the next cover is uncovered only
  *  once both are gone. Two skips in a row stack a third, and so on. */
-function trailArtSlice(item) {
-  const slice = _slice
+function trailArtSlice(slice, item) {
   // Not started yet: this is the crossfade handover's own track change.
   if (!slice || !slice.holdEnd || !item || isVideoItem(item)) return
   const key = item.AlbumId || item.Id
@@ -12314,23 +12324,24 @@ function trailArtSlice(item) {
     const host = layer.parentElement
     const shown = host?.querySelector(':scope > img')
     if (!host || !shown?.complete || !shown.naturalWidth) continue
-    const trail = _sliceLayer(host.id, shown, slice.style, slice.geo)
+    const trail = _sliceLayer(host, shown, slice.style, slice.geo)
     host.insertBefore(trail, host.querySelector('.art-slice'))
     layers.push(trail)
   }
   if (!layers.length) return
+  slice.trails.push(...layers)
   // A push carries the skipped cover in as a copy (.slice-new), part way in
   // at s. The trailing copy takes over from it where it is, at 2 + s (one
   // cover width behind the old one), or the cover would jump into place.
-  const pushing = [...document.querySelectorAll('.art-slice .slice-new')].filter(el => el.style.visibility !== 'hidden')
+  const pushing = slice.layers.flatMap(l => [...l.querySelectorAll('.slice-new')]).filter(el => el.style.visibility !== 'hidden')
   const p = slice.anims[0]?.effect?.getComputedTiming().progress
   const from = pushing.length ? 2 + slice.from + (slice.to - slice.from) * (p ?? 1) : 2
   for (const el of pushing) el.style.visibility = 'hidden'
-  endArtSlice()
+  endArtSlice(slice)
   const easeOut = (SLICE_EASINGS[displayPrefs.coverSliceEasing] || SLICE_EASINGS.smooth)[1]
   // A little slower than the cut's slide-out, so the cut above (which has at
   // most one unit of s left against this one's two) always stays ahead of it.
-  const anims = _animateLayers(layers, from, 0, displayPrefs.coverSlideOut * 1000 * SLICE_TRAIL, easeOut, 'out')
+  const anims = _animateLayers(slice, layers, from, 0, displayPrefs.coverSlideOut * 1000 * SLICE_TRAIL, easeOut, 'out')
   slice.trailAnims.push(...anims)
   slice.running++
   Promise.all(anims.map(x => x.finished.catch(() => {}))).then(() => _sliceSlid(slice))
@@ -12338,20 +12349,19 @@ function trailArtSlice(item) {
 
 /** One slide-out finished; the slice goes once every one has. */
 function _sliceSlid(slice) {
-  if (_slice === slice && --slice.running <= 0) _removeArtSlice()
+  if (!slice.removed && --slice.running <= 0) _removeArtSlice(slice)
 }
 
-function _animateSlice(from, to, ms, easing, phase) {
-  const slice = _slice
+function _animateSlice(slice, from, to, ms, easing, phase) {
   for (const a of slice.anims) { a.commitStyles?.(); a.cancel() }
   slice.from = from; slice.to = to
-  slice.anims = _animateLayers(slice.layers, from, to, ms, easing, phase)
+  slice.anims = _animateLayers(slice, slice.layers, from, to, ms, easing, phase)
   return Promise.all(slice.anims.map(x => x.finished.catch(() => {})))
 }
 
-function _animateLayers(layers, from, to, ms, easing, phase) {
+function _animateLayers(slice, layers, from, to, ms, easing, phase) {
   const anims = []
-  const a = _sliceFrames(from, _slice.geo), b = _sliceFrames(to, _slice.geo)
+  const a = _sliceFrames(from, slice.geo), b = _sliceFrames(to, slice.geo)
   const opts = { duration: Math.max(1, ms), easing, fill: 'forwards' }
   for (const layer of layers) {
     for (const part of Object.keys(a)) {
@@ -12368,10 +12378,12 @@ function _animateLayers(layers, from, to, ms, easing, phase) {
   return anims
 }
 
-function _removeArtSlice() {
-  if (_slice) for (const a of [..._slice.anims, ..._slice.trailAnims]) a.cancel()
-  _slice = null
-  document.querySelectorAll('.art-slice').forEach(el => el.remove())
+function _removeArtSlice(slice) {
+  if (!slice || slice.removed) return
+  slice.removed = true
+  for (const a of [...slice.anims, ...slice.trailAnims]) a.cancel()
+  for (const el of [...slice.layers, ...slice.trails]) el.remove()
+  if (_slice === slice) _slice = null
 }
 
 // ── Server style ─────────────────────────────────────────────────────────────
@@ -12748,13 +12760,13 @@ window.cascadeDebug = {
     const prev = queue[queueIndex - 1]
     const src = url || (prev && artUrl(prev.AlbumId || prev.Id, prev.AlbumPrimaryImageTag || prev.ImageTags?.Primary))
     if (!src) { console.warn('[cascadeDebug] no previous song with a cover; pass an image url'); return }
-    if (!prepareArtSlice()) { console.warn('[cascadeDebug] no cover on screen to cut'); return }
+    if (!prepareCrossfadeSlice()) { console.warn('[cascadeDebug] no cover on screen to cut'); return }
     _setArtStill(document.getElementById('np-art'), src)
     _setArtStill(document.getElementById('ov-art'), src)
-    startArtSlice(fadeSecs)
-    setTimeout(endArtSlice, fadeSecs * 1000)
+    startArtSlice(_slice, fadeSecs)
+    setTimeout(() => endArtSlice(_slice), fadeSecs * 1000)
   },
-  artSliceCut() { endArtSlice() },
+  artSliceCut() { endArtSlice(_slice) },
   // Tune the lyric motion live:  cascadeDebug.lyricMotion({ stiffness: 150 })
   // stiffness: how hard lines are pulled to centre (higher = quicker).
   // damping: how much the movement is resisted (2 * sqrt(stiffness) = settles
