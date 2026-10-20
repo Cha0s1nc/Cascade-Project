@@ -116,6 +116,8 @@
 #album-detail .track-row:not(.skel-card) .track-num,
 #album-detail .track-row:not(.skel-card) .track-thumb { grid-area: 1 / 1; }
 #album-detail .track-row:not(.skel-card) .track-thumb { justify-self: center; background: transparent; }
+/* The EQ bars' backdrop is translucent, so the number would show through it. */
+#album-detail .track-row.playing .track-num { visibility: hidden; }
 /* The shared skeleton row still has a thumb and an Album cell. */
 #album-detail .track-row.skel-card .track-thumb,
 #album-detail .track-row.skel-card > :nth-child(4) { display: none; }
