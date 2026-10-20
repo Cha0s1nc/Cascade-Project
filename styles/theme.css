@@ -15,9 +15,11 @@
 /* The previous song's blobs, over the new ones and under everything else,
    faded out by opacity alone so the compositor runs it. */
 #ov-bg-prev { position: absolute; inset: 0; pointer-events: none; z-index: 0; opacity: 0; will-change: opacity; }
-/* Tint panels so content stays readable over the blob background */
-.np-overlay.art-theme .np-overlay-left { background: rgba(0,0,0,0.25); }
-.np-overlay.art-theme .np-overlay-right { background: rgba(0,0,0,0.1); }
+/* Tint panels so content stays readable over the blob background. The same
+   value on both: two different ones drew a hard seam at the midpoint and
+   made the right half read as a brighter rectangle. */
+.np-overlay.art-theme .np-overlay-left,
+.np-overlay.art-theme .np-overlay-right { background: rgba(0,0,0,0.2); }
 .np-overlay.art-theme .np-overlay-header { background: rgba(0,0,0,0.28); }
 /* Force all overlay control buttons white + black outline */
 .np-overlay.art-theme .np-ov-ctrl,
@@ -62,6 +64,17 @@
 .np-overlay.art-theme .np-ov-tab.active { color: white; }
 .np-overlay.art-theme .np-overlay-title,
 .np-overlay.art-theme .np-overlay-theme { color: rgba(255,255,255,0.5); }
+/* The queue's small labels use --text3, which is a flat grey that vanishes on
+   a warm cover. White-alpha like the rows above. */
+.np-overlay.art-theme .q-panel-title,
+.np-overlay.art-theme .q-count,
+.np-overlay.art-theme .q-sub,
+.np-overlay.art-theme .q-next-meta,
+.np-overlay.art-theme .q-empty,
+.np-overlay.art-theme .q-chevron,
+.np-overlay.art-theme .q-clear { color: rgba(255,255,255,0.65); }
+.np-overlay.art-theme .q-clear:hover,
+.np-overlay.art-theme .q-clear:focus-visible { color: var(--red); }
 
 /* Light theme's blobs are pale (album-colors.ts' light MIN_L/MAX_L pair),
    not the black-glow vivid ones above - so the white text and black-tinted
@@ -88,6 +101,22 @@ html[data-theme="light"] .np-overlay.art-theme .np-overlay-track { color: #1c1c1
 html[data-theme="light"] .np-overlay.art-theme .np-overlay-artist { color: rgba(28,28,30,0.7); }
 html[data-theme="light"] .np-overlay.art-theme .np-overlay-title,
 html[data-theme="light"] .np-overlay.art-theme .np-overlay-theme { color: rgba(28,28,30,0.5); }
+html[data-theme="light"] .np-overlay.art-theme .q-panel-title,
+html[data-theme="light"] .np-overlay.art-theme .q-count,
+html[data-theme="light"] .np-overlay.art-theme .q-sub,
+html[data-theme="light"] .np-overlay.art-theme .q-next-meta,
+html[data-theme="light"] .np-overlay.art-theme .q-empty,
+html[data-theme="light"] .np-overlay.art-theme .q-chevron,
+html[data-theme="light"] .np-overlay.art-theme .q-clear { color: rgba(28,28,30,0.68); }
+html[data-theme="light"] .np-overlay.art-theme .q-clear:hover,
+html[data-theme="light"] .np-overlay.art-theme .q-clear:focus-visible { color: var(--red); }
+/* The queue rows' white text above is for the dark wash; on the pale one it
+   disappeared next to the labels that now read. */
+html[data-theme="light"] .np-overlay.art-theme .queue-row-title { color: rgba(28,28,30,0.9); }
+html[data-theme="light"] .np-overlay.art-theme .queue-row-artist,
+html[data-theme="light"] .np-overlay.art-theme .queue-row-dur { color: rgba(28,28,30,0.62); }
+html[data-theme="light"] .np-overlay.art-theme .queue-row:hover { background: rgba(0,0,0,0.05); }
+html[data-theme="light"] .np-overlay.art-theme .queue-row.current { background: rgba(0,0,0,0.08); }
 /* The karaoke active line floats directly on the blobs with no scrim (only
    .browsing gets one, and that scrim is already dark - see dd975bd - so it
    needs no light variant). Everything else in .ov-lyric-line/.ov-lyric-word
@@ -108,7 +137,8 @@ html[data-theme="light"] .np-overlay.art-theme .ov-lyric-line.active .ov-lyric-w
 /* ── Light theme ── */
 html[data-theme="light"] {
   --bg: #f2f2f7; --surface: #ffffff; --surface2: #e5e5ea; --border: #d1d1d6;
-  --text: #1c1c1e; --text2: #636366; --text3: #aeaeb2;
+  /* text3 is 4.5:1 on --bg and 5.1:1 on --surface (was 1.98:1); text2 moved darker so the three steps stay distinct. */
+  --text: #1c1c1e; --text2: #48484a; --text3: #6e6e73;
   --accent-glow: rgba(110,79,246,0.15);
 }
 html[data-theme="light"] .backdrop.dim { background: rgba(0,0,0,0.28); }
