@@ -3,8 +3,8 @@
 
 /* Artists */
 .artist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
-.artist-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; cursor: pointer; transition: background var(--hover-out) ease-out; padding: 12px; text-align: center; }
-.artist-card:hover { background: var(--surface2); transition-duration: var(--hover-in); }
+.artist-card { border-radius: 8px; cursor: pointer; transition: background var(--hover-out) ease-out; padding: 12px; text-align: center; }
+.artist-card:hover { background: var(--surface); transition-duration: var(--hover-in); }
 .artist-avatar { width: 64px; height: 64px; border-radius: 50%; background: var(--surface2); margin: 0 auto 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 28px; }
 .artist-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .artist-name { font-size: 12px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -82,11 +82,11 @@
 
 /* ── Playlists view ── */
 .playlist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 20px; }
-.playlist-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; cursor: pointer; transition: background var(--hover-out) ease-out; }
-.playlist-card:hover { background: var(--surface2); transition-duration: var(--hover-in); }
-.playlist-art { width: 100%; aspect-ratio: 1; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 36px; color: var(--text3); }
+.playlist-card { cursor: pointer; }
+.playlist-card:hover .playlist-art { box-shadow: 0 0 0 2px var(--accent); transition-duration: var(--hover-in); }
+.playlist-art { width: 100%; aspect-ratio: 1; background: var(--surface2); border-radius: 8px; box-shadow: 0 0 0 2px transparent; transition: box-shadow var(--hover-out) ease-out; overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 36px; color: var(--text3); }
 .playlist-art img { width: 100%; height: 100%; object-fit: cover; }
-.playlist-body { padding: 8px 9px 10px; }
+.playlist-body { padding: 8px 2px 0; }
 .playlist-name { font-size: 12px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; }
 .playlist-count { font-size: 11px; color: var(--text3); }
 
@@ -175,7 +175,7 @@
 /* History: a plain label between day groups, inside the same #history-rows
    list as the track rows - not a .tl-head (that's the one column header at
    the top; see index.html), just a section break. */
-.history-day-header { font-size: 11px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; padding: 14px 12px 6px; }
+.history-day-header { font-size: 15px; font-weight: 600; color: var(--text); padding: 16px 12px 6px; }
 .history-day-header:first-child { padding-top: 4px; }
 
 /* Downloads: one card per album or playlist saved for offline listening. */
@@ -188,7 +188,7 @@
 .dl-held > span { flex: 1 1 260px; }
 .dl-section { margin-bottom: 22px; }
 .dl-section[hidden] { display: none; }
-.dl-section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); margin-bottom: 8px; }
+.dl-section-title { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
 
 /* Offline Mode (docs/offline-mode-plan.md, section 3): what needs the server
    is hidden, not left to fail. !important because several of these set their
