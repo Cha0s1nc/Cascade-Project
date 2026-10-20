@@ -15456,7 +15456,10 @@ function _ceShowTab(name, animate) {
   const timing = { duration: reduced ? 150 : 200, easing: reduced ? 'linear' : CE_EASE }
   from.classList.add('leaving')
   const out = from.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: reduced ? 'none' : 'translateY(8px)' }], { ...timing, fill: 'forwards' })
-  out.onfinish = () => out.cancel()
+  // Hidden and released in one step. The cancel event arrives a frame after
+  // cancel(), so dropping the class only there drew the old tab at full
+  // opacity for that frame: the flash at the end of every switch.
+  out.onfinish = () => { from.classList.remove('leaving'); out.cancel() }
   out.oncancel = () => from.classList.remove('leaving')
   to.animate([{ opacity: 0, transform: reduced ? 'none' : 'translateY(8px)' }, { opacity: 1, transform: 'none' }], timing)
 }
@@ -15478,7 +15481,8 @@ function _ceSetPreview(on, animate) {
   const offLyrics = reduced ? '0 0' : '0 48px', offCard = reduced ? '0 0' : '0 100%'
   leaving.classList.add(on ? 'ce-leaving' : 'leaving')
   const out = leaving.animate([{ opacity: 1, translate: '0 0' }, { opacity: 0, translate: on ? offLyrics : offCard }], { ...timing, fill: 'forwards' })
-  out.onfinish = () => out.cancel()
+  // Same step for the same reason as _ceShowTab's fade.
+  out.onfinish = () => { leaving.classList.remove('ce-leaving', 'leaving'); out.cancel() }
   out.oncancel = () => leaving.classList.remove('ce-leaving', 'leaving')
   coming.animate([{ opacity: 0, translate: on ? offCard : offLyrics }, { opacity: 1, translate: '0 0' }], timing)
 }
