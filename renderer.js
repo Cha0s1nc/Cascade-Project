@@ -723,13 +723,43 @@ function playbackIsLocallyOwned() {
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
-// Toasts are dev-only noise in production builds - only show when running
-// unpackaged (i.e. launched from the command line via `npm start`/`electron .`).
-let _toastsEnabled = false
-window.cascade?.isPackaged?.().then(packaged => { _toastsEnabled = !packaged })
+// Three kinds, and each call says which:
+//   default   confirms something you just did ("Added to playlist") or says it
+//             failed. Settings > About "Show messages", on unless turned off.
+//   advanced  background detail nobody asked for: which lyrics source answered,
+//             a codec falling back to a transcode. "Advanced messages", off
+//             unless turned on, and only while messages are on at all.
+//   debug     the debug panels' own feedback. A development run or the
+//             `.cascade-debug` sentinel only, never a setting.
+let _toastPrefs = { off: false, advanced: false }
+let _toastDebug = false
+window.cascade.store.get('toasts').then(v => {
+  _toastPrefs = { off: !!v?.off, advanced: !!v?.advanced }
+  _syncToastSettings()
+})
+window.cascade?.isPackaged?.().then(packaged => { if (!packaged) _toastDebug = true })
+window.cascade?.isDebugMode?.().then(on => { if (on) _toastDebug = true })
 
-// Toasts are suppressed in packaged builds (_toastsEnabled above), so anything
-// the user genuinely needs to read has to be a modal they dismiss. Resolves once
+function _syncToastSettings() {
+  const main = /** @type {HTMLInputElement} */ (document.getElementById('s-toasts-toggle'))
+  const adv = /** @type {HTMLInputElement} */ (document.getElementById('s-toasts-advanced-toggle'))
+  main.checked = !_toastPrefs.off
+  adv.checked = _toastPrefs.advanced
+  adv.disabled = _toastPrefs.off
+  adv.closest('.setting-row').classList.toggle('locked', _toastPrefs.off)
+}
+
+for (const [id, field] of [['s-toasts-toggle', 'off'], ['s-toasts-advanced-toggle', 'advanced']]) {
+  document.getElementById(id).addEventListener('change', (e) => {
+    const on = /** @type {HTMLInputElement} */ (e.target).checked
+    _toastPrefs[field] = field === 'off' ? !on : on
+    window.cascade.store.set('toasts', _toastPrefs)
+    _syncToastSettings()
+  })
+}
+
+// Messages can be switched off (see Toast above), so anything the user
+// genuinely needs to read has to be a modal they dismiss. Resolves once
 // OK is clicked; returns immediately if a notice is already on screen.
 function showNotice(message, title = 'Heads up') {
   const modal = document.getElementById('notice-modal')
@@ -771,13 +801,189 @@ function showChoice(title, message, yes, no) {
   })
 }
 
-function showToast(msg, duration = 2200) {
-  if (!_toastsEnabled) return
+/** `level` is 'default', 'advanced' or 'debug'; see Toast above. */
+function showToast(msg, { level = 'default', duration = 2200 } = {}) {
+  if (level === 'debug' ? !_toastDebug : _toastPrefs.off || (level === 'advanced' && !_toastPrefs.advanced)) return
   const t = document.getElementById('toast')
   t.textContent = msg
   t.style.opacity = '1'
   clearTimeout(t._to)
   t._to = setTimeout(() => { t.style.opacity = '0' }, duration)
+}
+
+// ── Feature tips ──────────────────────────────────────────────────────────────
+//
+// One-time bubbles pointing at a control the first time it matters: the mark
+// on the lyrics button, right-click menus, Cmd+K. Each is a showTipOnce() at
+// its trigger plus a markTipSeen() wherever the feature itself gets used, so
+// someone who already right-clicks is never told to.
+//
+// Every bubble has "Turn off tips", which stops all of them for good; Settings
+// > About turns them back on and forgets what was seen. Store key `tips`:
+// { off, seen: [keys] }. Kept apart from WIZARD_REVISION on purpose: bumping
+// that re-shows the wizard to everyone.
+//
+// #feature-tip is its own element on <body>, for the same reason #tooltip is
+// (rule 7: nothing inside a view can escape its clipping), but not #tooltip
+// itself, which hides on mouseout.
+
+let _tips = null       // null until the store answers, and nothing shows before then
+let _tipShown = null   // { key, anchor, next }
+let _tipTimer = null
+let _tipQuietUntil = 0
+// ponytail: one global gap between unrelated tips, per-tip priorities if it ever feels wrong
+const TIP_QUIET_MS = 90000
+const TIP_GAP = 10
+
+window.cascade.store.get('tips').then(v => {
+  _tips = { off: !!v?.off, seen: new Set(Array.isArray(v?.seen) ? v.seen : []) }
+  _syncTipsSetting()
+})
+
+function _saveTips() {
+  window.cascade.store.set('tips', { off: _tips.off, seen: [..._tips.seen] })
+}
+
+function _syncTipsSetting() {
+  const toggle = /** @type {HTMLInputElement} */ (document.getElementById('s-tips-toggle'))
+  if (toggle && _tips) toggle.checked = !_tips.off
+}
+
+function tipSeen(key) {
+  return !_tips || _tips.seen.has(key)
+}
+
+/** The feature was used, so its tip has nothing left to teach. */
+function markTipSeen(key) {
+  if (_tipShown?.key === key) _hideTip()
+  if (!_tips || _tips.seen.has(key)) return
+  _tips.seen.add(key)
+  _saveTips()
+}
+
+/** Shows `text` under (or above) `anchor` unless tips are off, this one was
+ *  seen, another is up, or one showed in the last TIP_QUIET_MS. `next` runs on
+ *  "Got it" and may chain another tip with `chained`, which skips the quiet
+ *  gap. Returns whether it showed, so callers can try a few in order. */
+function showTipOnce(key, anchor, text, { next = null, chained = false } = {}) {
+  if (!_tips || _tips.off || _tips.seen.has(key) || _tipShown) return false
+  if (!chained && Date.now() < _tipQuietUntil) return false
+  if (!_tipAnchorVisible(anchor)) return false
+  const el = document.getElementById('feature-tip')
+  el.querySelector('.ft-text').textContent = text
+  el.hidden = false
+  _tipShown = { key, anchor, next }
+  _tipQuietUntil = Date.now() + TIP_QUIET_MS
+  _placeTip()
+  // ponytail: polled, not observed. Catches an anchor that was removed or
+  // covered; twice a second while one tip is up costs nothing.
+  _tipTimer = setInterval(_placeTip, 500)
+  return true
+}
+
+/** On screen and not under something else: a tip pointing at a button behind
+ *  a modal, or inside a closed overlay, points at nothing. */
+function _tipAnchorVisible(anchor) {
+  if (!anchor?.isConnected) return false
+  const r = anchor.getBoundingClientRect()
+  if (!r.width || !r.height) return false
+  const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+  return !!hit && (hit === anchor || anchor.contains(hit) || !!hit.closest?.('#feature-tip'))
+}
+
+function _placeTip() {
+  if (!_tipShown) return
+  const anchor = _tipShown.anchor
+  if (!_tipAnchorVisible(anchor)) { _hideTip(); return }
+  const el = document.getElementById('feature-tip')
+  const h = anchor.getBoundingClientRect()
+  const b = el.getBoundingClientRect()
+  let top = h.bottom + TIP_GAP
+  const above = top + b.height > window.innerHeight - 8
+  if (above) top = h.top - b.height - TIP_GAP
+  const left = Math.max(8, Math.min(window.innerWidth - b.width - 8, h.left + h.width / 2 - b.width / 2))
+  el.classList.toggle('above', above)
+  el.style.setProperty('--ft-arrow-x', `${Math.round(Math.max(16, Math.min(b.width - 16, h.left + h.width / 2 - left)))}px`)
+  el.style.transform = `translate(${Math.round(left)}px, ${Math.round(Math.max(8, top))}px)`
+}
+
+function _hideTip() {
+  if (!_tipShown) return
+  _tipShown = null
+  clearInterval(_tipTimer)
+  document.getElementById('feature-tip').hidden = true
+  // The overlay holds its controls up while a tip points at one of them.
+  if (overlayOpen) pokeOverlayControls()
+}
+
+document.getElementById('ft-ok').addEventListener('click', () => {
+  const t = _tipShown
+  if (!t) return
+  markTipSeen(t.key)
+  t.next?.()
+})
+document.getElementById('ft-off').addEventListener('click', () => {
+  _hideTip()
+  _tips.off = true
+  _saveTips()
+  _syncTipsSetting()
+  showToast('Tips are off. Settings > About turns them back on.', { duration: 3500 })
+})
+window.addEventListener('resize', _placeTip)
+window.addEventListener('scroll', _placeTip, true)
+
+document.getElementById('s-tips-toggle').addEventListener('change', (e) => {
+  if (!_tips) return
+  _tips.off = !(/** @type {HTMLInputElement} */ (e.target).checked)
+  if (_tips.off) _hideTip()
+  _saveTips()
+})
+document.getElementById('s-tips-reset').addEventListener('click', () => {
+  if (!_tips) return
+  _tips = { off: false, seen: new Set() }
+  _tipQuietUntil = 0
+  _saveTips()
+  _syncTipsSetting()
+  showToast('Tips will show again as features come up')
+})
+
+// Rows and cards: the first one the pointer rests on teaches its right-click
+// menu. Delegated, so the Songs view, which wires its own rows, gets it too.
+let _tipHoverEl = null
+let _tipHoverTimer = null
+document.addEventListener('mouseover', (e) => {
+  if (!_tips || _tips.off || _tipShown) return
+  const el = /** @type {HTMLElement} */ (e.target).closest?.('.track-row, .queue-row, .album-card, .artist-card, .playlist-card, .poster-card')
+  if (el === _tipHoverEl) return
+  _tipHoverEl = el
+  clearTimeout(_tipHoverTimer)
+  if (el) _tipHoverTimer = setTimeout(() => { if (el.matches(':hover')) _hoverTip(el) }, 700)
+})
+
+function _hoverTip(el) {
+  const drags = el.getAttribute('draggable') === 'true'
+  if (el.classList.contains('queue-row')) {
+    showTipOnce('queue-row', el, drags
+      ? 'In the queue, one click plays a song. Drag songs to reorder them, and right-click for more.'
+      : 'In the queue, one click plays a song. Right-click for more.')
+  } else if (el.classList.contains('track-row')) {
+    if (drags && tipSeen('track-menu')) showTipOnce('playlist-drag', el, 'Drag songs to reorder this playlist.')
+    else showTipOnce('track-menu', el, 'Right-click any song for more, like Play next, Add to playlist and Download. Double-click plays it.')
+  } else {
+    showTipOnce('card-menu', el, 'Right-click albums, artists, playlists and videos for more, like Shuffle, Play next and Download.')
+  }
+}
+
+// The short pass after a first run's wizard. Two stops on purpose: the rest is
+// taught where it comes up, which is when anyone actually reads it.
+function _startTipTour() {
+  const keys = window.cascade.platform === 'darwin' ? '⌘K' : 'Ctrl+K'
+  showTipOnce('search-key', document.getElementById('search-input'),
+    `Search your whole library here. ${keys} jumps here from anywhere.`, {
+      next: () => showTipOnce('tour-settings', document.querySelector('.nav-item[data-view="settings"]'),
+        'Everything you just set up lives in Settings, along with a lot more. Tips like this one point out the rest as you go.',
+        { chained: true }),
+    })
 }
 
 // ── Jellyfin API ──────────────────────────────────────────────────────────────
@@ -1545,7 +1751,7 @@ async function applyLibrarySelection(ids) {
   invalidateLibraryViews()
   showToast(ids.length === 1
     ? `Now playing from ${_musicLibs.find(l => l.Id === ids[0])?.Name || 'library'}`
-    : `Merging ${ids.length} libraries`)
+    : `Merging ${ids.length} libraries`, { level: 'advanced' })
   await loadHome()
 }
 
@@ -2027,17 +2233,19 @@ function _renderSetupStep() {
   }
 }
 
-async function _finishSetupWizard() {
+/** `tour` is true only from Done: Skip means skip, tips included. */
+async function _finishSetupWizard(tour) {
   await window.cascade.store.set('wizardSeenRevision', WIZARD_REVISION)
   // Kept in step so a downgrade to a build that only knows the boolean does not
   // greet an existing user with the wizard again.
   await window.cascade.store.set('firstRunWizardSeen', true)
   document.getElementById('firstrun-overlay').classList.add('hidden')
+  if (tour === true && _wizardIsFirstRun) setTimeout(_startTipTour, 500)
 }
 
 document.getElementById('fr-next').addEventListener('click', () => {
   if (_firstRunIdx < _firstRunSteps.length - 1) { _firstRunIdx++; _renderSetupStep() }
-  else _finishSetupWizard()
+  else _finishSetupWizard(true)
 })
 // Skippable at any point, not just from the last step - whatever was already
 // changed on an earlier step already went through its real setter above and
@@ -3759,6 +3967,7 @@ function wirePlaylistRowDrag(rowsEl, items) {
   let dragSrc = null
   rowsEl.querySelectorAll('.track-row').forEach(el => {
     el.addEventListener('dragstart', (e) => {
+      markTipSeen('playlist-drag')
       dragSrc = el
       el.classList.add('dragging')
       e.dataTransfer.effectAllowed = 'move'
@@ -4401,6 +4610,7 @@ let _ctxEl   = null   // DOM element of the right-clicked row
 let _ctxInPl = false  // whether we're inside a playlist (shows Remove option)
 
 function showTrackCtxMenu(item, el, x, y, inPlaylist = false) {
+  markTipSeen('track-menu')
   _ctxItem = item; _ctxEl = el; _ctxInPl = inPlaylist
   // Show/hide playlist-only items
   trackCtxMenu.querySelectorAll('.tctx-pl-only').forEach(n => n.classList.toggle('hidden', !inPlaylist))
@@ -6472,7 +6682,7 @@ async function continueWithAutoMix(lastItem) {
     queueIndex = startIndex
     playCurrentTrack()
     renderQueuePanel()
-    showToast('Auto-mix added similar tracks to the queue')
+    showToast('Auto-mix added similar tracks to the queue', { level: 'advanced' })
   } catch (e) {
     console.error('Auto-mix failed', e)
   }
@@ -8789,10 +8999,14 @@ function renderOfflineIndicators() {
     : "Your server isn't answering: only what is downloaded shows"
   const toggle = /** @type {HTMLInputElement} */ (document.getElementById('s-offline-toggle'))
   toggle.checked = _offlineState === 'manual'
+  if (_offlineState !== 'online') setTimeout(() => showTipOnce('offline-pill', document.getElementById('offline-pill'),
+    (_offlineState === 'manual' ? 'Offline Mode is on, so only downloaded music and videos show. Settings > Library turns it off.'
+      : "Your server isn't answering, so only downloaded music and videos show. Cascade reconnects on its own.")
+    + ' Click this to see your downloads.'), 300)
 }
 
 document.getElementById('offline-retry').addEventListener('click', () => probeServer())
-document.getElementById('offline-pill').addEventListener('click', () => showView('downloads'))
+document.getElementById('offline-pill').addEventListener('click', () => { markTipSeen('offline-pill'); showView('downloads') })
 document.getElementById('s-offline-toggle').addEventListener('change', (e) => setOfflineSwitch(/** @type {HTMLInputElement} */ (e.target).checked))
 
 /** Moves downloads out of the placeholder libraries: each album, show or
@@ -8904,7 +9118,7 @@ async function syncOffline(attempt = 1) {
       if (!replay) {
         await window.cascade.offline.holdPlays(true)
         const n = catalog.plays.length
-        showToast(`${n} ${n === 1 ? 'play' : 'plays'} from offline are waiting in Downloads`)
+        showToast(`${n} ${n === 1 ? 'play' : 'plays'} from offline are waiting in Downloads`, { level: 'advanced' })
       }
     }
   } catch {
@@ -9687,9 +9901,26 @@ onDeck('pause', stopEqLoop)
 onDeck('ended', stopEqLoop)
 onDeck('emptied', stopEqLoop)
 
+/** Now Playing's one-time tips, at most one per open: the first unseen wins. */
+function _overlayTips() {
+  if (!overlayOpen || _ce.open) return
+  if (playingVideo()) {
+    showTipOnce('video-keys', document.getElementById('ov-fullscreen'),
+      'Press ? to see every keyboard shortcut, like J and L to skip back and forward.')
+    return
+  }
+  showTipOnce('np-customize', document.getElementById('np-theme-btn'),
+    'Customize Now Playing: colors, fonts, lyrics and crossfade, shown live as you change them.')
+  || showTipOnce('np-more', document.getElementById('ov-more-btn'),
+    'More has the sleep timer, Instant mix, media info and more. Right-clicking the cover in the player bar opens it too.')
+  || showTipOnce('automix', document.getElementById('btn-automix'),
+    'Automix keeps the music going with similar songs when the queue runs out.')
+}
+
 function openOverlay() {
   overlayOpen = true
   npOverlay.classList.add('open')
+  setTimeout(_overlayTips, 900)   // after the slide up, so the anchors are where they will stay
   maybeOfferNewLyricDefaults()
   syncOverlayState()
   renderQueuePanel()
@@ -9748,7 +9979,8 @@ function pokeOverlayControls() {
   // anywhere reads as broken rather than tidy, and pause is exactly when you
   // are most likely to reach for them next.
   // The editor's sidebar is the transport row itself; it must not fold away.
-  if (!overlayOpen || audio.paused || _ce.open) return
+  // A feature tip pointing at one of these must not watch it fold away.
+  if (!overlayOpen || audio.paused || _ce.open || _tipShown) return
   _ovIdleTimer = setTimeout(() => ov.classList.add('idle'), OV_IDLE_MS)
 }
 
@@ -9809,14 +10041,26 @@ function _applyOverlayPanels() {
 let _lyricsMark = null
 function _applyLyricsMark() {
   const next = overlayLyricsOpen ? ' They show again for the next song that has them.' : ''
-  const link = _lyricsMark === 'missing' && _canLinkSpotify() ? ' Right-click to link a Spotify track.' : ''
-  const title = _lyricsMark === 'instrumental' ? 'Instrumental, no lyrics.' + next
+  // The right-click below works on an instrumental too, for when that call was wrong.
+  const canLink = _canLinkSpotify()
+  const link = canLink ? ' Right-click to link a Spotify track.' : ''
+  const title = _lyricsMark === 'instrumental' ? 'Instrumental, no lyrics.' + next + link
     : _lyricsMark === 'missing' ? 'No lyrics found for this song.' + next + link : 'Lyrics'
   for (const id of ['btn-lyrics-open', 'ov-lyrics-toggle']) {
     const btn = document.getElementById(id)
     btn.classList.toggle('lyrics-none', !!_lyricsMark)
     btn.title = title
   }
+  if (!_lyricsMark) return
+  // Two keys: someone first told only what the mark means still hears about
+  // linking once Cascade Server offers it.
+  if (!canLink && tipSeen('lyrics-link')) return
+  const what = _lyricsMark === 'instrumental'
+    ? 'This mark means this song was detected as instrumental, so it has no lyrics.'
+    : 'This mark means no lyrics were found for this song.'
+  showTipOnce(canLink ? 'lyrics-link' : 'lyrics-mark',
+    document.getElementById(overlayOpen ? 'ov-lyrics-toggle' : 'btn-lyrics-open'),
+    what + (canLink ? ' Right-click it to link a Spotify track for Spicy Lyrics.' : ''))
 }
 /** Marks the lyrics buttons from a lyrics search for `item`, if it is still the playing song. */
 function _markLyricsFor(item, result) {
@@ -10087,6 +10331,7 @@ function videoOsd(text) {
 
 const keysPanel = document.getElementById('ov-keys')
 function toggleKeysPanel(open = !keysPanel.classList.contains('open')) {
+  if (open) markTipSeen('video-keys')
   if (open && !keysPanel.childElementCount) {
     keysPanel.innerHTML = '<div class="ov-keys-head">Keyboard shortcuts</div>'
       + VIDEO_KEYS.map(([k, what]) => `<kbd>${esc(k)}</kbd><span>${esc(what)}</span>`).join('')
@@ -10308,6 +10553,7 @@ function syncOverlayState() {
 // Auto-mix: when the queue runs dry, keep playing with an instant mix off the last track
 let autoMixEnabled = false
 document.getElementById('btn-automix').addEventListener('click', () => {
+  markTipSeen('automix')
   autoMixEnabled = !autoMixEnabled
   document.getElementById('btn-automix').classList.toggle('active', autoMixEnabled)
   _renderQueueMeta()   // auto-mix means the queue never ends
@@ -10856,8 +11102,11 @@ function lyricsPlainLines() {
 // for anything else would be a button that can only fail.
 function detectOverlayLyricsLanguage() {
   syncTranslateButtons()
-  document.getElementById('ov-translate-btn').style.display =
+  const btn = document.getElementById('ov-translate-btn')
+  btn.style.display =
     lyricsTranslationEnabled && _canTranslate(CascadeCore.translationLanguageFor(lyricsPlainLines())) ? 'flex' : 'none'
+  if (btn.style.display === 'flex') showTipOnce('translate', btn,
+    'Translate adds an English translation under each line. The first time, a translation model for this language may need to download.')
 }
 
 document.getElementById('ov-translate-btn').addEventListener('click', () => onTranslateButton())
@@ -11304,6 +11553,7 @@ updateNowPlaying = function(item) {
 const ctxMenu = document.getElementById('ctx-menu')
 
 function showCtxMenu(x, y) {
+  markTipSeen('np-more')
   // Same source of truth as toggleLike() uses for the current track: the
   // button's own class, kept live by updateNowPlaying() regardless of
   // whether UserData ever loaded for this item.
@@ -11722,6 +11972,7 @@ function _reflowItemCtxSeparators() {
 }
 
 function showItemCtxMenu(kind, item, el, x, y, onDetail) {
+  markTipSeen('card-menu')
   _ictxKind = kind; _ictxItem = item; _ictxEl = el; _ictxOnDetail = onDetail || null
 
   // 'video'/'series' UserData carries the real played state already loaded on
@@ -12707,6 +12958,7 @@ async function openSpotifyLinkModal() {
   document.getElementById('lyrics-source-dropdown').classList.remove('open')
   const item = queue[queueIndex]
   if (!item || !_canLinkSpotify()) return
+  markTipSeen('lyrics-link')
   _spotifyLinkItem = item
   const input = document.getElementById('spotify-link-input')
   const remove = document.getElementById('spotify-link-remove')
@@ -12947,11 +13199,11 @@ function _showLyricsFetchToast(result) {
     const msg = failed.length === 1
       ? `${failed[0]} unavailable · using ${succeeded}`
       : `${failed.join(', ')} unavailable · using ${succeeded}`
-    showToast(msg, 3500)
+    showToast(msg, { level: 'advanced', duration: 3500 })
   } else {
     // All tried sources failed (no result)
     const tried_names = Object.entries(tried).filter(([, v]) => v === 'fail').map(([k]) => k)
-    if (tried_names.length) showToast(`No lyrics - ${tried_names.join(', ')} all failed`, 3500)
+    if (tried_names.length) showToast(`No lyrics - ${tried_names.join(', ')} all failed`, { level: 'advanced', duration: 3500 })
   }
 }
 
@@ -13716,7 +13968,7 @@ function _announceModelDownload(key) {
   if (_announcedDownloads.has(key)) return
   _announcedDownloads.add(key)
   const m = _translationModels[key]
-  showToast(`Downloading the ${_translationModelName(key)} translation model${m ? ` (${Math.round(m.bytes / 1e6)} MB)` : ''}`, 3500)
+  showToast(`Downloading the ${_translationModelName(key)} translation model${m ? ` (${Math.round(m.bytes / 1e6)} MB)` : ''}`, { duration: 3500 })
 }
 
 // ── Apple Translation or Mozilla's models ─────────────────────────────────────
@@ -13811,6 +14063,7 @@ document.getElementById('apple-install-mozilla').addEventListener('click', () =>
 // Both Translate buttons. While a sheet is waiting on its language, the button
 // reads "Install Korean…" and pressing it asks again instead of switching off.
 function onTranslateButton() {
+  markTipSeen('translate')
   if (lyricsTranslateOn && _pendingInstallKey) return openAppleInstallPrompt(_pendingInstallKey)
   setLyricsTranslateOn(!lyricsTranslateOn)
 }
@@ -14343,6 +14596,7 @@ document.addEventListener('keydown', (e) => {
   const mod = window.cascade.platform === 'darwin' ? e.metaKey : e.ctrlKey
   if (mod && e.key.toLowerCase() === 'k') {
     e.preventDefault()
+    markTipSeen('search-key')
     searchInput.focus()
     searchInput.select()
   }
@@ -15022,6 +15276,7 @@ function clearAlbumArtTheme() {
 // The Theme panel has two pages: the main one, and Share a look behind its
 // row. Every way of closing it goes back to the main page.
 function showThemePage(name) {
+  if (name === 'presets') markTipSeen('presets')
   const picker = document.getElementById('theme-picker')
   for (const page of picker.querySelectorAll('.tp-page')) page.classList.toggle('active', page.dataset.page === name)
   picker.scrollTop = 0
@@ -15036,7 +15291,12 @@ document.getElementById('theme-btn').addEventListener('click', (e) => {
   e.stopPropagation()
   const picker = document.getElementById('theme-picker')
   if (picker.classList.contains('open')) closeThemePicker()
-  else { _syncStyleEntries(); picker.classList.add('open') }
+  else {
+    _syncStyleEntries()
+    picker.classList.add('open')
+    setTimeout(() => showTipOnce('presets', picker.querySelector('[data-open="presets"]'),
+      'Share a look saves this theme as a file or text you can send someone, and loads looks other people made.'), 300)
+  }
 })
 document.getElementById('theme-picker').addEventListener('click', (e) => {
   if (e.target.closest('.tp-close')) { closeThemePicker(); return }
@@ -15356,6 +15616,7 @@ function _ceRelayout(mutate, animate, ms) {
 
 function openEditor({ tab = _ce.tab, instant = false } = {}) {
   if (_ce.open || !_ceCanOpen()) return
+  markTipSeen('np-customize')
   closeThemePicker()
   if (!overlayOpen) { openOverlay(); instant = true }
   const menu = document.getElementById('ce-menu')
@@ -15897,7 +16158,7 @@ async function _handleUndecodableAudio(item) {
     await window.cascade.store.set('undecodableAudioCodecs', JSON.stringify([..._undecodableAudioCodecs]))
   } catch {}
   console.warn(`[cascade] ${codec} was claimed decodable but produced no audio - withdrawing the claim and asking the server to transcode it`)
-  showToast(`No audio from ${codec.toUpperCase()} on this machine - switching to a transcode`)
+  showToast(`No audio from ${codec.toUpperCase()} on this machine - switching to a transcode`, { level: 'advanced' })
 
   // Re-negotiate from where they are, not from the top.
   const at = mediaPosition()
@@ -16053,7 +16314,7 @@ function initDebugPanel() {
       // Selecting eleven lines of wrapped monospace by hand to report a bug is
       // miserable, and this text exists to be pasted somewhere.
       window.cascade.clipboard.write(debugPanelText())
-      showToast('Debug info copied')
+      showToast('Debug info copied', { level: 'debug' })
       return
     }
     if (e.altKey) {
@@ -16171,7 +16432,7 @@ function initLightTuningPanel() {
     const lines = defs.map(d => `${d.label} = ${parseFloat(rows[d.key].value).toFixed(2)}`)
     lines.push(`multiply blend mode = ${blendCheck.checked}`)
     window.cascade.clipboard.write(lines.join('\n'))
-    showToast('Tuning values copied')
+    showToast('Tuning values copied', { level: 'debug' })
   })
   panel.appendChild(copyBtn)
 

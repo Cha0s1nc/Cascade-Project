@@ -1312,6 +1312,50 @@
                 </div>
                 <button class="btn btn-secondary" id="btn-try-native-mac" style="font-size:12px;padding:5px 14px;">Try the native Mac app</button>
               </div>
+              <div class="settings-group">
+                <div class="sg-title">Tips</div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Show tips</span>
+                    <span class="setting-desc">A short pointer the first time a feature comes up, like what the mark on the lyrics button means.</span>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="s-tips-toggle" checked>
+                    <span class="toggle-track"></span>
+                  </label>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Show tips again</span>
+                    <span class="setting-desc">Brings back every tip, including ones you already saw.</span>
+                  </div>
+                  <button class="btn btn-secondary" id="s-tips-reset">Reset tips</button>
+                </div>
+              </div>
+              <!-- renderer.js "Toast": default and advanced messages. Debug ones are never a setting. -->
+              <div class="settings-group">
+                <div class="sg-title">Messages</div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Show messages</span>
+                    <span class="setting-desc">A short note at the bottom of the window when you do something, like "Added to playlist" or "Sleep timer set".</span>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="s-toasts-toggle" checked>
+                    <span class="toggle-track"></span>
+                  </label>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Advanced messages</span>
+                    <span class="setting-desc">Also say what Cascade does in the background, like which lyrics source answered or when a song switches to a transcode.</span>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="s-toasts-advanced-toggle">
+                    <span class="toggle-track"></span>
+                  </label>
+                </div>
+              </div>
             </section>
           </div>
         </div>
@@ -2540,6 +2584,15 @@
     <div class="modal-actions" style="margin-top:16px">
       <button class="modal-btn" id="mi-close">Close</button>
     </div>
+  </div>
+</div>
+
+<!-- One-time feature tips (renderer.js "Feature tips"). Before the scripts: renderer.js wires it at load. -->
+<div id="feature-tip" role="note" aria-live="polite" hidden>
+  <div class="ft-text"></div>
+  <div class="ft-actions">
+    <button type="button" class="ft-off" id="ft-off">Turn off tips</button>
+    <button type="button" class="ft-ok" id="ft-ok">Got it</button>
   </div>
 </div>
 
