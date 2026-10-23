@@ -24,7 +24,7 @@ Everything pure and testable lives in `CascadeKit`. The app targets are thin ref
 - `App/Sources/` - both app targets build these same files. SwiftUI covers most of the platform difference; where it does not (tvOS has no `Slider`, and focus replaces touch) the views branch on `#if os(tvOS)` rather than forking.
   - `AppState.swift` - the one session and one player, read from the environment.
   - `Keychain.swift` - the access token lives here, not in UserDefaults.
-  - `Components.swift` - `ArtworkView`, `TrackRow`, `ItemGrid`, `LoadingOverlay`.
+  - `Components.swift` - `ArtworkView`, `TrackRow`, `ItemTiles`, `LoadingOverlay` (empty copy and Try Again per screen).
   - `MainView.swift` - tabs, plus the iOS mini player.
   - One file per screen.
 - `project.yml` - xcodegen input. `Cascade.xcodeproj` is generated, not committed; run `xcodegen generate` after cloning.

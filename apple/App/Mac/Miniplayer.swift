@@ -179,7 +179,7 @@ private struct MiniplayerBody: View {
     private var likeButton: some View {
         Button(action: toggleFavorite) {
             Image(systemName: isFavorite ? "heart.fill" : "heart")
-                .foregroundStyle(isFavorite ? Color(red: 1, green: 0.42, blue: 0.54) : .white)
+                .foregroundStyle(isFavorite ? MacTheme.favorite : .white)
                 .font(.system(size: 16))
         }
         .buttonStyle(.hover)
@@ -242,14 +242,19 @@ private struct MiniplayerBody: View {
                 .foregroundStyle(player.autoMix ? MacTheme.shared.accent : .secondary)
                 .help("Autoplay: keep playing similar tracks when the queue ends")
                 .accessibilityLabel("Autoplay")
-            Button { player.toggleShuffle() } label: { Image(systemName: "shuffle") }
+            Button { player.toggleShuffle() } label: { Image(systemName: "shuffle").overlay(alignment: .bottom) { OnDot(isOn: player.shuffle) } }
                 .foregroundStyle(player.shuffle ? MacTheme.shared.accent : .secondary)
                 .help("Shuffle")
                 .accessibilityLabel("Shuffle")
-            Button { player.cycleRepeat() } label: { Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat") }
+                .accessibilityValue(player.shuffle ? "On" : "Off")
+            Button { player.cycleRepeat() } label: {
+                Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
+                    .overlay(alignment: .bottom) { OnDot(isOn: player.repeatMode != .none) }
+            }
                 .foregroundStyle(player.repeatMode == .none ? .secondary : MacTheme.shared.accent)
                 .help("Repeat")
                 .accessibilityLabel("Repeat")
+                .accessibilityValue(player.repeatMode == .one ? "One" : player.repeatMode == .all ? "All" : "Off")
         }
         .buttonStyle(.hover)
     }

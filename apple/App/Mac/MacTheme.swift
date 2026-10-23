@@ -88,6 +88,8 @@ final class MacTheme {
     /// one has been worked out. It drives the app's tint.
     var accentHex: String { settings.albumArt ? (art?.end ?? settings.gradEnd) : settings.gradEnd }
     var accent: Color { Color(hex: accentHex) }
+    /// The heart's pink when a song is a favorite, in the player bar, the overlay and the miniplayer.
+    static let favorite = Color(red: 1, green: 0.42, blue: 0.54)
 
     var font: AppFont.Resolved { AppFont.resolve(preset: fontPreset, custom: fontCustom) }
 

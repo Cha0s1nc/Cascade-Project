@@ -180,6 +180,8 @@ struct MiniPlayer: View {
                     .scaledFont(.title3)
                     .contentTransition(.symbolEffect(.replace))
                     .frame(width: 32, height: 32)
+                    // 44 pt to the finger without growing the pill.
+                    .contentShape(Rectangle().inset(by: -6))
             }
             .buttonStyle(.plain)
             .accessibilityLabel(player.isPaused ? "Play" : "Pause")
@@ -190,6 +192,7 @@ struct MiniPlayer: View {
                     Image(systemName: "forward.fill")
                         .scaledFont(.title3)
                         .frame(width: 32, height: 32)
+                        .contentShape(Rectangle().inset(by: -6))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Next")

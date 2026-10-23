@@ -256,11 +256,16 @@ private struct ExplicitMark: ViewModifier {
 }
 
 struct ExplicitBadge: View {
+    /// Grows with Dynamic Type beside the title it marks, and with View > Zoom on the Mac.
+    @ScaledMetric(relativeTo: .caption2) private var side: CGFloat = 13
+    @Environment(\.uiScale) private var uiScale
+
     var body: some View {
+        let side = side * uiScale
         Text("E")
-            .font(.system(size: 9, weight: .bold))
+            .font(.system(size: side * 0.7, weight: .bold))
             .foregroundStyle(.background)
-            .frame(width: 13, height: 13)
+            .frame(width: side, height: side)
             .background(.secondary, in: RoundedRectangle(cornerRadius: 2.5))
             .accessibilityLabel("Explicit")
     }
@@ -278,18 +283,9 @@ private struct OptionalTrackMenu: ViewModifier {
     }
 }
 
-/// A grid of albums or artists. Both are square art plus two lines, so they
+/// A grid of albums, artists or playlists, without a scroll view of its own: every page
+/// that shows one already scrolls as a whole. Both are square art plus two lines, so they
 /// share one view rather than two near-identical ones.
-struct ItemGrid: View {
-    let items: [JfItem]
-
-    var body: some View {
-        ScrollView { ItemTiles(items: items) }
-    }
-}
-
-/// ItemGrid's tiles without the scroll view, for a page that scrolls as a
-/// whole (the artist page: its albums sit under its other sections).
 struct ItemTiles: View {
     let items: [JfItem]
     @Environment(\.uiScale) private var uiScale
@@ -322,6 +318,10 @@ struct ItemTiles: View {
                 }
                 .buttonStyle(.plain)
                 .itemContextMenu(item)
+                // Left in its column, under the page's headings and the smart shelf, rather
+                // than centered with the column's spare width either side. Outside the link,
+                // so that spare width is not clickable.
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding()
@@ -332,6 +332,24 @@ struct ItemTiles: View {
         if let count = item.childCount { return count == 1 ? "1 song" : "\(count) songs" }
         return nil
     }
+}
+
+/// A favorite or played toggle the server refused, made noticeable. Those flip only once
+/// the server says yes (CODEMAP rule 1), so a refusal used to look like the click did
+/// nothing at all. They mostly run from menus, which are gone by then, so this is a haptic
+/// or a beep and a VoiceOver announcement rather than something drawn.
+@MainActor func announceWriteFailed(_ what: String) {
+    let text = "Could not \(what). The server refused it."
+    #if os(macOS)
+    NSSound.beep()
+    NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+                         userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+    #else
+    #if os(iOS)
+    UINotificationFeedbackGenerator().notificationOccurred(.error)
+    #endif
+    UIAccessibility.post(notification: .announcement, argument: text)
+    #endif
 }
 
 /// m:ss, h:mm:ss past an hour (a film), or a dash when there is no sensible
@@ -355,6 +373,13 @@ struct LoadingOverlay: View {
     /// What to draw while the first page loads: the screen's own shape in
     /// gray, so it does not jump from a spinner to a full grid.
     var skeleton: Skeleton = .spinner
+    /// What this screen calls having nothing, and how to get something: "No playlists yet",
+    /// "Make one from a song's menu." A plain "Nothing here" said neither.
+    var emptyTitle = "Nothing here"
+    var emptyMessage: String? = nil
+    /// Tries the load again from the error state. Without it the only way back was to leave
+    /// the screen, or pull to refresh where a screen has it.
+    var retry: (() -> Void)? = nil
 
     enum Skeleton { case spinner, grid, rows }
 
@@ -366,15 +391,22 @@ struct LoadingOverlay: View {
             case .rows: SkeletonRows()
             }
         } else if let error {
-            ContentUnavailableView("Could not load", systemImage: "exclamationmark.triangle", description: Text(error))
+            ContentUnavailableView {
+                Label("Could not load", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(error)
+            } actions: {
+                if let retry { Button("Try Again", action: retry) }
+            }
         } else if isEmpty {
-            ContentUnavailableView("Nothing here", systemImage: emptySymbol)
+            ContentUnavailableView(emptyTitle, systemImage: emptySymbol, description: emptyMessage.map(Text.init))
         }
     }
 }
 
 /// Gray tiles in ItemTiles' layout, pulsing while the first page loads.
 struct SkeletonGrid: View {
+    @Environment(\.uiScale) private var uiScale
     #if os(tvOS)
     private let tile: CGFloat = 220
     #else
@@ -382,6 +414,8 @@ struct SkeletonGrid: View {
     #endif
 
     var body: some View {
+        // Zoomed like ItemTiles, so the columns do not jump when the real grid replaces it.
+        let tile = self.tile * uiScale
         LazyVGrid(columns: [GridItem(.adaptive(minimum: tile), spacing: 16)], spacing: 20) {
             ForEach(0..<18, id: \.self) { _ in
                 VStack(alignment: .leading, spacing: 6) {

@@ -29,7 +29,9 @@ struct HistoryView: View {
                 }
             }
             if items.isEmpty {
-                LoadingOverlay(isLoading: isLoading, error: error, isEmpty: true, skeleton: .rows)
+                LoadingOverlay(isLoading: isLoading, error: error, isEmpty: true, emptySymbol: "clock", skeleton: .rows,
+                               emptyTitle: "Nothing played yet",
+                               emptyMessage: "Songs you play show up here.", retry: { Task { await load() } })
             }
         }
         .navigationTitle("History")

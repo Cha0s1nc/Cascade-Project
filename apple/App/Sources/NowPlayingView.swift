@@ -29,6 +29,9 @@ struct NowPlayingView: View {
     /// not update. Nil until toggled; reset on every track change.
     @State private var favoriteOverride: Bool?
     @State private var playedOverride: Bool?
+    /// Bumped when the server takes a favorite toggle, for its haptic. Not the override
+    /// itself, which also resets on every track change.
+    @State private var favoriteTaps = 0
 
     #if !os(tvOS)
     enum Mode { case artwork, lyrics, queue }
@@ -58,6 +61,19 @@ struct NowPlayingView: View {
     /// The Style Tuning panel, from the ··· menu.
     @State private var tuning = false
     #endif
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var contrast
+    /// The transport glyphs follow Dynamic Type, but only up to a point: past it the
+    /// scrubber and volume would be pushed off a phone's screen.
+    @ScaledMetric(relativeTo: .title) private var skipGlyph: CGFloat = 32
+    @ScaledMetric(relativeTo: .title) private var playGlyph: CGFloat = 46
+    @ScaledMetric(relativeTo: .caption2) private var badgeSize: CGFloat = 9
+    /// Bumped by the play/pause button only, for its haptic: a pause from the lock screen
+    /// or the end of the queue is not a tap here.
+    @State private var playTaps = 0
+    /// The gray of secondary text on the album-art background, lighter with Increase
+    /// Contrast on: over a pale cover 55% white is hard to read.
+    private var dimInk: Double { contrast == .increased ? 0.85 : 0.55 }
     #endif
 
     private var artId: String? { player.item?.albumId ?? player.item?.id }
@@ -130,8 +146,10 @@ struct NowPlayingView: View {
         Task {
             do {
                 try await client.setFavorite(target, itemId: id)
-                if player.item?.id == id { favoriteOverride = target }
-            } catch {}
+                if player.item?.id == id { favoriteOverride = target; favoriteTaps += 1 }
+            } catch {
+                announceWriteFailed(target ? "add to Favorites" : "remove from Favorites")
+            }
         }
     }
 
@@ -204,8 +222,9 @@ struct NowPlayingView: View {
                             .frame(maxWidth: .infinity)
                         Spacer(minLength: 24)
                         titleRow(compact: false)
-                            .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 24)),
-                                                    removal: .opacity.animation(.easeOut(duration: 0.12))))
+                            .transition(reduceMotion ? .opacity
+                                        : .asymmetric(insertion: .opacity.combined(with: .offset(y: 24)),
+                                                      removal: .opacity.animation(.easeOut(duration: 0.12))))
                     } else {
                         HStack(spacing: 14) {
                             artworkSlot(side: 64)
@@ -222,8 +241,9 @@ struct NowPlayingView: View {
                         .frame(maxHeight: .infinity)
                         // Slides down and away under the growing artwork, and up
                         // into place as it shrinks.
-                        .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 40)),
-                                                removal: .opacity.combined(with: .offset(y: 80))))
+                        .transition(reduceMotion ? .opacity
+                                    : .asymmetric(insertion: .opacity.combined(with: .offset(y: 40)),
+                                                  removal: .opacity.combined(with: .offset(y: 80))))
                     }
                     if let error = player.error {
                         Text(error)
@@ -246,7 +266,7 @@ struct NowPlayingView: View {
                         // Any touch on them counts as using them.
                         .simultaneousGesture(TapGesture().onEnded { controlsWake += 1 })
                         .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in controlsWake += 1 })
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .bottom)))
                     }
                 }
                 .padding(.horizontal, 28)
@@ -316,7 +336,7 @@ struct NowPlayingView: View {
             // Apple's artwork breathes with playback: full size while playing,
             // eased back a little when paused. Only the big one does.
             .scaleEffect(big && player.isPaused ? 0.86 : 1)
-            .animation(.spring(duration: 0.45, bounce: 0.25), value: player.isPaused)
+            .animation(reduceMotion ? nil : .spring(duration: 0.45, bounce: 0.25), value: player.isPaused)
             .matchedGeometryEffect(id: "artwork", in: artworkSpace, properties: .frame, isSource: false)
             .onTapGesture { if !big { setMode(.artwork) } }
             .accessibilityAddTraits(big ? [] : .isButton)
@@ -331,13 +351,14 @@ struct NowPlayingView: View {
                     .lineLimit(1)
                 Text(player.item?.albumArtist ?? player.item?.artists?.first ?? "")
                     .font(compact ? .subheadline : .title3)
-                    .foregroundStyle(.white.opacity(0.6))
+                    .foregroundStyle(.white.opacity(dimInk + 0.05))
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
             circleButton(isFavorite ? "heart.fill" : "heart", action: toggleFavorite)
                 .accessibilityLabel(isFavorite ? "Unfavorite" : "Favorite")
+                .sensoryFeedback(.selection, trigger: favoriteTaps)
             moreMenu
         }
     }
@@ -458,7 +479,8 @@ struct NowPlayingView: View {
             .font(.body.weight(.semibold))
             .frame(width: 34, height: 34)
             .background(Circle().fill(.white.opacity(0.14)))
-            .contentShape(Circle())
+            // 44 pt to the finger, 34 to the eye, as Apple Music's are.
+            .contentShape(Circle().inset(by: -5))
     }
 
     // MARK: Scrubber and transport
@@ -505,7 +527,7 @@ struct NowPlayingView: View {
                 // Original it means the profile and the server disagree.
                 if player.isTranscoding {
                     Text("TRANSCODING")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: badgeSize, weight: .semibold))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .overlay(Capsule().stroke(.white.opacity(0.35)))
@@ -514,7 +536,7 @@ struct NowPlayingView: View {
                 Text("-\(clock(max(player.durationSeconds - shownPosition, 0)))")
             }
             .font(.caption2.monospacedDigit().weight(.medium))
-            .foregroundStyle(.white.opacity(0.55))
+            .foregroundStyle(.white.opacity(dimInk))
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Track position")
@@ -530,20 +552,21 @@ struct NowPlayingView: View {
         HStack {
             Spacer()
             Button { Task { await player.previous() } } label: {
-                Image(systemName: "backward.fill").font(.system(size: 32))
+                Image(systemName: "backward.fill").font(.system(size: min(skipGlyph, 44)))
             }
             .accessibilityLabel("Previous")
             Spacer()
-            Button { player.togglePlayPause() } label: {
+            Button { player.togglePlayPause(); playTaps += 1 } label: {
                 Image(systemName: player.isPaused ? "play.fill" : "pause.fill")
-                    .font(.system(size: 46))
+                    .font(.system(size: min(playGlyph, 64)))
                     .contentTransition(.symbolEffect(.replace))
-                    .frame(width: 64, height: 64)
+                    .frame(width: min(playGlyph, 64) + 18, height: min(playGlyph, 64) + 18)
             }
+            .sensoryFeedback(.impact(weight: .light), trigger: playTaps)
             .accessibilityLabel(player.isPaused ? "Play" : "Pause")
             Spacer()
             Button { Task { await player.next() } } label: {
-                Image(systemName: "forward.fill").font(.system(size: 32))
+                Image(systemName: "forward.fill").font(.system(size: min(skipGlyph, 44)))
             }
             .accessibilityLabel("Next")
             Spacer()
@@ -560,7 +583,7 @@ struct NowPlayingView: View {
             Image(systemName: "speaker.wave.3.fill")
         }
         .scaledFont(.caption)
-        .foregroundStyle(.white.opacity(0.55))
+        .foregroundStyle(.white.opacity(dimInk))
     }
 
     // MARK: Bottom bar and modes
@@ -574,11 +597,12 @@ struct NowPlayingView: View {
                 .disabled(noLyrics)
                 .opacity(noLyrics ? 0.35 : 1)
             Spacer()
-            VStack(spacing: 3) {
-                RoutePicker().frame(width: 30, height: 30)
+            VStack(spacing: 0) {
+                // 44 like the mode buttons beside it, which also centers its icon with theirs.
+                RoutePicker().frame(width: 44, height: 44)
                 Text(routeName)
                     .font(.caption2.weight(.medium))
-                    .foregroundStyle(.white.opacity(0.55))
+                    .foregroundStyle(.white.opacity(dimInk))
                     .lineLimit(1)
             }
             Spacer()
@@ -612,7 +636,7 @@ struct NowPlayingView: View {
     /// Music's own transition (a screen recording at 60 fps), which settles
     /// in about 0.35 to 0.4 s.
     private func setMode(_ target: Mode) {
-        withAnimation(.spring(duration: 0.4, bounce: 0.08)) { mode = target }
+        withAnimation(reduceMotion ? .easeInOut(duration: 0.25) : .spring(duration: 0.4, bounce: 0.08)) { mode = target }
     }
 
     /// Where the controls went: one centred button that brings them back.
@@ -659,7 +683,7 @@ struct NowPlayingView: View {
         } else {
             VStack(spacing: 14) {
                 Text(lyrics.instrumental ? "This track is instrumental" : "No lyrics for this song")
-                    .foregroundStyle(.white.opacity(0.5))
+                    .foregroundStyle(.white.opacity(dimInk))
                 #if os(iOS)
                 // The way in when SpicyLyrics could not find the song itself.
                 if !lyrics.instrumental, state.cascadePluginInfo.spotifyLink, !state.isOffline {
@@ -692,7 +716,7 @@ struct NowPlayingView: View {
                 let upcoming = max(0, player.queue.items.count - player.queue.index - 1)
                 Text(upcoming == 1 ? "1 song" : "\(upcoming) songs")
                     .scaledFont(.caption)
-                    .foregroundStyle(.white.opacity(0.55))
+                    .foregroundStyle(.white.opacity(dimInk))
             }
 
             List {

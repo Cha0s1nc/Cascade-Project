@@ -11,6 +11,9 @@ private let builtIns: [(kind: String, name: String, symbol: String, colors: [Col
 /// rule-based ones, then a tile to make another. Above the real playlists.
 struct SmartPlaylistShelf: View {
     @Environment(AppState.self) private var state
+    @Environment(\.uiScale) private var uiScale
+    /// The playlist grid's tile size, so the two rows on the page line up.
+    private var side: CGFloat { 150 * uiScale }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -38,14 +41,14 @@ struct SmartPlaylistShelf: View {
 
     private func tile(_ name: String, _ subtitle: String, _ symbol: String, _ colors: [Color]) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            RoundedRectangle(cornerRadius: 10)
+            ProportionalRoundedRectangle()
                 .fill(LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing))
-                .frame(width: 120, height: 120)
+                .frame(width: side, height: side)
                 .overlay { Image(systemName: symbol).scaledFont(.largeTitle).foregroundStyle(.white) }
             Text(name).scaledFont(.caption).lineLimit(1)
             Text(subtitle).scaledFont(.caption2).foregroundStyle(.secondary).lineLimit(1)
         }
-        .frame(width: 120, alignment: .leading)
+        .frame(width: side, alignment: .leading)
     }
 }
 
@@ -96,7 +99,8 @@ struct SmartPlaylistView: View {
                 .trackContextMenu(track)
             }
             if tracks.isEmpty {
-                LoadingOverlay(isLoading: isLoading, error: error, isEmpty: true, skeleton: .rows)
+                LoadingOverlay(isLoading: isLoading, error: error, isEmpty: true, skeleton: .rows,
+                               emptyTitle: "No songs match", retry: { Task { await load() } })
             }
         }
         .navigationTitle(name)

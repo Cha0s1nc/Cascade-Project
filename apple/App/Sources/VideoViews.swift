@@ -61,7 +61,10 @@ private struct PosterMenu: ViewModifier {
             Button(isPlayed ? "Mark Unplayed" : "Mark Played", systemImage: isPlayed ? "eye.slash" : "eye") {
                 guard let client = state.client else { return }
                 let target = !isPlayed
-                Task { if (try? await client.setPlayed(target, itemId: item.id)) != nil { played = target } }
+                Task {
+                    if (try? await client.setPlayed(target, itemId: item.id)) != nil { played = target }
+                    else { announceWriteFailed(target ? "mark as watched" : "mark as unwatched") }
+                }
             }
         }
     }

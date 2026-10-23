@@ -38,7 +38,9 @@ final class MacNowPlayingUI {
             do {
                 try await client.setFavorite(target, itemId: item.id)
                 favorite = (item.id, target)
-            } catch {}
+            } catch {
+                announceWriteFailed(target ? "add to Favorites" : "remove from Favorites")
+            }
         }
     }
     var historyOpen = false

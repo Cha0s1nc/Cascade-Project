@@ -237,7 +237,7 @@ private struct OverlayContent: View {
                     // Both write to the server.
                     if !state.isOffline {
                         artButton(isFavorite ? "heart.fill" : "heart", label: isFavorite ? "Unfavorite" : "Favorite",
-                                  tint: isFavorite ? Color(red: 1, green: 0.42, blue: 0.54) : .white, action: toggleFavorite)
+                                  tint: isFavorite ? MacTheme.favorite : .white, action: toggleFavorite)
                         artButton("text.badge.plus", label: "Add to playlist") { addingToPlaylist = true }
                     }
                     artButton("square.stack", label: "View album", action: viewAlbum)
@@ -330,7 +330,7 @@ private struct OverlayContent: View {
 
     private var transport: some View {
         HStack(spacing: 26 * u) {
-            Button { player.toggleShuffle() } label: { Image(systemName: "shuffle").font(.system(size: 16 * u)) }
+            Button { player.toggleShuffle() } label: { Image(systemName: "shuffle").font(.system(size: 16 * u)).overlay(alignment: .bottom) { OnDot(isOn: player.shuffle) } }
                 .foregroundStyle(player.shuffle ? MacTheme.shared.accent : ink.opacity(0.7))
                 .accessibilityLabel("Shuffle")
                 .accessibilityValue(player.shuffle ? "On" : "Off")
@@ -350,9 +350,11 @@ private struct OverlayContent: View {
                 .accessibilityLabel("Next")
             Button { player.cycleRepeat() } label: {
                 Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat").font(.system(size: 16 * u))
+                    .overlay(alignment: .bottom) { OnDot(isOn: player.repeatMode != .none) }
             }
             .foregroundStyle(player.repeatMode == .none ? ink.opacity(0.7) : MacTheme.shared.accent)
             .accessibilityLabel("Repeat")
+            .accessibilityValue(player.repeatMode == .one ? "One" : player.repeatMode == .all ? "All" : "Off")
         }
         .buttonStyle(.hover)
     }

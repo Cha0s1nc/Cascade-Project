@@ -95,7 +95,8 @@ struct MacRootView: View {
                     }
                     .padding(.horizontal, 8).padding(.vertical, 5)
                     .background(.quaternary, in: RoundedRectangle(cornerRadius: 7))
-                    .frame(width: 280)
+                    // Grows with View > Zoom, so the zoomed placeholder is not cut off.
+                    .frame(width: 280 * min(zoom, 1.5))
                 }
             }
             .background {
@@ -199,14 +200,19 @@ struct MacRootView: View {
                 VStack(spacing: 2) {
                     ForEach(MacSection.pinned.filter { $0 != .downloads || state.offline != nil }) { item in
                         Button { section = item; query = "" } label: {
+                            // The list rows' size, not the zoomed window font: the system sidebar
+                            // above ignores View > Zoom, and these were smaller at 1 and far larger at 1.75.
                             Label(item.title, systemImage: item.symbol)
+                                .font(.system(size: 14))
+                                .imageScale(.large)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.vertical, 6).padding(.horizontal, 10)
+                                .padding(.vertical, 9).padding(.horizontal, 10)
                                 .background(section == item ? Color.accentColor.opacity(0.22) : .clear,
                                             in: RoundedRectangle(cornerRadius: 6))
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .accessibilityAddTraits(section == item ? .isSelected : [])
                     }
                 }
                 .padding(8)

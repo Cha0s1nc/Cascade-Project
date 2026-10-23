@@ -8,6 +8,8 @@ struct SignInView: View {
     @State private var password = ""
     @State private var error: String?
     @State private var busy = false
+    /// Return in the username moves to the password, as every sign-in form does.
+    @FocusState private var passwordFocused: Bool
 
     /// Whether the typed server offers QuickConnect, checked as the address
     /// changes. The password form stays either way.
@@ -113,10 +115,17 @@ struct SignInView: View {
             }
 
             Section("Account") {
+                // Content types, so Passwords and other managers offer the saved login.
                 TextField("Username", text: $username)
                     .autocorrectionDisabled()
                     .noAutocaps()
+                    .textContentType(.username)
+                    .submitLabel(.next)
+                    .onSubmit { passwordFocused = true }
                 SecureField("Password", text: $password)
+                    .textContentType(.password)
+                    .submitLabel(.go)
+                    .focused($passwordFocused)
                     .onSubmit(submit)
             }
             if let error {
@@ -124,7 +133,7 @@ struct SignInView: View {
                 // indistinguishable from one that worked.
                 Text(error).foregroundStyle(.red)
             }
-            Button(busy ? "Signing in..." : "Sign in", action: submit)
+            Button(busy ? "Signing In\u{2026}" : "Sign In", action: submit)
                 .disabled(busy || server.isEmpty || username.isEmpty)
             if !disclaimer.isEmpty {
                 Section {
