@@ -1446,9 +1446,9 @@
     <!-- For a server behind Cloudflare Access, Authelia or another reverse
          proxy that wants a header. Closed unless some are already saved. -->
     <details class="setup-advanced" id="setup-advanced">
-      <summary>Reverse proxy headers</summary>
-      <textarea id="setup-headers" rows="3" spellcheck="false" autocomplete="off" placeholder="CF-Access-Client-Id: ...&#10;CF-Access-Client-Secret: ..."></textarea>
-      <p class="setup-qc-hint">One <strong>Name: Value</strong> per line. Sent only to this server.</p>
+      <summary>Advanced</summary>
+      <textarea id="setup-headers" aria-label="Reverse proxy headers" rows="3" spellcheck="false" autocomplete="off" placeholder="CF-Access-Client-Id: ...&#10;CF-Access-Client-Secret: ..."></textarea>
+      <p class="setup-qc-hint">Reverse proxy headers, one <strong>Name: Value</strong> per line. Sent only to this server.</p>
     </details>
     <div class="setup-error" id="setup-error"></div>
     <button class="setup-btn" id="setup-connect">Connect</button>

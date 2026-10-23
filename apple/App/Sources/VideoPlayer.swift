@@ -438,7 +438,14 @@ final class VideoSession {
         case .seek(let target):
             // A transcode's clock starts where it was asked to.
             let local = max(0, target - seconds(fromTicks: resolved?.startTicks ?? 0))
-            Task { await player.seek(to: CMTime(seconds: local, preferredTimescale: 600)) }
+            time = local
+            // Never short of the end: a default-tolerance seek on a transcode
+            // snaps to the keyframe before it, still inside the segment, so the
+            // button stayed up and pressing it again landed in the same place.
+            Task {
+                await player.seek(to: CMTime(seconds: local, preferredTimescale: 600),
+                                  toleranceBefore: .zero, toleranceAfter: CMTime(seconds: 1, preferredTimescale: 600))
+            }
         }
     }
 

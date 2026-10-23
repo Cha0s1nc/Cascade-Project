@@ -20,6 +20,25 @@ struct MacVideoOverlay: View {
             .animation(.easeOut(duration: 0.2), value: controller.controlsVisible)
             .allowsHitTesting(controller.controlsVisible)
 
+            // As the desktop's: above the bar, bottom right, and kept up while
+            // the rest idles away.
+            if let segment = session.activeSegment {
+                Button {
+                    controller.say(segment.skipLabel.replacingOccurrences(of: "Skip", with: "Skipped"))
+                    session.skipSegment()
+                } label: {
+                    Text(segment.skipLabel).font(.callout.weight(.bold))
+                        .padding(.horizontal, 20).padding(.vertical, 10)
+                        .background(.black.opacity(0.8), in: .rect(cornerRadius: 8))
+                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.35)))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("\(segment.skipLabel) (S)")
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                .padding(.trailing, 28).padding(.bottom, 120)
+            }
+
             if let osd = controller.osd {
                 Text(osd)
                     .font(.title2.weight(.semibold))

@@ -17,6 +17,17 @@ struct SignInView: View {
     @State private var quickConnectTask: Task<Void, Never>?
     /// The server's login disclaimer (Branding), as Jellyfin's own sign-in page shows it.
     @State private var disclaimer = ""
+    /// The reverse proxy headers and client certificate, open when any are saved.
+    @State private var showsAdvanced: Bool = {
+        if !ProxyConnection.shared.currentHeaders.isEmpty { return true }
+        #if os(macOS)
+        return ClientIdentity.chosen != nil
+        #elseif os(iOS)
+        return ClientIdentity.summary() != nil
+        #else
+        return false
+        #endif
+    }()
 
     var body: some View {
         #if os(macOS)
@@ -61,8 +72,25 @@ struct SignInView: View {
             }
 
             // Before the first request goes out: a proxy that wants a header
-            // refuses the sign-in itself without it.
-            ProxySettingsSection()
+            // refuses the sign-in itself without it. Tucked away, as on the
+            // desktop, unless something is already saved.
+            Section {
+                Button { withAnimation { showsAdvanced.toggle() } } label: {
+                    HStack {
+                        Text("Advanced")
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .rotationEffect(.degrees(showsAdvanced ? 90 : 0))
+                            .foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                #if !os(tvOS)
+                .buttonStyle(.plain)
+                #endif
+                .accessibilityValue(showsAdvanced ? "Expanded" : "Collapsed")
+            }
+            if showsAdvanced { ProxySettingsSection() }
 
             if let code = quickConnectCode {
                 Section("Quick Connect") {
