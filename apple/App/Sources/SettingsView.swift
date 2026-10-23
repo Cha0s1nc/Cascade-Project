@@ -404,11 +404,8 @@ private struct PhoneSetupView: View {
                 } header: {
                     Text("Between Songs")
                 } footer: {
-                    Text("Crossfade blends the end of each song into the next; off keeps albums gapless. Normalization evens out loudness using the server's scan.")
-                }
-                Section {
-                    Text("All of this is in Settings later, with the equalizer and lyrics options.")
-                        .scaledFont(.footnote).foregroundStyle(.secondary)
+                    // The note about Settings is footer text, not a row of its own: in a card it read as a control.
+                    Text("Crossfade blends the end of each song into the next; off keeps albums gapless. Normalization evens out loudness using the server's scan.\n\nAll of this is in Settings later, with the equalizer and lyrics options.")
                 }
             }
             .navigationTitle("Set Up Cascade")

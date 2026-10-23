@@ -51,6 +51,10 @@ struct MainView: View {
         .fullScreenCover(isPresented: $showingNowPlaying) {
             if let player = state.player {
                 NowPlayingView(player: player)
+                    // Grows with Dynamic Type only so far, as Apple Music's does: past
+                    // xxxLarge the heart and ··· burst their circles and the lyrics,
+                    // AirPlay and queue bar went off the bottom of the screen.
+                    .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                     .presentationBackground(.black)
                     .navigationTransition(.zoom(sourceID: "nowPlaying", in: nowPlayingZoom))
             }
@@ -205,6 +209,9 @@ struct MiniPlayer: View {
         }
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
+        // The system's pill keeps its height at every text size, so what is in it can only
+        // grow a little: at the largest sizes the title and buttons burst out of the glass.
+        .dynamicTypeSize(...DynamicTypeSize.xLarge)
         .accessibilityElement(children: .contain)
         .accessibilityAction(named: "Open Now Playing", onTap)
     }
