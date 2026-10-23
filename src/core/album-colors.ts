@@ -14,6 +14,101 @@
 // analyser's output is never read, so the whole Web Audio dependency was doing
 // nothing visible and is simply absent here.
 
+import { desktopTuning } from './tuning-defaults.ts'
+
+// ---------------------------------------------------------------------------
+// Tuning
+//
+// Every number below that is a matter of taste lives in tuning-defaults.json
+// ("albumColors"), shared with the Apple apps' AlbumColors.swift. blobTuning
+// is a live copy: the debug tuning panel (.cascade-debug) turns it with no
+// rebuild, and npm run tuning bakes what it ends up at back into the file.
+// Nothing else writes it, so outside that panel it always equals the file.
+// ---------------------------------------------------------------------------
+
+/** Where a blob sits, in percent of the view, and how opaque it is. */
+export interface BlobSlot { x: number; y: number; w: number; h: number; alpha: number }
+
+export interface BlobTuning {
+  /** Clusters found before ranking. More than are returned, so a small vivid
+   *  accent gets its own cluster instead of being absorbed by a big dull one. */
+  clusters: number
+  /** Iterations of Lloyd's algorithm. Converges well before this on 6400 px. */
+  iterations: number
+  /** Minimum perceptual gap between two returned colours. Without it the top
+   *  three are routinely three shades of the same thing. */
+  minSeparation: number
+  /** Pixels darker or lighter than these are not "the colour of this cover":
+   *  every cover has plenty of near-black and near-white. Loose on purpose,
+   *  so a dark cover still yields its dark colours. */
+  minSampleL: number
+  maxSampleL: number
+  /** A cluster covering less of the cover than this is not a real colour. */
+  minShare: number
+  /** How much colourfulness beats coverage in the ranking (share times chroma
+   *  to this power), so a cover that is 80% beige and 5% hot pink reads pink. */
+  chromaPower: number
+  /** The dark theme's lightness window: below minL a blob is lost against
+   *  #0d0d0f, above maxL it washes out the content in front of it. */
+  minL: number
+  maxL: number
+  /** The light theme's. Not a version of the dark pair: with multiply
+   *  blending a dark blob over near-white is ink on paper, and pale blobs
+   *  multiply to almost nothing (the washed-out first attempt, 2026-08-26). */
+  minLLight: number
+  maxLLight: number
+  /** Below this a colour reads as grey rather than as a colour. */
+  minChroma: number
+  /** Blob opacity on the light base. 1, no scaling: with the lightness window
+   *  doing the work, an extra cut was the biggest cause of the wash-out. */
+  lightAlphaScale: number
+  /** How far the blobs wander from their slots, as a multiple. */
+  driftScale: number
+  /** Anchors, near the edges so the middle stays dark enough to read text
+   *  over: the background is a mood, not a competitor to the content. */
+  slots: BlobSlot[]
+  /** How often to move the blobs. The drift has periods of tens of seconds,
+   *  so 60 fps is wasted work; ~15 is visually indistinguishable. */
+  frameMs: number
+  /** The square side a cover is scaled to before extraction (6400 px). */
+  sampleSide: number
+}
+
+const NUMBER_KEYS = ['clusters', 'iterations', 'minSeparation', 'minSampleL', 'maxSampleL', 'minShare', 'chromaPower',
+  'minL', 'maxL', 'minLLight', 'maxLLight', 'minChroma', 'lightAlphaScale', 'driftScale', 'frameMs', 'sampleSide'] as const
+
+/** The file's albumColors section, checked: a missing or mistyped value
+ *  throws rather than quietly painting with NaN. */
+export function blobTuningFrom(section: Record<string, unknown>): BlobTuning {
+  const num = (key: string, v: unknown): number => {
+    if (typeof v !== 'number' || !Number.isFinite(v)) throw new Error(`tuning-defaults.json: albumColors.${key} must be a number`)
+    return v
+  }
+  const out = Object.fromEntries(NUMBER_KEYS.map(k => [k, num(k, section[k])])) as Omit<BlobTuning, 'slots'>
+  const slots = section.slots
+  if (!Array.isArray(slots) || slots.length === 0) throw new Error('tuning-defaults.json: albumColors.slots must be a list')
+  return {
+    ...out,
+    slots: slots.map((s, i) => {
+      const o = (s ?? {}) as Record<string, unknown>
+      return { x: num(`slots[${i}].x`, o.x), y: num(`slots[${i}].y`, o.y), w: num(`slots[${i}].w`, o.w),
+        h: num(`slots[${i}].h`, o.h), alpha: num(`slots[${i}].alpha`, o.alpha) }
+    }),
+  }
+}
+
+/** The shipped values, as tuning-defaults.json has them for the desktop. */
+export const SHIPPED_BLOB_TUNING: Readonly<BlobTuning> = blobTuningFrom(desktopTuning('albumColors'))
+
+/** The live copy everything here reads. See the note above. */
+export const blobTuning: BlobTuning = structuredClone(SHIPPED_BLOB_TUNING)
+
+/** The person's look on top (lyric-style.ts' Background colors knobs, set by
+ *  the host): saturation and brightness as CSS filters would apply them,
+ *  intensity on the blobs' opacity, speed on the host's drift clock. At these
+ *  values, no change. */
+export const blobLook = { saturation: 1, brightness: 0, intensity: 1, speed: 1 }
+
 /** A blob colour. `hue` is the bucket it came from, in degrees. */
 export interface BlobColor {
   r: number
@@ -85,19 +180,6 @@ function hueOf(c: Oklab): number {
   return deg < 0 ? deg + 360 : deg
 }
 
-/** How many clusters to find before ranking. More than we return, so a small
- *  vivid accent gets its own cluster instead of being absorbed by a big dull
- *  one. */
-const K = 5
-
-/** Iterations of Lloyd's algorithm. Converges well before this on 6400 px. */
-const KMEANS_ITERATIONS = 12
-
-/** Minimum perceptual gap between two returned colours. Without it the top
- *  three are routinely three shades of the same thing, which reads as a
- *  one-colour background. */
-const MIN_SEPARATION = 0.12
-
 /**
  * The dominant vivid colours of a cover, most prominent first.
  *
@@ -120,24 +202,22 @@ export function extractTopColors(
     throw new Error(`extractTopColors: expected packed RGBA, got ${rgba.length} bytes`)
   }
 
-  // Keep the pixels that could plausibly be "the colour of this cover".
-  // Near-black and near-white are dropped because every cover has plenty of
-  // both and neither says anything about its palette. The thresholds are loose
-  // on purpose: a dark cover should still yield its dark colours rather than
-  // fall through to nothing.
+  // Keep the pixels that could plausibly be "the colour of this cover"
+  // (blobTuning.minSampleL and maxSampleL).
+  const t = blobTuning
   const samples: Oklab[] = []
   for (let i = 0; i < rgba.length; i += 4) {
     if ((rgba[i + 3] as number) < 128) continue
     const c = srgbToOklab(rgba[i] as number, rgba[i + 1] as number, rgba[i + 2] as number)
-    if (c.L < 0.08 || c.L > 0.97) continue
+    if (c.L < t.minSampleL || c.L > t.maxSampleL) continue
     samples.push(c)
   }
   if (samples.length === 0) return []
 
-  const centroids = seedCentroids(samples, K)
+  const centroids = seedCentroids(samples, Math.max(1, Math.round(t.clusters)))
   const assignment = new Array<number>(samples.length).fill(0)
 
-  for (let iter = 0; iter < KMEANS_ITERATIONS; iter++) {
+  for (let iter = 0; iter < t.iterations; iter++) {
     let moved = false
     for (let i = 0; i < samples.length; i++) {
       const s = samples[i] as Oklab
@@ -172,15 +252,15 @@ export function extractTopColors(
   const ranked = centroids
     .map((c, k) => {
       const share = (counts[k] as number) / samples.length
-      return { c, share, score: share * Math.pow(chroma(c) + 0.02, 1.5) }
+      return { c, share, score: share * Math.pow(chroma(c) + 0.02, t.chromaPower) }
     })
-    .filter(x => x.share > 0.01) // ignore clusters too small to be a real colour
+    .filter(x => x.share > t.minShare) // ignore clusters too small to be a real colour
     .sort((a, b) => b.score - a.score)
 
   const picked: Oklab[] = []
   for (const { c } of ranked) {
     if (picked.length >= n) break
-    if (picked.some(p => distance(p, c) < MIN_SEPARATION)) continue
+    if (picked.some(p => distance(p, c) < t.minSeparation)) continue
     picked.push(c)
   }
   // If separation left us short (a genuinely monochrome cover), backfill rather
@@ -226,57 +306,12 @@ function seedCentroids(samples: Oklab[], k: number): Oklab[] {
   return centroids
 }
 
-// Lightness clamp for a blob colour. Two pairs, picked by which base the blob
-// sits on - a colour dark enough to glow on near-black reads as a heavy,
-// muddy stain on near-white, so the light pair pushes the whole range paler
-// rather than reusing the dark one. Eyeballed against #0d0d0f and #f2f2f7
-// respectively; MIN_C (how far a colour must sit from grey to still read as a
-// colour, not a shade) is unaffected by which base is in play.
-const MIN_L = 0.45        // below this a blob is lost against #0d0d0f
-const MAX_L = 0.82        // above this it washes out the content in front of it
-// Tuned by eye on 2026-08-26 with the debug panel's live sliders, and the
-// second pass inverted the first. Light mode does not want pale blobs at all:
-// with multiply blending, a DARK blob over the near-white base behaves like
-// ink on paper, and the darker it is the more colour survives. Pale blobs
-// multiply to almost nothing, which is exactly what the washed-out first
-// attempt was.
-//
-// So the ranges are not two versions of the same idea. Dark theme lightens its
-// blobs so they glow against near-black; light theme darkens them so they stain
-// against near-white. Nothing here should be "kept in step" between the two.
-const MIN_L_LIGHT = 0.00
-const MAX_L_LIGHT = 0.27
-const MIN_C = 0.06        // below this it reads as grey rather than as a colour
-
-// A blob at a dark-theme SLOTS alpha reads as a glow on the dark base, but the
-// same opacity on the light base's near-white is a heavy, solid-looking patch
-// - scaled down rather than given its own SLOTS table so the layout (position,
-// size, drift) stays identical between themes and only the weight changes.
-// 1.00, i.e. no scaling: with the lightness range above doing the work, the
-// extra 45% cut was the single biggest cause of the wash-out. Kept as a named
-// constant rather than deleted, so the knob is still there if it is ever wanted.
-const LIGHT_ALPHA_SCALE = 1.00
-
-/**
- * Runtime-mutable copy of the light-theme knobs above. The constants stay the
- * shipped defaults; this is what the debug panel's sliders actually turn, so
- * dragging one changes the next extraction with no rebuild. Nothing outside
- * the debug panel writes to this - the normal path never mutates it, so it
- * always equals the defaults it was seeded from.
- */
-export const lightTuning = {
-  minL: MIN_L_LIGHT,
-  maxL: MAX_L_LIGHT,
-  alphaScale: LIGHT_ALPHA_SCALE,
-}
-
-/** The lightness window each theme clamps its blobs into. Exported so tests can
- *  check the clamping without hardcoding tuning values that have already moved
- *  twice, and so the two ranges are visibly one decision rather than four
- *  scattered constants. */
+/** The lightness window each theme clamps its blobs into, as shipped.
+ *  Exported so tests can check the clamping without hardcoding tuning values
+ *  that have already moved twice. */
 export const BLOB_L_RANGE = {
-  dark:  { min: MIN_L, max: MAX_L },
-  light: { min: MIN_L_LIGHT, max: MAX_L_LIGHT },
+  dark:  { min: SHIPPED_BLOB_TUNING.minL, max: SHIPPED_BLOB_TUNING.maxL },
+  light: { min: SHIPPED_BLOB_TUNING.minLLight, max: SHIPPED_BLOB_TUNING.maxLLight },
 }
 
 /**
@@ -293,15 +328,16 @@ export const BLOB_L_RANGE = {
  * light theme's near-white overlay, false (default) for the dark one.
  */
 function toBlobColor(c: Oklab, light = false): BlobColor {
-  const minL = light ? lightTuning.minL : MIN_L
-  const maxL = light ? lightTuning.maxL : MAX_L
+  const t = blobTuning
+  const minL = light ? t.minLLight : t.minL
+  const maxL = light ? t.maxLLight : t.maxL
 
   let { L, a, b } = c
   L = Math.min(maxL, Math.max(minL, L))
 
   const ch = Math.hypot(a, b)
-  if (ch > 0 && ch < MIN_C) {
-    const scale = MIN_C / ch
+  if (ch > 0 && ch < t.minChroma) {
+    const scale = t.minChroma / ch
     a *= scale
     b *= scale
   }
@@ -348,39 +384,78 @@ export interface Blob {
   color: BlobColor
 }
 
-// Anchors, in percent. Deliberately near the edges so the middle of the screen
-// stays dark enough to read text over - the background is a mood, not a
-// competitor to the content sitting on top of it.
-const SLOTS = [
-  { x: 78, y: 16, w: 78, h: 78, alpha: 0.88 },
-  { x: 18, y: 82, w: 78, h: 78, alpha: 0.80 },
-  { x: 12, y: 18, w: 58, h: 58, alpha: 0.55 },
-] as const
-
 /**
  * Where the blobs are at time `t` (seconds). Pure given the current tuning -
- * same inputs and same lightTuning, same output - so a host can drive it from
- * a clock, a test can drive it from a constant.
+ * same inputs, same blobTuning and blobLook, same output - so a host can drive
+ * it from a clock, a test can drive it from a constant.
  *
- * `light` scales blob opacity down for the light theme's base - see
- * lightTuning.alphaScale (defaults to LIGHT_ALPHA_SCALE).
+ * `light` scales blob opacity for the light theme's base (lightAlphaScale).
+ * blobLook's saturation, brightness and intensity are applied here, so every
+ * path that paints blobs shows them.
  */
 export function driftedBlobs(colors: BlobColor[], drift: DriftParams[], t: number, light = false): Blob[] {
-  const alphaScale = light ? lightTuning.alphaScale : 1
-  return colors.map((color, i) => {
-    const s = SLOTS[i] ?? SLOTS[2]
-    const alpha = s.alpha * alphaScale
+  const { slots, lightAlphaScale, driftScale: d } = blobTuning
+  const alphaScale = (light ? lightAlphaScale : 1) * blobLook.intensity
+  return colors.map((raw, i) => {
+    const s = slots[i] ?? slots[slots.length - 1] as BlobSlot
+    const alpha = Math.min(1, s.alpha * alphaScale)
+    const color = lookColor(raw)
     const p = drift[i] ?? drift[0]
     if (!p) return { x: s.x, y: s.y, w: s.w, h: s.h, alpha, color }
     return {
-      x: s.x + Math.sin(t * p.xF1 + p.xP1) * p.xA1 + Math.sin(t * p.xF2 + p.xP2) * p.xA2,
-      y: s.y + Math.cos(t * p.yF1 + p.yP1) * p.yA1 + Math.cos(t * p.yF2 + p.yP2) * p.yA2,
+      x: s.x + (Math.sin(t * p.xF1 + p.xP1) * p.xA1 + Math.sin(t * p.xF2 + p.xP2) * p.xA2) * d,
+      y: s.y + (Math.cos(t * p.yF1 + p.yP1) * p.yA1 + Math.cos(t * p.yF2 + p.yP2) * p.yA2) * d,
       w: s.w,
       h: s.h,
       alpha,
       color,
     }
   })
+}
+
+/**
+ * A colour as blobLook's saturation and brightness show it: the matrices CSS's
+ * saturate() and SwiftUI's .saturation() use, then brightness added to each
+ * channel, as SwiftUI's .brightness() does. Unchanged at the defaults.
+ */
+export function lookColor(c: BlobColor): BlobColor {
+  const s = blobLook.saturation, add = blobLook.brightness * 255
+  if (s === 1 && add === 0) return c
+  const ch = (v: number) => Math.min(255, Math.max(0, Math.round(v + add)))
+  return {
+    r: ch((0.213 + 0.787 * s) * c.r + (0.715 - 0.715 * s) * c.g + (0.072 - 0.072 * s) * c.b),
+    g: ch((0.213 - 0.213 * s) * c.r + (0.715 + 0.285 * s) * c.g + (0.072 - 0.072 * s) * c.b),
+    b: ch((0.213 - 0.213 * s) * c.r + (0.715 - 0.715 * s) * c.g + (0.072 + 0.928 * s) * c.b),
+    hue: c.hue,
+  }
+}
+
+/** The base colour with blobLook's brightness on it, as a CSS colour: the
+ *  Apple apps' filter lifts the base along with the blobs. */
+export function blobBaseCss(light: boolean): string {
+  const hex = light ? BLOB_BASE_COLOR_LIGHT : BLOB_BASE_COLOR
+  if (blobLook.brightness === 0) return hex
+  const n = parseInt(hex.slice(1), 16)
+  const { r, g, b } = lookColor({ r: n >> 16, g: (n >> 8) & 255, b: n & 255, hue: 0 })
+  return `rgb(${r},${g},${b})`
+}
+
+/**
+ * How light the background reads, 0 to 1: the blobs' Oklab lightness weighted
+ * by how much of the screen each covers (its slot's size and opacity). 0 with
+ * no colours, when the near-black base is all there is. The Apple apps'
+ * AlbumColors.brightness, which the lyrics dim scales by.
+ */
+export function blobBrightness(colors: BlobColor[]): number {
+  let sum = 0, total = 0
+  colors.forEach((c, i) => {
+    const s = blobTuning.slots[i]
+    if (!s) return
+    const w = s.w * s.h * s.alpha
+    sum += srgbToOklab(c.r, c.g, c.b).L * w
+    total += w
+  })
+  return total > 0 ? sum / total : 0
 }
 
 /**
@@ -416,13 +491,6 @@ export const BLOB_BASE_COLOR = '#0d0d0f'
  *  is not itself a visible flash. */
 export const BLOB_BASE_COLOR_LIGHT = '#f2f2f7'
 
-/**
- * How often to recompute blob positions, in ms.
- *
- * The drift has periods measured in tens of seconds, so rebuilding at 60fps is
- * wasted work for motion this gradual - the desktop throttles to ~15fps and it
- * is visually indistinguishable. On a TV it matters more than on a desktop:
- * this is a background, and it must not cost the frame budget of the content in
- * front of it.
- */
-export const BLOB_FRAME_MS = 66
+/** How often to recompute blob positions, in ms, as shipped. The drift loop
+ *  reads blobTuning.frameMs so the debug panel can turn it. */
+export const BLOB_FRAME_MS = SHIPPED_BLOB_TUNING.frameMs

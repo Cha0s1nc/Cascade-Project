@@ -29,6 +29,9 @@ Everything pure and testable lives in `CascadeKit`. The app targets are thin ref
   - One file per screen.
 - `project.yml` - xcodegen input. `Cascade.xcodeproj` is generated, not committed; run `xcodegen generate` after cloning.
 
+## Tuning defaults
+Style Tuning's defaults (`StyleTuning.shipped`, so `Values()` is the shipped look), its revision list, and every `AlbumColors` constant come from `tuning-defaults.json` at the repo root through CascadeKit's `TuningDefaults`, which reads the generated `TuningDefaultsData.swift`. Never edit either Swift file's numbers: change the JSON with `npm run tuning` (see the root CODEMAP), which regenerates the copy. Copy Changes (iOS sheet; the Mac Lyrics page in debug builds) copies a bake for `npm run tuning -- bake`.
+
 ## Running on a device
 
 `./run-device.sh` builds, installs and launches on a connected iPhone without attaching the debugger. About 7 seconds warm. Xcode's own Run attaches LLDB, which resolves symbols by reading device memory and shows a "taking longer than expected" dialog; `~/.lldbinit` with `settings set target.preload-symbols false` takes the edge off that when you do need breakpoints.

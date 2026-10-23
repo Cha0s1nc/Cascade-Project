@@ -9330,10 +9330,13 @@ function startBeatLoop() {
     // The drift is slow (periods of tens of seconds), so rebuilding this gradient
     // string at the full 60fps is wasted work - throttle to ~15fps, which is
     // visually indistinguishable for motion this gradual.
-    if (ts - _lastBlobFrameTs < CascadeCore.BLOB_FRAME_MS) return
+    if (ts - _lastBlobFrameTs < CascadeCore.blobTuning.frameMs) return
     _lastBlobFrameTs = ts
     if (_blobColors.length > 0 && themeAlbumArt && _driftParams.length > 0) {
-      const blobs = CascadeCore.driftedBlobs(_blobColors, _driftParams, Date.now() / 1000, _isLightTheme())
+      // Drift speed scales the clock itself, as on the Apple apps, so a change
+      // jumps the blobs once rather than easing.
+      const t = Date.now() / 1000 * CascadeCore.blobLook.speed
+      const blobs = CascadeCore.driftedBlobs(_blobColors, _driftParams, t, _isLightTheme())
       setOverlayBackgroundImage(overlay, CascadeCore.blobBackgroundCss(blobs))
     }
   }
@@ -9968,7 +9971,8 @@ function closeOverlay() {
 // after a few still seconds, and any sign of life brings them straight back.
 // The progress row is deliberately left up, so a glance still tells you where
 // you are in the track without having to touch anything.
-const OV_IDLE_MS = 3000
+// Lyrics tab > Controls > Hide after, set by applyLyricStyle().
+let ovIdleMs = 3000
 let _ovIdleTimer = null
 
 function pokeOverlayControls() {
@@ -9981,7 +9985,7 @@ function pokeOverlayControls() {
   // The editor's sidebar is the transport row itself; it must not fold away.
   // A feature tip pointing at one of these must not watch it fold away.
   if (!overlayOpen || audio.paused || _ce.open || _tipShown) return
-  _ovIdleTimer = setTimeout(() => ov.classList.add('idle'), OV_IDLE_MS)
+  _ovIdleTimer = setTimeout(() => ov.classList.add('idle'), ovIdleMs)
 }
 
 ;['pointermove', 'pointerdown', 'wheel', 'keydown'].forEach(type =>
@@ -10032,6 +10036,7 @@ function _applyOverlayPanels() {
   const toggle = document.getElementById('ov-lyrics-toggle')
   toggle.classList.toggle('active', overlayLyricsOpen)
   _applyLyricsMark()
+  _applyLyricsDim()
 }
 
 // What the playing song's lyrics search found, shown on both lyrics buttons as
@@ -11122,12 +11127,15 @@ document.getElementById('ov-translate-btn').addEventListener('click', () => onTr
 // substeps. One explicit step per frame diverged below about 25 fps, which a
 // fullscreen game starving Cascade's frames reliably caused: the lyrics flung
 // or shook on every new line whenever Cascade was not in front.
-// Lyric motion, shared by both lyric springs and tunable live from DevTools
-// (cascadeDebug.lyricMotion). Tuned by eye against Apple Music, 2026-09-23:
-// overdamped (critical damping for 250 would be ~31.6), so lines ease in and
-// never overshoot, where the old 210/26 bounced slightly; and a longer ripple,
-// so the lines below trail a little more.
-const LYRIC_MOTION = { stiffness: 250, damping: 50, ripple: 40 }
+// Lyric motion, shared by both lyric springs and tunable live from the debug
+// tuning panel or DevTools (cascadeDebug.lyricMotion). The spring is
+// tuning-defaults.json's motion section (why it is overdamped is noted
+// there); the ripple is the Lyrics tab's rippleSeconds, set by applyLyricStyle().
+const LYRIC_MOTION = {
+  stiffness: CascadeCore.shippedNumber('motion', 'lyricSpringStiffness'),
+  damping: CascadeCore.shippedNumber('motion', 'lyricSpringDamping'),
+  ripple: 40,
+}
 // How far ahead of the audio lyrics are drawn, in seconds: the Lyrics
 // setting "Lyrics timing" negated (it is negative for earlier, as in the
 // Apple app). Set by applyLyricStyle().
@@ -14975,6 +14983,19 @@ function applyLyricStyle(style) {
   ovLyricLinePosition = lyricStyle.currentLinePosition
   LYRIC_MOTION.ripple = lyricStyle.rippleSeconds * 1000
   _lyricLead = -lyricStyle.lyricsDelay
+  ovIdleMs = lyricStyle.controlsIdleSeconds * 1000
+  // The drift loop repaints the blobs with these on its next frame; the base
+  // colour and the dim are set here.
+  Object.assign(CascadeCore.blobLook, {
+    saturation: lyricStyle.bgSaturation, brightness: lyricStyle.bgBrightness,
+    intensity: lyricStyle.bgIntensity, speed: lyricStyle.bgSpeed,
+  })
+  const overlay = document.getElementById('np-overlay')
+  if (overlay?.classList.contains('art-theme')) {
+    overlay.style.backgroundColor = _blobBaseColor()
+    if (_blobColors.length) setOverlayBackgroundImage(overlay, buildBlobBackground(_blobColors, _isLightTheme()))
+  }
+  _applyLyricsDim()
 }
 
 async function saveLyricStyle(style) {
@@ -15099,7 +15120,8 @@ function rgbToHex(r, g, b) {
 function extractTopColors(img, n = 3, light = false) {
   try {
     const canvas = document.createElement('canvas')
-    canvas.width = canvas.height = 80
+    const side = CascadeCore.blobTuning.sampleSide
+    canvas.width = canvas.height = side
     const ctx = canvas.getContext('2d', { willReadFrequently: true })
     // Nearest-neighbour, not the default smooth scale. Smoothing blends
     // neighbouring pixels, so red beside blue produces purple that appears
@@ -15107,8 +15129,8 @@ function extractTopColors(img, n = 3, light = false) {
     // could win outright. Sampling real pixels can miss a very small detail;
     // inventing colours misreports the whole cover, which is worse.
     ctx.imageSmoothingEnabled = false
-    ctx.drawImage(img, 0, 0, 80, 80)
-    return CascadeCore.extractTopColors(ctx.getImageData(0, 0, 80, 80).data, n, light)
+    ctx.drawImage(img, 0, 0, side, side)
+    return CascadeCore.extractTopColors(ctx.getImageData(0, 0, side, side).data, n, light)
   } catch { return [] }
 }
 
@@ -15123,7 +15145,7 @@ function _isLightTheme() {
   return document.documentElement.getAttribute('data-theme') === 'light'
 }
 function _blobBaseColor() {
-  return _isLightTheme() ? CascadeCore.BLOB_BASE_COLOR_LIGHT : CascadeCore.BLOB_BASE_COLOR
+  return CascadeCore.blobBaseCss(_isLightTheme())
 }
 
 // The static placement, used before the drift loop takes over. Both go through
@@ -15233,6 +15255,7 @@ function applyAlbumArtTheme(imgEl) {
   overlay.style.backgroundColor = _blobBaseColor()
   setOverlayBackgroundImage(overlay, buildBlobBackground(_blobColors, light))
   overlay.classList.add('art-theme')
+  _applyLyricsDim()
 }
 
 // The background's colors fade from the last song's instead of jumping: over
@@ -15268,8 +15291,27 @@ function clearAlbumArtTheme() {
   document.documentElement.style.removeProperty('--art-overlay-bg')
   _blobColors = []
   _driftParams = []
-  const bgEl = document.getElementById('ov-bg-pulse')
-  if (bgEl) { bgEl.style.opacity = '0' }
+  _applyLyricsDim()
+}
+
+// The background darkens behind lyrics: by lyricsDimBase, plus up to
+// lyricsDimBright more for a bright cover (Oklab lightness from lyricsDimFrom
+// up to the dark palette's 0.82 ceiling), so faint upcoming lines still read
+// over a light salmon or yellow. #ov-bg-pulse is the black layer over the
+// blobs and under everything else. Dark theme only, as on the Apple apps: the
+// light theme lays its own scrims. Both dims default to 0 on the desktop
+// (tuning-defaults.json), whose panels are already tinted.
+function _applyLyricsDim() {
+  const el = document.getElementById('ov-bg-pulse')
+  if (!el) return
+  const lyrics = (overlayLyricsOpen && !_ovLyricsMissing) || _ce.open
+  let dim = 0
+  if (lyrics && themeAlbumArt && _blobColors.length && !_isLightTheme()) {
+    const from = lyricStyle.lyricsDimFrom
+    const bright = Math.min(1, Math.max(0, (CascadeCore.blobBrightness(_blobColors) - from) / Math.max(0.82 - from, 0.01)))
+    dim = Math.min(1, lyricStyle.lyricsDimBase + lyricStyle.lyricsDimBright * bright)
+  }
+  el.style.opacity = String(dim)
 }
 
 // Wire up theme picker UI
@@ -15711,6 +15753,7 @@ function _ceShowTab(name, animate) {
     document.getElementById('ce-cf-length').textContent = crossfadeEnabled ? `Crossfade length: ${crossfadeSeconds}s.` : 'Crossfade is off.'
   }
   _ceSetPreview(name === 'crossfade', animate)
+  if (name === 'developer') { refreshDebugMetrics(); _renderDevDiagnostics() }
   if (!animate || from === to) return
   // The old tab sinks away while the new one rises into place, in one cell.
   const reduced = _ceReduced()
@@ -16293,152 +16336,206 @@ function debugPanelText() {
   ].join('\n')
 }
 
-function initDebugPanel() {
-  const el = document.createElement('pre')
-  el.id = 'cascade-debug-panel'
-  el.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:9999;'
-    + 'max-width:44vw;max-height:56vh;overflow:auto;margin:0;padding:8px 10px;'
-    + 'border-radius:6px;background:rgba(0,0,0,0.82);color:#7CFC7C;'
-    + 'font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;'
-    + 'word-break:break-all;user-select:text;cursor:pointer;'
-  el.title = 'Cascade debug panel - click to collapse, Shift-click to copy. Force Cascade Server plugin absent: Alt-click.'
-
-  let collapsed = false
-  function render() {
-    if (collapsed) { el.textContent = '[cascade debug - click to expand]'; return }
-    el.textContent = debugPanelText()
-  }
-  el.addEventListener('click', (e) => {
-    if (window.getSelection()?.toString()) return   // selecting text to copy, not toggling
-    if (e.shiftKey) {
-      // Selecting eleven lines of wrapped monospace by hand to report a bug is
-      // miserable, and this text exists to be pasted somewhere.
-      window.cascade.clipboard.write(debugPanelText())
-      showToast('Debug info copied', { level: 'debug' })
-      return
-    }
-    if (e.altKey) {
-      // The one internal flag worth flipping by hand that has no real Settings
-      // UI of its own - lets a working plugin's greyed-out state be previewed
-      // without a second server to test against. Everything else worth toggling
-      // (crossfade, album art theming, ...) already has a real control in
-      // Settings; duplicating those here would just be two sources of truth.
-      _cascadePluginAbsent = !_cascadePluginAbsent
-      _applyCascadePluginAvailability()
-    } else {
-      collapsed = !collapsed
-    }
-    render()
-  })
-
-  document.body.appendChild(el)
-  render()
-  refreshDebugMetrics()
-  setInterval(() => { refreshDebugMetrics(); render() }, 1000)
+// The diagnostics readout lives in the customization editor's Developer tab
+// (initDevTuningTab), as its Playback diagnostics section. It ticks once a
+// second only while that tab is showing, so app-metrics' CPU figure for the
+// first tick after opening covers the whole time it was closed.
+function _devDiagnosticsShowing() {
+  return _ce.open && _ce.tab === 'developer'
 }
+function _renderDevDiagnostics() {
+  const el = document.getElementById('ce-dev-diag')
+  if (el && _devDiagnosticsShowing()) el.textContent = debugPanelText()
+}
+setInterval(() => {
+  if (!_devDiagnosticsShowing()) return
+  refreshDebugMetrics()
+  _renderDevDiagnostics()
+}, 1000)
+document.getElementById('ce-dev-diag-copy').addEventListener('click', () => {
+  // This text exists to be pasted into a bug report.
+  window.cascade.clipboard.write(debugPanelText())
+  showToast('Diagnostics copied', { level: 'debug' })
+})
+// The one internal flag worth flipping by hand that has no real Settings UI:
+// previews a working plugin's greyed-out state without a second server.
+document.getElementById('ce-dev-plugin-absent').addEventListener('change', (e) => {
+  _cascadePluginAbsent = /** @type {HTMLInputElement} */ (e.target).checked
+  _applyCascadePluginAvailability()
+  _renderDevDiagnostics()
+})
 
-// ── Light-mode blob tuning (debug only) ─────────────────────────────────────
-// Live knobs for the now-playing overlay's light-theme blobs and scrims, so
-// tuning "washed out" is a slider drag instead of a rebuild-and-squint loop.
-// Two different plumbing paths, both live with no rebuild:
-//   - blob alpha/lightness: CascadeCore.lightTuning, a mutable runtime copy of
-//     album-colors.ts's LIGHT_ALPHA_SCALE/MIN_L_LIGHT/MAX_L_LIGHT constants.
-//     The alpha scale is read every drift frame, so it updates within a beat.
-//     Lightness only applies at extraction, so its slider forces a reapply.
-//   - scrims and blend mode: CSS custom properties (--np-blend, --np-scrim-*)
-//     that index.html's light-theme rules already read with a fallback equal
-//     to the shipped value - setting them here overrides nothing when this
-//     panel does not exist.
+// ── Developer tab (debug only) ──────────────────────────────────────────────
+// The customization editor's last tab, shown only with the .cascade-debug
+// sentinel: playback diagnostics (above), and live knobs for what tuning-defaults.json holds beyond the Lyrics
+// tab, the cover-color background (CascadeCore.blobTuning, album-colors.ts)
+// and the lyric spring (LYRIC_MOTION), plus the light theme's scrims and
+// blend. Every slider changes the running app with no rebuild and nothing is
+// saved: Bake writes the result (and the Lyrics tab's own changes) into
+// tuning-defaults.json through `npm run tuning -- bake`, Copy puts it on the
+// clipboard for that command.
+//   - Extraction knobs only apply when a cover is clustered, so they reapply
+//     the theme. The rest (slots, drift, opacity, frame rate) are read every
+//     drift frame.
+//   - Scrims and blend are CSS custom properties index.html's light-theme
+//     rules read with a fallback equal to the shipped value. They are not in
+//     tuning-defaults.json, so Copy logs them to the console instead.
 function _debugReapplyBlobs() {
   if (!themeAlbumArt) return
   const img = document.querySelector('#ov-art img') || document.querySelector('#np-art img')
   themeFromArtUrl(img?.src)
 }
 
-function initLightTuningPanel() {
-  const root = document.documentElement
-  const cssVar = (name, fallback) =>
-    parseFloat(getComputedStyle(root).getPropertyValue(name)) || fallback
+const DEV_BLOB_KNOBS = [
+  { key: 'clusters', label: 'Clusters', min: 2, max: 10, step: 1, extract: true },
+  { key: 'iterations', label: 'k-means iterations', min: 1, max: 30, step: 1, extract: true },
+  { key: 'minSeparation', label: 'Min separation', min: 0, max: 0.4, step: 0.01, extract: true },
+  { key: 'minSampleL', label: 'Ignore pixels darker than', min: 0, max: 0.3, step: 0.01, extract: true },
+  { key: 'maxSampleL', label: 'Ignore pixels lighter than', min: 0.7, max: 1, step: 0.01, extract: true },
+  { key: 'minShare', label: 'Min cluster share', min: 0, max: 0.1, step: 0.005, extract: true },
+  { key: 'chromaPower', label: 'Colorfulness weight', min: 0, max: 4, step: 0.1, extract: true },
+  { key: 'minL', label: 'Dark: min lightness', min: 0, max: 1, step: 0.01, extract: true },
+  { key: 'maxL', label: 'Dark: max lightness', min: 0, max: 1, step: 0.01, extract: true },
+  { key: 'minLLight', label: 'Light: min lightness', min: 0, max: 1, step: 0.01, extract: true },
+  { key: 'maxLLight', label: 'Light: max lightness', min: 0, max: 1, step: 0.01, extract: true },
+  { key: 'minChroma', label: 'Min chroma', min: 0, max: 0.3, step: 0.01, extract: true },
+  { key: 'lightAlphaScale', label: 'Light: blob opacity', min: 0, max: 1.5, step: 0.01 },
+  { key: 'driftScale', label: 'Drift distance', min: 0, max: 3, step: 0.05 },
+  { key: 'frameMs', label: 'Drift frame (ms)', min: 16, max: 200, step: 1 },
+]
+const DEV_SLOT_KNOBS = [
+  { key: 'x', label: 'Left (%)', min: 0, max: 100, step: 1 }, { key: 'y', label: 'Top (%)', min: 0, max: 100, step: 1 },
+  { key: 'w', label: 'Width (%)', min: 10, max: 150, step: 1 }, { key: 'h', label: 'Height (%)', min: 10, max: 150, step: 1 },
+  { key: 'alpha', label: 'Opacity', min: 0, max: 1, step: 0.01 },
+]
+const DEV_MOTION_KNOBS = [
+  { key: 'lyricSpringStiffness', label: 'Lyric spring stiffness', min: 50, max: 600, step: 5, prop: 'stiffness' },
+  { key: 'lyricSpringDamping', label: 'Lyric spring damping', min: 5, max: 120, step: 1, prop: 'damping' },
+]
+const DEV_SCRIMS = [
+  { label: 'Left scrim opacity', prop: '--np-scrim-left', fallback: 0.35 },
+  { label: 'Right scrim opacity', prop: '--np-scrim-right', fallback: 0.16 },
+  { label: 'Header scrim opacity', prop: '--np-scrim-header', fallback: 0.4 },
+]
+const _shippedMotion = { stiffness: LYRIC_MOTION.stiffness, damping: LYRIC_MOTION.damping }
 
-  const defs = [
-    { key: 'alphaScale', label: 'Blob alpha scale', min: 0, max: 1, step: 0.01,
-      get: () => CascadeCore.lightTuning.alphaScale,
-      set: v => { CascadeCore.lightTuning.alphaScale = v } },
-    { key: 'minL', label: 'Blob min lightness', min: 0, max: 1, step: 0.01,
-      get: () => CascadeCore.lightTuning.minL,
-      set: v => { CascadeCore.lightTuning.minL = v; _debugReapplyBlobs() } },
-    { key: 'maxL', label: 'Blob max lightness', min: 0, max: 1, step: 0.01,
-      get: () => CascadeCore.lightTuning.maxL,
-      set: v => { CascadeCore.lightTuning.maxL = v; _debugReapplyBlobs() } },
-    { key: 'scrimLeft', label: 'Left scrim opacity', min: 0, max: 1, step: 0.01,
-      get: () => cssVar('--np-scrim-left', 0.35),
-      set: v => root.style.setProperty('--np-scrim-left', v) },
-    { key: 'scrimRight', label: 'Right scrim opacity', min: 0, max: 1, step: 0.01,
-      get: () => cssVar('--np-scrim-right', 0.16),
-      set: v => root.style.setProperty('--np-scrim-right', v) },
-    { key: 'scrimHeader', label: 'Header scrim opacity', min: 0, max: 1, step: 0.01,
-      get: () => cssVar('--np-scrim-header', 0.4),
-      set: v => root.style.setProperty('--np-scrim-header', v) },
-  ]
-
-  const panel = document.createElement('div')
-  panel.id = 'cascade-debug-light-tuning'
-  panel.style.cssText = 'position:fixed;right:8px;bottom:8px;z-index:9999;'
-    + 'width:270px;padding:8px 10px;border-radius:6px;background:rgba(0,0,0,0.82);'
-    + 'color:#7CFC7C;font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;user-select:text;'
-  panel.innerHTML = '<div style="margin-bottom:6px;opacity:0.7">Light-mode blob tuning (debug)</div>'
-
-  const rows = {}
-  for (const d of defs) {
-    const row = document.createElement('div')
-    row.style.cssText = 'display:flex;align-items:center;gap:6px;margin:4px 0;'
-    const label = document.createElement('span')
-    label.style.cssText = 'flex:1 1 auto;'
-    label.textContent = d.label
-    const input = document.createElement('input')
-    input.type = 'range'
-    input.min = String(d.min); input.max = String(d.max); input.step = String(d.step)
-    input.value = String(d.get())
-    input.style.cssText = 'flex:1 1 auto;width:90px;'
-    const val = document.createElement('span')
-    val.style.cssText = 'width:38px;text-align:right;'
-    val.textContent = Number(input.value).toFixed(2)
-    input.addEventListener('input', () => {
-      const v = parseFloat(input.value)
-      d.set(v)
-      val.textContent = v.toFixed(2)
-    })
-    row.append(label, input, val)
-    panel.appendChild(row)
-    rows[d.key] = input
-  }
-
-  const blendRow = document.createElement('label')
-  blendRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin:6px 0;cursor:pointer;'
-  const blendCheck = document.createElement('input')
-  blendCheck.type = 'checkbox'
-  blendCheck.checked = (getComputedStyle(root).getPropertyValue('--np-blend').trim() || 'multiply') !== 'normal'
-  blendCheck.addEventListener('change', () => {
-    root.style.setProperty('--np-blend', blendCheck.checked ? 'multiply' : 'normal')
-  })
-  blendRow.append(blendCheck, document.createTextNode('multiply blend mode'))
-  panel.appendChild(blendRow)
-
-  const copyBtn = document.createElement('button')
-  copyBtn.textContent = 'Copy current values'
-  copyBtn.style.cssText = 'margin-top:4px;width:100%;padding:4px;border-radius:4px;'
-    + 'border:1px solid #7CFC7C;background:transparent;color:#7CFC7C;cursor:pointer;font:inherit;'
-  copyBtn.addEventListener('click', () => {
-    const lines = defs.map(d => `${d.label} = ${parseFloat(rows[d.key].value).toFixed(2)}`)
-    lines.push(`multiply blend mode = ${blendCheck.checked}`)
-    window.cascade.clipboard.write(lines.join('\n'))
-    showToast('Tuning values copied', { level: 'debug' })
-  })
-  panel.appendChild(copyBtn)
-
-  document.body.appendChild(panel)
+/** What this tab and the Lyrics tab moved away from the shipped defaults, in
+ *  the shape `npm run tuning -- bake` reads. */
+function devTuningBake() {
+  const blob = CascadeCore.blobTuning, shipped = CascadeCore.SHIPPED_BLOB_TUNING
+  const albumColors = {}
+  for (const k of DEV_BLOB_KNOBS) if (blob[k.key] !== shipped[k.key]) albumColors[k.key] = blob[k.key]
+  if (JSON.stringify(blob.slots) !== JSON.stringify(shipped.slots)) albumColors.slots = blob.slots
+  const motion = {}
+  for (const k of DEV_MOTION_KNOBS) if (LYRIC_MOTION[k.prop] !== _shippedMotion[k.prop]) motion[k.key] = LYRIC_MOTION[k.prop]
+  return { bake: 'desktop', style: CascadeCore.lyricStyleChanges(lyricStyle), albumColors, motion }
 }
 
-window.cascade.isDebugMode().then(on => { if (on) { initDebugPanel(); initLightTuningPanel() } })
+/** Every Developer tab row: label, value, shipped default, how to set it. */
+function _devTuningGroups() {
+  const root = document.documentElement
+  const blob = CascadeCore.blobTuning, shipped = CascadeCore.SHIPPED_BLOB_TUNING
+  const cssVar = (name, fallback) => parseFloat(getComputedStyle(root).getPropertyValue(name)) || fallback
+  return [
+    { title: 'Album colors', defs: DEV_BLOB_KNOBS.map(k => ({ ...k, shipped: shipped[k.key],
+      get: () => blob[k.key],
+      set: v => { blob[k.key] = v; if (k.extract) _debugReapplyBlobs() } })) },
+    ...blob.slots.map((slot, i) => ({ title: `Blob ${i + 1}`, defs: DEV_SLOT_KNOBS.map(k => ({ ...k,
+      key: `slot${i}-${k.key}`, shipped: shipped.slots[i]?.[k.key] ?? slot[k.key],
+      get: () => slot[k.key],
+      set: v => { slot[k.key] = v } })) })),
+    { title: 'Lyric scroll', defs: DEV_MOTION_KNOBS.map(k => ({ ...k, shipped: _shippedMotion[k.prop],
+      get: () => LYRIC_MOTION[k.prop],
+      set: v => { LYRIC_MOTION[k.prop] = v } })) },
+    { title: 'Light theme scrims', defs: DEV_SCRIMS.map(d => ({ ...d, key: d.prop.slice(2), min: 0, max: 1, step: 0.01, shipped: d.fallback,
+      get: () => cssVar(d.prop, d.fallback),
+      set: v => root.style.setProperty(d.prop, v) })) },
+  ]
+}
+
+let _devRows = []
+
+/** Fills the Developer tab with the editor's own section and slider rows (the
+ *  Lyrics tab's tp-knob markup), and shows its tab. */
+function initDevTuningTab() {
+  const box = document.getElementById('ce-dev-knobs')
+  const root = document.documentElement
+  const decimals = step => (String(step).split('.')[1] || '').length
+  _devRows = []
+  box.replaceChildren()
+  for (const g of _devTuningGroups()) {
+    const sect = document.createElement('section')
+    sect.className = 'ce-sect'
+    sect.innerHTML = '<h3 class="ce-sect-title"></h3>'
+    sect.querySelector('h3').textContent = g.title
+    for (const d of g.defs) {
+      const row = document.createElement('div')
+      row.className = 'setting-row tp-knob'
+      row.innerHTML = `<div class="setting-label tp-knob-head"><label class="setting-name" for="dev-${d.key}"></label>`
+        + '<button type="button" class="tp-knob-reset" title="Reset to shipped">↺</button></div>'
+        + `<div class="setting-slider-row"><input type="range" class="tp-range" id="dev-${d.key}"><span class="eq-band-value tp-knob-value"></span></div>`
+      row.querySelector('label').textContent = d.label
+      row.querySelector('.tp-knob-reset').setAttribute('aria-label', `Reset ${d.label} to shipped`)
+      const input = row.querySelector('input')
+      Object.assign(input, { min: d.min, max: d.max, step: d.step })
+      input.setAttribute('aria-label', `${g.title}: ${d.label}`)
+      const show = () => {
+        const v = d.get()
+        input.value = String(v)
+        row.querySelector('.tp-knob-value').textContent = Number(v).toFixed(decimals(d.step))
+        row.classList.toggle('changed', Math.abs(v - d.shipped) > 1e-9)
+      }
+      input.addEventListener('input', () => { d.set(parseFloat(input.value)); show() })
+      row.querySelector('.tp-knob-reset').addEventListener('click', () => { d.set(d.shipped); show() })
+      show()
+      _devRows.push(show)
+      sect.append(row)
+    }
+    if (g.title === 'Light theme scrims') {
+      const row = document.createElement('div')
+      row.className = 'setting-row'
+      row.innerHTML = '<div class="setting-label"><span class="setting-name">Multiply blend</span>'
+        + '<span class="setting-desc">The light theme lays the blobs on like ink.</span></div>'
+        + '<label class="toggle"><input type="checkbox" id="dev-np-blend" aria-label="Multiply blend"><span class="toggle-track"></span></label>'
+      const check = row.querySelector('input')
+      const show = () => { check.checked = (getComputedStyle(root).getPropertyValue('--np-blend').trim() || 'multiply') !== 'normal' }
+      check.addEventListener('change', () => root.style.setProperty('--np-blend', check.checked ? 'multiply' : 'normal'))
+      show()
+      _devRows.push(show)
+      sect.append(row)
+    }
+    box.append(sect)
+  }
+  /** @type {HTMLInputElement} */ (document.getElementById('ce-dev-plugin-absent')).checked = _cascadePluginAbsent
+  if (!CE_TABS.includes('developer')) CE_TABS.push('developer')
+  document.getElementById('ce-tab-developer').hidden = false
+}
+
+document.getElementById('ce-dev-bake').addEventListener('click', async () => {
+  const payload = devTuningBake()
+  const r = await window.cascade.tuningBake(payload)
+  if (r?.report) { showNotice(r.report, 'Baked'); return }
+  await window.cascade.clipboard.write(JSON.stringify(payload))
+  showNotice(`${r?.error || 'Baking failed.'}\n\nCopied instead: run npm run tuning -- bake in the checkout.`, 'Tuning')
+})
+document.getElementById('ce-dev-copy').addEventListener('click', () => {
+  window.cascade.clipboard.write(JSON.stringify(devTuningBake()))
+  const scrims = DEV_SCRIMS.map(d => `${d.label} = ${(parseFloat(getComputedStyle(document.documentElement).getPropertyValue(d.prop)) || d.fallback).toFixed(2)}`)
+  console.log('[tuning] light theme scrims (CSS, not in tuning-defaults.json):\n' + scrims.join('\n'))
+  showToast('Tuning copied. Scrims are in the console.', { level: 'debug' })
+})
+document.getElementById('ce-dev-reset').addEventListener('click', () => {
+  const root = document.documentElement
+  const blob = CascadeCore.blobTuning, shipped = structuredClone(CascadeCore.SHIPPED_BLOB_TUNING)
+  for (const k of DEV_BLOB_KNOBS) blob[k.key] = shipped[k.key]
+  blob.slots.forEach((slot, i) => Object.assign(slot, shipped.slots[i]))
+  Object.assign(LYRIC_MOTION, _shippedMotion)
+  for (const d of DEV_SCRIMS) root.style.removeProperty(d.prop)
+  root.style.removeProperty('--np-blend')
+  _devRows.forEach(show => show())
+  _debugReapplyBlobs()
+})
+
+window.cascade.isDebugMode().then(on => { if (on) initDevTuningTab() })
 
 init()

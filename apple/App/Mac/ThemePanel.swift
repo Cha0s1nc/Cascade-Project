@@ -176,6 +176,15 @@ private struct ThemeColorsPage: View {
 private struct ThemeLyricsPage: View {
     @Bindable private var tuning = StyleTuning.shared
 
+    /// A debug build, or the `.cascade-debug` sentinel: nobody else bakes defaults.
+    private static let canBake: Bool = {
+        #if DEBUG
+        true
+        #else
+        DebugPanel.sentinelExists()
+        #endif
+    }()
+
     private var sections: [String] {
         StyleTuning.knobs.map(\.section).reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
     }
@@ -205,6 +214,14 @@ private struct ThemeLyricsPage: View {
             Section {
                 Button("Reset all lyric settings", role: .destructive) { tuning.values = .init() }
                     .disabled(tuning.changes.isEmpty)
+                // For `npm run tuning -- bake`, which writes it into tuning-defaults.json.
+                if Self.canBake {
+                    Button("Copy Changes for npm run tuning") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(tuning.bakeText, forType: .string)
+                    }
+                    .disabled(tuning.changes.isEmpty)
+                }
             }
             }
             .disabled(tuning.lyricsLocked)

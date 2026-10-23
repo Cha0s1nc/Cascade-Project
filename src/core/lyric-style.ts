@@ -2,11 +2,16 @@
 // Apple app's Style Tuning (apple/App/Sources/StyleTuning.swift). Keys match
 // the Apple app's wherever the meaning does, so a look can move between them.
 //
+// Defaults come from tuning-defaults.json at the repo root, shared with the
+// Apple apps and split per platform where they differ (npm run tuning).
+//
 // Each knob drives a CSS custom property (`css`, with `unit` appended) or,
 // without one, a value renderer.js reads itself. Only the knobs the user
 // changed are stored, so a better default later still reaches everything
 // they left alone. Stored values are untrusted: each is clamped to its range
 // before it reaches CSS or the lyric timing.
+
+import { desktopRevisionKeys, shippedNumber, TUNING_REVISION } from './tuning-defaults.ts'
 
 export interface LyricKnob {
   key: string
@@ -22,48 +27,66 @@ export interface LyricKnob {
   unit?: 'px' | 'em' | 's'
 }
 
-export const LYRIC_KNOBS: readonly LyricKnob[] = [
-  { key: 'currentLinePosition', section: 'Layout', label: 'Current line position', min: 0.1, max: 0.6, step: 0.01, value: 0.5 },
-  { key: 'lineGap', section: 'Layout', label: 'Line gap', min: 0, max: 40, step: 1, value: 8, css: '--ly-line-gap', unit: 'px' },
+const SPECS: readonly Omit<LyricKnob, 'value'>[] = [
+  { key: 'currentLinePosition', section: 'Layout', label: 'Current line position', min: 0.1, max: 0.6, step: 0.01 },
+  { key: 'lineGap', section: 'Layout', label: 'Line gap', min: 0, max: 40, step: 1, css: '--ly-line-gap', unit: 'px' },
 
-  { key: 'pastScale', section: 'Past lines', label: 'Size', min: 0.4, max: 1, step: 0.01, value: 0.75, css: '--ly-past-scale' },
-  { key: 'pastOpacity', section: 'Past lines', label: 'Opacity', min: 0, max: 1, step: 0.01, value: 0.3, css: '--ly-past-opacity' },
-  { key: 'pastBlur', section: 'Past lines', label: 'Blur', min: 0, max: 8, step: 0.5, value: 3.5, css: '--ly-past-blur', unit: 'px' },
+  { key: 'pastScale', section: 'Past lines', label: 'Size', min: 0.4, max: 1, step: 0.01, css: '--ly-past-scale' },
+  { key: 'pastOpacity', section: 'Past lines', label: 'Opacity', min: 0, max: 1, step: 0.01, css: '--ly-past-opacity' },
+  { key: 'pastBlur', section: 'Past lines', label: 'Blur', min: 0, max: 8, step: 0.5, css: '--ly-past-blur', unit: 'px' },
 
-  { key: 'next1Opacity', section: 'Upcoming lines', label: 'Next opacity', min: 0, max: 1, step: 0.01, value: 0.15, css: '--ly-next1-opacity' },
-  { key: 'next1Blur', section: 'Upcoming lines', label: 'Next blur', min: 0, max: 8, step: 0.5, value: 2.5, css: '--ly-next1-blur', unit: 'px' },
-  { key: 'next2Opacity', section: 'Upcoming lines', label: 'Second opacity', min: 0, max: 1, step: 0.01, value: 0.11, css: '--ly-next2-opacity' },
-  { key: 'next2Blur', section: 'Upcoming lines', label: 'Second blur', min: 0, max: 8, step: 0.5, value: 4, css: '--ly-next2-blur', unit: 'px' },
-  { key: 'next3Opacity', section: 'Upcoming lines', label: 'Third opacity', min: 0, max: 1, step: 0.01, value: 0.1, css: '--ly-next3-opacity' },
-  { key: 'next3Blur', section: 'Upcoming lines', label: 'Third blur', min: 0, max: 8, step: 0.5, value: 4, css: '--ly-next3-blur', unit: 'px' },
-  { key: 'farBlur', section: 'Upcoming lines', label: 'Blur further out', min: 0, max: 12, step: 0.5, value: 6, css: '--ly-far-blur', unit: 'px' },
-  { key: 'browsingOpacity', section: 'Upcoming lines', label: 'Opacity while scrolling', min: 0, max: 1, step: 0.01, value: 0.8, css: '--ly-browsing-opacity' },
-  { key: 'browsingBlur', section: 'Upcoming lines', label: 'Blur while scrolling', min: 0, max: 8, step: 0.5, value: 2.5, css: '--ly-browsing-blur', unit: 'px' },
+  { key: 'next1Opacity', section: 'Upcoming lines', label: 'Next opacity', min: 0, max: 1, step: 0.01, css: '--ly-next1-opacity' },
+  { key: 'next1Blur', section: 'Upcoming lines', label: 'Next blur', min: 0, max: 8, step: 0.5, css: '--ly-next1-blur', unit: 'px' },
+  { key: 'next2Opacity', section: 'Upcoming lines', label: 'Second opacity', min: 0, max: 1, step: 0.01, css: '--ly-next2-opacity' },
+  { key: 'next2Blur', section: 'Upcoming lines', label: 'Second blur', min: 0, max: 8, step: 0.5, css: '--ly-next2-blur', unit: 'px' },
+  { key: 'next3Opacity', section: 'Upcoming lines', label: 'Third opacity', min: 0, max: 1, step: 0.01, css: '--ly-next3-opacity' },
+  { key: 'next3Blur', section: 'Upcoming lines', label: 'Third blur', min: 0, max: 8, step: 0.5, css: '--ly-next3-blur', unit: 'px' },
+  { key: 'farBlur', section: 'Upcoming lines', label: 'Blur further out', min: 0, max: 12, step: 0.5, css: '--ly-far-blur', unit: 'px' },
+  { key: 'browsingOpacity', section: 'Upcoming lines', label: 'Opacity while scrolling', min: 0, max: 1, step: 0.01, css: '--ly-browsing-opacity' },
+  { key: 'browsingBlur', section: 'Upcoming lines', label: 'Blur while scrolling', min: 0, max: 8, step: 0.5, css: '--ly-browsing-blur', unit: 'px' },
 
-  { key: 'unsungOpacity', section: 'Karaoke', label: 'Unsung word opacity', min: 0, max: 1, step: 0.01, value: 0.29, css: '--ly-unsung-opacity' },
-  { key: 'wordLift', section: 'Karaoke', label: 'Word lift (em)', min: 0, max: 0.2, step: 0.005, value: 0.04, css: '--word-lift', unit: 'em' },
+  { key: 'unsungOpacity', section: 'Karaoke', label: 'Unsung word opacity', min: 0, max: 1, step: 0.01, css: '--ly-unsung-opacity' },
+  { key: 'wordLift', section: 'Karaoke', label: 'Word lift (em)', min: 0, max: 0.2, step: 0.005, css: '--word-lift', unit: 'em' },
   // Held notes (SpicyLyrics only): see heldSwell() below.
-  { key: 'heldFullSeconds', section: 'Karaoke', label: 'Held note: full swell after (s)', min: 1, max: 8, step: 0.1, value: 1.4 },
-  { key: 'heldMinStrength', section: 'Karaoke', label: 'Held note: short note strength', min: 0, max: 1, step: 0.05, value: 0.45 },
-  { key: 'heldLift', section: 'Karaoke', label: 'Held note lift (em)', min: 0, max: 0.4, step: 0.01, value: 0.16, css: '--emph-lift', unit: 'em' },
-  { key: 'heldScale', section: 'Karaoke', label: 'Held note swell', min: 1, max: 1.4, step: 0.01, value: 1.19, css: '--emph-scale' },
-  { key: 'heldSettleSeconds', section: 'Karaoke', label: 'Held note release time (s)', min: 0, max: 2, step: 0.05, value: 0.4 },
-  { key: 'backgroundVocalSize', section: 'Karaoke', label: 'Background vocal size', min: 0.4, max: 1, step: 0.01, value: 0.64, css: '--ly-bg-vocal-size', unit: 'em' },
-  { key: 'backgroundVocalOpacity', section: 'Karaoke', label: 'Background vocal opacity', min: 0, max: 1, step: 0.01, value: 0.85, css: '--ly-bg-vocal-opacity' },
+  { key: 'heldFullSeconds', section: 'Karaoke', label: 'Held note: full swell after (s)', min: 1, max: 8, step: 0.1 },
+  { key: 'heldMinStrength', section: 'Karaoke', label: 'Held note: short note strength', min: 0, max: 1, step: 0.05 },
+  { key: 'heldLift', section: 'Karaoke', label: 'Held note lift (em)', min: 0, max: 0.4, step: 0.01, css: '--emph-lift', unit: 'em' },
+  { key: 'heldScale', section: 'Karaoke', label: 'Held note swell', min: 1, max: 1.4, step: 0.01, css: '--emph-scale' },
+  { key: 'heldSettleSeconds', section: 'Karaoke', label: 'Held note release time (s)', min: 0, max: 2, step: 0.05 },
+  { key: 'backgroundVocalSize', section: 'Karaoke', label: 'Background vocal size', min: 0.4, max: 1, step: 0.01, css: '--ly-bg-vocal-size', unit: 'em' },
+  { key: 'backgroundVocalOpacity', section: 'Karaoke', label: 'Background vocal opacity', min: 0, max: 1, step: 0.01, css: '--ly-bg-vocal-opacity' },
 
-  { key: 'fadeSeconds', section: 'Motion', label: 'Line fade (s)', min: 0, max: 2, step: 0.05, value: 1, css: '--ly-fade', unit: 's' },
-  { key: 'rippleSeconds', section: 'Motion', label: 'Ripple per line (s)', min: 0, max: 0.4, step: 0.01, value: 0.04 },
+  { key: 'fadeSeconds', section: 'Motion', label: 'Line fade (s)', min: 0, max: 2, step: 0.05, css: '--ly-fade', unit: 's' },
+  { key: 'rippleSeconds', section: 'Motion', label: 'Ripple per line (s)', min: 0, max: 0.4, step: 0.01 },
   // Negative is earlier, as in the Apple app: a line takes its fade to light
   // up, so one drawn exactly on the beat reads as late.
-  { key: 'lyricsDelay', section: 'Motion', label: 'Lyrics timing (s)', min: -2, max: 2, step: 0.05, value: -0.05 },
+  { key: 'lyricsDelay', section: 'Motion', label: 'Lyrics timing (s)', min: -2, max: 2, step: 0.05 },
   // The scroll alone heads for the next line this early, so it is mostly
   // there when that line lights; the highlight keeps to the timing above.
-  { key: 'scrollLead', section: 'Motion', label: 'Scroll ahead (s)', min: 0, max: 1, step: 0.05, value: 0 },
+  { key: 'scrollLead', section: 'Motion', label: 'Scroll ahead (s)', min: 0, max: 1, step: 0.05 },
   // Only for a line that follows the one before closely (within half a second
   // of its end, without overlapping it): it lights, and the scroll heads for
   // it, this early, so back-to-back lines do not arrive late. 0 turns it off.
-  { key: 'tightScrollLead', section: 'Motion', label: 'Scroll ahead on tight lines (s)', min: 0, max: 1, step: 0.05, value: 0.25 },
+  { key: 'tightScrollLead', section: 'Motion', label: 'Scroll ahead on tight lines (s)', min: 0, max: 1, step: 0.05 },
+
+  // The cover-color background behind Now Playing (album-colors.ts' blobLook).
+  { key: 'bgSaturation', section: 'Background colors', label: 'Saturation', min: 0, max: 2, step: 0.05 },
+  { key: 'bgBrightness', section: 'Background colors', label: 'Brightness', min: -0.5, max: 0.5, step: 0.01 },
+  { key: 'bgIntensity', section: 'Background colors', label: 'Intensity', min: 0, max: 2, step: 0.05 },
+  { key: 'bgSpeed', section: 'Background colors', label: 'Drift speed', min: 0, max: 5, step: 0.1 },
+  // Behind lyrics the background darkens by lyricsDimBase, plus up to
+  // lyricsDimBright more for a bright cover (Oklab lightness from
+  // lyricsDimFrom up to the dark palette's 0.82 ceiling). Dark theme only.
+  { key: 'lyricsDimBase', section: 'Background colors', label: 'Dim behind lyrics', min: 0, max: 0.8, step: 0.01 },
+  { key: 'lyricsDimBright', section: 'Background colors', label: 'Extra dim for bright covers', min: 0, max: 0.8, step: 0.01 },
+  { key: 'lyricsDimFrom', section: 'Background colors', label: 'Counts as bright from', min: 0.3, max: 0.82, step: 0.01 },
+
+  { key: 'controlsIdleSeconds', section: 'Controls', label: 'Hide after (s)', min: 1, max: 20, step: 0.5 },
 ]
+
+/** Every knob with its shipped default, from tuning-defaults.json (the
+ *  desktop's values; the Apple apps read their own from the same file). */
+export const LYRIC_KNOBS: readonly LyricKnob[] = SPECS.map(k => ({ ...k, value: shippedNumber('style', k.key) }))
 
 export type LyricStyle = Record<string, number>
 
@@ -79,18 +102,15 @@ export function lyricStyleFrom(stored: unknown): LyricStyle {
   return Object.fromEntries(LYRIC_KNOBS.map(k => [k.key, k.key in s ? clamp(k, s[k.key]) : k.value]))
 }
 
-/** Only the knobs that differ from their defaults: what gets stored. */
 /** Bumped each time the shipped defaults are re-baked, with the knobs that
  *  moved. Someone who never touched those knobs gets the new values by
  *  themselves (only changes are stored); someone who did is asked once, on
- *  opening Now Playing, whether to take them. Revision 2 is the stable build's
- *  own tuning (2026-10-06). The Apple app keeps the same table
- *  (StyleTuning.knobsChanged); a new bake adds the next number to both. */
-export const LYRIC_DEFAULTS_REVISION = 2
-export const LYRIC_DEFAULTS_CHANGED: Readonly<Record<number, readonly string[]>> = {
-  2: ['browsingBlur', 'unsungOpacity', 'heldFullSeconds', 'heldMinStrength', 'heldLift',
-    'heldScale', 'heldSettleSeconds', 'lyricsDelay'],
-}
+ *  opening Now Playing, whether to take them. Both live in tuning-defaults.json
+ *  ("revisions"), shared with the Apple apps, and npm run tuning adds to them
+ *  whenever a style default moves. */
+export const LYRIC_DEFAULTS_REVISION = TUNING_REVISION
+export const LYRIC_DEFAULTS_CHANGED: Readonly<Record<number, readonly string[]>> = Object.fromEntries(
+  Array.from({ length: TUNING_REVISION }, (_, i) => [i + 1, desktopRevisionKeys(i + 1)]))
 
 /** The re-baked knobs this person changed themselves since the defaults they
  *  last saw (`seen`, stored; missing or junk counts as 1), so the new values
@@ -105,6 +125,7 @@ export function lyricKnobsWithNewDefaults(changes: unknown, seen: unknown): Lyri
   return LYRIC_KNOBS.filter(k => moved.has(k.key) && k.key in mine)
 }
 
+/** Only the knobs that differ from their defaults: what gets stored. */
 export function lyricStyleChanges(style: LyricStyle): LyricStyle {
   const out: LyricStyle = {}
   for (const k of LYRIC_KNOBS) {

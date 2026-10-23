@@ -661,6 +661,26 @@ ipcMain.handle('get-version', () => app.getVersion())
 // IPC: whether this is a packaged (production) build vs. run from the command line
 ipcMain.handle('is-packaged', () => app.isPackaged)
 
+// IPC: the debug tuning panel's Bake button. Hands what was tuned to
+// `npm run tuning -- bake` (scripts/tuning.mjs), which writes it into
+// tuning-defaults.json in this checkout. Only from a source checkout with the
+// debug sentinel: a packaged app has no checkout to write to. Resolves with
+// the script's report, or { error } for the renderer to fall back to copying.
+ipcMain.handle('tuning-bake', (_e, payload) => new Promise(resolve => {
+  if (app.isPackaged || !_debugMode) return resolve({ error: 'Baking needs a source checkout with .cascade-debug.' })
+  let out = '', err = ''
+  let child
+  try {
+    child = spawn('node', [path.join(__dirname, 'scripts', 'tuning.mjs'), 'bake', '--stdin'],
+      { cwd: __dirname, stdio: ['pipe', 'pipe', 'pipe'] })
+  } catch (e) { return resolve({ error: String(e?.message ?? e) }) }
+  child.stdout.on('data', d => { out += d })
+  child.stderr.on('data', d => { err += d })
+  child.on('error', e => resolve({ error: `Could not run node: ${e.message}` }))
+  child.on('close', code => resolve(code === 0 ? { report: out.trim() } : { error: (err || out).trim() || `exit ${code}` }))
+  child.stdin.end(JSON.stringify(payload))
+}))
+
 // IPC: theme switched in the renderer - recolor the OS-drawn caption buttons
 // to match. No-op on macOS: setTitleBarOverlay only applies to a window
 // created with titleBarOverlay set, which createWindow() only does elsewhere.

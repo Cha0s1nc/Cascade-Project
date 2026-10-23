@@ -5,9 +5,9 @@ import CascadeKit
 /// cascadeDebug.lyricMotion: every lyric and background value that is a
 /// matter of taste, read by LyricStyle and NowPlayingBackground, so a slider
 /// shows its effect on the next frame. Saved between launches. The panel is
-/// in every build, from Now Playing's ··· menu. The defaults are Jon's own
-/// tuning from 2026-09-29 (Copy Changes, pasted back): quieter upcoming
-/// lines, a slower fade, a faster ripple, and lyrics 0.35 s ahead. The
+/// in every build, from Now Playing's ··· menu. The defaults live in
+/// tuning-defaults.json at the repo root, shared with the desktop; Copy
+/// Changes copies a tuning for `npm run tuning -- bake` to write there. The
 /// panel leads with presets for each group (StyleTuning.presetGroups), the
 /// defaults being the middle one, and keeps every knob under Advanced.
 @MainActor
@@ -15,74 +15,87 @@ import CascadeKit
 final class StyleTuning {
     static let shared = StyleTuning()
 
+    /// Every knob's value. The zeros are placeholders: `Values()` is the
+    /// shipped look, each knob's default from tuning-defaults.json at the repo
+    /// root for this platform (CascadeKit's TuningDefaults), shared with the
+    /// desktop. Change a default there, with `npm run tuning`, not here.
     struct Values: Equatable {
-        #if os(tvOS)
-        var lyricSize = 44.0
-        #else
-        var lyricSize = 30.0
-        #endif
+        var lyricSize = 0.0
         /// Where the current line sits, as a share of the lyrics area's height
         /// from its top. Apple Music keeps it high, a line or so below the
         /// header, with only the last line or two showing above.
-        var currentLinePosition = 0.12
-        var lineGap = 8.0
-        var pastScale = 0.75
-        var pastOpacity = 0.3
-        var pastBlur = 3.5
-        var next1Opacity = 0.15
-        var next1Blur = 2.5
-        var next2Opacity = 0.11
-        var next2Blur = 4.0
-        var next3Opacity = 0.1
-        var next3Blur = 4.0
-        var farBlur = 6.0
-        var browsingOpacity = 0.8
-        var browsingBlur = 2.5
-        var unsungOpacity = 0.29
-        var wordLift = 0.04
-        var fadeSeconds = 1.0
-        var rippleSeconds = 0.04
+        var currentLinePosition = 0.0
+        var lineGap = 0.0
+        var pastScale = 0.0
+        var pastOpacity = 0.0
+        var pastBlur = 0.0
+        var next1Opacity = 0.0
+        var next1Blur = 0.0
+        var next2Opacity = 0.0
+        var next2Blur = 0.0
+        var next3Opacity = 0.0
+        var next3Blur = 0.0
+        var farBlur = 0.0
+        var browsingOpacity = 0.0
+        var browsingBlur = 0.0
+        var unsungOpacity = 0.0
+        var wordLift = 0.0
+        var fadeSeconds = 0.0
+        var rippleSeconds = 0.0
         /// A held note swells across its own length, and more the longer it
         /// is: a note held this long or longer gets the full swell.
-        var heldFullSeconds = 1.4
+        var heldFullSeconds = 0.0
         /// The share of the full swell a note held just 1 s gets.
-        var heldMinStrength = 0.45
-        var heldLift = 0.16
-        var heldScale = 1.19
+        var heldMinStrength = 0.0
+        var heldLift = 0.0
+        var heldScale = 0.0
         /// What is kept of the peak once the note ends, until the line does.
-        var heldSettleSeconds = 0.4
+        var heldSettleSeconds = 0.0
         /// Lyrics drawn this much later than the audio clock (negative: earlier).
-        /// A little early by default: a line takes its fade to light up, so
-        /// one that starts on the beat reads as late. Apple Music leads too.
-        /// The iPhone leads further, by the user's own tuning on one (2026-10-22).
-        #if os(iOS)
-        var lyricsDelay = -0.35
-        #else
-        var lyricsDelay = -0.05
-        #endif
+        var lyricsDelay = 0.0
         /// The scroll alone heads for the next line this many seconds early, so
         /// it is mostly there when the line lights. 0 scrolls with the highlight.
         var scrollLead = 0.0
         /// A line that follows the one before closely (Lyrics.tightNextIndex) lights, and is
         /// scrolled to, this many seconds early. 0 turns it off.
-        var tightScrollLead = 0.25
-        var backgroundVocalSize = 0.64
-        var backgroundVocalOpacity = 0.85
-        var bgSaturation = 1.0
+        var tightScrollLead = 0.0
+        var backgroundVocalSize = 0.0
+        var backgroundVocalOpacity = 0.0
+        var bgSaturation = 0.0
         var bgBrightness = 0.0
-        var bgIntensity = 1.0
-        var bgSpeed = 1.0
+        var bgIntensity = 0.0
+        var bgSpeed = 0.0
         var bgBlur = 0.0
         /// Behind lyrics the background darkens by this much, plus up to
         /// lyricsDimBright more for a bright cover (Oklab lightness from
         /// lyricsDimFrom up to the palette's 0.82 ceiling), so the faint
         /// upcoming lines still read over a light salmon or yellow.
-        var lyricsDimBase = 0.12
-        var lyricsDimBright = 0.45
-        var lyricsDimFrom = 0.5
-        var controlsIdleSeconds = 4.0
-        var controlsWokenIdleSeconds = 8.0
+        var lyricsDimBase = 0.0
+        var lyricsDimBright = 0.0
+        var lyricsDimFrom = 0.0
+        var controlsIdleSeconds = 0.0
+        var controlsWokenIdleSeconds = 0.0
+
+        /// The shipped look.
+        @MainActor init() { self = StyleTuning.shipped }
+        fileprivate init(placeholders: Void) {}
     }
+
+    /// The defaults, read once. A knob the file has no value for on this
+    /// platform is a broken tuning-defaults.json: loud in a debug build, the
+    /// placeholder in a release one.
+    static let shipped: Values = {
+        var v = Values(placeholders: ())
+        let style = TuningDefaults.current.style
+        for knob in knobs {
+            guard let d = style[knob.key] else {
+                assertionFailure("tuning-defaults.json has no \(knob.key) for \(TuningDefaults.Platform.current)")
+                continue
+            }
+            v[keyPath: knob.path] = d
+        }
+        return v
+    }()
 
     struct Knob {
         let section: String
@@ -144,7 +157,7 @@ final class StyleTuning {
 
         /// The shipped values for these knobs, so the default preset can
         /// never drift from the defaults.
-        static func standard(_ name: String, _ keys: [WritableKeyPath<Values, Double>]) -> Preset {
+        @MainActor static func standard(_ name: String, _ keys: [WritableKeyPath<Values, Double>]) -> Preset {
             let v = Values()
             return Preset(name: name, settings: Dictionary(uniqueKeysWithValues: keys.map { ($0, v[keyPath: $0]) }))
         }
@@ -244,6 +257,14 @@ final class StyleTuning {
         values = v
     }
 
+    /// The changes as `npm run tuning -- bake` reads them: this platform and
+    /// its style changes, as JSON.
+    var bakeText: String {
+        let object: [String: Any] = ["bake": TuningDefaults.Platform.current.rawValue, "style": changes]
+        let data = (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
+        return String(decoding: data, as: UTF8.self)
+    }
+
     /// Only what differs from the defaults, so a changed default still
     /// reaches anyone who never touched that knob.
     var changes: [String: Double] {
@@ -264,23 +285,11 @@ final class StyleTuning {
     /// Bumped each time the shipped defaults are re-baked, with the knobs that
     /// moved. Someone who never touched those knobs gets the new values by
     /// themselves (only changes are stored); someone who did is asked, once,
-    /// whether to take the new ones. Revision 2: the stable build's own tuning
-    /// (2026-10-06). Revision 3: the iPhone's lyrics timing (2026-10-22); no other
-    /// platform's default moved, so there it lists nothing and asks nothing.
-    /// A new bake adds the next number and its knobs here.
-    static let defaultsRevision = 3
-    static let knobsChanged: [Int: [String]] = [
-        2: ["browsingBlur", "unsungOpacity", "heldFullSeconds", "heldMinStrength", "heldLift",
-            "heldScale", "heldSettleSeconds", "lyricsDelay"],
-        3: onPhone ? ["lyricsDelay"] : [],
-    ]
-    private static var onPhone: Bool {
-        #if os(iOS)
-        true
-        #else
-        false
-        #endif
-    }
+    /// whether to take the new ones. Both come from tuning-defaults.json
+    /// ("revisions", resolved for this platform), shared with the desktop, and
+    /// npm run tuning adds to them whenever a default moves.
+    static let defaultsRevision = TuningDefaults.current.revision
+    static let knobsChanged: [Int: [String]] = TuningDefaults.current.revisionKeys
     private static let defaultsSeenKey = "cascade.styleTuningDefaultsSeen"
 
     /// The re-baked knobs this person set themselves since the defaults they
@@ -378,10 +387,9 @@ struct StyleTuningSheet: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        // Paste this back to bake a tuning in as the defaults.
+                        // For `npm run tuning -- bake`, which writes it into tuning-defaults.json.
                         Button("Copy Changes", systemImage: "doc.on.doc") {
-                            let lines = tuning.changes.sorted { $0.key < $1.key }.map { "\($0.key) = \($0.value)" }
-                            UIPasteboard.general.string = lines.isEmpty ? "(all defaults)" : lines.joined(separator: "\n")
+                            UIPasteboard.general.string = tuning.bakeText
                         }
                         Button("Done", systemImage: "checkmark") { dismiss() }
                     } label: {

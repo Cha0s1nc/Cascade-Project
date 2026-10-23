@@ -1725,6 +1725,8 @@
           <button type="button" class="sn-item" role="tab" id="ce-tab-lyrics" aria-controls="ce-panel-lyrics" aria-selected="false" tabindex="-1" data-tab="lyrics">Lyrics</button>
           <button type="button" class="sn-item" role="tab" id="ce-tab-crossfade" aria-controls="ce-panel-crossfade" aria-selected="false" tabindex="-1" data-tab="crossfade">Crossfade</button>
           <button type="button" class="sn-item" role="tab" id="ce-tab-presets" aria-controls="ce-panel-presets" aria-selected="false" tabindex="-1" data-tab="presets">Presets</button>
+          <!-- Shown only with the .cascade-debug sentinel (initDevTuningTab). -->
+          <button type="button" class="sn-item" role="tab" id="ce-tab-developer" aria-controls="ce-panel-developer" aria-selected="false" tabindex="-1" data-tab="developer" hidden>Dev</button>
         </div>
       </div>
       <div class="ce-body" id="ce-body">
@@ -1951,6 +1953,33 @@
               <div data-slot="presets"></div>
             </section>
             <button type="button" class="ce-reset" data-reset="presets">Reset this tab</button>
+          </div>
+          <div class="ce-panel" id="ce-panel-developer" role="tabpanel" aria-labelledby="ce-tab-developer" data-tab="developer">
+            <p class="ce-cf-length">Shipped defaults from tuning-defaults.json, live. Nothing here is saved: Bake writes it, and the Lyrics tab's changes, into the file. Shown because of .cascade-debug.</p>
+            <!-- One section per group, filled by initDevTuningTab(). -->
+            <div id="ce-dev-knobs"></div>
+            <section class="ce-sect">
+              <h3 class="ce-sect-title">Defaults file</h3>
+              <div class="tp-preset-actions">
+                <button type="button" class="tp-reset-all" id="ce-dev-bake">Bake into file</button>
+                <button type="button" class="tp-reset-all" id="ce-dev-copy">Copy for npm run tuning</button>
+              </div>
+            </section>
+            <section class="ce-sect">
+              <h3 class="ce-sect-title">Playback diagnostics</h3>
+              <pre class="ce-dev-diag" id="ce-dev-diag"></pre>
+              <div class="setting-row">
+                <div class="setting-label">
+                  <span class="setting-name">Pretend Cascade Server is missing</span>
+                  <span class="setting-desc">Previews what people without the plugin see.</span>
+                </div>
+                <label class="toggle"><input type="checkbox" id="ce-dev-plugin-absent" aria-label="Pretend Cascade Server is missing"><span class="toggle-track"></span></label>
+              </div>
+              <div class="tp-preset-actions">
+                <button type="button" class="tp-reset-all" id="ce-dev-diag-copy">Copy diagnostics</button>
+              </div>
+            </section>
+            <button type="button" class="ce-reset" id="ce-dev-reset">Reset this tab</button>
           </div>
         </div>
       </div>

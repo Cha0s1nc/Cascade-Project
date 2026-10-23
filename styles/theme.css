@@ -1,6 +1,7 @@
 /* ── Album art fullscreen theme ── */
 /* Background gradient is set directly on the overlay via JS inline style */
-/* #ov-bg-pulse is now purely a beat-darkening overlay (black, variable opacity) */
+/* #ov-bg-pulse is the black layer that darkens the blobs behind lyrics
+   (_applyLyricsDim in renderer.js, the Lyrics tab's dim knobs). */
 #ov-bg-pulse {
   display: none;
   position: absolute;
@@ -9,6 +10,7 @@
   opacity: 0;
   pointer-events: none;
   z-index: 1;
+  transition: opacity 0.6s ease-in-out;
 }
 .np-overlay.art-theme #ov-bg-pulse { display: block; }
 .np-overlay.art-theme > *:not(#ov-bg-pulse):not(#ov-bg-prev) { position: relative; z-index: 2; }

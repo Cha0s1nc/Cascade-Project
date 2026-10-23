@@ -40,6 +40,11 @@
 .ce-menu { flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 .ce-tabs-wrap { flex-shrink: 0; display: flex; justify-content: center; padding: 8px 16px 12px; }
 .ce-tabs .sn-item { padding: 6px 11px; font-size: 12px; }
+/* The Developer tab, until the debug sentinel shows it (.sn-item sets display). */
+.ce-tabs .sn-item[hidden] { display: none; }
+/* Six tabs fit the menu's width only a little tighter. */
+.ce-tabs:has(#ce-tab-developer:not([hidden])) .sn-item { padding: 6px 8px; }
+.ce-dev-diag { margin: 6px 0 10px; padding: 10px 12px; border-radius: 8px; background: var(--surface2); color: var(--text2); font: 11px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-all; user-select: text; }
 .ce-tabs .sn-pill { transition: transform 0.2s cubic-bezier(0.2, 0.7, 0.3, 1), width 0.2s cubic-bezier(0.2, 0.7, 0.3, 1); }
 .ce-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 6px 26px 26px; }
 .ce-body::-webkit-scrollbar { width: 4px; }
