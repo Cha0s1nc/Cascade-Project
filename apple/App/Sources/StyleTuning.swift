@@ -54,7 +54,12 @@ final class StyleTuning {
         /// Lyrics drawn this much later than the audio clock (negative: earlier).
         /// A little early by default: a line takes its fade to light up, so
         /// one that starts on the beat reads as late. Apple Music leads too.
+        /// The iPhone leads further, by the user's own tuning on one (2026-10-22).
+        #if os(iOS)
+        var lyricsDelay = -0.35
+        #else
         var lyricsDelay = -0.05
+        #endif
         /// The scroll alone heads for the next line this many seconds early, so
         /// it is mostly there when the line lights. 0 scrolls with the highlight.
         var scrollLead = 0.0
@@ -260,12 +265,22 @@ final class StyleTuning {
     /// moved. Someone who never touched those knobs gets the new values by
     /// themselves (only changes are stored); someone who did is asked, once,
     /// whether to take the new ones. Revision 2: the stable build's own tuning
-    /// (2026-10-06). A new bake adds the next number and its knobs here.
-    static let defaultsRevision = 2
+    /// (2026-10-06). Revision 3: the iPhone's lyrics timing (2026-10-22); no other
+    /// platform's default moved, so there it lists nothing and asks nothing.
+    /// A new bake adds the next number and its knobs here.
+    static let defaultsRevision = 3
     static let knobsChanged: [Int: [String]] = [
         2: ["browsingBlur", "unsungOpacity", "heldFullSeconds", "heldMinStrength", "heldLift",
             "heldScale", "heldSettleSeconds", "lyricsDelay"],
+        3: onPhone ? ["lyricsDelay"] : [],
     ]
+    private static var onPhone: Bool {
+        #if os(iOS)
+        true
+        #else
+        false
+        #endif
+    }
     private static let defaultsSeenKey = "cascade.styleTuningDefaultsSeen"
 
     /// The re-baked knobs this person set themselves since the defaults they
