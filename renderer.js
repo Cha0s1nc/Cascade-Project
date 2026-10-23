@@ -2131,14 +2131,15 @@ document.getElementById('vi-skip').addEventListener('click', dismissVideoIntro)
 //    ever been walked through.
 // 3: lyric translation, whose models download from the internet on first use.
 //    That is disclosed here before it can happen, not left to Settings.
-const WIZARD_REVISION = 3
+// 4: Smooth skips, on the crossfade step, since some people want a skip to cut.
+const WIZARD_REVISION = 4
 
 const FIRSTRUN_STEPS = ['libraries', 'crossfade', 'quality', 'theme', 'translation']
 
 // The revision each step arrived in. A fresh install walks every step; someone
 // updating is shown only what is new since the revision they last finished, not
 // four screens they have already been through for the sake of one new one.
-const FIRSTRUN_STEP_REVISION = { libraries: 1, crossfade: 2, quality: 2, theme: 2, translation: 3 }
+const FIRSTRUN_STEP_REVISION = { libraries: 1, crossfade: 4, quality: 2, theme: 2, translation: 3 }
 let _firstRunSteps = []
 let _firstRunIdx = 0
 
@@ -2216,6 +2217,8 @@ function _renderSetupStep() {
     document.getElementById('fr-crossfade-duration-row').style.display = crossfadeEnabled ? '' : 'none'
     document.getElementById('fr-crossfade-duration').value = String(crossfadeSeconds)
     document.getElementById('fr-crossfade-duration-value').textContent = `${crossfadeSeconds}s`
+    const skipToggle = /** @type {HTMLInputElement} */ (document.getElementById('fr-skip-transitions-toggle'))
+    skipToggle.checked = displayPrefs.skipTransitions
   } else if (step === 'quality') {
     const i = Math.max(0, MAX_BITRATE_STEPS.findIndex(s => s.value === maxStreamingBitrate))
     document.getElementById('fr-max-bitrate').value = String(i)
@@ -2252,6 +2255,8 @@ document.getElementById('fr-next').addEventListener('click', () => {
 // stays changed; whatever step was never reached just keeps today's default.
 document.getElementById('fr-skip').addEventListener('click', _finishSetupWizard)
 
+// Through Settings' own setter, as every step's controls are.
+document.getElementById('fr-skip-transitions-toggle').addEventListener('change', e => setDisplayPref('skipTransitions', /** @type {HTMLInputElement} */ (e.target).checked))
 document.getElementById('fr-crossfade-toggle').addEventListener('change', async e => {
   document.getElementById('fr-crossfade-duration-row').style.display = e.target.checked ? '' : 'none'
   await setCrossfadeEnabled(e.target.checked)
@@ -5795,6 +5800,7 @@ function selectSubtitleTrack(index) {
 // opts.alreadyPlaying: true when a crossfade handoff already has `audio` playing
 // the new track in place - skip the src reset that would otherwise restart it.
 // opts.startTicks: resume position, overriding the item's stored one.
+// opts.skip: { from, kind } from skipTo, for a skip's short transition.
 async function playCurrentTrack(opts = {}) {
   if (blocksLocalPlayback()) return
   if (queueIndex < 0 || queueIndex >= queue.length) return
@@ -5808,6 +5814,8 @@ async function playCurrentTrack(opts = {}) {
   // under it changes again.
   trailArtSlice(_slice, item)
   cancelCrossfade()
+  // Laid over the outgoing cover now, before anything below changes it.
+  const skipSlice = opts.skip ? _beginSkip(opts.skip, item) : null
   // Whatever the server was encoding for the outgoing item is now waste. Runs
   // before _playSessionId is replaced by the new stream's.
   abandonCurrentEncoding()
@@ -5825,7 +5833,9 @@ async function playCurrentTrack(opts = {}) {
   if (prefetchEligible && _streamPrefetch?.itemId === item.Id) {
     prefetched = _streamPrefetch
     _streamPrefetch = null
-    _swapDeck(prefetched.deck, audio)
+    // A skip lets the old track fade out under the new one.
+    if (opts.skip) _swapDeckFadingOut(prefetched.deck, audio)
+    else _swapDeck(prefetched.deck, audio)
   } else {
     // Whatever was prefetched is for a different track now, or this is a
     // crossfade handoff that already consumed it - either way it is stale.
@@ -5846,6 +5856,7 @@ async function playCurrentTrack(opts = {}) {
     // the deck actually plays.
     updateNowPlaying(item)
     highlightPlayingRow()
+    if (skipSlice) startArtSlice(skipSlice, SKIP_TRANSITION_SECS)
     shownEarly = true
     _setTrackLoading(true)
     // Resolving the stream is now a round-trip, so the user can skip again
@@ -5921,8 +5932,63 @@ async function playCurrentTrack(opts = {}) {
   if (!shownEarly) {
     updateNowPlaying(item)
     highlightPlayingRow()
+    if (skipSlice) startArtSlice(skipSlice, SKIP_TRANSITION_SECS)
   }
   reportPlaybackStart(item.Id)
+}
+
+// ── Smooth skips ─────────────────────────────────────────────────────────────
+// A skip (Next, Previous, a jump in the queue) gets a short version of the
+// crossfade's transition while Settings > Playback > Smooth skips is on
+// (displayPrefs.skipTransitions): the cover slice sweeps straight across with
+// no hold, since only one song plays; going forward, the lyrics roll on to the
+// next song (_ovRollIn, compressed when it is far below); and on a skip to the
+// track already buffered (the next one), the old track fades out over
+// SKIP_FADE_SECS under the new one instead of stopping dead. The new one
+// starts at full volume, so its first beat is not faded away. The colors fade
+// as on any song change (fadeOverlayColors). Rapid skips need nothing extra:
+// each one cuts the last one's fade (cancelCrossfade) and trails its cover off
+// (trailArtSlice).
+const SKIP_TRANSITION_SECS = 0.45
+const SKIP_FADE_SECS = 0.3
+
+/** Moves to queue[index] as a skip, from the controls that skip. */
+function skipTo(index, kind) {
+  const from = queue[queueIndex]
+  queueIndex = index
+  const skip = displayPrefs.skipTransitions && from && from !== queue[index] ? { from, kind } : null
+  playCurrentTrack(skip ? { skip } : {})
+}
+
+/** The visual side of a skip, from playCurrentTrack before the cover changes:
+ *  the lyrics roll going forward, and the slice laid over the old cover. The
+ *  slice, or null when there is none to run. */
+function _beginSkip({ from, kind }, to) {
+  if (!from || !to || isVideoItem(from) || isVideoItem(to)) return null
+  if (kind !== 'prev') _rollLyricsToNext()
+  const key = it => it.AlbumId || it.Id
+  // A slice still on screen (a skip a moment ago) carries this one off on its trail.
+  if (key(from) === key(to) || _slice || !prepareCrossfadeSlice()) return null
+  Object.assign(_slice, { under: key(to), sweepMs: SKIP_TRANSITION_SECS * 1000, slideOutMs: SKIP_TRANSITION_SECS * 1000 })
+  return _slice
+}
+
+/** _swapDeck, but the outgoing deck keeps playing as its gain falls to 0 over
+ *  SKIP_FADE_SECS. It is a crossfade tail (_cfTail): the prefetch waits for it
+ *  to end, and the next skip cuts it short. Without the Web Audio graph there
+ *  is no gain to ramp, so it is a plain swap. */
+function _swapDeckFadingOut(incoming, outgoing) {
+  const outGain = _audioCtx && _deckGain(outgoing)
+  if (!outGain) { _swapDeck(incoming, outgoing); return }
+  audio = incoming
+  _mediaSrc = _deckSource(incoming)
+  const now = _audioCtx.currentTime
+  const inGain = _deckGain(incoming)
+  if (inGain) { inGain.gain.cancelScheduledValues(now); inGain.gain.setValueAtTime(1, now) }
+  outGain.gain.cancelScheduledValues(now)
+  outGain.gain.setValueAtTime(outGain.gain.value, now)
+  outGain.gain.linearRampToValueAtTime(0, now + SKIP_FADE_SECS)
+  _cfTail = { deck: outgoing, timer: setTimeout(() => { _cutCrossfadeTail(); _schedulePrefetch() }, SKIP_TRANSITION_SECS * 1000) }
 }
 
 /** The wheel over the player bar's and Now Playing's cover (.art-loading):
@@ -7134,14 +7200,12 @@ document.getElementById('btn-prev').addEventListener('click', () => {
   // sensible reading of the same button press.
   if (CascadeCore.isRadioItem(queue[queueIndex])) { playRadioStation(queue[queueIndex]); return }
   if (mediaPosition() > 3) { seekTo(0); return }
-  queueIndex = Math.max(0, queueIndex - 1)
-  playCurrentTrack()
+  skipTo(Math.max(0, queueIndex - 1), 'prev')
 })
 
 document.getElementById('btn-next').addEventListener('click', () => {
   if (CascadeCore.isRadioItem(queue[queueIndex])) { playRadioStation(queue[queueIndex]); return }
-  queueIndex = Math.min(queue.length - 1, queueIndex + 1)
-  playCurrentTrack()
+  skipTo(Math.min(queue.length - 1, queueIndex + 1), 'next')
 })
 
 document.getElementById('btn-shuffle').addEventListener('click', () => {
@@ -7523,8 +7587,7 @@ window.cascade.miniPlayer.onControl(async (raw) => {
   else if (cmd.type === 'jump') {
     if (cmd.index <= queueIndex || cmd.index >= queue.length) return
     if (isWaterfallFollower()) { if (typeof wfNotifyHostControls === 'function') wfNotifyHostControls(); return }
-    queueIndex = cmd.index
-    playCurrentTrack()
+    skipTo(cmd.index, cmd.index === queueIndex + 1 ? 'next' : 'jump')
     renderQueuePanel()
   }
   // Paused, there is no timeupdate to carry the new state back.
@@ -10636,8 +10699,7 @@ function _wireQueueRow(el, follower) {
     // the host until the next broadcast dragged it back.
     if (follower) { if (typeof wfNotifyHostControls === 'function') wfNotifyHostControls(); return }
     if (qi === queueIndex) return
-    queueIndex = qi
-    playCurrentTrack()
+    skipTo(qi, qi === queueIndex + 1 ? 'next' : qi > queueIndex ? 'jump' : 'prev')
     renderQueuePanel()
   })
   // Right click - reuse the same universal track menu as every other row of
@@ -11217,17 +11279,31 @@ function _rollLyricsToNext() {
  * Where a rolling-in sheet's scroll starts so its first line lands on the
  * ghost's preview of it; null without a preview (the old glide from below).
  * Measured on screen, so nothing depends on how the two are positioned.
+ *
+ * A skip early in a song leaves the preview far below, and scrolling through
+ * every line between in a moment is a blur. So the distance stops at
+ * `maxDistance`: the old song's lines scroll up that far and the next song's
+ * come up right behind them, the old lines past that point left out.
  */
-function _previewAlignedStart(ghostEl, firstLine, spring, target) {
+function _previewAlignedStart(ghostEl, firstLine, spring, target, maxDistance = Infinity) {
   const preview = ghostEl?.querySelector('.lyric-preview')
   // Only a preview of the song now loading (the queue can change under a fade).
   if (!preview || !firstLine || ghostEl.dataset.nextPreview !== queue[queueIndex]?.Id) return null
   spring.jumpTo(target)
-  const start = target + preview.getBoundingClientRect().top - firstLine.getBoundingClientRect().top
-  // The real lines take the previews' place; the ghost's copies would double them.
-  ghostEl.querySelectorAll('.lyric-preview').forEach(el => { el.style.visibility = 'hidden' })
+  const firstTop = firstLine.getBoundingClientRect().top
+  const start = target + Math.min(preview.getBoundingClientRect().top - firstTop, maxDistance)
+  // The real lines take the ghost's place from where the first one lands; any
+  // ghost line there (its previews, or the old lines a capped roll skips) would
+  // be drawn over them.
+  const landing = firstTop + (start - target) - 8
+  ghostEl.querySelectorAll('[data-idx], .lyric-preview, .lyrics-next-divider').forEach(el => {
+    if (el.classList.contains('lyric-preview') || el.getBoundingClientRect().top >= landing) el.style.visibility = 'hidden'
+  })
   return start
 }
+
+/** How far a rolling sheet travels at most, in panel heights (_previewAlignedStart). */
+const LYRIC_ROLL_MAX_PANELS = 1.5
 
 // ── Lyrics roll on crossfade ─────────────────────────────────────────────────
 // On a crossfade the next song's lyrics come up from below as the last song's
@@ -11266,7 +11342,7 @@ function _ovRollIn(initialIdx) {
   const panel = document.getElementById('ov-panel-lyrics')
   updateOverlayLyricsActive(initialIdx, true)
   const target = ovLyricsBaseY
-  const start = _previewAlignedStart(_ovGhost.el, document.querySelector('#ov-lyrics-body .ov-lyric-line[data-idx="0"]'), ovLyricsSpring, target)
+  const start = _previewAlignedStart(_ovGhost.el, document.querySelector('#ov-lyrics-body .ov-lyric-line[data-idx="0"]'), ovLyricsSpring, target, panel.clientHeight * LYRIC_ROLL_MAX_PANELS)
     ?? target + panel.clientHeight * 0.75
   _ovGhost.startPos = start
   ovLyricsSpring.jumpTo(start)
@@ -11327,8 +11403,9 @@ function _sideRollIn() {
   _applySideLyricsActive(idx, true)
   const inner = document.getElementById('lyrics-inner')
   const target = parseFloat(/translateY\((-?[\d.]+)px\)/.exec(inner?.style.transform || '')?.[1] ?? '0') || 0
-  const start = _previewAlignedStart(_sideGhost.el, inner?.querySelector('.lyrics-line[data-idx="0"]'), sideLyricsSpring, target)
-    ?? target + document.getElementById('lyrics-body').clientHeight * 0.75
+  const sidePanel = document.getElementById('lyrics-body').clientHeight
+  const start = _previewAlignedStart(_sideGhost.el, inner?.querySelector('.lyrics-line[data-idx="0"]'), sideLyricsSpring, target, sidePanel * LYRIC_ROLL_MAX_PANELS)
+    ?? target + sidePanel * 0.75
   _sideGhost.startPos = start
   sideLyricsSpring.jumpTo(start)
   sideLyricsSpring.setTarget(target)
@@ -12345,6 +12422,8 @@ const displayPrefs = {
   coverSliceStyle: 'slice', coverSliceDirection: 'up-left', coverSliceHold: 'half', coverSliceEasing: 'smooth',
   coverSliceSeam: 'white', coverSliceGlow: 1, coverSliceShadow: 1,
   colorFade: true, colorFadeSeconds: 0.7,
+  // A skip's short transition (Smooth skips, see skipTo).
+  skipTransitions: true,
   explicitMarks: true, videoCovers: true,
   // Unsynced lyrics' size in Now Playing, apart from the synced size
   // (lyricScale), since a whole page of plain text reads better smaller.
@@ -12387,6 +12466,7 @@ function _syncDisplayPrefControls() {
   const set = (id, on) => { const el = document.getElementById(id); if (el) el.checked = on }
   set('cover-slice-toggle', displayPrefs.coverSlice)
   set('color-fade-toggle', displayPrefs.colorFade)
+  set('skip-transitions-toggle', displayPrefs.skipTransitions)
   set('explicit-marks-toggle', displayPrefs.explicitMarks)
   set('video-covers-toggle', displayPrefs.videoCovers)
   for (const [id, key, unit] of DISPLAY_PREF_SLIDERS) {
@@ -12416,7 +12496,7 @@ async function setDisplayPref(key, value) {
   _ceChanged()
 }
 
-for (const [id, key] of [['cover-slice-toggle', 'coverSlice'], ['color-fade-toggle', 'colorFade'], ['explicit-marks-toggle', 'explicitMarks'], ['video-covers-toggle', 'videoCovers']]) {
+for (const [id, key] of [['cover-slice-toggle', 'coverSlice'], ['color-fade-toggle', 'colorFade'], ['skip-transitions-toggle', 'skipTransitions'], ['explicit-marks-toggle', 'explicitMarks'], ['video-covers-toggle', 'videoCovers']]) {
   document.getElementById(id)?.addEventListener('change', e => setDisplayPref(key, e.target.checked))
 }
 for (const [id, key, unit] of DISPLAY_PREF_SLIDERS) {
@@ -12587,6 +12667,12 @@ async function startArtSlice(slice, fadeSecs) {
       layer.appendChild(copy)
     }
   }
+  // A skip's slice sweeps straight across at its own length (_beginSkip).
+  if (slice.sweepMs) {
+    const easeOut = (SLICE_EASINGS[displayPrefs.coverSliceEasing] || SLICE_EASINGS.smooth)[1]
+    _animateSlice(slice, 2, 0, slice.sweepMs, easeOut, 'in').then(() => endArtSlice(slice))
+    return
+  }
   const left = slice.holdEnd - performance.now()
   if (left <= 0) { endArtSlice(slice); return }
   const [easeIn, easeOut] = SLICE_EASINGS[displayPrefs.coverSliceEasing] || SLICE_EASINGS.smooth
@@ -12605,7 +12691,7 @@ function endArtSlice(slice) {
   if (s <= 0.001) { if (!slice.running) _removeArtSlice(slice); return }
   const easeOut = (SLICE_EASINGS[displayPrefs.coverSliceEasing] || SLICE_EASINGS.smooth)[1]
   slice.running++
-  _animateSlice(slice, s, 0, displayPrefs.coverSlideOut * 1000 * Math.min(1, s), easeOut, 'out')
+  _animateSlice(slice, s, 0, (slice.slideOutMs ?? displayPrefs.coverSlideOut * 1000) * Math.min(1, s), easeOut, 'out')
     .then(() => _sliceSlid(slice))
 }
 
@@ -12642,7 +12728,7 @@ function trailArtSlice(slice, item) {
   const easeOut = (SLICE_EASINGS[displayPrefs.coverSliceEasing] || SLICE_EASINGS.smooth)[1]
   // A little slower than the cut's slide-out, so the cut above (which has at
   // most one unit of s left against this one's two) always stays ahead of it.
-  const anims = _animateLayers(slice, layers, from, 0, displayPrefs.coverSlideOut * 1000 * SLICE_TRAIL, easeOut, 'out')
+  const anims = _animateLayers(slice, layers, from, 0, (slice.slideOutMs ?? displayPrefs.coverSlideOut * 1000) * SLICE_TRAIL, easeOut, 'out')
   slice.trailAnims.push(...anims)
   slice.running++
   Promise.all(anims.map(x => x.finished.catch(() => {}))).then(() => _sliceSlid(slice))
@@ -15612,7 +15698,7 @@ document.getElementById('toggle-album-art').addEventListener('change', (e) => {
 const CE_TABS = ['appearance', 'nowplaying', 'lyrics', 'crossfade', 'presets']
 const CE_EASE = 'cubic-bezier(0.2, 0.7, 0.3, 1)'
 // Every displayPrefs key the editor can change (the Cascade Server extras stay in Settings).
-const CE_DISPLAY_KEYS = Object.keys(DISPLAY_PREF_DEFAULTS).filter(k => k !== 'explicitMarks' && k !== 'videoCovers')
+const CE_DISPLAY_KEYS = Object.keys(DISPLAY_PREF_DEFAULTS).filter(k => k !== 'explicitMarks' && k !== 'videoCovers' && k !== 'skipTransitions')
 const CE_NO_SONG_TIP = 'Start playing something to customize Now Playing.'
 const CE_VIDEO_TIP = 'Now Playing for videos has nothing to customize. Play a song to customize it.'
 const CE_RESET_TEXT = {
@@ -16535,7 +16621,8 @@ function initDevTuningTab() {
     }
     box.append(sect)
   }
-  /** @type {HTMLInputElement} */ (document.getElementById('ce-dev-plugin-absent')).checked = _cascadePluginAbsent
+  const absent = /** @type {HTMLInputElement} */ (document.getElementById('ce-dev-plugin-absent'))
+  absent.checked = _cascadePluginAbsent
   if (!CE_TABS.includes('developer')) CE_TABS.push('developer')
   document.getElementById('ce-tab-developer').hidden = false
 }

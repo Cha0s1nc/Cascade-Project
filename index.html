@@ -952,6 +952,16 @@
                 </div>
                 <div class="setting-row">
                   <div class="setting-label">
+                    <label class="setting-name" for="skip-transitions-toggle">Smooth skips</label>
+                    <span class="setting-desc">Skipping gets a quick version of the crossfade's look: the cover sweeps across, the lyrics roll on to the next song, and the old song fades out in a fraction of a second.</span>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="skip-transitions-toggle">
+                    <span class="toggle-track"></span>
+                  </label>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">
                     <span class="setting-name">Streaming quality</span>
                     <span class="setting-desc">Cap the bitrate and the server transcodes to fit. Original sends the file untouched.</span>
                   </div>
@@ -1528,6 +1538,16 @@
           <input type="range" id="fr-crossfade-duration" min="1" max="15" step="1" value="6">
           <span class="eq-band-value" id="fr-crossfade-duration-value">6s</span>
         </div>
+      </div>
+      <div class="setting-row" style="padding:11px 0;">
+        <div class="setting-label">
+          <span class="setting-name">Smooth skips</span>
+          <span class="setting-desc">A quick transition when you skip: the cover sweeps, the lyrics roll on, the old song fades out.</span>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="fr-skip-transitions-toggle">
+          <span class="toggle-track"></span>
+        </label>
       </div>
     </div>
 
