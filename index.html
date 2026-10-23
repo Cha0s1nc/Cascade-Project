@@ -27,6 +27,21 @@
   <!-- Titlebar -->
   <header class="titlebar">
     <span class="tb-title">Cascade</span>
+    <!-- Search: a centered field on Home, tucked into a "Search" pill beside
+         .tb-right everywhere else (titlebar.search-tucked), sliding open on a
+         click or Cmd/Ctrl+K. Placement and state: syncSearchPlacement() in
+         renderer.js. -->
+    <div class="top-search-bar" id="tb-search">
+      <div class="search-input-wrap">
+        <svg class="search-icon-inline" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <span class="search-tuck-label" aria-hidden="true">Search</span>
+        <input class="search-input-field" id="search-input" type="text" placeholder="Search songs, albums, artists…" aria-label="Search" autocomplete="off" />
+        <button class="search-clear-btn" id="search-clear" style="display:none" aria-label="Clear search">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div id="search-results" class="search-dropdown"></div>
+    </div>
     <div class="tb-right">
       <!-- Shown while Offline Mode is on (body.offline-on); opens Downloads. -->
       <button class="offline-pill" id="offline-pill" type="button" title="Offline Mode is on: only what is downloaded shows">Offline</button>
@@ -286,17 +301,6 @@
       <div class="offline-banner" id="offline-banner" role="status">
         <span>Your server isn't answering. Showing what's downloaded.</span>
         <button class="shuffle-all-btn" id="offline-retry" type="button">Try again</button>
-      </div>
-
-      <div class="top-search-bar">
-        <div class="search-input-wrap">
-          <svg class="search-icon-inline" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input class="search-input-field" id="search-input" type="text" placeholder="Search songs, albums, artists…" autocomplete="off" />
-          <button class="search-clear-btn" id="search-clear" style="display:none">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </button>
-        </div>
-        <div id="search-results" class="search-dropdown"></div>
       </div>
 
       <!-- Home -->
@@ -991,7 +995,7 @@
                 <div class="setting-row" id="output-device-row" style="display:none">
                   <div class="setting-label">
                     <span class="setting-name">Output device</span>
-                    <span class="setting-desc">Which speakers or headphones Cascade plays to. Falls back to the system default if this device disappears.</span>
+                    <span class="setting-desc">Falls back to the system default if this device disappears.</span>
                   </div>
                   <select class="setting-input" id="output-device">
                     <option value="default">System default</option>
@@ -1095,7 +1099,7 @@
                 <div class="setting-row">
                   <div class="setting-label">
                     <span class="setting-name">Explicit marks</span>
-                    <span class="setting-desc">An E after explicit songs. Needs Cascade Server 1.1 on your server.</span>
+                    <span class="setting-desc">An E after explicit songs. Needs the CascadeServer plugin</span>
                   </div>
                   <label class="toggle">
                     <input type="checkbox" id="explicit-marks-toggle">
@@ -1105,7 +1109,7 @@
                 <div class="setting-row">
                   <div class="setting-label">
                     <span class="setting-name">Video covers</span>
-                    <span class="setting-desc">An album's cover.mp4 plays in place of its cover. Needs Cascade Server 1.1 on your server.</span>
+                    <span class="setting-desc">An album's cover.mp4 plays in place of its cover. Needs the CascadeServer plugin</span>
                   </div>
                   <label class="toggle">
                     <input type="checkbox" id="video-covers-toggle">
@@ -1124,8 +1128,8 @@
                 <div class="setting-row" id="server-only-lyrics-row">
                   <div class="setting-label">
                     <span class="setting-name">Server-only Mode</span>
-                    <span class="setting-desc">Use the Cascade Server Jellyfin plugin exclusively for lyrics and art. Requires the plugin to be installed on your server.</span>
-                    <span class="setting-desc" id="server-only-plugin-missing" style="display:none">Cascade Server plugin not found on this server. Install it through my Github page to use server-only mode and the lyrics editor.</span>
+                    <span class="setting-desc">Use the CascadeServer plugin exclusively for lyrics and art. Requires the plugin to be installed on your server.</span>
+                    <span class="setting-desc" id="server-only-plugin-missing" style="display:none">CascadeServer plugin not found on this server. Install it through the GitHub page to use server-only mode and the lyrics editor.</span>
                   </div>
                   <label class="toggle" id="server-only-toggle-label">
                     <input type="checkbox" id="server-only-lyrics-toggle">
@@ -2630,6 +2634,7 @@
 <script>self.__bergamotBase = new URL('build/bergamot/translator.js', location.href).href</script>
 <script src="build/bergamot/translator.js"></script>
 <script src="lyric-karaoke.js"></script>
+<script src="marquee.js"></script>
 <script src="renderer.js"></script>
 <script src="waterfall.js"></script>
 <div id="tooltip" role="tooltip" aria-hidden="true"></div>

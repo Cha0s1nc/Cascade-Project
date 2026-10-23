@@ -1133,6 +1133,20 @@ ipcMain.on('miniplayer-hover', (_e, on) => {
   }, 250)
 })
 
+// The size button (pill, cover, cover with lyrics). The page works out the
+// height (CascadeCore.nextMiniplayerSize) and this only applies it: clamped
+// to the window's own range, top edge kept, and moved up if growing would run
+// it off the bottom of the screen. Width never changes, see MINI_WIDTH.
+ipcMain.on('miniplayer-resize', (_e, height) => {
+  if (!miniPlayerWindow || miniPlayerWindow.isDestroyed()) return
+  if (typeof height !== 'number' || !Number.isFinite(height)) return
+  const h = Math.round(Math.max(MINI_MIN_HEIGHT, Math.min(MINI_MAX_HEIGHT, height)))
+  const b = miniPlayerWindow.getBounds()
+  const area = screen.getDisplayMatching(b).workArea
+  const y = Math.max(area.y, Math.min(b.y, area.y + area.height - h))
+  miniPlayerWindow.setBounds({ x: b.x, y, width: b.width, height: h }, true)
+})
+
 ipcMain.on('miniplayer-control', (_e, action) => {
   if (win && !win.isDestroyed()) win.webContents.send('miniplayer-control', action)
 })

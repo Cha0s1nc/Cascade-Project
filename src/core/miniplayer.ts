@@ -229,3 +229,43 @@ export function miniplayerCredit(c: { provider?: unknown, uploader?: { name?: un
   if (!provider) return null
   return { provider, uploader: creditName(c?.uploader?.name), maker: creditName(c?.maker?.name) }
 }
+
+/** The three layouts miniplayer.html draws, chosen by the window's height. */
+export type MiniplayerSize = 'pill' | 'art' | 'full'
+
+/** Below this the page draws the pill; the `@container (min-height: 180px)`
+ *  rules in miniplayer.html must use the same number. */
+export const MINIPLAYER_PILL_MAX_HEIGHT = 179
+
+/** Height of the pill the size button picks: main.js's default height. */
+export const MINIPLAYER_PILL_HEIGHT = 120
+
+/** Lyrics and Up Next room under the square cover in the full layout. */
+export const MINIPLAYER_PANEL_HEIGHT = 340
+
+/** Below this much room under the cover (the tabs alone), a window still
+ *  counts as the cover layout, so a few pixels of drag do not change what the
+ *  size button does next. */
+const PANEL_SLACK = 60
+
+/** Which layout a window of this size shows. `width` is the window's own,
+ *  since the cover is as tall as the window is wide. */
+export function miniplayerSizeOf(height: number, width: number): MiniplayerSize {
+  if (!Number.isFinite(height) || height <= MINIPLAYER_PILL_MAX_HEIGHT) return 'pill'
+  return height < width + PANEL_SLACK ? 'art' : 'full'
+}
+
+/** The window height that fits a layout exactly: the pill, the square cover
+ *  alone, or the cover with the lyrics panel under it. */
+export function miniplayerHeightFor(size: MiniplayerSize, width: number): number {
+  const w = Number.isFinite(width) && width > 0 ? Math.round(width) : 300
+  if (size === 'pill') return MINIPLAYER_PILL_HEIGHT
+  return size === 'art' ? w : w + MINIPLAYER_PANEL_HEIGHT
+}
+
+const NEXT_SIZE: Record<MiniplayerSize, MiniplayerSize> = { pill: 'art', art: 'full', full: 'pill' }
+
+/** The size button: pill, then cover, then cover with lyrics, then back. */
+export function nextMiniplayerSize(height: number, width: number): MiniplayerSize {
+  return NEXT_SIZE[miniplayerSizeOf(height, width)]
+}

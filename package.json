@@ -59,6 +59,7 @@
       "styles/**/*",
       "renderer.js",
       "lyric-karaoke.js",
+      "marquee.js",
       "waterfall.js",
       "build/core.js",
       "build/preload.js",

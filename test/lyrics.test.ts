@@ -6,7 +6,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseLRC, parseKrc, lyricsTextMatch, isEmphasisWord, currentLyricIndex, activeLyricRange, tightScrollTarget, looksInstrumental } from '../src/core/lyrics.ts'
+import { parseLRC, parseKrc, lyricsTextMatch, isEmphasisWord, currentLyricIndex, activeLyricRange, LAYER_MIN_OVERLAP_TICKS, tightScrollTarget, looksInstrumental } from '../src/core/lyrics.ts'
 
 const SEC = 10_000_000   // ticks per second
 const MS = 10_000        // ticks per millisecond
@@ -191,6 +191,25 @@ test('activeLyricRange: only lines still sung when the current one began, not a 
   // Two earlier lines both still going when the current one began: both lit.
   assert.deepEqual(activeLyricRange([l(0, 12), l(4, 12), l(8, 12)], 2, 10 * SEC), [0, 2])
   assert.deepEqual(activeLyricRange([l(0, null), l(1, null)], 1, 2 * SEC), [1, 1])
+})
+
+test('activeLyricRange: a line that finishes within half a second of being layered drops out once sung', () => {
+  const l = (s: number, e: number, t: string) => ({ Start: s * SEC, End: e * SEC, Text: t, Words: null })
+  assert.equal(LAYER_MIN_OVERLAP_TICKS, 0.5 * SEC)
+  // A's last syllable runs 0.3s into B: layered while it is sung, then gone,
+  // rather than lit until B ends at 16s.
+  const brief = [l(10, 12.3, 'A'), l(12, 16, 'B')]
+  assert.deepEqual(activeLyricRange(brief, 1, 12.1 * SEC), [0, 1])
+  assert.deepEqual(activeLyricRange(brief, 1, 12.3 * SEC), [1, 1])
+  assert.deepEqual(activeLyricRange(brief, 1, 14 * SEC), [1, 1])
+  // Exactly half a second still counts as brief.
+  const edge = [l(10, 12.5, 'A'), l(12, 16, 'B')]
+  assert.deepEqual(activeLyricRange(edge, 1, 12.4 * SEC), [0, 1])
+  assert.deepEqual(activeLyricRange(edge, 1, 12.6 * SEC), [1, 1])
+  // A longer overlap keeps the old rule: lit until the whole group is sung.
+  const long = [l(10, 12.6, 'A'), l(12, 16, 'B')]
+  assert.deepEqual(activeLyricRange(long, 1, 14 * SEC), [0, 1])
+  assert.deepEqual(activeLyricRange(long, 1, 16.5 * SEC), [1, 1])
 })
 
 test('tightScrollTarget: a close next line pulls the scroll early, an overlap or a wide gap does not', () => {

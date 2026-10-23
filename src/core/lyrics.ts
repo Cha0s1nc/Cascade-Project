@@ -84,6 +84,14 @@ export function lineEndTicks(line: LyricLine): number | null {
 }
 
 /**
+ * How long past the current line's start an earlier line must keep going to
+ * stay layered with it. One that finishes sooner only grazed the new line (a
+ * last syllable held a moment over the next one's first): it drops out of the
+ * group as soon as it is sung, instead of lingering lit until the group ends.
+ */
+export const LAYER_MIN_OVERLAP_TICKS = 5_000_000   // 0.5s
+
+/**
  * The lines to show as current, [first, last], around `idx` (currentLyricIndex).
  * When a line starts before the previous one has ended (a duet, a call and
  * response), Apple Music keeps both lit until the later one ends, instead of
@@ -95,6 +103,8 @@ export function lineEndTicks(line: LyricLine): number | null {
  * where each line's background runs into the next ("Notion", The Rare
  * Occasions), chaining lit the whole verse at once, including lines long done.
  * Lines with no end time (plain LRC) never overlap, so this is [idx, idx].
+ * An overlap shorter than LAYER_MIN_OVERLAP_TICKS lasts only until that line
+ * is sung.
  */
 export function activeLyricRange(lines: LyricLine[], idx: number, nowTicks: number): [number, number] {
   const cur = lines[idx]
@@ -104,6 +114,7 @@ export function activeLyricRange(lines: LyricLine[], idx: number, nowTicks: numb
   while (first > 0) {
     const prevEnd = lineEndTicks(lines[first - 1])
     if (prevEnd == null || cur.Start >= prevEnd) break
+    if (prevEnd - cur.Start <= LAYER_MIN_OVERLAP_TICKS && nowTicks >= prevEnd) break
     first--
     groupEnd = Math.max(groupEnd, prevEnd)
   }

@@ -2360,6 +2360,7 @@ function showView(name) {
   libSortDropdown.classList.remove('open')
   libFilterDropdown.classList.remove('open')
   _currentView = name
+  syncSearchPlacement()
 
   if (name === 'albums' && !document.getElementById('albums-grid').dataset.loaded) loadAlbums()
   if (name === 'artists' && !document.getElementById('artists-grid').dataset.loaded) loadArtists()
@@ -5972,35 +5973,9 @@ async function _prefetchUpcoming() {
   }
 }
 
-// Marquee: measure a clipping container and scroll its .np-scroll-inner if the text
-// overflows. Used by the statusbar and both fullscreen overlay lines. As Apple Music
-// does it: a pause, then one way at a steady speed with a copy following a gap
-// behind, so the loop is seamless instead of sliding back.
-const MARQUEE = { gap: 48, speed: 30, hold: 2500 }   // px, px/s, ms at the start of each pass
-function applyMarquee(el) {
-  const inner = el?.querySelector('.np-scroll-inner')
-  if (!inner) return
-  for (const a of el.getAnimations({ subtree: true })) a.cancel()
-  el.querySelectorAll('.np-scroll-copy').forEach(c => c.remove())
-  el.classList.remove('marquee-on')
-  if (inner.scrollWidth - el.clientWidth <= 4) return   // dead-zone absorbs subpixel rounding
-  el.classList.add('marquee-on')
-  const copy = inner.cloneNode(true)
-  copy.classList.add('np-scroll-copy')
-  copy.setAttribute('aria-hidden', 'true')
-  copy.querySelectorAll('[id]').forEach(n => n.removeAttribute('id'))
-  copy.style.marginLeft = `${MARQUEE.gap}px`
-  el.appendChild(copy)
-  const dist = inner.offsetWidth + MARQUEE.gap
-  const duration = MARQUEE.hold + (dist / MARQUEE.speed) * 1000
-  const frames = [
-    { transform: 'translateX(0)' },
-    { transform: 'translateX(0)', offset: MARQUEE.hold / duration },
-    { transform: `translateX(${-dist}px)` },
-  ]
-  for (const part of [inner, copy]) part.animate(frames, { duration, iterations: Infinity, easing: 'linear' })
-}
-
+// Marquee: applyMarquee() scrolls a line too long for its box. It lives in
+// marquee.js, shared with the miniplayer. Used by the statusbar and both
+// fullscreen overlay lines.
 const MARQUEE_IDS = ['np-info', 'ov-track', 'ov-artist']
 
 // A plain resize listener rather than ResizeObserver: the overlay's font sizes are
@@ -14563,7 +14538,60 @@ let searchDebounce = null
 const searchInput    = document.getElementById('search-input')
 const searchDropdown = document.getElementById('search-results')
 
-function closeSearchDropdown() { searchDropdown.classList.remove('open') }
+function closeSearchDropdown() { searchDropdown.classList.remove('open'); syncSearchOpen() }
+
+// ── Search placement (title bar) ──
+// A centered field on Home; on every other view (or a window too narrow for a
+// centered field) the title bar takes .search-tucked and the field folds into
+// a "Search" pill beside .tb-right. .search-open slides it back out while it
+// has focus or results showing. The CSS does the sliding (components.css,
+// "Search (in the title bar)"); this decides the classes and where the pill
+// sits. Everything is looked up here rather than through the consts above, so
+// showView can call it at any point.
+function syncSearchPlacement() {
+  const bar = /** @type {HTMLElement} */ (document.querySelector('.titlebar'))
+  const box = bar.getBoundingClientRect()
+  const right = bar.querySelector('.tb-right').getBoundingClientRect()
+  const title = bar.querySelector('.tb-title').getBoundingClientRect()
+  bar.style.setProperty('--tb-search-end', `${box.right - right.left + 8}px`)
+  // The centered field's width, as components.css has it: min(340px, 36vw).
+  const w = Math.min(340, window.innerWidth * 0.36)
+  const mid = box.left + box.width / 2
+  const narrow = mid - w / 2 < title.right + 12 || mid + w / 2 > right.left - 12
+  bar.classList.toggle('search-tucked', _currentView !== 'home' || narrow)
+  syncSearchOpen()
+}
+
+function syncSearchOpen() {
+  const bar = document.querySelector('.titlebar')
+  const input = /** @type {HTMLInputElement} */ (document.getElementById('search-input'))
+  const open = document.getElementById('tb-search').contains(document.activeElement)
+    || document.getElementById('search-results').classList.contains('open')
+  bar.classList.toggle('search-open', open)
+  input.dataset.placeholder ??= input.placeholder
+  if (!open) input.placeholder = input.dataset.placeholder
+}
+
+{
+  const bar = document.getElementById('tb-search')
+  // Opening the pill with a click, the empty field says the shortcut exists.
+  // Not when the shortcut opened it: that person already knows.
+  bar.querySelector('.search-input-wrap').addEventListener('mousedown', (e) => {
+    const tb = document.querySelector('.titlebar')
+    if (!tb.classList.contains('search-tucked') || tb.classList.contains('search-open')) return
+    e.preventDefault()
+    const input = /** @type {HTMLInputElement} */ (searchInput)
+    input.dataset.placeholder ??= input.placeholder
+    input.placeholder = `You can use ${window.cascade.platform === 'darwin' ? '⌘K' : 'Ctrl+K'} too`
+    input.focus()
+  })
+  bar.addEventListener('focusin', syncSearchOpen)
+  // After the focus has landed, so a click into the dropdown still counts as inside.
+  bar.addEventListener('focusout', () => setTimeout(syncSearchOpen))
+  new ResizeObserver(syncSearchPlacement).observe(document.querySelector('.tb-right'))
+  window.addEventListener('resize', syncSearchPlacement)
+  syncSearchPlacement()
+}
 
 document.getElementById('search-input').addEventListener('input', (e) => {
   const q = e.target.value.trim()
@@ -14588,7 +14616,7 @@ searchInput.addEventListener('focus', () => {
 
 // Dismiss on Escape, on an outside click, or once a result is actually acted on
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && searchDropdown.classList.contains('open')) {
+  if (e.key === 'Escape' && (searchDropdown.classList.contains('open') || document.activeElement === searchInput)) {
     closeSearchDropdown()
     searchInput.blur()
   }

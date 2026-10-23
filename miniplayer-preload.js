@@ -4,6 +4,8 @@ contextBridge.exposeInMainWorld('miniPlayer', {
   onState: (cb)     => ipcRenderer.on('miniplayer-state', (_e, state) => cb(state)),
   control: (action) => ipcRenderer.send('miniplayer-control', action),
   restore: ()       => ipcRenderer.send('miniplayer-restore'),
+  // The size button: the window height it wants, which main.js clamps.
+  resize: (height)  => ipcRenderer.send('miniplayer-resize', height),
   // macOS: traffic lights only while the pointer is over the window, the way
   // Apple Music's miniplayer does it, so they do not sit on the cover.
   hover: (on)       => ipcRenderer.send('miniplayer-hover', !!on),

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import { buildMiniplayerState, miniplayerProgressPct, isMiniplayerAction,
   miniplayerSheet, parseMiniplayerCommand,
   MINIPLAYER_LYRIC_MAX, MINIPLAYER_QUEUE_MAX, MINIPLAYER_MAX_VOLUME_STEP,
+  miniplayerSizeOf, miniplayerHeightFor, nextMiniplayerSize,
+  MINIPLAYER_PILL_HEIGHT, MINIPLAYER_PILL_MAX_HEIGHT, MINIPLAYER_PANEL_HEIGHT,
 } from '../src/core/miniplayer.ts'
 
 test('miniplayerProgressPct is 0 with no duration yet', () => {
@@ -167,4 +169,34 @@ test('parseMiniplayerCommand: volumeto is an absolute level clamped to 0-1', () 
   assert.equal(parseMiniplayerCommand({ type: 'volumeto', value: NaN }), null)
   assert.equal(parseMiniplayerCommand({ type: 'volumeto', value: '0.5' }), null)
   assert.equal(parseMiniplayerCommand({ type: 'volumeto' }), null)
+})
+
+test('miniplayerSizeOf reads the layout off the window height', () => {
+  assert.equal(miniplayerSizeOf(100, 300), 'pill')
+  assert.equal(miniplayerSizeOf(179, 300), 'pill')
+  assert.equal(miniplayerSizeOf(180, 300), 'art')
+  assert.equal(miniplayerSizeOf(300, 300), 'art')
+  assert.equal(miniplayerSizeOf(340, 300), 'art', 'tabs alone under the cover')
+  assert.equal(miniplayerSizeOf(360, 300), 'full')
+  assert.equal(miniplayerSizeOf(900, 300), 'full')
+  assert.equal(miniplayerSizeOf(NaN, 300), 'pill')
+})
+
+test('the size button cycles pill, cover, full and back, each fitted', () => {
+  let h = 120
+  const seen: string[] = []
+  for (let i = 0; i < 4; i++) {
+    const next = nextMiniplayerSize(h, 300)
+    seen.push(next)
+    h = miniplayerHeightFor(next, 300)
+    assert.equal(miniplayerSizeOf(h, 300), next, `a ${next} window must read back as ${next}`)
+  }
+  assert.deepEqual(seen, ['art', 'full', 'pill', 'art'])
+  assert.equal(miniplayerHeightFor('pill', 300), MINIPLAYER_PILL_HEIGHT)
+  assert.equal(miniplayerHeightFor('art', 300), 300, 'the cover is square')
+  assert.equal(miniplayerHeightFor('full', 300), 300 + MINIPLAYER_PANEL_HEIGHT)
+  assert.ok(MINIPLAYER_PILL_HEIGHT <= MINIPLAYER_PILL_MAX_HEIGHT)
+  // A dragged-in-between height still steps forward from what it shows.
+  assert.equal(nextMiniplayerSize(150, 300), 'art')
+  assert.equal(nextMiniplayerSize(500, 300), 'pill')
 })
