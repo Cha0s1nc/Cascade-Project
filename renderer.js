@@ -11507,8 +11507,9 @@ onDeck('timeupdate', () => {
   // and hold a line while its background vocals run into the next one. Shared
   // with the side panel; see currentLyricIndex in src/core/lyrics.ts.
   const activeIdx = _lyricFocusIdx(nowSec, baseIdx)
-  // Overlapping lines (a duet, a call and response) stay lit together until
-  // the later one ends: activeLyricRange in src/core/lyrics.ts.
+  // An earlier line still sung when this one began (a duet, a call and
+  // response) stays lit with it until 0.7s after it ends: activeLyricRange in
+  // src/core/lyrics.ts.
   const [first] = CascadeCore.activeLyricRange(lyricsData, activeIdx, nowSec * 10_000_000)
   const ahead = _lyricScrollAhead(nowSec, baseIdx, activeIdx)
   const aheadKey = ahead ? ahead.join(':') : ''

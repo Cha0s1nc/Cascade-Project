@@ -209,25 +209,28 @@ public enum Lyrics {
         return now >= end ? base + 1 : base
     }
 
+    /// How long an earlier line stays lit with the current one after it is
+    /// sung (background vocals included), before it dims like any past line.
+    public static let layerLingerTicks = 7_000_000   // 0.7 s
+
     /// The lines to light as current around `index`. When a line starts while
     /// the one before is still being sung (a duet, a call and response, a
-    /// background vocal running on), both stay lit until all of the group is
-    /// sung, as Apple Music does, instead of the first going dark mid-word.
-    /// Only lines still sung when the current one began, not a chain of
-    /// overlaps: chaining lit a whole verse whose lines each ran into the next.
+    /// background vocal running on), the earlier line stays lit with it instead
+    /// of going dark mid-word, and goes out of focus layerLingerTicks after it
+    /// is sung, each on its own end. Only lines still sung when the current one
+    /// began, not a chain of overlaps: chaining lit a whole verse whose lines
+    /// each ran into the next. The desktop's activeLyricRange.
     public static func activeRange(_ lines: [LyricLine], _ index: Int, at now: Int) -> ClosedRange<Int> {
         guard lines.indices.contains(index) else { return index...index }
         let current = lines[index]
         var first = index
-        var groupEnd = lineEndTicks(current) ?? Int.min
-        while first > 0 {
-            guard let previousEnd = lineEndTicks(lines[first - 1]), current.start < previousEnd else { break }
-            first -= 1
-            groupEnd = max(groupEnd, previousEnd)
+        var i = index - 1
+        while i >= 0 {
+            guard let end = lineEndTicks(lines[i]), current.start < end else { break }
+            if now < end + layerLingerTicks { first = i }
+            i -= 1
         }
-        // Lit until every line in it is sung: an earlier line's background
-        // can outlast the line that overlapped it.
-        return first < index && now < groupEnd ? first...index : index...index
+        return first...index
     }
 
     /// Signed distance from the current group: negative is past, positive is

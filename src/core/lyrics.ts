@@ -84,43 +84,34 @@ export function lineEndTicks(line: LyricLine): number | null {
 }
 
 /**
- * How long past the current line's start an earlier line must keep going to
- * stay layered with it. One that finishes sooner only grazed the new line (a
- * last syllable held a moment over the next one's first): it drops out of the
- * group as soon as it is sung, instead of lingering lit until the group ends.
+ * How long an earlier line stays lit with the current one after it is sung
+ * (background vocals included), before it dims like any past line.
  */
-export const LAYER_MIN_OVERLAP_TICKS = 5_000_000   // 0.5s
+export const LAYER_LINGER_TICKS = 7_000_000   // 0.7s
 
 /**
  * The lines to show as current, [first, last], around `idx` (currentLyricIndex).
  * When a line starts before the previous one has ended (a duet, a call and
- * response), Apple Music keeps both lit until the later one ends, instead of
- * dimming the first mid-word. So: an earlier line joins the group when it was
- * still being sung as the current line began, and the group stays lit until
- * all of it is sung. Background vocals count as part of their line.
+ * response, a background vocal running on), the earlier line stays lit with
+ * it instead of dimming mid-word, and goes out of focus LAYER_LINGER_TICKS
+ * after it is sung. Each earlier line goes on its own end, not the group's.
  *
  * Only lines that overlap the CURRENT line, not a chain of overlaps: in a verse
  * where each line's background runs into the next ("Notion", The Rare
  * Occasions), chaining lit the whole verse at once, including lines long done.
  * Lines with no end time (plain LRC) never overlap, so this is [idx, idx].
- * An overlap shorter than LAYER_MIN_OVERLAP_TICKS lasts only until that line
- * is sung.
+ * The range is contiguous, so a line between two still lit stays lit too.
  */
 export function activeLyricRange(lines: LyricLine[], idx: number, nowTicks: number): [number, number] {
   const cur = lines[idx]
   if (!cur) return [idx, idx]
   let first = idx
-  let groupEnd = lineEndTicks(cur) ?? -Infinity
-  while (first > 0) {
-    const prevEnd = lineEndTicks(lines[first - 1])
-    if (prevEnd == null || cur.Start >= prevEnd) break
-    if (prevEnd - cur.Start <= LAYER_MIN_OVERLAP_TICKS && nowTicks >= prevEnd) break
-    first--
-    groupEnd = Math.max(groupEnd, prevEnd)
+  for (let i = idx - 1; i >= 0; i--) {
+    const end = lineEndTicks(lines[i] as LyricLine)
+    if (end == null || cur.Start >= end) break
+    if (nowTicks < end + LAYER_LINGER_TICKS) first = i
   }
-  // Lit until every line in the group is sung, background vocals included:
-  // an earlier line's background can outlast the line that overlapped it.
-  return first < idx && nowTicks < groupEnd ? [first, idx] : [idx, idx]
+  return [first, idx]
 }
 
 /** A word held at least this long gets the emphasis glow. */
