@@ -18,9 +18,21 @@
    (nested inside the line, so centring and click-to-seek cover both). */
 .lyrics-line { font-size: 20px; font-weight: 700; line-height: 1.35; letter-spacing: -0.01em; color: var(--text); padding: 10px 0; transition: opacity 0.35s ease; opacity: 0.3; }
 .lyrics-line.active { opacity: 1; }
-/* A phrase's translation (run-trans) starts under the phrase, set by
-   _layoutRunTranslation's padding-left; left-aligned even on a duet's right side. */
-.run-trans { text-align: left; }
+/* Translations under the words (_layoutGlosses in renderer.js). A .glossed
+   line's rows are --gloss-h further apart, which leaves a gloss's height under
+   every row; the top half of that is taken back with a negative margin, and
+   the last row's room comes from the padding. Each .lyric-gloss is placed by
+   JS, in the line's own coordinates. */
+.lyrics-line.glossed, .ov-lyric-line.glossed { position: relative; margin-top: calc(var(--gloss-h) / -2); }
+.lyrics-line.glossed { line-height: calc(1.35em + var(--gloss-h)); padding-bottom: calc(10px + var(--gloss-h) / 2); }
+.ov-lyric-line.glossed { line-height: calc(1.25em + var(--gloss-h)); padding-bottom: calc(var(--ly-line-gap, 8px) / 2 + var(--gloss-h) / 2); }
+.glossed .lyric-bg { line-height: 1.25; }
+/* A background-vocal row moves down out of the last row's gloss. */
+.glossed .lyric-bg, .glossed-last .lyric-bg { margin-top: var(--gloss-h); }
+.lyrics-line.glossed-last, .ov-lyric-line.glossed-last { position: relative; }
+.lyrics-line.glossed-last { padding-bottom: calc(10px + var(--gloss-h)); }
+.ov-lyric-line.glossed-last { padding-bottom: calc(var(--ly-line-gap, 8px) / 2 + var(--gloss-h)); }
+.lyrics-line .lyric-gloss, .ov-lyric-line .lyric-gloss { position: absolute; margin: 0; white-space: nowrap; text-align: left; pointer-events: none; }
 .lyric-trans { font-size: 12px; font-weight: 500; line-height: 1.4; letter-spacing: 0; margin-top: 4px; color: var(--text2); -webkit-text-fill-color: currentColor; }
 .lyrics-empty { font-size: 12px; color: var(--text3); text-align: center; padding: 40px 0; }
 /* The karaoke word fill, background vocals and held notes are in karaoke.css,

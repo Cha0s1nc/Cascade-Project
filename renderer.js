@@ -10942,7 +10942,7 @@ function renderOverlayLyricLines() {
     return `<div class="ov-lyric-line${hasTimestamp ? ' seekable' : ''}${line.Opposite ? ' opposite' : ''}" data-idx="${i}"${hasTimestamp ? ` data-start="${line.Start}"` : ''}>${content}${trans ? `<div class="ov-lyric-trans">${esc(trans)}</div>` : ''}</div>`
   }).join('')
   _refreshLyricsPreviews(true)
-  _layoutRunTranslations()
+  _layoutAllGlosses()
   body.querySelectorAll('.ov-lyric-line.seekable').forEach(el => {
     el.addEventListener('click', () => {
       const ticks = parseInt(el.dataset.start)
@@ -13906,7 +13906,7 @@ function renderLyrics() {
   body.classList.toggle('plain', _lyricsPlain())
   if (_lyricsPlain()) body.scrollTop = 0
   _refreshLyricsPreviews(true)
-  _layoutRunTranslations()
+  _layoutAllGlosses()
 
   body.querySelectorAll('.lyrics-line.seekable').forEach(el => {
     el.style.cursor = 'pointer'
@@ -14004,7 +14004,7 @@ document.getElementById('lyrics-translate-btn').addEventListener('click', () => 
 let _lyricsTranslatedFor = null   // the lyricsData array lyricsTranslated was made from
 // What each line of that sheet translates (CascadeCore.planSheet): nothing, the
 // whole line, or one foreign phrase. lyricsTranslated[i] is that unit's English.
-let _lyricsPlans = null           // { sheet, plans }
+let _lyricsPlans = null           // { sheet, plans, lang }
 let _lyricsTranslating = null     // { sheet, key, promise } while one is in flight
 let _translateStatus = ''         // transient button label: download or translate progress, 'Failed'
 let _translateStatusTimer = null
@@ -14322,8 +14322,10 @@ function lyricTranslationFor(i) {
   if (!lyricsTranslationEnabled || !lyricsTranslateOn) return ''
   // Done, or still arriving line by line for this sheet.
   if (_lyricsTranslatedFor !== lyricsData && _lyricsTranslating?.sheet !== lyricsData) return ''
-  // A phrase's translation goes under the phrase (_layoutRunTranslation), not in this row.
+  // Drawn under the words instead (_layoutGlosses): a phrase's translation, and
+  // every line of a Latin-script sheet.
   if (_lyricsPlanFor(i)?.mode === 'run') return ''
+  if (_lyricsPlans?.sheet === lyricsData && !CascadeCore.isNonLatinLanguage(_lyricsPlans.lang)) return ''
   const t = (lyricsTranslated[i] || '').trim()
   return t && t.toLowerCase() !== (lyricsData[i]?.Text || '').trim().toLowerCase() ? t : ''
 }
@@ -14332,100 +14334,159 @@ function _lyricsPlanFor(i) {
   return _lyricsPlans?.sheet === lyricsData ? _lyricsPlans.plans[i] : null
 }
 
-/** A 'run' line's phrase and its English, or null. */
-function lyricRunTranslationFor(i) {
+/**
+ * What goes under line i's words, or null: { glosses: [{ source, text }] } to
+ * put each English under its source phrase, or { rows: english } to cut the
+ * English across the line's rows. A non-Latin sheet's phrase line
+ * (CascadeCore.planLine's 'run') is one gloss. Every line of a Latin-script
+ * sheet was translated whole and is compared with its English
+ * (CascadeCore.latinView): passed through is nothing, a changed phrase in an
+ * English line a gloss, a changed line rows.
+ */
+function _lineGlossFor(i) {
   if (!lyricsTranslationEnabled || !lyricsTranslateOn) return null
   if (_lyricsTranslatedFor !== lyricsData && _lyricsTranslating?.sheet !== lyricsData) return null
   const plan = _lyricsPlanFor(i)
   const t = (lyricsTranslated[i] || '').trim()
-  if (plan?.mode !== 'run' || !t || t.toLowerCase() === plan.text.toLowerCase()) return null
-  return { run: plan.text, text: t }
+  if (!plan || plan.mode === 'skip' || !t) return null
+  if (plan.mode === 'run') return t.toLowerCase() === plan.text.toLowerCase() ? null : { glosses: [{ source: plan.text, text: t }] }
+  if (CascadeCore.isNonLatinLanguage(_lyricsPlans.lang)) return null   // its whole-line row (lyricTranslationFor)
+  const source = (lyricsData[i]?.Text || '').trim()
+  const view = CascadeCore.latinView(source, t)
+  if (view.mode === 'rows') return { rows: t }
+  if (view.mode === 'glosses') return { glosses: view.glosses.map(g => ({ source: source.slice(g.from, g.to), text: g.text })) }
+  return null
 }
 
-// ── A phrase's translation under the phrase ──
-// A mostly-English line with one foreign phrase (CascadeCore.planLine's 'run')
-// gets that phrase's translation as its translation row, indented to start
-// right under the phrase. Measured, not marked up: the karaoke word spans stay
-// exactly as lyric-karaoke.js draws them. The phrase is found in the line's own
-// text (not its rows or background vocals), its box read off a Range, and the
-// indent worked out in the line's own unscaled coordinates (a past line is
-// scaled). In normal flow, so the line's height (which the scroll centres on)
-// covers it. A phrase that wraps (Japanese breaks between any two characters)
-// is placed under its part on the last row; one with no part there, or a
-// translation too wide to start there, starts at the left edge like any row.
-function _layoutRunTranslation(lineEl, i) {
+// ── Translations under the words ──
+// Glosses (_lineGlossFor) are laid out by measuring where the words are drawn,
+// not by marking them up: the karaoke word spans stay exactly as
+// lyric-karaoke.js draws them. The line gets .glossed, which opens a gap under
+// each of its rows (styles/lyrics.css, --gloss-h), and each gloss is an
+// absolutely placed .lyric-gloss in the line, in its own unscaled coordinates
+// (a past line is scaled): under its phrase's first part, or under its row.
+// A line whose glosses are all on its last row takes .glossed-last instead,
+// room at the bottom only.
+// Laid out again whenever a lyric body changes size (the rows rewrap).
+function _layoutGlosses(lineEl, i) {
   const rowCls = lineEl.classList.contains('ov-lyric-line') ? 'ov-lyric-trans' : 'lyric-trans'
-  lineEl.querySelectorAll('.run-trans').forEach(el => el.remove())
-  const info = lyricRunTranslationFor(i)
-  if (!info) return
-  const row = document.createElement('div')
-  row.className = `${rowCls} run-trans`
-  row.textContent = info.text
-  lineEl.appendChild(row)
-  const box = _phraseBox(lineEl, info.run, rowCls)
+  lineEl.querySelectorAll(':scope > .lyric-gloss').forEach(el => el.remove())
+  lineEl.classList.remove('glossed', 'glossed-last')
+  const g = _lineGlossFor(i)
+  const text = g && _lineText(lineEl, rowCls)
+  if (!g || !text || !lineEl.offsetWidth) return
+  // Each gloss's text and the box it goes under, measured as the line is now.
+  const targets = () => {
+    const rows = _textRows(text)
+    if (g.rows) {
+      const total = rows.reduce((n, r) => n + r.chars, 0) || 1
+      return CascadeCore.splitForRows(g.rows, rows.map(r => r.chars / total))
+        .map((piece, k) => ({ text: piece, rect: rows[k]?.rect, last: k === rows.length - 1 }))
+        .filter(t => t.text && t.rect)
+    }
+    const out = []
+    let from = 0
+    for (const { source, text: en } of g.glosses) {
+      const at = text.text.indexOf(source, from)
+      if (at < 0) continue
+      from = at + source.length
+      const rect = text.rects(at, from)[0]
+      const lastRow = rows[rows.length - 1]?.rect
+      if (rect) out.push({ text: en, rect, last: !!lastRow && Math.abs(rect.bottom - lastRow.bottom) < rect.height / 2 })
+    }
+    return out
+  }
+  const first = targets()
+  if (!first.length) return
+  const make = str => {
+    const el = document.createElement('div')
+    el.className = `${rowCls} lyric-gloss`
+    el.textContent = str
+    lineEl.appendChild(el)
+    return el
+  }
+  const probe = make('x')
+  lineEl.style.setProperty('--gloss-h', `${probe.offsetHeight}px`)
+  probe.remove()
+  // Room under every row only when a gloss is under an earlier row; under the
+  // last row alone, room at the bottom is enough. The rows move down with the
+  // gap but do not rewrap, so the boxes are measured again after.
+  lineEl.classList.add(first.every(t => t.last) ? 'glossed-last' : 'glossed')
   const lr = lineEl.getBoundingClientRect()
-  if (!box || !lineEl.offsetWidth) return
   const scale = lr.width / lineEl.offsetWidth
-  const cs = getComputedStyle(lineEl)
-  const padL = parseFloat(cs.paddingLeft) || 0
-  const room = lineEl.clientWidth - padL - (parseFloat(cs.paddingRight) || 0)
-  // The text's own width, not the block's (which is always the line's).
-  row.style.width = 'max-content'
-  const width = row.offsetWidth
-  row.style.width = ''
-  if (box.left == null || width > room) return
-  const x = (box.left - lr.left) / scale - padL
-  row.style.paddingLeft = `${Math.max(0, Math.min(x, room - width))}px`
+  const maxRight = lineEl.clientWidth - (parseFloat(getComputedStyle(lineEl).paddingRight) || 0)
+  let prev = null
+  for (const { text: str, rect } of targets()) {
+    const el = make(str)
+    let left = (rect.left - lr.left) / scale
+    const top = (rect.bottom - lr.top) / scale
+    // Not over the one before on the same row, and inside the line where it fits.
+    if (prev && Math.abs(prev.top - top) < 1) left = Math.max(left, prev.right + 8)
+    left = Math.max(0, Math.min(left, maxRight - el.offsetWidth))
+    el.style.left = `${left}px`
+    el.style.top = `${top}px`
+    prev = { top, right: left + el.offsetWidth }
+  }
 }
 
-/** Where the part of `phrase` on a line's last row starts, on screen
- *  ({ left }, null when no part of it is there); null when the phrase is not
- *  found or not laid out. */
-function _phraseBox(lineEl, phrase, rowCls) {
+/** A line's own text (not its rows, glosses or background vocals) and the
+ *  boxes a stretch of it is drawn in; null with no text. */
+function _lineText(lineEl, rowCls) {
   const nodes = []
   let text = ''
   const walker = document.createTreeWalker(lineEl, NodeFilter.SHOW_TEXT, {
-    acceptNode: n => n.parentElement.closest(`.${rowCls}, .lyric-bg`) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+    acceptNode: n => n.parentElement.closest(`.${rowCls}, .lyric-bg, .lyric-gloss`) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
   })
   for (let n; (n = walker.nextNode());) { nodes.push({ n, at: text.length }); text += n.data }
-  const at = text.indexOf(phrase)
-  if (at < 0) return null
+  if (!nodes.length) return null
   const point = (off, end) => {
     const k = nodes.find(({ n, at }) => end ? off <= at + n.data.length : off < at + n.data.length)
     return k && [k.n, off - k.at]
   }
-  const from = point(at, false), to = point(at + phrase.length, true)
-  if (!from || !to) return null
-  const range = document.createRange()
-  range.setStart(from[0], from[1])
-  range.setEnd(to[0], to[1])
-  const rects = [...range.getClientRects()].filter(r => r.width > 0)
-  if (!rects.length) return null
-  const all = document.createRange()
-  all.setStart(nodes[0].n, 0)
-  const lastNode = nodes[nodes.length - 1].n
-  all.setEnd(lastNode, lastNode.data.length)
-  const lastBottom = Math.max(...[...all.getClientRects()].filter(r => r.width > 0).map(r => r.bottom))
-  const onLast = rects.filter(r => lastBottom - r.bottom < r.height / 2)
-  return { left: onLast.length ? Math.min(...onLast.map(r => r.left)) : null }
+  const rects = (start, end) => {
+    const a = point(start, false), b = point(end, true)
+    if (!a || !b) return []
+    const range = document.createRange()
+    range.setStart(a[0], a[1])
+    range.setEnd(b[0], b[1])
+    return [...range.getClientRects()].filter(r => r.width > 0)
+  }
+  return { text, rects }
 }
 
-/** Lays out every phrase translation showing, in both lyric views. */
-function _layoutRunTranslations() {
+/** The rows a line's words are drawn in, top to bottom: where each starts and
+ *  how many characters it holds. */
+function _textRows({ text, rects }) {
+  const rows = []
+  for (const t of CascadeCore.wordTokens(text)) {
+    const r = rects(t.start, t.end)[0]
+    if (!r) continue
+    const row = rows.find(x => Math.abs(x.rect.bottom - r.bottom) < r.height / 2)
+    if (row) {
+      row.chars = t.end - row.start
+      if (r.left < row.rect.left) row.rect = r
+    } else {
+      rows.push({ rect: r, start: t.start, chars: t.end - t.start })
+    }
+  }
+  return rows.sort((a, b) => a.rect.top - b.rect.top)
+}
+
+/** Lays out every line's glosses, in both lyric views. */
+function _layoutAllGlosses() {
   document.querySelectorAll('.lyrics-line[data-idx], .ov-lyric-line[data-idx]').forEach(el => {
     // A rolling sheet's ghost is the last song's lines: not this sheet's plan.
     if (el.closest('.ov-lyrics-ghost, .lyrics-ghost')) return
-    const i = Number(el.getAttribute('data-idx'))
-    if (_lyricsPlanFor(i)?.mode === 'run') _layoutRunTranslation(el, i)
+    _layoutGlosses(el, Number(el.getAttribute('data-idx')))
   })
 }
 {
-  // A width or font change moves the phrase: lay the rows out again.
+  // A width or font change rewraps the rows: lay the glosses out again.
   let queued = false
   const ro = new ResizeObserver(() => {
     if (queued) return
     queued = true
-    requestAnimationFrame(() => { queued = false; _layoutRunTranslations() })
+    requestAnimationFrame(() => { queued = false; _layoutAllGlosses() })
   })
   for (const id of ['ov-lyrics-body', 'lyrics-body']) { const el = document.getElementById(id); if (el) ro.observe(el) }
 }
@@ -14449,7 +14510,7 @@ function _showLineTranslation(i) {
     t.textContent = text
   })
   document.querySelectorAll(`.lyrics-line[data-idx="${i}"], .ov-lyric-line[data-idx="${i}"]`).forEach(el => {
-    if (_lyricsPlanFor(i)?.mode === 'run' && !el.closest('.ov-lyrics-ghost, .lyrics-ghost')) _layoutRunTranslation(el, i)
+    if (!el.closest('.ov-lyrics-ghost, .lyrics-ghost')) _layoutGlosses(el, i)
   })
 }
 
@@ -14558,7 +14619,7 @@ function ensureLyricsTranslation(userAsked = false) {
       // phrase for a mostly-English one, else the whole line.
       lyricsTranslated = new Array(lines.length).fill('')
       const plans = CascadeCore.planSheet(lines, key)
-      _lyricsPlans = { sheet, plans }
+      _lyricsPlans = { sheet, plans, lang: key }
       const units = plans.map(p => p.mode === 'skip' ? '' : p.text)
       const out = await translateLines(units, key, ({ done, total }) => {
         if (lyricsData === sheet) _flashTranslateStatus(`${Math.round(done / total * 100)}%`, 0)
