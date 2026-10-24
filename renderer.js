@@ -9916,11 +9916,16 @@ function startEqLoop() {
       _eqSilentSinceTs = 0
     }
 
-    const eq = document.querySelector('.track-row.playing .track-eq')
-    if (!eq) return
-    eq.classList.add('live')
+    // Every playing row, not the first: views stay in the DOM when hidden, so
+    // the first match can be a row in a view you left (Albums sits before
+    // Playlists in index.html), which left the visible row without bars.
+    const eqs = document.querySelectorAll('.track-row.playing .track-eq')
+    if (!eqs.length) return
     const levels = CascadeCore.eqLevels(_eqFreqData)
-    eq.querySelectorAll('i').forEach((bar, i) => { bar.style.transform = `scaleY(${levels[i]})` })
+    eqs.forEach(eq => {
+      eq.classList.add('live')
+      eq.querySelectorAll('i').forEach((bar, i) => { bar.style.transform = `scaleY(${levels[i]})` })
+    })
   }
   frame()
 }
