@@ -65,6 +65,29 @@ struct VideoSelectionTests {
         #expect(profile.withoutAudioCodecs([]).directPlayProfiles[0].audioCodec == "AAC")
     }
 
+    @Test func offRateDolbyAudioIsWithdrawnFromDirectPlayAndTranscode() {
+        func audio(_ codec: String, _ rate: Int?) -> JfMediaStream {
+            JfMediaStream(type: "Audio", index: 1, codec: codec, sampleRate: rate)
+        }
+        #expect(VideoPlayback.hasOffRateDolbyAudio([audio("eac3", 44100)]))
+        #expect(VideoPlayback.hasOffRateDolbyAudio([audio("aac", 48000), audio("AC3", 32000)]))
+        #expect(!VideoPlayback.hasOffRateDolbyAudio([audio("eac3", 48000), audio("aac", 44100)]))
+        #expect(!VideoPlayback.hasOffRateDolbyAudio([audio("eac3", nil)]))
+
+        let out = DeviceProfile.appleVideo.withoutDolbyAudio
+        #expect(DeviceProfile.appleVideo.claimsDolbyAudio)
+        #expect(!out.claimsDolbyAudio)
+        #expect(out.directPlayProfiles[0].audioCodec == "aac,mp3")
+        #expect(out.transcodingProfiles[0].audioCodec == "aac")
+
+        let download = OfflineVideo.downloadProfile(.original).withoutDolbyAudio
+        #expect(!download.claimsDolbyAudio)
+        #expect(download.transcodingProfiles[0].videoCodec == "h264,hevc")
+        let source = try! JSON.decoder.decode(OfflineVideo.Source.self, from: Data(
+            #"{"MediaStreams":[{"Type":"Video","Codec":"hevc"},{"Type":"Audio","Codec":"eac3","SampleRate":44100}]}"#.utf8))
+        #expect(source.hasOffRateDolbyAudio)
+    }
+
     @Test func hlsUrlsAreRecognisedWithOrWithoutAQuery() {
         #expect(isHlsUrl("http://x/videos/1/master.m3u8?a=b"))
         #expect(isHlsUrl("http://x/videos/1/main.M3U8"))

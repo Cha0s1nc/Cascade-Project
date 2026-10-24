@@ -121,12 +121,19 @@ public enum OfflineVideo {
             public var bitRate: Int?
             public var bitDepth: Int?
             public var profile: String?
+            public var sampleRate: Int?
         }
         public var id: String?
         public var transcodingUrl: String?
         public var supportsDirectPlay: Bool?
         public var size: Int?
         public var mediaStreams: [Stream]?
+
+        /// AC-3 or E-AC-3 that would play fast here: the download is asked for
+        /// again with withoutDolbyAudio (see VideoPlayback.hasOffRateDolbyAudio).
+        public var hasOffRateDolbyAudio: Bool {
+            (mediaStreams ?? []).contains { VideoPlayback.isOffRateDolby(type: $0.type, codec: $0.codec, sampleRate: $0.sampleRate) }
+        }
     }
 
     public struct Info: Decodable, Sendable {

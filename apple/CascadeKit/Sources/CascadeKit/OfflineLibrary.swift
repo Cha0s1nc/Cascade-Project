@@ -421,11 +421,16 @@ public final class OfflineLibrary {
     /// Asked afresh at every start: a TranscodingUrl carries the token and a
     /// session that ends, so it is never stored. Answers whether it started.
     private func startVideo(_ id: String, client: JellyfinClient, config: ServerConfig, owner: String) async -> Bool {
-        let request = OfflineVideo.Request(userId: config.userId, profile: OfflineVideo.downloadProfile(videoQuality),
-                                           burnIn: index.tracks[id]?.burnIn)
+        let burnIn = index.tracks[id]?.burnIn
+        func ask(_ profile: DeviceProfile) async throws -> OfflineVideo.Info {
+            try await client.post("/Items/\(id)/PlaybackInfo", body: OfflineVideo.Request(userId: config.userId, profile: profile, burnIn: burnIn),
+                                  params: ["UserId": config.userId])
+        }
         let info: OfflineVideo.Info
         do {
-            info = try await client.post("/Items/\(id)/PlaybackInfo", body: request, params: ["UserId": config.userId])
+            let profile = OfflineVideo.downloadProfile(videoQuality)
+            let first = try await ask(profile)
+            info = first.mediaSources?.first?.hasOffRateDolbyAudio == true ? try await ask(profile.withoutDolbyAudio) : first
         } catch {
             lastError = error.localizedDescription
             return false

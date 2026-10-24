@@ -42,6 +42,8 @@ public struct JfMediaStream: Codable, Sendable, Equatable {
     /// False for picture subtitles (PGS, VobSub), which only show burned in.
     public var isTextSubtitleStream: Bool?
     public var channels: Int?
+    /// Audio streams only, in Hz.
+    public var sampleRate: Int?
     /// Frames per second of a video stream, for stepping a frame at a time.
     public var realFrameRate: Double?
     /// Video streams only: the picture's size, so the player knows a film is

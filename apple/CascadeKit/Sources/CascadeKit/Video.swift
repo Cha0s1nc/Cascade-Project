@@ -28,6 +28,30 @@ public extension DeviceProfile {
     )
 }
 
+private let dolbyCodecs: Set<String> = ["ac3", "eac3"]
+
+extension DeviceProfile {
+    var claimsDolbyAudio: Bool {
+        (directPlayProfiles.compactMap(\.audioCodec) + transcodingProfiles.map(\.audioCodec))
+            .flatMap { $0.split(separator: ",") }
+            .contains { dolbyCodecs.contains($0.trimmingCharacters(in: .whitespaces).lowercased()) }
+    }
+
+    /// No AC-3 or E-AC-3 anywhere, direct play or transcode, so the server
+    /// converts them (see VideoPlayback.hasOffRateDolbyAudio).
+    var withoutDolbyAudio: DeviceProfile {
+        var out = withoutAudioCodecs(Array(dolbyCodecs))
+        out.transcodingProfiles = transcodingProfiles.map { p in
+            var q = p
+            q.audioCodec = p.audioCodec.split(separator: ",")
+                .filter { !dolbyCodecs.contains($0.trimmingCharacters(in: .whitespaces).lowercased()) }
+                .joined(separator: ",")
+            return q
+        }
+        return out
+    }
+}
+
 private let videoSubtitleProfiles: [SubtitleProfile] = {
     let text = ["vtt", "webvtt", "srt", "subrip", "ass", "ssa", "ttml", "mov_text"]
     let pictures = ["pgssub", "dvdsub", "dvbsub"]
@@ -137,6 +161,10 @@ public enum VideoPlayback {
         guard let source = info.mediaSources?.first else {
             throw JellyfinError(status: 0, message: "The server offered no way to play this.")
         }
+        if hasOffRateDolbyAudio(source.mediaStreams), profile.claimsDolbyAudio {
+            return try await resolve(client: client, config: config, item: item, audioStreamIndex: audioStreamIndex,
+                                     profile: profile.withoutDolbyAudio)
+        }
         let audio = (source.mediaStreams ?? []).filter { $0.type == "Audio" && $0.index != nil }
         if let transcodingUrl = source.transcodingUrl {
             guard let url = transcodeURL(config.url + transcodingUrl) else {
@@ -151,6 +179,24 @@ public enum VideoPlayback {
         }
         return ResolvedStream(url: url, playSessionId: info.playSessionId, mediaSourceId: source.id,
                               direct: true, startTicks: 0, audioTracks: audio)
+    }
+
+    /// AC-3 or E-AC-3 at anything but 48 kHz. Apple's players run it fast:
+    /// Solo Leveling S2E1's 44.1 kHz E-AC-3 played about 9% ahead of its
+    /// picture on iOS, copied untouched into the HLS stream, where S2E3 at
+    /// 48 kHz was fine. A sample rate codec profile cannot stop the copy: the
+    /// server's copy check caps the rate and never floors it
+    /// (EncodingHelper.CanStreamCopyAudio, 10.11). So resolve asks again
+    /// without those codecs and the server sends AAC. Any track counts, not
+    /// just the one that plays: the server picks the default by the user's
+    /// language, which the client cannot see.
+    static func hasOffRateDolbyAudio(_ streams: [JfMediaStream]?) -> Bool {
+        (streams ?? []).contains { isOffRateDolby(type: $0.type, codec: $0.codec, sampleRate: $0.sampleRate) }
+    }
+
+    /// One stream's half of hasOffRateDolbyAudio, shared with downloads.
+    static func isOffRateDolby(type: String?, codec: String?, sampleRate: Int?) -> Bool {
+        type == "Audio" && dolbyCodecs.contains((codec ?? "").lowercased()) && sampleRate.map { $0 != 48000 } == true
     }
 
     /// The server's transcode URL with any start position taken off, so the
