@@ -49,14 +49,16 @@ export interface LocalSummary extends OfflineSummary {
   local: {
     /** Bumped when the catalog changed: fetch it again then. */
     version: number
-    /** The folder as picked, or null before one is. */
+    /** The first folder as picked, or null before one is. */
     root: string | null
+    /** Every folder, in the order added. `missing`: it could not be opened. */
+    roots: { path: string; name: string; missing: boolean }[]
     scanning: boolean
     /** Files read for tags in the running scan, of how many need it. */
     progress: { done: number; total: number }
     /** When the last scan finished (ISO 8601), or null this launch. */
     lastScan: string | null
-    /** 'missing': the folder could not be opened (a drive not plugged in). */
+    /** 'missing': a folder could not be opened (a drive not plugged in). */
     error: string | null
     /** False when the tag reader could not load: names come from folders. */
     tagsReadable: boolean
@@ -298,6 +300,11 @@ export interface DesktopCapabilities {
     /** The OS folder picker. The folder is saved in main; start() again to
      *  read it. */
     chooseFolder(): Promise<{ ok: boolean; root?: string; canceled?: boolean; error?: string }>
+    /** Another folder, as another library: refused when it is one already
+     *  listed, inside one, or holds one. start() again (a reload) to read it. */
+    addFolder(): Promise<{ ok: boolean; root?: string; canceled?: boolean; error?: string }>
+    /** Takes a folder out; refused for the last one. */
+    removeFolder(path: string): Promise<{ ok: boolean }>
     setProfile(profile: DeviceProfile): Promise<void>
     /** Answers the item's user data as kept, or null when refused. */
     change(itemId: string, change: LocalChange): Promise<LocalUserData | null>

@@ -39,11 +39,14 @@ function hashId(kind: string, seed: string): string {
 // ponytail: an id is the file's path, so moving or renaming a file loses its
 // plays and favorites. Key on an audio fingerprint if that bites.
 export const fileId = (rel: string): string => hashId('file', normRel(rel))
-export const albumId = (albumArtist: string, album: string): string => hashId('album', `${normName(albumArtist)}\u0000${normName(album)}`)
+// `scope` is the folder's key (rootKeys) in a library of several folders, so
+// an album or show in two folders is two, as in two Jellyfin libraries.
+const scoped = (seed: string, scope: string) => scope ? `${seed}\u0000${scope}` : seed
+export const albumId = (albumArtist: string, album: string, scope = ''): string => hashId('album', scoped(`${normName(albumArtist)}\u0000${normName(album)}`, scope))
 export const artistId = (name: string): string => hashId('artist', normName(name))
 export const genreId = (name: string): string => hashId('genre', normName(name))
-export const seriesId = (name: string): string => hashId('series', normName(name))
-export const seasonId = (series: string, season: number): string => hashId('season', `${normName(series)}\u0000${season}`)
+export const seriesId = (name: string, scope = ''): string => hashId('series', scoped(normName(name), scope))
+export const seasonId = (series: string, season: number, scope = ''): string => hashId('season', scoped(`${normName(series)}\u0000${season}`, scope))
 export const playlistFileId = (rel: string): string => hashId('m3u', normRel(rel))
 
 /** The library views Local mode lists, each only while it holds something. */
@@ -52,6 +55,30 @@ export const LOCAL_LIBRARIES = {
   movies: { Id: 'cascade-local-movies', Name: 'Movies', CollectionType: 'movies' },
   tvshows: { Id: 'cascade-local-shows', Name: 'TV Shows', CollectionType: 'tvshows' },
 } as const
+
+/** A folder's name as the person sees it: the last part of its path. */
+export const folderName = (p: string): string => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p
+
+// ponytail: a folder's key is its name, so a folder moved or remounted keeps
+// its ids, and a renamed one loses them, as a renamed file does. Two folders
+// of one name fall back to their whole paths.
+/** Each folder's key: the first part of its files' paths in the scan, and
+ *  what keeps their ids and libraries apart. 12 hex characters. */
+export function rootKeys(paths: readonly string[]): string[] {
+  const used = new Set<string>()
+  return paths.map(p => {
+    let key = hashId('root', normName(folderName(p))).slice(0, 12)
+    if (used.has(key)) key = hashId('root', p.normalize('NFC')).slice(0, 12)
+    used.add(key)
+    return key
+  })
+}
+
+/** One folder of a library of several: its key and its name. */
+export interface LocalRoot {
+  key: string
+  name: string
+}
 
 export { LOCAL_USER_ID }
 
@@ -577,6 +604,9 @@ export interface LocalBuildInput {
   art: ReadonlySet<string>
   /** What this machine decodes; the shipped floor when the renderer has not said. */
   profile?: DeviceProfile | null
+  /** The folders, in the order they were added. With them, every path above
+   *  starts with its folder's key, and each folder is its own library. */
+  roots?: LocalRoot[]
 }
 
 /** Where an item's art comes from: a picture file, or the picture embedded in
@@ -601,7 +631,7 @@ const ticksOf = (sec: number | undefined) => sec && sec > 0 ? Math.round(sec * 1
 const nameIds = (names: string[], idOf: (n: string) => string): JfNameId[] => names.map(n => ({ Id: idOf(n), Name: n }))
 const cmp = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0
 
-interface Song { file: LocalFile; id: string; probe: LocalProbe; title: string; track?: number; disc?: number; artists: string[]; album: string; groupKey: string; year?: number }
+interface Song { file: LocalFile; id: string; key: string; probe: LocalProbe; title: string; track?: number; disc?: number; artists: string[]; album: string; groupKey: string; year?: number }
 
 /** Builds the catalog the query engine answers from. Deterministic: the same
  *  files give the same catalog, whatever order they were found in. */
@@ -614,6 +644,20 @@ export function buildCatalog(input: LocalBuildInput): LocalCatalog {
   const subs: Record<string, { index: number; rel: string }[]> = {}
   const unplayable: { rel: string; reason: string }[] = []
   const artSources: Record<string, ArtSource> = {}
+  const roots = input.roots
+  const rootNames = new Map((roots ?? []).map(r => [r.key, r.name]))
+  /** A path's folder key and its path inside that folder, which is what the
+   *  naming rules read. Without roots, the whole path is inside one folder. */
+  const split = (rel: string): { key: string; inner: string } => {
+    if (!roots) return { key: '', inner: rel }
+    const i = rel.indexOf('/')
+    return i < 0 ? { key: rel, inner: '' } : { key: rel.slice(0, i), inner: rel.slice(i + 1) }
+  }
+  /** A path as the person would know it: the folder's name for its key. */
+  const shown = (rel: string): string => {
+    const { key, inner } = split(rel)
+    return roots ? `${rootNames.get(key) ?? key}/${inner}` : rel
+  }
   const ud = (id: string) => input.userData[id] ? { UserData: { ...input.userData[id] } } : {}
   const tag = (id: string) => input.art.has(id) ? 'local' : undefined
 
@@ -629,38 +673,39 @@ export function buildCatalog(input: LocalBuildInput): LocalCatalog {
 
   const files = [...input.files].map(f => ({ ...f, rel: normRel(f.rel) })).sort((a, b) => cmp(a.rel, b.rel))
   const songs: Song[] = []
-  const movies: { file: LocalFile; id: string; probe: LocalProbe }[] = []
-  const episodes: { file: LocalFile; id: string; probe: LocalProbe; ep: EpisodeName }[] = []
+  const movies: { file: LocalFile; id: string; key: string; inner: string; probe: LocalProbe }[] = []
+  const episodes: { file: LocalFile; id: string; key: string; inner: string; probe: LocalProbe; ep: EpisodeName }[] = []
 
   for (const f of files) {
     const kind = classify(f.rel, f.probe)
     if (!kind) continue
     const verdict = playability(profile, kind, f.rel, f.probe)
-    if (!verdict.ok) { unplayable.push({ rel: f.rel, reason: verdict.reason }); continue }
+    if (!verdict.ok) { unplayable.push({ rel: shown(f.rel), reason: verdict.reason }); continue }
     const id = fileId(f.rel)
     const probe = f.probe ?? {}
+    const { key, inner } = split(f.rel)
     if (kind === 'video') {
-      const ep = parseEpisode(f.rel)
-      if (ep) episodes.push({ file: f, id, probe, ep })
-      else movies.push({ file: f, id, probe })
+      const ep = parseEpisode(inner)
+      if (ep) episodes.push({ file: f, id, key, inner, probe, ep })
+      else movies.push({ file: f, id, key, inner, probe })
       continue
     }
-    const fromName = parseTrackFileName(baseOf(f.rel))
-    const parts = f.rel.split('/')
-    let albumDir = dirOf(f.rel)
+    const fromName = parseTrackFileName(baseOf(inner))
+    const parts = inner.split('/')
+    let albumDir = dirOf(inner)
     if (DISC_FOLDER.test(parts[parts.length - 2] ?? '')) albumDir = dirOf(albumDir)
     const folderName = albumDir ? albumDir.slice(albumDir.lastIndexOf('/') + 1) : ''
     const folder = folderName ? parseNameYear(folderName) : null
     const album = probe.album ?? folder?.name ?? 'Unknown Album'
     const artistFolder = albumDir.includes('/') ? parseNameYear(dirOf(albumDir).slice(dirOf(albumDir).lastIndexOf('/') + 1)).name : ''
     songs.push({
-      file: f, id, probe,
+      file: f, id, key, probe,
       title: probe.title ?? fromName.title,
       track: probe.track ?? fromName.track,
       disc: probe.disc ?? fromName.disc,
       artists: probe.artists ?? (probe.albumArtist ? [probe.albumArtist] : artistFolder ? [artistFolder] : ['Unknown Artist']),
       album,
-      groupKey: `${albumDir}\u0000${normName(album)}`,
+      groupKey: `${key}\u0000${albumDir}\u0000${normName(album)}`,
       year: probe.year ?? folder?.year,
     })
   }
@@ -680,7 +725,7 @@ export function buildCatalog(input: LocalBuildInput): LocalCatalog {
     const firstArtists = group[0].artists
     const shared = group.every(s => normName(s.artists[0]) === normName(firstArtists[0])) ? firstArtists[0] : null
     const albumArtist = tagged ?? shared ?? 'Various Artists'
-    const aid = albumId(albumArtist, group[0].album)
+    const aid = albumId(albumArtist, group[0].album, group[0].key)
     let entry = albums.get(aid)
     if (!entry) {
       const year = group.map(s => s.year).find(y => y !== undefined)
@@ -757,7 +802,7 @@ export function buildCatalog(input: LocalBuildInput): LocalCatalog {
   for (const v of [...movies, ...episodes]) videoCount.set(dirOf(v.file.rel), (videoCount.get(dirOf(v.file.rel)) ?? 0) + 1)
 
   for (const m of movies) {
-    const { name, year } = parseMovie(m.file.rel)
+    const { name, year } = parseMovie(m.inner)
     const subFiles = subtitleSidecars(m.file.rel, near(m.file.rel))
     const art = fileArt(m.file.rel, byDir) ?? (videoCount.get(dirOf(m.file.rel)) === 1 ? folderArt(dirOf(m.file.rel), byDir) : undefined)
     if (art) artSources[m.id] = { file: art }
@@ -781,23 +826,25 @@ export function buildCatalog(input: LocalBuildInput): LocalCatalog {
   // An episode's subtitles are set once its show's collection holds it.
   const saveSubsLater: [string, SubtitleSidecar[]][] = []
   for (const e of episodes) {
-    const sid = seriesId(e.ep.series)
+    const sid = seriesId(e.ep.series, e.key)
     let show = shows.get(sid)
     // The show's folder: the one above a season folder, or the episode's own.
-    const parts = e.file.rel.split('/')
+    const parts = e.inner.split('/')
     const inSeason = parts.length > 2 && (SEASON_FOLDER.test(parts[parts.length - 2]) || SPECIALS_FOLDER.test(parts[parts.length - 2]))
-    const showDir = inSeason ? dirOf(dirOf(e.file.rel)) : dirOf(e.file.rel)
+    const showInner = inSeason ? dirOf(dirOf(e.inner)) : dirOf(e.inner)
+    // The same folder as the sidecars know it, under its key.
+    const showDir = e.key ? (showInner ? `${e.key}/${showInner}` : '') : showInner
     if (!show) {
-      const year = showDir ? parseNameYear(showDir.slice(showDir.lastIndexOf('/') + 1)).year : undefined
+      const year = showInner ? parseNameYear(showInner.slice(showInner.lastIndexOf('/') + 1)).year : undefined
       show = {
         item: { Id: sid, Name: e.ep.series, Type: 'Series', ...(year !== undefined ? { ProductionYear: year } : {}), ...(tag(sid) ? { ImageTags: { Primary: 'local' } } : {}), ...ud(sid) },
         seasons: new Map(), episodes: [],
       }
       shows.set(sid, show)
-      const art = showDir && normName(parseNameYear(showDir.slice(showDir.lastIndexOf('/') + 1)).name) === normName(e.ep.series) ? folderArt(showDir, byDir) : undefined
+      const art = showDir && normName(parseNameYear(showInner.slice(showInner.lastIndexOf('/') + 1)).name) === normName(e.ep.series) ? folderArt(showDir, byDir) : undefined
       if (art) artSources[sid] = { file: art }
     }
-    const zid = seasonId(e.ep.series, e.ep.season)
+    const zid = seasonId(e.ep.series, e.ep.season, e.key)
     if (!show.seasons.has(e.ep.season)) {
       show.seasons.set(e.ep.season, {
         Id: zid, Name: e.ep.season === 0 ? 'Specials' : `Season ${e.ep.season}`, Type: 'Season', IndexNumber: e.ep.season,
@@ -854,14 +901,30 @@ export function buildCatalog(input: LocalBuildInput): LocalCatalog {
     addCollection(index, { Id: p.Id, Name: p.Name, Type: 'Playlist', ChildCount: items.length, DateCreated: p.createdAt, CanDelete: true, ...ud(p.Id) }, items)
   }
 
-  // Every item is a file on disk, so every one is ready.
+  // Every item is a file on disk, so every one is ready. Each folder holds
+  // up to one library of each kind, named after the folder when there are
+  // several, so the merge and single-library choices read them as Jellyfin's.
+  const views: JfItem[] = []
+  const viewIds = new Set<string>()
   for (const [id, rel] of Object.entries(paths)) {
     markReady(index, id, `media/${id}.${extOf(rel) || 'bin'}`, sizes[id] ?? 0)
-    index.tracks[id].library = index.tracks[id].item.Type === 'Movie' ? LOCAL_LIBRARIES.movies.Id
-      : index.tracks[id].item.Type === 'Episode' ? LOCAL_LIBRARIES.tvshows.Id : LOCAL_LIBRARIES.music.Id
+    const type = index.tracks[id].item.Type
+    const kind = type === 'Movie' ? 'movies' : type === 'Episode' ? 'tvshows' : 'music'
+    const key = split(rel).key
+    const base = LOCAL_LIBRARIES[kind]
+    const libId = key ? `${base.Id}-${key}` : base.Id
+    index.tracks[id].library = libId
+    if (!viewIds.has(libId)) {
+      viewIds.add(libId)
+      views.push({ ...base, Id: libId, Name: roots && roots.length > 1 ? rootNames.get(key) ?? base.Name : base.Name, Type: 'CollectionFolder' })
+    }
   }
-  const used = new Set(Object.values(index.tracks).map(t => t.library))
-  setLibraries(index, Object.values(LOCAL_LIBRARIES).filter(l => used.has(l.Id)).map(l => ({ ...l, Type: 'CollectionFolder' })))
+  // In the order the folders were added, music before video within each.
+  const order = (v: JfItem) => {
+    const at = roots ? roots.findIndex(r => v.Id!.endsWith(`-${r.key}`)) : 0
+    return at * 3 + Object.values(LOCAL_LIBRARIES).findIndex(b => v.Id!.startsWith(b.Id))
+  }
+  setLibraries(index, views.sort((a, b) => order(a) - order(b)))
   setUser(index, { Id: LOCAL_USER_ID, Name: 'You', Policy: { IsAdministrator: false, EnableContentDeletion: false, EnableContentDownloading: false } })
   unplayable.sort((a, b) => cmp(a.rel, b.rel))
   return { index, paths, lyrics, subs, unplayable, artSources }

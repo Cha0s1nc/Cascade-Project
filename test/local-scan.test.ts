@@ -4,7 +4,7 @@ import {
   fileId, albumId, artistId, genreId, seriesId, seasonId, playlistFileId, normRel,
   kindByExtension, classify, isSidecar, codecName, probeFromMetadata, parseProbe, playability, containerOf,
   parseNameYear, parseEpisode, parseMovie, parseTrackFileName, lyricsSidecar, subtitleSidecars, srtToVtt, parseM3u,
-  parseLocalPlaylists, buildCatalog, LOCAL_LIBRARIES, LOCAL_USER_ID,
+  parseLocalPlaylists, buildCatalog, LOCAL_LIBRARIES, LOCAL_USER_ID, rootKeys, folderName,
   type LocalFile, type LocalBuildInput,
 } from '../src/core/local-scan.ts'
 import { applyLocalChange, parseLocalChange, parseUserData, setLocalUserData } from '../src/core/local-user-data.ts'
@@ -284,6 +284,47 @@ function library(over: Partial<LocalBuildInput> = {}): LocalBuildInput {
     ...over,
   }
 }
+
+test('folder keys: from the name, so a moved folder keeps its ids; two of one name stay two', () => {
+  const [a] = rootKeys(['/Users/me/Music/Aiben'])
+  assert.equal(rootKeys(['/Volumes/Drive/Aiben/'])[0], a)
+  assert.match(a, /^[0-9a-f]{12}$/)
+  const [x, y] = rootKeys(['/a/Music', '/b/Music'])
+  assert.notEqual(x, y)
+  assert.equal(folderName('C:\\Users\\me\\Music\\'), 'Music')
+})
+
+test('several folders: each is its own library, named after it, kept apart', () => {
+  const [ka, kb] = rootKeys(['/Users/me/Aiben', '/Users/me/WhiteGirl'])
+  const song = { title: 'Song', artists: ['Shared Artist'], album: 'Same Album', audioCodec: 'mp3' }
+  const cat = buildCatalog({
+    files: [
+      f(`${ka}/Shared Artist/Same Album/01 Song.mp3`, song),
+      f(`${kb}/Shared Artist/Same Album/01 Song.mp3`, song),
+      f(`${kb}/Loose.mp3`, null),
+      f(`${kb}/Film (2020)/Film (2020).mkv`, probeFromMetadata(MM.hevcMkv)),
+    ],
+    sidecars: [], m3u: [], playlists: [], userData: {}, art: new Set(),
+    roots: [{ key: ka, name: 'Aiben' }, { key: kb, name: 'WhiteGirl' }],
+  })
+  const q = offlineQuery(parseIndex(JSON.parse(JSON.stringify(cat.index))))
+  const views = q.answer('/UserViews').body as { Items: { Id: string, Name: string, CollectionType: string }[] }
+  assert.deepEqual(views.Items.map(v => [v.Name, v.CollectionType]), [['Aiben', 'music'], ['WhiteGirl', 'music']])
+  const [la, lb] = views.Items.map(v => v.Id)
+  const songsIn = (lib: string) => (q.answer('/Items', { ParentId: lib, IncludeItemTypes: 'Audio', Recursive: true }).body as { Items: { Name: string }[] }).Items.map(s => s.Name).sort()
+  assert.deepEqual(songsIn(la), ['Song'])
+  assert.deepEqual(songsIn(lb), ['Loose', 'Song'])
+  const albums = (q.answer('/Items', { IncludeItemTypes: 'MusicAlbum', Recursive: true }).body as { Items: { Name: string }[] }).Items
+  assert.equal(albums.filter(a => a.Name === 'Same Album').length, 2, 'one album in two folders is two, as in two Jellyfin libraries')
+  const artists = (q.answer('/Artists', { ParentId: la }).body as { Items: { Name: string }[] }).Items.map(a => a.Name)
+  assert.deepEqual(artists, ['Shared Artist'])
+  const loose = (q.answer('/Items', { IncludeItemTypes: 'Audio', SearchTerm: 'loose' }).body as { Items: { Album: string }[] }).Items[0]
+  assert.equal(loose.Album, 'Unknown Album', "a file at a folder's top is not named after its key")
+  assert.deepEqual(cat.unplayable.map(u => u.rel), ['WhiteGirl/Film (2020)/Film (2020).mkv'], 'a path shown names its folder, not its key')
+
+  const one = buildCatalog({ files: [f(`${ka}/A/B/01 Song.mp3`, song)], sidecars: [], m3u: [], playlists: [], userData: {}, art: new Set(), roots: [{ key: ka, name: 'Aiben' }] })
+  assert.deepEqual(one.index.libraries.map(l => l.Name), ['Music'], 'one folder keeps the plain name')
+})
 
 test('a folder becomes the catalog Offline Mode answers from', () => {
   const cat = buildCatalog(library())

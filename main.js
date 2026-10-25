@@ -712,17 +712,18 @@ ipcMain.on('set-window-buttons-visible', (_e, visible) => {
 
 // IPC: store
 ipcMain.handle('store-get', (_e, key) => store.get(key))
+const LOCKED_STORE_KEYS = new Set(['localLibraryRoot', 'localLibraryRoots', 'spicyLyricsKey'])
 ipcMain.handle('store-set', (_e, key, value) => {
-  // Local mode's folder is set only from its own picker (local-library.js):
-  // every file it serves is resolved under it. The SpicyLyrics key only
-  // through spicy-set-key, which checks it is a public one.
-  if (key === 'localLibraryRoot' || key === 'spicyLyricsKey') return
+  // Local mode's folders are set only from its own picker (local-library.js):
+  // every file it serves is resolved under one. The SpicyLyrics key only
+  // through spicy-set-key, which checks it.
+  if (LOCKED_STORE_KEYS.has(key)) return
   // The server URL decides where custom headers go, so keep it in step.
   if (key === 'serverUrl') connectionServerUrl = typeof value === 'string' ? value : null
   return store.set(key, value)
 })
 ipcMain.handle('store-delete', (_e, key) => {
-  if (key === 'localLibraryRoot' || key === 'spicyLyricsKey') return
+  if (LOCKED_STORE_KEYS.has(key)) return
   if (key === 'serverUrl') connectionServerUrl = null
   return store.delete(key)
 })

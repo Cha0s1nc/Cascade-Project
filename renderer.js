@@ -1664,13 +1664,18 @@ async function populateLibraryPicker(prefetched = null) {
     )
     _movieLibs = (data.Items || []).filter(i => i.CollectionType === 'movies')
     _showLibs  = (data.Items || []).filter(i => i.CollectionType === 'tvshows')
-    // Local mode: one library of each kind, all of them shown. Nothing a
-    // server's selection saved is read or written, so switching back finds
-    // the Jellyfin choices as they were.
+    // Local mode: a library per folder, the music ones merged or one at a
+    // time as with a server, but saved under their own keys (libKey), so
+    // switching back finds the Jellyfin choices as they were. Every movie
+    // and show library is shown.
     if (isLocalMode()) {
       await loadCollapsedLibs()
-      singleLibraryMode = false
-      jf.libraryIds = _musicLibs.map(l => l.Id)
+      let savedIds = []
+      try { savedIds = JSON.parse(await window.cascade.store.get(libKey('libraryIds')) || '[]') } catch {}
+      singleLibraryMode = (await window.cascade.store.get(libKey('singleLibraryMode'))) === true
+      savedIds = (Array.isArray(savedIds) ? savedIds : []).filter(id => _musicLibs.some(l => l.Id === id))
+      if (!savedIds.length) savedIds = _musicLibs.map(l => l.Id)
+      jf.libraryIds = singleLibraryMode ? savedIds.slice(0, 1) : savedIds
       jf.movieLibraryIds = _movieLibs.map(l => l.Id)
       jf.showLibraryIds = _showLibs.map(l => l.Id)
       renderLibraryPicker()
@@ -1712,6 +1717,10 @@ async function populateLibraryPicker(prefetched = null) {
     console.error('[cascade] could not load libraries from /Views:', e)
   }
 }
+
+/** The store key for a music library choice: Local mode keeps its own, so
+ *  the folders' libraries and a server's never overwrite each other. */
+const libKey = (key) => isLocalMode() ? `local${key[0].toUpperCase()}${key.slice(1)}` : key
 
 function renderLibraryPicker() {
   const container = document.getElementById('s-library-list')
@@ -1779,7 +1788,7 @@ async function applyLibrarySelection(ids) {
   // UI back to what's actually active rather than leaving it showing nothing on
   if (!ids.length) { renderLibraryPicker(); return }
   jf.libraryIds = ids
-  await window.cascade.store.set('libraryIds', JSON.stringify(ids))
+  await window.cascade.store.set(libKey('libraryIds'), JSON.stringify(ids))
   renderLibraryPicker()
   invalidateLibraryViews()
   showToast(ids.length === 1
@@ -2402,7 +2411,7 @@ async function applyVideoLibrarySelection(category, ids) {
 
 document.getElementById('s-single-lib-toggle').addEventListener('change', async e => {
   singleLibraryMode = e.target.checked
-  await window.cascade.store.set('singleLibraryMode', singleLibraryMode)
+  await window.cascade.store.set(libKey('singleLibraryMode'), singleLibraryMode)
   // Collapsing to one keeps the first that was already on; expanding keeps it as the seed
   const ids = jf.libraryIds || []
   await applyLibrarySelection(singleLibraryMode ? ids.slice(0, 1) : ids)
@@ -9274,7 +9283,7 @@ async function startLocal() {
   _localVersion = summary.local.version
   await setOfflineState('local', { reload: false })
   renderLocalSettings(summary.local)
-  if (summary.local.error === 'missing') showLocalFolderMissing(summary.local.root)
+  if (summary.local.error === 'missing') showLocalFolderMissing(summary.local.roots)
 
   // What a server would have said about this account: nothing to administer,
   // delete, download or tune in to.
@@ -9377,18 +9386,26 @@ async function localServerWrite(input, init = {}) {
 
 // ── Local mode: Settings and switching ──
 
-function showLocalFolderMissing(root) {
-  showNotice(`Cascade can't open your library folder:\n\n${root}\n\nIf it is on a drive that isn't plugged in, plug it in and choose Rescan in Settings, or choose another folder there.`, 'Local library')
+function showLocalFolderMissing(roots) {
+  const missing = (roots || []).filter(r => r.missing).map(r => r.path)
+  if (!missing.length) return
+  showNotice(`Cascade can't open ${missing.length === 1 ? 'this library folder' : 'these library folders'}:\n\n${missing.join('\n')}\n\nIf it is on a drive that isn't plugged in, plug it in and choose Rescan in Settings, or remove it there. What Cascade last found in it stays meanwhile.`, 'Local library')
 }
 
 const _fmtCount = (n, one, many) => `${n.toLocaleString()} ${n === 1 ? one : many}`
 
 function renderLocalSettings(local) {
   if (!local) return
-  document.getElementById('s-local-path').textContent = local.root || ''
+  const roots = local.roots || []
+  document.getElementById('s-local-folders').innerHTML = roots.map(r => `<div class="setting-row">
+      <div class="setting-label" style="min-width:0">
+        <span class="setting-name">${esc(r.name)}</span>
+        <span class="setting-desc" style="overflow-wrap:anywhere">${esc(r.path)}${r.missing ? " · Cascade can't open it right now. Plug in its drive, or remove it." : ''}</span>
+      </div>
+      <button class="btn btn-secondary" type="button" data-remove-folder="${esc(r.path)}"${roots.length < 2 ? ' disabled title="The last folder can\'t be removed. Switch to Jellyfin in Account instead."' : ''}>Remove</button>
+    </div>`).join('')
   const status = document.getElementById('s-local-status')
   if (local.scanning) renderLocalProgress(local.progress)
-  else if (local.error === 'missing') status.textContent = "Cascade can't open this folder. Plug in its drive, or choose another."
   else {
     const c = local.counts
     const parts = [_fmtCount(c.songs, 'song', 'songs'), c.movies && _fmtCount(c.movies, 'movie', 'movies'), c.episodes && _fmtCount(c.episodes, 'episode', 'episodes')].filter(Boolean)
@@ -9439,7 +9456,20 @@ document.getElementById('setup-local').addEventListener('click', () => switchToL
 document.getElementById('s-mode-local').addEventListener('click', () => switchToLocal())
 document.getElementById('s-mode-jellyfin').addEventListener('click', () => switchToJellyfin())
 // Another folder is another library: the same reload as switching modes.
-document.getElementById('s-local-change').addEventListener('click', () => switchToLocal())
+// Removing one keeps its favorites and plays: adding it back finds them.
+document.getElementById('s-local-add').addEventListener('click', async () => {
+  const added = await window.cascade.local.addFolder()
+  // A saved choice of libraries would leave the new one out: every library
+  // shows again, as on a first run.
+  if (added?.ok) { await window.cascade.store.delete('localLibraryIds'); location.reload() }
+  else if (added?.error) showNotice(added.error, 'Local library')
+})
+document.getElementById('s-local-folders').addEventListener('click', async e => {
+  const btn = /** @type {HTMLElement} */ (e.target).closest('[data-remove-folder]')
+  if (!btn || /** @type {HTMLButtonElement} */ (btn).disabled) return
+  const removed = await window.cascade.local.removeFolder(btn.getAttribute('data-remove-folder'))
+  if (removed?.ok) location.reload()
+})
 document.getElementById('s-local-rescan').addEventListener('click', async () => {
   if (!isLocalMode()) return
   const summary = await window.cascade.local.rescan().catch(() => null)
