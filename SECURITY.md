@@ -19,6 +19,5 @@ In scope: the Cascade apps in this repository (desktop, and the iOS and tvOS app
 Report these elsewhere:
 
 - **Jellyfin itself:** the [Jellyfin project](https://github.com/jellyfin/jellyfin/security).
-- **The CascadeServer plugin:** [its repository](https://github.com/Cha0s1nc/CascadeServer).
 
 Cascade signs in to your Jellyfin server and keeps a session token for it, so anything that could leak that token, run code from a server or release it shouldn't, or install an update that wasn't published here, is exactly what this policy is for.

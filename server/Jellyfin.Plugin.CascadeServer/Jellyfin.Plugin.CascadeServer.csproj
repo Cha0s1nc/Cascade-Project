@@ -48,6 +48,8 @@
   <ItemGroup>
     <!-- Dashboard page for the "Cascade Server" sidebar tab (lyrics status report). -->
     <EmbeddedResource Include="Web\status.html" />
+    <EmbeddedResource Include="Web\cascadeserver.css" />
+    <EmbeddedResource Include="Web\cascadeserver.js" />
   </ItemGroup>
 
 </Project>

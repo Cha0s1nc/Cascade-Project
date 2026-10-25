@@ -295,7 +295,7 @@ public sealed class AnimatedArtService
     {
         var client = _httpClientFactory.CreateClient();
         // MusicBrainz asks for a descriptive agent; the same one goes to TIDAL.
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("CascadeServer/1.0 (https://github.com/Cha0s1nc/CascadeServer)");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("CascadeServer/1.0 (https://github.com/Cha0s1nc/Cascade-Project)");
         client.Timeout = TimeSpan.FromSeconds(15);
         return client;
     }

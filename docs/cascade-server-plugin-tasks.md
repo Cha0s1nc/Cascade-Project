@@ -1,27 +1,25 @@
 # Cascade Server plugin tasks
 
-A brief for an agent working in the **CascadeServer** repository (`Cha0s1nc/CascadeServer`, the Jellyfin plugin), not in this one. It covers the four features that need server work:
+**All four features below shipped in Cascade Server 1.1.0.** This was the brief for building them, written when the plugin had its own repository (`Cha0s1nc/CascadeServer`); the plugin now lives in [`server/`](../server/) in this repository and builds for Jellyfin 12 only. The **Contract** section is still the shape Cascade's client is built against: change it together with the routes. It covers the four features that needed server work:
 
 - **A. Server style:** a theme and lyrics look an admin sets for everyone, offered as the default or enforced.
 - **B. Explicit marking:** Jellyfin has no explicit flag, so the plugin works one out and serves it.
 - **C. Playlist picture and description for owners:** Jellyfin only lets admins set them.
 - **D. Animated album art:** a looping video cover from an admin's own `cover.mp4` sidecar, or from TIDAL using the admin's own TIDAL developer app.
 
-The Cascade client side is built later, in `Cascade-Project`, against the **Contract** section below. Treat that section as the deliverable: if you change a route or a JSON shape, change it here too, in this file on this branch (`fixes/plan-items` in `Cha0s1nc/Cascade-Project`), so the client is built against what you shipped.
+The Cascade client side is built against the **Contract** section below. If you change a route or a JSON shape, change it here too, in the same commit, so the client and the plugin never disagree.
 
-## How the plugin repo works (read first)
+## How the plugin works (read first)
 
-- Build both targets; both must compile:
-  - `dotnet build Jellyfin.Plugin.CascadeServer -c Release -p:JellyfinTarget=10.11` (.NET 9)
-  - `dotnet build Jellyfin.Plugin.CascadeServer -c Release -p:JellyfinTarget=12` (.NET 10, `JELLYFIN12` is defined)
+- From `server/`: `dotnet build Jellyfin.Plugin.CascadeServer -c Release` (.NET 10, against Jellyfin 12.0 so it loads on every 12.x server), and `dotnet test Jellyfin.Plugin.CascadeServer.Tests` (or `npm test server` at the repo root).
 - **Capabilities:** `Api/InfoController.cs` lists them in `Capabilities`. Cascade feature-tests on that list, never on the version number. Each task below adds one.
 - **Permissions:** `Api/SpotifyLinkPermission.cs` is the pattern for "admins plus users an admin picked". Use `IAuthorizationContext.GetAuthorizationInfo`, and `PermissionKind.IsAdministrator` for admins.
 - **Storage:** plugin data lives under `DataDir.Root(appPaths)` (`{DataPath}/cascade-lyrics`; the old name is kept on purpose, see `LyricStore/DataDir.cs`). `LyricStore/SpotifyIdStore.cs` is the pattern for a small JSON store: a lazy-loaded `ConcurrentDictionary`, a lock, writing to `.tmp` and then moving it into place. Never use the plugin's own `DataFolderPath`, which is replaced on every update.
-- **Settings:** `Configuration/PluginConfiguration.cs`, edited on `Web/status.html`. Jellyfin's plugin configuration API is admin-only, which is why secrets can live there.
+- **Settings:** `Configuration/PluginConfiguration.cs`, edited on the dashboard page: `Web/status.html` (markup), `Web/cascadeserver.css` and `Web/cascadeserver.js`, served together by `Plugin.GetPages`. Jellyfin's plugin configuration API is admin-only, which is why secrets can live there.
 - **Scheduled tasks:** `Tasks/DownloadLyricsTask.cs` is the pattern for a library-wide pass.
-- **House style** (shared with Cascade): no em dashes anywhere, code comments and commit messages included. Comments explain why. Check what every write returns. Never trust an endpoint's shape from memory: confirm Jellyfin internals against Jellyfin's source for **both** 10.11 and 12.
-- **Testing:** there is no test project yet. Either add a small xunit project for the pure parts (tag value parsing, lookup matching, preset validation), or test them by hand against a dev server. Say which in your report.
-- Bump `PluginVersion` in the csproj and update `README.md` (Settings, What it depends on) when you are done.
+- **House style** (shared with Cascade): no em dashes anywhere, code comments and commit messages included. Comments explain why. Check what every write returns. Never trust an endpoint's shape from memory: confirm Jellyfin internals against Jellyfin 12's source.
+- **Testing:** `Jellyfin.Plugin.CascadeServer.Tests` (xunit) covers the pure parts, compiled in directly so it needs no Jellyfin packages. The rest is tested by hand against the jellyfin12 test server.
+- Bump `PluginVersion` in the csproj and update `server/README.md` (Settings, What it depends on) when you are done; a `server-v*` tag releases it (`.github/workflows/server.yml`).
 
 ## Contract
 

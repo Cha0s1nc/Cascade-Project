@@ -1,0 +1,146 @@
+/* The Cascade Server dashboard page, drawn in Cascade's own look: the same
+   colors, cards, rows, toggles and category pill as Cascade's Settings
+   (desktop/styles/settings.css, theme.css, base.css in Cascade-Project).
+   Every rule is under .cs-app, so nothing reaches Jellyfin's own dashboard. */
+
+.cs-app {
+  --hover-in: 0.12s;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --bg: #111113; --surface: #1c1c1e; --surface2: #2c2c2e; --border: #3a3a3c;
+  --accent: #6e4ff6; --accent-glow: rgba(110, 79, 246, 0.25);
+  --text: #f5f5f7; --text2: #aeaeb2; --text3: #8e8e93;
+  --grad: linear-gradient(160deg, #4ade80 0%, #7c3aed 100%);
+  --green: #32d74b; --red: #ff453a; --yellow: #ffd60a;
+  box-sizing: border-box;
+  max-width: 820px;
+  margin: 1.5em auto 3em;
+  padding: 22px 22px 18px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.cs-app *, .cs-app *::before, .cs-app *::after { box-sizing: border-box; }
+.cs-app a { color: #a78bfa; }
+
+/* ── Header ── */
+.cs-app .cs-head { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+.cs-app .cs-mark { width: 44px; height: 44px; flex-shrink: 0; border-radius: 12px; background: var(--grad); display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px rgba(124, 58, 237, 0.35); }
+.cs-app .cs-mark svg { width: 22px; height: 22px; fill: #fff; }
+.cs-app .cs-head h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.01em; color: var(--text); }
+.cs-app .cs-head p { margin: 2px 0 0; font-size: 12.5px; color: var(--text3); }
+.cs-app .cs-version { margin-left: auto; font-size: 11.5px; color: var(--text3); white-space: nowrap; }
+
+/* ── Category bar: one rounded track, an accent pill slides to the chosen tab ── */
+.cs-app .cs-tabs { position: relative; display: flex; gap: 2px; padding: 3px; margin: 0 auto 18px; width: fit-content; max-width: 100%; overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; }
+.cs-app .cs-pill { position: absolute; top: 3px; bottom: 3px; left: 0; width: 0; border-radius: 999px; background: var(--accent); box-shadow: 0 2px 10px var(--accent-glow); transition: transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1), width 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.cs-app .cs-tab { position: relative; z-index: 1; padding: 6px 14px; border: none; border-radius: 999px; background: none; font: 600 12.5px var(--font); color: var(--text2); cursor: pointer; white-space: nowrap; transition: color var(--hover-in) ease; }
+.cs-app .cs-tab:hover { color: var(--text); }
+.cs-app .cs-tab.active { color: #fff; }
+.cs-app .cs-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.cs-app .cs-pane { display: none; }
+.cs-app .cs-pane.active { display: block; animation: cs-in 0.22s ease; }
+@keyframes cs-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* ── Cards and rows ── */
+.cs-app .cs-group { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 16px; overflow: hidden; }
+.cs-app .cs-group-title { font-size: 11px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.cs-app .cs-intro { padding: 11px 14px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--text2); }
+.cs-app .cs-intro:last-child { border-bottom: none; }
+.cs-app .cs-intro ol { margin: 6px 0 4px 18px; padding: 0; }
+.cs-app .cs-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 11px 14px; border-bottom: 1px solid var(--border); margin: 0; }
+.cs-app .cs-row:last-child { border-bottom: none; }
+.cs-app .cs-row.cs-top { align-items: flex-start; }
+.cs-app label.cs-row { cursor: pointer; }
+.cs-app .cs-label { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.cs-app .cs-name { font-size: 13px; font-weight: 500; color: var(--text); }
+.cs-app .cs-desc { font-size: 11.5px; color: var(--text3); }
+
+/* ── Controls ── */
+.cs-app .cs-toggle { position: relative; width: 36px; height: 20px; flex-shrink: 0; }
+.cs-app .cs-toggle input { opacity: 0; width: 0; height: 0; position: absolute; margin: 0; }
+.cs-app .cs-track { position: absolute; inset: 0; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; cursor: pointer; transition: background 0.2s, border-color 0.2s; }
+.cs-app .cs-toggle input:checked + .cs-track { background: var(--accent); border-color: var(--accent); }
+.cs-app .cs-toggle input:disabled + .cs-track { opacity: 0.55; cursor: default; }
+.cs-app .cs-track::after { content: ''; position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; background: #fff; border-radius: 50%; transition: transform 0.2s; }
+.cs-app .cs-toggle input:checked + .cs-track::after { transform: translateX(16px); }
+.cs-app .cs-toggle input:focus-visible + .cs-track { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.cs-app .cs-input { -webkit-appearance: none; appearance: none; font: 12px var(--font); background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 6px 10px; width: 260px; max-width: 100%; outline: none; transition: border-color 0.15s, box-shadow 0.15s; }
+.cs-app .cs-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.cs-app .cs-input::placeholder { color: var(--text3); }
+.cs-app select.cs-input { cursor: pointer; padding-right: 26px; background-image: linear-gradient(45deg, transparent 50%, var(--text2) 50%), linear-gradient(135deg, var(--text2) 50%, transparent 50%); background-position: calc(100% - 13px) 50%, calc(100% - 9px) 50%; background-size: 4px 4px; background-repeat: no-repeat; }
+.cs-app select.cs-input option { background: var(--surface); color: var(--text); }
+.cs-app .cs-narrow { width: 90px; }
+.cs-app textarea.cs-input { width: 100%; min-height: 150px; resize: vertical; font: 11.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; line-height: 1.5; }
+
+.cs-app .cs-btn { font: 500 13px var(--font); padding: 6px 16px; border-radius: 7px; border: 1px solid transparent; cursor: pointer; transition: background 0.15s, border-color 0.15s, opacity 0.15s; white-space: nowrap; }
+.cs-app .cs-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.cs-app .cs-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cs-app .cs-primary { background: var(--accent); color: #fff; }
+.cs-app .cs-primary:hover:not(:disabled) { background: #7c5ff7; }
+.cs-app .cs-secondary { background: var(--surface2); color: var(--text); border-color: var(--border); }
+.cs-app .cs-secondary:hover:not(:disabled) { border-color: var(--accent); }
+.cs-app .cs-danger { background: rgba(255, 69, 58, 0.15); color: var(--red); border-color: rgba(255, 69, 58, 0.3); }
+.cs-app .cs-danger:hover:not(:disabled) { background: rgba(255, 69, 58, 0.25); }
+.cs-app .cs-small { padding: 4px 11px; font-size: 12px; }
+.cs-app .cs-file input { display: none; }
+
+.cs-app .cs-status { font-size: 12px; color: var(--text3); }
+.cs-app .cs-status.ok { color: var(--green); }
+.cs-app .cs-status.bad { color: var(--red); }
+.cs-app .cs-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+
+/* The plugin's settings save together, whichever tab they are on. */
+.cs-app .cs-savebar { position: sticky; bottom: 0; display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin: 4px -22px -18px; padding: 12px 22px; background: rgba(17, 17, 19, 0.92); border-top: 1px solid var(--border); border-radius: 0 0 16px 16px; backdrop-filter: blur(10px); }
+.cs-app[data-tab="style"] .cs-savebar, .cs-app[data-tab="coverage"] .cs-savebar { display: none; }
+
+/* ── Who may do what: a list of the server's users ── */
+.cs-app .cs-users .cs-row { padding: 8px 14px; }
+.cs-app .cs-users .cs-tag { font-size: 11px; color: var(--text3); margin-left: 6px; }
+.cs-app .cs-empty { padding: 11px 14px; color: var(--text3); font-size: 12px; }
+
+/* ── Server style ── */
+.cs-app .cs-preview { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text2); }
+.cs-app .cs-swatch { width: 46px; height: 18px; border-radius: 5px; border: 1px solid var(--border); flex-shrink: 0; }
+
+/* ── Lyrics coverage ── */
+.cs-app .cs-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; }
+.cs-app .cs-stat { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.cs-app .cs-stat b { display: block; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+.cs-app .cs-stat span { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; }
+.cs-app .cs-stat.ok b { color: var(--green); }
+.cs-app .cs-stat.bad b { color: var(--red); }
+.cs-app .cs-bar { height: 4px; border-radius: 2px; background: var(--surface2); overflow: hidden; margin: 0 0 16px; }
+.cs-app .cs-bar > div { height: 100%; width: 0; background: var(--grad); transition: width 0.4s ease; }
+.cs-app .cs-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.cs-app .cs-tools .cs-input { width: 220px; }
+.cs-app .cs-tools .cs-inline { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text2); cursor: pointer; margin: 0; }
+.cs-app .cs-tools .cs-actions { margin-left: auto; }
+.cs-app .cs-table-wrap { max-height: 560px; overflow: auto; }
+.cs-app table.cs-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.cs-app .cs-table th { position: sticky; top: 0; z-index: 1; background: var(--surface); text-align: left; font-size: 11px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; padding: 9px 14px; border-bottom: 1px solid var(--border); }
+.cs-app .cs-table td { padding: 8px 14px; border-bottom: 1px solid var(--border); color: var(--text2); vertical-align: middle; }
+.cs-app .cs-table tr:last-child td { border-bottom: none; }
+.cs-app .cs-table td:first-child { color: var(--text); font-weight: 500; }
+.cs-app .cs-table tbody tr { transition: background var(--hover-in) ease; }
+.cs-app .cs-table tbody tr:hover { background: rgba(255, 255, 255, 0.03); }
+.cs-app .cs-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--surface2); color: var(--text3); }
+.cs-app .cs-badge.ok { background: rgba(50, 215, 75, 0.14); color: var(--green); }
+.cs-app .cs-badge.bad { background: rgba(255, 69, 58, 0.14); color: var(--red); }
+
+@media (max-width: 640px) {
+  .cs-app { padding: 16px 14px 14px; border-radius: 12px; }
+  .cs-app .cs-row { flex-wrap: wrap; }
+  .cs-app .cs-input { width: 100%; }
+  .cs-app .cs-stats { grid-template-columns: 1fr; }
+  .cs-app .cs-savebar { margin: 4px -14px -14px; padding: 10px 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cs-app .cs-pill, .cs-app .cs-track, .cs-app .cs-track::after, .cs-app .cs-bar > div { transition: none; }
+  .cs-app .cs-pane.active { animation: none; }
+}

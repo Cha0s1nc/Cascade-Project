@@ -60,5 +60,17 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             MenuSection = "server",
             MenuIcon = "queue_music",
         };
+        // The page's own look and script, loaded by status.html through
+        // configurationpage?name=..., the way Intro Skipper serves its UI.
+        yield return new PluginPageInfo
+        {
+            Name = "cascadeserver.css",
+            EmbeddedResourcePath = $"{GetType().Namespace}.Web.cascadeserver.css",
+        };
+        yield return new PluginPageInfo
+        {
+            Name = "cascadeserver.js",
+            EmbeddedResourcePath = $"{GetType().Namespace}.Web.cascadeserver.js",
+        };
     }
 }
