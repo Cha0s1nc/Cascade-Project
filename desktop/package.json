@@ -40,6 +40,8 @@
     "sharp": "^0.33.4",
     "typescript": "^7.0.2"
   },
+  "homepage": "https://github.com/Cha0s1nc/Cascade-Project",
+  "repository": { "type": "git", "url": "https://github.com/Cha0s1nc/Cascade-Project.git", "directory": "desktop" },
   "author": {
     "name": "cha0s_1nc",
     "email": "contact@chaosinc.xyz"
