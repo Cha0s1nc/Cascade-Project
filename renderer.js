@@ -2214,6 +2214,8 @@ async function maybeShowSetupWizard() {
 
   _firstRunSteps = FIRSTRUN_STEPS.filter(s =>
     (s !== 'libraries' || _firstRunNeedsLibraryStep()) &&
+    // Nothing streams in Local mode, so there is no bitrate to cap.
+    (s !== 'quality' || !isLocalMode()) &&
     (s !== 'telemetry' || CascadeCore.telemetryAvailable()) &&
     (_wizardIsFirstRun || FIRSTRUN_STEP_REVISION[s] > seen))
   _firstRunIdx = 0
@@ -9300,6 +9302,8 @@ async function startLocal() {
   invalidateVideoViews()
   await loadHome()
   await restoreLastQueue()
+  // The first-run wizard, as connect() runs it after a sign-in.
+  await maybeShowSetupWizard()
   return true
 }
 
