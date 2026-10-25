@@ -2,7 +2,11 @@
 # then gets deleted.
 name: R2 and tag check
 
-on: workflow_dispatch
+# Runs on its own push: workflow_dispatch needs the file on stable.
+on:
+  push:
+    branches: ['dev']
+    paths: ['.github/workflows/r2-check.yml']
 
 jobs:
   r2:
