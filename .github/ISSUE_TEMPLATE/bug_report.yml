@@ -16,6 +16,7 @@ body:
         - Linux
         - iPhone or iPad
         - Apple TV
+        - Cascade Server plugin (on the Jellyfin server)
     validations:
       required: true
   - type: dropdown

@@ -1,0 +1,132 @@
+name: Server plugin
+
+# The Jellyfin plugin in server/ (Cascade Server), for Jellyfin 12. Builds and
+# tests on every change to it. A server-v* tag, matching <PluginVersion> in the
+# .csproj, also releases it: the zip and the plugin catalog (manifest.json) go
+# to the cascade-plugins R2 bucket, served at https://plugins.chaosinc.xyz,
+# which is the repository URL server owners add in Jellyfin.
+#
+# No GitHub release: the desktop updater and the website read this repo's
+# releases, and a plugin release must never become their "latest".
+#
+# To release: bump <PluginVersion>, commit, push, then
+#   git tag -a server-v1.1.0 -m "What changed"   (the message is the changelog)
+#   git push origin server-v1.1.0
+# Only the maintainer can push a server-v* tag (a tag ruleset).
+
+on:
+  push:
+    branches: ['dev']
+    # Path filters are not applied to tag pushes, so every server-v* tag runs.
+    tags: ['server-v*']
+    paths: ['server/**', '.github/workflows/server.yml']
+  pull_request:
+    branches: ['dev']
+    paths: ['server/**', '.github/workflows/server.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: server-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    outputs:
+      version: ${{ steps.version.outputs.plugin }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Test
+        run: dotnet test Jellyfin.Plugin.CascadeServer.Tests
+
+      - name: Read the version
+        id: version
+        run: echo "plugin=$(grep -oP '(?<=<PluginVersion>)[^<]+' Jellyfin.Plugin.CascadeServer/Jellyfin.Plugin.CascadeServer.csproj)" >> "$GITHUB_OUTPUT"
+
+      - name: The tag must match the project version
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          TAG: ${{ github.ref_name }}
+          PLUGIN: ${{ steps.version.outputs.plugin }}
+        run: |
+          if [ "${TAG#server-v}" != "$PLUGIN" ]; then
+            echo "::error::Tag $TAG does not match <PluginVersion> $PLUGIN"
+            exit 1
+          fi
+
+      - name: Build
+        run: dotnet build Jellyfin.Plugin.CascadeServer/Jellyfin.Plugin.CascadeServer.csproj --configuration Release -o ./build
+
+      - name: Package
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          PLUGIN: ${{ steps.version.outputs.plugin }}
+        run: cd build && zip "../Jellyfin.Plugin.CascadeServer_$PLUGIN.12.zip" Jellyfin.Plugin.CascadeServer.dll
+
+      - uses: actions/upload-artifact@v7
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          name: plugin
+          path: server/*.zip
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/server-v')
+    runs-on: ubuntu-latest
+    # The R2 key lives here, usable only from dev and stable.
+    environment: release
+    steps:
+      # Full history, for the tag's message.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: plugin
+          path: dist
+
+      - name: Upload the zip and the updated catalog to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          EP: https://${{ vars.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          BUCKET: ${{ vars.R2_BUCKET }}
+          PUBLIC: https://plugins.chaosinc.xyz
+          V: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          ZIP="Jellyfin.Plugin.CascadeServer_$V.12.zip"
+          git for-each-ref "refs/tags/$GITHUB_REF_NAME" --format='%(contents)' > notes.md
+
+          # The live catalog. Only a catalog that is really not there yet (the
+          # first release from this repo) starts from server/manifest.json, the
+          # old repo's: any other failure stops here rather than overwrite it.
+          if aws s3api head-object --bucket "$BUCKET" --key manifest.json --endpoint-url "$EP" > /dev/null 2> head.err; then
+            aws s3 cp "s3://$BUCKET/manifest.json" manifest.json --endpoint-url "$EP"
+          elif grep -q '(404)' head.err; then
+            cp server/manifest.json manifest.json
+          else
+            cat head.err; exit 1
+          fi
+
+          # The zip first, so the catalog never names a file that is not there.
+          aws s3 cp "dist/$ZIP" "s3://$BUCKET/$V/$ZIP" --endpoint-url "$EP" \
+            --content-type application/zip --cache-control 'public, max-age=31536000, immutable'
+          python3 server/scripts/manifest.py add manifest.json "$V.12" 12.0.0.0 "$PUBLIC/$V/$ZIP" "dist/$ZIP" notes.md
+          aws s3 cp manifest.json "s3://$BUCKET/manifest.json" --endpoint-url "$EP" \
+            --content-type application/json --cache-control 'public, max-age=300'
+          echo "Released $V: $PUBLIC/$V/$ZIP"

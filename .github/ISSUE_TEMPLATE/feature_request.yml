@@ -26,6 +26,7 @@ body:
         - iPhone or iPad
         - Apple TV
         - Android
+        - Cascade Server plugin (on the Jellyfin server)
   - type: textarea
     id: alternatives
     attributes:

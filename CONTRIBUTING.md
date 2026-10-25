@@ -11,7 +11,7 @@ Thanks for helping. Cascade is a Jellyfin client for desktop (macOS, Windows, Li
 - **Try betas.** Settings, About, Beta updates. Betas break more often; that's what they're for, and reports from them are the most useful kind.
 - **Send code.** For anything bigger than a small fix, open an issue first so nobody spends a weekend on something that won't be merged.
 
-Issues about the Jellyfin server plugin (lyrics sidecars, Spicy Lyrics) go to [CascadeServer](https://github.com/Cha0s1nc/CascadeServer).
+Issues about the Jellyfin server plugin (lyrics sidecars, Spicy Lyrics) go here too: pick "Cascade Server plugin" as the platform.
 
 ## Where things are
 
@@ -20,6 +20,7 @@ Issues about the Jellyfin server plugin (lyrics sidecars, Spicy Lyrics) go to [C
 | `desktop/` | The desktop app (Electron): `main.js`, `renderer.js`, `index.html`, `styles/`, typed and tested logic in `src/core/`, tests in `test/` |
 | `apple/` | The native iOS and tvOS app (SwiftUI), with `CascadeKit`, its tested core |
 | `shared/` | What more than one app reads: the artwork in `assets/`, `tuning-defaults.json`, the fixtures both test suites check, and the repo's scripts (releases, changelog, tuning, `npm test`) |
+| `server/` | The Cascade Server Jellyfin plugin (C#, Jellyfin 12), with its tests; see [server/README.md](server/README.md) |
 | `signaling/`, `telemetry/` | Cloudflare Workers: Waterfall's signaling, and the opt-in usage count |
 | `docs/` | Plans and setup notes, e.g. the release pipeline |
 | `shared/assets/` | Artwork under its own license, see below |

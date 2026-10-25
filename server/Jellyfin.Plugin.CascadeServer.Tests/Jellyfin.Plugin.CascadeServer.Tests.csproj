@@ -3,7 +3,7 @@
   <!-- Tests for the pure parts only. The source files are compiled in directly, so the
        tests need no Jellyfin packages: keep Jellyfin types out of anything listed here. -->
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>

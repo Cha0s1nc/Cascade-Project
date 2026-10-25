@@ -72,6 +72,10 @@ Nothing goes to a Jellyfin server in Local mode. Lyrics and artwork lookups (Kug
 
 **Spicy Lyrics without the plugin:** in Local mode, or with a server that does not have Cascade Server, **Settings > Lyrics > Spicy Lyrics key** takes your own Spicy Lyrics key from an app you make in the Spicy Lyrics dashboard: its secret key (`sl_sk_...`), or a public key (`sl_pk_...`) if the app has the no-origin option on. Cascade does not ship a key, and yours stays on your computer. With one set, for the song playing only, its title, artist and album go to ListenBrainz Labs to find its Spotify id, and that id goes to Spicy Lyrics. Answers are kept on your computer for 25 days.
 
+### Cascade Server plugin
+
+An optional Jellyfin plugin, in [`server/`](server/), that adds what a server can do once for everyone on it: lyrics fetched and kept on the server (Kugou karaoke, LRCLIB, and Spicy Lyrics with the server owner's key), a theme and lyrics look an admin sets for everyone, explicit marks, playlist pictures and descriptions, and animated album covers. Cascade works without it and grays out what needs it. For Jellyfin 12. **How to install it:** see [the plugin's README](server/README.md#install).
+
 ### Music libraries
 
 After connecting, open **Settings** to choose which Jellyfin music libraries Cascade uses. Multiple libraries can be selected - their contents are merged into a single view, and a song, album or artist found in more than one of them shows once (keeping the higher-bitrate copy of a song). Or turn on **Single library mode** to browse one at a time. Changes apply immediately: which libraries you browse has nothing to do with your credentials, so nothing reconnects and you are never asked to sign in again.
@@ -118,7 +122,7 @@ In the full-screen overlay, toggle lyrics with the lyrics button in the secondar
 | Your Jellyfin server | Nothing |
 | LRCLIB | Nothing |
 | Kugou | Nothing |
-| SpicyLyrics | The [Cascade Server](https://github.com/Cha0s1nc/CascadeServer) plugin, with a SpicyLyrics key set on the server |
+| SpicyLyrics | The [Cascade Server](server/README.md) plugin, with a SpicyLyrics key set on the server |
 
 SpicyLyrics adds word-synced lyrics with background vocals, held notes and duets (the second singer's lines sit on the right). A song SpicyLyrics can't match on its own can be linked to its Spotify track by hand.
 
