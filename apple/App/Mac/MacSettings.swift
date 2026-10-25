@@ -472,6 +472,7 @@ private struct AboutTab: View {
                 LabeledContent("Version", value: state.appVersion)
                 LabeledContent("Build", value: "Native Mac")
             }
+            if Telemetry.available { TelemetrySection() }
             Section {
                 Toggle("Beta updates", isOn: Binding(get: { beta }, set: {
                     beta = $0

@@ -1,7 +1,8 @@
 import SwiftUI
 import CascadeKit
 
-/// The first-run wizard: libraries, crossfade, quality, theme, translation.
+/// The first-run wizard: libraries, crossfade, quality, theme, translation,
+/// and telemetry once it is switched on.
 /// renderer.js's setup wizard, keyed off `cascade.wizardSeenRevision` with
 /// per-step revisions (CascadeKit's SetupWizard decides which steps show).
 ///
@@ -153,6 +154,7 @@ struct FirstRunWizardView: View {
         case .quality: QualityStep()
         case .theme: ThemeStep()
         case .translation: TranslationStep()
+        case .telemetry: Form { TelemetrySection() }.formStyle(.grouped)
         }
     }
 }

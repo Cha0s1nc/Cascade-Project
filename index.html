@@ -1318,6 +1318,17 @@
                   <button class="btn btn-secondary" id="btn-check-updates" style="font-size:12px;padding:5px 14px;">Check for updates</button>
                 </div>
               </div>
+              <!-- Hidden while telemetry is dormant (CascadeCore.TELEMETRY_URL empty); loadSettingsFields() shows it. -->
+              <div class="settings-group settings-about" id="s-telemetry-row" style="display:none;">
+                <div>
+                  <div style="font-size:13px;font-weight:500;color:var(--text);">Share anonymous usage counts</div>
+                  <div style="font-size:11px;color:var(--text3);">Once a day: a random ID, the app version, edition, kind of computer, and how many songs played. Never your login, server, or what you listened to. Off deletes the ID.</div>
+                </div>
+                <label class="toggle">
+                  <input type="checkbox" id="s-telemetry-toggle">
+                  <span class="toggle-track"></span>
+                </label>
+              </div>
               <!-- macOS on Apple Silicon only; renderer.js shows it. -->
               <div class="settings-group settings-about" id="native-mac-row" style="display:none;">
                 <div>
@@ -1590,6 +1601,20 @@
         </label>
       </div>
       <p class="setup-subtitle" id="fr-apple-translation-note" style="display:none;font-size:11px;margin-top:10px;">On this Mac, Cascade uses Apple's built-in translation instead, for any of these languages installed in macOS, and nothing downloads for those. You can change this in Settings.</p>
+    </div>
+
+    <div id="fr-step-telemetry" style="display:none">
+      <p class="setup-subtitle">Help count how many people use Cascade. Off unless you turn it on.</p>
+      <div class="tp-album-row">
+        <div class="tp-album-label">
+          <span class="tp-album-name">Share anonymous usage counts</span>
+          <span class="tp-album-desc">Once a day Cascade sends a random ID made for this purpose, the app version, which edition and kind of computer, and how many songs played. Never your name, login, server, or what you listened to. Turning it off deletes the ID.</span>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="fr-telemetry-toggle">
+          <span class="toggle-track"></span>
+        </label>
+      </div>
     </div>
 
     <p class="setup-subtitle" style="font-size:11px;margin:16px 0 0;">You can change all of this later in Settings.</p>

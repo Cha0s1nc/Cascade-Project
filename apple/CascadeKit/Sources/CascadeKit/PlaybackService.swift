@@ -1802,6 +1802,7 @@ public final class PlaybackService {
     /// device's own plays never read as someone else's (OfflineSync).
     private func reportStart() {
         guard !isRadio else { return }
+        Telemetry.countSong()
         let snapshot = state()
         let client = self.client
         let userId = config.userId
@@ -1810,6 +1811,9 @@ public final class PlaybackService {
         enqueueReport {
             if await PlaybackReporter.start(client, snapshot) {
                 await offline?.snapshotHistory(client: client, after: .seconds(5))
+                // A start that landed means this device is online: the one
+                // place the daily ping needs no Offline Mode check of its own.
+                await Telemetry.sendIfDue()
             } else {
                 await offline?.recordPlay(snapshot.itemId, userId: userId, at: startedAt)
             }

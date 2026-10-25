@@ -15,10 +15,14 @@ public enum SetupWizard {
     /// 2: re-shown to everyone upgrading, for video libraries, crossfade, the
     ///    streaming cap and album art accent.
     /// 3: lyric translation, whose switch is disclosed here before it can run.
+    /// 5 (not yet): opt-in telemetry. Its step stays filtered out while
+    ///    `Telemetry.available` is false; bump to 5 when switching it on.
+    ///    5, not 4: ElectronSettingsImport carries the desktop's revision
+    ///    across, and the desktop is already at 4, so the two count as one.
     public static let revision = 3
 
     public enum Step: String, CaseIterable, Sendable {
-        case libraries, crossfade, quality, theme, translation
+        case libraries, crossfade, quality, theme, translation, telemetry
 
         /// The revision this step arrived in.
         public var since: Int {
@@ -26,6 +30,7 @@ public enum SetupWizard {
             case .libraries: 1
             case .crossfade, .quality, .theme: 2
             case .translation: 3
+            case .telemetry: 5
             }
         }
     }
@@ -54,7 +59,9 @@ public enum SetupWizard {
     /// step is only worth a screen when there is an actual choice to make.
     public static func steps(seen: Int, needsLibraryStep: Bool) -> [Step] {
         guard seen < revision else { return [] }
-        return Step.allCases.filter { ($0 != .libraries || needsLibraryStep) && (seen == 0 || $0.since > seen) }
+        return Step.allCases.filter {
+            ($0 != .libraries || needsLibraryStep) && ($0 != .telemetry || Telemetry.available) && (seen == 0 || $0.since > seen)
+        }
     }
 
     /// Whether a library choice exists on this server: more than one library of

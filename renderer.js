@@ -2132,14 +2132,16 @@ document.getElementById('vi-skip').addEventListener('click', dismissVideoIntro)
 // 3: lyric translation, whose models download from the internet on first use.
 //    That is disclosed here before it can happen, not left to Settings.
 // 4: Smooth skips, on the crossfade step, since some people want a skip to cut.
+// 5 (not yet): opt-in telemetry. Its step stays filtered out while
+//    CascadeCore.telemetryAvailable() is false; bump to 5 when switching it on.
 const WIZARD_REVISION = 4
 
-const FIRSTRUN_STEPS = ['libraries', 'crossfade', 'quality', 'theme', 'translation']
+const FIRSTRUN_STEPS = ['libraries', 'crossfade', 'quality', 'theme', 'translation', 'telemetry']
 
 // The revision each step arrived in. A fresh install walks every step; someone
 // updating is shown only what is new since the revision they last finished, not
 // four screens they have already been through for the sake of one new one.
-const FIRSTRUN_STEP_REVISION = { libraries: 1, crossfade: 4, quality: 2, theme: 2, translation: 3 }
+const FIRSTRUN_STEP_REVISION = { libraries: 1, crossfade: 4, quality: 2, theme: 2, translation: 3, telemetry: 5 }
 let _firstRunSteps = []
 let _firstRunIdx = 0
 
@@ -2179,6 +2181,7 @@ async function maybeShowSetupWizard() {
 
   _firstRunSteps = FIRSTRUN_STEPS.filter(s =>
     (s !== 'libraries' || _firstRunNeedsLibraryStep()) &&
+    (s !== 'telemetry' || CascadeCore.telemetryAvailable()) &&
     (_wizardIsFirstRun || FIRSTRUN_STEP_REVISION[s] > seen))
   _firstRunIdx = 0
   _renderSetupStep()
@@ -2233,6 +2236,9 @@ function _renderSetupStep() {
     // step is re-shown on update, and skipping it must change nothing.
     document.getElementById('fr-lyrics-translation-toggle').checked = lyricsTranslationEnabled
     document.getElementById('fr-apple-translation-note').style.display = _appleTranslationSupported ? '' : 'none'
+  } else if (step === 'telemetry') {
+    // Seeded from the live value: absent is off, and skipping leaves it off.
+    document.getElementById('fr-telemetry-toggle').checked = telemetryOptIn
   }
 }
 
@@ -2287,6 +2293,66 @@ document.getElementById('fr-seg-light').addEventListener('click', () => {
 })
 document.getElementById('fr-toggle-album-art').addEventListener('change', e => setAlbumArtAccent(e.target.checked))
 document.getElementById('fr-lyrics-translation-toggle').addEventListener('change', e => setLyricsTranslationEnabled(e.target.checked))
+
+// ── Telemetry ─────────────────────────────────────────────────────────────────
+// Opt-in, off until the user says yes, and dormant in the build until
+// CascadeCore.TELEMETRY_URL is set (src/core/telemetry.ts has the checklist).
+// While dormant nothing here counts, stores or sends, and neither the wizard
+// step nor the Settings row shows. The install id is its own random UUID,
+// never deviceId, which the Jellyfin server already knows.
+
+let telemetryOptIn = false
+
+async function loadTelemetry() {
+  telemetryOptIn = CascadeCore.telemetryAvailable() && (await window.cascade.store.get('telemetryOptIn')) === true
+}
+
+async function setTelemetryOptIn(on) {
+  telemetryOptIn = on
+  document.getElementById('fr-telemetry-toggle').checked = on
+  document.getElementById('s-telemetry-toggle').checked = on
+  await window.cascade.store.set('telemetryOptIn', on)
+  if (on) {
+    if (!await window.cascade.store.get('telemetryInstallId')) await window.cascade.store.set('telemetryInstallId', crypto.randomUUID())
+    maybeSendTelemetry()
+  } else {
+    // Opting out forgets the install: opting back in later is a new one.
+    for (const k of ['telemetryInstallId', 'telemetrySongs', 'telemetryLastSent']) await window.cascade.store.delete(k)
+  }
+}
+
+async function countTelemetrySong() {
+  if (!telemetryOptIn) return
+  await window.cascade.store.set('telemetrySongs', (Number(await window.cascade.store.get('telemetrySongs')) || 0) + 1)
+}
+
+let _telemetrySending = false
+async function maybeSendTelemetry() {
+  if (!telemetryOptIn || _telemetrySending) return
+  if (!CascadeCore.telemetryDue(await window.cascade.store.get('telemetryLastSent'), Date.now())) return
+  const installId = await window.cascade.store.get('telemetryInstallId')
+  if (typeof installId !== 'string') return
+  _telemetrySending = true
+  try {
+    const ident = CascadeCore.clientIdentity()
+    const ping = CascadeCore.telemetryPing(installId, appVersion, ident.client, ident.device, await window.cascade.store.get('telemetrySongs'))
+    const res = await webFetch(CascadeCore.TELEMETRY_URL, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ping),
+    })
+    if (!res.ok || !telemetryOptIn) return
+    // Only what was sent comes off: songs that started mid-request stay counted.
+    const left = (Number(await window.cascade.store.get('telemetrySongs')) || 0) - ping.songs
+    await window.cascade.store.set('telemetrySongs', Math.max(0, left))
+    await window.cascade.store.set('telemetryLastSent', Date.now())
+  } catch {
+    // Unreachable: tried again on the next song.
+  } finally {
+    _telemetrySending = false
+  }
+}
+
+document.getElementById('fr-telemetry-toggle').addEventListener('change', e => setTelemetryOptIn(e.target.checked))
+document.getElementById('s-telemetry-toggle').addEventListener('change', e => setTelemetryOptIn(e.target.checked))
 
 /** `category` is 'movie' or 'show' - the two hardcoded video categories. */
 async function applyVideoLibrarySelection(category, ids) {
@@ -6479,14 +6545,17 @@ let _reportingActive = false
 function reportPlaybackStart(itemId) {
   _reportingActive = true
   const item = queue[queueIndex]
+  if (item && !isVideoItem(item) && !CascadeCore.isRadioItem(item)) countTelemetrySong()
   CascadeCore.reportStart(jfClient, playbackSnapshot(itemId)).then(ok => {
     // Jellyfin counts a play on this report, so one it never heard (offline) is
     // kept and sent later as a played-at update. Music only: a film or a radio
     // channel has no play to lose.
     // A report that landed changed the server's history: the snapshot
     // follows it, so this device's own plays never read as someone else's.
+    // A start that landed means online, so it is also when the daily
+    // telemetry ping goes: never at launch, before Offline Mode is restored.
     if (!ok) { if (item && !isVideoItem(item) && !CascadeCore.isRadioItem(item)) queueOfflinePlay(item.Id) }
-    else scheduleHistorySnapshot()
+    else { scheduleHistorySnapshot(); maybeSendTelemetry() }
   })
   startProgressReporting()
 }
@@ -7613,6 +7682,8 @@ async function loadSettingsFields() {
 
   document.getElementById('qc-approve-status-row').style.display = 'none'
   _applyQuickConnectGating()
+  document.getElementById('s-telemetry-row').style.display = CascadeCore.telemetryAvailable() ? '' : 'none'
+  document.getElementById('s-telemetry-toggle').checked = telemetryOptIn
   // Radio (Live TV channels shown as stations) - see applyRadioNavVisibility.
   // The row itself only appears for an account Jellyfin already lets see Live
   // TV; the toggle inside it is the user confirming those channels are radio.
@@ -8210,6 +8281,7 @@ async function init() {
   await loadNpTuning()
   await loadLyricStyle()
   await loadDisplayPrefs()
+  await loadTelemetry()
   await initDiscordRpc()
 
   crossfadeEnabled = (await window.cascade.store.get('crossfadeEnabled')) === true

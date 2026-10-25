@@ -317,6 +317,13 @@ public enum ElectronSettingsImport {
         rows.append(bool("serverOnlyMode", "cascade.serverOnlyLyrics"))
         rows.append(enumeration("lyricsForcedSource", "cascade.lyricsForcedSource", lyricSources))
         rows.append(bool("lyricsTranslationEnabled", "cascade.lyricsTranslationEnabled"))
+        // Telemetry consent and its install id, so switching apps is not a new
+        // install. The count and last-sent stamp start over: at worst one
+        // day's songs are lost or the switch day is pinged twice.
+        rows.append(bool("telemetryOptIn", "cascade.telemetryOptIn"))
+        rows.append(simple("telemetryInstallId", "cascade.telemetryInstallId",
+                           import: { text($0, max: 36, allowing: /[0-9a-f-]{36}/) },
+                           export: { text($0, max: 36, allowing: /[0-9a-f-]{36}/) }))
         rows.append(bool("lyricsTranslateOn", "cascade.lyricsTranslateOn"))
         rows.append(blob("lyricStyle", "cascade.lyricStyle"))
         rows.append(blob("npTuning", "cascade.npTuning"))

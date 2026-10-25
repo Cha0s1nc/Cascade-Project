@@ -91,6 +91,7 @@ struct SettingsView: View {
                 LabeledContent("Edition", value: cascadeEdition)
                 LabeledContent("Version", value: state.appVersion)
             }
+            if Telemetry.available { TelemetrySection() }
         }
         .navigationTitle("Settings")
         .confirmationDialog("Sign out?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
@@ -340,7 +341,7 @@ private struct PhoneSetupSheet: ViewModifier {
                 let seen = SetupWizard.seenRevision(wizardSeenRevision: defaults.object(forKey: "cascade.wizardSeenRevision"),
                                                     firstRunWizardSeen: defaults.object(forKey: "cascade.firstRunWizardSeen"))
                 let steps = SetupWizard.steps(seen: seen, needsLibraryStep: false)
-                if steps.contains(.crossfade) || steps.contains(.quality), state.player != nil {
+                if steps.contains(.crossfade) || steps.contains(.quality) || steps.contains(.telemetry), state.player != nil {
                     presented = true
                 } else if seen < SetupWizard.revision {
                     // Only steps the phone does not have are new: nothing to ask.
@@ -407,6 +408,7 @@ private struct PhoneSetupView: View {
                     // The note about Settings is footer text, not a row of its own: in a card it read as a control.
                     Text("Crossfade blends the end of each song into the next; off keeps albums gapless. Normalization evens out loudness using the server's scan.\n\nAll of this is in Settings later, with the equalizer and lyrics options.")
                 }
+                if Telemetry.available { TelemetrySection() }
             }
             .navigationTitle("Set Up Cascade")
             .navigationBarTitleDisplayMode(.inline)
@@ -427,3 +429,22 @@ extension View {
     func phoneSetup() -> some View { modifier(PhoneSetupSheet()) }
 }
 #endif
+
+/// The opt-in telemetry switch, shared by Settings on every platform and the
+/// Mac's first-run wizard. Only shown while `Telemetry.available`, which is
+/// false until telemetry is switched on (src/core/telemetry.ts).
+struct TelemetrySection: View {
+    @State private var on = Telemetry.optedIn()
+
+    var body: some View {
+        Section {
+            Toggle("Share anonymous usage counts", isOn: Binding(get: { on }, set: {
+                on = $0
+                Telemetry.setOptIn($0)
+                if $0 { Task { await Telemetry.sendIfDue() } }
+            }))
+        } footer: {
+            Text("Once a day: a random ID made for this, the app version, edition, kind of device, and how many songs played. Never your login, server, or what you listened to. Turning it off deletes the ID.")
+        }
+    }
+}
