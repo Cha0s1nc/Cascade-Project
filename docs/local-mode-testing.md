@@ -48,7 +48,7 @@ These passed in the Linux run. Repeat them quickly on the Mac, since the platfor
 
 ### A. First run and switching (fresh)
 1. Launch. The sign-in card shows "or" and **Use a folder on this computer**. Choose it, pick `~/cascade-local-test`. Expect: the window reloads straight into the library, with no offline pill, no "server isn't answering" banner, and no Downloads in the sidebar.
-2. Settings > Library: the folder path, "6 songs, 1 movie, 2 episodes", a scan time, **Rescan**, **Change folder**, and "Can't play these without ffmpeg" listing 3 files. Expand it: each has a reason. On a Mac, HEVC in MKV must still be listed (Chromium plays HEVC from mp4 only, never MKV).
+2. Settings > Library: the folder path, "6 songs, 1 movie, 2 episodes", a scan time, **Rescan**, **Add folder**, the folder with a disabled **Remove** (the last one cannot go), and "Can't play these without ffmpeg" listing 3 files. Expand it: each has a reason. On a Mac, HEVC in MKV must still be listed (Chromium plays HEVC from mp4 only, never MKV).
 3. Settings > Account shows only **Library source** with **Switch to Jellyfin**. No server, sign-in, proxy header or Quick Connect rows.
 4. Quit and relaunch: it opens on the folder again with no sign-in card.
 5. **Switch to Jellyfin**: the sign-in card. Sign in to a real server if one is available. Expect the normal app, unchanged: the server's music and video library choices as they were, the Offline Mode switch back in Settings, and Settings > Account offering **Use a folder**. Then switch back to the folder: the folder's favorites and playlists are still there.
@@ -86,7 +86,8 @@ These passed in the Linux run. Repeat them quickly on the Mac, since the platfor
 3. Delete a song and rescan: it is gone everywhere, including from playlists made in Cascade (the entry drops out).
 4. Point the folder at a drive, eject it, relaunch: a notice says the folder cannot be opened, Settings says so too, and the app still opens. Reattach and **Rescan**: back to normal.
 5. Make a symlink inside the folder that points outside it (`ln -s ~/Documents ~/cascade-local-test/outside`) and rescan: nothing from `~/Documents` appears. Try opening `cascade-local://local/media/..%2F..%2Fetc%2Fpasswd` from the DevTools console with `fetch`: 404.
-6. **Change folder** to a real music library, the bigger the better (thousands of songs). Time the first scan, then the launch after it. Check memory in the debug panel if `.cascade-debug` is present. Note any album that split wrongly or merged wrongly, and any file wrongly listed as unplayable. Then favorite a song and note whether the heart takes long to show (it should be instant).
+6. **Add folder** with a real music library, the bigger the better (thousands of songs). Time the first scan, then the launch after it. Check memory in the debug panel if `.cascade-debug` is present. Note any album that split wrongly or merged wrongly, and any file wrongly listed as unplayable. Then favorite a song and note whether the heart takes long to show (it should be instant).
+7. Several folders: **Add folder** twice more with sibling folders. Settings > Library lists three libraries named after the folders; turning one off in Music libraries hides its songs, **Single library mode** shows one at a time, and none of it changes the Jellyfin choices after **Switch to Jellyfin**. Adding a folder that holds one already listed is refused. Favorite a song, **Remove** its folder, add it back: the favorite returns.
 
 ### F. Spicy Lyrics with a real key
 Needs a Spicy Lyrics app made in their dashboard and its secret key (`sl_sk_...`). A public key (`sl_pk_...`) works too if the app has the no-origin option on; test both if you have both.

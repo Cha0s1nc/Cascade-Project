@@ -305,7 +305,7 @@
 
       <!-- Home -->
       <div class="view active" id="view-home">
-        <div class="greeting" id="greeting">Good afternoon, cha0s</div>
+        <div class="greeting not-local" id="greeting">Good afternoon, cha0s</div>
         <!-- Both shelves below hide together in Video mode (#home-music-shelves,
              see the mode CSS near .nav-music). Each already sits over its own
              empty-state text rather than fully hiding itself when the account
@@ -853,20 +853,21 @@
         <div class="settings-view">
           <div class="settings-panes">
             <section class="settings-section active" id="section-library" role="tabpanel" aria-labelledby="sn-library">
-              <!-- Local mode's folder (local-library.js). Shown only in Local mode. -->
+              <!-- Local mode's folders (local-library.js). Shown only in Local mode. -->
               <div class="settings-group local-only" id="s-local-group">
                 <div class="sg-title">Local library</div>
                 <div class="setting-row">
                   <div class="setting-label">
-                    <span class="setting-name">Folder</span>
-                    <span class="setting-desc" id="s-local-path"></span>
+                    <span class="setting-name">Folders</span>
+                    <span class="setting-desc">Each folder is its own library, like a library on a server. Choose which ones show under Library, below.</span>
                     <span class="setting-desc" id="s-local-status"></span>
                   </div>
                   <div style="display:flex;gap:8px;flex-shrink:0">
                     <button class="btn btn-secondary" id="s-local-rescan" type="button">Rescan</button>
-                    <button class="btn btn-secondary" id="s-local-change" type="button">Change folder</button>
+                    <button class="btn btn-secondary" id="s-local-add" type="button">Add folder</button>
                   </div>
                 </div>
+                <div id="s-local-folders"></div>
                 <!-- Files Chromium cannot play as they are: listed, never indexed,
                      since a URL that cannot load sits at readyState 0 with no error. -->
                 <div class="setting-row" id="s-local-unplayable-row" style="align-items:flex-start;display:none">
@@ -892,7 +893,7 @@
                     <span class="toggle-track"></span>
                   </label>
                 </div>
-                <div class="setting-row needs-server" id="s-single-lib-row" style="display:none;">
+                <div class="setting-row needs-server local-ok" id="s-single-lib-row" style="display:none;">
                   <div class="setting-label">
                     <span class="setting-name">Single library mode</span>
                     <span class="setting-desc">Play from one library at a time instead of merging several.</span>
@@ -902,7 +903,7 @@
                     <span class="toggle-track"></span>
                   </label>
                 </div>
-                <div class="setting-row needs-server" id="s-library-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;">
+                <div class="setting-row needs-server local-ok" id="s-library-row" style="align-items:flex-start;padding-top:13px;padding-bottom:13px;">
                   <div class="setting-label">
                     <span class="setting-name">Music libraries</span>
                     <span class="setting-desc" id="s-library-desc">Changes apply immediately.</span>

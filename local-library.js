@@ -1,5 +1,6 @@
-// Local mode, main process side (docs/local-mode-plan.md): a folder on this
-// computer used as the library, with no server. This file walks the folder,
+// Local mode, main process side (docs/local-mode-plan.md): folders on this
+// computer used as the library, with no server. Each folder is its own
+// library, as each folder added to Jellyfin can be. This file walks them,
 // reads tags, keeps the scan and the person's own favorites, plays and
 // playlists, and serves the files to the media elements. What decides an id,
 // what a file is and what can play is pure, in src/core/local-scan.ts. No
@@ -7,22 +8,25 @@
 //
 // Layout under app.getPath('userData')/local:
 //   index.json   the last scan (per file: mtime, size, first seen, tags), the
-//                sidecars and .m3u playlists found; relative paths only,
-//                validated when read
+//                sidecars and .m3u playlists found; paths are relative, each
+//                starting with its folder's key (Local.rootKeys), validated
+//                when read
 //   user.json    favorites, plays and positions by item id, and playlists made
 //                in Cascade: apart, so a play does not rewrite the whole scan
 //   art/<id>.jpg covers, posters and stills, from a picture file or the art
 //                embedded in a song, made once and redone when the source changes
 //
-// The folder itself is only ever read. Its path lives in the store under
-// localLibraryRoot and is set only from the folder picker here, never by the
-// renderer: every path served is resolved under it and checked for escape.
+// The folders themselves are only ever read. Their paths live in the store
+// under localLibraryRoots and are set only from the folder picker here, never
+// by the renderer: every path served is resolved under its folder and checked
+// for escape.
 
 const fs = require('fs')
 const path = require('path')
 const { Readable } = require('stream')
 
-const INDEX_VERSION = 1
+// 2: paths start with their folder's key, for several folders.
+const INDEX_VERSION = 2
 const SAVE_DEBOUNCE_MS = 500
 const PROGRESS_MS = 250
 /** Files read for tags at once. Disks prefer few; network shares like more. */
@@ -54,10 +58,11 @@ function createLocalLibrary({ app, ipcMain, protocol, dialog, nativeImage, store
   const indexFile = path.join(base, 'index.json')
   const userFile = path.join(base, 'user.json')
 
-  /** The library folder as the person picked it, and resolved (symlinks
-   *  followed), which is what every served path is checked against. */
-  let root = null
-  let realRoot = null
+  /** The library folders, in the order they were added: each as the person
+   *  picked it (`path`), resolved with symlinks followed (`real`, what every
+   *  served path is checked against, null while it cannot be opened), its key
+   *  and its name. */
+  let roots = []
   let state = emptyState()
   let loaded = false
   /** The catalog built from `state`, or null before the first build. */
@@ -76,15 +81,13 @@ function createLocalLibrary({ app, ipcMain, protocol, dialog, nativeImage, store
   let scanningGen = -1
   let progress = { done: 0, total: 0 }
   let lastScan = null
-  /** Why the last scan could not read the folder, or null. */
-  let scanError = null
   let userSaveTimer = null
   /** music-metadata, loaded on first use: null if it is missing, which leaves
    *  the names to the folders. */
   let tagReader
 
   function emptyState() {
-    return { version: INDEX_VERSION, root: null, files: {}, sidecars: [], m3u: [], art: {}, userData: {}, playlists: [] }
+    return { version: INDEX_VERSION, roots: [], files: {}, sidecars: [], m3u: [], art: {}, userData: {}, playlists: [] }
   }
 
   // ── Index on disk ──────────────────────────────────────────────────────────
@@ -93,7 +96,7 @@ function createLocalLibrary({ app, ipcMain, protocol, dialog, nativeImage, store
   function parseState(raw) {
     const out = emptyState()
     if (!raw || typeof raw !== 'object' || raw.version !== INDEX_VERSION) return out
-    out.root = typeof raw.root === 'string' ? raw.root : null
+    if (Array.isArray(raw.roots)) out.roots = raw.roots.filter(p => typeof p === 'string')
     if (raw.files && typeof raw.files === 'object') {
       for (const [rel, f] of Object.entries(raw.files)) {
         if (!isSafeRel(rel) || !f || typeof f !== 'object') continue
@@ -167,33 +170,52 @@ function createLocalLibrary({ app, ipcMain, protocol, dialog, nativeImage, store
 
   const within = (dir, p) => p === dir || p.startsWith(dir + path.sep)
 
-  /** The file a relative path names, resolved, or null if it is outside the
+  /** The file a relative path names, resolved, or null if it is outside its
    *  folder by any route (a symlink swapped in since the scan included). */
   async function resolveRel(rel) {
-    if (!realRoot || !isSafeRel(rel)) return null
-    const abs = path.normalize(path.join(root, ...rel.split('/')))
-    if (!within(root, abs)) return null
+    if (!isSafeRel(rel)) return null
+    const i = rel.indexOf('/')
+    const r = i > 0 ? roots.find(x => x.key === rel.slice(0, i)) : null
+    if (!r || !r.real) return null
+    const abs = path.normalize(path.join(r.path, ...rel.slice(i + 1).split('/')))
+    if (!within(r.path, abs)) return null
     try {
       const real = await fs.promises.realpath(abs)
-      return within(realRoot, real) ? real : null
+      return within(r.real, real) ? real : null
     } catch { return null }
   }
 
-  async function setRoot(next) {
+  async function setRoots(paths) {
     generation++
-    root = next
-    realRoot = null
-    scanError = null
-    if (!root) return
-    try { realRoot = await fs.promises.realpath(root) } catch { scanError = 'missing' }
+    const keys = Local.rootKeys(paths)
+    roots = paths.map((p, i) => ({ path: p, real: null, key: keys[i], name: Local.folderName(p) }))
+    for (const r of roots) {
+      try { r.real = await fs.promises.realpath(r.path) } catch {}
+    }
+  }
+
+  /** The folders as the store has them. One folder was a string before
+   *  several were possible. */
+  function storedRoots() {
+    const list = store.get('localLibraryRoots')
+    if (Array.isArray(list)) return list.filter(p => typeof p === 'string' && p)
+    const one = store.get('localLibraryRoot')
+    return typeof one === 'string' && one ? [one] : []
+  }
+
+  function storeRoots(paths) {
+    store.set('localLibraryRoots', paths)
+    store.delete('localLibraryRoot')
   }
 
   // ── Scanning ───────────────────────────────────────────────────────────────
 
-  /** Every media file and sidecar under the root, with stat for the media.
-   *  Dot-files, the skip list and links leading out of the folder are left
-   *  alone; a folder reached twice (a link back inside) is walked once. */
-  async function walk(gen) {
+  /** Every media file and sidecar under one folder, with stat for the media,
+   *  each path starting with the folder's key. Dot-files, the skip list and
+   *  links leading out of the folder are left alone; a folder reached twice
+   *  (a link back inside) is walked once. */
+  async function walk(gen, r) {
+    const realRoot = r.real
     const media = []
     const sidecars = []
     const seen = new Set()
@@ -210,7 +232,7 @@ function createLocalLibrary({ app, ipcMain, protocol, dialog, nativeImage, store
       for (const e of entries) {
         if (e.name.startsWith('.') || SKIP_DIRS.has(e.name)) continue
         const abs = path.join(dirAbs, e.name)
-        const rel = relDir ? `${relDir}/${e.name}` : e.name
+        const rel = `${relDir}/${e.name}`
         if (!isSafeRel(rel)) continue
         let isDir = e.isDirectory(), isFile = e.isFile()
         if (e.isSymbolicLink()) {
@@ -231,7 +253,7 @@ function createLocalLibrary({ app, ipcMain, protocol, dialog, nativeImage, store
         } catch {}
       }))
     }
-    await visit(root, '', 0)
+    await visit(r.path, r.key, 0)
     return { media, sidecars }
   }
 
@@ -281,19 +303,28 @@ function createLocalLibrary({ app, ipcMain, protocol, dialog, nativeImage, store
 
   async function runScan() {
     const gen = generation
-    if (!root) return
-    try { realRoot = await fs.promises.realpath(root) } catch {
-      scanError = 'missing'
-      return
-    }
-    scanError = null
+    if (!roots.length) return
     progress = { done: 0, total: 0 }
     emit({ type: 'progress', ...progress })
-    const { media, sidecars } = await walk(gen)
-    if (gen !== generation) return
+    const media = []
+    const sidecars = []
+    // A folder that cannot be opened (a drive not plugged in) keeps what the
+    // last scan found in it, as one folder alone always did.
+    const kept = new Set()
+    for (const r of roots) {
+      try { r.real = await fs.promises.realpath(r.path) } catch { r.real = null }
+      if (!r.real) { kept.add(r.key); continue }
+      const found = await walk(gen, r)
+      if (gen !== generation) return
+      media.push(...found.media)
+      sidecars.push(...found.sidecars)
+    }
+    const keyOf = (rel) => rel.slice(0, rel.indexOf('/'))
 
     // Only what changed is read again: same mtime and size means same tags.
     const files = {}
+    for (const [rel, f] of Object.entries(state.files)) if (kept.has(keyOf(rel))) files[rel] = f
+    sidecars.push(...state.sidecars.filter(rel => kept.has(keyOf(rel))))
     const toRead = []
     for (const m of media) {
       const old = state.files[m.rel]
@@ -318,18 +349,21 @@ function createLocalLibrary({ app, ipcMain, protocol, dialog, nativeImage, store
     }))
     if (gen !== generation) return
 
-    const m3u = []
-    for (const rel of sidecars.filter(r => /\.m3u8?$/i.test(r))) {
+    const m3u = state.m3u.filter(p => kept.has(keyOf(p.rel)))
+    for (const rel of sidecars.filter(r => /\.m3u8?$/i.test(r) && !kept.has(keyOf(r)))) {
       const abs = await resolveRel(rel)
-      if (!abs) continue
+      const r = roots.find(x => x.key === keyOf(rel))
+      if (!abs || !r) continue
       try {
         const st = await fs.promises.stat(abs)
         if (st.size > 4 * 1024 * 1024) continue
-        m3u.push({ rel, entries: Local.parseM3u(readText(await fs.promises.readFile(abs)), rel, root) })
+        // Read inside its own folder, then given the folder's key.
+        const entries = Local.parseM3u(readText(await fs.promises.readFile(abs)), rel.slice(r.key.length + 1), r.path)
+        m3u.push({ rel, entries: entries.map(e => `${r.key}/${e}`) })
       } catch {}
     }
     if (gen !== generation) return
-    state.root = root
+    state.roots = roots.map(r => r.path)
     state.files = files
     state.sidecars = sidecars
     state.m3u = m3u
@@ -359,6 +393,7 @@ function createLocalLibrary({ app, ipcMain, protocol, dialog, nativeImage, store
       userData: state.userData,
       art,
       profile,
+      roots: roots.map(r => ({ key: r.key, name: r.name })),
     })
   }
 
@@ -484,11 +519,12 @@ function createLocalLibrary({ app, ipcMain, protocol, dialog, nativeImage, store
       limitBytes: null,
       local: {
         version,
-        root,
+        root: roots[0]?.path ?? null,
+        roots: roots.map(r => ({ path: r.path, name: r.name, missing: !r.real })),
         scanning: !!scanning,
         progress,
         lastScan,
-        error: scanError,
+        error: roots.some(r => !r.real) ? 'missing' : null,
         tagsReadable: tagReader !== null,
         counts: { songs: count('Audio'), movies: count('Movie'), episodes: count('Episode') },
         unplayable: catalog ? catalog.unplayable : [],
@@ -650,20 +686,37 @@ function createLocalLibrary({ app, ipcMain, protocol, dialog, nativeImage, store
   async function start(newProfile) {
     load()
     takeProfile(newProfile)
-    const stored = store.get('localLibraryRoot')
-    const wanted = typeof stored === 'string' && stored ? stored : null
-    if (wanted !== root) {
-      await setRoot(wanted)
-      // A scan of another folder is not this one's. Favorites and playlists
-      // stay: an id is a path inside the folder, so they find what is the same.
-      if (state.root !== root) {
-        Object.assign(state, { root, files: {}, sidecars: [], m3u: [] })
-        catalog = null
-      }
+    const wanted = storedRoots()
+    if (JSON.stringify(wanted) !== JSON.stringify(roots.map(r => r.path))) {
+      await setRoots(wanted)
+      // What the last scan found in a folder no longer listed goes; the rest
+      // is kept, so adding a folder reads only the new one. Favorites and
+      // playlists stay: an id is a folder's key and a path inside it.
+      const keys = new Set(roots.map(r => r.key))
+      const keep = (rel) => keys.has(rel.slice(0, rel.indexOf('/')))
+      state.files = Object.fromEntries(Object.entries(state.files).filter(([rel]) => keep(rel)))
+      state.sidecars = state.sidecars.filter(keep)
+      state.m3u = state.m3u.filter(p => keep(p.rel))
+      state.roots = roots.map(r => r.path)
+      catalog = null
     }
     if (!catalog) setCatalog(build())
-    if (root) scan()
+    if (roots.length) scan()
     return summary()
+  }
+
+  /** The folder picker. A folder, or why not. */
+  async function pickFolder(sender, title) {
+    const { BrowserWindow } = require('electron')
+    const owner = BrowserWindow.fromWebContents(sender)
+    const { canceled, filePaths } = await dialog.showOpenDialog(owner || undefined, {
+      title, properties: ['openDirectory'], defaultPath: roots[0]?.path || app.getPath('music'),
+    })
+    if (canceled || !filePaths?.[0]) return { ok: false, canceled: true }
+    try {
+      if (!(await fs.promises.stat(filePaths[0])).isDirectory()) return { ok: false, error: 'That is not a folder.' }
+    } catch { return { ok: false, error: 'Cascade cannot open that folder.' } }
+    return { ok: true, path: filePaths[0] }
   }
 
   function takeProfile(p) {
@@ -675,19 +728,34 @@ function createLocalLibrary({ app, ipcMain, protocol, dialog, nativeImage, store
     ipcMain.handle('local-start', (_e, p) => start(p))
     ipcMain.handle('local-summary', () => summary())
     ipcMain.handle('local-catalog', () => catalog ? catalog.index : null)
-    ipcMain.handle('local-rescan', () => { if (root) scan(); return summary() })
+    ipcMain.handle('local-rescan', () => { if (roots.length) scan(); return summary() })
+    // The first folder, from setup or "Use a folder": the library becomes it alone.
     ipcMain.handle('local-choose-folder', async (e) => {
-      const { BrowserWindow } = require('electron')
-      const owner = BrowserWindow.fromWebContents(e.sender)
-      const { canceled, filePaths } = await dialog.showOpenDialog(owner || undefined, {
-        title: 'Choose your library folder', properties: ['openDirectory'], defaultPath: root || app.getPath('music'),
-      })
-      if (canceled || !filePaths?.[0]) return { ok: false, canceled: true }
-      try {
-        if (!(await fs.promises.stat(filePaths[0])).isDirectory()) return { ok: false, error: 'That is not a folder.' }
-      } catch { return { ok: false, error: 'Cascade cannot open that folder.' } }
-      store.set('localLibraryRoot', filePaths[0])
-      return { ok: true, root: filePaths[0] }
+      const picked = await pickFolder(e.sender, 'Choose your library folder')
+      if (!picked.ok) return picked
+      storeRoots([picked.path])
+      return { ok: true, root: picked.path }
+    })
+    // Another folder, as another library. A folder inside one already listed,
+    // or holding one, would list the same files twice.
+    ipcMain.handle('local-add-folder', async (e) => {
+      const picked = await pickFolder(e.sender, 'Add a library folder')
+      if (!picked.ok) return picked
+      const next = path.resolve(picked.path)
+      const current = storedRoots()
+      for (const p of current.map(x => path.resolve(x))) {
+        if (p === next) return { ok: false, error: 'That folder is already in your library.' }
+        if (within(p, next)) return { ok: false, error: `That folder is inside one already in your library:\n\n${p}` }
+        if (within(next, p)) return { ok: false, error: `That folder holds one already in your library:\n\n${p}\n\nRemove that one first to use this instead.` }
+      }
+      storeRoots([...current, picked.path])
+      return { ok: true, root: picked.path }
+    })
+    ipcMain.handle('local-remove-folder', (_e, p) => {
+      const current = storedRoots()
+      if (typeof p !== 'string' || !current.includes(p) || current.length < 2) return { ok: false }
+      storeRoots(current.filter(x => x !== p))
+      return { ok: true }
     })
     ipcMain.handle('local-set-profile', async (_e, p) => {
       const before = JSON.stringify(profile)
