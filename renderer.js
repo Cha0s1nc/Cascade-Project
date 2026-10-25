@@ -8033,6 +8033,8 @@ document.getElementById('setup-quickconnect').addEventListener('click', async ()
       document.getElementById('setup-overlay').classList.add('hidden')
       await connect(url, auth.AccessToken, auth.User.Id)
     } catch {
+      // The overlay was hidden for connect(): bring it back with the error.
+      document.getElementById('setup-overlay').classList.remove('hidden')
       err.textContent = 'Approved, but signing in failed. Try again.'
       endQuickConnect()
     }
@@ -8066,6 +8068,9 @@ document.getElementById('setup-connect').addEventListener('click', async () => {
     document.getElementById('setup-overlay').classList.add('hidden')
     await connect(url, auth.AccessToken, auth.User.Id)
   } catch (e) {
+    // Signed in but connect() failed: the overlay was already hidden, and the
+    // error below would land on it unseen over an empty app.
+    document.getElementById('setup-overlay').classList.remove('hidden')
     const msg = e.message || ''
     if (msg.includes('401') || msg.toLowerCase().includes('unauthorized'))
       err.textContent = 'Incorrect username or password.'
@@ -8075,6 +8080,9 @@ document.getElementById('setup-connect').addEventListener('click', async () => {
       err.textContent = 'Could not reach the server. Is it running?'
     else
       err.textContent = `Connection failed: ${msg}`
+  } finally {
+    // On success too: the overlay is hidden, not torn down, so a button left
+    // reading "Connecting…" is what Sign out would show next.
     btn.disabled = false
     btn.textContent = 'Connect'
   }
