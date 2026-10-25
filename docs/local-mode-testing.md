@@ -41,7 +41,7 @@ These passed in the Linux run. Repeat them quickly on the Mac, since the platfor
 - Playlists: create, add, move, rename, an empty playlist listed, an `.m3u` refused with a reason.
 - Favorites, plays and playlists survive a relaunch.
 - Settings > Library lists ALAC, HEVC in MKV and DTS as unplayable, with reasons.
-- Spicy Lyrics with the network stubbed in main: refuses a secret key, asks only for the song playing, skips a sync made for a longer version, shows the credit, asks nothing the second time.
+- Spicy Lyrics with the network stubbed in main: asks only for the song playing, skips a sync made for a longer version, shows the credit, asks nothing the second time.
 - No request to any host but LRCLIB and iTunes (which only failed for lack of network).
 
 ## 3. Checks
@@ -89,10 +89,10 @@ These passed in the Linux run. Repeat them quickly on the Mac, since the platfor
 6. **Change folder** to a real music library, the bigger the better (thousands of songs). Time the first scan, then the launch after it. Check memory in the debug panel if `.cascade-debug` is present. Note any album that split wrongly or merged wrongly, and any file wrongly listed as unplayable. Then favorite a song and note whether the heart takes long to show (it should be instant).
 
 ### F. Spicy Lyrics with a real key
-Needs a Spicy Lyrics app made in their dashboard with the no-origin option on, and its public key (`sl_pk_...`).
-1. Settings > Lyrics > **Spicy Lyrics key**: a secret key (`sl_sk_...`) is refused with a reason; the public key saves.
+Needs a Spicy Lyrics app made in their dashboard and its secret key (`sl_sk_...`). A public key (`sl_pk_...`) works too if the app has the no-origin option on; test both if you have both.
+1. Settings > Lyrics > **Spicy Lyrics key**: a secret key and a public key both save; anything else is refused with a reason.
 2. In Local mode, add a well-known real song with correct tags and play it. Expect word-synced lyrics with the Spicy Lyrics credit under them. Record what the DevTools Network tab cannot show: the requests go from the main process. Run with `ELECTRON_ENABLE_LOGGING=1`, or check that `userData/spicy-cache/` gains `ids.json` and a `<spotifyId>.json`.
-3. Confirm the **request carries the key the way Spicy Lyrics expects** for a public key. The code sends `Authorization: Bearer <key>`, copied from CascadeServer's secret-key client. If public keys want another header, Spicy Lyrics answers 401 or 403 and nothing shows: report the status.
+3. Confirm the **request carries the key the way Spicy Lyrics expects**. The code sends `Authorization: Bearer <key>`, copied from CascadeServer's secret-key client. Their Keys page shows that header for both key types; a 401 or 403 would mean otherwise, so report the status.
 4. Expiry: edit the song's `spicy-cache/<spotifyId>.json` so `savedAt` is 26 days ago (`Date.now() - 26*86400000`), restart, play it again: it is asked for again and the file's `savedAt` is fresh. With the network off at that moment, the lyrics fall back to the next source rather than showing the stale ones.
 5. Play ten songs quickly in a row and watch for a 429 from ListenBrainz or Spicy Lyrics. If one comes, lyrics should still arrive from Kugou or LRCLIB, and the next songs should not hammer the service. Note ListenBrainz's rate limit headers if seen; the plan asks for them to be checked.
 6. With a Jellyfin server that has the Cascade Server plugin and its own key, confirm the plugin is still what answers (the app-side key unused). With a server without the plugin, the app-side key is used.

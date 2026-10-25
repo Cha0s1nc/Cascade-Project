@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   convertSpicyLyrics, spicyCredit, safeCreditUrl, spicyFitsTrack, parseSpotifyTrackId,
-  isSpicyPublicKey, isSpotifyTrackId, spicyCacheFresh, SPICY_CACHE_MS, listenBrainzUrl, spotifyIdsFromListenBrainz, backoffMs, spicyLyricsUrl,
+  isSpicyKey, isSpotifyTrackId, spicyCacheFresh, SPICY_CACHE_MS, listenBrainzUrl, spotifyIdsFromListenBrainz, backoffMs, spicyLyricsUrl,
 } from '../src/core/spicy-lyrics.ts'
 import { SPICY_LYRICS_DAYS } from '../src/core/offline-index.ts'
 
@@ -159,13 +159,14 @@ test('a duet keeps which voice sings each line (OppositeAligned)', () => {
 
 // ── Asking SpicyLyrics from the app ──
 
-test('only a public key is taken: Cascade bundles none and never asks for a secret one', () => {
-  assert.equal(isSpicyPublicKey('sl_pk_abcDEF123_-xyz'), true)
-  assert.equal(isSpicyPublicKey('  sl_pk_abcDEF123_-xyz  '), true)
-  assert.equal(isSpicyPublicKey('sl_sk_abcDEF123456'), false)
-  assert.equal(isSpicyPublicKey('sl_pk_short'), false)
-  assert.equal(isSpicyPublicKey('sl_pk_has space inside'), false)
-  assert.equal(isSpicyPublicKey(undefined), false)
+test("the person's own key is taken, secret or public", () => {
+  assert.equal(isSpicyKey('sl_sk_abcDEF123456'), true)
+  assert.equal(isSpicyKey('sl_pk_abcDEF123_-xyz'), true)
+  assert.equal(isSpicyKey('  sl_pk_abcDEF123_-xyz  '), true)
+  assert.equal(isSpicyKey('sl_xx_abcDEF123456'), false)
+  assert.equal(isSpicyKey('sl_pk_short'), false)
+  assert.equal(isSpicyKey('sl_pk_has space inside'), false)
+  assert.equal(isSpicyKey(undefined), false)
 })
 
 test('answers are kept as long as Offline Mode keeps SpicyLyrics, and no longer', () => {

@@ -315,7 +315,7 @@ export interface DesktopCapabilities {
      *  or null. Only for the song playing: never a library crawl. */
     lyrics(q: { itemId: string; title: string; artist: string; album: string; durationSec: number; spotifyId?: string | null }): Promise<{ raw: unknown; spotifyId: string } | null>
     status(): Promise<{ hasKey: boolean }>
-    /** A public key (sl_pk_...), or null to forget it. */
+    /** A Spicy Lyrics key (sl_sk_... or sl_pk_...), or null to forget it. */
     setKey(key: string | null): Promise<{ ok: boolean; error?: string }>
   }
 

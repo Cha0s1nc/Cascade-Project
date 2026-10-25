@@ -70,7 +70,7 @@ Choose **Use a folder on this computer** on the setup card (or **Settings > Acco
 
 Nothing goes to a Jellyfin server in Local mode. Lyrics and artwork lookups (Kugou, LRCLIB, iTunes) and translation model downloads work as they do with a server.
 
-**Spicy Lyrics without the plugin:** in Local mode, or with a server that does not have Cascade Server, **Settings > Lyrics > Spicy Lyrics key** takes your own Spicy Lyrics public key (`sl_pk_...`, from an app you make in the Spicy Lyrics dashboard with the no-origin option on). Cascade does not ship a key. With one set, for the song playing only, its title, artist and album go to ListenBrainz Labs to find its Spotify id, and that id goes to Spicy Lyrics. Answers are kept on your computer for 25 days.
+**Spicy Lyrics without the plugin:** in Local mode, or with a server that does not have Cascade Server, **Settings > Lyrics > Spicy Lyrics key** takes your own Spicy Lyrics key from an app you make in the Spicy Lyrics dashboard: its secret key (`sl_sk_...`), or a public key (`sl_pk_...`) if the app has the no-origin option on. Cascade does not ship a key, and yours stays on your computer. With one set, for the song playing only, its title, artist and album go to ListenBrainz Labs to find its Spotify id, and that id goes to Spicy Lyrics. Answers are kept on your computer for 25 days.
 
 ### Music libraries
 

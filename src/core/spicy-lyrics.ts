@@ -209,15 +209,17 @@ export function parseSpotifyTrackId(input: unknown): string | null {
 // Without the Cascade Server plugin (Local mode always, a Jellyfin server
 // without it otherwise), the main process asks SpicyLyrics directly with the
 // person's own key (docs/local-mode-plan.md, section 6). Cascade bundles no
-// key: per the 2026-09-23 decision with SpicyLyrics, each person makes an app
-// in the SpicyLyrics dashboard with the no-origin option on and pastes its
-// public key. The request goes out from main, which sends no Origin header.
+// key: each person makes an app in the SpicyLyrics dashboard and pastes its
+// key. A secret key is what SpicyLyrics' own catalog templates issue to native
+// players like this one (Rakki, 2026-10-25); a public key works too if the app
+// has the no-origin option on. The request goes out from main, which sends no
+// Origin header.
 // The flow is the plugin's (LyricsFetcher.TrySpicyAsync): ListenBrainz Labs
 // for up to three Spotify ids, each tried until one fits the file.
 
-/** A SpicyLyrics public key as the dashboard hands it out. */
-export const isSpicyPublicKey = (v: unknown): v is string =>
-  typeof v === 'string' && /^sl_pk_[A-Za-z0-9_-]{8,256}$/.test(v.trim())
+/** A SpicyLyrics key as the dashboard hands it out: secret or public. */
+export const isSpicyKey = (v: unknown): v is string =>
+  typeof v === 'string' && /^sl_(sk|pk)_[A-Za-z0-9_-]{8,256}$/.test(v.trim())
 
 /** A Spotify track id: 22 base62 characters. */
 export const isSpotifyTrackId = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9]{22}$/.test(v)

@@ -4,8 +4,9 @@
 // in src/core/spicy-lyrics.ts; this is the part that keeps the key, the cache
 // and the requests. No semicolons, like main.js.
 //
-// The key is the person's own public key (sl_pk_), from an app they made in
-// the SpicyLyrics dashboard with the no-origin option on. It is kept in the
+// The key is the person's own, from an app they made in the SpicyLyrics
+// dashboard: a secret key (sl_sk_), or a public one (sl_pk_) with the
+// no-origin option on. It never ships in Cascade's code. It is kept in the
 // store like the server token, set only through spicy-set-key, and sent to
 // api.spicylyrics.org and nowhere else. Requests leave from here, the main
 // process, which sends no Origin header: that is what the no-origin option
@@ -54,7 +55,7 @@ function createSpicyClient({ app, ipcMain, net, store, Spicy }) {
 
   const key = () => {
     const k = store.get('spicyLyricsKey')
-    return Spicy.isSpicyPublicKey(k) ? k.trim() : null
+    return Spicy.isSpicyKey(k) ? k.trim() : null
   }
 
   const isItemId = (v) => typeof v === 'string' && /^[A-Za-z0-9-]{1,64}$/.test(v)
@@ -198,11 +199,7 @@ function createSpicyClient({ app, ipcMain, net, store, Spicy }) {
     // Checked here, not only in Settings: this is what goes out as the key.
     ipcMain.handle('spicy-set-key', (_e, k) => {
       if (k === null || k === '') { store.delete('spicyLyricsKey'); return { ok: true } }
-      if (!Spicy.isSpicyPublicKey(k)) {
-        return { ok: false, error: typeof k === 'string' && /^sl_sk_/.test(k.trim())
-          ? "That's a secret key. Paste the app's public key (sl_pk_...): a secret key must never be put in an app."
-          : "That doesn't look like a Spicy Lyrics public key (sl_pk_...)." }
-      }
+      if (!Spicy.isSpicyKey(k)) return { ok: false, error: "That doesn't look like a Spicy Lyrics key (sl_sk_... or sl_pk_...)." }
       store.set('spicyLyricsKey', k.trim())
       return { ok: true }
     })

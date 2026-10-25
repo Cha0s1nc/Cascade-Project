@@ -11,11 +11,11 @@ Where the build went beyond, or differs from, the plan below:
 - **Switching modes, or folders, reloads the window**: the one re-init that leaves nothing of the other library behind. The saved queue is per mode (`lastQueue`, `localLastQueue`).
 - **Albums** are a folder's tracks naming one album, with Various Artists when they share no artist and carry no album artist tag, so a compilation stays one album. Ids are as planned.
 - **Lyrics**: the song's `.lrc`, else its tagged lyrics, sit where Jellyfin's lyrics sat in the waterfall (after Kugou and LRCLIB), as the plan says.
-- **Spicy Lyrics** takes only a public key (`sl_pk_`); a secret key is refused with a reason. Only the song playing asks; look-aheads and download lyrics never do, and their answers are not cached, so the song asks once it plays.
+- **Spicy Lyrics** takes the person's own key, secret (`sl_sk_`) or public (`sl_pk_`, with the no-origin option on). It first took only a public key; changed 2026-10-25 because SpicyLyrics' own catalog template for Rakki, a native Jellyfin player, issues a secret key. Only the song playing asks; look-aheads and download lyrics never do, and their answers are not cached, so the song asks once it plays.
 - **`.mov`** is treated as not playable (no direct-play profile names it). Worth checking on a Mac.
 - **Swift**: no shared fixture covers `offline-mode.ts`, so `OfflineMode.swift` is unchanged.
 
-Not verified, because this cloud session could not reach the hosts: the Spicy Lyrics dashboard and its key header for public keys (the code follows CascadeServer's `SpicyLyricsClient.cs`: `Authorization: Bearer <key>`), ListenBrainz Labs' rate limit (one lookup a second, Retry-After and X-RateLimit-Reset-In honored), and macOS and Windows themselves. The real app was run on Linux under Xvfb.
+Not verified, because this cloud session could not reach the hosts: the Spicy Lyrics dashboard (the key header, `Authorization: Bearer`, now matches their Keys page for both key types; the code follows CascadeServer's `SpicyLyricsClient.cs`: `Authorization: Bearer <key>`), ListenBrainz Labs' rate limit (one lookup a second, Retry-After and X-RateLimit-Reset-In honored), and macOS and Windows themselves. The real app was run on Linux under Xvfb.
 
 ---
 
@@ -90,7 +90,7 @@ Waterfall (`fetchLyricsWaterfall`, renderer.js ~13126 area): the `Jellyfin` sour
 
 ### 6. Client-side Spicy Lyrics (independent, also helps Jellyfin users)
 
-- Settings field for the user's own `sl_pk_` key, with a link to the dashboard and a note to enable the no-origin option. Stored like the token.
+- Settings field for the user's own key (`sl_sk_`, or `sl_pk_` with no-origin on), with a link to the dashboard and a note to enable the no-origin option. Stored like the token.
 - Main-process IPC does the fetch (no Origin header): ListenBrainz Labs lookup for up to 3 Spotify candidates, `GET api.spicylyrics.org/v1/lyrics/{id}`, `spicyFitsTrack` duration check, 429 backoff with fall-through to Kugou/LRCLIB.
 - Cache per item with the 25-day expiry reused from `SPICY_LYRICS_DAYS`; fetch on play only, never a library crawl (terms section 5). Attribution already renders from `credit`.
 - Used when the plugin path is absent: Local mode always, Jellyfin mode when `_cascadePluginAbsent`.
@@ -128,4 +128,4 @@ Not in this checkout: the maintainer is working on other things locally on `dev`
 
 - `npm run build:ts && npm run typecheck && npm test`; new tests cover classification (album track, `Show/Season 01/Show S01E01.mkv`, `Movie (2010)/Movie.mkv`, audio-only `.mp4`), id stability, `.srt` conversion. `test/offline-guard.test.ts` still passes after the `webFetch` split.
 - Real app with a throwaway profile (per the "test the desktop without creds" note): point at a test folder with mixed mp3/flac/m4a, an ALAC file, an `.lrc` sidecar, a movie and a two-episode show. Check Home, Albums, Artists, Songs, Genres, search, playback with crossfade and EQ, seeking, lyrics from the sidecar and from LRCLIB, favorites and History surviving a rescan, the ALAC and HEVC-MKV files listed as unplayable, and the network log showing no requests to any Jellyfin origin.
-- Spicy: with a real `sl_pk_` key, a known track resolves, shows attribution, and is refetched or dropped after the expiry (clock-shifted test of the rule).
+- Spicy: with a real key, a known track resolves, shows attribution, and is refetched or dropped after the expiry (clock-shifted test of the rule).

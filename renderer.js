@@ -12731,7 +12731,7 @@ let _spotifyLinkServerWide = true
 // ── SpicyLyrics from the app ─────────────────────────────────────────────────
 // For when the plugin cannot ask (docs/local-mode-plan.md, section 6): Local
 // mode always, a Jellyfin server without the plugin otherwise. The main
-// process asks with the person's own public key (spicy-client.js); a server
+// process asks with the person's own key (spicy-client.js); a server
 // with the plugin keeps asking through it, key or no key here.
 let _spicyKeySet = false
 window.cascade.spicy.status().then(s => { _spicyKeySet = !!s?.hasKey; renderSpicyKeyStatus() }).catch(() => {})
