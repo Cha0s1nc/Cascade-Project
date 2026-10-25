@@ -5901,6 +5901,14 @@ async function playCurrentTrack(opts = {}) {
       { startTicks, audioStreamIndex: _audioStreamIndex })
     if (queue[queueIndex]?.Id !== item.Id) return
 
+    // A skip loads the new track on the idle deck, so the old one fades out
+    // there as this one buffers. Only once resolved: swapped any sooner,
+    // `audio` would be an empty, paused deck for the round trip, and the
+    // miniplayer and play button read that as a pause. Songs only, since a
+    // deck draws a video's picture.
+    if (opts.skip && !video && !isVideoItem(opts.skip.from) && !audio.paused && _audioCtx && _deckGain(audio)) {
+      _swapDeckFadingOut(DECKS.find(d => d !== audio), audio)
+    }
     adoptResolvedStream(resolved)
     audio.src = resolved.url
 
@@ -5942,10 +5950,11 @@ async function playCurrentTrack(opts = {}) {
 // crossfade's transition while Settings > Playback > Smooth skips is on
 // (displayPrefs.skipTransitions): the cover slice sweeps straight across with
 // no hold, since only one song plays; going forward, the lyrics roll on to the
-// next song (_ovRollIn, compressed when it is far below); and on a skip to the
-// track already buffered (the next one), the old track fades out over
-// SKIP_FADE_SECS under the new one instead of stopping dead. The new one
-// starts at full volume, so its first beat is not faded away. The colors fade
+// next song (_ovRollIn, compressed when it is far below); and the old track
+// fades out over SKIP_FADE_SECS instead of stopping dead, under the new one
+// when it is already buffered (the next one), or as it loads on the idle deck
+// when it is not. The new one starts at full volume, so its
+// first beat is not faded away. The colors fade
 // as on any song change (fadeOverlayColors). Rapid skips need nothing extra:
 // each one cuts the last one's fade (cancelCrossfade) and trails its cover off
 // (trailArtSlice).
