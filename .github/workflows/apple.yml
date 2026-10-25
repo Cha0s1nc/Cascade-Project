@@ -7,10 +7,10 @@ name: Apple
 on:
   push:
     branches: ['dev']
-    paths: ['apple/**', 'shared/fixtures/**', 'shared/tuning-defaults.json', '.github/workflows/apple.yml']
+    paths: ['apple/**', 'shared/fixtures/**', 'shared/tuning-defaults.json', 'shared/assets/**', '.github/workflows/apple.yml']
   pull_request:
     branches: ['dev']
-    paths: ['apple/**', 'shared/fixtures/**', 'shared/tuning-defaults.json', '.github/workflows/apple.yml']
+    paths: ['apple/**', 'shared/fixtures/**', 'shared/tuning-defaults.json', 'shared/assets/**', '.github/workflows/apple.yml']
   workflow_dispatch:
 
 concurrency:

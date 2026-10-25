@@ -50,7 +50,7 @@ test('platformsFromFiles maps folders to apps, and docs or CI to nothing', () =>
   assert.deepEqual(platformsFromFiles(['desktop/assets/icon.png']), ['desktop'])
   // The shared defaults ship inside the desktop build; the Apple apps get them
   // through the Swift copy in apple/, which counts there.
-  assert.deepEqual(platformsFromFiles(['shared/tuning-defaults.json', 'shared/fixtures/offline-query.json']), ['desktop'])
+  assert.deepEqual(platformsFromFiles(['shared/tuning-defaults.json', 'shared/assets/icon.icns', 'shared/fixtures/offline-query.json']), ['desktop'])
   // The repo's own tools and the Workers build no app.
   assert.deepEqual(platformsFromFiles(['shared/scripts/release-plan.mjs', 'signaling/src/index.js', 'telemetry/schema.sql', 'server/x.cs']), [])
 })

@@ -256,7 +256,7 @@ To run a second instance side by side (useful for testing Waterfall), use `npm r
 
 ### Generate icons
 
-Put the artwork in `desktop/assets/` as either `source.svg` or `source.png` (1024×1024 square minimum), then:
+Put the artwork in `shared/assets/` as either `source.svg` or `source.png` (1024×1024 square minimum), then:
 
 ```bash
 npm run icons
@@ -267,7 +267,7 @@ That generates `icon.png`, `icon.ico` and `icon.icns`. The source is named `sour
 If both sources exist the SVG wins, and the script says so rather than choosing silently. To force the other one, or to use a file from anywhere else:
 
 ```bash
-npm run icons -- assets/source.png
+npm run icons -- ../shared/assets/source.png
 ```
 
 A raster source smaller than 1024×1024 is rejected rather than upscaled. Needs `sharp` (installed by `npm install`), and `iconutil` on macOS for the `.icns`.
@@ -305,7 +305,7 @@ The source code is [GPL-3.0](LICENSE) © 2026 cha0s, with one added permission: 
 
 Lyric translation uses Mozilla's [bergamot-translator](https://github.com/browsermt/bergamot-translator) runtime (bundled) and [Firefox Translations models](https://github.com/mozilla/firefox-translations-models) (downloaded on first use), both under the [Mozilla Public License 2.0](https://www.mozilla.org/MPL/2.0/). Their source is available at those links.
 
-The artwork in `desktop/assets/` (the app icon and everything else in that folder) is **not** GPL. It is © 2026 cha0s and Hxney_bun_, all rights reserved, under its own [artwork license](desktop/assets/LICENSE). You can share unmodified Cascade builds, but forks and modified versions have to remove it and use their own art. To ask for permission to use the artwork, email [contact@chaosinc.xyz](mailto:contact@chaosinc.xyz).
+The artwork in `shared/assets/` (the app icon and everything else in that folder) is **not** GPL. It is © 2026 cha0s and Hxney_bun_, all rights reserved, under its own [artwork license](shared/assets/LICENSE). You can share unmodified Cascade builds, but forks and modified versions have to remove it and use their own art. To ask for permission to use the artwork, email [contact@chaosinc.xyz](mailto:contact@chaosinc.xyz).
 
 ---
 

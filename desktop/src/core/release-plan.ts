@@ -106,7 +106,7 @@ export function platformListOf(messages: readonly string[]): Platform[] | null {
 
 /**
  * Which platforms a set of changed files touches. `desktop/` is the desktop
- * app, and so is shared/tuning-defaults.json, which ships inside it (the
+ * app, and so are shared/tuning-defaults.json and shared/assets, which ship inside it (the
  * Apple apps read their Swift copy in apple/, which counts there). `apple/` is
  * two apps, the iOS and tvOS one and the native Mac one, which share its
  * sources; it means mac too once mac is no longer EXPLICIT_ONLY. `android/` is
@@ -118,7 +118,7 @@ export function platformsFromFiles(files: readonly string[]): Platform[] {
   for (const f of files) {
     if (f.startsWith('apple/')) { hit.add('apple'); if (!EXPLICIT_ONLY.includes('mac')) hit.add('mac') }
     else if (f.startsWith('android/')) hit.add('android')
-    else if (f.startsWith('desktop/') || f === 'shared/tuning-defaults.json') hit.add('desktop')
+    else if (f.startsWith('desktop/') || f.startsWith('shared/assets/') || f === 'shared/tuning-defaults.json') hit.add('desktop')
   }
   return PLATFORMS.filter(p => hit.has(p))
 }

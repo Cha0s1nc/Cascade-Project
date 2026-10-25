@@ -19,10 +19,10 @@ Issues about the Jellyfin server plugin (lyrics sidecars, Spicy Lyrics) go to [C
 |---|---|
 | `desktop/` | The desktop app (Electron): `main.js`, `renderer.js`, `index.html`, `styles/`, typed and tested logic in `src/core/`, tests in `test/` |
 | `apple/` | The native iOS and tvOS app (SwiftUI), with `CascadeKit`, its tested core |
-| `shared/` | What more than one app reads: `tuning-defaults.json`, the fixtures both test suites check, and the repo's scripts (releases, changelog, tuning, `npm test`) |
+| `shared/` | What more than one app reads: the artwork in `assets/`, `tuning-defaults.json`, the fixtures both test suites check, and the repo's scripts (releases, changelog, tuning, `npm test`) |
 | `signaling/`, `telemetry/` | Cloudflare Workers: Waterfall's signaling, and the opt-in usage count |
 | `docs/` | Plans and setup notes, e.g. the release pipeline |
-| `desktop/assets/` | Artwork under its own license, see below |
+| `shared/assets/` | Artwork under its own license, see below |
 
 Start with [CODEMAP.md](CODEMAP.md) for the desktop code and [apple/CODEMAP.md](apple/CODEMAP.md) for the Apple app. They say where each feature lives, so you don't have to search the whole tree.
 
@@ -83,7 +83,7 @@ Cascade's source code is under the GNU GPL version 3 with one additional permiss
 - your contribution is licensed under those same terms, the app store permission included, so it can ship in every build of Cascade, the App Store and Google Play ones too; and
 - you wrote it, or otherwise have the right to submit it under those terms.
 
-The artwork in `desktop/assets/` is not GPL and is not open to contributions; see [desktop/assets/LICENSE](desktop/assets/LICENSE). Please don't add images there.
+The artwork in `shared/assets/` is not GPL and is not open to contributions; see [shared/assets/LICENSE](shared/assets/LICENSE). Please don't add images there.
 
 ## Branches
 
