@@ -284,7 +284,7 @@ jobs:
           rm -rf stage && mkdir -p stage dist
           ditto "$APP" stage/Cascade.app
           ln -s /Applications stage/Applications
-          hdiutil create -volname Cascade -srcfolder stage -fs HFS+ -format UDZO -ov "dist/Cascade-Native-$NAME.dmg"
+          hdiutil create -volname Cascade -srcfolder stage -fs HFS+ -format ULMO -ov "dist/Cascade-Native-$NAME.dmg"
           ls -la dist
 
       # Opens the DMG the way the updater will and checks what it checks,

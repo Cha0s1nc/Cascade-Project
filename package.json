@@ -96,6 +96,7 @@
       "output": "dist"
     },
     "afterPack": "scripts/adhoc-sign.js",
+    "afterAllArtifactBuild": "scripts/dmg-lzma.js",
     "mac": {
       "category": "public.app-category.music",
       "icon": "assets/icon.icns",
