@@ -1,7 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  nextOfflineState, isOffline, probeDelayMs, failureKind, blocksServer, checksUpdates, updateCheckDue, type OfflineState,
+  nextOfflineState, isOffline, probeDelayMs, failureKind, blocksServer, blocksWeb, checksUpdates, updateCheckDue, isOfflineState,
+  type OfflineState,
 } from '../src/core/offline-mode.ts'
 
 test('the manual switch outranks what the network says', () => {
@@ -54,4 +55,25 @@ test('main blocks the server only for the switch; updates wait until online', ()
   assert.equal(updateCheckDue('manual', 'online'), true)
   assert.equal(updateCheckDue('online', 'online'), false)
   assert.equal(updateCheckDue('online', 'manual'), false)
+})
+
+test('Local mode has no server to lose, but the web is there', () => {
+  for (const event of [{ type: 'switch', on: true }, { type: 'switch', on: false }, { type: 'unreachable' }, { type: 'reachable' }] as const) {
+    assert.equal(nextOfflineState('local', event), 'local', event.type)
+  }
+  assert.equal(isOffline('local'), true, 'the reads answer from the catalog and server features hide')
+  assert.equal(blocksServer('local'), false, 'there is no server origin to block')
+  assert.equal(blocksWeb('local'), false, 'LRCLIB, artwork and translation models still go out')
+  assert.equal(blocksWeb('manual'), true)
+  assert.equal(blocksWeb('unreachable'), true)
+  assert.equal(blocksWeb('online'), false)
+  assert.equal(checksUpdates('local'), true)
+  assert.equal(updateCheckDue('online', 'local'), false, 'already checking')
+  assert.equal(updateCheckDue('manual', 'local'), true)
+  assert.equal(updateCheckDue('local', 'online'), false)
+})
+
+test('only the four states cross IPC', () => {
+  for (const s of ['online', 'manual', 'unreachable', 'local']) assert.equal(isOfflineState(s), true, s)
+  for (const s of ['Local', '', null, undefined, 1, {}]) assert.equal(isOfflineState(s), false, String(s))
 })

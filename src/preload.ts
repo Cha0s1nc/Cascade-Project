@@ -54,6 +54,23 @@ const cascade: ElectronPlatform = {
     disk:     () => ipcRenderer.invoke('offline-disk'),
     setMode:  (state) => ipcRenderer.invoke('offline-mode', state),
   },
+  local: {
+    start:        (profile) => ipcRenderer.invoke('local-start', profile),
+    summary:      () => ipcRenderer.invoke('local-summary'),
+    catalog:      () => ipcRenderer.invoke('local-catalog'),
+    rescan:       () => ipcRenderer.invoke('local-rescan'),
+    chooseFolder: () => ipcRenderer.invoke('local-choose-folder'),
+    setProfile:   (profile) => ipcRenderer.invoke('local-set-profile', profile),
+    change:       (itemId, change) => ipcRenderer.invoke('local-change', itemId, change),
+    playlist:     (op) => ipcRenderer.invoke('local-playlist', op),
+    lyrics:       (itemId) => ipcRenderer.invoke('local-lyrics', itemId),
+    onEvent:      (cb) => { ipcRenderer.on('local-event', (_e, event) => cb(event)) },
+  },
+  spicy: {
+    lyrics: (q) => ipcRenderer.invoke('spicy-lyrics', q),
+    status: () => ipcRenderer.invoke('spicy-status'),
+    setKey: (key) => ipcRenderer.invoke('spicy-set-key', key),
+  },
   clipboard: {
     write: (text) => ipcRenderer.invoke('clipboard-write', text),
     read:  () => ipcRenderer.invoke('clipboard-read'),

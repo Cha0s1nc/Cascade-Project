@@ -20,6 +20,10 @@ export interface MenuItemOptions {
    *  (docs/offline-mode-plan.md, section 3). Favorite and mark played stay:
    *  they are queued and sent once back online (offline-sync.ts). */
   offline?: boolean
+  /** Local mode (docs/local-mode-plan.md): offline as far as the server goes,
+   *  but playlists are Cascade's own, so adding to one, editing one and
+   *  deleting one stay. Never a download: there is nothing to download from. */
+  local?: boolean
 }
 
 export interface MenuItemVisibility {
@@ -57,6 +61,9 @@ const NONE: MenuItemVisibility = {
  */
 export function menuItemsForKind(kind: MenuItemKind, opts: MenuItemOptions = {}): MenuItemVisibility {
   const rows = onlineMenuItems(kind, opts)
+  if (opts.local) {
+    return { ...rows, instantMix: false, download: false, offline: false, refreshMeta: false, editMeta: false }
+  }
   if (!opts.offline) return rows
   return {
     ...rows,

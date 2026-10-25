@@ -203,3 +203,76 @@ export function parseSpotifyTrackId(input: unknown): string | null {
     ?? s.match(/^(?:https?:\/\/)?open\.spotify\.com\/(?:intl-[a-z-]+\/)?(?:embed\/)?track\/([A-Za-z0-9]{22})(?:[/?#].*)?$/i)?.[1]
   return id ?? null
 }
+
+// ── Asking SpicyLyrics from the app itself ───────────────────────────────────
+//
+// Without the Cascade Server plugin (Local mode always, a Jellyfin server
+// without it otherwise), the main process asks SpicyLyrics directly with the
+// person's own key (docs/local-mode-plan.md, section 6). Cascade bundles no
+// key: each person makes an app in the SpicyLyrics dashboard and pastes its
+// key. A secret key is what SpicyLyrics' own catalog templates issue to native
+// players like this one (Rakki, 2026-10-25); a public key works too if the app
+// has the no-origin option on. The request goes out from main, which sends no
+// Origin header.
+// The flow is the plugin's (LyricsFetcher.TrySpicyAsync): ListenBrainz Labs
+// for up to three Spotify ids, each tried until one fits the file.
+
+/** A SpicyLyrics key as the dashboard hands it out: secret or public. */
+export const isSpicyKey = (v: unknown): v is string =>
+  typeof v === 'string' && /^sl_(sk|pk)_[A-Za-z0-9_-]{8,256}$/.test(v.trim())
+
+/** A Spotify track id: 22 base62 characters. */
+export const isSpotifyTrackId = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9]{22}$/.test(v)
+
+/** Ids tried per song, most likely first, as the plugin does. */
+export const MAX_SPICY_CANDIDATES = 3
+
+/** How long a SpicyLyrics miss stops the same track being asked again. */
+export const SPICY_MISS_MS = 24 * 60 * 60 * 1000
+
+/** How long a song ListenBrainz knew no Spotify id for waits before asking again. */
+export const SPOTIFY_ID_RETRY_MS = 7 * 24 * 60 * 60 * 1000
+
+/** How long a SpicyLyrics answer is kept: under the terms' 30 days, as the
+ *  plugin's cache and Offline Mode's saved lyrics keep it (SPICY_LYRICS_DAYS). */
+export const SPICY_CACHE_MS = 25 * 24 * 60 * 60 * 1000
+
+export const spicyCacheFresh = (savedAtMs: unknown, nowMs: number): boolean =>
+  typeof savedAtMs === 'number' && Number.isFinite(savedAtMs) && savedAtMs <= nowMs && nowMs - savedAtMs < SPICY_CACHE_MS
+
+export const spicyLyricsUrl = (spotifyId: string): string => `https://api.spicylyrics.org/v1/lyrics/${encodeURIComponent(spotifyId)}`
+
+/** ListenBrainz Labs' keyless metadata lookup, as the plugin asks it: the
+ *  album first, then without it (a single or a compilation often files the
+ *  recording under another release). */
+export function listenBrainzUrl(artist: string, album: string, title: string): string {
+  const q = new URLSearchParams({ artist_name: artist, release_name: album, track_name: title })
+  return `https://labs.api.listenbrainz.org/spotify-id-from-metadata/json?${q}`
+}
+
+/** The Spotify ids in a ListenBrainz answer, first match first, without
+ *  repeats; empty when it has none. */
+export function spotifyIdsFromListenBrainz(body: unknown): string[] {
+  const first = Array.isArray(body) ? body[0] : undefined
+  const list = isObj(first) ? arr(first.spotify_track_ids) : []
+  return [...new Set(list.filter(isSpotifyTrackId))]
+}
+
+/**
+ * How long to leave a service alone after it answered `status`: what its
+ * Retry-After (seconds or a date) or ListenBrainz's X-RateLimit-Reset-In
+ * says, else a minute for a 429 and nothing for anything else. Capped at a
+ * day, so a nonsense header cannot switch a source off for good.
+ */
+export function backoffMs(status: number, headers: { retryAfter?: string | null; resetIn?: string | null }, nowMs: number): number {
+  const cap = (ms: number) => Math.max(0, Math.min(ms, 24 * 60 * 60 * 1000))
+  const ra = (headers.retryAfter ?? '').trim()
+  if (ra) {
+    if (/^\d+$/.test(ra)) return cap(Number(ra) * 1000)
+    const at = Date.parse(ra)
+    if (Number.isFinite(at)) return cap(at - nowMs)
+  }
+  const reset = Number(headers.resetIn)
+  if (status === 429 && headers.resetIn && Number.isFinite(reset)) return cap(reset * 1000)
+  return status === 429 ? 60_000 : 0
+}

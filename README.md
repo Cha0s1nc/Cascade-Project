@@ -13,6 +13,7 @@ Cascade is a media streaming app, originally prioritized for music streaming. It
 ## Features
 
 - **Jellyfin playback** - direct plays what it can, only transcodes what it has to, with an optional bitrate cap. [More](#playback)
+- **Local mode** - no server needed: point Cascade at a folder and use it like a library, lyrics, crossfade and EQ included. [More](#using-a-folder-instead-local-mode)
 - **Crossfade and EQ** - real two-deck crossfade and a 5-band equalizer with separate music and video curves. [More](#playback)
 - **Movies and TV** - seasons, episodes, resume, subtitles and chapters in a full-bleed player. [More](#movies-and-tv)
 - **Synced lyrics** - line-synced and word-by-word karaoke lyrics from four sources, click any line to seek. [More](#lyrics)
@@ -62,6 +63,14 @@ On first launch, a setup card appears. Fill in:
 Or skip the password entirely with **Sign in with a code instead**, if your server has Quick Connect turned on.
 
 Cascade stores only the session token Jellyfin issues, locally using `electron-store`. Your password is never saved, whichever way you sign in. If the token is revoked (for example, you sign Cascade out from the Jellyfin dashboard), Cascade goes back to the sign-in screen. You can update any of this from the **Settings** view (gear icon in the sidebar).
+
+### Using a folder instead (Local mode)
+
+Choose **Use a folder on this computer** on the setup card (or **Settings > Account > Use a folder**) and pick the folder. Cascade reads tags with [music-metadata](https://github.com/Borewit/music-metadata), takes cover art from `cover.jpg`, `folder.jpg` or the picture in a song, lyrics from an `.lrc` beside a song or its tags, and subtitles from `.srt` or `.vtt` files beside a video. It only ever reads the folder: favorites, play counts and playlists you make are kept in Cascade's own data. **Settings > Library** rescans or changes the folder, and lists what this computer cannot play without conversion. **Switch to Jellyfin** goes back to your server.
+
+Nothing goes to a Jellyfin server in Local mode. Lyrics and artwork lookups (Kugou, LRCLIB, iTunes) and translation model downloads work as they do with a server.
+
+**Spicy Lyrics without the plugin:** in Local mode, or with a server that does not have Cascade Server, **Settings > Lyrics > Spicy Lyrics key** takes your own Spicy Lyrics key from an app you make in the Spicy Lyrics dashboard: its secret key (`sl_sk_...`), or a public key (`sl_pk_...`) if the app has the no-origin option on. Cascade does not ship a key, and yours stays on your computer. With one set, for the song playing only, its title, artist and album go to ListenBrainz Labs to find its Spotify id, and that id goes to Spicy Lyrics. Answers are kept on your computer for 25 days.
 
 ### Music libraries
 

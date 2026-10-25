@@ -195,13 +195,22 @@
 /* Offline Mode (docs/offline-mode-plan.md, section 3): what needs the server
    is hidden, not left to fail. !important because several of these set their
    own display inline from the code that shows them online. */
-body.offline-on .needs-server { display: none !important; }
+body.offline-on .needs-server:not(.local-ok) { display: none !important; }
+/* .local-ok: needs the server, except in Local mode, where Cascade does it
+   itself (playlists). Offline Mode still hides it. */
+body.offline-on:not(.local-mode) .needs-server.local-ok { display: none !important; }
 .offline-pill { display: none; align-items: center; height: 22px; padding: 0 9px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface2); color: var(--text2); font-size: 11px; font-weight: 600; cursor: pointer; }
 .offline-pill:hover { color: var(--text); }
 .offline-pill:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); }
 body.offline-on .offline-pill { display: inline-flex; }
 .offline-banner { display: none; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 14px; margin: 10px 16px 0; border-radius: 8px; background: var(--surface2); border: 1px solid var(--border); font-size: 12px; color: var(--text2); }
 body.offline-auto .offline-banner { display: flex; }
+/* Local mode (docs/local-mode-plan.md): a folder on this computer, no server.
+   The screens treat it as offline (body.offline-on above hides what needs the
+   server), but nothing is "offline", so the pill and banner stay away. */
+body.local-mode .offline-pill, body.local-mode .offline-banner { display: none !important; }
+body.local-mode .not-local { display: none !important; }
+body:not(.local-mode) .local-only { display: none !important; }
 .dl-card { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); margin-bottom: 8px; }
 .dl-art { width: 56px; height: 56px; border-radius: 6px; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 24px; flex-shrink: 0; }
 .dl-art img { width: 100%; height: 100%; object-fit: cover; display: block; }

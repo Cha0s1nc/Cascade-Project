@@ -1,6 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { convertSpicyLyrics, spicyCredit, safeCreditUrl, spicyFitsTrack, parseSpotifyTrackId } from '../src/core/spicy-lyrics.ts'
+import {
+  convertSpicyLyrics, spicyCredit, safeCreditUrl, spicyFitsTrack, parseSpotifyTrackId,
+  isSpicyKey, isSpotifyTrackId, spicyCacheFresh, SPICY_CACHE_MS, listenBrainzUrl, spotifyIdsFromListenBrainz, backoffMs, spicyLyricsUrl,
+} from '../src/core/spicy-lyrics.ts'
+import { SPICY_LYRICS_DAYS } from '../src/core/offline-index.ts'
 
 // Fixtures follow the SpicyLyrics reference schema (times in seconds).
 const syllableBody = {
@@ -151,4 +155,50 @@ test('a duet keeps which voice sings each line (OppositeAligned)', () => {
   })
   assert.ok(lineSync)
   assert.deepEqual(lineSync.lines.map(l => !!l.Opposite), [false, true])
+})
+
+// ── Asking SpicyLyrics from the app ──
+
+test("the person's own key is taken, secret or public", () => {
+  assert.equal(isSpicyKey('sl_sk_abcDEF123456'), true)
+  assert.equal(isSpicyKey('sl_pk_abcDEF123_-xyz'), true)
+  assert.equal(isSpicyKey('  sl_pk_abcDEF123_-xyz  '), true)
+  assert.equal(isSpicyKey('sl_xx_abcDEF123456'), false)
+  assert.equal(isSpicyKey('sl_pk_short'), false)
+  assert.equal(isSpicyKey('sl_pk_has space inside'), false)
+  assert.equal(isSpicyKey(undefined), false)
+})
+
+test('answers are kept as long as Offline Mode keeps SpicyLyrics, and no longer', () => {
+  assert.equal(SPICY_CACHE_MS, SPICY_LYRICS_DAYS * 86_400_000)
+  const now = Date.parse('2026-10-19T12:00:00Z')
+  assert.equal(spicyCacheFresh(now - 1000, now), true)
+  assert.equal(spicyCacheFresh(now - SPICY_CACHE_MS + 1, now), true)
+  assert.equal(spicyCacheFresh(now - SPICY_CACHE_MS, now), false, 'day 25 is gone')
+  assert.equal(spicyCacheFresh(now + 60_000, now), false, 'a date in the future (clock moved back) is not trusted')
+  assert.equal(spicyCacheFresh('x', now), false)
+})
+
+test('ListenBrainz is asked as the plugin asks it, and read the same way', () => {
+  assert.equal(listenBrainzUrl('A & B', '', 'Song/Two'),
+    'https://labs.api.listenbrainz.org/spotify-id-from-metadata/json?artist_name=A+%26+B&release_name=&track_name=Song%2FTwo')
+  const a = '4uLU6hMCjMI75M1A2tKUQC', b = '7GhIk7Il098yCjg4BQjzvb'
+  assert.deepEqual(spotifyIdsFromListenBrainz([{ spotify_track_ids: [a, 'nope', b, a] }, { spotify_track_ids: ['x'] }]), [a, b])
+  assert.deepEqual(spotifyIdsFromListenBrainz([]), [])
+  assert.deepEqual(spotifyIdsFromListenBrainz({ error: 'x' }), [])
+  assert.equal(isSpotifyTrackId(a), true)
+  assert.equal(isSpotifyTrackId('../etc/passwd/aaaaaaaaaa'), false)
+  assert.equal(spicyLyricsUrl(a), `https://api.spicylyrics.org/v1/lyrics/${a}`)
+})
+
+test('a rate limit is waited out, never for good', () => {
+  const now = Date.parse('2026-10-19T12:00:00Z')
+  assert.equal(backoffMs(429, { retryAfter: '30' }, now), 30_000)
+  assert.equal(backoffMs(429, { retryAfter: 'Mon, 19 Oct 2026 12:02:00 GMT' }, now), 120_000)
+  assert.equal(backoffMs(429, { resetIn: '12' }, now), 12_000, "ListenBrainz's own header")
+  assert.equal(backoffMs(429, {}, now), 60_000)
+  assert.equal(backoffMs(503, { retryAfter: '5' }, now), 5_000)
+  assert.equal(backoffMs(404, {}, now), 0)
+  assert.equal(backoffMs(429, { retryAfter: '99999999' }, now), 86_400_000, 'capped at a day')
+  assert.equal(backoffMs(429, { retryAfter: 'Mon, 19 Oct 2026 11:00:00 GMT' }, now), 0, 'a date already past')
 })

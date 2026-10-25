@@ -24,5 +24,15 @@ for (const file of ['renderer.js', 'waterfall.js', 'lyric-karaoke.js']) {
 
 test('the guard refuses while offline', () => {
   const src = readFileSync(new URL('../renderer.js', import.meta.url), 'utf8')
-  assert.match(src, /const jfFetch = \(input, init\) => jfClient\.offline\s*\n\s*\? Promise\.reject\(new CascadeCore\.OfflineError\(\)\)/)
+  // Local mode answers the playlist writes itself (localServerWrite) and
+  // refuses the rest; every other offline state refuses outright.
+  assert.match(src, /const jfFetch = \(input, init\) => jfClient\.offline\s*\n\s*\? \(isLocalMode\(\) \? localServerWrite\(input, init\) : Promise\.reject\(new CascadeCore\.OfflineError\(\)\)\)/)
+  const local = src.slice(src.indexOf('async function localServerWrite('), src.indexOf('// ── Local mode: Settings and switching ──'))
+  assert.ok(local.length > 100, 'localServerWrite is where the test expects it')
+  assert.doesNotMatch(local, /fetch\(/, 'Local mode answers from the main process, never the network')
+})
+
+test('the web guard refuses only while Offline Mode is on, not in Local mode', () => {
+  const src = readFileSync(new URL('../renderer.js', import.meta.url), 'utf8')
+  assert.match(src, /const webFetch = \(input, init\) => CascadeCore\.blocksWeb\(_offlineState\)\s*\n\s*\? Promise\.reject\(new CascadeCore\.OfflineError\(\)\)/)
 })

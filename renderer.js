@@ -18,11 +18,14 @@ let _unshuffledQueue = []   // original order saved when shuffle is enabled
 let _restoredResume = null   // { sec } while a restored queue's track waits for play (see Last queue)
 // Offline downloads (see the section of that name). Declared up here because
 // artUrl() and resolveTrackStream() read it from the very first render.
-let _offline = { ready: {}, art: new Set(), collections: [], totalBytes: 0, active: [], failed: {}, plays: 0, playsHeld: false, changes: 0, limitBytes: null }
+// In Local mode it is the folder's summary instead (section "Local mode"), in
+// the same shape, with `artBase` naming where its covers are served.
+let _offline = { ready: {}, art: new Set(), artBase: 'cascade-offline://local/art/', collections: [], totalBytes: 0, active: [], failed: {}, plays: 0, playsHeld: false, changes: 0, limitBytes: null }
 /** Offline Mode: 'online', 'manual' (the Settings switch) or 'unreachable'
  *  (turned on by itself). See the section "Offline Mode" and
- *  src/core/offline-mode.ts. */
-/** @type {'online' | 'manual' | 'unreachable'} */
+ *  src/core/offline-mode.ts. 'local' is Local mode, a folder on this computer
+ *  instead of a server (section "Local mode"). */
+/** @type {'online' | 'manual' | 'unreachable' | 'local'} */
 let _offlineState = 'online'
 /** Live bytes per track being downloaded, from the main process's progress events. */
 const _offlineProgress = new Map()
@@ -273,10 +276,13 @@ function greeting() {
 }
 
 // A downloaded album's cover comes from disk (cascade-offline://), so it still
-// shows with no server and loads without a round trip with one.
+// shows with no server and loads without a round trip with one. Local mode's
+// covers come from disk too (cascade-local://).
 // Offline, art not on disk is a placeholder rather than a request.
-const artUrl       = (itemId, tag) => (_offline.art.has(itemId) ? `cascade-offline://local/art/${itemId}.jpg` : null) || (jfClient.offline ? null : jfClient.artUrl(itemId, tag))
-const artistArtUrl = (itemId)      => jfClient.artistArtUrl(itemId)
+const artUrl       = (itemId, tag) => (_offline.art.has(itemId) ? `${_offline.artBase || 'cascade-offline://local/art/'}${itemId}.jpg` : null) || (jfClient.offline ? null : jfClient.artUrl(itemId, tag))
+// Local mode keeps no artist pictures: an empty src fails at once into the
+// callers' onerror fallback, where a server URL would point at file://.
+const artistArtUrl = (itemId)      => isLocalMode() ? '' : jfClient.artistArtUrl(itemId)
 
 // ── Skeleton loaders ──────────────────────────────────────────────────────────
 // Placeholder cards/rows shown while a view's data is being fetched.
@@ -1008,13 +1014,24 @@ const jfGet  = (path, params = {}) => jfClient.get(path, params)
 // the server's origin while the switch is on; this is what keeps the
 // unreachable state quiet too, and what callers catch. test/offline-guard
 // fails on a new raw fetch( in this file.
+//
+// They part ways in Local mode (docs/local-mode-plan.md): there is no server,
+// so jfFetch refuses, but the web is there, so webFetch goes out
+// (CascadeCore.blocksWeb).
 /** @type {(input: string, init?: RequestInit) => Promise<Response>} */
+//
+// In Local mode the playlist writes the screens send Jellyfin are answered by
+// Cascade's own playlists instead (localServerWrite, section "Local mode"):
+// nothing leaves the machine either way.
 const jfFetch = (input, init) => jfClient.offline
-  ? Promise.reject(new CascadeCore.OfflineError())
+  ? (isLocalMode() ? localServerWrite(input, init) : Promise.reject(new CascadeCore.OfflineError()))
   // offline-ok: the guard itself.
   : fetch(input, init)
 /** @type {(input: string, init?: RequestInit) => Promise<Response>} */
-const webFetch = jfFetch
+const webFetch = (input, init) => CascadeCore.blocksWeb(_offlineState)
+  ? Promise.reject(new CascadeCore.OfflineError())
+  // offline-ok: the guard itself.
+  : fetch(input, init)
 
 // Items by id, in chunks: past roughly 240 ids the URL outgrows the server's
 // request line limit and Jellyfin answers 414, failing the whole lookup. A
@@ -1549,6 +1566,8 @@ function _applyAdminGating() {
 // admin-only: any signed-in account can approve its own Quick Connect codes.
 let _qcApproveEnabled = false   // read by the click handler too, not just the button's look
 async function _applyQuickConnectGating() {
+  // No server to ask, and its row is hidden.
+  if (isLocalMode()) return
   const enabled = await CascadeCore.quickConnectEnabled(jf.url)
   _qcApproveEnabled = enabled
   const btn = document.getElementById('qc-approve-btn')
@@ -1645,6 +1664,20 @@ async function populateLibraryPicker(prefetched = null) {
     )
     _movieLibs = (data.Items || []).filter(i => i.CollectionType === 'movies')
     _showLibs  = (data.Items || []).filter(i => i.CollectionType === 'tvshows')
+    // Local mode: one library of each kind, all of them shown. Nothing a
+    // server's selection saved is read or written, so switching back finds
+    // the Jellyfin choices as they were.
+    if (isLocalMode()) {
+      await loadCollapsedLibs()
+      singleLibraryMode = false
+      jf.libraryIds = _musicLibs.map(l => l.Id)
+      jf.movieLibraryIds = _movieLibs.map(l => l.Id)
+      jf.showLibraryIds = _showLibs.map(l => l.Id)
+      renderLibraryPicker()
+      renderVideoLibraryPicker()
+      applyVideoNavVisibility()
+      return
+    }
     // Offline, the views are only the libraries holding downloads. The saved
     // choice is used as it is and nothing is written: trimming it to what is
     // downloaded and saving that would quietly lose the person's selection.
@@ -3647,7 +3680,7 @@ document.getElementById('btn-edit-playlist').addEventListener('click', async () 
   try {
     const it = await jfGet(`/Items/${currentPlaylistId}`, { Fields: 'Overview' })
     if (it.CanDelete === false) {
-      showNotice('You do not have permission to edit this playlist.', 'Playlist')
+      showNotice(isLocalMode() ? LOCAL_M3U_READ_ONLY : 'You do not have permission to edit this playlist.', 'Playlist')
       return
     }
     plCurrentIsPublic = !!it.IsPublic
@@ -3726,6 +3759,8 @@ const _plArtBust = new Map()   // playlist id -> cache-buster after a picture ch
 /** The detail header's art URL. It carries no image tag, so after a change
  *  the old picture would be served from cache without the buster. */
 function playlistArtUrl(playlistId) {
+  // Local mode has no picture for a playlist, and no server to ask.
+  if (isLocalMode()) return ''
   const bust = _plArtBust.get(playlistId)
   return `${jf.url}/Items/${playlistId}/Images/Primary?fillHeight=160&fillWidth=160&quality=80&ApiKey=${jf.token}${bust ? `&v=${bust}` : ''}`
 }
@@ -4071,6 +4106,8 @@ function wirePlaylistRowDrag(rowsEl, items) {
         })
         if (!res.ok) throw new Error(res.status)
       } catch (err) {
+        // An .m3u in Local mode is never written: put its own order back.
+        if (isLocalMode() && err?.message === '403') { showNotice(LOCAL_M3U_READ_ONLY, 'Playlist'); refreshPlaylistDetail(); return }
         showNotice('Could not save the new playlist order. It may still be reordered on this device only.', 'Playlist')
       }
     })
@@ -5565,7 +5602,13 @@ function _saveQueueState() {
   const text = JSON.stringify(state)
   if (text === _lastSavedQueue) return
   _lastSavedQueue = text
-  window.cascade.store.set('lastQueue', text)
+  window.cascade.store.set(lastQueueKey(), text)
+}
+
+/** Local mode keeps its own: a folder's ids mean nothing to a server, and
+ *  the reverse. */
+function lastQueueKey() {
+  return isLocalMode() ? 'localLastQueue' : 'lastQueue'
 }
 setInterval(_saveQueueState, 5000)
 window.addEventListener('beforeunload', _saveQueueState)
@@ -5573,7 +5616,7 @@ window.addEventListener('beforeunload', _saveQueueState)
 async function restoreLastQueue() {
   if (queue.length || blocksLocalPlayback()) return
   let saved = null
-  try { saved = JSON.parse(await window.cascade.store.get('lastQueue') || 'null') } catch {}
+  try { saved = JSON.parse(await window.cascade.store.get(lastQueueKey()) || 'null') } catch {}
   const ids = CascadeCore.savedQueueIds(saved)
   if (!ids.length) return
   const items = await jfItemsByIds(ids, 'AlbumId,AlbumPrimaryImageTag,UserData,MediaStreams,MediaSources')
@@ -8327,6 +8370,10 @@ async function init() {
   if (['none', 'all', 'one'].includes(savedRepeat)) repeatMode = savedRepeat
   updateRepeatButtons()
 
+  // Local mode: a folder instead of a server. Nothing below runs, so nothing
+  // is sent to a Jellyfin server, not even the device id migration.
+  if ((await window.cascade.store.get('libraryMode')) === 'local' && await startLocal()) return
+
   const serverUrl = await window.cascade.store.get('serverUrl')
   const username  = await window.cascade.store.get('username')
   // Only ever read to finish migrateDeviceId() for an install that still has
@@ -8427,6 +8474,8 @@ function scheduleOfflineRefresh() {
 }
 
 async function refreshOffline() {
+  // Local mode's summary is the folder's, not the downloads'.
+  if (isLocalMode()) return refreshLocal()
   let summary
   try { summary = await window.cascade.offline.summary() } catch { return }
   _offline = { ...summary, art: new Set(summary.art) }
@@ -8584,7 +8633,7 @@ setInterval(sweepWatchedEpisodes, 60 * 60 * 1000)
 /** A downloaded video stopped 90 percent in or more: watched, as far as
  *  removing watched episodes goes. */
 function noteOfflineWatched(item, positionTicks) {
-  if (!item || !isVideoItem(item) || !_offline.ready[item.Id]) return
+  if (isLocalMode() || !item || !isVideoItem(item) || !_offline.ready[item.Id]) return
   if (!CascadeCore.isWatchedPosition(positionTicks, item.RunTimeTicks)) return
   window.cascade.offline.watched(item.Id).then(() => sweepWatchedEpisodes()).catch(() => {})
 }
@@ -8977,9 +9026,15 @@ let _offlineCatalog = null
 async function refreshOfflineEngine() {
   if (!CascadeCore.isOffline(_offlineState)) return
   let catalog = null
-  try { catalog = await window.cascade.offline.catalog() } catch {}
+  try { catalog = await (isLocalMode() ? window.cascade.local.catalog() : window.cascade.offline.catalog()) } catch {}
   _offlineCatalog = CascadeCore.parseIndex(catalog)
-  const engine = CascadeCore.offlineQuery(_offlineCatalog)
+  setOfflineEngine()
+}
+
+/** The engine over _offlineCatalog as it is now. Local mode's also answers
+ *  the playlists made in Cascade that hold nothing yet (localQuery). */
+function setOfflineEngine() {
+  const engine = isLocalMode() ? CascadeCore.localQuery(_offlineCatalog) : CascadeCore.offlineQuery(_offlineCatalog)
   _offlineEngine = engine
   jfClient.setOfflineSource((path, params) => engine.answer(path, params))
 }
@@ -9005,6 +9060,7 @@ async function setOfflineState(next, { reload = true } = {}) {
   }
   document.body.classList.toggle('offline-on', off)
   document.body.classList.toggle('offline-auto', next === 'unreachable')
+  document.body.classList.toggle('local-mode', next === 'local')
   renderOfflineIndicators()
   if (next === 'unreachable') scheduleProbe(true)
   else clearProbe()
@@ -9163,6 +9219,229 @@ async function placeOfflineDownloads() {
   }
 }
 
+// ── Local mode ──
+// A folder on this computer instead of a server (docs/local-mode-plan.md).
+// The state is 'local' (src/core/offline-mode.ts): the reads answer from a
+// catalog the main process builds from the folder (local-library.js), with
+// the engine Offline Mode uses (wrapped by CascadeCore.localQuery so a new,
+// empty playlist shows), and what needs a server hides as it does offline.
+// Unlike Offline Mode the web is there: lyrics, artwork and translation models
+// still load (webFetch). Nothing is sent to a Jellyfin server, ever: init()
+// starts here before reading the server settings at all.
+//
+// Picked at setup or in Settings, and kept in the store as libraryMode.
+// Switching reloads the window: the two libraries never mix, and a reload is
+// the one re-init that leaves nothing of the other behind.
+
+/** The catalog version the engine was built from. local-library.js bumps it
+ *  when a scan, a playlist change or the device profile changes the catalog. */
+let _localVersion = null
+
+/** A function, not a const: jfFetch and artUrl reach it from the first render. */
+function isLocalMode() {
+  return _offlineState === 'local'
+}
+
+const LOCAL_M3U_READ_ONLY = 'This playlist is an .m3u file in your folder. Cascade plays it but never changes the file.'
+
+/** A playlist the folder's catalog holds (an .m3u or one made in Cascade). */
+function isLocalPlaylist(id) {
+  return isLocalMode() && !!id && !!_offlineCatalog?.collections.some(c => c.item.Type === 'Playlist' && c.item.Id === id)
+}
+
+/**
+ * Opens the app on the folder: what connect() does for a server, answered
+ * for a folder. False, with nothing changed, when no folder is set (a store
+ * edited by hand): the sign-in screen then shows as usual.
+ */
+async function startLocal() {
+  let summary
+  try { summary = await window.cascade.local.start(currentDeviceProfile()) } catch (e) {
+    console.error('[cascade] Local mode could not start:', e)
+    return false
+  }
+  if (!summary?.local?.root) {
+    await window.cascade.store.set('libraryMode', 'jellyfin')
+    return false
+  }
+  document.getElementById('setup-overlay').classList.add('hidden')
+  // Nobody is signed in, so nobody's downloads show.
+  await window.cascade.offline.setOwner(null)
+  jf = { url: '', token: '', userId: CascadeCore.LOCAL_USER_ID, deviceId, appVersion }
+  _offline = { ...summary, art: new Set(summary.art) }
+  _localVersion = summary.local.version
+  await setOfflineState('local', { reload: false })
+  renderLocalSettings(summary.local)
+  if (summary.local.error === 'missing') showLocalFolderMissing(summary.local.root)
+
+  // What a server would have said about this account: nothing to administer,
+  // delete, download or tune in to.
+  jf.isAdmin = false
+  jf.canDelete = false
+  jf.canDownload = false
+  jf.hasLiveTv = false
+  applyRadioNavVisibility()
+  _applyAdminGating()
+  // No plugin. Its controls are disabled here rather than through
+  // _applyCascadePluginAvailability, which also turns a saved Server-only
+  // lyrics switch off for good: that switch belongs to the server.
+  _cascadePluginAbsent = true
+  _cascadePluginCaps = new Set()
+  _cascadePluginProbed = Promise.resolve()
+  for (const id of ['lyrics-edit-btn', 'ov-lyrics-edit-btn']) {
+    const btn = /** @type {HTMLButtonElement | null} */ (document.getElementById(id))
+    if (btn) btn.disabled = true
+  }
+  for (const id of ['lyrics-edit-btn-tip', 'ov-lyrics-edit-btn-tip']) document.getElementById(id)?.setAttribute('data-tip', 'Not in Local mode')
+  _applyServerOnlyMode(false)
+
+  await populateLibraryPicker()
+  invalidateLibraryViews()
+  invalidateVideoViews()
+  await loadHome()
+  await restoreLastQueue()
+  return true
+}
+
+/** The folder's summary, and the catalog when it changed. `redraw`: a scan
+ *  found something new, so the screens are drawn from it. One at a time: a
+ *  change event and a playlist write both ask, and the second must wait for
+ *  the first's catalog rather than see its version and return early with the
+ *  engine still on the old one. */
+let _localRefresh = Promise.resolve()
+function refreshLocal(opts = {}) {
+  const run = _localRefresh.then(() => refreshLocalNow(opts))
+  _localRefresh = run.catch(() => {})
+  return run
+}
+
+async function refreshLocalNow({ redraw = false } = {}) {
+  let summary
+  try { summary = await window.cascade.local.summary() } catch { return }
+  if (!isLocalMode()) return
+  _offline = { ...summary, art: new Set(summary.art) }
+  renderLocalSettings(summary.local)
+  if (summary.local.version === _localVersion) return
+  _localVersion = summary.local.version
+  await refreshOfflineEngine()
+  if (redraw) await redrawLocal()
+}
+
+async function redrawLocal() {
+  await populateLibraryPicker()
+  invalidateLibraryViews()
+  invalidateVideoViews()
+  await loadHome()
+  if (_currentView !== 'home') showView(_currentView)
+}
+
+window.cascade.local.onEvent((event) => {
+  if (!isLocalMode()) return
+  if (event.type === 'progress') { renderLocalProgress(event); return }
+  // A playlist change was asked for here, and that caller has the new catalog.
+  refreshLocal({ redraw: event.reason !== 'playlist' })
+})
+
+/** A favorite, a play, a position or a played mark: kept by the main process,
+ *  then written into this copy of the catalog rather than fetching all of it
+ *  again (CascadeCore.setLocalUserData). */
+async function localChange(itemId, change) {
+  const ud = await window.cascade.local.change(itemId, change)
+  if (!ud || !_offlineCatalog || !isLocalMode()) return
+  CascadeCore.setLocalUserData(_offlineCatalog, itemId, ud)
+  setOfflineEngine()
+}
+
+/**
+ * jfFetch in Local mode: the playlist writes the screens send Jellyfin,
+ * answered by the playlists kept in Cascade, in the shape Jellyfin answers
+ * (CascadeCore.playlistOpFor). Anything else fails as it does offline. The
+ * engine has the new catalog before this resolves, so the caller's re-read
+ * sees the change.
+ */
+async function localServerWrite(input, init = {}) {
+  const op = CascadeCore.playlistOpFor(init.method || 'GET', String(input), init.body, isLocalPlaylist)
+  if (!op) throw new CascadeCore.OfflineError('Not available in Local mode')
+  const result = await window.cascade.local.playlist(op)
+  if (!result?.ok) {
+    return new Response(result?.readOnly ? LOCAL_M3U_READ_ONLY : 'Cascade could not change that playlist.', { status: result?.readOnly ? 403 : 400 })
+  }
+  await refreshLocal()
+  if (op.kind === 'create') return new Response(JSON.stringify({ Id: result.id }), { status: 200, headers: { 'content-type': 'application/json' } })
+  return new Response(null, { status: 204 })
+}
+
+// ── Local mode: Settings and switching ──
+
+function showLocalFolderMissing(root) {
+  showNotice(`Cascade can't open your library folder:\n\n${root}\n\nIf it is on a drive that isn't plugged in, plug it in and choose Rescan in Settings, or choose another folder there.`, 'Local library')
+}
+
+const _fmtCount = (n, one, many) => `${n.toLocaleString()} ${n === 1 ? one : many}`
+
+function renderLocalSettings(local) {
+  if (!local) return
+  document.getElementById('s-local-path').textContent = local.root || ''
+  const status = document.getElementById('s-local-status')
+  if (local.scanning) renderLocalProgress(local.progress)
+  else if (local.error === 'missing') status.textContent = "Cascade can't open this folder. Plug in its drive, or choose another."
+  else {
+    const c = local.counts
+    const parts = [_fmtCount(c.songs, 'song', 'songs'), c.movies && _fmtCount(c.movies, 'movie', 'movies'), c.episodes && _fmtCount(c.episodes, 'episode', 'episodes')].filter(Boolean)
+    const when = local.lastScan ? ` · scanned ${new Date(local.lastScan).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''
+    status.textContent = parts.join(', ') + when + (local.tagsReadable ? '' : " · Cascade couldn't load its tag reader, so names come from folders")
+  }
+  const rescan = /** @type {HTMLButtonElement} */ (document.getElementById('s-local-rescan'))
+  rescan.disabled = !!local.scanning
+  const row = document.getElementById('s-local-unplayable-row')
+  row.style.display = local.unplayable?.length ? '' : 'none'
+  if (!local.unplayable?.length) return
+  document.getElementById('s-local-unplayable-summary').textContent = `Show ${_fmtCount(local.unplayable.length, 'file', 'files')}`
+  // Capped: a library of HEVC rips would otherwise draw thousands of rows.
+  const shown = local.unplayable.slice(0, 500)
+  document.getElementById('s-local-unplayable').innerHTML = shown.map(u => `<li>${esc(u.rel)}<span>${esc(u.reason)}</span></li>`).join('')
+    + (local.unplayable.length > shown.length ? `<li>and ${(local.unplayable.length - shown.length).toLocaleString()} more</li>` : '')
+}
+
+function renderLocalProgress(p) {
+  document.getElementById('s-local-status').textContent = p?.total
+    ? `Scanning… read ${p.done.toLocaleString()} of ${p.total.toLocaleString()} new or changed files`
+    : 'Scanning the folder…'
+  const rescan = /** @type {HTMLButtonElement} */ (document.getElementById('s-local-rescan'))
+  rescan.disabled = true
+}
+
+/** Picks a folder and opens the app on it. The folder is kept in main; the
+ *  window reloads into Local mode (init). */
+async function switchToLocal() {
+  const picked = await window.cascade.local.chooseFolder()
+  if (!picked?.ok) {
+    if (picked?.error) showNotice(picked.error, 'Local library')
+    return
+  }
+  await window.cascade.store.set('libraryMode', 'local')
+  location.reload()
+}
+
+/** Back to a server: the sign-in screen, or the account still saved. */
+async function switchToJellyfin() {
+  await window.cascade.store.set('libraryMode', 'jellyfin')
+  // Main hears the state from the new page only when it is Offline Mode's.
+  await window.cascade.offline.setMode('online').catch(() => {})
+  location.reload()
+}
+
+document.getElementById('setup-local').addEventListener('click', () => switchToLocal())
+document.getElementById('s-mode-local').addEventListener('click', () => switchToLocal())
+document.getElementById('s-mode-jellyfin').addEventListener('click', () => switchToJellyfin())
+// Another folder is another library: the same reload as switching modes.
+document.getElementById('s-local-change').addEventListener('click', () => switchToLocal())
+document.getElementById('s-local-rescan').addEventListener('click', async () => {
+  if (!isLocalMode()) return
+  const summary = await window.cascade.local.rescan().catch(() => null)
+  if (summary) renderLocalSettings(summary.local)
+})
+
 // ── What happened while the server was out of reach ──
 // docs/offline-mode-plan.md, section 5; the rules are src/core/offline-sync.ts.
 // Jellyfin counts a play when playback STARTS, so a start report it never
@@ -9174,12 +9453,15 @@ async function placeOfflineDownloads() {
 // - positions, played marks and favorites win only over an older server value.
 
 function queueOfflinePlay(itemId) {
+  // Local mode: there is no server to tell later, the play is kept now.
+  if (isLocalMode()) { localChange(itemId, { kind: 'play' }).catch(() => {}); return }
   window.cascade.offline.addPlay({ itemId, userId: jf.userId, date: new Date().toISOString() })
     .then(() => scheduleOfflineRefresh()).catch(() => {})
 }
 
 /** A favorite or played mark made offline, or where a video stopped. */
 async function queueOfflineChange(change) {
+  if (isLocalMode()) { await localChange(change.itemId, change); return }
   await window.cascade.offline.addChange({ ...change, userId: jf.userId, at: new Date().toISOString() })
   scheduleOfflineRefresh()
 }
@@ -12039,7 +12321,8 @@ async function deleteItemFromServer(item, { confirmMsg, onDeleted }) {
   // The entry is greyed for an account without the deletion right, but a
   // disabled-looking div can still be clicked programmatically - don't trust
   // the DOM state alone against a server call that would just 403 anyway.
-  if (!jf.canDelete) return
+  // Local mode deletes nothing but a playlist made in Cascade (localServerWrite).
+  if (!jf.canDelete && !isLocalPlaylist(item.Id)) return
   if (!confirm(confirmMsg)) return
   try {
     const res = await jfFetch(`${jf.url}/Items/${item.Id}`, {
@@ -12135,7 +12418,7 @@ function showItemCtxMenu(kind, item, el, x, y, onDetail) {
   // the grid DTO; anything else has no such concept, so mark-played/unplayed
   // stay hidden rather than guessing (see menuItemsForKind's isPlayed handling).
   const isPlayed = (kind === 'video' || kind === 'series') ? !!item?.UserData?.Played : undefined
-  const vis = CascadeCore.menuItemsForKind(kind, { isPlayed, offline: jfClient.offline })
+  const vis = CascadeCore.menuItemsForKind(kind, { isPlayed, offline: jfClient.offline, local: isLocalMode() })
   // An album with no AlbumArtist has nowhere for "Go to artist" to go.
   if (kind === 'album' && !item?.AlbumArtist) vis.goArtist = false
 
@@ -12177,7 +12460,7 @@ function showItemCtxMenu(kind, item, el, x, y, onDetail) {
   // `kind`) stuck on from a previous menu of the other kind.
   const deleteEl = document.getElementById('ictx-delete')
   const deleteNote = document.getElementById('ictx-delete-note')
-  const deleteGated = kind === 'playlist' && !jf.canDelete
+  const deleteGated = kind === 'playlist' && !jf.canDelete && !isLocalMode()
   if (deleteEl) deleteEl.classList.toggle('needs-admin', deleteGated)
   if (deleteNote) deleteNote.hidden = !deleteGated
 
@@ -12444,6 +12727,44 @@ let _cascadePluginProbed = Promise.resolve()
 // key is set on the server, so asking for SpicyLyrics is worth a request.
 let _cascadePluginCaps = new Set()
 let _spotifyLinkServerWide = true
+
+// ── SpicyLyrics from the app ─────────────────────────────────────────────────
+// For when the plugin cannot ask (docs/local-mode-plan.md, section 6): Local
+// mode always, a Jellyfin server without the plugin otherwise. The main
+// process asks with the person's own key (spicy-client.js); a server
+// with the plugin keeps asking through it, key or no key here.
+let _spicyKeySet = false
+window.cascade.spicy.status().then(s => { _spicyKeySet = !!s?.hasKey; renderSpicyKeyStatus() }).catch(() => {})
+
+function spicyFromApp() {
+  return _spicyKeySet && (isLocalMode() || _cascadePluginAbsent)
+}
+
+function renderSpicyKeyStatus(message, isError = false) {
+  const el = document.getElementById('s-spicy-key-status')
+  if (!el) return
+  el.textContent = message || (_spicyKeySet ? 'A key is saved on this computer.' : 'No key saved.')
+  el.style.color = isError ? 'var(--red)' : ''
+  document.getElementById('s-spicy-key-clear').hidden = !_spicyKeySet
+}
+
+async function saveSpicyKey(value) {
+  const result = await window.cascade.spicy.setKey(value).catch(() => ({ ok: false, error: 'Could not save the key.' }))
+  if (!result.ok) { renderSpicyKeyStatus(result.error, true); return }
+  _spicyKeySet = value !== null
+  const input = /** @type {HTMLInputElement} */ (document.getElementById('s-spicy-key'))
+  input.value = ''
+  renderSpicyKeyStatus(_spicyKeySet ? 'Saved. Songs you play now ask Spicy Lyrics first.' : 'Key removed.')
+  // What was found without it (or with it) is stale now.
+  _lyricsCache.clear()
+}
+
+document.getElementById('s-spicy-key-save').addEventListener('click', () => {
+  const value = /** @type {HTMLInputElement} */ (document.getElementById('s-spicy-key')).value.trim()
+  if (value) saveSpicyKey(value)
+})
+document.getElementById('s-spicy-key-clear').addEventListener('click', () => saveSpicyKey(null))
+document.getElementById('s-spicy-key-docs').addEventListener('click', () => window.cascade.shell.openExternal('https://developers.spicylyrics.org/docs'))
 
 /** Full URL of the plugin's lyrics GET/POST route for an item. */
 function cascadeLyricsUrl(itemId) {
@@ -13701,10 +14022,13 @@ function fetchLyricsWaterfall(item) {
   const orTagged = r => r || (CascadeCore.looksInstrumental(item) ? { instrumental: true } : null)
   const forced = lyricsForcedSource && lyricsForcedSource !== 'auto'
   if (forced || _lyricsCache.has(item.Id)) return _lyricsWaterfall(item).then(orTagged)
-  let pending = _lyricsInflight.get(item.Id)
+  // A look ahead at the next song skips SpicyLyrics from the app (see
+  // spicyFromApp), so the song playing must not wait on that look's answer.
+  const key = spicyFromApp() && item.Id === queue[queueIndex]?.Id ? `${item.Id}:spicy` : item.Id
+  let pending = _lyricsInflight.get(key)
   if (!pending) {
-    pending = _lyricsWaterfall(item).finally(() => _lyricsInflight.delete(item.Id))
-    _lyricsInflight.set(item.Id, pending)
+    pending = _lyricsWaterfall(item).finally(() => _lyricsInflight.delete(key))
+    _lyricsInflight.set(key, pending)
   }
   return pending.then(orTagged)
 }
@@ -13712,7 +14036,9 @@ function fetchLyricsWaterfall(item) {
 async function _lyricsWaterfall(item) {
   // Offline, the only lyrics are the ones saved with the download. Not
   // cached: going back online should search again.
-  if (jfClient.offline) {
+  // Local mode has the web, so it searches as online does, with the song's own
+  // files where Jellyfin's lyrics would be.
+  if (jfClient.offline && !isLocalMode()) {
     const saved = _offlineCatalog ? CascadeCore.lyricsOf(_offlineCatalog, item.Id, new Date()) : null
     _lastFetchStatus = { Cascade: null, Kugou: null, LRCLIB: null, Jellyfin: null }
     return saved ? { lines: saved.lines, source: CascadeCore.lyricsSourceLabel(saved), credit: saved.credit, tried: {} } : null
@@ -13739,7 +14065,9 @@ async function _lyricsWaterfall(item) {
     'i'
   )
 // ── Server-only mode: exclusively hit the Cascade plugin ─────────────────────
-  if (serverOnlyMode) {
+  // Not in Local mode: there is no server, and the saved switch is left as it
+  // is for when there is one again.
+  if (serverOnlyMode && !isLocalMode()) {
     const wantType = forced === 'cascade-karaoke' ? 'karaoke'
                    : forced === 'cascade-synced'  ? 'synced'
                    : null   // auto = accept either (plugin returns karaoke first)
@@ -13827,6 +14155,15 @@ async function _lyricsWaterfall(item) {
       return null
     }],
     ['Jellyfin', async () => {
+      // Local mode: the .lrc beside the song, else the lyrics in its tags.
+      if (isLocalMode()) {
+        const own = await window.cascade.local.lyrics(item.Id)
+        if (!own?.text) return null
+        const lines = own.synced
+          ? parseLRC(own.text).filter(l => !metaPattern.test(l.Text))
+          : own.text.split('\n').map(t => t.trim()).filter(Boolean).map(t => ({ Start: null, End: null, Text: t, Words: null }))
+        return lines.length ? { lines, source: own.synced ? 'Your file' : 'Your file (plain)' } : null
+      }
       const r = await jfFetch(`${jf.url}/Audio/${item.Id}/Lyrics`,
         { headers: CascadeCore.authHeaders(jf), ...sig })
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
@@ -13866,8 +14203,23 @@ async function _lyricsWaterfall(item) {
   // tracks will not have one. spicyOnly stops the plugin there on a miss
   // instead of reading its files, or fetching Kugou and LRCLIB live, for an
   // answer this ignores. A plugin older than the flag ignores it.
+  // Without the plugin (Local mode, or a server without it), SpicyLyrics comes
+  // from the app with the person's own key, and only for the song playing:
+  // the terms allow fetching on play, never a crawl, and a look ahead at the
+  // next songs or a download's lyrics is not a play. Such an answer is not
+  // cached here, so the song asks again once it plays.
+  const spicySkipped = spicyFromApp() && item.Id !== queue[queueIndex]?.Id
   const spicyProm = (async () => {
     await _cascadePluginProbed
+    if (spicyFromApp()) {
+      if (spicySkipped) return null
+      const found = await window.cascade.spicy.lyrics({
+        itemId: item.Id, title: item.Name || '', artist: item.Artists?.[0] || item.AlbumArtist || '', album: item.Album || '',
+        durationSec: (item.RunTimeTicks || 0) / 10_000_000, spotifyId: _localSpotifyLinks[item.Id] || null,
+      })
+      const conv = found ? CascadeCore.convertSpicyLyrics(found.raw) : null
+      return conv ? { lines: conv.lines, source: conv.credit.provider, credit: conv.credit } : null
+    }
     if (_cascadePluginAbsent || !_cascadePluginCaps.has('syllable')) return null
     const r = await jfFetch(`${cascadeLyricsUrl(item.Id)}?syllable=true&spicyOnly=true${_localSpotifyParam(item.Id)}`, { headers: CascadeCore.authHeaders(jf), ...sig })
     if (!r.ok) return null
@@ -13904,7 +14256,7 @@ async function _lyricsWaterfall(item) {
   if (winner) {
     _lastFetchStatus = tried
     const out = { ...winner, tried }
-    _cachePut(item.Id, out)
+    if (!spicySkipped) _cachePut(item.Id, out)
     return out
   }
 
@@ -13916,7 +14268,7 @@ async function _lyricsWaterfall(item) {
   // whole waterfall, per track, forever. A forced source still bypasses the
   // cache above, and _reloadLyricsFor() stays the escape hatch if a source was
   // merely down rather than actually missing the track.
-  if (!forced) _cachePut(item.Id, null)
+  if (!forced && !spicySkipped) _cachePut(item.Id, null)
   return null
 }
 
@@ -16588,6 +16940,9 @@ async function _handleUndecodableAudio(item) {
     await window.cascade.store.set('undecodableAudioCodecs', JSON.stringify([..._undecodableAudioCodecs]))
   } catch {}
   console.warn(`[cascade] ${codec} was claimed decodable but produced no audio - withdrawing the claim and asking the server to transcode it`)
+  // Local mode has nothing to transcode with: the folder's files in that
+  // codec move to the "Can't play these" list instead.
+  if (isLocalMode()) window.cascade.local.setProfile(currentDeviceProfile()).catch(() => {})
   showToast(`No audio from ${codec.toUpperCase()} on this machine - switching to a transcode`, { level: 'advanced' })
 
   // Re-negotiate from where they are, not from the top.
