@@ -221,9 +221,12 @@ export function probeFromMetadata(meta: unknown): LocalProbe | null {
   const codecOf = (t: Record<string, unknown> | undefined) => t ? codecName(t.codecName) ?? codecName(t.codecId) : undefined
   const gain = (v: unknown) => isPlainObject(v) && finite(v.dB) ? v.dB : undefined
   const genres = Array.isArray(common.genre) ? common.genre.flatMap(g => typeof g === 'string' ? g.split(/\s*[;|/]\s*/) : []) : []
+  // A joined artist tag ("A; B") is split as Jellyfin splits it, but not on
+  // "/", which AC/DC needs.
+  const artistTags = Array.isArray(common.artists) ? common.artists : typeof common.artist === 'string' ? [common.artist] : undefined
   const raw: Record<string, unknown> = {
     title: common.title,
-    artists: Array.isArray(common.artists) ? common.artists : typeof common.artist === 'string' ? [common.artist] : undefined,
+    artists: artistTags?.flatMap(a => typeof a === 'string' ? a.split(/\s*;\s*/) : []),
     albumArtist: common.albumartist,
     album: common.album,
     track: isPlainObject(common.track) ? common.track.no : undefined,

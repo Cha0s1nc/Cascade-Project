@@ -988,7 +988,7 @@
                     <span class="toggle-track"></span>
                   </label>
                 </div>
-                <div class="setting-row">
+                <div class="setting-row not-local">
                   <div class="setting-label">
                     <span class="setting-name">Streaming quality</span>
                     <span class="setting-desc">Cap the bitrate and the server transcodes to fit. Original sends the file untouched.</span>
@@ -1001,14 +1001,15 @@
                 <div class="setting-row">
                   <div class="setting-label">
                     <span class="setting-name">Volume normalization</span>
-                    <span class="setting-desc">Evens out loud and quiet tracks using the server's loudness scan. Off by default; tracks the server has not scanned play unchanged.</span>
+                    <span class="setting-desc not-local">Evens out loud and quiet tracks using the server's loudness scan. Off by default; tracks the server has not scanned play unchanged.</span>
+                    <span class="setting-desc local-only">Evens out loud and quiet tracks using their ReplayGain tags. Off by default; tracks without them play unchanged.</span>
                   </div>
                   <label class="toggle">
                     <input type="checkbox" id="normalize-toggle">
                     <span class="toggle-track"></span>
                   </label>
                 </div>
-                <div class="setting-row">
+                <div class="setting-row not-local">
                   <div class="setting-label">
                     <span class="setting-name">Auto-skip intros and credits</span>
                     <span class="setting-desc">Skips an intro or the end credits as soon as it starts, once each. Needs a server that knows where they are (Jellyfin 10.10 or later with a segment provider such as the Intro Skipper plugin). Off by default; the Skip button still shows.</span>

@@ -103,6 +103,8 @@ test('tags become one probe, values checked', () => {
   const flac = probeFromMetadata(MM.flac)!
   assert.equal(flac.trackGainDb, -6.5, 'ReplayGain becomes the normalization gain')
   assert.deepEqual(flac.genres, ['Rock', 'Indie'], 'a joined genre tag is split as Jellyfin splits it')
+  const joined = probeFromMetadata({ format: {}, common: { artists: ['All Time Low; Demi Lovato; blackbear', 'AC/DC'] } })!
+  assert.deepEqual(joined.artists, ['All Time Low', 'Demi Lovato', 'blackbear', 'AC/DC'], 'a joined artist tag is split on ";" only')
   assert.equal(flac.disc, undefined, 'a missing disc number is not 0')
   assert.equal(probeFromMetadata(MM.alac)!.audioCodec, 'alac')
   assert.equal(probeFromMetadata(MM.audioMp4)!.hasVideo, false)
