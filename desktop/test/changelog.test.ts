@@ -128,7 +128,7 @@ test('changelogSectionMarkdown prints platforms in a fixed order', () => {
 })
 
 test('the real CHANGELOG.md parses, newest first, with the backfilled releases', () => {
-  const entries = parseChangelog(readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8'))
+  const entries = parseChangelog(readFileSync(new URL('../../CHANGELOG.md', import.meta.url), 'utf8'))
   const versions = entries.map(e => e.version)
   for (const v of ['2.2.0', '2.1.0', '2.0.1', '2.0.0']) {
     assert.ok(findChangelogEntry(entries, v)?.platforms.desktop, `${v} is missing or has no Desktop section`)

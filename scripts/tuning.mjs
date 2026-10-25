@@ -1,7 +1,7 @@
 // Edits tuning-defaults.json, the shipped defaults for every app, and keeps
 // the Apple apps' copy of it (TuningDefaultsData.swift) in step. The rules
 // (what a platform reads, how a set or bake splits or folds a value, the
-// revision list) are src/core/tuning.ts.
+// revision list) are desktop/src/core/tuning.ts.
 //
 //   npm run tuning -- show [key...] [--diverged]   every value per platform
 //   npm run tuning -- set <key> <value> [--for T]   T: all (default), apple, desktop, mac, ios, tvos
@@ -29,7 +29,7 @@ process.removeAllListeners('warning')
 process.on('warning', w => {
   if (w.code !== 'MODULE_TYPELESS_PACKAGE_JSON') for (const print of printWarning) print(w)
 })
-const T = await import('../src/core/tuning.ts')
+const T = await import('../desktop/src/core/tuning.ts')
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const FILE = join(ROOT, 'tuning-defaults.json')

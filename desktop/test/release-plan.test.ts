@@ -1,11 +1,15 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import {
   bumpOf, isBeta, platformListOf, platformsFromFiles, bumpVersion, nextBetaNumber, planRelease, versionsFor,
   PLATFORM_FILES, platformOfFile, markerLines,
 } from '../src/core/release-plan.ts'
 import type { PlanInput } from '../src/core/release-plan.ts'
+
+// The workflows sit at the repo root, absent from a checkout of the desktop alone.
+const WORKFLOW_DIR = new URL('../../.github/workflows/', import.meta.url)
+const WORKFLOWS = existsSync(WORKFLOW_DIR) ? false : '.github/ is not in this checkout'
 
 const base = (over: Partial<PlanInput>): PlanInput => ({
   event: 'push', branch: 'stable', messages: [], files: [], lastVersion: '2.2.0', tags: ['v2.2.0'],
@@ -39,11 +43,16 @@ test('platformListOf reads bracket lists and ignores brackets that are not platf
 test('platformsFromFiles maps folders to apps, and docs or CI to nothing', () => {
   // apple/ builds iOS and tvOS; the native Mac app waits to be named.
   assert.deepEqual(platformsFromFiles(['apple/App/Sources/X.swift']), ['apple'])
-  assert.deepEqual(platformsFromFiles(['apple/App/Mac/MacRootView.swift', 'renderer.js']), ['desktop', 'apple'])
-  assert.deepEqual(platformsFromFiles(['renderer.js', 'android/app/build.gradle']), ['desktop', 'android'])
+  assert.deepEqual(platformsFromFiles(['apple/App/Mac/MacRootView.swift', 'desktop/renderer.js']), ['desktop', 'apple'])
+  assert.deepEqual(platformsFromFiles(['desktop/renderer.js', 'android/app/build.gradle']), ['desktop', 'android'])
   assert.deepEqual(platformsFromFiles(['README.md', 'CHANGELOG.md', 'docs/plan.md', '.github/workflows/build.yml', 'LICENSE']), [])
-  assert.deepEqual(platformsFromFiles(['src/core/queue.ts']), ['desktop'])
-  assert.deepEqual(platformsFromFiles(['assets/icon.png']), ['desktop'])
+  assert.deepEqual(platformsFromFiles(['desktop/src/core/queue.ts']), ['desktop'])
+  assert.deepEqual(platformsFromFiles(['desktop/assets/icon.png']), ['desktop'])
+  // The shared defaults ship inside the desktop build; the Apple apps get them
+  // through the Swift copy in apple/, which counts there.
+  assert.deepEqual(platformsFromFiles(['tuning-defaults.json']), ['desktop'])
+  // The repo's own tools and the Workers build no app.
+  assert.deepEqual(platformsFromFiles(['scripts/release-plan.mjs', 'signaling/src/index.js', 'telemetry/schema.sql', 'server/x.cs']), [])
 })
 
 test('bumpVersion bumps and refuses anything but x.y.z', () => {
@@ -59,7 +68,7 @@ test('nextBetaNumber continues after the highest beta of that base, drafts inclu
 })
 
 test('stable push with a marker releases the changed platforms, as a draft', () => {
-  const p = planRelease(base({ messages: ['Release (x.X.0)'], files: ['renderer.js'] }))
+  const p = planRelease(base({ messages: ['Release (x.X.0)'], files: ['desktop/renderer.js'] }))
   assert.equal(p.mode, 'release')
   assert.equal(p.version, '2.3.0')
   assert.equal(p.tag, 'v2.3.0')
@@ -69,7 +78,7 @@ test('stable push with a marker releases the changed platforms, as a draft', () 
 })
 
 test('a platform list overrides the changed folders, and missing apps are dropped', () => {
-  const p = planRelease(base({ messages: ['Release (x.x.X) [android, apple]'], files: ['renderer.js'] }))
+  const p = planRelease(base({ messages: ['Release (x.x.X) [android, apple]'], files: ['desktop/renderer.js'] }))
   assert.deepEqual(p.platforms, ['apple'])
   assert.equal(planRelease(base({ messages: ['Release (x.x.X) [android]'] })).mode, 'none')
 })
@@ -95,7 +104,7 @@ test('[BETA] on dev publishes a numbered prerelease; dev without it does nothing
   assert.equal(p.prerelease, true)
   assert.equal(p.publish, true)
   assert.deepEqual(p.platforms, ['desktop'])
-  assert.equal(planRelease(base({ branch: 'dev', messages: ['Normal work'], files: ['renderer.js'] })).mode, 'none')
+  assert.equal(planRelease(base({ branch: 'dev', messages: ['Normal work'], files: ['desktop/renderer.js'] })).mode, 'none')
   assert.equal(planRelease(base({ branch: 'dev', messages: ['[BETA] (x.X.0)'] })).version, '2.3.0-b1')
 })
 
@@ -133,8 +142,8 @@ test('versionsFor takes the new version for rebuilt apps and the old one for car
 
 test('markers in a commit body do nothing: only the first line counts', () => {
   const explained = 'Rework the release workflow\n\ndev: a [BETA] commit publishes a prerelease; a Release (x.x.X) [desktop] marker releases.'
-  assert.equal(planRelease(base({ branch: 'dev', messages: [explained], files: ['renderer.js'] })).mode, 'none')
-  const stable = planRelease(base({ messages: [explained], files: ['renderer.js'] }))
+  assert.equal(planRelease(base({ branch: 'dev', messages: [explained], files: ['desktop/renderer.js'] })).mode, 'none')
+  const stable = planRelease(base({ messages: [explained], files: ['desktop/renderer.js'] }))
   assert.equal(stable.mode, 'build')
   assert.equal(planRelease(base({ branch: 'dev', messages: ['Try the queue [BETA]\n\nbody'] })).mode, 'beta')
 })
@@ -199,8 +208,8 @@ test('platformOfFile sorts release files by platform and ignores the rest', () =
   assert.equal(platformOfFile('Cascade-2.3.1.dmg.blockmap'), null)
 })
 
-test("build.yml's carry-over patterns match PLATFORM_FILES", () => {
-  const yml = readFileSync(new URL('../.github/workflows/build.yml', import.meta.url), 'utf8')
+test("build.yml's carry-over patterns match PLATFORM_FILES", { skip: WORKFLOWS }, () => {
+  const yml = readFileSync(new URL('build.yml', WORKFLOW_DIR), 'utf8')
   for (const [p, patterns] of Object.entries(PLATFORM_FILES)) {
     // The leading space keeps "mac)" from matching inside "desktop)" and the like.
     const m = yml.match(new RegExp(`\\s${p}\\)\\s+PATTERNS=\\(([^)]*)\\)`))
@@ -215,8 +224,8 @@ test('markerLines finds release and beta markers, and nothing else', () => {
   assert.deepEqual(markerLines([]), [])
 })
 
-test('the workflows keep the native Mac DMG out of desktop, and give it its own platform', () => {
-  const read = (f: string) => readFileSync(new URL(`../.github/workflows/${f}`, import.meta.url), 'utf8')
+test('the workflows keep the native Mac DMG out of desktop, and give it its own platform', { skip: WORKFLOWS }, () => {
+  const read = (f: string) => readFileSync(new URL(f, WORKFLOW_DIR), 'utf8')
   const build = read('build.yml')
   const publish = read('publish.yml')
   // desktop's *.dmg matches the native file, so both places that fetch it drop it afterwards.

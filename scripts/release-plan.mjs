@@ -25,7 +25,7 @@ process.removeAllListeners('warning')
 process.on('warning', w => {
   if (w.code !== 'MODULE_TYPELESS_PACKAGE_JSON') for (const print of printWarning) print(w)
 })
-const { PLATFORMS, PLATFORM_FILES, markerLines, planRelease, versionsFor } = await import('../src/core/release-plan.ts')
+const { PLATFORMS, PLATFORM_FILES, markerLines, planRelease, versionsFor } = await import('../desktop/src/core/release-plan.ts')
 
 const env = process.env
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8' })

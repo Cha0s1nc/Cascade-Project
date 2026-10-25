@@ -105,20 +105,20 @@ export function platformListOf(messages: readonly string[]): Platform[] | null {
 }
 
 /**
- * Which platforms a set of changed files touches. `apple/` is two apps, the
- * iOS and tvOS one and the native Mac one, which share its sources; it means
- * mac too once mac is no longer EXPLICIT_ONLY. `android/` is its own; docs,
- * the changelog, license files and CI configuration build nothing by
- * themselves; everything else is the desktop app at the root.
+ * Which platforms a set of changed files touches. `desktop/` is the desktop
+ * app, and so is tuning-defaults.json at the root, which ships inside it (the
+ * Apple apps read their Swift copy in apple/, which counts there). `apple/` is
+ * two apps, the iOS and tvOS one and the native Mac one, which share its
+ * sources; it means mac too once mac is no longer EXPLICIT_ONLY. `android/` is
+ * its own. Anything else (docs, the changelog, CI, the repo's scripts, the
+ * Workers) builds nothing by itself.
  */
 export function platformsFromFiles(files: readonly string[]): Platform[] {
   const hit = new Set<Platform>()
   for (const f of files) {
     if (f.startsWith('apple/')) { hit.add('apple'); if (!EXPLICIT_ONLY.includes('mac')) hit.add('mac') }
     else if (f.startsWith('android/')) hit.add('android')
-    else if (/^(docs\/|\.github\/|\.claude\/)/.test(f)) continue
-    else if (/^[^/]+\.md$/i.test(f) || /^LICENSE/.test(f)) continue
-    else hit.add('desktop')
+    else if (f.startsWith('desktop/') || f === 'tuning-defaults.json') hit.add('desktop')
   }
   return PLATFORMS.filter(p => hit.has(p))
 }

@@ -98,6 +98,10 @@ jobs:
     needs: setup
     if: needs.setup.outputs.desktop == 'true'
     runs-on: ubuntu-latest
+    # The desktop app lives in desktop/: every run step starts there.
+    defaults:
+      run:
+        working-directory: desktop
     steps:
       - uses: actions/checkout@v7
 
@@ -105,6 +109,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
+          cache-dependency-path: desktop/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -126,6 +131,10 @@ jobs:
     needs: [setup, test]
     if: needs.setup.outputs.desktop == 'true'
     runs-on: windows-latest
+    # The desktop app lives in desktop/: every run step starts there.
+    defaults:
+      run:
+        working-directory: desktop
     steps:
       - uses: actions/checkout@v7
 
@@ -133,6 +142,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
+          cache-dependency-path: desktop/package-lock.json
 
       # Empty for a build without a release: package.json's version stays.
       - name: Set version
@@ -152,7 +162,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: dist-windows
-          path: dist/*.exe
+          path: desktop/dist/*.exe
           retention-days: 7
 
   # ── macOS ──────────────────────────────────────────────────────────────────
@@ -163,6 +173,10 @@ jobs:
     # macOS 26 SDK, and a runner rollback would fail the build in a way that
     # looks unrelated to the label.
     runs-on: macos-26
+    # The desktop app lives in desktop/: every run step starts there.
+    defaults:
+      run:
+        working-directory: desktop
     steps:
       - uses: actions/checkout@v7
 
@@ -170,6 +184,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
+          cache-dependency-path: desktop/package-lock.json
 
       # Empty for a build without a release: package.json's version stays.
       - name: Set version
@@ -213,7 +228,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: dist-mac
-          path: dist/*.dmg
+          path: desktop/dist/*.dmg
           retention-days: 7
 
   # ── macOS, native app ──────────────────────────────────────────────────────
@@ -321,6 +336,10 @@ jobs:
     needs: [setup, test]
     if: needs.setup.outputs.desktop == 'true'
     runs-on: ubuntu-latest
+    # The desktop app lives in desktop/: every run step starts there.
+    defaults:
+      run:
+        working-directory: desktop
     steps:
       - uses: actions/checkout@v7
 
@@ -328,6 +347,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
+          cache-dependency-path: desktop/package-lock.json
 
       - name: Install system dependencies
         run: |
@@ -352,21 +372,21 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: dist-linux-appimage
-          path: dist/*.AppImage
+          path: desktop/dist/*.AppImage
           retention-days: 7
 
       - name: Upload RPM (Fedora)
         uses: actions/upload-artifact@v7
         with:
           name: dist-linux-rpm
-          path: dist/*.rpm
+          path: desktop/dist/*.rpm
           retention-days: 7
 
       - name: Upload DEB (Debian/Ubuntu)
         uses: actions/upload-artifact@v7
         with:
           name: dist-linux-deb
-          path: dist/*.deb
+          path: desktop/dist/*.deb
           retention-days: 7
 
 

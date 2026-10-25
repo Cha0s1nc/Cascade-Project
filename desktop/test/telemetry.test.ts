@@ -1,7 +1,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
 import { ELECTRON_EDITION, desktopDeviceName } from '../src/core/jellyfin.ts'
 import { TELEMETRY_URL, TELEMETRY_INTERVAL_MS, TELEMETRY_MAX_SONGS, telemetryAvailable, telemetryDue, telemetryPing } from '../src/core/telemetry.ts'
+
+// The Worker is its own folder at the repo root, absent from a checkout of
+// the desktop alone.
+const WORKER = new URL('../../telemetry/src/index.js', import.meta.url)
+const workerSkip = existsSync(WORKER) ? false : 'telemetry/ is not in this checkout'
 
 test('telemetry ships dormant', () => {
   // Switching it on is a deliberate step with a checklist (src/core/telemetry.ts),
@@ -30,9 +36,9 @@ test('telemetryPing clamps an untrusted song count', () => {
   assert.equal(ping(1e9), TELEMETRY_MAX_SONGS)
 })
 
-test('the Worker rejects anything but a well-formed ping', async () => {
+test('the Worker rejects anything but a well-formed ping', { skip: workerSkip }, async () => {
   // @ts-ignore: plain JS Worker source, no types
-  const { parsePing } = await import('../telemetry/src/index.js')
+  const { parsePing } = await import(WORKER.href)
   const good = { installId: '3F2504E0-4F89-41D3-9A0C-0305E82C3301', version: '2.3.0-b2', edition: 'Cascade Electron', device: 'Mac', songs: 4 }
   const ok = parsePing(JSON.stringify(good))
   assert.equal(ok.installId, '3f2504e0-4f89-41d3-9a0c-0305e82c3301')
@@ -48,11 +54,11 @@ test('the Worker rejects anything but a well-formed ping', async () => {
   assert.equal(parsePing('x'.repeat(2000)), null)
 })
 
-test('the Worker accepts what the desktop app really sends', async () => {
+test('the Worker accepts what the desktop app really sends', { skip: workerSkip }, async () => {
   // A ping the Worker refuses never resets the count, so a drifted allowlist
   // would retry on every song start forever.
   // @ts-ignore: plain JS Worker source, no types
-  const { parsePing } = await import('../telemetry/src/index.js')
+  const { parsePing } = await import(WORKER.href)
   for (const platform of ['win32', 'darwin', 'linux', 'freebsd']) {
     for (const version of ['2.3.0', '2.4.0-b2']) {
       const ping = telemetryPing(crypto.randomUUID(), version, ELECTRON_EDITION, desktopDeviceName(platform), 3)

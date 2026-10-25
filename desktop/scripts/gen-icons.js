@@ -180,7 +180,7 @@ async function checkSize(src) {
 // ponytail: give the artist's layered export (waterfall on its own layer) to
 // the front layer for real parallax.
 
-const APPLE = path.join(__dirname, '../apple/App')
+const APPLE = path.join(__dirname, '../../apple/App')
 // Where the landscape crops sit, as a fraction of the height: the waterfall.
 // ponytail: tuned by eye for the current source.png, like INSTALLER_FOCUS.
 const TV_FOCUS_Y = 0.55

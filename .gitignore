@@ -13,6 +13,9 @@ out/
 # esbuild output (src/ -> build/core.js). Rebuilt by `npm run build:ts`, which
 # every start/build script runs first, so it never needs to be committed.
 build/
+# The repo's LICENSE, copied in by build:license so the packaged app ships it
+# (electron-builder takes nothing from outside desktop/).
+/desktop/LICENSE
 *.slrc
 spicylyrics-integration.js
 lyrics_align_test.py

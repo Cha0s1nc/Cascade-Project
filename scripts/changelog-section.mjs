@@ -23,7 +23,7 @@ process.removeAllListeners('warning')
 process.on('warning', w => {
   if (w.code !== 'MODULE_TYPELESS_PACKAGE_JSON') for (const print of printWarning) print(w)
 })
-const { changelogSectionMarkdown, findChangelogEntry, parseChangelog } = await import('../src/core/changelog.ts')
+const { changelogSectionMarkdown, findChangelogEntry, parseChangelog } = await import('../desktop/src/core/changelog.ts')
 
 const [version, file = fileURLToPath(new URL('../CHANGELOG.md', import.meta.url))] = process.argv.slice(2)
 

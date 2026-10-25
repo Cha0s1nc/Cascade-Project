@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import {
   combineEntry,
   formatTuning,
@@ -19,7 +19,10 @@ import { TUNING_FILE } from '../src/core/tuning-defaults.ts'
 import { LYRIC_DEFAULTS_CHANGED, LYRIC_KNOBS } from '../src/core/lyric-style.ts'
 import { blobBrightness, blobLook, blobTuning, lookColor, SHIPPED_BLOB_TUNING } from '../src/core/album-colors.ts'
 
-const ROOT = new URL('../', import.meta.url)
+// The repo root: tuning-defaults.json is shared by every app.
+const ROOT = new URL('../../', import.meta.url)
+// A checkout of the desktop alone has no apple/ to compare with.
+const APPLE = existsSync(new URL('apple', ROOT)) ? false : 'apple/ is not in this checkout'
 const text = readFileSync(new URL('tuning-defaults.json', ROOT), 'utf8')
 
 test('a value is shared, or the most specific target a platform reads wins', () => {
@@ -99,7 +102,7 @@ test('tuning-defaults.json is written the way npm run tuning writes it', () => {
   assert.equal(formatTuning(JSON.parse(text)), text)
 })
 
-test('the Apple apps\' copy is current (npm run tuning -- sync)', () => {
+test('the Apple apps\' copy is current (npm run tuning -- sync)', { skip: APPLE }, () => {
   const swift = readFileSync(new URL('apple/CascadeKit/Sources/CascadeKit/TuningDefaultsData.swift', ROOT), 'utf8')
   assert.equal(swift, swiftCopy(text))
 })
@@ -121,7 +124,7 @@ test('every desktop knob has a default in the file, and the revisions name real 
   assert.equal(LYRIC_DEFAULTS_CHANGED[2]?.length, 8)
 })
 
-test('every Apple Style Tuning knob has a default on each Apple platform', () => {
+test('every Apple Style Tuning knob has a default on each Apple platform', { skip: APPLE }, () => {
   // Read from the Swift source: StyleTuning is in the app target, which no
   // test reaches, and a missing default there only shows as an assertion.
   const swift = readFileSync(new URL('apple/App/Sources/StyleTuning.swift', ROOT), 'utf8')
