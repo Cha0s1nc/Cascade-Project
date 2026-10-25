@@ -107,4 +107,4 @@ With a real server: sign in, browse, play, the lyrics waterfall (with and withou
 
 ## 4. Dependency decision
 
-`music-metadata` was added for the tags (its own commit, "Add music-metadata for Local mode's tags"). The repo rule is no new dependency without asking, so the maintainer has to approve it before this merges. Note in the report anything that bears on that: the packaged size difference, and whether it loaded in G.2.
+`music-metadata` was added for the tags (its own commit, "Add music-metadata for Local mode's tags"). The maintainer approved it on 2026-10-25. Still report whether it loaded in G.2 on Windows and Linux.

@@ -5,7 +5,7 @@
 Built: tier 1 (music), tier 1b (video, Chromium-playable only, sidecar subtitles) and tier S (SpicyLyrics from the app). Tier 2 (ffmpeg) is not built, as the plan recommends: decide on it after living with tier 1. The testing guide is `docs/local-mode-testing.md`.
 
 Where the build went beyond, or differs from, the plan below:
-- **The tag reader is `music-metadata`**, added in its own commit so it can be dropped if the answer is no. The repo rule is no new dependency without asking: **this needs the maintainer's yes.** Without it Local mode still runs, naming everything from folders and listing anything whose codec it cannot tell.
+- **The tag reader is `music-metadata`**, approved by the maintainer on 2026-10-25 (MIT, about 2 MB with its own dependencies, loads from `app.asar` in a packaged Mac build). Without it Local mode still runs, naming everything from folders and listing anything whose codec it cannot tell.
 - **User playlists** are answered at `jfFetch`: in Local mode the Jellyfin playlist writes the screens already send (create, add, remove, move, rename, delete) become operations on Cascade's own playlists (`src/core/local-writes.ts` `playlistOpFor`), so no playlist screen changed. A playlist entry's id in the catalog is its track's id (`offline-query.ts`), so removing one of two copies of a track removes both. An `.m3u` is read-only.
 - **An empty playlist** is answered by `localQuery`, a wrapper around the engine: the engine lists only playlists holding something ready, and it has a Swift twin tested against a shared fixture, so it was left alone.
 - **Switching modes, or folders, reloads the window**: the one re-init that leaves nothing of the other library behind. The saved queue is per mode (`lastQueue`, `localLastQueue`).
