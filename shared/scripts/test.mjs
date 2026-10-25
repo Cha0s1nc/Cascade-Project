@@ -21,7 +21,8 @@ const WIN = process.platform === 'win32'
 const SUITES = {
   desktop: { dir: 'desktop', tool: 'npm', run: ['npm', 'test'], needs: () => existsSync(join(ROOT, 'desktop/node_modules')) || 'run npm ci in desktop/ first' },
   apple: { dir: 'apple/CascadeKit', tool: 'swift', run: ['swift', 'test'] },
-  server: { dir: 'server', tool: 'dotnet', run: ['dotnet', 'test'] },
+  // No .sln: the test project, built against Jellyfin 10.11 by default.
+  server: { dir: 'server', tool: 'dotnet', run: ['dotnet', 'test', 'Jellyfin.Plugin.CascadeServer.Tests'] },
 }
 
 const has = (tool) => spawnSync(tool, ['--version'], { stdio: 'ignore', shell: WIN }).status === 0
