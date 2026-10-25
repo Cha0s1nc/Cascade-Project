@@ -17,10 +17,10 @@ import {
 } from '../src/core/offline-index.ts'
 import type { JfItem } from '../src/core/types.ts'
 
-const fixture = JSON.parse(readFileSync(new URL('./fixtures/offline-video.json', import.meta.url), 'utf8')) as {
+const fixture = JSON.parse(readFileSync(new URL('../../shared/fixtures/offline-video.json', import.meta.url), 'utf8')) as {
   cases: { name: string, runTimeTicks: number, source: DownloadSource, outcome: string }[]
 }
-const fmp4 = readFileSync(new URL('./fixtures/offline-fragmented.mp4', import.meta.url))
+const fmp4 = readFileSync(new URL('../../shared/fixtures/offline-fragmented.mp4', import.meta.url))
 const reader = (buf: Uint8Array) => (offset: number, length: number) => buf.subarray(offset, offset + length)
 
 for (const c of fixture.cases) {

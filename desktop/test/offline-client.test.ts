@@ -7,7 +7,7 @@ import { JellyfinClient, OfflineError, JellyfinHttpError } from '../src/core/jel
 import { offlineQuery } from '../src/core/offline-query.ts'
 import { parseIndex } from '../src/core/offline-index.ts'
 
-const fixture = JSON.parse(readFileSync(new URL('./fixtures/offline-query.json', import.meta.url), 'utf8'))
+const fixture = JSON.parse(readFileSync(new URL('../../shared/fixtures/offline-query.json', import.meta.url), 'utf8'))
 const engine = offlineQuery(parseIndex(fixture.catalog))
 const config = { url: 'https://jf.example', token: 't', userId: 'user1', libraryIds: ['libmusic'] }
 

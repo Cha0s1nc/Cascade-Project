@@ -1,7 +1,7 @@
 // Prints one version's notes from CHANGELOG.md as Markdown, for use as the
 // body of its GitHub release:
 //
-//   node scripts/changelog-section.mjs 2.3.0 [path/to/CHANGELOG.md] > notes.md
+//   node shared/scripts/changelog-section.mjs 2.3.0 [path/to/CHANGELOG.md] > notes.md
 //
 // Exits 1, with the reason on stderr, when the version has no section or the
 // changelog does not follow its format, so a release job can refuse to go on.
@@ -23,12 +23,12 @@ process.removeAllListeners('warning')
 process.on('warning', w => {
   if (w.code !== 'MODULE_TYPELESS_PACKAGE_JSON') for (const print of printWarning) print(w)
 })
-const { changelogSectionMarkdown, findChangelogEntry, parseChangelog } = await import('../desktop/src/core/changelog.ts')
+const { changelogSectionMarkdown, findChangelogEntry, parseChangelog } = await import('../../desktop/src/core/changelog.ts')
 
-const [version, file = fileURLToPath(new URL('../CHANGELOG.md', import.meta.url))] = process.argv.slice(2)
+const [version, file = fileURLToPath(new URL('../../CHANGELOG.md', import.meta.url))] = process.argv.slice(2)
 
 if (!version || version.startsWith('-')) {
-  console.error('Usage: node scripts/changelog-section.mjs <version> [CHANGELOG.md]')
+  console.error('Usage: node shared/scripts/changelog-section.mjs <version> [CHANGELOG.md]')
   process.exit(2)
 }
 

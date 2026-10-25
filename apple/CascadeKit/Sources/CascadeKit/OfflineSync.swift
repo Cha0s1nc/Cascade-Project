@@ -3,7 +3,7 @@ import Foundation
 // Sending what happened offline (docs/offline-mode-plan.md, section 5). Pure:
 // OfflineLibrary fetches and posts, this decides. The desktop's
 // src/core/offline-sync.ts is the same rules, and both pass
-// test/fixtures/offline-sync.json.
+// shared/fixtures/offline-sync.json.
 //
 // Two kinds of thing are sent, by two rules:
 // - Plays are history. They are replayed only when the server's history still

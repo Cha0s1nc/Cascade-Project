@@ -19,11 +19,11 @@ import { TUNING_FILE } from '../src/core/tuning-defaults.ts'
 import { LYRIC_DEFAULTS_CHANGED, LYRIC_KNOBS } from '../src/core/lyric-style.ts'
 import { blobBrightness, blobLook, blobTuning, lookColor, SHIPPED_BLOB_TUNING } from '../src/core/album-colors.ts'
 
-// The repo root: tuning-defaults.json is shared by every app.
+// The repo root: shared/tuning-defaults.json is every app's.
 const ROOT = new URL('../../', import.meta.url)
 // A checkout of the desktop alone has no apple/ to compare with.
 const APPLE = existsSync(new URL('apple', ROOT)) ? false : 'apple/ is not in this checkout'
-const text = readFileSync(new URL('tuning-defaults.json', ROOT), 'utf8')
+const text = readFileSync(new URL('shared/tuning-defaults.json', ROOT), 'utf8')
 
 test('a value is shared, or the most specific target a platform reads wins', () => {
   assert.equal(resolve(0.3, 'tvos'), 0.3)

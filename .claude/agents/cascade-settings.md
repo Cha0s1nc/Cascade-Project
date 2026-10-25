@@ -14,16 +14,17 @@ Two rules matter more than the rest here. No setting may be silently dropped and
 
        git merge-base --is-ancestor <base-sha> HEAD && echo OK || echo WRONG-BASE
 
-   On WRONG-BASE, confirm the tree is clean and your branch has no unique commits, then `git reset --hard <base-sha>`. `renderer.js` should be ~9500 lines, `styles/` should exist, and `test/` should exist. Do not start until that holds.
+   On WRONG-BASE, confirm the tree is clean and your branch has no unique commits, then `git reset --hard <base-sha>`. `desktop/renderer.js`, `desktop/styles/` and `desktop/test/` should exist. Do not start until that holds.
 2. Read `CODEMAP.md` at the repo root. It has current line numbers, how things are wired, and which shapes exist because a specific bug forced them. Use it instead of grepping the tree. It names the commit it describes; if a landmark is not where it says, re-grep and correct the map as part of your work.
 
 ## House rules
 
+- The desktop app is in `desktop/`: the paths below are relative to it, and npm commands run there. `shared/` holds what more than one app reads (`tuning-defaults.json`, the cross-language test fixtures, the repo's scripts).
 - `renderer.js` is plain global scope. Neither it nor `main.js` uses semicolons. Match whatever the surrounding lines do.
 - `index.html` holds the markup. CSS lives in `styles/*.css`, linked in cascade order; do not reorder the links, and put any new stylesheet under `styles/` so the packaged build ships it.
 - **No em dashes anywhere**, code comments and commit messages included.
 - Pure logic goes in `src/core/*.ts` with tests in `test/*.test.ts`.
-- Verify with `npm run build:ts && npm run typecheck && npm test`. Every test must still pass; the briefer will tell you the current baseline.
+- Verify with `npm run build:ts && npm run typecheck && npm test` in `desktop/`. Every test must still pass; the briefer will tell you the current baseline.
 - Smallest diff that fixes the actual root cause. Reuse what exists. Prefer CSS over JS. No new dependencies. No speculative abstractions.
 - Never rename an element id. `renderer.js` looks them up by string literal, so a rename is a silent break that no typecheck catches.
 - Store values are untrusted. A corrupted setting must never reach a filter gain or a bitrate as NaN.

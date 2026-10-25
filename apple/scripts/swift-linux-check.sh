@@ -14,7 +14,7 @@
 #   scripts/swift-linux-check.sh [work folder]   (default: /tmp/cascade-swift-check)
 set -euo pipefail
 
-REPO=$(cd "$(dirname "$0")/.." && pwd)
+REPO=$(cd "$(dirname "$0")/../.." && pwd)
 KIT="$REPO/apple/CascadeKit"
 WORK=${1:-/tmp/cascade-swift-check}
 ROOT="$WORK/toolchain"

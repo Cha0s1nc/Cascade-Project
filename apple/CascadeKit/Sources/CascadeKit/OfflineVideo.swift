@@ -3,7 +3,7 @@ import Foundation
 // Video downloads (docs/offline-mode-plan.md, section 6): which file to ask
 // the server for, what it will do to make it, and whether what arrived is the
 // whole film. The desktop's src/core/offline-video.ts, tested against the
-// same fixture (test/fixtures/offline-video.json).
+// same fixture (shared/fixtures/offline-video.json).
 //
 // Measured on jellyfin12 (12.2) before any of this was written:
 // - A progressive transcode in Streaming context is a fragmented MP4. AVPlayer

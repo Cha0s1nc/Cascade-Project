@@ -26,7 +26,7 @@ struct OfflineSyncTests {
     }
 
     static func fixture() throws -> Fixture {
-        try JSON.decoder.decode(Fixture.self, from: Data(contentsOf: OfflineVideoTests.repo.appending(path: "test/fixtures/offline-sync.json")))
+        try JSON.decoder.decode(Fixture.self, from: Data(contentsOf: OfflineVideoTests.repo.appending(path: "shared/fixtures/offline-sync.json")))
     }
 
     @Test func coalescingMatchesTheDesktopFixture() throws {

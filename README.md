@@ -210,7 +210,7 @@ While a movie or episode plays, the rows that only make sense for a song (clear 
 
 ## Building from source
 
-This builds the desktop app at the repo root. The native iOS, tvOS, and macOS app, still in development, lives in [`apple/`](apple/); see [`apple/CODEMAP.md`](apple/CODEMAP.md) for building and running it with Xcode.
+This builds the desktop app, which lives in [`desktop/`](desktop/). The native iOS, tvOS, and macOS app, still in development, lives in [`apple/`](apple/); see [`apple/CODEMAP.md`](apple/CODEMAP.md) for building and running it with Xcode.
 
 ### Prerequisites
 
@@ -221,8 +221,17 @@ This builds the desktop app at the repo root. The native iOS, tvOS, and macOS ap
 
 ```bash
 git clone https://github.com/Cha0s1nc/Cascade-Project.git
-cd Cascade-Project
+cd Cascade-Project/desktop
 npm install
+```
+
+The desktop needs `desktop/` and `shared/` only. To skip the Apple app, clone just those two:
+
+```bash
+git clone --filter=blob:none --sparse https://github.com/Cha0s1nc/Cascade-Project.git
+```
+```bash
+cd Cascade-Project && git sparse-checkout set desktop shared
 ```
 
 ### Run in dev mode
@@ -231,7 +240,7 @@ npm install
 npm start
 ```
 
-The portable parts of Cascade (Jellyfin client, lyrics parsing, queue logic, stream negotiation, the Waterfall protocol) live in `src/` as TypeScript and are bundled to `build/` by esbuild. `npm start` and every `build:*` script run that first, so there's no separate step to remember. `renderer.js` stays plain JS and calls into the bundle through a `CascadeCore` global.
+The portable parts of Cascade (Jellyfin client, lyrics parsing, queue logic, stream negotiation, the Waterfall protocol) live in `desktop/src/` as TypeScript and are bundled to `desktop/build/` by esbuild. `npm start` and every `build:*` script run that first, so there's no separate step to remember. `renderer.js` stays plain JS and calls into the bundle through a `CascadeCore` global.
 
 ```bash
 npm run typecheck   # tsc on src/ and the tests
@@ -239,13 +248,15 @@ npm test            # node --test
 npm run build:ts    # bundle src/ to build/ on its own
 ```
 
+From the repo root, `npm test` runs every app's tests that are checked out, each with its own tool (`node --test` for the desktop, `swift test` for the Apple core). `npm test desktop` or `npm test apple` runs one.
+
 To run a second instance side by side (useful for testing Waterfall), use `npm run dev:second` - it uses a separate user data directory so it gets its own Jellyfin session.
 
 `npm run demo` opens Cascade in full screen for demos and screen recordings, on an external monitor when one is connected.
 
 ### Generate icons
 
-Put the artwork in `assets/` as either `source.svg` or `source.png` (1024×1024 square minimum), then:
+Put the artwork in `desktop/assets/` as either `source.svg` or `source.png` (1024×1024 square minimum), then:
 
 ```bash
 npm run icons
@@ -270,7 +281,7 @@ npm run build:linux    # Linux .AppImage, .deb and .rpm
 npm run build          # Current platform
 ```
 
-Output goes to `dist/`.
+Output goes to `desktop/dist/`.
 
 ---
 
@@ -294,7 +305,7 @@ The source code is [GPL-3.0](LICENSE) © 2026 cha0s, with one added permission: 
 
 Lyric translation uses Mozilla's [bergamot-translator](https://github.com/browsermt/bergamot-translator) runtime (bundled) and [Firefox Translations models](https://github.com/mozilla/firefox-translations-models) (downloaded on first use), both under the [Mozilla Public License 2.0](https://www.mozilla.org/MPL/2.0/). Their source is available at those links.
 
-The artwork in `assets/` (the app icon and everything else in that folder) is **not** GPL. It is © 2026 cha0s and Hxney_bun_, all rights reserved, under its own [artwork license](assets/LICENSE). You can share unmodified Cascade builds, but forks and modified versions have to remove it and use their own art. To ask for permission to use the artwork, email [contact@chaosinc.xyz](mailto:contact@chaosinc.xyz).
+The artwork in `desktop/assets/` (the app icon and everything else in that folder) is **not** GPL. It is © 2026 cha0s and Hxney_bun_, all rights reserved, under its own [artwork license](desktop/assets/LICENSE). You can share unmodified Cascade builds, but forks and modified versions have to remove it and use their own art. To ask for permission to use the artwork, email [contact@chaosinc.xyz](mailto:contact@chaosinc.xyz).
 
 ---
 

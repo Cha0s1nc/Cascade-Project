@@ -29,10 +29,10 @@ process.removeAllListeners('warning')
 process.on('warning', w => {
   if (w.code !== 'MODULE_TYPELESS_PACKAGE_JSON') for (const print of printWarning) print(w)
 })
-const T = await import('../desktop/src/core/tuning.ts')
+const T = await import('../../desktop/src/core/tuning.ts')
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
-const FILE = join(ROOT, 'tuning-defaults.json')
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
+const FILE = join(ROOT, 'shared', 'tuning-defaults.json')
 const SWIFT = join(ROOT, 'apple/CascadeKit/Sources/CascadeKit/TuningDefaultsData.swift')
 
 /** The revision a release carried before tuning-defaults.json existed: the
@@ -79,7 +79,10 @@ function releasedRevision() {
   try {
     const tag = execFileSync('git', ['tag', '--list', 'v*', '--sort=-creatordate'], { cwd: ROOT, encoding: 'utf8' }).split('\n')[0]
     if (!tag) return LEGACY_RELEASED
-    const old = execFileSync('git', ['show', `${tag}:tuning-defaults.json`], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+    // Releases before shared/ (2.3.0 and older) kept the file at the root.
+    const show = (p) => execFileSync('git', ['show', `${tag}:${p}`], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+    let old
+    try { old = show('shared/tuning-defaults.json') } catch { old = show('tuning-defaults.json') }
     return T.latestRevision(JSON.parse(old))
   } catch {
     return LEGACY_RELEASED

@@ -7,8 +7,8 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 // The repo's own script, at the root: absent from a checkout of the desktop alone.
-const SCRIPT = fileURLToPath(new URL('../../scripts/changelog-section.mjs', import.meta.url))
-const skip = existsSync(SCRIPT) ? false : 'scripts/ is not in this checkout'
+const SCRIPT = fileURLToPath(new URL('../../shared/scripts/changelog-section.mjs', import.meta.url))
+const skip = existsSync(SCRIPT) ? false : 'shared/ is not in this checkout'
 
 function run(args: string[], changelog?: string) {
   const dir = mkdtempSync(join(tmpdir(), 'cascade-changelog-'))

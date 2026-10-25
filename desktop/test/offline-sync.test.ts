@@ -12,7 +12,7 @@ import {
 } from '../src/core/offline-index.ts'
 import type { JfItem } from '../src/core/types.ts'
 
-const fx = JSON.parse(readFileSync(new URL('./fixtures/offline-sync.json', import.meta.url), 'utf8')) as {
+const fx = JSON.parse(readFileSync(new URL('../../shared/fixtures/offline-sync.json', import.meta.url), 'utf8')) as {
   coalesce: { name: string, changes: UserDataChange[], expected: PendingUpdate[] }[]
   decide: { name: string, update: PendingUpdate, server: JfItem | null, expected: object | null }[]
   catchUp: { name: string, history: HistorySnapshot | null, playsHeld: boolean, plays: OfflinePlay[], server: JfItem[], expected: string }[]

@@ -63,7 +63,7 @@ jobs:
             BUILT=desktop   # releases before versions.json were desktop only
           fi
           for p in $BUILT; do
-            ARGS=(); while read -r pat; do ARGS+=(-p "$pat"); done < <(node scripts/release-plan.mjs files "$p")
+            ARGS=(); while read -r pat; do ARGS+=(-p "$pat"); done < <(node shared/scripts/release-plan.mjs files "$p")
             gh release download "$TAG" "${ARGS[@]}" -D "up/$p/$VERSION"
             # desktop's *.dmg also fetched the native Mac DMG, which is its own
             # platform (mac/<ver>/) with its own version in versions.json.
@@ -102,7 +102,7 @@ jobs:
         env:
           REPO: ${{ github.repository }}
           MIRROR_URL: ${{ vars.MIRROR_URL }}
-        run: OUT_DIR=site-data node scripts/site-data.mjs
+        run: OUT_DIR=site-data node shared/scripts/site-data.mjs
 
       - name: Push them to the website
         env:

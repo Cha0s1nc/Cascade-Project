@@ -82,14 +82,14 @@ jobs:
           export LAST_VERSION="$LAST_TAG"
           # Drafts included, so a beta number is never reused.
           export TAGS=$(gh release list --limit 200 --json tagName -q '.[].tagName')
-          node scripts/release-plan.mjs plan
+          node shared/scripts/release-plan.mjs plan
 
       # A release with no changelog section is refused before anything builds.
       - name: Check the changelog has this version
         if: steps.plan.outputs.mode == 'release'
         env:
           VERSION: ${{ steps.plan.outputs.version }}
-        run: node scripts/changelog-section.mjs "$VERSION" > /dev/null
+        run: node shared/scripts/changelog-section.mjs "$VERSION" > /dev/null
 
   # ── Test and typecheck ────────────────────────────────────────────────────
   # Gates every build job below: a red test or a type error must never reach
@@ -449,7 +449,7 @@ jobs:
 
   # ── Android (placeholder) ──────────────────────────────────────────────────
   # Skips itself until an android/ folder exists: the plan only marks
-  # android as wanted when it does (`available` in scripts/release-plan.mjs),
+  # android as wanted when it does (`available` in shared/scripts/release-plan.mjs),
   # so this costs nothing today. Written for a standard Gradle project with
   # the wrapper checked in and the app module at android/app; adjust the
   # paths once the real app exists. Same numbering as the Apple app: the
@@ -733,13 +733,13 @@ jobs:
           join() { local IFS=,; echo "$*"; }
           VERSION="$VERSION" REBUILT="$(join "${REBUILT[@]}")" CARRIED="$(join "${CARRIED[@]+"${CARRIED[@]}"}")" \
             PREVIOUS_FILE=carried/versions.json PREVIOUS_VERSION="$LAST_TAG" \
-            node scripts/release-plan.mjs versions > release/versions.json
+            node shared/scripts/release-plan.mjs versions > release/versions.json
           echo "versions.json: $(cat release/versions.json)"
 
           # Notes: the changelog section (required for a release, checked in
           # setup), then what was carried over and what failed, then a link to
           # the full changelog.
-          if ! node scripts/changelog-section.mjs "${VERSION%%-*}" > notes.md 2>/dev/null; then
+          if ! node shared/scripts/changelog-section.mjs "${VERSION%%-*}" > notes.md 2>/dev/null; then
             echo "Beta build $VERSION." > notes.md
           fi
           name() { case $1 in desktop) echo Desktop ;; mac) echo "Mac (native)" ;; apple) echo "iOS and tvOS" ;; android) echo Android ;; esac; }

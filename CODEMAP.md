@@ -1,6 +1,6 @@
 # Cascade code map
 
-This map covers the desktop app at the repo root. The iOS and tvOS app lives in `apple/` and has its own map, `apple/CODEMAP.md`. The release and repo plan is in `docs/release-pipeline-plan.md`.
+This map covers the desktop app, which lives in `desktop/`: every path below is relative to `desktop/` unless it starts with another top-level folder. The iOS and tvOS app lives in `apple/` and has its own map, `apple/CODEMAP.md`. `shared/` holds what more than one app reads: `shared/tuning-defaults.json`, `shared/fixtures/` (the offline fixtures the TypeScript and Swift tests both check), and `shared/scripts/` (release planning, the changelog, tuning, and the root `npm test` runner). The release and repo plan is in `docs/release-pipeline-plan.md`.
 
 **Describes `dev` at `edd2fad`. Every line number below was re-derived at that state, not carried over. Line numbers rot fast: if a landmark is not where this says, re-grep and fix the line here rather than trusting it.**
 
@@ -20,7 +20,7 @@ Written so an agent can start work without re-reading the whole tree. It is a ma
 | `test/*.test.ts` | - | `node --test`. **303 passing** at this commit. |
 | `miniplayer.html`, `metadata-editor.html`, `lyrics-editor.html`, `updater.html` | - | Secondary windows, each with its own preload. |
 
-Verify with `npm run build:ts && npm run typecheck && npm test`.
+Verify with `npm run build:ts && npm run typecheck && npm test` in `desktop/`. From the repo root, `npm test` runs every app's tests (`npm test desktop`, `npm test apple` for one).
 
 **Run `npx tsc --noEmit` directly, never piped to `tail`.** Errors print above the last line, so `| tail -1` hides them. A broken assertion shipped that way.
 

@@ -7,7 +7,7 @@ import Foundation
 // answer exactly as it would a server reply.
 //
 // The desktop's src/core/offline-query.ts is the same engine, line for line
-// where it can be; test/fixtures/offline-query.json at the repo root holds
+// where it can be; shared/fixtures/offline-query.json at the repo root holds
 // cases both are tested against (OfflineQueryTests), so the two stay in step.
 // Change one, change the other.
 //

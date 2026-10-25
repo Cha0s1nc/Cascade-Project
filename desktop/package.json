@@ -22,7 +22,7 @@
     "icons": "node scripts/gen-icons.js",
     "build:bergamot": "node scripts/build-bergamot.js",
     "build:apple": "node scripts/build-apple-translate.js",
-    "tuning": "node ../scripts/tuning.mjs",
+    "tuning": "node ../shared/scripts/tuning.mjs",
     "build:license": "node -e \"require('fs').copyFileSync('../LICENSE', 'LICENSE')\""
   },
   "dependencies": {

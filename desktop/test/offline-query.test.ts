@@ -18,7 +18,7 @@ interface Case {
   unknownRoute?: boolean
 }
 
-const fixture = JSON.parse(readFileSync(new URL('./fixtures/offline-query.json', import.meta.url), 'utf8'))
+const fixture = JSON.parse(readFileSync(new URL('../../shared/fixtures/offline-query.json', import.meta.url), 'utf8'))
 const catalog = parseIndex(fixture.catalog)
 
 /** Every key of `expected` matches in `actual`; arrays match element by

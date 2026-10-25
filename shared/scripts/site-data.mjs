@@ -19,9 +19,9 @@ process.removeAllListeners('warning')
 process.on('warning', w => {
   if (w.code !== 'MODULE_TYPELESS_PACKAGE_JSON') for (const print of printWarning) print(w)
 })
-const { PLATFORMS } = await import('../desktop/src/core/release-plan.ts')
-const { siteReleases } = await import('../desktop/src/core/site-data.ts')
-const { parseChangelog } = await import('../desktop/src/core/changelog.ts')
+const { PLATFORMS } = await import('../../desktop/src/core/release-plan.ts')
+const { siteReleases } = await import('../../desktop/src/core/site-data.ts')
+const { parseChangelog } = await import('../../desktop/src/core/changelog.ts')
 
 const { REPO, GH_TOKEN, MIRROR_URL, OUT_DIR } = process.env
 if (!REPO || !MIRROR_URL || !OUT_DIR) throw new Error('REPO, MIRROR_URL and OUT_DIR are required')

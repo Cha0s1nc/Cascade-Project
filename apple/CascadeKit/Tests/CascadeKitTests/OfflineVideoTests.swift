@@ -20,10 +20,10 @@ struct OfflineVideoTests {
     struct Fixture: Decodable { var cases: [Case] }
 
     static func fixture() throws -> Fixture {
-        try JSON.decoder.decode(Fixture.self, from: Data(contentsOf: repo.appending(path: "test/fixtures/offline-video.json")))
+        try JSON.decoder.decode(Fixture.self, from: Data(contentsOf: repo.appending(path: "shared/fixtures/offline-video.json")))
     }
 
-    static let fmp4: [UInt8] = Array((try? Data(contentsOf: repo.appending(path: "test/fixtures/offline-fragmented.mp4"))) ?? Data())
+    static let fmp4: [UInt8] = Array((try? Data(contentsOf: repo.appending(path: "shared/fixtures/offline-fragmented.mp4"))) ?? Data())
     static func reader(_ b: [UInt8]) -> (Int, Int) -> [UInt8] {
         { offset, length in offset >= b.count ? [] : Array(b[offset..<min(b.count, offset + length)]) }
     }

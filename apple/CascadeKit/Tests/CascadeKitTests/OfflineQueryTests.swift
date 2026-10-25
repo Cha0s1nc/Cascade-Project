@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CascadeKit
 
-// The offline query engine against test/fixtures/offline-query.json at the
+// The offline query engine against shared/fixtures/offline-query.json at the
 // repo root, the same cases the desktop's test/offline-query.test.ts runs, so
 // the two engines answer alike.
 struct OfflineQueryTests {
@@ -39,7 +39,7 @@ struct OfflineQueryTests {
     static let fixtureURL = URL(fileURLWithPath: #filePath).resolvingSymlinksInPath()
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         .deletingLastPathComponent().deletingLastPathComponent()
-        .appending(path: "test/fixtures/offline-query.json")
+        .appending(path: "shared/fixtures/offline-query.json")
 
     static let data: Data = (try? Data(contentsOf: fixtureURL)) ?? Data()
     /// The raw JSON, for each case's partial `body`.

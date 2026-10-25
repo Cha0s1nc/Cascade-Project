@@ -1,0 +1,9 @@
+{
+  "name": "cascade-monorepo",
+  "private": true,
+  "description": "Cascade: the desktop app (desktop/), the Apple apps (apple/), and what they share (shared/). Each app builds from its own folder; this file only runs their tests together.",
+  "license": "SEE LICENSE IN LICENSE",
+  "scripts": {
+    "test": "node shared/scripts/test.mjs"
+  }
+}

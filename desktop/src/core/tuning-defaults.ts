@@ -2,7 +2,7 @@
 // every value this platform ships with, read once. esbuild inlines the file
 // into build/core.js, so a changed default needs `npm run build:core`.
 
-import raw from '../../../tuning-defaults.json' with { type: 'json' }
+import raw from '../../../shared/tuning-defaults.json' with { type: 'json' }
 import { latestRevision, resolveNumbers, resolveSection, revisionKeys, type Section, type TuningFile } from './tuning.ts'
 
 export const TUNING_FILE = raw as unknown as TuningFile
