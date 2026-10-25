@@ -83,7 +83,7 @@ struct SearchView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(episode.name ?? "Unknown")
                                 Text([episode.seriesName, VideoPlayback.episodeCode(episode)].compactMap { $0 }.joined(separator: " · "))
-                                    .font(.caption)
+                                    .scaledFont(.caption)
                                     .foregroundStyle(.secondary)
                             }
                         }
@@ -216,7 +216,7 @@ struct SearchResultsView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(item.name ?? "Unknown").lineLimit(1)
                                 if let subtitle = subtitle(item) {
-                                    Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                    Text(subtitle).scaledFont(.caption).foregroundStyle(.secondary).lineLimit(1)
                                 }
                             }
                             Spacer(minLength: 0)

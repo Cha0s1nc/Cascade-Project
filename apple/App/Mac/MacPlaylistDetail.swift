@@ -168,7 +168,7 @@ struct MacPlaylistDetail: View {
             ArtworkView(itemId: track.albumId ?? track.id, size: 28)
             VStack(alignment: .leading, spacing: 1) {
                 Text(track.name ?? "").lineLimit(1).explicitMark(track.id)
-                Text(track.albumArtist ?? track.artists?.first ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(track.albumArtist ?? track.artists?.first ?? "").scaledFont(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
             Text(track.album ?? "").foregroundStyle(.secondary).lineLimit(1).frame(maxWidth: 200, alignment: .leading)
@@ -181,6 +181,7 @@ struct MacPlaylistDetail: View {
                 .foregroundStyle(.secondary).frame(width: 52, alignment: .trailing)
         }
         .contentShape(Rectangle())
+        .desktopTrackRow(track.id)
     }
 
     private func extra(_ track: JfItem) -> String {
@@ -290,7 +291,7 @@ struct MacPlaylistDetail: View {
 
     private var propsSheet: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Edit Playlist").font(.headline)
+            Text("Edit Playlist").scaledFont(.headline)
             TextField("Name", text: $propsName)
             Toggle("Public", isOn: $isPublic)
             if detailsRoute != nil, let playlist = playlistItem {
@@ -312,9 +313,9 @@ struct MacPlaylistDetail: View {
                             .disabled(removingImage)
                     }
                 }
-                Text("Description").font(.caption).foregroundStyle(.secondary)
+                Text("Description").scaledFont(.caption).foregroundStyle(.secondary)
                 TextEditor(text: $propsOverview)
-                    .font(.body)
+                    .scaledFont(.body)
                     .frame(height: 80)
                     .overlay(RoundedRectangle(cornerRadius: 5).stroke(.separator))
                     .onChange(of: propsOverview) { _, text in
@@ -322,7 +323,7 @@ struct MacPlaylistDetail: View {
                     }
             } else {
                 Text("A picture and description need the Cascade Server plugin, or an admin account.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .scaledFont(.caption).foregroundStyle(.secondary)
             }
             HStack {
                 Spacer()

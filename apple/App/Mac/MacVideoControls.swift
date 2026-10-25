@@ -20,6 +20,25 @@ struct MacVideoOverlay: View {
             .animation(.easeOut(duration: 0.2), value: controller.controlsVisible)
             .allowsHitTesting(controller.controlsVisible)
 
+            // As the desktop's: above the bar, bottom right, and kept up while
+            // the rest idles away.
+            if let segment = session.activeSegment {
+                Button {
+                    controller.say(segment.skipLabel.replacingOccurrences(of: "Skip", with: "Skipped"))
+                    session.skipSegment()
+                } label: {
+                    Text(segment.skipLabel).font(.callout.weight(.bold))
+                        .padding(.horizontal, 20).padding(.vertical, 10)
+                        .background(.black.opacity(0.8), in: .rect(cornerRadius: 8))
+                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.35)))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("\(segment.skipLabel) (S)")
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                .padding(.trailing, 28).padding(.bottom, 120)
+            }
+
             if let osd = controller.osd {
                 Text(osd)
                     .font(.title2.weight(.semibold))
@@ -67,7 +86,7 @@ struct MacVideoOverlay: View {
             .help("Keep playing in the corner (Esc)")
             .accessibilityLabel("Minimize video")
             HStack(spacing: 16) {
-                Text(title).font(.headline).lineLimit(1)
+                Text(title).scaledFont(.headline).lineLimit(1)
                 Spacer()
                 if controller.pip.isSupported {
                     Button { controller.pip.toggle() } label: { Image(systemName: "pip.enter") }
@@ -91,7 +110,7 @@ struct MacVideoOverlay: View {
                 Button { session.skip(by: -VideoControls.skipSeconds) } label: { Image(systemName: "gobackward.10") }
                     .accessibilityLabel("Back 10 seconds")
                 Button { session.togglePlayPause() } label: {
-                    Image(systemName: session.isPlaying ? "pause.fill" : "play.fill").font(.title2).frame(width: 28)
+                    Image(systemName: session.isPlaying ? "pause.fill" : "play.fill").scaledFont(.title2).frame(width: 28)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(session.isPlaying ? "Pause" : "Play")
@@ -189,6 +208,16 @@ struct MacVideoOverlay: View {
                         else { Text(session.label(for: option)) }
                     }
                 }
+            } else if !session.serverAudioTracks.isEmpty {
+                let current = session.serverAudioIndex
+                ForEach(session.serverAudioTracks, id: \.index) { track in
+                    let name = track.displayTitle ?? track.language ?? "Track \(track.index ?? 0)"
+                    Button { Task { await session.selectServerAudio(track.index ?? 0) } } label: {
+                        if current == track.index { Label(name, systemImage: "checkmark") } else { Text(name) }
+                    }
+                }
+            } else {
+                Text("Only one track")
             }
         } label: { Image(systemName: "waveform") }
         .accessibilityLabel("Audio")
@@ -243,7 +272,7 @@ private struct KeysPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Keyboard shortcuts").font(.headline)
+            Text("Keyboard shortcuts").scaledFont(.headline)
             Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 6) {
                 ForEach(VideoControls.shortcuts, id: \.keys) { row in
                     GridRow {

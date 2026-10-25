@@ -51,6 +51,7 @@ enum ArtworkCache {
 /// the first frame, with no placeholder at all.
 struct ArtworkView: View {
     let itemId: String?
+    /// At a zoom of 1; View > Zoom (uiScale) grows it on the Mac.
     var size: CGFloat = 160
     /// Fill whatever square the parent proposes rather than a fixed `size`
     /// one, still loading the image for `size`. For artwork whose frame
@@ -67,6 +68,9 @@ struct ArtworkView: View {
     var animated = false
 
     @Environment(AppState.self) private var state
+    @Environment(\.uiScale) private var uiScale
+    /// The size drawn and fetched. A frame-filling one is sized by its parent, so not zoomed.
+    private var drawn: CGFloat { fillsFrame ? size : size * uiScale }
     /// Tagged with its key: the same view can be handed a different item, and
     /// must not keep showing the last one's cover while the new one loads.
     @State private var loaded: (key: NSString, image: PlatformImage)?
@@ -78,7 +82,7 @@ struct ArtworkView: View {
             return revision == 0 ? base : "\(base)|r\(revision)"
         } as NSString?
     }
-    private var pixels: Int { ArtworkCache.bucket(Int(size * 2)) }
+    private var pixels: Int { ArtworkCache.bucket(Int(drawn * 2)) }
     /// The item and shape without the size, for ArtworkCache.latest.
     private var shapeKey: NSString? {
         itemId.map { "\($0)|\(aspect)|\(imageType)" } as NSString?
@@ -94,12 +98,12 @@ struct ArtworkView: View {
             } else {
                 Rectangle().fill(.quaternary)
                 Image(systemName: aspect == 1 ? "music.note" : "film")
-                    .font(.system(size: size * 0.3))
+                    .font(.system(size: drawn * 0.3))
                     .foregroundStyle(.secondary)
             }
             if animated, let itemId { CoverVideo(albumId: itemId) }
         }
-        .frame(width: fillsFrame ? nil : size, height: fillsFrame ? nil : size / aspect)
+        .frame(width: fillsFrame ? nil : drawn, height: fillsFrame ? nil : drawn / aspect)
         .aspectRatio(aspect, contentMode: .fit)
         .clipShape(ProportionalRoundedRectangle())
         // Keyed by the whole cache key, not just the item: a frame that
@@ -188,7 +192,7 @@ struct TrackRow: View {
                     .lineLimit(1)
                     .explicitMark(track.id)
                 Text(track.albumArtist ?? track.artists?.first ?? "")
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -201,7 +205,31 @@ struct TrackRow: View {
         }
         // The whole row answers a long press, not just its text.
         .contentShape(Rectangle())
+        #if os(macOS)
+        .desktopTrackRow(track.id)
+        #endif
         .modifier(OptionalTrackMenu(track: track, enabled: showsMenu))
+    }
+}
+
+/// The wheel over a cover while its track is picked but not playing yet
+/// (PlaybackService.isWaitingToPlay). It fades in after a beat, so the brief wait at
+/// the start of every song does not flash it.
+struct LoadingCoverOverlay: View {
+    let active: Bool
+    /// The big spinner, for a Now Playing cover.
+    var large = false
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.45)
+            ProgressView().controlSize(large ? .large : .small).tint(.white)
+        }
+        .opacity(active ? 1 : 0)
+        .animation(active ? .easeIn(duration: 0.2).delay(0.3) : .easeOut(duration: 0.15), value: active)
+        .allowsHitTesting(false)
+        .accessibilityHidden(!active)
+        .accessibilityLabel("Loading")
     }
 }
 
@@ -228,11 +256,16 @@ private struct ExplicitMark: ViewModifier {
 }
 
 struct ExplicitBadge: View {
+    /// Grows with Dynamic Type beside the title it marks, and with View > Zoom on the Mac.
+    @ScaledMetric(relativeTo: .caption2) private var side: CGFloat = 13
+    @Environment(\.uiScale) private var uiScale
+
     var body: some View {
+        let side = side * uiScale
         Text("E")
-            .font(.system(size: 9, weight: .bold))
+            .font(.system(size: side * 0.7, weight: .bold))
             .foregroundStyle(.background)
-            .frame(width: 13, height: 13)
+            .frame(width: side, height: side)
             .background(.secondary, in: RoundedRectangle(cornerRadius: 2.5))
             .accessibilityLabel("Explicit")
     }
@@ -250,20 +283,12 @@ private struct OptionalTrackMenu: ViewModifier {
     }
 }
 
-/// A grid of albums or artists. Both are square art plus two lines, so they
+/// A grid of albums, artists or playlists, without a scroll view of its own: every page
+/// that shows one already scrolls as a whole. Both are square art plus two lines, so they
 /// share one view rather than two near-identical ones.
-struct ItemGrid: View {
-    let items: [JfItem]
-
-    var body: some View {
-        ScrollView { ItemTiles(items: items) }
-    }
-}
-
-/// ItemGrid's tiles without the scroll view, for a page that scrolls as a
-/// whole (the artist page: its albums sit under its other sections).
 struct ItemTiles: View {
     let items: [JfItem]
+    @Environment(\.uiScale) private var uiScale
 
     #if os(tvOS)
     private let tile: CGFloat = 220
@@ -272,20 +297,20 @@ struct ItemTiles: View {
     #endif
 
     var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: tile), spacing: 16)], spacing: 20) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: tile * uiScale), spacing: 16)], spacing: 20) {
             ForEach(items) { item in
                 NavigationLink(value: item) {
                     VStack(alignment: .leading, spacing: 6) {
                         ArtworkView(itemId: item.id, size: tile)
                         Text(item.name ?? "Unknown")
-                            .font(.caption)
+                            .scaledFont(.caption)
                             .lineLimit(1)
                         // Only what the server actually sent: artists come
                         // without a count, and "0 tracks" under every one
                         // of them was a made-up number.
                         if let subtitle = subtitle(item) {
                             Text(subtitle)
-                                .font(.caption2)
+                                .scaledFont(.caption2)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
@@ -293,6 +318,10 @@ struct ItemTiles: View {
                 }
                 .buttonStyle(.plain)
                 .itemContextMenu(item)
+                // Left in its column, under the page's headings and the smart shelf, rather
+                // than centered with the column's spare width either side. Outside the link,
+                // so that spare width is not clickable.
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding()
@@ -303,6 +332,24 @@ struct ItemTiles: View {
         if let count = item.childCount { return count == 1 ? "1 song" : "\(count) songs" }
         return nil
     }
+}
+
+/// A favorite or played toggle the server refused, made noticeable. Those flip only once
+/// the server says yes (CODEMAP rule 1), so a refusal used to look like the click did
+/// nothing at all. They mostly run from menus, which are gone by then, so this is a haptic
+/// or a beep and a VoiceOver announcement rather than something drawn.
+@MainActor func announceWriteFailed(_ what: String) {
+    let text = "Could not \(what). The server refused it."
+    #if os(macOS)
+    NSSound.beep()
+    NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+                         userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+    #else
+    #if os(iOS)
+    UINotificationFeedbackGenerator().notificationOccurred(.error)
+    #endif
+    UIAccessibility.post(notification: .announcement, argument: text)
+    #endif
 }
 
 /// m:ss, h:mm:ss past an hour (a film), or a dash when there is no sensible
@@ -326,6 +373,13 @@ struct LoadingOverlay: View {
     /// What to draw while the first page loads: the screen's own shape in
     /// gray, so it does not jump from a spinner to a full grid.
     var skeleton: Skeleton = .spinner
+    /// What this screen calls having nothing, and how to get something: "No playlists yet",
+    /// "Make one from a song's menu." A plain "Nothing here" said neither.
+    var emptyTitle = "Nothing here"
+    var emptyMessage: String? = nil
+    /// Tries the load again from the error state. Without it the only way back was to leave
+    /// the screen, or pull to refresh where a screen has it.
+    var retry: (() -> Void)? = nil
 
     enum Skeleton { case spinner, grid, rows }
 
@@ -337,15 +391,22 @@ struct LoadingOverlay: View {
             case .rows: SkeletonRows()
             }
         } else if let error {
-            ContentUnavailableView("Could not load", systemImage: "exclamationmark.triangle", description: Text(error))
+            ContentUnavailableView {
+                Label("Could not load", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(error)
+            } actions: {
+                if let retry { Button("Try Again", action: retry) }
+            }
         } else if isEmpty {
-            ContentUnavailableView("Nothing here", systemImage: emptySymbol)
+            ContentUnavailableView(emptyTitle, systemImage: emptySymbol, description: emptyMessage.map(Text.init))
         }
     }
 }
 
 /// Gray tiles in ItemTiles' layout, pulsing while the first page loads.
 struct SkeletonGrid: View {
+    @Environment(\.uiScale) private var uiScale
     #if os(tvOS)
     private let tile: CGFloat = 220
     #else
@@ -353,6 +414,8 @@ struct SkeletonGrid: View {
     #endif
 
     var body: some View {
+        // Zoomed like ItemTiles, so the columns do not jump when the real grid replaces it.
+        let tile = self.tile * uiScale
         LazyVGrid(columns: [GridItem(.adaptive(minimum: tile), spacing: 16)], spacing: 20) {
             ForEach(0..<18, id: \.self) { _ in
                 VStack(alignment: .leading, spacing: 6) {

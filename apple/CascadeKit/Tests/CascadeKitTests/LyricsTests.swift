@@ -154,19 +154,27 @@ struct LyricGroupTests {
         #expect(Lyrics.currentLineIndex(lines, base: 1, at: 14 * sec) == 1)
         #expect(Lyrics.activeRange(lines, 1, at: 14 * sec) == 0...1)
         #expect(Lyrics.activeRange(lines, 1, at: Int(16.5 * Double(sec))) == 0...1)
-        #expect(Lyrics.activeRange(lines, 1, at: Int(21.5 * Double(sec))) == 1...1)
+        #expect(Lyrics.activeRange(lines, 1, at: Int(21.5 * Double(sec))) == 0...1)
+        #expect(Lyrics.activeRange(lines, 1, at: Int(21.8 * Double(sec))) == 1...1)
     }
 
-    @Test func aLineStartingInsideThePreviousKeepsBothLit() {
+    @Test func aLineStartingInsideThePreviousKeepsItLitUntilJustAfterItEnds() {
         let lines = [line(0, 5, "before"), line(10, 14, "A"), line(12, 16, "B"), line(20, 22, "after")]
+        #expect(Lyrics.layerLingerTicks == 7 * sec / 10)
         #expect(Lyrics.activeRange(lines, 2, at: 13 * sec) == 1...2)
-        #expect(Lyrics.activeRange(lines, 2, at: 15 * sec) == 1...2)
+        #expect(Lyrics.activeRange(lines, 2, at: Int(14.6 * Double(sec))) == 1...2)
+        #expect(Lyrics.activeRange(lines, 2, at: Int(14.7 * Double(sec))) == 2...2)
         #expect(Lyrics.activeRange(lines, 2, at: Int(16.5 * Double(sec))) == 2...2)
         #expect(Lyrics.activeRange(lines, 1, at: 11 * sec) == 1...1)
     }
 
     @Test func onlyLinesStillSungNotAChain() {
-        #expect(Lyrics.activeRange([line(0, 6), line(4, 9), line(8, 12)], 2, at: 10 * sec) == 1...2)
+        #expect(Lyrics.activeRange([line(0, 6), line(4, 9), line(8, 12)], 2, at: Int(9.5 * Double(sec))) == 1...2)
+        #expect(Lyrics.activeRange([line(0, 6), line(4, 9), line(8, 12)], 2, at: 10 * sec) == 2...2)
+        // Each dims on its own end; the range stays contiguous.
+        let staggered = [line(0, 14), line(4, 11), line(8, 16)]
+        #expect(Lyrics.activeRange(staggered, 2, at: Int(11.5 * Double(sec))) == 0...2)
+        #expect(Lyrics.activeRange(staggered, 2, at: Int(14.7 * Double(sec))) == 2...2)
         #expect(Lyrics.activeRange([line(0, 12), line(4, 12), line(8, 12)], 2, at: 10 * sec) == 0...2)
         #expect(Lyrics.activeRange([line(0, nil), line(1, nil)], 1, at: 2 * sec) == 1...1)
     }

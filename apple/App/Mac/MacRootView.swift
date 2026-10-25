@@ -15,6 +15,8 @@ struct MacRootView: View {
     @FocusState private var searchFocused: Bool
     /// Where a deep link wants to go, and the section it belongs to.
     @State private var pending: (section: MacSection, item: JfItem)?
+    /// View > Zoom (MacZoom).
+    @AppStorage(MacZoom.key) private var zoom = 1.0
 
     private var libraries: VideoLibrarySelection { state.videoLibraries }
     private var isSearching: Bool { !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -25,6 +27,7 @@ struct MacRootView: View {
         // Settings and the sidebar's own Settings row ran under the bar.
         VStack(spacing: 0) {
             OfflineBanner()
+            HStack(spacing: 0) {
             NavigationSplitView {
                 sidebar
                     .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 280)
@@ -34,6 +37,7 @@ struct MacRootView: View {
                 if isSearching {
                     TabStack { SearchResultsView(query: query).navigationTitle("Search") }
                         .id("search")
+                        .transition(.opacity)
                 } else {
                     // Only the target section's stack sees the item. The section is
                     // scene storage, which can update a beat after the item: the
@@ -46,6 +50,7 @@ struct MacRootView: View {
                             section.root.id(state.libraryRevision)
                         }
                         .id(section)
+                        .transition(.opacity)
                 }
             }
             .toolbar {
@@ -71,10 +76,29 @@ struct MacRootView: View {
                     }
                 }
                 ToolbarItem(placement: .primaryAction) { ThemePanelButton() }
+                // In the middle of the bar, as on the desktop. A field of its own: .searchable
+                // with .toolbarPrincipal was sent to the overflow menu with Songs' sort and
+                // filter buttons in the bar.
+                ToolbarItem(placement: .principal) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                        TextField(state.browseMode == .video ? "Search movies and shows" : "Search songs, albums, artists",
+                                  text: $query)
+                            .textFieldStyle(.plain)
+                            .focused($searchFocused)
+                            .onExitCommand { query = ""; searchFocused = false }
+                        if !query.isEmpty {
+                            Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
+                                .buttonStyle(.plain).foregroundStyle(.secondary)
+                                .accessibilityLabel("Clear search")
+                        }
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 5)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 7))
+                    // Grows with View > Zoom, so the zoomed placeholder is not cut off.
+                    .frame(width: 280 * min(zoom, 1.5))
+                }
             }
-            .searchable(text: $query, placement: .toolbar,
-                        prompt: state.browseMode == .video ? "Search movies and shows" : "Search songs, albums, artists")
-            .searchFocused($searchFocused)
             .background {
                 // Command-K, as on the desktop. A zero-size button rather than a
                 // menu command: the main window is the only place it applies.
@@ -84,6 +108,16 @@ struct MacRootView: View {
                     .opacity(0)
                     .accessibilityHidden(true)
             }
+            // The side lyrics, as a full-height column that pushes the library over instead of
+            // a panel floating over it. A column of its own: .inspector threw inside AppKit's
+            // layout on macOS 27, on the split view and on its detail column alike.
+            if MacNowPlayingUI.shared.sidePanelOpen, let player = state.player {
+                Divider()
+                SideLyricsPanel(player: player)
+                    .transition(.move(edge: .trailing))
+            }
+            }
+            .animation(.easeInOut(duration: 0.25), value: MacNowPlayingUI.shared.sidePanelOpen)
             if let player = state.player {
                 PlayerBar(player: player)
             }
@@ -98,6 +132,10 @@ struct MacRootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: state.restoreOffer?.id)
+        // A short crossfade between sidebar sections and in and out of search, where the
+        // page used to swap in a single frame.
+        .animation(.easeOut(duration: 0.18), value: section)
+        .animation(.easeOut(duration: 0.18), value: isSearching)
         .overlay {
             // Full-window layers over the split view and the player bar: Now Playing, then a
             // video above everything.
@@ -127,7 +165,10 @@ struct MacRootView: View {
         .frame(minWidth: 800, minHeight: 560)
         // List rows at the desktop's spacing (its track and queue rows are 45
         // and 53 pt): the macOS default packed them into about 24.
-        .environment(\.defaultMinListRowHeight, 44)
+        .environment(\.defaultMinListRowHeight, 44 * zoom)
+        // View > Zoom: every text style, cover and row below reads it (UIScale.swift).
+        .environment(\.uiScale, zoom)
+        .font(.system(size: 13 * zoom))
         #if DEBUG
         // Debug builds only: `-cascade.section songs` opens a section at
         // launch, to check it without clicking (UI scripting is not allowed).
@@ -159,14 +200,19 @@ struct MacRootView: View {
                 VStack(spacing: 2) {
                     ForEach(MacSection.pinned.filter { $0 != .downloads || state.offline != nil }) { item in
                         Button { section = item; query = "" } label: {
+                            // The list rows' size, not the zoomed window font: the system sidebar
+                            // above ignores View > Zoom, and these were smaller at 1 and far larger at 1.75.
                             Label(item.title, systemImage: item.symbol)
+                                .font(.system(size: 14))
+                                .imageScale(.large)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.vertical, 6).padding(.horizontal, 10)
+                                .padding(.vertical, 9).padding(.horizontal, 10)
                                 .background(section == item ? Color.accentColor.opacity(0.22) : .clear,
                                             in: RoundedRectangle(cornerRadius: 6))
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .accessibilityAddTraits(section == item ? .isSelected : [])
                     }
                 }
                 .padding(8)

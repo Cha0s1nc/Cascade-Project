@@ -117,7 +117,7 @@ struct MediaInfoSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Media Info").font(.headline)
+            Text("Media Info").scaledFont(.headline)
             if failed {
                 Text("Could not load").foregroundStyle(.secondary)
             } else if rows.isEmpty {

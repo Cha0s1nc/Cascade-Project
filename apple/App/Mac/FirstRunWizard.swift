@@ -1,7 +1,8 @@
 import SwiftUI
 import CascadeKit
 
-/// The first-run wizard: libraries, crossfade, quality, theme, translation.
+/// The first-run wizard: libraries, crossfade, quality, theme, translation,
+/// and telemetry once it is switched on.
 /// renderer.js's setup wizard, keyed off `cascade.wizardSeenRevision` with
 /// per-step revisions (CascadeKit's SetupWizard decides which steps show).
 ///
@@ -119,7 +120,7 @@ struct FirstRunWizardView: View {
                 Text(model.mode == .videoIntro
                      ? "This server has more than one movie or TV library. Pick the ones Cascade should show. All of it lives in Settings afterwards."
                      : "Your current settings are already filled in, so skipping changes nothing. All of it lives in Settings afterwards.")
-                    .font(.callout).foregroundStyle(.secondary)
+                    .scaledFont(.callout).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -131,7 +132,7 @@ struct FirstRunWizardView: View {
             Divider()
             HStack {
                 if model.steps.count > 1 {
-                    Text("Step \(model.index + 1) of \(model.steps.count)").font(.caption).foregroundStyle(.secondary)
+                    Text("Step \(model.index + 1) of \(model.steps.count)").scaledFont(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 // Skippable at any point, not just from the last step: what
@@ -153,6 +154,7 @@ struct FirstRunWizardView: View {
         case .quality: QualityStep()
         case .theme: ThemeStep()
         case .translation: TranslationStep()
+        case .telemetry: Form { TelemetrySection() }.formStyle(.grouped)
         }
     }
 }

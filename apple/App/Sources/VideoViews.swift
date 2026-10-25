@@ -21,9 +21,9 @@ struct PosterTile: View {
             VStack(alignment: .leading, spacing: 4) {
                 ArtworkView(itemId: item.id, size: posterWidth, aspect: 2.0 / 3.0)
                     .overlay(alignment: .bottom) { WatchedBar(item: item) }
-                Text(item.name ?? "Untitled").font(.caption).lineLimit(1)
+                Text(item.name ?? "Untitled").scaledFont(.caption).lineLimit(1)
                 if let year = item.productionYear {
-                    Text(String(year)).font(.caption2).foregroundStyle(.secondary)
+                    Text(String(year)).scaledFont(.caption2).foregroundStyle(.secondary)
                 }
             }
             .frame(width: posterWidth)
@@ -61,7 +61,10 @@ private struct PosterMenu: ViewModifier {
             Button(isPlayed ? "Mark Unplayed" : "Mark Played", systemImage: isPlayed ? "eye.slash" : "eye") {
                 guard let client = state.client else { return }
                 let target = !isPlayed
-                Task { if (try? await client.setPlayed(target, itemId: item.id)) != nil { played = target } }
+                Task {
+                    if (try? await client.setPlayed(target, itemId: item.id)) != nil { played = target }
+                    else { announceWriteFailed(target ? "mark as watched" : "mark as unwatched") }
+                }
             }
         }
     }
@@ -83,10 +86,10 @@ struct VideoStillTile: View {
                 ArtworkView(itemId: item.id, size: stillWidth, aspect: 16.0 / 9.0,
                             imageType: item.type == "Movie" && item.backdropImageTags?.isEmpty == false ? "Backdrop" : "Primary")
                     .overlay(alignment: .bottom) { WatchedBar(item: item) }
-                Text(item.seriesName ?? item.name ?? "Untitled").font(.caption).lineLimit(1)
+                Text(item.seriesName ?? item.name ?? "Untitled").scaledFont(.caption).lineLimit(1)
                 if item.type == "Episode" {
                     Text([VideoPlayback.episodeCode(item), item.name].compactMap { $0 }.joined(separator: " \u{00b7} "))
-                        .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                        .scaledFont(.caption2).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
             .frame(width: stillWidth)
@@ -281,17 +284,17 @@ private struct EpisodeRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text([VideoPlayback.episodeCode(episode), episode.name].compactMap { $0 }.joined(separator: "  "))
-                        .font(.headline).lineLimit(2)
+                        .scaledFont(.headline).lineLimit(2)
                     if played {
                         Image(systemName: "checkmark.circle.fill").foregroundStyle(.secondary)
                             .accessibilityLabel("Watched")
                     }
                 }
                 if let overview = episode.overview {
-                    Text(overview).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                    Text(overview).scaledFont(.caption).foregroundStyle(.secondary).lineLimit(3)
                 }
                 if let ticks = episode.runTimeTicks, seconds(fromTicks: ticks) >= 60 {
-                    Text("\(Int(seconds(fromTicks: ticks) / 60)) min").font(.caption2).foregroundStyle(.secondary)
+                    Text("\(Int(seconds(fromTicks: ticks) / 60)) min").scaledFont(.caption2).foregroundStyle(.secondary)
                 }
             }
             Spacer(minLength: 0)
@@ -311,7 +314,7 @@ private struct VideoHeader: View {
                     .frame(maxWidth: .infinity)
             }
             Text(item.name ?? "").font(.title.bold()).padding(.horizontal)
-            Text(facts).font(.subheadline).foregroundStyle(.secondary).padding(.horizontal)
+            Text(facts).scaledFont(.subheadline).foregroundStyle(.secondary).padding(.horizontal)
         }
     }
 

@@ -21,7 +21,8 @@
     "build:linux": "npm run build:ts && electron-builder --linux --publish never",
     "icons": "node scripts/gen-icons.js",
     "build:bergamot": "node scripts/build-bergamot.js",
-    "build:apple": "node scripts/build-apple-translate.js"
+    "build:apple": "node scripts/build-apple-translate.js",
+    "tuning": "node scripts/tuning.mjs"
   },
   "dependencies": {
     "discord-rpc": "^4.0.1",
@@ -61,6 +62,7 @@
       "styles/**/*",
       "renderer.js",
       "lyric-karaoke.js",
+      "marquee.js",
       "waterfall.js",
       "build/core.js",
       "build/preload.js",

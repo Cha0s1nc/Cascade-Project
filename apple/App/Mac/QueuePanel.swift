@@ -98,7 +98,7 @@ struct QueuePanel: View {
                         Image(systemName: "chevron.right").font(.caption2.weight(.bold))
                             .rotationEffect(.degrees(ui.historyOpen ? 90 : 0))
                         Text("History").font(.subheadline.weight(.semibold))
-                        Text("\(index)").foregroundStyle(.secondary).font(.caption)
+                        Text("\(index)").foregroundStyle(.secondary).scaledFont(.caption)
                     }
                 }
                 .buttonStyle(.plain)
@@ -112,7 +112,7 @@ struct QueuePanel: View {
                         ui.historyOpen = false
                     }
                     .buttonStyle(.plain)
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.secondary)
                 }
             }
@@ -149,7 +149,7 @@ struct QueuePanel: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text("UP NEXT").font(.caption2.weight(.semibold)).tracking(1).foregroundStyle(.secondary)
                 if let source = QueueMeta.sourceFallback(items) {
-                    Text("From \(source)").font(.caption).foregroundStyle(.secondary)
+                    Text("From \(source)").scaledFont(.caption).foregroundStyle(.secondary)
                 }
             }
             Spacer()
@@ -165,7 +165,7 @@ struct QueuePanel: View {
             TimelineView(.periodic(from: .now, by: 30)) { _ in
                 Text(QueueMeta.summary(queue: items, index: index, position: player.positionSeconds,
                                        repeating: player.repeatMode != .none, autoMix: player.autoMix))
-                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                    .scaledFont(.caption).foregroundStyle(.secondary).monospacedDigit()
             }
         }
         .padding(.horizontal, 16)
@@ -207,7 +207,7 @@ private struct QueueRow: View {
                     Text(item.albumArtist ?? item.artists?.first ?? "").lineLimit(1)
                     if let addedBy { Text("added by \(addedBy)").italic().lineLimit(1) }
                 }
-                .font(.caption).foregroundStyle(.secondary)
+                .scaledFont(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
             Text(clock(seconds(fromTicks: item.runTimeTicks ?? 0)))

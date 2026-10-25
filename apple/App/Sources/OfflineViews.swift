@@ -41,7 +41,7 @@ struct OfflineBanner: View {
             HStack(spacing: 10) {
                 Image(systemName: "wifi.slash")
                 Text("Your server isn't answering. Showing what is downloaded.")
-                    .font(.callout)
+                    .scaledFont(.callout)
                 Spacer(minLength: 8)
                 Button(retrying ? "Trying\u{2026}" : "Try Again") {
                     retrying = true

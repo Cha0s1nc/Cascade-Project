@@ -133,3 +133,32 @@ struct HoverButtonStyle: ButtonStyle {
 extension ButtonStyle where Self == HoverButtonStyle {
     static var hover: HoverButtonStyle { HoverButtonStyle() }
 }
+
+/// A track row as the desktop draws one (styles/library.css .track-row): a faint rounded wash
+/// under the pointer, quick in (0.12 s) and slow out (0.35 s), and the playing song tinted with
+/// the accent, its title in the accent color.
+private struct DesktopTrackRow: ViewModifier {
+    let itemId: String
+    @Environment(AppState.self) private var state
+    @State private var hovering = false
+
+    func body(content: Content) -> some View {
+        let playing = state.player?.item?.id == itemId
+        content
+            .foregroundStyle(playing ? AnyShapeStyle(MacTheme.shared.accent) : AnyShapeStyle(.foreground))
+            .background {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6).fill(MacTheme.shared.accent.opacity(playing ? 0.12 : 0))
+                    RoundedRectangle(cornerRadius: 6).fill(.primary.opacity(hovering ? 0.06 : 0))
+                }
+                .padding(.horizontal, -6)
+            }
+            .onHover { on in
+                withAnimation(.easeOut(duration: on ? 0.12 : 0.35)) { hovering = on }
+            }
+    }
+}
+
+extension View {
+    func desktopTrackRow(_ itemId: String) -> some View { modifier(DesktopTrackRow(itemId: itemId)) }
+}

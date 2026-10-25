@@ -138,7 +138,9 @@ struct TrackMenuItems: View {
             do {
                 try await client.setFavorite(target, itemId: track.id)
                 favorite = target
-            } catch {}
+            } catch {
+                announceWriteFailed(target ? "add to Favorites" : "remove from Favorites")
+            }
         }
     }
 
@@ -150,7 +152,9 @@ struct TrackMenuItems: View {
             do {
                 try await client.setPlayed(target, itemId: track.id)
                 played = target
-            } catch {}
+            } catch {
+                announceWriteFailed(target ? "mark as played" : "mark as unplayed")
+            }
         }
     }
 
@@ -310,7 +314,9 @@ private struct ItemContextMenu: ViewModifier {
             do {
                 try await client.setFavorite(target, itemId: item.id)
                 favorite = target
-            } catch {}
+            } catch {
+                announceWriteFailed(target ? "add to Favorites" : "remove from Favorites")
+            }
         }
     }
 }

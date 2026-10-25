@@ -34,6 +34,10 @@ public struct DriftParams: Sendable, Equatable {
 }
 
 public enum AlbumColors {
+    /// Every number here that is a matter of taste: tuning-defaults.json's
+    /// albumColors, shared with the desktop (npm run tuning).
+    static let tuning = TuningDefaults.current.albumColors
+
     /// The base the blobs sit on. The desktop overlay's #0d0d0f.
     public static let base = (r: 13.0 / 255, g: 13.0 / 255, b: 15.0 / 255)
     /// The light theme's base, #f2f2f7: the same colour as the light app
@@ -45,20 +49,21 @@ public enum AlbumColors {
     /// the light theme darkens them so they stain near-white like ink on paper
     /// under multiply blending (pale blobs multiply to almost nothing, which is
     /// what the washed-out first attempt was). Tuned by eye on the desktop.
-    public static let lightnessRange = (dark: (min: 0.45, max: 0.82), light: (min: 0.0, max: 0.27))
+    public static let lightnessRange = (dark: (min: tuning.minL, max: tuning.maxL),
+                                        light: (min: tuning.minLLight, max: tuning.maxLLight))
 
     /// Blob opacity scale on the light base. 1, i.e. none: with the lightness
     /// window doing the work, an extra cut was the biggest cause of the
     /// wash-out. Kept as a named constant, as on the desktop.
-    static let lightAlphaScale = 1.0
+    static let lightAlphaScale = tuning.lightAlphaScale
 
     /// How often a host should move the blobs. The drift has periods of tens of
     /// seconds, so 60 fps is wasted work; the desktop runs at ~15.
-    public static let frameInterval: Double = 0.066
+    public static let frameInterval: Double = tuning.frameMs / 1000
 
     /// The side of the square the cover should be scaled to before extraction:
     /// what the desktop's k-means was tuned on (6,400 px).
-    public static let sampleSide = 80
+    public static let sampleSide = tuning.sampleSide
 
     public struct NotPackedRGBA: Error {}
 
@@ -114,16 +119,16 @@ public enum AlbumColors {
 
     /// Clusters found before ranking: more than are returned, so a small vivid
     /// accent gets its own cluster instead of being absorbed by a big dull one.
-    static let clusters = 5
-    static let iterations = 12
+    static let clusters = max(1, tuning.clusters)
+    static let iterations = tuning.iterations
     /// Without a minimum gap the top three are routinely three shades of one
     /// thing, which reads as a one-colour background.
-    static let minSeparation = 0.12
+    static let minSeparation = tuning.minSeparation
     /// Dark theme lightness window: below it a blob is lost on #0d0d0f, above
     /// it washes out the content in front. The light one is lightnessRange.light.
     static let minL = lightnessRange.dark.min, maxL = lightnessRange.dark.max
     /// Below this a colour reads as grey rather than as a colour.
-    static let minChroma = 0.06
+    static let minChroma = tuning.minChroma
 
     // MARK: Extraction
 
@@ -145,7 +150,7 @@ public enum AlbumColors {
         while i < rgba.count {
             if rgba[i + 3] >= 128 {
                 let c = oklab(r: Double(rgba[i]), g: Double(rgba[i + 1]), b: Double(rgba[i + 2]))
-                if c.L >= 0.08 && c.L <= 0.97 { samples.append(c) }
+                if c.L >= tuning.minSampleL && c.L <= tuning.maxSampleL { samples.append(c) }
             }
             i += 4
         }
@@ -182,9 +187,9 @@ public enum AlbumColors {
         let ranked = centroids.enumerated()
             .map { k, c -> (c: Oklab, share: Double, score: Double) in
                 let share = Double(counts[k]) / Double(samples.count)
-                return (c, share, share * pow(chroma(c) + 0.02, 1.5))
+                return (c, share, share * pow(chroma(c) + 0.02, tuning.chromaPower))
             }
-            .filter { $0.share > 0.01 }
+            .filter { $0.share > tuning.minShare }
             // Stable on ties, like the desktop's Array.sort.
             .enumerated()
             .sorted { $0.element.score != $1.element.score ? $0.element.score > $1.element.score : $0.offset < $1.offset }
@@ -255,11 +260,8 @@ public enum AlbumColors {
 
     /// Anchors in percent, near the edges so the middle stays dark enough to
     /// read over: the background is a mood, not a competitor to the content.
-    static let slots: [(x: Double, y: Double, w: Double, h: Double, alpha: Double)] = [
-        (78, 16, 78, 78, 0.88),
-        (18, 82, 78, 78, 0.80),
-        (12, 18, 58, 58, 0.55),
-    ]
+    static let slots: [(x: Double, y: Double, w: Double, h: Double, alpha: Double)] =
+        tuning.slots.map { ($0.x, $0.y, $0.w, $0.h, $0.alpha) }
 
     /// How light the background reads, 0 to 1: the blobs' Oklab lightness,
     /// weighted by how much of the screen each covers (its slot's size and
@@ -276,13 +278,14 @@ public enum AlbumColors {
                                     light: Bool = false) -> [Blob] {
         let alphaScale = light ? lightAlphaScale : 1
         return colors.enumerated().map { i, color in
-            let s = i < slots.count ? slots[i] : slots[2]
+            let s = i < slots.count ? slots[i] : slots[slots.count - 1]
             let alpha = s.alpha * alphaScale
             guard let p = i < drift.count ? drift[i] : drift.first else {
                 return Blob(x: s.x, y: s.y, w: s.w, h: s.h, alpha: alpha, color: color)
             }
-            return Blob(x: s.x + sin(t * p.xF1 + p.xP1) * p.xA1 + sin(t * p.xF2 + p.xP2) * p.xA2,
-                        y: s.y + cos(t * p.yF1 + p.yP1) * p.yA1 + cos(t * p.yF2 + p.yP2) * p.yA2,
+            let d = tuning.driftScale
+            return Blob(x: s.x + (sin(t * p.xF1 + p.xP1) * p.xA1 + sin(t * p.xF2 + p.xP2) * p.xA2) * d,
+                        y: s.y + (cos(t * p.yF1 + p.yP1) * p.yA1 + cos(t * p.yF2 + p.yP2) * p.yA2) * d,
                         w: s.w, h: s.h, alpha: alpha, color: color)
         }
     }

@@ -57,6 +57,7 @@ Status: built / partial / not built.
 - Keyboard: partial - Command-K, Settings tab arrows and slider keys built; Esc closes the history and side lyrics panels, the overlay and the video player close themselves, and menus, sheets and popovers keep the system Esc
 - First-run wizard: built
 - Settings, six tabs, EQ panels with presets, Auto preamp, drag-point graph: built
+- Client certificate (mutual TLS): built - pick a keychain identity or import a .p12 in Settings > Account and on the sign-in screen; API, covers, sockets, downloads and AVPlayer (direct and HLS) present it, checked against a local nginx with `ssl_verify_client`. Importing the same .p12 twice is handled by message only, not exercised
 - `CascadeMacUITests` target: not built
 
 ## Phase 5: video

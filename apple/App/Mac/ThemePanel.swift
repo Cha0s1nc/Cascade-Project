@@ -67,7 +67,7 @@ private struct ThemeMainPage: View {
                         .autocorrectionDisabled()
                         .onChange(of: custom) { _, new in theme.setFont(preset: "custom", custom: new) }
                     if !custom.isEmpty, AppFont.sanitize(custom).isEmpty {
-                        Text("Letters, numbers, spaces and hyphens only.").font(.caption).foregroundStyle(.secondary)
+                        Text("Letters, numbers, spaces and hyphens only.").scaledFont(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -104,7 +104,7 @@ private struct ThemeColorsPage: View {
                 Toggle(isOn: $theme.settings.albumArt) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Album art accent")
-                        Text("Match the colors to the current album's art").font(.caption).foregroundStyle(.secondary)
+                        Text("Match the colors to the current album's art").scaledFont(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -119,12 +119,12 @@ private struct ThemeColorsPage: View {
                     }
                     Slider(value: Binding(get: { theme.tuning.bgDim }, set: { theme.tuning.bgDim = NPTuning.clampBgDim($0) }),
                            in: NPTuning.bgDimRange)
-                    Text("Light mode with album art accent").font(.caption).foregroundStyle(.secondary)
+                    Text("Light mode with album art accent").scaledFont(.caption).foregroundStyle(.secondary)
                 }
                 Toggle(isOn: $theme.tuning.bgBlend) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Blend background with art")
-                        Text("Light mode with album art accent").font(.caption).foregroundStyle(.secondary)
+                        Text("Light mode with album art accent").scaledFont(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -141,7 +141,7 @@ private struct ThemeColorsPage: View {
                                                  set: { hex.wrappedValue = $0.hexString }),
                         supportsOpacity: false)
                 .labelsHidden()
-            Text(name).font(.caption).foregroundStyle(.secondary)
+            Text(name).scaledFont(.caption).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
     }
@@ -176,6 +176,15 @@ private struct ThemeColorsPage: View {
 private struct ThemeLyricsPage: View {
     @Bindable private var tuning = StyleTuning.shared
 
+    /// A debug build, or the `.cascade-debug` sentinel: nobody else bakes defaults.
+    private static let canBake: Bool = {
+        #if DEBUG
+        true
+        #else
+        DebugPanel.sentinelExists()
+        #endif
+    }()
+
     private var sections: [String] {
         StyleTuning.knobs.map(\.section).reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
     }
@@ -185,7 +194,7 @@ private struct ThemeLyricsPage: View {
             if tuning.lyricsLocked { ServerStyleNote(what: "lyrics look") }
             Section {
                 Text("Full-screen lyrics in Now Playing. Changes show right away.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .scaledFont(.caption).foregroundStyle(.secondary)
             }
             Group {
             ForEach(StyleTuning.presetGroups) { group in
@@ -205,6 +214,14 @@ private struct ThemeLyricsPage: View {
             Section {
                 Button("Reset all lyric settings", role: .destructive) { tuning.values = .init() }
                     .disabled(tuning.changes.isEmpty)
+                // For `npm run tuning -- bake`, which writes it into tuning-defaults.json.
+                if Self.canBake {
+                    Button("Copy Changes for npm run tuning") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(tuning.bakeText, forType: .string)
+                    }
+                    .disabled(tuning.changes.isEmpty)
+                }
             }
             }
             .disabled(tuning.lyricsLocked)
@@ -256,7 +273,7 @@ private struct KnobRow: View {
                 .help("Reset to \(standard.formatted(.number.precision(.fractionLength(knob.step < 0.01 ? 3 : knob.step < 1 ? 2 : 0))))")
                 .accessibilityLabel("Reset \(knob.label)")
             }
-            .font(.subheadline)
+            .scaledFont(.subheadline)
             Slider(value: $tuning.values[dynamicMember: knob.path], in: knob.range, step: knob.step)
         }
         .contentShape(Rectangle())
@@ -270,7 +287,7 @@ private struct ServerStyleNote: View {
     var body: some View {
         Section {
             Label("Your server sets the \(what) for everyone.", systemImage: "server.rack")
-                .font(.callout).foregroundStyle(.secondary)
+                .scaledFont(.callout).foregroundStyle(.secondary)
         }
     }
 }

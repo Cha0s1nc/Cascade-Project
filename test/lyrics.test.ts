@@ -6,7 +6,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseLRC, parseKrc, lyricsTextMatch, isEmphasisWord, currentLyricIndex, activeLyricRange, tightScrollTarget } from '../src/core/lyrics.ts'
+import { parseLRC, parseKrc, lyricsTextMatch, isEmphasisWord, currentLyricIndex, activeLyricRange, LAYER_LINGER_TICKS, tightScrollTarget, looksInstrumental } from '../src/core/lyrics.ts'
 
 const SEC = 10_000_000   // ticks per second
 const MS = 10_000        // ticks per millisecond
@@ -165,21 +165,24 @@ test('background vocals running into the next line light both as a group', () =>
     { Start: 13 * SEC, End: 16 * SEC, Text: 'next', Words: [w('next', 13, 16)] },
   ]
   // The next line is current as soon as it starts, and the first stays lit
-  // with it while its background is sung, and until the next line ends.
+  // with it while its background is sung, and 0.7s after.
   assert.equal(currentLyricIndex(lines, 1, 14 * SEC), 1)
   assert.deepEqual(activeLyricRange(lines, 1, 14 * SEC), [0, 1])
   assert.deepEqual(activeLyricRange(lines, 1, 15.5 * SEC), [0, 1])
   // The next line ended at 16s, but the first one's background runs to 21s.
   assert.deepEqual(activeLyricRange(lines, 1, 16.5 * SEC), [0, 1])
-  assert.deepEqual(activeLyricRange(lines, 1, 21.5 * SEC), [1, 1])
+  assert.deepEqual(activeLyricRange(lines, 1, 21.5 * SEC), [0, 1])
+  assert.deepEqual(activeLyricRange(lines, 1, 21.8 * SEC), [1, 1])
 })
 
-test('activeLyricRange: a line starting inside the previous one keeps both lit until it ends', () => {
+test('activeLyricRange: a line starting inside the previous one keeps it lit until 0.7s after it is sung', () => {
   const l = (s: number, e: number, t: string) => ({ Start: s * SEC, End: e * SEC, Text: t, Words: null })
   const lines = [l(0, 5, 'before'), l(10, 14, 'A'), l(12, 16, 'B'), l(20, 22, 'after')]
+  assert.equal(LAYER_LINGER_TICKS, 0.7 * SEC)
   assert.deepEqual(activeLyricRange(lines, 2, 13 * SEC), [1, 2])   // A still going when B began
-  assert.deepEqual(activeLyricRange(lines, 2, 15 * SEC), [1, 2])   // A done, B not: both stay lit
-  assert.deepEqual(activeLyricRange(lines, 2, 16.5 * SEC), [2, 2]) // B ended
+  assert.deepEqual(activeLyricRange(lines, 2, 14.6 * SEC), [1, 2]) // A sung 0.6s ago: still lit
+  assert.deepEqual(activeLyricRange(lines, 2, 14.7 * SEC), [2, 2]) // 0.7s: out of focus, B goes on
+  assert.deepEqual(activeLyricRange(lines, 2, 16.5 * SEC), [2, 2])
   assert.deepEqual(activeLyricRange(lines, 1, 11 * SEC), [1, 1])   // no overlap into 'before'
 })
 
@@ -187,10 +190,20 @@ test('activeLyricRange: only lines still sung when the current one began, not a 
   const l = (s: number, e: number | null) => ({ Start: s * SEC, End: e == null ? null : e * SEC, Text: 'x', Words: null })
   // Each line runs into the next (Notion's background vocals). The first ended
   // at 6s, before the third began at 8s: it is not lit with the third.
-  assert.deepEqual(activeLyricRange([l(0, 6), l(4, 9), l(8, 12)], 2, 10 * SEC), [1, 2])
+  assert.deepEqual(activeLyricRange([l(0, 6), l(4, 9), l(8, 12)], 2, 9.5 * SEC), [1, 2])
+  assert.deepEqual(activeLyricRange([l(0, 6), l(4, 9), l(8, 12)], 2, 10 * SEC), [2, 2])
   // Two earlier lines both still going when the current one began: both lit.
   assert.deepEqual(activeLyricRange([l(0, 12), l(4, 12), l(8, 12)], 2, 10 * SEC), [0, 2])
   assert.deepEqual(activeLyricRange([l(0, null), l(1, null)], 1, 2 * SEC), [1, 1])
+})
+
+test('activeLyricRange: each earlier line dims on its own end, and the range stays contiguous', () => {
+  const l = (s: number, e: number) => ({ Start: s * SEC, End: e * SEC, Text: 'x', Words: null })
+  // Two lines still going when the third began, ending at different times.
+  const lines = [l(0, 14), l(4, 11), l(8, 16)]
+  assert.deepEqual(activeLyricRange(lines, 2, 11.5 * SEC), [0, 2])  // the middle one is past its 0.7s, but the first is still sung
+  assert.deepEqual(activeLyricRange(lines, 2, 14.5 * SEC), [0, 2])
+  assert.deepEqual(activeLyricRange(lines, 2, 14.7 * SEC), [2, 2])
 })
 
 test('tightScrollTarget: a close next line pulls the scroll early, an overlap or a wide gap does not', () => {
@@ -208,4 +221,16 @@ test('tightScrollTarget: a close next line pulls the scroll early, an overlap or
   assert.equal(tightScrollTarget(lines, 2, s(6.4), lead), null, 'overlap')
   assert.equal(tightScrollTarget(lines, 0, s(1.95), 0), null, 'knob off')
   assert.equal(tightScrollTarget([{ Text: 'a', Start: 0, End: null, Words: null }, { Text: 'b', Start: s(1), End: null, Words: null }], 0, s(0.9), lead), null, 'no end known')
+})
+
+test('looksInstrumental reads the title, album and genres', () => {
+  assert.equal(looksInstrumental({ Name: 'Blue (Instrumental)' }), true)
+  assert.equal(looksInstrumental({ Name: 'Blue - Instrumental Version' }), true)
+  assert.equal(looksInstrumental({ Name: 'Blue', Album: 'Blue (Instrumentals)' }), true)
+  assert.equal(looksInstrumental({ Name: 'Blue (Off Vocal)' }), true)
+  assert.equal(looksInstrumental({ Name: 'Blue [Inst.]' }), true)
+  assert.equal(looksInstrumental({ Name: 'Blue', Genres: ['Pop', 'Instrumental'] }), true)
+  assert.equal(looksInstrumental({ Name: 'Blue', Album: 'Instruments of Love', Genres: ['Pop'] }), false)
+  assert.equal(looksInstrumental({ Name: 'Install Me' }), false)
+  assert.equal(looksInstrumental(null), false)
 })

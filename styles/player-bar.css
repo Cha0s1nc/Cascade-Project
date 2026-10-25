@@ -24,6 +24,10 @@
 button svg, .ctrl-btn svg, .play-pause-btn svg, .vol-icon svg { pointer-events: none; cursor: inherit; }
 .ctrl-btn:hover { color: var(--text); }
 .ctrl-btn.active { color: var(--accent); }
+/* A slash through the lyrics bubble when the playing song has none, or is
+   instrumental (_applyLyricsMark). Shared with Now Playing's lyrics button. */
+.lyrics-cross { display: none; }
+.lyrics-none .lyrics-cross { display: inline; }
 .play-pause-btn { width: 28px; height: 28px; border-radius: 50%; background: var(--grad); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; color: white; transition: opacity 0.12s; flex-shrink: 0; }
 .play-pause-btn svg { fill: var(--play-btn-fg, white) !important; }
 .np-ov-play svg { fill: var(--play-btn-fg, white); }

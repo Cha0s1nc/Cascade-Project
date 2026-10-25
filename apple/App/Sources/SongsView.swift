@@ -104,7 +104,9 @@ struct SongsView: View {
             .browseHeader()
             .buttonStyle(.borderless)
             #endif
-            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty, skeleton: .rows)
+            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty, skeleton: .rows,
+                           emptyTitle: "No songs", emptyMessage: "Nothing matches, or the chosen libraries are empty.",
+                           retry: { state.dropBrowseCache(.songs); refreshes += 1 })
             ForEach(Array(items.enumerated()), id: \.element.id) { index, song in
                 Button {
                     Task { await state.player?.play(items, startIndex: index) }

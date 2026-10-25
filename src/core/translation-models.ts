@@ -7,7 +7,7 @@
 // Mac's OS it covers far more languages on-device than System Settings lists.
 // A sheet gets a Translate button when either engine can take its language.
 
-import { detectLanguage } from './language.ts'
+import { detectLanguage, sheetSample } from './language.ts'
 
 export type TranslationModelKey = 'ja' | 'ko' | 'zh-Hans' | 'zh-Hant' | 'es'
 
@@ -80,7 +80,7 @@ export function cyrillicLanguage(text: string): 'ru' | 'uk' | null {
  * Mac is pickTranslationEngine's call, not this one's.
  */
 export function translationLanguageFor(lines: string[]): string | null {
-  const text = lines.join(' ').slice(0, 1000)
+  const text = sheetSample(lines)
   const lang = detectLanguage(text)
   if (lang === 'zh') return chineseScript(text)
   const key = lang === 'ru' || lang === 'uk' ? cyrillicLanguage(text) ?? lang : lang

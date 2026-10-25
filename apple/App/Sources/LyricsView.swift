@@ -360,7 +360,20 @@ struct LyricsView: View {
     #endif
 
     var body: some View {
-        if synced { syncedBody } else { stillPage }
+        Group {
+            if synced { syncedBody } else { stillPage }
+        }
+        // Lines leave through a soft top edge, about a line tall, as Apple Music's do. The
+        // scroll view's own clip cut a passing line in half just under Now Playing's header.
+        // A fade rather than a blur band: the lines are already blurred by distance, and a
+        // material strip over the moving background read as a bar and cost a pass per frame.
+        .mask {
+            VStack(spacing: 0) {
+                LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                    .frame(height: LyricStyle.size * scale * 1.6)
+                Color.black
+            }
+        }
     }
 
     private func translation(_ index: Int) -> String? {

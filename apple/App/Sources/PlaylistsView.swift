@@ -48,8 +48,18 @@ struct PlaylistsView: View {
             .padding(.horizontal)
             .browseHeader()
             SmartPlaylistShelf()
-            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty, skeleton: .grid)
-            ItemGrid(items: items)
+            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty, skeleton: .grid,
+                           emptyTitle: "No playlists yet", emptyMessage: "Add a song to a new playlist from its menu.",
+                           retry: { state.playlistMutated(); generation += 1 })
+            if !items.isEmpty {
+                // Named like the smart shelf above, so the two kinds read as two groups.
+                Text("Playlists").scaledFont(.headline)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal).padding(.top, 8)
+                    // The grid's own top padding would otherwise leave it floating.
+                    .padding(.bottom, -12)
+            }
+            ItemTiles(items: items)
         }
         .navigationTitle("Playlists")
         .onChange(of: prefs.field) { prefs.direction = sortField.defaultDirection }
@@ -254,7 +264,7 @@ struct PlaylistDetailView: View {
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
             Text(tracks.count == 1 ? "1 song" : "\(tracks.count) songs")
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
             HStack(spacing: 16) {
                 Button {

@@ -17,7 +17,7 @@ struct AlbumDetailView: View {
                 if discGroups.count > 1 {
                     ForEach(discGroups, id: \.disc) { group in
                         Text("Disc \(group.disc)")
-                            .font(.headline)
+                            .scaledFont(.headline)
                             .padding(.horizontal)
                         ForEach(group.tracks, id: \.index) { entry in
                             trackRow(entry.track, at: entry.index)
@@ -56,7 +56,7 @@ struct AlbumDetailView: View {
                     .lineLimit(1)
             }
             Text(subtitle)
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
             HStack(spacing: 16) {
                 Button {
@@ -118,6 +118,11 @@ struct AlbumDetailView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            .contentShape(Rectangle())
+            #if os(macOS)
+            .padding(.vertical, 6)
+            .desktopTrackRow(track.id)
+            #endif
         }
         .buttonStyle(.plain)
         .trackContextMenu(track)

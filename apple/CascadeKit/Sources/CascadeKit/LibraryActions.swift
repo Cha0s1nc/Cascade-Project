@@ -231,7 +231,7 @@ public extension JellyfinClient {
         request.setValue(authHeader(appVersion: cascadeAppVersion, deviceId: config.deviceId, token: config.token),
                          forHTTPHeaderField: "Authorization")
         request.httpBody = item.data
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw JellyfinError(status: 0, message: "No HTTP response")
         }
@@ -251,7 +251,7 @@ public extension JellyfinClient {
         var request = URLRequest(url: url)
         request.setValue(authHeader(appVersion: cascadeAppVersion, deviceId: config.deviceId, token: config.token),
                          forHTTPHeaderField: "Authorization")
-        let (file, response) = try await URLSession.shared.download(for: request)
+        let (file, response) = try await session.download(for: request)
         defer { try? FileManager.default.removeItem(at: file) }
         guard let http = response as? HTTPURLResponse else {
             throw JellyfinError(status: 0, message: "No HTTP response")

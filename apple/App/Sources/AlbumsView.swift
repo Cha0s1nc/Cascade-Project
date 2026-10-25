@@ -36,8 +36,10 @@ struct AlbumsView: View {
             .padding(.horizontal)
             .browseHeader()
             #endif
-            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty, skeleton: .grid)
-            ItemGrid(items: items)
+            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty, skeleton: .grid,
+                           emptyTitle: "No albums", emptyMessage: "Nothing matches, or the chosen libraries are empty.",
+                           retry: { state.dropBrowseCache(.albums); refreshes += 1 })
+            ItemTiles(items: items)
         }
         .navigationTitle("Albums")
         #if os(macOS)

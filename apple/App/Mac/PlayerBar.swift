@@ -20,6 +20,7 @@ struct PlayerBar: View {
                 Button(action: openNowPlaying) {
                     ArtworkView(itemId: player.item?.albumId ?? player.item?.id, size: 44, animated: true)
                         .overlay { CoverSliceOverlay(player: player, size: 44, showsSeam: false).clipShape(ProportionalRoundedRectangle()) }
+                        .overlay { LoadingCoverOverlay(active: player.isWaitingToPlay).clipShape(ProportionalRoundedRectangle()) }
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Open Now Playing")
@@ -38,7 +39,7 @@ struct PlayerBar: View {
                     .buttonStyle(.plain)
                     ArtistLink(name: player.item?.albumArtist ?? player.item?.artists?.first ?? "",
                                id: (player.item?.albumArtists?.first ?? player.item?.artistItems?.first)?.id)
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        .scaledFont(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer(minLength: 0)
                 if player.item != nil {
@@ -47,40 +48,51 @@ struct PlayerBar: View {
                         Image(systemName: liked ? "heart.fill" : "heart")
                     }
                     .buttonStyle(.hover)
-                    .foregroundStyle(liked ? Color(red: 1, green: 0.42, blue: 0.54) : .secondary)
+                    .foregroundStyle(liked ? MacTheme.favorite : .secondary)
                     .help(liked ? "Unfavorite" : "Favorite")
                     .accessibilityLabel(liked ? "Unfavorite" : "Favorite")
                 }
             }
-            .frame(width: 260, alignment: .leading)
+            // The desktop's grid (1fr auto 1fr): the two sides share what the window has
+            // equally, so the controls stay centered and the title gets room as it grows.
+            .frame(minWidth: 200, maxWidth: .infinity, alignment: .leading)
 
             VStack(spacing: 4) {
                 HStack(spacing: 18) {
-                    Button { player.toggleShuffle() } label: { Image(systemName: "shuffle") }
+                    // On shows as color and a dot, as in Apple Music: color alone is easy to miss.
+                    Button { player.toggleShuffle() } label: { Image(systemName: "shuffle").overlay(alignment: .bottom) { OnDot(isOn: player.shuffle) } }
                         .foregroundStyle(player.shuffle ? MacTheme.shared.accent : .secondary)
+                        .help("Shuffle")
                         .accessibilityLabel("Shuffle")
+                        .accessibilityValue(player.shuffle ? "On" : "Off")
                     Button { Task { await player.previous() } } label: { Image(systemName: "backward.fill") }
+                        .help("Previous")
                         .accessibilityLabel("Previous")
                     Button { player.togglePlayPause() } label: {
-                        Image(systemName: player.isPaused ? "play.fill" : "pause.fill").font(.title2)
+                        Image(systemName: player.isPaused ? "play.fill" : "pause.fill").scaledFont(.title2)
                     }
                     .buttonStyle(.plain)
+                    .help(player.isPaused ? "Play" : "Pause")
                     .accessibilityLabel(player.isPaused ? "Play" : "Pause")
                     Button { Task { await player.next() } } label: { Image(systemName: "forward.fill") }
+                        .help("Next")
                         .accessibilityLabel("Next")
                     Button { player.cycleRepeat() } label: {
                         Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
+                            .overlay(alignment: .bottom) { OnDot(isOn: player.repeatMode != .none) }
                     }
                     .foregroundStyle(player.repeatMode == .none ? .secondary : MacTheme.shared.accent)
+                    .help("Repeat")
                     .accessibilityLabel("Repeat")
+                    .accessibilityValue(player.repeatMode == .one ? "One" : player.repeatMode == .all ? "All" : "Off")
                 }
                 .buttonStyle(.hover)
                 if player.isRadio { LiveBadge().frame(height: 18) } else { Scrubber(player: player) }
             }
-            .frame(maxWidth: 520)
+            .frame(minWidth: 300, maxWidth: 560)
 
             HStack(spacing: 10) {
-                // The side lyrics panel, over whatever is on screen.
+                // The side lyrics column beside whatever is on screen.
                 Button { ui.sidePanelOpen.toggle() } label: {
                     Image(systemName: ui.sidePanelOpen ? "quote.bubble.fill" : "quote.bubble")
                 }
@@ -94,10 +106,12 @@ struct PlayerBar: View {
                     .help("Miniplayer")
                     .accessibilityLabel("Open the miniplayer")
                 HStack(spacing: 6) {
-                    Image(systemName: player.isMuted ? "speaker.slash.fill" : "speaker.fill")
-                        .onTapGesture { player.setMuted(!player.isMuted) }
-                        .accessibilityLabel(player.isMuted ? "Unmute" : "Mute")
-                        .accessibilityAddTraits(.isButton)
+                    Button { player.setMuted(!player.isMuted) } label: {
+                        Image(systemName: player.isMuted ? "speaker.slash.fill" : "speaker.fill")
+                    }
+                    .buttonStyle(.hover)
+                    .help(player.isMuted ? "Unmute" : "Mute")
+                    .accessibilityLabel(player.isMuted ? "Unmute" : "Mute")
                     MacSlider(value: Double(player.isMuted ? 0 : player.volume), fill: .secondary, label: "Volume") {
                         // Moving the slider is a wish to hear it.
                         if player.isMuted { player.setMuted(false) }
@@ -106,7 +120,7 @@ struct PlayerBar: View {
                     .frame(width: 110)
                 }
             }
-            .frame(width: 240, alignment: .trailing)
+            .frame(minWidth: 200, maxWidth: .infinity, alignment: .trailing)
             .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 16)
@@ -148,8 +162,18 @@ struct Scrubber: View {
             }
             .controlSize(.small)
             .accessibilityLabel("Position")
+            .accessibilityValue("\(clock(dragging ?? player.positionSeconds)) of \(clock(player.durationSeconds))")
             Text(clock(player.durationSeconds)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
         }
+    }
+}
+
+/// The small dot under an on shuffle or repeat. Always laid out, so turning one on never
+/// moves the buttons.
+struct OnDot: View {
+    let isOn: Bool
+    var body: some View {
+        Circle().frame(width: 3, height: 3).offset(y: 5).opacity(isOn ? 1 : 0).accessibilityHidden(true)
     }
 }
 

@@ -8,6 +8,8 @@ struct SignInView: View {
     @State private var password = ""
     @State private var error: String?
     @State private var busy = false
+    /// Return in the username moves to the password, as every sign-in form does.
+    @FocusState private var passwordFocused: Bool
 
     /// Whether the typed server offers QuickConnect, checked as the address
     /// changes. The password form stays either way.
@@ -17,6 +19,17 @@ struct SignInView: View {
     @State private var quickConnectTask: Task<Void, Never>?
     /// The server's login disclaimer (Branding), as Jellyfin's own sign-in page shows it.
     @State private var disclaimer = ""
+    /// The reverse proxy headers and client certificate, open when any are saved.
+    @State private var showsAdvanced: Bool = {
+        if !ProxyConnection.shared.currentHeaders.isEmpty { return true }
+        #if os(macOS)
+        return ClientIdentity.chosen != nil
+        #elseif os(iOS)
+        return ClientIdentity.summary() != nil
+        #else
+        return false
+        #endif
+    }()
 
     var body: some View {
         #if os(macOS)
@@ -61,8 +74,25 @@ struct SignInView: View {
             }
 
             // Before the first request goes out: a proxy that wants a header
-            // refuses the sign-in itself without it.
-            ProxySettingsSection()
+            // refuses the sign-in itself without it. Tucked away, as on the
+            // desktop, unless something is already saved.
+            Section {
+                Button { withAnimation { showsAdvanced.toggle() } } label: {
+                    HStack {
+                        Text("Advanced")
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .rotationEffect(.degrees(showsAdvanced ? 90 : 0))
+                            .foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                #if !os(tvOS)
+                .buttonStyle(.plain)
+                #endif
+                .accessibilityValue(showsAdvanced ? "Expanded" : "Collapsed")
+            }
+            if showsAdvanced { ProxySettingsSection() }
 
             if let code = quickConnectCode {
                 Section("Quick Connect") {
@@ -71,7 +101,7 @@ struct SignInView: View {
                         .frame(maxWidth: .infinity)
                         .accessibilityLabel("Quick Connect code \(code.map(String.init).joined(separator: " "))")
                     Text("Enter this code in Jellyfin on a device where you're already signed in: your profile, then Quick Connect.")
-                        .font(.footnote)
+                        .scaledFont(.footnote)
                         .foregroundStyle(.secondary)
                     Button("Cancel", role: .cancel, action: cancelQuickConnect)
                 }
@@ -85,10 +115,17 @@ struct SignInView: View {
             }
 
             Section("Account") {
+                // Content types, so Passwords and other managers offer the saved login.
                 TextField("Username", text: $username)
                     .autocorrectionDisabled()
                     .noAutocaps()
+                    .textContentType(.username)
+                    .submitLabel(.next)
+                    .onSubmit { passwordFocused = true }
                 SecureField("Password", text: $password)
+                    .textContentType(.password)
+                    .submitLabel(.go)
+                    .focused($passwordFocused)
                     .onSubmit(submit)
             }
             if let error {
@@ -96,11 +133,11 @@ struct SignInView: View {
                 // indistinguishable from one that worked.
                 Text(error).foregroundStyle(.red)
             }
-            Button(busy ? "Signing in..." : "Sign in", action: submit)
+            Button(busy ? "Signing In\u{2026}" : "Sign In", action: submit)
                 .disabled(busy || server.isEmpty || username.isEmpty)
             if !disclaimer.isEmpty {
                 Section {
-                    Text(disclaimer).font(.footnote).foregroundStyle(.secondary)
+                    Text(disclaimer).scaledFont(.footnote).foregroundStyle(.secondary)
                 }
             }
         }

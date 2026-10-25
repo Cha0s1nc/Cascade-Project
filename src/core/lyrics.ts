@@ -84,32 +84,34 @@ export function lineEndTicks(line: LyricLine): number | null {
 }
 
 /**
+ * How long an earlier line stays lit with the current one after it is sung
+ * (background vocals included), before it dims like any past line.
+ */
+export const LAYER_LINGER_TICKS = 7_000_000   // 0.7s
+
+/**
  * The lines to show as current, [first, last], around `idx` (currentLyricIndex).
  * When a line starts before the previous one has ended (a duet, a call and
- * response), Apple Music keeps both lit until the later one ends, instead of
- * dimming the first mid-word. So: an earlier line joins the group when it was
- * still being sung as the current line began, and the group stays lit until
- * all of it is sung. Background vocals count as part of their line.
+ * response, a background vocal running on), the earlier line stays lit with
+ * it instead of dimming mid-word, and goes out of focus LAYER_LINGER_TICKS
+ * after it is sung. Each earlier line goes on its own end, not the group's.
  *
  * Only lines that overlap the CURRENT line, not a chain of overlaps: in a verse
  * where each line's background runs into the next ("Notion", The Rare
  * Occasions), chaining lit the whole verse at once, including lines long done.
  * Lines with no end time (plain LRC) never overlap, so this is [idx, idx].
+ * The range is contiguous, so a line between two still lit stays lit too.
  */
 export function activeLyricRange(lines: LyricLine[], idx: number, nowTicks: number): [number, number] {
   const cur = lines[idx]
   if (!cur) return [idx, idx]
   let first = idx
-  let groupEnd = lineEndTicks(cur) ?? -Infinity
-  while (first > 0) {
-    const prevEnd = lineEndTicks(lines[first - 1])
-    if (prevEnd == null || cur.Start >= prevEnd) break
-    first--
-    groupEnd = Math.max(groupEnd, prevEnd)
+  for (let i = idx - 1; i >= 0; i--) {
+    const end = lineEndTicks(lines[i] as LyricLine)
+    if (end == null || cur.Start >= end) break
+    if (nowTicks < end + LAYER_LINGER_TICKS) first = i
   }
-  // Lit until every line in the group is sung, background vocals included:
-  // an earlier line's background can outlast the line that overlapped it.
-  return first < idx && nowTicks < groupEnd ? [first, idx] : [idx, idx]
+  return [first, idx]
 }
 
 /** A word held at least this long gets the emphasis glow. */
@@ -286,4 +288,15 @@ export function lyricsTextMatch(
 
   // At least 25% of the smaller set must appear in the larger.
   return inter / Math.min(aw.size, bw.size) >= 0.25
+}
+
+/** Whether a track's own tags say it is instrumental: "Instrumental" in the
+ *  title, album or a genre, an "Off Vocal" version, or an "(Inst.)" tag.
+ *  Only used once every lyrics source has come back empty, to say "this is
+ *  instrumental" instead of "no lyrics found"; it never hides lyrics a source
+ *  did return, since a title can say instrumental and still be sung over. */
+export function looksInstrumental(item: { Name?: string; Album?: string; Genres?: string[] } | null | undefined): boolean {
+  if (!item) return false
+  const tagged = /\binstrumentals?\b|\boff[\s-]?vocal\b|[([]\s*inst\.?\s*[)\]]/i
+  return [item.Name, item.Album, ...(item.Genres ?? [])].some(s => !!s && tagged.test(s))
 }

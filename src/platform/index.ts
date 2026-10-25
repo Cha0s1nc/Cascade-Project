@@ -329,6 +329,9 @@ export interface DesktopCapabilities {
   /** True when the `.cascade-debug` sentinel file was present at startup.
    *  Gates the renderer's debug panel - see main.js debugSentinelPresent(). */
   isDebugMode?(): Promise<boolean>
+  /** The debug tuning panel's Bake: hands a tuning to `npm run tuning -- bake`
+   *  in a source checkout. `error` when it could not (a packaged app). */
+  tuningBake?(payload: unknown): Promise<{ report?: string; error?: string }>
   /** Per-process memory and CPU, for the debug panel. */
   appMetrics?(): Promise<ProcessMetric[]>
 
@@ -434,6 +437,7 @@ export interface ElectronPlatform extends Platform, DesktopCapabilities {
   tryNativeMac: NonNullable<DesktopCapabilities['tryNativeMac']>
   isPackaged: NonNullable<DesktopCapabilities['isPackaged']>
   isDebugMode: NonNullable<DesktopCapabilities['isDebugMode']>
+  tuningBake: NonNullable<DesktopCapabilities['tuningBake']>
   appMetrics: NonNullable<DesktopCapabilities['appMetrics']>
   onMediaKey: NonNullable<DesktopCapabilities['onMediaKey']>
   touchbarUpdate: NonNullable<DesktopCapabilities['touchbarUpdate']>

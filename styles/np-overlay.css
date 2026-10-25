@@ -54,8 +54,22 @@ html[data-platform="linux"] .np-overlay-theme { right: var(--caption-reserve); }
    not already do, and it fought the album-art background, which bleeds
    across both halves. Video mode had already dropped it for the same
    reason. */
-.np-overlay-left { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: clamp(20px, 3.5vh, 48px) clamp(20px, 4vw, 56px); gap: clamp(14px, 2.5vh, 28px); }
-.np-overlay-art { width: min(clamp(240px, 52vh, 520px), calc(100% - 32px)); aspect-ratio: 1; border-radius: 12px; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 72px; flex-shrink: 0; transition: width 0.4s ease; }
+.np-overlay-left { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: clamp(12px, 3.5vh, 48px) clamp(20px, 4vw, 56px); gap: clamp(8px, 2.5vh, 28px); }
+/* A short window (a quarter of a 1080p screen is 960x554) has less height than
+   the art, title and controls want. The art gives way first: it is sized by
+   height and allowed to shrink, the controls never are. min-height: 0 lets the
+   grid row stop at the window instead of growing to the column's content and
+   clipping the bottom row off. */
+.np-overlay-left { min-height: 0; }
+.np-overlay-art { width: min(clamp(240px, 52vh, 520px), calc(100% - 32px)); aspect-ratio: 1; border-radius: 12px; background: var(--surface2); overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 72px; flex-shrink: 0; transition: width 0.4s ease, height 0.4s ease; }
+/* Height rather than width, so flex can shrink it; aspect-ratio keeps it square.
+   50vw less the column's padding and 32px is the width cap the rule above
+   writes as 100% - 32px, which a height cannot say. The editor's sidebar sets
+   its own width (styles/editor.css), hence :not(.editing). */
+.np-overlay:not(.editing) .np-overlay-art {
+  width: auto; height: min(clamp(240px, 52vh, 520px), calc(50vw - 2 * clamp(20px, 4vw, 56px) - 32px));
+  flex: 0 1 auto; min-height: 96px;
+}
 .np-overlay-art img { width: 100%; height: 100%; object-fit: cover; }
 /* Hover (or keyboard focus) dims the art and shows Favorite, Add to playlist
    and View album over it: a second route to rows the More menu also has. */
@@ -210,7 +224,7 @@ html[data-platform="linux"] #ov-video-close { right: calc(var(--caption-reserve,
    fight a marquee: centred overflow clips at both ends, and the ellipsis would
    paint mid-scroll. Must sit after the two rules above - equal specificity. */
 .marquee-on { text-align: left; text-overflow: clip; }
-.np-overlay-controls { display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%; position: relative; }
+.np-overlay-controls { display: flex; flex-direction: column; align-items: center; gap: clamp(6px, 1.6vh, 12px); width: 100%; position: relative; }
 /* Idle fade: after a few still seconds the controls step out of the way of
    the artwork. The progress row deliberately stays, so you can still see
    where you are in the track without moving the mouse. :focus-within keeps
@@ -227,7 +241,7 @@ html[data-platform="linux"] #ov-video-close { right: calc(var(--caption-reserve,
 .np-overlay:not(.video).idle:not(:focus-within) .np-overlay-btns,
 .np-overlay:not(.video).idle:not(:focus-within) .np-overlay-vol { opacity: 0; max-height: 0; pointer-events: none; }
 /* Same idle gate, grown into the space the rows above just gave up. */
-.np-overlay.idle:not(:focus-within) .np-overlay-art { width: min(clamp(240px, 58vh, 540px), calc(100% - 32px)); }
+.np-overlay:not(.editing).idle:not(:focus-within) .np-overlay-art { height: min(clamp(240px, 58vh, 540px), calc(50vw - 2 * clamp(20px, 4vw, 56px) - 32px)); }
 
 /* Reversible fade/grow, same 140ms popup easing as the context menu below -
    display stays block always so opacity/transform/visibility can animate;
@@ -298,7 +312,7 @@ html[data-platform="linux"] #ov-video-close { right: calc(var(--caption-reserve,
 .np-ov-tab { font-family: var(--font); font-size: 12px; font-weight: 500; color: var(--text3); background: none; border: none; padding: 12px 14px; cursor: pointer; position: relative; transition: color 0.12s; }
 .np-ov-tab:hover { color: var(--text2); }
 .np-ov-tab.active { color: var(--text); }
-.np-ov-tab.active::after { content: ''; position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; background: var(--grad); border-radius: 2px 2px 0 0; }
+.np-ov-tab.active::after { content: ''; position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; background: var(--accent); border-radius: 2px 2px 0 0; }
 .np-ov-panel { display: none; flex: 1; overflow-y: auto; }
 .np-ov-panel::-webkit-scrollbar { width: 4px; }
 .np-ov-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
@@ -323,8 +337,11 @@ html[data-platform="linux"] #ov-video-close { right: calc(var(--caption-reserve,
 .q-chevron { transition: transform 0.2s ease; color: var(--text3); }
 .q-history-toggle[aria-expanded="true"] .q-chevron { transform: rotate(90deg); }
 .q-count { font-size: 11px; font-weight: 500; color: var(--text3); }
-.q-clear { background: none; border: none; cursor: pointer; font-family: var(--font); font-size: 12px; font-weight: 600; color: var(--red); padding: 0; }
-.q-clear:hover { text-decoration: underline; }
+/* Quiet at rest, red only when about to act: a column of red links read as
+   errors on every queue open. */
+.q-clear { background: none; border: none; cursor: pointer; font-family: var(--font); font-size: 12px; font-weight: 600; color: var(--text2); padding: 0; transition: color 0.12s; }
+.q-clear:hover, .q-clear:focus-visible { color: var(--red); text-decoration: underline; }
+.q-panel-title { font-size: 18px; font-weight: 600; color: var(--text); }
 .q-now { position: sticky; top: 0; z-index: 2; padding: 10px 8px 8px; margin: 4px 0; background: rgba(20,20,24,0.72); backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%); border-bottom: 1px solid var(--border); }
 .q-now .q-sect-title { padding: 0 8px 6px; }
 html[data-theme="light"] .q-now { background: rgba(255,255,255,0.72); }
@@ -364,8 +381,10 @@ html[data-theme="light"] .q-now { background: rgba(255,255,255,0.72); }
    sideways as the active line moves. */
 /* --np-lyric-scale is the Now Playing lyric size setting (renderer.js
    saveNpTuning()/loadNpTuning()) - a multiplier on the shipped clamp so a
-   stored size never has to duplicate its min/preferred/max, just scale them. */
-.ov-lyric-line { text-align: left; font-size: calc(clamp(22px, 3vw, 50px) * var(--np-lyric-scale, 1)); font-weight: 800; letter-spacing: -0.015em; color: white; padding: calc(var(--ly-line-gap, 8px) / 2) 56px; line-height: 1.25; cursor: default; max-width: min(900px, 92%); opacity: 0; filter: blur(var(--ly-far-blur, 6px)); transform-origin: left center; transition: opacity var(--ly-fade, 1s) cubic-bezier(0.16,1,0.3,1), filter var(--ly-fade, 1s) cubic-bezier(0.16,1,0.3,1), transform var(--ly-fade, 1s) cubic-bezier(0.16,1,0.3,1); }
+   stored size never has to duplicate its min/preferred/max, just scale them.
+   The preferred size follows the height too (5.5vh), and the side padding the
+   width, so a short or narrow window keeps more than three lines in view. */
+.ov-lyric-line { text-align: left; font-size: calc(clamp(22px, min(3vw, 5.5vh), 50px) * var(--np-lyric-scale, 1)); font-weight: 800; letter-spacing: -0.015em; color: white; padding: calc(var(--ly-line-gap, 8px) / 2) clamp(28px, 4vw, 56px); line-height: 1.25; cursor: default; max-width: min(900px, 92%); opacity: 0; filter: blur(var(--ly-far-blur, 6px)); transform-origin: left center; transition: opacity var(--ly-fade, 1s) cubic-bezier(0.16,1,0.3,1), filter var(--ly-fade, 1s) cubic-bezier(0.16,1,0.3,1), transform var(--ly-fade, 1s) cubic-bezier(0.16,1,0.3,1); }
 /* Segoe UI has no 800, so CSS font matching rounds up to 900 (Segoe UI
    Black) and Windows lyrics came out far heavier than SF Pro's Heavy on the
    Mac. 700 is Segoe UI Bold, the closest match. */
@@ -497,4 +516,6 @@ html[data-theme="light"] #ov-panel-lyrics.browsing .ov-lyric-line.active { color
 .ov-lyric-line.lyric-preview { opacity: var(--ly-next3-opacity, 0.1); filter: blur(var(--ly-next3-blur, 4px)); }
 
 /* Untimed lyrics (renderer.js _lyricsPlain): every line readable, none followed. */
-#ov-lyrics-body.plain .ov-lyric-line { opacity: 0.92; filter: none; transform: none; transition: none; }
+#ov-lyrics-body.plain .ov-lyric-line { opacity: 0.92; filter: none; transform: none; transition: none; font-size: calc(clamp(22px, 3vw, 50px) * var(--np-plain-lyric-scale, 0.55)); }
+/* --np-plain-lyric-scale is displayPrefs.plainLyricScale, the Theme panel's
+   Plain lyrics size: unsynced text sized apart from the synced lines. */

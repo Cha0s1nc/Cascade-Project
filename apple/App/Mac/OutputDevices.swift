@@ -27,12 +27,12 @@ struct OutputDeviceSettings: View {
             if let notice = player.outputNotice {
                 HStack(alignment: .firstTextBaseline) {
                     Label(notice, systemImage: "exclamationmark.triangle")
-                        .font(.caption)
+                        .scaledFont(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
                     Button("Dismiss") { player.outputNotice = nil }
                         .buttonStyle(.link)
-                        .font(.caption)
+                        .scaledFont(.caption)
                 }
             }
         }

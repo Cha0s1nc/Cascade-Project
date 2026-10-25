@@ -109,6 +109,9 @@ struct NowPlayingBackground: View {
 
     @Environment(AppState.self) private var state
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Increase Contrast darkens the background as lyrics do, by the cover's brightness: white
+    /// text over a pale cover's blobs (a yellow one) was near 2:1 however white the text was.
+    @Environment(\.colorSchemeContrast) private var contrast
 
     /// How long the colors take to change: over the crossfade while one is
     /// changing the cover (the desktop's fadeOverlayColors), the setting's
@@ -153,7 +156,7 @@ struct NowPlayingBackground: View {
         }
         .overlay {
             Color.black
-                .opacity(behindLyrics && !light ? Self.lyricsDim(colors, tune) : 0)
+                .opacity((behindLyrics || contrast == .increased) && !light ? Self.lyricsDim(colors, tune) : 0)
                 .animation(.easeInOut(duration: 0.6), value: behindLyrics)
                 .animation(.easeInOut(duration: fadeLength), value: colors)
         }

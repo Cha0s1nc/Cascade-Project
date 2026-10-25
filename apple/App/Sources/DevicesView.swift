@@ -38,7 +38,7 @@ struct DevicesSheet: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(session.label)
                                     Text(nowPlaying(session))
-                                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                        .scaledFont(.caption).foregroundStyle(.secondary).lineLimit(1)
                                 }
                                 Spacer()
                                 if session.id == state.controlledDevice?.id {
@@ -94,7 +94,7 @@ struct DevicesSheet: View {
         Section(s.label) {
             if s.nowPlayingItem == nil {
                 Text("Not playing. Hand it this queue, or pick \"Play on \(s.label)\" in a song's menu.")
-                    .font(.callout).foregroundStyle(.secondary)
+                    .scaledFont(.callout).foregroundStyle(.secondary)
             }
             if s.nowPlayingItem != nil {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -128,7 +128,7 @@ struct DevicesSheet: View {
                     Button { send("NextTrack") } label: { Image(systemName: "forward.fill") }
                     Spacer()
                 }
-                .font(.title2)
+                .scaledFont(.title2)
                 .buttonStyle(.borderless)
             }
             if let level = s.playState?.volumeLevel {

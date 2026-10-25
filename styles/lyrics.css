@@ -18,6 +18,21 @@
    (nested inside the line, so centring and click-to-seek cover both). */
 .lyrics-line { font-size: 20px; font-weight: 700; line-height: 1.35; letter-spacing: -0.01em; color: var(--text); padding: 10px 0; transition: opacity 0.35s ease; opacity: 0.3; }
 .lyrics-line.active { opacity: 1; }
+/* Translations under the words (_layoutGlosses in renderer.js). A .glossed
+   line's rows are --gloss-h further apart, which leaves a gloss's height under
+   every row; the top half of that is taken back with a negative margin, and
+   the last row's room comes from the padding. Each .lyric-gloss is placed by
+   JS, in the line's own coordinates. */
+.lyrics-line.glossed, .ov-lyric-line.glossed { position: relative; margin-top: calc(var(--gloss-h) / -2); }
+.lyrics-line.glossed { line-height: calc(1.35em + var(--gloss-h)); padding-bottom: calc(10px + var(--gloss-h) / 2); }
+.ov-lyric-line.glossed { line-height: calc(1.25em + var(--gloss-h)); padding-bottom: calc(var(--ly-line-gap, 8px) / 2 + var(--gloss-h) / 2); }
+.glossed .lyric-bg { line-height: 1.25; }
+/* A background-vocal row moves down out of the last row's gloss. */
+.glossed .lyric-bg, .glossed-last .lyric-bg { margin-top: var(--gloss-h); }
+.lyrics-line.glossed-last, .ov-lyric-line.glossed-last { position: relative; }
+.lyrics-line.glossed-last { padding-bottom: calc(10px + var(--gloss-h)); }
+.ov-lyric-line.glossed-last { padding-bottom: calc(var(--ly-line-gap, 8px) / 2 + var(--gloss-h)); }
+.lyrics-line .lyric-gloss, .ov-lyric-line .lyric-gloss { position: absolute; margin: 0; white-space: nowrap; text-align: left; pointer-events: none; }
 .lyric-trans { font-size: 12px; font-weight: 500; line-height: 1.4; letter-spacing: 0; margin-top: 4px; color: var(--text2); -webkit-text-fill-color: currentColor; }
 .lyrics-empty { font-size: 12px; color: var(--text3); text-align: center; padding: 40px 0; }
 /* The karaoke word fill, background vocals and held notes are in karaoke.css,
@@ -82,6 +97,10 @@ html[data-theme="light"] .lyrics-edit-btn:hover { background: rgba(0,0,0,0.1); c
 .lyrics-credit-link:hover { color: var(--text); text-decoration: underline; }
 .np-overlay.art-theme .lyrics-credit { color: rgba(255,255,255,0.6); }
 .np-overlay.art-theme .lyrics-credit-link { color: rgba(255,255,255,0.85); }
+/* The light art wash is pale, so the white credit above vanishes on it. The
+   shadow flips to a light halo for the same reason. */
+html[data-theme="light"] .np-overlay.art-theme .lyrics-credit { color: rgba(28,28,30,0.7); text-shadow: 0 1px 6px rgba(255,255,255,0.5); }
+html[data-theme="light"] .np-overlay.art-theme .lyrics-credit-link { color: rgba(28,28,30,0.9); }
 
 /* ── Lyrics source dropdown ── */
 /* Was a one-shot @keyframes that only played on open, so closing just

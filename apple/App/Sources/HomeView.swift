@@ -13,6 +13,9 @@ struct HomeView: View {
     @State private var playlists: [JfItem] = []
     @State private var isLoading = true
     @State private var error: String?
+    /// View > Zoom on the Mac: the art grows with it, so its slot must too or the tiles overlap.
+    @Environment(\.uiScale) private var uiScale
+    private var tile: CGFloat { 150 * uiScale }
 
     private var isEmpty: Bool {
         recentAlbums.isEmpty && recentTracks.isEmpty && frequentTracks.isEmpty && playlists.isEmpty
@@ -20,7 +23,10 @@ struct HomeView: View {
 
     var body: some View {
         ScrollView {
-            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: isEmpty, skeleton: .grid)
+            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: isEmpty, emptySymbol: "house", skeleton: .grid,
+                           emptyTitle: "Nothing yet",
+                           emptyMessage: "What you play and what is added to the library shows up here.",
+                           retry: { Task { await load() } })
             VStack(alignment: .leading, spacing: 24) {
                 #if os(macOS)
                 GreetingHeader()
@@ -44,44 +50,48 @@ struct HomeView: View {
             .padding(.vertical)
         }
         .navigationTitle("Home")
+        .refreshable { await load() }
         // Keyed on the library selection, so changing it in Settings reloads.
-        .task(id: state.config?.libraryIds) {
-            guard let client = state.client else { return }
-            state.snapshotHistory()
-            isLoading = true
-            do {
-                async let added = client.recentlyAdded()
-                async let played = client.recentlyPlayed()
-                async let frequent = client.frequentlyPlayed()
-                // Playlists are optional here: a failure hides the row rather
-                // than the whole screen.
-                async let lists = try? client.playlists()
-                (recentAlbums, recentTracks, frequentTracks) = try await (added, played, frequent)
-                playlists = Array(RecentPlaylists.ordered(await lists ?? []).prefix(12))
-                error = nil
-            } catch {
-                self.error = error.localizedDescription
-            }
-            isLoading = false
+        .task(id: state.config?.libraryIds) { await load() }
+    }
+
+    private func load() async {
+        guard let client = state.client else { return }
+        state.snapshotHistory()
+        // Not on a pull to refresh: the shelves stay up while it reloads.
+        if isEmpty { isLoading = true }
+        do {
+            async let added = client.recentlyAdded()
+            async let played = client.recentlyPlayed()
+            async let frequent = client.frequentlyPlayed()
+            // Playlists are optional here: a failure hides the row rather
+            // than the whole screen.
+            async let lists = try? client.playlists()
+            (recentAlbums, recentTracks, frequentTracks) = try await (added, played, frequent)
+            playlists = Array(RecentPlaylists.ordered(await lists ?? []).prefix(12))
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
         }
+        isLoading = false
     }
 
     private func row(_ title: String, albums: [JfItem]) -> some View {
         VStack(alignment: .leading) {
-            Text(title).font(.headline).padding(.horizontal)
+            Text(title).scaledFont(.headline).padding(.horizontal)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 16) {
                     ForEach(albums) { album in
                         NavigationLink(value: album) {
                             VStack(alignment: .leading, spacing: 6) {
                                 ArtworkView(itemId: album.id, size: 150)
-                                Text(album.name ?? "Unknown").font(.caption).lineLimit(1)
+                                Text(album.name ?? "Unknown").scaledFont(.caption).lineLimit(1)
                             }
                             // Pinned to the art: a horizontal ScrollView offers
                             // its children unlimited width, so lineLimit(1)
                             // never truncated and a long title widened its
                             // whole tile, leaving a gap in the shelf.
-                            .frame(width: 150, alignment: .leading)
+                            .frame(width: tile, alignment: .leading)
                         }
                         .buttonStyle(.plain)
                         .itemContextMenu(album)
@@ -98,10 +108,10 @@ struct HomeView: View {
     private func row(_ title: String, tracks: [JfItem], more: AppRoute? = nil) -> some View {
         VStack(alignment: .leading) {
             HStack {
-                Text(title).font(.headline)
+                Text(title).scaledFont(.headline)
                 Spacer()
                 if let more {
-                    NavigationLink("See All", value: more).font(.callout)
+                    NavigationLink("See All", value: more).scaledFont(.callout)
                 }
             }
             .padding(.horizontal)
@@ -113,13 +123,13 @@ struct HomeView: View {
                         } label: {
                             VStack(alignment: .leading, spacing: 6) {
                                 ArtworkView(itemId: track.albumId ?? track.id, size: 150)
-                                Text(track.name ?? "Unknown").font(.caption).lineLimit(1)
+                                Text(track.name ?? "Unknown").scaledFont(.caption).lineLimit(1)
                                 Text(track.albumArtist ?? track.artists?.first ?? "")
-                                    .font(.caption2)
+                                    .scaledFont(.caption2)
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                             }
-                            .frame(width: 150, alignment: .leading)   // see the album row
+                            .frame(width: tile, alignment: .leading)   // see the album row
                         }
                         .buttonStyle(.plain)
                         .trackContextMenu(track)

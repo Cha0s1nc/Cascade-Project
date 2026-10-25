@@ -19,6 +19,7 @@
   <link rel="stylesheet" href="styles/components.css" />
   <link rel="stylesheet" href="styles/devices.css" />
   <link rel="stylesheet" href="styles/radio.css" />
+  <link rel="stylesheet" href="styles/editor.css" />
 </head>
 <body>
 <div class="app">
@@ -26,6 +27,21 @@
   <!-- Titlebar -->
   <header class="titlebar">
     <span class="tb-title">Cascade</span>
+    <!-- Search: a centered field on Home, tucked into a "Search" pill beside
+         .tb-right everywhere else (titlebar.search-tucked), sliding open on a
+         click or Cmd/Ctrl+K. Placement and state: syncSearchPlacement() in
+         renderer.js. -->
+    <div class="top-search-bar" id="tb-search">
+      <div class="search-input-wrap">
+        <svg class="search-icon-inline" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <span class="search-tuck-label" aria-hidden="true">Search</span>
+        <input class="search-input-field" id="search-input" type="text" placeholder="Search songs, albums, artists…" aria-label="Search" autocomplete="off" />
+        <button class="search-clear-btn" id="search-clear" style="display:none" aria-label="Clear search">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div id="search-results" class="search-dropdown"></div>
+    </div>
     <div class="tb-right">
       <!-- Shown while Offline Mode is on (body.offline-on); opens Downloads. -->
       <button class="offline-pill" id="offline-pill" type="button" title="Offline Mode is on: only what is downloaded shows">Offline</button>
@@ -48,9 +64,14 @@
 
   <!-- Theme picker panel -->
   <div class="theme-picker" id="theme-picker" role="dialog" aria-label="Theme">
-    <!-- Three pages, one shown at a time (.active): the main one with the mode
-         and font, and Colors and Lyrics behind their rows. Closing the panel
-         returns it to the main page. -->
+    <!-- Two pages, one shown at a time (.active): the main one, and Share a
+         look behind its row. Closing the panel returns it to the main page.
+         Mode, colors, font and the Share a look page are the same elements
+         the customization editor in Now Playing shows: each [data-share] block
+         moves into the editor's matching [data-slot] while it is open and back
+         to its [data-home] here when it closes (renderer.js, _ceMoveShared).
+         The two can never be on screen together, since Now Playing covers the
+         title bar. -->
     <div class="tp-page active" data-page="main">
       <div class="tp-row">
         <span class="tp-title">Theme</span>
@@ -59,99 +80,59 @@
       <div class="tp-divider"></div>
       <div>
         <div class="tp-label">Mode</div>
-        <div class="seg-control">
-          <button class="seg-btn active" data-thememode="dark" id="seg-dark">Dark</button>
-          <button class="seg-btn" data-thememode="light" id="seg-light">Light</button>
+        <div data-home="mode">
+          <div class="seg-control" data-share="mode">
+            <button class="seg-btn active" data-thememode="dark" id="seg-dark">Dark</button>
+            <button class="seg-btn" data-thememode="light" id="seg-light">Light</button>
+          </div>
         </div>
       </div>
       <span class="tp-hint" id="tp-server-style-note" hidden></span>
+      <div>
+        <div class="tp-label">Colors</div>
+        <div data-home="colors">
+          <div class="tp-colors-block" data-share="colors">
+            <div class="tp-colors">
+              <div class="tp-color-wrap">
+                <input type="color" class="tp-swatch" id="grad-start" value="#4ade80" aria-label="Gradient start">
+                <span class="tp-color-name">Start</span>
+              </div>
+              <span class="tp-arrow">→</span>
+              <div class="tp-color-wrap">
+                <input type="color" class="tp-swatch" id="grad-end" value="#7c3aed" aria-label="Gradient end">
+                <span class="tp-color-name">End</span>
+              </div>
+            </div>
+            <div class="tp-presets" id="tp-presets"></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="tp-label">Font</div>
+        <div data-home="font">
+          <div class="tp-font-block" data-share="font">
+            <select class="setting-input" id="tp-font-preset" aria-label="Font">
+              <option value="system">System</option>
+              <option value="sans">Helvetica</option>
+              <option value="serif">Georgia</option>
+              <option value="mono">Monospace</option>
+              <option value="custom">Custom…</option>
+            </select>
+            <input type="text" class="setting-input" id="tp-font-custom" placeholder="Font family name" maxlength="60" aria-label="Custom font family" hidden>
+          </div>
+        </div>
+      </div>
       <div class="tp-navs">
-        <button class="tp-nav" data-open="colors"><span class="tp-nav-swatch" aria-hidden="true"></span><span class="tp-nav-name">Colors</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></button>
-        <button class="tp-nav" data-open="lyrics"><span class="tp-nav-name">Lyrics</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></button>
         <button class="tp-nav" data-open="presets"><span class="tp-nav-name">Share a look</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg></button>
       </div>
       <div class="tp-divider"></div>
-      <div>
-        <div class="tp-label">Font</div>
-        <select class="setting-input" id="tp-font-preset">
-          <option value="system">System</option>
-          <option value="sans">Helvetica</option>
-          <option value="serif">Georgia</option>
-          <option value="mono">Monospace</option>
-          <option value="custom">Custom…</option>
-        </select>
-        <input type="text" class="setting-input" id="tp-font-custom" placeholder="Font family name" maxlength="60" hidden>
-      </div>
-    </div>
-
-    <div class="tp-page" data-page="colors">
-      <div class="tp-row">
-        <button class="tp-back" data-open="main" aria-label="Back to Theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 6 9 12 15 18"/></svg></button>
-        <span class="tp-title">Colors</span>
-        <button class="tp-close" aria-label="Close">×</button>
-      </div>
-      <div class="tp-divider"></div>
-      <div>
-        <div class="tp-label">Gradient</div>
-        <div class="tp-colors">
-          <div class="tp-color-wrap">
-            <input type="color" class="tp-swatch" id="grad-start" value="#4ade80">
-            <span class="tp-color-name">Start</span>
-          </div>
-          <span class="tp-arrow">→</span>
-          <div class="tp-color-wrap">
-            <input type="color" class="tp-swatch" id="grad-end" value="#7c3aed">
-            <span class="tp-color-name">End</span>
-          </div>
-        </div>
-      </div>
-      <div>
-        <div class="tp-label">Presets</div>
-        <div class="tp-presets" id="tp-presets"></div>
-      </div>
-      <div class="tp-divider"></div>
-      <div class="tp-album-row">
-        <div class="tp-album-label">
-          <span class="tp-album-name">Album art accent</span>
-          <span class="tp-album-desc">Match gradient to current album's colors</span>
-        </div>
-        <label class="toggle">
-          <input type="checkbox" id="toggle-album-art">
-          <span class="toggle-track"></span>
-        </label>
-      </div>
-      <div>
-        <div class="tp-label">Background dim</div>
-        <input type="range" class="tp-range" id="tp-bg-dim" min="0" max="1" step="0.01" value="0.16">
-        <span class="tp-hint">Light mode with album art accent</span>
-      </div>
-      <div class="tp-album-row">
-        <div class="tp-album-label">
-          <span class="tp-album-name">Blend background with art</span>
-          <span class="tp-album-desc">Light mode with album art accent</span>
-        </div>
-        <label class="toggle">
-          <input type="checkbox" id="tp-bg-blend" checked>
-          <span class="toggle-track"></span>
-        </label>
-      </div>
-    </div>
-
-    <div class="tp-page" data-page="lyrics">
-      <div class="tp-row">
-        <button class="tp-back" data-open="main" aria-label="Back to Theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 6 9 12 15 18"/></svg></button>
-        <span class="tp-title">Lyrics</span>
-        <button class="tp-close" aria-label="Close">×</button>
-      </div>
-      <div class="tp-divider"></div>
-      <span class="tp-hint tp-page-hint">Full-screen lyrics in Now Playing. Changes show right away.</span>
-      <div>
-        <div class="tp-label">Text size</div>
-        <input type="range" class="tp-range" id="tp-lyric-scale" min="0.8" max="1.4" step="0.05" value="1">
-      </div>
-      <!-- Filled from CascadeCore.LYRIC_KNOBS by renderer.js. -->
-      <div class="tp-knobs" id="tp-lyric-knobs"></div>
-      <button class="tp-reset-all" id="tp-lyric-reset">Reset all lyric settings</button>
+      <!-- Opens Now Playing straight into the customization editor. Disabled
+           with aria-disabled rather than disabled, so it stays focusable and
+           the tooltip saying why reaches the keyboard too. -->
+      <button class="tp-style-btn" id="tp-style-btn" type="button">
+        <span class="tp-style-name">Style</span>
+        <span class="tp-style-desc">Now Playing, lyrics and crossfade</span>
+      </button>
     </div>
 
     <!-- Presets: export the current look as a .cascadepreset file or as text,
@@ -165,44 +146,48 @@
         <button class="tp-close" aria-label="Close">×</button>
       </div>
       <div class="tp-divider"></div>
-      <span class="tp-hint tp-page-hint">Save your colors and lyrics style as a preset to share, or load someone else's.</span>
-      <div>
-        <div class="tp-label">Include</div>
-        <div class="tp-album-row">
-          <span class="tp-album-name">Colors, mode and font</span>
-          <label class="toggle"><input type="checkbox" id="tp-preset-theme" checked><span class="toggle-track"></span></label>
+      <div data-home="presets">
+        <div class="tp-stack" data-share="presets">
+          <span class="tp-hint tp-page-hint">Save your colors and lyrics style as a preset to share, or load someone else's.</span>
+          <div>
+            <div class="tp-label">Include</div>
+            <div class="tp-album-row">
+              <span class="tp-album-name">Colors, mode and font</span>
+              <label class="toggle"><input type="checkbox" id="tp-preset-theme" checked><span class="toggle-track"></span></label>
+            </div>
+            <div class="tp-album-row" style="margin-top:8px;">
+              <span class="tp-album-name">Lyrics style</span>
+              <label class="toggle"><input type="checkbox" id="tp-preset-lyrics" checked><span class="toggle-track"></span></label>
+            </div>
+          </div>
+          <div>
+            <div class="tp-label">Name</div>
+            <input type="text" class="setting-input" id="tp-preset-name" placeholder="My look" maxlength="60">
+          </div>
+          <div class="tp-preset-actions">
+            <button class="tp-reset-all" id="tp-preset-export">Export file…</button>
+            <button class="tp-reset-all" id="tp-preset-copy">Copy as text</button>
+          </div>
+          <div class="tp-divider"></div>
+          <div class="tp-preset-actions">
+            <button class="tp-reset-all" id="tp-preset-import">Import file…</button>
+            <button class="tp-reset-all" id="tp-preset-paste">Paste text</button>
+          </div>
+          <span class="tp-hint">Importing replaces only the parts the preset includes.</span>
+          <!-- Admins with Cascade Server: the look above for everyone on the server
+               (renderer.js publishServerStyle). -->
+          <div id="tp-server-style" class="needs-server" hidden>
+            <div class="tp-divider"></div>
+            <div class="tp-label">Server style</div>
+            <span class="tp-hint" id="tp-server-style-status"></span>
+            <div class="tp-preset-actions">
+              <button class="tp-reset-all" id="tp-server-style-default">Offer to everyone</button>
+              <button class="tp-reset-all" id="tp-server-style-enforce">Enforce for everyone</button>
+            </div>
+            <button class="tp-reset-all" id="tp-server-style-off">Turn off server style</button>
+            <span class="tp-hint">Offered fills in whatever people have not changed. Enforced is over their own. Uses the parts switched on under Include.</span>
+          </div>
         </div>
-        <div class="tp-album-row" style="margin-top:8px;">
-          <span class="tp-album-name">Lyrics style</span>
-          <label class="toggle"><input type="checkbox" id="tp-preset-lyrics" checked><span class="toggle-track"></span></label>
-        </div>
-      </div>
-      <div>
-        <div class="tp-label">Name</div>
-        <input type="text" class="setting-input" id="tp-preset-name" placeholder="My look" maxlength="60">
-      </div>
-      <div class="tp-preset-actions">
-        <button class="tp-reset-all" id="tp-preset-export">Export file…</button>
-        <button class="tp-reset-all" id="tp-preset-copy">Copy as text</button>
-      </div>
-      <div class="tp-divider"></div>
-      <div class="tp-preset-actions">
-        <button class="tp-reset-all" id="tp-preset-import">Import file…</button>
-        <button class="tp-reset-all" id="tp-preset-paste">Paste text</button>
-      </div>
-      <span class="tp-hint">Importing replaces only the parts the preset includes.</span>
-      <!-- Admins with Cascade Server: the look above for everyone on the server
-           (renderer.js publishServerStyle). -->
-      <div id="tp-server-style" class="needs-server" hidden>
-        <div class="tp-divider"></div>
-        <div class="tp-label">Server style</div>
-        <span class="tp-hint" id="tp-server-style-status"></span>
-        <div class="tp-preset-actions">
-          <button class="tp-reset-all" id="tp-server-style-default">Offer to everyone</button>
-          <button class="tp-reset-all" id="tp-server-style-enforce">Enforce for everyone</button>
-        </div>
-        <button class="tp-reset-all" id="tp-server-style-off">Turn off server style</button>
-        <span class="tp-hint">Offered fills in whatever people have not changed. Enforced is over their own. Uses the parts switched on under Include.</span>
       </div>
     </div>
   </div>
@@ -318,17 +303,6 @@
         <button class="shuffle-all-btn" id="offline-retry" type="button">Try again</button>
       </div>
 
-      <div class="top-search-bar">
-        <div class="search-input-wrap">
-          <svg class="search-icon-inline" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input class="search-input-field" id="search-input" type="text" placeholder="Search songs, albums, artists…" autocomplete="off" />
-          <button class="search-clear-btn" id="search-clear" style="display:none">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </button>
-        </div>
-        <div id="search-results" class="search-dropdown"></div>
-      </div>
-
       <!-- Home -->
       <div class="view active" id="view-home">
         <div class="greeting" id="greeting">Good afternoon, cha0s</div>
@@ -385,7 +359,7 @@
         <!-- Album grid -->
         <div id="albums-index">
           <div class="sect-header" style="margin-bottom:14px">
-            <span class="sect-title">All Albums</span>
+            <span class="sect-title">All albums</span>
             <div style="display:flex;gap:8px;align-items:center">
               <button class="shuffle-all-btn lib-sort-btn" data-lib-view="albums">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/></svg>
@@ -418,21 +392,27 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
             Back to Albums
           </button>
-          <div class="pl-detail-header">
+          <div class="pl-detail-header album-detail-header">
             <div class="pl-detail-art" id="album-detail-art">♪</div>
-            <div>
+            <div class="album-detail-info">
               <div class="pl-detail-name" id="album-detail-name"></div>
               <div class="pl-detail-meta" id="album-detail-meta"></div>
+              <div class="album-detail-actions">
+                <button class="shuffle-all-btn primary" id="btn-play-album">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  Play
+                </button>
+                <button class="shuffle-all-btn" id="btn-shuffle-album" type="button">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
+                  Shuffle
+                </button>
+                <button class="shuffle-all-btn" id="btn-offline-album" type="button"></button>
+              </div>
             </div>
-            <button class="shuffle-all-btn" id="btn-offline-album" type="button" style="margin-left:auto"></button>
-            <button class="shuffle-all-btn" id="btn-play-album">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-              Play
-            </button>
           </div>
           <div class="track-list">
             <div class="tl-head">
-              <span>#</span><span></span><span>Title</span><span>Album</span><span style="text-align:right">Time</span>
+              <span>#</span><span>Title</span><span style="text-align:right">Time</span>
             </div>
             <div id="album-detail-rows"></div>
           </div>
@@ -513,7 +493,7 @@
         <!-- Artist index -->
         <div id="artist-index">
           <div class="sect-header" style="margin-bottom:14px">
-            <span class="sect-title">All Artists</span>
+            <span class="sect-title">All artists</span>
             <div style="display:flex;gap:8px;align-items:center">
               <button class="shuffle-all-btn lib-sort-btn" data-lib-view="artists">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/></svg>
@@ -561,7 +541,7 @@
             <button class="artist-bio-more" id="artist-bio-more" style="display:none">More</button>
           </div>
           <div id="artist-top-songs-section" style="margin-bottom:20px;display:none">
-            <div class="sect-title" style="margin-bottom:8px">Top Songs</div>
+            <div class="sect-title" style="margin-bottom:8px">Top songs</div>
             <div class="track-list">
               <div class="tl-head">
                 <span>#</span><span></span><span>Title</span><span>Album</span><span style="text-align:right">Time</span>
@@ -580,7 +560,7 @@
             <div class="album-grid" id="artist-albums-grid"></div>
           </div>
           <div id="artist-similar-section" class="needs-server" style="margin-bottom:20px;display:none">
-            <div class="sect-title" style="margin-bottom:9px">Similar Artists</div>
+            <div class="sect-title" style="margin-bottom:9px">Similar artists</div>
             <div class="artist-grid" id="artist-similar-grid"></div>
           </div>
           <div class="sect-title" style="margin-bottom:8px">Songs</div>
@@ -596,7 +576,7 @@
       <!-- Songs -->
       <div class="view" id="view-songs">
         <div class="sect-header" style="margin-bottom:14px">
-          <span class="sect-title">All Songs</span>
+          <span class="sect-title">All songs</span>
           <div style="display:flex;gap:8px;align-items:center">
             <button class="shuffle-all-btn" id="btn-sort-songs">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/></svg>
@@ -1000,6 +980,16 @@
                 </div>
                 <div class="setting-row">
                   <div class="setting-label">
+                    <label class="setting-name" for="skip-transitions-toggle">Smooth skips</label>
+                    <span class="setting-desc">Skipping gets a quick version of the crossfade's look: the cover sweeps across, the lyrics roll on to the next song, and the old song fades out in a fraction of a second.</span>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="skip-transitions-toggle">
+                    <span class="toggle-track"></span>
+                  </label>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">
                     <span class="setting-name">Streaming quality</span>
                     <span class="setting-desc">Cap the bitrate and the server transcodes to fit. Original sends the file untouched.</span>
                   </div>
@@ -1043,7 +1033,7 @@
                 <div class="setting-row" id="output-device-row" style="display:none">
                   <div class="setting-label">
                     <span class="setting-name">Output device</span>
-                    <span class="setting-desc">Which speakers or headphones Cascade plays to. Falls back to the system default if this device disappears.</span>
+                    <span class="setting-desc">Falls back to the system default if this device disappears.</span>
                   </div>
                   <select class="setting-input" id="output-device">
                     <option value="default">System default</option>
@@ -1127,133 +1117,19 @@
                   </div>
                 </div>
               </div>
-              <!-- renderer.js displayPrefs; the Apple apps' DisplayPrefs keeps the same keys. -->
+              <!-- The cover animation and the background color fade are set in Now
+                   Playing's customization editor (Crossfade and Now Playing tabs),
+                   where they show live. renderer.js displayPrefs; the Apple apps'
+                   DisplayPrefs keeps the same keys. -->
               <div class="settings-group">
                 <div class="sg-title">Transitions</div>
                 <div class="setting-row">
                   <div class="setting-label">
-                    <span class="setting-name">Animate covers on crossfade</span>
-                    <span class="setting-desc">The old cover makes way for the new one while the songs crossfade. Needs Crossfade on.</span>
+                    <span class="setting-name">Cover transitions</span>
+                    <span class="setting-desc">How the cover changes during a crossfade, shown live in Now Playing.</span>
                   </div>
-                  <label class="toggle">
-                    <input type="checkbox" id="cover-slice-toggle">
-                    <span class="toggle-track"></span>
-                  </label>
-                </div>
-                <div class="setting-row" id="cover-slice-style-row">
-                  <div class="setting-label">
-                    <span class="setting-name">Style</span>
-                    <span class="setting-desc">Slice cuts the old cover away, Fade dissolves it, Push slides the new one in.</span>
-                  </div>
-                  <select class="setting-input" id="cover-slice-style">
-                    <option value="slice">Slice</option>
-                    <option value="fade">Fade</option>
-                    <option value="push">Push</option>
-                  </select>
-                </div>
-                <div class="setting-row" id="cover-slice-direction-row">
-                  <div class="setting-label">
-                    <span class="setting-name">Direction</span>
-                    <span class="setting-desc">The way the cut moves. Push goes straight sideways on a diagonal.</span>
-                  </div>
-                  <select class="setting-input" id="cover-slice-direction">
-                    <option value="up-left">Up and left</option>
-                    <option value="up">Up</option>
-                    <option value="up-right">Up and right</option>
-                    <option value="right">Right</option>
-                    <option value="down-right">Down and right</option>
-                    <option value="down">Down</option>
-                    <option value="down-left">Down and left</option>
-                    <option value="left">Left</option>
-                  </select>
-                </div>
-                <div class="setting-row" id="cover-slice-hold-row">
-                  <div class="setting-label">
-                    <span class="setting-name">Hold</span>
-                    <span class="setting-desc">Where it waits while both songs play.</span>
-                  </div>
-                  <select class="setting-input" id="cover-slice-hold">
-                    <option value="half">Half and half</option>
-                    <option value="old">Mostly the old cover</option>
-                    <option value="new">Mostly the new cover</option>
-                    <option value="sweep">No hold, sweep across the fade</option>
-                  </select>
-                </div>
-                <div class="setting-row" id="cover-slice-in-row">
-                  <div class="setting-label">
-                    <span class="setting-name">Cut in</span>
-                  </div>
-                  <div class="setting-slider-row">
-                    <input type="range" id="cover-slice-in" min="0.2" max="2" step="0.1" value="0.8">
-                    <span class="eq-band-value" id="cover-slice-in-value">0.8s</span>
-                  </div>
-                </div>
-                <div class="setting-row" id="cover-slide-out-row">
-                  <div class="setting-label">
-                    <span class="setting-name">Slide out</span>
-                  </div>
-                  <div class="setting-slider-row">
-                    <input type="range" id="cover-slide-out" min="0.3" max="3" step="0.1" value="1.2">
-                    <span class="eq-band-value" id="cover-slide-out-value">1.2s</span>
-                  </div>
-                </div>
-                <div class="setting-row" id="cover-slice-easing-row">
-                  <div class="setting-label">
-                    <span class="setting-name">Easing</span>
-                  </div>
-                  <select class="setting-input" id="cover-slice-easing">
-                    <option value="smooth">Smooth</option>
-                    <option value="snappy">Snappy</option>
-                    <option value="linear">Linear</option>
-                  </select>
-                </div>
-                <div class="setting-row" id="cover-slice-seam-row">
-                  <div class="setting-label">
-                    <span class="setting-name">Seam</span>
-                    <span class="setting-desc">The glowing edge on the cut, in Now Playing.</span>
-                  </div>
-                  <select class="setting-input" id="cover-slice-seam">
-                    <option value="white">White</option>
-                    <option value="accent">Accent color</option>
-                    <option value="off">Off</option>
-                  </select>
-                </div>
-                <div class="setting-row" id="cover-slice-glow-row">
-                  <div class="setting-label">
-                    <span class="setting-name">Seam glow</span>
-                  </div>
-                  <div class="setting-slider-row">
-                    <input type="range" id="cover-slice-glow" min="0" max="2" step="0.05" value="1">
-                    <span class="eq-band-value" id="cover-slice-glow-value">100%</span>
-                  </div>
-                </div>
-                <div class="setting-row" id="cover-slice-shadow-row">
-                  <div class="setting-label">
-                    <span class="setting-name">Edge shadow</span>
-                  </div>
-                  <div class="setting-slider-row">
-                    <input type="range" id="cover-slice-shadow" min="0" max="2" step="0.05" value="1">
-                    <span class="eq-band-value" id="cover-slice-shadow-value">100%</span>
-                  </div>
-                </div>
-                <div class="setting-row">
-                  <div class="setting-label">
-                    <span class="setting-name">Fade background colors between songs</span>
-                    <span class="setting-desc">With the album-art colors on, the background fades over the crossfade, or for the time below on a skip.</span>
-                  </div>
-                  <label class="toggle">
-                    <input type="checkbox" id="color-fade-toggle">
-                    <span class="toggle-track"></span>
-                  </label>
-                </div>
-                <div class="setting-row" id="color-fade-seconds-row">
-                  <div class="setting-label">
-                    <span class="setting-name">Fade on skip</span>
-                  </div>
-                  <div class="setting-slider-row">
-                    <input type="range" id="color-fade-seconds" min="0.2" max="2" step="0.1" value="0.7">
-                    <span class="eq-band-value" id="color-fade-seconds-value">0.7s</span>
-                  </div>
+                  <!-- aria-disabled, not disabled, so the tooltip saying why reaches the keyboard. -->
+                  <button class="btn btn-secondary" id="s-customize-np" type="button">Customize in Now Playing</button>
                 </div>
               </div>
               <div class="settings-group">
@@ -1261,7 +1137,7 @@
                 <div class="setting-row">
                   <div class="setting-label">
                     <span class="setting-name">Explicit marks</span>
-                    <span class="setting-desc">An E after explicit songs. Needs Cascade Server 1.1 on your server.</span>
+                    <span class="setting-desc">An E after explicit songs. Needs the CascadeServer plugin</span>
                   </div>
                   <label class="toggle">
                     <input type="checkbox" id="explicit-marks-toggle">
@@ -1271,7 +1147,7 @@
                 <div class="setting-row">
                   <div class="setting-label">
                     <span class="setting-name">Video covers</span>
-                    <span class="setting-desc">An album's cover.mp4 plays in place of its cover. Needs Cascade Server 1.1 on your server.</span>
+                    <span class="setting-desc">An album's cover.mp4 plays in place of its cover. Needs the CascadeServer plugin</span>
                   </div>
                   <label class="toggle">
                     <input type="checkbox" id="video-covers-toggle">
@@ -1290,8 +1166,8 @@
                 <div class="setting-row" id="server-only-lyrics-row">
                   <div class="setting-label">
                     <span class="setting-name">Server-only Mode</span>
-                    <span class="setting-desc">Use the Cascade Server Jellyfin plugin exclusively for lyrics and art. Requires the plugin to be installed on your server.</span>
-                    <span class="setting-desc" id="server-only-plugin-missing" style="display:none">Cascade Server plugin not found on this server. Install it through my Github page to use server-only mode and the lyrics editor.</span>
+                    <span class="setting-desc">Use the CascadeServer plugin exclusively for lyrics and art. Requires the plugin to be installed on your server.</span>
+                    <span class="setting-desc" id="server-only-plugin-missing" style="display:none">CascadeServer plugin not found on this server. Install it through the GitHub page to use server-only mode and the lyrics editor.</span>
                   </div>
                   <label class="toggle" id="server-only-toggle-label">
                     <input type="checkbox" id="server-only-lyrics-toggle">
@@ -1508,6 +1384,17 @@
                   <button class="btn btn-secondary" id="btn-check-updates" style="font-size:12px;padding:5px 14px;">Check for updates</button>
                 </div>
               </div>
+              <!-- Hidden while telemetry is dormant (CascadeCore.TELEMETRY_URL empty); loadSettingsFields() shows it. -->
+              <div class="settings-group settings-about" id="s-telemetry-row" style="display:none;">
+                <div>
+                  <div style="font-size:13px;font-weight:500;color:var(--text);">Share anonymous usage counts</div>
+                  <div style="font-size:11px;color:var(--text3);">Once a day: a random ID, the app version, edition, kind of computer, and how many songs played. Never your login, server, or what you listened to. Off deletes the ID.</div>
+                </div>
+                <label class="toggle">
+                  <input type="checkbox" id="s-telemetry-toggle">
+                  <span class="toggle-track"></span>
+                </label>
+              </div>
               <!-- macOS on Apple Silicon only; renderer.js shows it. -->
               <div class="settings-group settings-about" id="native-mac-row" style="display:none;">
                 <div>
@@ -1515,6 +1402,50 @@
                   <div style="font-size:11px;color:var(--text3);">A rewrite of Cascade for the Mac, in beta. It replaces this app in place and brings your settings with it.</div>
                 </div>
                 <button class="btn btn-secondary" id="btn-try-native-mac" style="font-size:12px;padding:5px 14px;">Try the native Mac app</button>
+              </div>
+              <div class="settings-group">
+                <div class="sg-title">Tips</div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Show tips</span>
+                    <span class="setting-desc">A short pointer the first time a feature comes up, like what the mark on the lyrics button means.</span>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="s-tips-toggle" checked>
+                    <span class="toggle-track"></span>
+                  </label>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Show tips again</span>
+                    <span class="setting-desc">Brings back every tip, including ones you already saw.</span>
+                  </div>
+                  <button class="btn btn-secondary" id="s-tips-reset">Reset tips</button>
+                </div>
+              </div>
+              <!-- renderer.js "Toast": default and advanced messages. Debug ones are never a setting. -->
+              <div class="settings-group">
+                <div class="sg-title">Messages</div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Show messages</span>
+                    <span class="setting-desc">A short note at the bottom of the window when you do something, like "Added to playlist" or "Sleep timer set".</span>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="s-toasts-toggle" checked>
+                    <span class="toggle-track"></span>
+                  </label>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span class="setting-name">Advanced messages</span>
+                    <span class="setting-desc">Also say what Cascade does in the background, like which lyrics source answered or when a song switches to a transcode.</span>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="s-toasts-advanced-toggle">
+                    <span class="toggle-track"></span>
+                  </label>
+                </div>
               </div>
             </section>
           </div>
@@ -1564,7 +1495,7 @@
       </button>
       <div class="vol-bar" id="vol-bar" tabindex="0" role="slider" aria-label="Volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="75"><div class="vol-fill" id="vol-fill"></div></div>
       <button class="ctrl-btn" id="btn-lyrics-open" title="Lyrics" style="margin-left:6px;">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line class="lyrics-cross" x1="2" y1="2" x2="22" y2="22"/></svg>
       </button>
       <button class="ctrl-btn needs-server" id="btn-waterfall-open" title="Waterfall - listen together (beta)" style="margin-left:6px;">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.7s5.5 5.2 5.5 9.3a5.5 5.5 0 0 1-11 0C6.5 7.9 12 2.7 12 2.7z"/></svg>
@@ -1606,9 +1537,9 @@
     <!-- For a server behind Cloudflare Access, Authelia or another reverse
          proxy that wants a header. Closed unless some are already saved. -->
     <details class="setup-advanced" id="setup-advanced">
-      <summary>Reverse proxy headers</summary>
-      <textarea id="setup-headers" rows="3" spellcheck="false" autocomplete="off" placeholder="CF-Access-Client-Id: ...&#10;CF-Access-Client-Secret: ..."></textarea>
-      <p class="setup-qc-hint">One <strong>Name: Value</strong> per line. Sent only to this server.</p>
+      <summary>Advanced</summary>
+      <textarea id="setup-headers" aria-label="Reverse proxy headers" rows="3" spellcheck="false" autocomplete="off" placeholder="CF-Access-Client-Id: ...&#10;CF-Access-Client-Secret: ..."></textarea>
+      <p class="setup-qc-hint">Reverse proxy headers, one <strong>Name: Value</strong> per line. Sent only to this server.</p>
     </details>
     <div class="setup-error" id="setup-error"></div>
     <button class="setup-btn" id="setup-connect">Connect</button>
@@ -1689,6 +1620,16 @@
           <span class="eq-band-value" id="fr-crossfade-duration-value">6s</span>
         </div>
       </div>
+      <div class="setting-row" style="padding:11px 0;">
+        <div class="setting-label">
+          <span class="setting-name">Smooth skips</span>
+          <span class="setting-desc">A quick transition when you skip: the cover sweeps, the lyrics roll on, the old song fades out.</span>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="fr-skip-transitions-toggle">
+          <span class="toggle-track"></span>
+        </label>
+      </div>
     </div>
 
     <div id="fr-step-quality" style="display:none">
@@ -1732,6 +1673,20 @@
       <p class="setup-subtitle" id="fr-apple-translation-note" style="display:none;font-size:11px;margin-top:10px;">On this Mac, Cascade uses Apple's built-in translation instead, for any of these languages installed in macOS, and nothing downloads for those. You can change this in Settings.</p>
     </div>
 
+    <div id="fr-step-telemetry" style="display:none">
+      <p class="setup-subtitle">Help count how many people use Cascade. Off unless you turn it on.</p>
+      <div class="tp-album-row">
+        <div class="tp-album-label">
+          <span class="tp-album-name">Share anonymous usage counts</span>
+          <span class="tp-album-desc">Once a day Cascade sends a random ID made for this purpose, the app version, which edition and kind of computer, and how many songs played. Never your name, login, server, or what you listened to. Turning it off deletes the ID.</span>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="fr-telemetry-toggle">
+          <span class="toggle-track"></span>
+        </label>
+      </div>
+    </div>
+
     <p class="setup-subtitle" style="font-size:11px;margin:16px 0 0;">You can change all of this later in Settings.</p>
     <button class="setup-btn" id="fr-next">Next</button>
     <button class="setup-btn setup-btn-alt" id="fr-skip">Skip</button>
@@ -1748,7 +1703,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
       <span>Now Playing</span>
     </button>
-    <button class="np-overlay-theme" id="np-theme-btn" title="Theme and lyrics" aria-label="Theme and lyrics" aria-haspopup="dialog">
+    <button class="np-overlay-theme" id="np-theme-btn" title="Customize Now Playing" aria-label="Customize Now Playing" aria-expanded="false" aria-controls="ce-menu">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9.06 11.9 8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/></svg>
     </button>
   </div>
@@ -1811,13 +1766,13 @@
           <button class="np-ov-ctrl" id="ov-shuffle" title="Shuffle">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
           </button>
-          <button class="np-ov-ctrl" id="ov-prev" title="Previous">
+          <button class="np-ov-ctrl" id="ov-prev" title="Previous" aria-label="Previous">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg>
           </button>
           <button class="np-ov-ctrl vid-only" id="ov-back10" title="Back 10 seconds (J)">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4A8 8 0 1 1 4 12"/><polyline points="4 4 4 9 9 9"/><text x="12" y="16" font-size="8" font-family="inherit" fill="currentColor" stroke="none" text-anchor="middle">10</text></svg>
           </button>
-          <button class="np-ov-play" id="ov-play">
+          <button class="np-ov-play" id="ov-play" aria-label="Play/Pause">
             <svg id="ov-icon-play" width="20" height="20" viewBox="0 0 24 24" fill="white" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
             <svg id="ov-icon-pause" width="20" height="20" viewBox="0 0 24 24" fill="white" stroke="none" style="display:none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
           </button>
@@ -1827,7 +1782,7 @@
           <button class="np-ov-ctrl vid-only" id="ov-fwd10" title="Forward 10 seconds (L)">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 4a8 8 0 1 0 7 8"/><polyline points="20 4 20 9 15 9"/><text x="12" y="16" font-size="8" font-family="inherit" fill="currentColor" stroke="none" text-anchor="middle">10</text></svg>
           </button>
-          <button class="np-ov-ctrl" id="ov-next" title="Next">
+          <button class="np-ov-ctrl" id="ov-next" title="Next" aria-label="Next">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
           </button>
           <button class="np-ov-ctrl" id="ov-repeat" title="Repeat">
@@ -1851,7 +1806,7 @@
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
           </button>
           <button class="np-ov-ctrl" id="ov-lyrics-toggle" title="Lyrics">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line class="lyrics-cross" x1="2" y1="2" x2="22" y2="22"/></svg>
           </button>
           <!-- Video-only. Hidden by the same .np-overlay.video rules that hide
                shuffle, repeat and lyrics for a film. -->
@@ -1870,12 +1825,292 @@
           </button>
         </div>
       </div>
+      <button type="button" class="ce-close" id="ce-close" aria-label="Close customization" title="Close customization (Esc)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
+    <!-- Customization editor (renderer.js "Customization editor"). Shown while
+         .np-overlay has .editing: the left column above becomes a narrow
+         sidebar (same art and transport elements, restyled), this menu takes
+         its place, and the right pane keeps the live lyrics, or the cover
+         preview on the Crossfade tab. Spec: docs/customization-editor-spec.md. -->
+    <div class="ce-narrow-bar">
+      <button type="button" class="ce-preview-toggle" id="ce-preview-toggle">Show preview</button>
+    </div>
+    <section class="ce-menu" id="ce-menu" aria-label="Customize Now Playing">
+      <div class="ce-tabs-wrap">
+        <div class="sn-tabs ce-tabs" role="tablist" aria-label="Customize Now Playing">
+          <div class="sn-pill ce-pill" aria-hidden="true"></div>
+          <button type="button" class="sn-item" role="tab" id="ce-tab-appearance" aria-controls="ce-panel-appearance" aria-selected="false" tabindex="-1" data-tab="appearance">Appearance</button>
+          <button type="button" class="sn-item" role="tab" id="ce-tab-nowplaying" aria-controls="ce-panel-nowplaying" aria-selected="false" tabindex="-1" data-tab="nowplaying">Now Playing</button>
+          <button type="button" class="sn-item" role="tab" id="ce-tab-lyrics" aria-controls="ce-panel-lyrics" aria-selected="false" tabindex="-1" data-tab="lyrics">Lyrics</button>
+          <button type="button" class="sn-item" role="tab" id="ce-tab-crossfade" aria-controls="ce-panel-crossfade" aria-selected="false" tabindex="-1" data-tab="crossfade">Crossfade</button>
+          <button type="button" class="sn-item" role="tab" id="ce-tab-presets" aria-controls="ce-panel-presets" aria-selected="false" tabindex="-1" data-tab="presets">Presets</button>
+          <!-- Shown only with the .cascade-debug sentinel (initDevTuningTab). -->
+          <button type="button" class="sn-item" role="tab" id="ce-tab-developer" aria-controls="ce-panel-developer" aria-selected="false" tabindex="-1" data-tab="developer" hidden>Dev</button>
+        </div>
+      </div>
+      <div class="ce-body" id="ce-body">
+        <div class="ce-panels">
+          <div class="ce-panel" id="ce-panel-appearance" role="tabpanel" aria-labelledby="ce-tab-appearance" data-tab="appearance">
+            <section class="ce-sect">
+              <h3 class="ce-sect-title">Mode</h3>
+              <div data-slot="mode"></div>
+            </section>
+            <section class="ce-sect" data-lock="theme">
+              <h3 class="ce-sect-title">Colors</h3>
+              <p class="ce-lock-note">Set by your server admin.</p>
+              <div data-slot="colors"></div>
+            </section>
+            <section class="ce-sect">
+              <h3 class="ce-sect-title">Font</h3>
+              <div data-slot="font"></div>
+            </section>
+            <button type="button" class="ce-reset" data-reset="appearance">Reset this tab</button>
+          </div>
+          <div class="ce-panel" id="ce-panel-nowplaying" role="tabpanel" aria-labelledby="ce-tab-nowplaying" data-tab="nowplaying">
+            <section class="ce-sect" data-lock="theme">
+              <h3 class="ce-sect-title">Background</h3>
+              <p class="ce-lock-note">Set by your server admin.</p>
+              <div class="setting-row">
+                <div class="setting-label">
+                  <label class="setting-name" for="toggle-album-art">Album art theme</label>
+                  <span class="setting-desc">Colors the background and the accent from the cover.</span>
+                </div>
+                <label class="toggle">
+                  <input type="checkbox" id="toggle-album-art">
+                  <span class="toggle-track"></span>
+                </label>
+              </div>
+              <div class="setting-row">
+                <div class="setting-label">
+                  <label class="setting-name" for="tp-bg-dim">Background dim</label>
+                  <span class="setting-desc">Light mode with album art theme.</span>
+                </div>
+                <div class="setting-slider-row">
+                  <input type="range" class="tp-range" id="tp-bg-dim" min="0" max="1" step="0.01" value="0.16">
+                  <span class="eq-band-value" id="tp-bg-dim-value">16%</span>
+                </div>
+              </div>
+              <div class="setting-row">
+                <div class="setting-label">
+                  <label class="setting-name" for="tp-bg-blend">Blend background with art</label>
+                  <span class="setting-desc">Light mode with album art theme.</span>
+                </div>
+                <label class="toggle">
+                  <input type="checkbox" id="tp-bg-blend" checked>
+                  <span class="toggle-track"></span>
+                </label>
+              </div>
+            </section>
+            <section class="ce-sect">
+              <h3 class="ce-sect-title">Between songs</h3>
+              <div class="setting-row">
+                <div class="setting-label">
+                  <label class="setting-name" for="color-fade-toggle">Fade background colors between songs</label>
+                  <span class="setting-desc">With the album-art colors on, the background fades over the crossfade, or for the time below on a skip.</span>
+                </div>
+                <label class="toggle">
+                  <input type="checkbox" id="color-fade-toggle">
+                  <span class="toggle-track"></span>
+                </label>
+              </div>
+              <div class="setting-row" id="color-fade-seconds-row">
+                <div class="setting-label">
+                  <label class="setting-name" for="color-fade-seconds">Fade on skip</label>
+                </div>
+                <div class="setting-slider-row">
+                  <input type="range" id="color-fade-seconds" min="0.2" max="2" step="0.1" value="0.7">
+                  <span class="eq-band-value" id="color-fade-seconds-value">0.7s</span>
+                </div>
+              </div>
+            </section>
+            <button type="button" class="ce-reset" data-reset="nowplaying">Reset this tab</button>
+          </div>
+          <div class="ce-panel" id="ce-panel-lyrics" role="tabpanel" aria-labelledby="ce-tab-lyrics" data-tab="lyrics">
+            <section class="ce-sect" data-lock="lyrics">
+              <h3 class="ce-sect-title">Size</h3>
+              <p class="ce-lock-note">Set by your server admin.</p>
+              <div class="setting-row">
+                <div class="setting-label">
+                  <label class="setting-name" for="tp-lyric-scale">Text size</label>
+                </div>
+                <div class="setting-slider-row">
+                  <input type="range" class="tp-range" id="tp-lyric-scale" min="0.8" max="1.4" step="0.05" value="1">
+                  <span class="eq-band-value" id="tp-lyric-scale-value">100%</span>
+                </div>
+              </div>
+              <div class="setting-row">
+                <div class="setting-label">
+                  <label class="setting-name" for="plain-lyric-scale">Plain lyrics size</label>
+                  <span class="setting-desc">Lyrics without timing.</span>
+                </div>
+                <div class="setting-slider-row">
+                  <input type="range" class="tp-range" id="plain-lyric-scale" min="0.3" max="1.4" step="0.05" value="0.55">
+                  <span class="eq-band-value" id="plain-lyric-scale-value">55%</span>
+                </div>
+              </div>
+            </section>
+            <!-- One section per CascadeCore.LYRIC_KNOBS section, filled by renderLyricKnobs(). -->
+            <div id="tp-lyric-knobs"></div>
+            <button type="button" class="ce-reset" data-reset="lyrics">Reset this tab</button>
+          </div>
+          <div class="ce-panel" id="ce-panel-crossfade" role="tabpanel" aria-labelledby="ce-tab-crossfade" data-tab="crossfade">
+            <p class="ce-cf-length"><span id="ce-cf-length">Crossfade length: 6s.</span> <button type="button" class="ce-link" id="ce-cf-settings">Change in Settings</button>.</p>
+            <section class="ce-sect">
+              <h3 class="ce-sect-title">Cover animation</h3>
+              <div class="setting-row">
+                <div class="setting-label">
+                  <label class="setting-name" for="cover-slice-toggle">Animate covers on crossfade</label>
+                  <span class="setting-desc">The old cover makes way for the new one while the songs crossfade. Needs Crossfade on.</span>
+                </div>
+                <label class="toggle">
+                  <input type="checkbox" id="cover-slice-toggle">
+                  <span class="toggle-track"></span>
+                </label>
+              </div>
+              <div class="setting-row" id="cover-slice-style-row">
+                <div class="setting-label">
+                  <label class="setting-name" for="cover-slice-style">Style</label>
+                  <span class="setting-desc">Slice cuts the old cover away, Fade dissolves it, Push slides the new one in.</span>
+                </div>
+                <select class="setting-input" id="cover-slice-style">
+                  <option value="slice">Slice</option>
+                  <option value="fade">Fade</option>
+                  <option value="push">Push</option>
+                </select>
+              </div>
+              <div class="setting-row" id="cover-slice-direction-row">
+                <div class="setting-label">
+                  <label class="setting-name" for="cover-slice-direction">Direction</label>
+                  <span class="setting-desc">The way the cut moves. Push goes straight sideways on a diagonal.</span>
+                </div>
+                <select class="setting-input" id="cover-slice-direction">
+                  <option value="up-left">Up and left</option>
+                  <option value="up">Up</option>
+                  <option value="up-right">Up and right</option>
+                  <option value="right">Right</option>
+                  <option value="down-right">Down and right</option>
+                  <option value="down">Down</option>
+                  <option value="down-left">Down and left</option>
+                  <option value="left">Left</option>
+                </select>
+              </div>
+              <div class="setting-row" id="cover-slice-hold-row">
+                <div class="setting-label">
+                  <label class="setting-name" for="cover-slice-hold">Hold</label>
+                  <span class="setting-desc">Where it waits while both songs play.</span>
+                </div>
+                <select class="setting-input" id="cover-slice-hold">
+                  <option value="half">Half and half</option>
+                  <option value="old">Mostly the old cover</option>
+                  <option value="new">Mostly the new cover</option>
+                  <option value="sweep">No hold, sweep across the fade</option>
+                </select>
+              </div>
+              <div class="setting-row" id="cover-slice-in-row">
+                <div class="setting-label">
+                  <label class="setting-name" for="cover-slice-in">Cut in</label>
+                </div>
+                <div class="setting-slider-row">
+                  <input type="range" id="cover-slice-in" min="0.2" max="2" step="0.1" value="0.8">
+                  <span class="eq-band-value" id="cover-slice-in-value">0.8s</span>
+                </div>
+              </div>
+              <div class="setting-row" id="cover-slide-out-row">
+                <div class="setting-label">
+                  <label class="setting-name" for="cover-slide-out">Slide out</label>
+                </div>
+                <div class="setting-slider-row">
+                  <input type="range" id="cover-slide-out" min="0.3" max="3" step="0.1" value="1.2">
+                  <span class="eq-band-value" id="cover-slide-out-value">1.2s</span>
+                </div>
+              </div>
+              <div class="setting-row" id="cover-slice-easing-row">
+                <div class="setting-label">
+                  <label class="setting-name" for="cover-slice-easing">Easing</label>
+                </div>
+                <select class="setting-input" id="cover-slice-easing">
+                  <option value="smooth">Smooth</option>
+                  <option value="snappy">Snappy</option>
+                  <option value="linear">Linear</option>
+                </select>
+              </div>
+              <div class="setting-row" id="cover-slice-seam-row">
+                <div class="setting-label">
+                  <label class="setting-name" for="cover-slice-seam">Seam</label>
+                  <span class="setting-desc">The glowing edge on the cut, in Now Playing.</span>
+                </div>
+                <select class="setting-input" id="cover-slice-seam">
+                  <option value="white">White</option>
+                  <option value="accent">Accent color</option>
+                  <option value="off">Off</option>
+                </select>
+              </div>
+              <div class="setting-row" id="cover-slice-glow-row">
+                <div class="setting-label">
+                  <label class="setting-name" for="cover-slice-glow">Seam glow</label>
+                </div>
+                <div class="setting-slider-row">
+                  <input type="range" id="cover-slice-glow" min="0" max="2" step="0.05" value="1">
+                  <span class="eq-band-value" id="cover-slice-glow-value">100%</span>
+                </div>
+              </div>
+              <div class="setting-row" id="cover-slice-shadow-row">
+                <div class="setting-label">
+                  <label class="setting-name" for="cover-slice-shadow">Edge shadow</label>
+                </div>
+                <div class="setting-slider-row">
+                  <input type="range" id="cover-slice-shadow" min="0" max="2" step="0.05" value="1">
+                  <span class="eq-band-value" id="cover-slice-shadow-value">100%</span>
+                </div>
+              </div>
+            </section>
+            <button type="button" class="ce-reset" data-reset="crossfade">Reset this tab</button>
+          </div>
+          <div class="ce-panel" id="ce-panel-presets" role="tabpanel" aria-labelledby="ce-tab-presets" data-tab="presets">
+            <section class="ce-sect">
+              <h3 class="ce-sect-title">Share a look</h3>
+              <div data-slot="presets"></div>
+            </section>
+            <button type="button" class="ce-reset" data-reset="presets">Reset this tab</button>
+          </div>
+          <div class="ce-panel" id="ce-panel-developer" role="tabpanel" aria-labelledby="ce-tab-developer" data-tab="developer">
+            <p class="ce-cf-length">Shipped defaults from tuning-defaults.json, live. Nothing here is saved: Bake writes it, and the Lyrics tab's changes, into the file. Shown because of .cascade-debug.</p>
+            <!-- One section per group, filled by initDevTuningTab(). -->
+            <div id="ce-dev-knobs"></div>
+            <section class="ce-sect">
+              <h3 class="ce-sect-title">Defaults file</h3>
+              <div class="tp-preset-actions">
+                <button type="button" class="tp-reset-all" id="ce-dev-bake">Bake into file</button>
+                <button type="button" class="tp-reset-all" id="ce-dev-copy">Copy for npm run tuning</button>
+              </div>
+            </section>
+            <section class="ce-sect">
+              <h3 class="ce-sect-title">Playback diagnostics</h3>
+              <pre class="ce-dev-diag" id="ce-dev-diag"></pre>
+              <div class="setting-row">
+                <div class="setting-label">
+                  <span class="setting-name">Pretend Cascade Server is missing</span>
+                  <span class="setting-desc">Previews what people without the plugin see.</span>
+                </div>
+                <label class="toggle"><input type="checkbox" id="ce-dev-plugin-absent" aria-label="Pretend Cascade Server is missing"><span class="toggle-track"></span></label>
+              </div>
+              <div class="tp-preset-actions">
+                <button type="button" class="tp-reset-all" id="ce-dev-diag-copy">Copy diagnostics</button>
+              </div>
+            </section>
+            <button type="button" class="ce-reset" id="ce-dev-reset">Reset this tab</button>
+          </div>
+        </div>
+      </div>
+      <div class="ce-foot">
+        <button type="button" class="ce-undo" id="ce-undo" hidden>Undo changes since opening</button>
+      </div>
+    </section>
     <!-- Right: queue always visible, lyrics slides over -->
     <div class="np-overlay-right" style="position:relative;overflow:hidden;">
       <div style="position:absolute;inset:0;overflow-y:auto;" id="ov-panel-queue">
         <div style="padding:10px 16px 6px;display:flex;align-items:center;justify-content:space-between;">
-          <span style="font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.07em;">Queue</span>
+          <span class="q-panel-title">Queue</span>
           <button class="np-ov-ctrl needs-server" id="btn-automix" title="Auto-mix similar tracks when the queue ends" style="font-size:17px;font-weight:700;line-height:1;">∞</button>
         </div>
         <!-- History (collapsed), the pinned current track, then Up Next: the
@@ -1904,6 +2139,15 @@
           </div>
         </div>
         <div id="ov-queue-rows"></div>
+      </div>
+      <!-- The Crossfade tab's preview: its own cover slice on its own card
+           (renderer.js _cePreviewPlay), never the real crossfade's. -->
+      <div class="ce-preview" id="ce-preview" aria-label="Cover transition preview">
+        <div class="ce-preview-card">
+          <div class="ce-preview-art" id="ce-preview-art"></div>
+          <p class="ce-preview-hint" id="ce-preview-hint" aria-live="polite"></p>
+          <button type="button" class="ce-replay" id="ce-replay"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 3 3 9 9 9"/></svg>Replay</button>
+        </div>
       </div>
       <div id="ov-panel-lyrics">
         <div class="lyrics-pill-group ov-pill-group" id="ov-pill-group">
@@ -2464,7 +2708,7 @@
 <div class="modal-overlay hidden" id="cascade-plugin-modal">
   <div class="modal-card" style="width:380px;max-height:none;">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
-      <div style="width:32px;height:32px;border-radius:8px;background:var(--grad);flex-shrink:0;display:flex;align-items:center;justify-content:center;">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--accent);flex-shrink:0;display:flex;align-items:center;justify-content:center;">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
       </div>
       <div class="modal-title" style="margin:0;">Cascade Server Plugin Required</div>
@@ -2493,11 +2737,21 @@
   </div>
 </div>
 
+<!-- One-time feature tips (renderer.js "Feature tips"). Before the scripts: renderer.js wires it at load. -->
+<div id="feature-tip" role="note" aria-live="polite" hidden>
+  <div class="ft-text"></div>
+  <div class="ft-actions">
+    <button type="button" class="ft-off" id="ft-off">Turn off tips</button>
+    <button type="button" class="ft-ok" id="ft-ok">Got it</button>
+  </div>
+</div>
+
 <script src="build/core.js"></script>
 <!-- The translation runtime finds its worker relative to its own URL; see scripts/build-bergamot.js. -->
 <script>self.__bergamotBase = new URL('build/bergamot/translator.js', location.href).href</script>
 <script src="build/bergamot/translator.js"></script>
 <script src="lyric-karaoke.js"></script>
+<script src="marquee.js"></script>
 <script src="renderer.js"></script>
 <script src="waterfall.js"></script>
 <div id="tooltip" role="tooltip" aria-hidden="true"></div>

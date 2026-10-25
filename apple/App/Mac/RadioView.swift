@@ -56,7 +56,7 @@ struct RadioView: View {
                                                 .padding(6)
                                         }
                                     }
-                                Text(channel.name ?? "Station").font(.caption).lineLimit(1)
+                                Text(channel.name ?? "Station").scaledFont(.caption).lineLimit(1)
                             }
                         }
                         .buttonStyle(.plain)
@@ -92,7 +92,7 @@ struct RadioSettingsSection: View {
             @Bindable var state = state
             Toggle("Show Radio", isOn: $state.radioEnabled)
             Text("Lists your server's Live TV channels in a Radio section. Turn this on only if those channels are internet radio stations, not real TV.")
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
         }
     }

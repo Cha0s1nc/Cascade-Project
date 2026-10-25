@@ -18,6 +18,9 @@
     // them directly in `npm test`, with no build step for the test run.
     "allowImportingTsExtensions": true,
 
+    // tuning-defaults.json at the repo root is imported as data (tuning-defaults.ts).
+    "resolveJsonModule": true,
+
     // tsc is the type-checker here, esbuild is the bundler. Nothing is emitted
     // by tsc - `npm run typecheck` is the gate, `npm run build:ts` is the build.
     "noEmit": true,

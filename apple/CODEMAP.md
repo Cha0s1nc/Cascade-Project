@@ -24,10 +24,13 @@ Everything pure and testable lives in `CascadeKit`. The app targets are thin ref
 - `App/Sources/` - both app targets build these same files. SwiftUI covers most of the platform difference; where it does not (tvOS has no `Slider`, and focus replaces touch) the views branch on `#if os(tvOS)` rather than forking.
   - `AppState.swift` - the one session and one player, read from the environment.
   - `Keychain.swift` - the access token lives here, not in UserDefaults.
-  - `Components.swift` - `ArtworkView`, `TrackRow`, `ItemGrid`, `LoadingOverlay`.
+  - `Components.swift` - `ArtworkView`, `TrackRow`, `ItemTiles`, `LoadingOverlay` (empty copy and Try Again per screen).
   - `MainView.swift` - tabs, plus the iOS mini player.
   - One file per screen.
 - `project.yml` - xcodegen input. `Cascade.xcodeproj` is generated, not committed; run `xcodegen generate` after cloning.
+
+## Tuning defaults
+Style Tuning's defaults (`StyleTuning.shipped`, so `Values()` is the shipped look), its revision list, and every `AlbumColors` constant come from `tuning-defaults.json` at the repo root through CascadeKit's `TuningDefaults`, which reads the generated `TuningDefaultsData.swift`. Never edit either Swift file's numbers: change the JSON with `npm run tuning` (see the root CODEMAP), which regenerates the copy. Copy Changes (iOS sheet; the Mac Lyrics page in debug builds) copies a bake for `npm run tuning -- bake`.
 
 ## Running on a device
 
@@ -204,7 +207,7 @@ Mac integrations (branch `mac/integrations`, 2026-10-06, agent I1):
 Reverse proxy headers and client certificate (2026-10-01, written in a cloud session with no Swift toolchain; audited 2026-09-30 on a Mac: the kit tests pass and both apps build, nothing has run on a device):
 - `ProxyHeaders.swift` (pure, tested) validates and parses headers and decides which URLs may carry them (the server's own origin only, `ws`/`wss` counted as `http`/`https`). `ProxyConnection.swift` applies them: `ProxyConnection.shared.session` is the API session (headers as `httpAdditionalHeaders`, rebuilt on an edit, so never keep it), `session(for: url)` hands any other host `URLSession.shared`, and `asset(url:base:)` is the only way an AVURLAsset may be made (AVPlayer does its own networking, so missing it makes sign-in work and playback fail). `JellyfinClient`, `authenticate`, `QuickConnect`, the remote-control socket, artwork and the offline downloads all go through it. The background download session adds the headers per request, since that session is created once at launch.
 - The asset header key is the string `AVURLAssetHTTPHeaderFieldsKey`: AVFoundation does not export it as a Swift symbol. Whether AVPlayer sends those headers on every HLS segment request is unchecked.
-- Client certificate: `ClientIdentity` keeps an imported .p12 in the keychain and `ProxySessionDelegate` answers the challenge for the server's host. iOS only UI (Settings and sign-in, `ProxySettingsView.swift`). AVPlayer may not use it at all: check playback on a device, and if it fails, do not describe it as supported.
+- Client certificate: `ProxySessionDelegate` answers the challenge for the server's host with `ClientIdentity.stored()`. iOS keeps one imported .p12 in the app's keychain under a label; AVPlayer there is unchecked. The Mac (2026-10-19) picks any identity in the person's keychains or imports a .p12 into the login keychain (`SecPKCS12Import` does that itself on macOS), remembered by fingerprint in `cascade.clientCertFingerprint` in the desktop's `sha256/<base64>` form; forgetting it never deletes the identity. AVPlayer never hands client certificate (or server trust) challenges to a resource loader delegate, but on the Mac it does use the keychain's identity preference, so `preferForPlayback` calls `SecIdentitySetPreferred` for the server origin (stored per app as `<url> (Cascade)`, Safari's choice untouched) on the first challenge and whenever the choice changes. Checked against nginx with `ssl_verify_client on`: sign-in, browsing, covers, direct FLAC, direct MP4 and an HLS transcode all returned 200/206, and choosing None cleared the preference (the next segment got 400). UI in `ProxySettingsView.swift` (Settings > Account and the sign-in screen).
 - Headers live in the keychain under `proxyHeaders`. There is no multi-line editor: tvOS gets the same add-a-header rows.
 
 Lyrics translation on device (2026-10-01, iOS only, written in a cloud session with no Swift toolchain; audited 2026-09-30 on a Mac: the kit tests pass and both apps build, nothing has run on a device):

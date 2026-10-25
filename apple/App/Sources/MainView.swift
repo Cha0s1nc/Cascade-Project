@@ -14,6 +14,8 @@ struct MainView: View {
     @Environment(AppState.self) private var state
     @State private var showingNowPlaying = false
     @State private var tab: AppTab = .home
+    /// Ties Now Playing's zoom to the mini player it grows out of.
+    @Namespace private var nowPlayingZoom
 
     enum AppTab: Hashable { case nowPlaying, home, albums, artists, songs, playlists, movies, shows, search, settings }
 
@@ -43,13 +45,18 @@ struct MainView: View {
         tabsWithPlayer
         .phoneSetup()
         .downloadLimitQuestion()
-        .sheet(isPresented: $showingNowPlaying) {
+        // Full screen rather than a sheet, which left the library peeking out
+        // round its inset top corners. The zoom grows it out of the mini player,
+        // and a swipe down shrinks it back into the pill as you drag.
+        .fullScreenCover(isPresented: $showingNowPlaying) {
             if let player = state.player {
                 NowPlayingView(player: player)
-                    .presentationDragIndicator(.visible)
-                    // Solid, so the sheet's default glass does not show the
-                    // library through the album-art background.
+                    // Grows with Dynamic Type only so far, as Apple Music's does: past
+                    // xxxLarge the heart and ··· burst their circles and the lyrics,
+                    // AirPlay and queue bar went off the bottom of the screen.
+                    .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                     .presentationBackground(.black)
+                    .navigationTransition(.zoom(sourceID: "nowPlaying", in: nowPlayingZoom))
             }
         }
         #endif
@@ -101,6 +108,7 @@ struct MainView: View {
                 .tabViewBottomAccessory(isEnabled: player?.item != nil) {
                     if let player {
                         AccessoryMiniPlayer(player: player) { showingNowPlaying = true }
+                            .matchedTransitionSource(id: "nowPlaying", in: nowPlayingZoom)
                     }
                 }
                 .tabBarMinimizeBehavior(.onScrollDown)
@@ -109,6 +117,7 @@ struct MainView: View {
                 tabs
                 if let player, player.item != nil {
                     MiniPlayer(player: player, style: .bar) { showingNowPlaying = true }
+                        .matchedTransitionSource(id: "nowPlaying", in: nowPlayingZoom)
                 }
             }
         }
@@ -155,13 +164,14 @@ struct MiniPlayer: View {
     var body: some View {
         HStack(spacing: style == .bar ? 12 : 10) {
             ArtworkView(itemId: player.item?.albumId ?? player.item?.id, size: style == .bar ? 40 : 32)
+                .overlay { LoadingCoverOverlay(active: player.isWaitingToPlay).clipShape(ProportionalRoundedRectangle()) }
             VStack(alignment: .leading, spacing: 1) {
                 Text(player.item?.name ?? "")
                     .font(style == .bar ? .callout : .subheadline.weight(.medium))
                     .lineLimit(1)
                 if style != .inline {
                     Text(player.item?.albumArtist ?? player.item?.artists?.first ?? "")
-                        .font(.caption2)
+                        .scaledFont(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -171,9 +181,11 @@ struct MiniPlayer: View {
                 player.togglePlayPause()
             } label: {
                 Image(systemName: player.isPaused ? "play.fill" : "pause.fill")
-                    .font(.title3)
+                    .scaledFont(.title3)
                     .contentTransition(.symbolEffect(.replace))
                     .frame(width: 32, height: 32)
+                    // 44 pt to the finger without growing the pill.
+                    .contentShape(Rectangle().inset(by: -6))
             }
             .buttonStyle(.plain)
             .accessibilityLabel(player.isPaused ? "Play" : "Pause")
@@ -182,8 +194,9 @@ struct MiniPlayer: View {
                     Task { await player.next() }
                 } label: {
                     Image(systemName: "forward.fill")
-                        .font(.title3)
+                        .scaledFont(.title3)
                         .frame(width: 32, height: 32)
+                        .contentShape(Rectangle().inset(by: -6))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Next")
@@ -196,6 +209,9 @@ struct MiniPlayer: View {
         }
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
+        // The system's pill keeps its height at every text size, so what is in it can only
+        // grow a little: at the largest sizes the title and buttons burst out of the glass.
+        .dynamicTypeSize(...DynamicTypeSize.xLarge)
         .accessibilityElement(children: .contain)
         .accessibilityAction(named: "Open Now Playing", onTap)
     }

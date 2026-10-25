@@ -19,6 +19,7 @@ struct SettingsView: View {
         #if os(macOS)
         // The Mac's Settings is the six-tab one, wherever it is opened from.
         MacSettingsView()
+            .navigationTitle("Settings")
         #else
         phoneBody
         #endif
@@ -30,155 +31,37 @@ struct SettingsView: View {
         return ByteCountFormatter.string(fromByteCount: Int64(offline.index.totalBytes), countStyle: .file)
     }
 
+    /// A short list of pages, like the Mac's six tabs and the system's own Settings, rather
+    /// than every option in one long scroll.
     @ViewBuilder private var phoneBody: some View {
         List {
             #if os(iOS)
             OfflineModeSection()
             Section {
                 NavigationLink(value: AppRoute.downloads) {
-                    LabeledContent("Downloads", value: downloadsSummary)
+                    LabeledContent { Text(downloadsSummary) } label: { Label("Downloads", systemImage: "arrow.down.circle") }
                 }
             }
             #endif
 
-            Section("Account") {
-                LabeledContent("Server", value: state.config?.url ?? "")
-                LabeledContent("Signed in as", value: username ?? "")
-            }
-
-            ProxySettingsSection()
-
-            // Offline the list is the downloads' libraries, and a change
-            // here would overwrite the saved choice: it waits for the server.
-            if !state.isOffline {
-                Section {
-                    LoadingOverlay(isLoading: isLoading, error: error, isEmpty: libraries.isEmpty)
-                    ForEach(libraries) { library in
-                        Toggle(library.name ?? "Unknown", isOn: Binding(
-                            get: { isOn(library.id) },
-                            set: { setEnabled(library.id, $0) }
-                        ))
-                        // The last library cannot be switched off: with nothing
-                        // left there is nothing to browse.
-                        .disabled(isOn(library.id) && enabledCount == 1)
-                    }
-                } header: {
-                    Text("Libraries")
-                } footer: {
-                    Text(selected.isEmpty
-                         ? "Showing all libraries."
-                         : "Showing \(selected.count) of \(libraries.count) libraries.")
-                }
-            }
-
-            if let player = state.player {
-                Section {
-                    Picker(qualityTitle, selection: Binding(
-                        get: { player.streamingQuality },
-                        set: { setQuality(wifi: $0, cellular: player.cellularQuality) }
-                    )) {
-                        ForEach(StreamingQuality.allCases) { Text($0.label).tag($0) }
-                    }
-                    #if os(iOS)
-                    Picker("On Cellular", selection: Binding(
-                        get: { player.cellularQuality },
-                        set: { setQuality(wifi: player.streamingQuality, cellular: $0) }
-                    )) {
-                        ForEach(StreamingQuality.allCases) { Text($0.label).tag($0) }
-                    }
-                    #endif
-                    Picker("Volume Normalization", selection: Binding(
-                        get: { player.normalization },
-                        set: {
-                            player.normalization = $0
-                            UserDefaults.standard.set($0.rawValue, forKey: "cascade.normalization")
-                        }
-                    )) {
-                        Text("Off").tag(Normalization.Mode.off)
-                        Text("By Track").tag(Normalization.Mode.track)
-                        Text("By Album").tag(Normalization.Mode.album)
-                    }
-                    Picker("Crossfade", selection: Binding(
-                        get: { Int(player.crossfadeSeconds) },
-                        set: {
-                            player.crossfadeSeconds = Double($0)
-                            UserDefaults.standard.set($0, forKey: "cascade.crossfadeSeconds")
-                        }
-                    )) {
-                        Text("Off").tag(0)
-                        ForEach(Array(Crossfade.range), id: \.self) { Text("\($0) s").tag($0) }
-                    }
-                    NavigationLink {
-                        EqualizerView()
-                    } label: {
-                        LabeledContent("Equalizer", value: player.equalizer.enabled
-                                       ? player.equalizer.presetName ?? "Custom" : "Off")
-                    }
-                } header: {
-                    Text("Playback")
-                } footer: {
-                    Text("Below the original, the server converts to AAC at that rate. Applies from the next track.\n\nNormalization evens out loudness using the server's scan (Jellyfin's LUFS scan has to be on). By Album keeps an album's own dynamics. Loud tracks are turned down; quiet ones are turned up only while the equalizer is on.\n\nCrossfade blends the end of each song into the next; off keeps albums gapless.")
-                }
-            }
-
-            #if os(iOS)
-            DisplaySettingsSection()
-            #endif
-
             Section {
-                Toggle("Auto-Skip Intros and Credits", isOn: $autoSkipSegments)
-            } header: {
-                Text("Video")
-            } footer: {
-                Text("Skips an intro or the end credits as soon as it starts, once each. Needs Jellyfin 10.10 or later with something that finds them, such as the Intro Skipper plugin. The Skip button still shows when this is off.")
-            }
-
-            // Only with the plugin: without it, server-only would mean no
-            // lyrics at all, so the waterfall runs whatever this says.
-            if state.cascadePluginApi != nil {
-                @Bindable var state = state
-                Section {
-                    Toggle("Server-Only Lyrics", isOn: $state.serverOnlyLyrics)
-                } header: {
-                    Text("Lyrics")
-                } footer: {
-                    Text(state.serverOnlyLyrics
-                         ? "Lyrics come only from Cascade Server: Spicy Lyrics, then lyrics saved on the server."
-                         : "Cascade also asks Kugou, LRCLIB and Jellyfin, which sends each song's title and artist to Kugou and LRCLIB.")
+                // Offline the list is the downloads' libraries, and a change
+                // here would overwrite the saved choice: it waits for the server.
+                if !state.isOffline {
+                    page("Library", "square.stack") { libraryPage }
                 }
-            }
-
-            if quickConnectEnabled && !state.isOffline {
-                Section {
-                    TextField("Code", text: $approveCode)
-                        #if os(iOS)
-                        .keyboardType(.numberPad)
-                        #endif
-                        .textContentType(.oneTimeCode)
-                        .accessibilityIdentifier("approveCode")
-                        .onSubmit { approve() }
-                    Button(isApproving ? "Approving\u{2026}" : "Approve") { approve() }
-                        .disabled(isApproving || QuickConnect.normalizedCode(approveCode) == nil)
-                    if let approveStatus {
-                        Text(approveStatus.message)
-                            .font(.caption)
-                            .foregroundStyle(approveStatus.ok ? Color.green : Color.red)
-                    }
-                } header: {
-                    Text("Approve a Device")
-                } footer: {
-                    Text("Signs another device in as you. Enter the Quick Connect code it shows.")
+                if state.player != nil {
+                    page("Playback", "play.circle") { playbackPage }
                 }
-            }
-
-            Section {
-                @Bindable var state = state
-                Picker("Browse", selection: $state.browseMode) {
-                    Text("Music").tag(AppState.BrowseMode.music)
-                    Text("Movies and Shows").tag(AppState.BrowseMode.video)
+                #if os(iOS)
+                page("Now Playing", "sparkles") { DisplaySettingsSection() }
+                #endif
+                // Only with the plugin: without it, server-only would mean no
+                // lyrics at all, so the waterfall runs whatever this says.
+                if state.cascadePluginApi != nil {
+                    page("Lyrics", "quote.bubble") { lyricsPage }
                 }
-            } footer: {
-                Text("Which library the tabs show.")
+                page("Account", "person.crop.circle") { accountPage }
             }
 
             if !state.isOffline {
@@ -186,8 +69,12 @@ struct SettingsView: View {
                     NavigationLink {
                         WaterfallView()
                     } label: {
-                        LabeledContent("Waterfall", value: state.waterfall?.isActive == true
-                                       ? (state.waterfall?.role == .host ? "Hosting" : "In a Room") : "Off")
+                        LabeledContent {
+                            Text(state.waterfall?.isActive == true
+                                 ? (state.waterfall?.role == .host ? "Hosting" : "In a Room") : "Off")
+                        } label: {
+                            Label("Waterfall", systemImage: "person.2.wave.2")
+                        }
                     }
                 } footer: {
                     Text("Listen along with others on this server.")
@@ -204,6 +91,7 @@ struct SettingsView: View {
                 LabeledContent("Edition", value: cascadeEdition)
                 LabeledContent("Version", value: state.appVersion)
             }
+            if Telemetry.available { TelemetrySection() }
         }
         .navigationTitle("Settings")
         .confirmationDialog("Sign out?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
@@ -231,6 +119,158 @@ struct SettingsView: View {
             catch { self.error = error.localizedDescription }
             isLoading = false
         }
+    }
+
+    private func page<Content: View>(_ title: String, _ symbol: String,
+                                     @ViewBuilder _ content: () -> Content) -> some View {
+        NavigationLink {
+            List { content() }.navigationTitle(title)
+        } label: {
+            Label(title, systemImage: symbol)
+        }
+    }
+
+    @ViewBuilder private var libraryPage: some View {
+        Section {
+            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: libraries.isEmpty,
+                           emptyTitle: "No music libraries")
+            ForEach(libraries) { library in
+                Toggle(library.name ?? "Unknown", isOn: Binding(
+                    get: { isOn(library.id) },
+                    set: { setEnabled(library.id, $0) }
+                ))
+                // The last library cannot be switched off: with nothing
+                // left there is nothing to browse.
+                .disabled(isOn(library.id) && enabledCount == 1)
+            }
+        } header: {
+            Text("Music Libraries")
+        } footer: {
+            Text(selected.isEmpty
+                 ? "Showing all libraries."
+                 : "Showing \(selected.count) of \(libraries.count) libraries.")
+        }
+        #if os(tvOS)
+        // iOS has the Music / Video switch at the top left of every tab; the TV has no room for one.
+        Section {
+            @Bindable var state = state
+            Picker("Browse", selection: $state.browseMode) {
+                Text("Music").tag(AppState.BrowseMode.music)
+                Text("Movies and Shows").tag(AppState.BrowseMode.video)
+            }
+        } footer: {
+            Text("Which library the tabs show.")
+        }
+        #endif
+    }
+
+    @ViewBuilder private var playbackPage: some View {
+        if let player = state.player {
+            Section {
+                Picker(qualityTitle, selection: Binding(
+                    get: { player.streamingQuality },
+                    set: { setQuality(wifi: $0, cellular: player.cellularQuality) }
+                )) {
+                    ForEach(StreamingQuality.allCases) { Text($0.label).tag($0) }
+                }
+                #if os(iOS)
+                Picker("On Cellular", selection: Binding(
+                    get: { player.cellularQuality },
+                    set: { setQuality(wifi: player.streamingQuality, cellular: $0) }
+                )) {
+                    ForEach(StreamingQuality.allCases) { Text($0.label).tag($0) }
+                }
+                #endif
+            } header: {
+                Text("Streaming Quality")
+            } footer: {
+                Text("Below the original, the server converts to AAC at that rate. Applies from the next track.")
+            }
+            Section {
+                Picker("Volume Normalization", selection: Binding(
+                    get: { player.normalization },
+                    set: {
+                        player.normalization = $0
+                        UserDefaults.standard.set($0.rawValue, forKey: "cascade.normalization")
+                    }
+                )) {
+                    Text("Off").tag(Normalization.Mode.off)
+                    Text("By Track").tag(Normalization.Mode.track)
+                    Text("By Album").tag(Normalization.Mode.album)
+                }
+            } footer: {
+                Text("Evens out loudness using the server's scan (Jellyfin's LUFS scan has to be on). By Album keeps an album's own dynamics. Loud tracks are turned down; quiet ones are turned up only while the equalizer is on.")
+            }
+            Section {
+                Picker("Crossfade", selection: Binding(
+                    get: { Int(player.crossfadeSeconds) },
+                    set: {
+                        player.crossfadeSeconds = Double($0)
+                        UserDefaults.standard.set($0, forKey: "cascade.crossfadeSeconds")
+                    }
+                )) {
+                    Text("Off").tag(0)
+                    ForEach(Array(Crossfade.range), id: \.self) { Text("\($0) s").tag($0) }
+                }
+                NavigationLink {
+                    EqualizerView()
+                } label: {
+                    LabeledContent("Equalizer", value: player.equalizer.enabled
+                                   ? player.equalizer.presetName ?? "Custom" : "Off")
+                }
+            } footer: {
+                Text("Crossfade blends the end of each song into the next; off keeps albums gapless.")
+            }
+        }
+        Section {
+            Toggle("Auto-Skip Intros and Credits", isOn: $autoSkipSegments)
+        } header: {
+            Text("Video")
+        } footer: {
+            Text("Skips an intro or the end credits as soon as it starts, once each. Needs Jellyfin 10.10 or later with something that finds them, such as the Intro Skipper plugin. The Skip button still shows when this is off.")
+        }
+    }
+
+    @ViewBuilder private var lyricsPage: some View {
+        @Bindable var state = state
+        Section {
+            Toggle("Server-Only Lyrics", isOn: $state.serverOnlyLyrics)
+        } footer: {
+            Text(state.serverOnlyLyrics
+                 ? "Lyrics come only from Cascade Server: Spicy Lyrics, then lyrics saved on the server."
+                 : "Cascade also asks Kugou, LRCLIB and Jellyfin, which sends each song's title and artist to Kugou and LRCLIB.")
+        }
+    }
+
+    @ViewBuilder private var accountPage: some View {
+        Section {
+            LabeledContent("Server", value: state.config?.url ?? "")
+            LabeledContent("Signed in as", value: username ?? "")
+        }
+        if quickConnectEnabled && !state.isOffline {
+            Section {
+                TextField("Code", text: $approveCode)
+                    #if os(iOS)
+                    .keyboardType(.numberPad)
+                    #endif
+                    .textContentType(.oneTimeCode)
+                    .accessibilityIdentifier("approveCode")
+                    .onSubmit { approve() }
+                Button(isApproving ? "Approving\u{2026}" : "Approve") { approve() }
+                    .disabled(isApproving || QuickConnect.normalizedCode(approveCode) == nil)
+                if let approveStatus {
+                    Text(approveStatus.message)
+                        .scaledFont(.caption)
+                        .foregroundStyle(approveStatus.ok ? Color.green : Color.red)
+                }
+            } header: {
+                Text("Approve a Device")
+            } footer: {
+                Text("Signs another device in as you. Enter the Quick Connect code it shows.")
+            }
+        }
+        // Reverse proxy headers and the client certificate: for the few servers behind one.
+        ProxySettingsSection()
     }
 
     /// Guarded here as well as disabled: a disabled button is not the only
@@ -301,7 +341,7 @@ private struct PhoneSetupSheet: ViewModifier {
                 let seen = SetupWizard.seenRevision(wizardSeenRevision: defaults.object(forKey: "cascade.wizardSeenRevision"),
                                                     firstRunWizardSeen: defaults.object(forKey: "cascade.firstRunWizardSeen"))
                 let steps = SetupWizard.steps(seen: seen, needsLibraryStep: false)
-                if steps.contains(.crossfade) || steps.contains(.quality), state.player != nil {
+                if steps.contains(.crossfade) || steps.contains(.quality) || steps.contains(.telemetry), state.player != nil {
                     presented = true
                 } else if seen < SetupWizard.revision {
                     // Only steps the phone does not have are new: nothing to ask.
@@ -365,12 +405,10 @@ private struct PhoneSetupView: View {
                 } header: {
                     Text("Between Songs")
                 } footer: {
-                    Text("Crossfade blends the end of each song into the next; off keeps albums gapless. Normalization evens out loudness using the server's scan.")
+                    // The note about Settings is footer text, not a row of its own: in a card it read as a control.
+                    Text("Crossfade blends the end of each song into the next; off keeps albums gapless. Normalization evens out loudness using the server's scan.\n\nAll of this is in Settings later, with the equalizer and lyrics options.")
                 }
-                Section {
-                    Text("All of this is in Settings later, with the equalizer and lyrics options.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
+                if Telemetry.available { TelemetrySection() }
             }
             .navigationTitle("Set Up Cascade")
             .navigationBarTitleDisplayMode(.inline)
@@ -391,3 +429,22 @@ extension View {
     func phoneSetup() -> some View { modifier(PhoneSetupSheet()) }
 }
 #endif
+
+/// The opt-in telemetry switch, shared by Settings on every platform and the
+/// Mac's first-run wizard. Only shown while `Telemetry.available`, which is
+/// false until telemetry is switched on (src/core/telemetry.ts).
+struct TelemetrySection: View {
+    @State private var on = Telemetry.optedIn()
+
+    var body: some View {
+        Section {
+            Toggle("Share anonymous usage counts", isOn: Binding(get: { on }, set: {
+                on = $0
+                Telemetry.setOptIn($0)
+                if $0 { Task { await Telemetry.sendIfDue() } }
+            }))
+        } footer: {
+            Text("Once a day: a random ID made for this, the app version, edition, kind of device, and how many songs played. Never your login, server, or what you listened to. Turning it off deletes the ID.")
+        }
+    }
+}

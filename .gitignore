@@ -24,3 +24,5 @@ signaling/.dev.vars
 # Left behind by the old bundled translation models (removed). Translation
 # models now download on first use into the app's user data directory.
 models/
+telemetry/.wrangler/
+telemetry/.dev.vars

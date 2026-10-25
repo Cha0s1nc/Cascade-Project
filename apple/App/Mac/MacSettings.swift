@@ -114,7 +114,7 @@ struct MacSettingsView: View {
                 Button { tab = item; tabsFocused = true } label: {
                     VStack(spacing: 3) {
                         Image(systemName: item.symbol).font(.system(size: 17))
-                        Text(item.title).font(.caption)
+                        Text(item.title).scaledFont(.caption)
                     }
                     .frame(width: 84, height: 44)
                     .background(tab == item ? Color.accentColor.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 8))
@@ -364,7 +364,7 @@ private struct AccountTab: View {
                     Button(isChanging ? "Changing\u{2026}" : "Change Password") { changePassword() }
                         .disabled(isChanging || newPassword.isEmpty || passwordProblem != nil)
                     if let message = passwordProblem ?? passwordStatus?.message {
-                        Text(message).font(.caption)
+                        Text(message).scaledFont(.caption)
                             .foregroundStyle(passwordProblem == nil && passwordStatus?.ok == true ? Color.green : Color.red)
                     }
                 }
@@ -383,7 +383,7 @@ private struct AccountTab: View {
                         Button(isApproving ? "Approving\u{2026}" : "Approve") { approve() }
                             .disabled(isApproving || QuickConnect.normalizedCode(approveCode) == nil)
                         if let approveStatus {
-                            Text(approveStatus.message).font(.caption).foregroundStyle(approveStatus.ok ? Color.green : Color.red)
+                            Text(approveStatus.message).scaledFont(.caption).foregroundStyle(approveStatus.ok ? Color.green : Color.red)
                         }
                     }
                 } header: {
@@ -472,6 +472,7 @@ private struct AboutTab: View {
                 LabeledContent("Version", value: state.appVersion)
                 LabeledContent("Build", value: "Native Mac")
             }
+            if Telemetry.available { TelemetrySection() }
             Section {
                 Toggle("Beta updates", isOn: Binding(get: { beta }, set: {
                     beta = $0
@@ -480,7 +481,7 @@ private struct AboutTab: View {
                 HStack {
                     Button("Check for Updates") { Task { await updates.check(manual: true) } }
                         .disabled(updates.status == .checking)
-                    Text(statusText).font(.caption).foregroundStyle(.secondary)
+                    Text(statusText).scaledFont(.caption).foregroundStyle(.secondary)
                 }
             } header: {
                 Text("Updates")

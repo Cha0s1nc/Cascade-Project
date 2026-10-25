@@ -66,7 +66,7 @@ private struct GenreTile: View {
                                     Color(hue: Double((seed + 40) % 360) / 360, saturation: 0.6, brightness: 0.45)],
                            startPoint: .topLeading, endPoint: .bottomTrailing)
             Text(name)
-                .font(.headline)
+                .scaledFont(.headline)
                 .foregroundStyle(.white)
                 .shadow(radius: 2)
                 .lineLimit(2)
