@@ -19,10 +19,10 @@ on:
     branches: ['dev']
     # Path filters are not applied to tag pushes, so every server-v* tag runs.
     tags: ['server-v*']
-    paths: ['server/**', '.github/workflows/server.yml']
+    paths: ['server/**', 'shared/assets/linux-icons/128x128.png', '.github/workflows/server.yml']
   pull_request:
     branches: ['dev']
-    paths: ['server/**', '.github/workflows/server.yml']
+    paths: ['server/**', 'shared/assets/linux-icons/128x128.png', '.github/workflows/server.yml']
 
 permissions:
   contents: read

@@ -58,7 +58,9 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             EmbeddedResourcePath = $"{GetType().Namespace}.Web.status.html",
             EnableInMainMenu = true,
             MenuSection = "server",
-            MenuIcon = "queue_music",
+            // A name from the Material Icons font: Jellyfin's menu takes nothing
+            // else. Cascade's icon is a waterfall, and waves is the nearest.
+            MenuIcon = "waves",
         };
         // The page's own look and script, loaded by status.html through
         // configurationpage?name=..., the way Intro Skipper serves its UI.
@@ -71,6 +73,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             Name = "cascadeserver.js",
             EmbeddedResourcePath = $"{GetType().Namespace}.Web.cascadeserver.js",
+        };
+        yield return new PluginPageInfo
+        {
+            Name = "cascadeserver-icon.png",
+            EmbeddedResourcePath = $"{GetType().Namespace}.Web.cascade-icon.png",
         };
     }
 }

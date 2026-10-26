@@ -41,6 +41,8 @@ Open **Dashboard → Plugins → Cascade Server**.
 
 ## What it depends on
 
+- **Cascade's icon**, shown at the top of the plugin's dashboard page, is embedded from `shared/assets` at build time. Like all of Cascade's artwork it is not GPL: see [shared/assets/LICENSE](../shared/assets/LICENSE). A fork of the plugin has to remove it.
+
 - **ListenBrainz Labs** matches songs to Spotify tracks. It is an experimental service; if it changes or goes away, automatic matching stops working and Cascade falls back to its other lyric sources. Hand-made links keep working.
 - **SpicyLyrics**, **Kugou** and **LRCLIB** are third-party services with their own terms and availability.
 - **Deezer** and **iTunes Search** (explicit marks), **MusicBrainz** (album barcodes) and **TIDAL** (animated covers, with your own developer app) are third-party services too. Each is optional, and the plugin works without them.

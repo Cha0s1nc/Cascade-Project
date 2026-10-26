@@ -50,6 +50,10 @@
     <EmbeddedResource Include="Web\status.html" />
     <EmbeddedResource Include="Web\cascadeserver.css" />
     <EmbeddedResource Include="Web\cascadeserver.js" />
+    <!-- Cascade's own icon for the page header, taken from the artwork every
+         Cascade app shares rather than copied in. It is not GPL: see
+         shared/assets/LICENSE. -->
+    <EmbeddedResource Include="..\..\shared\assets\linux-icons\128x128.png" LogicalName="Jellyfin.Plugin.CascadeServer.Web.cascade-icon.png" />
   </ItemGroup>
 
 </Project>
