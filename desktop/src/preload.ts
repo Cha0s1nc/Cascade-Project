@@ -86,6 +86,7 @@ const cascade: ElectronPlatform = {
   },
   download:        (url, filename) => ipcRenderer.invoke('download-file', url, filename),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  fetchAnnouncements: () => ipcRenderer.invoke('announcements-fetch'),
   canTryNativeMac: () => ipcRenderer.invoke('can-try-native-mac'),
   tryNativeMac:    () => ipcRenderer.invoke('try-native-mac'),
   getVersion:      () => ipcRenderer.invoke('get-version'),

@@ -327,6 +327,9 @@ export interface DesktopCapabilities {
   }
 
   checkForUpdates?(): Promise<UpdateCheckResult>
+  /** The announcements file as JSON: [] when it is not there yet, null when
+   *  it could not be read or Offline Mode is on (CascadeCore.parseAnnouncements). */
+  fetchAnnouncements?(): Promise<unknown>
   /** Whether this is a Mac that can run the native app (Apple Silicon). */
   canTryNativeMac?(): Promise<boolean>
   /** Settings, About, "Try the native Mac app": moves this Mac to the native
@@ -440,6 +443,7 @@ export interface ElectronPlatform extends Platform, DesktopCapabilities {
   local: NonNullable<DesktopCapabilities['local']>
   spicy: NonNullable<DesktopCapabilities['spicy']>
   checkForUpdates: NonNullable<DesktopCapabilities['checkForUpdates']>
+  fetchAnnouncements: NonNullable<DesktopCapabilities['fetchAnnouncements']>
   canTryNativeMac: NonNullable<DesktopCapabilities['canTryNativeMac']>
   tryNativeMac: NonNullable<DesktopCapabilities['tryNativeMac']>
   isPackaged: NonNullable<DesktopCapabilities['isPackaged']>

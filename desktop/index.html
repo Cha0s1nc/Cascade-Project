@@ -56,11 +56,28 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="4"/><polygon points="10.5 9 15.5 12 10.5 15" fill="currentColor" stroke="none"/></svg>
         </button>
       </div>
+      <!-- Shown while any announcement is not dismissed (renderer.js renderAnnouncements). -->
+      <button id="announce-btn" title="Announcements" aria-label="Announcements" aria-haspopup="dialog" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+        <span class="announce-dot" id="announce-dot" hidden></span>
+      </button>
       <button id="theme-btn" title="Theme" aria-label="Theme" aria-haspopup="dialog">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9.06 11.9 8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/></svg>
       </button>
     </div>
   </header>
+
+  <!-- Announcements from the Cascade project (renderer.js, "Announcements").
+       The theme panel's popover; opening one closes the other. -->
+  <div class="theme-picker announce-panel" id="announce-panel" role="dialog" aria-label="Announcements">
+    <div class="tp-row">
+      <span class="tp-title">Announcements</span>
+      <button class="tp-close" aria-label="Close">×</button>
+    </div>
+    <div class="tp-divider"></div>
+    <div class="announce-list" id="announce-list"></div>
+    <button class="btn btn-secondary announce-clear" id="announce-clear">Clear all</button>
+  </div>
 
   <!-- Theme picker panel -->
   <div class="theme-picker" id="theme-picker" role="dialog" aria-label="Theme">

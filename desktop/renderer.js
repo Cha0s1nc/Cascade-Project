@@ -8336,6 +8336,8 @@ async function init() {
   await loadLyricStyle()
   await loadDisplayPrefs()
   await loadTelemetry()
+  // Not awaited: the inbox never holds up the window.
+  loadAnnouncements()
   await initDiscordRpc()
 
   crossfadeEnabled = (await window.cascade.store.get('crossfadeEnabled')) === true
@@ -9076,6 +9078,8 @@ async function setOfflineState(next, { reload = true } = {}) {
   if (next === 'unreachable') scheduleProbe(true)
   else clearProbe()
   if (!reload) return
+  // Back to a state with the web: what was posted meanwhile.
+  if (CascadeCore.blocksWeb(before) && !CascadeCore.blocksWeb(next)) loadAnnouncements()
   if (before === 'online' && off) await redrawOffline()
   else if (next === 'online') await reconnectOnline()
 }
@@ -16123,6 +16127,75 @@ document.addEventListener('mousedown', (e) => {
   if (picker.classList.contains('open') && !picker.contains(e.target) && !e.target.closest('#theme-btn')) {
     closeThemePicker()
   }
+})
+
+// ── Announcements ────────────────────────────────────────────────────────────
+// From the Cascade project to everyone (src/core/announcements.ts). The bell
+// shows while any are not dismissed, with a dot while any are new since the
+// inbox was last opened. The last good copy is kept, so a launch that cannot
+// reach R2 still shows what nobody dismissed. The theme panel and this one
+// close each other through their outside-mousedown handlers.
+let _announcements = []
+async function loadAnnouncements() {
+  let raw = await window.cascade.fetchAnnouncements().catch(() => null)
+  if (raw === null) raw = await window.cascade.store.get('announcementsCache')
+  else await window.cascade.store.set('announcementsCache', raw)
+  _announcements = CascadeCore.parseAnnouncements(raw, 'desktop', appVersion)
+  await renderAnnouncements()
+}
+async function announcementInbox() {
+  const [dismissed, seen] = await Promise.all(['announcementsDismissed', 'announcementsSeen'].map(k => window.cascade.store.get(k)))
+  return CascadeCore.announcementInbox(_announcements, dismissed, seen)
+}
+async function addAnnouncementIds(key, ids) {
+  const old = CascadeCore.idList(await window.cascade.store.get(key))
+  await window.cascade.store.set(key, [...new Set([...old, ...ids])])
+}
+function announcementCard(a) {
+  const card = document.createElement('div')
+  card.className = 'announce-item'
+  card.innerHTML = '<div class="announce-head"><span class="announce-title"></span><button class="announce-dismiss" aria-label="Dismiss" data-tip="Dismiss">✕</button></div><div class="announce-date"></div><div class="announce-body"></div>'
+  card.querySelector('.announce-title').textContent = a.title
+  card.querySelector('.announce-date').textContent = new Date(a.date + 'T12:00:00').toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
+  card.querySelector('.announce-body').textContent = a.body
+  card.querySelector('.announce-body').hidden = !a.body
+  card.querySelector('.announce-dismiss').addEventListener('click', async () => {
+    await addAnnouncementIds('announcementsDismissed', [a.id])
+    await renderAnnouncements()
+  })
+  if (a.link) {
+    const link = document.createElement('button')
+    link.className = 'announce-link'
+    link.textContent = 'Read more'
+    link.addEventListener('click', () => window.cascade.shell.openExternal(a.link))
+    card.append(link)
+  }
+  return card
+}
+async function renderAnnouncements() {
+  const { items, unseen } = await announcementInbox()
+  document.getElementById('announce-btn').hidden = !items.length
+  document.getElementById('announce-dot').hidden = !unseen
+  document.getElementById('announce-list').replaceChildren(...items.map(announcementCard))
+  if (!items.length) document.getElementById('announce-panel').classList.remove('open')
+}
+document.getElementById('announce-btn').addEventListener('click', async () => {
+  const panel = document.getElementById('announce-panel')
+  if (panel.classList.toggle('open')) {
+    await addAnnouncementIds('announcementsSeen', (await announcementInbox()).items.map(a => a.id))
+    document.getElementById('announce-dot').hidden = true
+  }
+})
+document.getElementById('announce-panel').querySelector('.tp-close').addEventListener('click', () => {
+  document.getElementById('announce-panel').classList.remove('open')
+})
+document.getElementById('announce-clear').addEventListener('click', async () => {
+  await addAnnouncementIds('announcementsDismissed', (await announcementInbox()).items.map(a => a.id))
+  await renderAnnouncements()
+})
+document.addEventListener('mousedown', (e) => {
+  const panel = document.getElementById('announce-panel')
+  if (panel.classList.contains('open') && !panel.contains(e.target) && !e.target.closest('#announce-btn')) panel.classList.remove('open')
 })
 
 // Lyrics tab: one section per CascadeCore.LYRIC_KNOBS section, one slider per

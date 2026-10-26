@@ -788,6 +788,23 @@ ipcMain.handle('offline-mode', (_e, state) => {
   if (OfflineMode.updateCheckDue(before, offlineState) && app.isPackaged) checkForUpdates()
 })
 
+// Announcements (src/core/announcements.ts). Fetched here because the R2
+// domain sends no CORS headers. Follows Offline Mode the way update checks do.
+const ANNOUNCEMENTS_URL = 'https://plugins.chaosinc.xyz/announcements.json'
+ipcMain.handle('announcements-fetch', async () => {
+  if (!OfflineMode.checksUpdates(offlineState)) return null
+  try {
+    const res = await fetch(ANNOUNCEMENTS_URL, { signal: AbortSignal.timeout(10_000), headers: { 'User-Agent': 'cascade' } })
+    // Not uploaded yet: nothing to announce, not a failure.
+    if (res.status === 404) return []
+    if (!res.ok) return null
+    const text = await res.text()
+    return text.length > 512 * 1024 ? null : JSON.parse(text)
+  } catch {
+    return null
+  }
+})
+
 /** The launch check, unless Offline Mode is on: then it waits for the way
  *  back online (offline-mode above). */
 function checkForUpdatesUnlessOffline() {

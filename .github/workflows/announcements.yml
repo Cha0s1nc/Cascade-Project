@@ -1,0 +1,51 @@
+name: Announcements
+
+# Uploads shared/announcements.json to the cascade-plugins R2 bucket, served
+# at https://plugins.chaosinc.xyz/announcements.json, which every Cascade app
+# reads at launch. The shape is in desktop/src/core/announcements.ts.
+#
+# Runs from dev, so a post goes out without a release: committing an entry to
+# that file and pushing IS posting it to everyone, within about 5 minutes
+# (the cache time below). Removing an entry takes it back down.
+
+on:
+  push:
+    branches: ['dev']
+    paths: ['shared/announcements.json', '.github/workflows/announcements.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: announcements
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    # The R2 key lives here, usable only from dev and stable.
+    environment: release
+    steps:
+      - uses: actions/checkout@v7
+
+      # The same check the desktop tests run, so a typo never reaches anyone.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Check the file
+        working-directory: desktop
+        run: node --test test/announcements.test.ts
+
+      - name: Upload to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          EP: https://${{ vars.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          BUCKET: ${{ vars.R2_BUCKET }}
+        run: |
+          aws s3 cp shared/announcements.json "s3://$BUCKET/announcements.json" --endpoint-url "$EP" \
+            --content-type application/json --cache-control 'public, max-age=300'

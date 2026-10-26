@@ -16,15 +16,16 @@ export interface ServerMessage {
 const MAX_HEADER = 120
 const MAX_TEXT = 2000
 
-const clean = (v: unknown, max: number): string =>
+/** Text for display: control characters out, trimmed, capped. */
+export const cleanText = (v: unknown, max: number): string =>
   typeof v === 'string' ? v.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim().slice(0, max) : ''
 
 /** A DisplayMessage command's arguments (strings, as every general command's
  *  are), or null when there is nothing to show. */
 export function parseDisplayMessage(args: unknown): ServerMessage | null {
   const a = args && typeof args === 'object' ? args as Record<string, unknown> : {}
-  const header = clean(a.Header, MAX_HEADER)
-  const text = clean(a.Text, MAX_TEXT)
+  const header = cleanText(a.Header, MAX_HEADER)
+  const text = cleanText(a.Text, MAX_TEXT)
   if (!header && !text) return null
   const ms = Number(a.TimeoutMs)
   return { header: header || 'Message from your server', text, timeoutMs: Number.isFinite(ms) && ms > 0 ? Math.min(ms, 600_000) : null }
