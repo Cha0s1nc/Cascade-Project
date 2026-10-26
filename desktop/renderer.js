@@ -1193,6 +1193,7 @@ function showServerMessage(message) {
   card.classList.remove('hidden')
   clearTimeout(_serverMessageTimer)
   if (message.timeoutMs) _serverMessageTimer = setTimeout(() => card.classList.add('hidden'), message.timeoutMs)
+  keepServerMessage(message)
 }
 document.getElementById('server-message-close').addEventListener('click', () => {
   clearTimeout(_serverMessageTimer)
@@ -16141,12 +16142,15 @@ document.addEventListener('mousedown', (e) => {
 //
 // The signed-in server's own posts (Cascade Server's Announcements tab) join
 // them, fetched with the plugin probe on each connect. They are not cached:
-// offline at launch, they wait for the server.
+// offline at launch, they wait for the server. So do messages an admin sends
+// this session from Jellyfin's dashboard (showServerMessage): besides the card,
+// each is kept in the inbox, which works on any Jellyfin, plugin or not.
 let _projectAnnouncements = []
 let _serverAnnouncements = []
+let _messageAnnouncements = []
 let _announcements = []
 function setAnnouncements() {
-  _announcements = [..._projectAnnouncements, ..._serverAnnouncements].sort((a, b) => b.date.localeCompare(a.date))
+  _announcements = [..._messageAnnouncements, ..._projectAnnouncements, ..._serverAnnouncements].sort((a, b) => b.date.localeCompare(a.date))
   return renderAnnouncements()
 }
 async function loadAnnouncements() {
@@ -16154,6 +16158,16 @@ async function loadAnnouncements() {
   if (raw === null) raw = await window.cascade.store.get('announcementsCache')
   else await window.cascade.store.set('announcementsCache', raw)
   _projectAnnouncements = CascadeCore.parseAnnouncements(raw, 'desktop', appVersion)
+  _messageAnnouncements = CascadeCore.parseAnnouncements(await window.cascade.store.get('announcementsMessages'), 'desktop', appVersion, Date.now(), 'server')
+  await setAnnouncements()
+}
+async function keepServerMessage(message) {
+  // The name labels it; Jellyfin answers this one without a sign-in.
+  const name = await jfFetch(`${jf.url}/System/Info/Public`, { signal: AbortSignal.timeout(5000) })
+    .then(r => r.ok ? r.json() : null).then(i => typeof i?.ServerName === 'string' ? i.ServerName : '').catch(() => '')
+  const stored = CascadeCore.addServerMessage(await window.cascade.store.get('announcementsMessages'), message, name)
+  await window.cascade.store.set('announcementsMessages', stored)
+  _messageAnnouncements = CascadeCore.parseAnnouncements(stored, 'desktop', appVersion, Date.now(), 'server')
   await setAnnouncements()
 }
 async function fetchServerAnnouncements() {
@@ -16179,9 +16193,14 @@ async function addAnnouncementIds(key, ids) {
 function announcementCard(a) {
   const card = document.createElement('div')
   card.className = 'announce-item'
-  card.innerHTML = '<div class="announce-head"><span class="announce-title"></span><button class="announce-dismiss" aria-label="Dismiss" data-tip="Dismiss">✕</button></div><div class="announce-date"></div><div class="announce-body"></div>'
+  card.innerHTML = '<div class="announce-head"><span class="announce-title"></span><button class="announce-dismiss" aria-label="Dismiss" data-tip="Dismiss">✕</button></div><div class="announce-meta"><span class="announce-badge"></span><span class="announce-date"></span></div><div class="announce-body"></div>'
   card.querySelector('.announce-title').textContent = a.title
-  card.querySelector('.announce-date').textContent = `${new Date(a.date + 'T12:00:00').toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })} · ${a.source ?? 'Cascade'}`
+  // The badge follows where the entry was read from (a.kind), never its text.
+  const badge = card.querySelector('.announce-badge')
+  badge.textContent = a.kind === 'official' ? 'Official' : 'Server'
+  badge.classList.add(a.kind)
+  const date = new Date(a.date + 'T12:00:00').toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
+  card.querySelector('.announce-date').textContent = a.source ? `${date} · ${a.source}` : date
   card.querySelector('.announce-body').textContent = a.body
   card.querySelector('.announce-body').hidden = !a.body
   card.querySelector('.announce-dismiss').addEventListener('click', async () => {

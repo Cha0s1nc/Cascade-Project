@@ -1,14 +1,14 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { announcementInbox, idList, parseAnnouncements, parseServerAnnouncements } from '../src/core/announcements.ts'
+import { addServerMessage, announcementInbox, idList, parseAnnouncements, parseServerAnnouncements } from '../src/core/announcements.ts'
 
 const NOW = Date.parse('2026-11-10T12:00:00Z')
 const base = { id: 'a', date: '2026-11-01', title: 'Hello' }
 
 test('a well formed entry comes through as text, with defaults', () => {
   assert.deepEqual(parseAnnouncements([{ ...base, body: ' Hi\u0007 ', link: 'https://example.com/x', extra: 1 }], 'desktop', '2.3.0', NOW),
-    [{ id: 'a', date: '2026-11-01', title: 'Hello', body: 'Hi', link: 'https://example.com/x' }])
+    [{ id: 'a', date: '2026-11-01', title: 'Hello', body: 'Hi', link: 'https://example.com/x', kind: 'official' }])
   assert.equal(parseAnnouncements([base], 'desktop', '2.3.0', NOW)[0].body, '')
 })
 
@@ -51,12 +51,25 @@ test('the inbox leaves out dismissed entries and counts the unseen rest', () => 
 })
 
 test("a server's posts keep their ids apart per server and carry its name", () => {
-  const raw = { server: { id: 'abc', name: 'Chaos' }, items: [{ ...base, body: '', link: '' }] }
+  const raw = { server: { id: 'abc', name: 'Chaos' }, items: [{ ...base, body: '', link: '', source: 'Cascade', kind: 'official' }] }
   assert.deepEqual(parseServerAnnouncements(raw, 'desktop', '2.3.0', NOW),
-    [{ id: 'server:abc:a', date: '2026-11-01', title: 'Hello', body: '', link: null, source: 'Chaos' }])
+    [{ id: 'server:abc:a', date: '2026-11-01', title: 'Hello', body: '', link: null, kind: 'server', source: 'Chaos' }])
   assert.equal(parseServerAnnouncements({ ...raw, server: { id: 'abc' } }, 'desktop', '2.3.0', NOW)[0].source, 'Your server')
   assert.deepEqual(parseServerAnnouncements({ items: raw.items }, 'desktop', '2.3.0', NOW), [])
   assert.deepEqual(parseServerAnnouncements(null, 'desktop', '2.3.0', NOW), [])
+})
+
+test('a dashboard message is kept as a server entry, newest first, capped', () => {
+  const msg = { header: 'Maintenance', text: 'Restarting at 2', timeoutMs: null }
+  let stored = addServerMessage(undefined, msg, 'Chaos', NOW)
+  stored = addServerMessage(stored, { ...msg, header: 'Back' }, '', NOW + 1000)
+  const list = parseAnnouncements(stored, 'desktop', '2.3.0', NOW, 'server')
+  assert.deepEqual(list.map(a => [a.title, a.kind, a.source]), [['Back', 'server', 'Your server'], ['Maintenance', 'server', 'Chaos']])
+  assert.match(list[0].id, /^message:/)
+  assert.notEqual(list[0].id, list[1].id)
+  for (let i = 0; i < 60; i++) stored = addServerMessage(stored, msg, 'Chaos', NOW + i * 2000)
+  assert.equal(stored.length, 50)
+  assert.equal(addServerMessage('junk', msg, 'Chaos', NOW).length, 1)
 })
 
 // What the workflow uploads reaches every install: an entry that does not
