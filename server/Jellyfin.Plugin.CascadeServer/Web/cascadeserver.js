@@ -203,6 +203,10 @@
     // -- Announcements (posts live in the plugin configuration) ------
     // Each change re-reads the configuration first, as the settings Save does,
     // so neither overwrites the other.
+    function localDay(d) {
+        function two(n) { return (n < 10 ? '0' : '') + n; }
+        return d.getFullYear() + '-' + two(d.getMonth() + 1) + '-' + two(d.getDate());
+    }
     function editAnnouncements(change) {
         return ApiClient.getPluginConfiguration(PLUGIN_ID).then(function (config) {
             config.Announcements = change(config.Announcements || []);
@@ -224,7 +228,9 @@
         var msg = $('#csAnnMsg');
         var post = {
             Id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-            Date: new Date().toISOString().slice(0, 10),
+            // The admin's own day, as the apps date a kept dashboard message:
+            // toISOString's UTC day ran a day ahead in the evening.
+            Date: localDay(new Date()),
             Title: $('#csAnnTitle').value.trim(),
             Body: $('#csAnnBody').value.trim(),
             Link: $('#csAnnLink').value.trim(),
