@@ -255,6 +255,17 @@ final class AppState {
     /// The last message an admin sent this session from the dashboard, until closed.
     var serverMessage: ServerMessage?
 
+    // The announcements inbox (AnnouncementsViews.swift): see "Announcements" below.
+    private var projectAnnouncements: [Announcement] = []
+    private var serverAnnouncements: [Announcement] = []
+    private var messageAnnouncements = Announcements.parse(UserDefaults.standard.array(forKey: AppState.announcementMessagesKey), kind: .server)
+    var announcementsDismissed = UserDefaults.standard.stringArray(forKey: "cascade.announcementsDismissed") ?? [] {
+        didSet { UserDefaults.standard.set(announcementsDismissed, forKey: "cascade.announcementsDismissed") }
+    }
+    var announcementsSeen = UserDefaults.standard.stringArray(forKey: "cascade.announcementsSeen") ?? [] {
+        didSet { UserDefaults.standard.set(announcementsSeen, forKey: "cascade.announcementsSeen") }
+    }
+
     /// The other device picked in the Devices sheet: song menus offer
     /// "Play on" it while one is picked.
     var controlledDevice: (id: String, name: String)?
@@ -407,6 +418,7 @@ final class AppState {
         applyDownloadLimit()
         restore()
         watchNetwork()
+        Task { await refreshProjectAnnouncements() }
     }
 
     /// Bring back the last session without asking for a password again.
@@ -497,6 +509,7 @@ final class AppState {
         cascadePluginApi = nil
         explicitRatings = nil
         cascadePluginInfo = .init()
+        serverAnnouncements = []
         for list in browseLists.values { list.task?.cancel() }
         browseLists = [:]
     }
@@ -608,7 +621,10 @@ final class AppState {
         remoteControl?.stop()
         remoteControl = RemoteControl(client: client, player: player)
         // Messages an admin sends from Jellyfin's dashboard (ServerMessageCard shows them).
-        remoteControl?.onMessage = { [weak self] in self?.serverMessage = $0 }
+        remoteControl?.onMessage = { [weak self] message in
+            self?.serverMessage = message
+            Task { await self?.keepServerMessage(message) }
+        }
         // A cast and a Waterfall room never both drive this player: the room
         // wins, and remote volume is refused in one (see Ownership).
         remoteControl?.ownership = { [weak self] in
@@ -628,6 +644,7 @@ final class AppState {
             }
             // Also with no plugin: a style cached from another server goes.
             if self.client === client { await refreshServerStyle() }
+            if self.client === client { await refreshServerAnnouncements() }
         }
     }
 
@@ -681,6 +698,7 @@ final class AppState {
         }
         if !OfflineMode.isOffline(before) || !OfflineMode.isOffline(next) { libraryMutated() }
         if next == .unreachable { scheduleProbe(reset: true) } else { probeTask?.cancel(); probeTask = nil }
+        if OfflineMode.updateCheckDue(from: before, to: next) { Task { await refreshProjectAnnouncements() } }
         #if os(macOS)
         if OfflineMode.updateCheckDue(from: before, to: next) { UpdateService.shared.checkWhenBackOnline() }
         #endif
@@ -826,6 +844,62 @@ final class AppState {
         }
         monitor.start(queue: DispatchQueue(label: "cascade.offline.path"))
         pathMonitor = monitor
+    }
+
+    // MARK: Announcements
+
+    private static let announcementsCacheKey = "cascade.announcementsCache"
+    private static let announcementMessagesKey = "cascade.announcementsMessages"
+
+    /// The Cascade project's posts, every server post and kept dashboard
+    /// message, newest first. The bell shows while any are not dismissed, with
+    /// a dot while any are new since the inbox was last opened.
+    var announcementInbox: (items: [Announcement], unseen: Int) {
+        let all = (messageAnnouncements + projectAnnouncements + serverAnnouncements).sorted { $0.date > $1.date }
+        return Announcements.inbox(all, dismissed: announcementsDismissed, seen: announcementsSeen)
+    }
+
+    /// The project's feed, at launch and back online, following Offline Mode as
+    /// the desktop's update checks do. The last good copy is kept, so a launch
+    /// that cannot reach it still shows what nobody dismissed.
+    func refreshProjectAnnouncements() async {
+        var raw: Any? = OfflineMode.checksUpdates(offlineState) ? await Announcements.fetch() : nil
+        if let raw, let data = try? JSONSerialization.data(withJSONObject: raw) {
+            UserDefaults.standard.set(data, forKey: Self.announcementsCacheKey)
+        } else {
+            raw = UserDefaults.standard.data(forKey: Self.announcementsCacheKey).flatMap { try? JSONSerialization.jsonObject(with: $0) }
+        }
+        projectAnnouncements = Announcements.parse(raw)
+    }
+
+    /// The signed-in server's own posts (Cascade Server's Announcements tab),
+    /// with the plugin probe. Not cached: offline they wait for the server.
+    func refreshServerAnnouncements() async {
+        guard let client, !isOffline else { return }
+        guard cascadePluginInfo.capabilities.contains("announcements") else { serverAnnouncements = []; return }
+        // A failed fetch keeps what we have rather than drop it on a hiccup.
+        guard let data = try? await client.getData("/CascadeServer/Announcements"), self.client === client else { return }
+        serverAnnouncements = Announcements.parseServer(try? JSONSerialization.jsonObject(with: data))
+    }
+
+    /// A dashboard message stays in the inbox after its card closes, labeled
+    /// with the server's name. Works on any Jellyfin, plugin or not.
+    func keepServerMessage(_ message: ServerMessage) async {
+        struct Info: Decodable { var serverName: String? }
+        let name = (try? await client?.get("/System/Info/Public", as: Info.self))?.serverName ?? ""
+        let stored = Announcements.addMessage(UserDefaults.standard.array(forKey: Self.announcementMessagesKey), message, serverName: name)
+        UserDefaults.standard.set(stored, forKey: Self.announcementMessagesKey)
+        messageAnnouncements = Announcements.parse(stored, kind: .server)
+    }
+
+    func dismissAnnouncements(_ ids: [String]) {
+        announcementsDismissed = Array(Set(announcementsDismissed + ids))
+    }
+
+    /// Opening the inbox: what it shows is no longer new.
+    func markAnnouncementsSeen() {
+        let ids = announcementInbox.items.map(\.id)
+        if !Set(ids).isSubset(of: Set(announcementsSeen)) { announcementsSeen = Array(Set(announcementsSeen + ids)) }
     }
 
     // MARK: Server style

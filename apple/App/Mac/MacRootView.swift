@@ -75,6 +75,7 @@ struct MacRootView: View {
                         MacConnectButtons()
                     }
                 }
+                ToolbarItem(placement: .primaryAction) { AnnouncementsButton() }
                 ToolbarItem(placement: .primaryAction) { ThemePanelButton() }
                 // In the middle of the bar, as on the desktop. A field of its own: .searchable
                 // with .toolbarPrincipal was sent to the overflow menu with Songs' sort and

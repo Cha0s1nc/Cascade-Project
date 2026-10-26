@@ -34,6 +34,8 @@ struct VideoHomeView: View {
             VStack(alignment: .leading, spacing: 24) {
                 #if os(macOS)
                 GreetingHeader()
+                #elseif os(tvOS)
+                AnnouncementsButton().padding(.horizontal)
                 #endif
                 if !resume.isEmpty { stills("Continue Watching", resume) }
                 if !movies.isEmpty { posters("Recently Added Movies", movies) }

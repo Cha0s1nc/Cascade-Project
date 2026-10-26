@@ -19,6 +19,7 @@ Everything pure and testable lives in `CascadeKit`. The app targets are thin ref
   - `OfflineIndex.swift` (pure, tested) and `OfflineLibrary.swift` - downloads.
   - `Equalizer.swift` (pure, tested) and `AudioTap.swift` - the EQ and the normalization boost, in an MTAudioProcessingTap per player item.
   - `Crossfade.swift` - the equal-power envelope; the decks are in PlaybackService.
+  - `Announcements.swift` (pure, tested) - the announcements inbox's feed, Cascade Server posts and kept dashboard messages, as the desktop's `src/core/announcements.ts` reads them. AppState's "Announcements" section fetches and stores them; `App/Sources/AnnouncementsViews.swift` is the bell and the inbox (Mac toolbar, iPhone toolbar on every tab, tvOS a row on Home).
   - `WaterfallProtocol.swift` (pure, tested) and `WaterfallSession.swift` - listen-together rooms.
   - `Video.swift` - the video device profile, movie and show queries, and PlaybackInfo for video. The player (`VideoSession`) and pages are in App/Sources/VideoPlayer.swift and VideoViews.swift.
 - `App/Sources/` - both app targets build these same files. SwiftUI covers most of the platform difference; where it does not (tvOS has no `Slider`, and focus replaces touch) the views branch on `#if os(tvOS)` rather than forking.

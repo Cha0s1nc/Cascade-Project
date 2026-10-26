@@ -66,7 +66,7 @@ extension View {
 }
 
 #if os(iOS)
-/// Search, other devices and Settings, on every tab. Devices is here and not
+/// Search, other devices and Settings, on every tab, and the announcements bell. Devices is here and not
 /// only in Now Playing, which can only be opened while something plays here:
 /// the moment you want to drive another device is often when nothing does.
 private struct LibraryToolbar: ViewModifier {
@@ -84,6 +84,8 @@ private struct LibraryToolbar: ViewModifier {
                         Image(systemName: state.browseMode == .music ? "film" : "music.note")
                     }
                     .accessibilityLabel(state.browseMode == .music ? "Browse Video" : "Browse Music")
+                    // Only while something is in the inbox (AnnouncementsViews.swift).
+                    AnnouncementsButton()
                     if state.isOffline {
                         NavigationLink(value: AppRoute.downloads) { OfflinePill() }
                     }

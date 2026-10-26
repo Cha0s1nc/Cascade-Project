@@ -30,6 +30,8 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 24) {
                 #if os(macOS)
                 GreetingHeader()
+                #elseif os(tvOS)
+                AnnouncementsButton().padding(.horizontal)
                 #endif
                 // The desktop's order: what you played, then what is new.
                 if !recentTracks.isEmpty {
