@@ -97,7 +97,7 @@
 
 /* The plugin's settings save together, whichever tab they are on. */
 .cs-app .cs-savebar { position: sticky; bottom: 0; display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin: 4px -22px -18px; padding: 12px 22px; background: rgba(17, 17, 19, 0.92); border-top: 1px solid var(--border); border-radius: 0 0 16px 16px; backdrop-filter: blur(10px); }
-.cs-app[data-tab="style"] .cs-savebar, .cs-app[data-tab="coverage"] .cs-savebar { display: none; }
+.cs-app[data-tab="style"] .cs-savebar, .cs-app[data-tab="announcements"] .cs-savebar, .cs-app[data-tab="coverage"] .cs-savebar { display: none; }
 
 /* ── Who may do what: a list of the server's users ── */
 .cs-app .cs-users .cs-row { padding: 8px 14px; }

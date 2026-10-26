@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { announcementInbox, idList, parseAnnouncements } from '../src/core/announcements.ts'
+import { announcementInbox, idList, parseAnnouncements, parseServerAnnouncements } from '../src/core/announcements.ts'
 
 const NOW = Date.parse('2026-11-10T12:00:00Z')
 const base = { id: 'a', date: '2026-11-01', title: 'Hello' }
@@ -48,6 +48,15 @@ test('the inbox leaves out dismissed entries and counts the unseen rest', () => 
   assert.equal(inbox.unseen, 1)
   assert.deepEqual(announcementInbox(list, 'junk', { a: 1 }).items.length, 3)
   assert.deepEqual(idList(['x', 2, null, 'y']), ['x', 'y'])
+})
+
+test("a server's posts keep their ids apart per server and carry its name", () => {
+  const raw = { server: { id: 'abc', name: 'Chaos' }, items: [{ ...base, body: '', link: '' }] }
+  assert.deepEqual(parseServerAnnouncements(raw, 'desktop', '2.3.0', NOW),
+    [{ id: 'server:abc:a', date: '2026-11-01', title: 'Hello', body: '', link: null, source: 'Chaos' }])
+  assert.equal(parseServerAnnouncements({ ...raw, server: { id: 'abc' } }, 'desktop', '2.3.0', NOW)[0].source, 'Your server')
+  assert.deepEqual(parseServerAnnouncements({ items: raw.items }, 'desktop', '2.3.0', NOW), [])
+  assert.deepEqual(parseServerAnnouncements(null, 'desktop', '2.3.0', NOW), [])
 })
 
 // What the workflow uploads reaches every install: an entry that does not

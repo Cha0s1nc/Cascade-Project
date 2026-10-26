@@ -12,6 +12,11 @@
 // entry is shown through the whole of its expires day (UTC). Unknown keys are
 // ignored, and an entry that does not parse is dropped, not the whole file.
 // Text only: never rendered as HTML or Markdown.
+//
+// A Cascade Server plugin adds its own admin's posts (GET
+// /CascadeServer/Announcements, capability "announcements"), the same entries
+// inside { server: { id, name }, items }. parseServerAnnouncements keeps their
+// ids apart per server and labels them with the server's name.
 
 import { cleanText } from './server-messages.ts'
 import { isNewerVersion } from './update-release.ts'
@@ -22,6 +27,8 @@ export interface Announcement {
   title: string
   body: string
   link: string | null
+  /** The server's name, for a server's post; the Cascade project's own have none. */
+  source?: string
 }
 
 const MAX_ID = 80
@@ -53,6 +60,16 @@ export function parseAnnouncements(raw: unknown, platform: string, version: stri
     out.push({ id, date: a.date, title, body: cleanText(a.body, MAX_BODY), link })
   }
   return out.sort((x, y) => y.date.localeCompare(x.date)).slice(0, MAX_ENTRIES)
+}
+
+/** A Cascade Server plugin's posts, or none when the answer is not shaped like one. */
+export function parseServerAnnouncements(raw: unknown, platform: string, version: string, nowMs: number = Date.now()): Announcement[] {
+  const r = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}
+  const server = r.server && typeof r.server === 'object' ? r.server as Record<string, unknown> : {}
+  const serverId = cleanText(server.id, 64)
+  if (!serverId) return []
+  const source = cleanText(server.name, MAX_TITLE) || 'Your server'
+  return parseAnnouncements(r.items, platform, version, nowMs).map(a => ({ ...a, id: `server:${serverId}:${a.id}`, source }))
 }
 
 /** Stored id lists are untrusted: anything that is not a string array is empty. */

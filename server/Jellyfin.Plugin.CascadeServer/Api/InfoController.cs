@@ -43,6 +43,7 @@ public class InfoController : ControllerBase
         "explicit",        // POST /CascadeServer/Explicit/Query, GET and PUT /CascadeServer/Explicit/{itemId}
         "animated-art",    // GET /CascadeServer/AnimatedArt/{albumId} and /File, PUT, DELETE, TidalAlbum, Refresh
         "playlist-edit",   // POST and DELETE /CascadeServer/Playlists/{id}/Image, PUT .../Details
+        "announcements",   // GET /CascadeServer/Announcements
     };
 
     // Only while a SpicyLyrics key is set: GET ?syllable=true can then return a raw

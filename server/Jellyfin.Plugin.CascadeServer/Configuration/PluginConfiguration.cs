@@ -94,4 +94,32 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>Gets or sets the users (ids, any Guid format) who may upload, remove and link animated art, besides administrators.</summary>
     public string[] AnimatedArtEditUsers { get; set; } = [];
+
+    /// <summary>
+    /// Gets or sets what an administrator posted from the Announcements tab, for the inbox in
+    /// every Cascade app signed in here (GET /CascadeServer/Announcements).
+    /// </summary>
+    public ServerAnnouncement[] Announcements { get; set; } = [];
+}
+
+/// <summary>
+/// One post, in the shape of Cascade's own announcements feed (desktop/src/core/announcements.ts),
+/// which also checks and caps every field, so nothing is validated here.
+/// </summary>
+public class ServerAnnouncement
+{
+    /// <summary>Gets or sets the id the apps remember it as dismissed by.</summary>
+    public string Id { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the day it was posted, as YYYY-MM-DD.</summary>
+    public string Date { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the title.</summary>
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the text, plain; empty for none.</summary>
+    public string Body { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets an https link to read more at; empty for none.</summary>
+    public string Link { get; set; } = string.Empty;
 }

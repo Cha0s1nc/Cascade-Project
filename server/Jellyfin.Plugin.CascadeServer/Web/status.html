@@ -27,6 +27,7 @@
                         <button type="button" class="cs-tab" role="tab" data-tab="explicit">Explicit</button>
                         <button type="button" class="cs-tab" role="tab" data-tab="art">Animated art</button>
                         <button type="button" class="cs-tab" role="tab" data-tab="style">Server style</button>
+                        <button type="button" class="cs-tab" role="tab" data-tab="announcements">Announcements</button>
                         <button type="button" class="cs-tab" role="tab" data-tab="coverage">Coverage</button>
                     </nav>
 
@@ -218,6 +219,28 @@
                             <label class="cs-btn cs-secondary cs-file">Load a .cascadepreset file<input type="file" id="csStyleFile" accept=".cascadepreset,.json,application/json" /></label>
                             <button type="button" class="cs-btn cs-danger" id="csStyleClear">Clear</button>
                             <button type="submit" class="cs-btn cs-primary">Save style</button>
+                        </div>
+                    </form>
+
+                    <!-- ── Announcements: saved in the plugin configuration, read by
+                         Cascade from GET /CascadeServer/Announcements ── -->
+                    <form id="csAnnForm" class="cs-pane" data-pane="announcements">
+                        <div class="cs-group">
+                            <div class="cs-group-title">Post to everyone on this server</div>
+                            <div class="cs-intro">Shows in the announcements inbox (the bell) in Cascade for everyone signed in here, until they dismiss it. Plain text; the link must start with https://.</div>
+                            <div class="cs-row cs-top" style="flex-direction:column;align-items:stretch;gap:10px;">
+                                <input class="cs-input" id="csAnnTitle" maxlength="120" placeholder="Title" required />
+                                <textarea class="cs-input" id="csAnnBody" rows="4" maxlength="4000" placeholder="Message (optional)"></textarea>
+                                <input class="cs-input" id="csAnnLink" type="url" pattern="https://.*" placeholder="https:// link to read more (optional)" />
+                            </div>
+                        </div>
+                        <div class="cs-actions">
+                            <span class="cs-status" id="csAnnMsg"></span>
+                            <button type="submit" class="cs-btn cs-primary">Post</button>
+                        </div>
+                        <div class="cs-group">
+                            <div class="cs-group-title">Posted</div>
+                            <div id="csAnnList"></div>
                         </div>
                     </form>
 

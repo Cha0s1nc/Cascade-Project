@@ -9303,6 +9303,8 @@ async function startLocal() {
   _cascadePluginAbsent = true
   _cascadePluginCaps = new Set()
   _cascadePluginProbed = Promise.resolve()
+  _serverAnnouncements = []
+  setAnnouncements()
   for (const id of ['lyrics-edit-btn', 'ov-lyrics-edit-btn']) {
     const btn = /** @type {HTMLButtonElement | null} */ (document.getElementById(id))
     if (btn) btn.disabled = true
@@ -12857,6 +12859,7 @@ function probeCascadePlugin() {
     _cascadePluginAbsent = probe === 'absent'
     _applyCascadePluginAvailability()
     fetchServerStyle()
+    fetchServerAnnouncements()
     // Rows drawn before the answer came in ask now.
     if (_cascadePluginCaps.has('explicit')) {
       document.querySelectorAll('.track-row[data-id]').forEach(row => explicitBadgeHtml(row.dataset.id))
@@ -16135,13 +16138,35 @@ document.addEventListener('mousedown', (e) => {
 // inbox was last opened. The last good copy is kept, so a launch that cannot
 // reach R2 still shows what nobody dismissed. The theme panel and this one
 // close each other through their outside-mousedown handlers.
+//
+// The signed-in server's own posts (Cascade Server's Announcements tab) join
+// them, fetched with the plugin probe on each connect. They are not cached:
+// offline at launch, they wait for the server.
+let _projectAnnouncements = []
+let _serverAnnouncements = []
 let _announcements = []
+function setAnnouncements() {
+  _announcements = [..._projectAnnouncements, ..._serverAnnouncements].sort((a, b) => b.date.localeCompare(a.date))
+  return renderAnnouncements()
+}
 async function loadAnnouncements() {
   let raw = await window.cascade.fetchAnnouncements().catch(() => null)
   if (raw === null) raw = await window.cascade.store.get('announcementsCache')
   else await window.cascade.store.set('announcementsCache', raw)
-  _announcements = CascadeCore.parseAnnouncements(raw, 'desktop', appVersion)
-  await renderAnnouncements()
+  _projectAnnouncements = CascadeCore.parseAnnouncements(raw, 'desktop', appVersion)
+  await setAnnouncements()
+}
+async function fetchServerAnnouncements() {
+  let next = []
+  if (_cascadePluginCaps.has('announcements')) {
+    try {
+      const r = await jfFetch(`${jf.url}/CascadeServer/Announcements`, { headers: CascadeCore.authHeaders(jf), signal: AbortSignal.timeout(8000) })
+      if (!r.ok) return   // keep what we have on a hiccup
+      next = CascadeCore.parseServerAnnouncements(await r.json(), 'desktop', appVersion)
+    } catch { return }
+  }
+  _serverAnnouncements = next
+  await setAnnouncements()
 }
 async function announcementInbox() {
   const [dismissed, seen] = await Promise.all(['announcementsDismissed', 'announcementsSeen'].map(k => window.cascade.store.get(k)))
@@ -16156,7 +16181,7 @@ function announcementCard(a) {
   card.className = 'announce-item'
   card.innerHTML = '<div class="announce-head"><span class="announce-title"></span><button class="announce-dismiss" aria-label="Dismiss" data-tip="Dismiss">✕</button></div><div class="announce-date"></div><div class="announce-body"></div>'
   card.querySelector('.announce-title').textContent = a.title
-  card.querySelector('.announce-date').textContent = new Date(a.date + 'T12:00:00').toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
+  card.querySelector('.announce-date').textContent = `${new Date(a.date + 'T12:00:00').toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })} · ${a.source ?? 'Cascade'}`
   card.querySelector('.announce-body').textContent = a.body
   card.querySelector('.announce-body').hidden = !a.body
   card.querySelector('.announce-dismiss').addEventListener('click', async () => {

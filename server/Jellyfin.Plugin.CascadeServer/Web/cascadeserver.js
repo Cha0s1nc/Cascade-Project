@@ -200,6 +200,52 @@
             .catch(function (res) { errorText(res, "Couldn't clear the style.").then(function (m) { setStatus(msg, m, 'bad'); }); });
     });
 
+    // -- Announcements (posts live in the plugin configuration) ------
+    // Each change re-reads the configuration first, as the settings Save does,
+    // so neither overwrites the other.
+    function editAnnouncements(change) {
+        return ApiClient.getPluginConfiguration(PLUGIN_ID).then(function (config) {
+            config.Announcements = change(config.Announcements || []);
+            return ApiClient.updatePluginConfiguration(PLUGIN_ID, config);
+        });
+    }
+    function loadAnnouncements() {
+        return ApiClient.getPluginConfiguration(PLUGIN_ID).then(function (config) {
+            var list = (config.Announcements || []).slice().reverse();
+            $('#csAnnList').innerHTML = list.length ? list.map(function (a) {
+                return '<div class="cs-row"><span class="cs-label"><span class="cs-name">' + escapeHtml(a.Title) + '</span>' +
+                    '<span class="cs-desc">' + escapeHtml(a.Date) + (a.Body ? ' \u00b7 ' + escapeHtml(a.Body.slice(0, 140)) : '') + '</span></span>' +
+                    '<button type="button" class="cs-btn cs-danger cs-small" data-ann="' + escapeHtml(a.Id) + '">Delete</button></div>';
+            }).join('') : '<div class="cs-empty">Nothing posted.</div>';
+        }).catch(function () { setStatus($('#csAnnMsg'), "Couldn't load the announcements.", 'bad'); });
+    }
+    $('#csAnnForm').addEventListener('submit', function (e) {
+        e.preventDefault();
+        var msg = $('#csAnnMsg');
+        var post = {
+            Id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+            Date: new Date().toISOString().slice(0, 10),
+            Title: $('#csAnnTitle').value.trim(),
+            Body: $('#csAnnBody').value.trim(),
+            Link: $('#csAnnLink').value.trim(),
+        };
+        if (!post.Title) return false;
+        editAnnouncements(function (list) { return list.concat([post]); }).then(function () {
+            $('#csAnnTitle').value = $('#csAnnBody').value = $('#csAnnLink').value = '';
+            setStatus(msg, 'Posted', 'ok');
+            loadAnnouncements();
+        }, function () { setStatus(msg, "Couldn't post it.", 'bad'); });
+        return false;
+    });
+    $('#csAnnList').addEventListener('click', function (e) {
+        var btn = e.target.closest('[data-ann]');
+        if (!btn || !confirm('Delete this announcement? It disappears from everyone\'s inbox.')) return;
+        var id = btn.getAttribute('data-ann');
+        editAnnouncements(function (list) { return list.filter(function (a) { return a.Id !== id; }); })
+            .then(function () { setStatus($('#csAnnMsg'), 'Deleted', 'ok'); loadAnnouncements(); },
+                function () { setStatus($('#csAnnMsg'), "Couldn't delete it.", 'bad'); });
+    });
+
     // -- Lyrics coverage -------------------------------------------------
     var allRows = [];
 
@@ -327,6 +373,7 @@
         lastRefresh = Date.now();
         loadSettings();
         loadStyle();
+        loadAnnouncements();
         loadInfo();
         load();
         requestAnimationFrame(placePill);
