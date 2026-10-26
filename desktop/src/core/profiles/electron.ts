@@ -100,7 +100,7 @@ export function buildElectronProfile(canPlay: CodecProbe): DeviceProfile {
   return {
     ...ELECTRON_PROFILE,
     DirectPlayProfiles: directPlayProfiles(hevc, ac3, eac3),
-    CodecProfiles: hevc ? HEVC_CODEC_PROFILE : [],
+    CodecProfiles: hevc ? [...HEVC_CODEC_PROFILE, ...NO_TRACK_SWITCHING] : NO_TRACK_SWITCHING,
     // Letting the server *return* HEVC is what lets it copy the video stream
     // rather than encode a new one. If the only codec it may hand back is h264,
     // a file whose video was already fine still gets fully re-encoded.
@@ -110,6 +110,18 @@ export function buildElectronProfile(canPlay: CodecProbe): DeviceProfile {
       : ELECTRON_PROFILE.TranscodingProfiles,
   }
 }
+
+/**
+ * Chromium plays a file's first audio track and cannot switch to another (no
+ * audioTracks), so any other track has to arrive as its own stream. Without
+ * this the server direct-played an English pick on a Japanese-first anime mkv,
+ * and Japanese is what played. The same condition jellyfin-web sends for a
+ * browser that cannot switch tracks.
+ */
+const NO_TRACK_SWITCHING: CodecProfile[] = [{
+  Type: 'VideoAudio',
+  Conditions: [{ Condition: 'Equals', Property: 'IsSecondaryAudio', Value: 'false', IsRequired: false }],
+}]
 
 /**
  * What kind of HEVC, not merely whether HEVC.

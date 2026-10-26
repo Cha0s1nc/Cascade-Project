@@ -75,6 +75,13 @@ test('optional ids are omitted rather than sent as null', () => {
   assert.equal('MediaSourceId' in r, false)
 })
 
+test('the playing audio track is reported, so the server remembers it and not an old pick', () => {
+  assert.equal(buildPlaybackReport(state({ audioStreamIndex: 2 })).AudioStreamIndex, 2)
+  assert.equal(buildPlaybackReport(state({ audioStreamIndex: 0 })).AudioStreamIndex, 0, 'index 0 is a track, not absent')
+  // Absent leaves the server's memory alone; music never has one.
+  assert.equal('AudioStreamIndex' in buildPlaybackReport(state({ audioStreamIndex: null })), false)
+})
+
 test('each report hits its own endpoint', async () => {
   stubFetch()
   await reportStart(client, state())

@@ -32,6 +32,9 @@ export interface PlaybackState {
   /** What kind of thing is playing. Drives QueueableMediaTypes, which is how a
    *  controller decides whether it may push a movie at this session. */
   mediaType?: 'Audio' | 'Video'
+  /** The audio track playing. With RememberAudioSelections on, this is what
+   *  the server remembers for the item, so leaving it out let an old pick win. */
+  audioStreamIndex?: number | null
 }
 
 /**
@@ -53,6 +56,7 @@ export function buildPlaybackReport(s: PlaybackState): Record<string, unknown> {
     QueueableMediaTypes: [s.mediaType ?? 'Audio'],
     ...(s.playSessionId ? { PlaySessionId: s.playSessionId } : {}),
     ...(s.mediaSourceId ? { MediaSourceId: s.mediaSourceId } : {}),
+    ...(s.audioStreamIndex != null ? { AudioStreamIndex: s.audioStreamIndex } : {}),
   }
 }
 

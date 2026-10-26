@@ -1,7 +1,7 @@
 import { test, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { JellyfinClient } from '../src/core/jellyfin.ts'
-import { resolveStream, isHlsUrl, chapterList, chapterAt, chapterTarget, universalStreamUrl, stopActiveEncoding, DEFAULT_MAX_BITRATE, resumeTicks, neededAudioStreamIndex, withoutAudioCodecs,
+import { resolveStream, isHlsUrl, chapterList, chapterAt, chapterTarget, universalStreamUrl, stopActiveEncoding, DEFAULT_MAX_BITRATE, resumeTicks, neededAudioStreamIndex, audioStreamForLanguage, withoutAudioCodecs,
   continueEpisode,
 } from '../src/core/playback.ts'
 import { ELECTRON_PROFILE, buildElectronProfile } from '../src/core/profiles/electron.ts'
@@ -434,16 +434,25 @@ test('a HEVC-capable host lets the server hand HEVC back, so it can copy', () =>
 test('a host without HEVC gets neither the codec profile nor the hevc fallback', () => {
   const none = buildElectronProfile(() => false)
   assert.deepEqual(none.TranscodingProfiles, ELECTRON_PROFILE.TranscodingProfiles)
-  assert.deepEqual(none.CodecProfiles, [], 'nothing to describe')
+  assert.ok(!none.CodecProfiles!.some(p => p.Codec === 'hevc'), 'no HEVC to describe')
+})
+
+test('every host tells the server it cannot switch audio tracks inside a file', () => {
+  // Chromium plays the first track whatever was picked, so a pick of any other
+  // track must make the server remux. Without this, an English pick on a
+  // Japanese-first anime mkv direct-played, and Japanese is what came out.
+  for (const hevc of [false, true]) {
+    const p = buildElectronProfile(() => hevc).CodecProfiles!.find(c => c.Type === 'VideoAudio')!
+    assert.deepEqual(p.Conditions, [{ Condition: 'Equals', Property: 'IsSecondaryAudio', Value: 'false', IsRequired: false }])
+  }
 })
 
 test('the HEVC codec profile permits 10-bit, and does not hard-fail outside it', () => {
   // Empty CodecProfiles does not read as "no restrictions" - the server assumes
   // 10-bit is beyond the client and re-encodes. Nearly every HEVC file is Main
   // 10, so this condition is the whole difference between copy and encode.
-  const p = buildElectronProfile(() => true).CodecProfiles!
+  const p = buildElectronProfile(() => true).CodecProfiles!.filter(c => c.Codec === 'hevc')
   assert.equal(p.length, 1)
-  assert.equal(p[0].Codec, 'hevc')
   const depth = p[0].Conditions.find(c => c.Property === 'VideoBitDepth')!
   assert.equal(depth.Value, '10')
   assert.equal(depth.Condition, 'LessThanEqual')
@@ -495,8 +504,8 @@ test('stopActiveEncoding never throws, whatever the server does', async () => {
 //
 // Direct play hands the whole file over, embedded tracks and all. The server's
 // eligibility check only needs ONE decodable audio stream to call a file
-// direct-playable, but Chromium decodes whichever track the container itself
-// flags as default - not whichever one the server had in mind. A mismatch
+// direct-playable, but Chromium decodes the file's first audio track - not
+// whichever one the server had in mind. A mismatch
 // there is silent: the video plays, the audio track chosen never was.
 
 const DECODABLE = ['aac', 'mp3', 'opus', 'flac', 'vorbis']
@@ -615,4 +624,34 @@ test('continueEpisode: resumes the episode watched last, or moves on from a fini
   // Nothing watched, or the finale was the last thing watched: no button.
   assert.equal(continueEpisode([ep('1', undefined), ep('2', undefined)]), null)
   assert.equal(continueEpisode([ep('1', '2026-01-01T00:00:00Z', 0, true), ep('2', '2026-02-01T00:00:00Z', 0, true)]), null)
+})
+
+// ── audioStreamForLanguage ──
+//
+// The language picked on one episode has to reach the next, or the server's
+// per-episode memory (Japanese, from plays months ago) wins every time.
+
+function langStream(index: number, language?: string): JfMediaStream {
+  return { Type: 'Audio', Index: index, Codec: 'aac', Language: language }
+}
+
+test('a picked language finds its track wherever this episode put it', () => {
+  // Same series, two release layouts: English first in one, second in the other.
+  assert.equal(audioStreamForLanguage([langStream(1, 'eng'), langStream(2, 'jpn')], 'eng', 2), 1)
+  assert.equal(audioStreamForLanguage([langStream(1, 'jpn'), langStream(2, 'eng')], 'eng', 1), 2)
+})
+
+test('the current track stays when it already speaks the language', () => {
+  // A commentary picked over the main English track is still English.
+  const streams = [langStream(1, 'jpn'), langStream(2, 'eng'), langStream(3, 'eng')]
+  assert.equal(audioStreamForLanguage(streams, 'eng', 3), 3)
+})
+
+test('no picked language, or no track in it, leaves the choice to everything else', () => {
+  const streams = [langStream(1, 'jpn'), langStream(2)]
+  assert.equal(audioStreamForLanguage(streams, undefined, 1), null)
+  assert.equal(audioStreamForLanguage(streams, 'eng', 1), null)
+  assert.equal(audioStreamForLanguage(undefined, 'eng', null), null)
+  // Subtitles share the language but are not audio.
+  assert.equal(audioStreamForLanguage([{ Type: 'Subtitle', Index: 3, Language: 'eng' }], 'eng', null), null)
 })

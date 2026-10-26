@@ -50,7 +50,8 @@ export interface CodecCondition {
  * have copied.
  */
 export interface CodecProfile {
-  Type: MediaKind
+  /** 'VideoAudio' is the audio stream inside a video file. */
+  Type: MediaKind | 'VideoAudio'
   /** Comma-separated. Absent applies to every codec (checked on jellyfin12:
    *  a Height condition with no codec capped HEVC and H.264 alike). */
   Codec?: string
@@ -131,10 +132,12 @@ export interface StreamOptions {
    * Which audio track to play, as a MediaStreams index. null leaves it to the
    * server.
    *
-   * ponytail: this forces a transcode in practice, and that is not a bug to fix
-   * later. HTML5 has no way to select between the audio tracks inside one file -
-   * Chromium exposes no audioTracks - so the only way to hear the commentary is
-   * to have the server mux a file that has it first.
+   * ponytail: any track but the file's first forces a remux or transcode, and
+   * that is not a bug to fix later. HTML5 has no way to select between the
+   * audio tracks inside one file - Chromium exposes no audioTracks and plays
+   * the first one - so the only way to hear the commentary is to have the
+   * server mux a file that has it first. The profile's IsSecondaryAudio
+   * condition (profiles/electron.ts) is what makes the server do that.
    */
   audioStreamIndex?: number | null
 }
@@ -321,8 +324,9 @@ export async function stopActiveEncoding(
  * the server's compatibility check only has to find ONE decodable stream
  * somewhere in the file to call the whole thing direct-playable, but an HTML5
  * <video> cannot pick between embedded audio tracks (see StreamOptions.
- * audioStreamIndex) - it just decodes whichever one the container itself
- * flags as default. When those two are different streams, the server thinks
+ * audioStreamIndex) - it just decodes the file's first audio track (measured
+ * in Electron on an mkv whose second track was flagged default: the first one
+ * played). When those two are different streams, the server thinks
  * direct play is fine, the video plays, and the audio the browser actually
  * tried to decode is a codec it does not have - silent, no error.
  *
@@ -346,6 +350,30 @@ export function neededAudioStreamIndex(
 
   const fallback = audio.find(s => decodable.has((s.Codec || '').toLowerCase()))
   return fallback?.Index ?? null
+}
+
+/**
+ * Which audio stream speaks `language`, or null when the item has none (or no
+ * language was picked).
+ *
+ * A language, not an index, is what carries from one episode to the next: a
+ * raw index lands on the other language as soon as a batch from another
+ * release swaps the layout. And with nothing sent, the server's default wins,
+ * which with RememberAudioSelections on is whatever was last played on THAT
+ * episode - for an anime, often Japanese from a play months ago, however many
+ * times English was picked on the episodes around it.
+ *
+ * `current` is kept when it already speaks the language, so a commentary track
+ * picked over the main English one is not swapped for the first English track.
+ */
+export function audioStreamForLanguage(
+  streams: JfMediaStream[] | undefined,
+  language: string | null | undefined,
+  current: number | null,
+): number | null {
+  if (!language) return null
+  const matches = (streams || []).filter(s => s.Type === 'Audio' && s.Language === language)
+  return (matches.find(s => s.Index === current) ?? matches[0])?.Index ?? null
 }
 
 export async function resolveStream(

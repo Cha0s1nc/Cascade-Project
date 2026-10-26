@@ -579,8 +579,8 @@ const DEVICE_PROFILE = buildElectronProfile(t => {
 
 // Audio codecs this profile claims for a video container - what neededAudioStreamIndex()
 // checks a movie's default track against. See its doc comment in playback.ts: direct play
-// hands over every embedded audio stream, and Chromium decodes whichever one the file
-// itself flags as default, not whatever the server decided was "the" compatible one.
+// hands over every embedded audio stream, and Chromium decodes the file's first one,
+// not whatever the server decided was "the" compatible one.
 // Codecs this build CLAIMED it could decode and then demonstrably could not:
 // the picture played, the clock advanced, and the audio decoder produced zero
 // bytes. Filled in at runtime by _checkAudioActuallyDecoded() and persisted,
@@ -6011,7 +6011,15 @@ async function playCurrentTrack(opts = {}) {
       if (queue[queueIndex]?.Id !== item.Id) return
       if (full?.MediaStreams) Object.assign(item, { MediaStreams: full.MediaStreams, MediaSources: full.MediaSources })
     }
-    if (video && !_audioStreamIndexIsExplicit) {
+    // A language picked for this series beats both: the index carried over
+    // from the last episode, and the server's own default, which is whatever
+    // was last played on this one episode (see audioStreamForLanguage).
+    const seriesTrack = video
+      ? CascadeCore.audioStreamForLanguage(item.MediaStreams, _seriesAudioLanguage[item.SeriesId], _audioStreamIndex)
+      : null
+    if (seriesTrack != null) {
+      _audioStreamIndex = seriesTrack
+    } else if (video && !_audioStreamIndexIsExplicit) {
       _audioStreamIndex = neededAudioStreamIndex(item.MediaStreams, decodableVideoAudioCodecs())
     } else if (!video) {
       _audioStreamIndex = null
@@ -6489,6 +6497,18 @@ let _audioStreamIndex = null
  *  session, but the queue auto-advancing to the next track is not. */
 let _audioStreamIndexIsExplicit = false
 
+/** Audio language picked from the menu, per series id, so the next episode,
+ *  played tomorrow or started by its own Play click, gets it too. */
+let _seriesAudioLanguage = {}
+
+async function _loadSeriesAudioLanguage() {
+  try {
+    const saved = JSON.parse(await window.cascade.store.get('seriesAudioLanguage') || '{}')
+    if (saved && typeof saved === 'object') _seriesAudioLanguage = saved
+  } catch {}
+}
+_loadSeriesAudioLanguage()
+
 /** Guards against an older restart's response overwriting a newer one. */
 let _restartSession = 0
 
@@ -6588,6 +6608,7 @@ function playbackSnapshot(itemId, positionTicks) {
     // Jellyfin renders a video session differently from an audio one, and a
     // controller uses QueueableMediaTypes to decide what it may push at us.
     mediaType: /** @type {'Audio' | 'Video'} */ (isVideoItem(item) ? 'Video' : 'Audio'),
+    audioStreamIndex: _audioStreamIndex,
   }
 }
 
@@ -10967,6 +10988,11 @@ document.getElementById('ov-audio-track').addEventListener('click', (e) => {
       if (idx === _audioStreamIndex) return
       _audioStreamIndex = idx
       _audioStreamIndexIsExplicit = true
+      const language = streams.find(s => s.Index === idx)?.Language
+      if (item.SeriesId && language) {
+        _seriesAudioLanguage[item.SeriesId] = language
+        window.cascade.store.set('seriesAudioLanguage', JSON.stringify(_seriesAudioLanguage)).catch(() => {})
+      }
       // Switching track means a different file from the server, so playback
       // restarts where it was rather than from the top. This is the one case
       // the cached URL cannot serve - the server has to pick the stream again.
