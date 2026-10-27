@@ -82,6 +82,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
 struct RootView: View {
     @Environment(AppState.self) private var state
+    @State private var splash = !SplashView.played
 
     /// Debug builds only: `-cascade.forceSignIn YES` shows the sign-in screen
     /// over a stored session, to look at it without signing anyone out.
@@ -104,6 +105,14 @@ struct RootView: View {
                 // Wrapped so the title renders. MainView brings its own stack per
                 // tab, so this one is only for sign in.
                 NavigationStack { SignInView() }
+            }
+        }
+        .overlay {
+            if splash {
+                SplashView(signInShowing: !showsMain) {
+                    withAnimation(.easeOut(duration: 0.35)) { splash = false }
+                }
+                .transition(.opacity.combined(with: .scale(scale: 1.04)))
             }
         }
     }
