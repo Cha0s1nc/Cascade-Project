@@ -94,6 +94,7 @@
       "LICENSE",
       "assets/LICENSE",
       "assets/linux-icons/128x128.png",
+      "assets/linux-icons/256x256.png",
       "node_modules/**/*",
       "!node_modules/@img/**"
     ],

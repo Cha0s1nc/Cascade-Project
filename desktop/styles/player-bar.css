@@ -24,6 +24,7 @@
 button svg, .ctrl-btn svg, .play-pause-btn svg, .vol-icon svg { pointer-events: none; cursor: inherit; }
 .ctrl-btn:hover { color: var(--text); }
 .ctrl-btn.active { color: var(--accent); }
+.ctrl-btn.coming-soon, .ctrl-btn.coming-soon:hover { opacity: 0.4; color: var(--text3); cursor: default; }
 /* A slash through the lyrics bubble when the playing song has none, or is
    instrumental (_applyLyricsMark). Shared with Now Playing's lyrics button. */
 .lyrics-cross { display: none; }

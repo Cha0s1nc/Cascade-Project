@@ -7568,7 +7568,20 @@ window.cascade.miniPlayer.onOpenChange(open => {
   setTimeout(pushMiniplayerState, 600)
 })
 
+// Dev builds only for now: a packaged build shows the button dimmed with a
+// "coming soon" tip. Keyed on isPackaged, not on a setting anyone can flip by
+// accident. main.js refuses to open it there too.
+let _miniplayerEnabled = true
+window.cascade?.isPackaged?.().then(packaged => {
+  _miniplayerEnabled = !packaged
+  const btn = document.getElementById('btn-miniplayer-open')
+  if (!btn || _miniplayerEnabled) return
+  btn.classList.add('coming-soon')
+  btn.setAttribute('data-tip', 'Miniplayer - coming soon')
+  btn.title = 'Miniplayer - coming soon'
+})
 document.getElementById('btn-miniplayer-open').addEventListener('click', () => {
+  if (!_miniplayerEnabled) { showToast('Miniplayer is coming soon'); return }
   window.cascade.miniPlayer.open()
 })
 

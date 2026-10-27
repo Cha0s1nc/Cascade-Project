@@ -1065,7 +1065,9 @@ const MINI_MIN_HEIGHT = 100
 const MINI_MAX_HEIGHT = 900   // Apple Music's own tall state is ~880px
 const MINI_DEFAULT_HEIGHT = 120
 
+// Dev runs only until it is finished, same as the button in renderer.js.
 ipcMain.on('open-miniplayer', () => {
+  if (app.isPackaged) return
   if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) {
     miniPlayerWindow.focus()
   } else {
