@@ -335,11 +335,19 @@ test('a chosen audio track reaches PlaybackInfo, and is absent otherwise', async
   await resolveStream(client, config, 'ITEM1', ELECTRON_PROFILE, DEFAULT_MAX_BITRATE, 'Video',
     { audioStreamIndex: 3 })
   assert.equal(calls[0].body.AudioStreamIndex, 3)
+  // Without the source it indexes into, Jellyfin ignores the index entirely.
+  assert.equal(calls[0].body.MediaSourceId, 'ITEM1', 'a single-version item is its own source')
+
+  calls = []
+  await resolveStream(client, config, 'ITEM1', ELECTRON_PROFILE, DEFAULT_MAX_BITRATE, 'Video',
+    { audioStreamIndex: 3, mediaSourceId: 'SRC2' })
+  assert.equal(calls[0].body.MediaSourceId, 'SRC2', 'a known source wins, for multi-version items')
 
   calls = []
   await resolveStream(client, config, 'ITEM1', ELECTRON_PROFILE, DEFAULT_MAX_BITRATE, 'Video')
   assert.ok(!('AudioStreamIndex' in calls[0].body),
     'omitted rather than null, so the server keeps its own default')
+  assert.ok(!('MediaSourceId' in calls[0].body))
 })
 
 test('the fallback path still reports a usable shape when PlaybackInfo fails', async () => {

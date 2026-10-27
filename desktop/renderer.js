@@ -6027,7 +6027,7 @@ async function playCurrentTrack(opts = {}) {
     }
 
     const resolved = await resolveTrackStream(item.Id, video ? 'Video' : 'Audio',
-      { startTicks, audioStreamIndex: _audioStreamIndex })
+      { startTicks, audioStreamIndex: _audioStreamIndex, mediaSourceId: item.MediaSources?.[0]?.Id })
     if (queue[queueIndex]?.Id !== item.Id) return
 
     // A skip loads the new track on the idle deck, so the old one fades out
@@ -6576,6 +6576,7 @@ async function restartStreamAt(sec, opts = {}) {
   const resolved = await resolveTrackStream(item.Id, 'Video', {
     startTicks: ticks,
     audioStreamIndex: _audioStreamIndex,
+    mediaSourceId: _mediaSourceId,
   })
   if (session !== _restartSession || queue[queueIndex]?.Id !== item.Id) return
 

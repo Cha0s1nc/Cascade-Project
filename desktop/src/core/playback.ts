@@ -140,6 +140,9 @@ export interface StreamOptions {
    * condition (profiles/electron.ts) is what makes the server do that.
    */
   audioStreamIndex?: number | null
+  /** The media source `audioStreamIndex` belongs to. Defaults to the item's
+   *  own id, which is the source id of any item with a single version. */
+  mediaSourceId?: string | null
 }
 
 export interface ResolvedStream {
@@ -399,7 +402,14 @@ export async function resolveStream(
         // Sent rather than omitted-when-default so the server decides whether
         // the requested track is reachable by direct play. It usually is not,
         // and that transcode is the point - see StreamOptions.
-        ...(audioStreamIndex != null ? { AudioStreamIndex: audioStreamIndex } : {}),
+        // MediaSourceId has to come with it: Jellyfin applies AudioStreamIndex
+        // only when the request names the source it indexes into
+        // (MediaInfoHelper.SetDeviceSpecificData), and otherwise drops it in
+        // silence and plays its own default. Every track pick was lost that
+        // way, so an anime kept playing the Japanese its episode remembered.
+        ...(audioStreamIndex != null
+          ? { AudioStreamIndex: audioStreamIndex, MediaSourceId: opts.mediaSourceId ?? itemId }
+          : {}),
       },
       { UserId: config.userId },
     )
