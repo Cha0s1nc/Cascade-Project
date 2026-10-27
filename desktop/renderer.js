@@ -17458,4 +17458,27 @@ document.getElementById('ce-dev-reset').addEventListener('click', () => {
 
 window.cascade.isDebugMode().then(on => { if (on) initDevTuningTab() })
 
-init()
+// The splash covers init() and leaves once it settles, but never before the
+// name has finished sliding out (~1.15s in splash.css), longer when the
+// sign-in form is what is underneath (a first run, or a lost session), and
+// never past SPLASH_MAX_MS: a slow server shows its own loading states.
+// A click or key skips it.
+const SPLASH_MIN_MS = 1300
+const SPLASH_SETUP_MIN_MS = 2000
+const SPLASH_MAX_MS = 5000
+function hideSplash() {
+  const el = document.getElementById('splash')
+  if (!el || el.classList.contains('out')) return
+  el.classList.add('out')
+  el.addEventListener('transitionend', () => el.remove(), { once: true })
+  setTimeout(() => el.remove(), 600)
+}
+document.getElementById('splash')?.addEventListener('click', hideSplash)
+window.addEventListener('keydown', hideSplash, { once: true })
+setTimeout(hideSplash, SPLASH_MAX_MS)
+
+init().finally(() => {
+  const setupShowing = !document.getElementById('setup-overlay').classList.contains('hidden')
+  const min = setupShowing ? SPLASH_SETUP_MIN_MS : SPLASH_MIN_MS
+  setTimeout(hideSplash, Math.max(0, min - (performance.now() - window.splashStart)))
+})

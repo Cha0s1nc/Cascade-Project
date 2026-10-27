@@ -1,0 +1,52 @@
+/* Launch splash: the logo pops in, clicks, and "Cascade" slides out to the
+   left from under it. Pure CSS so it runs from first paint; renderer.js only
+   decides when it leaves (hideSplash). */
+#splash {
+  position: fixed; inset: 0; z-index: 10000;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg);
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+#splash.out { opacity: 0; transform: scale(1.04); pointer-events: none; }
+
+.splash-mark { display: flex; align-items: center; }
+
+.splash-logo {
+  position: relative; z-index: 1;
+  width: 96px; height: 96px; border-radius: 22px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.45);
+  animation:
+    splash-logo-in 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2) both,
+    splash-click 0.25s ease-in-out 0.45s both;
+}
+
+/* max-width grows so the pair re-centers as the name comes out: the logo
+   drifts right while the name slides left from behind it. */
+.splash-name {
+  max-width: 0; overflow: hidden; white-space: nowrap;
+  font-size: 44px; font-weight: 700; letter-spacing: -0.02em; color: var(--text);
+  animation: splash-name-out 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) 0.65s both;
+}
+.splash-name span { display: inline-block; padding-right: 18px; }
+
+@keyframes splash-logo-in {
+  from { opacity: 0; transform: scale(0.8); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes splash-click {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(0.88); }
+  75%  { transform: scale(1.04); }
+  100% { transform: scale(1); }
+}
+@keyframes splash-name-out {
+  from { max-width: 0; opacity: 0; transform: translateX(60px); }
+  to   { max-width: 260px; opacity: 1; transform: translateX(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .splash-logo, .splash-name { animation: none; }
+  .splash-name { max-width: none; }
+  #splash { transition: opacity 0.2s ease; }
+  #splash.out { transform: none; }
+}

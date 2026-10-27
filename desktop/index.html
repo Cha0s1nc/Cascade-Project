@@ -20,8 +20,20 @@
   <link rel="stylesheet" href="styles/devices.css" />
   <link rel="stylesheet" href="styles/radio.css" />
   <link rel="stylesheet" href="styles/editor.css" />
+  <link rel="stylesheet" href="styles/splash.css" />
 </head>
 <body>
+<!-- Launch splash, first in the body so it is the first paint. Animation in
+     styles/splash.css, dismissal in renderer.js hideSplash(). -->
+<div id="splash" aria-hidden="true">
+  <div class="splash-mark">
+    <div class="splash-name"><span>Cascade</span></div>
+    <img class="splash-logo" src="assets/linux-icons/256x256.png" alt="">
+  </div>
+</div>
+<!-- When the splash starts animating. Not performance.now() alone: the page
+     clock starts seconds before main shows the window on a cold launch. -->
+<script>window.splashStart = performance.now()</script>
 <div class="app">
 
   <!-- Titlebar -->
