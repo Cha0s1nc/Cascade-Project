@@ -5458,7 +5458,7 @@ async function openSeries(seriesId) {
           <div class="vd-overview">${esc(series.Overview || '')}</div>
           <div class="vd-actions">
             ${contLabel ? `<button class="shuffle-all-btn" id="series-continue" title="${esc(contEp.Name || '')}">${esc(contLabel)}</button>` : ''}
-            <button class="shuffle-all-btn" id="series-download" data-label="Download show" style="display:none"></button>
+            <button class="shuffle-all-btn" id="series-download" style="display:none"></button>
           </div>
           <label class="dl-follow" style="display:none"><span class="toggle"><input type="checkbox" id="series-follow"><span class="toggle-track"></span></span> Download new episodes as they arrive</label>
         </div>
@@ -5467,7 +5467,7 @@ async function openSeries(seriesId) {
         seasons.map((s, i) =>
           `<button class="season-tab${i === startSeason ? ' active' : ''}">${esc(s.Name)}</button>`
         ).join('')
-      }<button class="shuffle-all-btn" id="season-download" data-label="Download season" style="display:none"></button></div>
+      }<button class="shuffle-all-btn" id="season-download" style="display:none"></button></div>
       <div id="episode-list"></div>`
 
     // Closes over `seasons` by index rather than reading an id back out of a
@@ -8766,7 +8766,12 @@ setInterval(() => syncFollowedSeries().catch(() => {}), 60 * 60 * 1000)
 
 /** The Download button of a movie, episode, season or show page. Offline it
  *  only removes, as the album button does. */
-function paintVideoDownloadButton(btn, id) {
+/** Every Download button: where its download stands, and on hover what a
+ *  click does to it (Stop while downloading, Remove once done). Both labels
+ *  share one grid cell, so the button keeps its width and the hover can't
+ *  flicker. Offline only a download can be removed: starting one needs the
+ *  server. */
+function paintDownloadButton(btn, id, startTitle) {
   if (!btn) return
   const c = id ? offlineCollection(id) : null
   const shown = !!id && (!!c || !jfClient.offline)
@@ -8774,8 +8779,13 @@ function paintVideoDownloadButton(btn, id) {
   if (!shown) return
   const done = !!c && c.done === c.total
   btn.classList.toggle('on', done)
-  btn.title = c ? 'Remove this download' : 'Download to watch without a connection'
-  btn.innerHTML = `${DL_ICON} ${!c ? (btn.dataset.label || 'Download') : done ? 'Downloaded' : `Downloading ${c.done}/${c.total}`}`
+  btn.classList.toggle('dl-swap', !!c)
+  btn.title = !c ? startTitle : done ? 'Remove this download' : 'Stop and remove this download'
+  const now = `${DL_ICON} ${!c ? 'Download' : done ? 'Downloaded' : `Downloading ${c.done}/${c.total}`}`
+  btn.innerHTML = c ? `<span class="dl-now">${now}</span><span class="dl-hover">${X_ICON} ${done ? 'Remove' : 'Stop'}</span>` : now
+}
+function paintVideoDownloadButton(btn, id) {
+  paintDownloadButton(btn, id, 'Download to watch without a connection')
 }
 
 /** Whether an episode is on disk or on its way, by itself or with its season or show. */
@@ -8804,6 +8814,7 @@ function renderVideoDownloadButtons() {
 }
 
 const DL_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>'
+const X_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
 
 /** The Download button on the open album and on the open playlist. */
 function renderOfflineButtons() {
@@ -8813,18 +8824,7 @@ function renderOfflineButtons() {
 }
 
 function paintOfflineButton(buttonId, id) {
-  const btn = document.getElementById(buttonId)
-  if (!btn) return
-  const c = id ? offlineCollection(id) : null
-  // Offline, a page can only show what is downloaded: the button removes it,
-  // and there is nothing to start.
-  const shown = !!id && (!!c || !jfClient.offline)
-  btn.style.display = shown ? '' : 'none'
-  if (!shown) return
-  const done = !!c && c.done === c.total
-  btn.classList.toggle('on', done)
-  btn.title = c ? 'Remove this download' : 'Download for offline listening'
-  btn.innerHTML = `${DL_ICON} ${!c ? 'Download' : done ? 'Downloaded' : `Downloading ${c.done}/${c.total}`}`
+  paintDownloadButton(document.getElementById(buttonId), id, 'Download for offline listening')
 }
 
 document.getElementById('btn-offline-album').addEventListener('click', () => {

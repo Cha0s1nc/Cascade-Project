@@ -184,7 +184,7 @@ struct SeriesDetailView: View {
                 }
                 if let overview = series.overview { Text(overview).padding(.horizontal) }
                 VStack(alignment: .leading, spacing: 8) {
-                    VideoDownloadButton(item: series, kind: .series, title: "Download Show")
+                    VideoDownloadButton(item: series, kind: .series)
                     FollowSeriesToggle(seriesId: series.id)
                 }
                 .padding(.horizontal)
@@ -196,7 +196,7 @@ struct SeriesDetailView: View {
                         .pickerStyle(.menu)
                     }
                     if let current = seasons.first(where: { $0.id == season }) {
-                        VideoDownloadButton(item: seasonItem(current), kind: .season, title: "Download Season")
+                        VideoDownloadButton(item: seasonItem(current), kind: .season)
                     }
                 }
                 .padding(.horizontal)

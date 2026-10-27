@@ -107,6 +107,12 @@ input[type="range"]:disabled { opacity: 0.4; cursor: default; }
 .shuffle-all-btn.primary:hover { background: #7c5ff7; border-color: #7c5ff7; color: #fff; }
 .shuffle-all-btn:disabled { opacity: 0.4; cursor: default; pointer-events: none; }
 .shuffle-all-btn svg { flex-shrink: 0; }
+/* A Download button with a download: the status, and on hover Stop or
+   Remove in the same cell (renderer.js paintDownloadButton). */
+.shuffle-all-btn.dl-swap { display: grid; }
+.dl-swap > span { grid-area: 1 / 1; display: flex; align-items: center; justify-content: center; gap: 5px; }
+.dl-swap .dl-hover, .dl-swap:hover .dl-now { visibility: hidden; }
+.dl-swap:hover .dl-hover { visibility: visible; }
 
 /* ── States ── */
 .empty-state { display: flex; align-items: center; justify-content: center; color: var(--text3); font-size: 13px; padding: 40px 0; }

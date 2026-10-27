@@ -12,13 +12,14 @@ import CascadeKit
 struct VideoDownloadButton: View {
     let item: JfItem
     let kind: OfflineLibrary.VideoKind
-    var title = "Download"
     /// An icon alone, for an episode row.
     var compact = false
     @Environment(AppState.self) private var state
     @State private var confirmingRemove = false
     @State private var disclosing = false
     @State private var pendingBurnIn: Int?
+    /// The pointer is over it: Stop while downloading, Remove once done.
+    @State private var hovering = false
 
     var body: some View {
         #if os(iOS) || os(macOS)
@@ -51,15 +52,24 @@ struct VideoDownloadButton: View {
         let progress = offline.index.progress(item.id)
         if saved || held {
             let done = held && !saved ? offline.localFile(item.id) != nil : progress.done == progress.total
+            let style = compact ? AnyLabelStyle(.iconOnly) : AnyLabelStyle(.titleAndIcon)
+            let hovered = saved && hovering
             Button {
                 if saved { confirmingRemove = true }
             } label: {
+                // Stop and Remove are laid over the status, which is always
+                // wider, so the button keeps its size under the pointer.
                 Label(saved ? (done ? "Downloaded" : "Downloading \(progress.done) of \(progress.total)") : "Downloaded with its season or show",
                       systemImage: done ? "checkmark.circle.fill" : "arrow.down.circle.dotted")
-                    .labelStyle(compact ? AnyLabelStyle(.iconOnly) : AnyLabelStyle(.titleAndIcon))
+                    .labelStyle(style)
+                    .opacity(hovered ? 0 : 1)
+                    .overlay {
+                        Label(done ? "Remove" : "Stop", systemImage: "xmark").labelStyle(style).opacity(hovered ? 1 : 0)
+                    }
             }
             .buttonStyle(.bordered)
             .disabled(!saved)
+            .onHover { hovering = $0 }
         } else if !pictureSubtitles.isEmpty {
             // Picture subtitles only exist burned into the picture, which the
             // server converts: offered here, for one video at a time.
@@ -69,12 +79,12 @@ struct VideoDownloadButton: View {
                     Button("Download with \(s.displayTitle ?? s.language ?? "Subtitles") Burned In") { ask(s.index) }
                 }
             } label: {
-                Label(title, systemImage: "arrow.down.circle")
+                Label("Download", systemImage: "arrow.down.circle")
             }
             .fixedSize()
         } else {
             Button { ask(nil) } label: {
-                Label(title, systemImage: "arrow.down.circle")
+                Label("Download", systemImage: "arrow.down.circle")
                     .labelStyle(compact ? AnyLabelStyle(.iconOnly) : AnyLabelStyle(.titleAndIcon))
             }
             .buttonStyle(.bordered)
