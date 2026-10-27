@@ -15,8 +15,6 @@ struct VideoDownloadButton: View {
     var title = "Download"
     /// An icon alone, for an episode row.
     var compact = false
-    /// A show only: follow new episodes, as chosen beside the button.
-    var follow = false
     @Environment(AppState.self) private var state
     @State private var confirmingRemove = false
     @State private var disclosing = false
@@ -94,28 +92,24 @@ struct VideoDownloadButton: View {
     }
 
     private func start(_ burnIn: Int?) {
-        Task { await state.downloadVideo(item, kind: kind, follow: kind == .series && follow, burnIn: burnIn) }
+        Task { await state.downloadVideo(item, kind: kind, burnIn: burnIn) }
     }
     #endif
 }
 
-/// "Download new episodes as they arrive" for a show: before it is
-/// downloaded, the choice it is downloaded with; after, it changes the
-/// download (the Downloads screen has the same switch).
+/// "Download new episodes as they arrive" for a show, shown once it is
+/// downloaded or downloading (the Downloads screen has the same switch).
 struct FollowSeriesToggle: View {
     let seriesId: String
-    /// The choice to download with, while the show is not downloaded.
-    @Binding var choice: Bool
     @Environment(AppState.self) private var state
 
     var body: some View {
         #if os(iOS) || os(macOS)
-        if let offline = state.offline, offline.isDownloaded(seriesId) || !state.isOffline {
+        if let offline = state.offline, offline.isDownloaded(seriesId) {
             Toggle("Download new episodes as they arrive", isOn: Binding(
-                get: { offline.isDownloaded(seriesId) ? offline.index.collection(seriesId)?.follow != nil : choice },
-                set: { on in
-                    if offline.isDownloaded(seriesId) { offline.setFollow(seriesId, on: on) } else { choice = on }
-                }))
+                get: { offline.index.collection(seriesId)?.follow != nil },
+                set: { offline.setFollow(seriesId, on: $0) }))
+            .toggleStyle(.switch)
         }
         #endif
     }

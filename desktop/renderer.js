@@ -5460,7 +5460,7 @@ async function openSeries(seriesId) {
             ${contLabel ? `<button class="shuffle-all-btn" id="series-continue" title="${esc(contEp.Name || '')}">${esc(contLabel)}</button>` : ''}
             <button class="shuffle-all-btn" id="series-download" data-label="Download show" style="display:none"></button>
           </div>
-          <label class="dl-follow"><input type="checkbox" id="series-follow"> Download new episodes as they arrive</label>
+          <label class="dl-follow" style="display:none"><span class="toggle"><input type="checkbox" id="series-follow"><span class="toggle-track"></span></span> Download new episodes as they arrive</label>
         </div>
       </div>
       <div class="season-tabs" id="season-tabs">${
@@ -5480,10 +5480,9 @@ async function openSeries(seriesId) {
         loadEpisodes(seriesId, seasons[i].Id)
       })
     })
-    document.getElementById('series-download').onclick = () => toggleVideoDownload('series', series,
-      { follow: /** @type {HTMLInputElement} */ (document.getElementById('series-follow')).checked })
-    // Before the show is downloaded the box is the choice made with it; after,
-    // it changes the download (the download manager has the same switch).
+    document.getElementById('series-download').onclick = () => toggleVideoDownload('series', series)
+    // Shown only once the show is downloaded or downloading (the download
+    // manager has the same switch).
     document.getElementById('series-follow').addEventListener('change', (e) => {
       if (offlineCollection(series.Id)) window.cascade.offline.follow(series.Id, /** @type {HTMLInputElement} */ (e.target).checked).then(refreshOffline)
     })
@@ -8794,7 +8793,7 @@ function renderVideoDownloadButtons() {
   if (follow) {
     const c = _currentSeries ? offlineCollection(_currentSeries.Id) : null
     if (c) follow.checked = c.follow
-    follow.closest('label').style.display = c || !jfClient.offline ? '' : 'none'
+    follow.closest('label').style.display = c ? '' : 'none'
   }
   for (const b of document.querySelectorAll('#episode-list .ep-dl')) {
     const id = /** @type {HTMLElement} */ (b).dataset.id
@@ -8859,7 +8858,7 @@ function dlCardHtml(c) {
       <div class="dl-name">${esc(name)}</div>
       <div class="dl-meta"></div>
       <div class="dl-bar"><span></span></div>
-      ${c.item.Type === 'Series' ? `<label class="dl-follow"><input type="checkbox" data-dl="follow"${c.follow ? ' checked' : ''}> Download new episodes as they arrive</label>` : ''}
+      ${c.item.Type === 'Series' ? `<label class="dl-follow"><span class="toggle"><input type="checkbox" data-dl="follow"${c.follow ? ' checked' : ''}><span class="toggle-track"></span></span> Download new episodes as they arrive</label>` : ''}
     </div>
     <div class="dl-actions">
       <button class="shuffle-all-btn" data-dl="play" type="button">Play</button>

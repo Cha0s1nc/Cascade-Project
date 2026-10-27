@@ -168,8 +168,6 @@ struct SeriesDetailView: View {
     @State private var episodes: [JfItem] = []
     /// Where you left off (continueEpisode): the episode, and where in it to start.
     @State private var resumeAt: (episode: JfItem, startTicks: Int)?
-    /// "Download new episodes as they arrive", before the show is downloaded.
-    @State private var followChoice = false
 
     var body: some View {
         ScrollView {
@@ -186,8 +184,8 @@ struct SeriesDetailView: View {
                 }
                 if let overview = series.overview { Text(overview).padding(.horizontal) }
                 VStack(alignment: .leading, spacing: 8) {
-                    VideoDownloadButton(item: series, kind: .series, title: "Download Show", follow: followChoice)
-                    FollowSeriesToggle(seriesId: series.id, choice: $followChoice)
+                    VideoDownloadButton(item: series, kind: .series, title: "Download Show")
+                    FollowSeriesToggle(seriesId: series.id)
                 }
                 .padding(.horizontal)
                 HStack {
