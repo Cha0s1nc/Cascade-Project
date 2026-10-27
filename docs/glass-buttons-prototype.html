@@ -1,0 +1,380 @@
+<!doctype html>
+<!-- Prototype for docs/glass-buttons-spec.md. Standalone: open it in a
+     browser, hover the buttons, move the sliders, and Copy values to send the
+     tuning back. Colors are the desktop's own (styles/base.css, theme.css). -->
+<html data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Glass buttons</title>
+<style>
+:root {
+  interpolate-size: allow-keywords;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --bg: #111113; --surface: #1c1c1e; --surface2: #2c2c2e; --border: #3a3a3c;
+  --accent: #6e4ff6; --text: #f5f5f7; --text2: #aeaeb2; --text3: #8e8e93;
+  /* Knobs, set by the sliders. */
+  --dur: 300ms; --ov: 1.35; --blur: 16px; --fill: 55%; --rim: 0.22;
+  --open-delay: 60ms; --close-delay: 0ms;
+  /* Glass per theme. */
+  --glass: var(--surface2);
+  --edge: rgba(255,255,255,0.12);
+  --edge-top: rgba(255,255,255,var(--rim));
+  --edge-bottom: rgba(0,0,0,0.25);
+  --lift: rgba(0,0,0,0.28);
+  --sheen: rgba(255,255,255,0.07);
+  --spring: cubic-bezier(0.34, var(--ov), 0.64, 1);
+}
+html[data-theme="light"] {
+  --bg: #f2f2f7; --surface: #ffffff; --surface2: #e5e5ea; --border: #d1d1d6;
+  --text: #1c1c1e; --text2: #48484a; --text3: #6e6e73;
+  --glass: #ffffff;
+  --edge: rgba(0,0,0,0.08);
+  --edge-top: rgba(255,255,255,calc(var(--rim) * 4));
+  --edge-bottom: rgba(0,0,0,0.08);
+  --lift: rgba(0,0,0,0.12);
+  --sheen: rgba(0,0,0,0.04);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font: 13px var(--font); -webkit-font-smoothing: antialiased; min-height: 100vh; transition: background .2s; }
+main { max-width: 980px; margin: 0 auto; padding: 28px 16px 60px; display: grid; gap: 22px; }
+h1 { font-size: 20px; }
+.sub { color: var(--text2); margin-top: 4px; }
+
+/* Knobs */
+.knobs { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+.knob { display: grid; gap: 4px; font-size: 12px; color: var(--text2); }
+.knob span b { color: var(--text); font-weight: 600; float: right; font-variant-numeric: tabular-nums; }
+.knob input[type=range] { width: 100%; accent-color: var(--accent); }
+.switches { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 12px; color: var(--text2); }
+.modes { display: inline-flex; gap: 12px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 8px; }
+.switches label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+.switches input { accent-color: var(--accent); }
+.plain { font: 600 12px var(--font); color: var(--text); background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+#out { grid-column: 1 / -1; display: none; width: 100%; font: 12px ui-monospace, monospace; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px; resize: vertical; }
+
+/* Stage */
+.stage { border-radius: 16px; padding: 22px; display: grid; gap: 26px; border: 1px solid var(--border); position: relative; overflow: hidden; }
+.stage.art { background:
+  radial-gradient(40% 60% at 15% 30%, #e0457b 0, transparent 70%),
+  radial-gradient(45% 55% at 70% 20%, #f2a541 0, transparent 70%),
+  radial-gradient(50% 70% at 60% 90%, #3a7bd5 0, transparent 70%),
+  radial-gradient(40% 50% at 95% 70%, #2bb673 0, transparent 70%), #222; }
+html[data-theme="light"] .stage.art { background:
+  radial-gradient(40% 60% at 15% 30%, #ff9ab8 0, transparent 70%),
+  radial-gradient(45% 55% at 70% 20%, #ffd38a 0, transparent 70%),
+  radial-gradient(50% 70% at 60% 90%, #8fb8ff 0, transparent 70%),
+  radial-gradient(40% 50% at 95% 70%, #8fe3b9 0, transparent 70%), #eee; }
+.group { display: grid; gap: 10px; }
+.cap { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text3); }
+.stage.art .cap { color: rgba(255,255,255,.85); text-shadow: 0 1px 2px rgba(0,0,0,.4); }
+html[data-theme="light"] .stage.art .cap { color: rgba(0,0,0,.6); text-shadow: none; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.row.end { justify-content: flex-end; }
+
+/* ── The button ──
+   The button itself is only the collapsed circle: that is all the pointer can
+   hit. Its .face draws the glass and grows over the neighbors on hover with
+   pointer-events off, so moving on to the next circle switches straight to it. */
+.gb {
+  --h: 34px; --icon: 15px;
+  position: relative; width: var(--h); height: var(--h); flex-shrink: 0; padding: 0; border: 0; border-radius: 999px;
+  background: none; font: 600 12px var(--font); color: var(--text); cursor: pointer;
+}
+.gb.sm { --h: 28px; --icon: 13px; font-size: 11.5px; }
+.gb:is(:hover, :focus-visible) { z-index: 3; }
+.gb:focus-visible { outline: none; }
+.gb .face {
+  position: absolute; top: 0; left: 0; height: 100%; min-width: 100%; display: flex; align-items: center;
+  border-radius: 999px; pointer-events: none;
+  background: color-mix(in srgb, var(--glass) var(--fill), transparent);
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(180%); backdrop-filter: blur(var(--blur)) saturate(180%);
+  border: 1px solid var(--edge);
+  box-shadow: inset 0 1px 0 var(--edge-top), inset 0 -1px 0 var(--edge-bottom), 0 4px 14px var(--lift);
+  transition: background-color .15s, box-shadow .15s, transform .12s, color .15s;
+}
+/* Right-aligned rows open leftward: the icon stays under the pointer. */
+.row.end .gb .face { left: auto; right: 0; flex-direction: row-reverse; }
+.gb:hover:not(:disabled) .face { background-image: linear-gradient(var(--sheen), var(--sheen)); box-shadow: inset 0 1px 0 rgba(255,255,255,calc(var(--rim) + .1)), inset 0 -1px 0 var(--edge-bottom), 0 8px 22px var(--lift); }
+.gb:not(.primary):active:not(:disabled) .face { transform: scale(.96); box-shadow: inset 0 1px 0 var(--edge-top), inset 0 -1px 0 var(--edge-bottom), 0 1px 4px var(--lift); }
+.gb:disabled { cursor: default; }
+.gb:disabled .face { opacity: .4; }
+.gb:focus-visible .face { outline: 2px solid var(--accent); outline-offset: 2px; }
+.gb .ic { width: calc(var(--h) - 2px); height: 100%; display: grid; place-items: center; flex-shrink: 0; }
+.gb .ic svg { width: var(--icon); height: var(--icon); grid-area: 1 / 1; transition: opacity .12s; }
+.gb .lb {
+  width: 0; opacity: 0; overflow: hidden; white-space: nowrap; padding: 0; margin-left: -4px;
+  transition: width var(--dur) var(--spring) var(--close-delay), padding var(--dur) var(--spring) var(--close-delay), opacity 110ms ease var(--close-delay);
+}
+.row.end .gb .lb { margin: 0 -4px 0 0; }
+.gb:not(.primary):is(:hover, :focus-visible):not(:disabled) .lb {
+  width: max-content; opacity: 1; padding-right: 14px;
+  transition: width var(--dur) var(--spring) var(--open-delay), padding var(--dur) var(--spring) var(--open-delay), opacity 180ms ease calc(var(--open-delay) + 60ms);
+}
+.row.end .gb:not(.primary):is(:hover, :focus-visible):not(:disabled) .lb { padding: 0 0 0 14px; }
+/* Play: always open, so it takes its full width in the row. */
+.gb.primary { width: auto; }
+.gb.primary .face { position: relative; color: #fff; background: color-mix(in srgb, var(--accent) 72%, transparent); border-color: rgba(255,255,255,.18); }
+.row.end .gb.primary .face { flex-direction: row; }
+.gb.primary .lb, .row.end .gb.primary .lb { width: max-content; opacity: 1; margin: 0 0 0 -4px; padding: 0 16px 0 0; transition: none; }
+/* Active sort or filter: rides the face's far corner. */
+.gb .dot { position: absolute; top: -1px; right: -1px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--bg); display: none; }
+.gb.dotted .dot { display: block; }
+/* Download: ring while downloading, check when done, X on hover. */
+.gb .i-hover { opacity: 0; }
+.gb.dl-held:is(:hover, :focus-visible) .i-main { opacity: 0; }
+.gb.dl-held:is(:hover, :focus-visible) .i-hover { opacity: 1; }
+.gb.dl-done { color: var(--accent); }
+html[data-theme="dark"] .gb.dl-done { color: #a08cff; }
+.gb.ring .face::before {
+  content: ''; position: absolute; inset: -1px; border-radius: inherit; padding: 2px;
+  background: conic-gradient(var(--accent) calc(var(--p, 0) * 1turn), transparent 0);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
+  transition: opacity .15s;
+}
+.gb.ring:is(:hover, :focus-visible) .face::before { opacity: 0; }
+
+/* ── Season control ──
+   The slot holds the collapsed pill's width in the row (an invisible copy of
+   the active season); the capsule floats over it and opens over whatever is
+   beside it. Unlike a button it keeps the pointer while open, so the other
+   seasons can be reached. */
+.season-slot { position: relative; height: 34px; flex-shrink: 0; }
+.season-ghost { visibility: hidden; display: inline-flex; height: 100%; padding: 4px; font: 600 12px var(--font); white-space: nowrap; align-items: center; }
+.season-ghost > span { padding: 0 10px 0 13px; }
+.season-ghost .chev { margin-left: 4px; }
+.seasons {
+  --h: 34px;
+  position: absolute; top: 0; left: 0; z-index: 2;
+  display: inline-flex; align-items: center; height: var(--h); border-radius: 999px; padding: 3px;
+  background: color-mix(in srgb, var(--glass) var(--fill), transparent);
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(180%); backdrop-filter: blur(var(--blur)) saturate(180%);
+  border: 1px solid var(--edge);
+  box-shadow: inset 0 1px 0 var(--edge-top), inset 0 -1px 0 var(--edge-bottom), 0 4px 14px var(--lift);
+}
+.seasons:is(:hover, :focus-within) { z-index: 4; box-shadow: inset 0 1px 0 var(--edge-top), inset 0 -1px 0 var(--edge-bottom), 0 8px 22px var(--lift); }
+.seg {
+  height: 100%; border: 0; border-radius: 999px; background: transparent; color: var(--text2); cursor: pointer;
+  font: 600 12px var(--font); white-space: nowrap; overflow: hidden; flex-shrink: 0;
+  width: 0; padding: 0; opacity: 0;
+  transition: width var(--dur) var(--spring) var(--close-delay), padding var(--dur) var(--spring) var(--close-delay), opacity 110ms ease var(--close-delay), background-color .25s, color .25s, box-shadow .25s;
+}
+.seg.active { width: max-content; padding: 0 10px 0 13px; opacity: 1; color: #fff; background: color-mix(in srgb, var(--accent) 78%, transparent); box-shadow: inset 0 1px 0 rgba(255,255,255,.28), 0 2px 8px rgba(0,0,0,.25); }
+.seg .chev { display: inline-block; margin-left: 4px; opacity: .8; transition: opacity .15s; }
+.seasons:is(:hover, :focus-within) .seg { width: max-content; padding: 0 13px; opacity: 1;
+  transition: width var(--dur) var(--spring) var(--open-delay), padding var(--dur) var(--spring) var(--open-delay), opacity 180ms ease calc(var(--open-delay) + 60ms), background-color .25s, color .25s, box-shadow .25s; }
+.seasons:is(:hover, :focus-within) .seg:not(.active):hover { color: var(--text); background: var(--sheen); }
+.seasons:is(:hover, :focus-within) .chev { opacity: 0; width: 0; margin: 0; }
+.seg:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* ── Modes ──
+   Overlay (above) floats the label over the neighbors. Push puts the face in
+   the row so opening one shoves the rest aside. Labeled shows every label all
+   the time and never moves. */
+.mode-push .gb, .mode-labeled .gb { width: auto; min-width: var(--h); }
+.mode-push .gb .face, .mode-labeled .gb .face { position: relative; }
+.mode-labeled .gb:not(.primary) .lb { width: max-content; opacity: 1; padding-right: 14px; transition: none; }
+.mode-labeled .row.end .gb:not(.primary) .lb { padding: 0 0 0 14px; }
+.mode-push .season-ghost, .mode-labeled .season-ghost { display: none; }
+.mode-push .seasons, .mode-labeled .seasons { position: relative; }
+.mode-labeled .seg { width: max-content; padding: 0 13px; opacity: 1; transition: background-color .25s, color .25s, box-shadow .25s; }
+.mode-labeled .seg:not(.active):hover { color: var(--text); background: var(--sheen); }
+.mode-labeled .chev { display: none !important; }
+/* Download, labeled: the status reads all the time, Stop or Remove on hover,
+   in one grid cell so the width holds. No ring: the count says it. */
+.gb .l-now { display: none; }
+.mode-labeled .gb.dl-held .lb { display: grid; text-align: left; }
+.mode-labeled .gb.dl-held .lb > span { grid-area: 1 / 1; display: block; }
+.mode-labeled .gb.dl-held .l-hover, .mode-labeled .gb.dl-held:is(:hover, :focus-visible) .l-now { visibility: hidden; }
+.mode-labeled .gb.dl-held:is(:hover, :focus-visible) .l-hover { visibility: visible; }
+.mode-labeled .gb.ring .face::before { display: none; }
+
+/* Reduce Motion: no spring, no slide. */
+.reduce .lb, .reduce .seg { transition-property: opacity, background-color, color, box-shadow !important; }
+@media (prefers-reduced-motion: reduce) { .lb, .seg { transition-property: opacity, background-color, color, box-shadow !important; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Glass buttons</h1>
+    <p class="sub">Hover or tab through. Everything is an icon circle except Play; hovering one floats its label over the buttons beside it, and only the circle itself catches the pointer. The sliders change every button live.</p>
+  </header>
+
+  <section class="knobs" id="knobs">
+    <label class="knob"><span>Expand duration <b id="v-dur"></b></span><input type="range" data-var="--dur" data-unit="ms" min="120" max="600" step="10" value="300"></label>
+    <label class="knob"><span>Overshoot <b id="v-ov"></b></span><input type="range" data-var="--ov" min="1" max="1.8" step="0.05" value="1.35"></label>
+    <label class="knob"><span>Blur <b id="v-blur"></b></span><input type="range" data-var="--blur" data-unit="px" min="0" max="40" step="1" value="16"></label>
+    <label class="knob"><span>Fill <b id="v-fill"></b></span><input type="range" data-var="--fill" data-unit="%" min="10" max="100" step="1" value="55"></label>
+    <label class="knob"><span>Top rim <b id="v-rim"></b></span><input type="range" data-var="--rim" min="0" max="0.6" step="0.02" value="0.22"></label>
+    <label class="knob"><span>Open delay <b id="v-open-delay"></b></span><input type="range" data-var="--open-delay" data-unit="ms" min="0" max="250" step="10" value="60"></label>
+    <label class="knob"><span>Close delay <b id="v-close-delay"></b></span><input type="range" data-var="--close-delay" data-unit="ms" min="0" max="400" step="10" value="0"></label>
+    <div class="switches">
+      <span class="modes" role="radiogroup" aria-label="Button style">
+        <label><input type="radio" name="mode" value="overlay"> Overlay</label>
+        <label><input type="radio" name="mode" value="push" checked> Push</label>
+        <label><input type="radio" name="mode" value="labeled"> Always labeled</label>
+      </span>
+      <label><input type="checkbox" id="light"> Light theme</label>
+      <label><input type="checkbox" id="art" checked> Over artwork</label>
+      <label><input type="checkbox" id="reduce"> Reduce Motion</label>
+      <label><input type="checkbox" id="selected"> Edit mode: something selected</label>
+      <button class="plain" id="copy" type="button">Copy values</button>
+      <button class="plain" id="reset" type="button">Reset</button>
+    </div>
+    <textarea id="out" rows="3" readonly></textarea>
+  </section>
+
+  <section class="stage art mode-push" id="stage">
+    <div class="group">
+      <div class="cap">Playlist header (right-aligned, opens leftward)</div>
+      <div class="row end" id="row-playlist"></div>
+    </div>
+    <div class="group">
+      <div class="cap">Album header</div>
+      <div class="row" id="row-album"></div>
+    </div>
+    <div class="group">
+      <div class="cap">Download: idle, downloading, done (hover for Stop or Remove)</div>
+      <div class="row" id="row-dl"></div>
+    </div>
+    <div class="group">
+      <div class="cap">Show page: seasons and Download season</div>
+      <div class="row">
+        <div class="season-slot"><span class="season-ghost"><span id="ghost">Season 2<span class="chev">⌄</span></span></span><div class="seasons" id="seasons"></div></div>
+        <span id="season-dl"></span>
+      </div>
+    </div>
+    <div class="group">
+      <div class="cap">Library toolbar (Sort and Filter active, with the dot)</div>
+      <div class="row" id="row-toolbar"></div>
+    </div>
+    <div class="group">
+      <div class="cap">Playlist edit mode</div>
+      <div class="row" id="row-edit"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const svg = (body, fill) => `<svg viewBox="0 0 24 24" fill="${fill ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`
+const I = {
+  play: svg('<polygon points="6 4 20 12 6 20 6 4"/>', true),
+  shuffle: svg('<polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/>'),
+  download: svg('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>'),
+  check: svg('<polyline points="20 6 9 17 4 12"/>'),
+  x: svg('<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>'),
+  edit: svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>'),
+  listPlus: svg('<line x1="3" y1="6" x2="15" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="11" y2="18"/><line x1="18" y1="14" x2="18" y2="22"/><line x1="14" y1="18" x2="22" y2="18"/>'),
+  plus: svg('<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>'),
+  sort: svg('<path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/>'),
+  filter: svg('<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>'),
+  top: svg('<line x1="5" y1="3" x2="19" y2="3"/><polyline points="7 13 12 8 17 13"/><line x1="12" y1="8" x2="12" y2="21"/>'),
+  bottom: svg('<line x1="5" y1="21" x2="19" y2="21"/><polyline points="7 11 12 16 17 11"/><line x1="12" y1="16" x2="12" y2="3"/>'),
+  trash: svg('<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>'),
+}
+
+/** One glass button. opts: primary, small, dot, hoverIcon, status (the
+ *  always-labeled mode's text when the label is a hover action), cls, disabled. */
+function gb(icon, label, opts = {}) {
+  const b = document.createElement('button')
+  b.type = 'button'
+  b.className = ['gb', opts.primary && 'primary', opts.small && 'sm', opts.dot && 'dotted', opts.cls].filter(Boolean).join(' ')
+  b.disabled = !!opts.disabled
+  b.innerHTML = `<span class="face"><span class="ic"><span class="i-main" style="display:contents">${icon}</span>${opts.hoverIcon ? `<span class="i-hover" style="display:contents">${opts.hoverIcon}</span>` : ''}</span><span class="lb">${opts.status ? `<span class="l-hover">${label}</span><span class="l-now">${opts.status}</span>` : label}</span><span class="dot"></span></span>`
+  b.setAttribute('aria-label', label)
+  // display:contents drops the wrappers from layout; the svgs carry the classes for the swap.
+  b.querySelectorAll('.i-main > svg').forEach(s => s.classList.add('i-main'))
+  b.querySelectorAll('.i-hover > svg').forEach(s => s.classList.add('i-hover'))
+  return b
+}
+const put = (id, ...els) => document.getElementById(id).append(...els)
+
+put('row-playlist',
+  gb(I.listPlus, 'Save as a Playlist'),
+  gb(I.download, 'Download'),
+  gb(I.edit, 'Edit'),
+  gb(I.shuffle, 'Shuffle'),
+  gb(I.play, 'Play', { primary: true }))
+put('row-album',
+  gb(I.play, 'Play', { primary: true }),
+  gb(I.shuffle, 'Shuffle'),
+  gb(I.download, 'Download'))
+
+// Download states. The middle one fills on a loop so the ring can be judged moving.
+const idle = gb(I.download, 'Download')
+const busy = gb(I.download, 'Stop', { hoverIcon: I.x, cls: 'dl-held ring', status: 'Downloading 3/10' })
+const done = gb(I.check, 'Remove', { hoverIcon: I.x, cls: 'dl-held dl-done', status: 'Downloaded' })
+busy.title = 'Downloading 3 of 10'
+done.title = 'Downloaded'
+put('row-dl', idle, busy, done)
+let p = 0.3
+setInterval(() => { p = p >= 1 ? 0 : p + 0.1; busy.style.setProperty('--p', p.toFixed(2)); busy.title = `Downloading ${Math.round(p * 10)} of 10`; busy.querySelector('.l-now').textContent = `Downloading ${Math.round(p * 10)}/10` }, 700)
+
+// Seasons.
+const seasons = ['Season 1', 'Season 2', 'Season 3', 'Season 4', 'Specials']
+const box = document.getElementById('seasons')
+seasons.forEach((name, i) => {
+  const s = document.createElement('button')
+  s.type = 'button'
+  s.className = 'seg' + (i === 1 ? ' active' : '')
+  s.innerHTML = `${name}<span class="chev">⌄</span>`
+  s.onclick = () => {
+    box.querySelectorAll('.seg').forEach(x => x.classList.toggle('active', x === s))
+    document.getElementById('ghost').innerHTML = `${name}<span class="chev">⌄</span>`
+  }
+  box.append(s)
+})
+put('season-dl', gb(I.download, 'Download'))
+
+put('row-toolbar',
+  gb(I.sort, 'Sort: Date added', { small: true, dot: true }),
+  gb(I.filter, 'Filter: Unplayed', { small: true, dot: true }),
+  gb(I.shuffle, 'Shuffle All', { small: true }),
+  gb(I.plus, 'New playlist', { small: true }))
+const editBtns = [gb(I.top, 'Move to top', { small: true }), gb(I.bottom, 'Move to bottom', { small: true }), gb(I.trash, 'Remove', { small: true })]
+put('row-edit', ...editBtns)
+
+// Knobs.
+const root = document.documentElement
+const ranges = [...document.querySelectorAll('[data-var]')]
+const defaults = Object.fromEntries(ranges.map(r => [r.dataset.var, r.value]))
+function apply(r) {
+  const v = r.value + (r.dataset.unit || '')
+  root.style.setProperty(r.dataset.var, v)
+  document.getElementById('v-' + r.dataset.var.slice(2)).textContent = v
+}
+ranges.forEach(r => { r.addEventListener('input', () => apply(r)); apply(r) })
+const toggle = (id, fn) => { const el = document.getElementById(id); el.addEventListener('change', () => fn(el.checked)); fn(el.checked) }
+// Each mode brings its own hover delays: overlay has nothing to shove, so it
+// closes at once, and so does push, as tuned.
+const MODE_DELAYS = { overlay: [40, 0], push: [60, 0], labeled: [0, 0] }
+const stage = document.getElementById('stage')
+let mode = 'push'
+document.querySelectorAll('input[name=mode]').forEach(r => r.addEventListener('change', () => {
+  mode = r.value
+  stage.classList.remove('mode-push', 'mode-labeled')
+  if (mode !== 'overlay') stage.classList.add('mode-' + mode)
+  const [open, close] = MODE_DELAYS[mode]
+  for (const [v, val] of [['--open-delay', open], ['--close-delay', close]]) {
+    const range = ranges.find(x => x.dataset.var === v)
+    range.value = val
+    apply(range)
+  }
+}))
+toggle('light', on => { root.dataset.theme = on ? 'light' : 'dark' })
+toggle('art', on => document.getElementById('stage').classList.toggle('art', on))
+toggle('reduce', on => document.body.classList.toggle('reduce', on))
+toggle('selected', on => editBtns.forEach(b => { b.disabled = !on }))
+document.getElementById('copy').onclick = async () => {
+  const text = `mode: ${mode}; ` + ranges.map(r => `${r.dataset.var}: ${r.value}${r.dataset.unit || ''};`).join(' ') + ` theme: ${root.dataset.theme};`
+  const out = document.getElementById('out')
+  out.value = text
+  out.style.display = 'block'
+  out.select()
+  try { await navigator.clipboard.writeText(text) } catch {}
+}
+document.getElementById('reset').onclick = () => ranges.forEach(r => { r.value = defaults[r.dataset.var]; apply(r) })
+</script>
+</body>
+</html>
