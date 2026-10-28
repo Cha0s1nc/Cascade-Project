@@ -38,7 +38,13 @@
 
   <!-- Titlebar -->
   <header class="titlebar">
-    <span class="tb-title">Cascade</span>
+    <!-- Back through the current tab's history (renderer.js navBack). Away
+         from the window controls: moved into .tb-right on macOS, whose
+         controls sit left, and kept here, before the title, elsewhere. -->
+    <div class="tb-left">
+      <button class="gbtn gbtn-sm" id="nav-back" type="button" aria-label="Back" disabled><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg><span class="gbtn-label">Back</span></span></button>
+      <span class="tb-title">Cascade</span>
+    </div>
     <!-- Search: a centered field on Home, tucked into a "Search" pill beside
          .tb-right everywhere else (titlebar.search-tucked), sliding open on a
          click or Cmd/Ctrl+K. Placement and state: syncSearchPlacement() in
@@ -418,10 +424,6 @@
         </div>
         <!-- Album detail -->
         <div id="album-detail" style="display:none">
-          <button class="pl-back-btn" id="album-back-btn">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-            Back to Albums
-          </button>
           <div class="pl-detail-header album-detail-header">
             <div class="pl-detail-art" id="album-detail-art">♪</div>
             <div class="album-detail-info">
@@ -471,10 +473,6 @@
           <div class="poster-grid" id="movies-grid"></div>
         </div>
         <div id="movie-detail" style="display:none">
-          <button class="pl-back-btn" id="movie-back-btn">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-            Back to Movies
-          </button>
           <div id="movie-detail-body"></div>
         </div>
       </div>
@@ -492,10 +490,6 @@
           <div class="poster-grid" id="shows-grid"></div>
         </div>
         <div id="show-detail" style="display:none">
-          <button class="pl-back-btn" id="show-back-btn">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-            Back to Shows
-          </button>
           <div id="show-detail-body"></div>
         </div>
       </div>
@@ -525,10 +519,6 @@
         </div>
         <!-- Artist detail -->
         <div id="artist-detail" style="display:none">
-          <button class="pl-back-btn" id="artist-back-btn">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-            Back to Artists
-          </button>
           <div class="pl-detail-header">
             <div class="pl-detail-art" id="artist-detail-art">♪</div>
             <div>
@@ -624,10 +614,6 @@
         </div>
         <!-- Playlist detail (shown when a playlist is opened) -->
         <div id="playlist-detail">
-          <button class="pl-back-btn" id="pl-back-btn">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-            Back to Playlists
-          </button>
           <div class="pl-detail-header">
             <!-- In Edit mode, hovering the cover shows Change and Remove picture,
                  the name becomes a text field and a description field shows
@@ -698,10 +684,6 @@
         </div>
         <!-- Genre detail -->
         <div id="genre-detail" style="display:none">
-          <button class="pl-back-btn" id="genre-back-btn">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-            Back to Genres
-          </button>
           <div class="pl-detail-header">
             <div class="pl-detail-art genre-tile" id="genre-detail-art"><span class="genre-tile-letter" id="genre-detail-letter"></span></div>
             <div>

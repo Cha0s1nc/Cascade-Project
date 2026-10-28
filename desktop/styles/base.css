@@ -41,5 +41,13 @@ html[data-platform="win32"] .titlebar,
 html[data-platform="linux"] .titlebar { padding-right: var(--caption-reserve); }
 .tb-right { display: flex; align-items: center; gap: 8px; -webkit-app-region: no-drag; }
 .tb-title { font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
+.tb-left { display: flex; align-items: center; gap: 10px; }
+#nav-back { -webkit-app-region: no-drag; }
+/* The arrow leads its label even where it opens leftward (the Mac's right edge). */
+#nav-back .gbtn-face { flex-direction: row; }
+#nav-back .gbtn-label { margin: 0 0 0 -4px; }
+#nav-back:is(:hover, :focus-visible):not(:disabled) .gbtn-label { padding: 0 14px 0 0; }
+/* A page's tab hides its own content while the page is up (renderer.js _navShow). */
+.nav-away { display: none !important; }
 .ws-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--red); transition: background 0.3s, box-shadow 0.3s; }
 .ws-dot.connected { background: var(--green); box-shadow: 0 0 6px var(--green); }

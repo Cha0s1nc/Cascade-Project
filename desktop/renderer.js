@@ -17,6 +17,111 @@ function setGbtn(btn, icon, label) {
   if (!btn.classList.contains('primary')) btn.setAttribute('aria-label', label)
 }
 
+// ── Page history ──────────────────────────────────────────────────────────────
+// Every tab keeps its own history (src/core/nav-history.ts): a link opens its
+// page in the tab you're in, and the title bar's Back walks that tab back.
+// There is one panel per kind of page; showing a page moves its panel into the
+// tab and hides the tab's own content (.nav-away). Each opener below only
+// fills its panel. Up here because showView() runs this from startup on.
+const _navStacks = {}
+const NAV_PANELS = { album: 'album-detail', artist: 'artist-detail', playlist: 'playlist-detail', smart: 'playlist-detail', genre: 'genre-detail', movie: 'movie-detail', series: 'show-detail' }
+const NAV_OPENERS = { album: openAlbum, artist: openArtist, playlist: openPlaylist, smart: openSmartPlaylist, genre: openGenre, movie: openMovie, series: openSeries }
+const _navPanels = () => [...new Set(Object.values(NAV_PANELS))].map(id => /** @type {HTMLElement} */ (document.getElementById(id)))
+/** The entry each panel was last filled for, by panel id. */
+const _navFilled = new Map()
+const _navPanelShown = (p, on) => p.id === 'playlist-detail' ? p.classList.toggle('active', on) : (p.style.display = on ? '' : 'none')
+
+/** Shows `entry` in `view`: the tab's own content, or a page. A page whose
+ *  panel still holds it (Back to a page this tab just left) shows as it was;
+ *  otherwise the panel moves in and its opener fills it. */
+function _navShow(view, entry) {
+  const v = document.getElementById(`view-${view}`)
+  const panels = _navPanels()
+  for (const el of v.children) if (!panels.includes(/** @type {HTMLElement} */ (el))) el.classList.toggle('nav-away', !!entry.page)
+  for (const p of panels) if (p.parentElement === v) _navPanelShown(p, false)
+  if (!entry.page) { v.scrollTop = entry.scroll; return }
+  const panel = document.getElementById(NAV_PANELS[entry.page])
+  const intact = _navFilled.get(panel.id) === entry && panel.parentElement === v
+  v.append(panel)
+  _navPanelShown(panel, true)
+  _navFilled.set(panel.id, entry)
+  v.scrollTop = intact ? entry.scroll : 0
+  if (intact) return
+  const done = Promise.resolve(NAV_OPENERS[entry.page](...entry.args))
+  // The page is as tall as it will get once its opener resolves.
+  if (entry.scroll) done.then(() => { if (_navFilled.get(panel.id) === entry) v.scrollTop = entry.scroll })
+  return done
+}
+
+/** Run by showView: a tab whose page's panel went to another tab since gets it back. */
+function _navEnsure(view) {
+  const top = CascadeCore.navTop(_navStacks, view)
+  if (top.page) {
+    const panel = document.getElementById(NAV_PANELS[top.page])
+    if (_navFilled.get(panel.id) !== top || panel.parentElement?.id !== `view-${view}`) _navShow(view, top)
+  } else if (document.querySelector(`#view-${view} > .nav-away`)) {
+    _navShow(view, top)   // back home since it was last shown (navForgetPage)
+  }
+  _navSync()
+}
+
+/** Opens a page in the tab you're in (or its own category, see navHost). */
+function navOpen(page, ...args) {
+  if (overlayOpen) closeOverlay()
+  const view = CascadeCore.navHost(_currentView, page)
+  if (view === _currentView) CascadeCore.navTop(_navStacks, view).scroll = document.getElementById(`view-${view}`).scrollTop
+  const entry = CascadeCore.navPush(_navStacks, view, page, args)
+  if (view !== _currentView) { showView(view); return Promise.resolve() }
+  const done = _navShow(view, entry)
+  _navSync()
+  return done
+}
+
+function navBack() {
+  const entry = CascadeCore.navBack(_navStacks, _currentView)
+  if (!entry) return
+  _navShow(_currentView, entry)
+  _navSync()
+}
+
+/** A page that's gone (a deleted playlist) leaves every tab's history. */
+function navForgetPage(page, id) {
+  for (const view of CascadeCore.navForget(_navStacks, page, id)) {
+    if (view === _currentView) _navShow(view, CascadeCore.navTop(_navStacks, view))
+  }
+  _navSync()
+}
+
+// Back: the title bar button, the mouse's back button, and Cmd+[ on a Mac or
+// Alt+Left elsewhere. Not while Now Playing covers the tabs or a field is being
+// typed in. On a Mac the button moves to the right, away from the window's
+// own controls; elsewhere those sit right, so it stays left.
+if (window.cascade.platform === 'darwin') {
+  const right = document.querySelector('.tb-right')
+  right.append(document.getElementById('nav-back'))
+  right.classList.add('gbtn-row-end')   // at the window's edge, so it opens leftward
+}
+document.getElementById('nav-back').addEventListener('click', navBack)
+document.addEventListener('mouseup', e => {
+  if (e.button !== 3 || overlayOpen) return
+  e.preventDefault()
+  navBack()
+})
+document.addEventListener('keydown', e => {
+  const mac = window.cascade.platform === 'darwin'
+  const hit = mac ? e.metaKey && !e.altKey && !e.ctrlKey && e.key === '['
+    : e.altKey && !e.metaKey && !e.ctrlKey && e.key === 'ArrowLeft'
+  if (!hit || overlayOpen || /** @type {Element} */ (e.target).closest?.('input, textarea, select, [contenteditable="true"]')) return
+  e.preventDefault()
+  navBack()
+})
+
+function _navSync() {
+  const btn = /** @type {HTMLButtonElement | null} */ (document.getElementById('nav-back'))
+  if (btn) btn.disabled = !CascadeCore.navCanGoBack(_navStacks, _currentView)
+  syncSearchPlacement()
+}
+
 // State
 let jf = { url: '', token: '', userId: '' }
 
@@ -2496,6 +2601,7 @@ function showView(name) {
   libFilterDropdown.classList.remove('open')
   _currentView = name
   syncSearchPlacement()
+  _navEnsure(name)
 
   if (name === 'albums' && !document.getElementById('albums-grid').dataset.loaded) loadAlbums()
   if (name === 'artists' && !document.getElementById('artists-grid').dataset.loaded) loadArtists()
@@ -2575,19 +2681,6 @@ document.querySelector('#view-settings .sn-tabs').addEventListener('keydown', e 
 // font setting changes; the observer catches all three.
 new ResizeObserver(() => placeSettingsPill(false)).observe(document.querySelector('#view-settings .sn-tabs'))
 
-// Categories with an index/detail split - clicking the sidebar item again while
-// already on that category clicks its own back button, which returns to the
-// index. The back buttons are already idempotent (they just re-set the same
-// display styles), so this is a no-op if you're already on the index.
-const CATEGORY_BACK_BTN = {
-  albums: 'album-back-btn',
-  artists: 'artist-back-btn',
-  playlists: 'pl-back-btn',
-  genres: 'genre-back-btn',
-  movies: 'movie-back-btn',
-  shows: 'show-back-btn'
-}
-
 document.querySelectorAll('.nav-item[data-view]').forEach(el => {
   // The items are divs (their markup nests block children), so they get the
   // button semantics here rather than by changing the element.
@@ -2598,11 +2691,17 @@ document.querySelectorAll('.nav-item[data-view]').forEach(el => {
     e.preventDefault()
     el.click()
   })
+  // Clicking the tab you're on goes to its home, as a step Back can undo.
   el.addEventListener('click', () => {
     const name = el.dataset.view
     const wasActive = name === _currentView
     showView(name)
-    if (wasActive && CATEGORY_BACK_BTN[name]) document.getElementById(CATEGORY_BACK_BTN[name]).click()
+    if (!wasActive) return
+    const v = document.getElementById(`view-${name}`)
+    CascadeCore.navTop(_navStacks, name).scroll = v.scrollTop
+    const home = CascadeCore.navHome(_navStacks, name)
+    if (home) _navShow(name, home)
+    _navSync()
   })
 })
 
@@ -2672,7 +2771,7 @@ async function loadRecentlyAdded() {
     // #home-recent-albums), so the row is always full at any window width.
     if (!data.Items?.length) { grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">No albums yet</div>'; return }
     grid.innerHTML = data.Items.map(item => albumCard(item)).join('')
-    wireAlbumCards(grid, data.Items, item => { showView('albums'); openAlbum(item.Id) })
+    wireAlbumCards(grid, data.Items, item => navOpen('album', item.Id))
   } catch (e) {
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Could not load albums</div>`
   }
@@ -2905,7 +3004,7 @@ registerLibView('albums', {
     const shown = CascadeCore.sortLibraryItems(CascadeCore.filterLibraryItems(items, prefs), prefs.field, prefs.dir)
     if (!shown.length) { grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">No albums match these filters</div>`; return }
     grid.innerHTML = shown.map(item => albumCard(item)).join('')
-    wireAlbumCards(grid, shown, item => { showView('albums'); openAlbum(item.Id) })
+    wireAlbumCards(grid, shown, item => navOpen('album', item.Id))
   }
 })
 
@@ -2988,9 +3087,6 @@ async function fetchAlbumTracks(albumId) {
 }
 
 async function openAlbum(albumId) {
-  document.getElementById('albums-index').style.display = 'none'
-  const detail = document.getElementById('album-detail')
-  detail.style.display = ''
   document.getElementById('album-detail-name').textContent = ''
   document.getElementById('album-detail-meta').innerHTML = '<span class="skel skel-text" style="display:inline-block;width:120px"></span>'
   document.getElementById('album-detail-rows').innerHTML = skeletonHTML('track', 6)
@@ -3030,10 +3126,6 @@ async function openAlbum(albumId) {
   }
 }
 
-document.getElementById('album-back-btn').addEventListener('click', () => {
-  document.getElementById('album-detail').style.display = 'none'
-  document.getElementById('albums-index').style.display = ''
-})
 
 // Album detail's artist name - opens the artist page via the same path as the
 // track context menu's "View artist" (openArtistFromTrack matches by name).
@@ -3071,7 +3163,7 @@ registerLibView('artists', {
     const shown = CascadeCore.sortLibraryItems(CascadeCore.filterLibraryItems(items, prefs), prefs.field, prefs.dir)
     if (!shown.length) { grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">No artists match these filters</div>`; return }
     grid.innerHTML = shown.map(item => artistCardHtml(item)).join('')
-    wireArtistCards(grid, shown, item => openArtist(item.Id, item.Name))
+    wireArtistCards(grid, shown, item => navOpen('artist', item.Id, item.Name))
   }
 })
 
@@ -3163,16 +3255,13 @@ function renderSimilarArtists(items) {
   if (!items.length) { section.style.display = 'none'; grid.innerHTML = ''; return }
   section.style.display = ''
   grid.innerHTML = items.map(item => artistCardHtml(item)).join('')
-  wireArtistCards(grid, items, item => openArtist(item.Id, item.Name))
+  wireArtistCards(grid, items, item => navOpen('artist', item.Id, item.Name))
 }
 
 async function openArtist(artistId, name) {
   // A similar-artist click from further down the page must not leave the new
   // artist's page scrolled to wherever the old one was.
   document.getElementById('view-artists').scrollTop = 0
-  document.getElementById('artist-index').style.display = 'none'
-  const detail = document.getElementById('artist-detail')
-  detail.style.display = ''
   document.getElementById('artist-detail-name').textContent = name
   document.getElementById('artist-detail-meta').innerHTML = '<span class="skel skel-text" style="display:inline-block;width:120px"></span>'
   document.getElementById('artist-bio-section').style.display = 'none'
@@ -3208,7 +3297,7 @@ async function openArtist(artistId, name) {
 
     // Albums grid
     document.getElementById('artist-albums-grid').innerHTML = albums.map(item => albumCard(item)).join('')
-    wireAlbumCards(document.getElementById('artist-albums-grid'), albums, item => { showView('albums'); openAlbum(item.Id) })
+    wireAlbumCards(document.getElementById('artist-albums-grid'), albums, item => navOpen('album', item.Id))
 
     // Play all button
     document.getElementById('btn-play-artist-discography').onclick = () => {
@@ -3246,10 +3335,6 @@ async function openArtist(artistId, name) {
   }
 }
 
-document.getElementById('artist-back-btn').addEventListener('click', () => {
-  document.getElementById('artist-detail').style.display = 'none'
-  document.getElementById('artist-index').style.display = ''
-})
 
 // ── Track row helpers ─────────────────────────────────────────────────────────
 
@@ -3573,7 +3658,7 @@ async function loadPlaylists() {
 function wirePlaylistCards(grid) {
   grid.querySelectorAll('.playlist-card[data-id]').forEach(el => {
     const item = { Id: el.dataset.id, Name: el.dataset.name }
-    el.addEventListener('click', () => openPlaylist(item.Id, item.Name))
+    el.addEventListener('click', () => navOpen('playlist', item.Id, item.Name))
     el.addEventListener('contextmenu', e => { e.preventDefault(); showItemCtxMenu('playlist', item, el, e.clientX, e.clientY) })
   })
 }
@@ -3584,7 +3669,7 @@ function wirePlaylistCards(grid) {
  *  edit or delete, unlike a real playlist's ownership-gated delete). */
 function wireSmartPlaylistCards(grid) {
   grid.querySelectorAll('[data-smart]').forEach(el => {
-    el.addEventListener('click', () => openSmartPlaylist(el.dataset.smart))
+    el.addEventListener('click', () => navOpen('smart', el.dataset.smart))
     el.addEventListener('contextmenu', e => {
       e.preventDefault()
       const sp = smartPlaylistEntry(el.dataset.smart)
@@ -4026,9 +4111,7 @@ function showPlaylistOverview(text) {
 }
 
 function showPlaylistDetailShell(name) {
-  document.getElementById('playlist-index').style.display = 'none'
   const detail = document.getElementById('playlist-detail')
-  detail.classList.add('active')
   exitPlEditMode(true) // reset edit-mode UI left over from whatever was open before
   document.getElementById('pl-detail-name').textContent = name
   document.getElementById('pl-detail-meta').innerHTML = '<span class="skel skel-text" style="display:inline-block;width:70px"></span>'
@@ -4303,10 +4386,6 @@ async function openSmartPlaylist(kind) {
   }
 }
 
-document.getElementById('pl-back-btn').addEventListener('click', () => {
-  document.getElementById('playlist-detail').classList.remove('active')
-  document.getElementById('playlist-index').style.display = ''
-})
 
 document.getElementById('btn-play-playlist').addEventListener('click', () => {
   if (currentPlaylistItems.length) playItems(currentPlaylistItems, 0, document.getElementById('pl-detail-name').textContent)
@@ -4482,7 +4561,7 @@ document.getElementById('new-pl-mode-smart').addEventListener('click', () => set
 function reloadPlaylistIndexIfShown() {
   delete document.getElementById('playlists-grid').dataset.loaded
   const index = document.getElementById('playlist-index')
-  if (document.getElementById('view-playlists').classList.contains('active') && index.style.display !== 'none') loadPlaylists()
+  if (document.getElementById('view-playlists').classList.contains('active') && !index.classList.contains('nav-away')) loadPlaylists()
 }
 
 /** A real, empty Jellyfin playlist. Name, owner and media type go in the query
@@ -4528,7 +4607,7 @@ document.getElementById('smart-pl-save').addEventListener('click', async () => {
       reloadPlaylistIndexIfShown()
       // The server answers with the new id; an older one that does not still
       // made the playlist, which the reloaded index now shows.
-      if (id) openPlaylist(id, name)
+      if (id) navOpen('playlist', id, name)
     } finally {
       _newPlSaving = false
       saveBtn.disabled = false
@@ -4598,7 +4677,7 @@ async function loadGenres() {
     const byId = new Map(items.map(i => [i.Id, i]))
     grid.querySelectorAll('.album-card').forEach(el => {
       const item = byId.get(el.dataset.id)
-      if (item) el.addEventListener('click', () => openGenre(item.Id, item.Name))
+      if (item) el.addEventListener('click', () => navOpen('genre', item.Id, item.Name))
     })
   } catch (e) {
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">Could not load genres</div>`
@@ -4643,9 +4722,6 @@ function renderGenreSongRows() {
 }
 
 async function openGenre(genreId, name) {
-  document.getElementById('genres-index').style.display = 'none'
-  const detail = document.getElementById('genre-detail')
-  detail.style.display = ''
   document.getElementById('genre-detail-name').textContent = name
   document.getElementById('genre-detail-letter').textContent = (name || '?').trim().charAt(0).toUpperCase() || '?'
   document.getElementById('genre-detail-art').querySelector('img')?.remove()
@@ -4672,7 +4748,7 @@ async function openGenre(genreId, name) {
     document.getElementById('genre-albums-grid').innerHTML = albums.length
       ? albums.map(item => albumCard(item)).join('')
       : `<div class="empty-state" style="grid-column:1/-1">No albums</div>`
-    wireAlbumCards(document.getElementById('genre-albums-grid'), albums, item => { showView('albums'); openAlbum(item.Id) })
+    wireAlbumCards(document.getElementById('genre-albums-grid'), albums, item => navOpen('album', item.Id))
 
     renderGenreSongRows()
   } catch (e) {
@@ -4682,10 +4758,6 @@ async function openGenre(genreId, name) {
 
 document.getElementById('btn-genre-show-more').addEventListener('click', renderGenreSongRows)
 
-document.getElementById('genre-back-btn').addEventListener('click', () => {
-  document.getElementById('genre-detail').style.display = 'none'
-  document.getElementById('genres-index').style.display = ''
-})
 
 document.getElementById('btn-play-genre').addEventListener('click', () => {
   if (currentGenreSongs.length) playItems(currentGenreSongs, 0, document.getElementById('genre-detail-name').textContent)
@@ -4909,9 +4981,7 @@ document.getElementById('tctx-copy-url').addEventListener('click', () => {
 // to a different tab behind an open overlay would otherwise be invisible until closed.
 function openAlbumFromTrack(item) {
   if (!item?.AlbumId) return
-  if (overlayOpen) closeOverlay()
-  showView('albums')
-  openAlbum(item.AlbumId)
+  navOpen('album', item.AlbumId)
 }
 
 document.getElementById('tctx-view-album').addEventListener('click', () => {
@@ -4927,10 +4997,8 @@ async function openArtistFromTrack(item) {
   const artistName = item?.AlbumArtist || item?.Artists?.[0]
   if (!artistName) return
   if (overlayOpen) closeOverlay()
-  showView('artists')
-  // showView() kicks off loadArtists() but doesn't wait for it - on a first-ever visit
-  // to the Artists tab this session, the grid isn't populated yet, so the card below
-  // wouldn't exist. Load-and-wait ourselves whenever it isn't already there.
+  // The artist is found by name on the Artists grid, which may never have
+  // loaded this session; the card's click opens it in the tab you're in.
   let artistCard = document.querySelector(`.artist-card[data-name="${CSS.escape(artistName)}"]`)
   if (!artistCard) {
     await loadArtists()
@@ -5295,12 +5363,12 @@ async function loadPosterGrid(name, gridId, itemType, sub, onPick, libs, ids) {
 const loadMovies = () => loadPosterGrid(
   'movies', 'movies-grid', 'Movie',
   m => m.ProductionYear || '',
-  m => openMovie(m.Id), _movieLibs, jf.movieLibraryIds || [])
+  m => navOpen('movie', m.Id), _movieLibs, jf.movieLibraryIds || [])
 
 const loadShows = () => loadPosterGrid(
   'shows', 'shows-grid', 'Series',
   s => s.ProductionYear || '',
-  s => openSeries(s.Id), _showLibs, jf.showLibraryIds || [])
+  s => navOpen('series', s.Id), _showLibs, jf.showLibraryIds || [])
 
 // ── Continue watching (Home) ──
 //
@@ -5350,8 +5418,8 @@ async function loadContinueWatching() {
     // wearing its series' poster. There is no per-episode detail view, so an
     // episode lands on its series.
     wirePosterCards(grid, items, item => {
-      if (item.Type === 'Movie') { showView('movies'); openMovie(item.Id) }
-      else { showView('shows'); openSeries(item.SeriesId) }
+      if (item.Type === 'Movie') navOpen('movie', item.Id)
+      else navOpen('series', item.SeriesId)
     }, 'video')
   } catch {
     section.style.display = 'none'
@@ -5379,9 +5447,6 @@ let _openMovie = null
 
 async function openMovie(movieId) {
   _openMovie = null
-  document.getElementById('movies-index').style.display = 'none'
-  const detail = document.getElementById('movie-detail')
-  detail.style.display = ''
   const body = document.getElementById('movie-detail-body')
   body.innerHTML = skeletonHTML('track', 3)
 
@@ -5443,9 +5508,6 @@ let _currentSeries = null
 let _currentSeason = null
 
 async function openSeries(seriesId) {
-  document.getElementById('shows-index').style.display = 'none'
-  const detail = document.getElementById('show-detail')
-  detail.style.display = ''
   const body = document.getElementById('show-detail-body')
   body.innerHTML = skeletonHTML('track', 4)
 
@@ -5612,15 +5674,7 @@ function playVideo(items, startIndex, startTicks) {
   playCurrentTrack({ startTicks: startTicks || 0 })
 }
 
-document.getElementById('movie-back-btn').addEventListener('click', () => {
-  document.getElementById('movie-detail').style.display = 'none'
-  document.getElementById('movies-index').style.display = ''
-})
 
-document.getElementById('show-back-btn').addEventListener('click', () => {
-  document.getElementById('show-detail').style.display = 'none'
-  document.getElementById('shows-index').style.display = ''
-})
 
 // ── Playback ──────────────────────────────────────────────────────────────────
 
@@ -12761,8 +12815,7 @@ document.getElementById('ictx-rename').addEventListener('click', async () => {
   }
   if (_ictxKind !== 'playlist' || !_ictxItem) return
   // Edited in place now: open it, switch Edit on, and put the cursor in the name.
-  showView('playlists')
-  await openPlaylist(_ictxItem.Id, _ictxItem.Name)
+  await navOpen('playlist', _ictxItem.Id, _ictxItem.Name)
   if (!plEditMode) document.getElementById('btn-edit-playlist').click()
   for (let i = 0; i < 20 && !_plEdit; i++) await new Promise(r => setTimeout(r, 50))
   if (_plEdit) _plNameEl.focus()
@@ -12782,11 +12835,8 @@ document.getElementById('ictx-delete').addEventListener('click', () => {
     saveUserSmartPlaylists()
     _ictxEl?.remove()
     delete document.getElementById('playlists-grid').dataset.loaded
-    if (currentSmartKind === kindId) {
-      document.getElementById('playlist-detail').classList.remove('active')
-      document.getElementById('playlist-index').style.display = ''
-      currentSmartKind = null
-    }
+    if (currentSmartKind === kindId) currentSmartKind = null
+    navForgetPage('smart', kindId)
     showToast('Smart playlist deleted')
     return
   }
@@ -12796,11 +12846,8 @@ document.getElementById('ictx-delete').addEventListener('click', () => {
     onDeleted: () => {
       _ictxEl?.remove()
       delete document.getElementById('playlists-grid').dataset.loaded
-      if (currentPlaylistId === _ictxItem.Id) {
-        document.getElementById('playlist-detail').classList.remove('active')
-        document.getElementById('playlist-index').style.display = ''
-        currentPlaylistId = null
-      }
+      if (currentPlaylistId === _ictxItem.Id) currentPlaylistId = null
+      navForgetPage('playlist', _ictxItem.Id)
       showToast('Playlist deleted')
     }
   })
@@ -15405,7 +15452,9 @@ function syncSearchPlacement() {
   const w = Math.min(340, window.innerWidth * 0.36)
   const mid = box.left + box.width / 2
   const narrow = mid - w / 2 < title.right + 12 || mid + w / 2 > right.left - 12
-  bar.classList.toggle('search-tucked', _currentView !== 'home' || narrow)
+  // Centered only on Home's own page, not an album opened under it.
+  const home = _currentView === 'home' && !CascadeCore.navTop(_navStacks, 'home').page
+  bar.classList.toggle('search-tucked', !home || narrow)
   syncSearchOpen()
 }
 
@@ -15590,14 +15639,14 @@ async function runSearch(query) {
 
     // Wire up album/artist cards - same helpers the Albums/Artists grids use,
     // so search results get the same right-click menu for free.
-    if (hasAlbums) wireAlbumCards(results, albums.Items, item => { showView('albums'); openAlbum(item.Id) })
-    if (hasArtists) wireArtistCards(results, artists.Items, item => { showView('artists'); openArtist(item.Id, item.Name) })
+    if (hasAlbums) wireAlbumCards(results, albums.Items, item => navOpen('album', item.Id))
+    if (hasArtists) wireArtistCards(results, artists.Items, item => navOpen('artist', item.Id, item.Name))
 
     // Wire up movie/show cards - same detail views Movies/TV browsing opens
     if (hasMovies) wirePosterCards(document.getElementById('search-movie-grid'), movies.Items,
-      item => { showView('movies'); openMovie(item.Id) }, 'video')
+      item => navOpen('movie', item.Id), 'video')
     if (hasShows) wirePosterCards(document.getElementById('search-show-grid'), shows.Items,
-      item => { showView('shows'); openSeries(item.Id) }, 'series')
+      item => navOpen('series', item.Id), 'series')
   } catch (e) {
     results.innerHTML = `<div class="search-no-results">Search failed: ${esc(e.message)}</div>`
   }
