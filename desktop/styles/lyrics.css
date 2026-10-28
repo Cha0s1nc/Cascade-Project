@@ -59,7 +59,7 @@
   white-space: nowrap; display: flex; align-items: center; gap: 5px;
 }
 .lyrics-source-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
-.lyrics-source-pill.forced { border-color: rgba(110,79,246,0.5); color: rgba(110,79,246,0.95); background: rgba(110,79,246,0.12); }
+.lyrics-source-pill.forced { border-color: color-mix(in srgb, var(--accent) 50%, transparent); color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .lyrics-source-pill.forced::before { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
 .lyrics-source-pill:hover { background: rgba(255,255,255,0.14); color: white; }
 

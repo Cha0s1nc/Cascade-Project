@@ -491,6 +491,24 @@ export const BLOB_BASE_COLOR = '#0d0d0f'
  *  is not itself a visible flash. */
 export const BLOB_BASE_COLOR_LIGHT = '#f2f2f7'
 
+const luminance = (r: number, g: number, b: number) => 0.2126 * srgbToLinear(r) + 0.7152 * srgbToLinear(g) + 0.0722 * srgbToLinear(b)
+const contrastOnLight = (r: number, g: number, b: number) => (luminance(0xf2, 0xf2, 0xf7) + 0.05) / (luminance(r, g, b) + 0.05)
+
+/** The accent as light mode shows it: darkened in Oklab lightness, hue and
+ *  chroma kept, until it reads at 4.5:1 on the light background (#f2f2f7),
+ *  since the accent is link and label text too. A dark enough one is
+ *  unchanged. Pale accents like the default waterfall blue (1.7:1) need it. */
+export function readableOnLight(hex: string): string {
+  let c = { r: parseInt(hex.slice(1, 3), 16), g: parseInt(hex.slice(3, 5), 16), b: parseInt(hex.slice(5, 7), 16) }
+  if ([c.r, c.g, c.b].some(Number.isNaN)) return hex
+  const lab = srgbToOklab(c.r, c.g, c.b)
+  while (contrastOnLight(c.r, c.g, c.b) < 4.5 && lab.L > 0) {
+    lab.L -= 0.01
+    c = oklabToSrgb(lab)
+  }
+  return '#' + [c.r, c.g, c.b].map(v => v.toString(16).padStart(2, '0')).join('')
+}
+
 /** How often to recompute blob positions, in ms, as shipped. The drift loop
  *  reads blobTuning.frameMs so the debug panel can turn it. */
 export const BLOB_FRAME_MS = SHIPPED_BLOB_TUNING.frameMs

@@ -15655,7 +15655,8 @@ async function runSearch(query) {
 // ── Theme system ──────────────────────────────────────────────────────────────
 
 const THEME_PRESETS = [
-  { label: 'Default',   start: '#4ade80', end: '#7c3aed' },
+  { label: 'Default',   start: '#7fcf6a', end: '#7cc4ff' },
+  { label: 'Violet',    start: '#4ade80', end: '#7c3aed' },
   { label: 'Sunset',    start: '#f97316', end: '#ec4899' },
   { label: 'Ocean',     start: '#06b6d4', end: '#3b82f6' },
   { label: 'Rose',      start: '#fb7185', end: '#e11d48' },
@@ -15675,13 +15676,19 @@ function perceivedLuminance(hex) {
   return 0.299 * r + 0.587 * g + 0.114 * b
 }
 
+let _gradient = null   // the last [start, end] applied, so a light/dark switch can redo the accent
+
 function applyGradient(start, end) {
-  const grad = `linear-gradient(160deg, ${start} 0%, ${end} 100%)`
+  _gradient = [start, end]
+  // The accent is link and label text too, so light mode darkens a pale one,
+  // in the gradient as well so the play button's fill matches its ink.
+  const accent = _isLightTheme() ? CascadeCore.readableOnLight(end) : end
+  const grad = `linear-gradient(160deg, ${start} 0%, ${accent} 100%)`
   document.documentElement.style.setProperty('--grad', grad)
-  document.documentElement.style.setProperty('--accent', end)
-  document.documentElement.style.setProperty('--accent-glow', hexToRgba(end, 0.25))
+  document.documentElement.style.setProperty('--accent', accent)
+  document.documentElement.style.setProperty('--accent-glow', hexToRgba(accent, 0.25))
   // Switch play/pause icon to black on light gradients so it stays readable
-  const fg = perceivedLuminance(end) > 160 ? '#111111' : 'white'
+  const fg = perceivedLuminance(accent) > 160 ? '#111111' : 'white'
   document.documentElement.style.setProperty('--play-btn-fg', fg)
 }
 
@@ -15694,6 +15701,7 @@ function setThemeMode(mode) {
   document.documentElement.setAttribute('data-theme', mode === 'light' ? 'light' : '')
   document.getElementById('seg-dark').classList.toggle('active', mode !== 'light')
   document.getElementById('seg-light').classList.toggle('active', mode === 'light')
+  if (_gradient) applyGradient(..._gradient)
   // Recolour the OS-drawn Windows/Linux caption buttons to match. No-op on
   // macOS (main.js checks platform), so this is safe to call unconditionally.
   syncCaptionButtons()
@@ -15771,7 +15779,8 @@ async function loadTheme() {
   // gradient, since switching light/dark alone also writes this key.
   const def = CascadeCore.PRESET_DEFAULT_GRADIENT
   const hasGradient = !!(t?.gradStart && t?.gradEnd)
-  const colorsSet = !!t?.albumArt || (hasGradient && (t.gradStart !== def.start || t.gradEnd !== def.end))
+  const shipped = (g) => t.gradStart === g.start && t.gradEnd === g.end
+  const colorsSet = !!t?.albumArt || (hasGradient && !shipped(def) && !shipped(CascadeCore.PRESET_PREVIOUS_DEFAULT_GRADIENT))
   const look = CascadeCore.layeredLook({
     gradStart: hasGradient ? t.gradStart : def.start, gradEnd: hasGradient ? t.gradEnd : def.end,
     albumArt: !!t?.albumArt, bgDim: 0, bgBlend: true, lyricScale: 1,
@@ -17093,7 +17102,7 @@ async function revealSetting(section, id) {
   row.scrollIntoView({ block: 'center', behavior: _ceReduced() ? 'auto' : 'smooth' })
   const control = target.matches('input, select, button, textarea') ? target : row.querySelector('input, select, button, textarea')
   control?.focus({ preventScroll: true, focusVisible: true })
-  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#6e4ff6'
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#7cc4ff'
   const tint = `color-mix(in srgb, ${accent} 26%, transparent)`
   row.classList.add('revealed')
   row.animate([{ backgroundColor: tint }, { backgroundColor: tint, offset: 0.3 }, { backgroundColor: 'transparent' }], { duration: 2000, easing: 'ease-out' })

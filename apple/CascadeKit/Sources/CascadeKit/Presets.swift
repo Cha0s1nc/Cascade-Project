@@ -17,7 +17,10 @@ public struct CascadePreset: Equatable, Sendable {
     /// pasted novel before JSON has to read it.
     public static let maxBytes = 64 * 1024
     /// The shipped gradient (ThemePreset.all[0], THEME_PRESETS[0] on desktop).
-    public static let defaultGradient = (start: "#4ade80", end: "#7c3aed")
+    public static let defaultGradient = (start: "#7fcf6a", end: "#7cc4ff")
+    /// The shipped gradient before 2.4 (now the Violet preset). Switching light or dark saved
+    /// it into nearly every install, so it still counts as colors the person never chose.
+    public static let previousDefaultGradient = (start: "#4ade80", end: "#7c3aed")
     static let nameMax = 60
 
     public struct Theme: Equatable, Sendable {

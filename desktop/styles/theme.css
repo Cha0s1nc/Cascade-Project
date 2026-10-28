@@ -141,7 +141,6 @@ html[data-theme="light"] {
   --bg: #f2f2f7; --surface: #ffffff; --surface2: #e5e5ea; --border: #d1d1d6;
   /* text3 is 4.5:1 on --bg and 5.1:1 on --surface (was 1.98:1); text2 moved darker so the three steps stay distinct. */
   --text: #1c1c1e; --text2: #48484a; --text3: #6e6e73;
-  --accent-glow: rgba(110,79,246,0.15);
 }
 html[data-theme="light"] .backdrop.dim { background: rgba(0,0,0,0.28); }
 html[data-theme="light"] .np-overlay { background: var(--bg); }

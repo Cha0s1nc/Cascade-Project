@@ -54,6 +54,8 @@ struct ServerStyleTests {
     @Test func colorsCountAsSetOnlyWhenChosen() {
         #expect(!ServerStyle.colorsSet(stored: nil))
         #expect(!ServerStyle.colorsSet(stored: #"{"mode":"light"}"#))
+        // The pre-2.4 default, saved by a light/dark switch, was never a choice either.
+        #expect(!ServerStyle.colorsSet(stored: ##"{"mode":"dark","gradStart":"#4ade80","gradEnd":"#7c3aed"}"##))
         #expect(ServerStyle.colorsSet(stored: ##"{"mode":"dark","gradStart":"#000000","gradEnd":"#ffffff"}"##))
         #expect(ServerStyle.colorsSet(stored: #"{"albumArt":true}"#))
     }

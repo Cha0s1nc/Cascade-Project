@@ -85,8 +85,11 @@ final class MacTheme {
     var isLight: Bool { settings.mode == .light }
 
     /// The accent end of the gradient, or the cover's while album-art accent is on and
-    /// one has been worked out. It drives the app's tint.
-    var accentHex: String { settings.albumArt ? (art?.end ?? settings.gradEnd) : settings.gradEnd }
+    /// one has been worked out, darkened in Light so it reads as text. It drives the app's tint.
+    var accentHex: String {
+        let end = settings.albumArt ? (art?.end ?? settings.gradEnd) : settings.gradEnd
+        return isLight ? HexColor.readableOnLight(end) : end
+    }
     var accent: Color { Color(hex: accentHex) }
     /// The heart's pink when a song is a favorite, in the player bar, the overlay and the miniplayer.
     static let favorite = Color(red: 1, green: 0.42, blue: 0.54)
@@ -108,9 +111,9 @@ final class MacTheme {
 }
 
 extension Color {
-    /// `#rrggbb`; anything else is the default accent's purple, never a crash.
+    /// `#rrggbb`; anything else is the default accent's waterfall blue, never a crash.
     init(hex: String) {
-        let c = HexColor.rgb(hex) ?? (0x7c, 0x3a, 0xed)
+        let c = HexColor.rgb(hex) ?? (0x7c, 0xc4, 0xff)
         self.init(.sRGB, red: Double(c.r) / 255, green: Double(c.g) / 255, blue: Double(c.b) / 255)
     }
 

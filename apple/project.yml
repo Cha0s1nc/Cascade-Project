@@ -49,6 +49,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: xyz.chaosinc.cascade.ios
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Waterfall blue off the app icon, darkened in Light to 4.5:1 (HexColor.readableOnLight).
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         # Empty locally, so automatic signing applies. The TestFlight job in
         # build.yml signs manually and names its profile through this, since
         # a profile passed to xcodebuild directly also lands on the CascadeKit
@@ -92,6 +94,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: xyz.chaosinc.cascade.tvos
         ASSETCATALOG_COMPILER_APPICON_NAME: App Icon & Top Shelf Image
+        # Waterfall blue off the app icon, darkened in Light to 4.5:1 (HexColor.readableOnLight).
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         # Empty locally, so automatic signing applies. The TestFlight job in
         # build.yml signs manually and names its profile through this, since
         # a profile passed to xcodebuild directly also lands on the CascadeKit

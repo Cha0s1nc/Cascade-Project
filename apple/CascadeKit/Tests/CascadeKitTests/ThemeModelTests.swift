@@ -3,8 +3,8 @@ import Testing
 @testable import CascadeKit
 
 @Suite struct ThemeModelTests {
-    @Test func thereAreEightPresetsAndTheFirstIsTheDefaultTheme() {
-        #expect(ThemePreset.all.count == 8)
+    @Test func thereAreNinePresetsAndTheFirstIsTheDefaultTheme() {
+        #expect(ThemePreset.all.count == 9)
         let s = ThemeSettings()
         #expect(s.activePreset?.label == "Default")
         #expect(s.mode == .dark && !s.albumArt)
@@ -42,6 +42,14 @@ import Testing
         #expect(HexColor.prefersDarkInk(over: "#fbbf24"))
         #expect(!HexColor.prefersDarkInk(over: "#7c3aed"))
         #expect(!HexColor.prefersDarkInk(over: "not a color"))
+    }
+
+    @Test func lightModeDarkensAPaleAccentToReadableAndLeavesADarkOneAlone() {
+        // Waterfall blue is 1.7:1 on #f2f2f7; the old purple already passes. Same values as desktop.
+        #expect(HexColor.readableOnLight("#7cc4ff") == "#2973a9")
+        #expect(HexColor.readableOnLight("#7c3aed") == "#7c3aed")
+        #expect(HexColor.readableOnLight("#ffffff") == "#6f6f6f")
+        #expect(HexColor.readableOnLight("nope") == "nope")
     }
 
     @Test func aSaturatedCoverGivesAVividAccentOfItsHue() {

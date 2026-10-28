@@ -10,6 +10,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   extractTopColors,
+  readableOnLight,
   randomizeDrift,
   driftedBlobs,
   blobBackgroundCss,
@@ -196,4 +197,12 @@ test('builds css that both hosts can use verbatim', () => {
   // No trailing comma or empty layer - React Native's parser rejects the whole
   // value if any one layer fails to parse, and then nothing renders at all.
   assert.ok(!css.includes(', ,') && !css.trim().endsWith(','))
+})
+
+test('readableOnLight darkens a pale accent to 4.5:1 on the light background and leaves a dark one alone', () => {
+  // Waterfall blue is 1.7:1 on #f2f2f7; the old purple already passes.
+  assert.equal(readableOnLight('#7cc4ff'), '#2973a9')
+  assert.equal(readableOnLight('#7c3aed'), '#7c3aed')
+  assert.equal(readableOnLight('#ffffff'), '#6f6f6f')
+  assert.equal(readableOnLight('nope'), 'nope')
 })

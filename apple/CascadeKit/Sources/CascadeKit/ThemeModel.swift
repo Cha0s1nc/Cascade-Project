@@ -1,7 +1,7 @@
 import Foundation
 
 // The Theme panel's colour settings: Dark or Light, a two-colour gradient whose
-// end is the accent, eight presets, and the album-art accent that overrides the
+// end is the accent, nine presets, and the album-art accent that overrides the
 // gradient. The desktop's renderer.js "Theme system", without its DOM. Pure, so
 // a stored value is validated in one place: it arrives as JSON from
 // electron-store's `theme` key and is untrusted.
@@ -13,7 +13,8 @@ public struct ThemePreset: Equatable, Sendable, Identifiable {
     public var id: String { label }
 
     public static let all: [ThemePreset] = [
-        ThemePreset(label: "Default", start: "#4ade80", end: "#7c3aed"),
+        ThemePreset(label: "Default", start: "#7fcf6a", end: "#7cc4ff"),
+        ThemePreset(label: "Violet", start: "#4ade80", end: "#7c3aed"),
         ThemePreset(label: "Sunset", start: "#f97316", end: "#ec4899"),
         ThemePreset(label: "Ocean", start: "#06b6d4", end: "#3b82f6"),
         ThemePreset(label: "Rose", start: "#fb7185", end: "#e11d48"),
@@ -45,6 +46,24 @@ public enum HexColor {
 
     /// The play button's ink: black on a light accent so it stays readable, white otherwise.
     public static func prefersDarkInk(over hex: String) -> Bool { luminance(hex) > 160 }
+
+    /// The accent as light mode shows it: darkened in Oklab lightness, hue and chroma kept,
+    /// until it reads at 4.5:1 on the light background (#f2f2f7), since the tint is text too.
+    /// A dark enough one is unchanged. desktop's readableOnLight (src/core/album-colors.ts).
+    public static func readableOnLight(_ hex: String) -> String {
+        guard let c = rgb(hex) else { return hex }
+        func y(_ r: Double, _ g: Double, _ b: Double) -> Double {
+            0.2126 * AlbumColors.srgbToLinear(r) + 0.7152 * AlbumColors.srgbToLinear(g) + 0.0722 * AlbumColors.srgbToLinear(b)
+        }
+        let bg = y(0xf2, 0xf2, 0xf7)
+        var lab = AlbumColors.oklab(r: Double(c.r), g: Double(c.g), b: Double(c.b))
+        var out = (r: Double(c.r), g: Double(c.g), b: Double(c.b))
+        while (bg + 0.05) / (y(out.r, out.g, out.b) + 0.05) < 4.5 && lab.L > 0 {
+            lab.L -= 0.01
+            out = AlbumColors.srgb(lab)
+        }
+        return string(r: Int(out.r), g: Int(out.g), b: Int(out.b))
+    }
 }
 
 public struct ThemeSettings: Equatable, Sendable {
@@ -60,7 +79,7 @@ public struct ThemeSettings: Equatable, Sendable {
 
     /// A stored theme, made safe. Each field that fails validation keeps its default, so
     /// one bad colour does not throw away the mode. (The desktop's stored shape:
-    /// `{"mode":"dark","gradStart":"#4ade80","gradEnd":"#7c3aed","albumArt":false}`.)
+    /// `{"mode":"dark","gradStart":"#7fcf6a","gradEnd":"#7cc4ff","albumArt":false}`.)
     public init(stored json: String?) {
         self.init()
         guard let data = json?.data(using: .utf8),

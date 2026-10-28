@@ -25,8 +25,13 @@ export const PRESET_MAX_BYTES = 64 * 1024
 const NAME_MAX = 60
 
 /** The shipped gradient, used when a preset's colours are missing or bad.
- *  Matches THEME_PRESETS[0] in renderer.js. */
-export const PRESET_DEFAULT_GRADIENT = { start: '#4ade80', end: '#7c3aed' } as const
+ *  Matches THEME_PRESETS[0] in renderer.js: moss to waterfall blue, off the
+ *  app icon. */
+export const PRESET_DEFAULT_GRADIENT = { start: '#7fcf6a', end: '#7cc4ff' } as const
+/** The shipped gradient before 2.4 (now the Violet preset). Switching light or
+ *  dark saved it into nearly every install, so it still counts as colours the
+ *  person never chose: a server style's offered colours go over it. */
+export const PRESET_PREVIOUS_DEFAULT_GRADIENT = { start: '#4ade80', end: '#7c3aed' } as const
 
 export interface PresetTheme {
   mode: 'dark' | 'light'

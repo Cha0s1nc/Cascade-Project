@@ -125,11 +125,13 @@ public struct ServerStyle: Equatable, Sendable {
     }
 
     /// Whether a stored theme carries colors the person chose: off the shipped
-    /// gradient, or the album-art accent. Switching light/dark alone also
-    /// writes the theme, so its presence is not enough.
+    /// gradient (today's or the one before), or the album-art accent.
+    /// Switching light/dark alone also writes the theme, so its presence is
+    /// not enough.
     public static func colorsSet(stored json: String?) -> Bool {
         guard json != nil else { return false }
-        let t = ThemeSettings(stored: json), d = ThemeSettings()
-        return t.albumArt || t.gradStart != d.gradStart || t.gradEnd != d.gradEnd
+        let t = ThemeSettings(stored: json)
+        let shipped = [CascadePreset.defaultGradient, CascadePreset.previousDefaultGradient]
+        return t.albumArt || !shipped.contains { t.gradStart == $0.start && t.gradEnd == $0.end }
     }
 }

@@ -327,7 +327,7 @@ html[data-platform="linux"] #ov-video-close { right: calc(var(--caption-reserve,
 .queue-row { display: flex; align-items: center; gap: 10px; padding: 8px 16px; cursor: pointer; height: 53px; box-sizing: border-box; position: relative; isolation: isolate; }
 .queue-row::before { content: ''; position: absolute; inset: 0; border-radius: 6px; background: rgba(255,255,255,0.05); opacity: 0; transition: opacity var(--hover-out) ease-out; pointer-events: none; z-index: -1; }
 .queue-row:hover::before { opacity: 1; transition-duration: var(--hover-in); }
-.queue-row.current { background: rgba(110,79,246,0.1); border-radius: 6px; }
+.queue-row.current { background: color-mix(in srgb, var(--accent) 10%, transparent); border-radius: 6px; }
 .queue-row.current .queue-row-title { color: #a78bfa; font-weight: 500; }
 /* Queue sections: History (collapsed by default), Now Playing pinned while
    Up Next scrolls under it, then Up Next with its source and end time. */
@@ -364,9 +364,9 @@ html[data-theme="light"] .q-now { background: rgba(255,255,255,0.72); }
 .queue-row-remove { background: none; border: none; color: var(--text3); cursor: pointer; padding: 0 2px; opacity: 0; transition: opacity 0.12s, color 0.12s; flex-shrink: 0; display: flex; align-items: center; margin-left: 4px; }
 .queue-row:hover .queue-row-remove { opacity: 1; }
 .queue-row-remove:hover { color: var(--red); }
-.queue-row.dragging { opacity: 0.4; background: rgba(110,79,246,0.08); }
+.queue-row.dragging { opacity: 0.4; background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .queue-row.drag-over { border-top: 2px solid var(--accent); }
-.track-row[draggable="true"].dragging { opacity: 0.4; background: rgba(110,79,246,0.08); }
+.track-row[draggable="true"].dragging { opacity: 0.4; background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .track-row[draggable="true"].drag-over { border-top: 2px solid var(--accent); }
 /* Overlay lyrics - GPU-accelerated clock-scroll */
 /* Was inline style= (position/background/transform/transition) - the open/
