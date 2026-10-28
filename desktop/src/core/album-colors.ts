@@ -109,12 +109,16 @@ export const blobTuning: BlobTuning = structuredClone(SHIPPED_BLOB_TUNING)
  *  values, no change. */
 export const blobLook = { saturation: 1, brightness: 0, intensity: 1, speed: 1 }
 
-/** A blob colour. `hue` is the bucket it came from, in degrees. */
+/** A blob colour. `hue` is the cluster's Oklab hue in degrees, and `chroma`
+ *  its colourfulness before toBlobColor lifted it to minChroma: the lift
+ *  makes the blob visible, so only the raw value says whether the cover has
+ *  a colour there at all. Hand-built grey blobs leave it out. */
 export interface BlobColor {
   r: number
   g: number
   b: number
   hue: number
+  chroma?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -153,16 +157,22 @@ export function srgbToOklab(r: number, g: number, b: number): Oklab {
   }
 }
 
-export function oklabToSrgb(c: Oklab): { r: number; g: number; b: number } {
+/** Linear sRGB, unclamped: outside 0 to 1 means the colour has no sRGB form. */
+function oklabToLinear(c: Oklab): [number, number, number] {
   const l_ = c.L + 0.3963377774 * c.a + 0.2158037573 * c.b
   const m_ = c.L - 0.1055613458 * c.a - 0.0638541728 * c.b
   const s_ = c.L - 0.0894841775 * c.a - 1.2914855480 * c.b
   const l = l_ * l_ * l_, m = m_ * m_ * m_, s = s_ * s_ * s_
-  return {
-    r: linearToSrgb(+4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
-    g: linearToSrgb(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
-    b: linearToSrgb(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s),
-  }
+  return [
+    +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s,
+  ]
+}
+
+export function oklabToSrgb(c: Oklab): { r: number; g: number; b: number } {
+  const [r, g, b] = oklabToLinear(c)
+  return { r: linearToSrgb(r), g: linearToSrgb(g), b: linearToSrgb(b) }
 }
 
 /** Perceptual colourfulness. 0 is grey; roughly 0.25+ is vivid. */
@@ -343,7 +353,60 @@ function toBlobColor(c: Oklab, light = false): BlobColor {
   }
 
   const { r, g, b: bl } = oklabToSrgb({ L, a, b })
-  return { r, g, b: bl, hue: hueOf(c) }
+  return { r, g, b: bl, hue: hueOf(c), chroma: ch }
+}
+
+// ---------------------------------------------------------------------------
+// The accent
+//
+// The player bar, buttons and progress take the cover's colour as a two-stop
+// gradient. It used to be the top blob's HSL hue at a fixed HSL saturation
+// and lightness, and HSL is not perceptual: a skin-tone cover came out loud
+// orange, a grey-blue one electric blue, yellow glared and blue went murky.
+// Worse, the grey check ran on the blob after minChroma had lifted it, so
+// JPEG noise on a black-and-white cover passed as a colour (a grey After
+// Hours gave gold). Here the hue is the cluster's own Oklab hue, the
+// lightness is fixed perceptually, and the chroma follows the cover's, so a
+// muted cover gets a muted accent rather than a neon one.
+// Mirrored in AlbumColors.swift (accent(from:)); keep the numbers in step.
+// ---------------------------------------------------------------------------
+
+/** Raw chroma a blob needs to count as the cover's colour. Muted photo covers
+ *  measure 0.012 to 0.03 here, JPEG noise on grey art under 0.01. */
+const ACCENT_COLORFUL = 0.025
+/** Below this even the top blob has no colour to speak of: a grey accent. */
+const ACCENT_FAINT = 0.012
+/** Oklab lightness of the gradient's two stops. */
+const ACCENT_START_L = 0.80
+const ACCENT_END_L = 0.56
+/** The accent's chroma is the cover's times this, kept in this range. */
+const ACCENT_CHROMA_SCALE = 1.6
+const ACCENT_MIN_CHROMA = 0.05
+const ACCENT_MAX_CHROMA = 0.16
+
+/** The colour at Oklab lightness L, chroma c and hue h (radians), with the
+ *  chroma reduced until it fits in sRGB, so the hue is never bent to fit. */
+function lchHex(L: number, c: number, h: number): string {
+  let k = c
+  const fits = () => oklabToLinear({ L, a: k * Math.cos(h), b: k * Math.sin(h) }).every(v => v >= -0.001 && v <= 1.001)
+  while (k > 0 && !fits()) k = Math.max(0, k - 0.005)
+  const { r, g, b } = oklabToSrgb({ L, a: k * Math.cos(h), b: k * Math.sin(h) })
+  return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('')
+}
+
+/**
+ * The accent gradient for a cover's blobs (extractTopColors' output), or null
+ * when the cover has no colour to take one from and the accent should go
+ * grey. From the most prominent blob that is actually a colour, so a large
+ * grey field ranked first does not hide the colour beside it.
+ */
+export function artAccent(colors: BlobColor[]): { start: string; end: string } | null {
+  const raw = (c: BlobColor | undefined) => c?.chroma ?? 0
+  const pick = colors.find(c => raw(c) >= ACCENT_COLORFUL) ?? (raw(colors[0]) >= ACCENT_FAINT ? colors[0] : undefined)
+  if (!pick) return null
+  const h = (pick.hue * Math.PI) / 180
+  const c = Math.min(ACCENT_MAX_CHROMA, Math.max(ACCENT_MIN_CHROMA, raw(pick) * ACCENT_CHROMA_SCALE))
+  return { start: lchHex(ACCENT_START_L, c, h), end: lchHex(ACCENT_END_L, c * 1.05, h) }
 }
 
 /**

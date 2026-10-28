@@ -48,16 +48,23 @@ export function itunesArtistMatches(got: string, want: string): boolean {
   return !!g && (g === w || g.includes(w) || w.includes(g))
 }
 
+/** Album artists that name no act, so they cannot be held against a result. */
+const COMPILATION_ARTISTS = new Set(['various artists', 'various', 'va'])
+
 /**
  * The artwork URL for the best-matching album, upscaled from the 100px
  * thumbnail iTunes returns, or null if nothing in `results` is plausibly the
  * album that was asked for.
  *
- * Album name carries the decision, artist only breaks ties - a library's
- * AlbumArtist ("Various Artists", a featured-artist spelling, a classical
- * composer vs performer split) disagrees with Apple's far more often than the
- * album title does. When there is no album name at all, the artist has to match
- * on its own, otherwise a bare artist search would hand back a random record.
+ * The album name has to match and so does the artist. Short titles are shared
+ * by many acts, and iTunes not having the album at all is common: brakence's
+ * "ready or noT" searched up three other artists' "Ready or Not" singles, and
+ * with the artist only breaking ties, someone else's breakcore remake became
+ * the cover. A miss here sends the caller to the artist's own discography,
+ * which is where the right record was. The exception is a compilation
+ * AlbumArtist ("Various Artists"), which names no act to check against;
+ * itunesArtistMatches already allows a featured-artist spelling. With no album
+ * name at all, the artist carries the decision alone.
  */
 export function pickItunesArt(
   results: ItunesResult[] | null | undefined,
@@ -67,6 +74,7 @@ export function pickItunesArt(
 ): string | null {
   const wantAlbum  = base(album || '')
   const wantArtist = base(artist || '')
+  const anyArtist = !wantArtist || COMPILATION_ARTISTS.has(wantArtist)
   let best: string | null = null
   let bestScore = 0
 
@@ -76,6 +84,7 @@ export function pickItunesArt(
     const name     = r.collectionName ?? ''
     const by       = r.collectionArtistName ?? r.artistName ?? ''
     const byArtist = itunesArtistMatches(by, wantArtist)
+    if (!byArtist && !anyArtist) continue   // the same title by somebody else
 
     const albumScore = !wantAlbum ? (byArtist ? 1 : 0)
       : clean(name) === clean(album) ? 3   // exact, editions included

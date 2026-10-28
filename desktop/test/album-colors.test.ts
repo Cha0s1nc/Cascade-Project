@@ -11,6 +11,7 @@ import assert from 'node:assert/strict'
 import {
   extractTopColors,
   readableOnLight,
+  artAccent,
   randomizeDrift,
   driftedBlobs,
   blobBackgroundCss,
@@ -205,4 +206,49 @@ test('readableOnLight darkens a pale accent to 4.5:1 on the light background and
   assert.equal(readableOnLight('#7c3aed'), '#7c3aed')
   assert.equal(readableOnLight('#ffffff'), '#6f6f6f')
   assert.equal(readableOnLight('nope'), 'nope')
+})
+
+// The accent used to be the top blob's HSL hue at a fixed HSL saturation and
+// lightness. These pin what that got wrong.
+const oklabOf = (hex: string) => srgbToOklab(parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16))
+const hueDeg = (c: { a: number; b: number }) => ((Math.atan2(c.b, c.a) * 180) / Math.PI + 360) % 360
+const hueGap = (x: number, y: number) => Math.min(Math.abs(x - y), 360 - Math.abs(x - y))
+
+test('a black-and-white cover gets no accent, even with a little JPEG noise in it', () => {
+  // A grey cover with faint warm noise: minChroma lifts the blob to a visible
+  // colour, which is what turned a grey After Hours gold.
+  const px = cover([600, 120, 118, 116], [400, 60, 59, 58])
+  assert.equal(artAccent(extractTopColors(px, 3)), null)
+  assert.equal(artAccent([]), null)
+})
+
+test("the accent keeps the cover's own Oklab hue at a fixed perceptual lightness", () => {
+  for (const [r, g, b] of [[200, 30, 60], [40, 70, 200], [230, 200, 40], [60, 160, 90]]) {
+    const blobs = extractTopColors(cover([1000, r, g, b]), 3)
+    const accent = artAccent(blobs)!
+    assert.ok(accent, `expected an accent for rgb(${r},${g},${b})`)
+    const want = hueDeg(srgbToOklab(r, g, b))
+    for (const [stop, L] of [[accent.start, 0.80], [accent.end, 0.56]] as const) {
+      const got = oklabOf(stop)
+      assert.ok(hueGap(hueDeg(got), want) < 6, `hue drifted for rgb(${r},${g},${b}): ${stop}`)
+      assert.ok(Math.abs(got.L - L) < 0.02, `lightness of ${stop} is ${got.L.toFixed(3)}, wanted ${L}`)
+    }
+  }
+})
+
+test('a muted cover gets a muted accent and a vivid one a vivid accent', () => {
+  const chroma = (hex: string) => Math.hypot(oklabOf(hex).a, oklabOf(hex).b)
+  const muted = artAccent(extractTopColors(cover([1000, 110, 125, 150]), 3))!   // grey-blue
+  const vivid = artAccent(extractTopColors(cover([1000, 40, 70, 230]), 3))!     // strong blue
+  assert.ok(muted && vivid)
+  assert.ok(chroma(muted.start) < chroma(vivid.start) * 0.7, `muted ${muted.start} vs vivid ${vivid.start}`)
+})
+
+test('a grey field ranked first does not hide the colour beside it', () => {
+  const blobs = [
+    { r: 120, g: 120, b: 118, hue: 90, chroma: 0.004 },
+    { r: 120, g: 150, b: 90, hue: 130, chroma: 0.06 },
+  ]
+  const accent = artAccent(blobs)!
+  assert.ok(hueGap(hueDeg(oklabOf(accent.start)), 130) < 6, `expected the green blob's hue, got ${accent.start}`)
 })

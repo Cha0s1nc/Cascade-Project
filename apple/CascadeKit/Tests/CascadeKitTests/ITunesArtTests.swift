@@ -27,10 +27,21 @@ struct ITunesArtTests {
         #expect(pickItunesArt([results[0]], artist: "Radiohead", album: "Kid A") != nil)
     }
 
-    @Test func artistOnlyBreaksTiesBetweenAlbumsOfTheSameName() {
+    @Test func anAlbumOfTheSameNameByAnotherActIsNotTheAlbum() {
         let results = [r("Home", "Some Other Band"), r("Home", "The Wanted")]
         #expect(pickItunesArt(results, artist: "The Wanted", album: "Home") == big("Home"))
+        #expect(pickItunesArt([r("Home", "Some Other Band")], artist: "The Wanted", album: "Home") == nil)
+        // A compilation AlbumArtist names no act, so it cannot rule a result out.
         #expect(pickItunesArt([r("Home", "The Wanted")], artist: "Various Artists", album: "Home") != nil)
+    }
+
+    /// The real search response for brakence "ready or noT" (2026-10-28): the single is missing
+    /// from the search index and all three hits share its title once "- Single" and the brackets go.
+    @Test func someoneElsesSameTitledSingleDoesNotPassAsTheAlbum() {
+        let results = [r("READY OR NOT! (Breakcore Re-Make) - Single", "BestBud"),
+                       r("Ready or Not - Single", "Drake Liddell"), r("Ready_or_Not - Single", "Drake J")]
+        #expect(pickItunesArt(results, artist: "brakence", album: "ready or noT") == nil)
+        #expect(pickItunesArt([r("ready or noT - Single", "brakence")], artist: "brakence", album: "ready or noT") != nil)
     }
 
     @Test func nothingMatchingMeansNoArtNotTheWrongArt() {

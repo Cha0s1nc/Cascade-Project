@@ -8,12 +8,16 @@ import Foundation
 // and a timestamp in, numbers out. Getting the pixels and painting the blobs
 // are the app's business.
 
-/// A blob colour, 0-255 per channel. `hue` is reporting only.
+/// A blob colour, 0-255 per channel. `hue` is the cluster's Oklab hue in degrees, and `chroma`
+/// its colourfulness before blobColor lifted it to minChroma: the lift makes the blob visible,
+/// so only the raw value says whether the cover has a colour there at all. Hand-built grey
+/// blobs leave it at 0.
 public struct BlobColor: Sendable, Equatable, Hashable {
     public var r: Double
     public var g: Double
     public var b: Double
     public var hue: Double
+    public var chroma: Double = 0
 }
 
 /// A blob placed on screen. Positions and sizes are percentages of the view.
@@ -96,14 +100,20 @@ public enum AlbumColors {
                      b: 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s)
     }
 
-    static func srgb(_ c: Oklab) -> (r: Double, g: Double, b: Double) {
+    /// Linear sRGB, unclamped: outside 0 to 1 means the colour has no sRGB form.
+    static func linear(_ c: Oklab) -> (r: Double, g: Double, b: Double) {
         let l_ = c.L + 0.3963377774 * c.a + 0.2158037573 * c.b
         let m_ = c.L - 0.1055613458 * c.a - 0.0638541728 * c.b
         let s_ = c.L - 0.0894841775 * c.a - 1.2914855480 * c.b
         let l = l_ * l_ * l_, m = m_ * m_ * m_, s = s_ * s_ * s_
-        return (linearToSrgb(+4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
-                linearToSrgb(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
-                linearToSrgb(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s))
+        return (+4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+                -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+                -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s)
+    }
+
+    static func srgb(_ c: Oklab) -> (r: Double, g: Double, b: Double) {
+        let lin = linear(c)
+        return (linearToSrgb(lin.r), linearToSrgb(lin.g), linearToSrgb(lin.b))
     }
 
     static func chroma(_ c: Oklab) -> Double { hypot(c.a, c.b) }
@@ -240,7 +250,48 @@ public enum AlbumColors {
             b *= scale
         }
         let rgb = srgb(Oklab(L: L, a: a, b: b))
-        return BlobColor(r: rgb.r, g: rgb.g, b: rgb.b, hue: hueOf(c))
+        return BlobColor(r: rgb.r, g: rgb.g, b: rgb.b, hue: hueOf(c), chroma: ch)
+    }
+
+    // MARK: Accent
+    //
+    // The accent gradient from a cover's blobs, ported from artAccent in album-colors.ts; keep
+    // the numbers in step. The cluster's own Oklab hue at a fixed perceptual lightness, with
+    // the chroma following the cover's, so a muted cover gets a muted accent. It used to be the
+    // top blob's HSL hue at a fixed HSL saturation and lightness: skin tones came out loud
+    // orange, grey-blue electric blue, and the grey check ran after minChroma's lift, so JPEG
+    // noise on black-and-white art passed as a colour (a grey After Hours gave gold).
+
+    /// Raw chroma a blob needs to count as the cover's colour. Muted photo covers measure
+    /// 0.012 to 0.03, JPEG noise on grey art under 0.01.
+    static let accentColorful = 0.025
+    /// Below this even the top blob has no colour to speak of: a grey accent.
+    static let accentFaint = 0.012
+    static let accentStartL = 0.80, accentEndL = 0.56
+    static let accentChromaScale = 1.6, accentMinChroma = 0.05, accentMaxChroma = 0.16
+
+    /// The colour at Oklab lightness L, chroma c and hue h (radians), with the chroma reduced
+    /// until it fits in sRGB, so the hue is never bent to fit.
+    static func lchHex(_ L: Double, _ c: Double, _ h: Double) -> String {
+        var k = c
+        func fits() -> Bool {
+            let lin = linear(Oklab(L: L, a: k * cos(h), b: k * sin(h)))
+            return [lin.r, lin.g, lin.b].allSatisfy { $0 >= -0.001 && $0 <= 1.001 }
+        }
+        while k > 0 && !fits() { k = max(0, k - 0.005) }
+        let rgb = srgb(Oklab(L: L, a: k * cos(h), b: k * sin(h)))
+        return HexColor.string(r: Int(rgb.r), g: Int(rgb.g), b: Int(rgb.b))
+    }
+
+    /// The accent gradient for extractTopColors' output, or nil when the cover has no colour
+    /// to take one from. From the most prominent blob that is actually a colour, so a large
+    /// grey field ranked first does not hide the colour beside it.
+    public static func accent(from colors: [BlobColor]) -> (start: String, end: String)? {
+        let faintTop = (colors.first?.chroma ?? 0) >= accentFaint ? colors.first : nil
+        guard let pick = colors.first(where: { $0.chroma >= accentColorful }) ?? faintTop else { return nil }
+        let h = pick.hue * .pi / 180
+        let c = min(accentMaxChroma, max(accentMinChroma, pick.chroma * accentChromaScale))
+        return (lchHex(accentStartL, c, h), lchHex(accentEndL, c * 1.05, h))
     }
 
     // MARK: Drift

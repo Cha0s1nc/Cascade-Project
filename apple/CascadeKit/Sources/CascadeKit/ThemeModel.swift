@@ -112,20 +112,16 @@ public struct ArtTheme: Equatable, Sendable {
     public var start: String
     public var end: String
 
-    /// Below this saturation there is no hue worth trusting: what is left is JPEG noise on
-    /// essentially monochrome art, and normalizing it would invent a colour that appears
-    /// nowhere on the cover.
-    static let neutralSaturation = 0.18
-
     /// One palette for the whole theme: the blobs decide, and the accent follows them,
     /// so the accent and the background can never disagree about the cover's colour.
     public init(from colors: [BlobColor]) {
-        var h = 0.0, s = 0.0, l = 0.0
-        if let top = colors.first { (h, s, l) = Self.hueSatLightness(top) }
-        if colors.isEmpty || s < Self.neutralSaturation {
+        // Picked and normalized in Oklab (AlbumColors.accent), nil for a cover with no
+        // colour to take: JPEG noise on black-and-white art is not one.
+        guard let accent = AlbumColors.accent(from: colors) else {
             // Monochrome or near enough: grey blobs off the art's own lightness where there
             // is one, so a bright black-and-white cover does not get the dark one's
             // treatment, and a neutral accent so the last track's colour does not bleed through.
+            let l = colors.first.map { Self.hueSatLightness($0).l } ?? 0
             let lum: Double = colors.isEmpty ? 70 : (l * 255).rounded()
             let hi = min(255, (lum * 1.2).rounded())
             let lo = max(0, (lum * 0.6).rounded())
@@ -135,14 +131,11 @@ public struct ArtTheme: Equatable, Sendable {
             return
         }
         blobs = colors
-        // Normalized to a fixed lightness and saturation so muted covers still give an
-        // accent you can tell apart from the last one; the hue is the palette's own.
-        let hi = Self.rgb(hue: h, saturation: 0.85, lightness: 0.62)
-        let lo = Self.rgb(hue: h, saturation: 0.90, lightness: 0.36)
-        start = HexColor.string(r: hi.r, g: hi.g, b: hi.b)
-        end = HexColor.string(r: lo.r, g: lo.g, b: lo.b)
+        start = accent.start
+        end = accent.end
     }
 
+    /// HSL style. Only the lightness is read: the grey blobs for a colourless cover follow it.
     static func hueSatLightness(_ c: BlobColor) -> (h: Double, s: Double, l: Double) {
         let r = c.r / 255, g = c.g / 255, b = c.b / 255
         let mx = max(r, g, b), mn = min(r, g, b), d = mx - mn
@@ -155,14 +148,5 @@ public struct ArtTheme: Equatable, Sendable {
             else { h = ((r - g) / d + 4) / 6 }
         }
         return (h, s, l)
-    }
-
-    static func rgb(hue: Double, saturation s: Double, lightness l: Double) -> (r: Int, g: Int, b: Int) {
-        let c = (1 - abs(2 * l - 1)) * s
-        let x = c * (1 - abs((hue * 6).truncatingRemainder(dividingBy: 2) - 1))
-        let m = l - c / 2
-        let table: [(Double, Double, Double)] = [(c, x, 0), (x, c, 0), (0, c, x), (0, x, c), (x, 0, c), (c, 0, x)]
-        let (r, g, b) = table[Int(hue * 6) % 6]
-        return (Int(((r + m) * 255).rounded()), Int(((g + m) * 255).rounded()), Int(((b + m) * 255).rounded()))
     }
 }

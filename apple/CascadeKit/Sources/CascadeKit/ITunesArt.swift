@@ -53,17 +53,26 @@ public func itunesArtistMatches(_ got: String, _ want: String) -> Bool {
     return !g.isEmpty && (g == w || g.contains(w) || w.contains(g))
 }
 
+/// Album artists that name no act, so they cannot be held against a result.
+private let compilationArtists: Set<String> = ["various artists", "various", "va"]
+
 /// The artwork URL for the best-matching album, upscaled from the 100px thumbnail, or nil if
-/// nothing in `results` is plausibly the album asked for. Album name carries the decision, the
-/// artist only breaks ties; with no album name the artist has to match on its own.
+/// nothing in `results` is plausibly the album asked for. The album name has to match and so does
+/// the artist: short titles are shared by many acts, and with the artist only breaking ties,
+/// brakence's "ready or noT" (missing from the search index) took a stranger's same-titled single
+/// as its cover. A miss sends the caller to the artist's own discography instead. A compilation
+/// AlbumArtist ("Various Artists") names no act, so it accepts any; with no album name the artist
+/// carries the decision alone.
 public func pickItunesArt(_ results: [ITunesResult]?, artist: String, album: String, size: Int = 600) -> String? {
     let wantAlbum = base(album), wantArtist = base(artist)
+    let anyArtist = wantArtist.isEmpty || compilationArtists.contains(wantArtist)
     var best: String?, bestScore = 0
     for r in results ?? [] {
         guard let url = r.artworkUrl100, !url.isEmpty else { continue }
         let name = r.collectionName ?? ""
         let by = r.collectionArtistName ?? r.artistName ?? ""
         let byArtist = itunesArtistMatches(by, wantArtist)
+        if !byArtist && !anyArtist { continue }  // the same title by somebody else
         let albumScore: Int
         if wantAlbum.isEmpty { albumScore = byArtist ? 1 : 0 }
         else if clean(name) == clean(album) { albumScore = 3 }

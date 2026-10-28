@@ -31,11 +31,27 @@ test('an edition suffix still matches, but loses to the plain album', () => {
   assert.ok(pickItunesArt([results[0]], 'Radiohead', 'Kid A'))
 })
 
-test('the artist only breaks ties between albums of the same name', () => {
+test('an album of the same name by another act is not the album', () => {
   const results = [r('Home', 'Some Other Band'), r('Home', 'The Wanted')]
   assert.equal(pickItunesArt(results, 'The Wanted', 'Home'), art('Home').replace('100x100bb', '600x600bb'))
-  // A disagreeing AlbumArtist must not throw away the only real match.
+  assert.equal(pickItunesArt([r('Home', 'Some Other Band')], 'The Wanted', 'Home'), null)
+  // A compilation AlbumArtist names no act, so it cannot rule a result out.
   assert.ok(pickItunesArt([r('Home', 'The Wanted')], 'Various Artists', 'Home'))
+})
+
+// The real search response for brakence "ready or noT" (2026-10-28): the
+// single is not in the search index, and all three hits share its title once
+// the brackets and "- Single" are stripped. The first used to win, which put a
+// stranger's breakcore remake in the Discord presence.
+test("someone else's same-titled single does not pass as the album", () => {
+  const searchResults = [
+    r('READY OR NOT! (Breakcore Re-Make) - Single', 'BestBud'),
+    r('Ready or Not - Single', 'Drake Liddell'),
+    r('Ready_or_Not - Single', 'Drake J'),
+  ]
+  assert.equal(pickItunesArt(searchResults, 'brakence', 'ready or noT'), null)
+  // The discography fallback's record is the right one.
+  assert.ok(pickItunesArt([r('ready or noT - Single', 'brakence')], 'brakence', 'ready or noT'))
 })
 
 test('nothing matching means no art, not the wrong art', () => {

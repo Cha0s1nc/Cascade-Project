@@ -52,14 +52,28 @@ import Testing
         #expect(HexColor.readableOnLight("nope") == "nope")
     }
 
+    /// A blob as extractTopColors makes it, raw chroma included.
+    func blob(_ r: Double, _ g: Double, _ b: Double) -> BlobColor { AlbumColors.blobColor(AlbumColors.oklab(r: r, g: g, b: b)) }
+
     @Test func aSaturatedCoverGivesAVividAccentOfItsHue() {
-        let red = BlobColor(r: 200, g: 40, b: 50, hue: 355)
-        let art = ArtTheme(from: [red, BlobColor(r: 30, g: 30, b: 200, hue: 240)])
+        let art = ArtTheme(from: [blob(200, 40, 50), blob(30, 30, 200)])
         #expect(art.blobs.count == 2)
         let start = HexColor.rgb(art.start)!, end = HexColor.rgb(art.end)!
         // Red-dominant, brighter at the start than the end.
         #expect(start.r > start.g && start.r > start.b && end.r > end.g && end.r > end.b)
         #expect(HexColor.luminance(art.start) > HexColor.luminance(art.end))
+    }
+
+    @Test func jpegNoiseOnABlackAndWhiteCoverIsNotAColour() {
+        // minChroma lifts a faintly warm grey to a visible colour; the accent must look past it.
+        let art = ArtTheme(from: [blob(120, 118, 116), blob(60, 59, 58)])
+        #expect(art.start == "#505050" && art.end == "#202020")
+    }
+
+    @Test func aGreyFieldRankedFirstDoesNotHideTheColourBesideIt() {
+        let art = ArtTheme(from: [blob(120, 120, 119), blob(60, 160, 90)])
+        let start = HexColor.rgb(art.start)!
+        #expect(start.g > start.r && start.g > start.b)
     }
 
     @Test func aMonochromeCoverGivesGreyAndNeverInventsAHue() {
@@ -72,12 +86,5 @@ import Testing
         // No colours at all: a fixed grey.
         let none = ArtTheme(from: [])
         #expect(none.blobs.count == 2 && none.start == "#505050")
-    }
-
-    @Test func hueMathRoundTripsThroughHSL() {
-        let c = BlobColor(r: 200, g: 120, b: 40, hue: 0)
-        let (h, s, l) = ArtTheme.hueSatLightness(c)
-        let back = ArtTheme.rgb(hue: h, saturation: s, lightness: l)
-        #expect(abs(back.r - 200) <= 1 && abs(back.g - 120) <= 1 && abs(back.b - 40) <= 1)
     }
 }

@@ -16088,8 +16088,8 @@ function buildBlobBackground(colors, light = false) {
   return CascadeCore.blobBackgroundCss(CascadeCore.driftedBlobs(colors, [], 0, light))
 }
 
-// Saturation and hue of an RGB triple, HSL style. Only used to judge whether a
-// palette colour is worth deriving an accent from, and which way to push it.
+// Hue, saturation and lightness of an RGB triple, HSL style. Only the
+// lightness is read: the grey blobs for a colourless cover follow it.
 function _rgbHueSat(r, g, b) {
   const nr = r/255, ng = g/255, nb = b/255
   const mx = Math.max(nr,ng,nb), mn = Math.min(nr,ng,nb), d = mx - mn
@@ -16103,18 +16103,6 @@ function _rgbHueSat(r, g, b) {
   }
   return { h, s, l }
 }
-
-function _hslToRgb(hue, s, l) {
-  const c = (1-Math.abs(2*l-1))*s, x = c*(1-Math.abs((hue*6)%2-1)), m = l-c/2
-  const idx = Math.floor(hue*6)%6
-  const [r,g,b] = [[c,x,0],[x,c,0],[0,c,x],[0,x,c],[x,0,c],[c,0,x]][idx]
-  return [Math.round((r+m)*255), Math.round((g+m)*255), Math.round((b+m)*255)]
-}
-
-// Below this there is no hue worth trusting: what is left is JPEG noise on
-// essentially monochrome art, and normalising it would invent a colour that
-// appears nowhere on the cover.
-const NEUTRAL_ART_SAT = 0.18
 
 // Extract colours from an art URL and theme from them.
 //
@@ -16155,31 +16143,26 @@ function applyAlbumArtTheme(imgEl) {
   // decide now, and the accent follows them.
   _blobColors = extractTopColors(imgEl, 3, light)
   const top = _blobColors[0]
-  const { h, s, l } = top ? _rgbHueSat(top.r, top.g, top.b) : { h: 0, s: 0, l: 0 }
+  // Picked and normalised in Oklab (CascadeCore.artAccent), null for a cover
+  // with no colour to take: JPEG noise on black-and-white art is not one.
+  const accent = CascadeCore.artAccent(_blobColors)
 
   const overlay = document.getElementById('np-overlay')
 
-  if (!top || s < NEUTRAL_ART_SAT) {
+  if (!accent) {
     // Monochrome or near enough. Grey blobs off the art's own lightness where
     // there is one, so a bright black-and-white cover does not get the same
     // treatment as a dark one, and a neutral gradient so the previous track's
     // colour does not bleed through.
-    const lum = top ? Math.round(l * 255) : 70
+    const lum = top ? Math.round(_rgbHueSat(top.r, top.g, top.b).l * 255) : 70
     const gHi = Math.min(255, Math.round(lum * 1.2))
     const gLo = Math.max(0,   Math.round(lum * 0.6))
     _blobColors = [{ r: gHi, g: gHi, b: gHi, hue: 0 }, { r: gLo, g: gLo, b: gLo, hue: 0 }]
     applyGradient('#505050', '#202020')
     _lastAlbumColors = null
   } else {
-    // Normalised to a fixed lightness and saturation so muted covers still
-    // produce a gradient you can tell apart from the last one. The hue is the
-    // palette's, so this only changes how loud it is, not which colour it is.
-    const [sr,sg,sb] = _hslToRgb(h, 0.85, 0.62)   // bright vivid
-    const [er,eg,eb] = _hslToRgb(h, 0.90, 0.36)   // dark vivid
-    const startHex = rgbToHex(sr,sg,sb)
-    const endHex   = rgbToHex(er,eg,eb)
-    _lastAlbumColors = { start: startHex, end: endHex }
-    applyGradient(startHex, endHex)
+    _lastAlbumColors = accent
+    applyGradient(accent.start, accent.end)
   }
 
   randomizeDrift()
