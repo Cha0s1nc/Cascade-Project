@@ -237,7 +237,9 @@ html[data-platform="linux"] #ov-video-close { right: calc(var(--caption-reserve,
    .np-overlay-left is a grid with the picture on a 1fr row, so shrinking
    these auto-sized rows hands the same reclaimed space to the picture for
    free, no separate rule needed there. */
-.np-overlay-btns, .np-overlay-vol { max-height: 56px; overflow: hidden; transition: opacity 0.4s ease, max-height 0.4s ease; }
+/* clip rather than hidden, so the buttons' focus outline (2px out, 2px
+   wide) still shows past the row's edge. */
+.np-overlay-btns, .np-overlay-vol { max-height: 56px; overflow: clip; overflow-clip-margin: 6px; transition: opacity 0.4s ease, max-height 0.4s ease; }
 .np-overlay:not(.video).idle:not(:focus-within) .np-overlay-btns,
 .np-overlay:not(.video).idle:not(:focus-within) .np-overlay-vol { opacity: 0; max-height: 0; pointer-events: none; }
 /* Same idle gate, grown into the space the rows above just gave up. */

@@ -60,8 +60,10 @@ html[data-theme="light"] .sect-more { color: var(--accent); }
 /* Album grid */
 .album-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; margin-bottom: 8px; }
 /* Same clipping trick as #rp-grid above, but to a single row - "Recently
-   added" reads as one shelf of covers, not a stack. */
-#home-recent-albums { grid-template-rows: auto; grid-auto-rows: 0; row-gap: 0; overflow: hidden; }
+   added" reads as one shelf of covers, not a stack. The 2px of padding,
+   taken back by the margin, is room for the hover ring the clip would
+   otherwise cut; none at the bottom, where the hidden rows start. */
+#home-recent-albums { grid-template-rows: auto; grid-auto-rows: 0; row-gap: 0; overflow: hidden; padding: 2px 2px 0; margin: -2px -2px 8px; }
 /* Frameless: the art sits on the page with the text under it, like .poster-card.
    The hover ring is a box-shadow so it takes no layout space. */
 .album-card { cursor: pointer; }
