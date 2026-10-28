@@ -13,7 +13,7 @@ import Testing
         Telemetry.countSong(defaults)
         #expect(defaults.object(forKey: Telemetry.songsKey) == nil)
         #expect(!SetupWizard.steps(seen: 0, needsLibraryStep: false).contains(.telemetry))
-        #expect(SetupWizard.Step.telemetry.since == 5)
+        #expect(SetupWizard.Step.telemetry.since == 6)
     }
 
     @Test func optingOutForgetsTheInstall() {

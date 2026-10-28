@@ -101,18 +101,164 @@ input[type="range"]:disabled { opacity: 0.4; cursor: default; }
 .ov-translate-btn.loading { opacity: 0.6; pointer-events: none; animation: spin 1s linear infinite; }
 
 /* ── Shuffle all button ── */
+/* The plain pill, for the buttons outside the glass set: the download
+   manager, dialogs, Show more. */
 .shuffle-all-btn { display: flex; align-items: center; gap: 5px; font-family: var(--font); font-size: 11px; font-weight: 600; background: none; border: 1px solid var(--border); border-radius: 6px; color: var(--text2); padding: 4px 10px; cursor: pointer; transition: background 0.12s, color 0.12s, border-color 0.12s; }
 .shuffle-all-btn:hover { background: var(--surface2); color: var(--text); border-color: var(--accent); }
-.shuffle-all-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-.shuffle-all-btn.primary:hover { background: #7c5ff7; border-color: #7c5ff7; color: #fff; }
 .shuffle-all-btn:disabled { opacity: 0.4; cursor: default; pointer-events: none; }
 .shuffle-all-btn svg { flex-shrink: 0; }
-/* A Download button with a download: the status, and on hover Stop or
-   Remove in the same cell (renderer.js paintDownloadButton). */
-.shuffle-all-btn.dl-swap { display: grid; }
-.dl-swap > span { grid-area: 1 / 1; display: flex; align-items: center; justify-content: center; gap: 5px; }
-.dl-swap .dl-hover, .dl-swap:hover .dl-now { visibility: hidden; }
-.dl-swap:hover .dl-hover { visibility: visible; }
+
+/* ── Glass buttons (docs/glass-buttons-spec.md) ──
+   The <button> is only the collapsed circle. .gbtn-face draws the glass and
+   grows past it on hover with pointer-events off. html[data-button-style]
+   (or a nearer element's, see the @scope blocks) picks how: overlay (the
+   label floats over the neighbors, and only the
+   circle catches the pointer), push (the button widens and the row reflows)
+   or labeled (always open). Play (.primary) is always open and never moves.
+   The values are the ones tuned in docs/glass-buttons-prototype.html. */
+:root {
+  --gbtn-dur: 300ms; --gbtn-spring: cubic-bezier(0.34, 1.35, 0.64, 1);
+  --gbtn-open-delay: 60ms; --gbtn-close-delay: 0ms;
+  --gbtn-blur: 16px; --gbtn-fill: 55%;
+  --gbtn-glass: var(--surface2); --gbtn-edge: rgba(255,255,255,0.12);
+  --gbtn-rim: rgba(255,255,255,0.22); --gbtn-rim-hover: rgba(255,255,255,0.32);
+  --gbtn-floor: rgba(0,0,0,0.25); --gbtn-lift: rgba(0,0,0,0.28); --gbtn-sheen: rgba(255,255,255,0.07);
+}
+html[data-theme="light"] {
+  --gbtn-glass: #fff; --gbtn-edge: rgba(0,0,0,0.08);
+  --gbtn-rim: rgba(255,255,255,0.88); --gbtn-rim-hover: #fff;
+  --gbtn-floor: rgba(0,0,0,0.08); --gbtn-lift: rgba(0,0,0,0.12); --gbtn-sheen: rgba(0,0,0,0.04);
+}
+.gbtn {
+  --h: 34px; --icon: 15px;
+  position: relative; flex-shrink: 0; width: var(--h); height: var(--h); padding: 0; border: 0; border-radius: 999px;
+  background: none; color: var(--text); font: 600 12px var(--font); cursor: pointer; interpolate-size: allow-keywords;
+}
+.gbtn-sm { --h: 28px; --icon: 13px; font-size: 11.5px; }
+.gbtn:is(:hover, :focus-visible) { z-index: 3; }
+.gbtn:focus-visible { outline: none; }
+.gbtn:disabled { cursor: default; }
+.gbtn-face {
+  position: absolute; top: 0; left: 0; height: 100%; min-width: 100%; display: flex; align-items: center;
+  border-radius: 999px; pointer-events: none;
+  background: color-mix(in srgb, var(--gbtn-glass) var(--gbtn-fill), transparent);
+  -webkit-backdrop-filter: blur(var(--gbtn-blur)) saturate(180%); backdrop-filter: blur(var(--gbtn-blur)) saturate(180%);
+  border: 1px solid var(--gbtn-edge);
+  box-shadow: inset 0 1px 0 var(--gbtn-rim), inset 0 -1px 0 var(--gbtn-floor), 0 4px 14px var(--gbtn-lift);
+  transition: background-color .15s, box-shadow .15s, transform .12s, color .15s;
+}
+/* Rows aligned to the right open leftward, so the icon stays under the pointer. */
+.gbtn-row-end .gbtn-face { left: auto; right: 0; flex-direction: row-reverse; }
+.gbtn:hover:not(:disabled) .gbtn-face { background-image: linear-gradient(var(--gbtn-sheen), var(--gbtn-sheen)); box-shadow: inset 0 1px 0 var(--gbtn-rim-hover), inset 0 -1px 0 var(--gbtn-floor), 0 8px 22px var(--gbtn-lift); }
+.gbtn:not(.primary):active:not(:disabled) .gbtn-face { transform: scale(.96); box-shadow: inset 0 1px 0 var(--gbtn-rim), inset 0 -1px 0 var(--gbtn-floor), 0 1px 4px var(--gbtn-lift); }
+.gbtn:disabled .gbtn-face { opacity: .4; }
+.gbtn:focus-visible .gbtn-face { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The icon sits centered in the circle's width whatever the face does. */
+.gbtn-face > svg { box-sizing: content-box; flex-shrink: 0; width: var(--icon); height: var(--icon); padding: 0 calc((var(--h) - 2px - var(--icon)) / 2); }
+.gbtn-ic { display: grid; place-items: center; flex-shrink: 0; width: calc(var(--h) - 2px); height: 100%; }
+.gbtn-ic svg { grid-area: 1 / 1; width: var(--icon); height: var(--icon); transition: opacity .12s; }
+.gbtn-label {
+  width: 0; opacity: 0; overflow: hidden; white-space: nowrap; margin-left: -4px; text-align: left;
+  transition: width var(--gbtn-dur) var(--gbtn-spring) var(--gbtn-close-delay), padding var(--gbtn-dur) var(--gbtn-spring) var(--gbtn-close-delay), opacity 110ms ease var(--gbtn-close-delay);
+}
+.gbtn-row-end .gbtn-label { margin: 0 -4px 0 0; }
+.gbtn:not(.primary):is(:hover, :focus-visible):not(:disabled) .gbtn-label {
+  width: max-content; opacity: 1; padding-right: 14px;
+  transition: width var(--gbtn-dur) var(--gbtn-spring) var(--gbtn-open-delay), padding var(--gbtn-dur) var(--gbtn-spring) var(--gbtn-open-delay), opacity 180ms ease calc(var(--gbtn-open-delay) + 60ms);
+}
+.gbtn-row-end .gbtn:not(.primary):is(:hover, :focus-visible):not(:disabled) .gbtn-label { padding: 0 0 0 14px; }
+/* Play: always open, so it takes its full width in the row. */
+.gbtn.primary { width: auto; }
+.gbtn.primary .gbtn-face { position: relative; color: var(--play-btn-fg, #fff); background: color-mix(in srgb, var(--accent) 72%, transparent); border-color: rgba(255,255,255,.18); }
+.gbtn-row-end .gbtn.primary .gbtn-face { flex-direction: row; }
+.gbtn.primary .gbtn-label, .gbtn-row-end .gbtn.primary .gbtn-label { width: max-content; opacity: 1; margin: 0 0 0 -4px; padding: 0 16px 0 0; transition: none; }
+/* A filter on, or a sort that isn't the default: a dot on the far corner. */
+.gbtn-dot { position: absolute; top: -1px; right: -1px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--bg); display: none; }
+.gbtn.active .gbtn-dot { display: block; }
+/* Download (paintDownloadButton): the arrow, a check when done, an X on
+   hover; a ring fills around it while downloading. */
+.gbtn-ic svg:not(:first-child), .gbtn.on .gbtn-ic svg:first-child { opacity: 0; }
+.gbtn.on .gbtn-ic svg:nth-child(2) { opacity: 1; }
+.gbtn.dl-kept:is(:hover, :focus-visible) .gbtn-ic svg { opacity: 0; }
+.gbtn.dl-kept:is(:hover, :focus-visible) .gbtn-ic svg:nth-child(3) { opacity: 1; }
+.gbtn.on .gbtn-face { color: color-mix(in srgb, var(--accent) 65%, var(--text)); }
+.gbtn.dl-busy .gbtn-face::before {
+  content: ''; position: absolute; inset: -1px; border-radius: inherit; padding: 2px;
+  background: conic-gradient(var(--accent) calc(var(--dl-p, 0) * 1turn), transparent 0);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
+  transition: opacity .15s;
+}
+.gbtn.dl-busy:is(:hover, :focus-visible) .gbtn-face::before { opacity: 0; }
+.gbtn-now { display: none; }
+
+/* Push and labeled. Scoped rather than keyed off <html> alone so an element
+   with its own data-button-style (the setup wizard's preview cards) shows
+   that style whatever the app is set to. */
+@scope ([data-button-style="push"], [data-button-style="labeled"]) to ([data-button-style]) {
+  /* The face is in the row, so the row reflows around it. */
+  .gbtn { width: auto; min-width: var(--h); }
+  .gbtn-face { position: relative; }
+  /* Nothing floats here, so right-aligned rows read icon first like the rest. */
+  .gbtn-row-end .gbtn-face { flex-direction: row; }
+  .gbtn-row-end .gbtn-label { margin: 0 0 0 -4px; }
+  .gbtn-row-end .gbtn:not(.primary):is(:hover, :focus-visible):not(:disabled) .gbtn-label { padding: 0 14px 0 0; }
+  .season-ghost { display: none; }
+  .season-tabs { position: relative; }
+}
+@scope ([data-button-style="labeled"]) to ([data-button-style]) {
+  .gbtn:not(.primary) .gbtn-label { width: max-content; opacity: 1; padding: 0 14px 0 0; transition: none; }
+  /* Downloads read their status ("Downloading 3/10"), Stop or Remove on
+     hover in the same width, and drop the ring: the count says it. */
+  .gbtn.dl .gbtn-label { display: grid; }
+  .gbtn.dl .gbtn-label > span { grid-area: 1 / 1; display: block; }
+  .gbtn.dl .gbtn-act, .gbtn.dl-kept:is(:hover, :focus-visible) .gbtn-now { visibility: hidden; }
+  .gbtn.dl-kept:is(:hover, :focus-visible) .gbtn-act { visibility: visible; }
+  .gbtn.dl-busy .gbtn-face::before { display: none; }
+  /* Every season showing. */
+  .season-tab { width: max-content; padding: 0 13px; opacity: 1; transition: background-color .25s, color .25s, box-shadow .25s; }
+  .season-chev { display: none; }
+}
+
+/* ── Season control ──
+   The current season as a glass pill; hover or focus opens it into every
+   season. In overlay the slot holds the pill's width (an invisible copy of
+   the current season) and the capsule opens over its neighbor; unlike a
+   button it keeps the pointer while open, or the others couldn't be reached. */
+.season-row { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; }
+.season-slot { position: relative; height: 34px; flex-shrink: 0; }
+.season-ghost { visibility: hidden; display: inline-flex; align-items: center; height: 100%; padding: 4px; font: 600 12px var(--font); white-space: nowrap; }
+.season-ghost > span { display: inline-flex; align-items: center; gap: 4px; padding: 0 10px 0 13px; }
+.season-tabs {
+  position: absolute; top: 0; left: 0; z-index: 2; interpolate-size: allow-keywords;
+  display: inline-flex; align-items: center; height: 34px; padding: 3px; border-radius: 999px;
+  /* ponytail: a fixed cap rather than measuring the content area; scrolls past it. */
+  max-width: min(760px, 80vw); overflow-x: auto; scrollbar-width: none;
+  background: color-mix(in srgb, var(--gbtn-glass) var(--gbtn-fill), transparent);
+  -webkit-backdrop-filter: blur(var(--gbtn-blur)) saturate(180%); backdrop-filter: blur(var(--gbtn-blur)) saturate(180%);
+  border: 1px solid var(--gbtn-edge);
+  box-shadow: inset 0 1px 0 var(--gbtn-rim), inset 0 -1px 0 var(--gbtn-floor), 0 4px 14px var(--gbtn-lift);
+}
+.season-tabs:is(:hover, :focus-within) { z-index: 4; box-shadow: inset 0 1px 0 var(--gbtn-rim), inset 0 -1px 0 var(--gbtn-floor), 0 8px 22px var(--gbtn-lift); }
+.season-tab {
+  display: inline-flex; align-items: center; gap: 4px; height: 100%; flex-shrink: 0; border: 0; border-radius: 999px;
+  background: transparent; color: var(--text2); cursor: pointer; font: 600 12px var(--font); white-space: nowrap; overflow: hidden;
+  width: 0; padding: 0; opacity: 0;
+  transition: width var(--gbtn-dur) var(--gbtn-spring) var(--gbtn-close-delay), padding var(--gbtn-dur) var(--gbtn-spring) var(--gbtn-close-delay), opacity 110ms ease var(--gbtn-close-delay), background-color .25s, color .25s, box-shadow .25s;
+}
+.season-tab.active { width: max-content; padding: 0 10px 0 13px; opacity: 1; color: var(--play-btn-fg, #fff); background: color-mix(in srgb, var(--accent) 78%, transparent); box-shadow: inset 0 1px 0 rgba(255,255,255,.28), 0 2px 8px rgba(0,0,0,.25); }
+.season-chev { width: 10px; height: 10px; opacity: .8; flex-shrink: 0; }
+.season-tab:not(.active) .season-chev { display: none; }
+.season-tabs:is(:hover, :focus-within) .season-tab { width: max-content; padding: 0 13px; opacity: 1; }
+.season-tabs:is(:hover, :focus-within) .season-tab {
+  transition: width var(--gbtn-dur) var(--gbtn-spring) var(--gbtn-open-delay), padding var(--gbtn-dur) var(--gbtn-spring) var(--gbtn-open-delay), opacity 180ms ease calc(var(--gbtn-open-delay) + 60ms), background-color .25s, color .25s, box-shadow .25s;
+}
+.season-tabs:is(:hover, :focus-within) .season-chev { display: none; }
+.season-tabs .season-tab:not(.active):hover { color: var(--text); background: var(--gbtn-sheen); }
+.season-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .gbtn-label, .season-tab { transition-property: opacity, background-color, color, box-shadow !important; }
+}
 
 /* ── States ── */
 .empty-state { display: flex; align-items: center; justify-content: center; color: var(--text3); font-size: 13px; padding: 40px 0; }

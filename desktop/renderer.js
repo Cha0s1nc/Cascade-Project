@@ -1,5 +1,22 @@
 // ── Cascade renderer ──────────────────────────────────────────────────────────
 
+// Glass buttons (docs/glass-buttons-spec.md, styles/components.css): the icons
+// the pages build them with, and the face inside every one. Up here so nothing
+// that runs during startup reaches them before they exist.
+const _gbSvg = (body, fill) => `<svg viewBox="0 0 24 24" fill="${fill ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`
+const GB_PLAY = _gbSvg('<polygon points="6 4 20 12 6 20 6 4"/>', true)
+const GB_RESTART = _gbSvg('<polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>')
+const GB_EDIT = _gbSvg('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>')
+const GB_CHECK = _gbSvg('<polyline points="20 6 9 17 4 12"/>')
+const SEASON_CHEV = '<svg class="season-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>'
+/** `label` is HTML: escape anything from the server first. */
+const gbtnFace = (icon, label) => `<span class="gbtn-face">${icon}<span class="gbtn-label">${label}</span></span>`
+/** Swaps a glass button's icon and label, keeping its accessible name in step. */
+function setGbtn(btn, icon, label) {
+  btn.innerHTML = gbtnFace(icon, esc(label))
+  if (!btn.classList.contains('primary')) btn.setAttribute('aria-label', label)
+}
+
 // State
 let jf = { url: '', token: '', userId: '' }
 
@@ -2175,16 +2192,18 @@ document.getElementById('vi-skip').addEventListener('click', dismissVideoIntro)
 // 3: lyric translation, whose models download from the internet on first use.
 //    That is disclosed here before it can happen, not left to Settings.
 // 4: Smooth skips, on the crossfade step, since some people want a skip to cut.
-// 5 (not yet): opt-in telemetry. Its step stays filtered out while
-//    CascadeCore.telemetryAvailable() is false; bump to 5 when switching it on.
-const WIZARD_REVISION = 4
+// 5: the glass buttons' style (overlay, push or always labeled), a choice
+//    nobody had before the buttons changed under them.
+// 6 (not yet): opt-in telemetry. Its step stays filtered out while
+//    CascadeCore.telemetryAvailable() is false; bump to 6 when switching it on.
+const WIZARD_REVISION = 5
 
-const FIRSTRUN_STEPS = ['libraries', 'crossfade', 'quality', 'theme', 'translation', 'telemetry']
+const FIRSTRUN_STEPS = ['libraries', 'crossfade', 'quality', 'theme', 'buttons', 'translation', 'telemetry']
 
 // The revision each step arrived in. A fresh install walks every step; someone
 // updating is shown only what is new since the revision they last finished, not
 // four screens they have already been through for the sake of one new one.
-const FIRSTRUN_STEP_REVISION = { libraries: 1, crossfade: 4, quality: 2, theme: 2, translation: 3, telemetry: 5 }
+const FIRSTRUN_STEP_REVISION = { libraries: 1, crossfade: 4, quality: 2, theme: 2, buttons: 5, translation: 3, telemetry: 6 }
 let _firstRunSteps = []
 let _firstRunIdx = 0
 
@@ -2727,6 +2746,8 @@ function updateLibButtons(name) {
   const v = LIB_VIEWS[name]
   const sortBtn = document.querySelector(`.lib-sort-btn[data-lib-view="${name}"] .lib-sort-label`)
   if (sortBtn) sortBtn.textContent = v.fields[v.prefs.field]
+  // The dot: a sort other than Name, A to Z.
+  sortBtn?.closest('.lib-sort-btn').classList.toggle('active', v.prefs.field !== 'name' || v.prefs.dir === 'desc')
   const active = v.prefs.favorite || !!v.prefs.genre || v.prefs.decade != null || !!v.prefs.played
   document.querySelector(`.lib-filter-btn[data-lib-view="${name}"]`)?.classList.toggle('active', active)
 }
@@ -3341,6 +3362,7 @@ const sortAllSongs = () => sortSongs(allSongs, songsSortField, songsSortDir)
 
 function updateSongsSortUI() {
   document.getElementById('songs-sort-label').textContent = SONG_SORT_LABELS[songsSortField]
+  document.getElementById('btn-sort-songs').classList.toggle('active', songsSortField !== 'name' || songsSortDir === 'desc')
   document.querySelectorAll('#songs-sort-dropdown [data-sort-field]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.sortField === songsSortField)
   })
@@ -3653,7 +3675,7 @@ function enterPlEditMode() {
   plEditSelected.clear()
   document.getElementById('playlist-detail').classList.add('edit-mode')
   document.getElementById('pl-edit-toolbar').classList.add('visible')
-  document.getElementById('btn-edit-playlist').textContent = 'Done'
+  setGbtn(document.getElementById('btn-edit-playlist'), GB_CHECK, 'Done')
   renderPlaylistDetailItems(currentPlaylistItems, true)
   updatePlEditToolbar()
 }
@@ -3666,7 +3688,7 @@ function exitPlEditMode(silent) {
   plEditSelected.clear()
   document.getElementById('playlist-detail').classList.remove('edit-mode')
   document.getElementById('pl-edit-toolbar').classList.remove('visible')
-  document.getElementById('btn-edit-playlist').textContent = 'Edit'
+  setGbtn(document.getElementById('btn-edit-playlist'), GB_EDIT, 'Edit')
   stopPlaylistDetailsEdit()
   if (!silent && wasActive) renderPlaylistDetailItems(currentPlaylistItems, !!currentPlaylistId)
 }
@@ -4268,7 +4290,7 @@ async function openSmartPlaylist(kind) {
   // to. A user definition repurposes the same button to open the rule editor
   // instead (see btn-edit-playlist's handler below).
   document.getElementById('btn-edit-playlist').style.display = sp.isUser ? '' : 'none'
-  document.getElementById('btn-edit-playlist').textContent = sp.isUser ? 'Edit Rules' : 'Edit'
+  setGbtn(document.getElementById('btn-edit-playlist'), GB_EDIT, sp.isUser ? 'Edit Rules' : 'Edit')
   document.getElementById('btn-save-as-playlist').style.display = sp.isUser ? '' : 'none'
   renderOfflineButtons()   // no id: a smart playlist has nothing on the server to download
   document.getElementById('pl-detail-art').style.background = sp.gradient
@@ -5385,9 +5407,11 @@ async function openMovie(movieId) {
           <div class="vd-meta">${esc(meta)}</div>
           <div class="vd-overview">${esc(movie.Overview || '')}</div>
           <div class="vd-actions">
-            ${resume ? `<button class="shuffle-all-btn" id="movie-resume">Resume from ${fmtTime(resume / 10_000_000)}</button>` : ''}
-            <button class="shuffle-all-btn" id="movie-play">${resume ? 'Play from start' : 'Play'}</button>
-            <button class="shuffle-all-btn" id="movie-download" style="display:none"></button>
+            ${resume ? `<button class="gbtn primary" id="movie-resume">${gbtnFace(GB_PLAY, `Resume from ${fmtTime(resume / 10_000_000)}`)}</button>` : ''}
+            ${resume
+              ? `<button class="gbtn" id="movie-play" aria-label="Play from start">${gbtnFace(GB_RESTART, 'Play from start')}</button>`
+              : `<button class="gbtn primary" id="movie-play">${gbtnFace(GB_PLAY, 'Play')}</button>`}
+            <button class="gbtn" id="movie-download" style="display:none"></button>
             ${pictureSubs.length ? `<select class="vd-dl-note" id="movie-burnin" title="Picture subtitles can only be burned into a download, which the server converts">
               <option value="">No burned-in subtitles</option>
               ${pictureSubs.map(s => `<option value="${s.Index}">Burn in ${esc(s.DisplayTitle || s.Language || `track ${s.Index}`)}</option>`).join('')}
@@ -5457,17 +5481,23 @@ async function openSeries(seriesId) {
           <div class="vd-meta">${esc(meta)}</div>
           <div class="vd-overview">${esc(series.Overview || '')}</div>
           <div class="vd-actions">
-            ${contLabel ? `<button class="shuffle-all-btn" id="series-continue" title="${esc(contEp.Name || '')}">${esc(contLabel)}</button>` : ''}
-            <button class="shuffle-all-btn" id="series-download" style="display:none"></button>
+            ${contLabel ? `<button class="gbtn primary" id="series-continue" title="${esc(contEp.Name || '')}">${gbtnFace(GB_PLAY, esc(contLabel))}</button>` : ''}
+            <button class="gbtn" id="series-download" style="display:none"></button>
           </div>
           <label class="dl-follow" style="display:none"><span class="toggle"><input type="checkbox" id="series-follow"><span class="toggle-track"></span></span> Download new episodes as they arrive</label>
         </div>
       </div>
-      <div class="season-tabs" id="season-tabs">${
-        seasons.map((s, i) =>
-          `<button class="season-tab${i === startSeason ? ' active' : ''}">${esc(s.Name)}</button>`
-        ).join('')
-      }<button class="shuffle-all-btn" id="season-download" style="display:none"></button></div>
+      <div class="season-row">
+        <div class="season-slot">
+          <span class="season-ghost" aria-hidden="true"><span id="season-ghost">${esc(seasons[startSeason]?.Name || '')}${SEASON_CHEV}</span></span>
+          <div class="season-tabs" id="season-tabs">${
+            seasons.map((s, i) =>
+              `<button class="season-tab${i === startSeason ? ' active' : ''}">${esc(s.Name)}${SEASON_CHEV}</button>`
+            ).join('')
+          }</div>
+        </div>
+        <button class="gbtn" id="season-download" style="display:none"></button>
+      </div>
       <div id="episode-list"></div>`
 
     // Closes over `seasons` by index rather than reading an id back out of a
@@ -5476,6 +5506,7 @@ async function openSeries(seriesId) {
       tab.addEventListener('click', () => {
         document.querySelectorAll('#season-tabs .season-tab').forEach(t => t.classList.remove('active'))
         tab.classList.add('active')
+        document.getElementById('season-ghost').innerHTML = esc(seasons[i].Name) + SEASON_CHEV
         _currentSeason = seasons[i]
         loadEpisodes(seriesId, seasons[i].Id)
       })
@@ -8778,11 +8809,21 @@ function paintDownloadButton(btn, id, startTitle) {
   btn.style.display = shown ? '' : 'none'
   if (!shown) return
   const done = !!c && c.done === c.total
+  // Built once and then only updated: replacing it on every progress tick
+  // would cut short a label opening under the pointer.
+  if (!btn.querySelector('.gbtn-face')) {
+    btn.classList.add('dl')
+    btn.innerHTML = `<span class="gbtn-face"><span class="gbtn-ic">${DL_ICON}${CHECK_ICON}${X_ICON}</span><span class="gbtn-label"><span class="gbtn-act"></span><span class="gbtn-now"></span></span></span>`
+  }
   btn.classList.toggle('on', done)
-  btn.classList.toggle('dl-swap', !!c)
-  btn.title = !c ? startTitle : done ? 'Remove this download' : 'Stop and remove this download'
-  const now = `${DL_ICON} ${!c ? 'Download' : done ? 'Downloaded' : `Downloading ${c.done}/${c.total}`}`
-  btn.innerHTML = c ? `<span class="dl-now">${now}</span><span class="dl-hover">${X_ICON} ${done ? 'Remove' : 'Stop'}</span>` : now
+  btn.classList.toggle('dl-kept', !!c)
+  btn.classList.toggle('dl-busy', !!c && !done)
+  btn.style.setProperty('--dl-p', c?.total ? String(c.done / c.total) : '0')
+  const act = !c ? 'Download' : done ? 'Remove' : 'Stop'
+  btn.querySelector('.gbtn-act').textContent = act
+  btn.querySelector('.gbtn-now').textContent = !c ? 'Download' : done ? 'Downloaded' : `Downloading ${c.done}/${c.total}`
+  btn.setAttribute('aria-label', act)
+  btn.title = !c ? startTitle : done ? 'Downloaded. Click to remove it' : `Downloading ${c.done} of ${c.total}. Click to stop and remove it`
 }
 function paintVideoDownloadButton(btn, id) {
   paintDownloadButton(btn, id, 'Download to watch without a connection')
@@ -8815,6 +8856,7 @@ function renderVideoDownloadButtons() {
 
 const DL_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>'
 const X_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
+const CHECK_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
 
 /** The Download button on the open album and on the open playlist. */
 function renderOfflineButtons() {
@@ -12925,6 +12967,10 @@ const displayPrefs = {
   // Unsynced lyrics' size in Now Playing, apart from the synced size
   // (lyricScale), since a whole page of plain text reads better smaller.
   plainLyricScale: 0.55,
+  // How glass buttons show their labels (docs/glass-buttons-spec.md):
+  // 'overlay' floats the label over the neighbors, 'push' widens the button
+  // in the row, 'labeled' shows every label all the time.
+  buttonStyle: 'overlay',
 }
 // The shipped values, for the customization editor's "Reset this tab".
 const DISPLAY_PREF_DEFAULTS = Object.freeze({ ...displayPrefs })
@@ -12935,6 +12981,7 @@ const DISPLAY_PREF_CHOICES = {
   coverSliceHold: ['half', 'old', 'new', 'sweep'],
   coverSliceEasing: ['smooth', 'snappy', 'linear'],
   coverSliceSeam: ['white', 'accent', 'off'],
+  buttonStyle: ['overlay', 'push', 'labeled'],
 }
 // Sliders: [element id, key, shown as seconds or percent]
 const DISPLAY_PREF_SLIDERS = [
@@ -12972,6 +13019,8 @@ function _syncDisplayPrefControls() {
   }
   for (const [id, key] of DISPLAY_PREF_MENUS) { const el = document.getElementById(id); if (el) el.value = displayPrefs[key] }
   document.documentElement.style.setProperty('--np-plain-lyric-scale', String(displayPrefs.plainLyricScale))
+  document.documentElement.dataset.buttonStyle = displayPrefs.buttonStyle
+  for (const b of /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('[data-button-style-pick]'))) b.classList.toggle('active', b.dataset.buttonStylePick === displayPrefs.buttonStyle)
   // Only the rows that do something for the style picked.
   const on = displayPrefs.coverSlice, style = displayPrefs.coverSliceStyle
   const shown = {
@@ -13004,6 +13053,12 @@ for (const [id, key, unit] of DISPLAY_PREF_SLIDERS) {
 for (const [id, key] of DISPLAY_PREF_MENUS) {
   document.getElementById(id)?.addEventListener('change', e => setDisplayPref(key, e.target.value))
 }
+// The button style pickers: the theme picker's (which moves into the editor)
+// and the setup wizard's cards.
+document.addEventListener('click', e => {
+  const b = /** @type {HTMLElement} */ (e.target).closest?.('[data-button-style-pick]')
+  if (b) setDisplayPref('buttonStyle', /** @type {HTMLElement} */ (b).dataset.buttonStylePick)
+})
 
 // ── Cover slice on crossfade ─────────────────────────────────────────────────
 //
@@ -16851,7 +16906,7 @@ function _ceChanged() {
 function _ceDefaults(tab) {
   const pick = keys => Object.fromEntries(keys.map(k => [k, DISPLAY_PREF_DEFAULTS[k]]))
   const g = CascadeCore.PRESET_DEFAULT_GRADIENT
-  if (tab === 'appearance') return { mode: 'dark', gradStart: g.start, gradEnd: g.end, font: { preset: 'system', custom: '' } }
+  if (tab === 'appearance') return { mode: 'dark', gradStart: g.start, gradEnd: g.end, font: { preset: 'system', custom: '' }, display: pick(['buttonStyle']) }
   if (tab === 'nowplaying') return { albumArt: false, bgDim: CascadeCore.clampBgDim(undefined), bgBlend: CascadeCore.clampBgBlend(undefined), display: pick(['colorFade', 'colorFadeSeconds']) }
   if (tab === 'lyrics') return { lyricStyle: {}, lyricScale: CascadeCore.clampLyricScale(undefined), display: pick(['plainLyricScale']) }
   if (tab === 'crossfade') return { display: pick(CE_DISPLAY_KEYS.filter(k => k.startsWith('coverSli'))) }

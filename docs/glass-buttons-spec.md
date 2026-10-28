@@ -2,7 +2,7 @@
 
 Replaces the desktop's flat outlined pills (`.shuffle-all-btn`) with liquid glass buttons that sit as icon circles and expand sideways on hover to show their label. Desktop (Electron) first. The native Mac app follows later with SwiftUI's own glass; the iPhone keeps its touch styling.
 
-Written 2026-10-27 from an interview with Jon, with the values Jon tuned in the prototype: Push, 300ms, overshoot 1.35, blur 16px, fill 55%, rim 0.22, open delay 60ms, close delay 0. Line numbers and ids are as of `dev` at `82c567c`. The live prototype is [glass-buttons-prototype.html](glass-buttons-prototype.html): tune it there before any of this goes into the app.
+Written 2026-10-27 from an interview with Jon, with the values Jon tuned in the prototype: 300ms, overshoot 1.35, blur 16px, fill 55%, rim 0.22, open delay 60ms, close delay 0. Line numbers and ids are as of `dev` at `82c567c`. The live prototype is [glass-buttons-prototype.html](glass-buttons-prototype.html): tune it there before any of this goes into the app.
 
 ## Decisions
 
@@ -10,9 +10,9 @@ Written 2026-10-27 from an interview with Jon, with the values Jon tuned in the 
 |---|---|
 | Shape | Every button in scope is a glass circle showing its icon. Hover or keyboard focus expands it sideways into a pill with the icon and its label. |
 | Play | Always a labeled pill, accent-tinted glass. It never collapses and never moves: no hover resize, no press shrink, only the hover sheen. |
-| Button style | A preference with three choices, picked in the setup wizard and changeable in the customization editor's Appearance tab. Push is the default. |
-| Overlay | Nothing moves. The open label floats over the buttons beside it, and only the collapsed circle catches the pointer, so moving on to the next circle switches straight to it. |
-| Push (default) | The open button widens in the row and its neighbors slide aside. |
+| Button style | A preference with three choices, picked in the setup wizard and changeable in the customization editor's Appearance tab. Overlay is the default. |
+| Overlay (default) | Nothing moves. The open label floats over the buttons beside it, and only the collapsed circle catches the pointer, so moving on to the next circle switches straight to it. |
+| Push | The open button widens in the row and its neighbors slide aside. |
 | Always labeled | Every button shows its icon and label all the time and never changes size. |
 | Glass | Frosted: translucent fill, backdrop blur with saturation, a bright top-edge rim, a darker bottom edge, soft drop shadow. On a flat page background it reads as a lit translucent pill; the blur shows over artwork. |
 | Motion | Soft spring, about 300ms with a slight overshoot. The label fades in just after the width starts moving and fades out first on the way back. |
@@ -25,7 +25,7 @@ Written 2026-10-27 from an interview with Jon, with the values Jon tuned in the 
 
 ## Scope
 
-Every `.shuffle-all-btn` (44 uses in `desktop/index.html` and `desktop/renderer.js`) plus the season tabs.
+The `.shuffle-all-btn` buttons in the groups below plus the season tabs. The ones out of scope (download manager, dialogs, Show more) keep `.shuffle-all-btn` and its plain look.
 
 | Group | Buttons | Where |
 |---|---|---|
@@ -39,16 +39,16 @@ Out of scope: the download manager's cards, Settings, modals, the Now Playing ov
 ## Anatomy
 
 ```html
-<button class="shuffle-all-btn" aria-label="Shuffle">
-  <span class="btn-face">
+<button class="gbtn" aria-label="Shuffle">
+  <span class="gbtn-face">
     <svg .../>
-    <span class="btn-label">Shuffle</span>
+    <span class="gbtn-label">Shuffle</span>
   </span>
 </button>
 ```
 
-- The `<button>` is only the collapsed circle: a fixed square in the row, and the only thing the pointer can hit. `.btn-face` draws the glass, sits absolutely inside it, and grows past it on hover with `pointer-events: none`.
-- The class name stays `.shuffle-all-btn` so the 44 call sites and their JS don't churn. Each button's content moves into `.btn-face`; buttons with no icon today get one.
+- The `<button>` is only the collapsed circle: a fixed square in the row, and the only thing the pointer can hit. `.gbtn-face` draws the glass, sits absolutely inside it, and grows past it on hover with `pointer-events: none`.
+- Glass buttons have their own class, `.gbtn` (`.gbtn-sm` for toolbars and utility), since the out-of-scope buttons still use `.shuffle-all-btn`. Nothing in the JS selects by either class. A right-aligned row carries `.gbtn-row-end`.
 - The label stays in the DOM while collapsed (clipped, not `display: none`), so the button keeps its accessible name. `aria-label` is set only where the visible label differs from the full name (Sort's "Sort: Date added").
 - `.primary` marks Play: never collapses, so its face is in normal flow and the button takes its full width. Every hover and press rule that changes a label's size or the face's scale excludes `.primary` (`:not(.primary)`). The prototype's first cut didn't, and the hover label rule out-ranked Play's own and nudged it a couple of pixels; in a right-aligned row it flipped the padding to the other side.
 
@@ -80,43 +80,43 @@ Hover brightens the fill a step and the rim to about 0.32. Pressed scales to 0.9
 
 ### Expansion
 
-This section describes Overlay. Push, the default, and Always labeled are under [Button style](#button-style); the spring, delays and glass values are shared.
+This section describes Overlay, the default. Push and Always labeled are under [Button style](#button-style); the spring, delays and glass values are shared.
 
 - Overlay, not reflow: the row never changes size. The hovered button gets `z-index: 3` so its face floats over its neighbors; their circles show blurred through the glass.
 - Hit area: only the collapsed circle. The open label is `pointer-events: none`, so a point over it belongs to whatever circle sits underneath. Sweeping across a row opens one button at a time, each under the pointer, and clicking where a label covers a neighbor clicks the neighbor.
 - The label's width animates from 0 to `max-content` with `interpolate-size: allow-keywords` (Electron 44 has it), so no measuring in JS.
 - Spring: `cubic-bezier(0.34, 1.35, 0.64, 1)` over 300ms, tuned in the prototype. The label's opacity runs 180ms, starting 60ms after the width.
-- Hover intent (Overlay): opening waits about 40ms, closing doesn't wait. With overlay there is nothing to shove around, and a closing label lingering over the next circle would only get in the way.
+- Hover intent: opening waits 60ms, closing doesn't wait. With overlay there is nothing to shove around, and a closing label lingering over the next circle would only get in the way.
 - Rows aligned to the right (playlist header, `margin-left:auto`) open leftward with the icon on the right, so the icon stays under the pointer and the label never runs off the row's edge.
 - Rows aligned to the left open rightward. The last button in a row opens into the empty space after it.
 - `:focus-visible` opens exactly like hover.
 
 ## Button style
 
-A preference, `buttonStyle`, one of `push` (default), `overlay` or `labeled`, stored like the theme and applied as `data-button-style` on `<html>` next to `data-theme`. One setter, `setButtonStyle`, which the wizard and the editor both call, per the wizard's rule that nothing persists a setting on its own (`renderer.js:2165-2168`).
+A preference, `buttonStyle`, one of `overlay` (default), `push` or `labeled`, kept in `displayPrefs` with its allowed values in `DISPLAY_PREF_CHOICES`, so it loads, saves and resets like the editor's other settings. `_syncDisplayPrefControls` writes it to `data-button-style` on `<html>`. The styles live in `@scope` blocks that stop at any nearer `[data-button-style]`, which is how each wizard card previews its own style whatever the app is set to.
 
 | | Overlay | Push | Always labeled |
 |---|---|---|---|
 | Collapsed | icon circle | icon circle | icon + label pill |
 | Hover | label floats over neighbors | button widens, neighbors slide aside | sheen only |
 | Hit area | the circle | the whole button, open or not | the whole button |
-| Hover delays (open / close) | 40ms / 0 | 60ms / 0 | none |
+| Hover delays (open / close) | 60ms / 0 | 60ms / 0 | none |
 | Download | ring, then check; hover X + Stop or Remove | same | text status ("Downloading 3/10", "Downloaded"), hover X + Stop or Remove in the same width; no ring |
 | Seasons | current season pill, opens over its neighbor | current season pill, opens and pushes | every season always showing |
 | Play | labeled pill, never moves | same | same |
 
-Push puts `.btn-face` in normal flow (`position: relative`) with the button sized to it, and keeps the overlay's spring. Always labeled is push with every label open and no transitions.
+Push puts `.gbtn-face` in normal flow (`position: relative`) with the button sized to it, and keeps the overlay's spring. With nothing floating, right-aligned rows read icon first in Push and Always labeled, like every other row. Always labeled is push with every label open and no transitions.
 
 ### Setup wizard
 
-A new step, `buttons`, right after `theme` in `FIRSTRUN_STEPS` (`renderer.js:2183`), under the heading "How should buttons show their labels?". Three cards side by side, one per style, each holding a live row of real buttons (Play, Shuffle, Download, Edit) you can hover to feel the difference, with a one-line description under it. Picking a card calls `setButtonStyle`.
+A new step, `buttons`, right after `theme` in `FIRSTRUN_STEPS` (`renderer.js:2183`), under the heading "How should buttons show their labels?". Three cards stacked, one per style, each holding a live row of small sample buttons (Play, Shuffle, Download) you can hover to feel the difference, with a one-line description under it. Picking a card calls `setButtonStyle`.
 
 - Seeds from the current value, never a default, like every other step (`renderer.js:2156-2159`), so someone clicking through on an update changes nothing.
 - Revision: bump `WIZARD_REVISION` to 5 with `buttons: 5` in `FIRSTRUN_STEP_REVISION` (`renderer.js:2187`), so existing users see this one step once after the update that ships it. Telemetry's placeholder revision moves from 5 to 6, and the revision history comment gains a line for 5.
 
 ### Customization editor
 
-A new "Buttons" section in the Appearance tab (`index.html:1884`), between Mode and Colors: a seg-control with Overlay, Push and Always labeled, applied live like everything else in the editor. "Reset this tab" puts it back to Push.
+A "Buttons" seg-control (Overlay, Push, Labeled) in the paintbrush theme picker under Mode, which moves into a new "Buttons" section of the editor's Appearance tab like the other shared controls (`data-home` / `data-slot`). "Reset this tab" puts it back to Overlay.
 
 ## Special buttons
 
@@ -169,7 +169,7 @@ Same structure: fill `rgba(255,255,255,0.55)`, rim `rgba(255,255,255,0.9)`, bott
 ## Build order
 
 1. Glass and expansion CSS in `styles/components.css`, replacing `components.css:103-115`, with the light theme in `styles/theme.css`.
-2. Wrap every button's content in `.btn-face` and its text in `.btn-label`, and add the missing icons (`index.html`, `renderer.js` templates).
+2. Wrap every button's content in `.gbtn-face` and its text in `.gbtn-label`, and add the missing icons (`index.html`, `renderer.js` templates).
 3. Download ring in `paintDownloadButton`.
 4. Sort and Filter dot.
 5. Season control in the show page template and `layout.css:181-184`.

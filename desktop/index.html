@@ -116,6 +116,16 @@
           </div>
         </div>
       </div>
+      <div>
+        <div class="tp-label">Buttons</div>
+        <div data-home="buttons">
+          <div class="seg-control" data-share="buttons">
+            <button class="seg-btn" data-button-style-pick="overlay">Overlay</button>
+            <button class="seg-btn" data-button-style-pick="push">Push</button>
+            <button class="seg-btn" data-button-style-pick="labeled">Labeled</button>
+          </div>
+        </div>
+      </div>
       <span class="tp-hint" id="tp-server-style-note" hidden></span>
       <div>
         <div class="tp-label">Colors</div>
@@ -327,9 +337,9 @@
 
       <!-- Offline Mode turned on by itself (body.offline-auto): the server
            stopped answering. It turns off by itself when the server answers. -->
-      <div class="offline-banner" id="offline-banner" role="status">
+      <div class="offline-banner gbtn-row-end" id="offline-banner" role="status">
         <span>Your server isn't answering. Showing what's downloaded.</span>
-        <button class="shuffle-all-btn" id="offline-retry" type="button">Try again</button>
+        <button class="gbtn gbtn-sm" id="offline-retry" type="button" aria-label="Try again"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg><span class="gbtn-label">Try again</span></span></button>
       </div>
 
       <!-- Home -->
@@ -389,19 +399,10 @@
         <div id="albums-index">
           <div class="sect-header" style="margin-bottom:14px">
             <span class="sect-title">All albums</span>
-            <div style="display:flex;gap:8px;align-items:center">
-              <button class="shuffle-all-btn lib-sort-btn" data-lib-view="albums">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/></svg>
-                <span class="lib-sort-label">Name</span>
-              </button>
-              <button class="shuffle-all-btn lib-filter-btn" data-lib-view="albums">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-                Filter
-              </button>
-              <button class="shuffle-all-btn" id="btn-shuffle-albums">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
-                Shuffle All
-              </button>
+            <div class="gbtn-row-end" style="display:flex;gap:8px;align-items:center">
+              <button class="gbtn gbtn-sm lib-sort-btn" data-lib-view="albums" aria-label="Sort: Name"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/></svg><span class="gbtn-label">Sort: <span class="lib-sort-label">Name</span></span><span class="gbtn-dot"></span></span></button>
+              <button class="gbtn gbtn-sm lib-filter-btn" data-lib-view="albums" aria-label="Filter"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg><span class="gbtn-label">Filter</span><span class="gbtn-dot"></span></span></button>
+              <button class="gbtn gbtn-sm" id="btn-shuffle-albums" aria-label="Shuffle All"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg><span class="gbtn-label">Shuffle All</span></span></button>
             </div>
           </div>
           <div class="album-grid" id="albums-grid">
@@ -427,15 +428,9 @@
               <div class="pl-detail-name" id="album-detail-name"></div>
               <div class="pl-detail-meta" id="album-detail-meta"></div>
               <div class="album-detail-actions">
-                <button class="shuffle-all-btn primary" id="btn-play-album">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                  Play
-                </button>
-                <button class="shuffle-all-btn" id="btn-shuffle-album" type="button">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
-                  Shuffle
-                </button>
-                <button class="shuffle-all-btn" id="btn-offline-album" type="button"></button>
+                <button class="gbtn primary" id="btn-play-album"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 4 20 12 6 20 6 4"/></svg><span class="gbtn-label">Play</span></span></button>
+                <button class="gbtn" id="btn-shuffle-album" type="button" aria-label="Shuffle"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg><span class="gbtn-label">Shuffle</span></span></button>
+                <button class="gbtn" id="btn-offline-album" type="button"></button>
               </div>
             </div>
           </div>
@@ -468,15 +463,9 @@
         <div id="movies-index">
           <div class="sect-header" style="margin-bottom:14px">
             <span class="sect-title">Movies</span>
-            <div style="display:flex;gap:8px;align-items:center">
-              <button class="shuffle-all-btn lib-sort-btn" data-lib-view="movies">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/></svg>
-                <span class="lib-sort-label">Name</span>
-              </button>
-              <button class="shuffle-all-btn lib-filter-btn" data-lib-view="movies">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-                Filter
-              </button>
+            <div class="gbtn-row-end" style="display:flex;gap:8px;align-items:center">
+              <button class="gbtn gbtn-sm lib-sort-btn" data-lib-view="movies" aria-label="Sort: Name"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/></svg><span class="gbtn-label">Sort: <span class="lib-sort-label">Name</span></span><span class="gbtn-dot"></span></span></button>
+              <button class="gbtn gbtn-sm lib-filter-btn" data-lib-view="movies" aria-label="Filter"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg><span class="gbtn-label">Filter</span><span class="gbtn-dot"></span></span></button>
             </div>
           </div>
           <div class="poster-grid" id="movies-grid"></div>
@@ -495,15 +484,9 @@
         <div id="shows-index">
           <div class="sect-header" style="margin-bottom:14px">
             <span class="sect-title">TV Shows</span>
-            <div style="display:flex;gap:8px;align-items:center">
-              <button class="shuffle-all-btn lib-sort-btn" data-lib-view="shows">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/></svg>
-                <span class="lib-sort-label">Name</span>
-              </button>
-              <button class="shuffle-all-btn lib-filter-btn" data-lib-view="shows">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-                Filter
-              </button>
+            <div class="gbtn-row-end" style="display:flex;gap:8px;align-items:center">
+              <button class="gbtn gbtn-sm lib-sort-btn" data-lib-view="shows" aria-label="Sort: Name"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/></svg><span class="gbtn-label">Sort: <span class="lib-sort-label">Name</span></span><span class="gbtn-dot"></span></span></button>
+              <button class="gbtn gbtn-sm lib-filter-btn" data-lib-view="shows" aria-label="Filter"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg><span class="gbtn-label">Filter</span><span class="gbtn-dot"></span></span></button>
             </div>
           </div>
           <div class="poster-grid" id="shows-grid"></div>
@@ -523,19 +506,10 @@
         <div id="artist-index">
           <div class="sect-header" style="margin-bottom:14px">
             <span class="sect-title">All artists</span>
-            <div style="display:flex;gap:8px;align-items:center">
-              <button class="shuffle-all-btn lib-sort-btn" data-lib-view="artists">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/></svg>
-                <span class="lib-sort-label">Name</span>
-              </button>
-              <button class="shuffle-all-btn lib-filter-btn" data-lib-view="artists">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-                Filter
-              </button>
-              <button class="shuffle-all-btn" id="btn-shuffle-artists">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
-                Shuffle All
-              </button>
+            <div class="gbtn-row-end" style="display:flex;gap:8px;align-items:center">
+              <button class="gbtn gbtn-sm lib-sort-btn" data-lib-view="artists" aria-label="Sort: Name"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/></svg><span class="gbtn-label">Sort: <span class="lib-sort-label">Name</span></span><span class="gbtn-dot"></span></span></button>
+              <button class="gbtn gbtn-sm lib-filter-btn" data-lib-view="artists" aria-label="Filter"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg><span class="gbtn-label">Filter</span><span class="gbtn-dot"></span></span></button>
+              <button class="gbtn gbtn-sm" id="btn-shuffle-artists" aria-label="Shuffle All"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg><span class="gbtn-label">Shuffle All</span></span></button>
             </div>
           </div>
           <div class="artist-grid" id="artists-grid">
@@ -581,10 +555,7 @@
           <div id="artist-albums-section" style="margin-bottom:20px">
             <div class="sect-header" style="margin-bottom:9px">
               <span class="sect-title">Albums</span>
-              <button class="shuffle-all-btn" id="btn-play-artist-discography">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                Play All
-              </button>
+              <button class="gbtn primary" id="btn-play-artist-discography"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 4 20 12 6 20 6 4"/></svg><span class="gbtn-label">Play All</span></span></button>
             </div>
             <div class="album-grid" id="artist-albums-grid"></div>
           </div>
@@ -606,15 +577,9 @@
       <div class="view" id="view-songs">
         <div class="sect-header" style="margin-bottom:14px">
           <span class="sect-title">All songs</span>
-          <div style="display:flex;gap:8px;align-items:center">
-            <button class="shuffle-all-btn" id="btn-sort-songs">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/></svg>
-              <span id="songs-sort-label">Title</span>
-            </button>
-            <button class="shuffle-all-btn" id="btn-shuffle-songs">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
-              Shuffle All
-            </button>
+          <div class="gbtn-row-end" style="display:flex;gap:8px;align-items:center">
+            <button class="gbtn gbtn-sm" id="btn-sort-songs" aria-label="Sort: Title"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/></svg><span class="gbtn-label">Sort: <span id="songs-sort-label">Title</span></span><span class="gbtn-dot"></span></span></button>
+            <button class="gbtn gbtn-sm" id="btn-shuffle-songs" aria-label="Shuffle All"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg><span class="gbtn-label">Shuffle All</span></span></button>
           </div>
         </div>
         <div class="track-list" id="songs-list">
@@ -640,21 +605,12 @@
         <div id="playlist-index">
           <div class="sect-header" style="margin-bottom:14px">
             <span class="sect-title">Playlists</span>
-            <div style="display:flex;gap:8px;align-items:center">
+            <div class="gbtn-row-end" style="display:flex;gap:8px;align-items:center">
               <!-- One entry point for both kinds: the modal it opens has a
                    Normal / Smart switch (see openNewPlaylistModal). -->
-              <button class="shuffle-all-btn needs-server local-ok" id="btn-new-playlist">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                New Playlist
-              </button>
-              <button class="shuffle-all-btn lib-sort-btn" data-lib-view="playlists">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/></svg>
-                <span class="lib-sort-label">Name</span>
-              </button>
-              <button class="shuffle-all-btn lib-filter-btn" data-lib-view="playlists">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-                Filter
-              </button>
+              <button class="gbtn gbtn-sm needs-server local-ok" id="btn-new-playlist" aria-label="New playlist"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg><span class="gbtn-label">New playlist</span></span></button>
+              <button class="gbtn gbtn-sm lib-sort-btn" data-lib-view="playlists" aria-label="Sort: Name"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 9l4-4 4 4"/><path d="M16 15l-4 4-4-4"/></svg><span class="gbtn-label">Sort: <span class="lib-sort-label">Name</span></span><span class="gbtn-dot"></span></span></button>
+              <button class="gbtn gbtn-sm lib-filter-btn" data-lib-view="playlists" aria-label="Filter"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg><span class="gbtn-label">Filter</span><span class="gbtn-dot"></span></span></button>
             </div>
           </div>
           <div class="playlist-grid" id="playlists-grid">
@@ -690,22 +646,16 @@
               <div class="pl-detail-overview" id="pl-detail-overview" hidden></div>
               <textarea class="pl-detail-overview-input" id="pl-detail-overview-input" rows="2" maxlength="2000" placeholder="Add a description" aria-label="Description" hidden></textarea>
             </div>
-            <button id="pl-detail-refresh" title="Refresh this playlist" style="background:none;border:none;color:var(--text3);cursor:pointer;padding:2px 4px;font-size:14px;line-height:1;border-radius:4px;transition:color 0.15s;" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--text3)'">↻</button>
-            <div style="margin-left:auto;display:flex;gap:8px">
+            <div class="gbtn-row-end" style="margin-left:auto;display:flex;gap:8px">
+              <button class="gbtn" id="pl-detail-refresh" title="Refresh this playlist" aria-label="Refresh"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg><span class="gbtn-label">Refresh</span></span></button>
               <!-- User smart playlists only: snapshots the current track list
                    into a real Jellyfin playlist, since a smart playlist itself
                    has nothing on the server to point at. -->
-              <button class="shuffle-all-btn" id="btn-save-as-playlist" style="display:none">Save as a Playlist</button>
-              <button class="shuffle-all-btn" id="btn-offline-playlist" type="button"></button>
-              <button class="shuffle-all-btn needs-server local-ok" id="btn-edit-playlist">Edit</button>
-              <button class="shuffle-all-btn" id="btn-shuffle-playlist">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
-                Shuffle
-              </button>
-              <button class="shuffle-all-btn" id="btn-play-playlist">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                Play
-              </button>
+              <button class="gbtn" id="btn-save-as-playlist" style="display:none" aria-label="Save as a Playlist"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" y1="6" x2="15" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="11" y2="18"/><line x1="18" y1="14" x2="18" y2="22"/><line x1="14" y1="18" x2="22" y2="18"/></svg><span class="gbtn-label">Save as a Playlist</span></span></button>
+              <button class="gbtn" id="btn-offline-playlist" type="button"></button>
+              <button class="gbtn needs-server local-ok" id="btn-edit-playlist" aria-label="Edit"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span class="gbtn-label">Edit</span></span></button>
+              <button class="gbtn" id="btn-shuffle-playlist" aria-label="Shuffle"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg><span class="gbtn-label">Shuffle</span></span></button>
+              <button class="gbtn primary" id="btn-play-playlist"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 4 20 12 6 20 6 4"/></svg><span class="gbtn-label">Play</span></span></button>
             </div>
           </div>
           <!-- Edit mode toolbar: bulk move/remove act on the checkbox selection,
@@ -716,9 +666,9 @@
               <label class="toggle"><input type="checkbox" id="pl-edit-public" aria-label="Public playlist"><span class="toggle-track"></span></label>
             </div>
             <span class="pl-edit-count" id="pl-edit-count">0 selected</span>
-            <button class="shuffle-all-btn" id="pl-edit-top" disabled>Move to top</button>
-            <button class="shuffle-all-btn" id="pl-edit-bottom" disabled>Move to bottom</button>
-            <button class="shuffle-all-btn" id="pl-edit-remove" disabled>Remove</button>
+            <button class="gbtn gbtn-sm" id="pl-edit-top" disabled aria-label="Move to top"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="5" y1="3" x2="19" y2="3"/><polyline points="7 13 12 8 17 13"/><line x1="12" y1="8" x2="12" y2="21"/></svg><span class="gbtn-label">Move to top</span></span></button>
+            <button class="gbtn gbtn-sm" id="pl-edit-bottom" disabled aria-label="Move to bottom"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="5" y1="21" x2="19" y2="21"/><polyline points="7 11 12 16 17 11"/><line x1="12" y1="16" x2="12" y2="3"/></svg><span class="gbtn-label">Move to bottom</span></span></button>
+            <button class="gbtn gbtn-sm" id="pl-edit-remove" disabled aria-label="Remove"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg><span class="gbtn-label">Remove</span></span></button>
           </div>
           <div class="track-list">
             <div class="tl-head">
@@ -758,15 +708,9 @@
               <div class="pl-detail-name" id="genre-detail-name"></div>
               <div class="pl-detail-meta" id="genre-detail-meta"></div>
             </div>
-            <div style="margin-left:auto;display:flex;gap:8px">
-              <button class="shuffle-all-btn" id="btn-shuffle-genre">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
-                Shuffle
-              </button>
-              <button class="shuffle-all-btn" id="btn-play-genre">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                Play
-              </button>
+            <div class="gbtn-row-end" style="margin-left:auto;display:flex;gap:8px">
+              <button class="gbtn" id="btn-shuffle-genre" aria-label="Shuffle"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg><span class="gbtn-label">Shuffle</span></span></button>
+              <button class="gbtn primary" id="btn-play-genre"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 4 20 12 6 20 6 4"/></svg><span class="gbtn-label">Play</span></span></button>
             </div>
           </div>
           <div id="genre-albums-section" style="margin-bottom:20px">
@@ -1689,6 +1633,30 @@
       </div>
     </div>
 
+    <!-- Glass buttons' style (docs/glass-buttons-spec.md). Each card is a live
+         sample in its own style (data-button-style, see the @scope blocks in
+         styles/components.css); picking one sets displayPrefs.buttonStyle. -->
+    <div id="fr-step-buttons" style="display:none">
+      <p class="setup-subtitle">How should buttons show their names? Hover the samples to try each.</p>
+      <div class="fr-bs-cards">
+        <button type="button" class="fr-bs-card" data-button-style-pick="overlay" data-button-style="overlay">
+          <span class="fr-bs-row" aria-hidden="true"><span class="gbtn gbtn-sm primary"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 4 20 12 6 20 6 4"/></svg><span class="gbtn-label">Play</span></span></span><span class="gbtn gbtn-sm"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg><span class="gbtn-label">Shuffle</span></span></span><span class="gbtn gbtn-sm"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span class="gbtn-label">Download</span></span></span></span>
+          <span class="fr-bs-name">Overlay</span>
+          <span class="fr-bs-desc">Icons, and the name floats over the buttons beside it.</span>
+        </button>
+        <button type="button" class="fr-bs-card" data-button-style-pick="push" data-button-style="push">
+          <span class="fr-bs-row" aria-hidden="true"><span class="gbtn gbtn-sm primary"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 4 20 12 6 20 6 4"/></svg><span class="gbtn-label">Play</span></span></span><span class="gbtn gbtn-sm"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg><span class="gbtn-label">Shuffle</span></span></span><span class="gbtn gbtn-sm"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span class="gbtn-label">Download</span></span></span></span>
+          <span class="fr-bs-name">Push</span>
+          <span class="fr-bs-desc">Icons, and the button widens, sliding the others aside.</span>
+        </button>
+        <button type="button" class="fr-bs-card" data-button-style-pick="labeled" data-button-style="labeled">
+          <span class="fr-bs-row" aria-hidden="true"><span class="gbtn gbtn-sm primary"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 4 20 12 6 20 6 4"/></svg><span class="gbtn-label">Play</span></span></span><span class="gbtn gbtn-sm"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg><span class="gbtn-label">Shuffle</span></span></span><span class="gbtn gbtn-sm"><span class="gbtn-face"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span class="gbtn-label">Download</span></span></span></span>
+          <span class="fr-bs-name">Always labeled</span>
+          <span class="fr-bs-desc">Every button shows its name all the time.</span>
+        </button>
+      </div>
+    </div>
+
     <div id="fr-step-translation" style="display:none">
       <p class="setup-subtitle">Cascade can translate Japanese, Korean, Chinese and Spanish lyrics into English, entirely on this computer.</p>
       <div class="tp-album-row">
@@ -1885,6 +1853,10 @@
             <section class="ce-sect">
               <h3 class="ce-sect-title">Mode</h3>
               <div data-slot="mode"></div>
+            </section>
+            <section class="ce-sect">
+              <h3 class="ce-sect-title">Buttons</h3>
+              <div data-slot="buttons"></div>
             </section>
             <section class="ce-sect" data-lock="theme">
               <h3 class="ce-sect-title">Colors</h3>

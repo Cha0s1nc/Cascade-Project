@@ -15,10 +15,12 @@ public enum SetupWizard {
     /// 2: re-shown to everyone upgrading, for video libraries, crossfade, the
     ///    streaming cap and album art accent.
     /// 3: lyric translation, whose switch is disclosed here before it can run.
-    /// 5 (not yet): opt-in telemetry. Its step stays filtered out while
-    ///    `Telemetry.available` is false; bump to 5 when switching it on.
-    ///    5, not 4: ElectronSettingsImport carries the desktop's revision
-    ///    across, and the desktop is already at 4, so the two count as one.
+    /// 6 (not yet): opt-in telemetry. Its step stays filtered out while
+    ///    `Telemetry.available` is false; bump to 6 when switching it on.
+    ///    6, not 4: ElectronSettingsImport carries the desktop's revision
+    ///    across, and the desktop is already at 5 (its 4 is Smooth skips, its
+    ///    5 the glass buttons' style, neither on the Mac yet), so the two
+    ///    count as one.
     public static let revision = 3
 
     public enum Step: String, CaseIterable, Sendable {
@@ -30,7 +32,7 @@ public enum SetupWizard {
             case .libraries: 1
             case .crossfade, .quality, .theme: 2
             case .translation: 3
-            case .telemetry: 5
+            case .telemetry: 6
             }
         }
     }

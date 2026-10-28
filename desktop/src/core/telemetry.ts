@@ -7,7 +7,7 @@
 //   1. Deploy telemetry/ (see telemetry/NOTES.md) and create its D1 database.
 //   2. Set TELEMETRY_URL here and Telemetry.url in apple/CascadeKit's Telemetry.swift.
 //   3. Bump WIZARD_REVISION in renderer.js and SetupWizard.revision in Swift
-//      to 5, the revision `telemetry` already has on both sides, so existing
+//      to 6, the revision `telemetry` already has on both sides, so existing
 //      installs are asked once. The two share one numbering: the native Mac
 //      app imports the desktop's wizardSeenRevision.
 // ElectronSettingsImport already carries telemetryOptIn and telemetryInstallId

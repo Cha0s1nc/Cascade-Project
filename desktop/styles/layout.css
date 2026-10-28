@@ -178,10 +178,6 @@ body.mode-music #home-resume-section, body.mode-music #home-continue-section { d
 .vd-overview { font-size: 13px; line-height: 1.6; color: var(--text2); max-width: 62ch; margin-bottom: 18px; }
 .vd-actions { display: flex; gap: 9px; flex-wrap: wrap; }
 
-.season-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
-.season-tab { background: var(--surface); border: 1px solid var(--border); color: var(--text3); border-radius: 999px; padding: 5px 13px; font-size: 12px; cursor: pointer; transition: all 0.12s; }
-.season-tab:hover { color: var(--text); }
-.season-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 .ep-row { display: grid; grid-template-columns: 132px 1fr auto; gap: 14px; align-items: start; padding: 10px; border-radius: 8px; cursor: pointer; transition: background var(--hover-out) ease-out; }
 .ep-row:hover { background: var(--surface2); transition-duration: var(--hover-in); }

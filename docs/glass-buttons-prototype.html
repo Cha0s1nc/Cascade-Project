@@ -211,8 +211,8 @@ html[data-theme="dark"] .gb.dl-done { color: #a08cff; }
     <label class="knob"><span>Close delay <b id="v-close-delay"></b></span><input type="range" data-var="--close-delay" data-unit="ms" min="0" max="400" step="10" value="0"></label>
     <div class="switches">
       <span class="modes" role="radiogroup" aria-label="Button style">
-        <label><input type="radio" name="mode" value="overlay"> Overlay</label>
-        <label><input type="radio" name="mode" value="push" checked> Push</label>
+        <label><input type="radio" name="mode" value="overlay" checked> Overlay</label>
+        <label><input type="radio" name="mode" value="push"> Push</label>
         <label><input type="radio" name="mode" value="labeled"> Always labeled</label>
       </span>
       <label><input type="checkbox" id="light"> Light theme</label>
@@ -225,7 +225,7 @@ html[data-theme="dark"] .gb.dl-done { color: #a08cff; }
     <textarea id="out" rows="3" readonly></textarea>
   </section>
 
-  <section class="stage art mode-push" id="stage">
+  <section class="stage art" id="stage">
     <div class="group">
       <div class="cap">Playlist header (right-aligned, opens leftward)</div>
       <div class="row end" id="row-playlist"></div>
@@ -348,9 +348,9 @@ ranges.forEach(r => { r.addEventListener('input', () => apply(r)); apply(r) })
 const toggle = (id, fn) => { const el = document.getElementById(id); el.addEventListener('change', () => fn(el.checked)); fn(el.checked) }
 // Each mode brings its own hover delays: overlay has nothing to shove, so it
 // closes at once, and so does push, as tuned.
-const MODE_DELAYS = { overlay: [40, 0], push: [60, 0], labeled: [0, 0] }
+const MODE_DELAYS = { overlay: [60, 0], push: [60, 0], labeled: [0, 0] }
 const stage = document.getElementById('stage')
-let mode = 'push'
+let mode = 'overlay'
 document.querySelectorAll('input[name=mode]').forEach(r => r.addEventListener('change', () => {
   mode = r.value
   stage.classList.remove('mode-push', 'mode-labeled')

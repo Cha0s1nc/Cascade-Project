@@ -111,7 +111,6 @@
 #album-detail-name { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 6px; }
 #album-detail .pl-detail-meta { font-size: 13px; }
 .album-detail-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
-.album-detail-actions .shuffle-all-btn { padding: 7px 14px; font-size: 12px; }
 #album-detail .tl-head, #album-detail .track-row { grid-template-columns: 36px 1fr 52px; }
 #album-detail .track-row:not(.skel-card) .track-num,
 #album-detail .track-row:not(.skel-card) .track-thumb { grid-area: 1 / 1; }
@@ -224,7 +223,6 @@ body:not(.local-mode) .local-only { display: none !important; }
 .dl-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .dl-tracks { margin: -4px 0 12px; }
 .dl-tracks .track-list { margin-top: 0; }
-.shuffle-all-btn.on { color: var(--accent); border-color: var(--accent); }
 /* Video downloads: the manager's settings, a series' follow switch, and the
    episode list under a downloaded season or show. */
 .dl-settings { display: flex; flex-wrap: wrap; gap: 8px 22px; align-items: center; font-size: 12px; color: var(--text2); margin: -4px 0 18px; }

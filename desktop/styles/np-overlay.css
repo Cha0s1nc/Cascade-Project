@@ -262,7 +262,6 @@ html[data-platform="linux"] #ov-video-close { right: calc(var(--caption-reserve,
 .lib-filter-panel { display: flex; flex-direction: column; gap: 8px; padding: 6px 8px; min-width: 220px; }
 .lib-filter-label { font-size: 11px; color: var(--text3); margin-top: 2px; }
 .lib-filter-panel select.setting-input { width: 100%; }
-.lib-filter-btn.active { color: var(--text); border-color: var(--accent); background: var(--accent-glow); }
 .np-overlay-btns { display: flex; align-items: center; gap: 20px; }
 /* Two rows share .np-overlay-btns' base but need their own gap - was inline
    style= on each, moved here so index.html markup carries no layout of its
