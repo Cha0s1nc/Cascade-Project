@@ -1,7 +1,7 @@
-// Announcements from the Cascade project to everyone who runs it: a static
-// file, shared/announcements.json, uploaded to R2 by
-// .github/workflows/announcements.yml and fetched by main.js
-// ('announcements-fetch'). The bell in the title bar shows while any are not
+// Announcements from the Cascade project to everyone who runs it: a feed at
+// announcements.cascade.chaosinc.xyz that maintainers post to from the panel
+// at cascade.chaosinc.xyz/admin/announcements (site/, which checks every save
+// with validateFeed), fetched by main.js ('announcements-fetch'). The bell in the title bar shows while any are not
 // dismissed, with a dot while any are new since the inbox was last opened.
 //
 // Every shipped client reads this file forever, so the shape only grows:

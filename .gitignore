@@ -30,3 +30,5 @@ signaling/.dev.vars
 models/
 telemetry/.wrangler/
 telemetry/.dev.vars
+site/.wrangler/
+site/.dev.vars

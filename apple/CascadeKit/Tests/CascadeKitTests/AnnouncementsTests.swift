@@ -70,17 +70,4 @@ struct AnnouncementsTests {
         for i in 0..<60 { stored = Announcements.addMessage(stored, msg, serverName: "Chaos", now: Self.now + Double(i * 2)) }
         #expect(stored.count == 50)
     }
-
-    // What the workflow uploads reaches every install.
-    @Test func everyEntryInTheSharedFileParses() throws {
-        let url = URL(fileURLWithPath: #filePath).resolvingSymlinksInPath()
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "shared/announcements.json")
-        let raw = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [[String: Any]])
-        for e in raw {
-            let loose = e.filter { !["minVersion", "maxVersion", "expires"].contains($0.key) }
-            #expect(["desktop", "mac", "ios", "tvos"].contains { Announcements.parse([loose], platform: $0, version: "0.0.0", now: Self.now).count == 1 })
-        }
-    }
 }

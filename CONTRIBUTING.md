@@ -21,7 +21,7 @@ Issues about the Jellyfin server plugin (lyrics sidecars, Spicy Lyrics) go here 
 | `apple/` | The native iOS and tvOS app (SwiftUI), with `CascadeKit`, its tested core |
 | `shared/` | What more than one app reads: the artwork in `assets/`, `tuning-defaults.json`, the fixtures both test suites check, and the repo's scripts (releases, changelog, tuning, `npm test`) |
 | `server/` | The Cascade Server Jellyfin plugin (C#, Jellyfin 12), with its tests; see [server/README.md](server/README.md) |
-| `signaling/`, `telemetry/` | Cloudflare Workers: Waterfall's signaling, and the opt-in usage count |
+| `signaling/`, `telemetry/`, `site/` | Cloudflare Workers: Waterfall's signaling, the opt-in usage count, and cascade.chaosinc.xyz with the announcements panel |
 | `docs/` | Plans and setup notes, e.g. the release pipeline |
 | `shared/assets/` | Artwork under its own license, see below |
 

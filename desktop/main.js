@@ -788,9 +788,10 @@ ipcMain.handle('offline-mode', (_e, state) => {
   if (OfflineMode.updateCheckDue(before, offlineState) && app.isPackaged) checkForUpdates()
 })
 
-// Announcements (src/core/announcements.ts). Fetched here because the R2
-// domain sends no CORS headers. Follows Offline Mode the way update checks do.
-const ANNOUNCEMENTS_URL = 'https://plugins.chaosinc.xyz/announcements.json'
+// Announcements (src/core/announcements.ts), posted from the panel on the
+// site Worker (site/). Fetched here like the update check, and gated on
+// Offline Mode the same way.
+const ANNOUNCEMENTS_URL = 'https://announcements.cascade.chaosinc.xyz/announcements.json'
 ipcMain.handle('announcements-fetch', async () => {
   if (!OfflineMode.checksUpdates(offlineState)) return null
   try {

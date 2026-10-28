@@ -1,8 +1,8 @@
 import Foundation
 
 /// Announcements, as the desktop's src/core/announcements.ts reads them: the
-/// Cascade project's own feed (shared/announcements.json, uploaded to R2 by
-/// .github/workflows/announcements.yml), a Cascade Server plugin's posts (GET
+/// Cascade project's own feed (posted from the panel on the site Worker,
+/// site/ at the repo root), a Cascade Server plugin's posts (GET
 /// /CascadeServer/Announcements, capability "announcements"), and messages an
 /// admin sends this session from Jellyfin's dashboard, which are kept here too.
 ///
@@ -35,7 +35,7 @@ public struct Announcement: Equatable, Sendable, Identifiable {
 }
 
 public enum Announcements {
-    public static let url = URL(string: "https://plugins.chaosinc.xyz/announcements.json")!
+    public static let url = URL(string: "https://announcements.cascade.chaosinc.xyz/announcements.json")!
 
     /// This app's name in the feed's `platforms`.
     public static var platform: String {

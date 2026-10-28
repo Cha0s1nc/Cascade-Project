@@ -1,0 +1,26 @@
+name = "cascade-site"
+main = "src/index.js"
+compatibility_date = "2026-05-01"
+# Only the two names below: no workers.dev copy of the panel.
+workers_dev = false
+
+routes = [
+  { pattern = "cascade.chaosinc.xyz", custom_domain = true },
+  { pattern = "announcements.cascade.chaosinc.xyz", custom_domain = true },
+]
+
+# The site's static pages. The Worker runs first so the feed host and the
+# panel routes never fall through to a page; everything else goes to ASSETS.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+# announcements.json lives here, next to the plugin catalog.
+[[r2_buckets]]
+binding = "FEED"
+bucket_name = "cascade-plugins"
+
+[vars]
+# GitHub logins allowed into the panel, comma separated.
+ALLOWED_LOGINS = "Cha0s1nc"

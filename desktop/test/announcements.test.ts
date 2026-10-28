@@ -1,7 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { addServerMessage, announcementInbox, idList, parseAnnouncements, parseServerAnnouncements } from '../src/core/announcements.ts'
+
+// The site Worker is its own folder at the repo root, absent from a checkout
+// of the desktop alone.
+const SITE = new URL('../../site/src/announcements.js', import.meta.url)
+const siteSkip = existsSync(SITE) ? false : 'site/ is not in this checkout'
 
 const NOW = Date.parse('2026-11-10T12:00:00Z')
 const base = { id: 'a', date: '2026-11-01', title: 'Hello' }
@@ -74,11 +79,44 @@ test('a dashboard message is kept as a server entry, newest first, capped', () =
 
 // What the workflow uploads reaches every install: an entry that does not
 // parse would silently never show.
-test('every entry in shared/announcements.json parses', () => {
-  const raw = JSON.parse(readFileSync(new URL('../../shared/announcements.json', import.meta.url), 'utf8'))
-  assert.ok(Array.isArray(raw))
-  for (const e of raw) {
-    const ok = ['desktop', 'mac', 'ios', 'tvos'].some(p => parseAnnouncements([{ ...e, minVersion: undefined, maxVersion: undefined, expires: undefined }], p, '0.0.0', NOW).length === 1)
+test('whatever the panel saves parses in every app', { skip: siteSkip }, async () => {
+  // @ts-ignore: plain JS Worker source, no types
+  const { validateFeed, stampAuthors, PLATFORMS } = await import(SITE.href)
+  const { items } = validateFeed([
+    { ...base, body: ' Hi\u0007 ', link: 'https://example.com', platforms: ['tvos', 'desktop'], minVersion: '2.3.0', expires: '2026-12-01' },
+    { ...base, id: 'b', author: 'someone' },
+  ])
+  const saved = stampAuthors(items, [], 'Cha0s1nc')
+  assert.deepEqual(saved[0], { id: 'a', title: 'Hello', body: 'Hi', date: '2026-11-01', link: 'https://example.com', platforms: ['desktop', 'tvos'], minVersion: '2.3.0', expires: '2026-12-01', author: 'Cha0s1nc' })
+  for (const e of saved) {
+    const ok = PLATFORMS.some((p: string) => parseAnnouncements([{ ...e, minVersion: undefined, maxVersion: undefined, expires: undefined }], p, '0.0.0', NOW).length === 1)
     assert.ok(ok, `does not parse: ${JSON.stringify(e)}`)
   }
+})
+
+test('the panel rejects a bad save whole, saying why', { skip: siteSkip }, async () => {
+  // @ts-ignore: plain JS Worker source, no types
+  const { validateFeed } = await import(SITE.href)
+  const bad = (e: object) => validateFeed([{ ...base, ...e }]).error
+  assert.match(validateFeed({}).error, /list/)
+  assert.match(validateFeed([base, base]).error, /used twice/)
+  assert.match(bad({ title: '  ' }), /title is required/)
+  assert.match(bad({ id: 'x'.repeat(81) }), /over 80/)
+  assert.match(bad({ date: '2026-13-40' }), /date/)
+  assert.match(bad({ link: 'http://example.com' }), /https/)
+  assert.match(bad({ platforms: [] }), /platforms/)
+  assert.match(bad({ platforms: ['android'] }), /platforms/)
+  assert.match(bad({ minVersion: 'soon' }), /minVersion/)
+  assert.match(bad({ kind: 'official' }), /unknown field "kind"/)
+  assert.equal(validateFeed(Array(51).fill(0).map((_, i) => ({ ...base, id: `n${i}` }))).error, 'At most 50 announcements')
+  assert.deepEqual(validateFeed([{ ...base, body: '', link: '', platforms: null }]).items, [{ id: 'a', title: 'Hello', date: '2026-11-01' }])
+})
+
+test('an author sticks until someone changes the entry', { skip: siteSkip }, async () => {
+  // @ts-ignore: plain JS Worker source, no types
+  const { stampAuthors } = await import(SITE.href)
+  const prev = [{ ...base, author: 'alice' }, { ...base, id: 'b', author: 'alice' }]
+  const next = stampAuthors([{ ...base }, { ...base, id: 'b', title: 'Edited' }, { ...base, id: 'c' }], prev, 'bob')
+  assert.deepEqual(next.map((e: { author: string }) => e.author), ['alice', 'bob', 'bob'])
+  assert.deepEqual(stampAuthors([base], 'junk', 'bob')[0].author, 'bob')
 })
