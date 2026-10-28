@@ -1,23 +1,498 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-os="mac">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cascade</title>
-<meta name="description" content="Cascade, a music and video player for Jellyfin.">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cascade, a player for Jellyfin</title>
+<meta name="description" content="Cascade signs in to your Jellyfin server and plays your library properly: shelves and search, a crossfade that doesn't dip, lyrics that follow the song, on macOS, Windows, Linux, iPhone and Apple TV.">
+<meta property="og:title" content="Cascade, a player for Jellyfin">
+<meta property="og:description" content="The music on your server deserves a real app. Free and open source.">
+<meta property="og:image" content="https://cascade.chaosinc.xyz/assets/mac/player.jpg">
+<meta property="og:url" content="https://cascade.chaosinc.xyz/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#070a1a">
+<link rel="icon" href="assets/icon-32.png" sizes="32x32">
+<link rel="icon" href="assets/icon-192.png" sizes="192x192">
+<link rel="apple-touch-icon" href="assets/icon-180.png">
+<link rel="preload" href="assets/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
 <style>
-  :root { --fg: #1d1d1f; --muted: #6e6e73; --bg: #fff; --link: #0a66d8; }
-  @media (prefers-color-scheme: dark) { :root { --fg: #f2f2f7; --muted: #98989d; --bg: #111; --link: #5aa4ff; } }
-  body { font: 17px/1.55 system-ui, -apple-system, sans-serif; color: var(--fg); background: var(--bg); max-width: 36rem; margin: 18vh auto; padding: 0 16px; }
-  h1 { font-size: 2.4rem; margin: 0 0 .25rem; letter-spacing: -0.02em; }
-  p { color: var(--muted); margin: 0 0 1rem; }
-  a { color: var(--link); }
+  @font-face { font-family: 'Bricolage Grotesque'; font-style: normal; font-weight: 500 700; font-display: swap; src: url(assets/fonts/bricolage-grotesque-latin.woff2) format('woff2'); }
+  /* Layout: a night-sky hero band taken from the app icon, then calm left-aligned
+     sections on deep navy, with screenshots doing the showing. One accent: the
+     waterfall blue. Single dark look on purpose, it is the icon's world. */
+  :root {
+    --night:   #070a1a;
+    --deep:    #0b1130;
+    --panel:   #10173a;
+    --line:    #1e2754;
+    --text:    #eef1ff;
+    --text2:   #aab3d9;
+    --fall:    #7cc4ff;
+    --fall-ink:#05122a;
+    --moss:    #7fcf6a;
+    --display: 'Bricolage Grotesque', ui-sans-serif, system-ui, sans-serif;
+    --body:    -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --mono:    ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--night); color: var(--text); font: 16px/1.6 var(--body); -webkit-font-smoothing: antialiased; }
+  body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--night); }
+  a { color: inherit; }
+  :focus-visible { outline: 2px solid var(--fall); outline-offset: 3px; border-radius: 6px; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  h1, h2, h3 { font-family: var(--display); font-weight: 700; text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+  p { margin: 0; }
+  .eyebrow { font-size: 0.78rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--fall); }
+
+
+  /* Nav */
+  nav { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: color-mix(in srgb, var(--night) 82%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid var(--line); }
+  nav .wrap { display: flex; align-items: center; gap: 24px; height: 60px; }
+  .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font-family: var(--display); font-weight: 700; font-size: 1.15rem; }
+  .brand img { width: 30px; height: 30px; border-radius: 8px; }
+  .nav-links { display: flex; gap: 4px; margin-left: auto; }
+  .nav-links a { text-decoration: none; color: var(--text2); font-size: 0.92rem; padding: 8px 12px; border-radius: 8px; }
+  .nav-links a:hover { color: var(--text); background: var(--panel); }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 20px; border-radius: 10px; font-weight: 600; font-size: 0.95rem; text-decoration: none; border: 1px solid transparent; transition: background-color .15s, border-color .15s, color .15s; }
+  .btn svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .btn-primary { background: var(--fall); color: var(--fall-ink); }
+  .btn-primary:hover { background: color-mix(in srgb, var(--fall) 86%, white); }
+  .btn-quiet { border-color: var(--line); color: var(--text); background: transparent; }
+  .btn-quiet:hover { border-color: var(--fall); color: var(--fall); }
+  nav .btn { min-height: 38px; padding: 0 14px; font-size: 0.88rem; }
+
+  /* Hero: the one loud place. A starfield like the icon's sky. */
+  .hero { position: relative; overflow: hidden; background:
+      radial-gradient(1px 1px at 12% 22%, #fff9 50%, transparent 51%),
+      radial-gradient(1px 1px at 28% 64%, #fff7 50%, transparent 51%),
+      radial-gradient(1.5px 1.5px at 41% 14%, #fffa 50%, transparent 51%),
+      radial-gradient(1px 1px at 57% 38%, #fff6 50%, transparent 51%),
+      radial-gradient(1px 1px at 69% 9%, #fff8 50%, transparent 51%),
+      radial-gradient(1.5px 1.5px at 83% 27%, #fff9 50%, transparent 51%),
+      radial-gradient(1px 1px at 91% 58%, #fff6 50%, transparent 51%),
+      radial-gradient(1px 1px at 6% 78%, #fff5 50%, transparent 51%),
+      radial-gradient(1px 1px at 48% 86%, #fff5 50%, transparent 51%),
+      radial-gradient(120% 90% at 75% 0%, #13226a 0%, var(--deep) 45%, var(--night) 100%); }
+  .hero .wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 48px; align-items: center; padding-block: 88px 96px; }
+  .hero-copy { display: grid; gap: 22px; }
+  .hero h1 { font-size: clamp(2.3rem, 4.4vw, 3.3rem); line-height: 1.04; }
+  .hero h1 em { font-style: normal; color: var(--fall); }
+  .hero-sub { color: var(--text2); font-size: 1.1rem; max-width: 46ch; }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; }
+  .facts { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--text2); font-size: 0.88rem; }
+  .facts b { color: var(--text); font-weight: 600; font-family: var(--mono); font-size: 0.85rem; }
+
+  /* Screenshot slots: where real captures go. */
+  .shot { position: relative; max-width: 100%; border-radius: 14px; border: 1px solid var(--line); background: linear-gradient(160deg, #131c47, #0b1130 70%); box-shadow: 0 30px 80px -20px #000c, 0 0 0 1px #ffffff08 inset; overflow: hidden; }
+  .shot-bar { display: flex; gap: 7px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+  .shot-bar i { width: 11px; height: 11px; border-radius: 50%; background: #2a3466; }
+  .shot-body { display: grid; place-items: center; text-align: center; padding: 24px; color: var(--text2); font-size: 0.9rem; }
+  .shot-body span { display: grid; gap: 6px; justify-items: center; }
+  .shot-body b { color: var(--text); font-weight: 600; }
+  .shot-body small { font-family: var(--mono); font-size: 0.78rem; opacity: .8; }
+  .shot-body svg { width: 28px; height: 28px; color: var(--fall); opacity: .8; }
+  .shot.wide .shot-body { aspect-ratio: 16 / 10; }
+  .shot.phone { width: 230px; border-radius: 30px; margin-inline: auto; }
+  .shot.phone .shot-body { aspect-ratio: 9 / 19.5; }
+  .shot.real img, .shot.real video { display: block; width: 100%; height: auto; }
+  .shot.real .chrome { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  :root[data-os="windows"] .lights, :root[data-os="linux"] .lights, :root:not([data-os="windows"]):not([data-os="linux"]) .caption { display: none; }
+  .ios-only { display: none; }
+  :root[data-os="ios"] .ios-only { display: block; }
+  :root[data-os="ios"] .desk { display: none; }
+  .phone { width: min(300px, 78%); margin-inline: auto; border-radius: 46px; border: 10px solid #0e1120; background: #000; overflow: hidden; box-shadow: 0 30px 80px -20px #000c, 0 0 0 1px #ffffff14; }
+  .phone img, .phone video { display: block; width: 100%; height: auto; }
+  .os-switch { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--deep) 70%, transparent); }
+  .os-switch span { color: var(--text2); font-size: 0.82rem; padding: 0 8px 0 6px; align-self: center; }
+  .os-switch button { font: inherit; font-size: 0.85rem; color: var(--text2); background: none; border: 0; border-radius: 8px; padding: 6px 12px; min-height: 34px; cursor: pointer; }
+  .os-switch button:hover { color: var(--text); }
+  .os-switch button[aria-pressed="true"] { background: var(--panel); color: var(--text); box-shadow: inset 0 0 0 1px var(--line); }
+  .dl.match { border-color: color-mix(in srgb, var(--fall) 70%, transparent); background: var(--panel); }
+  .dl.match b::after { content: "This device"; margin-left: 8px; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fall); }
+
+  /* Sections */
+  section { padding-block: 96px; }
+  section + section { border-top: 1px solid var(--line); }
+  .head { display: grid; gap: 12px; max-width: 60ch; margin-bottom: 48px; }
+  .head h2 { font-size: clamp(1.8rem, 3.4vw, 2.5rem); line-height: 1.1; }
+  .head p { color: var(--text2); font-size: 1.05rem; }
+
+  .pillars { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px; }
+  .pillar { display: grid; gap: 10px; align-content: start; }
+  .pillar h3 { font-size: 1.25rem; }
+  .pillar p { color: var(--text2); }
+
+  .feature { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 64px; align-items: center; }
+  .feature + .feature { margin-top: 96px; }
+  .feature.flip > :first-child { order: 2; }
+  .feature-copy { display: grid; gap: 14px; }
+  .feature-copy h3 { font-size: clamp(1.5rem, 2.6vw, 2rem); line-height: 1.15; }
+  .feature-copy p { color: var(--text2); max-width: 52ch; }
+  .tag { display: inline-block; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 9px; border-radius: 999px; color: var(--moss); border: 1px solid color-mix(in srgb, var(--moss) 45%, transparent); vertical-align: middle; margin-left: 6px; font-family: var(--body); }
+
+  .figure { border: 1px solid var(--line); border-radius: 14px; background: var(--deep); padding: 24px; display: grid; gap: 14px; }
+  .figure svg { width: 100%; height: auto; display: block; }
+  .figure figcaption { color: var(--text2); font-size: 0.85rem; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 0.85rem; color: var(--text2); }
+  .legend i { display: inline-block; width: 18px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
+
+  .eq { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; align-items: end; }
+  .band { display: grid; gap: 10px; justify-items: center; font-variant-numeric: tabular-nums; }
+  .track { position: relative; width: 6px; height: 150px; border-radius: 3px; background: var(--line); }
+  .track::after { content: ""; position: absolute; left: -4px; right: -4px; top: 50%; height: 1px; background: #3a4680; }
+  .knob { position: absolute; left: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%; background: var(--fall); box-shadow: 0 0 0 4px color-mix(in srgb, var(--fall) 20%, transparent); }
+  .band b { font-family: var(--mono); font-size: 0.85rem; font-weight: 600; }
+  .band span { color: var(--text2); font-size: 0.8rem; }
+
+  .rest { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 40px; margin-top: 96px; }
+  .rest div { padding: 18px 0; border-top: 1px solid var(--line); display: grid; gap: 4px; }
+  .rest b { font-weight: 600; }
+  .rest p { color: var(--text2); font-size: 0.95rem; }
+
+  /* Download */
+  .dl-group + .dl-group { margin-top: 40px; }
+  .dl-group h3 { font-size: 1.05rem; font-family: var(--body); font-weight: 600; color: var(--text2); margin-bottom: 14px; }
+  .dl-grid { display: grid; gap: 12px; }
+  .dl-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .dl-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dl { display: flex; align-items: center; gap: 14px; padding: 18px 20px; border-radius: 12px; border: 1px solid var(--line); background: var(--deep); text-decoration: none; transition: border-color .15s, background-color .15s; }
+  .dl:hover { border-color: var(--fall); background: var(--panel); }
+  .dl svg { width: 26px; height: 26px; flex-shrink: 0; color: var(--text2); }
+  .dl div { display: grid; min-width: 0; }
+  .dl b { font-weight: 600; }
+  .dl b small { font-weight: 400; font-size: 0.8rem; color: var(--text2); }
+  .dl span { color: var(--text2); font-size: 0.85rem; font-family: var(--mono); }
+  .dl-note { color: var(--text2); font-size: 0.9rem; margin-top: 14px; max-width: 75ch; }
+  .dl-note a, .head p a { color: var(--fall); }
+  .dl-note code { font-family: var(--mono); font-size: 0.85em; color: var(--text); }
+
+  /* Privacy */
+  .ledger { display: grid; gap: 0; max-width: 820px; }
+  .ledger div { display: grid; grid-template-columns: minmax(0, 14rem) minmax(0, 1fr); gap: 24px; padding: 16px 0; border-top: 1px solid var(--line); }
+  .ledger div:last-child { border-bottom: 1px solid var(--line); }
+  .ledger b { font-weight: 600; }
+  .ledger p { color: var(--text2); }
+
+  /* Closing */
+  .closing { text-align: left; }
+  .closing .wrap { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 28px; }
+  .closing h2 { font-size: clamp(1.8rem, 3.4vw, 2.5rem); }
+  .closing p { color: var(--text2); margin-top: 8px; }
+
+  footer { border-top: 1px solid var(--line); color: var(--text2); font-size: 0.88rem; }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 10px 22px; padding-block: 32px; }
+  footer a { text-decoration: none; }
+  footer a:hover { color: var(--text); }
+  footer .grow { margin-right: auto; }
+
+  @media (max-width: 900px) {
+    .hero .wrap, .feature { grid-template-columns: minmax(0, 1fr); gap: 40px; }
+    .feature.flip > :first-child { order: 0; }
+    .pillars, .rest, .dl-grid.three { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+    .rest { gap: 0; }
+    .nav-links { display: none; }
+    nav .btn { margin-left: auto; }
+    section { padding-block: 72px; }
+    .hero .wrap { padding-block: 56px 64px; }
+  }
+  @media (max-width: 560px) {
+    .dl-grid.two { grid-template-columns: minmax(0, 1fr); }
+    .ledger div { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+    .actions .btn { flex: 1 1 auto; }
+  }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { transition: none !important; } }
 </style>
 </head>
 <body>
-  <!-- Placeholder until the landing page moves here. -->
-  <h1>Cascade</h1>
-  <p>A music and video player for Jellyfin, on desktop, Mac, iPhone and Apple TV.</p>
-  <p><a href="https://www.chaosinc.xyz/github/projects/cascade/">Downloads and releases</a> · <a href="https://github.com/Cha0s1nc/Cascade-Project">Source on GitHub</a></p>
+
+<nav aria-label="Main">
+  <div class="wrap">
+    <a class="brand" href="#top"><img src="assets/icon-192.png" alt="" width="30" height="30">Cascade</a>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#download">Download</a>
+      <a href="#privacy">Privacy</a>
+      <a href="#involved">Get involved</a>
+      <a href="https://github.com/Cha0s1nc/Cascade-Project">GitHub</a>
+    </div>
+    <a class="btn btn-primary" href="#download">Download</a>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="wrap">
+    <div class="hero-copy">
+      <p class="eyebrow">A player for Jellyfin</p>
+      <h1>The music on your server deserves <em>a real app.</em></h1>
+      <p class="hero-sub">Cascade signs in to your Jellyfin server and plays your library properly: shelves and search, a crossfade that doesn't dip, lyrics that follow the song, and media keys that do what they say.</p>
+      <div class="actions">
+        <a class="btn btn-primary" href="#download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 11l5 5 5-5M5 21h14"/></svg>Download Cascade</a>
+        <a class="btn btn-quiet" href="#features">See what it does</a>
+      </div>
+      <div class="facts"><span><b id="version">Latest release</b></span><span>macOS, Windows, Linux, iPhone, Apple TV</span><span>Free and open source</span></div>
+      <div class="os-switch" role="group" aria-label="Show screenshots for"><span>Screenshots</span><button type="button" data-os="mac" aria-pressed="true">macOS</button><button type="button" data-os="windows" aria-pressed="false">Windows</button><button type="button" data-os="linux" aria-pressed="false">Linux</button><button type="button" data-os="ios" aria-pressed="false">iPhone</button></div>
+    </div>
+    <div class="slot"><div class="shot real desk"><img data-shot="home" src="assets/mac/home.jpg" alt="Cascade's home screen: recently played songs and recently added albums" width="1440" height="900"><svg class="chrome lights" viewBox="0 0 1440 900" aria-hidden="true"><circle cx="20" cy="19" r="6" fill="#ff5f57"/><circle cx="40" cy="19" r="6" fill="#febc2e"/><circle cx="60" cy="19" r="6" fill="#28c840"/></svg><svg class="chrome caption" viewBox="0 0 1440 900" aria-hidden="true" fill="none" stroke="#e8e8ee" stroke-width="1.1"><path d="M1279 19.5h10"/><rect x="1325.5" y="14.5" width="10" height="10"/><path d="M1372 14l10 10M1382 14l-10 10"/></svg></div><div class="phone ios-only"><img src="assets/ios/nowplaying.jpg" alt="Cascade on iPhone: the Now Playing screen" width="598" height="1300" loading="lazy"></div></div>
+  </div>
+</header>
+
+<main>
+  <section id="why">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow">Why this one</p>
+        <h2>It behaves like software you'd pay for</h2>
+      </div>
+      <div class="pillars">
+        <div class="pillar">
+          <h3>It's an app, not a tab</h3>
+          <p>Your keyboard's play, pause and skip keys work from anywhere. The window has your platform's real controls, and it updates itself when there's a new release.</p>
+        </div>
+        <div class="pillar">
+          <h3>It asks for the best it can play</h3>
+          <p>Every track is negotiated with your server first, so Cascade plays the original file whenever your machine can handle it and only asks for a conversion when it can't.</p>
+        </div>
+        <div class="pillar">
+          <h3>Nothing fails quietly</h3>
+          <p>Cascade checks what your account is allowed to do and what your server has installed, then grays out what you can't use and tells you why.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow">Features</p>
+        <h2>Made for listening, not just browsing</h2>
+        <p>Everything here is in the release you can download today.</p>
+      </div>
+
+      <div class="feature">
+        <div class="feature-copy">
+          <h3>Click the player bar and it takes the whole screen</h3>
+          <p>Album art at full size, the queue beside it, and lyrics that scroll in time with the song. Click a line to jump there. If a song isn't in English, Cascade offers to translate it, and the translating happens on your machine.</p>
+        </div>
+        <div class="slot"><div class="shot real desk"><video data-vid="desk" data-shot-poster="player" poster="assets/mac/player.jpg" muted loop playsinline preload="none" width="1440" height="900" aria-label="The full-screen player: lyrics highlighting word by word as the song plays"></video><svg class="chrome lights" viewBox="0 0 1440 900" aria-hidden="true"><circle cx="20" cy="19" r="6" fill="#ff5f57"/><circle cx="40" cy="19" r="6" fill="#febc2e"/><circle cx="60" cy="19" r="6" fill="#28c840"/></svg><svg class="chrome caption" viewBox="0 0 1440 900" aria-hidden="true" fill="none" stroke="#e8e8ee" stroke-width="1.1"><path d="M1279 19.5h10"/><rect x="1325.5" y="14.5" width="10" height="10"/><path d="M1372 14l10 10M1382 14l-10 10"/></svg></div><div class="phone ios-only"><video data-vid="ios" poster="assets/ios/lyrics.jpg" muted loop playsinline preload="none" width="598" height="1300" aria-label="Lyrics on iPhone, highlighting word by word"></video></div></div>
+      </div>
+
+      <div class="feature flip">
+        <div class="feature-copy">
+          <h3>One track slides into the next</h3>
+          <p>Cascade runs two players at once and fades between them on equal power curves, so the volume stays level across the join instead of dipping in the middle. The next track is loaded ahead of time and the change never stalls.</p>
+        </div>
+        <figure class="figure" style="margin:0">
+          <svg viewBox="0 0 320 140" role="img" aria-label="Two crossfade curves: the outgoing track falls along a cosine while the next track rises along a sine">
+            <line x1="20" y1="110" x2="300" y2="110" stroke="var(--line)" stroke-width="1"/>
+            <line x1="20" y1="20" x2="300" y2="20" stroke="var(--line)" stroke-width="1" stroke-dasharray="3 4"/>
+            <path d="M20.0 20.0 L27.0 20.1 L34.0 20.3 L41.0 20.6 L48.0 21.1 L55.0 21.7 L62.0 22.5 L69.0 23.4 L76.0 24.4 L83.0 25.6 L90.0 26.9 L97.0 28.3 L104.0 29.8 L111.0 31.5 L118.0 33.3 L125.0 35.2 L132.0 37.2 L139.0 39.3 L146.0 41.6 L153.0 43.9 L160.0 46.4 L167.0 48.9 L174.0 51.5 L181.0 54.3 L188.0 57.1 L195.0 60.0 L202.0 63.0 L209.0 66.0 L216.0 69.1 L223.0 72.3 L230.0 75.6 L237.0 78.8 L244.0 82.2 L251.0 85.6 L258.0 89.0 L265.0 92.4 L272.0 95.9 L279.0 99.4 L286.0 102.9 L293.0 106.5 L300.0 110.0" fill="none" stroke="var(--text2)" stroke-width="2.5" stroke-linecap="round"/>
+            <path d="M20.0 110.0 L27.0 106.5 L34.0 102.9 L41.0 99.4 L48.0 95.9 L55.0 92.4 L62.0 89.0 L69.0 85.6 L76.0 82.2 L83.0 78.8 L90.0 75.6 L97.0 72.3 L104.0 69.1 L111.0 66.0 L118.0 63.0 L125.0 60.0 L132.0 57.1 L139.0 54.3 L146.0 51.5 L153.0 48.9 L160.0 46.4 L167.0 43.9 L174.0 41.6 L181.0 39.3 L188.0 37.2 L195.0 35.2 L202.0 33.3 L209.0 31.5 L216.0 29.8 L223.0 28.3 L230.0 26.9 L237.0 25.6 L244.0 24.4 L251.0 23.4 L258.0 22.5 L265.0 21.7 L272.0 21.1 L279.0 20.6 L286.0 20.3 L293.0 20.1 L300.0 20.0" fill="none" stroke="var(--fall)" stroke-width="2.5" stroke-linecap="round"/>
+            <text x="20" y="130" fill="var(--text2)" font-size="10" font-family="ui-monospace, Menlo, monospace">fade starts</text>
+            <text x="300" y="130" fill="var(--text2)" font-size="10" font-family="ui-monospace, Menlo, monospace" text-anchor="end">fade ends</text>
+          </svg>
+          <div class="legend"><span><i style="background:var(--text2)"></i>Track ending</span><span><i style="background:var(--fall)"></i>Next track</span></div>
+          <figcaption>The real curves: cosine out, sine in, handed straight to the audio engine.</figcaption>
+        </figure>
+      </div>
+
+      <div class="feature">
+        <div class="feature-copy">
+          <h3>An equalizer that won't clip</h3>
+          <p>Five bands with presets for flat, bass, vocal, treble and loudness. Push a band up and Cascade pulls the overall level down to match, so a boost never turns into distortion. Music and video keep separate settings.</p>
+        </div>
+        <figure class="figure" style="margin:0">
+          <div class="eq" role="img" aria-label="The Vocal preset: 60 hertz minus 3 decibels, 250 hertz minus 1, 1 kilohertz plus 4, 4 kilohertz plus 3, 12 kilohertz minus 1">
+            <div class="band"><b>−3</b><div class="track"><span class="knob" style="top:62.5%"></span></div><span>60 Hz</span></div>
+            <div class="band"><b>−1</b><div class="track"><span class="knob" style="top:54.2%"></span></div><span>250 Hz</span></div>
+            <div class="band"><b>+4</b><div class="track"><span class="knob" style="top:33.3%"></span></div><span>1 kHz</span></div>
+            <div class="band"><b>+3</b><div class="track"><span class="knob" style="top:37.5%"></span></div><span>4 kHz</span></div>
+            <div class="band"><b>−1</b><div class="track"><span class="knob" style="top:54.2%"></span></div><span>12 kHz</span></div>
+          </div>
+          <figcaption>The Vocal preset, as it ships. The scale runs from −12 to +12 dB.</figcaption>
+        </figure>
+      </div>
+
+      <div class="feature flip">
+        <div class="feature-copy">
+          <h3>Movies and TV in the same window</h3>
+          <p>Seasons and episodes, resume where you stopped, and subtitle and audio track pickers. It stays off until you turn it on, library by library.</p>
+        </div>
+        <div class="shot real"><img data-shot="tv" src="assets/mac/tv.jpg" alt="A TV show's page with its poster, seasons and episode list" width="1440" height="900" loading="lazy"><svg class="chrome lights" viewBox="0 0 1440 900" aria-hidden="true"><circle cx="20" cy="19" r="6" fill="#ff5f57"/><circle cx="40" cy="19" r="6" fill="#febc2e"/><circle cx="60" cy="19" r="6" fill="#28c840"/></svg><svg class="chrome caption" viewBox="0 0 1440 900" aria-hidden="true" fill="none" stroke="#e8e8ee" stroke-width="1.1"><path d="M1279 19.5h10"/><rect x="1325.5" y="14.5" width="10" height="10"/><path d="M1372 14l10 10M1382 14l-10 10"/></svg></div>
+      </div>
+
+      <div class="rest">
+        <div><b>Your phone can drive it</b><p>Cascade shows up in Jellyfin's Play On list, so you can start something from your phone.</p></div>
+        <div><b>Waterfall <span class="tag">Beta</span></b><p>Listen along with friends on the same server. Join with a six character code.</p></div>
+        <div><b>Colors from the cover</b><p>The whole app can shift to match the artwork of whatever is playing.</p></div>
+        <div><b>Discord presence</b><p>One toggle. Your server address and login never go to Discord.</p></div>
+        <div><b>It learns what your machine can play</b><p>If a format plays silently, Cascade notices, asks the server to convert, and remembers.</p></div>
+        <div><b>Sign in with a code</b><p>Use Quick Connect and no password is stored at all.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="download">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow">Download</p>
+        <h2>Install it, point it at your server, done</h2>
+        <p>Every build comes from a tagged release on GitHub. The desktop app updates itself after the first install. <a href="https://www.chaosinc.xyz/github/projects/cascade/releases/">Release notes</a></p>
+      </div>
+
+      <div class="dl-group">
+        <h3>Desktop</h3>
+        <div class="dl-grid three">
+          <a class="dl" data-os="mac" id="dl-mac" href="https://github.com/Cha0s1nc/Cascade-Project/releases/latest"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.5 2-3.7 2.1-3.8-1.2-1.7-3-1.9-3.6-2-1.5-.2-3 .9-3.8.9-.8 0-2-.9-3.3-.9-1.7 0-3.3 1-4.2 2.5-1.8 3.1-.5 7.7 1.3 10.2.9 1.2 1.9 2.6 3.2 2.6 1.3-.1 1.8-.8 3.3-.8 1.6 0 2 .8 3.3.8 1.4 0 2.3-1.2 3.1-2.5 1-1.4 1.4-2.8 1.4-2.9 0 0-2.8-1.1-2.8-4.1zM14 5.2c.7-.8 1.2-2 1-3.2-1 0-2.3.7-3 1.5-.7.7-1.2 1.9-1.1 3.1 1.2.1 2.4-.6 3.1-1.4z"/></svg><div><b>macOS <small>Apple silicon</small></b><span>.dmg</span></div></a>
+          <a class="dl" data-os="windows" id="dl-windows" href="https://github.com/Cha0s1nc/Cascade-Project/releases/latest"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.5 10 4.5v7H3zm8-1.1L21 3v8.5H11zM3 12.5h7v7l-7-1zm8 0h10V21l-10-1.4z"/></svg><div><b>Windows</b><span>.exe</span></div></a>
+          <a class="dl" data-os="linux" id="dl-linux" href="https://github.com/Cha0s1nc/Cascade-Project/releases/latest"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4M7 9l3 2-3 2M12 13h4"/></svg><div><b>Linux</b><span>AppImage, .deb, .rpm</span></div></a>
+        </div>
+        <p class="dl-note">macOS calls the build an unidentified developer because it isn't signed with a paid Apple account. Open <code>System Settings → Privacy &amp; Security</code> and click Open Anyway.</p>
+      </div>
+
+      <div class="dl-group">
+        <h3>iPhone and Apple TV</h3>
+        <div class="dl-grid two">
+          <a class="dl" data-os="ios" id="dl-ios" href="https://github.com/Cha0s1nc/Cascade-Project/releases/latest"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2.5"/><path d="M11 18.5h2"/></svg><div><b>iPhone</b><span>.ipa</span></div></a>
+          <a class="dl" id="dl-tvos" href="https://github.com/Cha0s1nc/Cascade-Project/releases/latest"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8"/></svg><div><b>Apple TV</b><span>.ipa</span></div></a>
+        </div>
+        <p class="dl-note">Not on the App Store yet. Install the .ipa by sideloading it.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="privacy">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow">Privacy</p>
+        <h2>What leaves your machine</h2>
+        <p>Your music and artwork come from your own Jellyfin server. This is the complete list of anything else.</p>
+      </div>
+      <div class="ledger">
+        <div><b>Update checks</b><p>Cascade asks GitHub for new releases and reads their notes from GitHub or this site.</p></div>
+        <div><b>Discord presence</b><p>If you turn it on, a public catalog is asked for a cover image by track name.</p></div>
+        <div><b>Lyric translation</b><p>The first time you translate, a language model downloads from GitHub or Mozilla. Translating happens on your machine.</p></div>
+        <div><b>Waterfall</b><p>If you use it, a small room code passes through a relay. No audio is sent between listeners.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="involved">
+    <div class="wrap">
+      <div class="head" style="margin-bottom:28px">
+        <p class="eyebrow">Get involved</p>
+        <h2>Ask for what you want next</h2>
+        <p>Feature requests and bug reports live on GitHub, where anyone can add to them. A thumbs-up on a request helps decide what gets built next.</p>
+      </div>
+      <div class="actions">
+        <a class="btn btn-quiet" href="https://github.com/Cha0s1nc/Cascade-Project/issues/new?template=feature_request.yml">Request a feature</a>
+        <a class="btn btn-quiet" href="https://github.com/Cha0s1nc/Cascade-Project/issues/new?template=bug_report.yml">Report a bug</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="closing">
+    <div class="wrap">
+      <div>
+        <h2>Your server already has the music</h2>
+        <p>Cascade is the part that plays it properly.</p>
+      </div>
+      <div class="actions">
+        <a class="btn btn-primary" href="#download">Download Cascade</a>
+        <a class="btn btn-quiet" href="https://github.com/Cha0s1nc/Cascade-Project">Read the source</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span class="grow">Cascade by cha0s</span>
+    <a href="https://github.com/Cha0s1nc/Cascade-Project">GitHub</a>
+    <a href="https://www.chaosinc.xyz/github/projects/cascade/releases/">Releases</a>
+    <a href="https://github.com/Cha0s1nc/Cascade-Project/blob/stable/LICENSE">GPL-3.0</a>
+    <span>Icon art by Hxney_bun_</span>
+    <span>Design inspired by <a href="https://cider.sh">Cider</a></span>
+  </div>
+</footer>
+
+<script>
+  // Shows the screenshots for the visitor's platform, Mac when it can't tell.
+  const SHOTS = ['mac', 'windows', 'linux']
+  function detectOS() {
+    const ua = navigator.userAgent
+    const p = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || ''
+    if (/iPhone|iPod|iPad/.test(ua)) return 'ios'
+    if (/Android/i.test(ua)) return 'mac'
+    if (/Win/i.test(p)) return 'windows'
+    if (/Linux|X11/i.test(p)) return 'linux'
+    return 'mac'
+  }
+  const still = matchMedia('(prefers-reduced-motion: reduce)')
+  function setOS(os) {
+    document.documentElement.dataset.os = os
+    const desk = SHOTS.includes(os) ? os : 'mac'
+    document.querySelectorAll('img[data-shot]').forEach(img => { img.src = `assets/${desk}/${img.dataset.shot}.jpg` })
+    document.querySelectorAll('video').forEach(v => {
+      const name = v.dataset.vid === 'ios' ? 'ios' : desk
+      if (v.dataset.vid === 'desk') v.poster = `assets/${desk}/player.jpg`
+      const showing = v.dataset.vid === 'ios' ? os === 'ios' : os !== 'ios'
+      if (!showing || still.matches) { v.pause(); return }
+      const src = `assets/video/${name}.mp4`
+      if (!v.src.endsWith(src)) { v.src = src; v.load() }
+      v.play().catch(() => {})
+    })
+    document.querySelectorAll('.os-switch button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.os === os)))
+    document.querySelectorAll('.dl[data-os]').forEach(a => a.classList.toggle('match', a.dataset.os === detected))
+  }
+  const detected = detectOS()
+  document.querySelectorAll('.os-switch button').forEach(b => b.addEventListener('click', () => setOS(b.dataset.os)))
+  setOS(detected)
+
+  // Download links: releases.json (written by the publish workflow) knows which
+  // release built each platform, so a newer Apple-only release never relabels
+  // the desktop files. GitHub's latest release is the fallback.
+  const RELEASES = ['https://www.chaosinc.xyz/github/projects/cascade/releases.json', 'https://api.github.com/repos/Cha0s1nc/Cascade-Project/releases/latest']
+  function setDl(id, file) {
+    const a = document.getElementById(id)
+    if (!a || !file) return
+    a.href = file.url
+    a.querySelector('span').textContent = file.name
+  }
+  ;(async () => {
+    try {
+      const res = await fetch(RELEASES[0], { cache: 'no-cache' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const all = (await res.json()).releases.filter(r => !r.prerelease)
+      const desk = all.find(r => r.platforms && r.platforms.desktop)
+      const apple = all.find(r => r.platforms && r.platforms.apple)
+      if (desk) {
+        const f = desk.platforms.desktop
+        document.getElementById('version').textContent = `v${desk.version}`
+        setDl('dl-mac', f.find(x => /arm64.*\.dmg$/i.test(x.name)) || f.find(x => /\.dmg$/i.test(x.name)))
+        setDl('dl-windows', f.find(x => /\.exe$/i.test(x.name)))
+        document.getElementById('dl-linux').href = desk.url
+      }
+      if (apple) {
+        setDl('dl-ios', apple.platforms.apple.find(x => /iOS\.ipa$/i.test(x.name)))
+        setDl('dl-tvos', apple.platforms.apple.find(x => /tvOS\.ipa$/i.test(x.name)))
+      }
+      return
+    } catch (err) { console.warn('[releases.json]', err.message) }
+    try {
+      const res = await fetch(RELEASES[1])
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const r = await res.json()
+      const files = (r.assets || []).map(a => ({ name: a.name, url: a.browser_download_url }))
+      document.getElementById('version').textContent = r.tag_name || 'Latest release'
+      setDl('dl-mac', files.find(x => /arm64.*\.dmg$/i.test(x.name)) || files.find(x => /\.dmg$/i.test(x.name)))
+      setDl('dl-windows', files.find(x => /\.exe$/i.test(x.name)))
+      setDl('dl-ios', files.find(x => /iOS\.ipa$/i.test(x.name)))
+      setDl('dl-tvos', files.find(x => /tvOS\.ipa$/i.test(x.name)))
+      if (r.html_url) document.getElementById('dl-linux').href = r.html_url
+    } catch (err) { console.warn('[releases]', err.message) }
+  })()
+</script>
 </body>
 </html>
