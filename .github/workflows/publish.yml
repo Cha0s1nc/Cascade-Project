@@ -1,12 +1,14 @@
 # When a release is published: copy the platforms a stable release built to
 # the download mirror (the native Mac DMG goes to mac/<version>/, the Electron
-# one stays under desktop/), and refresh the website's releases.json (every release,
-# betas too, with its GitHub notes verbatim) and changelog.json. Editing a
-# release's notes refreshes the website only. See
+# one stays under desktop/), and refresh releases.json (every release, betas
+# too, with its GitHub notes verbatim) and changelog.json in the R2 bucket,
+# where cascade.chaosinc.xyz serves them (/releases.json for its releases page
+# and download buttons, /changelog.json for the apps' update windows). Editing
+# a release's notes refreshes those two files only. See
 # docs/release-pipeline-plan.md, phase 7.
 #
-# The website's main branch deploys live, so only the release event writes
-# there. A manual run writes to a preview branch (default cascade-releases).
+# The R2 key is in the release environment, which has to admit v* tags (a
+# published release runs on its tag).
 name: Publish
 
 on:
@@ -17,9 +19,6 @@ on:
       tag:
         description: Release tag to publish, e.g. v2.3.0
         required: true
-      site_branch:
-        description: Website branch to write to (main deploys live)
-        default: cascade-releases
       mirror:
         description: Upload to the download mirror
         type: boolean
@@ -34,7 +33,6 @@ concurrency:
 
 env:
   TAG: ${{ github.event.release.tag_name || inputs.tag }}
-  SITE_BRANCH: ${{ github.event_name == 'release' && 'main' || inputs.site_branch || 'cascade-releases' }}
   GH_TOKEN: ${{ github.token }}
   GH_REPO: ${{ github.repository }}
 
@@ -91,6 +89,7 @@ jobs:
     # no mirror links for this release.
     if: always() && !cancelled()
     runs-on: ubuntu-latest
+    environment: release
     steps:
       - uses: actions/checkout@v4
 
@@ -104,21 +103,19 @@ jobs:
           MIRROR_URL: ${{ vars.MIRROR_URL }}
         run: OUT_DIR=site-data node shared/scripts/site-data.mjs
 
-      - name: Push them to the website
+      - name: Upload them to R2
         env:
-          WEBSITE_DEPLOY_KEY: ${{ secrets.WEBSITE_DEPLOY_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          EP: https://${{ vars.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          BUCKET: ${{ vars.R2_BUCKET }}
         run: |
           set -euo pipefail
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$WEBSITE_DEPLOY_KEY" > ~/.ssh/website && chmod 600 ~/.ssh/website
-          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
-          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/website -o IdentitiesOnly=yes"
-          git clone --depth 1 --branch "$SITE_BRANCH" git@github.com:Cha0s1nc/cha0sserverpage.git site
-          cp site-data/releases.json site-data/changelog.json site/github/projects/cascade/
-          cd site
-          git add github/projects/cascade/releases.json github/projects/cascade/changelog.json
-          if git diff --cached --quiet; then echo "Website data unchanged"; exit 0; fi
-          git -c user.name="Cascade release bot" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-            commit -q -m "Update Cascade release data for $TAG"
-          # One retry if a hand-made commit landed in the meantime.
-          git push origin "HEAD:$SITE_BRANCH" || { git pull -q --rebase origin "$SITE_BRANCH" && git push origin "HEAD:$SITE_BRANCH"; }
+          for f in releases.json changelog.json; do
+            aws s3 cp "site-data/$f" "s3://$BUCKET/$f" --endpoint-url "$EP" \
+              --content-type application/json --cache-control "public, max-age=300"
+          done
+          curl -fsS -o /dev/null https://cascade.chaosinc.xyz/releases.json && echo "Served at https://cascade.chaosinc.xyz/releases.json"

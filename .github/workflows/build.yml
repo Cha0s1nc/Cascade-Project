@@ -754,7 +754,7 @@ jobs:
           # The full changelog is the website's releases page, opened at this
           # version (it lists each one under #v<version>), not a GitHub
           # compare link. It reaches the page when the release is published.
-          { echo; echo "**Full changelog**: https://www.chaosinc.xyz/github/projects/cascade/releases/#v$VERSION"; } >> notes.md
+          { echo; echo "**Full changelog**: https://cascade.chaosinc.xyz/releases/#v$VERSION"; } >> notes.md
 
           FLAGS=(--title "$TAG" --notes-file notes.md --target "$SHA")
           [ "$PUBLISH" = true ] || FLAGS+=(--draft)

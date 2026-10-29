@@ -29,7 +29,7 @@ Written 2026-09-30 against `dev` at `2f0882d`. Line numbers are approximate and 
 | **4** | **Updater reads `versions.json`** | cloud agent |
 | **5** | **`CHANGELOG.md` format, parser, backfill** | cloud agent |
 | 6 | `build.yml` rework: markers, platforms, carry-over, Apple job | done (`d520dbb`, `9d979d4`, tested with manual drafts) |
-| 7 | Publish workflow: website data, OCI mirror, in-app "what's new" | built (`publish.yml`); website pages on the `cascade-releases` branch of the site |
+| 7 | Publish workflow: website data, OCI mirror, in-app "what's new" | built (`publish.yml`); data in R2, served by cascade.chaosinc.xyz |
 | 8 | Apple signing, TestFlight | job written and switched off; setup list in `docs/testflight.md` |
 | 9 | Android | placeholder `build-android` job in `build.yml`, skipped until `android/` exists; check its Gradle paths and add signing then |
 | 10 | Native macOS app, shipped beside the Electron DMG until it reaches parity | planned; see `docs/mac-native-plan.md` |
@@ -89,15 +89,15 @@ Target:
 ## Phase 7: on publish
 
 A separate workflow triggered by `release: published`:
-- **Website** (repo `Cha0s1nc/cha0sserverpage`, served at chaosinc.xyz by Cloudflare Pages; a push deploys). Static, no build step, one self-contained HTML file per page; read its `SITE-MAP.md` first. The Cascade page is `/github/projects/cascade/`. Commit `releases.json` and `changelog.json` into `github/projects/cascade/`, using a deploy key that can push to that repo only. New pages `/github/projects/cascade/releases/` and `/changelog/` render the JSON client-side.
+- **Website** (since 2026-10-29): Cascade's own site at `cascade.chaosinc.xyz`, the `site/` Worker in this repo (see `site/NOTES.md`). `publish.yml` uploads `releases.json` and `changelog.json` to the `cascade-plugins` R2 bucket, and the Worker serves them at `/releases.json` and `/changelog.json`; its `/releases/` page renders the list client-side. Until then they were committed into `Cha0s1nc/cha0sserverpage` under `github/projects/cascade/`; that site keeps redirects from the old addresses (its `_redirects`), because shipped apps fetch `www.chaosinc.xyz/github/projects/cascade/changelog.json`.
 - **OCI mirror (set up 2026-09-30, ready for the workflow):**
   - Served at `https://downloads.chaosinc.xyz:47443/<platform>/<version>/<file>` by Caddy in Docker (`/opt/cascade-mirror` on the OCI box), from `/srv/cascade-downloads`. The DNS record is DNS only, not proxied: Cloudflare's free plan discourages serving large files through its proxy, and ports 80 and 443 are taken on that box (443 is headscale), so Caddy gets its certificate through the ACME DNS challenge with a Cloudflare token kept in `/opt/cascade-mirror/.env`. Port 47443 is open in the OCI security list.
   - Uploads: `rsync` over SSH as `cascade-mirror@$MIRROR_HOST`, whose key is locked to `rrsync /srv/cascade-downloads` (no shell, no forwarding, paths anchored in that folder). Paths are relative to the mirror root, e.g. `rsync -rt dist/ cascade-mirror@HOST:` with `dist/desktop/2.3.1/...`. macOS's openrsync is rejected by rrsync; upload from an Ubuntu runner.
   - Pruning is server side: `cascade-mirror-prune.timer` runs daily and keeps the newest 20 `x.y.z` folders per platform. Betas are not mirrored.
-  - GitHub: secrets `MIRROR_SSH_KEY`, `MIRROR_KNOWN_HOSTS`, `WEBSITE_DEPLOY_KEY` (write deploy key on `cha0sserverpage`); variables `MIRROR_HOST`, `MIRROR_URL`.
-- **In the app:** the update window shows every desktop changelog section after the installed version up to the offered one, from `https://www.chaosinc.xyz/github/projects/cascade/changelog.json`, then `CHANGELOG.md` at the release's tag on GitHub, then the release body (`desktopReleaseNotes` in `main.js`, logic in `src/core/changelog.ts`).
+  - GitHub: secrets `MIRROR_SSH_KEY`, `MIRROR_KNOWN_HOSTS`, and the `release` environment's `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` (that environment must admit `v*` tags, since a published release runs on its tag); variables `MIRROR_HOST`, `MIRROR_URL`, `R2_ACCOUNT_ID`, `R2_BUCKET`. `WEBSITE_DEPLOY_KEY` is no longer used.
+- **In the app:** the update window shows every desktop changelog section after the installed version up to the offered one, from `https://cascade.chaosinc.xyz/changelog.json` (builds from before the move ask the old chaosinc.xyz address, which redirects there), then `CHANGELOG.md` at the release's tag on GitHub, then the release body (`desktopReleaseNotes` in `main.js`, logic in `src/core/changelog.ts`).
 - **Website content:** the releases page shows every release and beta with its GitHub release notes verbatim (from `releases.json`); `changelog.json` feeds the desktop update window. `publish.yml` also runs on `edited`, so fixing a release's notes on GitHub updates the site. Betas that `build.yml` publishes use the Actions token, whose events never start other workflows, so a CI beta reaches the site at the next publish or edit.
-- **Built as:** `.github/workflows/publish.yml` (mirror job, then website job), `scripts/site-data.mjs` and `src/core/site-data.ts`. The website's `main` is written only by the `release` event; a manual run writes to `cascade-releases` unless told otherwise. A manual run needs the workflow file on the default branch (`stable`), so it only works once a release has carried it there.
+- **Built as:** `.github/workflows/publish.yml` (mirror job, then website job), `scripts/site-data.mjs` and `src/core/site-data.ts`. A manual run uploads straight to R2 as well, so it updates the live site. A manual run needs the workflow file on the default branch (`stable`), so it only works once a release has carried it there.
 
 ## Phase 11: the native Mac DMG
 

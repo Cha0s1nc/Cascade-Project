@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cascade releases</title>
+<meta name="description" content="Every Cascade release and beta, with its notes and downloads.">
+<meta name="theme-color" content="#070a1a">
+<link rel="icon" href="/assets/icon-32.png" sizes="32x32">
+<link rel="icon" href="/assets/icon-192.png" sizes="192x192">
+<link rel="apple-touch-icon" href="/assets/icon-180.png">
+<link rel="preload" href="/assets/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
+<style>
+  @font-face { font-family: 'Bricolage Grotesque'; font-style: normal; font-weight: 500 700; font-display: swap; src: url(/assets/fonts/bricolage-grotesque-latin.woff2) format('woff2'); }
+  /* The landing page's palette and type, for one long list of releases. */
+  :root {
+    --night: #070a1a; --deep: #0b1130; --panel: #10173a; --line: #1e2754;
+    --text: #eef1ff; --text2: #aab3d9; --fall: #7cc4ff; --fall-ink: #05122a; --moss: #7fcf6a;
+    --display: 'Bricolage Grotesque', ui-sans-serif, system-ui, sans-serif;
+    --body: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--night); color: var(--text); font: 16px/1.6 var(--body); -webkit-font-smoothing: antialiased; }
+  body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--night); }
+  a { color: var(--fall); }
+  :focus-visible { outline: 2px solid var(--fall); outline-offset: 3px; border-radius: 6px; }
+  .wrap { max-width: 860px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  h1, h2, h3 { font-family: var(--display); font-weight: 700; text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+  nav { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: color-mix(in srgb, var(--night) 82%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid var(--line); }
+  nav .wrap { max-width: 1120px; display: flex; align-items: center; gap: 24px; height: 60px; }
+  .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text); font-family: var(--display); font-weight: 700; font-size: 1.15rem; }
+  .brand img { width: 30px; height: 30px; border-radius: 8px; }
+  .nav-links { display: flex; gap: 4px; margin-left: auto; }
+  .nav-links a { text-decoration: none; color: var(--text2); font-size: 0.92rem; padding: 8px 12px; border-radius: 8px; }
+  .nav-links a:hover { color: var(--text); background: var(--panel); }
+  header.top { padding-block: 64px 28px; display: grid; gap: 12px; }
+  header.top h1 { font-size: clamp(2rem, 4vw, 2.8rem); line-height: 1.08; }
+  header.top p { margin: 0; color: var(--text2); max-width: 60ch; }
+  .filters { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .filters[hidden] { display: none; }
+  .filters button { font: inherit; font-size: 0.85rem; color: var(--text2); background: var(--deep); border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; min-height: 36px; cursor: pointer; }
+  .filters button:hover { color: var(--text); border-color: var(--fall); }
+  .filters button[aria-pressed="true"] { color: var(--fall-ink); background: var(--fall); border-color: var(--fall); }
+  main { padding-bottom: 80px; display: grid; gap: 16px; }
+  .release { border: 1px solid var(--line); border-radius: 14px; background: var(--deep); padding: 22px 24px; scroll-margin-top: 80px; }
+  .release.is-beta { background: color-mix(in srgb, var(--deep) 70%, var(--night)); }
+  .release-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; margin-bottom: 10px; }
+  .release-head h2 { font-size: 1.5rem; font-variant-numeric: tabular-nums; }
+  .release-head h2 a { color: inherit; text-decoration: none; }
+  .release-head time { color: var(--text2); font-size: 0.9rem; }
+  .release-head .gh { margin-left: auto; font-size: 0.88rem; text-decoration: none; }
+  .pill { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 9px; border-radius: 999px; border: 1px solid currentColor; }
+  .pill.latest { color: var(--fall); }
+  .pill.beta { color: var(--moss); }
+  .notes { color: var(--text2); overflow-wrap: anywhere; }
+  .notes h4 { color: var(--text); font-family: var(--display); font-size: 1.05rem; margin: 18px 0 6px; }
+  .notes p { margin: 8px 0; }
+  .notes ul, .notes ol { margin: 6px 0; padding-left: 22px; }
+  .notes li { margin: 3px 0; }
+  .notes strong { color: var(--text); }
+  .notes code { font-family: var(--mono); font-size: 0.85em; background: var(--panel); border-radius: 5px; padding: 1px 5px; }
+  .notes hr { border: 0; border-top: 1px solid var(--line); margin: 16px 0; }
+  .plat { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .plat h3 { font-family: var(--body); font-size: 0.95rem; font-weight: 600; margin-bottom: 8px; }
+  .files { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+  .files li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; font-size: 0.9rem; }
+  .files .name { font-family: var(--mono); font-size: 0.85rem; color: var(--text); overflow-wrap: anywhere; min-width: 0; flex: 1 1 260px; }
+  .files .size { color: var(--text2); font-variant-numeric: tabular-nums; min-width: 4.5em; }
+  .hint, .status { color: var(--text2); font-size: 0.9rem; margin: 8px 0 0; }
+  footer { border-top: 1px solid var(--line); color: var(--text2); font-size: 0.88rem; }
+  footer .wrap { max-width: 1120px; display: flex; flex-wrap: wrap; gap: 10px 22px; padding-block: 32px; }
+  footer a { color: inherit; text-decoration: none; }
+  footer a:hover { color: var(--text); }
+  footer .grow { margin-right: auto; }
+  @media (max-width: 700px) { .nav-links a:not(.keep) { display: none; } .release { padding: 18px 16px; } }
+</style>
+</head>
+<body>
+
+<nav aria-label="Main">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/assets/icon-192.png" alt="" width="30" height="30">Cascade</a>
+    <div class="nav-links">
+      <a href="/#features">Features</a>
+      <a href="/#download" class="keep">Download</a>
+      <a href="https://github.com/Cha0s1nc/Cascade-Project">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header class="top wrap">
+  <h1>Releases</h1>
+  <p>Every Cascade release and beta, with its notes word for word and the files it built. The desktop app updates itself, so this is mostly for catching up on what changed.</p>
+  <div class="filters" id="filters" role="group" aria-label="Show" hidden></div>
+</header>
+
+<main id="releases" class="wrap" aria-live="polite"><p class="status">Loading releases…</p></main>
+
+<footer>
+  <div class="wrap">
+    <span class="grow">Cascade by Cha0s</span>
+    <a href="/">Home</a>
+    <a href="https://github.com/Cha0s1nc/Cascade-Project/releases">On GitHub</a>
+    <a href="https://github.com/Cha0s1nc/Cascade-Project/blob/stable/LICENSE">GPL-3.0</a>
+  </div>
+</footer>
+
+<script>
+  // /releases.json is written by the Cascade repo's publish workflow (to R2,
+  // served by this site's Worker): every published release, betas included,
+  // with its GitHub release notes word for word and the files it built.
+  const PLATFORMS = { desktop: 'Desktop', mac: 'Mac (native app)', apple: 'iPhone, iPad and Apple TV', android: 'Android' }
+  const FILTER_LABELS = { desktop: 'Desktop', mac: 'Mac', apple: 'Apple', android: 'Android' }
+
+  const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
+  // The Markdown GitHub release notes actually use: headings, nested lists
+  // (tab or space indented), paragraphs, rules, and inline bold, italics,
+  // strikethrough, code and links. A copy of Cascade's release-notes.js, the
+  // update window's renderer. Everything is escaped before any markup is
+  // added, and only http(s) URLs become links, so notes cannot inject HTML.
+  function inline(text) {
+    const held = []
+    const hold = html => `\u0000${held.push(html) - 1}\u0000`
+    const link = (url, label) => hold(`<a href="${url}" target="_blank" rel="noopener">${label}</a>`)
+    let s = esc(text)
+      .replace(/`([^`]+)`/g, (_, code) => hold(`<code>${code}</code>`))
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, label, url) => link(url, label))
+      .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, (_, pre, url) => pre + link(url, url))
+    s = s
+      .replace(/\*\*\*(?=\S)(.+?)(?<=\S)\*\*\*/g, '<strong><em>$1</em></strong>')
+      .replace(/(\*\*|__)(?=\S)(.+?)(?<=\S)\1/g, '<strong>$2</strong>')
+      .replace(/~~(?=\S)(.+?)(?<=\S)~~/g, '<del>$1</del>')
+      .replace(/\*(?=\S)([^*]+?)(?<=\S)\*/g, '<em>$1</em>')
+      .replace(/(^|[^\w])_(?=\S)([^_]+?)(?<=\S)_(?![\w])/g, '$1<em>$2</em>')
+    while (/\u0000\d+\u0000/.test(s)) s = s.replace(/\u0000(\d+)\u0000/g, (_, i) => held[i])
+    return s
+  }
+  const indentOf = ws => ws.replace(/\t/g, '    ').length
+  const RULE = /^\s*([-*_])(\s*\1){2,}\s*$/
+  function markdown(raw) {
+    const out = [], lists = []
+    const close = (above = -1) => { while (lists.length && lists[lists.length - 1].indent > above) out.push(`</li></${lists.pop().tag}>`) }
+    // Consecutive text lines are one paragraph.
+    let para = []
+    const closePara = () => { if (para.length) out.push(`<p>${inline(para.join(' '))}</p>`); para = [] }
+    for (const line of raw.replace(/\r\n?/g, '\n').split('\n')) {
+      const t = line.trimEnd()
+      let m
+      if ((m = t.match(/^(\s*)([-*+]|\d+[.)])\s+(.*)$/)) && !RULE.test(t)) {
+        closePara()
+        const indent = indentOf(m[1]), tag = /\d/.test(m[2]) ? 'ol' : 'ul'
+        close(indent)
+        const top = lists[lists.length - 1]
+        if (top && top.indent === indent) out.push(`</li><li>${inline(m[3])}`)
+        else { lists.push({ indent, tag }); out.push(`<${tag}><li>${inline(m[3])}`) }
+      } else if (t.trim() && lists.length && /^\s/.test(t)) {
+        out.push(` ${inline(t.trim())}`)
+      } else {
+        close()
+        if (!t.trim()) { closePara(); continue }
+        if ((m = t.match(/^(#{1,6})\s+(.*)$/))) { closePara(); out.push(`<h4>${inline(m[2])}</h4>`) }
+        else if (RULE.test(t)) { closePara(); out.push('<hr>') }
+        else para.push(t.trim())
+      }
+    }
+    closePara()
+    close()
+    return out.join('')
+  }
+
+  const size = n => n >= 1e6 ? `${(n / 1e6).toFixed(0)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`
+  const date = d => d ? new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : ''
+
+  function render(list, view) {
+    const root = document.getElementById('releases')
+    const latest = list.find(r => !r.prerelease)
+    const shown = list.filter(r => (view.betas || !r.prerelease) && (view.platform === 'all' || r.platforms[view.platform]))
+    if (!shown.length) { root.innerHTML = '<p class="status">Nothing to show with these filters.</p>'; return }
+    root.innerHTML = shown.map(r => {
+      const plats = Object.keys(PLATFORMS).filter(p => (view.platform === 'all' || p === view.platform) && r.platforms[p])
+      return `<article class="release${r.prerelease ? ' is-beta' : ''}" id="v${esc(r.version)}">
+        <div class="release-head">
+          <h2><a href="#v${esc(r.version)}">${esc(r.version)}</a></h2>
+          <time datetime="${esc(r.date)}">${esc(date(r.date))}</time>
+          ${r === latest ? '<span class="pill latest">Latest</span>' : ''}
+          ${r.prerelease ? '<span class="pill beta">Beta</span>' : ''}
+          ${r.url ? `<a class="gh" href="${esc(r.url)}" target="_blank" rel="noopener">On GitHub &rarr;</a>` : ''}
+        </div>
+        ${r.notes && r.notes.trim() ? `<div class="notes">${markdown(r.notes)}</div>` : '<p class="hint">No release notes.</p>'}
+        ${plats.map(p => `<div class="plat">
+          <h3>${PLATFORMS[p]}</h3>
+          <ul class="files">${r.platforms[p].map(f => `<li>
+            <span class="name">${esc(f.name)}</span>
+            <span class="size">${esc(size(f.size))}</span>
+            <a href="${esc(f.url)}">GitHub</a>
+            ${f.mirror ? `<a href="${esc(f.mirror)}">Mirror</a>` : ''}
+          </li>`).join('')}</ul>
+          ${p === 'apple' ? '<p class="hint">Not on the App Store yet. Install the .ipa by sideloading it, with Sideloadly or Xcode.</p>' : ''}
+        </div>`).join('')}
+      </article>`
+    }).join('')
+  }
+
+  ;(async () => {
+    try {
+      const res = await fetch('/releases.json', { cache: 'no-cache' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const list = (await res.json()).releases
+      const view = { platform: 'all', betas: true }
+
+      const filters = document.getElementById('filters')
+      const present = Object.keys(PLATFORMS).filter(p => list.some(r => r.platforms[p]))
+      const buttons = (present.length > 1 ? ['all', ...present] : [])
+        .map(p => `<button type="button" data-p="${p}" aria-pressed="${p === 'all'}">${p === 'all' ? 'All' : FILTER_LABELS[p]}</button>`)
+      if (list.some(r => r.prerelease)) buttons.push('<button type="button" data-betas aria-pressed="true">Betas</button>')
+      if (buttons.length) {
+        filters.hidden = false
+        filters.innerHTML = buttons.join('')
+        filters.addEventListener('click', e => {
+          const b = e.target.closest('button'); if (!b) return
+          if (b.hasAttribute('data-betas')) {
+            view.betas = !view.betas
+            b.setAttribute('aria-pressed', String(view.betas))
+          } else {
+            view.platform = b.dataset.p
+            for (const x of filters.querySelectorAll('[data-p]')) x.setAttribute('aria-pressed', String(x === b))
+          }
+          render(list, view)
+        })
+      }
+      render(list, view)
+      // A "Full changelog" link from release notes lands on its version.
+      if (location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView()
+    } catch (err) {
+      console.warn('[releases]', err.message)
+      document.getElementById('releases').innerHTML =
+        '<p class="status">The release list could not be loaded. Every release is also on <a href="https://github.com/Cha0s1nc/Cascade-Project/releases" target="_blank" rel="noopener">GitHub</a>.</p>'
+    }
+  })()
+</script>
+</body>
+</html>

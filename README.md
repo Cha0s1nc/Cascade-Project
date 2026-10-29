@@ -295,7 +295,7 @@ Output goes to `desktop/dist/`.
 
 Builds are attached to [GitHub Releases](https://github.com/Cha0s1nc/Cascade-Project/releases). The built-in auto-updater checks for new releases on startup and will prompt you to download and install. A release's `versions.json` says which version of each app it holds (`desktop` is Electron on every OS, `mac` is the native Mac app, `apple` is iOS and tvOS), because a release can carry the other apps' files over unchanged.
 
-Every release and beta, with its notes and downloads, is also listed on [chaosinc.xyz](https://www.chaosinc.xyz/github/projects/cascade/releases/), which mirrors the last 20 versions of each app.
+Every release and beta, with its notes and downloads, is also listed on the [releases page](https://cascade.chaosinc.xyz/releases/), which mirrors the last 20 versions of each app.
 
 ---
 

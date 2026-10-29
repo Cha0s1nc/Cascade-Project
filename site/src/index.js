@@ -3,7 +3,10 @@
 // announcements.cascade.chaosinc.xyz is this same Worker and serves only the
 // feed every Cascade app fetches at launch. The feed is announcements.json in
 // the cascade-plugins R2 bucket, so plugins.chaosinc.xyz/announcements.json
-// is the same file.
+// is the same file. /releases.json (the releases page and the landing page's
+// download buttons read it) and /changelog.json (the apps' update windows) sit
+// beside it in the bucket, written by the Cascade repo's publish workflow on
+// every release.
 //
 // Login is GitHub OAuth against ALLOWED_LOGINS (wrangler.toml), checked on
 // every request, so taking a name off the list locks them out at once. A
@@ -16,6 +19,9 @@ import { stampAuthors, validateFeed } from './announcements.js'
 const FEED_HOST = 'announcements.cascade.chaosinc.xyz'
 const FEED_KEY = 'announcements.json'
 const FEED_CACHE = 'public, max-age=300'
+// Release data, by path. Unlike the feed, a missing file is a 404: the apps
+// and pages that read it each have their own fallback.
+const RELEASE_FILES = { '/releases.json': 'releases.json', '/changelog.json': 'changelog.json' }
 const SESSION_COOKIE = 'cascade_session'
 const STATE_COOKIE = 'cascade_oauth'
 const SESSION_MS = 12 * 60 * 60 * 1000
@@ -29,6 +35,7 @@ export default {
     const path = url.pathname
     if (url.hostname === FEED_HOST) return path === '/' || path === '/announcements.json' ? feed(request, env) : text(404, 'Not found')
     if (path === '/announcements.json') return feed(request, env)
+    if (RELEASE_FILES[path]) return releaseFile(request, env, RELEASE_FILES[path])
     if (path === '/login') return login(url, env)
     if (path === '/login/callback') return callback(request, url, env)
     if (path === '/logout' && request.method === 'POST') return logout(url)
@@ -45,6 +52,15 @@ async function feed(request, env) {
   // caches.default in front if launches ever number in the millions.
   const obj = await env.FEED.get(FEED_KEY)
   return new Response(obj ? obj.body : '[]', {
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': FEED_CACHE, 'Access-Control-Allow-Origin': '*' },
+  })
+}
+
+async function releaseFile(request, env, key) {
+  if (request.method !== 'GET' && request.method !== 'HEAD') return text(405, 'Method not allowed')
+  const obj = await env.FEED.get(key)
+  if (!obj) return text(404, 'Not found')
+  return new Response(obj.body, {
     headers: { 'Content-Type': 'application/json', 'Cache-Control': FEED_CACHE, 'Access-Control-Allow-Origin': '*' },
   })
 }

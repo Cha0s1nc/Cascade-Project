@@ -388,7 +388,7 @@
       <div class="head">
         <p class="eyebrow">Download</p>
         <h2>Install it, point it at your server, done</h2>
-        <p>Every build comes from a tagged release on GitHub. The desktop app updates itself after the first install. <a href="https://www.chaosinc.xyz/github/projects/cascade/releases/">Release notes</a></p>
+        <p>Every build comes from a tagged release on GitHub. The desktop app updates itself after the first install. <a href="/releases/">Release notes</a></p>
       </div>
 
       <div class="dl-group">
@@ -460,7 +460,7 @@
   <div class="wrap">
     <span class="grow">Cascade by Cha0s</span>
     <a href="https://github.com/Cha0s1nc/Cascade-Project">GitHub</a>
-    <a href="https://www.chaosinc.xyz/github/projects/cascade/releases/">Releases</a>
+    <a href="/releases/">Releases</a>
     <a href="https://github.com/Cha0s1nc/Cascade-Project/blob/stable/LICENSE">GPL-3.0</a>
     <span>Icon art by <a href="https://www.fiverr.com/hxney_bun_">Hxney_bun_</a></span>
     <span>Design inspired by <a href="https://cider.sh">Cider</a></span>
@@ -508,7 +508,7 @@
   // Download links: releases.json (written by the publish workflow) knows which
   // release built each platform, so a newer Apple-only release never relabels
   // the desktop files. GitHub's latest release is the fallback.
-  const RELEASES = ['https://www.chaosinc.xyz/github/projects/cascade/releases.json', 'https://api.github.com/repos/Cha0s1nc/Cascade-Project/releases/latest']
+  const RELEASES = ['/releases.json', 'https://api.github.com/repos/Cha0s1nc/Cascade-Project/releases/latest']
   function setDl(id, file) {
     const a = document.getElementById(id)
     if (!a || !file) return

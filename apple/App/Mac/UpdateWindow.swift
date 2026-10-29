@@ -14,7 +14,7 @@ import CascadeKit
 final class UpdateService {
     static let shared = UpdateService()
     static let repo = "Cha0s1nc/Cascade-Project"
-    static let changelogUrl = "https://www.chaosinc.xyz/github/projects/cascade/changelog.json"
+    static let changelogUrl = "https://cascade.chaosinc.xyz/changelog.json"
 
     enum Kind { case update, switchBack }
 
