@@ -1,5 +1,7 @@
 # Cascade
 
+**Website:** [cascade.chaosinc.xyz](https://cascade.chaosinc.xyz), with screenshots, downloads for your platform and what's new.
+
 ---
 
 ## What it is
@@ -34,7 +36,7 @@ Cascade is a media streaming app, originally prioritized for music streaming. It
 
 ## Installation
 
-Download the latest release for your platform from the [Releases](https://github.com/Cha0s1nc/Cascade-Project/releases) page.
+Download the latest release for your platform from [cascade.chaosinc.xyz](https://cascade.chaosinc.xyz#download), which points you at the right file, or straight from the [Releases](https://github.com/Cha0s1nc/Cascade-Project/releases) page.
 
 - **Mac** - open the `.dmg` and drag the app to your Applications folder. `Cascade-<version>-arm64.dmg` is the Electron app, the default and the one that updates itself. A native Swift Mac app is on its way, starting as a beta and published as `Cascade-Native-<version>.dmg` beside it; when a release has it, Settings, About, **Try the native Mac app** in the Electron app switches over in place. Both are Apple Silicon only.
 - **Windows** - run the `.exe` installer
@@ -294,6 +296,16 @@ Output goes to `desktop/dist/`.
 Builds are attached to [GitHub Releases](https://github.com/Cha0s1nc/Cascade-Project/releases). The built-in auto-updater checks for new releases on startup and will prompt you to download and install. A release's `versions.json` says which version of each app it holds (`desktop` is Electron on every OS, `mac` is the native Mac app, `apple` is iOS and tvOS), because a release can carry the other apps' files over unchanged.
 
 Every release and beta, with its notes and downloads, is also listed on [chaosinc.xyz](https://www.chaosinc.xyz/github/projects/cascade/releases/), which mirrors the last 20 versions of each app.
+
+---
+
+## Website
+
+[cascade.chaosinc.xyz](https://cascade.chaosinc.xyz) is Cascade's home page. It shows the app on whatever you're visiting from (macOS, Windows, Linux or iPhone, Mac if it can't tell), with short clips of the lyrics in motion, and its download buttons always point at the latest release. The screenshots come from a test server, not anyone's personal library.
+
+It also hosts the **announcements** you see under the bell in every Cascade app. The apps fetch them from [announcements.cascade.chaosinc.xyz](https://announcements.cascade.chaosinc.xyz) at launch, which is a plain read of one JSON file, with no account, library or server details attached. They're posted from a panel on the site that only maintainers can sign in to, with GitHub.
+
+The whole site is one Cloudflare Worker in [`site/`](site/). [site/NOTES.md](site/NOTES.md) covers running it locally, setting it up and deploying it.
 
 ---
 
