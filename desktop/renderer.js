@@ -13302,6 +13302,12 @@ async function startArtSlice(slice, fadeSecs) {
 /** The old song is gone, or its fade was cut short: slide the cut out from wherever it is. */
 function endArtSlice(slice) {
   if (!slice || slice.sliding) return
+  // A skip's sweep is already on its way out and ends itself (startArtSlice).
+  // Restarting it as a slide-out from wherever it had got to stalled the cut
+  // mid-motion on every skip: the skip's fade tail (_cutCrossfadeTail) fires
+  // about half way through, since the sweep waits for the new cover first, and
+  // the slide-out's ease-in-out begins at almost no speed.
+  if (slice.sweepMs && slice.to === 0 && slice.anims.some(a => a.playState === 'running')) return
   slice.sliding = true
   // Where the cut is now: on its way in, holding, or not started (from = to = 2).
   const p = slice.anims[0]?.effect?.getComputedTiming().progress
