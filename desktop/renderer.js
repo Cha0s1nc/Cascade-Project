@@ -13204,6 +13204,11 @@ function _sliceFrames(s, g) {
 function _sliceCopy(img, cls) {
   const copy = img.cloneNode(false)
   copy.removeAttribute('onerror'); copy.removeAttribute('id'); copy.className = cls; copy.alt = ''
+  // A new element decodes on its own schedule even for an image already in
+  // memory, and the cover under it is swapped in the same moment, so the art
+  // went blank for a frame or more at the start of every crossfade and skip.
+  // The copy is of a cover already on screen, so decoding it now is cheap.
+  copy.decoding = 'sync'
   return copy
 }
 
