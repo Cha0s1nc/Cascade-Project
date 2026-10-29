@@ -481,7 +481,7 @@
   }
   const still = matchMedia('(prefers-reduced-motion: reduce)')
   // Platforms with the click-to-full-screen clip recorded so far.
-  const FS_CLIPS = ['mac']
+  const FS_CLIPS = ['mac', 'windows', 'linux']
   function setOS(os) {
     document.documentElement.dataset.os = os
     const desk = SHOTS.includes(os) ? os : 'mac'
