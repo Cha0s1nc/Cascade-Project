@@ -13,6 +13,7 @@ Login is GitHub OAuth. Only the logins in `ALLOWED_LOGINS` (`wrangler.toml`) get
 
 - `assets/<mac|windows|linux>/` holds home, full-screen lyrics and a TV show page, captured at 1440 by 900 at 2x from the desktop app on a jellyfin12 test account, then resized to 1600 wide. The window buttons are drawn over them by the page, since a page capture doesn't include them.
 - `assets/ios/` and `assets/video/ios.mp4` came from the iPhone 17 Pro simulator. The other loops in `assets/video/` are 12 seconds of the lyrics view, recorded over the desktop app's debug port.
+- The home shots show popular music, not anyone's own listening. Recently played is the test account's real play history, set on jellyfin12 to 20 well-known songs (The Weeknd, Queen, Bruno Mars, The Killers and so on) by writing their last-played dates. Recently added follows the server's add dates, which only an admin can change, so in the test copy that row's query is answered with real library albums by well-known artists. Every cover on screen is a real album in the library.
 - Retake them all together after a visible UI change, so the platforms keep matching. Block playback reports in every test copy while you do.
 - `assets/icon-*.png` are resized copies of the app icon and fall under `shared/assets/LICENSE`, not the GPL. `assets/fonts/` is Bricolage Grotesque under its own `OFL.txt`, self-hosted so the page loads nothing from Google.
 
