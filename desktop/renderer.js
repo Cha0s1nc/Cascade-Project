@@ -5963,43 +5963,62 @@ function applySubtitles(item, resolved) {
   if (!isVideoItem(item)) return
 
   // A download plays its own WebVTT files, saved beside it.
-  if (resolved?.local) {
-    for (const s of _offline.subs?.[item.Id] || []) {
-      const track = document.createElement('track')
-      track.kind = 'subtitles'
-      track.label = s.title || s.language || `Track ${s.index}`
-      if (s.language) track.srclang = s.language
-      track.src = s.url
-      audio.appendChild(track)
-      track.track.mode = (s.isDefault || s.isForced) ? 'showing' : 'disabled'
-    }
-    return
-  }
-
   const sourceId = resolved?.mediaSourceId
-  if (!sourceId) return
+  const subs = resolved?.local
+    ? (_offline.subs?.[item.Id] || []).map(s => ({ ...s, label: s.title || s.language || `Track ${s.index}` }))
+    : sourceId
+      ? (item.MediaStreams || []).filter(s => s.Type === 'Subtitle' && s.IsTextSubtitleStream).map(s => ({
+          index: s.Index, language: s.Language, isDefault: s.IsDefault, isForced: s.IsForced,
+          label: s.DisplayTitle || s.Language || `Track ${s.Index}`,
+          url: `${jf.url}/Videos/${item.Id}/${sourceId}/Subtitles/${s.Index}/Stream.vtt?ApiKey=${jf.token}`,
+        }))
+      : []
 
-  const subs = (item.MediaStreams || []).filter(s =>
-    s.Type === 'Subtitle' && s.IsTextSubtitleStream)
+  // One track at most: the pick made on this item, which a seek or an audio
+  // switch rebuilding the tracks must not undo, or else the default for the
+  // audio playing.
+  const audioIndex = _audioStreamIndex ?? resolved?.audioStreamIndex
+  const audioLanguage = (item.MediaStreams || []).find(s => s.Type === 'Audio' && s.Index === audioIndex)?.Language
+  const shown = _subtitlePick?.itemId === item.Id
+    ? subs.findIndex(s => s.index === _subtitlePick.index)
+    : CascadeCore.subtitleTrackToShow(subs, audioLanguage)
 
-  for (const s of subs) {
+  subs.forEach(s => {
     const track = document.createElement('track')
     track.kind = 'subtitles'
-    track.label = s.DisplayTitle || s.Language || `Track ${s.Index}`
-    if (s.Language) track.srclang = s.Language
-    track.src = `${jf.url}/Videos/${item.Id}/${sourceId}/Subtitles/${s.Index}/Stream.vtt?ApiKey=${jf.token}`
+    track.label = s.label
+    if (s.language) track.srclang = s.language
+    track.src = s.url
+    track.dataset.index = String(s.index)
     audio.appendChild(track)
-    // Mode is set after appending, and explicitly rather than via `default`,
-    // because `default` only decides the *initial* pick - the picker needs a
-    // handle it can keep changing afterwards.
-    track.track.mode = (s.IsDefault || s.IsForced) ? 'showing' : 'disabled'
-  }
+  })
+  // Mode is set after appending, and explicitly rather than via `default`,
+  // because `default` only decides the *initial* pick - the picker needs a
+  // handle it can keep changing afterwards.
+  showSubtitleTrack(shown)
 }
+
+/** The subtitle track picked on an item, by stream index (null for Off). */
+let _subtitlePick = null
+/** The subtitle track meant to show, by position among the <track>s. */
+let _subtitleShown = null
+
+function showSubtitleTrack(index) {
+  _subtitleShown = index
+  audio.querySelectorAll('track').forEach((t, i) => { t.track.mode = i === index ? 'showing' : 'disabled' })
+}
+
+// Once the tracks load, Chromium turns on the one in the browser's language by
+// itself, beside the one already showing, so the one meant to show is put back.
+DECKS.forEach(d => d.textTracks.addEventListener('change', () => {
+  if (d === audio) showSubtitleTrack(_subtitleShown)
+}))
 
 /** Show one subtitle track by index, or none when `index` is null. */
 function selectSubtitleTrack(index) {
-  const tracks = [...audio.querySelectorAll('track')]
-  tracks.forEach((t, i) => { t.track.mode = i === index ? 'showing' : 'disabled' })
+  showSubtitleTrack(index)
+  const t = index == null ? null : audio.querySelectorAll('track')[index]
+  _subtitlePick = { itemId: queue[queueIndex]?.Id, index: t ? Number(t.dataset.index) : null }
 }
 
 // opts.alreadyPlaying: true when a crossfade handoff already has `audio` playing

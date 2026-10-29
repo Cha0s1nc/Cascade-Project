@@ -1,7 +1,7 @@
 import { test, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { JellyfinClient } from '../src/core/jellyfin.ts'
-import { resolveStream, isHlsUrl, chapterList, chapterAt, chapterTarget, universalStreamUrl, stopActiveEncoding, DEFAULT_MAX_BITRATE, resumeTicks, neededAudioStreamIndex, audioStreamForLanguage, withoutAudioCodecs,
+import { resolveStream, isHlsUrl, chapterList, chapterAt, chapterTarget, universalStreamUrl, stopActiveEncoding, DEFAULT_MAX_BITRATE, resumeTicks, neededAudioStreamIndex, audioStreamForLanguage, subtitleTrackToShow, withoutAudioCodecs,
   continueEpisode,
 } from '../src/core/playback.ts'
 import { ELECTRON_PROFILE, buildElectronProfile } from '../src/core/profiles/electron.ts'
@@ -662,4 +662,20 @@ test('no picked language, or no track in it, leaves the choice to everything els
   assert.equal(audioStreamForLanguage(undefined, 'eng', null), null)
   // Subtitles share the language but are not audio.
   assert.equal(audioStreamForLanguage([{ Type: 'Subtitle', Index: 3, Language: 'eng' }], 'eng', null), null)
+})
+
+test('subtitleTrackToShow shows one track, the forced one only for its own audio', () => {
+  // MASHLE's layout: full English subs as default, the dub's forced track beside them.
+  const mashle = [
+    { language: 'eng', isDefault: true },
+    { language: 'eng', isForced: true },
+    { language: 'ara' },
+  ]
+  assert.equal(subtitleTrackToShow(mashle, 'jpn'), 0)
+  assert.equal(subtitleTrackToShow(mashle, 'eng'), 1)
+  assert.equal(subtitleTrackToShow(mashle, undefined), 0)
+  // Sonic ships three tracks all flagged default.
+  assert.equal(subtitleTrackToShow([{ isDefault: true }, { isDefault: true }, { isDefault: true }], 'ita'), 0)
+  assert.equal(subtitleTrackToShow([{ language: 'eng' }, { language: 'eng', isForced: true }], 'jpn'), null)
+  assert.equal(subtitleTrackToShow([], 'eng'), null)
 })

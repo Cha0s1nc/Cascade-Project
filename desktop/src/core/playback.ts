@@ -83,6 +83,8 @@ interface MediaSource {
   SupportsTranscoding?: boolean
   /** Server-relative when present; means "transcode, use this". */
   TranscodingUrl?: string
+  /** The audio track the server settled on, the requested one when one was sent. */
+  DefaultAudioStreamIndex?: number
 }
 
 interface PlaybackInfoResponse {
@@ -159,6 +161,8 @@ export interface ResolvedStream {
    * Add it to currentTime to get a real position.
    */
   startTicks: number
+  /** The audio track playing, as the server settled it. Absent on the fallback. */
+  audioStreamIndex?: number | null
 }
 
 /** Matches the old hardcoded URL, and the Electron profile default. */
@@ -379,6 +383,25 @@ export function audioStreamForLanguage(
   return (matches.find(s => s.Index === current) ?? matches[0])?.Index ?? null
 }
 
+/**
+ * The one text subtitle track to show when a video loads, as a position in
+ * `tracks`, or null for none.
+ *
+ * Showing every track flagged default or forced put two on screen at once: an
+ * anime release ships its full English subs as default and the English dub's
+ * forced track beside them, and both drew over each other. A forced track is
+ * for audio in its own language (the signs and lines a dub leaves alone), so it
+ * wins when that is the audio playing; otherwise the first default track does.
+ */
+export function subtitleTrackToShow(
+  tracks: { language?: string | null, isDefault?: boolean, isForced?: boolean }[],
+  audioLanguage: string | null | undefined,
+): number | null {
+  const forced = audioLanguage ? tracks.findIndex(t => t.isForced && t.language === audioLanguage) : -1
+  const pick = forced >= 0 ? forced : tracks.findIndex(t => t.isDefault)
+  return pick >= 0 ? pick : null
+}
+
 export async function resolveStream(
   client: JellyfinClient,
   config: ServerConfig,
@@ -432,6 +455,7 @@ export async function resolveStream(
         mediaSourceId: source.Id ?? null,
         direct: false,
         startTicks: offset,
+        audioStreamIndex: source.DefaultAudioStreamIndex ?? null,
       }
     }
 
@@ -443,6 +467,7 @@ export async function resolveStream(
       mediaSourceId: source.Id ?? null,
       direct: true,
       startTicks: 0,
+      audioStreamIndex: source.DefaultAudioStreamIndex ?? null,
     }
   } catch {
     return {
