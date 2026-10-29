@@ -252,11 +252,13 @@ async function writeImagestack(dir, src, width, height, scales) {
 }
 
 async function appleIcons(src) {
+  // Only the icon sets are rebuilt: the catalogs hold hand-made assets too
+  // (AccentColor.colorset), which wiping the whole catalog deleted.
   // iOS: one 1024 square, opaque (the App Store refuses an icon with alpha).
   const ios = path.join(APPLE, 'Assets-iOS.xcassets')
-  fs.rmSync(ios, { recursive: true, force: true })
   writeJson(path.join(ios, 'Contents.json'), { info: XCODE_INFO })
   const iconSet = path.join(ios, 'AppIcon.appiconset')
+  fs.rmSync(iconSet, { recursive: true, force: true })
   fs.mkdirSync(iconSet, { recursive: true })
   await sharp(src).resize(MAX_SIZE, MAX_SIZE).flatten({ background: BACKDROP }).png().toFile(path.join(iconSet, 'AppIcon.png'))
   writeJson(path.join(iconSet, 'Contents.json'), {
@@ -267,9 +269,9 @@ async function appleIcons(src) {
 
   // tvOS: the home screen icon, the App Store icon, and both top shelf sizes.
   const tv = path.join(APPLE, 'Assets-tvOS.xcassets')
-  fs.rmSync(tv, { recursive: true, force: true })
   writeJson(path.join(tv, 'Contents.json'), { info: XCODE_INFO })
   const brand = path.join(tv, 'App Icon & Top Shelf Image.brandassets')
+  fs.rmSync(brand, { recursive: true, force: true })
   await writeImagestack(path.join(brand, 'App Icon.imagestack'), src, 400, 240, [1, 2])
   await writeImagestack(path.join(brand, 'App Icon - App Store.imagestack'), src, 1280, 768, [1])
   for (const [name, w] of [['Top Shelf Image', 1920], ['Top Shelf Image Wide', 2320]]) {
