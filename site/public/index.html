@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Cascade, a player for Jellyfin</title>
-<meta name="description" content="Cascade signs in to your Jellyfin server and plays your library properly: shelves and search, a crossfade that doesn't dip, lyrics that follow the song, on macOS, Windows, Linux, iPhone and Apple TV.">
+<meta name="description" content="Your music, calm within the Cha0s. Cascade uses your Jellyfin library properly, with search, crossfade, and lyrics that show what's being sung, on macOS, Windows, Linux, iPhone and Apple TV.">
 <meta property="og:title" content="Cascade, a player for Jellyfin">
-<meta property="og:description" content="Your calm within the Cha0s. A free, open source player for Jellyfin.">
+<meta property="og:description" content="Your music, calm within the Cha0s. A free, open source player for Jellyfin.">
 <meta property="og:image" content="https://cascade.chaosinc.xyz/assets/mac/player.jpg">
 <meta property="og:url" content="https://cascade.chaosinc.xyz/">
 <meta name="twitter:card" content="summary_large_image">
@@ -100,6 +100,8 @@
   .shot.real .chrome { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
   :root[data-os="windows"] .lights, :root[data-os="linux"] .lights, :root:not([data-os="windows"]):not([data-os="linux"]) .caption { display: none; }
   .ios-only { display: none; }
+  .tr-apple, .tr-ios, :root[data-os="mac"] .tr-mozilla, :root[data-os="ios"] .tr-mozilla { display: none; }
+  :root[data-os="mac"] .tr-apple, :root[data-os="ios"] .tr-ios { display: block; }
   :root[data-os="ios"] .ios-only { display: block; }
   :root[data-os="ios"] .desk { display: none; }
   .phone { width: min(300px, 78%); margin-inline: auto; border-radius: 46px; border: 10px solid #0e1120; background: #000; overflow: hidden; box-shadow: 0 30px 80px -20px #000c, 0 0 0 1px #ffffff14; }
@@ -140,9 +142,6 @@
 
   .eq { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; align-items: end; }
   .band { display: grid; gap: 10px; justify-items: center; font-variant-numeric: tabular-nums; }
-  .track { position: relative; width: 6px; height: 150px; border-radius: 3px; background: var(--line); }
-  .track::after { content: ""; position: absolute; left: -4px; right: -4px; top: 50%; height: 1px; background: #3a4680; }
-  .knob { position: absolute; left: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%; background: var(--fall); box-shadow: 0 0 0 4px color-mix(in srgb, var(--fall) 20%, transparent); }
   .band b { font-family: var(--mono); font-size: 0.85rem; font-weight: 600; }
   .band span { color: var(--text2); font-size: 0.8rem; }
 
@@ -150,6 +149,39 @@
   .rest div { padding: 18px 0; border-top: 1px solid var(--line); display: grid; gap: 4px; }
   .rest b { font-weight: 600; }
   .rest p { color: var(--text2); font-size: 0.95rem; }
+
+  /* Crossfade demo: the covers behind the graph, cut on the diagonal as it fades. */
+  .xf-stage { position: relative; border-radius: 10px; overflow: hidden; aspect-ratio: 4 / 3; max-width: 100%; background: #000; }
+  .xf-stage circle { transition: opacity .25s; }
+  .xf-cover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .xf-shade { position: absolute; inset: 0; background: linear-gradient(180deg, #070a1a73, #070a1aa6); }
+  .xf-stage svg { position: absolute; inset: 8% 4% 4%; width: 92%; height: 88%; }
+  /* EQ demo */
+  .eq-demo { position: relative; }
+  .eq-body { display: grid; gap: 18px; transition: opacity .3s; }
+  .eq-body[inert] { opacity: .3; filter: saturate(.5); }
+  .band input[type=range] { writing-mode: vertical-lr; direction: rtl; appearance: none; -webkit-appearance: none; width: 28px; height: 150px; background: transparent; cursor: grab; margin: 0; }
+  .band input[type=range]:active { cursor: grabbing; }
+  .band input[type=range]::-webkit-slider-runnable-track { width: 6px; border-radius: 3px; background: linear-gradient(var(--line), var(--line)) center / 6px 100% no-repeat, linear-gradient(#3a4680, #3a4680) center / 14px 1px no-repeat; }
+  .band input[type=range]::-moz-range-track { width: 6px; border-radius: 3px; background: var(--line); }
+  .band input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; border-radius: 50%; background: var(--fall); box-shadow: 0 0 0 4px color-mix(in srgb, var(--fall) 20%, transparent); margin-left: -8px; }
+  .band input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border: 0; border-radius: 50%; background: var(--fall); box-shadow: 0 0 0 4px color-mix(in srgb, var(--fall) 20%, transparent); }
+  .band input[type=range]:focus-visible { outline: 2px solid var(--fall); outline-offset: 4px; border-radius: 8px; }
+  .eq-presets { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+  .eq-presets button, .eq-player button { font: inherit; font-size: 0.82rem; color: var(--text2); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; cursor: pointer; min-height: 32px; }
+  .eq-presets button:hover, .eq-player button:hover { color: var(--text); border-color: var(--fall); }
+  .eq-presets button[aria-pressed="true"] { color: var(--fall-ink); background: var(--fall); border-color: var(--fall); }
+  .eq-cover { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 10px; text-align: center; padding: 24px; border-radius: 14px; background: color-mix(in srgb, var(--deep) 35%, transparent); }
+  .eq-cover span { color: var(--text2); font-size: 0.88rem; max-width: 28ch; }
+  .eq-cover[hidden] { display: none; }
+  .eq-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+  #eq-headroom { font-family: var(--mono); font-size: 0.8rem; color: var(--text); white-space: nowrap; }
+  .eq-player { display: inline-flex; align-items: center; gap: 10px; margin-left: auto; font-size: 0.82rem; color: var(--text2); border: 1px solid var(--line); border-radius: 999px; padding: 4px 4px 4px 12px; background: var(--panel); }
+  .eq-player[hidden] { display: none; }
+  .eq-cover .btn svg { width: 18px; height: 18px; display: inline; }
+  .eq-meter { display: block; width: 36px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+  .eq-meter b { display: block; height: 100%; width: 0; background: var(--fall); }
+  @media (prefers-reduced-motion: reduce) { .eq-body { transition: none; } }
 
   /* Download */
   .dl-group + .dl-group { margin-top: 40px; }
@@ -224,9 +256,8 @@
 <header class="hero" id="top">
   <div class="wrap">
     <div class="hero-copy">
-      <p class="eyebrow">A player for Jellyfin</p>
-      <h1>Your calm within <em>the Cha0s.</em></h1>
-      <p class="hero-sub">Cascade signs in to your Jellyfin server and plays your library properly: shelves and search, a crossfade that doesn't dip, lyrics that follow the song, and media keys that do what they say.</p>
+      <h1>Your music, calm within <em>the Cha0s.</em></h1>
+      <p class="hero-sub">Cascade uses your Jellyfin library properly, with search, crossfade, and lyrics that show what's being sung.</p>
       <div class="actions">
         <a class="btn btn-primary" href="#download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 11l5 5 5-5M5 21h14"/></svg>Download Cascade</a>
         <a class="btn btn-quiet" href="#features">See what it does</a>
@@ -284,16 +315,23 @@
           <p>Cascade runs two players at once and fades between them on equal power curves, so the volume stays level across the join instead of dipping in the middle. The next track is loaded ahead of time and the change never stalls.</p>
         </div>
         <figure class="figure" style="margin:0">
-          <svg viewBox="0 0 320 140" role="img" aria-label="Two crossfade curves: the outgoing track falls along a cosine while the next track rises along a sine">
-            <line x1="20" y1="110" x2="300" y2="110" stroke="var(--line)" stroke-width="1"/>
-            <line x1="20" y1="20" x2="300" y2="20" stroke="var(--line)" stroke-width="1" stroke-dasharray="3 4"/>
-            <path d="M20.0 20.0 L27.0 20.1 L34.0 20.3 L41.0 20.6 L48.0 21.1 L55.0 21.7 L62.0 22.5 L69.0 23.4 L76.0 24.4 L83.0 25.6 L90.0 26.9 L97.0 28.3 L104.0 29.8 L111.0 31.5 L118.0 33.3 L125.0 35.2 L132.0 37.2 L139.0 39.3 L146.0 41.6 L153.0 43.9 L160.0 46.4 L167.0 48.9 L174.0 51.5 L181.0 54.3 L188.0 57.1 L195.0 60.0 L202.0 63.0 L209.0 66.0 L216.0 69.1 L223.0 72.3 L230.0 75.6 L237.0 78.8 L244.0 82.2 L251.0 85.6 L258.0 89.0 L265.0 92.4 L272.0 95.9 L279.0 99.4 L286.0 102.9 L293.0 106.5 L300.0 110.0" fill="none" stroke="var(--text2)" stroke-width="2.5" stroke-linecap="round"/>
-            <path d="M20.0 110.0 L27.0 106.5 L34.0 102.9 L41.0 99.4 L48.0 95.9 L55.0 92.4 L62.0 89.0 L69.0 85.6 L76.0 82.2 L83.0 78.8 L90.0 75.6 L97.0 72.3 L104.0 69.1 L111.0 66.0 L118.0 63.0 L125.0 60.0 L132.0 57.1 L139.0 54.3 L146.0 51.5 L153.0 48.9 L160.0 46.4 L167.0 43.9 L174.0 41.6 L181.0 39.3 L188.0 37.2 L195.0 35.2 L202.0 33.3 L209.0 31.5 L216.0 29.8 L223.0 28.3 L230.0 26.9 L237.0 25.6 L244.0 24.4 L251.0 23.4 L258.0 22.5 L265.0 21.7 L272.0 21.1 L279.0 20.6 L286.0 20.3 L293.0 20.1 L300.0 20.0" fill="none" stroke="var(--fall)" stroke-width="2.5" stroke-linecap="round"/>
-            <text x="20" y="130" fill="var(--text2)" font-size="10" font-family="ui-monospace, Menlo, monospace">fade starts</text>
-            <text x="300" y="130" fill="var(--text2)" font-size="10" font-family="ui-monospace, Menlo, monospace" text-anchor="end">fade ends</text>
-          </svg>
-          <div class="legend"><span><i style="background:var(--text2)"></i>Track ending</span><span><i style="background:var(--fall)"></i>Next track</span></div>
-          <figcaption>The real curves: cosine out, sine in, handed straight to the audio engine.</figcaption>
+          <div class="xf-stage" id="xf" role="img" aria-label="Cascade's own crossfade cover slice between two covers, with the outgoing track falling along a cosine curve while the next track rises along a sine">
+            <video class="xf-cover" id="xf-video" src="assets/demo/crossfade.mp4" muted loop playsinline preload="metadata" aria-hidden="true"></video>
+            <div class="xf-shade"></div>
+            <svg viewBox="0 0 320 140" aria-hidden="true">
+              <line x1="20" y1="110" x2="300" y2="110" stroke="#ffffff33" stroke-width="1"/>
+              <line x1="20" y1="20" x2="300" y2="20" stroke="#ffffff33" stroke-width="1" stroke-dasharray="3 4"/>
+              <line id="xf-head" x1="20" y1="14" x2="20" y2="114" stroke="#ffffff55" stroke-width="1"/>
+              <path d="M20.0 20.0 L27.0 20.1 L34.0 20.3 L41.0 20.6 L48.0 21.1 L55.0 21.7 L62.0 22.5 L69.0 23.4 L76.0 24.4 L83.0 25.6 L90.0 26.9 L97.0 28.3 L104.0 29.8 L111.0 31.5 L118.0 33.3 L125.0 35.2 L132.0 37.2 L139.0 39.3 L146.0 41.6 L153.0 43.9 L160.0 46.4 L167.0 48.9 L174.0 51.5 L181.0 54.3 L188.0 57.1 L195.0 60.0 L202.0 63.0 L209.0 66.0 L216.0 69.1 L223.0 72.3 L230.0 75.6 L237.0 78.8 L244.0 82.2 L251.0 85.6 L258.0 89.0 L265.0 92.4 L272.0 95.9 L279.0 99.4 L286.0 102.9 L293.0 106.5 L300.0 110.0" fill="none" stroke="#e7e9f5" stroke-width="2.5" stroke-linecap="round"/>
+              <path d="M20.0 110.0 L27.0 106.5 L34.0 102.9 L41.0 99.4 L48.0 95.9 L55.0 92.4 L62.0 89.0 L69.0 85.6 L76.0 82.2 L83.0 78.8 L90.0 75.6 L97.0 72.3 L104.0 69.1 L111.0 66.0 L118.0 63.0 L125.0 60.0 L132.0 57.1 L139.0 54.3 L146.0 51.5 L153.0 48.9 L160.0 46.4 L167.0 43.9 L174.0 41.6 L181.0 39.3 L188.0 37.2 L195.0 35.2 L202.0 33.3 L209.0 31.5 L216.0 29.8 L223.0 28.3 L230.0 26.9 L237.0 25.6 L244.0 24.4 L251.0 23.4 L258.0 22.5 L265.0 21.7 L272.0 21.1 L279.0 20.6 L286.0 20.3 L293.0 20.1 L300.0 20.0" fill="none" stroke="var(--fall)" stroke-width="2.5" stroke-linecap="round"/>
+              <circle id="xf-dot-out" cx="20" cy="20" r="5" fill="#e7e9f5" stroke="#070a1a" stroke-width="2"/>
+              <circle id="xf-dot-in" cx="20" cy="110" r="5" fill="var(--fall)" stroke="#070a1a" stroke-width="2"/>
+              <text x="20" y="130" fill="#e7e9f5cc" font-size="10" font-family="ui-monospace, Menlo, monospace">fade starts</text>
+              <text x="300" y="130" fill="#e7e9f5cc" font-size="10" font-family="ui-monospace, Menlo, monospace" text-anchor="end">fade ends</text>
+            </svg>
+          </div>
+          <div class="legend"><span><i style="background:var(--text)"></i>Track ending</span><span><i style="background:var(--fall)"></i>Next track</span></div>
+          <figcaption>The real curves: cosine out, sine in, handed straight to the audio engine. Behind them, the app's own cover slice, recorded from Cascade during two crossfades.</figcaption>
         </figure>
       </div>
 
@@ -302,15 +340,27 @@
           <h3>An equalizer that won't clip</h3>
           <p>Five bands with presets for flat, bass, vocal, treble and loudness. Push a band up and Cascade pulls the overall level down to match, so a boost never turns into distortion. Music and video keep separate settings.</p>
         </div>
-        <figure class="figure" style="margin:0">
-          <div class="eq" role="img" aria-label="The Vocal preset: 60 hertz minus 3 decibels, 250 hertz minus 1, 1 kilohertz plus 4, 4 kilohertz plus 3, 12 kilohertz minus 1">
-            <div class="band"><b>−3</b><div class="track"><span class="knob" style="top:62.5%"></span></div><span>60 Hz</span></div>
-            <div class="band"><b>−1</b><div class="track"><span class="knob" style="top:54.2%"></span></div><span>250 Hz</span></div>
-            <div class="band"><b>+4</b><div class="track"><span class="knob" style="top:33.3%"></span></div><span>1 kHz</span></div>
-            <div class="band"><b>+3</b><div class="track"><span class="knob" style="top:37.5%"></span></div><span>4 kHz</span></div>
-            <div class="band"><b>−1</b><div class="track"><span class="knob" style="top:54.2%"></span></div><span>12 kHz</span></div>
+        <figure class="figure eq-demo" id="eq-demo" style="margin:0">
+          <div class="eq-body" id="eq-body" inert>
+            <div class="eq">
+              <label class="band"><b id="eq-v0">0</b><input type="range" id="eq-b0" min="-12" max="12" step="1" value="0" aria-label="60 Hz" tabindex="-1"><span>60 Hz</span></label>
+              <label class="band"><b id="eq-v1">0</b><input type="range" id="eq-b1" min="-12" max="12" step="1" value="0" aria-label="250 Hz" tabindex="-1"><span>250 Hz</span></label>
+              <label class="band"><b id="eq-v2">0</b><input type="range" id="eq-b2" min="-12" max="12" step="1" value="0" aria-label="1 kHz" tabindex="-1"><span>1 kHz</span></label>
+              <label class="band"><b id="eq-v3">0</b><input type="range" id="eq-b3" min="-12" max="12" step="1" value="0" aria-label="4 kHz" tabindex="-1"><span>4 kHz</span></label>
+              <label class="band"><b id="eq-v4">0</b><input type="range" id="eq-b4" min="-12" max="12" step="1" value="0" aria-label="12 kHz" tabindex="-1"><span>12 kHz</span></label>
+            </div>
+            <div class="eq-presets" role="group" aria-label="Presets">
+              <button type="button" data-preset="Flat">Flat</button><button type="button" data-preset="Bass Boost">Bass Boost</button><button type="button" data-preset="Vocal">Vocal</button><button type="button" data-preset="Treble">Treble</button><button type="button" data-preset="Loudness">Loudness</button>
+            </div>
           </div>
-          <figcaption>The Vocal preset, as it ships. The scale runs from −12 to +12 dB.</figcaption>
+          <div class="eq-cover" id="eq-cover">
+            <button type="button" class="btn btn-primary" id="eq-try"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>Try it</button>
+            <span>Plays a short example beat. Drag the bands while it plays.</span>
+          </div>
+          <div class="eq-foot">
+            <figcaption>The same five bands and presets as the app. <span id="eq-headroom">Level 0 dB</span></figcaption>
+            <div class="eq-player" id="eq-player" hidden><i class="eq-meter"><b id="eq-meter"></b></i><span>Example beat</span><button type="button" id="eq-stop" aria-label="Stop the example beat">Stop</button></div>
+          </div>
         </figure>
       </div>
 
@@ -371,8 +421,8 @@
       </div>
       <div class="ledger">
         <div><b>Update checks</b><p>Cascade asks GitHub for new releases and reads their notes from GitHub or this site.</p></div>
-        <div><b>Discord presence</b><p>If you turn it on, a public catalog is asked for a cover image by track name.</p></div>
-        <div><b>Lyric translation</b><p>The first time you translate, a language model downloads from GitHub or Mozilla. Translating happens on your machine.</p></div>
+        <div><b>Discord presence</b><p>Off until you turn it on. Then the Discord app on your computer gets the track's title, artist and album, when it started and how long it runs, and a cover image. The cover comes from Apple's public iTunes search, asked by artist and album name. For a film or episode it is the title alone, with no cover. Pausing clears it, and your server address and login never go to Discord.</p></div>
+        <div><b>Lyric translation</b><p class="tr-apple">Translating runs on your device through Apple's own Translation, by way of a small command-line helper Cascade ships, so nothing is downloaded through Cascade. A language macOS doesn't have installed can be added in System Settings.</p><p class="tr-ios">Translating runs on your iPhone through Apple's own Translation, built into iOS, so nothing is downloaded through Cascade.</p><p class="tr-mozilla">The first time you translate a language, its model (35 to 70 MB) downloads from Cascade's GitHub releases or Mozilla, and is checked against a known fingerprint before use. Translating happens on your machine.</p></div>
         <div><b>Waterfall</b><p>If you use it, a small room code passes through a relay. No audio is sent between listeners.</p></div>
       </div>
     </div>
@@ -395,8 +445,8 @@
   <section class="closing">
     <div class="wrap">
       <div>
-        <h2>Your server already has the music</h2>
-        <p>Cascade is the part that plays it properly.</p>
+        <h2>Your server holds the media</h2>
+        <p>Show it well with Cascade.</p>
       </div>
       <div class="actions">
         <a class="btn btn-primary" href="#download">Download Cascade</a>
@@ -430,13 +480,18 @@
     return 'mac'
   }
   const still = matchMedia('(prefers-reduced-motion: reduce)')
+  // Platforms with the click-to-full-screen clip recorded so far.
+  const FS_CLIPS = ['mac']
   function setOS(os) {
     document.documentElement.dataset.os = os
     const desk = SHOTS.includes(os) ? os : 'mac'
     document.querySelectorAll('img[data-shot]').forEach(img => { img.src = `assets/${desk}/${img.dataset.shot}.jpg` })
-    document.querySelectorAll('video').forEach(v => {
-      const name = v.dataset.vid === 'ios' ? 'ios' : desk
-      if (v.dataset.vid === 'desk') v.poster = `assets/${desk}/player.jpg`
+    document.querySelectorAll('video[data-vid]').forEach(v => {
+      // The click-to-full-screen clip where that platform has one, otherwise
+      // its lyrics loop. Reduced motion keeps the still lyrics screen.
+      const clip = v.dataset.vid === 'desk' && FS_CLIPS.includes(desk)
+      const name = v.dataset.vid === 'ios' ? 'ios' : clip ? `fs-${desk}` : desk
+      if (v.dataset.vid === 'desk') v.poster = clip && !still.matches ? `assets/${desk}/fs-poster.jpg` : `assets/${desk}/player.jpg`
       const showing = v.dataset.vid === 'ios' ? os === 'ios' : os !== 'ios'
       if (!showing || still.matches) { v.pause(); return }
       const src = `assets/video/${name}.mp4`
@@ -492,6 +547,146 @@
       setDl('dl-tvos', files.find(x => /tvOS\.ipa$/i.test(x.name)))
       if (r.html_url) document.getElementById('dl-linux').href = r.html_url
     } catch (err) { console.warn('[releases]', err.message) }
+  })()
+</script>
+<script>
+  // The crossfade figure: behind the graph, a recording of the app's own
+  // cover slice (cascadeDebug.artSlice) during two 6 s crossfades 9 s apart,
+  // looped. The dots read the video's clock, so they ride the curves exactly
+  // while each fade runs, wait at the end through the slide-out, and step back
+  // to the start before the next one.
+  ;(() => {
+    const stage = document.getElementById('xf'); if (!stage) return
+    const video = document.getElementById('xf-video')
+    const dOut = document.getElementById('xf-dot-out'), dIn = document.getElementById('xf-dot-in'), head = document.getElementById('xf-head')
+    const FADES = [1.5, 10.502], FADE = 6, SLIDE_OUT = 1.2
+    function draw(t, shown) {
+      const x = 20 + 280 * t
+      dOut.setAttribute('cx', x); dOut.setAttribute('cy', 110 - 90 * Math.cos(t * Math.PI / 2))
+      dIn.setAttribute('cx', x); dIn.setAttribute('cy', 110 - 90 * Math.sin(t * Math.PI / 2))
+      head.setAttribute('x1', x); head.setAttribute('x2', x)
+      for (const el of [dOut, dIn, head]) el.style.opacity = shown ? '' : '0'
+    }
+    function at(v) {
+      // The fade this moment belongs to: the last one started, or the first.
+      let f = FADES[0]
+      for (const s of FADES) if (v >= s) f = s
+      if (v < f) return draw(0, true)
+      const into = v - f
+      if (into <= FADE) return draw(into / FADE, true)
+      if (into <= FADE + SLIDE_OUT) return draw(1, true)
+      // Between fades the dots slip away, then wait at the start.
+      const next = FADES.find(s => s > v) ?? FADES[0] + video.duration
+      return next - v < 0.6 ? draw(0, true) : draw(1, false)
+    }
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      video.addEventListener('loadeddata', () => { video.currentTime = FADES[0] + FADE * 0.5; at(video.currentTime) }, { once: true })
+      return
+    }
+    let raf = 0
+    const tick = () => { at(video.currentTime); raf = requestAnimationFrame(tick) }
+    new IntersectionObserver(([e]) => {
+      if (e.isIntersecting) { video.play().catch(() => {}); if (!raf) tick() }
+      else { video.pause(); cancelAnimationFrame(raf); raf = 0 }
+    }).observe(stage)
+    draw(0, true)
+  })()
+
+  // The equalizer: five peaking filters at the app's frequencies and its
+  // presets, the same automatic headroom (boost a band and the overall level
+  // comes down to match), over a beat made here in the browser, so nothing
+  // plays until someone presses Try it and no recording needs licensing.
+  ;(() => {
+    const demo = document.getElementById('eq-demo'); if (!demo) return
+    const FREQS = [60, 250, 1000, 4000, 12000]
+    const PRESETS = { Flat: [0, 0, 0, 0, 0], 'Bass Boost': [7, 4, 0, -1, -1], Vocal: [-3, -1, 4, 3, -1], Treble: [-2, -1, 0, 4, 6], Loudness: [6, 2, -2, 2, 6] }
+    const sliders = FREQS.map((_, k) => document.getElementById('eq-b' + k))
+    const body = document.getElementById('eq-body'), cover = document.getElementById('eq-cover'), player = document.getElementById('eq-player')
+    let ctx = null, filters = [], pre = null, analyser = null, timer = 0, meterRaf = 0, nextAt = 0, step = 0
+    const fmt = v => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v)
+    function apply() {
+      const vals = sliders.map(s => Number(s.value))
+      vals.forEach((v, k) => {
+        document.getElementById('eq-v' + k).textContent = fmt(v)
+        if (filters[k]) filters[k].gain.setTargetAtTime(v, ctx.currentTime, 0.02)
+      })
+      const headroom = Math.max(0, ...vals)
+      if (pre) pre.gain.setTargetAtTime(Math.pow(10, -headroom / 20), ctx.currentTime, 0.02)
+      document.getElementById('eq-headroom').textContent = 'Level ' + (headroom ? fmt(-headroom) : '0') + ' dB'
+      demo.querySelectorAll('[data-preset]').forEach(b => b.setAttribute('aria-pressed', String(PRESETS[b.dataset.preset].every((v, k) => v === vals[k]))))
+    }
+    sliders.forEach(s => s.addEventListener('input', apply))
+    demo.querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', () => { PRESETS[b.dataset.preset].forEach((v, k) => { sliders[k].value = v }); apply() }))
+
+    // The beat: 100 BPM, sixteenth steps, two bars. Kick and bass sit in the
+    // low bands, the snare's body and the lead in the middle, hats on top.
+    const BPM = 100, STEP = 60 / BPM / 4
+    const BASS = [55, 0, 55, 0, 0, 55, 0, 65.4, 43.65, 0, 43.65, 0, 0, 49, 0, 49]
+    const LEAD = [880, 0, 0, 1046.5, 0, 1318.5, 0, 0, 1174.7, 0, 1046.5, 0, 880, 0, 0, 0]
+    let noise = null
+    function noiseBuf() {
+      if (noise) return noise
+      noise = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate)
+      const d = noise.getChannelData(0); let seed = 1
+      for (let i = 0; i < d.length; i++) { seed = (seed * 16807) % 2147483647; d[i] = seed / 1073741823.5 - 1 }
+      return noise
+    }
+    function env(node, t, peak, decay) { const g = ctx.createGain(); g.gain.setValueAtTime(peak, t); g.gain.exponentialRampToValueAtTime(0.0001, t + decay); node.connect(g); g.connect(filters[0]); return g }
+    function kick(t) { const o = ctx.createOscillator(); o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(45, t + 0.12); env(o, t, 0.9, 0.38); o.start(t); o.stop(t + 0.4) }
+    function snare(t) {
+      const n = ctx.createBufferSource(); n.buffer = noiseBuf(); const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1800; bp.Q.value = 0.8; n.connect(bp); env(bp, t, 0.45, 0.18); n.start(t); n.stop(t + 0.2)
+      const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.setValueAtTime(190, t); env(o, t, 0.25, 0.09); o.start(t); o.stop(t + 0.1)
+    }
+    function hat(t, open) { const n = ctx.createBufferSource(); n.buffer = noiseBuf(); const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 7500; n.connect(hp); env(hp, t, open ? 0.16 : 0.12, open ? 0.22 : 0.05); n.start(t); n.stop(t + 0.25) }
+    function bass(t, f) { const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 420; o.connect(lp); env(lp, t, 0.38, STEP * 1.8); o.start(t); o.stop(t + STEP * 2) }
+    function lead(t, f) { const o = ctx.createOscillator(); o.type = 'square'; o.frequency.value = f; const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3200; o.connect(lp); env(lp, t, 0.07, STEP * 2.6); o.start(t); o.stop(t + STEP * 3) }
+    function schedule() {
+      while (nextAt < ctx.currentTime + 0.12) {
+        const i = step % 32, s16 = i % 16, t = nextAt
+        if (s16 === 0 || s16 === 8 || (i === 26)) kick(t)
+        if (s16 === 4 || s16 === 12) snare(t)
+        if (s16 % 2 === 0) hat(t, s16 === 14)
+        if (BASS[s16]) bass(t, BASS[s16] * (i >= 16 && s16 >= 8 ? 1.122 : 1))
+        if (i >= 16 && LEAD[s16]) lead(t, LEAD[s16])
+        nextAt += STEP; step++
+      }
+    }
+    function meter() {
+      const buf = new Uint8Array(analyser.fftSize); analyser.getByteTimeDomainData(buf)
+      let peak = 0; for (const v of buf) peak = Math.max(peak, Math.abs(v - 128))
+      document.getElementById('eq-meter').style.width = Math.min(100, peak / 0.9) + '%'
+      meterRaf = requestAnimationFrame(meter)
+    }
+    function start() {
+      if (!ctx) {
+        ctx = new (window.AudioContext || window.webkitAudioContext)()
+        filters = FREQS.map((f, k) => { const b = ctx.createBiquadFilter(); b.type = 'peaking'; b.frequency.value = f; b.Q.value = 1; return b })
+        filters.reduce((a, b) => (a.connect(b), b))
+        pre = ctx.createGain(); analyser = ctx.createAnalyser(); analyser.fftSize = 512
+        const master = ctx.createGain(); master.gain.value = 0.55
+        filters[4].connect(pre); pre.connect(master); master.connect(analyser); analyser.connect(ctx.destination)
+      }
+      ctx.resume()
+      nextAt = ctx.currentTime + 0.05; step = 0
+      clearInterval(timer); timer = setInterval(schedule, 25); schedule()
+      cancelAnimationFrame(meterRaf); meter()
+      body.inert = false; cover.hidden = true; player.hidden = false
+      sliders.forEach(s => s.tabIndex = 0)
+      apply()
+    }
+    function stop() {
+      clearInterval(timer); cancelAnimationFrame(meterRaf)
+      if (ctx) ctx.suspend()
+      document.getElementById('eq-meter').style.width = '0'
+      body.inert = true; cover.hidden = false; player.hidden = true
+      sliders.forEach(s => s.tabIndex = -1)
+      document.getElementById('eq-try').focus({ preventScroll: true })
+    }
+    document.getElementById('eq-try').addEventListener('click', start)
+    document.getElementById('eq-stop').addEventListener('click', stop)
+    // A tab in the background should not keep playing a demo nobody is watching.
+    document.addEventListener('visibilitychange', () => { if (document.hidden && player.hidden === false) stop() })
+    PRESETS.Vocal.forEach((v, k) => { sliders[k].value = v }); apply()
   })()
 </script>
 </body>
