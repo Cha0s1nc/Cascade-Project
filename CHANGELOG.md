@@ -4,14 +4,16 @@ Every stable release of Cascade, newest first. Betas are not listed on their own
 
 Each version is a heading like `## 2.3.0 (2026-10-05)`, dated the day the release was published (UTC), followed by a `### Desktop`, `### Mac`, `### Apple` or `### Android` section for each platform the release changed. Desktop is the Electron app on every OS, Mac is the native Mac app, and Apple is iOS and tvOS. Use `####` for headings inside a section. The release workflow reads this file, so it has to keep to that format; `npm test` checks it, and `node scripts/changelog-section.mjs 2.3.0` prints one version's notes.
 
-## 2.4.0 (2026-20-29)
+## 2.4.0 (2026-10-29)
+
+### Desktop
 
 Well then. Been a while hasn't it?
 
-### Future additions
+#### Future additions
 - Native macOS port is coming soon. Right now, it *does* exist, just not well. Working on polishing a lot, planning on theming the exact same way (somehow). If you wanna try it, build from source.
 
-### Major changes
+#### Major changes
 - Added a new mode: Local mode
 	- Emulates a Jellyfin server with a folder on your computer (If you wanna use your media without a Jellyfin server, there you go)
 - Added an Offline mode for both Desktop and iOS (not tvOS)
@@ -44,7 +46,7 @@ Well then. Been a while hasn't it?
 - Spicy Lyrics can now be used with your own key for users who do not control the server. Title, Artist, and Album go to ListenBrainz for automatic ID of the song
 - Server messages/login disclaimers now show on the app correctly
 
-### Minor changes
+#### Minor changes
 - Reverse Proxy headers and client certs are now available.
 - Skip intro and credits feature on both platforms
 - Dedicated video player on iOS
@@ -72,7 +74,7 @@ Well then. Been a while hasn't it?
 - Search on Desktop now has a new home on the title bar
 - macOS DMGs now use LZMA to be smaller
 
-### Bugfixes
+#### Bugfixes
 - Wrong album arts from iTunes would sometimes show for DiscordRPC; should be fixed now
 - Audio track choices for shows and movies now actually reach the server
 - Movies now offer every audio track when transcoding
