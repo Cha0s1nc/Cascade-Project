@@ -37,7 +37,7 @@ overwritten by its own output partway through the run.
 macOS note: icon.icns needs `iconutil`, so it is only produced when the script
 runs on macOS. Everything else builds anywhere.
 
-Licensing: the artwork here is NOT GPL. It is (C) 2026 cha0s and Hxney_bun_,
+Licensing: the artwork here is NOT GPL. It is (C) 2026 Cha0s and Hxney_bun_,
 all rights reserved, under assets/LICENSE. Unmodified builds may be shared;
 forks and modified versions must replace it. Anything new added to this folder
 falls under the same terms, so get the artist's agreement first.

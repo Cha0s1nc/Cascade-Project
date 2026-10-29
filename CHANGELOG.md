@@ -179,7 +179,7 @@ The macOS updater in 2.1.0 and 2.2.0 cannot install updates. Mac users have to d
 
 #### Licensing
 
-- The artwork is not GPL. It belongs to Hxney_bun_ and cha0s under its own license: unmodified builds may be redistributed, but forks and modified versions must use different art. The source code stays GPL-3.0.
+- The artwork is not GPL. It belongs to Hxney_bun_ and Cha0s under its own license: unmodified builds may be redistributed, but forks and modified versions must use different art. The source code stays GPL-3.0.
 - The translation models are Mozilla's, under the Mozilla Public License 2.0.
 
 ## 2.0.1 (2026-08-30)
@@ -210,7 +210,7 @@ Windows users on 1.1 have to install 2.0.0 by hand once: the old update window w
 
 #### Waterfall (beta)
 
-- Listen together with people on the same Jellyfin server. The host starts a room and shares a code, and everyone else follows along. Nobody sends audio: each person streams the track from the server, and the room only passes around what is playing and where. It goes through cha0s's Cloudflare relay by default, and Settings can point it at your own.
+- Listen together with people on the same Jellyfin server. The host starts a room and shares a code, and everyone else follows along. Nobody sends audio: each person streams the track from the server, and the room only passes around what is playing and where. It goes through Cha0s's Cloudflare relay by default, and Settings can point it at your own.
 - This replaces the first version, which streamed audio between listeners over WebRTC.
 - Guests see the host's queue and can add to it, and every song shows who added it. The host decides whether guests can add to the queue (on by default) and control playback (off by default, since then anyone can pause or skip for everybody). Only the host reorders or removes songs.
 - Fixed: joining mid-song, or the host skipping, left guests silent at 0:00 until they paused and resumed.

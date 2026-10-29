@@ -54,7 +54,7 @@
   "build": {
     "appId": "xyz.chaosinc.cascade",
     "productName": "Cascade",
-    "copyright": "Copyright © 2026 cha0s",
+    "copyright": "Copyright © 2026 Cha0s",
     "files": [
       "main.js",
       "mac-update.js",

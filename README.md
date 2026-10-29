@@ -317,11 +317,11 @@ Bug reports, ideas and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING
 
 ## License
 
-The source code is [GPL-3.0](LICENSE) © 2026 cha0s, with one added permission: it may also be distributed through app stores such as Apple's App Store and Google Play, whose terms the GPL alone does not allow, as long as the source stays available to everyone under the GPL. The exact wording is at the top of the [LICENSE](LICENSE).
+The source code is [GPL-3.0](LICENSE) © 2026 Cha0s, with one added permission: it may also be distributed through app stores such as Apple's App Store and Google Play, whose terms the GPL alone does not allow, as long as the source stays available to everyone under the GPL. The exact wording is at the top of the [LICENSE](LICENSE).
 
 Lyric translation uses Mozilla's [bergamot-translator](https://github.com/browsermt/bergamot-translator) runtime (bundled) and [Firefox Translations models](https://github.com/mozilla/firefox-translations-models) (downloaded on first use), both under the [Mozilla Public License 2.0](https://www.mozilla.org/MPL/2.0/). Their source is available at those links.
 
-The artwork in `shared/assets/` (the app icon and everything else in that folder) is **not** GPL. It is © 2026 cha0s and Hxney_bun_, all rights reserved, under its own [artwork license](shared/assets/LICENSE). You can share unmodified Cascade builds, but forks and modified versions have to remove it and use their own art. To ask for permission to use the artwork, email [contact@chaosinc.xyz](mailto:contact@chaosinc.xyz).
+The artwork in `shared/assets/` (the app icon and everything else in that folder) is **not** GPL. It is © 2026 Cha0s and Hxney_bun_, all rights reserved, under its own [artwork license](shared/assets/LICENSE). You can share unmodified Cascade builds, but forks and modified versions have to remove it and use their own art. To ask for permission to use the artwork, email [contact@chaosinc.xyz](mailto:contact@chaosinc.xyz).
 
 ---
 
