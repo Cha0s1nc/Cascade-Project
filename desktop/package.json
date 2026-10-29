@@ -37,11 +37,15 @@
     "electron-builder": "^24.13.3",
     "esbuild": "^0.28.2",
     "franc-min": "^6.2.0",
-    "sharp": "^0.33.4",
+    "sharp": "^0.35.5",
     "typescript": "^7.0.2"
   },
   "homepage": "https://github.com/Cha0s1nc/Cascade-Project",
-  "repository": { "type": "git", "url": "https://github.com/Cha0s1nc/Cascade-Project.git", "directory": "desktop" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Cha0s1nc/Cascade-Project.git",
+    "directory": "desktop"
+  },
   "author": {
     "name": "cha0s_1nc",
     "email": "contact@chaosinc.xyz"

@@ -335,7 +335,10 @@ jobs:
   build-linux:
     needs: [setup, test]
     if: needs.setup.outputs.desktop == 'true'
-    runs-on: ubuntu-latest
+    # ponytail: pinned because ubuntu-latest became 26.04, whose rpm 6 fails
+    # the spec electron-builder 24's fpm writes (2.4.0's first build). Try
+    # ubuntu-latest again after the move to electron-builder 26.
+    runs-on: ubuntu-24.04
     # The desktop app lives in desktop/: every run step starts there.
     defaults:
       run:
