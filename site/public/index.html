@@ -103,7 +103,10 @@
   .ios-only { display: none; }
   .tr-apple, .tr-ios, :root[data-os="mac"] .tr-mozilla, :root[data-os="ios"] .tr-mozilla { display: none; }
   :root[data-os="mac"] .tr-apple, :root[data-os="ios"] .tr-ios { display: block; }
+  :root:not([data-os="ios"]) .ios-only { display: none; }
   :root[data-os="ios"] .ios-only { display: block; }
+  :root[data-os="ios"] .not-ios { display: none; }
+  :root[data-os="ios"] .rest .ios-only, :root[data-os="ios"] .pillar.ios-only { display: grid; }
   :root[data-os="ios"] .desk { display: none; }
   .phone { width: min(300px, 78%); margin-inline: auto; border-radius: 46px; border: 10px solid #0e1120; background: #000; overflow: hidden; box-shadow: 0 30px 80px -20px #000c, 0 0 0 1px #ffffff14; }
   .phone img, .phone video { display: block; width: 100%; height: auto; }
@@ -278,13 +281,17 @@
         <h2>It behaves like software you'd pay for</h2>
       </div>
       <div class="pillars">
-        <div class="pillar">
+        <div class="pillar not-ios">
           <h3>It's an app, not a tab</h3>
           <p>Your keyboard's play, pause and skip keys work from anywhere. The window has your platform's real controls, and it updates itself when there's a new release.</p>
         </div>
+        <div class="pillar ios-only">
+          <h3>Made for the phone in your pocket</h3>
+          <p>Controls on the lock screen and in Control Center, playback that keeps going with the screen off, and downloads for when you're offline.</p>
+        </div>
         <div class="pillar">
           <h3>It asks for the best it can play</h3>
-          <p>Every track is negotiated with your server first, so Cascade plays the original file whenever your machine can handle it and only asks for a conversion when it can't.</p>
+          <p>Every track is negotiated with your server first, so Cascade plays the original file whenever your device can handle it and only asks for a conversion when it can't.</p>
         </div>
         <div class="pillar">
           <h3>Nothing fails quietly</h3>
@@ -304,8 +311,10 @@
 
       <div class="feature">
         <div class="feature-copy">
-          <h3>Click the player bar and it takes the whole screen</h3>
-          <p>Album art at full size, the queue beside it, and lyrics that scroll in time with the song. Click a line to jump there. If a song isn't in English, Cascade offers to translate it, and the translating happens on your machine.</p>
+          <h3 class="not-ios">Click the player bar and it takes the whole screen</h3>
+          <p class="not-ios">Album art at full size, the queue beside it, and lyrics that scroll in time with the song. Click a line to jump there. If a song isn't in English, Cascade offers to translate it, and the translating happens on your machine.</p>
+          <h3 class="ios-only">Tap the mini player and Now Playing fills the screen</h3>
+          <p class="ios-only">Big album art, the queue a tap away, and lyrics that scroll in time with the song, word by word where the lyrics have it. A song in another language can be translated right on the iPhone, with Apple's own Translation.</p>
         </div>
         <div class="slot"><div class="shot real desk"><video data-vid="desk" data-shot-poster="player" poster="assets/mac/player.jpg" muted loop playsinline preload="none" width="1440" height="900" aria-label="The full-screen player: lyrics highlighting word by word as the song plays"></video><svg class="chrome lights" viewBox="0 0 1440 900" aria-hidden="true"><circle cx="20" cy="19" r="6" fill="#ff5f57"/><circle cx="40" cy="19" r="6" fill="#febc2e"/><circle cx="60" cy="19" r="6" fill="#28c840"/></svg><svg class="chrome caption caption-win" viewBox="0 0 1440 900" aria-hidden="true" fill="none" stroke="#e8e8ee" stroke-width="1.1"><path d="M1321 19.5h10"/><rect x="1366.5" y="14.5" width="9" height="9"/><path d="M1412 14l10 10M1422 14l-10 10"/></svg><svg class="chrome caption caption-linux" viewBox="0 0 1440 900" aria-hidden="true"><g fill="#ffffff16"><circle cx="1344" cy="19" r="12"/><circle cx="1381" cy="19" r="12"/><circle cx="1418" cy="19" r="12"/></g><g fill="none" stroke="#f2f2f5" stroke-width="1.5" stroke-linecap="round"><path d="M1340 21.5h8"/><rect x="1377.5" y="15.5" width="7" height="7"/><path d="M1414.5 15.5l7 7M1421.5 15.5l-7 7"/></g></svg></div><div class="phone ios-only"><video data-vid="ios" poster="assets/ios/lyrics.jpg" muted loop playsinline preload="none" width="598" height="1300" aria-label="Lyrics on iPhone, highlighting word by word"></video></div></div>
       </div>
@@ -339,7 +348,8 @@
       <div class="feature">
         <div class="feature-copy">
           <h3>An equalizer that won't clip</h3>
-          <p>Five bands with presets for flat, bass, vocal, treble and loudness. Push a band up and Cascade pulls the overall level down to match, so a boost never turns into distortion. Music and video keep separate settings.</p>
+          <p class="not-ios">Five bands with presets for flat, bass, vocal, treble and loudness. Push a band up and Cascade pulls the overall level down to match, so a boost never turns into distortion. Music and video keep separate settings.</p>
+          <p class="ios-only">Five bands with presets for flat, bass, vocal, treble and loudness. Push a band up and Cascade pulls the overall level down to match, so a boost never turns into distortion.</p>
         </div>
         <figure class="figure eq-demo" id="eq-demo" style="margin:0">
           <div class="eq-body" id="eq-body" inert>
@@ -367,19 +377,22 @@
 
       <div class="feature flip">
         <div class="feature-copy">
-          <h3>Movies and TV in the same window</h3>
+          <h3>Movies and TV in the same app</h3>
           <p>Seasons and episodes, resume where you stopped, and subtitle and audio track pickers. It stays off until you turn it on, library by library.</p>
         </div>
         <div class="shot real"><img data-shot="tv" src="assets/mac/tv.jpg" alt="A TV show's page with its poster, seasons and episode list" width="1440" height="900" loading="lazy"><svg class="chrome lights" viewBox="0 0 1440 900" aria-hidden="true"><circle cx="20" cy="19" r="6" fill="#ff5f57"/><circle cx="40" cy="19" r="6" fill="#febc2e"/><circle cx="60" cy="19" r="6" fill="#28c840"/></svg><svg class="chrome caption caption-win" viewBox="0 0 1440 900" aria-hidden="true" fill="none" stroke="#e8e8ee" stroke-width="1.1"><path d="M1321 19.5h10"/><rect x="1366.5" y="14.5" width="9" height="9"/><path d="M1412 14l10 10M1422 14l-10 10"/></svg><svg class="chrome caption caption-linux" viewBox="0 0 1440 900" aria-hidden="true"><g fill="#ffffff16"><circle cx="1344" cy="19" r="12"/><circle cx="1381" cy="19" r="12"/><circle cx="1418" cy="19" r="12"/></g><g fill="none" stroke="#f2f2f5" stroke-width="1.5" stroke-linecap="round"><path d="M1340 21.5h8"/><rect x="1377.5" y="15.5" width="7" height="7"/><path d="M1414.5 15.5l7 7M1421.5 15.5l-7 7"/></g></svg></div>
       </div>
 
       <div class="rest">
-        <div><b>Your phone can drive it</b><p>Cascade shows up in Jellyfin's Play On list, so you can start something from your phone.</p></div>
+        <div class="not-ios"><b>Your phone can drive it</b><p>Cascade shows up in Jellyfin's Play On list, so you can start something from your phone.</p></div>
         <div><b>Waterfall <span class="tag">Beta</span></b><p>Listen along with friends on the same server. Join with a six character code.</p></div>
         <div><b>Colors from the cover</b><p>The whole app can shift to match the artwork of whatever is playing.</p></div>
-        <div><b>Discord presence</b><p>One toggle. Your server address and login never go to Discord.</p></div>
-        <div><b>It learns what your machine can play</b><p>If a format plays silently, Cascade notices, asks the server to convert, and remembers.</p></div>
+        <div class="not-ios"><b>Discord presence</b><p>One toggle. Your server address and login never go to Discord.</p></div>
+        <div class="not-ios"><b>It learns what your machine can play</b><p>If a format plays silently, Cascade notices, asks the server to convert, and remembers.</p></div>
         <div><b>Sign in with a code</b><p>Use Quick Connect and no password is stored at all.</p></div>
+        <div class="ios-only"><b>Downloads for offline</b><p>Save music to the phone and play it with no connection.</p></div>
+        <div class="ios-only"><b>On the lock screen</b><p>Play, pause and skip from the lock screen and Control Center, with the cover showing.</p></div>
+        <div class="ios-only"><b>Smart playlists and history</b><p>Playlists built from rules you set, and everything you've listened to.</p></div>
       </div>
     </div>
   </section>
@@ -421,8 +434,8 @@
         <p>Your music and artwork come from your own Jellyfin server. This is the complete list of anything else.</p>
       </div>
       <div class="ledger">
-        <div><b>Update checks</b><p>Cascade asks GitHub for new releases and reads their notes from GitHub or this site.</p></div>
-        <div><b>Discord presence</b><p>Off until you turn it on. Then the Discord app on your computer gets the track's title, artist and album, when it started and how long it runs, and a cover image. The cover comes from Apple's public iTunes search, asked by artist and album name. For a film or episode it is the title alone, with no cover. Pausing clears it, and your server address and login never go to Discord.</p></div>
+        <div class="not-ios"><b>Update checks</b><p>Cascade asks GitHub for new releases and reads their notes from GitHub or this site.</p></div>
+        <div class="not-ios"><b>Discord presence</b><p>Off until you turn it on. Then the Discord app on your computer gets the track's title, artist and album, when it started and how long it runs, and a cover image. The cover comes from Apple's public iTunes search, asked by artist and album name. For a film or episode it is the title alone, with no cover. Pausing clears it, and your server address and login never go to Discord.</p></div>
         <div><b>Lyric translation</b><p class="tr-apple">Translating runs on your device through Apple's own Translation, by way of a small command-line helper Cascade ships, so nothing is downloaded through Cascade. A language macOS doesn't have installed can be added in System Settings.</p><p class="tr-ios">Translating runs on your iPhone through Apple's own Translation, built into iOS, so nothing is downloaded through Cascade.</p><p class="tr-mozilla">The first time you translate a language, its model (35 to 70 MB) downloads from Cascade's GitHub releases or Mozilla, and is checked against a known fingerprint before use. Translating happens on your machine.</p></div>
         <div><b>Waterfall</b><p>If you use it, a small room code passes through a relay. No audio is sent between listeners.</p></div>
       </div>
@@ -560,7 +573,7 @@
     const stage = document.getElementById('xf'); if (!stage) return
     const video = document.getElementById('xf-video')
     const dOut = document.getElementById('xf-dot-out'), dIn = document.getElementById('xf-dot-in'), head = document.getElementById('xf-head')
-    const FADES = [1.5, 10.502], FADE = 6, SLIDE_OUT = 1.2
+    const FADES = [1.5, 10.5], FADE = 6, SLIDE_OUT = 1.2
     function draw(t, shown) {
       const x = 20 + 280 * t
       dOut.setAttribute('cx', x); dOut.setAttribute('cy', 110 - 90 * Math.cos(t * Math.PI / 2))
