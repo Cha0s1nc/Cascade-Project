@@ -4,6 +4,88 @@ Every stable release of Cascade, newest first. Betas are not listed on their own
 
 Each version is a heading like `## 2.3.0 (2026-10-05)`, dated the day the release was published (UTC), followed by a `### Desktop`, `### Mac`, `### Apple` or `### Android` section for each platform the release changed. Desktop is the Electron app on every OS, Mac is the native Mac app, and Apple is iOS and tvOS. Use `####` for headings inside a section. The release workflow reads this file, so it has to keep to that format; `npm test` checks it, and `node scripts/changelog-section.mjs 2.3.0` prints one version's notes.
 
+## 2.4.0 (2026-20-29)
+
+Well then. Been a while hasn't it?
+
+### Future additions
+- Native macOS port is coming soon. Right now, it *does* exist, just not well. Working on polishing a lot, planning on theming the exact same way (somehow). If you wanna try it, build from source.
+
+### Major changes
+- Added a new mode: Local mode
+	- Emulates a Jellyfin server with a folder on your computer (If you wanna use your media without a Jellyfin server, there you go)
+- Added an Offline mode for both Desktop and iOS (not tvOS)
+	- Downloads *are* kept per account
+- Now Playing customizer
+	- Replaced the old way of customizing with a lot of sliders in a janky dropdown. Might change in the future though.
+- Animated video covers, fetching via TIDAL or a cover.* sidecar - [Cascade Server](https://github.com/Cha0s1nc/Cascade-Project/blob/stable/server/README.md#install) only
+- Explicit song badges - [Cascade Server](https://github.com/Cha0s1nc/Cascade-Project/blob/stable/server/README.md#install) only
+- Complete Jellyfin 12 route support
+- Crossfade now animates the cover as it goes to the next song - both platforms
+- Overhauled buttons and added a back button to unify menus a little more and (hopefully) make it easier to navigate (Desktop only)
+- Added a system with the [Cascade Server](https://github.com/Cha0s1nc/Cascade-Project/blob/stable/server/README.md#install) plugin to have an Announcement system for servers, and a central Announcement that comes from https://cascade.chaosinc.xyz
+- Recreated the website to also accommodate the new Announcement system, with a new location for everything. Can be found [here](https://cascade.chaosinc.xyz)
+- Jellyfin plugin merged into this repo for true Monorepo, found under server/
+- Jellyfin plugin is now 12.0+ only
+- Reorganized repo to have everything in its separate folder
+- New launch splash screen on Desktop and Apple
+- Theming changes:
+	- Album art accent mode is now picked directly from the cover via Oklab to match art better instead of whatever the fuck I was doing before
+	- Default theme is now a deeper blue taken from the app art (thank you once again Hxney_bun_)
+	- Now Playing background now smoothly fades between songs
+	- New cover transitions in the Style options; mess with them as you please
+- Lyrics changes:
+	- Next song's lyrics now show at the bottom of the current song's lyrics to ease the transition between songs
+	- Translations now sit underneath the word it's translating from in mixed English songs
+	- Plain lyrics show up better now
+	- Lyrics now fade at the top edge instead of being cut off (Apple)
+	- New *Scroll ahead* customization option
+	- Lyrics button now shows clearly when a song doesn't have lyrics available, right click the Lyrics button to assign a Spotify link for Spicy Lyrics
+- Spicy Lyrics can now be used with your own key for users who do not control the server. Title, Artist, and Album go to ListenBrainz for automatic ID of the song
+- Server messages/login disclaimers now show on the app correctly
+
+### Minor changes
+- Reverse Proxy headers and client certs are now available.
+- Skip intro and credits feature on both platforms
+- Dedicated video player on iOS
+- "Pick up where you left off" popup in the corner when app was closed during a queue
+	- Starts queue exactly where you were, timestamp and all
+	- Desktop only
+- Playlist creation was fixed, you can now create a normal playlist and a smart playlist through the same route
+- Added exporting and importing of customization presets
+- Added server admin enforced customization via [Cascade Server](https://github.com/Cha0s1nc/Cascade-Project/blob/stable/server/README.md#install)
+- Made it possible to play media on another device via Jellyfin
+- Added a continue watching button for shows
+- Tuned the default look for lyrics
+- Fixed the app icons for iOS and tvOS
+- Added more precise identification for each platform for server owners
+- UI changes to make it look more polished
+- Added toasts to prod builds, configurable in settings
+- Made it so that skipping now fades out the song into the next with a setting instead of hard cutting the song for the next one (also avoids an annoying click in some cases)
+- Playlist editing now works better
+- Adding a song to a playlist now shows if the song is already in that playlist via a checkmark
+- iOS changes:
+	- Now Playing fills the full screen instead of just a sheet
+	- First-time setup now shows up (kinda unpolished but whatever)
+	- You are now able to pick the lyrics source
+	- Searching now shows movies and shows as well
+- Search on Desktop now has a new home on the title bar
+- macOS DMGs now use LZMA to be smaller
+
+### Bugfixes
+- Wrong album arts from iTunes would sometimes show for DiscordRPC; should be fixed now
+- Audio track choices for shows and movies now actually reach the server
+- Movies now offer every audio track when transcoding
+- Fixed a weird bug when 2 subtitle tracks would show at the same time
+- Fixed long titles stretching the panel in Now Playing
+- Fixed slower connections causing desyncing from the server
+- Fixed mixed-language lyrics not properly triggering translation
+- Fixed HLS music seeking opening a new stream instead of actually seeking
+- Fixed playlist writes to be spaced out so Jellyfin cannot undo them without you wanting it to
+- Dolby audio no longer plays out of sync on Apple; server sends AAC instead (used to play faster than the actual video)
+- Sign-in screen now recovers on sign-out/failed connection
+
+
 ## 2.3.0 (2026-10-01)
 
 ### Desktop
