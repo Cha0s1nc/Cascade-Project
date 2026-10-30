@@ -5726,7 +5726,12 @@ async function restoreLastQueue() {
 }
 
 function applyRestoredQueue(restored) {
-  if (queue.length || blocksLocalPlayback()) return   // something started while the card was up
+  if (blocksLocalPlayback()) return
+  // Something started while the card was up: Restore still means the old
+  // queue, so it replaces the new one and carries on playing from where the
+  // old one was left. From nothing playing it comes back paused, as before.
+  const wasPlaying = queue.length > 0 && !audio.paused
+  if (queue.length) stopPlayback()
   queue = restored.queue
   queueIndex = restored.index
   _unshuffledQueue = shuffle ? (restored.unshuffled.length ? restored.unshuffled : [...queue]) : []
@@ -5736,6 +5741,7 @@ function applyRestoredQueue(restored) {
   updateNowPlaying(queue[queueIndex])
   syncProgressUI()
   renderQueuePanel()
+  if (wasPlaying) playOrResume()
 }
 
 // The "Pick up where you left off?" card (index.html #restore-card): the song,
@@ -6209,7 +6215,7 @@ function _beginSkip({ from, kind }, to) {
   if (kind !== 'prev') _rollLyricsToNext()
   const key = it => it.AlbumId || it.Id
   // A slice still on screen (a skip a moment ago) carries this one off on its trail.
-  if (key(from) === key(to) || _slice || !prepareCrossfadeSlice()) return null
+  if (key(from) === key(to) || _slice || !prepareCrossfadeSlice(kind === 'prev')) return null
   Object.assign(_slice, { under: key(to), sweepMs: SKIP_TRANSITION_SECS * 1000, slideOutMs: SKIP_TRANSITION_SECS * 1000 })
   return _slice
 }
@@ -7858,7 +7864,7 @@ window.cascade.miniPlayer.onControl(async (raw) => {
   else if (cmd.type === 'jump') {
     if (cmd.index <= queueIndex || cmd.index >= queue.length) return
     if (isWaterfallFollower()) { if (typeof wfNotifyHostControls === 'function') wfNotifyHostControls(); return }
-    skipTo(cmd.index, cmd.index === queueIndex + 1 ? 'next' : 'jump')
+    skipTo(cmd.index, cmd.index === queueIndex + 1 ? 'next' : cmd.index > queueIndex ? 'jump' : 'prev')
     renderQueuePanel()
   }
   // Paused, there is no timeupdate to carry the new state back.
@@ -13173,8 +13179,9 @@ const SLICE_TRAIL = 1.4
 // crossfade can run at the same time without meeting.
 let _slice = null
 
-function _sliceGeometry() {
-  const [mx, my] = SLICE_MOVES[displayPrefs.coverSliceDirection] || SLICE_MOVES['up-left']
+/** reverse: back to an earlier song, so the cut runs the opposite way. */
+function _sliceGeometry(reverse) {
+  const [mx, my] = (SLICE_MOVES[displayPrefs.coverSliceDirection] || SLICE_MOVES['up-left']).map(n => reverse ? -n : n)
   const diagonal = mx !== 0 && my !== 0
   return {
     // The frame's x axis points where the cut comes from; a diagonal frame is
@@ -13215,19 +13222,19 @@ function _sliceCopy(img, cls) {
 /** The real crossfade's slice: the outgoing cover laid over Now Playing's art
  *  and the player bar's, uncut. False when there is nothing to cut, or the
  *  animation is switched off. */
-function prepareCrossfadeSlice() {
+function prepareCrossfadeSlice(reverse = false) {
   _removeArtSlice(_slice)
   if (!displayPrefs.coverSlice || matchMedia('(prefers-reduced-motion: reduce)').matches) return false
-  _slice = prepareArtSlice([document.getElementById('ov-art'), document.getElementById('np-art')])
+  _slice = prepareArtSlice([document.getElementById('ov-art'), document.getElementById('np-art')], reverse)
   return !!_slice
 }
 
 /** Lays the cover each host shows over it, uncut, and returns the new slice's
  *  state, or null when no host has a cover to cut. The first host is the one
  *  whose incoming cover startArtSlice waits for. */
-function prepareArtSlice(hosts) {
+function prepareArtSlice(hosts, reverse = false) {
   const style = DISPLAY_PREF_CHOICES.coverSliceStyle.includes(displayPrefs.coverSliceStyle) ? displayPrefs.coverSliceStyle : 'slice'
-  const geo = _sliceGeometry()
+  const geo = _sliceGeometry(reverse)
   const layers = []
   for (const host of hosts) {
     const shown = host?.querySelector(':scope > img')
@@ -16406,6 +16413,20 @@ document.addEventListener('mousedown', (e) => {
   const panel = document.getElementById('announce-panel')
   if (panel.classList.contains('open') && !panel.contains(e.target) && !e.target.closest('#announce-btn')) panel.classList.remove('open')
 })
+// Both kinds are fetched again while the app runs, not only at launch and on
+// connect: every 5 minutes (the feed's own cache time) and when the window
+// comes back to the front. Not while the inbox is open, which would redraw
+// the list under the reader.
+const ANNOUNCEMENTS_REFRESH_MS = 5 * 60 * 1000
+let _announcementsFetchedAt = Date.now()
+function refreshAnnouncements() {
+  if (document.getElementById('announce-panel').classList.contains('open')) return
+  _announcementsFetchedAt = Date.now()
+  loadAnnouncements()
+  if (_cascadePluginCaps.has('announcements')) fetchServerAnnouncements()
+}
+setInterval(refreshAnnouncements, ANNOUNCEMENTS_REFRESH_MS)
+window.addEventListener('focus', () => { if (Date.now() - _announcementsFetchedAt > 60_000) refreshAnnouncements() })
 
 // Lyrics tab: one section per CascadeCore.LYRIC_KNOBS section, one slider per
 // knob, each with its value and a reset arrow that shows once it differs from

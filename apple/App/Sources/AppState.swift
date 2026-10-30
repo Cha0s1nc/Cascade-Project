@@ -419,6 +419,17 @@ final class AppState {
         restore()
         watchNetwork()
         Task { await refreshProjectAnnouncements() }
+        // And again every 5 minutes (the feed's own cache time) while the app
+        // runs, so a post shows without a relaunch. The sleep counts time the
+        // app spent suspended, so coming back after a while fetches at once.
+        Task { [weak self] in
+            while true {
+                try? await Task.sleep(for: .seconds(300))
+                guard let self else { return }
+                await self.refreshProjectAnnouncements()
+                await self.refreshServerAnnouncements()
+            }
+        }
     }
 
     /// Bring back the last session without asking for a password again.
