@@ -161,7 +161,13 @@
     },
     "dmg": {
       "title": "Cascade${arch}",
-      "backgroundColor": "#111113"
+      "background": "assets/dmg-background.png",
+      "iconSize": 96,
+      "window": { "width": 660, "height": 400 },
+      "contents": [
+        { "x": 180, "y": 190, "type": "file" },
+        { "x": 480, "y": 190, "type": "link", "path": "/Applications" }
+      ]
     },
     "nsis": {
       "oneClick": false,

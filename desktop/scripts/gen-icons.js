@@ -294,6 +294,64 @@ async function appleIcons(src) {
   console.log('  apple/App/Assets-tvOS.xcassets')
 }
 
+// The Mac DMG's window: a night sky drawn here (not the artwork, which is too
+// soft blown up and has the waterfall in the way), with the stars fading into
+// a pale misty horizon. Finder draws the icon labels black on any custom
+// background, even in Dark Mode, so the labels sit on the light part: the
+// first build's plain dark window had them black on black. The size and the
+// icon spots match package.json's build.dmg (window, contents), and the arrow
+// runs between them. Written at 1x and 2x; electron-builder joins the pair for
+// Retina screens.
+const DMG = { width: 660, height: 400, iconY: 190, appX: 180, linkX: 480 }
+
+async function dmgBackground(scale) {
+  const { width: W, height: H, iconY } = DMG, k = scale
+  // Seeded, so every run draws the same sky.
+  let seed = 7
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647
+  const horizon = 0.56
+  let stars = ''
+  for (let i = 0; i < 170; i++) {
+    const x = rnd() * W, yf = Math.pow(rnd(), 1.4) * horizon
+    const r = 0.35 + Math.pow(rnd(), 3) * 1.3
+    const a = (0.35 + rnd() * 0.65) * (1 - Math.pow(yf / horizon, 2))
+    const at = `cx="${(x * k).toFixed(1)}" cy="${(yf * H * k).toFixed(1)}"`
+    stars += `<circle ${at} r="${(r * k).toFixed(2)}" fill="#fff" fill-opacity="${a.toFixed(2)}"/>`
+    if (r > 1.2) stars += `<circle ${at} r="${(r * 3.2 * k).toFixed(2)}" fill="url(#glow)" fill-opacity="${a.toFixed(2)}"/>`
+  }
+  // A soft line of hills: base height, swing, how tight the bumps are, phase.
+  const ridge = (base, amp, f, ph) => {
+    let d = `M0 ${H * k}`
+    for (let x = 0; x <= W; x += 6) d += ` L${x * k} ${((base - amp * (0.6 * Math.sin(x * f + ph) + 0.4 * Math.sin(x * f * 2.7 + ph * 1.9))) * k).toFixed(1)}`
+    return d + ` L${W * k} ${H * k} Z`
+  }
+  const [mx, my] = [560, 62]
+  const svg = `<svg width="${W * k}" height="${H * k}" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#030826"/><stop offset="0.38" stop-color="#091452"/>
+      <stop offset="0.50" stop-color="#2f4791"/><stop offset="0.57" stop-color="#b4c5e8"/>
+      <stop offset="1" stop-color="#e8eef9"/>
+    </linearGradient>
+    <radialGradient id="glow"><stop offset="0" stop-color="#cfe0ff" stop-opacity="0.55"/><stop offset="1" stop-color="#cfe0ff" stop-opacity="0"/></radialGradient>
+    <radialGradient id="moonglow"><stop offset="0.25" stop-color="#e9f0ff" stop-opacity="0.35"/><stop offset="1" stop-color="#e9f0ff" stop-opacity="0"/></radialGradient>
+    <mask id="crescent"><circle cx="${mx * k}" cy="${my * k}" r="${17 * k}" fill="#fff"/><circle cx="${(mx + 9) * k}" cy="${(my - 6) * k}" r="${15 * k}" fill="#000"/></mask>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#sky)"/>
+  ${stars}
+  <path d="${ridge(318, 22, 0.011, 1.3)}" fill="#a3b6df" fill-opacity="0.55"/>
+  <path d="${ridge(352, 18, 0.017, 4.1)}" fill="#8ea4d6" fill-opacity="0.55"/>
+  <circle cx="${mx * k}" cy="${my * k}" r="${55 * k}" fill="url(#moonglow)"/>
+  <circle cx="${mx * k}" cy="${my * k}" r="${17 * k}" fill="#f2f5ff" mask="url(#crescent)"/>
+  <g fill="none" stroke="#fff" stroke-opacity="0.7" stroke-width="${2.2 * k}" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M${(DMG.appX + 102) * k} ${iconY * k} H${(DMG.linkX - 102) * k}"/>
+    <path d="M${(DMG.linkX - 114) * k} ${(iconY - 10) * k} L${(DMG.linkX - 101) * k} ${iconY * k} L${(DMG.linkX - 114) * k} ${(iconY + 10) * k}"/>
+  </g></svg>`
+  const file = scale === 1 ? 'dmg-background.png' : `dmg-background@${scale}x.png`
+  await sharp(Buffer.from(svg)).png().toFile(path.join(OUT, file))
+  console.log(`  ${file}`)
+}
+
 async function run() {
   const SRC = resolveSource()
   if (path.resolve(SRC) === GENERATED) {
@@ -350,6 +408,10 @@ async function run() {
   // sidebar is 164x314, the header on every other page is 150x57.
   await installerImage(SRC, 'installer-sidebar.bmp', 314, 164, 314)
   await installerImage(SRC, 'installer-header.bmp', 300, 150, 57)
+
+  // Mac DMG window background.
+  await dmgBackground(1)
+  await dmgBackground(2)
 
   await appleIcons(SRC)
 
