@@ -9,7 +9,7 @@
   <PropertyGroup>
     <!-- The release number. A release tag must match it: server-v1.1.0 for 1.1.0
          (.github/workflows/server.yml). -->
-    <PluginVersion>1.1.0</PluginVersion>
+    <PluginVersion>1.2.0</PluginVersion>
   </PropertyGroup>
 
   <!-- Built against 12.0, not 12.1, so it also loads on 12.0 servers. -->
