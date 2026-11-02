@@ -4,6 +4,14 @@ Every stable release of Cascade, newest first. Betas are not listed on their own
 
 Each version is a heading like `## 2.3.0 (2026-10-05)`, dated the day the release was published (UTC), followed by a `### Desktop`, `### Mac`, `### Apple` or `### Android` section for each platform the release changed. Desktop is the Electron app on every OS, Mac is the native Mac app, and Apple is iOS and tvOS. Use `####` for headings inside a section. The release workflow reads this file, so it has to keep to that format; `npm test` checks it, and `node scripts/changelog-section.mjs 2.3.0` prints one version's notes.
 
+## 2.4.1 (2026-11-02)
+
+### Desktop
+
+#### Bugfixes
+- Media keys, the volume flyout and the lock screen controls on Windows no longer drop Cascade after a skip, crossfade or track change. This was an Electron bug, fixed by moving to Electron 45
+- The Mac DMG window is now sized to its contents, with a new background and readable icon labels (they were black on black in Dark Mode)
+
 ## 2.4.0 (2026-10-29)
 
 ### Desktop
