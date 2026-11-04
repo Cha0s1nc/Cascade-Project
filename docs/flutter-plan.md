@@ -26,6 +26,20 @@ The feature list is the Swift port's: `docs/mac-native-plan.md`, phase by phase,
 - **Testing against servers:** the jellyfin12 copy for anything that plays or writes. A `CASCADE_NO_REPORTS` switch (like the Swift app's `-cascade.noReports`) turns playback reports off, so a test run on the real server cannot touch history or resume points.
 - **Test devices:** Windows on `winvm`, Linux on `mintvm`, Android on the Fire HD 8 (8th gen, Fire OS 7, Android 9) over USB with `adb reverse` to the test server. `flutter test` runs from the root `npm test` as `flutter`.
 
+## Design
+
+Decided 2026-11-04: the Flutter app takes the **Personality v1** look, the same one the Swift app is moving to, so Cascade has one brand instead of three. The mockups are in Penpot (https://penpot.hp.chaosinc.xyz, file "Cascade Personality v1", page "Flutter"): the chosen boards are "Flutter / Desktop / Home (Windows)", "(Linux)" and "Flutter / Android / Home (Personality v1)". The boards marked "not chosen" are the look the app has today (the Figma draft's palette in `flutter/lib/ui/widgets.dart`).
+
+- **Layouts stay.** The desktop shell (top bar, sidebar, rounded panels, player bar) and the Android shell (search bar, five-tab navigation bar, mini player) keep their structure. What changes is color, type and a few Personality v1 touches.
+- **Colors and type come from the shared design, not from `widgets.dart`.** The Penpot library colors under `Cascade` (`bg` `#0A0E13`, `surface`, `surface-2`, `accent` `#7CC4FF`, `accent-tint`, `ink` and the rest) and the type tokens (`font.display`, now Hanken Grotesk, for headings and lyrics; `font.body` for everything else) are the source. When they change in Penpot, they change for both apps.
+- **Personality v1 touches:** the stepped art stack on the last-played card, the solid accent Play button with dark text, accent-tint for the active sidebar row and Android's nav indicator, and copy with a voice ("4,212 songs on your server. 61 of them played this week.").
+- **Rediscover** (a shelf and a sidebar entry for albums not played in a year) is in the mockups but is a new feature, not a parity item. It waits until it is specified for all the apps.
+- **In-line title bar on Windows and Linux,** as Electron does with `titleBarOverlay`: Cascade's top bar is the window's title bar, with no OS bar above it.
+  - The OS still draws the window buttons: on Windows, minimize, maximize and close in the top right (138 px); on GNOME, round buttons (about 108 px). Other window managers vary and tiling ones show none, so the reserved space comes from the OS, not a constant (Electron uses `env(titlebar-area-width)`).
+  - Empty space in the bar drags the window and a double-click maximizes it; buttons and the search field do not drag.
+  - The search field stays centered on the window, so the left group matches the right group's width.
+  - Today the app uses the OS frame, so this needs a hidden title bar, for example through `window_manager`, and checking on `winvm` and `mintvm` (GNOME and a non-GNOME window manager).
+
 ## Phases
 
 ### Phase 0: foundation
@@ -63,11 +77,12 @@ The feature list is the Swift port's: `docs/mac-native-plan.md`, phase by phase,
 - The Now Playing view with queue and lyrics panels, the art background and its tuning.
 - Lyrics: the Cascade plugin's SpicyLyrics (syllable fill, duets, background vocals), then Kugou, LRCLIB and Jellyfin; the source pill and forced source; untimed lyrics.
 - Translation (the desktop's local models).
-- Theme panel, presets, server style, fonts; the customization editor and Style Tuning.
+- Personality v1 as the default theme (see Design), then the theme panel, presets, server style, fonts; the customization editor and Style Tuning.
 - Announcements.
 
 ### Phase 4: windows and integrations
 
+- The in-line title bar on Windows and Linux (see Design).
 - Miniplayer (a second window), lyrics editor, metadata editor.
 - Discord Rich Presence (Windows, Linux); the Cha0s Stream control server.
 - Keyboard shortcuts, first-run wizard, the full Settings.
