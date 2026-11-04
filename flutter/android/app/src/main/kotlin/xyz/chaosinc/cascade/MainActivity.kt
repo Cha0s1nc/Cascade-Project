@@ -1,5 +1,6 @@
 package xyz.chaosinc.cascade
 
-import io.flutter.embedding.android.FlutterActivity
+import com.ryanheise.audioservice.AudioServiceActivity
 
-class MainActivity : FlutterActivity()
+// audio_service's activity, so playback can live in its foreground service.
+class MainActivity : AudioServiceActivity()

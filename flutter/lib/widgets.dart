@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 
 import 'data.dart';
+import 'library.dart';
 import 'player.dart';
 
 /// Desktop colors, from the Electron app's theme plus the redesign's panels.
@@ -39,7 +40,11 @@ String fmt(num seconds) {
 
 String greeting(String name) {
   final h = DateTime.now().hour;
-  return '${h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'}, $name';
+  return '${h < 12
+      ? 'Good morning'
+      : h < 18
+      ? 'Good afternoon'
+      : 'Good evening'}, $name';
 }
 
 String today() {
@@ -67,30 +72,45 @@ class _HoverState extends State<Hover> {
 
   @override
   Widget build(BuildContext context) => MouseRegion(
-        cursor: widget.onTap == null ? MouseCursor.defer : SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _on = true),
-        onExit: (_) => setState(() => _on = false),
-        child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: widget.onTap, child: widget.builder(context, _on)),
-      );
+    cursor: widget.onTap == null ? MouseCursor.defer : SystemMouseCursors.click,
+    onEnter: (_) => setState(() => _on = true),
+    onExit: (_) => setState(() => _on = false),
+    child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: widget.onTap, child: widget.builder(context, _on)),
+  );
 }
 
+/// A cover: the item's image over its placeholder gradient, which shows while
+/// the image loads and stays when there is none.
 class Cover extends StatelessWidget {
-  const Cover(this.colors, {super.key, this.size, this.radius = 10, this.shadow = false});
+  const Cover(this.colors, {super.key, this.image, this.size, this.radius = 10, this.shadow = false});
   final List<Color> colors;
+  final String? image;
   final double? size;
   final double radius;
   final bool shadow;
 
   @override
   Widget build(BuildContext context) => Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(radius),
-          gradient: LinearGradient(colors: colors, begin: Alignment.topLeft, end: Alignment.bottomRight),
-          boxShadow: shadow ? const [BoxShadow(color: Color(0x73000000), blurRadius: 18, offset: Offset(0, 6))] : null,
-        ),
-      );
+    width: size,
+    height: size,
+    clipBehavior: Clip.antiAlias,
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(radius),
+      gradient: LinearGradient(colors: colors, begin: Alignment.topLeft, end: Alignment.bottomRight),
+      boxShadow: shadow ? const [BoxShadow(color: Color(0x73000000), blurRadius: 18, offset: Offset(0, 6))] : null,
+    ),
+    child: image == null
+        ? null
+        : Image.network(
+            image!,
+            headers: LibraryScope.read(context).headers,
+            fit: BoxFit.cover,
+            width: size,
+            height: size,
+            gaplessPlayback: true,
+            errorBuilder: (_, _, _) => const SizedBox.shrink(),
+          ),
+  );
 }
 
 class PlayCircle extends StatelessWidget {
@@ -101,23 +121,27 @@ class PlayCircle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Hover(
-        onTap: onTap,
-        builder: (_, on) => AnimatedOpacity(
-          duration: const Duration(milliseconds: 120),
-          opacity: on ? 0.85 : 1,
-          child: Container(
-            width: size,
-            height: size,
-            decoration: const BoxDecoration(shape: BoxShape.circle, gradient: K.grad, boxShadow: [BoxShadow(color: Color(0x59000000), blurRadius: 14, offset: Offset(0, 4))]),
-            child: Icon(playing ? Icons.pause_rounded : Icons.play_arrow_rounded, color: Colors.white, size: size * 0.55),
-          ),
+    onTap: onTap,
+    builder: (_, on) => AnimatedOpacity(
+      duration: const Duration(milliseconds: 120),
+      opacity: on ? 0.85 : 1,
+      child: Container(
+        width: size,
+        height: size,
+        decoration: const BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: K.grad,
+          boxShadow: [BoxShadow(color: Color(0x59000000), blurRadius: 14, offset: Offset(0, 4))],
         ),
-      );
+        child: Icon(playing ? Icons.pause_rounded : Icons.play_arrow_rounded, color: Colors.white, size: size * 0.55),
+      ),
+    ),
+  );
 }
 
 /// A Recently played row: the song, then artist and album.
 class SongTile extends StatelessWidget {
-  const SongTile(this.song, {super.key, this.width, this.queue = recentlyPlayed});
+  const SongTile(this.song, {super.key, required this.queue, this.width});
   final Song song;
   final double? width;
   final List<Song> queue;
@@ -133,27 +157,46 @@ class SongTile extends StatelessWidget {
         height: 48,
         clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(color: on ? K.surface2 : K.surface, borderRadius: BorderRadius.circular(10)),
-        child: Row(children: [
-          Stack(alignment: Alignment.center, children: [
-            Cover(song.art, size: 48, radius: 0),
-            if (on || current)
-              Container(
-                width: 48,
-                height: 48,
-                color: const Color(0x66000000),
-                child: Icon(current ? Icons.graphic_eq_rounded : Icons.play_arrow_rounded, color: Colors.white, size: 22),
+        child: Row(
+          children: [
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                Cover(song.art, image: song.image, size: 48, radius: 0),
+                if (on || current)
+                  Container(
+                    width: 48,
+                    height: 48,
+                    color: const Color(0x66000000),
+                    child: Icon(current ? Icons.graphic_eq_rounded : Icons.play_arrow_rounded, color: Colors.white, size: 22),
+                  ),
+              ],
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    song.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: ts(13, w: FontWeight.w500, c: current ? K.accent : K.text),
+                  ),
+                  const SizedBox(height: 1),
+                  Text(
+                    '${song.artist} · ${song.album}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: ts(12, c: K.text3),
+                  ),
+                ],
               ),
-          ]),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: ts(13, w: FontWeight.w500, c: current ? K.accent : K.text)),
-              const SizedBox(height: 1),
-              Text('${song.artist} · ${song.album}', maxLines: 1, overflow: TextOverflow.ellipsis, style: ts(12, c: K.text3)),
-            ]),
-          ),
-          const SizedBox(width: 12),
-        ]),
+            ),
+            const SizedBox(width: 12),
+          ],
+        ),
       ),
     );
   }
@@ -166,28 +209,44 @@ class AlbumCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Hover(
-        onTap: () {},
-        builder: (_, on) => SizedBox(
-          width: width,
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            AspectRatio(
-              aspectRatio: 1,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 120),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(10),
-                  boxShadow: [BoxShadow(color: on ? K.accent : Colors.transparent, spreadRadius: 2)],
-                ),
-                child: Cover(album.art, shadow: true),
+    onTap: () async {
+      final tracks = await LibraryScope.read(context).tracksOf(album);
+      if (tracks.isNotEmpty && context.mounted) await PlayerScope.read(context).play(tracks.first, tracks);
+    },
+    builder: (_, on) => SizedBox(
+      width: width,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AspectRatio(
+            aspectRatio: 1,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 120),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                boxShadow: [BoxShadow(color: on ? K.accent : Colors.transparent, spreadRadius: 2)],
               ),
+              child: Cover(album.art, image: album.image, shadow: true),
             ),
-            const SizedBox(height: 9),
-            Text(album.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: ts(13, w: FontWeight.w500)),
-            const SizedBox(height: 2),
-            Text(album.subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: ts(12, c: K.text3)),
-          ]),
-        ),
-      );
+          ),
+          const SizedBox(height: 9),
+          Text(
+            album.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: ts(13, w: FontWeight.w500),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            album.subtitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: ts(12, c: K.text3),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class VideoThumb extends StatelessWidget {
@@ -198,24 +257,32 @@ class VideoThumb extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ClipRRect(
-        borderRadius: BorderRadius.circular(10),
-        child: SizedBox(
-          width: width,
-          height: width * 9 / 16,
-          child: Stack(children: [
-            Positioned.fill(child: Cover(video.art, radius: 0)),
-            if (video.progress > 0) ...[
-              Positioned(left: 0, right: 0, bottom: 0, child: Container(height: 4, color: const Color(0x8C000000))),
-              Positioned(left: 0, bottom: 0, child: Container(height: 4, width: width * video.progress, color: accent)),
-            ],
-          ]),
-        ),
-      );
+    borderRadius: BorderRadius.circular(10),
+    child: SizedBox(
+      width: width,
+      height: width * 9 / 16,
+      child: Stack(
+        children: [
+          Positioned.fill(child: Cover(video.art, image: video.image, radius: 0)),
+          if (video.progress > 0) ...[
+            Positioned(left: 0, right: 0, bottom: 0, child: Container(height: 4, color: const Color(0x8C000000))),
+            Positioned(
+              left: 0,
+              bottom: 0,
+              child: Container(height: 4, width: width * video.progress, color: accent),
+            ),
+          ],
+        ],
+      ),
+    ),
+  );
 }
 
 /// The last played song, big, with Play and Shuffle.
 class HeroCard extends StatelessWidget {
-  const HeroCard({super.key, required this.compact, required this.base, this.radius = 16});
+  const HeroCard(this.song, this.queue, {super.key, required this.compact, required this.base, this.radius = 16});
+  final Song song;
+  final List<Song> queue;
   final bool compact;
   final Color base;
   final double radius;
@@ -236,46 +303,76 @@ class HeroCard extends StatelessWidget {
           stops: const [0, 0.65, 1],
         ),
       ),
-      child: Row(children: [
-        Cover(reckoner.art, size: art, radius: compact ? 12 : 10, shadow: true),
-        SizedBox(width: compact ? 16 : 20),
-        Expanded(
-          child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('LAST PLAYED', style: ts(compact ? 10 : 11, w: FontWeight.w600, c: Colors.white70, ls: 0.7)),
-            const SizedBox(height: 4),
-            Text(reckoner.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: ts(compact ? 20 : 22, w: FontWeight.w700, c: Colors.white)),
-            Text('${reckoner.artist} · ${reckoner.album}', maxLines: compact ? 1 : 2, overflow: TextOverflow.ellipsis, style: ts(compact ? 13 : 14, w: FontWeight.w500, c: Colors.white.withValues(alpha: 0.85))),
-            if (!compact) Text('${reckoner.year} · ${fmt(reckoner.seconds)}', style: ts(12, c: Colors.white60)),
-            SizedBox(height: compact ? 10 : 14),
-            Row(children: [
-              Hover(
-                onTap: () => p.play(reckoner, const [reckoner, ...recentlyPlayed]),
-                builder: (_, on) => Container(
-                  padding: const EdgeInsets.fromLTRB(12, 7, 16, 7),
-                  decoration: BoxDecoration(gradient: K.grad, borderRadius: BorderRadius.circular(99)),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 18),
-                    const SizedBox(width: 4),
-                    Text('Play', style: ts(13, w: FontWeight.w600, c: Colors.white)),
-                  ]),
+      child: Row(
+        children: [
+          Cover(song.art, image: song.image, size: art, radius: compact ? 12 : 10, shadow: true),
+          SizedBox(width: compact ? 16 : 20),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'LAST PLAYED',
+                  style: ts(compact ? 10 : 11, w: FontWeight.w600, c: Colors.white70, ls: 0.7),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Hover(
-                onTap: () {
-                  if (!p.shuffle) p.toggleShuffle();
-                  p.play(reckoner, const [reckoner, ...recentlyPlayed]);
-                },
-                builder: (_, on) => Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(color: Colors.white.withValues(alpha: on ? 0.22 : 0.14), shape: BoxShape.circle),
-                  child: const Icon(Icons.shuffle_rounded, color: Colors.white, size: 16),
+                const SizedBox(height: 4),
+                Text(
+                  song.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: ts(compact ? 20 : 22, w: FontWeight.w700, c: Colors.white),
                 ),
-              ),
-            ]),
-          ]),
-        ),
-      ]),
+                Text(
+                  '${song.artist} · ${song.album}',
+                  maxLines: compact ? 1 : 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: ts(compact ? 13 : 14, w: FontWeight.w500, c: Colors.white.withValues(alpha: 0.85)),
+                ),
+                if (!compact) Text('${song.year > 0 ? '${song.year} · ' : ''}${fmt(song.seconds)}', style: ts(12, c: Colors.white60)),
+                SizedBox(height: compact ? 10 : 14),
+                Row(
+                  children: [
+                    Hover(
+                      onTap: () => p.play(song, queue),
+                      builder: (_, on) => Container(
+                        padding: const EdgeInsets.fromLTRB(12, 7, 16, 7),
+                        decoration: BoxDecoration(gradient: K.grad, borderRadius: BorderRadius.circular(99)),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 18),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Play',
+                              style: ts(13, w: FontWeight.w600, c: Colors.white),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Hover(
+                      onTap: () {
+                        if (!p.shuffle) p.toggleShuffle();
+                        p.play(song, queue);
+                      },
+                      builder: (_, on) => Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: on ? 0.22 : 0.14),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.shuffle_rounded, color: Colors.white, size: 16),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

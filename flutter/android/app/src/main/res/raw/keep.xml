@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The release build's resource shrinker drops audio_service's notification
+     icons, leaving the media notification's buttons blank. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/audio_service_*" />

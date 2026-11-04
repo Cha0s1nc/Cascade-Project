@@ -1,4 +1,5 @@
 import 'package:cascade/main.dart';
+import 'package:cascade/player.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -12,7 +13,7 @@ void main() {
   testWidgets('desktop and phone layouts build without overflow and play a tapped song', (tester) async {
     addTearDown(tester.view.reset);
     await at(tester, const Size(1440, 900));
-    await tester.pumpWidget(const CascadeApp());
+    await tester.pumpWidget(CascadeApp(player: Player(audio: false), demo: true));
     expect(find.text('Recently played'), findsOneWidget);
     expect(find.text('TV Shows'), findsOneWidget);
 
@@ -23,6 +24,10 @@ void main() {
     await tester.tap(find.text('Albums'));
     await tester.pump();
     expect(find.text('Not in the prototype yet. Home is.'), findsOneWidget);
+
+    await tester.tap(find.text('Your Cascade')); // the logo row is the Home button
+    await tester.pumpAndSettle();
+    expect(find.text('Recently played'), findsOneWidget);
 
     await at(tester, const Size(1000, 700)); // narrow desktop: hero stacks over the tiles
     await at(tester, const Size(412, 915));
