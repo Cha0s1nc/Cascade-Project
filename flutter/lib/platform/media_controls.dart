@@ -1,7 +1,8 @@
 // The OS's own media controls, mirroring the player: Windows' media overlay
-// and the keyboard's media keys (SMTC), and Android's notification, lock
-// screen and headset buttons (a media session in a foreground service, so
-// playback keeps going in the background).
+// and the keyboard's media keys (SMTC), Linux's media widgets and keys
+// (MPRIS), and Android's notification, lock screen and headset buttons (a
+// media session in a foreground service, so playback keeps going in the
+// background).
 import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
@@ -13,8 +14,13 @@ import 'package:cascade/engine/player.dart';
 Future<void> attachMediaControls(Player p) async {
   try {
     if (Platform.isWindows) await _windows(p);
-    if (Platform.isAndroid) {
-      await AudioService.init(builder: () => _AndroidHandler(p), config: _androidConfig);
+    // Linux: MPRIS through audio_service_mpris, the same handler as Android.
+    // It names the player after the channel id, so Linux's reads "Cascade".
+    if (Platform.isAndroid || Platform.isLinux) {
+      await AudioService.init(
+        builder: () => _ServiceHandler(p),
+        config: Platform.isLinux ? const AudioServiceConfig(androidNotificationChannelId: 'Cascade') : _androidConfig,
+      );
     }
   } catch (e, st) {
     log('media controls unavailable: $e\n$st'); // playback still works without them
@@ -75,8 +81,8 @@ const _androidConfig = AudioServiceConfig(
   androidStopForegroundOnPause: true,
 );
 
-class _AndroidHandler extends BaseAudioHandler with SeekHandler {
-  _AndroidHandler(this.p) {
+class _ServiceHandler extends BaseAudioHandler with SeekHandler {
+  _ServiceHandler(this.p) {
     p.addListener(_sync);
   }
 

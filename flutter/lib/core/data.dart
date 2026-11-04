@@ -4,8 +4,12 @@
 import 'package:flutter/material.dart';
 
 class Song {
-  const Song(this.title, this.artist, this.album, this.year, this.seconds, this.art, {this.id = '', this.image});
+  const Song(this.title, this.artist, this.album, this.year, this.seconds, this.art, {this.id = '', this.image, this.albumId, this.live = false});
   final String id, title, artist, album;
+  final String? albumId;
+
+  /// A Live TV channel played as radio: no length, no preload or crossfade.
+  final bool live;
   final int year, seconds;
   final List<Color> art;
   final String? image;

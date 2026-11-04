@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 
 import 'package:cascade/core/data.dart';
 import 'package:cascade/core/nav.dart';
-import 'package:cascade/ui/sign_in.dart';
+import 'package:cascade/ui/settings_panel.dart';
 import 'package:cascade/ui/widgets.dart';
 import 'package:cascade/ui/scopes.dart';
 
@@ -54,7 +54,7 @@ class _PhoneShellState extends State<PhoneShell> {
               child: Text('${_nav.top.page!.name}: phase 2', style: ts(16, c: A.text2)),
             ),
             'home' => const _Home(),
-            'settings' => const AccountPanel(color: A.text),
+            'settings' => const SafeArea(child: SettingsPanel()),
             _ => Center(
               child: Text('${_tabs[_tab].$1}: not in the prototype yet', style: ts(16, c: A.text2)),
             ),
@@ -142,11 +142,7 @@ class _Home extends StatelessWidget {
                 ],
               ),
             ),
-            if (lib.error != null)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                child: Text(lib.error!, style: ts(13, c: const Color(0xFFFF453A))),
-              ),
+            LoadError(padding: const EdgeInsets.fromLTRB(16, 12, 16, 0)),
             if (lib.loading && played.isEmpty)
               const Padding(
                 padding: EdgeInsets.all(40),

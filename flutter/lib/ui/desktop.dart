@@ -7,9 +7,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'package:cascade/core/data.dart';
+import 'package:cascade/core/library.dart';
 import 'package:cascade/core/nav.dart';
+import 'package:cascade/core/settings.dart';
 import 'package:cascade/engine/player.dart';
-import 'package:cascade/ui/sign_in.dart';
+import 'package:cascade/ui/settings_panel.dart';
 import 'package:cascade/ui/widgets.dart';
 import 'package:cascade/ui/scopes.dart';
 
@@ -27,6 +29,28 @@ const _navItems = <NavItem>[
   ('Video', 'movies', 'Movies', Icons.movie_outlined),
   (null, 'shows', 'TV Shows', Icons.tv_rounded),
 ];
+
+/// The sidebar's rows that lead somewhere, each with the section header to
+/// draw above it (only on a section's first shown row). Radio needs Live TV on
+/// the server and the setting on; Movies and TV Shows a chosen library.
+List<(String?, NavItem)> _visibleNav(Library lib, Settings s) {
+  bool shown(NavItem i) => switch (i.$2) {
+    'radio' => s.radioEnabled && lib.hasLiveTv,
+    'movies' => lib.demo || lib.movieIds.isNotEmpty,
+    'shows' => lib.demo || lib.showIds.isNotEmpty,
+    _ => true,
+  };
+  final out = <(String?, NavItem)>[];
+  String? section, last;
+  for (final i in _navItems) {
+    section = i.$1 ?? section;
+    if (!shown(i)) continue;
+    out.add((section != last ? section : null, i));
+    last = section;
+  }
+  return out;
+}
+
 const _navBottom = <NavItem>[(null, 'downloads', 'Downloads', Icons.download_outlined), (null, 'settings', 'Settings', Icons.settings_outlined)];
 
 class DesktopShell extends StatefulWidget {
@@ -231,48 +255,52 @@ class _Sidebar extends StatelessWidget {
   final ValueChanged<String> onGo;
 
   @override
-  Widget build(BuildContext context) => AnimatedContainer(
-    duration: const Duration(milliseconds: 180),
-    curve: Curves.easeOutCubic,
-    width: collapsed ? 60 : 232,
-    padding: const EdgeInsets.fromLTRB(10, 14, 10, 10),
-    decoration: BoxDecoration(color: K.panel, borderRadius: BorderRadius.circular(14)),
-    child: ClipRect(
-      child: OverflowBox(
-        alignment: Alignment.topLeft,
-        minWidth: 0,
-        maxWidth: collapsed ? 40 : 212,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _HomeBrand(active: view == 'home', collapsed: collapsed, onGo: onGo),
-            Expanded(
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    for (final item in _navItems) ...[
-                      if (item.$1 != null)
-                        collapsed
-                            ? const Padding(
-                                padding: EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-                                child: Divider(height: 1, color: K.surface2),
-                              )
-                            : Padding(
-                                padding: const EdgeInsets.fromLTRB(10, 14, 0, 6),
-                                child: Text(
-                                  item.$1!.toUpperCase(),
-                                  style: ts(11, w: FontWeight.w600, c: K.text3, ls: 0.6),
+  // Rebuilt when the settings change too: Radio follows its switch.
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: PlayerScope.read(context).settings,
+    builder: (context, _) => AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
+      width: collapsed ? 60 : 232,
+      padding: const EdgeInsets.fromLTRB(10, 14, 10, 10),
+      decoration: BoxDecoration(color: K.panel, borderRadius: BorderRadius.circular(14)),
+      child: ClipRect(
+        child: OverflowBox(
+          alignment: Alignment.topLeft,
+          minWidth: 0,
+          maxWidth: collapsed ? 40 : 212,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _HomeBrand(active: view == 'home', collapsed: collapsed, onGo: onGo),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final (header, item) in _visibleNav(LibraryScope.of(context), PlayerScope.read(context).settings)) ...[
+                        if (header != null)
+                          collapsed
+                              ? const Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                                  child: Divider(height: 1, color: K.surface2),
+                                )
+                              : Padding(
+                                  padding: const EdgeInsets.fromLTRB(10, 14, 0, 6),
+                                  child: Text(
+                                    header.toUpperCase(),
+                                    style: ts(11, w: FontWeight.w600, c: K.text3, ls: 0.6),
+                                  ),
                                 ),
-                              ),
-                      _NavRow(item, active: view == item.$2, collapsed: collapsed, onGo: onGo),
+                        _NavRow(item, active: view == item.$2, collapsed: collapsed, onGo: onGo),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
-            ),
-            for (final item in _navBottom) _NavRow(item, active: view == item.$2, collapsed: collapsed, onGo: onGo),
-          ],
+              for (final item in _navBottom) _NavRow(item, active: view == item.$2, collapsed: collapsed, onGo: onGo),
+            ],
+          ),
         ),
       ),
     ),
@@ -448,7 +476,8 @@ class _MainPanel extends StatelessWidget {
           // Pages (an album, an artist) come in phase 2.
           _ when entry.page != null => _NotYet('${entry.page!.name[0].toUpperCase()}${entry.page!.name.substring(1)}'),
           'home' => _Home(onGo: onGo),
-          'settings' => const AccountPanel(),
+          'radio' => const _Radio(),
+          'settings' => const SettingsPanel(),
           _ => _NotYet(_label(view)),
         },
       ),
@@ -492,11 +521,7 @@ class _Home extends StatelessWidget {
           Text(greeting(lib.jf?.userName ?? 'Cha0s'), style: ts(30, w: FontWeight.w700, ls: -0.45)),
           const SizedBox(height: 4),
           Text(today(), style: ts(13, c: K.text3)),
-          if (lib.error != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: Text(lib.error!, style: ts(13, c: const Color(0xFFFF453A))),
-            ),
+          LoadError(padding: const EdgeInsets.only(top: 12)),
           if (lib.loading && played.isEmpty)
             const Padding(
               padding: EdgeInsets.all(40),
@@ -776,6 +801,7 @@ class _PlayerBar extends StatelessWidget {
                   _IconBtn(Icons.water_drop_outlined, 'Waterfall, listen together', () {}),
                   _IconBtn(Icons.picture_in_picture_alt_outlined, 'Miniplayer', () {}),
                   _IconBtn(Icons.cast_rounded, 'Connect to a device', () {}),
+                  const SleepTimerButton(),
                   Container(width: 1, height: 18, margin: const EdgeInsets.symmetric(horizontal: 8), color: K.surface2),
                   _IconBtn(p.volume == 0 ? Icons.volume_off_rounded : Icons.volume_up_rounded, 'Mute', () => p.setVolume(p.volume == 0 ? 0.7 : 0)),
                   SizedBox(
@@ -815,5 +841,68 @@ class _Bar extends StatelessWidget {
       height: 20,
       child: Slider(value: value.clamp(0, 1), onChanged: onChanged, padding: const EdgeInsets.symmetric(horizontal: 6)),
     ),
+  );
+}
+
+/// Radio: the server's Live TV channels, played as audio.
+class _Radio extends StatefulWidget {
+  const _Radio();
+
+  @override
+  State<_Radio> createState() => _RadioState();
+}
+
+class _RadioState extends State<_Radio> {
+  late final Future<List<Song>> _channels = LibraryScope.read(context).radioChannels();
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder(
+    future: _channels,
+    builder: (context, snap) {
+      final channels = snap.data ?? const <Song>[];
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(28, 26, 28, 24),
+        children: [
+          Text('Radio', style: ts(30, w: FontWeight.w700, ls: -0.45)),
+          const SizedBox(height: 20),
+          if (snap.hasError) Text('Could not load the channels: ${snap.error}', style: ts(13, c: const Color(0xFFFF453A))),
+          if (snap.connectionState != ConnectionState.done) const Center(child: CircularProgressIndicator()),
+          if (snap.connectionState == ConnectionState.done && channels.isEmpty && !snap.hasError)
+            Text('No channels on your server.', style: ts(14, c: K.text3)),
+          Wrap(
+            spacing: 16,
+            runSpacing: 16,
+            children: [
+              for (final c in channels)
+                Hover(
+                  onTap: () => PlayerScope.read(context).play(c, channels),
+                  builder: (_, on) => SizedBox(
+                    width: 140,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Cover(c.art, image: c.image, size: 140, shadow: on),
+                        const SizedBox(height: 8),
+                        Text(
+                          c.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: ts(13, w: FontWeight.w500),
+                        ),
+                        Text(
+                          c.artist,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: ts(12, c: K.text3),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      );
+    },
   );
 }

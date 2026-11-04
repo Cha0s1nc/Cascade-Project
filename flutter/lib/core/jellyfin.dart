@@ -286,7 +286,24 @@ class Jellyfin {
       ((j['RunTimeTicks'] as num? ?? 0) / 1e7).round(),
       artFor(id),
       id: id,
+      albumId: j['AlbumId'] as String?,
       image: image(j['AlbumId'] as String? ?? id, j['AlbumPrimaryImageTag'] as String? ?? j['ImageTags']?['Primary'] as String?),
+    );
+  }
+
+  /// A Live TV channel, as radio.
+  Song channel(Map j) {
+    final id = j['Id'] as String;
+    return Song(
+      j['Name'] as String? ?? '',
+      j['ChannelNumber'] == null ? 'Radio' : 'Channel ${j['ChannelNumber']}',
+      '',
+      0,
+      0,
+      artFor(id),
+      id: id,
+      image: image(id, j['ImageTags']?['Primary'] as String?),
+      live: true,
     );
   }
 

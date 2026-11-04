@@ -17,19 +17,22 @@ One line per feature in `docs/flutter-plan.md`. Status: built / partial / not bu
 ## Phase 1: playback engine
 
 - Two decks, preload, equal-power crossfade, skip fade: built - heard on W and A
-- Playback reports and resume points, `CASCADE_NO_REPORTS`: not built
-- Stream negotiation, transcoding, quality: not built - plays the original file
-- Crossfade setting, auto-mix: not built - fixed 1 s
-- Normalization: not built
-- Music and video EQ with presets: not built
-- Output device picker: not built
-- Last-queue restore: not built
-- Sleep timer: not built
-- Radio: not built
+- Playback reports and resume points, `CASCADE_NO_REPORTS`: built - start, progress and stop seen in jellyfin12's log from A with the right positions; the switch is a setting ("Do not report playback") and the environment variable
+- Stream negotiation, transcoding, quality: built - direct play and 128 kbps transcodes seen on A (the server's ffmpeg), starting mid-track through StartTimeTicks; a skipped transcode is stopped on the server. Unlike the desktop, a transcode is progressive MP3, not AAC over HLS: mpv rejected Jellyfin 12's HLS stream
+- Crossfade setting (1-15 s, off): built - not heard yet; off still keeps a 1 s overlap to hide the gap
+- Auto-mix: built - not seen running
+- Normalization (track or album): built - not heard yet
+- Music EQ with presets: built - mpv lavfi filters with the desktop's bands and presets; not heard yet
+- Video EQ: not built - waits for video (phase 5)
+- Output device picker with fallback: built - lists mpv's devices, follows the system default while the chosen one is missing; not tried with a second device
+- Last-queue restore: built - seen on A, including mid-track on a transcode and after the server was unreachable at launch
+- Reconnect when the server comes back: built - tested; seen on A
+- Sleep timer: built - not seen firing
+- Radio (Live TV channels): built - requests only; the test server has no Live TV
 - Windows media controls and keys: built - seen on W
-- Linux MPRIS: not built
+- Linux MPRIS: built - registers on L's session bus; not yet driven from the desktop's media widget
 - Android notification, lock screen, background: built - seen on A
-- Shared ownership with cast and Waterfall: not built
+- Shared ownership with cast and Waterfall: not built - waits for devices and Waterfall (phase 2)
 
 ## Phase 2: library and browsing
 

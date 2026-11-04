@@ -375,3 +375,27 @@ class HeroCard extends StatelessWidget {
     );
   }
 }
+
+/// Home's line when the server did not answer, with Try again.
+class LoadError extends StatelessWidget {
+  const LoadError({super.key, this.padding = EdgeInsets.zero});
+  final EdgeInsets padding;
+
+  @override
+  Widget build(BuildContext context) {
+    final lib = LibraryScope.of(context);
+    if (lib.error == null) return const SizedBox.shrink();
+    return Padding(
+      padding: padding,
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(lib.error!, style: ts(13, c: const Color(0xFFFF453A))),
+          ),
+          const SizedBox(width: 12),
+          TextButton(onPressed: lib.loading ? null : lib.refresh, child: const Text('Try again')),
+        ],
+      ),
+    );
+  }
+}

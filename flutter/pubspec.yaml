@@ -29,6 +29,7 @@ environment:
 # versions available, run `flutter pub outdated`.
 dependencies:
   audio_service: ^0.18.19
+  audio_service_mpris: ^0.2.1
   flutter:
     sdk: flutter
   http: ^1.6.0

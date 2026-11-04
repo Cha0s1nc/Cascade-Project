@@ -7,6 +7,7 @@ import 'package:media_kit/media_kit.dart' show MediaKit;
 import 'package:cascade/ui/desktop.dart';
 import 'package:cascade/core/jellyfin.dart';
 import 'package:cascade/core/library.dart';
+import 'package:cascade/core/settings.dart';
 import 'package:cascade/platform/media_controls.dart';
 import 'package:cascade/ui/phone.dart';
 import 'package:cascade/engine/player.dart';
@@ -17,7 +18,7 @@ import 'package:cascade/ui/scopes.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
-  final player = Player();
+  final player = Player(settings: await Settings.load());
   await attachMediaControls(player);
   runApp(CascadeApp(player: player, session: await Jellyfin.restore()));
 }
@@ -33,12 +34,16 @@ class CascadeApp extends StatefulWidget {
   State<CascadeApp> createState() => _CascadeAppState();
 }
 
-class _CascadeAppState extends State<CascadeApp> {
+class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
   final _library = Library();
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // The queue comes back once the library has loaded, so a server that was
+    // down at launch still gets it back when it answers.
+    _library.onLoaded = widget.player.restore;
     final s = widget.session;
     if (s != null) {
       widget.player.jf = s;
@@ -48,8 +53,15 @@ class _CascadeAppState extends State<CascadeApp> {
     }
   }
 
+  /// Back in the app with the server still unreachable: try now, not later.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _library.error != null) _library.refresh();
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     widget.player.dispose();
     _library.dispose();
     super.dispose();

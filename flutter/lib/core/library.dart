@@ -2,6 +2,9 @@
 // what the user may do, and Home's shelves. Or the demo library. The queries
 // and selection rules are the desktop's (renderer.js connect() and
 // loadRecentlyPlayed and friends); the setting names are electron-store's.
+import 'dart:async';
+import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -29,6 +32,9 @@ class Library extends ChangeNotifier {
   List<Album> recentlyAdded = [], playlists = [];
   List<Video> continueWatching = [];
 
+  /// Whether the server has Live TV channels to offer as Radio.
+  bool hasLiveTv = false;
+
   bool get signedIn => demo || jf?.token != null;
   bool get hasVideo => movieIds.isNotEmpty || showIds.isNotEmpty;
   Map<String, String>? get headers => jf?.headers;
@@ -49,21 +55,41 @@ class Library extends ChangeNotifier {
     await refresh();
   }
 
+  /// Called after each load that worked: the player restores its queue then,
+  /// since a server that was down at launch could not give it the songs.
+  void Function()? onLoaded;
+
+  Timer? _retry;
+  int _attempt = 0;
+
   /// The libraries, the user's policy and the chosen libraries, then Home.
+  /// A server that does not answer is tried again by itself, 5 s later and
+  /// then less often (up to every minute), until it does.
   Future<void> refresh() async {
     final j = jf;
     if (j == null) return;
+    _retry?.cancel();
     loading = true;
     error = null;
     notifyListeners();
     try {
       await _connect(j);
       await _loadHome(j);
+      _attempt = 0;
+      onLoaded?.call();
     } catch (e) {
-      error = 'Could not load your library: $e';
+      final wait = min(60, 5 << min(_attempt++, 4));
+      error = 'Could not reach your server, trying again in $wait s ($e)';
+      _retry = Timer(Duration(seconds: wait), refresh);
     }
     loading = false;
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _retry?.cancel();
+    super.dispose();
   }
 
   Future<void> _connect(Jellyfin j) async {
@@ -84,6 +110,10 @@ class Library extends ChangeNotifier {
     final saved = (prefs.getStringList('libraryIds') ?? const []).where((id) => musicLibs.any((l) => l['Id'] == id)).toList();
     j.libraryIds = saved.isNotEmpty ? saved : [for (final l in musicLibs) l['Id'] as String];
     movieIds = effectiveLibraryIds(movieLibs, prefs.getStringList('movieLibraryIds'));
+    // Best effort: a server without Live TV answers with an error or nothing.
+    hasLiveTv = await j
+        .get('/LiveTv/Channels', {'userId': j.userId, 'Limit': 1})
+        .then((r) => ((r as Map)['TotalRecordCount'] as int? ?? 0) > 0, onError: (_) => false);
     showIds = effectiveLibraryIds(showLibs, prefs.getStringList('showLibraryIds'));
   }
 
@@ -146,6 +176,14 @@ class Library extends ChangeNotifier {
     return onePerSeries([...resume, ...nextUp]).take(24).toList();
   }
 
+  /// The Live TV channels, as radio.
+  Future<List<Song>> radioChannels() async {
+    final j = jf;
+    if (j == null) return const [];
+    final res = await j.get('/LiveTv/Channels', {'userId': j.userId});
+    return [for (final c in ((res as Map)['Items'] as List).cast<Item>()) j.channel(c)];
+  }
+
   /// An album's tracks in disc and track order, or a playlist's in its order.
   Future<List<Song>> tracksOf(Album a) async {
     final j = jf;
@@ -163,6 +201,8 @@ class Library extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    _retry?.cancel();
+    error = null;
     await jf?.signOut();
     jf = null;
     demo = false;

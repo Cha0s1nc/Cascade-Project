@@ -1,0 +1,114 @@
+// Settings, stored under electron-store's key names so importing the
+// desktop's config.json is a straight mapping. Each setter is the one path
+// that changes its value, as on the desktop.
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:cascade/core/playback.dart';
+
+class Settings extends ChangeNotifier {
+  Settings._(this._p);
+
+  /// Loaded once at startup; tests use [Settings.memory].
+  static Future<Settings> load() async => Settings._(await SharedPreferences.getInstance());
+
+  final SharedPreferences? _p;
+
+  /// Defaults only, nothing saved: for tests and the demo.
+  Settings.memory() : _p = null;
+
+  // Crossfade: off on the desktop by default, 6 s when turned on (1-15).
+  late bool crossfadeEnabled = _p?.getBool('crossfadeEnabled') ?? false;
+  late int crossfadeSeconds = (_p?.getInt('crossfadeSeconds') ?? 6).clamp(1, 15);
+
+  late int maxStreamingBitrate = _p?.getInt('maxStreamingBitrate') ?? defaultMaxBitrate;
+
+  late bool normalizationEnabled = _p?.getBool('normalizationEnabled') ?? false;
+
+  /// 'track' or 'album'.
+  late String normalizationSource = _p?.getString('normalizationSource') == 'album' ? 'album' : 'track';
+
+  late bool eqEnabled = _p?.getBool('eqEnabled') ?? false;
+  late EqProfile eqMusic = _profile('eqMusic');
+  late EqProfile eqVideo = _profile('eqVideo');
+
+  /// mpv's name for the output device; 'auto' follows the system default.
+  late String outputDeviceId = _p?.getString('outputDeviceId') ?? 'auto';
+
+  late double volume = (_p?.getDouble('volume') ?? 0.7).clamp(0, 1);
+  late String repeatMode = _p?.getString('repeatMode') ?? 'none';
+  late bool shuffle = _p?.getBool('shuffle') ?? false;
+  late bool autoMix = _p?.getBool('autoMixEnabled') ?? false;
+
+  /// Show the server's Live TV channels as Radio (off, as on the desktop).
+  late bool radioEnabled = _p?.getBool('radioEnabled') ?? false;
+
+  /// Never tell the server what plays, for test runs against a real server
+  /// (like the Swift app's -cascade.noReports). Also CASCADE_NO_REPORTS=1.
+  late bool noReports = (_p?.getBool('noReports') ?? false) || Platform.environment['CASCADE_NO_REPORTS'] == '1';
+
+  EqProfile _profile(String key) {
+    try {
+      return normalizeProfile(jsonDecode(_p?.getString(key) ?? 'null'));
+    } catch (_) {
+      return normalizeProfile(null);
+    }
+  }
+
+  /// Called with the save in flight, which is never awaited.
+  void _changed(Object? _) => notifyListeners();
+
+  void setCrossfade({bool? enabled, int? seconds}) {
+    if (enabled != null) _p?.setBool('crossfadeEnabled', crossfadeEnabled = enabled);
+    if (seconds != null) _p?.setInt('crossfadeSeconds', crossfadeSeconds = seconds.clamp(1, 15));
+    _changed(null);
+  }
+
+  void setMaxBitrate(int bitrate) => _changed(_p?.setInt('maxStreamingBitrate', maxStreamingBitrate = bitrate));
+
+  void setNormalization({bool? enabled, String? source}) {
+    if (enabled != null) _p?.setBool('normalizationEnabled', normalizationEnabled = enabled);
+    if (source != null) _p?.setString('normalizationSource', normalizationSource = source == 'album' ? 'album' : 'track');
+    _changed(null);
+  }
+
+  void setEqEnabled(bool on) => _changed(_p?.setBool('eqEnabled', eqEnabled = on));
+
+  void setEqProfile(EqProfile p, {bool video = false}) {
+    if (video) {
+      eqVideo = p;
+    } else {
+      eqMusic = p;
+    }
+    _changed(_p?.setString(video ? 'eqVideo' : 'eqMusic', jsonEncode(profileJson(p))));
+  }
+
+  void setOutputDevice(String id) => _changed(_p?.setString('outputDeviceId', outputDeviceId = id));
+
+  /// Saved quietly: these change constantly while playing.
+  void remember({double? volume, String? repeatMode, bool? shuffle}) {
+    if (volume != null) _p?.setDouble('volume', this.volume = volume);
+    if (repeatMode != null) _p?.setString('repeatMode', this.repeatMode = repeatMode);
+    if (shuffle != null) _p?.setBool('shuffle', this.shuffle = shuffle);
+  }
+
+  void setAutoMix(bool on) => _changed(_p?.setBool('autoMixEnabled', autoMix = on));
+
+  void setRadioEnabled(bool on) => _changed(_p?.setBool('radioEnabled', radioEnabled = on));
+
+  void setNoReports(bool on) => _changed(_p?.setBool('noReports', noReports = on));
+
+  /// The last queue, as the desktop stores it (a JSON string under 'lastQueue').
+  Object? get lastQueue {
+    try {
+      return jsonDecode(_p?.getString('lastQueue') ?? 'null');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void saveLastQueue(Map<String, Object>? q) => q == null ? _p?.remove('lastQueue') : _p?.setString('lastQueue', jsonEncode(q));
+}
