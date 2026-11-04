@@ -4,14 +4,15 @@
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart' show MediaKit;
 
-import 'desktop.dart';
-import 'jellyfin.dart';
-import 'library.dart';
-import 'media_controls.dart';
-import 'phone.dart';
-import 'player.dart';
-import 'sign_in.dart';
-import 'widgets.dart';
+import 'package:cascade/ui/desktop.dart';
+import 'package:cascade/core/jellyfin.dart';
+import 'package:cascade/core/library.dart';
+import 'package:cascade/platform/media_controls.dart';
+import 'package:cascade/ui/phone.dart';
+import 'package:cascade/engine/player.dart';
+import 'package:cascade/ui/sign_in.dart';
+import 'package:cascade/ui/widgets.dart';
+import 'package:cascade/ui/scopes.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();

@@ -2,19 +2,21 @@
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'data.dart';
-import 'library.dart';
-import 'player.dart';
-import 'sign_in.dart';
-import 'widgets.dart';
+import 'package:cascade/core/data.dart';
+import 'package:cascade/core/nav.dart';
+import 'package:cascade/engine/player.dart';
+import 'package:cascade/ui/sign_in.dart';
+import 'package:cascade/ui/widgets.dart';
+import 'package:cascade/ui/scopes.dart';
 
 typedef NavItem = (String? section, String id, String label, IconData icon);
 
 // Home is the Cascade logo above these (_HomeBrand).
-const _nav = <NavItem>[
+const _navItems = <NavItem>[
   ('Library', 'albums', 'Albums', Icons.album_outlined),
   (null, 'artists', 'Artists', Icons.person_outline_rounded),
   (null, 'songs', 'Songs', Icons.music_note_outlined),
@@ -35,60 +37,63 @@ class DesktopShell extends StatefulWidget {
 }
 
 class _DesktopShellState extends State<DesktopShell> {
-  String _view = 'home';
-  final _back = <String>[], _fwd = <String>[];
+  final _nav = Nav();
   bool _collapsed = false;
   final _search = FocusNode();
 
-  void _go(String v) {
-    if (v == _view) return;
-    setState(() {
-      _back.add(_view);
-      _fwd.clear();
-      _view = v;
-    });
-  }
-
-  void _step(List<String> from, List<String> to) => setState(() {
-    to.add(_view);
-    _view = from.removeLast();
-  });
-
   @override
   void dispose() {
+    _nav.dispose();
     _search.dispose();
     super.dispose();
   }
 
+  // Back and Forward: the title bar buttons, the mouse's side buttons, and
+  // Alt+Left/Right (Cmd+[ and ] on a Mac), as on the desktop.
   @override
-  Widget build(BuildContext context) => CallbackShortcuts(
+  Widget build(BuildContext context) => NavScope(
+    nav: _nav,
+    child: ListenableBuilder(listenable: _nav, builder: (context, _) => _shell()),
+  );
+
+  Widget _shell() => CallbackShortcuts(
     bindings: {
       const SingleActivator(LogicalKeyboardKey.keyK, control: true): _search.requestFocus,
       const SingleActivator(LogicalKeyboardKey.keyK, meta: true): _search.requestFocus,
+      const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true): _nav.back,
+      const SingleActivator(LogicalKeyboardKey.arrowRight, alt: true): _nav.forward,
+      const SingleActivator(LogicalKeyboardKey.bracketLeft, meta: true): _nav.back,
+      const SingleActivator(LogicalKeyboardKey.bracketRight, meta: true): _nav.forward,
     },
-    child: Focus(
-      autofocus: true,
-      child: Scaffold(
-        backgroundColor: K.root,
-        body: Column(
-          children: [
-            _topBar(),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: Row(
-                  children: [
-                    _Sidebar(view: _view, collapsed: _collapsed, onGo: _go),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _MainPanel(view: _view, onGo: _go),
-                    ),
-                  ],
+    child: Listener(
+      onPointerDown: (e) {
+        if (e.buttons & kBackMouseButton != 0) _nav.back();
+        if (e.buttons & kForwardMouseButton != 0) _nav.forward();
+      },
+      child: Focus(
+        autofocus: true,
+        child: Scaffold(
+          backgroundColor: K.root,
+          body: Column(
+            children: [
+              _topBar(),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Row(
+                    children: [
+                      _Sidebar(view: _nav.view, collapsed: _collapsed, onGo: _nav.show),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _MainPanel(view: _nav.view, entry: _nav.top, onGo: _nav.show),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const _PlayerBar(),
-          ],
+              const _PlayerBar(),
+            ],
+          ),
         ),
       ),
     ),
@@ -106,9 +111,9 @@ class _DesktopShellState extends State<DesktopShell> {
               children: [
                 _IconBtn(Icons.view_sidebar_outlined, _collapsed ? 'Show sidebar' : 'Hide sidebar', () => setState(() => _collapsed = !_collapsed)),
                 const SizedBox(width: 4),
-                _IconBtn(Icons.chevron_left_rounded, 'Back', _back.isEmpty ? null : () => _step(_back, _fwd), filled: true),
+                _IconBtn(Icons.chevron_left_rounded, 'Back', _nav.canBack ? _nav.back : null, filled: true),
                 const SizedBox(width: 4),
-                _IconBtn(Icons.chevron_right_rounded, 'Forward', _fwd.isEmpty ? null : () => _step(_fwd, _back), filled: true),
+                _IconBtn(Icons.chevron_right_rounded, 'Forward', _nav.canForward ? _nav.forward : null, filled: true),
               ],
             ),
           ),
@@ -246,7 +251,7 @@ class _Sidebar extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    for (final item in _nav) ...[
+                    for (final item in _navItems) ...[
                       if (item.$1 != null)
                         collapsed
                             ? const Padding(
@@ -420,8 +425,9 @@ class _NavRow extends StatelessWidget {
 }
 
 class _MainPanel extends StatelessWidget {
-  const _MainPanel({required this.view, required this.onGo});
+  const _MainPanel({required this.view, required this.entry, required this.onGo});
   final String view;
+  final NavEntry entry;
   final ValueChanged<String> onGo;
 
   @override
@@ -439,6 +445,8 @@ class _MainPanel extends StatelessWidget {
           ),
         ),
         child: switch (view) {
+          // Pages (an album, an artist) come in phase 2.
+          _ when entry.page != null => _NotYet('${entry.page!.name[0].toUpperCase()}${entry.page!.name.substring(1)}'),
           'home' => _Home(onGo: onGo),
           'settings' => const AccountPanel(),
           _ => _NotYet(_label(view)),
@@ -447,7 +455,7 @@ class _MainPanel extends StatelessWidget {
     ),
   );
 
-  static String _label(String id) => [..._nav, ..._navBottom].firstWhere((n) => n.$2 == id).$3;
+  static String _label(String id) => [..._navItems, ..._navBottom].firstWhere((n) => n.$2 == id).$3;
 }
 
 class _NotYet extends StatelessWidget {

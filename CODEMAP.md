@@ -28,7 +28,7 @@ Verify with `npm run build:ts && npm run typecheck && npm test` in `desktop/`. F
 
 ## Edition labels
 
-The server's Devices and Activity screens tell Cascade's editions apart by the auth header's `Client`: `Cascade Electron` (this app, every OS), `Cascade iOS`, `Cascade tvOS`, and `Cascade Mac` for the native port on `mac-swift-port`. `Device` is the machine (`Windows`, `Mac`, `Linux`, `iPhone`, `iPad`, `Apple TV`). Desktop sets it once in `init()` through `CascadeCore.setClientIdentity()`, before anything authenticates; `authHeader()` reads it, and the lyrics and metadata editor windows get it in the `jf` they are opened with. Apple's is `cascadeEdition` in `JellyfinClient.swift`. The server keys a device on `DeviceId`, so the Mac port keeping Electron's id renames the device rather than adding one. Nothing matches on the old plain `Cascade`.
+The server's Devices and Activity screens tell Cascade's editions apart by the auth header's `Client`: `Cascade Electron` (this app, every OS), `Cascade iOS`, `Cascade tvOS`, and `Cascade Mac` for the native port on `mac-swift-port`, and `Cascade Flutter` (`flutter/`, every OS). `Device` is the machine (`Windows`, `Mac`, `Linux`, `iPhone`, `iPad`, `Apple TV`). Desktop sets it once in `init()` through `CascadeCore.setClientIdentity()`, before anything authenticates; `authHeader()` reads it, and the lyrics and metadata editor windows get it in the `jf` they are opened with. Apple's is `cascadeEdition` in `JellyfinClient.swift`. The server keys a device on `DeviceId`, so the Mac port keeping Electron's id renames the device rather than adding one. Nothing matches on the old plain `Cascade`.
 
 ## Rules this codebase learned the hard way
 

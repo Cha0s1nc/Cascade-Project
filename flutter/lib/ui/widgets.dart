@@ -2,9 +2,8 @@
 // (https://www.figma.com/design/5jCQuhu85omAoJsBRC57rs).
 import 'package:flutter/material.dart';
 
-import 'data.dart';
-import 'library.dart';
-import 'player.dart';
+import 'package:cascade/core/data.dart';
+import 'package:cascade/ui/scopes.dart';
 
 /// Desktop colors, from the Electron app's theme plus the redesign's panels.
 abstract final class K {

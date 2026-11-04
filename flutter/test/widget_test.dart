@@ -1,5 +1,5 @@
+import 'package:cascade/engine/player.dart';
 import 'package:cascade/main.dart';
-import 'package:cascade/player.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

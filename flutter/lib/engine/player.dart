@@ -7,12 +7,12 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
-import 'package:flutter/widgets.dart';
+import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart' as mk;
 
-import 'data.dart';
-import 'jellyfin.dart';
-import 'log.dart';
+import 'package:cascade/core/data.dart';
+import 'package:cascade/core/jellyfin.dart';
+import 'package:cascade/core/log.dart';
 
 /// The desktop's three repeat modes, in the order the button cycles them.
 enum Repeat { off, all, one }
@@ -358,14 +358,4 @@ class Player extends ChangeNotifier {
     }
     super.dispose();
   }
-}
-
-class PlayerScope extends InheritedNotifier<Player> {
-  const PlayerScope({super.key, required Player player, required super.child}) : super(notifier: player);
-
-  /// Rebuilds the caller on every change (once a second while playing).
-  static Player of(BuildContext context) => context.dependOnInheritedWidgetOfExactType<PlayerScope>()!.notifier!;
-
-  /// For callbacks: no rebuilds.
-  static Player read(BuildContext context) => context.getInheritedWidgetOfExactType<PlayerScope>()!.notifier!;
 }

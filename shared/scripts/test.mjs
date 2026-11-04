@@ -23,6 +23,7 @@ const SUITES = {
   apple: { dir: 'apple/CascadeKit', tool: 'swift', run: ['swift', 'test'] },
   // No .sln: the test project, built against Jellyfin 10.11 by default.
   server: { dir: 'server', tool: 'dotnet', run: ['dotnet', 'test', 'Jellyfin.Plugin.CascadeServer.Tests'] },
+  flutter: { dir: 'flutter', tool: 'flutter', run: ['flutter', 'test'] },
 }
 
 const has = (tool) => spawnSync(tool, ['--version'], { stdio: 'ignore', shell: WIN }).status === 0

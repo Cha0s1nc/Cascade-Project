@@ -1,11 +1,11 @@
 // Android (and any narrow window): search bar, Home, mini player, navigation bar.
 import 'package:flutter/material.dart';
 
-import 'data.dart';
-import 'library.dart';
-import 'player.dart';
-import 'sign_in.dart';
-import 'widgets.dart';
+import 'package:cascade/core/data.dart';
+import 'package:cascade/core/nav.dart';
+import 'package:cascade/ui/sign_in.dart';
+import 'package:cascade/ui/widgets.dart';
+import 'package:cascade/ui/scopes.dart';
 
 const _tabs = [
   ('Home', Icons.home_outlined, Icons.home_rounded),
@@ -23,38 +23,65 @@ class PhoneShell extends StatefulWidget {
 }
 
 class _PhoneShellState extends State<PhoneShell> {
-  int _tab = 0;
+  /// Tabs are views named after their labels ('home', 'library', ...), each
+  /// with its own page history.
+  final _nav = Nav();
+
+  int get _tab => _tabs.indexWhere((t) => t.$1.toLowerCase() == _nav.view);
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: A.bg,
-    body: switch (_tab) {
-      0 => const _Home(),
-      4 => const AccountPanel(color: A.text),
-      _ => Center(
-        child: Text('${_tabs[_tab].$1}: not in the prototype yet', style: ts(16, c: A.text2)),
-      ),
-    },
-    bottomNavigationBar: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const _MiniPlayer(),
-        NavigationBar(
-          selectedIndex: _tab,
-          onDestinationSelected: (i) => setState(() => _tab = i),
-          backgroundColor: A.nav,
-          indicatorColor: A.indicator,
-          height: 80,
-          destinations: [
-            for (final t in _tabs)
-              NavigationDestination(
-                icon: Icon(t.$2, color: A.text2),
-                selectedIcon: Icon(t.$3, color: A.onIndicator),
-                label: t.$1,
+  void dispose() {
+    _nav.dispose();
+    super.dispose();
+  }
+
+  // Android's Back: this tab's history first, then Home, then out of the app.
+  @override
+  Widget build(BuildContext context) => NavScope(
+    nav: _nav,
+    child: ListenableBuilder(
+      listenable: _nav,
+      builder: (context, _) => PopScope(
+        canPop: !_nav.canBack && _nav.view == 'home',
+        onPopInvokedWithResult: (didPop, _) {
+          if (didPop) return;
+          if (!_nav.back()) _nav.show('home');
+        },
+        child: Scaffold(
+          backgroundColor: A.bg,
+          body: switch (_nav.view) {
+            _ when _nav.top.page != null => Center(
+              child: Text('${_nav.top.page!.name}: phase 2', style: ts(16, c: A.text2)),
+            ),
+            'home' => const _Home(),
+            'settings' => const AccountPanel(color: A.text),
+            _ => Center(
+              child: Text('${_tabs[_tab].$1}: not in the prototype yet', style: ts(16, c: A.text2)),
+            ),
+          },
+          bottomNavigationBar: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const _MiniPlayer(),
+              NavigationBar(
+                selectedIndex: _tab,
+                onDestinationSelected: (i) => _nav.show(_tabs[i].$1.toLowerCase()),
+                backgroundColor: A.nav,
+                indicatorColor: A.indicator,
+                height: 80,
+                destinations: [
+                  for (final t in _tabs)
+                    NavigationDestination(
+                      icon: Icon(t.$2, color: A.text2),
+                      selectedIcon: Icon(t.$3, color: A.onIndicator),
+                      label: t.$1,
+                    ),
+                ],
               ),
-          ],
+            ],
+          ),
         ),
-      ],
+      ),
     ),
   );
 }

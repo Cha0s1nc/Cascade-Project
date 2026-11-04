@@ -5,10 +5,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import 'jellyfin.dart';
-import 'library.dart';
-import 'player.dart';
-import 'widgets.dart';
+import 'package:cascade/core/jellyfin.dart';
+import 'package:cascade/ui/widgets.dart';
+import 'package:cascade/ui/scopes.dart';
 
 class SignIn extends StatefulWidget {
   const SignIn({super.key});

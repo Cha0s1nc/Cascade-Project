@@ -7,8 +7,8 @@ import 'dart:io';
 import 'package:audio_service/audio_service.dart';
 import 'package:smtc_windows/smtc_windows.dart';
 
-import 'log.dart';
-import 'player.dart';
+import 'package:cascade/core/log.dart';
+import 'package:cascade/engine/player.dart';
 
 Future<void> attachMediaControls(Player p) async {
   try {
