@@ -49,8 +49,15 @@ class VideoScreen extends StatefulWidget {
 }
 
 class _VideoScreenState extends State<VideoScreen> {
-  final _p = mk.Player();
-  late final _vc = VideoController(_p);
+  final _p = mk.Player(
+    configuration: mk.PlayerConfiguration(logLevel: Platform.environment['CASCADE_MPV_LOG'] == 'v' ? mk.MPVLogLevel.v : mk.MPVLogLevel.warn),
+  );
+  // CASCADE_SOFTWARE_VIDEO=1 draws frames on the CPU, for machines (and
+  // VMs) whose GPU path shows a black picture.
+  late final _vc = VideoController(
+    _p,
+    configuration: VideoControllerConfiguration(enableHardwareAcceleration: Platform.environment['CASCADE_SOFTWARE_VIDEO'] != '1'),
+  );
   final _subs = <StreamSubscription>[];
   Item _item = const {};
   double _pos = 0, _len = 0;
@@ -83,6 +90,8 @@ class _VideoScreenState extends State<VideoScreen> {
       }),
       _p.stream.tracks.listen((_) => mounted ? setState(() {}) : null),
       _p.stream.error.listen((e) => log('video error: $e')),
+      _p.stream.log.listen((l) => log('video mpv ${l.level} ${l.prefix}: ${l.text.trim()}')),
+      _p.stream.buffering.listen((b) => log('video buffering $b')),
     ]);
     _start(widget.item);
     _wake();
@@ -273,7 +282,12 @@ class _VideoScreenState extends State<VideoScreen> {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  Video(controller: _vc, controls: NoVideoControls),
+                  Video(
+                    controller: _vc,
+                    controls: NoVideoControls,
+                    // Subtitles move up out of the way while the controls show.
+                    subtitleViewConfiguration: SubtitleViewConfiguration(padding: EdgeInsets.fromLTRB(24, 0, 24, _controls ? 110 : 36)),
+                  ),
                   AnimatedOpacity(
                     opacity: _controls ? 1 : 0,
                     duration: const Duration(milliseconds: 250),
@@ -317,13 +331,16 @@ class _VideoScreenState extends State<VideoScreen> {
                 IconBtn(Icons.arrow_back_rounded, 'Back', _close, color: Colors.white, size: 22),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: ts(15, w: FontWeight.w600, c: Colors.white),
+                  child: TitleBarDrag(
+                    child: Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: ts(15, w: FontWeight.w600, c: Colors.white),
+                    ),
                   ),
                 ),
+                if (!_full) const WindowButtons(),
               ],
             ),
             const Spacer(),

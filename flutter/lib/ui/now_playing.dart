@@ -84,23 +84,26 @@ class ArtBackground extends StatelessWidget {
   final Song? song;
   final double dim;
 
+  // Clipped: the blur would otherwise spill over the title bar and player bar.
   @override
-  Widget build(BuildContext context) => Stack(
-    fit: StackFit.expand,
-    children: [
-      const ColoredBox(color: K.root),
-      if (song != null)
-        ImageFiltered(
-          imageFilter: ImageFilter.blur(sigmaX: 70, sigmaY: 70, tileMode: TileMode.decal),
-          child: Transform.scale(scale: 1.3, child: Cover(song!.art, image: song!.image, radius: 0)),
+  Widget build(BuildContext context) => ClipRect(
+    child: Stack(
+      fit: StackFit.expand,
+      children: [
+        const ColoredBox(color: K.root),
+        if (song != null)
+          ImageFiltered(
+            imageFilter: ImageFilter.blur(sigmaX: 70, sigmaY: 70, tileMode: TileMode.decal),
+            child: Transform.scale(scale: 1.3, child: Cover(song!.art, image: song!.image, radius: 0)),
+          ),
+        ColoredBox(color: K.root.withValues(alpha: dim)),
+        const DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0x002B6CB0), Color(0xCC0A0E13)], stops: [0.3, 1]),
+          ),
         ),
-      ColoredBox(color: K.root.withValues(alpha: dim)),
-      const DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0x002B6CB0), Color(0xCC0A0E13)], stops: [0.3, 1]),
-        ),
-      ),
-    ],
+      ],
+    ),
   );
 }
 

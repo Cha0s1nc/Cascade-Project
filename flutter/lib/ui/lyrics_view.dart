@@ -163,23 +163,32 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
     final lines = widget.lyrics.lines;
     final fade = Duration(milliseconds: (_s(_st, 'fadeSeconds', 1) * 450).round());
     return LayoutBuilder(
-      builder: (context, c) => NotificationListener<ScrollNotification>(
-        onNotification: (n) {
-          if (n is UserScrollNotification || (n is ScrollUpdateNotification && n.dragDetails != null)) _userScrolled();
-          return false;
-        },
-        child: ShaderMask(
-          shaderCallback: (r) => const LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Colors.transparent, Colors.white, Colors.white, Colors.transparent],
-            stops: [0, 0.08, 0.9, 1],
-          ).createShader(r),
-          blendMode: BlendMode.dstIn,
-          child: ListView(
-            controller: _scroll,
-            padding: EdgeInsets.symmetric(vertical: c.maxHeight * 0.5),
-            children: [for (final (i, line) in lines.indexed) KeyedSubtree(key: _keys[i], child: _line(i, line, fade))],
+      // Browsing is a drag or the mouse wheel, never the follow's own scrolling.
+      builder: (context, c) => Listener(
+        onPointerSignal: (_) => _userScrolled(),
+        child: NotificationListener<ScrollUpdateNotification>(
+          onNotification: (n) {
+            if (n.dragDetails != null) _userScrolled();
+            return false;
+          },
+          child: ScrollConfiguration(
+            behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+            child: ShaderMask(
+              shaderCallback: (r) => const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Colors.transparent, Colors.white, Colors.white, Colors.transparent],
+                stops: [0, 0.08, 0.9, 1],
+              ).createShader(r),
+              blendMode: BlendMode.dstIn,
+              child: ListView(
+                controller: _scroll,
+                // No scrollbar: the lyrics scroll themselves.
+                primary: false,
+                padding: EdgeInsets.symmetric(vertical: c.maxHeight * 0.5),
+                children: [for (final (i, line) in lines.indexed) KeyedSubtree(key: _keys[i], child: _line(i, line, fade))],
+              ),
+            ),
           ),
         ),
       ),

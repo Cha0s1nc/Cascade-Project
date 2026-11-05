@@ -348,7 +348,9 @@ class Jellyfin {
       j['Name'] as String? ?? '',
       artFor(id),
       id: id,
-      image: image(id, j['ImageTags']?['Primary'] as String?),
+      // Asked for even without a tag, as the desktop does: Jellyfin often
+      // has an artist picture it does not list, and a miss shows the gradient.
+      image: image(id, j['ImageTags']?['Primary'] as String?) ?? '$server/Items/$id/Images/Primary?maxWidth=300&quality=90',
       favorite: (j['UserData'] as Map?)?['IsFavorite'] == true,
       overview: j['Overview'] as String?,
     );

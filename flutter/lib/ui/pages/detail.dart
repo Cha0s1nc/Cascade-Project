@@ -44,6 +44,7 @@ class DetailHeader extends StatelessWidget {
     this.voice,
     required this.actions,
     this.titleWidget,
+    this.aspect = 1,
   });
   final String label, title, meta;
   final List<Color> art;
@@ -52,11 +53,14 @@ class DetailHeader extends StatelessWidget {
   final List<Widget> actions;
   final Widget? titleWidget;
 
+  /// The art's width over height: 2/3 for a poster.
+  final double aspect;
+
   @override
   Widget build(BuildContext context) {
     final small = narrow(context);
     final cover = SizedBox(
-      width: small ? 200 : 220,
+      width: (small ? 200 : 220) * (aspect < 1 ? aspect : 1),
       height: small ? 200 : 220,
       child: round ? ClipOval(child: Cover(art, image: image, radius: 0)) : Cover(art, image: image, radius: 14, shadow: true),
     );

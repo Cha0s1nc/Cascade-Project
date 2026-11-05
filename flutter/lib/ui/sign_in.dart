@@ -4,6 +4,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:cascade/core/jellyfin.dart';
 import 'package:cascade/ui/widgets.dart';
@@ -23,6 +24,16 @@ class _SignInState extends State<SignIn> {
   bool _busy = false;
   Timer? _poll;
 
+  // The last server, so signing in again is one click.
+  @override
+  void initState() {
+    super.initState();
+    SharedPreferences.getInstance().then((p) {
+      final last = p.getString('server');
+      if (mounted && last != null && _url.text.isEmpty) _url.text = last;
+    }, onError: (_) {});
+  }
+
   @override
   void dispose() {
     _poll?.cancel();
@@ -31,6 +42,7 @@ class _SignInState extends State<SignIn> {
   }
 
   Future<void> _start() async {
+    if (_url.text.trim().isEmpty) return setState(() => _error = 'Type your server\'s address first.');
     setState(() {
       _busy = true;
       _error = null;

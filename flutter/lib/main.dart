@@ -125,8 +125,23 @@ class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
           player: widget.player,
           child: ListenableBuilder(
             listenable: _library,
-            builder: (context, _) =>
-                !_library.signedIn ? const SignIn() : LayoutBuilder(builder: (context, c) => c.maxWidth >= 900 ? const DesktopShell() : const PhoneShell()),
+            builder: (context, _) => LayoutBuilder(
+              builder: (context, c) {
+                final desktop = _library.signedIn && c.maxWidth >= 900;
+                final page = !_library.signedIn ? const SignIn() : (desktop ? const DesktopShell() : const PhoneShell());
+                return desktop
+                    ? page
+                    : ColoredBox(
+                        color: K.root,
+                        child: Column(
+                          children: [
+                            const BareTitleBar(),
+                            Expanded(child: page),
+                          ],
+                        ),
+                      );
+              },
+            ),
           ),
         ),
       ),

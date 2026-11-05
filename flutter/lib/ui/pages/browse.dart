@@ -330,6 +330,7 @@ class _VideoPageState extends State<VideoPage> {
               title: v.title,
               art: v.art,
               image: v.image,
+              aspect: 2 / 3,
               meta: [
                 if (item['ProductionYear'] != null) '${item['ProductionYear']}',
                 if (item['OfficialRating'] != null) item['OfficialRating'] as String,

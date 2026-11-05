@@ -140,3 +140,22 @@ class _Round extends StatelessWidget {
     ),
   );
 }
+
+/// Just a drag strip and the window buttons, for screens without Cascade's
+/// top bar (sign-in, and the phone layout in a narrow window).
+class BareTitleBar extends StatelessWidget {
+  const BareTitleBar({super.key});
+
+  @override
+  Widget build(BuildContext context) => !inlineTitleBar
+      ? const SizedBox.shrink()
+      : const SizedBox(
+          height: 40,
+          child: Stack(
+            children: [
+              Positioned.fill(child: TitleBarDrag(child: SizedBox.expand())),
+              Align(alignment: Alignment.centerRight, child: WindowButtons()),
+            ],
+          ),
+        );
+}

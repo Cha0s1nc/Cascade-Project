@@ -34,7 +34,8 @@ class _SettingsPanelState extends State<SettingsPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final small = narrow(context);
+    // Tablets too: the tab column only fits beside the rows on a wide window.
+    final small = MediaQuery.sizeOf(context).width < 840;
     final s = PlayerScope.of(context).settings;
     final body = ListenableBuilder(
       listenable: s,
