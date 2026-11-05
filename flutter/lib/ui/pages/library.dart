@@ -12,6 +12,7 @@ import 'package:cascade/core/jellyfin.dart';
 import 'package:cascade/core/nav.dart';
 import 'package:cascade/core/queue.dart';
 import 'package:cascade/ui/pages/common.dart';
+import 'package:cascade/ui/pages/smart.dart';
 import 'package:cascade/ui/scopes.dart';
 import 'package:cascade/ui/widgets.dart';
 
@@ -27,6 +28,7 @@ class GridSpec {
     this.round = false,
     this.filters = true,
     this.shuffle,
+    this.extra,
   });
   final String name, title;
   final Map<String, String> fields;
@@ -35,6 +37,9 @@ class GridSpec {
   final String Function(List<Item> all)? voice;
   final bool round, filters;
   final Future<void> Function(BuildContext, List<Item> shown)? shuffle;
+
+  /// Shown between the header and the grid.
+  final Widget? extra;
 }
 
 class GridPage extends StatefulWidget {
@@ -160,6 +165,7 @@ class _GridPageState extends State<GridPage> {
                       ),
               ),
             ),
+            if (spec.extra != null) SliverToBoxAdapter(child: spec.extra),
             if (shown.isEmpty)
               SliverToBoxAdapter(child: Empty(all.isEmpty ? 'Nothing here yet.' : 'Nothing matches these filters.'))
             else
@@ -235,6 +241,7 @@ GridSpec playlistsSpec(BuildContext context) => GridSpec(
   card: (c, i) => albumCard(c, _jf(c)!.album(i)),
   voice: (all) => all.isEmpty ? 'Make one from any song\'s menu.' : _count(all.length, 'playlist'),
   filters: false,
+  extra: const SmartPlaylistsRow(),
 );
 
 class GenresPage extends StatelessWidget {
@@ -273,7 +280,7 @@ class GenresPage extends StatelessWidget {
 }
 
 /// Songs: the whole library as a list, sorted by the column you pick
-/// (queue.ts sortSongs, stored as songsSort like the desktop).
+/// (queue.ts sortSongs, stored under the desktop's songsSortField and songsSortDir).
 class SongsPage extends StatefulWidget {
   const SongsPage({super.key});
 
@@ -289,7 +296,8 @@ class _SongsPageState extends State<SongsPage> {
   void initState() {
     super.initState();
     SharedPreferences.getInstance().then((p) {
-      final v = p.getString('songsSort')?.split(':');
+      final f = p.getString('songsSortField'), d = p.getString('songsSortDir');
+      final v = f == null ? null : [f, d ?? 'asc'];
       if (mounted && v != null && v.length == 2) {
         setState(() {
           _field = v[0];
@@ -305,7 +313,10 @@ class _SongsPageState extends State<SongsPage> {
       _field = f;
       _dir = d;
     });
-    SharedPreferences.getInstance().then((p) => p.setString('songsSort', v));
+    SharedPreferences.getInstance().then((p) {
+      p.setString('songsSortField', f);
+      p.setString('songsSortDir', d);
+    });
   }
 
   @override

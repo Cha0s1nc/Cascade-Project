@@ -3,6 +3,7 @@
 // the left), the Settings tab on phones (chips across the top).
 import 'package:flutter/material.dart';
 
+import 'package:cascade/core/electron_import.dart';
 import 'package:cascade/core/jellyfin.dart';
 import 'package:cascade/core/lyrics_fetch.dart';
 import 'package:cascade/core/playback.dart';
@@ -344,6 +345,19 @@ class _SettingsPanelState extends State<SettingsPanel> {
     _Row(title: 'Cascade for Windows, Linux and Android', subtitle: 'Version $appVersion', trailing: const SizedBox.shrink()),
     _Row(title: 'Website', subtitle: 'cascade.chaosinc.xyz', trailing: const SizedBox.shrink()),
     _Row(title: 'Fonts', subtitle: 'Hanken Grotesk and Inter, under the SIL Open Font License', trailing: const SizedBox.shrink()),
+    if (electronConfigFile() case final f?)
+      _Row(
+        title: 'Import from the desktop app',
+        subtitle: 'Bring over the Cascade desktop app\'s settings (not its sign-in)',
+        trailing: _Btn('Import', () async {
+          try {
+            final n = await importElectronSettings(f);
+            if (context.mounted) toast(context, 'Brought over $n settings. Restart Cascade to use them.');
+          } catch (e) {
+            if (context.mounted) toast(context, 'Could not read the desktop app\'s settings: $e', error: true);
+          }
+        }),
+      ),
   ];
 }
 

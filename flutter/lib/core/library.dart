@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cascade/core/data.dart';
 import 'package:cascade/core/jellyfin.dart';
 import 'package:cascade/core/lyrics_fetch.dart';
+import 'package:cascade/core/smart_playlist.dart';
 
 class Library extends ChangeNotifier {
   Jellyfin? jf;
@@ -619,6 +620,28 @@ class Library extends ChangeNotifier {
     final slot = _nextWrite[id] != null && _nextWrite[id]!.isAfter(now) ? _nextWrite[id]! : now;
     _nextWrite[id] = slot.add(const Duration(milliseconds: 400));
     if (slot.isAfter(now)) await Future<void>.delayed(slot.difference(now));
+  }
+
+  /// Smart playlists: rules kept on this device (the desktop's smartPlaylists
+  /// key), worked out against the library each time they open.
+  Future<List<SmartPlaylistDef>> smartPlaylists() async => parseSmartPlaylists((await SharedPreferences.getInstance()).getString('smartPlaylists'));
+
+  Future<void> saveSmartPlaylists(List<SmartPlaylistDef> defs) async {
+    await (await SharedPreferences.getInstance()).setString('smartPlaylists', serializeSmartPlaylists(defs));
+    notifyListeners();
+  }
+
+  Future<List<Song>> smartSongs(SmartPlaylistDef def) async {
+    final j = jf;
+    if (j == null) return const [];
+    final r = await j.getMerged('/Items', {
+      ..._user,
+      'IncludeItemTypes': 'Audio',
+      'Recursive': true,
+      'Fields': 'AlbumId,AlbumPrimaryImageTag,UserData,Genres,DateCreated,ProductionYear,SortName',
+      ...toItemsQuery(def),
+    });
+    return applySmartPlaylistRules(r, def, DateTime.now().millisecondsSinceEpoch).map(j.song).toList();
   }
 
   /// Songs like this one, album or artist (Instant Mix).

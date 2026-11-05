@@ -7,6 +7,7 @@ import 'package:cascade/ui/pages/detail.dart';
 import 'package:cascade/ui/pages/downloads.dart';
 import 'package:cascade/ui/pages/home.dart';
 import 'package:cascade/ui/pages/library.dart';
+import 'package:cascade/ui/pages/smart.dart';
 import 'package:cascade/ui/settings_panel.dart';
 import 'package:cascade/ui/widgets.dart';
 
@@ -35,7 +36,8 @@ Widget pageFor(NavEntry e) {
   return switch (e.page!) {
     PageKind.album => AlbumPage(id),
     PageKind.artist => ArtistPage(id),
-    PageKind.playlist || PageKind.smart => PlaylistPage(id),
+    PageKind.playlist => PlaylistPage(id),
+    PageKind.smart => SmartPlaylistPage(id),
     PageKind.genre => GenrePage(id, e.args.length > 1 ? '${e.args[1]}' : 'Genre'),
     PageKind.movie || PageKind.series => VideoPage(id),
     PageKind.view => viewFor(id),

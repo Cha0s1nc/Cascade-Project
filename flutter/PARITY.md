@@ -48,7 +48,7 @@ One line per feature in `docs/flutter-plan.md`. Status: built / partial / not bu
 - Context menus: built on desktop - songs, albums, artists, playlists (right click or long press)
 - Admin gating: partial - Delete only shows with deletion rights
 - Playlist editing, Save as a Playlist: partial - create, add, reorder, remove, rename and delete; Save as a Playlist (from the queue) not yet
-- Smart playlists: not built - the rules are ported (core/smart_playlist.dart) with tests
+- Smart playlists: built - a row on Playlists, their page, and a rule editor; stored under the desktop's smartPlaylists key in its format
 - Favorites and played state on the server: built - likes go to /UserFavoriteItems and show at once, put back if the server refuses
 - Library pickers and grouping: partial - Settings > Library picks music, movie and show libraries (same store keys); per-library grouping in the grids not yet
 - Devices panel and remote control: partial - send the queue to another Jellyfin client from where it is, then play/pause, skip and volume there; being controlled from other apps (the remote control socket) not yet
@@ -96,4 +96,4 @@ One line per feature in `docs/flutter-plan.md`. Status: built / partial / not bu
 - Windows installer, Linux package, Android APK: not built - local builds only
 - Updater: not built
 - Versions in lockstep, release marker, changelog: not built
-- Settings import from Electron: not built
+- Settings import from Electron: built - Settings > About copies the desktop app's config.json settings (not its sign-in) and asks for a restart

@@ -102,8 +102,8 @@ class Settings extends ChangeNotifier {
   void setNoReports(bool on) => _changed(_p?.setBool('noReports', noReports = on));
 
   /// The lyrics source to use: 'auto' or one of lyricSources (desktop's key).
-  late String lyricsSource = _p?.getString('lyricsSource') ?? 'auto';
-  void setLyricsSource(String v) => _changed(_p?.setString('lyricsSource', lyricsSource = v));
+  late String lyricsSource = _p?.getString('lyricsForcedSource') ?? 'auto';
+  void setLyricsSource(String v) => _changed(_p?.setString('lyricsForcedSource', lyricsSource = v));
 
   /// Discord Rich Presence (desktop's discordRpcEnabled), off by default as there.
   late bool discordRpc = _p?.getBool('discordRpcEnabled') ?? false;
