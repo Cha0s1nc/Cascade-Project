@@ -20,16 +20,15 @@ Map<String, Object?> buildStateMessage({
   required bool paused,
   int? index,
   int? now,
-}) =>
-    {
-      'k': 'state',
-      'serverId': serverId,
-      'trackId': trackId,
-      'positionMs': positionMs,
-      'paused': paused,
-      'index': ?index,
-      'sentAt': now ?? DateTime.now().millisecondsSinceEpoch,
-    };
+}) => {
+  'k': 'state',
+  'serverId': serverId,
+  'trackId': trackId,
+  'positionMs': positionMs,
+  'paused': paused,
+  'index': ?index,
+  'sentAt': now ?? DateTime.now().millisecondsSinceEpoch,
+};
 
 /// A `queue` message, host to everyone, sent only when the queue changes. [addedBy] is padded or trimmed to match [trackIds].
 Map<String, Object?> buildQueueMessage({
@@ -59,16 +58,20 @@ const controlActions = ['playpause', 'next', 'prev', 'seek'];
 
 /// A guest to host `control` message. Only `seek` carries a position, rounded and never negative; a missing or non-finite one is omitted.
 Map<String, Object?> buildControlMessage(String action, [num? positionMs]) => {
-      'k': 'control',
-      'action': action,
-      if (action == 'seek' && positionMs != null && positionMs.isFinite) 'positionMs': max(0, positionMs.round()),
-    };
+  'k': 'control',
+  'action': action,
+  if (action == 'seek' && positionMs != null && positionMs.isFinite) 'positionMs': max(0, positionMs.round()),
+};
 
 /// Whether [value] is a known control action. Control messages come from another client, so this is a trust boundary.
 bool isControlAction(Object? value) => value is String && controlActions.contains(value);
 
 /// A guest to host `enqueue` message: append-only, ids copied.
-Map<String, Object?> buildEnqueueMessage({required String? serverId, required List<String> trackIds}) => {'k': 'enqueue', 'serverId': serverId, 'trackIds': [...trackIds]};
+Map<String, Object?> buildEnqueueMessage({required String? serverId, required List<String> trackIds}) => {
+  'k': 'enqueue',
+  'serverId': serverId,
+  'trackIds': [...trackIds],
+};
 
 /// Host to the requesting guest, sent instead of dropping a request silently.
 Map<String, Object?> buildEnqueueRejected(String reason) => {'k': 'enqueue-rejected', 'reason': reason};

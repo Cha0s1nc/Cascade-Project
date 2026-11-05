@@ -11,6 +11,7 @@ import 'package:cascade/core/jellyfin.dart';
 import 'package:cascade/core/nav.dart';
 import 'package:cascade/core/queue.dart';
 import 'package:cascade/ui/pages/common.dart';
+import 'package:cascade/ui/pages/downloads.dart';
 import 'package:cascade/ui/pages/library.dart';
 import 'package:cascade/ui/scopes.dart';
 import 'package:cascade/ui/widgets.dart';
@@ -240,6 +241,12 @@ class _AlbumPageState extends State<AlbumPage> {
               actions: [
                 ...playButtons(context, songs, album.title),
                 likeBtn(context, album.id, album.favorite),
+                if (LibraryScope.of(context).mayDownload && !LibraryScope.of(context).demo)
+                  RoundBtn(
+                    songs.every((s) => DownloadsScope.of(context).has(s.id)) ? Icons.download_done_rounded : Icons.download_outlined,
+                    'Download',
+                    () => download(context, songs),
+                  ),
                 if (album.artistId != null) RoundBtn(Icons.person_outline_rounded, 'Go to artist', () => openPage(context, PageKind.artist, [album.artistId])),
                 Builder(
                   builder: (c) => RoundBtn(
@@ -515,6 +522,7 @@ class _PlaylistPageState extends State<PlaylistPage> {
               actions: [
                 ...playButtons(context, songs, pl.title),
                 likeBtn(context, pl.id, pl.favorite),
+                if (lib.mayDownload && !lib.demo) RoundBtn(Icons.download_outlined, 'Download', () => download(context, songs)),
                 Builder(
                   builder: (c) => RoundBtn(
                     Icons.more_horiz_rounded,

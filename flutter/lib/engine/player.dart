@@ -108,6 +108,9 @@ class Player extends ChangeNotifier {
 
   bool get isLiked => song != null && (likedOf?.call(song!) ?? liked.contains(song!.id.isEmpty ? song!.title : song!.id));
 
+  /// Set by the app to the downloads: a song's file on this device, if any.
+  String? Function(Song s)? localFile;
+
   /// Set by the app to the library's favorites, so a like reaches the server.
   bool Function(Song s)? likedOf;
   void Function(Song s)? onToggleLike;
@@ -381,7 +384,13 @@ class Player extends ChangeNotifier {
       ..offset = 0;
     final j = jf!;
     return d.loading = () async {
-      final stream = s.live ? await resolveRadioStream(j, s.id, settings.maxStreamingBitrate) : await resolveStream(j, s.id, settings.maxStreamingBitrate);
+      // A downloaded song plays from its file, server or no server.
+      final file = localFile?.call(s);
+      final ResolvedStream stream = file != null
+          ? (url: Uri.file(file).toString(), playSessionId: null, mediaSourceId: null, direct: true, liveStreamId: null)
+          : s.live
+          ? await resolveRadioStream(j, s.id, settings.maxStreamingBitrate)
+          : await resolveStream(j, s.id, settings.maxStreamingBitrate);
       final norm = settings.normalizationEnabled ? await _normalization(s) : 1.0;
       if (d.song != s) return;
       d

@@ -87,7 +87,7 @@ One line per feature in `docs/flutter-plan.md`. Status: built / partial / not bu
 
 ## Phase 6: offline and Local mode
 
-- Downloads and the download manager: not built
+- Downloads and the download manager: built - original files from /Items/{id}/Download, one at a time, a Downloads page by album, Download in the song and album menus and headers; the player plays a downloaded song from its file; video downloads not yet
 - Offline Mode (four phases): not built
 - Local mode: not built
 

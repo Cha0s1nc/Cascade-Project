@@ -18,8 +18,10 @@ class LyricLine {
   int? end;
   String text;
   List<LyricWord>? words;
+
   /// Background vocals shown smaller under the line (SpicyLyrics only).
   List<LyricWord>? background;
+
   /// Sung by the second voice in a duet, drawn on the right (SpicyLyrics only).
   bool opposite;
   LyricLine(this.start, this.end, this.text, this.words, {this.background, this.opposite = false});

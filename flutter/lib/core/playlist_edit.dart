@@ -16,22 +16,18 @@ List<Item> removeSelected(List<Item> items, Set<String> selected) => items.where
 
 /// Selected rows pulled to the front, relative order kept.
 List<Item> moveSelectedToTop(List<Item> items, Set<String> selected) => [
-      ...items.where((i) => selected.contains(entryIdOf(i))),
-      ...items.where((i) => !selected.contains(entryIdOf(i))),
-    ];
+  ...items.where((i) => selected.contains(entryIdOf(i))),
+  ...items.where((i) => !selected.contains(entryIdOf(i))),
+];
 
 /// Selected rows pushed to the back, relative order kept.
 List<Item> moveSelectedToBottom(List<Item> items, Set<String> selected) => [
-      ...items.where((i) => !selected.contains(entryIdOf(i))),
-      ...items.where((i) => selected.contains(entryIdOf(i))),
-    ];
+  ...items.where((i) => !selected.contains(entryIdOf(i))),
+  ...items.where((i) => selected.contains(entryIdOf(i))),
+];
 
 /// Spaces writes to one playlist [spacingMs] apart (Jellyfin loses a write that lands inside its own background save). Await the returned function before each write.
-Future<void> Function(String playlistId) createPlaylistWriteGate({
-  int spacingMs = 400,
-  int Function()? now,
-  Future<void> Function(int ms)? sleep,
-}) {
+Future<void> Function(String playlistId) createPlaylistWriteGate({int spacingMs = 400, int Function()? now, Future<void> Function(int ms)? sleep}) {
   final clock = now ?? () => DateTime.now().millisecondsSinceEpoch;
   final nap = sleep ?? (int ms) => Future<void>.delayed(Duration(milliseconds: ms));
   final nextSlot = <String, int>{};

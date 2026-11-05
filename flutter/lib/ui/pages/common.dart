@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 
 import 'package:cascade/core/data.dart';
 import 'package:cascade/core/nav.dart';
+import 'package:cascade/ui/pages/downloads.dart';
 import 'package:cascade/ui/scopes.dart';
 import 'package:cascade/ui/widgets.dart';
 
@@ -638,6 +639,7 @@ void songMenu(BuildContext context, Song song, Offset at, {List<Song>? queue, St
     if (!lib.demo) ...[
       (fav ? 'Unlike' : 'Like', fav ? Icons.favorite_rounded : Icons.favorite_border_rounded, () => lib.toggleFavorite(song.id, song.favorite)),
       ('Instant mix', Icons.auto_awesome_outlined, () async => p.play(song, [song, ...await lib.instantMix(song.id)], 'Instant mix')),
+      if (lib.mayDownload && !DownloadsScope.read(context).has(song.id)) ('Download', Icons.download_outlined, () => download(context, [song])),
     ],
     if (playlistId != null && song.playlistItemId != null) ...[null, ('Remove from playlist', Icons.remove_circle_outline_rounded, () => onRemoved?.call())],
     if (lib.canDelete) ...[
@@ -682,6 +684,15 @@ void albumMenu(BuildContext context, Album a, Offset at) {
     if (!lib.demo) ...[
       (fav ? 'Unlike' : 'Like', fav ? Icons.favorite_rounded : Icons.favorite_border_rounded, () => lib.toggleFavorite(a.id, a.favorite)),
       if (!a.playlist) ('Instant mix', Icons.auto_awesome_outlined, () async => playAll(p, await lib.instantMix(a.id), 'Instant mix')),
+      if (lib.mayDownload)
+        (
+          'Download',
+          Icons.download_outlined,
+          () async {
+            final t = await tracks();
+            if (context.mounted) await download(context, t);
+          },
+        ),
     ],
     if (a.playlist || lib.canDelete) ...[
       null,

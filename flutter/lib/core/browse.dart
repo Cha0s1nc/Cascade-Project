@@ -10,7 +10,12 @@ num _ms(Object? iso) => iso is String ? (DateTime.tryParse(iso)?.millisecondsSin
 
 String _nameKey(Item item) {
   final s = item['SortName'], n = item['Name'];
-  return (s is String && s.isNotEmpty ? s : n is String ? n : '').toLowerCase();
+  return (s is String && s.isNotEmpty
+          ? s
+          : n is String
+          ? n
+          : '')
+      .toLowerCase();
 }
 
 Map? _userData(Item item) => item['UserData'] is Map ? item['UserData'] as Map : null;
@@ -93,10 +98,11 @@ LibraryFilterOptions libraryFilterOptions(List<Item> items) {
   }
   return (
     // ponytail: case-insensitive code-unit order, not full locale collation
-    genres: genres.toList()..sort((a, b) {
-      final c = a.toLowerCase().compareTo(b.toLowerCase());
-      return c != 0 ? c : a.compareTo(b);
-    }),
+    genres: genres.toList()
+      ..sort((a, b) {
+        final c = a.toLowerCase().compareTo(b.toLowerCase());
+        return c != 0 ? c : a.compareTo(b);
+      }),
     decades: decades.toList()..sort((a, b) => b - a),
   );
 }

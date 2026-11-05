@@ -53,7 +53,12 @@ bool isNewerVersion(Object? latest, Object? current) {
 /// The release's assets, keeping only entries shaped like one.
 List<ReleaseAsset> releaseAssets(ReleaseLike release) {
   final a = release['assets'];
-  return a is List ? [for (final x in a) if (x is Map && x['name'] is String) x.cast<String, dynamic>()] : [];
+  return a is List
+      ? [
+          for (final x in a)
+            if (x is Map && x['name'] is String) x.cast<String, dynamic>(),
+        ]
+      : [];
 }
 
 /// The release's versions.json asset, if it has one. The name must match exactly.

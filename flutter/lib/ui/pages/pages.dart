@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:cascade/core/nav.dart';
 import 'package:cascade/ui/pages/browse.dart';
 import 'package:cascade/ui/pages/detail.dart';
+import 'package:cascade/ui/pages/downloads.dart';
 import 'package:cascade/ui/pages/home.dart';
 import 'package:cascade/ui/pages/library.dart';
 import 'package:cascade/ui/settings_panel.dart';
@@ -24,6 +25,7 @@ Widget viewFor(String view) => switch (view) {
   'movies' => const VideoGridPage(shows: false),
   'shows' => const VideoGridPage(shows: true),
   'settings' => const SettingsPanel(),
+  'downloads' => const DownloadsPage(),
   _ => _Missing(view),
 };
 

@@ -48,7 +48,11 @@ SpicyCredit spicyCredit(Object? body) {
   final b = body is Map ? body : const {};
   final source = _providerLabel.containsKey(_str(b['source'])) ? _str(b['source']) : 'unknown';
   final attr = source == 'spicy_lyrics' && b['UploadAttribution'] is Map ? b['UploadAttribution'] as Map : null;
-  return (provider: _providerLabel[source]!, uploader: attr == null ? null : _contributor(attr['Uploader']), maker: attr == null ? null : _contributor(attr['Maker']));
+  return (
+    provider: _providerLabel[source]!,
+    uploader: attr == null ? null : _contributor(attr['Uploader']),
+    maker: attr == null ? null : _contributor(attr['Maker']),
+  );
 }
 
 List<LyricWord> _groupWords(Object? group) {
@@ -87,7 +91,9 @@ List<LyricLine> _syllableLines(List content) {
     final start = _ticks(lead['StartTime']) ?? words.first.start;
     final end = _ticks(lead['EndTime']) ?? words.last.end;
     final text = words.map((w) => w.text).join().trim();
-    if (text.isNotEmpty) lines.add(LyricLine(start, end, text, words, background: background.isEmpty ? null : background, opposite: c['OppositeAligned'] == true));
+    if (text.isNotEmpty) {
+      lines.add(LyricLine(start, end, text, words, background: background.isEmpty ? null : background, opposite: c['OppositeAligned'] == true));
+    }
   }
   return lines;
 }
@@ -105,9 +111,9 @@ List<LyricLine> _lineLines(List content) {
 
 /// Untimed lines have a null start, the same shape LRCLIB's plain lyrics use.
 List<LyricLine> _staticLines(List list) => [
-      for (final l in list)
-        if (l is Map && _str(l['Text']).trim().isNotEmpty) LyricLine(null, null, _str(l['Text']).trim(), null),
-    ];
+  for (final l in list)
+    if (l is Map && _str(l['Text']).trim().isNotEmpty) LyricLine(null, null, _str(l['Text']).trim(), null),
+];
 
 /// How far past the end of the file a sync may run before it is another version (seconds).
 const spicyEndToleranceSec = 1.5;

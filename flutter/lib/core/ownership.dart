@@ -7,8 +7,10 @@ class OwnershipState {
   /// In a Waterfall room (host or guest).
   final bool waterfallActive;
   final bool waterfallIsHost;
+
   /// Mid-apply of host state: the resulting playback calls are the host's, not the local user's.
   final bool waterfallApplying;
+
   /// The host's "let guests add to the queue" setting as last broadcast. Null means not heard yet.
   final bool? guestAddsAllowed;
   const OwnershipState({this.waterfallActive = false, this.waterfallIsHost = false, this.waterfallApplying = false, this.guestAddsAllowed});

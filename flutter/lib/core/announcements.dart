@@ -37,7 +37,15 @@ List<Announcement> parseAnnouncements(Object? raw, String platform, String versi
     final l = e['link'];
     final link = l is String && RegExp(r'^https://[^\s]+$', caseSensitive: false).hasMatch(l) ? l : null;
     final source = cleanText(e['source'], _maxSource);
-    out.add((id: id, date: e['date'] as String, title: title, body: cleanText(e['body'], _maxBody), link: link, kind: kind, source: source.isEmpty ? null : source));
+    out.add((
+      id: id,
+      date: e['date'] as String,
+      title: title,
+      body: cleanText(e['body'], _maxBody),
+      link: link,
+      kind: kind,
+      source: source.isEmpty ? null : source,
+    ));
   }
   // Stable newest-first: Dart's sort is not stable, so break date ties by position.
   final pos = {for (var i = 0; i < out.length; i++) out[i].id: i};
@@ -68,7 +76,13 @@ List<Object?> addServerMessage(Object? stored, ServerMessage message, String ser
   final d = DateTime.fromMillisecondsSinceEpoch(ms);
   final date = '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
   final name = cleanText(serverName, _maxSource);
-  final entry = {'id': 'message:${ms.toRadixString(36)}', 'date': date, 'title': message.header, 'body': message.text, 'source': name.isEmpty ? 'Your server' : name};
+  final entry = {
+    'id': 'message:${ms.toRadixString(36)}',
+    'date': date,
+    'title': message.header,
+    'body': message.text,
+    'source': name.isEmpty ? 'Your server' : name,
+  };
   return [entry, if (stored is List) ...stored].take(_maxEntries).toList();
 }
 

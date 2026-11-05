@@ -25,7 +25,11 @@ ServerMessage? parseDisplayMessage(Object? args) {
   if (header.isEmpty && text.isEmpty) return null;
   final t = a['TimeoutMs'];
   final ms = t is num ? t.toDouble() : (t is String ? double.tryParse(t.trim()) : null);
-  return (header: header.isEmpty ? 'Message from your server' : header, text: text, timeoutMs: ms != null && ms.isFinite && ms > 0 ? (ms < 600000 ? ms : 600000).round() : null);
+  return (
+    header: header.isEmpty ? 'Message from your server' : header,
+    text: text,
+    timeoutMs: ms != null && ms.isFinite && ms > 0 ? (ms < 600000 ? ms : 600000).round() : null,
+  );
 }
 
 const _entities = {'amp': '&', 'lt': '<', 'gt': '>', 'quot': '"', 'apos': "'", 'nbsp': ' '};
@@ -38,13 +42,13 @@ String loginDisclaimerText(Object? raw) {
       .replaceAll(RegExp(r'<\/\s*(p|div|li|h[1-6])\s*>', caseSensitive: false), '\n')
       .replaceAll(RegExp(r'<[^>]*>'), '')
       .replaceAllMapped(RegExp(r'&(#\d+|#x[0-9a-f]+|[a-z]+);', caseSensitive: false), (m) {
-    final e = m[1]!;
-    if (e[0] == '#') {
-      final n = e[1].toLowerCase() == 'x' ? int.tryParse(e.substring(2), radix: 16) : int.tryParse(e.substring(1));
-      return n != null && n > 31 && n < 0x110000 ? String.fromCharCode(n) : '';
-    }
-    return _entities[e.toLowerCase()] ?? m[0]!;
-  });
+        final e = m[1]!;
+        if (e[0] == '#') {
+          final n = e[1].toLowerCase() == 'x' ? int.tryParse(e.substring(2), radix: 16) : int.tryParse(e.substring(1));
+          return n != null && n > 31 && n < 0x110000 ? String.fromCharCode(n) : '';
+        }
+        return _entities[e.toLowerCase()] ?? m[0]!;
+      });
   s = s.split('\n').map((l) => l.replaceAll(RegExp(r'[ \t]+'), ' ').trim()).join('\n').replaceAll(RegExp(r'\n{3,}'), '\n\n').trim();
   return _cap(s, _maxText);
 }

@@ -20,6 +20,7 @@ typedef Item = Map<String, dynamic>;
 typedef Group = ({String libraryId, List<Item> items});
 
 const _client = 'Cascade Flutter';
+
 /// The app's version; lockstep versions with the other apps come in phase 7.
 const appVersion = '0.1.0';
 

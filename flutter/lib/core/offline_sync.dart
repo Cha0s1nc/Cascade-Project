@@ -29,7 +29,8 @@ int _ms(Object? iso) => iso is String ? (DateTime.tryParse(iso)?.millisecondsSin
 List<PendingUpdate> coalesceChanges(List<UserDataChange> changes) {
   final out = <String, PendingUpdate>{};
   final firstWas = <String, bool>{};
-  final indexed = [for (var i = 0; i < changes.length; i++) (changes[i], i)]..sort((a, b) {
+  final indexed = [for (var i = 0; i < changes.length; i++) (changes[i], i)]
+    ..sort((a, b) {
       final c = _ms(a.$1['at']).compareTo(_ms(b.$1['at']));
       return c != 0 ? c : a.$2.compareTo(b.$2);
     });
@@ -75,7 +76,9 @@ Map<String, Object?>? updateToSend(PendingUpdate update, Item? server) {
   if (uu is Map) {
     final ud = Map<String, Object?>.from(uu);
     if (ud.containsKey('Played') && ud['Played'] == (sud['Played'] == true)) ud.remove('Played');
-    if (ud.containsKey('PlaybackPositionTicks') && ud['PlaybackPositionTicks'] == (sud['PlaybackPositionTicks'] ?? 0) && !ud.containsKey('Played')) ud.remove('PlaybackPositionTicks');
+    if (ud.containsKey('PlaybackPositionTicks') && ud['PlaybackPositionTicks'] == (sud['PlaybackPositionTicks'] ?? 0) && !ud.containsKey('Played')) {
+      ud.remove('PlaybackPositionTicks');
+    }
     // A date alone changes nothing a person sees.
     if (ud.containsKey('Played') || ud.containsKey('PlaybackPositionTicks')) out['userData'] = ud;
   }
@@ -83,7 +86,8 @@ Map<String, Object?>? updateToSend(PendingUpdate update, Item? server) {
   return out.containsKey('userData') || out.containsKey('favorite') ? out : null;
 }
 
-List<HistoryEntry> _ordered(List<HistoryEntry> entries) => [...entries]..sort((a, b) {
+List<HistoryEntry> _ordered(List<HistoryEntry> entries) => [...entries]
+  ..sort((a, b) {
     final da = (a['LastPlayedDate'] as String?) ?? '', db = (b['LastPlayedDate'] as String?) ?? '';
     if (da != db) return da.compareTo(db) < 0 ? 1 : -1;
     return '${a['Id']}'.compareTo('${b['Id']}');
@@ -113,7 +117,8 @@ String playsCatchUp(List<OfflinePlay> plays, HistorySnapshot? history, bool play
 
 /// The order plays are replayed in, so the server's history reads as if they had happened online. Ties keep queue order.
 List<OfflinePlay> playsOldestFirst(List<OfflinePlay> plays) {
-  final indexed = [for (var i = 0; i < plays.length; i++) (plays[i], i)]..sort((a, b) {
+  final indexed = [for (var i = 0; i < plays.length; i++) (plays[i], i)]
+    ..sort((a, b) {
       final c = _ms(a.$1['date']).compareTo(_ms(b.$1['date']));
       return c != 0 ? c : a.$2.compareTo(b.$2);
     });

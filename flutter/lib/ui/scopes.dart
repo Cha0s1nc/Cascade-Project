@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 
 import 'package:cascade/ui/now_playing.dart';
 
+import 'package:cascade/core/downloads.dart';
 import 'package:cascade/core/library.dart';
 import 'package:cascade/core/nav.dart';
 import 'package:cascade/engine/player.dart';
@@ -48,4 +49,12 @@ class SearchScope extends InheritedNotifier<TextEditingController> {
   const SearchScope({super.key, required TextEditingController query, required super.child}) : super(notifier: query);
 
   static TextEditingController of(BuildContext context) => context.dependOnInheritedWidgetOfExactType<SearchScope>()!.notifier!;
+}
+
+/// What is downloaded to this device.
+class DownloadsScope extends InheritedNotifier<Downloads> {
+  const DownloadsScope({super.key, required Downloads downloads, required super.child}) : super(notifier: downloads);
+
+  static Downloads of(BuildContext context) => context.dependOnInheritedWidgetOfExactType<DownloadsScope>()!.notifier!;
+  static Downloads read(BuildContext context) => context.getInheritedWidgetOfExactType<DownloadsScope>()!.notifier!;
 }

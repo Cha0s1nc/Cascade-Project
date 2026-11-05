@@ -20,7 +20,10 @@ const tuningChain = {
 };
 
 /// The platforms a target reaches.
-List<String> platformsOf(String target) => [for (final p in tuningPlatforms) if (tuningChain[p]!.contains(target)) p];
+List<String> platformsOf(String target) => [
+  for (final p in tuningPlatforms)
+    if (tuningChain[p]!.contains(target)) p,
+];
 
 /// A split entry is a Map (not a List) whose keys are all targets or `note`. Anything else is one shared value.
 bool isSplit(Object? entry) {
@@ -56,9 +59,9 @@ Map<String, Object?> resolveSection(TuningFile file, String section, String plat
 
 /// The numbers of a section only, for the knob tables.
 Map<String, double> resolveNumbers(TuningFile file, String section, String platform) => {
-      for (final e in resolveSection(file, section, platform).entries)
-        if (e.value is num && (e.value as num).isFinite) e.key: (e.value as num).toDouble(),
-    };
+  for (final e in resolveSection(file, section, platform).entries)
+    if (e.value is num && (e.value as num).isFinite) e.key: (e.value as num).toDouble(),
+};
 
 /// The latest defaults revision (at least 1).
 int latestRevision(TuningFile file) {

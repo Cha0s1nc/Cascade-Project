@@ -25,7 +25,8 @@ List<MediaSegment> parseMediaSegments(Object? raw) {
     out.add((type: type, startSec: start / _ticksPerSec, endSec: end / _ticksPerSec));
   }
   final pos = {for (var i = 0; i < out.length; i++) i: out[i]};
-  final idx = [for (var i = 0; i < out.length; i++) i]..sort((a, b) {
+  final idx = [for (var i = 0; i < out.length; i++) i]
+    ..sort((a, b) {
       final x = pos[a]!, y = pos[b]!;
       final c = x.startSec.compareTo(y.startSec);
       if (c != 0) return c;

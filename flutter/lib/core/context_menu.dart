@@ -7,6 +7,7 @@ enum MenuItemKind { album, artist, video, series, playlist, smartPlaylist, userS
 /// Which context menu rows are visible.
 class MenuItemVisibility {
   final bool play, playNext, playLast, shuffle, instantMix, addPlaylist, download;
+
   /// Download for offline listening, or remove that download (album and playlist).
   final bool offline;
   final bool favorite, markPlayed, markUnplayed, goArtist, viewDetail, rename, deleteItem, refreshMeta, editMeta;
@@ -31,32 +32,54 @@ class MenuItemVisibility {
     this.editMeta = false,
   });
 
-  MenuItemVisibility copyWith({bool? instantMix, bool? addPlaylist, bool? download, bool? offline, bool? rename, bool? deleteItem, bool? refreshMeta, bool? editMeta}) => MenuItemVisibility(
-        play: play,
-        playNext: playNext,
-        playLast: playLast,
-        shuffle: shuffle,
-        instantMix: instantMix ?? this.instantMix,
-        addPlaylist: addPlaylist ?? this.addPlaylist,
-        download: download ?? this.download,
-        offline: offline ?? this.offline,
-        favorite: favorite,
-        markPlayed: markPlayed,
-        markUnplayed: markUnplayed,
-        goArtist: goArtist,
-        viewDetail: viewDetail,
-        rename: rename ?? this.rename,
-        deleteItem: deleteItem ?? this.deleteItem,
-        refreshMeta: refreshMeta ?? this.refreshMeta,
-        editMeta: editMeta ?? this.editMeta,
-      );
+  MenuItemVisibility copyWith({
+    bool? instantMix,
+    bool? addPlaylist,
+    bool? download,
+    bool? offline,
+    bool? rename,
+    bool? deleteItem,
+    bool? refreshMeta,
+    bool? editMeta,
+  }) => MenuItemVisibility(
+    play: play,
+    playNext: playNext,
+    playLast: playLast,
+    shuffle: shuffle,
+    instantMix: instantMix ?? this.instantMix,
+    addPlaylist: addPlaylist ?? this.addPlaylist,
+    download: download ?? this.download,
+    offline: offline ?? this.offline,
+    favorite: favorite,
+    markPlayed: markPlayed,
+    markUnplayed: markUnplayed,
+    goArtist: goArtist,
+    viewDetail: viewDetail,
+    rename: rename ?? this.rename,
+    deleteItem: deleteItem ?? this.deleteItem,
+    refreshMeta: refreshMeta ?? this.refreshMeta,
+    editMeta: editMeta ?? this.editMeta,
+  );
 
   Map<String, bool> toMap() => {
-        'play': play, 'playNext': playNext, 'playLast': playLast, 'shuffle': shuffle, 'instantMix': instantMix,
-        'addPlaylist': addPlaylist, 'download': download, 'offline': offline, 'favorite': favorite,
-        'markPlayed': markPlayed, 'markUnplayed': markUnplayed, 'goArtist': goArtist, 'viewDetail': viewDetail,
-        'rename': rename, 'deleteItem': deleteItem, 'refreshMeta': refreshMeta, 'editMeta': editMeta,
-      };
+    'play': play,
+    'playNext': playNext,
+    'playLast': playLast,
+    'shuffle': shuffle,
+    'instantMix': instantMix,
+    'addPlaylist': addPlaylist,
+    'download': download,
+    'offline': offline,
+    'favorite': favorite,
+    'markPlayed': markPlayed,
+    'markUnplayed': markUnplayed,
+    'goArtist': goArtist,
+    'viewDetail': viewDetail,
+    'rename': rename,
+    'deleteItem': deleteItem,
+    'refreshMeta': refreshMeta,
+    'editMeta': editMeta,
+  };
 }
 
 /// The rows for [kind]. [isPlayed] null means unknown, which hides both mark rows.
@@ -80,15 +103,46 @@ MenuItemVisibility menuItemsForKind(MenuItemKind kind, {bool? isPlayed, bool off
 MenuItemVisibility _onlineMenuItems(MenuItemKind kind, bool? isPlayed) {
   switch (kind) {
     case MenuItemKind.album:
-      return const MenuItemVisibility(play: true, playNext: true, playLast: true, shuffle: true, instantMix: true, addPlaylist: true, download: true, offline: true, favorite: true, goArtist: true, refreshMeta: true, editMeta: true);
+      return const MenuItemVisibility(
+        play: true,
+        playNext: true,
+        playLast: true,
+        shuffle: true,
+        instantMix: true,
+        addPlaylist: true,
+        download: true,
+        offline: true,
+        favorite: true,
+        goArtist: true,
+        refreshMeta: true,
+        editMeta: true,
+      );
     case MenuItemKind.artist:
-      return const MenuItemVisibility(play: true, playNext: true, playLast: true, shuffle: true, instantMix: true, addPlaylist: true, favorite: true, viewDetail: true);
+      return const MenuItemVisibility(
+        play: true,
+        playNext: true,
+        playLast: true,
+        shuffle: true,
+        instantMix: true,
+        addPlaylist: true,
+        favorite: true,
+        viewDetail: true,
+      );
     case MenuItemKind.video:
       return MenuItemVisibility(play: true, viewDetail: true, markPlayed: isPlayed == false, markUnplayed: isPlayed == true);
     case MenuItemKind.series:
       return MenuItemVisibility(viewDetail: true, markPlayed: isPlayed == false, markUnplayed: isPlayed == true);
     case MenuItemKind.playlist:
-      return const MenuItemVisibility(play: true, playNext: true, playLast: true, shuffle: true, addPlaylist: true, offline: true, rename: true, deleteItem: true);
+      return const MenuItemVisibility(
+        play: true,
+        playNext: true,
+        playLast: true,
+        shuffle: true,
+        addPlaylist: true,
+        offline: true,
+        rename: true,
+        deleteItem: true,
+      );
     case MenuItemKind.smartPlaylist:
       return const MenuItemVisibility(play: true, playNext: true, playLast: true, shuffle: true, addPlaylist: true);
     case MenuItemKind.userSmartPlaylist:

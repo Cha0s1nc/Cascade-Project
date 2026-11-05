@@ -10,12 +10,15 @@ class RemoteHandlers {
   /// PlayNow / PlayNext / PlayLast with the item ids the controller picked.
   final void Function(List<String> itemIds, int startIndex, String playCommand) play;
   final void Function() playPause, pause, unpause, stop, nextTrack, previousTrack;
+
   /// Absolute position in ticks (100 ns units).
   final void Function(num positionTicks) seek;
+
   /// 0-100, Jellyfin's scale.
   final void Function(double percent) setVolume;
   final void Function() volumeUp, volumeDown, toggleMute;
   final void Function(bool muted) setMute;
+
   /// A message an admin sent from the dashboard (DisplayMessage). Optional.
   final void Function(ServerMessage message)? showMessage;
 
@@ -52,13 +55,13 @@ const supportedCommands = [
 
 /// The JSON body for `POST /Sessions/Capabilities/Full`.
 Map<String, Object> remoteCapabilitiesBody() => {
-      'PlayableMediaTypes': ['Audio', 'Video'],
-      'SupportedCommands': [...supportedCommands],
-      'SupportsMediaControl': true,
-      'SupportsPersistentIdentifier': true,
-      'SupportsContentUploading': false,
-      'SupportsSync': false,
-    };
+  'PlayableMediaTypes': ['Audio', 'Video'],
+  'SupportedCommands': [...supportedCommands],
+  'SupportsMediaControl': true,
+  'SupportsPersistentIdentifier': true,
+  'SupportsContentUploading': false,
+  'SupportsSync': false,
+};
 
 /// The command socket URL for a server.
 String remoteSocketUrl(String url, String token, String? deviceId) =>

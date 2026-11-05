@@ -20,7 +20,11 @@ int secondsToTicks(num sec) => sec.isFinite && sec > 0 ? (sec * _ticksPerSec).ro
 int clampVolumePercent(Object? n) => n is num && n.isFinite ? n.round().clamp(0, 100) : 0;
 
 /// Query params for `POST /Sessions/{id}/Playing`, or null when there is nothing to play.
-({String playCommand, List<String> itemIds, int startIndex})? buildPlayOnDeviceParams(List<String> itemIds, {String playCommand = 'PlayNow', int startIndex = 0}) {
+({String playCommand, List<String> itemIds, int startIndex})? buildPlayOnDeviceParams(
+  List<String> itemIds, {
+  String playCommand = 'PlayNow',
+  int startIndex = 0,
+}) {
   final ids = itemIds.where((s) => s.isNotEmpty).toList();
   if (ids.isEmpty) return null;
   return (playCommand: playCommand, itemIds: ids, startIndex: max(0, startIndex));
@@ -28,9 +32,9 @@ int clampVolumePercent(Object? n) => n is num && n.isFinite ? n.round().clamp(0,
 
 /// Body for `POST /Sessions/{id}/Command` (the route that can carry a volume value).
 Map<String, Object> buildSetVolumeCommand(num percent) => {
-      'Name': 'SetVolume',
-      'Arguments': {'Volume': '${clampVolumePercent(percent)}'},
-    };
+  'Name': 'SetVolume',
+  'Arguments': {'Volume': '${clampVolumePercent(percent)}'},
+};
 
 /// A polled position projected forward from the last poll so a progress bar does not freeze between polls. Linear; holds still while paused. 0 with no play state.
 // ponytail: no correction for the target's playback rate or a buffering stall.

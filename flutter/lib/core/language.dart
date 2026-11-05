@@ -4,9 +4,25 @@
 // Everything around it is ported from desktop/src/core/language.ts.
 
 const _iso3ToIso1 = {
-  'eng': 'en', 'spa': 'es', 'fra': 'fr', 'deu': 'de', 'jpn': 'ja', 'kor': 'ko',
-  'cmn': 'zh', 'por': 'pt', 'ita': 'it', 'rus': 'ru', 'arb': 'ar', 'hin': 'hi',
-  'ind': 'id', 'nld': 'nl', 'pol': 'pl', 'tha': 'th', 'tur': 'tr', 'ukr': 'uk', 'vie': 'vi',
+  'eng': 'en',
+  'spa': 'es',
+  'fra': 'fr',
+  'deu': 'de',
+  'jpn': 'ja',
+  'kor': 'ko',
+  'cmn': 'zh',
+  'por': 'pt',
+  'ita': 'it',
+  'rus': 'ru',
+  'arb': 'ar',
+  'hin': 'hi',
+  'ind': 'id',
+  'nld': 'nl',
+  'pol': 'pl',
+  'tha': 'th',
+  'tur': 'tr',
+  'ukr': 'uk',
+  'vie': 'vi',
 };
 
 /// Below this, trigram matching is guessing.

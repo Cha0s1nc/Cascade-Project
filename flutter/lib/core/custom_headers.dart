@@ -94,7 +94,11 @@ String? requestOrigin(Object? url) {
   if (url is! String) return null;
   final u = Uri.tryParse(url);
   if (u == null || u.host.isEmpty) return null;
-  final scheme = u.scheme == 'ws' ? 'http' : u.scheme == 'wss' ? 'https' : u.scheme;
+  final scheme = u.scheme == 'ws'
+      ? 'http'
+      : u.scheme == 'wss'
+      ? 'https'
+      : u.scheme;
   if (scheme != 'http' && scheme != 'https') return null;
   final port = u.hasPort && !((scheme == 'http' && u.port == 80) || (scheme == 'https' && u.port == 443)) ? ':${u.port}' : '';
   final host = u.host.contains(':') ? '[${u.host}]' : u.host;

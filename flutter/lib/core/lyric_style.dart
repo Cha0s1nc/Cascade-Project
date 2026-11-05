@@ -99,9 +99,9 @@ class LyricStyleTuning {
 
   /// The custom properties a style sets, e.g. `{'--ly-past-blur': '3.5px'}`. JS-only knobs are left out.
   Map<String, String> lyricStyleCss(LyricStyle style) => {
-        for (final k in knobs)
-          if (k.css != null) k.css!: '${_num(_clamp(k, style[k.key]))}${k.unit ?? ''}',
-      };
+    for (final k in knobs)
+      if (k.css != null) k.css!: '${_num(_clamp(k, style[k.key]))}${k.unit ?? ''}',
+  };
 
   /// The re-baked knobs this person changed since the defaults revision they last saw ([seen]; missing or junk counts as 1). Empty means nothing to ask.
   List<LyricKnob> lyricKnobsWithNewDefaults(Object? changes, Object? seen) {
@@ -113,7 +113,10 @@ class LyricStyleTuning {
       moved.addAll(ch[r] ?? const []);
     }
     final mine = lyricStyleChanges(lyricStyleFrom(changes));
-    return [for (final k in knobs) if (moved.contains(k.key) && mine.containsKey(k.key)) k];
+    return [
+      for (final k in knobs)
+        if (moved.contains(k.key) && mine.containsKey(k.key)) k,
+    ];
   }
 }
 

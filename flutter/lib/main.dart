@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart' show MediaKit;
 
 import 'package:cascade/ui/desktop.dart';
+import 'package:cascade/core/downloads.dart';
 import 'package:cascade/core/jellyfin.dart';
 import 'package:cascade/core/library.dart';
 import 'package:cascade/core/settings.dart';
@@ -27,13 +28,19 @@ Future<void> main() async {
   videoPlayer = openVideoPlayer;
   final player = Player(settings: await Settings.load());
   await attachMediaControls(player);
-  runApp(CascadeApp(player: player, session: await Jellyfin.restore()));
+  final downloads = Downloads();
+  await downloads.load();
+  player.localFile = (s) => downloads.fileOf(s.id);
+  runApp(CascadeApp(player: player, session: await Jellyfin.restore(), downloads: downloads));
 }
 
 class CascadeApp extends StatefulWidget {
   /// [session] is a saved sign-in; [demo] starts in the demo instead.
-  const CascadeApp({super.key, required this.player, this.session, this.demo = false});
+  const CascadeApp({super.key, required this.player, this.session, this.demo = false, this.downloads});
   final Player player;
+
+  /// Null in tests: a throwaway one is made.
+  final Downloads? downloads;
   final Jellyfin? session;
   final bool demo;
 
@@ -43,6 +50,7 @@ class CascadeApp extends StatefulWidget {
 
 class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
   final _library = Library();
+  late final _downloads = widget.downloads ?? Downloads();
 
   @override
   void initState() {
@@ -105,14 +113,17 @@ class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
         decoration: BoxDecoration(color: K.surface2, borderRadius: BorderRadius.all(Radius.circular(6))),
       ),
     ),
-    home: LibraryScope(
-      library: _library,
-      child: PlayerScope(
-        player: widget.player,
-        child: ListenableBuilder(
-          listenable: _library,
-          builder: (context, _) =>
-              !_library.signedIn ? const SignIn() : LayoutBuilder(builder: (context, c) => c.maxWidth >= 900 ? const DesktopShell() : const PhoneShell()),
+    home: DownloadsScope(
+      downloads: _downloads,
+      child: LibraryScope(
+        library: _library,
+        child: PlayerScope(
+          player: widget.player,
+          child: ListenableBuilder(
+            listenable: _library,
+            builder: (context, _) =>
+                !_library.signedIn ? const SignIn() : LayoutBuilder(builder: (context, c) => c.maxWidth >= 900 ? const DesktopShell() : const PhoneShell()),
+          ),
         ),
       ),
     ),
