@@ -13,6 +13,7 @@ import 'package:cascade/core/library.dart';
 import 'package:cascade/core/settings.dart';
 import 'package:cascade/platform/discord.dart';
 import 'package:cascade/platform/media_controls.dart';
+import 'package:cascade/platform/remote.dart';
 import 'package:cascade/ui/panels.dart';
 import 'package:cascade/ui/phone.dart';
 import 'package:cascade/engine/player.dart';
@@ -56,6 +57,33 @@ class CascadeApp extends StatefulWidget {
 class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
   final _library = Library();
   late final _downloads = widget.downloads ?? Downloads();
+  final _messenger = GlobalKey<ScaffoldMessengerState>();
+  RemoteSocket? _remote;
+
+  /// Other apps can control this one while signed in.
+  void _remoteFollows() {
+    final j = _library.jf;
+    if (j?.token != null && !_library.demo) {
+      if (_remote?.jf == j) return;
+      _remote?.close();
+      _remote = RemoteSocket(
+        j!,
+        widget.player,
+        onMessage: (m) => _messenger.currentState?.showSnackBar(
+          SnackBar(
+            content: Text(m.header.isEmpty ? m.text : '${m.header}: ${m.text}', style: ts(13)),
+            backgroundColor: K.surface,
+            behavior: SnackBarBehavior.floating,
+            width: 420,
+            duration: Duration(milliseconds: m.timeoutMs ?? 6000),
+          ),
+        ),
+      )..start();
+    } else {
+      _remote?.close();
+      _remote = null;
+    }
+  }
 
   @override
   void initState() {
@@ -69,6 +97,7 @@ class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
     widget.player.onToggleLike = (s) {
       if (s.id.isNotEmpty && !_library.demo) _library.toggleFavorite(s.id, s.favorite);
     };
+    _library.addListener(_remoteFollows);
     final s = widget.session;
     if (s != null) {
       widget.player.jf = s;
@@ -87,6 +116,7 @@ class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _remote?.close();
     widget.player.dispose();
     _library.dispose();
     super.dispose();
@@ -95,6 +125,7 @@ class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'Cascade',
+    scaffoldMessengerKey: _messenger,
     debugShowCheckedModeBanner: false,
     theme: ThemeData(
       brightness: Brightness.dark,
