@@ -151,7 +151,7 @@ class _Home extends StatelessWidget {
             if (played.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
-                child: HeroCard(played.first, played, compact: true, base: A.card, radius: 28),
+                child: HeroCard(played.first, played, compact: true, radius: 28),
               ),
             _section('Recently played', 160, true, _songColumns(tiles, played)),
             _section('Continue watching', 176, false, [
@@ -280,7 +280,7 @@ class _MiniPlayer extends StatelessWidget {
                         p.error ?? song.artist,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: ts(13, c: p.error == null ? A.text2 : const Color(0xFFFF453A)),
+                        style: ts(13, c: p.error == null ? A.text2 : K.error),
                       ),
                     ],
                   ),

@@ -1,0 +1,142 @@
+// The in-line title bar on Windows and Linux, like Electron's
+// titleBarOverlay: the OS title bar is hidden (window_manager) and Cascade's
+// top bar is the title bar. Empty space drags the window, a double click
+// maximizes it, and the window buttons are drawn here in the OS's style.
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:window_manager/window_manager.dart';
+
+import 'package:cascade/ui/widgets.dart';
+
+/// Whether the window is ours to draw (desktop builds, not tests or Android).
+bool inlineTitleBar = false;
+
+/// Hide the OS title bar. Called once from main on Windows and Linux.
+Future<void> setUpWindow() async {
+  if (!(Platform.isWindows || Platform.isLinux)) return;
+  await windowManager.ensureInitialized();
+  await windowManager.setTitleBarStyle(TitleBarStyle.hidden, windowButtonVisibility: false);
+  await windowManager.setMinimumSize(const Size(420, 520));
+  inlineTitleBar = true;
+}
+
+/// Width the window buttons take on the right of the bar.
+double get windowButtonsWidth => !inlineTitleBar ? 0 : (Platform.isWindows ? 138 : 108);
+
+/// Drags the window from empty space; double click maximizes.
+class TitleBarDrag extends StatelessWidget {
+  const TitleBarDrag({super.key, required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => inlineTitleBar ? DragToMoveArea(child: child) : child;
+}
+
+/// Minimize, maximize and close: Windows caption buttons flush right, or
+/// GNOME's round ones. ponytail: always on the right in this order; reading
+/// gtk-decoration-layout for left-side buttons can come when someone needs it.
+class WindowButtons extends StatefulWidget {
+  const WindowButtons({super.key});
+
+  @override
+  State<WindowButtons> createState() => _WindowButtonsState();
+}
+
+class _WindowButtonsState extends State<WindowButtons> with WindowListener {
+  bool _max = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!inlineTitleBar) return;
+    windowManager.addListener(this);
+    windowManager.isMaximized().then((m) => mounted ? setState(() => _max = m) : null);
+  }
+
+  @override
+  void dispose() {
+    windowManager.removeListener(this);
+    super.dispose();
+  }
+
+  @override
+  void onWindowMaximize() => setState(() => _max = true);
+  @override
+  void onWindowUnmaximize() => setState(() => _max = false);
+
+  void _toggleMax() => _max ? windowManager.unmaximize() : windowManager.maximize();
+
+  @override
+  Widget build(BuildContext context) {
+    if (!inlineTitleBar) return const SizedBox.shrink();
+    if (Platform.isWindows) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _Caption(Icons.remove_rounded, 'Minimize', windowManager.minimize),
+          _Caption(_max ? Icons.filter_none_rounded : Icons.crop_square_rounded, _max ? 'Restore' : 'Maximize', _toggleMax, iconSize: _max ? 13 : 15),
+          _Caption(Icons.close_rounded, 'Close', windowManager.close, close: true),
+        ],
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(right: 12),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        spacing: 12,
+        children: [
+          _Round(Icons.remove_rounded, 'Minimize', windowManager.minimize),
+          _Round(_max ? Icons.filter_none_rounded : Icons.crop_square_rounded, _max ? 'Restore' : 'Maximize', _toggleMax),
+          _Round(Icons.close_rounded, 'Close', windowManager.close),
+        ],
+      ),
+    );
+  }
+}
+
+class _Caption extends StatelessWidget {
+  const _Caption(this.icon, this.tip, this.onTap, {this.close = false, this.iconSize = 16});
+  final IconData icon;
+  final String tip;
+  final VoidCallback onTap;
+  final bool close;
+  final double iconSize;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label: tip,
+    child: Hover(
+      onTap: onTap,
+      builder: (_, on) => Container(
+        width: 46,
+        height: 48,
+        color: on ? (close ? const Color(0xFFC42B1C) : const Color(0x14FFFFFF)) : Colors.transparent,
+        child: Icon(icon, size: iconSize, color: on && close ? Colors.white : K.text2),
+      ),
+    ),
+  );
+}
+
+class _Round extends StatelessWidget {
+  const _Round(this.icon, this.tip, this.onTap);
+  final IconData icon;
+  final String tip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label: tip,
+    child: Hover(
+      onTap: onTap,
+      builder: (_, on) => Container(
+        width: 24,
+        height: 24,
+        decoration: BoxDecoration(color: on ? K.surface2 : K.surface, shape: BoxShape.circle),
+        child: Icon(icon, size: 14, color: K.text),
+      ),
+    ),
+  );
+}

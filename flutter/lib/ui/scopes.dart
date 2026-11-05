@@ -2,6 +2,8 @@
 // widget that reads `of` rebuilds when they change and `read` never does.
 import 'package:flutter/widgets.dart';
 
+import 'package:cascade/ui/now_playing.dart';
+
 import 'package:cascade/core/library.dart';
 import 'package:cascade/core/nav.dart';
 import 'package:cascade/engine/player.dart';
@@ -29,4 +31,21 @@ class NavScope extends InheritedNotifier<Nav> {
 
   static Nav of(BuildContext context) => context.dependOnInheritedWidgetOfExactType<NavScope>()!.notifier!;
   static Nav read(BuildContext context) => context.getInheritedWidgetOfExactType<NavScope>()!.notifier!;
+  static Nav? maybeRead(BuildContext context) => context.getInheritedWidgetOfExactType<NavScope>()?.notifier;
+}
+
+/// Now Playing's open state and panel.
+class NowPlayingScope extends InheritedNotifier<NowPlaying> {
+  const NowPlayingScope({super.key, required NowPlaying np, required super.child}) : super(notifier: np);
+
+  static NowPlaying of(BuildContext context) => context.dependOnInheritedWidgetOfExactType<NowPlayingScope>()!.notifier!;
+  static NowPlaying read(BuildContext context) => context.getInheritedWidgetOfExactType<NowPlayingScope>()!.notifier!;
+  static NowPlaying? maybeRead(BuildContext context) => context.getInheritedWidgetOfExactType<NowPlayingScope>()?.notifier;
+}
+
+/// The title bar's search text, which the Search page reads.
+class SearchScope extends InheritedNotifier<TextEditingController> {
+  const SearchScope({super.key, required TextEditingController query, required super.child}) : super(notifier: query);
+
+  static TextEditingController of(BuildContext context) => context.dependOnInheritedWidgetOfExactType<SearchScope>()!.notifier!;
 }

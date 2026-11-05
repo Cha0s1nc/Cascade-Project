@@ -81,6 +81,7 @@ Decided 2026-11-04: the Flutter app takes the **Personality v1** look, the same 
 
 ### Phase 2: library and browsing
 
+- First, before any page: Personality v1 as the default theme (the Cascade colors and type tokens, Hanken Grotesk and Inter bundled) and the in-line title bar on Windows and Linux (see Design). Every page sits on both, so doing them later would mean restyling every page.
 - Albums, Artists, Songs (a table on desktop), Playlists, Genres, History, Radio, Movies, TV Shows.
 - Sort and filter with per-view preferences; album, artist (bio, top songs, similar) and playlist pages.
 - Search across music and video with Ctrl+K.
@@ -95,12 +96,11 @@ Decided 2026-11-04: the Flutter app takes the **Personality v1** look, the same 
 - The Now Playing view with queue and lyrics panels, the art background and its tuning.
 - Lyrics: the Cascade plugin's SpicyLyrics (syllable fill, duets, background vocals), then Kugou, LRCLIB and Jellyfin; the source pill and forced source; untimed lyrics.
 - Translation (the desktop's local models).
-- Personality v1 as the default theme (see Design), then the theme panel, presets, server style, fonts; the customization editor and Style Tuning.
+- The theme panel, presets, server style, fonts; the customization editor and Style Tuning (the default theme itself lands at the start of phase 2).
 - Announcements.
 
 ### Phase 4: windows and integrations
 
-- The in-line title bar on Windows and Linux (see Design).
 - Miniplayer (a second window), lyrics editor, metadata editor.
 - Discord Rich Presence (Windows, Linux); the Cha0s Stream control server.
 - Keyboard shortcuts, first-run wizard, the full Settings.

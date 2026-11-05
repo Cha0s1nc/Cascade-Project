@@ -278,6 +278,8 @@ class Jellyfin {
 
   Song song(Map j) {
     final id = j['Id'] as String;
+    final ud = j['UserData'] as Map? ?? const {};
+    final artists = j['ArtistItems'] as List? ?? j['AlbumArtists'] as List? ?? const [];
     return Song(
       j['Name'] as String? ?? '',
       j['AlbumArtist'] as String? ?? (j['Artists'] as List?)?.firstOrNull as String? ?? '',
@@ -287,7 +289,14 @@ class Jellyfin {
       artFor(id),
       id: id,
       albumId: j['AlbumId'] as String?,
+      artistId: artists.isEmpty ? null : (artists.first as Map)['Id'] as String?,
       image: image(j['AlbumId'] as String? ?? id, j['AlbumPrimaryImageTag'] as String? ?? j['ImageTags']?['Primary'] as String?),
+      track: j['IndexNumber'] as int? ?? 0,
+      disc: j['ParentIndexNumber'] as int? ?? 0,
+      playCount: ud['PlayCount'] as int? ?? 0,
+      favorite: ud['IsFavorite'] == true,
+      playlistItemId: j['PlaylistItemId'] as String?,
+      lastPlayed: ud['LastPlayedDate'] as String?,
     );
   }
 
@@ -311,6 +320,8 @@ class Jellyfin {
     final id = j['Id'] as String;
     final playlist = j['Type'] == 'Playlist';
     final count = j['ChildCount'] as int?;
+    final ud = j['UserData'] as Map? ?? const {};
+    final artists = j['AlbumArtists'] as List? ?? const [];
     return Album(
       j['Name'] as String? ?? '',
       playlist ? (count == null ? 'Playlist' : '$count songs') : j['AlbumArtist'] as String? ?? '',
@@ -318,6 +329,37 @@ class Jellyfin {
       id: id,
       image: image(id, j['ImageTags']?['Primary'] as String?),
       playlist: playlist,
+      year: j['ProductionYear'] as int? ?? 0,
+      artist: j['AlbumArtist'] as String? ?? '',
+      artistId: artists.isEmpty ? null : (artists.first as Map)['Id'] as String?,
+      count: count ?? 0,
+      favorite: ud['IsFavorite'] == true,
+      playCount: ud['PlayCount'] as int? ?? 0,
+      lastPlayed: ud['LastPlayedDate'] as String?,
+      overview: j['Overview'] as String?,
+    );
+  }
+
+  Artist artist(Map j) {
+    final id = j['Id'] as String;
+    return Artist(
+      j['Name'] as String? ?? '',
+      artFor(id),
+      id: id,
+      image: image(id, j['ImageTags']?['Primary'] as String?),
+      favorite: (j['UserData'] as Map?)?['IsFavorite'] == true,
+      overview: j['Overview'] as String?,
+    );
+  }
+
+  Genre genre(Map j) {
+    final id = j['Id'] as String;
+    return Genre(
+      j['Name'] as String? ?? '',
+      artFor(id),
+      id: id,
+      image: image(id, j['ImageTags']?['Primary'] as String?),
+      count: j['AlbumCount'] as int? ?? j['ChildCount'] as int? ?? 0,
     );
   }
 
@@ -329,6 +371,9 @@ class Jellyfin {
     final backdrops = j['BackdropImageTags'] as List? ?? const [];
     final parentBackdrops = j['ParentBackdropImageTags'] as List? ?? const [];
     return Video(
+      id: id,
+      type: j['Type'] as String? ?? '',
+      seriesId: j['SeriesId'] as String?,
       episode ? j['SeriesName'] as String? ?? '' : j['Name'] as String? ?? '',
       episode ? 'S${j['ParentIndexNumber'] ?? '?'} E${j['IndexNumber'] ?? '?'} · ${j['Name'] ?? ''}' : 'Movie · ${j['ProductionYear'] ?? ''}',
       minutes >= 60 ? '${minutes ~/ 60} h ${minutes % 60} min left' : '$minutes min left',

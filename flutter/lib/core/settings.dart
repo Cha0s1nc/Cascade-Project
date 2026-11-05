@@ -101,6 +101,23 @@ class Settings extends ChangeNotifier {
 
   void setNoReports(bool on) => _changed(_p?.setBool('noReports', noReports = on));
 
+  /// Personality v1: the queue's next songs stepped behind the art.
+  late bool showArtStack = _p?.getBool('showArtStack') ?? true;
+  void setShowArtStack(bool on) => _changed(_p?.setBool('showArtStack', showArtStack = on));
+
+  /// Now Playing layout on desktop: 'bar' (player bar stays), 'under'
+  /// (controls under the art) or 'focus'. Same key in every app.
+  late String nowPlayingLayout = switch (_p?.getString('nowPlayingLayout')) {
+    'under' => 'under',
+    'focus' => 'focus',
+    _ => 'bar',
+  };
+  void setNowPlayingLayout(String v) => _changed(_p?.setString('nowPlayingLayout', nowPlayingLayout = v));
+
+  /// Where the saved queue came from, for Home's "Previously queued" card.
+  String? get lastQueueSource => _p?.getString('lastQueueSource');
+  void saveLastQueueSource(String? s) => s == null ? _p?.remove('lastQueueSource') : _p?.setString('lastQueueSource', s);
+
   /// The last queue, as the desktop stores it (a JSON string under 'lastQueue').
   Object? get lastQueue {
     try {

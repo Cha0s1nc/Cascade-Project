@@ -36,20 +36,24 @@ One line per feature in `docs/flutter-plan.md`. Status: built / partial / not bu
 
 ## Phase 2: library and browsing
 
+- Personality v1 theme (colors, type, bundled fonts): built - desktop shell, pages and the phone's Home; not yet seen on a device
+- In-line title bar (Windows, Linux): built - window_manager hides the OS bar, Cascade draws the window buttons; the Linux runner always uses a hidden header bar so GTK keeps the shadow and resize edges; not yet run on W or L. Windows 11's snap layouts flyout on Maximize is not there (it needs native hit testing)
 - Home: built - seen on W and A
-- Albums, Artists, Songs, Playlists, Genres, History: not built
-- Movies, TV Shows: not built
-- Sort and filter with per-view preferences: not built
-- Album, artist and playlist pages: not built
-- Search and Ctrl+K: not built
-- Context menus: not built
-- Admin gating: not built
-- Playlist editing, Save as a Playlist: not built
-- Smart playlists: not built
-- Favorites and played state on the server: not built - Like is local
+- Albums, Artists, Songs, Playlists, Genres, History: built on desktop - not yet run against a server; the phone's Library is next
+- Movies, TV Shows: partial - poster grids and movie and series pages with seasons and episodes; playing them waits for the video player (phase 5)
+- Sort and filter with per-view preferences: built - albums, artists and playlists under the desktop's store keys (albumsPrefs and so on), songs under songsSort
+- Album, artist and playlist pages: built on desktop - album with discs and format, artist with top songs, bio, albums, appears on and similar artists
+- Search and Ctrl+K: built on desktop - typing in the title bar opens Search; songs, albums, artists, movies and shows
+- Context menus: built on desktop - songs, albums, artists, playlists (right click or long press)
+- Admin gating: partial - Delete only shows with deletion rights
+- Playlist editing, Save as a Playlist: partial - create, add, reorder, remove, rename and delete; Save as a Playlist (from the queue) not yet
+- Smart playlists: not built - the rules are ported (core/smart_playlist.dart) with tests
+- Favorites and played state on the server: built - likes go to /UserFavoriteItems and show at once, put back if the server refuses
 - Library pickers and grouping: not built
 - Devices panel and remote control: not built
 - Waterfall: not built
+- Rediscover (new, not a parity item): built on desktop - Used to love, Never played, Forgotten favorites, the daily reshuffle and the mix; tested in core/rediscover.dart
+- Queue editing (play next, add to queue, remove, move, clear): built in the player
 
 ## Phase 3: Now Playing, lyrics, theme
 

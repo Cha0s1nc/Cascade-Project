@@ -106,7 +106,11 @@ class Player extends ChangeNotifier {
   _Deck get _deck => _decks[_cur];
   _Deck get _idle => _decks[1 - _cur];
 
-  bool get isLiked => song != null && liked.contains(song!.id.isEmpty ? song!.title : song!.id);
+  bool get isLiked => song != null && (likedOf?.call(song!) ?? liked.contains(song!.id.isEmpty ? song!.title : song!.id));
+
+  /// Set by the app to the library's favorites, so a like reaches the server.
+  bool Function(Song s)? likedOf;
+  void Function(Song s)? onToggleLike;
 
   /// Seconds: the server's runtime, else what the engine found. Server first:
   /// while a transcode is still being written, the engine only knows the
@@ -194,8 +198,72 @@ class Player extends ChangeNotifier {
 
   List<int> _shuffled(int first) => [first, ...(List.generate(queue.length, (i) => i)..remove(first))..shuffle()];
 
-  Future<void> play(Song s, [List<Song>? from]) async {
-    if (from != null) queue = from;
+  /// Where the queue came from ("Late Night Drive"), for the Home card.
+  String? source;
+
+  /// What plays after the current song, in play order.
+  List<Song> get upNext => [for (var k = _pos + 1; k < _order.length; k++) queue[_order[k]]];
+
+  /// What already played in this queue, oldest first.
+  List<Song> get history => [for (var k = 0; k < _pos && k < _order.length; k++) queue[_order[k]]];
+
+  /// Put [songs] right after the current one; with nothing playing, play them.
+  Future<void> playNext(List<Song> songs) => _insertUpNext(songs, 0);
+
+  /// Put [songs] at the end of the queue.
+  Future<void> addToQueue(List<Song> songs) => _insertUpNext(songs, upNext.length);
+
+  // The preload follows on its own: it reloads whenever the idle deck holds
+  // something other than what now comes next.
+  Future<void> _insertUpNext(List<Song> songs, int at) async {
+    if (songs.isEmpty) return;
+    if (song == null) return play(songs.first, songs);
+    final start = queue.length;
+    queue = [...queue, ...songs];
+    _order = [..._order]..insertAll(_pos + 1 + at, [for (var k = 0; k < songs.length; k++) start + k]);
+    _queueChanged();
+  }
+
+  /// Take the [i]th song of [upNext] out of the queue.
+  void removeUpNext(int i) {
+    if (i < 0 || _pos + 1 + i >= _order.length) return;
+    _order = [..._order]..removeAt(_pos + 1 + i);
+    _queueChanged();
+  }
+
+  /// Move the [from]th song of [upNext] to [to] (both in [upNext]).
+  void moveUpNext(int from, int to) {
+    final n = upNext.length;
+    if (from < 0 || from >= n || to < 0 || to >= n || from == to) return;
+    final o = [..._order];
+    o.insert(_pos + 1 + to, o.removeAt(_pos + 1 + from));
+    _order = o;
+    _queueChanged();
+  }
+
+  /// Everything after the current song goes.
+  void clearUpNext() {
+    if (_order.length <= _pos + 1) return;
+    _order = _order.sublist(0, _pos + 1);
+    _queueChanged();
+  }
+
+  /// Skip straight to the [i]th song of [upNext].
+  Future<void> jumpUpNext(int i) async {
+    if (i < 0 || _pos + 1 + i >= _order.length) return;
+    await _startAt(_pos + 1 + i, fadeOut: true);
+  }
+
+  void _queueChanged() {
+    _saveQueue();
+    notifyListeners();
+  }
+
+  Future<void> play(Song s, [List<Song>? from, String? source]) async {
+    if (from != null) {
+      queue = from;
+      this.source = source;
+    }
     final i = max(0, queue.indexOf(s));
     _order = shuffle ? _shuffled(i) : List.generate(queue.length, (k) => k);
     await _startAt(shuffle ? 0 : i);
@@ -482,6 +550,7 @@ class Player extends ChangeNotifier {
 
   void _saveQueue() {
     if (!_real || _order.isEmpty) return;
+    settings.saveLastQueueSource(source);
     settings.saveLastQueue(savedQueueOf([for (final i in _order) queue[i].id], _pos, position, shuffle ? [for (final s in queue) s.id] : const []));
   }
 
@@ -509,6 +578,7 @@ class Player extends ChangeNotifier {
         queue = r.queue;
         _order = List.generate(queue.length, (i) => i);
       }
+      source = settings.lastQueueSource;
       log('restored a queue of ${queue.length}');
       await _startAt(min(r.index, _order.length - 1), startAt: r.positionSec, paused: true);
     } catch (e) {
@@ -604,10 +674,15 @@ class Player extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Local only for now: favorites are not sent to the server yet.
+  /// Through the library when signed in; the demo keeps it here.
   void toggleLike() {
     final s = song;
     if (s == null) return;
+    if (onToggleLike != null) {
+      onToggleLike!(s);
+      notifyListeners();
+      return;
+    }
     final key = s.id.isEmpty ? s.title : s.id;
     if (!liked.remove(key)) liked.add(key);
     notifyListeners();

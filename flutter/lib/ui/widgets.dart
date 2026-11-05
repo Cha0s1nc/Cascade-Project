@@ -5,31 +5,47 @@ import 'package:flutter/material.dart';
 import 'package:cascade/core/data.dart';
 import 'package:cascade/ui/scopes.dart';
 
-/// Desktop colors, from the Electron app's theme plus the redesign's panels.
+/// Personality v1: the Cascade library colors from the Penpot file "Cascade
+/// Personality v1", shared with the Swift app. Desktop and Android use the
+/// same set.
 abstract final class K {
-  static const root = Color(0xFF0B0B0C);
-  static const panel = Color(0xFF141416);
-  static const surface = Color(0xFF1C1C1F);
-  static const surface2 = Color(0xFF2A2A2E);
-  static const text = Color(0xFFF5F5F7);
-  static const text2 = Color(0xFFAEAEB2);
-  static const text3 = Color(0xFF8E8E93);
+  static const root = Color(0xFF0A0E13); // bg
+  static const panel = Color(0xFF111821); // surface
+  static const surface = Color(0xFF18222E); // surface-2
+  static const surface2 = Color(0xFF223041); // hover, a step above surface-2
+  static const line = Color(0x14FFFFFF); // line, white at 8%
+  static const text = Color(0xFFEEF3F8);
+  static const text2 = Color(0xFFA7B4C4);
+  static const text3 = Color(0xFF687789);
   static const accent = Color(0xFF7CC4FF);
-  static const wash = Color(0xFFEF476F);
-  static const grad = LinearGradient(colors: [Color(0xFF4ADE80), Color(0xFF7C3AED)], begin: Alignment.topLeft, end: Alignment.bottomRight);
+  static const accentTint = Color(0x247CC4FF); // accent at 14%
+  static const accentDeep = Color(0xFF2B6CB0);
+  static const ink = Color(0xFF06121F); // text on accent
+  static const foam = Color(0xFFD7EEFF);
+  static const glass = Color(0xEB18222E); // surface-2 at 92%
+  static const like = Color(0xFFFF6B8A);
+  static const error = Color(0xFFFF453A);
+
+  /// The deep blue wash at the top of every page.
+  static const wash = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [Color(0x612B6CB0), Color(0x002B6CB0)],
+    stops: [0, 0.38],
+  );
 }
 
-/// Android colors: Material 3 dark surfaces seeded from the accent.
+/// Android's names for the same colors.
 abstract final class A {
-  static const bg = Color(0xFF101316);
-  static const card = Color(0xFF1D2024);
-  static const bar = Color(0xFF272A2E);
-  static const nav = Color(0xFF1B1E21);
-  static const mini = Color(0xFF26292D);
-  static const indicator = Color(0xFF24435A);
-  static const onIndicator = Color(0xFFCFE5FF);
-  static const text = Color(0xFFE2E2E6);
-  static const text2 = Color(0xFFC3C7CC);
+  static const bg = K.root;
+  static const card = K.panel;
+  static const bar = K.glass;
+  static const nav = K.panel;
+  static const mini = K.glass;
+  static const indicator = K.accentTint;
+  static const onIndicator = K.text;
+  static const text = K.text;
+  static const text2 = K.text2;
 }
 
 String fmt(num seconds) {
@@ -53,8 +69,29 @@ String today() {
   return '${days[d.weekday - 1]}, ${months[d.month - 1]} ${d.day}';
 }
 
-TextStyle ts(double size, {FontWeight w = FontWeight.w400, Color c = K.text, double? ls}) =>
-    TextStyle(fontSize: size, fontWeight: w, color: c, letterSpacing: ls, height: 1.25);
+/// Body text (font.body, Inter).
+TextStyle ts(double size, {FontWeight w = FontWeight.w400, Color c = K.text, double? ls, double h = 1.25}) =>
+    TextStyle(fontFamily: 'Inter', fontSize: size, fontWeight: w, color: c, letterSpacing: ls, height: h);
+
+/// Display text (font.display, Hanken Grotesk): headings, titles, lyrics.
+TextStyle ds(double size, {FontWeight w = FontWeight.w600, Color c = K.text, bool italic = false, double h = 1.15}) => TextStyle(
+  fontFamily: 'Hanken Grotesk',
+  fontSize: size,
+  fontWeight: w,
+  fontStyle: italic ? FontStyle.italic : FontStyle.normal,
+  color: c,
+  height: h,
+);
+
+/// The type tokens (Penpot set "Cascade").
+abstract final class Txt {
+  static TextStyle hero([Color c = K.text]) => ds(44, c: c, h: 1.05);
+  static TextStyle title([Color c = K.text]) => ds(30, c: c, h: 1.1);
+  static TextStyle section([Color c = K.text]) => ds(21, c: c, h: 1.2);
+  static TextStyle voice([Color c = K.text2]) => ds(17, w: FontWeight.w400, c: c, italic: true, h: 1.3);
+  static TextStyle brand([Color c = K.text]) => ds(17, c: c, italic: true, h: 1.2);
+  static TextStyle caps([Color c = K.text3]) => ts(11, w: FontWeight.w600, c: c, ls: 0.88, h: 1.2);
+}
 
 /// Hover state for desktop; on touch it just never lights up.
 class Hover extends StatefulWidget {
@@ -112,6 +149,7 @@ class Cover extends StatelessWidget {
   );
 }
 
+/// The solid accent play button with dark ink (Personality v1).
 class PlayCircle extends StatelessWidget {
   const PlayCircle({super.key, required this.playing, required this.onTap, this.size = 36});
   final bool playing;
@@ -119,23 +157,134 @@ class PlayCircle extends StatelessWidget {
   final double size;
 
   @override
-  Widget build(BuildContext context) => Hover(
-    onTap: onTap,
-    builder: (_, on) => AnimatedOpacity(
-      duration: const Duration(milliseconds: 120),
-      opacity: on ? 0.85 : 1,
-      child: Container(
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label: playing ? 'Pause' : 'Play',
+    child: Hover(
+      onTap: onTap,
+      builder: (_, on) => AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
         width: size,
         height: size,
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           shape: BoxShape.circle,
-          gradient: K.grad,
-          boxShadow: [BoxShadow(color: Color(0x59000000), blurRadius: 14, offset: Offset(0, 4))],
+          color: on ? K.foam : K.accent,
+          boxShadow: const [BoxShadow(color: Color(0x40000000), blurRadius: 12, offset: Offset(0, 4))],
         ),
-        child: Icon(playing ? Icons.pause_rounded : Icons.play_arrow_rounded, color: Colors.white, size: size * 0.55),
+        child: Icon(playing ? Icons.pause_rounded : Icons.play_arrow_rounded, color: K.ink, size: size * 0.55),
       ),
     ),
   );
+}
+
+/// The accent pill button: Play, Resume, Save. Not primary: a quiet one.
+class Pill extends StatelessWidget {
+  const Pill(this.label, {super.key, this.icon, required this.onTap, this.primary = true});
+  final String label;
+  final IconData? icon;
+  final VoidCallback? onTap;
+  final bool primary;
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = onTap == null ? K.text3 : (primary ? K.ink : K.text);
+    return Semantics(
+      button: true,
+      label: label,
+      child: Hover(
+        onTap: onTap,
+        builder: (_, on) => AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          padding: EdgeInsets.fromLTRB(icon == null ? 16 : 12, 8, 16, 8),
+          decoration: BoxDecoration(
+            color: onTap == null
+                ? K.surface
+                : primary
+                ? (on ? K.foam : K.accent)
+                : (on ? K.surface2 : K.surface),
+            borderRadius: BorderRadius.circular(99),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[Icon(icon, color: fg, size: 17), const SizedBox(width: 6)],
+              Text(label, style: ts(13, w: FontWeight.w600, c: fg)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The stepped art stack: the current art with what comes next falling in
+/// behind it, or the art alone (setting off, or nothing next).
+class ArtStack extends StatelessWidget {
+  const ArtStack(this.song, {super.key, this.next = const [], required this.size});
+  final Song song;
+  final List<Song> next;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final behind = PlayerScope.read(context).settings.showArtStack ? next.take(2).toList() : const <Song>[];
+    final step = size * 0.14;
+    return SizedBox(
+      width: size + step * behind.length,
+      height: size,
+      child: Stack(
+        alignment: Alignment.centerLeft,
+        children: [
+          for (var i = behind.length - 1; i >= 0; i--)
+            Positioned(
+              left: step * (i + 1),
+              child: Opacity(
+                opacity: 0.55 - i * 0.15,
+                child: Cover(behind[i].art, image: behind[i].image, size: size * (0.86 - i * 0.08), radius: 10),
+              ),
+            ),
+          Cover(song.art, image: song.image, size: size, radius: 10, shadow: true),
+        ],
+      ),
+    );
+  }
+}
+
+/// A small icon button with a hover wash and a tooltip.
+class IconBtn extends StatelessWidget {
+  const IconBtn(this.icon, this.tip, this.onTap, {super.key, this.filled = false, this.badge = false, this.color = K.text2, this.size = 18});
+  final IconData icon;
+  final String tip;
+  final VoidCallback? onTap;
+  final bool filled, badge;
+  final Color color;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final i = Icon(icon, size: size, color: onTap == null ? K.text3.withValues(alpha: 0.5) : color);
+    return Tooltip(
+      message: tip,
+      waitDuration: const Duration(milliseconds: 500),
+      child: Hover(
+        onTap: onTap,
+        builder: (_, on) => Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(
+              alpha: on && onTap != null
+                  ? 0.1
+                  : filled
+                  ? 0.06
+                  : 0,
+            ),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: badge ? Badge(smallSize: 7, backgroundColor: K.accent, child: i) : i,
+        ),
+      ),
+    );
+  }
 }
 
 /// A Recently played row: the song, then artist and album.
@@ -277,92 +426,87 @@ class VideoThumb extends StatelessWidget {
   );
 }
 
-/// The last played song, big, with Play and Shuffle.
+/// Home's card. With a queue (restored or playing) it is "Previously
+/// queued": that song, where the queue came from, how many are left, and the
+/// next songs in the art stack, with Resume. Without one it is "Last played":
+/// the last song alone, with Play.
 class HeroCard extends StatelessWidget {
-  const HeroCard(this.song, this.queue, {super.key, required this.compact, required this.base, this.radius = 16});
-  final Song song;
-  final List<Song> queue;
+  const HeroCard(this.lastPlayed, this.played, {super.key, required this.compact, this.radius = 16});
+  final Song lastPlayed;
+  final List<Song> played;
   final bool compact;
-  final Color base;
   final double radius;
 
   @override
   Widget build(BuildContext context) {
-    final p = PlayerScope.read(context);
-    final art = compact ? 100.0 : 176.0;
+    final p = PlayerScope.of(context);
+    final queued = p.song != null && p.queue.length > 1;
+    final song = queued ? p.song! : lastPlayed;
+    final next = queued ? p.upNext : const <Song>[];
+    final art = compact ? 96.0 : 140.0;
+    final from = [if (queued && p.source != null) 'From ${p.source}', if (next.isNotEmpty) '${next.length} left'].join(' · ');
     return Container(
-      height: compact ? 132 : 216,
-      padding: EdgeInsets.all(compact ? 16 : 20),
+      constraints: BoxConstraints(minHeight: compact ? 168 : 230),
+      padding: EdgeInsets.all(compact ? 18 : 22),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(radius),
-        gradient: LinearGradient(
+        border: Border.all(color: K.line),
+        color: K.panel,
+        gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [const Color(0xF2B8452F), const Color(0xD95A2A5E), base],
-          stops: const [0, 0.65, 1],
+          colors: [Color(0x805A2A5E), Color(0x00111821)],
         ),
       ),
       child: Row(
         children: [
-          Cover(song.art, image: song.image, size: art, radius: compact ? 12 : 10, shadow: true),
-          SizedBox(width: compact ? 16 : 20),
+          ArtStack(song, next: next, size: art),
+          SizedBox(width: compact ? 16 : 22),
           Expanded(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'LAST PLAYED',
-                  style: ts(compact ? 10 : 11, w: FontWeight.w600, c: Colors.white70, ls: 0.7),
+                  !queued
+                      ? 'LAST PLAYED'
+                      : p.playing
+                      ? 'NOW PLAYING'
+                      : 'PREVIOUSLY QUEUED',
+                  style: Txt.caps(K.text2),
                 ),
+                const SizedBox(height: 6),
+                Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: compact ? ds(22) : Txt.title()),
                 const SizedBox(height: 4),
-                Text(
-                  song.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: ts(compact ? 20 : 22, w: FontWeight.w700, c: Colors.white),
-                ),
-                Text(
-                  '${song.artist} · ${song.album}',
-                  maxLines: compact ? 1 : 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: ts(compact ? 13 : 14, w: FontWeight.w500, c: Colors.white.withValues(alpha: 0.85)),
-                ),
-                if (!compact) Text('${song.year > 0 ? '${song.year} · ' : ''}${fmt(song.seconds)}', style: ts(12, c: Colors.white60)),
-                SizedBox(height: compact ? 10 : 14),
-                Row(
+                Text('${song.artist} · ${song.album}', maxLines: 1, overflow: TextOverflow.ellipsis, style: ts(13, c: K.text2)),
+                if (from.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(from, maxLines: 1, overflow: TextOverflow.ellipsis, style: ts(12, c: K.text3)),
+                ],
+                SizedBox(height: compact ? 12 : 16),
+                Wrap(
+                  spacing: 10,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    Hover(
-                      onTap: () => p.play(song, queue),
-                      builder: (_, on) => Container(
-                        padding: const EdgeInsets.fromLTRB(12, 7, 16, 7),
-                        decoration: BoxDecoration(gradient: K.grad, borderRadius: BorderRadius.circular(99)),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 18),
-                            const SizedBox(width: 4),
-                            Text(
-                              'Play',
-                              style: ts(13, w: FontWeight.w600, c: Colors.white),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
+                    if (queued)
+                      Pill(p.playing ? 'Pause' : 'Resume', icon: p.playing ? Icons.pause_rounded : Icons.play_arrow_rounded, onTap: p.toggle)
+                    else
+                      Pill('Play', icon: Icons.play_arrow_rounded, onTap: () => p.play(song, played)),
                     Hover(
                       onTap: () {
                         if (!p.shuffle) p.toggleShuffle();
-                        p.play(song, queue);
+                        if (!queued) p.play(song, played);
                       },
-                      builder: (_, on) => Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: on ? 0.22 : 0.14),
-                          shape: BoxShape.circle,
+                      builder: (_, on) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.shuffle_rounded, color: on ? K.accent : K.text, size: 17),
+                            const SizedBox(width: 6),
+                            Text('Shuffle', style: ts(13, w: FontWeight.w600, c: on ? K.accent : K.text)),
+                          ],
                         ),
-                        child: const Icon(Icons.shuffle_rounded, color: Colors.white, size: 16),
                       ),
                     ),
                   ],
@@ -390,7 +534,7 @@ class LoadError extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: Text(lib.error!, style: ts(13, c: const Color(0xFFFF453A))),
+            child: Text(lib.error!, style: ts(13, c: K.error)),
           ),
           const SizedBox(width: 12),
           TextButton(onPressed: lib.loading ? null : lib.refresh, child: const Text('Try again')),
@@ -398,4 +542,33 @@ class LoadError extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The thin seek and volume bars. Null [onChanged] shows it disabled.
+class ThinBar extends StatelessWidget {
+  const ThinBar({super.key, required this.value, required this.onChanged, this.color = K.accent});
+  final double value;
+  final ValueChanged<double>? onChanged;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => SliderTheme(
+    data: SliderThemeData(
+      trackHeight: 4,
+      trackShape: const RoundedRectSliderTrackShape(),
+      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+      overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+      activeTrackColor: color,
+      inactiveTrackColor: Colors.white.withValues(alpha: 0.14),
+      disabledActiveTrackColor: color,
+      disabledInactiveTrackColor: Colors.white.withValues(alpha: 0.14),
+      disabledThumbColor: Colors.transparent,
+      thumbColor: Colors.white,
+      overlayColor: color.withValues(alpha: 0.2),
+    ),
+    child: SizedBox(
+      height: 20,
+      child: Slider(value: value.clamp(0, 1), onChanged: onChanged, padding: const EdgeInsets.symmetric(horizontal: 6)),
+    ),
+  );
 }

@@ -37,6 +37,7 @@ dependencies:
   media_kit_libs_audio: ^1.0.7
   shared_preferences: ^2.5.6
   smtc_windows: ^1.1.0
+  window_manager: ^0.5.2
 
 
 # smtc_windows' Rust side is built against exactly 2.11.1 and refuses a newer
@@ -67,6 +68,30 @@ flutter:
   uses-material-design: true
   assets:
     - assets/icon.png
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter-400.ttf
+        - asset: assets/fonts/Inter-500.ttf
+          weight: 500
+        - asset: assets/fonts/Inter-600.ttf
+          weight: 600
+        - asset: assets/fonts/Inter-700.ttf
+          weight: 700
+    - family: Hanken Grotesk
+      fonts:
+        - asset: assets/fonts/HankenGrotesk-400.ttf
+        - asset: assets/fonts/HankenGrotesk-500.ttf
+          weight: 500
+        - asset: assets/fonts/HankenGrotesk-600.ttf
+          weight: 600
+        - asset: assets/fonts/HankenGrotesk-700.ttf
+          weight: 700
+        - asset: assets/fonts/HankenGrotesk-Italic-400.ttf
+          style: italic
+        - asset: assets/fonts/HankenGrotesk-Italic-600.ttf
+          weight: 600
+          style: italic
 
   # To add assets to your application, add an assets section, like this:
   # assets:

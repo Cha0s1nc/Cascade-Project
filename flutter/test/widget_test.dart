@@ -2,6 +2,7 @@ import 'package:cascade/engine/player.dart';
 import 'package:cascade/main.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   Future<void> at(WidgetTester tester, Size size) async {
@@ -12,6 +13,7 @@ void main() {
 
   testWidgets('desktop and phone layouts build without overflow and play a tapped song', (tester) async {
     addTearDown(tester.view.reset);
+    SharedPreferences.setMockInitialValues({});
     await at(tester, const Size(1440, 900));
     await tester.pumpWidget(CascadeApp(player: Player(audio: false), demo: true));
     expect(find.text('Recently played'), findsOneWidget);
@@ -19,11 +21,11 @@ void main() {
 
     await tester.tap(find.text('Nights'));
     await tester.pump();
-    expect(find.text('Nights'), findsNWidgets(2)); // the tile and the player bar
+    expect(find.text('Nights'), findsNWidgets(3)); // the tile, the Home card (now playing) and the player bar
 
     await tester.tap(find.text('Albums'));
-    await tester.pump();
-    expect(find.text('Not in the prototype yet. Home is.'), findsOneWidget);
+    await tester.pumpAndSettle();
+    expect(find.text('Melodrama'), findsOneWidget); // the demo's albums, in the grid
 
     await tester.tap(find.text('Your Cascade')); // the logo row is the Home button
     await tester.pumpAndSettle();

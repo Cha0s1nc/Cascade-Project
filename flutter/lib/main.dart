@@ -12,12 +12,14 @@ import 'package:cascade/platform/media_controls.dart';
 import 'package:cascade/ui/phone.dart';
 import 'package:cascade/engine/player.dart';
 import 'package:cascade/ui/sign_in.dart';
+import 'package:cascade/ui/title_bar.dart';
 import 'package:cascade/ui/widgets.dart';
 import 'package:cascade/ui/scopes.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
+  await setUpWindow();
   final player = Player(settings: await Settings.load());
   await attachMediaControls(player);
   runApp(CascadeApp(player: player, session: await Jellyfin.restore()));
@@ -44,6 +46,11 @@ class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
     // The queue comes back once the library has loaded, so a server that was
     // down at launch still gets it back when it answers.
     _library.onLoaded = widget.player.restore;
+    // Likes go through the library, so they reach the server.
+    widget.player.likedOf = (s) => _library.isFavorite(s.id, s.favorite);
+    widget.player.onToggleLike = (s) {
+      if (s.id.isNotEmpty && !_library.demo) _library.toggleFavorite(s.id, s.favorite);
+    };
     final s = widget.session;
     if (s != null) {
       widget.player.jf = s;
@@ -73,6 +80,16 @@ class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
     debugShowCheckedModeBanner: false,
     theme: ThemeData(
       brightness: Brightness.dark,
+      fontFamily: 'Inter',
+      popupMenuTheme: PopupMenuThemeData(
+        color: K.surface,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: const BorderSide(color: K.line)),
+        textStyle: ts(13),
+      ),
+      dialogTheme: const DialogThemeData(backgroundColor: K.panel, surfaceTintColor: Colors.transparent),
+      snackBarTheme: const SnackBarThemeData(backgroundColor: K.surface),
+      textSelectionTheme: const TextSelectionThemeData(cursorColor: K.accent, selectionColor: K.accentTint),
       colorScheme: ColorScheme.fromSeed(seedColor: K.accent, brightness: Brightness.dark).copyWith(primary: K.accent),
       scaffoldBackgroundColor: K.root,
       tooltipTheme: const TooltipThemeData(

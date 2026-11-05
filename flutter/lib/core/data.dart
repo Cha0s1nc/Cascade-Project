@@ -4,9 +4,38 @@
 import 'package:flutter/material.dart';
 
 class Song {
-  const Song(this.title, this.artist, this.album, this.year, this.seconds, this.art, {this.id = '', this.image, this.albumId, this.live = false});
+  const Song(
+    this.title,
+    this.artist,
+    this.album,
+    this.year,
+    this.seconds,
+    this.art, {
+    this.id = '',
+    this.image,
+    this.albumId,
+    this.artistId,
+    this.live = false,
+    this.track = 0,
+    this.disc = 0,
+    this.playCount = 0,
+    this.favorite = false,
+    this.playlistItemId,
+    this.lastPlayed,
+  });
   final String id, title, artist, album;
-  final String? albumId;
+  final String? albumId, artistId;
+
+  /// Track and disc number, 0 when unknown.
+  final int track, disc;
+  final int playCount;
+  final bool favorite;
+
+  /// The entry's id inside a playlist (for removing and moving it there).
+  final String? playlistItemId;
+
+  /// ISO date of the last play, from the server.
+  final String? lastPlayed;
 
   /// A Live TV channel played as radio: no length, no preload or crossfade.
   final bool live;
@@ -22,16 +51,55 @@ class Song {
 }
 
 class Album {
-  const Album(this.title, this.subtitle, this.art, {this.id = '', this.image, this.playlist = false});
+  const Album(
+    this.title,
+    this.subtitle,
+    this.art, {
+    this.id = '',
+    this.image,
+    this.playlist = false,
+    this.year = 0,
+    this.artist = '',
+    this.artistId,
+    this.count = 0,
+    this.favorite = false,
+    this.playCount = 0,
+    this.lastPlayed,
+    this.overview,
+  });
   final String id, title, subtitle;
   final List<Color> art;
   final String? image;
   final bool playlist;
+  final int year, count, playCount;
+  final String artist;
+  final String? artistId, lastPlayed, overview;
+  final bool favorite;
+}
+
+class Artist {
+  const Artist(this.name, this.art, {this.id = '', this.image, this.favorite = false, this.overview});
+  final String id, name;
+  final List<Color> art;
+  final String? image, overview;
+  final bool favorite;
+}
+
+class Genre {
+  const Genre(this.name, this.art, {this.id = '', this.image, this.count = 0});
+  final String id, name;
+  final List<Color> art;
+  final String? image;
+  final int count;
 }
 
 class Video {
-  const Video(this.title, this.episode, this.left, this.progress, this.art, {this.image});
-  final String title, episode, left;
+  const Video(this.title, this.episode, this.left, this.progress, this.art, {this.image, this.id = '', this.type = '', this.seriesId});
+  final String id, title, episode, left;
+
+  /// The server's type: Movie, Episode or Series.
+  final String type;
+  final String? seriesId;
   final double progress;
   final List<Color> art;
   final String? image;

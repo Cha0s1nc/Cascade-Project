@@ -144,7 +144,7 @@ class _SignInState extends State<SignIn> {
                 Text(
                   _error!,
                   textAlign: TextAlign.center,
-                  style: ts(13, c: const Color(0xFFFF453A)),
+                  style: ts(13, c: K.error),
                 ),
               ],
               const SizedBox(height: 24),
