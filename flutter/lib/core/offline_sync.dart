@@ -5,40 +5,13 @@
 // favorites are per item, coalesced, each sent only when the server's
 // LastPlayedDate is older than the change.
 //
-// Changes, plays and updates are the JSON Maps the desktop stores. HistoryEntry
-// and historyEntriesOf come from offline-index.ts, which is not ported as a
-// whole; only what this file needs is here.
+// Changes, plays and updates are the JSON Maps the desktop stores. The types and
+// historyEntriesOf come from offline_index.dart (offline-index.ts).
 import 'jellyfin.dart' show Item;
-
-/// A change made offline: `{itemId, userId, at, kind: 'position'|'played'|'favorite', ticks?, played?, favorite?, was?}`.
-typedef UserDataChange = Map<String, dynamic>;
-
-/// A play the server never heard about: `{itemId, userId, date}`.
-typedef OfflinePlay = Map<String, dynamic>;
+import 'offline_index.dart' show HistoryEntry, HistorySnapshot, OfflinePlay, UserDataChange, historyEntriesOf;
 
 /// What one item's queued changes come to: `{itemId, userId, at, userData?: {...}, favorite?: bool}`.
 typedef PendingUpdate = Map<String, Object?>;
-
-/// One row of the server's play history.
-typedef HistoryEntry = ({String id, String? lastPlayedDate, num playCount});
-
-/// The history snapshot's entries as stored: `{Id, LastPlayedDate, PlayCount}` Maps.
-typedef HistorySnapshot = Map<String, dynamic>;
-
-/// How many history rows the snapshot keeps.
-const maxHistoryEntries = 200;
-
-final _safeId = RegExp(r'^[A-Za-z0-9]{1,64}$');
-
-/// The history rows of a server answer: safe ids only, capped.
-List<HistoryEntry> historyEntriesOf(List<Item> items) => [
-      for (final i in items.where((i) => i['Id'] is String && _safeId.hasMatch(i['Id'])).take(maxHistoryEntries))
-        (
-          id: i['Id'] as String,
-          lastPlayedDate: (i['UserData'] as Map?)?['LastPlayedDate'] is String ? (i['UserData'] as Map)['LastPlayedDate'] as String : null,
-          playCount: (i['UserData'] as Map?)?['PlayCount'] is num && ((i['UserData'] as Map)['PlayCount'] as num).isFinite ? (i['UserData'] as Map)['PlayCount'] as num : 0,
-        ),
-    ];
 
 /// The history the snapshot keeps, and the list reconnecting compares with.
 const historyQuery = {
@@ -111,9 +84,9 @@ Map<String, Object?>? updateToSend(PendingUpdate update, Item? server) {
 }
 
 List<HistoryEntry> _ordered(List<HistoryEntry> entries) => [...entries]..sort((a, b) {
-    final da = a.lastPlayedDate ?? '', db = b.lastPlayedDate ?? '';
+    final da = (a['LastPlayedDate'] as String?) ?? '', db = (b['LastPlayedDate'] as String?) ?? '';
     if (da != db) return da.compareTo(db) < 0 ? 1 : -1;
-    return a.id.compareTo(b.id);
+    return '${a['Id']}'.compareTo('${b['Id']}');
   });
 
 /// Whether the server's history ([historyQuery]'s answer) is the snapshot's: same items, dates and counts in the same order. No snapshot never matches.
@@ -121,13 +94,12 @@ bool snapshotMatches(HistorySnapshot? snapshot, List<Item> serverItems) {
   if (snapshot == null) return false;
   final entries = snapshot['entries'] is List ? snapshot['entries'] as List : const [];
   final a = _ordered([
-    for (final e in entries.whereType<Map>())
-      (id: '${e['Id']}', lastPlayedDate: e['LastPlayedDate'] as String?, playCount: (e['PlayCount'] as num?) ?? 0),
+    for (final e in entries.whereType<Map>()) {'Id': '${e['Id']}', 'LastPlayedDate': e['LastPlayedDate'], 'PlayCount': (e['PlayCount'] as num?) ?? 0},
   ]);
   final b = _ordered(historyEntriesOf(serverItems));
   if (a.length != b.length) return false;
   for (var i = 0; i < a.length; i++) {
-    if (a[i].id != b[i].id || a[i].lastPlayedDate != b[i].lastPlayedDate || a[i].playCount != b[i].playCount) return false;
+    if (a[i]['Id'] != b[i]['Id'] || a[i]['LastPlayedDate'] != b[i]['LastPlayedDate'] || a[i]['PlayCount'] != b[i]['PlayCount']) return false;
   }
   return true;
 }

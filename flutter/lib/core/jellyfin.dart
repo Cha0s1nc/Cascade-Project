@@ -20,7 +20,8 @@ typedef Item = Map<String, dynamic>;
 typedef Group = ({String libraryId, List<Item> items});
 
 const _client = 'Cascade Flutter';
-const _version = '0.1.0';
+/// The app's version; lockstep versions with the other apps come in phase 7.
+const appVersion = '0.1.0';
 
 /// Default page size when a caller sets no Limit.
 const _pageSize = 500;
@@ -63,7 +64,7 @@ class Jellyfin {
 
   Map<String, String> get headers => {
     'Authorization':
-        'MediaBrowser Client="$_client", Device="$_device", DeviceId="$deviceId", Version="$_version"'
+        'MediaBrowser Client="$_client", Device="$_device", DeviceId="$deviceId", Version="$appVersion"'
         '${token == null ? '' : ', Token="$token"'}',
   };
 

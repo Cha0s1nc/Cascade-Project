@@ -1,126 +1,378 @@
-// Settings, as far as the phases have reached: the account and Playback.
-// The same panel in the desktop's Settings view and the phone's tab.
+// Settings with Electron's six tabs: Library, Playback, Lyrics, Integrations,
+// Account and About. A page in the main window on desktop (a tab list down
+// the left), the Settings tab on phones (chips across the top).
 import 'package:flutter/material.dart';
 
+import 'package:cascade/core/jellyfin.dart';
+import 'package:cascade/core/lyrics_fetch.dart';
 import 'package:cascade/core/playback.dart';
 import 'package:cascade/engine/player.dart';
+import 'package:cascade/ui/pages/common.dart';
 import 'package:cascade/ui/scopes.dart';
 import 'package:cascade/ui/widgets.dart';
 
-class SettingsPanel extends StatelessWidget {
-  const SettingsPanel({super.key});
+const _tabs = [
+  ('library', 'Library', Icons.library_music_outlined),
+  ('playback', 'Playback', Icons.play_circle_outline_rounded),
+  ('lyrics', 'Lyrics', Icons.lyrics_outlined),
+  ('integrations', 'Integrations', Icons.extension_outlined),
+  ('account', 'Account', Icons.person_outline_rounded),
+  ('about', 'About', Icons.info_outline_rounded),
+];
+
+class SettingsPanel extends StatefulWidget {
+  const SettingsPanel({super.key, this.initial = 'library'});
+  final String initial;
+
+  @override
+  State<SettingsPanel> createState() => _SettingsPanelState();
+}
+
+class _SettingsPanelState extends State<SettingsPanel> {
+  late String _tab = widget.initial;
 
   @override
   Widget build(BuildContext context) {
-    final lib = LibraryScope.of(context), p = PlayerScope.of(context), s = p.settings;
-    return ListenableBuilder(
+    final small = narrow(context);
+    final s = PlayerScope.of(context).settings;
+    final body = ListenableBuilder(
       listenable: s,
-      builder: (context, _) => Align(
-        alignment: Alignment.topCenter,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 640),
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
-            children: [
-              Text('Settings', style: ts(28, w: FontWeight.w700)),
-              const _Header('Account'),
-              _Row(
-                title: lib.demo ? 'You are looking at the demo' : 'Signed in as ${lib.jf?.userName ?? '?'}',
-                subtitle: lib.demo ? null : lib.jf?.server,
-                trailing: FilledButton.tonal(
-                  onPressed: () async {
-                    await p.stop();
-                    await lib.signOut();
-                  },
-                  child: Text(lib.demo ? 'Leave the demo' : 'Sign out'),
-                ),
-              ),
-              const _Header('Playback'),
-              _Switch(
-                'Crossfade',
-                s.crossfadeEnabled ? 'Fade each track into the next' : 'Off: a ${gapMaskSecs.round()} s overlap still hides the gap between tracks',
-                s.crossfadeEnabled,
-                (v) => s.setCrossfade(enabled: v),
-              ),
-              if (s.crossfadeEnabled)
-                _Row(
-                  title: 'Crossfade length',
-                  trailing: SizedBox(
-                    width: 260,
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Slider(
-                            value: s.crossfadeSeconds.toDouble(),
-                            min: 1,
-                            max: 15,
-                            divisions: 14,
-                            onChanged: (v) => s.setCrossfade(seconds: v.round()),
+      builder: (context, _) => ListView(
+        padding: small ? const EdgeInsets.fromLTRB(16, 4, 16, 40) : const EdgeInsets.fromLTRB(8, 0, 32, 40),
+        children: switch (_tab) {
+          'library' => _library(context),
+          'playback' => _playback(context),
+          'lyrics' => _lyrics(context),
+          'integrations' => _integrations(context),
+          'account' => _account(context),
+          _ => _about(context),
+        },
+      ),
+    );
+    if (small) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            child: Text('Settings', style: Txt.title()),
+          ),
+          SizedBox(
+            height: 40,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              children: [
+                for (final (id, label, _) in _tabs)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Chip_(label, on: _tab == id, onTap: () => setState(() => _tab = id)),
+                  ),
+              ],
+            ),
+          ),
+          Expanded(child: body),
+        ],
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(32, 30, 0, 0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 200,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text('Settings', style: Txt.hero()),
+                const SizedBox(height: 22),
+                for (final (id, label, icon) in _tabs)
+                  Hover(
+                    onTap: () => setState(() => _tab = id),
+                    builder: (_, on) => Container(
+                      height: 36,
+                      margin: const EdgeInsets.only(bottom: 2),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      decoration: BoxDecoration(
+                        color: _tab == id
+                            ? K.accentTint
+                            : on
+                            ? K.line
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(icon, size: 17, color: _tab == id ? K.accent : K.text2),
+                          const SizedBox(width: 10),
+                          Text(
+                            label,
+                            style: ts(13, w: FontWeight.w500, c: _tab == id ? K.text : K.text2),
                           ),
-                        ),
-                        SizedBox(
-                          width: 36,
-                          child: Text('${s.crossfadeSeconds} s', style: ts(13, c: K.text2)),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              _Row(
-                title: 'Streaming quality',
-                subtitle: 'Above this, the server converts the file down',
-                trailing: _Menu<int>(value: s.maxStreamingBitrate, items: {for (final q in qualitySteps) q.bitrate: q.label}, onChanged: s.setMaxBitrate),
-              ),
-              _Switch(
-                'Volume normalization',
-                'Evens out loudness with the server\'s measurements',
-                s.normalizationEnabled,
-                (v) => s.setNormalization(enabled: v),
-              ),
-              if (s.normalizationEnabled)
-                _Row(
-                  title: 'Normalize by',
-                  subtitle: 'Album keeps the loudness differences within an album',
-                  trailing: _Menu<String>(
-                    value: s.normalizationSource,
-                    items: const {'track': 'Track', 'album': 'Album'},
-                    onChanged: (v) => s.setNormalization(source: v),
-                  ),
-                ),
-              _Switch('Equalizer', 'For music', s.eqEnabled, s.setEqEnabled),
-              if (s.eqEnabled) _Equalizer(s.eqMusic, onChanged: s.setEqProfile),
-              _Row(
-                title: 'Output device',
-                trailing: _Menu<String>(
-                  value: p.devices.any((d) => d.name == s.outputDeviceId) ? s.outputDeviceId : 'auto',
-                  items: {
-                    'auto': 'System default',
-                    for (final d in p.devices)
-                      if (d.name != 'auto') d.name: d.description.isEmpty ? d.name : d.description,
-                  },
-                  onChanged: s.setOutputDevice,
-                ),
-              ),
-              _Switch('Auto-mix', 'When the queue runs out, keep going with similar songs', s.autoMix, s.setAutoMix),
-              _Switch(
-                'Show Live TV as Radio',
-                lib.hasLiveTv ? 'Your server\'s channels, in a Radio view' : 'Your server has no Live TV channels',
-                s.radioEnabled,
-                s.setRadioEnabled,
-              ),
-              _Row(title: 'Sleep timer', subtitle: sleepLabel(p), trailing: const SleepTimerButton()),
-              _Switch(
-                'Do not report playback',
-                'For testing: the server is never told what plays, so history and resume points stay untouched',
-                s.noReports,
-                s.setNoReports,
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
+          const SizedBox(width: 24),
+          Expanded(
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 720), child: body),
+            ),
+          ),
+        ],
       ),
     );
   }
+
+  List<Widget> _library(BuildContext context) {
+    final lib = LibraryScope.of(context), s = PlayerScope.read(context).settings;
+    final music = lib.jf?.libraryIds ?? const <String>[];
+    return [
+      const _Header('Library', top: 8),
+      if (lib.demo) Text('Sign in to choose libraries.', style: ts(13, c: K.text3)),
+      if (lib.musicLibs.isNotEmpty) ...[
+        _Row(title: 'Music libraries', subtitle: 'Albums, artists and songs come from these', trailing: const SizedBox.shrink()),
+        for (final l in lib.musicLibs)
+          _Check(l['Name'] as String? ?? '', music.contains(l['Id']), (on) {
+            final ids = {...music};
+            on ? ids.add(l['Id'] as String) : ids.remove(l['Id']);
+            if (ids.isEmpty) return toast(context, 'Keep at least one music library.');
+            lib.setLibraries(music: ids.toList());
+          }),
+      ],
+      if (lib.movieLibs.isNotEmpty || lib.showLibs.isNotEmpty) ...[
+        _Row(title: 'Movie and TV libraries', subtitle: 'None chosen hides Movies and TV Shows', trailing: const SizedBox.shrink()),
+        for (final l in lib.movieLibs)
+          _Check('${l['Name']} (movies)', lib.movieIds.contains(l['Id']), (on) {
+            final ids = {...lib.movieIds};
+            on ? ids.add(l['Id'] as String) : ids.remove(l['Id']);
+            lib.setLibraries(movies: ids.toList());
+          }),
+        for (final l in lib.showLibs)
+          _Check('${l['Name']} (shows)', lib.showIds.contains(l['Id']), (on) {
+            final ids = {...lib.showIds};
+            on ? ids.add(l['Id'] as String) : ids.remove(l['Id']);
+            lib.setLibraries(shows: ids.toList());
+          }),
+      ],
+      _Switch(
+        'Show Live TV as Radio',
+        lib.hasLiveTv ? 'Your server\'s channels, in a Radio view' : 'Your server has no Live TV channels',
+        s.radioEnabled,
+        s.setRadioEnabled,
+      ),
+      if (lib.isAdmin)
+        _Row(
+          title: 'Scan library on server',
+          subtitle: 'Look for new and changed files now',
+          trailing: _Btn('Scan', () async {
+            try {
+              await lib.scanServer();
+              if (context.mounted) toast(context, 'The server is scanning.');
+            } catch (e) {
+              if (context.mounted) toast(context, 'Could not start a scan: $e', error: true);
+            }
+          }),
+        ),
+      _Row(title: 'Refresh app', subtitle: 'Load everything from the server again', trailing: _Btn('Refresh', lib.refresh)),
+    ];
+  }
+
+  List<Widget> _playback(BuildContext context) {
+    final lib = LibraryScope.read(context), p = PlayerScope.of(context), s = p.settings;
+    return [
+      const _Header('Playback', top: 8),
+      _Switch(
+        'Crossfade',
+        s.crossfadeEnabled ? 'Fade each track into the next' : 'Off: a ${gapMaskSecs.round()} s overlap still hides the gap between tracks',
+        s.crossfadeEnabled,
+        (v) => s.setCrossfade(enabled: v),
+      ),
+      if (s.crossfadeEnabled)
+        _Row(
+          title: 'Crossfade length',
+          trailing: SizedBox(
+            width: 260,
+            child: Row(
+              children: [
+                Expanded(
+                  child: Slider(
+                    value: s.crossfadeSeconds.toDouble(),
+                    min: 1,
+                    max: 15,
+                    divisions: 14,
+                    onChanged: (v) => s.setCrossfade(seconds: v.round()),
+                  ),
+                ),
+                SizedBox(
+                  width: 36,
+                  child: Text('${s.crossfadeSeconds} s', style: ts(13, c: K.text2)),
+                ),
+              ],
+            ),
+          ),
+        ),
+      _Row(
+        title: 'Streaming quality',
+        subtitle: 'Above this, the server converts the file down',
+        trailing: _Menu<int>(value: s.maxStreamingBitrate, items: {for (final q in qualitySteps) q.bitrate: q.label}, onChanged: s.setMaxBitrate),
+      ),
+      _Switch('Volume normalization', 'Evens out loudness with the server\'s measurements', s.normalizationEnabled, (v) => s.setNormalization(enabled: v)),
+      if (s.normalizationEnabled)
+        _Row(
+          title: 'Normalize by',
+          subtitle: 'Album keeps the loudness differences within an album',
+          trailing: _Menu<String>(
+            value: s.normalizationSource,
+            items: const {'track': 'Track', 'album': 'Album'},
+            onChanged: (v) => s.setNormalization(source: v),
+          ),
+        ),
+      _Switch('Auto-skip intros and credits', 'When the server marks them', s.autoSkipSegments, s.setAutoSkipSegments),
+      _Switch('Equalizer', 'For music', s.eqEnabled, s.setEqEnabled),
+      if (s.eqEnabled) _Equalizer(s.eqMusic, onChanged: s.setEqProfile),
+      _Row(
+        title: 'Output device',
+        trailing: _Menu<String>(
+          value: p.devices.any((d) => d.name == s.outputDeviceId) ? s.outputDeviceId : 'auto',
+          items: {
+            'auto': 'System default',
+            for (final d in p.devices)
+              if (d.name != 'auto') d.name: d.description.isEmpty ? d.name : d.description,
+          },
+          onChanged: s.setOutputDevice,
+        ),
+      ),
+      _Switch('Auto-mix', 'When the queue runs out, keep going with similar songs', s.autoMix, s.setAutoMix),
+      _Row(title: 'Sleep timer', subtitle: sleepLabel(p), trailing: const SleepTimerButton()),
+      const _Header('Now Playing'),
+      _Row(
+        title: 'Layout',
+        subtitle: 'Where the controls go when Now Playing is open',
+        trailing: _Menu<String>(
+          value: s.nowPlayingLayout,
+          items: const {'bar': 'Player bar stays', 'under': 'Controls under the art', 'focus': 'Focus'},
+          onChanged: s.setNowPlayingLayout,
+        ),
+      ),
+      _Switch('Show what\'s next behind the art', 'The queue\'s next songs stepped behind the cover', s.showArtStack, s.setShowArtStack),
+      if (!lib.demo) ...[
+        const _Header('Testing'),
+        _Switch('Do not report playback', 'The server is never told what plays, so history and resume points stay untouched', s.noReports, s.setNoReports),
+      ],
+    ];
+  }
+
+  List<Widget> _lyrics(BuildContext context) {
+    final s = PlayerScope.read(context).settings;
+    return [
+      const _Header('Lyrics', top: 8),
+      _Row(
+        title: 'Lyrics source',
+        subtitle: 'Best available tries SpicyLyrics through Cascade Server first, then Kugou, LRCLIB and your server',
+        trailing: _Menu<String>(value: s.lyricsSource, items: {'auto': 'Best available', for (final x in lyricSources) x: x}, onChanged: s.setLyricsSource),
+      ),
+    ];
+  }
+
+  List<Widget> _integrations(BuildContext context) {
+    final s = PlayerScope.read(context).settings;
+    return [
+      const _Header('Integrations', top: 8),
+      _Switch('Discord Rich Presence', 'Show what you are listening to on Discord', s.discordRpc, s.setDiscordRpc),
+    ];
+  }
+
+  List<Widget> _account(BuildContext context) {
+    final lib = LibraryScope.of(context), p = PlayerScope.read(context);
+    final code = TextEditingController();
+    return [
+      const _Header('Account', top: 8),
+      _Row(title: 'Server', subtitle: lib.demo ? 'The demo' : lib.jf?.server, trailing: const SizedBox.shrink()),
+      _Row(
+        title: lib.demo ? 'You are looking at the demo' : 'Signed in as ${lib.jf?.userName ?? '?'}',
+        subtitle: lib.isAdmin ? 'Administrator' : null,
+        trailing: _Btn(lib.demo ? 'Leave the demo' : 'Sign out', () async {
+          await p.stop();
+          await lib.signOut();
+        }),
+      ),
+      if (!lib.demo) ...[
+        const _Header('Quick Connect'),
+        _Row(
+          title: 'Approve a device',
+          subtitle: 'Type the code another device shows to sign it in as you',
+          trailing: SizedBox(
+            width: 220,
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: code,
+                    style: ts(13),
+                    decoration: InputDecoration(
+                      isDense: true,
+                      hintText: 'Code',
+                      hintStyle: ts(13, c: K.text3),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _Btn('Approve', () async {
+                  try {
+                    await lib.approveQuickConnect(code.text);
+                    if (context.mounted) toast(context, 'Approved.');
+                  } catch (e) {
+                    if (context.mounted) toast(context, 'Could not approve it: $e', error: true);
+                  }
+                }),
+              ],
+            ),
+          ),
+        ),
+      ],
+    ];
+  }
+
+  List<Widget> _about(BuildContext context) => [
+    const _Header('About', top: 8),
+    _Row(title: 'Cascade for Windows, Linux and Android', subtitle: 'Version $appVersion', trailing: const SizedBox.shrink()),
+    _Row(title: 'Website', subtitle: 'cascade.chaosinc.xyz', trailing: const SizedBox.shrink()),
+    _Row(title: 'Fonts', subtitle: 'Hanken Grotesk and Inter, under the SIL Open Font License', trailing: const SizedBox.shrink()),
+  ];
+}
+
+class _Check extends StatelessWidget {
+  const _Check(this.label, this.on, this.onChanged);
+  final String label;
+  final bool on;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) => CheckboxListTile(
+    value: on,
+    onChanged: (v) => onChanged(v ?? false),
+    dense: true,
+    contentPadding: const EdgeInsets.only(left: 12),
+    controlAffinity: ListTileControlAffinity.leading,
+    activeColor: K.accent,
+    checkColor: K.ink,
+    title: Text(label, style: ts(13)),
+  );
+}
+
+class _Btn extends StatelessWidget {
+  const _Btn(this.label, this.onTap);
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Pill(label, onTap: onTap, primary: false);
 }
 
 String? sleepLabel(Player p) {
@@ -213,16 +465,14 @@ class _Equalizer extends StatelessWidget {
 }
 
 class _Header extends StatelessWidget {
-  const _Header(this.text);
+  const _Header(this.text, {this.top = 28});
   final String text;
+  final double top;
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(top: 28, bottom: 8),
-    child: Text(
-      text.toUpperCase(),
-      style: ts(12, w: FontWeight.w600, c: K.text3, ls: 0.6),
-    ),
+    padding: EdgeInsets.only(top: top, bottom: 8),
+    child: Text(text.toUpperCase(), style: Txt.caps()),
   );
 }
 

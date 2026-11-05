@@ -101,6 +101,18 @@ class Settings extends ChangeNotifier {
 
   void setNoReports(bool on) => _changed(_p?.setBool('noReports', noReports = on));
 
+  /// The lyrics source to use: 'auto' or one of lyricSources (desktop's key).
+  late String lyricsSource = _p?.getString('lyricsSource') ?? 'auto';
+  void setLyricsSource(String v) => _changed(_p?.setString('lyricsSource', lyricsSource = v));
+
+  /// Discord Rich Presence (desktop's discordRpcEnabled), on by default.
+  late bool discordRpc = _p?.getBool('discordRpcEnabled') ?? true;
+  void setDiscordRpc(bool on) => _changed(_p?.setBool('discordRpcEnabled', discordRpc = on));
+
+  /// Skip intros and credits by themselves (media segments).
+  late bool autoSkipSegments = _p?.getBool('autoSkipSegments') ?? false;
+  void setAutoSkipSegments(bool on) => _changed(_p?.setBool('autoSkipSegments', autoSkipSegments = on));
+
   /// Personality v1: the queue's next songs stepped behind the art.
   late bool showArtStack = _p?.getBool('showArtStack') ?? true;
   void setShowArtStack(bool on) => _changed(_p?.setBool('showArtStack', showArtStack = on));

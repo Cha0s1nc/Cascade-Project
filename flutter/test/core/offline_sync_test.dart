@@ -33,15 +33,4 @@ void main() {
     expect(historyQuery['IncludeItemTypes'], 'Audio,Movie,Episode');
     expect(historyQuery.containsKey('ParentId'), isFalse);
   });
-
-  test('historyEntriesOf keeps safe ids only, with a null date and zero count for a bare item', () {
-    final e = historyEntriesOf([
-      {'Id': 'abc123', 'UserData': {'LastPlayedDate': '2026-10-15T20:00:00Z', 'PlayCount': 3}},
-      {'Id': '../x'},
-      {'Id': 'def456'},
-    ]);
-    expect(e.length, 2);
-    expect(e[0], (id: 'abc123', lastPlayedDate: '2026-10-15T20:00:00Z', playCount: 3));
-    expect(e[1], (id: 'def456', lastPlayedDate: null, playCount: 0));
-  });
 }

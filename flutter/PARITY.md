@@ -50,7 +50,7 @@ One line per feature in `docs/flutter-plan.md`. Status: built / partial / not bu
 - Playlist editing, Save as a Playlist: partial - create, add, reorder, remove, rename and delete; Save as a Playlist (from the queue) not yet
 - Smart playlists: not built - the rules are ported (core/smart_playlist.dart) with tests
 - Favorites and played state on the server: built - likes go to /UserFavoriteItems and show at once, put back if the server refuses
-- Library pickers and grouping: not built
+- Library pickers and grouping: partial - Settings > Library picks music, movie and show libraries (same store keys); per-library grouping in the grids not yet
 - Devices panel and remote control: not built
 - Waterfall: not built
 - Rediscover (new, not a parity item): built on desktop - Used to love, Never played, Forgotten favorites, the daily reshuffle and the mix; tested in core/rediscover.dart
@@ -75,15 +75,15 @@ One line per feature in `docs/flutter-plan.md`. Status: built / partial / not bu
 - Cha0s Stream control server: not built
 - Keyboard shortcuts: partial - Ctrl+K focuses search
 - First-run wizard: not built
-- Full Settings: not built - account and Sign out only
+- Full Settings: partial - Electron's six tabs; Library (pickers, Radio, scan, refresh), Playback (crossfade, quality, normalization, EQ, output, auto-mix, auto-skip, sleep, Now Playing layout and art stack), Lyrics (source), Integrations (Discord switch only), Account (sign out, Quick Connect approve), About; tips, messages, custom headers and client certificates not yet
 - Client certificates and custom headers: not built
 - Debug panel: not built
 
 ## Phase 5: video
 
-- Video player with Cascade's controls: not built
-- Audio and subtitle pickers, chapters, trickplay: not built
-- Skip Intro, resume, next episode: not built
+- Video player with Cascade's controls: built - media_kit video, direct play only (no transcode fallback yet), resume, reports, the desktop's keys, full screen
+- Audio and subtitle pickers, chapters, trickplay: partial - the file's own audio and subtitle tracks and chapter marks with Ctrl+arrows; external subtitle files and trickplay thumbnails not yet
+- Skip Intro, resume, next episode: built - from /MediaSegments, with the auto-skip setting; next episode on outro, near the end and at the end
 
 ## Phase 6: offline and Local mode
 

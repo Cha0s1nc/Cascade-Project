@@ -415,7 +415,11 @@ class _LyricsPanelState extends State<LyricsPanel> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _lyrics ??= _fetch();
+    if (_lyrics == null) {
+      final saved = PlayerScope.read(context).settings.lyricsSource;
+      _forced = lyricSources.contains(saved) ? saved : null;
+      _lyrics = _fetch();
+    }
   }
 
   Future<Lyrics?> _fetch() async {

@@ -13,7 +13,9 @@ import 'package:cascade/ui/phone.dart';
 import 'package:cascade/engine/player.dart';
 import 'package:cascade/ui/sign_in.dart';
 import 'package:cascade/ui/lyrics_view.dart';
+import 'package:cascade/ui/pages/browse.dart' show videoPlayer;
 import 'package:cascade/ui/title_bar.dart';
+import 'package:cascade/ui/video_player.dart';
 import 'package:cascade/ui/widgets.dart';
 import 'package:cascade/ui/scopes.dart';
 
@@ -22,6 +24,7 @@ Future<void> main() async {
   MediaKit.ensureInitialized();
   await setUpWindow();
   await loadTuning();
+  videoPlayer = openVideoPlayer;
   final player = Player(settings: await Settings.load());
   await attachMediaControls(player);
   runApp(CascadeApp(player: player, session: await Jellyfin.restore()));

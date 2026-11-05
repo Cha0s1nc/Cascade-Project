@@ -189,6 +189,22 @@ class Library extends ChangeNotifier {
     return onePerSeries([...resume, ...nextUp]).take(24).toList();
   }
 
+  /// Choose the libraries in use and load everything again (renderer.js
+  /// library picker). Empty music means all; empty video means none.
+  Future<void> setLibraries({List<String>? music, List<String>? movies, List<String>? shows}) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (music != null) await prefs.setStringList('libraryIds', music);
+    if (movies != null) await prefs.setStringList('movieLibraryIds', movies);
+    if (shows != null) await prefs.setStringList('showLibraryIds', shows);
+    await refresh();
+  }
+
+  /// Ask the server to scan its libraries (admins only).
+  Future<void> scanServer() async => jf?.post('/Library/Refresh');
+
+  /// Approve another device's Quick Connect code with this account.
+  Future<void> approveQuickConnect(String code) async => jf?.post('/QuickConnect/Authorize', null, {'code': code.trim(), 'userId': jf?.userId});
+
   /// The Live TV channels, as radio.
   Future<List<Song>> radioChannels() async {
     final j = jf;
