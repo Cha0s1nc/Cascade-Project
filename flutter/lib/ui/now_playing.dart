@@ -228,7 +228,7 @@ class _NowPlayingViewState extends State<NowPlayingView> {
     children: [
       Padding(
         padding: const EdgeInsets.fromLTRB(80, 40, 80, 40),
-        child: LyricsPanel(key: ValueKey(song.id), song: song, size: 54, center: true),
+        child: LyricsPanel(key: ValueKey(song.id), song: song, size: 54, center: true, showSource: !_idle),
       ),
       Positioned(
         top: 20,
@@ -402,10 +402,13 @@ class _TopRight extends StatelessWidget {
 /// The song's lyrics: fetched when it changes, with the source pill to force
 /// another source.
 class LyricsPanel extends StatefulWidget {
-  const LyricsPanel({super.key, required this.song, this.size = 34, this.center = false, this.phone = false});
+  const LyricsPanel({super.key, required this.song, this.size = 34, this.center = false, this.phone = false, this.showSource = true});
   final Song song;
   final double size;
   final bool center, phone;
+
+  /// Focus hides the source pill with its other controls when idle.
+  final bool showSource;
 
   @override
   State<LyricsPanel> createState() => _LyricsPanelState();
@@ -456,9 +459,13 @@ class _LyricsPanelState extends State<LyricsPanel> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (!widget.center || l != null)
-            Align(
-              alignment: widget.center ? Alignment.center : Alignment.centerLeft,
-              child: Padding(padding: const EdgeInsets.only(bottom: 8), child: _sourcePill(context, l)),
+            AnimatedOpacity(
+              opacity: widget.showSource ? 1 : 0,
+              duration: const Duration(milliseconds: 400),
+              child: Align(
+                alignment: widget.center ? Alignment.center : Alignment.centerLeft,
+                child: Padding(padding: const EdgeInsets.only(bottom: 8), child: _sourcePill(context, l)),
+              ),
             ),
           Expanded(child: body),
         ],

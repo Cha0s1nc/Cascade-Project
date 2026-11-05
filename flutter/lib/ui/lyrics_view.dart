@@ -78,6 +78,8 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
     super.initState();
     _keys = [for (final _ in widget.lyrics.lines) GlobalKey()];
     _ticker = createTicker(_tick)..start();
+    // Opened partway through a song: jump to the current line once laid out.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _follow(jump: true));
   }
 
   @override
@@ -124,14 +126,14 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
     }
   }
 
-  void _follow() {
+  void _follow({bool jump = false}) {
     if (_active < 0 || _active >= _keys.length) return;
     final ctx = _keys[_active].currentContext;
     if (ctx == null) return;
     Scrollable.ensureVisible(
       ctx,
       alignment: _s(_st, 'currentLinePosition', widget.phone ? 0.12 : 0.5),
-      duration: const Duration(milliseconds: 600),
+      duration: jump ? Duration.zero : const Duration(milliseconds: 600),
       curve: Curves.easeOutCubic,
     );
   }
@@ -181,12 +183,16 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
                 stops: [0, 0.08, 0.9, 1],
               ).createShader(r),
               blendMode: BlendMode.dstIn,
-              child: ListView(
+              // Every line built (a Column, not a lazy list), so the follow can
+              // reach the current line even when the song starts partway in.
+              child: SingleChildScrollView(
                 controller: _scroll,
-                // No scrollbar: the lyrics scroll themselves.
                 primary: false,
                 padding: EdgeInsets.symmetric(vertical: c.maxHeight * 0.5),
-                children: [for (final (i, line) in lines.indexed) KeyedSubtree(key: _keys[i], child: _line(i, line, fade))],
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [for (final (i, line) in lines.indexed) KeyedSubtree(key: _keys[i], child: _line(i, line, fade))],
+                ),
               ),
             ),
           ),

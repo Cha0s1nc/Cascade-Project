@@ -10,7 +10,7 @@ One line per feature in `docs/flutter-plan.md`. Status: built / partial / not bu
 - Library selection: partial - saved choices applied with the desktop's rules; no picker yet
 - Permissions: built - the user's policy, `canDelete` and `canDownload`; nothing is gated on them yet
 - Desktop back and forward history: built - per-tab history ported from `nav-history.ts`, plus Forward, the mouse's side buttons and Alt+Left/Right; the pages themselves are phase 2
-- Phone layout: built - Music and Video modes (browseMode key) with their own navigation bars, the Library tab's rows into every view, search with its own field, the same pages as desktop at phone width; not yet tried on A
+- Phone layout: built - Music and Video modes (browseMode key) with their own navigation bars, the Library tab's rows into every view, search with its own field, the same pages as desktop at phone width; Home, Library, Artists and Settings seen on A
 - Phone per-tab navigation: built - Android's Back walks the tab, then goes Home, then leaves; not yet tried on A
 - Linux build: built - seen starting on L
 - `flutter` in the root `npm test`: built
@@ -37,10 +37,10 @@ One line per feature in `docs/flutter-plan.md`. Status: built / partial / not bu
 
 ## Phase 2: library and browsing
 
-- Personality v1 theme (colors, type, bundled fonts): built - desktop shell, pages and the phone's Home; not yet seen on a device
-- In-line title bar (Windows, Linux): built - window_manager hides the OS bar, Cascade draws the window buttons; the Linux runner always uses a hidden header bar so GTK keeps the shadow and resize edges; not yet run on W or L. Windows 11's snap layouts flyout on Maximize is not there (it needs native hit testing)
+- Personality v1 theme (colors, type, bundled fonts): built - seen on W, L and A
+- In-line title bar (Windows, Linux): built - window_manager hides the OS bar, Cascade draws the window buttons; the Linux runner always uses a hidden header bar so GTK keeps the shadow and resize edges; seen on W (caption buttons) and L (round buttons, Cinnamon). Windows 11's snap layouts flyout on Maximize is not there (it needs native hit testing)
 - Home: built - seen on W and A
-- Albums, Artists, Songs, Playlists, Genres, History: built on desktop - not yet run against a server; the phone's Library is next
+- Albums, Artists, Songs, Playlists, Genres, History: built - Artists seen on A against the test server; the rest not yet looked at on a device
 - Movies, TV Shows: partial - poster grids and movie and series pages with seasons and episodes; playing them waits for the video player (phase 5)
 - Sort and filter with per-view preferences: built - albums, artists and playlists under the desktop's store keys (albumsPrefs and so on), songs under songsSort
 - Album, artist and playlist pages: built on desktop - album with discs and format, artist with top songs, bio, albums, appears on and similar artists
@@ -58,9 +58,9 @@ One line per feature in `docs/flutter-plan.md`. Status: built / partial / not bu
 
 ## Phase 3: Now Playing, lyrics, theme
 
-- Now Playing with queue and lyrics panels: built - desktop layer with the three layouts (player bar stays, controls under the art, Focus with idle hiding), the phone's full screen view with Lyrics, Queue and More; the queue reorders, removes, clears and saves as a playlist
+- Now Playing with queue and lyrics panels: built (all three desktop layouts seen on L, the bar layout on W, the phone view on A) - desktop layer with the three layouts (player bar stays, controls under the art, Focus with idle hiding), the phone's full screen view with Lyrics, Queue and More; the queue reorders, removes, clears and saves as a playlist
 - Art background and tuning: partial - the blurred cover behind Now Playing; lyric dimming, blur, past scale and the follow position come from shared/tuning-defaults.json (desktop column on desktop, iPhone column on phones); album color extraction and the background knobs not yet
-- Lyrics sources and karaoke rendering: built - SpicyLyrics through Cascade Server, Kugou (KRC decrypted in Dart), LRCLIB and Jellyfin raced like the desktop, forced source from the pill, word fill (a word fades as a whole, not letter by letter), background vocals and duets; server-only mode and the app-side SpicyLyrics key not yet
+- Lyrics sources and karaoke rendering: built (LRCLIB seen on L and W, SpicyLyrics word by word on L and A) - SpicyLyrics through Cascade Server, Kugou (KRC decrypted in Dart), LRCLIB and Jellyfin raced like the desktop, forced source from the pill, word fill (a word fades as a whole, not letter by letter), background vocals and duets; server-only mode and the app-side SpicyLyrics key not yet
 - Translation: not built
 - Theme panel, presets, server style, fonts: not built
 - Customization editor and Style Tuning: not built
@@ -81,7 +81,7 @@ One line per feature in `docs/flutter-plan.md`. Status: built / partial / not bu
 
 ## Phase 5: video
 
-- Video player with Cascade's controls: built - media_kit video, direct play only (no transcode fallback yet), resume, reports, the desktop's keys, full screen
+- Video player with Cascade's controls: built (seen on W: resume, subtitles, chapter marks, Esc; reports stayed off) - media_kit video, direct play only (no transcode fallback yet), resume, reports, the desktop's keys, full screen
 - Audio and subtitle pickers, chapters, trickplay: partial - the file's own audio and subtitle tracks and chapter marks with Ctrl+arrows; external subtitle files and trickplay thumbnails not yet
 - Skip Intro, resume, next episode: built - from /MediaSegments, with the auto-skip setting; next episode on outro, near the end and at the end
 
