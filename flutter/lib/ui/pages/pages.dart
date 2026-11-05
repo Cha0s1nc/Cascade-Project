@@ -36,6 +36,7 @@ Widget pageFor(NavEntry e) {
     PageKind.playlist || PageKind.smart => PlaylistPage(id),
     PageKind.genre => GenrePage(id, e.args.length > 1 ? '${e.args[1]}' : 'Genre'),
     PageKind.movie || PageKind.series => VideoPage(id),
+    PageKind.view => viewFor(id),
   };
 }
 
@@ -44,5 +45,7 @@ class _Missing extends StatelessWidget {
   final String view;
 
   @override
-  Widget build(BuildContext context) => Center(child: Text('$view is not built yet.', style: ts(14, c: K.text3)));
+  Widget build(BuildContext context) => Center(
+    child: Text('$view is not built yet.', style: ts(14, c: K.text3)),
+  );
 }

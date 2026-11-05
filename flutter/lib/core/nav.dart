@@ -5,7 +5,8 @@
 // until something else is opened.
 import 'package:flutter/foundation.dart';
 
-enum PageKind { album, artist, playlist, smart, genre, movie, series }
+/// [view] is a whole view opened as a page (the phone's Library rows).
+enum PageKind { album, artist, playlist, smart, genre, movie, series, view }
 
 /// Each page's own category, where it opens from Settings or the other mode.
 const pageCategory = {
@@ -16,6 +17,7 @@ const pageCategory = {
   PageKind.genre: 'genres',
   PageKind.movie: 'movies',
   PageKind.series: 'shows',
+  PageKind.view: 'library',
 };
 
 /// Oldest steps go past this, so a long session can't grow a tab without end.

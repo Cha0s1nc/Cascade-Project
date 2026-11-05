@@ -12,6 +12,11 @@ import 'package:cascade/ui/widgets.dart';
 
 const pagePadding = EdgeInsets.fromLTRB(32, 30, 32, 32);
 
+/// Phones and narrow windows.
+bool narrow(BuildContext context) => MediaQuery.sizeOf(context).width < 600;
+
+EdgeInsets pagePaddingOf(BuildContext context) => narrow(context) ? const EdgeInsets.fromLTRB(16, 12, 16, 24) : pagePadding;
+
 /// A page: its header, then slivers.
 class PageScroll extends StatelessWidget {
   const PageScroll({super.key, required this.slivers, this.controller});
@@ -23,7 +28,7 @@ class PageScroll extends StatelessWidget {
     controller: controller,
     slivers: [
       SliverPadding(
-        padding: pagePadding,
+        padding: pagePaddingOf(context),
         sliver: SliverMainAxisGroup(slivers: slivers),
       ),
     ],
@@ -39,30 +44,36 @@ class PageHeader extends StatelessWidget {
   final Widget? below;
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 22),
-    child: Column(
+  Widget build(BuildContext context) {
+    final small = narrow(context);
+    final head = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: Txt.hero()),
-                  if (voice != null) ...[const SizedBox(height: 6), Text(voice!, style: Txt.voice())],
-                ],
-              ),
-            ),
-            if (actions.isNotEmpty) Row(spacing: 8, children: actions),
-          ],
-        ),
-        if (below != null) ...[const SizedBox(height: 22), below!],
+        Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: small ? Txt.title() : Txt.hero()),
+        if (voice != null) ...[const SizedBox(height: 6), Text(voice!, style: Txt.voice())],
       ],
-    ),
-  );
+    );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 22),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (small) ...[
+            head,
+            if (actions.isNotEmpty) ...[const SizedBox(height: 14), Wrap(spacing: 8, runSpacing: 8, children: actions)],
+          ] else
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(child: head),
+                if (actions.isNotEmpty) Row(spacing: 8, children: actions),
+              ],
+            ),
+          if (below != null) ...[const SizedBox(height: 22), below!],
+        ],
+      ),
+    );
+  }
 }
 
 /// A row of filter chips; the selected one is accent-tint.
@@ -101,7 +112,10 @@ class Chip_ extends StatelessWidget {
               : K.surface,
           borderRadius: BorderRadius.circular(99),
         ),
-        child: Text(label, style: ts(12, w: FontWeight.w500, c: on ? K.accent : K.text2)),
+        child: Text(
+          label,
+          style: ts(12, w: FontWeight.w500, c: on ? K.accent : K.text2),
+        ),
       ),
     ),
   );
@@ -142,7 +156,10 @@ class MenuButton<T> extends StatelessWidget {
         children: [
           Icon(icon, size: 16, color: K.text2),
           const SizedBox(width: 6),
-          Text(label, style: ts(12, w: FontWeight.w500, c: K.text)),
+          Text(
+            label,
+            style: ts(12, w: FontWeight.w500, c: K.text),
+          ),
         ],
       ),
     ),
@@ -214,9 +231,7 @@ class MediaCard extends StatelessWidget {
             child: Stack(
               children: [
                 Positioned.fill(
-                  child: round
-                      ? ClipOval(child: Cover(art, image: image, radius: 0))
-                      : Cover(art, image: image, radius: 10, shadow: on),
+                  child: round ? ClipOval(child: Cover(art, image: image, radius: 0)) : Cover(art, image: image, radius: 10, shadow: on),
                 ),
                 if (onPlay != null)
                   Positioned(
@@ -240,7 +255,12 @@ class MediaCard extends StatelessWidget {
             style: ts(13, w: FontWeight.w500, c: on ? K.accent : K.text),
           ),
           const SizedBox(height: 3),
-          Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: ts(12, c: K.text3)),
+          Text(
+            subtitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: ts(12, c: K.text3),
+          ),
         ],
       ),
     ),
@@ -266,7 +286,11 @@ class Loading<T> extends StatelessWidget {
             padding: const EdgeInsets.symmetric(vertical: 40),
             child: Column(
               children: [
-                Text('Could not load this: ${snap.error}', textAlign: TextAlign.center, style: ts(13, c: K.error)),
+                Text(
+                  'Could not load this: ${snap.error}',
+                  textAlign: TextAlign.center,
+                  style: ts(13, c: K.error),
+                ),
                 if (onRetry != null) ...[const SizedBox(height: 12), Pill('Try again', onTap: onRetry, primary: false)],
               ],
             ),
@@ -299,7 +323,11 @@ class Empty extends StatelessWidget {
       children: [
         Icon(icon, size: 36, color: K.text3),
         const SizedBox(height: 12),
-        Text(text, textAlign: TextAlign.center, style: ts(14, c: K.text2)),
+        Text(
+          text,
+          textAlign: TextAlign.center,
+          style: ts(14, c: K.text2),
+        ),
       ],
     ),
   );
@@ -322,7 +350,10 @@ class SectionTitle extends StatelessWidget {
         if (link != null)
           Hover(
             onTap: onLink,
-            builder: (_, on) => Text(link!, style: ts(12, w: FontWeight.w500, c: on ? K.text : K.text2)),
+            builder: (_, on) => Text(
+              link!,
+              style: ts(12, w: FontWeight.w500, c: on ? K.text : K.text2),
+            ),
           ),
       ],
     ),
@@ -388,13 +419,32 @@ class TrackRow extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: ts(13, w: FontWeight.w500, c: current ? K.accent : K.text)),
-                    if (second.isNotEmpty && cols != TrackCols.artist) Text(second, maxLines: 1, overflow: TextOverflow.ellipsis, style: ts(12, c: K.text3)),
+                    Text(
+                      song.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: ts(13, w: FontWeight.w500, c: current ? K.accent : K.text),
+                    ),
+                    if (second.isNotEmpty && cols != TrackCols.artist)
+                      Text(
+                        second,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: ts(12, c: K.text3),
+                      ),
                   ],
                 ),
               ),
               if (cols == TrackCols.artist)
-                Expanded(flex: 2, child: Text(second, maxLines: 1, overflow: TextOverflow.ellipsis, style: ts(12, c: K.text3))),
+                Expanded(
+                  flex: 2,
+                  child: Text(
+                    second,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: ts(12, c: K.text3),
+                  ),
+                ),
               if (on || fav)
                 IconBtn(
                   fav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
@@ -403,14 +453,22 @@ class TrackRow extends StatelessWidget {
                   color: fav ? K.like : K.text3,
                   size: 15,
                 ),
-              if (song.playCount > 0)
+              if (song.playCount > 0 && !narrow(context))
                 SizedBox(
                   width: 72,
-                  child: Text('${song.playCount} ${song.playCount == 1 ? 'play' : 'plays'}', textAlign: TextAlign.right, style: ts(12, c: K.text3)),
+                  child: Text(
+                    '${song.playCount} ${song.playCount == 1 ? 'play' : 'plays'}',
+                    textAlign: TextAlign.right,
+                    style: ts(12, c: K.text3),
+                  ),
                 ),
               SizedBox(
                 width: 52,
-                child: Text(song.seconds > 0 ? fmt(song.seconds) : '', textAlign: TextAlign.right, style: ts(12, c: K.text3)),
+                child: Text(
+                  song.seconds > 0 ? fmt(song.seconds) : '',
+                  textAlign: TextAlign.right,
+                  style: ts(12, c: K.text3),
+                ),
               ),
             ],
           ),
@@ -449,7 +507,11 @@ Future<void> addToPlaylistDialog(BuildContext context, List<Song> songs) async {
                     controller: name,
                     autofocus: true,
                     style: ts(13),
-                    decoration: InputDecoration(hintText: 'New playlist', hintStyle: ts(13, c: K.text3), isDense: true),
+                    decoration: InputDecoration(
+                      hintText: 'New playlist',
+                      hintStyle: ts(13, c: K.text3),
+                      isDense: true,
+                    ),
                     onSubmitted: (v) => v.trim().isEmpty ? null : Navigator.pop(ctx, 'new:${v.trim()}'),
                   ),
                 ),
@@ -521,7 +583,13 @@ Future<bool> confirm(BuildContext context, String title, String body, String yes
         content: Text(body, style: ts(13, c: K.text2)),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text(yes, style: ts(13, w: FontWeight.w600, c: K.error))),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(
+              yes,
+              style: ts(13, w: FontWeight.w600, c: K.error),
+            ),
+          ),
         ],
       ),
     ) ??
@@ -571,17 +639,16 @@ void songMenu(BuildContext context, Song song, Offset at, {List<Song>? queue, St
       (fav ? 'Unlike' : 'Like', fav ? Icons.favorite_rounded : Icons.favorite_border_rounded, () => lib.toggleFavorite(song.id, song.favorite)),
       ('Instant mix', Icons.auto_awesome_outlined, () async => p.play(song, [song, ...await lib.instantMix(song.id)], 'Instant mix')),
     ],
-    if (playlistId != null && song.playlistItemId != null) ...[
-      null,
-      ('Remove from playlist', Icons.remove_circle_outline_rounded, () => onRemoved?.call()),
-    ],
+    if (playlistId != null && song.playlistItemId != null) ...[null, ('Remove from playlist', Icons.remove_circle_outline_rounded, () => onRemoved?.call())],
     if (lib.canDelete) ...[
       null,
       (
         'Delete from server',
         Icons.delete_outline_rounded,
         () async {
-          if (await confirm(context, 'Delete ${song.title}?', 'This deletes the file from the server for everyone.', 'Delete') && await lib.deleteItem(song.id) && context.mounted) {
+          if (await confirm(context, 'Delete ${song.title}?', 'This deletes the file from the server for everyone.', 'Delete') &&
+              await lib.deleteItem(song.id) &&
+              context.mounted) {
             toast(context, 'Deleted ${song.title}');
           }
         },
@@ -601,10 +668,15 @@ void albumMenu(BuildContext context, Album a, Offset at) {
     ('Shuffle', Icons.shuffle_rounded, () async => playAll(p, await tracks(), a.title, shuffle: true)),
     ('Play next', Icons.playlist_play_rounded, () async => p.playNext(await tracks())),
     ('Add to queue', Icons.queue_music_rounded, () async => p.addToQueue(await tracks())),
-    if (!lib.demo && !a.playlist) ('Add to playlist', Icons.playlist_add_rounded, () async {
-      final t = await tracks();
-      if (context.mounted) await addToPlaylistDialog(context, t);
-    }),
+    if (!lib.demo && !a.playlist)
+      (
+        'Add to playlist',
+        Icons.playlist_add_rounded,
+        () async {
+          final t = await tracks();
+          if (context.mounted) await addToPlaylistDialog(context, t);
+        },
+      ),
     null,
     if (a.artistId != null) ('Go to artist', Icons.person_outline_rounded, () => openPage(context, PageKind.artist, [a.artistId])),
     if (!lib.demo) ...[
@@ -617,7 +689,12 @@ void albumMenu(BuildContext context, Album a, Offset at) {
         a.playlist ? 'Delete playlist' : 'Delete from server',
         Icons.delete_outline_rounded,
         () async {
-          if (await confirm(context, 'Delete ${a.title}?', a.playlist ? 'The playlist goes; its songs stay.' : 'This deletes the album from the server for everyone.', 'Delete') &&
+          if (await confirm(
+                context,
+                'Delete ${a.title}?',
+                a.playlist ? 'The playlist goes; its songs stay.' : 'This deletes the album from the server for everyone.',
+                'Delete',
+              ) &&
               await lib.deleteItem(a.id) &&
               context.mounted) {
             NavScope.maybeRead(context)?.forget(a.playlist ? PageKind.playlist : PageKind.album, a.id);

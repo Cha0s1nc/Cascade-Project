@@ -12,6 +12,7 @@ import 'package:cascade/platform/media_controls.dart';
 import 'package:cascade/ui/phone.dart';
 import 'package:cascade/engine/player.dart';
 import 'package:cascade/ui/sign_in.dart';
+import 'package:cascade/ui/lyrics_view.dart';
 import 'package:cascade/ui/title_bar.dart';
 import 'package:cascade/ui/widgets.dart';
 import 'package:cascade/ui/scopes.dart';
@@ -20,6 +21,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
   await setUpWindow();
+  await loadTuning();
   final player = Player(settings: await Settings.load());
   await attachMediaControls(player);
   runApp(CascadeApp(player: player, session: await Jellyfin.restore()));
@@ -84,7 +86,10 @@ class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
       popupMenuTheme: PopupMenuThemeData(
         color: K.surface,
         surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: const BorderSide(color: K.line)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: K.line),
+        ),
         textStyle: ts(13),
       ),
       dialogTheme: const DialogThemeData(backgroundColor: K.panel, surfaceTintColor: Colors.transparent),

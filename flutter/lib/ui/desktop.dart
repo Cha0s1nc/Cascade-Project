@@ -133,7 +133,9 @@ class _DesktopShellState extends State<DesktopShell> {
                       children: [
                         _Sidebar(view: _nav.view, collapsed: _collapsed, onGo: _go),
                         const SizedBox(width: 8),
-                        Expanded(child: _MainPanel(view: _nav.view, entry: _nav.top)),
+                        Expanded(
+                          child: _MainPanel(view: _nav.view, entry: _nav.top),
+                        ),
                       ],
                     ),
                   ),
@@ -204,11 +206,7 @@ class _DesktopShellState extends State<DesktopShell> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    if (!full) ...[
-                      const AnnouncementsButton(),
-                      const SizedBox(width: 4),
-                      IconBtn(Icons.brush_outlined, 'Theme', () => _go('theme')),
-                    ],
+                    if (!full) ...[const AnnouncementsButton(), const SizedBox(width: 4), IconBtn(Icons.brush_outlined, 'Theme', () => _go('theme'))],
                     SizedBox(width: inlineTitleBar ? 8 : 12),
                     const WindowButtons(),
                   ],
@@ -249,7 +247,13 @@ class SearchField extends StatelessWidget {
         hintStyle: ts(13, c: K.text3),
         suffixIcon: Padding(
           padding: const EdgeInsets.only(right: 10),
-          child: Center(widthFactor: 1, child: Text('Ctrl K', style: ts(11, w: FontWeight.w500, c: K.text3))),
+          child: Center(
+            widthFactor: 1,
+            child: Text(
+              'Ctrl K',
+              style: ts(11, w: FontWeight.w500, c: K.text3),
+            ),
+          ),
         ),
         suffixIconConstraints: const BoxConstraints(minHeight: 32),
         enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
@@ -421,7 +425,10 @@ class _NavRow extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                   decoration: BoxDecoration(color: K.accentTint, borderRadius: BorderRadius.circular(6)),
-                  child: Text(badge!, style: ts(11, w: FontWeight.w500, c: K.accent)),
+                  child: Text(
+                    badge!,
+                    style: ts(11, w: FontWeight.w500, c: K.accent),
+                  ),
                 ),
             ],
           ],
@@ -448,10 +455,7 @@ class _MainPanel extends StatelessWidget {
       ),
       child: DecoratedBox(
         decoration: const BoxDecoration(gradient: K.wash),
-        child: KeyedSubtree(
-          key: ObjectKey(entry),
-          child: entry.page != null ? pageFor(entry) : viewFor(view),
-        ),
+        child: KeyedSubtree(key: ObjectKey(entry), child: entry.page != null ? pageFor(entry) : viewFor(view)),
       ),
     ),
   );
@@ -470,7 +474,9 @@ class PlayerBar extends StatelessWidget {
     if (np.open && p.settings.nowPlayingLayout != 'bar') return const SizedBox.shrink();
     return Container(
       height: 76,
-      decoration: const BoxDecoration(border: Border(top: BorderSide(color: K.line))),
+      decoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: K.line)),
+      ),
       padding: const EdgeInsets.fromLTRB(16, 0, 20, 0),
       child: Row(
         children: [
@@ -497,10 +503,20 @@ class PlayerBar extends StatelessWidget {
                                 style: ts(13, w: FontWeight.w600, c: song == null ? K.text3 : (on ? K.accent : K.text)),
                               ),
                               if (p.error != null)
-                                Text(p.error!, maxLines: 1, overflow: TextOverflow.ellipsis, style: ts(12, c: K.error))
+                                Text(
+                                  p.error!,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: ts(12, c: K.error),
+                                )
                               else if (song != null) ...[
                                 const SizedBox(height: 2),
-                                Text('${song.artist} · ${song.album}', maxLines: 1, overflow: TextOverflow.ellipsis, style: ts(12, c: K.text2)),
+                                Text(
+                                  '${song.artist} · ${song.album}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: ts(12, c: K.text2),
+                                ),
                               ],
                             ],
                           ),
@@ -611,13 +627,23 @@ class SeekBar extends StatelessWidget {
         children: [
           SizedBox(
             width: 40,
-            child: Text(fmt(p.position), textAlign: TextAlign.right, style: ts(11, w: FontWeight.w500, c: K.text3)),
+            child: Text(
+              fmt(p.position),
+              textAlign: TextAlign.right,
+              style: ts(11, w: FontWeight.w500, c: K.text3),
+            ),
           ),
           SizedBox(
             width: max(40, min(maxWidth, c.maxWidth - 92)),
             child: ThinBar(value: length > 0 ? p.position / length : 0, onChanged: length > 0 ? (v) => p.seek(v * length) : null),
           ),
-          SizedBox(width: 40, child: Text(fmt(length), style: ts(11, w: FontWeight.w500, c: K.text3))),
+          SizedBox(
+            width: 40,
+            child: Text(
+              fmt(length),
+              style: ts(11, w: FontWeight.w500, c: K.text3),
+            ),
+          ),
         ],
       ),
     );
@@ -632,7 +658,11 @@ class VolumeControl extends StatelessWidget {
   Widget build(BuildContext context) => Row(
     mainAxisSize: MainAxisSize.min,
     children: [
-      IconBtn(p.volume == 0 ? Icons.volume_off_rounded : Icons.volume_up_rounded, p.volume == 0 ? 'Unmute' : 'Mute', () => p.setVolume(p.volume == 0 ? 0.7 : 0)),
+      IconBtn(
+        p.volume == 0 ? Icons.volume_off_rounded : Icons.volume_up_rounded,
+        p.volume == 0 ? 'Unmute' : 'Mute',
+        () => p.setVolume(p.volume == 0 ? 0.7 : 0),
+      ),
       SizedBox(
         width: 96,
         child: ThinBar(value: p.volume, onChanged: p.setVolume, color: K.text2),

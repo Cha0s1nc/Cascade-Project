@@ -1,0 +1,82 @@
+{
+  "about": [
+    "The shipped tuning defaults for every app: desktop (Electron) and the Apple apps (mac, ios for iPhone and iPad, tvos).",
+    "A value is either one value for every platform, or an object of per-platform values keyed by desktop, mac, ios, tvos, apple (mac, ios and tvos) and all. The most specific key wins: ios over apple over all. A platform with no matching key does not have that setting.",
+    "An optional note in a per-platform object says why a value is what it is.",
+    "Change it with npm run tuning: show, set, bake (paste a tuning copied from an app), combine (one value for every platform again). After editing by hand, run npm run tuning -- sync, which rewrites the Swift copy (apple/CascadeKit/Sources/CascadeKit/TuningDefaultsData.swift). npm test fails while that copy is stale.",
+    "style: the knobs people can change themselves (desktop Theme panel > Lyrics, Apple Style Tuning). A new default only reaches people who set that knob themselves through revisions, which npm run tuning keeps for you.",
+    "albumColors: the cover-color background (src/core/album-colors.ts, AlbumColors.swift). motion: the desktop's lyric scroll spring. Both are live on the desktop's debug tuning panel (.cascade-debug)."
+  ],
+  "style": {
+    "lyricsDelay": { "all": -0.05, "ios": -0.35, "note": "Negative is earlier: a line takes its fade to light up, so one that starts on the beat reads as late. The iPhone leads further, by Jon's tuning on one (2026-10-22)." },
+    "scrollLead": 0,
+    "tightScrollLead": 0.25,
+    "lyricSize": { "apple": 30, "tvos": 44, "note": "Points. The desktop sizes lyrics by its own Text size setting (npTuning.lyricScale) instead." },
+    "currentLinePosition": { "desktop": 0.5, "apple": 0.12, "note": "Share of the lyrics area's height from its top. The Apple apps keep the line high, as Apple Music does; the desktop centers it." },
+    "lineGap": 8,
+    "pastScale": 0.75,
+    "pastOpacity": 0.3,
+    "pastBlur": 3.5,
+    "next1Opacity": 0.15,
+    "next1Blur": 2.5,
+    "next2Opacity": 0.11,
+    "next2Blur": 4,
+    "next3Opacity": 0.1,
+    "next3Blur": 4,
+    "farBlur": 6,
+    "browsingBlur": 2.5,
+    "browsingOpacity": 0.8,
+    "unsungOpacity": 0.29,
+    "wordLift": 0.04,
+    "heldFullSeconds": 1.4,
+    "heldMinStrength": 0.45,
+    "heldLift": 0.16,
+    "heldScale": 1.19,
+    "heldSettleSeconds": 0.4,
+    "backgroundVocalSize": 0.64,
+    "backgroundVocalOpacity": 0.85,
+    "fadeSeconds": 1,
+    "rippleSeconds": 0.04,
+    "bgSaturation": 1,
+    "bgBrightness": 0,
+    "bgIntensity": 1,
+    "bgSpeed": 1,
+    "bgBlur": { "apple": 0, "note": "The desktop paints its blobs as CSS gradients on the overlay itself, which has no blur short of blurring everything in front." },
+    "lyricsDimBase": { "apple": 0.12, "desktop": 0, "note": "The desktop already tints its panels for readability (styles/theme.css), so it starts with no extra dim." },
+    "lyricsDimBright": { "apple": 0.45, "desktop": 0 },
+    "lyricsDimFrom": 0.5,
+    "controlsIdleSeconds": { "apple": 4, "desktop": 3 },
+    "controlsWokenIdleSeconds": { "apple": 8, "note": "Touch and remote only: how long controls a tap brought back stay up." }
+  },
+  "albumColors": {
+    "clusters": 5,
+    "iterations": 12,
+    "minSeparation": 0.12,
+    "minSampleL": 0.08,
+    "maxSampleL": 0.97,
+    "minShare": 0.01,
+    "chromaPower": 1.5,
+    "minL": 0.45,
+    "maxL": 0.82,
+    "minLLight": 0,
+    "maxLLight": 0.27,
+    "minChroma": 0.06,
+    "lightAlphaScale": 1,
+    "driftScale": 1,
+    "slots": [
+      { "x": 78, "y": 16, "w": 78, "h": 78, "alpha": 0.88 },
+      { "x": 18, "y": 82, "w": 78, "h": 78, "alpha": 0.8 },
+      { "x": 12, "y": 18, "w": 58, "h": 58, "alpha": 0.55 }
+    ],
+    "frameMs": 66,
+    "sampleSide": 80
+  },
+  "motion": {
+    "lyricSpringStiffness": { "desktop": 250, "note": "Overdamped (critical damping for 250 is about 31.6), so lines ease in and never overshoot. Tuned by eye against Apple Music, 2026-09-23. The Apple apps use a 0.6 s SwiftUI spring." },
+    "lyricSpringDamping": { "desktop": 50 }
+  },
+  "revisions": {
+    "2": { "date": "2026-10-06", "note": "The stable build's own tuning.", "all": ["browsingBlur", "unsungOpacity", "heldFullSeconds", "heldMinStrength", "heldLift", "heldScale", "heldSettleSeconds", "lyricsDelay"] },
+    "3": { "date": "2026-10-22", "note": "The iPhone's lyrics timing.", "ios": ["lyricsDelay"] }
+  }
+}

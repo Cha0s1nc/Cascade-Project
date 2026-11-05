@@ -101,7 +101,12 @@ class _GridPageState extends State<GridPage> {
                 actions: [
                   MenuButton<String>(
                     icon: Icons.sort_rounded,
-                    label: '${spec.fields[prefs.field]}${prefs.field == 'random' ? '' : prefs.dir == 'desc' ? ', newest' : ''}',
+                    label:
+                        '${spec.fields[prefs.field]}${prefs.field == 'random'
+                            ? ''
+                            : prefs.dir == 'desc'
+                            ? ', newest'
+                            : ''}',
                     selected: sortKey,
                     options: [
                       for (final MapEntry(key: f, value: l) in spec.fields.entries) ...[
@@ -120,9 +125,21 @@ class _GridPageState extends State<GridPage> {
                         runSpacing: 8,
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
-                          Chip_('All', on: !prefs.favorite && prefs.played == null && prefs.genre == null && prefs.decade == null, onTap: () => _set(copy(favorite: false, played: null, genre: null, decade: null))),
-                          Chip_('Favorites', on: prefs.favorite, onTap: () => _set(copy(favorite: !prefs.favorite))),
-                          Chip_('Not played', on: prefs.played == 'unplayed', onTap: () => _set(copy(played: prefs.played == 'unplayed' ? null : 'unplayed'))),
+                          Chip_(
+                            'All',
+                            on: !prefs.favorite && prefs.played == null && prefs.genre == null && prefs.decade == null,
+                            onTap: () => _set(copy(favorite: false, played: null, genre: null, decade: null)),
+                          ),
+                          Chip_(
+                            'Favorites',
+                            on: prefs.favorite,
+                            onTap: () => _set(copy(favorite: !prefs.favorite)),
+                          ),
+                          Chip_(
+                            'Not played',
+                            on: prefs.played == 'unplayed',
+                            onTap: () => _set(copy(played: prefs.played == 'unplayed' ? null : 'unplayed')),
+                          ),
                           if (options.genres.isNotEmpty)
                             MenuButton<String>(
                               icon: Icons.sell_outlined,
@@ -239,7 +256,14 @@ class GenresPage extends StatelessWidget {
                   aspect: 16 / 9,
                   builder: (context, i) {
                     final g = lib.jf!.genre(all[i]);
-                    return MediaCard(title: g.name, subtitle: '', art: g.art, image: g.image, aspect: 16 / 9, onTap: () => openPage(context, PageKind.genre, [g.id, g.name]));
+                    return MediaCard(
+                      title: g.name,
+                      subtitle: '',
+                      art: g.art,
+                      image: g.image,
+                      aspect: 16 / 9,
+                      onTap: () => openPage(context, PageKind.genre, [g.id, g.name]),
+                    );
                   },
                 ),
         ),
@@ -291,7 +315,11 @@ class _SongsPageState extends State<SongsPage> {
       future: lib.songItems(),
       sliver: false,
       builder: (context, all) {
-        final items = sortSongs(_favorites ? all.where((i) => lib.isFavorite(i['Id'] as String, (i['UserData'] as Map?)?['IsFavorite'] == true)).toList() : all, _field, _dir);
+        final items = sortSongs(
+          _favorites ? all.where((i) => lib.isFavorite(i['Id'] as String, (i['UserData'] as Map?)?['IsFavorite'] == true)).toList() : all,
+          _field,
+          _dir,
+        );
         final songs = items.map(lib.jf!.song).toList();
         final total = all.fold<num>(0, (t, i) => t + ((i['RunTimeTicks'] as num? ?? 0) / 1e7));
         return PageScroll(
@@ -314,9 +342,16 @@ class _SongsPageState extends State<SongsPage> {
                     ],
                     onSelected: _sort,
                   ),
-                  Pill('Shuffle', icon: Icons.shuffle_rounded, onTap: songs.isEmpty ? null : () => playAll(PlayerScope.read(context), songs, 'Songs', shuffle: true)),
+                  Pill(
+                    'Shuffle',
+                    icon: Icons.shuffle_rounded,
+                    onTap: songs.isEmpty ? null : () => playAll(PlayerScope.read(context), songs, 'Songs', shuffle: true),
+                  ),
                 ],
-                below: Chips([('All', !_favorites, () => setState(() => _favorites = false)), ('Favorites', _favorites, () => setState(() => _favorites = true))]),
+                below: Chips([
+                  ('All', !_favorites, () => setState(() => _favorites = false)),
+                  ('Favorites', _favorites, () => setState(() => _favorites = true)),
+                ]),
               ),
             ),
             if (songs.isEmpty)

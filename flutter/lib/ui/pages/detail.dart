@@ -52,40 +52,58 @@ class DetailHeader extends StatelessWidget {
   final Widget? titleWidget;
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 26),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
+  Widget build(BuildContext context) {
+    final small = narrow(context);
+    final cover = SizedBox(
+      width: small ? 200 : 220,
+      height: small ? 200 : 220,
+      child: round ? ClipOval(child: Cover(art, image: image, radius: 0)) : Cover(art, image: image, radius: 14, shadow: true),
+    );
+    final text = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SizedBox(
-          width: 220,
-          height: 220,
-          child: round ? ClipOval(child: Cover(art, image: image, radius: 0)) : Cover(art, image: image, radius: 14, shadow: true),
-        ),
-        const SizedBox(width: 28),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label.toUpperCase(), style: Txt.caps(K.text2)),
-              const SizedBox(height: 8),
-              titleWidget ??
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerLeft,
-                    child: Text(title, maxLines: 1, style: ds(64, h: 1.05)),
-                  ),
-              const SizedBox(height: 10),
-              if (meta.isNotEmpty) Text(meta, maxLines: 2, overflow: TextOverflow.ellipsis, style: ts(13, c: K.text2)),
-              if (voice != null && voice!.isNotEmpty) ...[const SizedBox(height: 6), Text(voice!, style: Txt.voice())],
-              const SizedBox(height: 18),
-              Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: actions),
-            ],
+        Text(label.toUpperCase(), style: Txt.caps(K.text2)),
+        const SizedBox(height: 8),
+        titleWidget ??
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(title, maxLines: 1, style: ds(small ? 34 : 64, h: 1.05)),
+            ),
+        const SizedBox(height: 10),
+        if (meta.isNotEmpty)
+          Text(
+            meta,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: ts(13, c: K.text2),
           ),
-        ),
+        if (voice != null && voice!.isNotEmpty) ...[const SizedBox(height: 6), Text(voice!, style: Txt.voice())],
+        const SizedBox(height: 18),
+        Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: actions),
       ],
-    ),
-  );
+    );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 26),
+      child: small
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(child: cover),
+                const SizedBox(height: 20),
+                text,
+              ],
+            )
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                cover,
+                const SizedBox(width: 28),
+                Expanded(child: text),
+              ],
+            ),
+    );
+  }
 }
 
 /// A round button in the header row: like, download, more.
@@ -124,7 +142,10 @@ class InfoChip extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
     decoration: BoxDecoration(color: K.surface, borderRadius: BorderRadius.circular(99)),
-    child: Text(text, style: ts(12, w: FontWeight.w500, c: K.text2)),
+    child: Text(
+      text,
+      style: ts(12, w: FontWeight.w500, c: K.text2),
+    ),
   );
 }
 
@@ -139,7 +160,12 @@ List<Widget> playButtons(BuildContext context, List<Song> songs, String source) 
 Widget likeBtn(BuildContext context, String id, bool fromServer) {
   final lib = LibraryScope.of(context);
   final fav = lib.isFavorite(id, fromServer);
-  return RoundBtn(fav ? Icons.favorite_rounded : Icons.favorite_border_rounded, fav ? 'Unlike' : 'Like', lib.demo ? null : () => lib.toggleFavorite(id, fromServer), color: fav ? K.like : K.accent);
+  return RoundBtn(
+    fav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+    fav ? 'Unlike' : 'Like',
+    lib.demo ? null : () => lib.toggleFavorite(id, fromServer),
+    color: fav ? K.like : K.accent,
+  );
 }
 
 /// The codec and sample rate of the first track, when the server says.
@@ -205,13 +231,23 @@ class _AlbumPageState extends State<AlbumPage> {
               title: album.title,
               art: album.art,
               image: album.image,
-              meta: [if (album.artist.isNotEmpty) album.artist, if (album.year > 0) '${album.year}', '${songs.length} ${songs.length == 1 ? 'song' : 'songs'}, ${_minutes(songs)}'].join(' · '),
+              meta: [
+                if (album.artist.isNotEmpty) album.artist,
+                if (album.year > 0) '${album.year}',
+                '${songs.length} ${songs.length == 1 ? 'song' : 'songs'}, ${_minutes(songs)}',
+              ].join(' · '),
               voice: plays == 0 ? 'You haven\'t played it yet.' : 'You\'ve played it $plays ${plays == 1 ? 'time' : 'times'}. Last ${whenPlayed(last)}.',
               actions: [
                 ...playButtons(context, songs, album.title),
                 likeBtn(context, album.id, album.favorite),
                 if (album.artistId != null) RoundBtn(Icons.person_outline_rounded, 'Go to artist', () => openPage(context, PageKind.artist, [album.artistId])),
-                Builder(builder: (c) => RoundBtn(Icons.more_horiz_rounded, 'More', () => albumMenu(c, album, (c.findRenderObject() as RenderBox).localToGlobal(const Offset(0, 40))))),
+                Builder(
+                  builder: (c) => RoundBtn(
+                    Icons.more_horiz_rounded,
+                    'More',
+                    () => albumMenu(c, album, (c.findRenderObject() as RenderBox).localToGlobal(const Offset(0, 40))),
+                  ),
+                ),
                 if (format != null && format.isNotEmpty) InfoChip(format),
               ],
             ),
@@ -230,7 +266,9 @@ class _AlbumPageState extends State<AlbumPage> {
           ),
           if (album.overview != null && album.overview!.trim().isNotEmpty) ...[
             const SliverToBoxAdapter(child: SectionTitle('About')),
-            SliverToBoxAdapter(child: Text(album.overview!.trim(), style: ts(13, c: K.text2, h: 1.5))),
+            SliverToBoxAdapter(
+              child: Text(album.overview!.trim(), style: ts(13, c: K.text2, h: 1.5)),
+            ),
           ],
         ],
       );
@@ -298,7 +336,13 @@ class _ArtistPageState extends State<ArtistPage> {
               actions: [
                 ...playButtons(context, d.all, a.name),
                 likeBtn(context, a.id, a.favorite),
-                Builder(builder: (c) => RoundBtn(Icons.more_horiz_rounded, 'More', () => artistMenu(c, a, (c.findRenderObject() as RenderBox).localToGlobal(const Offset(0, 40))))),
+                Builder(
+                  builder: (c) => RoundBtn(
+                    Icons.more_horiz_rounded,
+                    'More',
+                    () => artistMenu(c, a, (c.findRenderObject() as RenderBox).localToGlobal(const Offset(0, 40))),
+                  ),
+                ),
               ],
             ),
           ),
@@ -325,13 +369,21 @@ class _ArtistPageState extends State<ArtistPage> {
                         children: [
                           if (bio.isNotEmpty) ...[
                             const SectionTitle('About', top: 0),
-                            Text(bio, maxLines: _bio ? null : 6, overflow: _bio ? null : TextOverflow.ellipsis, style: ts(13, c: K.text2, h: 1.5)),
+                            Text(
+                              bio,
+                              maxLines: _bio ? null : 6,
+                              overflow: _bio ? null : TextOverflow.ellipsis,
+                              style: ts(13, c: K.text2, h: 1.5),
+                            ),
                             if (bio.length > 400)
                               Padding(
                                 padding: const EdgeInsets.only(top: 6),
                                 child: Hover(
                                   onTap: () => setState(() => _bio = !_bio),
-                                  builder: (_, on) => Text(_bio ? 'Less' : 'More', style: ts(12, w: FontWeight.w600, c: on ? K.text : K.accent)),
+                                  builder: (_, on) => Text(
+                                    _bio ? 'Less' : 'More',
+                                    style: ts(12, w: FontWeight.w600, c: on ? K.text : K.accent),
+                                  ),
                                 ),
                               ),
                           ],
@@ -367,9 +419,9 @@ class _ArtistPageState extends State<ArtistPage> {
     image: a.image,
     onTap: () => openPage(context, PageKind.album, [a.id]),
     onPlay: () async {
-    final p = PlayerScope.read(context);
-    await playAll(p, await LibraryScope.read(context).tracksOf(a), a.title);
-  },
+      final p = PlayerScope.read(context);
+      await playAll(p, await LibraryScope.read(context).tracksOf(a), a.title);
+    },
     onMenu: (o) => albumMenu(context, a, o),
   );
 }
@@ -463,7 +515,13 @@ class _PlaylistPageState extends State<PlaylistPage> {
               actions: [
                 ...playButtons(context, songs, pl.title),
                 likeBtn(context, pl.id, pl.favorite),
-                Builder(builder: (c) => RoundBtn(Icons.more_horiz_rounded, 'More', () => albumMenu(c, pl, (c.findRenderObject() as RenderBox).localToGlobal(const Offset(0, 40))))),
+                Builder(
+                  builder: (c) => RoundBtn(
+                    Icons.more_horiz_rounded,
+                    'More',
+                    () => albumMenu(c, pl, (c.findRenderObject() as RenderBox).localToGlobal(const Offset(0, 40))),
+                  ),
+                ),
                 if (!lib.demo)
                   Pill(
                     _editing ? 'Done' : 'Edit',
@@ -491,9 +549,14 @@ class _PlaylistPageState extends State<PlaylistPage> {
                 children: [
                   ReorderableDragStartListener(
                     index: i,
-                    child: const Padding(padding: EdgeInsets.all(8), child: Icon(Icons.drag_indicator_rounded, size: 18, color: K.text3)),
+                    child: const Padding(
+                      padding: EdgeInsets.all(8),
+                      child: Icon(Icons.drag_indicator_rounded, size: 18, color: K.text3),
+                    ),
                   ),
-                  Expanded(child: TrackRow(songs[i], index: i + 1, queue: songs, cols: TrackCols.playlist, showArt: true, source: pl.title)),
+                  Expanded(
+                    child: TrackRow(songs[i], index: i + 1, queue: songs, cols: TrackCols.playlist, showArt: true, source: pl.title),
+                  ),
                   IconBtn(Icons.remove_circle_outline_rounded, 'Remove', () => _save([...songs]..removeAt(i), 'Removed ${songs[i].title}')),
                 ],
               ),
@@ -508,7 +571,14 @@ class _PlaylistPageState extends State<PlaylistPage> {
                 cols: TrackCols.playlist,
                 showArt: true,
                 source: pl.title,
-                onMenu: (o) => songMenu(context, songs[i], o, queue: songs, playlistId: pl.id, onRemoved: () => _save([...songs]..removeAt(i), 'Removed ${songs[i].title}')),
+                onMenu: (o) => songMenu(
+                  context,
+                  songs[i],
+                  o,
+                  queue: songs,
+                  playlistId: pl.id,
+                  onRemoved: () => _save([...songs]..removeAt(i), 'Removed ${songs[i].title}'),
+                ),
               ),
             ),
         ],
@@ -545,7 +615,9 @@ class _GenrePageState extends State<GenrePage> {
         const SliverToBoxAdapter(child: SectionTitle('Albums', top: 0)),
         Loading<List<Album>>(
           future: _albums,
-          builder: (context, albums) => albums.isEmpty ? const SliverToBoxAdapter(child: Empty('No albums in this genre.')) : CardGrid(count: albums.length, builder: (c, i) => albumCard(c, albums[i])),
+          builder: (context, albums) => albums.isEmpty
+              ? const SliverToBoxAdapter(child: Empty('No albums in this genre.'))
+              : CardGrid(count: albums.length, builder: (c, i) => albumCard(c, albums[i])),
         ),
       ],
     );

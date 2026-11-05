@@ -116,10 +116,7 @@ class _HomePageState extends State<HomePage> {
                 );
               },
             ),
-          if (lib.recentlyAdded.isNotEmpty) ...[
-            SectionTitle('Recently added', link: 'See all', onLink: () => nav.show('albums')),
-            _Shelf(lib.recentlyAdded),
-          ],
+          if (lib.recentlyAdded.isNotEmpty) ...[SectionTitle('Recently added', link: 'See all', onLink: () => nav.show('albums')), _Shelf(lib.recentlyAdded)],
         ],
       ),
     );
@@ -160,11 +157,26 @@ class VideoCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(video.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: ts(14, w: FontWeight.w600)),
+              Text(
+                video.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: ts(14, w: FontWeight.w600),
+              ),
               const SizedBox(height: 3),
-              Text(video.episode, maxLines: 1, overflow: TextOverflow.ellipsis, style: ts(12, c: K.text2)),
+              Text(
+                video.episode,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: ts(12, c: K.text2),
+              ),
               const SizedBox(height: 3),
-              Text(video.left, maxLines: 1, overflow: TextOverflow.ellipsis, style: ts(12, c: K.text3)),
+              Text(
+                video.left,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: ts(12, c: K.text3),
+              ),
             ],
           ),
         ),

@@ -27,12 +27,7 @@ abstract final class K {
   static const error = Color(0xFFFF453A);
 
   /// The deep blue wash at the top of every page.
-  static const wash = LinearGradient(
-    begin: Alignment.topCenter,
-    end: Alignment.bottomCenter,
-    colors: [Color(0x612B6CB0), Color(0x002B6CB0)],
-    stops: [0, 0.38],
-  );
+  static const wash = LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0x612B6CB0), Color(0x002B6CB0)], stops: [0, 0.38]);
 }
 
 /// Android's names for the same colors.
@@ -74,14 +69,8 @@ TextStyle ts(double size, {FontWeight w = FontWeight.w400, Color c = K.text, dou
     TextStyle(fontFamily: 'Inter', fontSize: size, fontWeight: w, color: c, letterSpacing: ls, height: h);
 
 /// Display text (font.display, Hanken Grotesk): headings, titles, lyrics.
-TextStyle ds(double size, {FontWeight w = FontWeight.w600, Color c = K.text, bool italic = false, double h = 1.15}) => TextStyle(
-  fontFamily: 'Hanken Grotesk',
-  fontSize: size,
-  fontWeight: w,
-  fontStyle: italic ? FontStyle.italic : FontStyle.normal,
-  color: c,
-  height: h,
-);
+TextStyle ds(double size, {FontWeight w = FontWeight.w600, Color c = K.text, bool italic = false, double h = 1.15}) =>
+    TextStyle(fontFamily: 'Hanken Grotesk', fontSize: size, fontWeight: w, fontStyle: italic ? FontStyle.italic : FontStyle.normal, color: c, height: h);
 
 /// The type tokens (Penpot set "Cascade").
 abstract final class Txt {
@@ -208,7 +197,10 @@ class Pill extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               if (icon != null) ...[Icon(icon, color: fg, size: 17), const SizedBox(width: 6)],
-              Text(label, style: ts(13, w: FontWeight.w600, c: fg)),
+              Text(
+                label,
+                style: ts(13, w: FontWeight.w600, c: fg),
+              ),
             ],
           ),
         ),
@@ -452,11 +444,7 @@ class HeroCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(radius),
         border: Border.all(color: K.line),
         color: K.panel,
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0x805A2A5E), Color(0x00111821)],
-        ),
+        gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0x805A2A5E), Color(0x00111821)]),
       ),
       child: Row(
         children: [
@@ -478,10 +466,20 @@ class HeroCard extends StatelessWidget {
                 const SizedBox(height: 6),
                 Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: compact ? ds(22) : Txt.title()),
                 const SizedBox(height: 4),
-                Text('${song.artist} · ${song.album}', maxLines: 1, overflow: TextOverflow.ellipsis, style: ts(13, c: K.text2)),
+                Text(
+                  '${song.artist} · ${song.album}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: ts(13, c: K.text2),
+                ),
                 if (from.isNotEmpty) ...[
                   const SizedBox(height: 3),
-                  Text(from, maxLines: 1, overflow: TextOverflow.ellipsis, style: ts(12, c: K.text3)),
+                  Text(
+                    from,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: ts(12, c: K.text3),
+                  ),
                 ],
                 SizedBox(height: compact ? 12 : 16),
                 Wrap(
@@ -504,7 +502,10 @@ class HeroCard extends StatelessWidget {
                           children: [
                             Icon(Icons.shuffle_rounded, color: on ? K.accent : K.text, size: 17),
                             const SizedBox(width: 6),
-                            Text('Shuffle', style: ts(13, w: FontWeight.w600, c: on ? K.accent : K.text)),
+                            Text(
+                              'Shuffle',
+                              style: ts(13, w: FontWeight.w600, c: on ? K.accent : K.text),
+                            ),
                           ],
                         ),
                       ),

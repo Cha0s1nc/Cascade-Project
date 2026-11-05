@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:cascade/core/data.dart';
 import 'package:cascade/core/jellyfin.dart';
+import 'package:cascade/core/lyrics_fetch.dart';
 
 class Library extends ChangeNotifier {
   Jellyfin? jf;
@@ -36,6 +37,16 @@ class Library extends ChangeNotifier {
   bool hasLiveTv = false;
 
   bool get signedIn => demo || jf?.token != null;
+
+  /// Lyrics for the signed-in server, kept per song for the session.
+  LyricsFetcher? _lyrics;
+  LyricsFetcher? get lyrics {
+    final j = jf;
+    if (j == null) return null;
+    if (_lyrics?.jf != j) _lyrics = LyricsFetcher(j);
+    return _lyrics;
+  }
+
   bool get hasVideo => movieIds.isNotEmpty || showIds.isNotEmpty;
   Map<String, String>? get headers => jf?.headers;
 
@@ -196,9 +207,12 @@ class Library extends ChangeNotifier {
 
   Future<List<Item>> _cached(String key, Future<List<Item>> Function() load) {
     final f = _cache[key] ??= load();
-    f.then((_) {}, onError: (_) {
-      if (identical(_cache[key], f)) _cache.remove(key);
-    });
+    f.then(
+      (_) {},
+      onError: (_) {
+        if (identical(_cache[key], f)) _cache.remove(key);
+      },
+    );
     return f;
   }
 
@@ -293,23 +307,25 @@ class Library extends ChangeNotifier {
   /// last week. ponytail: the week counts from the last 500 plays, which is
   /// every play for anyone who plays fewer than 500 songs a week.
   Future<({int songs, int week})>? _stats;
-  Future<({int songs, int week})> stats() => _stats ??= () async {
-    final j = jf;
-    if (j == null) return (songs: 4212, week: 61);
-    final ids = j.libraryIds ?? const <String>[];
-    final counts = await Future.wait([
-      for (final id in ids.isEmpty ? [null] : ids)
-        j.get('/Items', {..._user, 'IncludeItemTypes': 'Audio', 'Recursive': true, 'Limit': 0, 'ParentId': ?id}).then((r) => (r as Map)['TotalRecordCount'] as int? ?? 0),
-    ]);
-    final recent = await history(limit: 500);
-    final weekAgo = DateTime.now().subtract(const Duration(days: 7));
-    final week = recent.where((s) => DateTime.tryParse(s.lastPlayed ?? '')?.isAfter(weekAgo) ?? false).length;
-    return (songs: counts.fold<int>(0, (a, b) => a + b), week: week);
-  }()
-    ..catchError((_) {
-      _stats = null;
-      return (songs: 0, week: 0);
-    });
+  Future<({int songs, int week})> stats() => _stats ??=
+      () async {
+        final j = jf;
+        if (j == null) return (songs: 4212, week: 61);
+        final ids = j.libraryIds ?? const <String>[];
+        final counts = await Future.wait([
+          for (final id in ids.isEmpty ? [null] : ids)
+            j
+                .get('/Items', {..._user, 'IncludeItemTypes': 'Audio', 'Recursive': true, 'Limit': 0, 'ParentId': ?id})
+                .then((r) => (r as Map)['TotalRecordCount'] as int? ?? 0),
+        ]);
+        final recent = await history(limit: 500);
+        final weekAgo = DateTime.now().subtract(const Duration(days: 7));
+        final week = recent.where((s) => DateTime.tryParse(s.lastPlayed ?? '')?.isAfter(weekAgo) ?? false).length;
+        return (songs: counts.fold<int>(0, (a, b) => a + b), week: week);
+      }()..catchError((_) {
+        _stats = null;
+        return (songs: 0, week: 0);
+      });
 
   /// One item, with its user data.
   Future<Item?> item(String id) async {
@@ -322,7 +338,13 @@ class Library extends ChangeNotifier {
   Future<({List<Album> own, List<Album> appearsOn})> artistAlbums(String artistId) async {
     final j = jf;
     if (j == null) return (own: const <Album>[], appearsOn: const <Album>[]);
-    const q = {'IncludeItemTypes': 'MusicAlbum', 'Recursive': true, 'SortBy': 'ProductionYear,SortName', 'SortOrder': 'Descending', 'Fields': 'ProductionYear,UserData,ChildCount'};
+    const q = {
+      'IncludeItemTypes': 'MusicAlbum',
+      'Recursive': true,
+      'SortBy': 'ProductionYear,SortName',
+      'SortOrder': 'Descending',
+      'Fields': 'ProductionYear,UserData,ChildCount',
+    };
     final [own, all] = await Future.wait([
       j.getMerged('/Items', {..._user, ...q, 'AlbumArtistIds': artistId}),
       j.getMerged('/Items', {..._user, ...q, 'ContributingArtistIds': artistId}),
@@ -347,12 +369,11 @@ class Library extends ChangeNotifier {
       'Fields': 'AlbumId,AlbumPrimaryImageTag,UserData',
     });
     r.sort(
-      (a, b) =>
-          ((a['Album'] ?? '') as String).compareTo((b['Album'] ?? '') as String) != 0
-              ? ((a['Album'] ?? '') as String).compareTo((b['Album'] ?? '') as String)
-              : (a['ParentIndexNumber'] as int? ?? 0) != (b['ParentIndexNumber'] as int? ?? 0)
-              ? (a['ParentIndexNumber'] as int? ?? 0) - (b['ParentIndexNumber'] as int? ?? 0)
-              : (a['IndexNumber'] as int? ?? 0) - (b['IndexNumber'] as int? ?? 0),
+      (a, b) => ((a['Album'] ?? '') as String).compareTo((b['Album'] ?? '') as String) != 0
+          ? ((a['Album'] ?? '') as String).compareTo((b['Album'] ?? '') as String)
+          : (a['ParentIndexNumber'] as int? ?? 0) != (b['ParentIndexNumber'] as int? ?? 0)
+          ? (a['ParentIndexNumber'] as int? ?? 0) - (b['ParentIndexNumber'] as int? ?? 0)
+          : (a['IndexNumber'] as int? ?? 0) - (b['IndexNumber'] as int? ?? 0),
     );
     return r.map(j.song).toList();
   }
@@ -427,18 +448,47 @@ class Library extends ChangeNotifier {
   Future<({List<Song> songs, List<Album> albums, List<Artist> artists, List<Video> movies, List<Video> shows})> search(String query) async {
     final j = jf;
     final q = query.trim();
-    if (j == null || q.isEmpty) return (songs: const <Song>[], albums: const <Album>[], artists: const <Artist>[], movies: const <Video>[], shows: const <Video>[]);
+    if (j == null || q.isEmpty) {
+      return (songs: const <Song>[], albums: const <Album>[], artists: const <Artist>[], movies: const <Video>[], shows: const <Video>[]);
+    }
     Future<List<Item>> safe(Future<List<Item>> f) => f.catchError((_) => <Item>[]);
     final r = await Future.wait([
-      safe(j.getMerged('/Items', {..._user, 'SearchTerm': q, 'Recursive': true, 'Limit': 10, 'IncludeItemTypes': 'Audio', 'Fields': 'AlbumId,AlbumPrimaryImageTag,UserData'})),
+      safe(
+        j.getMerged('/Items', {
+          ..._user,
+          'SearchTerm': q,
+          'Recursive': true,
+          'Limit': 10,
+          'IncludeItemTypes': 'Audio',
+          'Fields': 'AlbumId,AlbumPrimaryImageTag,UserData',
+        }),
+      ),
       safe(j.getMerged('/Items', {..._user, 'SearchTerm': q, 'Recursive': true, 'Limit': 8, 'IncludeItemTypes': 'MusicAlbum', 'Fields': 'ProductionYear'})),
       safe(j.getMerged('/Artists', {'UserId': j.userId, 'SearchTerm': q, 'Limit': 8})),
       movieIds.isEmpty
           ? Future.value(<Item>[])
-          : safe(j.getMerged('/Items', {..._user, 'SearchTerm': q, 'Recursive': true, 'Limit': 8, 'IncludeItemTypes': 'Movie', 'Fields': 'ProductionYear'}, movieIds)),
+          : safe(
+              j.getMerged('/Items', {
+                ..._user,
+                'SearchTerm': q,
+                'Recursive': true,
+                'Limit': 8,
+                'IncludeItemTypes': 'Movie',
+                'Fields': 'ProductionYear',
+              }, movieIds),
+            ),
       showIds.isEmpty
           ? Future.value(<Item>[])
-          : safe(j.getMerged('/Items', {..._user, 'SearchTerm': q, 'Recursive': true, 'Limit': 8, 'IncludeItemTypes': 'Series', 'Fields': 'ProductionYear'}, showIds)),
+          : safe(
+              j.getMerged('/Items', {
+                ..._user,
+                'SearchTerm': q,
+                'Recursive': true,
+                'Limit': 8,
+                'IncludeItemTypes': 'Series',
+                'Fields': 'ProductionYear',
+              }, showIds),
+            ),
     ]);
     return (
       songs: r[0].take(10).map(j.song).toList(),

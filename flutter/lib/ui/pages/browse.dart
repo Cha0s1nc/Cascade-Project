@@ -52,7 +52,9 @@ class _SearchPageState extends State<SearchPage> {
   @override
   Widget build(BuildContext context) => PageScroll(
     slivers: [
-      SliverToBoxAdapter(child: PageHeader('Search', voice: _query.isEmpty ? 'Type in the bar above. Songs, albums, artists, movies and shows.' : 'Results for "$_query"')),
+      SliverToBoxAdapter(
+        child: PageHeader('Search', voice: _query.isEmpty ? 'Type in the bar above. Songs, albums, artists, movies and shows.' : 'Results for "$_query"'),
+      ),
       if (_results != null)
         Loading<_Results>(
           future: _results!,
@@ -171,7 +173,9 @@ class _RediscoverPageState extends State<RediscoverPage> {
               slivers: [
                 SliverToBoxAdapter(child: SectionTitle(title, link: why)),
                 if (items.isEmpty)
-                  SliverToBoxAdapter(child: Text('Nothing here today.', style: ts(13, c: K.text3)))
+                  SliverToBoxAdapter(
+                    child: Text('Nothing here today.', style: ts(13, c: K.text3)),
+                  )
                 else
                   CardGrid(
                     count: items.length.clamp(0, 12),
@@ -216,14 +220,8 @@ class _RediscoverPageState extends State<RediscoverPage> {
 
 // Video ------------------------------------------------------------------------
 
-Widget posterCard(BuildContext context, Video v) => MediaCard(
-  title: v.title,
-  subtitle: v.episode,
-  art: v.art,
-  image: v.image,
-  aspect: 2 / 3,
-  onTap: () => openVideo(context, v),
-);
+Widget posterCard(BuildContext context, Video v) =>
+    MediaCard(title: v.title, subtitle: v.episode, art: v.art, image: v.image, aspect: 2 / 3, onTap: () => openVideo(context, v));
 
 /// Movies or TV Shows: the chosen libraries' posters, sorted by name.
 class VideoGridPage extends StatefulWidget {
@@ -258,7 +256,12 @@ class _VideoGridPageState extends State<VideoGridPage> {
         future: _items,
         builder: (context, items) => SliverMainAxisGroup(
           slivers: [
-            SliverToBoxAdapter(child: PageHeader(widget.shows ? 'TV Shows' : 'Movies', voice: '${items.length} ${widget.shows ? (items.length == 1 ? 'show' : 'shows') : (items.length == 1 ? 'movie' : 'movies')}')),
+            SliverToBoxAdapter(
+              child: PageHeader(
+                widget.shows ? 'TV Shows' : 'Movies',
+                voice: '${items.length} ${widget.shows ? (items.length == 1 ? 'show' : 'shows') : (items.length == 1 ? 'movie' : 'movies')}',
+              ),
+            ),
             if (items.isEmpty)
               const SliverToBoxAdapter(child: Empty('Nothing in the chosen libraries.', icon: Icons.movie_outlined))
             else
@@ -336,7 +339,10 @@ class _VideoPageState extends State<VideoPage> {
               actions: [playVideoButton(context, item), likeBtn(context, v.id, (item['UserData'] as Map?)?['IsFavorite'] == true)],
             ),
           ),
-          if ((item['Overview'] as String? ?? '').isNotEmpty) SliverToBoxAdapter(child: Text(item['Overview'] as String, style: ts(14, c: K.text2, h: 1.55))),
+          if ((item['Overview'] as String? ?? '').isNotEmpty)
+            SliverToBoxAdapter(
+              child: Text(item['Overview'] as String, style: ts(14, c: K.text2, h: 1.55)),
+            ),
           for (final MapEntry(key: n, value: eps) in seasons.entries) ...[
             SliverToBoxAdapter(child: SectionTitle(n == 0 ? 'Specials' : 'Season $n')),
             SliverList.builder(
@@ -351,14 +357,22 @@ class _VideoPageState extends State<VideoPage> {
                     decoration: BoxDecoration(color: on ? K.line : Colors.transparent, borderRadius: BorderRadius.circular(10)),
                     child: Row(
                       children: [
-                        SizedBox(width: 34, child: Text('${e['IndexNumber'] ?? ''}', style: ts(13, c: K.text3))),
+                        SizedBox(
+                          width: 34,
+                          child: Text('${e['IndexNumber'] ?? ''}', style: ts(13, c: K.text3)),
+                        ),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(e['Name'] as String? ?? '', style: ts(14, w: FontWeight.w500)),
                               if ((e['Overview'] as String? ?? '').isNotEmpty)
-                                Text(e['Overview'] as String, maxLines: 2, overflow: TextOverflow.ellipsis, style: ts(12, c: K.text3, h: 1.4)),
+                                Text(
+                                  e['Overview'] as String,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: ts(12, c: K.text3, h: 1.4),
+                                ),
                             ],
                           ),
                         ),

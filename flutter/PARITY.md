@@ -10,6 +10,7 @@ One line per feature in `docs/flutter-plan.md`. Status: built / partial / not bu
 - Library selection: partial - saved choices applied with the desktop's rules; no picker yet
 - Permissions: built - the user's policy, `canDelete` and `canDownload`; nothing is gated on them yet
 - Desktop back and forward history: built - per-tab history ported from `nav-history.ts`, plus Forward, the mouse's side buttons and Alt+Left/Right; the pages themselves are phase 2
+- Phone layout: built - Music and Video modes (browseMode key) with their own navigation bars, the Library tab's rows into every view, search with its own field, the same pages as desktop at phone width; not yet tried on A
 - Phone per-tab navigation: built - Android's Back walks the tab, then goes Home, then leaves; not yet tried on A
 - Linux build: built - seen starting on L
 - `flutter` in the root `npm test`: built
@@ -57,9 +58,9 @@ One line per feature in `docs/flutter-plan.md`. Status: built / partial / not bu
 
 ## Phase 3: Now Playing, lyrics, theme
 
-- Now Playing with queue and lyrics panels: not built
-- Art background and tuning: not built
-- Lyrics sources and karaoke rendering: not built
+- Now Playing with queue and lyrics panels: built - desktop layer with the three layouts (player bar stays, controls under the art, Focus with idle hiding), the phone's full screen view with Lyrics, Queue and More; the queue reorders, removes, clears and saves as a playlist
+- Art background and tuning: partial - the blurred cover behind Now Playing; lyric dimming, blur, past scale and the follow position come from shared/tuning-defaults.json (desktop column on desktop, iPhone column on phones); album color extraction and the background knobs not yet
+- Lyrics sources and karaoke rendering: built - SpicyLyrics through Cascade Server, Kugou (KRC decrypted in Dart), LRCLIB and Jellyfin raced like the desktop, forced source from the pill, word fill (a word fades as a whole, not letter by letter), background vocals and duets; server-only mode and the app-side SpicyLyrics key not yet
 - Translation: not built
 - Theme panel, presets, server style, fonts: not built
 - Customization editor and Style Tuning: not built
