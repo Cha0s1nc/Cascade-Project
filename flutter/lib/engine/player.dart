@@ -272,13 +272,41 @@ class Player extends ChangeNotifier {
     await _startAt(shuffle ? 0 : i);
   }
 
+  // Waterfall ---------------------------------------------------------------
+
+  /// Set while in someone else's Waterfall room: the transport asks the host
+  /// instead of acting ('playpause', 'next', 'prev', 'seek' with ms). True
+  /// means it was handled (sent, or refused with a notice).
+  bool Function(String action, [num? positionMs])? remoteDriver;
+
+  /// The queue in play order, and where the current song is in it.
+  List<Song> get ordered => [for (final k in _order) queue[k]];
+  int get orderIndex => _pos;
+
+  /// Mirror a host's queue without starting anything.
+  void follow(List<Song> songs, int index) {
+    queue = songs;
+    _order = List.generate(songs.length, (i) => i);
+    if (song == null || index < 0 || index >= songs.length || songs[index] != song) return notifyListeners();
+    _pos = index;
+    notifyListeners();
+  }
+
+  /// Play the [index]th of the play order from [startAt] (Waterfall guests).
+  Future<void> playIndex(int index, {double startAt = 0, bool paused = false}) async {
+    if (index < 0 || index >= _order.length) return;
+    await _startAt(index, startAt: startAt, paused: paused);
+  }
+
   Future<void> next() async {
+    if (remoteDriver?.call('next') ?? false) return;
     final n = _pos + 1 < _order.length ? _pos + 1 : (repeat == Repeat.off ? null : 0);
     if (n != null) await _startAt(n, fadeOut: true);
   }
 
   Future<void> prev() async {
-    if (position >= 3 || song == null) return seek(0);
+    if (remoteDriver?.call('prev') ?? false) return;
+    if (position >= 3 || song == null) return seekTo(0);
     final n = _pos > 0 ? _pos - 1 : (repeat == Repeat.all ? _order.length - 1 : 0);
     await _startAt(n, fadeOut: true);
   }
@@ -624,9 +652,18 @@ class Player extends ChangeNotifier {
     await (on ? _deck.p.play() : _deck.p.pause());
   }
 
-  Future<void> toggle() => setPlaying(!playing);
+  Future<void> toggle() async {
+    if (remoteDriver?.call('playpause') ?? false) return;
+    await setPlaying(!playing);
+  }
 
   Future<void> seek(double seconds) async {
+    if (remoteDriver?.call('seek', (seconds * 1000).round()) ?? false) return;
+    await seekTo(seconds);
+  }
+
+  /// Seek without asking a Waterfall host (the room applying its own state).
+  Future<void> seekTo(double seconds) async {
     position = seconds;
     notifyListeners();
     if (!_real) return;

@@ -14,6 +14,7 @@ import 'package:cascade/core/settings.dart';
 import 'package:cascade/platform/discord.dart';
 import 'package:cascade/platform/media_controls.dart';
 import 'package:cascade/platform/remote.dart';
+import 'package:cascade/platform/waterfall.dart';
 import 'package:cascade/ui/panels.dart';
 import 'package:cascade/ui/phone.dart';
 import 'package:cascade/engine/player.dart';
@@ -63,6 +64,10 @@ class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
   /// Other apps can control this one while signed in.
   void _remoteFollows() {
     final j = _library.jf;
+    if (waterfall.jf != j) {
+      if (waterfall.active) waterfall.leave();
+      waterfall.jf = j;
+    }
     if (j?.token != null && !_library.demo) {
       if (_remote?.jf == j) return;
       _remote?.close();
@@ -97,6 +102,15 @@ class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
     widget.player.onToggleLike = (s) {
       if (s.id.isNotEmpty && !_library.demo) _library.toggleFavorite(s.id, s.favorite);
     };
+    waterfall = Waterfall(widget.player)
+      ..onNotice = (t) => _messenger.currentState?.showSnackBar(
+        SnackBar(
+          content: Text(t, style: ts(13)),
+          backgroundColor: K.surface,
+          behavior: SnackBarBehavior.floating,
+          width: 420,
+        ),
+      );
     _library.addListener(_remoteFollows);
     final s = widget.session;
     if (s != null) {

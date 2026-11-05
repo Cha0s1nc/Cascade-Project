@@ -51,8 +51,8 @@ One line per feature in `docs/flutter-plan.md`. Status: built / partial / not bu
 - Smart playlists: built - a row on Playlists, their page, and a rule editor; stored under the desktop's smartPlaylists key in its format
 - Favorites and played state on the server: built - likes go to /UserFavoriteItems and show at once, put back if the server refuses
 - Library pickers and grouping: partial - Settings > Library picks music, movie and show libraries (same store keys); per-library grouping in the grids not yet
-- Devices panel and remote control: partial - send the queue to another Jellyfin client from where it is, then play/pause, skip and volume there; being controlled from other apps (the remote control socket) not yet
-- Waterfall: not built
+- Devices panel and remote control: built - send the queue to another Jellyfin client and drive it; and the other way, the command socket lets the dashboard and other apps control this one (seen on L: controllable session, a dashboard message shown)
+- Waterfall: built - create or join a room on the shared relay, the host's queue and position followed by guests (placeholders for songs a guest cannot see), guest additions and guest control as the host allows; seen with W hosting and L joining, both playing in step
 - Rediscover (new, not a parity item): built on desktop - Used to love, Never played, Forgotten favorites, the daily reshuffle and the mix; tested in core/rediscover.dart
 - Queue editing (play next, add to queue, remove, move, clear): built in the player
 
@@ -62,13 +62,13 @@ One line per feature in `docs/flutter-plan.md`. Status: built / partial / not bu
 - Art background and tuning: partial - the blurred cover behind Now Playing; lyric dimming, blur, past scale and the follow position come from shared/tuning-defaults.json (desktop column on desktop, iPhone column on phones); album color extraction and the background knobs not yet
 - Lyrics sources and karaoke rendering: built (LRCLIB seen on L and W, SpicyLyrics word by word on L and A) - SpicyLyrics through Cascade Server, Kugou (KRC decrypted in Dart), LRCLIB and Jellyfin raced like the desktop, forced source from the pill, word fill (a word fades as a whole, not letter by letter), background vocals and duets; server-only mode and the app-side SpicyLyrics key not yet
 - Translation: not built
-- Theme panel, presets, server style, fonts: not built
-- Customization editor and Style Tuning: not built
+- Theme panel, presets, server style, fonts: partial - Theme page with the Now Playing layout and art stack; presets, server style and fonts not yet
+- Customization editor and Style Tuning: partial - Style Tuning for every lyric knob the Flutter lyrics use, stored under lyricStyle; the knobs for effects not drawn yet (held notes, ripple, album colors) are left out
 - Announcements: built - the site's announcements (cached for offline starts) and Cascade Server's, with seen and dismissed kept under the desktop's keys
 
 ## Phase 4: windows and integrations
 
-- Miniplayer: not built
+- Miniplayer: partial - the main window shrinks to a small always-on-top player and back; not a second window as on the desktop; not yet seen on a device
 - Lyrics editor: not built
 - Metadata editor: not built
 - Discord Rich Presence: built - Discord's IPC on a Windows named pipe or a Linux socket (plain, Flatpak, Snap), off by default as on the desktop; no cover art yet

@@ -14,6 +14,7 @@ import 'package:cascade/core/announcements.dart';
 import 'package:cascade/core/jellyfin.dart';
 import 'package:cascade/core/library.dart';
 import 'package:cascade/core/session_control.dart';
+import 'package:cascade/platform/waterfall.dart';
 import 'package:cascade/ui/pages/common.dart';
 import 'package:cascade/ui/scopes.dart';
 import 'package:cascade/ui/title_bar.dart';
@@ -324,11 +325,132 @@ class _DevicesDialogState extends State<_DevicesDialog> {
 
 // Later ------------------------------------------------------------------------
 
+/// Set by the app: the one Waterfall room this window can be in.
+late Waterfall waterfall;
+
 class WaterfallButton extends StatelessWidget {
   const WaterfallButton({super.key});
 
   @override
-  Widget build(BuildContext context) => const IconBtn(Icons.water_drop_outlined, 'Waterfall, listen together (not built yet)', null);
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: waterfall,
+    builder: (context, _) => IconBtn(
+      Icons.water_drop_outlined,
+      waterfall.active ? 'Waterfall: in room ${waterfall.code}' : 'Waterfall, listen together',
+      LibraryScope.of(context).jf == null ? null : () => showDialog<void>(context: context, builder: (_) => const _WaterfallDialog()),
+      color: waterfall.active ? K.accent : K.text2,
+    ),
+  );
+}
+
+class _WaterfallDialog extends StatefulWidget {
+  const _WaterfallDialog();
+
+  @override
+  State<_WaterfallDialog> createState() => _WaterfallDialogState();
+}
+
+class _WaterfallDialogState extends State<_WaterfallDialog> {
+  final _code = TextEditingController();
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _code.dispose();
+    super.dispose();
+  }
+
+  Future<void> _run(Future<void> Function() f) async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await f();
+    } catch (e) {
+      _error = '$e'.replaceFirst('Bad state: ', '');
+    }
+    if (mounted) setState(() => _busy = false);
+  }
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: waterfall,
+    builder: (context, _) => AlertDialog(
+      backgroundColor: K.panel,
+      title: Text('Waterfall', style: Txt.section()),
+      content: SizedBox(
+        width: 380,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: waterfall.active
+              ? [
+                  Text(waterfall.isHost ? 'You are hosting. Share this code:' : 'You are in a room. The host controls playback.', style: ts(13, c: K.text2)),
+                  const SizedBox(height: 8),
+                  SelectableText(waterfall.code ?? '', style: ds(34, c: K.accent)),
+                  const SizedBox(height: 12),
+                  Text('IN THE ROOM', style: Txt.caps()),
+                  for (final m in waterfall.roster)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text('${m['name'] ?? 'Listener'}', style: ts(13)),
+                    ),
+                  if (waterfall.isHost) ...[
+                    const SizedBox(height: 12),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text('Guests can add songs', style: ts(13)),
+                      value: waterfall.guestAddsAllowed,
+                      onChanged: (v) => waterfall.setGuestPermissions(adds: v),
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text('Guests can control playback', style: ts(13)),
+                      value: waterfall.guestControlAllowed,
+                      onChanged: (v) => waterfall.setGuestPermissions(control: v),
+                    ),
+                  ],
+                ]
+              : [
+                  Text('Listen with others on this server: everyone streams the same song at the same moment.', style: ts(13, c: K.text2)),
+                  const SizedBox(height: 16),
+                  Pill('Start a room', icon: Icons.water_drop_rounded, onTap: _busy ? null : () => _run(() async => waterfall.create())),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _code,
+                          textCapitalization: TextCapitalization.characters,
+                          style: ts(14),
+                          decoration: InputDecoration(
+                            hintText: 'Room code',
+                            hintStyle: ts(14, c: K.text3),
+                            isDense: true,
+                          ),
+                          onSubmitted: (v) => _run(() => waterfall.join(v)),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Pill('Join', primary: false, onTap: _busy ? null : () => _run(() => waterfall.join(_code.text))),
+                    ],
+                  ),
+                ],
+        ),
+      ),
+      actions: [
+        if (_error != null) Text(_error!, style: ts(12, c: K.error)),
+        if (waterfall.active)
+          TextButton(
+            onPressed: () => waterfall.leave(),
+            child: Text('Leave', style: ts(13, c: K.error)),
+          ),
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
+      ],
+    ),
+  );
 }
 
 class MiniplayerButton extends StatelessWidget {
