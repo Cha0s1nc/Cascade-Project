@@ -13,6 +13,7 @@ import 'package:cascade/core/library.dart';
 import 'package:cascade/core/settings.dart';
 import 'package:cascade/platform/discord.dart';
 import 'package:cascade/platform/media_controls.dart';
+import 'package:cascade/ui/panels.dart';
 import 'package:cascade/ui/phone.dart';
 import 'package:cascade/engine/player.dart';
 import 'package:cascade/ui/sign_in.dart';
@@ -124,9 +125,10 @@ class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
         child: PlayerScope(
           player: widget.player,
           child: ListenableBuilder(
-            listenable: _library,
+            listenable: Listenable.merge([_library, miniMode]),
             builder: (context, _) => LayoutBuilder(
               builder: (context, c) {
+                if (miniMode.value) return const MiniplayerView();
                 final desktop = _library.signedIn && c.maxWidth >= 900;
                 final page = !_library.signedIn ? const SignIn() : (desktop ? const DesktopShell() : const PhoneShell());
                 return desktop

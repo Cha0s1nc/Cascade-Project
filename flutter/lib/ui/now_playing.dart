@@ -135,9 +135,12 @@ class _NowPlayingViewState extends State<NowPlayingView> {
   void _wake() {
     if (_idle) setState(() => _idle = false);
     _idleTimer?.cancel();
-    _idleTimer = Timer(Duration(milliseconds: ((styleDesktop['controlsIdleSeconds'] ?? 3) * 1000).round()), () {
-      if (mounted) setState(() => _idle = true);
-    });
+    _idleTimer = Timer(
+      Duration(milliseconds: (({...styleDesktop, ...PlayerScope.read(context).settings.lyricStyle}['controlsIdleSeconds'] ?? 3) * 1000).round()),
+      () {
+        if (mounted) setState(() => _idle = true);
+      },
+    );
   }
 
   @override

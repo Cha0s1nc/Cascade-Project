@@ -22,9 +22,12 @@ import 'package:cascade/ui/widgets.dart';
 /// its own column there can come when its tuning first differs.
 Map<String, double> styleDesktop = {}, stylePhone = {};
 
+/// The shipped file, kept for the Style Tuning knobs.
+String? tuningJson;
+
 Future<void> loadTuning() async {
   try {
-    final json = await rootBundle.loadString('assets/tuning-defaults.json');
+    final json = tuningJson = await rootBundle.loadString('assets/tuning-defaults.json');
     Map<String, double> nums(String platform) => {
       for (final MapEntry(:key, :value) in TuningDefaults(json, platform: platform).section('style').entries)
         if (value is num) key: value.toDouble(),
@@ -71,7 +74,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
   bool _browsing = false;
   Timer? _browseEnd;
 
-  Map<String, double> get _st => widget.phone ? stylePhone : styleDesktop;
+  Map<String, double> get _st => {...(widget.phone ? stylePhone : styleDesktop), ...widget.player.settings.lyricStyle};
 
   @override
   void initState() {

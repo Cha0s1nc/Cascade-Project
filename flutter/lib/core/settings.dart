@@ -113,6 +113,25 @@ class Settings extends ChangeNotifier {
   late bool autoSkipSegments = _p?.getBool('autoSkipSegments') ?? false;
   void setAutoSkipSegments(bool on) => _changed(_p?.setBool('autoSkipSegments', autoSkipSegments = on));
 
+  /// The lyric style knobs this person changed (the desktop's lyricStyle:
+  /// only changes are stored; defaults come from tuning-defaults.json).
+  late Map<String, double> lyricStyle = () {
+    try {
+      final m = jsonDecode(_p?.getString('lyricStyle') ?? '{}');
+      return {
+        for (final MapEntry(:key, :value) in (m as Map).entries)
+          if (value is num) '$key': value.toDouble(),
+      };
+    } catch (_) {
+      return <String, double>{};
+    }
+  }();
+
+  void setLyricStyle(Map<String, double> changes) {
+    lyricStyle = changes;
+    _changed(_p?.setString('lyricStyle', jsonEncode(changes)));
+  }
+
   /// Personality v1: the queue's next songs stepped behind the art.
   late bool showArtStack = _p?.getBool('showArtStack') ?? true;
   void setShowArtStack(bool on) => _changed(_p?.setBool('showArtStack', showArtStack = on));

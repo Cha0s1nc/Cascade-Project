@@ -159,3 +159,25 @@ class BareTitleBar extends StatelessWidget {
           ),
         );
 }
+
+/// The miniplayer: the main window shrunk to a small player that stays on
+/// top, and put back where it was on the way out. ponytail: one window, not
+/// a second one beside the main window as on the desktop; a separate window
+/// can come with multi-window support.
+final miniMode = ValueNotifier(false);
+Rect? _before;
+
+Future<void> setMiniMode(bool on) async {
+  if (!inlineTitleBar || on == miniMode.value) return;
+  if (on) {
+    _before = await windowManager.getBounds();
+    await windowManager.setMinimumSize(const Size(320, 104));
+    await windowManager.setSize(const Size(420, 112));
+    await windowManager.setAlwaysOnTop(true);
+  } else {
+    await windowManager.setAlwaysOnTop(false);
+    await windowManager.setMinimumSize(const Size(420, 520));
+    if (_before != null) await windowManager.setBounds(_before!);
+  }
+  miniMode.value = on;
+}

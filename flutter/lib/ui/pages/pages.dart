@@ -8,6 +8,7 @@ import 'package:cascade/ui/pages/downloads.dart';
 import 'package:cascade/ui/pages/home.dart';
 import 'package:cascade/ui/pages/library.dart';
 import 'package:cascade/ui/pages/smart.dart';
+import 'package:cascade/ui/pages/theme.dart';
 import 'package:cascade/ui/settings_panel.dart';
 import 'package:cascade/ui/widgets.dart';
 
@@ -27,6 +28,7 @@ Widget viewFor(String view) => switch (view) {
   'shows' => const VideoGridPage(shows: true),
   'settings' => const SettingsPanel(),
   'downloads' => const DownloadsPage(),
+  'theme' => const ThemePage(),
   _ => _Missing(view),
 };
 

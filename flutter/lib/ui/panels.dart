@@ -16,6 +16,7 @@ import 'package:cascade/core/library.dart';
 import 'package:cascade/core/session_control.dart';
 import 'package:cascade/ui/pages/common.dart';
 import 'package:cascade/ui/scopes.dart';
+import 'package:cascade/ui/title_bar.dart';
 import 'package:cascade/ui/widgets.dart';
 
 // Announcements ----------------------------------------------------------------
@@ -334,5 +335,77 @@ class MiniplayerButton extends StatelessWidget {
   const MiniplayerButton({super.key});
 
   @override
-  Widget build(BuildContext context) => const IconBtn(Icons.picture_in_picture_alt_outlined, 'Miniplayer (not built yet)', null);
+  Widget build(BuildContext context) =>
+      IconBtn(Icons.picture_in_picture_alt_outlined, 'Miniplayer', inlineTitleBar && PlayerScope.of(context).song != null ? () => setMiniMode(true) : null);
+}
+
+/// The miniplayer's whole window: art, the song, the transport, a seek line,
+/// and the way back. The whole window drags it.
+class MiniplayerView extends StatelessWidget {
+  const MiniplayerView({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = PlayerScope.of(context);
+    final song = p.song;
+    return Material(
+      color: K.panel,
+      child: TitleBarDrag(
+        child: Stack(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 10, 6, 12),
+              child: Row(
+                children: [
+                  Cover(song?.art ?? const [K.surface2, K.surface], image: song?.image, size: 84, radius: 10),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          song?.title ?? 'Nothing playing',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: ts(14, w: FontWeight.w600),
+                        ),
+                        Text(
+                          song?.artist ?? '',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: ts(12, c: K.text2),
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            IconBtn(Icons.skip_previous_rounded, 'Previous', p.prev, color: K.text, size: 20),
+                            PlayCircle(playing: p.playing, onTap: p.toggle, size: 32),
+                            IconBtn(Icons.skip_next_rounded, 'Next', p.next, color: K.text, size: 20),
+                            const Spacer(),
+                            IconBtn(Icons.open_in_full_rounded, 'Back to the full window', () => setMiniMode(false), size: 16),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: LinearProgressIndicator(
+                value: p.length > 0 ? (p.position / p.length).clamp(0, 1) : 0,
+                minHeight: 2,
+                color: K.accent,
+                backgroundColor: K.line,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
