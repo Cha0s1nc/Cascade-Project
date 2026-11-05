@@ -2,7 +2,11 @@
 import 'package:cascade/core/artist_page.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-Map<String, dynamic> item(String id, [String? name, int? plays]) => {'Id': id, 'Name': ?name, if (plays != null) 'UserData': {'PlayCount': plays}};
+Map<String, dynamic> item(String id, [String? name, int? plays]) => {
+  'Id': id,
+  'Name': ?name,
+  if (plays != null) 'UserData': {'PlayCount': plays},
+};
 List ids(List<Map<String, dynamic>> l) => l.map((i) => i['Id']).toList();
 
 void main() {

@@ -9,7 +9,15 @@ Map<String, dynamic> item(String id, [Map<String, dynamic> over = const {}]) => 
 void main() {
   test('songSortValue: falls back through artist sources', () {
     expect(songSortValue(item('1', {'AlbumArtist': 'Boards'}), 'artist'), 'boards');
-    expect(songSortValue(item('2', {'Artists': ['Aphex']}), 'artist'), 'aphex');
+    expect(
+      songSortValue(
+        item('2', {
+          'Artists': ['Aphex'],
+        }),
+        'artist',
+      ),
+      'aphex',
+    );
     expect(songSortValue(item('3'), 'artist'), '');
   });
 
@@ -24,7 +32,11 @@ void main() {
   });
 
   test('sortSongs: ascending and descending by name', () {
-    final items = [item('1', {'Name': 'Charlie'}), item('2', {'Name': 'alpha'}), item('3', {'Name': 'Bravo'})];
+    final items = [
+      item('1', {'Name': 'Charlie'}),
+      item('2', {'Name': 'alpha'}),
+      item('3', {'Name': 'Bravo'}),
+    ];
     sortSongs(items, 'name', 'asc');
     expect(items.map((i) => i['Id']), ['2', '3', '1']);
     sortSongs(items, 'name', 'desc');
@@ -32,7 +44,10 @@ void main() {
   });
 
   test('sortSongs: sorts in place and returns the same list', () {
-    final items = [item('1', {'Name': 'b'}), item('2', {'Name': 'a'})];
+    final items = [
+      item('1', {'Name': 'b'}),
+      item('2', {'Name': 'a'}),
+    ];
     expect(identical(sortSongs(items, 'name', 'asc'), items), isTrue);
     expect(items[0]['Id'], '2');
   });
@@ -91,7 +106,12 @@ void main() {
 
   test('queue remaining: rest of the current track plus everything after it', () {
     Map<String, dynamic> t(int sec) => {'Id': '$sec', 'Name': '', 'RunTimeTicks': sec * 10000000};
-    final q = [t(100), t(200), t(300), {'Id': 'x', 'Name': ''}];
+    final q = [
+      t(100),
+      t(200),
+      t(300),
+      {'Id': 'x', 'Name': ''},
+    ];
     expect(queueRemainingSec(q, 1, 50), 150 + 300);
     expect(queueRemainingSec(q, 1, 999), 300);
     expect(queueRemainingSec(q, 3, 0), 0);
@@ -109,8 +129,20 @@ void main() {
   });
 
   test('queueSourceFallback', () {
-    expect(queueSourceFallback([item('1', {'AlbumId': 'a', 'Album': 'LP'}), item('2', {'AlbumId': 'a', 'Album': 'LP'})]), 'LP');
-    expect(queueSourceFallback([item('1', {'AlbumId': 'a', 'Album': 'LP'}), item('2', {'AlbumId': 'b', 'Album': 'LP2'})]), isNull);
+    expect(
+      queueSourceFallback([
+        item('1', {'AlbumId': 'a', 'Album': 'LP'}),
+        item('2', {'AlbumId': 'a', 'Album': 'LP'}),
+      ]),
+      'LP',
+    );
+    expect(
+      queueSourceFallback([
+        item('1', {'AlbumId': 'a', 'Album': 'LP'}),
+        item('2', {'AlbumId': 'b', 'Album': 'LP2'}),
+      ]),
+      isNull,
+    );
     expect(queueSourceFallback([item('1')]), isNull);
     expect(queueSourceFallback([]), isNull);
   });

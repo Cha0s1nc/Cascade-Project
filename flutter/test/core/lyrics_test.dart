@@ -183,8 +183,21 @@ void main() {
     expect(looksInstrumental({'Name': 'Blue', 'Album': 'Blue (Instrumentals)'}), isTrue);
     expect(looksInstrumental({'Name': 'Blue (Off Vocal)'}), isTrue);
     expect(looksInstrumental({'Name': 'Blue [Inst.]'}), isTrue);
-    expect(looksInstrumental({'Name': 'Blue', 'Genres': ['Pop', 'Instrumental']}), isTrue);
-    expect(looksInstrumental({'Name': 'Blue', 'Album': 'Instruments of Love', 'Genres': ['Pop']}), isFalse);
+    expect(
+      looksInstrumental({
+        'Name': 'Blue',
+        'Genres': ['Pop', 'Instrumental'],
+      }),
+      isTrue,
+    );
+    expect(
+      looksInstrumental({
+        'Name': 'Blue',
+        'Album': 'Instruments of Love',
+        'Genres': ['Pop'],
+      }),
+      isFalse,
+    );
     expect(looksInstrumental({'Name': 'Install Me'}), isFalse);
     expect(looksInstrumental(null), isFalse);
   });

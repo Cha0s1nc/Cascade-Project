@@ -6,8 +6,14 @@ Map<String, Object?> state(num pos, bool paused) => buildStateMessage(serverId: 
 
 void main() {
   test('buildStateMessage stamps the send time', () {
-    expect(buildStateMessage(serverId: 'S1', trackId: 'T1', positionMs: 5000, paused: false, now: 1000000),
-        {'k': 'state', 'serverId': 'S1', 'trackId': 'T1', 'positionMs': 5000, 'paused': false, 'sentAt': 1000000});
+    expect(buildStateMessage(serverId: 'S1', trackId: 'T1', positionMs: 5000, paused: false, now: 1000000), {
+      'k': 'state',
+      'serverId': 'S1',
+      'trackId': 'T1',
+      'positionMs': 5000,
+      'paused': false,
+      'sentAt': 1000000,
+    });
     expect(buildStateMessage(serverId: 'S1', trackId: 'T1', positionMs: 1, paused: true, index: 3, now: 5)['index'], 3);
   });
 
@@ -64,11 +70,27 @@ void main() {
   });
 
   test('buildQueueMessage pads and trims attribution, copies its inputs, carries both permissions', () {
-    var msg = buildQueueMessage(serverId: 'S1', rev: 3, trackIds: ['a', 'b', 'c'], addedBy: ['Jon'], index: 0, guestAddsAllowed: true, guestControlAllowed: false);
+    var msg = buildQueueMessage(
+      serverId: 'S1',
+      rev: 3,
+      trackIds: ['a', 'b', 'c'],
+      addedBy: ['Jon'],
+      index: 0,
+      guestAddsAllowed: true,
+      guestControlAllowed: false,
+    );
     expect(msg['addedBy'], ['Jon', null, null]);
     expect(msg['guestAddsAllowed'], true);
     expect(msg['guestControlAllowed'], false);
-    msg = buildQueueMessage(serverId: 'S1', rev: 1, trackIds: ['a'], addedBy: ['Jon', 'Sam', 'Alex'], index: 0, guestAddsAllowed: true, guestControlAllowed: false);
+    msg = buildQueueMessage(
+      serverId: 'S1',
+      rev: 1,
+      trackIds: ['a'],
+      addedBy: ['Jon', 'Sam', 'Alex'],
+      index: 0,
+      guestAddsAllowed: true,
+      guestControlAllowed: false,
+    );
     expect(msg['addedBy'], ['Jon']);
     final ids = ['a', 'b'];
     msg = buildQueueMessage(serverId: null, rev: 1, trackIds: ids, index: 0, guestAddsAllowed: false, guestControlAllowed: true);
@@ -91,7 +113,11 @@ void main() {
     final ids = ['x'];
     final msg = buildEnqueueMessage(serverId: 'S1', trackIds: ids);
     ids.add('y');
-    expect(msg, {'k': 'enqueue', 'serverId': 'S1', 'trackIds': ['x']});
+    expect(msg, {
+      'k': 'enqueue',
+      'serverId': 'S1',
+      'trackIds': ['x'],
+    });
     expect(buildEnqueueRejected('Host cannot access that track'), {'k': 'enqueue-rejected', 'reason': 'Host cannot access that track'});
   });
 
@@ -110,7 +136,16 @@ void main() {
     for (final ok in ['playpause', 'next', 'prev', 'seek']) {
       expect(isControlAction(ok), isTrue);
     }
-    for (final bad in ['stop', 'eval', '', 'PLAYPAUSE', null, 7, {}, ['next']]) {
+    for (final bad in [
+      'stop',
+      'eval',
+      '',
+      'PLAYPAUSE',
+      null,
+      7,
+      {},
+      ['next'],
+    ]) {
       expect(isControlAction(bad), isFalse, reason: '$bad must be refused');
     }
   });

@@ -23,7 +23,9 @@ void main() {
     expect(resolveEntry(apple, 'mac'), 30);
     expect(resolveEntry(apple, 'tvos'), 44);
     expect(resolveEntry(apple, 'desktop'), isNull);
-    final slots = [{'x': 1}];
+    final slots = [
+      {'x': 1},
+    ];
     expect(identical(resolveEntry(slots, 'ios'), slots), isTrue);
   });
 
@@ -32,9 +34,15 @@ void main() {
     expect(platformsOf('all'), tuningPlatforms);
     final file = {
       'revisions': {
-        '2': {'all': ['a']},
-        '3': {'date': 'd', 'all': ['b'], 'apple': ['c']},
-      }
+        '2': {
+          'all': ['a'],
+        },
+        '3': {
+          'date': 'd',
+          'all': ['b'],
+          'apple': ['c'],
+        },
+      },
     };
     expect(revisionKeys(file, 'desktop', 3), ['b']);
     expect(revisionKeys(file, 'tvos', 3)..sort(), ['b', 'c']);
@@ -85,7 +93,12 @@ void main() {
     expect(s['next1Blur'], 2.5);
     expect(s['lyricsDelay'], -0.05);
     expect(s.containsKey('bogus'), isFalse);
-    for (final junk in [null, 'str', [1, 2], 42]) {
+    for (final junk in [
+      null,
+      'str',
+      [1, 2],
+      42,
+    ]) {
       expect(tuning.lyricStyleFrom(junk), tuning.lyricStyleFrom({}));
     }
   });

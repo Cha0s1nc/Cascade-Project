@@ -51,7 +51,7 @@ One line per feature in `docs/flutter-plan.md`. Status: built / partial / not bu
 - Smart playlists: not built - the rules are ported (core/smart_playlist.dart) with tests
 - Favorites and played state on the server: built - likes go to /UserFavoriteItems and show at once, put back if the server refuses
 - Library pickers and grouping: partial - Settings > Library picks music, movie and show libraries (same store keys); per-library grouping in the grids not yet
-- Devices panel and remote control: not built
+- Devices panel and remote control: partial - send the queue to another Jellyfin client from where it is, then play/pause, skip and volume there; being controlled from other apps (the remote control socket) not yet
 - Waterfall: not built
 - Rediscover (new, not a parity item): built on desktop - Used to love, Never played, Forgotten favorites, the daily reshuffle and the mix; tested in core/rediscover.dart
 - Queue editing (play next, add to queue, remove, move, clear): built in the player
@@ -64,14 +64,14 @@ One line per feature in `docs/flutter-plan.md`. Status: built / partial / not bu
 - Translation: not built
 - Theme panel, presets, server style, fonts: not built
 - Customization editor and Style Tuning: not built
-- Announcements: not built - the bell is a placeholder
+- Announcements: built - the site's announcements (cached for offline starts) and Cascade Server's, with seen and dismissed kept under the desktop's keys
 
 ## Phase 4: windows and integrations
 
 - Miniplayer: not built
 - Lyrics editor: not built
 - Metadata editor: not built
-- Discord Rich Presence: not built
+- Discord Rich Presence: built - Discord's IPC on a Windows named pipe or a Linux socket (plain, Flatpak, Snap), off by default as on the desktop; no cover art yet
 - Cha0s Stream control server: not built
 - Keyboard shortcuts: partial - Ctrl+K focuses search
 - First-run wizard: not built
@@ -88,7 +88,7 @@ One line per feature in `docs/flutter-plan.md`. Status: built / partial / not bu
 ## Phase 6: offline and Local mode
 
 - Downloads and the download manager: built - original files from /Items/{id}/Download, one at a time, a Downloads page by album, Download in the song and album menus and headers; the player plays a downloaded song from its file; video downloads not yet
-- Offline Mode (four phases): not built
+- Offline Mode (four phases): partial - the rules are ported with the shared fixtures (offline-mode, offline-sync, offline-index, offline-query, offline-video, local-user-data); the app does not switch to them yet
 - Local mode: not built
 
 ## Phase 7: release

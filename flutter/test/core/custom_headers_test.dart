@@ -65,8 +65,14 @@ void main() {
     expect(sanitizeCustomHeaders('x'), isEmpty);
     expect(
       sanitizeCustomHeaders([
-        {'name': 'A', 'value': '1'}, {'name': 'a', 'value': '2'}, {'name': 'Host', 'value': 'evil'},
-        {'name': 'B', 'value': 'x\ny'}, {'name': 5, 'value': 'x'}, null, {'name': 'C'}, {'name': 'D', 'value': 'ok'},
+        {'name': 'A', 'value': '1'},
+        {'name': 'a', 'value': '2'},
+        {'name': 'Host', 'value': 'evil'},
+        {'name': 'B', 'value': 'x\ny'},
+        {'name': 5, 'value': 'x'},
+        null,
+        {'name': 'C'},
+        {'name': 'D', 'value': 'ok'},
       ]),
       [h('A', '1'), h('D', 'ok')],
     );
@@ -91,9 +97,15 @@ void main() {
     expect(headersForRequest('https://jf.example.com/Items/1/Images/Primary', server, hs), hs);
     expect(headersForRequest('wss://jf.example.com/socket', server, hs), hs);
     for (final other in [
-      'https://lrclib.net/api/get', 'https://api.github.com/repos/x', 'https://jf.example.com.evil.net/',
-      'https://other.example.com/', 'http://jf.example.com/', 'https://jf.example.com:8443/', 'https://jf.example.com@evil.net/',
-      'file:///index.html', 'not a url',
+      'https://lrclib.net/api/get',
+      'https://api.github.com/repos/x',
+      'https://jf.example.com.evil.net/',
+      'https://other.example.com/',
+      'http://jf.example.com/',
+      'https://jf.example.com:8443/',
+      'https://jf.example.com@evil.net/',
+      'file:///index.html',
+      'not a url',
     ]) {
       expect(headersForRequest(other, server, hs), isEmpty, reason: other);
     }

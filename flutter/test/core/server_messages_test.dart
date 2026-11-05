@@ -4,7 +4,11 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('a dashboard message reads its header, text and timeout', () {
-    expect(parseDisplayMessage({'Header': 'Maintenance', 'Text': 'Restarting at 2', 'TimeoutMs': '5000'}), (header: 'Maintenance', text: 'Restarting at 2', timeoutMs: 5000));
+    expect(parseDisplayMessage({'Header': 'Maintenance', 'Text': 'Restarting at 2', 'TimeoutMs': '5000'}), (
+      header: 'Maintenance',
+      text: 'Restarting at 2',
+      timeoutMs: 5000,
+    ));
     expect(parseDisplayMessage({'Text': 'hi'}), (header: 'Message from your server', text: 'hi', timeoutMs: null));
     expect(parseDisplayMessage({}), isNull);
     expect(parseDisplayMessage(null), isNull);

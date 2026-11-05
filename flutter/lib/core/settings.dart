@@ -105,8 +105,8 @@ class Settings extends ChangeNotifier {
   late String lyricsSource = _p?.getString('lyricsSource') ?? 'auto';
   void setLyricsSource(String v) => _changed(_p?.setString('lyricsSource', lyricsSource = v));
 
-  /// Discord Rich Presence (desktop's discordRpcEnabled), on by default.
-  late bool discordRpc = _p?.getBool('discordRpcEnabled') ?? true;
+  /// Discord Rich Presence (desktop's discordRpcEnabled), off by default as there.
+  late bool discordRpc = _p?.getBool('discordRpcEnabled') ?? false;
   void setDiscordRpc(bool on) => _changed(_p?.setBool('discordRpcEnabled', discordRpc = on));
 
   /// Skip intros and credits by themselves (media segments).

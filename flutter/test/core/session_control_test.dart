@@ -7,15 +7,38 @@ List ids(List<Map<String, dynamic>> l) => l.map((s) => s['Id']).toList();
 
 void main() {
   test('filterControllableSessions drops our own device', () {
-    expect(ids(filterControllableSessions([session({'Id': 'a', 'DeviceId': 'me'}), session({'Id': 'b', 'DeviceId': 'other'})], 'me')), ['b']);
+    expect(
+      ids(
+        filterControllableSessions([
+          session({'Id': 'a', 'DeviceId': 'me'}),
+          session({'Id': 'b', 'DeviceId': 'other'}),
+        ], 'me'),
+      ),
+      ['b'],
+    );
   });
 
   test('filterControllableSessions drops sessions that cannot be remote controlled', () {
-    expect(ids(filterControllableSessions([session({'Id': 'a', 'SupportsRemoteControl': false}), session({'Id': 'b'})], 'me')), ['b']);
+    expect(
+      ids(
+        filterControllableSessions([
+          session({'Id': 'a', 'SupportsRemoteControl': false}),
+          session({'Id': 'b'}),
+        ], 'me'),
+      ),
+      ['b'],
+    );
   });
 
   test('filterControllableSessions treats a null DeviceId as not-us', () {
-    expect(ids(filterControllableSessions([session({'Id': 'a', 'DeviceId': null})], 'me')), ['a']);
+    expect(
+      ids(
+        filterControllableSessions([
+          session({'Id': 'a', 'DeviceId': null}),
+        ], 'me'),
+      ),
+      ['a'],
+    );
   });
 
   test('secondsToTicks converts and floors garbage to zero', () {
@@ -51,8 +74,14 @@ void main() {
   });
 
   test('buildSetVolumeCommand carries the volume as a string, clamped', () {
-    expect(buildSetVolumeCommand(40), {'Name': 'SetVolume', 'Arguments': {'Volume': '40'}});
-    expect(buildSetVolumeCommand(double.nan), {'Name': 'SetVolume', 'Arguments': {'Volume': '0'}});
+    expect(buildSetVolumeCommand(40), {
+      'Name': 'SetVolume',
+      'Arguments': {'Volume': '40'},
+    });
+    expect(buildSetVolumeCommand(double.nan), {
+      'Name': 'SetVolume',
+      'Arguments': {'Volume': '0'},
+    });
   });
 
   test('interpolatedPositionTicks holds still while paused, projects forward while playing, is 0 with no state', () {

@@ -3,15 +3,21 @@ import 'package:cascade/core/update_release.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 List<Map<String, dynamic>> installers(String v) => [
-      'Cascade-$v-arm64.dmg', 'Cascade-$v.AppImage', 'cascade-$v.x86_64.rpm', 'Cascade.Setup.$v.exe', 'cascade_${v}_amd64.deb',
-    ].map((name) => {'name': name, 'browser_download_url': 'https://example.invalid/$name'}).toList();
+  'Cascade-$v-arm64.dmg',
+  'Cascade-$v.AppImage',
+  'cascade-$v.x86_64.rpm',
+  'Cascade.Setup.$v.exe',
+  'cascade_${v}_amd64.deb',
+].map((name) => {'name': name, 'browser_download_url': 'https://example.invalid/$name'}).toList();
 
 List<String> installerNames(String v) => installers(v).map((a) => a['name'] as String).toList();
 
 ReleaseLike release(String tag, List<Object> names) => {
-      'tag_name': tag,
-      'assets': [for (final n in names) n is String ? {'name': n} : n],
-    };
+  'tag_name': tag,
+  'assets': [
+    for (final n in names) n is String ? {'name': n} : n,
+  ],
+};
 
 const InstallTarget mac = (platform: 'darwin', arch: 'arm64', linuxKind: null);
 const InstallTarget win = (platform: 'win32', arch: 'x64', linuxKind: null);
@@ -37,7 +43,25 @@ void main() {
     for (final ok in ['2.3.1', '0.0.1', '10.20.30', '2.3.1-b1', '2.3.1-b12']) {
       expect(isReleaseVersion(ok), isTrue, reason: ok);
     }
-    for (final bad in ['v2.3.1', '2.3', '999', '2.3.1 ', ' 2.3.1', '2.3.1-b', '2.3.1-b0', '2.3.1-rc1', '02.3.1', '2.3.1.4', '99999.0.0', '2.3.1\n', '', 2.3, null, {}, ['2.3.1']]) {
+    for (final bad in [
+      'v2.3.1',
+      '2.3',
+      '999',
+      '2.3.1 ',
+      ' 2.3.1',
+      '2.3.1-b',
+      '2.3.1-b0',
+      '2.3.1-rc1',
+      '02.3.1',
+      '2.3.1.4',
+      '99999.0.0',
+      '2.3.1\n',
+      '',
+      2.3,
+      null,
+      {},
+      ['2.3.1'],
+    ]) {
       expect(isReleaseVersion(bad), isFalse, reason: '$bad');
     }
   });
@@ -55,11 +79,25 @@ void main() {
 
   test('parseVersionsFile refuses anything malformed', () {
     final bad = <Object?>[
-      '', 'not json', '{"desktop":"2.3.1"', '[]', '["2.3.1"]', 'null', '"2.3.1"', '231',
-      '{"desktop":null}', '{"desktop":231}', '{"desktop":"999"}', '{"desktop":"v2.3.1"}',
-      '{"desktop":"2.3"}', '{"desktop":{"version":"2.3.1"}}', '{"desktop":"<script>"}',
+      '',
+      'not json',
+      '{"desktop":"2.3.1"',
+      '[]',
+      '["2.3.1"]',
+      'null',
+      '"2.3.1"',
+      '231',
+      '{"desktop":null}',
+      '{"desktop":231}',
+      '{"desktop":"999"}',
+      '{"desktop":"v2.3.1"}',
+      '{"desktop":"2.3"}',
+      '{"desktop":{"version":"2.3.1"}}',
+      '{"desktop":"<script>"}',
       '{"desktop":"2.3.1","pad":"${'x' * versionsMaxBytes}"}',
-      null, 42, <String, Object?>{},
+      null,
+      42,
+      <String, Object?>{},
     ];
     for (final text in bad) {
       expect(parseVersionsFile(text), (ok: false, desktop: null, mac: null), reason: '$text'.substring(0, '$text'.length.clamp(0, 60)));
@@ -74,7 +112,17 @@ void main() {
     expect(findVersionsAsset(release('v2.3.2', ['versions.json.bak', 'Versions.json'])), isNull);
     expect(findVersionsAsset(release('v2.3.2', ['a.dmg', 'versions.json']))?['name'], 'versions.json');
     expect(findVersionsAsset({'tag_name': 'v2.3.2', 'assets': 'nope'}), isNull);
-    expect(findVersionsAsset({'tag_name': 'v2.3.2', 'assets': [null, 7, {'name': 3}]}), isNull);
+    expect(
+      findVersionsAsset({
+        'tag_name': 'v2.3.2',
+        'assets': [
+          null,
+          7,
+          {'name': 3},
+        ],
+      }),
+      isNull,
+    );
   });
 
   test('nameCarriesVersion matches the whole version in every real naming style', () {

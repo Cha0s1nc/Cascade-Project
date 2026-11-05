@@ -15,7 +15,10 @@ void main() {
     test('coalesce: ${c['name']}', () => expect(coalesceChanges(maps(c['changes'])), c['expected']));
   }
   for (final c in maps(fx['decide'])) {
-    test('conflict: ${c['name']}', () => expect(updateToSend((c['update'] as Map).cast<String, Object?>(), (c['server'] as Map?)?.cast<String, dynamic>()), c['expected']));
+    test(
+      'conflict: ${c['name']}',
+      () => expect(updateToSend((c['update'] as Map).cast<String, Object?>(), (c['server'] as Map?)?.cast<String, dynamic>()), c['expected']),
+    );
   }
   for (final c in maps(fx['catchUp'])) {
     test('catch-up: ${c['name']}', () {

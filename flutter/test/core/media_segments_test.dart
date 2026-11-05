@@ -12,13 +12,20 @@ void main() {
         {'Id': 'b', 'ItemId': 'x', 'Type': 'Outro', 'StartTicks': 1200 * t, 'EndTicks': 1300 * t},
         {'Id': 'a', 'ItemId': 'x', 'Type': 'Intro', 'StartTicks': 30 * t, 'EndTicks': 90 * t},
       ],
-      'TotalRecordCount': 2, 'StartIndex': 0,
+      'TotalRecordCount': 2,
+      'StartIndex': 0,
     });
     expect(out, [seg('Intro', 30, 90), seg('Outro', 1200, 1300)]);
   });
 
   test('parseMediaSegments: an empty, missing or non-object response is no segments', () {
-    for (final raw in [{'Items': []}, <String, Object?>{}, null, 'nope', {'Items': 'x'}]) {
+    for (final raw in [
+      {'Items': []},
+      <String, Object?>{},
+      null,
+      'nope',
+      {'Items': 'x'},
+    ]) {
       expect(parseMediaSegments(raw), isEmpty);
     }
   });
@@ -36,7 +43,7 @@ void main() {
         {'Type': 'Intro', 'StartTicks': 0, 'EndTicks': double.infinity},
         null,
         {'Type': 'Recap', 'StartTicks': 0, 'EndTicks': 5 * t},
-      ]
+      ],
     });
     expect(out, [seg('Recap', 0, 5)]);
   });

@@ -1,6 +1,8 @@
 // Cascade in Flutter: the redesigned Home for Windows, Linux and Android.
 // One codebase; the window width picks the layout. Signed in, Home is the
 // server's and songs really play; signed out, there is a demo.
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart' show MediaKit;
 
@@ -9,6 +11,7 @@ import 'package:cascade/core/downloads.dart';
 import 'package:cascade/core/jellyfin.dart';
 import 'package:cascade/core/library.dart';
 import 'package:cascade/core/settings.dart';
+import 'package:cascade/platform/discord.dart';
 import 'package:cascade/platform/media_controls.dart';
 import 'package:cascade/ui/phone.dart';
 import 'package:cascade/engine/player.dart';
@@ -31,6 +34,7 @@ Future<void> main() async {
   final downloads = Downloads();
   await downloads.load();
   player.localFile = (s) => downloads.fileOf(s.id);
+  if (Platform.isWindows || Platform.isLinux) DiscordPresence(player, player.settings);
   runApp(CascadeApp(player: player, session: await Jellyfin.restore(), downloads: downloads));
 }
 
