@@ -164,6 +164,15 @@ class _SettingsPanelState extends State<SettingsPanel> {
             lib.setLibraries(shows: ids.toList());
           }),
       ],
+      if (!lib.demo)
+        _Switch(
+          'Offline Mode',
+          lib.offlineState.name == 'unreachable'
+              ? 'On by itself: your server is not answering, so you are listening to your downloads'
+              : 'Only your downloads, and nothing is sent to the server. Plays and likes are sent when you turn it off.',
+          lib.offline,
+          lib.setOfflineMode,
+        ),
       _Switch(
         'Show Live TV as Radio',
         lib.hasLiveTv ? 'Your server\'s channels, in a Radio view' : 'Your server has no Live TV channels',

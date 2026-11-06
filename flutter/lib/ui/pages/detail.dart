@@ -249,7 +249,7 @@ class _AlbumPageState extends State<AlbumPage> {
                   RoundBtn(
                     songs.every((s) => DownloadsScope.of(context).has(s.id)) ? Icons.download_done_rounded : Icons.download_outlined,
                     'Download',
-                    () => download(context, songs),
+                    () => download(context, songs, collectionId: album.id),
                   ),
                 if (album.artistId != null) RoundBtn(Icons.person_outline_rounded, 'Go to artist', () => openPage(context, PageKind.artist, [album.artistId])),
                 Builder(
@@ -271,7 +271,7 @@ class _AlbumPageState extends State<AlbumPage> {
                     padding: EdgeInsets.fromLTRB(12, i == 0 ? 0 : 18, 0, 8),
                     child: Text('DISC ${s.disc}', style: Txt.caps()),
                   ),
-                TrackRow(s, index: s.track > 0 ? s.track : i + 1, queue: songs, cols: TrackCols.artist, source: album.title),
+                TrackRow(s, index: s.track > 0 ? s.track : i + 1, queue: songs, cols: TrackCols.album, source: album.title),
               ],
             ],
           ),
@@ -526,7 +526,7 @@ class _PlaylistPageState extends State<PlaylistPage> {
               actions: [
                 ...playButtons(context, songs, pl.title),
                 likeBtn(context, pl.id, pl.favorite),
-                if (lib.mayDownload && !lib.demo) RoundBtn(Icons.download_outlined, 'Download', () => download(context, songs)),
+                if (lib.mayDownload && !lib.demo) RoundBtn(Icons.download_outlined, 'Download', () => download(context, songs, collectionId: pl.id)),
                 Builder(
                   builder: (c) => RoundBtn(
                     Icons.more_horiz_rounded,

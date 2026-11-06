@@ -638,7 +638,7 @@ void songMenu(BuildContext context, Song song, Offset at, {List<Song>? queue, St
     if (song.artistId != null) ('Go to artist', Icons.person_outline_rounded, () => openPage(context, PageKind.artist, [song.artistId])),
     if (!lib.demo) ...[
       (fav ? 'Unlike' : 'Like', fav ? Icons.favorite_rounded : Icons.favorite_border_rounded, () => lib.toggleFavorite(song.id, song.favorite)),
-      ('Instant mix', Icons.auto_awesome_outlined, () async => p.play(song, [song, ...await lib.instantMix(song.id)], 'Instant mix')),
+      if (!lib.offline) ('Instant mix', Icons.auto_awesome_outlined, () async => p.play(song, [song, ...await lib.instantMix(song.id)], 'Instant mix')),
       if (lib.mayDownload && !DownloadsScope.read(context).has(song.id)) ('Download', Icons.download_outlined, () => download(context, [song])),
     ],
     if (playlistId != null && song.playlistItemId != null) ...[null, ('Remove from playlist', Icons.remove_circle_outline_rounded, () => onRemoved?.call())],
@@ -690,7 +690,7 @@ void albumMenu(BuildContext context, Album a, Offset at) {
           Icons.download_outlined,
           () async {
             final t = await tracks();
-            if (context.mounted) await download(context, t);
+            if (context.mounted) await download(context, t, collectionId: a.id);
           },
         ),
     ],

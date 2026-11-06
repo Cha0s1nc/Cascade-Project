@@ -87,8 +87,8 @@ One line per feature in `docs/flutter-plan.md`. Status: built / partial / not bu
 
 ## Phase 6: offline and Local mode
 
-- Downloads and the download manager: built - original files from /Items/{id}/Download, one at a time, a Downloads page by album, Download in the song and album menus and headers; the player plays a downloaded song from its file; video downloads not yet
-- Offline Mode (four phases): partial - the rules are ported with the shared fixtures (offline-mode, offline-sync, offline-index, offline-query, offline-video, local-user-data); the app does not switch to them yet
+- Downloads and the download manager: built - kept as the desktop's offline catalog (collections, each item's library from its ancestors, covers, the user); original files, one at a time; seen on L; video downloads and stored lyrics not yet
+- Offline Mode (four phases): partial - manual switch (offlineMode key) and the unreachable fallback with a backoff probe; the library is answered from the catalog by the shared query engine; likes queue and sync back with the per-item rule, plays queue and replay only when the history snapshot still matches; server-only features hidden. Seen on L: manual on, Home and album from the catalog, playing the file, a like queued then sent when switched off, and the fallback with the server unreachable. Not yet: offline lyrics, video, resume positions, the held-plays prompt, the storage limit
 - Local mode: not built
 
 ## Phase 7: release

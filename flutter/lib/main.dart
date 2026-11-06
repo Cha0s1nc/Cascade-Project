@@ -70,7 +70,8 @@ class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
       if (waterfall.active) waterfall.leave();
       waterfall.jf = j;
     }
-    if (j?.token != null && !_library.demo) {
+    // Not while offline: no requests to the server at all.
+    if (j?.token != null && !_library.demo && !_library.offline) {
       if (_remote?.jf == j) return;
       _remote?.close();
       _remote = RemoteSocket(
@@ -98,6 +99,10 @@ class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     // The queue comes back once the library has loaded, so a server that was
     // down at launch still gets it back when it answers.
+    _library.downloads = _downloads;
+    final artId = RegExp(r'/Items/([A-Za-z0-9]+)/Images/Primary');
+    localArt = (url) => _downloads.artOf(artId.firstMatch(url)?.group(1) ?? '');
+    widget.player.onStart = (s) => _library.offlinePlay(s.id);
     _library.onLoaded = () {
       widget.player.restore();
       final c = _navigator.currentContext;

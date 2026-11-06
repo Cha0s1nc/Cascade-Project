@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'package:cascade/core/data.dart';
 import 'package:cascade/core/jellyfin.dart';
+import 'package:cascade/core/offline_index.dart';
 import 'package:cascade/ui/pages/common.dart';
 import 'package:cascade/ui/scopes.dart';
 import 'package:cascade/ui/widgets.dart';
@@ -32,7 +33,7 @@ class DownloadsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final d = DownloadsScope.of(context);
     final j = LibraryScope.of(context).jf;
-    final songs = [for (final i in d.items.values) downloadedSong(j, i)];
+    final songs = [for (final i in d.items) downloadedSong(j, i)];
     final albums = <String, List<Song>>{};
     for (final s in songs) {
       albums.putIfAbsent(s.album, () => []).add(s);
@@ -60,7 +61,7 @@ class DownloadsPage extends StatelessWidget {
             ],
           ),
         ),
-        if (d.current != null || d.queue.isNotEmpty)
+        if (d.current != null)
           SliverToBoxAdapter(
             child: Container(
               margin: const EdgeInsets.only(bottom: 20),
@@ -69,7 +70,7 @@ class DownloadsPage extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Downloading, ${d.queue.length + 1} left', style: ts(13, w: FontWeight.w600)),
+                  Text('Downloading, ${pendingTrackIds(d.index).length} left', style: ts(13, w: FontWeight.w600)),
                   const SizedBox(height: 8),
                   LinearProgressIndicator(value: d.progress, color: K.accent, backgroundColor: K.line, minHeight: 3),
                 ],
@@ -116,15 +117,22 @@ class DownloadsPage extends StatelessWidget {
   }
 }
 
-/// Start downloading [songs], saying so.
-Future<void> download(BuildContext context, List<Song> songs) async {
+/// Start downloading [songs], saying so. [collectionId] is the album or
+/// playlist they were picked from, kept as one collection.
+Future<void> download(BuildContext context, List<Song> songs, {String? collectionId}) async {
   final lib = LibraryScope.read(context);
   final j = lib.jf;
   if (j == null || songs.isEmpty) return;
   if (!lib.mayDownload) return toast(context, 'Your server does not allow downloads for this account.', error: true);
   toast(context, 'Downloading ${songs.length == 1 ? songs.first.title : '${songs.length} songs'}');
   try {
-    await DownloadsScope.read(context).add(j, songs);
+    await DownloadsScope.read(context).add(
+      j,
+      songs,
+      collection: collectionId == null ? null : await lib.item(collectionId),
+      views: [...lib.musicLibs, ...lib.movieLibs, ...lib.showLibs],
+      user: {'Id': j.userId, 'Name': j.userName, 'Policy': lib.policy},
+    );
   } catch (e) {
     if (context.mounted) toast(context, 'Could not download: $e', error: true);
   }

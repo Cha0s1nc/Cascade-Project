@@ -181,7 +181,7 @@ class DevicesButton extends StatelessWidget {
     return IconBtn(
       Icons.cast_rounded,
       'Connect to a device',
-      lib.jf == null
+      lib.jf == null || lib.offline
           ? null
           : () => showDialog<void>(
               context: context,
@@ -337,7 +337,9 @@ class WaterfallButton extends StatelessWidget {
     builder: (context, _) => IconBtn(
       Icons.water_drop_outlined,
       waterfall.active ? 'Waterfall: in room ${waterfall.code}' : 'Waterfall, listen together',
-      LibraryScope.of(context).jf == null ? null : () => showDialog<void>(context: context, builder: (_) => const _WaterfallDialog()),
+      LibraryScope.of(context).jf == null || LibraryScope.of(context).offline
+          ? null
+          : () => showDialog<void>(context: context, builder: (_) => const _WaterfallDialog()),
       color: waterfall.active ? K.accent : K.text2,
     ),
   );

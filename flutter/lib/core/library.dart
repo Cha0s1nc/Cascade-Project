@@ -6,11 +6,17 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:cascade/core/data.dart';
 import 'package:cascade/core/jellyfin.dart';
+import 'package:cascade/core/downloads.dart';
 import 'package:cascade/core/lyrics_fetch.dart';
+import 'package:cascade/core/offline_index.dart';
+import 'package:cascade/core/offline_mode.dart';
+import 'package:cascade/core/offline_query.dart';
+import 'package:cascade/core/offline_sync.dart';
 import 'package:cascade/core/smart_playlist.dart';
 
 class Library extends ChangeNotifier {
@@ -74,6 +80,120 @@ class Library extends ChangeNotifier {
   Timer? _retry;
   int _attempt = 0;
 
+  // Offline Mode (docs/offline-mode-plan.md) --------------------------------
+  //
+  // Manual (the Settings switch, the desktop's offlineMode key) or
+  // unreachable (the server stopped answering and there are downloads to
+  // fall back on). Either way the client answers from the downloads catalog,
+  // and plays and likes queue there until the server is back.
+
+  /// Set by the app: the downloads catalog.
+  Downloads? downloads;
+  OfflineState offlineState = OfflineState.online;
+  bool get offline => isOffline(offlineState);
+  Timer? _probe;
+  int _probeAttempt = 0;
+
+  void _setOffline(OfflineEvent event) {
+    final before = offlineState;
+    offlineState = nextOfflineState(offlineState, event);
+    final d = downloads;
+    jf?.offline = offline && d != null ? (path, query) => answerOffline(d.index, path, query) : null;
+    if (before != offlineState) {
+      _probe?.cancel();
+      if (offlineState == OfflineState.unreachable) _probeLater();
+    }
+  }
+
+  /// The Settings switch.
+  Future<void> setOfflineMode(bool on) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('offlineMode', on);
+    // Right before going offline by hand, the history the sync will compare.
+    if (on && !offline && jf != null) await _snapshot(jf!).catchError((_) {});
+    _setOffline(OfflineSwitch(on));
+    await refresh();
+  }
+
+  /// Asks the server directly (past the catalog) on a backoff, 30 s doubling
+  /// to five minutes; when it answers, back online and sync.
+  void _probeLater() {
+    _probe = Timer(Duration(milliseconds: probeDelayMs(_probeAttempt++)), () async {
+      final j = jf;
+      if (j == null || offlineState != OfflineState.unreachable) return;
+      try {
+        final res = await http.get(Uri.parse('${j.server}/System/Info/Public')).timeout(const Duration(seconds: 10));
+        if (res.statusCode == 200) {
+          _probeAttempt = 0;
+          _setOffline(const OfflineReachable());
+          await refresh();
+          return;
+        }
+      } catch (_) {}
+      _probeLater();
+    });
+  }
+
+  /// A play while offline, queued for the history catch-up.
+  void offlinePlay(String itemId) {
+    final d = downloads, j = jf;
+    if (!offline || d == null || j == null || itemId.isEmpty) return;
+    addPlay(d.index, {'itemId': itemId, 'userId': j.userId, 'date': DateTime.now().toUtc().toIso8601String()});
+    d.save();
+  }
+
+  /// The server's play history as it is now, kept for the catch-up check.
+  Future<void> _snapshot(Jellyfin j) async {
+    final d = downloads;
+    if (d == null || d.index.tracks.isEmpty) return;
+    final res = await j.get('/Items', {...historyQuery, 'userId': j.userId});
+    setHistory(d.index, ((res as Map)['Items'] as List).cast<Item>(), DateTime.now());
+    await d.save();
+  }
+
+  /// Back online: send what happened offline, then refresh the catalog's
+  /// user data and the snapshot. Plays replay only when the server's history
+  /// still matches the snapshot; otherwise they wait (held), as the desktop.
+  Future<void> _syncOffline(Jellyfin j) async {
+    final d = downloads;
+    if (d == null) return;
+    final idx = d.index;
+    try {
+      final hist = ((await j.get('/Items', {...historyQuery, 'userId': j.userId}) as Map)['Items'] as List).cast<Item>();
+      switch (playsCatchUp(idx.plays, idx.history, idx.playsHeld, hist)) {
+        case 'replay':
+          for (final p in playsOldestFirst(idx.plays.where((p) => p['userId'] == j.userId).toList())) {
+            await j.post('/UserPlayedItems/${p['itemId']}', null, {'userId': j.userId, 'datePlayed': p['date']});
+          }
+          idx.plays.removeWhere((p) => p['userId'] == j.userId);
+        case 'hold':
+          idx.playsHeld = true;
+      }
+      final updates = coalesceChanges(idx.changes.where((c) => c['userId'] == j.userId).toList());
+      for (var i = 0; i < updates.length; i += 100) {
+        final chunk = updates.skip(i).take(100).toList();
+        final res = await j.get('/Items', {'userId': j.userId, 'Ids': chunk.map((u) => u['itemId']).join(','), 'Fields': 'UserData'});
+        final byId = {for (final it in ((res as Map)['Items'] as List).cast<Item>()) it['Id']: it};
+        for (final u in chunk) {
+          final send = updateToSend(u, byId[u['itemId']]);
+          if (send == null) continue;
+          if (send['favorite'] is bool) await setFavorite('${u['itemId']}', send['favorite'] as bool);
+          if (send['userData'] is Map) await j.post('/UserItems/${u['itemId']}/UserData', send['userData'], {'userId': j.userId});
+        }
+      }
+      idx.changes.removeWhere((c) => c['userId'] == j.userId);
+      final ids = userDataIds(idx);
+      for (var i = 0; i < ids.length; i += 100) {
+        final res = await j.get('/Items', {'userId': j.userId, 'Ids': ids.skip(i).take(100).join(','), 'Fields': 'UserData'});
+        refreshUserData(idx, ((res as Map)['Items'] as List).cast<Item>());
+      }
+      setHistory(idx, hist, DateTime.now());
+      await d.save();
+    } catch (e) {
+      debugPrint('offline sync: $e');
+    }
+  }
+
   /// The libraries, the user's policy and the chosen libraries, then Home.
   /// A server that does not answer is tried again by itself, 5 s later and
   /// then less often (up to every minute), until it does.
@@ -86,15 +206,29 @@ class Library extends ChangeNotifier {
     _cache.clear();
     _stats = null;
     notifyListeners();
+    // The saved switch, at launch.
+    if (offlineState == OfflineState.online && (await SharedPreferences.getInstance()).getBool('offlineMode') == true) _setOffline(const OfflineSwitch(true));
     try {
       await _connect(j);
       await _loadHome(j);
       _attempt = 0;
       onLoaded?.call();
+      if (!offline) _syncOffline(j);
     } catch (e) {
-      final wait = min(60, 5 << min(_attempt++, 4));
-      error = 'Could not reach your server, trying again in $wait s ($e)';
-      _retry = Timer(Duration(seconds: wait), refresh);
+      final status = e is JellyfinError ? e.status : null;
+      // No server, but downloads: carry on from them and keep probing.
+      if (!offline && failureKind(status) == 'unreachable' && (downloads?.index.tracks.isNotEmpty ?? false)) {
+        _setOffline(const OfflineUnreachable());
+        loading = false;
+        return refresh();
+      }
+      if (offline) {
+        error = 'Could not read the downloads: $e';
+      } else {
+        final wait = min(60, 5 << min(_attempt++, 4));
+        error = 'Could not reach your server, trying again in $wait s ($e)';
+        _retry = Timer(Duration(seconds: wait), refresh);
+      }
     }
     loading = false;
     notifyListeners();
@@ -103,6 +237,7 @@ class Library extends ChangeNotifier {
   @override
   void dispose() {
     _retry?.cancel();
+    _probe?.cancel();
     super.dispose();
   }
 
@@ -116,14 +251,27 @@ class Library extends ChangeNotifier {
     musicLibs = kind('music');
     movieLibs = kind('movies');
     showLibs = kind('tvshows');
+    // Offline, older downloads sit in placeholder libraries that count as
+    // chosen whatever was saved.
+    final placeholders = offline ? placeholderLibraryIds().toSet() : const <String>{};
     policy = (user as Map)['Policy'] as Map?;
 
     final prefs = await SharedPreferences.getInstance();
     // Music: what was saved, minus libraries that vanished; all of them when
     // nothing was ever chosen or nothing saved is left.
     final saved = (prefs.getStringList('libraryIds') ?? const []).where((id) => musicLibs.any((l) => l['Id'] == id)).toList();
-    j.libraryIds = saved.isNotEmpty ? saved : [for (final l in musicLibs) l['Id'] as String];
-    movieIds = effectiveLibraryIds(movieLibs, prefs.getStringList('movieLibraryIds'));
+    j.libraryIds = saved.isNotEmpty
+        ? [
+            ...saved,
+            for (final l in musicLibs)
+              if (placeholders.contains(l['Id'])) l['Id'] as String,
+          ]
+        : [for (final l in musicLibs) l['Id'] as String];
+    movieIds = [
+      ...effectiveLibraryIds(movieLibs, prefs.getStringList('movieLibraryIds')),
+      for (final l in movieLibs)
+        if (placeholders.contains(l['Id'])) l['Id'] as String,
+    ];
     // Best effort: a server without Live TV answers with an error or nothing.
     hasLiveTv = await j
         .get('/LiveTv/Channels', {'userId': j.userId, 'Limit': 1})
@@ -529,6 +677,13 @@ class Library extends ChangeNotifier {
     final on = !isFavorite(id, fromServer);
     _favorites[id] = on;
     notifyListeners();
+    // Offline: queued in the catalog, sent when the server is back.
+    final d = downloads, j = jf;
+    if (offline && d != null && j != null) {
+      addChange(d.index, {'itemId': id, 'kind': 'favorite', 'favorite': on, 'was': !on, 'userId': j.userId, 'at': DateTime.now().toUtc().toIso8601String()});
+      await d.save();
+      return;
+    }
     var ok = false;
     try {
       ok = await setFavorite(id, on);

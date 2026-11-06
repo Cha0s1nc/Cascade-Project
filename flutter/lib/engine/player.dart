@@ -108,6 +108,9 @@ class Player extends ChangeNotifier {
 
   bool get isLiked => song != null && (likedOf?.call(song!) ?? liked.contains(song!.id.isEmpty ? song!.title : song!.id));
 
+  /// Set by the app: told when a song starts (Offline Mode queues it as a play).
+  void Function(Song s)? onStart;
+
   /// Set by the app to the downloads: a song's file on this device, if any.
   String? Function(Song s)? localFile;
 
@@ -559,6 +562,7 @@ class Player extends ChangeNotifier {
   void _report(String kind, _Deck d) {
     final j = jf, s = d.song, stream = d.stream;
     if (!_real || j == null || s == null || settings.noReports) return;
+    if (kind == 'start') onStart?.call(s);
     if (kind != 'start' && !d.reported) return;
     final Map<String, Object> body = kind == 'stop'
         ? {'ItemId': s.id, 'PositionTicks': ticks(d.pos), 'PlaySessionId': ?stream?.playSessionId, 'MediaSourceId': ?stream?.mediaSourceId}

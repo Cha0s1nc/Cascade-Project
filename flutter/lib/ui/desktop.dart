@@ -130,6 +130,8 @@ class _DesktopShellState extends State<DesktopShell> {
                   body: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: Row(
+                      // Stretched, so a short page still fills the panel.
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         _Sidebar(view: _nav.view, collapsed: _collapsed, onGo: _go),
                         const SizedBox(width: 8),
@@ -206,6 +208,19 @@ class _DesktopShellState extends State<DesktopShell> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
+                    if (!full && LibraryScope.of(context).offline)
+                      Tooltip(
+                        message: 'Offline Mode: only your downloads',
+                        child: Container(
+                          margin: const EdgeInsets.only(right: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(color: K.accentTint, borderRadius: BorderRadius.circular(99)),
+                          child: Text(
+                            'Offline',
+                            style: ts(12, w: FontWeight.w600, c: K.accent),
+                          ),
+                        ),
+                      ),
                     if (!full) ...[const AnnouncementsButton(), const SizedBox(width: 4), IconBtn(Icons.brush_outlined, 'Theme', () => _go('theme'))],
                     SizedBox(width: inlineTitleBar ? 8 : 12),
                     const WindowButtons(),

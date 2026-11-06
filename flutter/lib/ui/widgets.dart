@@ -1,5 +1,7 @@
 // Tokens and the pieces both layouts share, matching the Figma draft
 // (https://www.figma.com/design/5jCQuhu85omAoJsBRC57rs).
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import 'package:cascade/core/data.dart';
@@ -104,6 +106,10 @@ class _HoverState extends State<Hover> {
   );
 }
 
+/// Set by the app: a downloaded copy of an image URL's cover, if there is one.
+String? Function(String url)? localArt;
+String? _local(String url) => localArt?.call(url);
+
 /// A cover: the item's image over its placeholder gradient, which shows while
 /// the image loads and stays when there is none.
 class Cover extends StatelessWidget {
@@ -126,6 +132,15 @@ class Cover extends StatelessWidget {
     ),
     child: image == null
         ? null
+        : _local(image!) != null
+        ? Image.file(
+            File(_local(image!)!),
+            fit: BoxFit.cover,
+            width: size,
+            height: size,
+            gaplessPlayback: true,
+            errorBuilder: (_, _, _) => const SizedBox.shrink(),
+          )
         : Image.network(
             image!,
             headers: LibraryScope.read(context).headers,

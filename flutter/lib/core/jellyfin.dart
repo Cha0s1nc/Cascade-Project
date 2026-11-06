@@ -12,6 +12,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:cascade/core/data.dart';
+import 'package:cascade/core/offline_query.dart' show OfflineAnswer;
 
 /// A server item, as the server sent it.
 typedef Item = Map<String, dynamic>;
@@ -98,15 +99,32 @@ class Jellyfin {
     return jsonDecode(utf8.decode(res.bodyBytes));
   }
 
-  Future<dynamic> get(String path, [Map<String, Object?> query = const {}]) async => _read(await _send(() => _http.get(_uri(path, query), headers: headers)));
+  /// While Offline Mode is on: GETs are answered from the downloads catalog
+  /// (core/offline_query.dart) and everything else is refused, never sent.
+  OfflineAnswer Function(String path, Map<String, Object?> query)? offline;
 
-  Future<dynamic> post(String path, [Object? body, Map<String, Object?> query = const {}]) async => _read(
-    await _send(() => _http.post(_uri(path, query), headers: {...headers, 'Content-Type': 'application/json'}, body: body == null ? null : jsonEncode(body))),
-  );
+  Future<dynamic> get(String path, [Map<String, Object?> query = const {}]) async {
+    final off = offline;
+    if (off != null) {
+      final a = off(path, query);
+      if (a.status == 200) return a.body;
+      throw JellyfinError(a.unknownRoute ? 'Not available offline' : 'Not downloaded', a.status);
+    }
+    return _read(await _send(() => _http.get(_uri(path, query), headers: headers)));
+  }
+
+  Future<dynamic> post(String path, [Object? body, Map<String, Object?> query = const {}]) async => offline != null
+      ? throw JellyfinError('Not available offline')
+      : _read(
+          await _send(
+            () => _http.post(_uri(path, query), headers: {...headers, 'Content-Type': 'application/json'}, body: body == null ? null : jsonEncode(body)),
+          ),
+        );
 
   /// DELETE, for endpoints that answer with no body. False when refused or
   /// unanswered, never throws: every caller is cleaning up and carries on.
   Future<bool> del(String path, [Map<String, Object?> query = const {}]) async {
+    if (offline != null) return false;
     try {
       final res = await _send(() => _http.delete(_uri(path, query), headers: headers));
       if (res.statusCode >= 300) onFailure?.call(res.statusCode);
