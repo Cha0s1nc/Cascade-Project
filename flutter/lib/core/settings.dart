@@ -145,6 +145,15 @@ class Settings extends ChangeNotifier {
   };
   void setButtonStyle(String v) => _changed(_p?.setString('buttonStyle', buttonStyle = v));
 
+  /// The desktop sidebar: 'expanded', 'hover' (a rail that slides out under
+  /// the mouse, as the Electron app's) or 'rail' (icons only).
+  late String sidebarMode = switch (_p?.getString('sidebarMode')) {
+    'hover' => 'hover',
+    'rail' => 'rail',
+    _ => 'expanded',
+  };
+  void setSidebarMode(String v) => _changed(_p?.setString('sidebarMode', sidebarMode = v));
+
   /// The whole interface's size, 0.8 to 1.5 (Ctrl + and - too).
   late double uiScale = _num('uiScale', 1, 0.8, 1.5);
   void setUiScale(double v) => _changed(_p?.setDouble('uiScale', uiScale = (v * 20).round() / 20));
