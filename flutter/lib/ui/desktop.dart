@@ -16,6 +16,7 @@ import 'package:cascade/ui/panels.dart';
 import 'package:cascade/ui/settings_panel.dart';
 import 'package:cascade/ui/title_bar.dart';
 import 'package:cascade/ui/widgets.dart';
+import 'package:cascade/ui/controls.dart';
 import 'package:cascade/ui/scopes.dart';
 import 'package:cascade/ui/style_menu.dart';
 
@@ -187,7 +188,21 @@ class _DesktopShellState extends State<DesktopShell> {
             AnimatedContainer(duration: time, curve: ease, width: mode == 'expanded' ? _Sidebar.wide : _Sidebar.rail),
             const SizedBox(width: 8),
             Expanded(
-              child: _MainPanel(view: _nav.view, entry: _nav.top),
+              child: _MainPanel(
+                view: _nav.view,
+                entry: _nav.top,
+                // Where the page sits, for which way it slides in: the
+                // sidebar's order, then how deep into that section.
+                rank: (
+                  _nav.view == 'home'
+                      ? -1
+                      : [
+                          for (final (_, i) in _visibleNav(LibraryScope.read(context), PlayerScope.read(context).settings)) i.$2,
+                          for (final i in _navBottom) i.$2,
+                        ].indexOf(_nav.view),
+                  _nav.stack(_nav.view).length,
+                ),
+              ),
             ),
           ],
         ),
@@ -573,26 +588,63 @@ class _NavRow extends StatelessWidget {
   }
 }
 
-class _MainPanel extends StatelessWidget {
-  const _MainPanel({required this.view, required this.entry});
+class _MainPanel extends StatefulWidget {
+  const _MainPanel({required this.view, required this.entry, required this.rank});
   final String view;
   final NavEntry entry;
+  final (int, int) rank;
 
   @override
-  Widget build(BuildContext context) => ClipRRect(
-    borderRadius: BorderRadius.circular(14),
-    child: DecoratedBox(
-      decoration: BoxDecoration(
-        color: K.root,
-        border: Border.all(color: K.line),
-        borderRadius: BorderRadius.circular(14),
-      ),
+  State<_MainPanel> createState() => _MainPanelState();
+}
+
+/// Pages slide as they change: up when going further down the sidebar or
+/// deeper into a section, down when going back up, as Settings' tabs slide
+/// sideways.
+class _MainPanelState extends State<_MainPanel> {
+  double _dir = 1;
+
+  @override
+  void didUpdateWidget(_MainPanel old) {
+    super.didUpdateWidget(old);
+    if (old.entry == widget.entry) return;
+    final (a, b) = (old.rank, widget.rank);
+    _dir = b.$1 > a.$1 || (b.$1 == a.$1 && b.$2 >= a.$2) ? 1 : -1;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final key = ObjectKey(widget.entry);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
       child: DecoratedBox(
-        decoration: const BoxDecoration(gradient: K.wash),
-        child: KeyedSubtree(key: ObjectKey(entry), child: entry.page != null ? pageFor(entry) : viewFor(view)),
+        decoration: BoxDecoration(
+          color: K.root,
+          border: Border.all(color: K.line),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: DecoratedBox(
+          decoration: const BoxDecoration(gradient: K.wash),
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 320),
+            reverseDuration: const Duration(milliseconds: 160),
+            switchInCurve: settingsCurve,
+            layoutBuilder: (current, previous) => Stack(fit: StackFit.expand, children: [...previous, ?current]),
+            transitionBuilder: (c, a) => c.key != key
+                ? FadeTransition(opacity: a, child: c)
+                : FadeTransition(
+                    opacity: a,
+                    child: SlideTransition(
+                      position: Tween(begin: Offset(0, 0.035 * _dir), end: Offset.zero).animate(a),
+                      child: c,
+                    ),
+                  ),
+            child: KeyedSubtree(key: key, child: widget.entry.page != null ? pageFor(widget.entry) : viewFor(widget.view)),
+          ),
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 /// The player bar: the song, the transport and seek bar, and the extras.

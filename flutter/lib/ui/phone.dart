@@ -115,7 +115,21 @@ class _PhoneShellState extends State<PhoneShell> {
                       decoration: const BoxDecoration(gradient: K.wash),
                       child: SafeArea(
                         bottom: false,
-                        child: KeyedSubtree(key: ObjectKey(_nav.top), child: _body()),
+                        // Pages ease in from a little below as they change.
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 300),
+                          reverseDuration: const Duration(milliseconds: 150),
+                          switchInCurve: const Cubic(.2, .8, .2, 1),
+                          layoutBuilder: (current, previous) => Stack(fit: StackFit.expand, children: [...previous, ?current]),
+                          transitionBuilder: (c, a) => FadeTransition(
+                            opacity: a,
+                            child: SlideTransition(
+                              position: Tween(begin: const Offset(0, 0.03), end: Offset.zero).animate(a),
+                              child: c,
+                            ),
+                          ),
+                          child: KeyedSubtree(key: ObjectKey(_nav.top), child: _body()),
+                        ),
                       ),
                     ),
                     bottomNavigationBar: Column(

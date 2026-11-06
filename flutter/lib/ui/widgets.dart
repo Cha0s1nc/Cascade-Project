@@ -2,6 +2,8 @@
 // (https://www.figma.com/design/5jCQuhu85omAoJsBRC57rs).
 import 'dart:io';
 
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 
 import 'package:cascade/core/data.dart';
@@ -226,33 +228,136 @@ class Pill extends StatelessWidget {
 
 /// The stepped art stack: the current art with what comes next falling in
 /// behind it, or the art alone (setting off, or nothing next).
-class ArtStack extends StatelessWidget {
+class ArtStack extends StatefulWidget {
   const ArtStack(this.song, {super.key, this.next = const [], required this.size});
   final Song song;
   final List<Song> next;
   final double size;
 
   @override
+  State<ArtStack> createState() => _ArtStackState();
+}
+
+/// The cover changes to the next song by the Style menu's cover animation:
+/// 'swipe' flicks the cover off to the right, tilting as it goes, the way
+/// you swipe a match away, while the next one steps up from behind; going
+/// back brings the last one flying in again. 'push' slides them across,
+/// 'fade' crossfades, 'none' cuts.
+class _ArtStackState extends State<ArtStack> with SingleTickerProviderStateMixin {
+  late final _c = AnimationController(vsync: this, value: 1)..addListener(() => setState(() {}));
+  Song? _from;
+  bool _back = false;
+
+  static bool _same(Song a, Song b) => a.id.isNotEmpty ? a.id == b.id : a.title == b.title;
+
+  @override
+  void didUpdateWidget(ArtStack old) {
+    super.didUpdateWidget(old);
+    if (_same(old.song, widget.song)) return;
+    final s = PlayerScope.read(context).settings;
+    if (s.coverAnim == 'none') {
+      _from = null;
+      _c.value = 1;
+      return;
+    }
+    _from = old.song;
+    // Back: the song we left is next again.
+    _back = widget.next.isNotEmpty && _same(widget.next.first, old.song) && !(old.next.isNotEmpty && _same(old.next.first, widget.song));
+    _c.duration = Duration(milliseconds: (s.coverAnimSeconds * 1000).round());
+    _c.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final behind = PlayerScope.read(context).settings.showArtStack ? next.take(2).toList() : const <Song>[];
-    final step = size * 0.14;
+    final settings = PlayerScope.read(context).settings;
+    final behind = settings.showArtStack ? widget.next.take(2).toList() : const <Song>[];
+    final size = widget.size, step = size * 0.14;
+    final t = _c.value;
+    final from = t < 1 ? _from : null;
+    final anim = settings.coverAnim;
+
+    Widget card(
+      Song s, {
+      required double left,
+      required double scale,
+      required double opacity,
+      double dx = 0,
+      double dy = 0,
+      double turn = 0,
+      bool shadow = false,
+    }) => Positioned(
+      left: left + dx,
+      top: dy,
+      child: Opacity(
+        opacity: opacity.clamp(0.0, 1.0),
+        child: Transform.rotate(
+          angle: turn,
+          alignment: Alignment.bottomCenter,
+          child: SizedBox(
+            width: size,
+            height: size,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Cover(s.art, image: s.image, size: size * scale, radius: 10, shadow: shadow),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    // The behind slots: i = 0 is the first one back.
+    double slotLeft(int i) => step * (i + 1);
+    double slotScale(int i) => 0.86 - i * 0.08;
+    double slotOpacity(int i) => 0.55 - i * 0.15;
+
+    final children = <Widget>[
+      for (var i = behind.length - 1; i >= 0; i--)
+        // Going back, the first slot is where the left song is heading.
+        if (!(from != null && _back && anim == 'swipe' && i == 0))
+          card(
+            behind[i],
+            left: slotLeft(i),
+            scale: slotScale(i),
+            opacity: slotOpacity(i) * (from == null || anim != 'swipe' ? 1 : Curves.easeOut.transform(t)),
+          ),
+    ];
+    if (from == null) {
+      children.add(card(widget.song, left: 0, scale: 1, opacity: 1, shadow: true));
+    } else {
+      final e = Curves.easeOutCubic.transform(t);
+      double lerp(double a, double b, double k) => a + (b - a) * k;
+      switch (anim) {
+        case 'push':
+          final dir = _back ? -1.0 : 1.0;
+          children
+            ..add(card(from, left: 0, scale: 1, opacity: 1 - t, dx: -dir * size * 1.15 * e, shadow: true))
+            ..add(card(widget.song, left: 0, scale: 1, opacity: t * 2, dx: dir * size * 1.15 * (1 - e), shadow: true));
+        case 'fade':
+          children
+            ..add(card(from, left: 0, scale: 1, opacity: 1, shadow: true))
+            ..add(card(widget.song, left: 0, scale: 1, opacity: Curves.easeInOut.transform(t), shadow: true));
+        default: // swipe
+          // The flicked card picks up speed and tilts as it goes; the one
+          // under it eases up from the first behind slot.
+          final fling = Curves.easeInCubic.transform(t);
+          final (gone, rising) = _back ? (widget.song, from) : (from, widget.song);
+          final k = _back ? 1 - fling : fling; // how far out the flicked card is
+          final up = _back ? 1 - e : e; // how far up the rising card is
+          children
+            ..add(card(rising, left: lerp(slotLeft(0), 0, up), scale: lerp(slotScale(0), 1, up), opacity: lerp(slotOpacity(0), 1, up), shadow: true))
+            ..add(card(gone, left: 0, scale: 1, opacity: 1 - max(0, (k - 0.7) / 0.3), dx: size * 1.5 * k, dy: -size * 0.06 * k, turn: 0.26 * k, shadow: true));
+      }
+    }
     return SizedBox(
       width: size + step * behind.length,
       height: size,
-      child: Stack(
-        alignment: Alignment.centerLeft,
-        children: [
-          for (var i = behind.length - 1; i >= 0; i--)
-            Positioned(
-              left: step * (i + 1),
-              child: Opacity(
-                opacity: 0.55 - i * 0.15,
-                child: Cover(behind[i].art, image: behind[i].image, size: size * (0.86 - i * 0.08), radius: 10),
-              ),
-            ),
-          Cover(song.art, image: song.image, size: size, radius: 10, shadow: true),
-        ],
-      ),
+      child: Stack(clipBehavior: Clip.none, alignment: Alignment.centerLeft, children: children),
     );
   }
 }

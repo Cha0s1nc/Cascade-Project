@@ -99,9 +99,12 @@ class NowPlayingLayer extends StatelessWidget {
 
 /// The cover, huge and blurred, dimmed under everything.
 class ArtBackground extends StatelessWidget {
-  const ArtBackground({super.key, required this.song, this.dim = 0.62});
+  const ArtBackground({super.key, required this.song, this.dim = 0.62, this.fade = const Duration(milliseconds: 700)});
   final Song? song;
   final double dim;
+
+  /// How long the colors take to fade to the next song's.
+  final Duration fade;
 
   // Clipped: the blur would otherwise spill over the title bar and player bar.
   @override
@@ -110,11 +113,17 @@ class ArtBackground extends StatelessWidget {
       fit: StackFit.expand,
       children: [
         const ColoredBox(color: K.root),
-        if (song != null)
-          ImageFiltered(
-            imageFilter: ImageFilter.blur(sigmaX: 70, sigmaY: 70, tileMode: TileMode.decal),
-            child: Transform.scale(scale: 1.3, child: Cover(song!.art, image: song!.image, radius: 0)),
-          ),
+        AnimatedSwitcher(
+          duration: fade,
+          layoutBuilder: (current, previous) => Stack(fit: StackFit.expand, children: [...previous, ?current]),
+          child: song == null
+              ? const SizedBox.expand()
+              : ImageFiltered(
+                  key: ValueKey(song!.id.isEmpty ? song!.title : song!.id),
+                  imageFilter: ImageFilter.blur(sigmaX: 70, sigmaY: 70, tileMode: TileMode.decal),
+                  child: Transform.scale(scale: 1.3, child: Cover(song!.art, image: song!.image, radius: 0)),
+                ),
+        ),
         ColoredBox(color: K.root.withValues(alpha: dim)),
         const DecoratedBox(
           decoration: BoxDecoration(
@@ -176,7 +185,7 @@ class _NowPlayingViewState extends State<NowPlayingView> {
       return Stack(
         fit: StackFit.expand,
         children: [
-          ArtBackground(song: song, dim: p.settings.bgDim),
+          ArtBackground(song: song, dim: p.settings.bgDim, fade: _colorFade(p)),
           _editor(context, p, np, song),
         ],
       );
@@ -186,7 +195,7 @@ class _NowPlayingViewState extends State<NowPlayingView> {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          ArtBackground(song: song, dim: p.settings.bgDim),
+          ArtBackground(song: song, dim: p.settings.bgDim, fade: _colorFade(p)),
           if (layout == 'focus') _focus(context, p, song) else _split(context, p, np, song, layout == 'under'),
           Positioned(
             top: 16,
@@ -251,6 +260,8 @@ class _NowPlayingViewState extends State<NowPlayingView> {
       ],
     ),
   );
+
+  Duration _colorFade(Player p) => p.settings.colorFade ? Duration(milliseconds: (p.settings.colorFadeSeconds * 1000).round()) : Duration.zero;
 
   Widget _split(BuildContext context, Player p, NowPlaying np, Song song, bool under) => LayoutBuilder(
     builder: (context, c) {
