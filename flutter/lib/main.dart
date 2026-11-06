@@ -5,12 +5,14 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart' show MediaKit;
+import 'package:path_provider/path_provider.dart';
 
 import 'package:cascade/ui/desktop.dart';
 import 'package:cascade/ui/first_run.dart';
 import 'package:cascade/core/downloads.dart';
 import 'package:cascade/core/jellyfin.dart';
 import 'package:cascade/core/library.dart';
+import 'package:cascade/core/list_cache.dart';
 import 'package:cascade/core/settings.dart';
 import 'package:cascade/platform/discord.dart';
 import 'package:cascade/platform/media_controls.dart';
@@ -37,18 +39,22 @@ Future<void> main() async {
   await attachMediaControls(player);
   final downloads = Downloads();
   await downloads.load();
+  final cacheDir = Directory('${(await getApplicationSupportDirectory()).path}/cache');
   player.localFile = (s) => downloads.fileOf(s.id);
   if (Platform.isWindows || Platform.isLinux) DiscordPresence(player, player.settings);
-  runApp(CascadeApp(player: player, session: await Jellyfin.restore(), downloads: downloads));
+  runApp(CascadeApp(player: player, session: await Jellyfin.restore(), downloads: downloads, cacheDir: cacheDir));
 }
 
 class CascadeApp extends StatefulWidget {
   /// [session] is a saved sign-in; [demo] starts in the demo instead.
-  const CascadeApp({super.key, required this.player, this.session, this.demo = false, this.downloads});
+  const CascadeApp({super.key, required this.player, this.session, this.demo = false, this.downloads, this.cacheDir});
   final Player player;
 
   /// Null in tests: a throwaway one is made.
   final Downloads? downloads;
+
+  /// Where the big library lists are kept between launches (null in tests).
+  final Directory? cacheDir;
   final Jellyfin? session;
   final bool demo;
 
@@ -100,6 +106,7 @@ class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
     // The queue comes back once the library has loaded, so a server that was
     // down at launch still gets it back when it answers.
     _library.downloads = _downloads;
+    if (widget.cacheDir != null) _library.disk = ListCache(widget.cacheDir!);
     final artId = RegExp(r'/Items/([A-Za-z0-9]+)/Images/Primary');
     localArt = (url) => _downloads.artOf(artId.firstMatch(url)?.group(1) ?? '');
     widget.player.onStart = (s) => _library.offlinePlay(s.id);

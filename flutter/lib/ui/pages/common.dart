@@ -271,7 +271,10 @@ class MediaCard extends StatelessWidget {
 }
 
 /// Waits for [future]; a spinner while it loads, the error with Try again.
-class Loading<T> extends StatelessWidget {
+/// Waits for [future]; a spinner while it loads, the error with Try again.
+/// A new future (a list brought up to date) keeps showing the last answer
+/// until it lands, so pages never blink back to a spinner.
+class Loading<T> extends StatefulWidget {
   const Loading({super.key, required this.future, required this.builder, this.onRetry, this.sliver = true});
   final Future<T> future;
   final Widget Function(BuildContext, T) builder;
@@ -279,11 +282,23 @@ class Loading<T> extends StatelessWidget {
   final bool sliver;
 
   @override
+  State<Loading<T>> createState() => _LoadingState<T>();
+}
+
+class _LoadingState<T> extends State<Loading<T>> {
+  T? _last;
+  bool _has = false;
+
+  @override
   Widget build(BuildContext context) => FutureBuilder<T>(
-    future: future,
+    future: widget.future,
     builder: (context, snap) {
-      Widget box(Widget w) => sliver ? SliverToBoxAdapter(child: w) : w;
-      if (snap.hasError) {
+      Widget box(Widget w) => widget.sliver ? SliverToBoxAdapter(child: w) : w;
+      if (snap.hasData) {
+        _last = snap.data;
+        _has = true;
+      }
+      if (snap.hasError && !_has) {
         return box(
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 40),
@@ -294,13 +309,13 @@ class Loading<T> extends StatelessWidget {
                   textAlign: TextAlign.center,
                   style: ts(13, c: K.error),
                 ),
-                if (onRetry != null) ...[const SizedBox(height: 12), Pill('Try again', onTap: onRetry, primary: false)],
+                if (widget.onRetry != null) ...[const SizedBox(height: 12), Pill('Try again', onTap: widget.onRetry, primary: false)],
               ],
             ),
           ),
         );
       }
-      if (!snap.hasData) {
+      if (!_has) {
         return box(
           const Padding(
             padding: EdgeInsets.all(60),
@@ -308,7 +323,7 @@ class Loading<T> extends StatelessWidget {
           ),
         );
       }
-      return builder(context, snap.data as T);
+      return widget.builder(context, _last as T);
     },
   );
 }

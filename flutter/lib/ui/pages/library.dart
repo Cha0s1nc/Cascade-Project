@@ -51,7 +51,6 @@ class GridPage extends StatefulWidget {
 }
 
 class _GridPageState extends State<GridPage> {
-  late Future<List<Item>> _items = widget.spec.load(context);
   LibraryPrefs? _prefs;
 
   @override
@@ -78,11 +77,13 @@ class _GridPageState extends State<GridPage> {
   Widget build(BuildContext context) {
     final spec = widget.spec;
     final prefs = _prefs;
-    LibraryScope.of(context); // a library change reloads
+    // Read on every build: the library hands back the same future until the
+    // list is brought up to date, and Loading keeps showing the old one till then.
+    LibraryScope.of(context);
     return Loading<List<Item>>(
-      future: _items,
+      future: spec.load(context),
       sliver: false,
-      onRetry: () => setState(() => _items = spec.load(context)),
+      onRetry: () => setState(() => LibraryScope.read(context).invalidate(spec.name)),
       builder: (context, all) {
         if (prefs == null) return const SizedBox.shrink();
         final filters = LibraryFilters(favorite: prefs.favorite, genre: prefs.genre, decade: prefs.decade, played: prefs.played);

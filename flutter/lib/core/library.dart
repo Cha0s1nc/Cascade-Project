@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cascade/core/data.dart';
 import 'package:cascade/core/jellyfin.dart';
 import 'package:cascade/core/downloads.dart';
+import 'package:cascade/core/list_cache.dart';
 import 'package:cascade/core/lyrics_fetch.dart';
 import 'package:cascade/core/offline_index.dart';
 import 'package:cascade/core/offline_mode.dart';
@@ -397,6 +398,95 @@ class Library extends ChangeNotifier {
     return f;
   }
 
+  /// Set by the app: where the big lists are kept between launches.
+  ListCache? disk;
+
+  /// A big list, from disk at once when it was loaded before, then checked
+  /// against the server in the background: only what changed since is
+  /// asked for ([changed], by DateLastSaved and, for likes and plays, by the
+  /// user's own data), and the whole list is loaded again only when the
+  /// server's count no longer adds up (something was removed). Offline, the
+  /// catalog answers instead and nothing is kept.
+  Future<List<Item>> _persisted(
+    String key, {
+    required Future<List<Item>> Function() full,
+    required Future<int> Function() total,
+    Future<List<Item>> Function(DateTime since)? changed,
+    int Function(Item, Item) sort = _bySortName,
+  }) {
+    final j = jf, d = disk;
+    if (j == null || d == null || offline) return _cached(key, full);
+    final diskKey = '${j.server}|${j.userId}|$key|${[...?j.libraryIds]..sort()}|${[...movieIds, ...showIds]..sort()}';
+    return _cached(key, () async {
+      final saved = await d.read(diskKey);
+      if (saved == null) {
+        final started = DateTime.now();
+        final [items as List<Item>, count as int] = await Future.wait<Object>([full(), total()]);
+        d.write(diskKey, items, count, started);
+        return items;
+      }
+      _revalidate(key, diskKey, saved, full: full, total: total, changed: changed, sort: sort);
+      return saved.items;
+    });
+  }
+
+  Future<void> _revalidate(
+    String key,
+    String diskKey,
+    CachedList saved, {
+    required Future<List<Item>> Function() full,
+    required Future<int> Function() total,
+    Future<List<Item>> Function(DateTime since)? changed,
+    required int Function(Item, Item) sort,
+  }) async {
+    final d = disk!;
+    final started = DateTime.now();
+    try {
+      // A minute of overlap: the server's clock and ours need not agree.
+      final since = saved.fetchedAt.subtract(const Duration(minutes: 1));
+      final delta = changed == null ? const <Item>[] : await changed(since);
+      final count = await total();
+      var merged = mergeChanged(saved.items, delta);
+      var items = merged.items;
+      // Removals do not show up as changes; a count that does not add up does.
+      if (count != saved.total + merged.added) {
+        items = await full();
+      } else if (delta.isEmpty) {
+        d.write(diskKey, saved.items, count, started);
+        return;
+      } else {
+        items.sort(sort);
+      }
+      d.write(diskKey, items, count, started);
+      if (_cache.containsKey(key)) {
+        _cache[key] = Future.value(items);
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
+
+  /// How many of [type] the server has, over the chosen libraries.
+  Future<int> _count(String path, Map<String, Object?> query, [List<String>? libraries]) async {
+    final j = jf!;
+    final ids = libraries ?? j.libraryIds ?? const <String>[];
+    final counts = await Future.wait([
+      for (final id in ids.isEmpty ? <String?>[null] : ids)
+        j.get(path, {...query, 'Limit': 0, 'ParentId': ?id}).then((r) => (r as Map)['TotalRecordCount'] as int? ?? 0),
+    ]);
+    return counts.fold<int>(0, (a, b) => a + b);
+  }
+
+  /// What changed since [since]: saved by the server, or the user's own data.
+  Future<List<Item>> _changed(Map<String, Object?> query, DateTime since) async {
+    final j = jf!;
+    final iso = since.toUtc().toIso8601String();
+    final [a, b] = await Future.wait([
+      j.getMerged('/Items', {...query, 'MinDateLastSaved': iso}),
+      j.getMerged('/Items', {...query, 'MinDateLastSavedForUser': iso}),
+    ]);
+    return mergeChanged(a, b).items;
+  }
+
   /// Forget a cached list (or all of them), so the next look loads it again.
   void invalidate([String? key]) {
     key == null ? _cache.clear() : _cache.remove(key);
@@ -408,38 +498,51 @@ class Library extends ChangeNotifier {
   static int _bySortName(Item a, Item b) =>
       ((a['SortName'] ?? a['Name'] ?? '') as String).toLowerCase().compareTo(((b['SortName'] ?? b['Name'] ?? '') as String).toLowerCase());
 
-  Future<List<Item>> albumItems() => _cached('albums', () async {
-    final j = jf;
-    if (j == null) return demoRecentlyAdded.map((a) => <String, dynamic>{'Id': a.title, 'Name': a.title, 'AlbumArtist': a.subtitle}).toList();
-    final r = await j.getAllPaged('/Items', {
-      ..._user,
-      'IncludeItemTypes': 'MusicAlbum',
-      'Recursive': true,
-      'SortBy': 'SortName',
-      'Fields': 'SortName,Genres,ProductionYear,UserData,DateCreated,ChildCount',
-    });
-    return r..sort(_bySortName);
-  });
+  static const _albumQuery = {
+    'IncludeItemTypes': 'MusicAlbum',
+    'Recursive': true,
+    'SortBy': 'SortName',
+    'Fields': 'SortName,Genres,ProductionYear,UserData,DateCreated,ChildCount',
+  };
+  static const _songQuery = {
+    'IncludeItemTypes': 'Audio',
+    'Recursive': true,
+    'SortBy': 'SortName',
+    'Fields': 'AlbumId,AlbumPrimaryImageTag,SortName,DateCreated,UserData,Genres',
+  };
 
-  Future<List<Item>> artistItems() => _cached('artists', () async {
+  Future<List<Item>> albumItems() {
     final j = jf;
-    if (j == null) return const [];
-    final r = await j.getAllPaged('/Artists', {'UserId': j.userId, 'SortBy': 'SortName', 'Fields': 'SortName,DateCreated,UserData'});
-    return r..sort(_bySortName);
-  });
+    if (j == null) return Future.value(demoRecentlyAdded.map((a) => <String, dynamic>{'Id': a.title, 'Name': a.title, 'AlbumArtist': a.subtitle}).toList());
+    return _persisted(
+      'albums',
+      full: () async => (await j.getAllPaged('/Items', {..._user, ..._albumQuery}))..sort(_bySortName),
+      total: () => _count('/Items', {..._user, 'IncludeItemTypes': 'MusicAlbum', 'Recursive': true}),
+      changed: (since) => _changed({..._user, ..._albumQuery}, since),
+    );
+  }
 
-  Future<List<Item>> songItems() => _cached('songs', () async {
+  Future<List<Item>> artistItems() {
     final j = jf;
-    if (j == null) return const [];
-    final r = await j.getAllPaged('/Items', {
-      ..._user,
-      'IncludeItemTypes': 'Audio',
-      'Recursive': true,
-      'SortBy': 'SortName',
-      'Fields': 'AlbumId,AlbumPrimaryImageTag,SortName,DateCreated,UserData,Genres',
-    });
-    return r..sort(_bySortName);
-  });
+    if (j == null) return Future.value(const <Item>[]);
+    final q = {'UserId': j.userId, 'SortBy': 'SortName', 'Fields': 'SortName,DateCreated,UserData'};
+    return _persisted(
+      'artists',
+      full: () async => (await j.getAllPaged('/Artists', q))..sort(_bySortName),
+      total: () => _count('/Artists', {'UserId': j.userId}),
+    );
+  }
+
+  Future<List<Item>> songItems() {
+    final j = jf;
+    if (j == null) return Future.value(const <Item>[]);
+    return _persisted(
+      'songs',
+      full: () async => (await j.getAllPaged('/Items', {..._user, ..._songQuery}))..sort(_bySortName),
+      total: () => _count('/Items', {..._user, 'IncludeItemTypes': 'Audio', 'Recursive': true}),
+      changed: (since) => _changed({..._user, ..._songQuery}, since),
+    );
+  }
 
   Future<List<Item>> playlistItems() => _cached('playlists', () async {
     final j = jf;
