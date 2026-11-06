@@ -177,7 +177,7 @@ class Settings extends ChangeNotifier {
     _ => 'swipe',
   };
   void setCoverAnim(String v) => _changed(_p?.setString('coverAnim', coverAnim = v));
-  late double coverAnimSeconds = _num('coverAnimSeconds', 0.6, 0.2, 2);
+  late double coverAnimSeconds = _num('coverAnimSeconds', 0.46, 0.2, 2);
   void setCoverAnimSeconds(double v) => _changed(_p?.setDouble('coverAnimSeconds', coverAnimSeconds = v));
 
   /// Background colors fade between songs, over this long on a skip.

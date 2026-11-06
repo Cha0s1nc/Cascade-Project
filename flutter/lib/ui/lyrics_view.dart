@@ -413,19 +413,24 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
             : CrossAxisAlignment.start,
         children: [
           text,
-          // Background vocals open under the line only while it is current.
-          AnimatedSize(
+          // Background vocals open under the line only while it is current,
+          // growing and fading together over 0.4 s (and closing the same
+          // way), always laid out so nothing pops in or vanishes.
+          TweenAnimationBuilder<double>(
+            tween: Tween(end: active ? 1 : 0),
             duration: const Duration(milliseconds: 400),
-            alignment: Alignment.topCenter,
-            child: active
-                ? Padding(
-                    padding: EdgeInsets.only(top: 0.3 * fs),
-                    child: Opacity(
-                      opacity: _s(st, 'backgroundVocalOpacity', 0.85),
-                      child: _Karaoke(words: line.background!, style: bg, align: wrap, active: true, now: _now, st: st, emphasis: emphasis),
-                    ),
-                  )
-                : const SizedBox(width: double.infinity),
+            curve: Curves.easeOut,
+            builder: (_, v, child) => ClipRect(
+              child: Align(
+                alignment: Alignment.topCenter,
+                heightFactor: v,
+                child: Opacity(opacity: v * _s(st, 'backgroundVocalOpacity', 0.85), child: child),
+              ),
+            ),
+            child: Padding(
+              padding: EdgeInsets.only(top: 0.3 * fs),
+              child: _Karaoke(words: line.background!, style: bg, align: wrap, active: active, now: _now, st: st, emphasis: emphasis),
+            ),
           ),
         ],
       );
@@ -546,15 +551,17 @@ class _LookState extends State<_Look> with SingleTickerProviderStateMixin {
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: _c,
     builder: (_, child) {
+      // The same widgets every frame (blur switched off, not removed): a
+      // change of shape would rebuild the line and restart its animations.
       final (o, b, s) = _now;
-      Widget w = s == 1 ? child! : Transform.scale(scale: s, alignment: widget.origin, child: child);
-      if (b >= 0.2) {
-        w = ImageFiltered(
+      return Opacity(
+        opacity: o.clamp(0.0, 1.0),
+        child: ImageFiltered(
+          enabled: b >= 0.2,
           imageFilter: ImageFilter.blur(sigmaX: b, sigmaY: b),
-          child: w,
-        );
-      }
-      return Opacity(opacity: o.clamp(0.0, 1.0), child: w);
+          child: Transform.scale(scale: s, alignment: widget.origin, child: child),
+        ),
+      );
     },
     child: widget.child,
   );
@@ -628,6 +635,9 @@ class _Karaoke extends StatelessWidget {
             valueListenable: now,
             builder: (_, n, _) => p.$2 ? _Held(word: p.$1, style: style, now: n, st: st) : _Word(word: p.$1, style: style, now: n, st: st),
           )
+        // Not current: the same layout, so the line keeps its wrap.
+        : p.$2
+        ? _Held(word: p.$1, style: style, st: st)
         : Text(p.$1.text, style: style);
     return Wrap(
       alignment: align,
@@ -701,20 +711,23 @@ class _Word extends StatelessWidget {
 /// A held note (SpicyLyrics): each letter takes its share of the fill and
 /// swells, rises and glows from when the fill reaches it, by heldSwell.
 class _Held extends StatelessWidget {
-  const _Held({required this.word, required this.style, required this.now, required this.st});
+  const _Held({required this.word, required this.style, this.now, required this.st});
   final LyricWord word;
   final TextStyle style;
-  final int now;
+
+  /// Null when its line is not current: drawn plain, at the same size.
+  final int? now;
   final Map<String, double> st;
 
   @override
   Widget build(BuildContext context) {
     final letters = word.text.characters.toList();
     final n = letters.length;
-    final prog = _progress(word, now);
+    final now = this.now;
+    final prog = now == null ? 1.0 : _progress(word, now);
     final start = word.start / 1e7;
     final held = max(0.0, (word.end ?? word.start) / 1e7 - start);
-    final t = now / 1e7;
+    final t = (now ?? 0) / 1e7;
     final fs = style.fontSize!;
     final unsung = _s(st, 'unsungOpacity', 0.29);
     final lift = _s(st, 'heldLift', 0.16), grow = _s(st, 'heldScale', 1.19);
@@ -729,7 +742,7 @@ class _Held extends StatelessWidget {
               builder: (_) {
                 final share = (prog * n - i).clamp(0.0, 1.0);
                 final litAt = start + held * i / n;
-                final s = heldSwell(t - litAt, start + held - litAt, held, swellStyle);
+                final s = now == null ? 0.0 : heldSwell(t - litAt, start + held - litAt, held, swellStyle);
                 final glow = s > 0.01
                     ? style.copyWith(
                         shadows: [

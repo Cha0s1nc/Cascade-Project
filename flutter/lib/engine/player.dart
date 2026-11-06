@@ -493,7 +493,9 @@ class Player extends ChangeNotifier {
 
   void _onPosition(_Deck d, double s) {
     d.pos = s;
-    if (d != _deck) return;
+    // While a skip loads the next song, the old one is still the current
+    // deck: its position is not the new song's (the lyrics jumped to it).
+    if (d != _deck || d.song != song) return;
     final changed = s.floor() != position.floor();
     position = s;
     if (changed) notifyListeners();

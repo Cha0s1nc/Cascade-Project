@@ -466,10 +466,10 @@ class _StyleMenuState extends State<StyleMenu> {
     _section('Cover animation', [
       _row(
         'Style',
-        _menu<String>(s.coverAnim, const {'swipe': 'Swipe away', 'push': 'Push', 'fade': 'Fade', 'none': 'None'}, s.setCoverAnim),
+        _menu<String>(s.coverAnim, const {'swipe': 'Toss', 'push': 'Push', 'fade': 'Fade', 'none': 'None'}, s.setCoverAnim),
         subtitle: 'How the cover changes to the next song',
       ),
-      if (s.coverAnim != 'none') _row('Length', _slider(s.coverAnimSeconds, 0.2, 2, 0.1, '${s.coverAnimSeconds.toStringAsFixed(1)} s', s.setCoverAnimSeconds)),
+      if (s.coverAnim != 'none') _row('Length', _slider(s.coverAnimSeconds, 0.2, 2, 0.02, '${s.coverAnimSeconds.toStringAsFixed(2)} s', s.setCoverAnimSeconds)),
     ]),
   ];
 
@@ -521,7 +521,7 @@ class _StyleMenuState extends State<StyleMenu> {
         s.setLyricStyle({});
         applyLook(s, {'lyricScale': 1, 'plainLyricScale': 0.55, 'lyricsForcedSource': 'auto'});
       case 'crossfade':
-        applyLook(s, {'coverAnim': 'swipe', 'coverAnimSeconds': 0.6});
+        applyLook(s, {'coverAnim': 'swipe', 'coverAnimSeconds': 0.46});
     }
   }
 }

@@ -239,10 +239,13 @@ class ArtStack extends StatefulWidget {
 }
 
 /// The cover changes to the next song by the Style menu's cover animation:
-/// 'swipe' flicks the cover off to the right, tilting as it goes, the way
-/// you swipe a match away, while the next one steps up from behind; going
-/// back brings the last one flying in again. 'push' slides them across,
-/// 'fade' crossfades, 'none' cuts.
+/// 'swipe' (shown as Toss) tosses the cover off to the left with a slight
+/// tilt while the next one springs up from behind; going back plays it in
+/// reverse. 'push' slides them across, 'fade' crossfades, 'none' cuts.
+/// The toss's tilt (5 degrees), travel (0.55 of the cover) and spring
+/// bounce were tuned by eye in a side-by-side mock-up, 2026-11-06.
+const _tossTilt = 5 * pi / 180, _tossTravel = 0.55, _tossBounce = 0.09;
+
 class _ArtStackState extends State<ArtStack> with SingleTickerProviderStateMixin {
   late final _c = AnimationController(vsync: this, value: 1)..addListener(() => setState(() {}));
   Song? _from;
@@ -342,16 +345,25 @@ class _ArtStackState extends State<ArtStack> with SingleTickerProviderStateMixin
           children
             ..add(card(from, left: 0, scale: 1, opacity: 1, shadow: true))
             ..add(card(widget.song, left: 0, scale: 1, opacity: Curves.easeInOut.transform(t), shadow: true));
-        default: // swipe
-          // The flicked card picks up speed and tilts as it goes; the one
-          // under it eases up from the first behind slot.
-          final fling = Curves.easeInCubic.transform(t);
+        default: // toss
+          // The cover is tossed off to the left, tilting a little and gone
+          // in the first 60% of the time, while the next one springs up
+          // from the first behind slot. Going back plays it in reverse.
+          final p = _back ? 1 - t : t;
+          final k = Curves.easeInCubic.transform((p / 0.6).clamp(0.0, 1.0));
+          final up = p >= 1 ? 1.0 : 1 - exp(-7 * p) * cos(_tossBounce * 14 * p);
           final (gone, rising) = _back ? (widget.song, from) : (from, widget.song);
-          final k = _back ? 1 - fling : fling; // how far out the flicked card is
-          final up = _back ? 1 - e : e; // how far up the rising card is
           children
-            ..add(card(rising, left: lerp(slotLeft(0), 0, up), scale: lerp(slotScale(0), 1, up), opacity: lerp(slotOpacity(0), 1, up), shadow: true))
-            ..add(card(gone, left: 0, scale: 1, opacity: 1 - max(0, (k - 0.7) / 0.3), dx: size * 1.5 * k, dy: -size * 0.06 * k, turn: 0.26 * k, shadow: true));
+            ..add(
+              card(
+                rising,
+                left: lerp(slotLeft(0), 0, up),
+                scale: lerp(slotScale(0), 1, up),
+                opacity: lerp(slotOpacity(0), 1, up).clamp(0.0, 1.0),
+                shadow: true,
+              ),
+            )
+            ..add(card(gone, left: 0, scale: 1, opacity: 1 - k, dx: -size * _tossTravel * k, dy: size * 0.04 * k, turn: -_tossTilt * k, shadow: true));
       }
     }
     return SizedBox(

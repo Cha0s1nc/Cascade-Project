@@ -57,6 +57,16 @@ void main() {
     expect(find.text('(ooh)'), findsOneWidget, reason: 'the current line opens its background vocals');
     expect(find.text('h'), findsOneWidget, reason: 'a held note is drawn letter by letter');
 
+    // The held line keeps its exact layout once it is no longer current, so
+    // its wrap never changes as it fades.
+    // The held word's group on line 4, letter by letter while lit.
+    Size wrap4() {
+      final word = find.text('h').evaluate().isNotEmpty ? find.text('h') : find.text('hoooold');
+      return tester.getSize(find.ancestor(of: word.first, matching: find.byType(Row)).last);
+    }
+
+    final lit = wrap4();
+
     // The wheel moves the sheet; 2.2 s later it springs back.
     final before = tester.getRect(find.text('4').first).top;
     final pointer = TestPointer(1, PointerDeviceKind.mouse);
@@ -69,6 +79,10 @@ void main() {
     expect(tester.getRect(find.text('4').first).top, closeTo(before, 2));
 
     // A jump ahead (a seek) lands there at once.
+    player.position = 6 * 3.0 + 0.2;
+    await frames(tester, 3);
+    expect(wrap4(), lit, reason: 'line 4, now past, has the same layout as when it was lit');
+
     player.position = 9 * 3.0 + 0.2;
     await frames(tester, 3);
     expect((tester.getRect(find.text('9').first).center.dy - panel.center.dy).abs(), lessThan(40));
