@@ -106,6 +106,24 @@ String universalStreamUrl(Jellyfin jf, String itemId, int maxBitrate) =>
     '${jf.server}/Audio/$itemId/universal?UserId=${jf.userId}&DeviceId=${jf.deviceId}'
     '&Container=opus,mp3,aac,flac,wav,ogg&TranscodingContainer=mp3&AudioCodec=mp3&MaxStreamingBitrate=$maxBitrate';
 
+/// The song's quality for Now Playing, as (label, value) pairs: what is in
+/// the file, or what the server converts it to when the stream is not the
+/// file itself (an MP3 at the streaming cap, at most 320 kbps).
+List<(String, String)> qualityOf(Map? item, {bool converted = false, int maxBitrate = defaultMaxBitrate}) {
+  final ms = (item?['MediaSources'] as List?)?.firstOrNull as Map?;
+  if (ms == null) return const [];
+  final a = ((ms['MediaStreams'] as List?) ?? const []).whereType<Map>().where((s) => s['Type'] == 'Audio').firstOrNull;
+  final codec = (a?['Codec'] as String? ?? (ms['Container'] as String?)?.split(',').first ?? '').toUpperCase();
+  if (converted) return [('Format', 'MP3'), ('Bitrate', '${min(maxBitrate, 320000) ~/ 1000} kbps'), if (codec.isNotEmpty) ('From', codec)];
+  final depth = a?['BitDepth'] as num?, rate = a?['SampleRate'] as num?, bits = (a?['BitRate'] ?? ms['Bitrate']) as num?;
+  return [
+    if (codec.isNotEmpty) ('Format', codec),
+    if (depth != null && depth > 0) ('Bit depth', '$depth-bit'),
+    if (rate != null && rate > 0) ('Sample rate', '${(rate / 1000).toStringAsFixed(rate % 1000 == 0 ? 0 : 1)} kHz'),
+    if (bits != null && bits > 0) ('Bitrate', '${(bits / 1000).round()} kbps'),
+  ];
+}
+
 // Normalization ---------------------------------------------------------------
 
 /// A whisper-quiet album scanned at +34 dB would be a ~50x boost; past

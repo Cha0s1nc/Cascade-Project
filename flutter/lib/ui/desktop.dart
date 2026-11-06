@@ -495,94 +495,96 @@ class PlayerBar extends StatelessWidget {
         border: Border(top: BorderSide(color: K.line)),
       ),
       padding: const EdgeInsets.fromLTRB(16, 0, 20, 0),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 300,
-            child: Row(
-              children: [
-                Expanded(
-                  child: Hover(
-                    onTap: song == null ? null : np.toggle,
-                    builder: (_, on) => Row(
-                      children: [
-                        Cover(song?.art ?? const [K.surface2, K.surface], image: song?.image, size: 48, radius: 8, shadow: song != null),
-                        const SizedBox(width: 12),
-                        Flexible(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                song?.title ?? 'Nothing playing',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: ts(13, w: FontWeight.w600, c: song == null ? K.text3 : (on ? K.accent : K.text)),
-                              ),
-                              if (p.error != null)
+      child: BareIcons(
+        child: Row(
+          children: [
+            SizedBox(
+              width: 300,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Hover(
+                      onTap: song == null ? null : np.toggle,
+                      builder: (_, on) => Row(
+                        children: [
+                          Cover(song?.art ?? const [K.surface2, K.surface], image: song?.image, size: 48, radius: 8, shadow: song != null),
+                          const SizedBox(width: 12),
+                          Flexible(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
                                 Text(
-                                  p.error!,
+                                  song?.title ?? 'Nothing playing',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: ts(12, c: K.error),
-                                )
-                              else if (song != null) ...[
-                                const SizedBox(height: 2),
-                                Text(
-                                  '${song.artist} · ${song.album}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: ts(12, c: K.text2),
+                                  style: ts(13, w: FontWeight.w600, c: song == null ? K.text3 : (on ? K.accent : K.text)),
                                 ),
+                                if (p.error != null)
+                                  Text(
+                                    p.error!,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: ts(12, c: K.error),
+                                  )
+                                else if (song != null) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '${song.artist} · ${song.album}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: ts(12, c: K.text2),
+                                  ),
+                                ],
                               ],
-                            ],
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 6),
-                if (song != null) LikeButton(p: p),
-              ],
+                  const SizedBox(width: 6),
+                  if (song != null) LikeButton(p: p),
+                ],
+              ),
             ),
-          ),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Transport(p: p),
-                SeekBar(p: p, maxWidth: 520),
-              ],
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Transport(p: p),
+                  SeekBar(p: p, maxWidth: 520),
+                ],
+              ),
             ),
-          ),
-          SizedBox(
-            width: 340,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                IconBtn(
-                  Icons.lyrics_outlined,
-                  'Lyrics',
-                  song == null ? null : () => np.show(NpPanel.lyrics),
-                  color: np.open && np.panel == NpPanel.lyrics ? K.accent : K.text2,
-                ),
-                IconBtn(
-                  Icons.queue_music_rounded,
-                  'Queue',
-                  song == null ? null : () => np.show(NpPanel.queue),
-                  color: np.open && np.panel == NpPanel.queue ? K.accent : K.text2,
-                ),
-                const WaterfallButton(),
-                const MiniplayerButton(),
-                const DevicesButton(),
-                const SleepTimerButton(),
-                Container(width: 1, height: 18, margin: const EdgeInsets.symmetric(horizontal: 8), color: K.line),
-                VolumeControl(p: p),
-              ],
+            SizedBox(
+              width: 340,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  IconBtn(
+                    Icons.lyrics_outlined,
+                    'Lyrics',
+                    song == null ? null : () => np.show(NpPanel.lyrics),
+                    color: np.open && np.panel == NpPanel.lyrics ? K.accent : K.text2,
+                  ),
+                  IconBtn(
+                    Icons.queue_music_rounded,
+                    'Queue',
+                    song == null ? null : () => np.show(NpPanel.queue),
+                    color: np.open && np.panel == NpPanel.queue ? K.accent : K.text2,
+                  ),
+                  const WaterfallButton(),
+                  const MiniplayerButton(),
+                  const DevicesButton(),
+                  const SleepTimerButton(),
+                  Container(width: 1, height: 18, margin: const EdgeInsets.symmetric(horizontal: 8), color: K.line),
+                  VolumeControl(p: p),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -614,16 +616,16 @@ class Transport extends StatelessWidget {
     mainAxisAlignment: MainAxisAlignment.center,
     spacing: big ? 22 : 14,
     children: [
-      IconBtn(Icons.shuffle_rounded, 'Shuffle', p.toggleShuffle, color: p.shuffle ? K.accent : K.text2, size: big ? 22 : 18),
-      IconBtn(Icons.skip_previous_rounded, 'Previous', p.prev, color: K.text, size: big ? 30 : 22),
-      PlayCircle(playing: p.playing, onTap: p.toggle, size: big ? 60 : 36),
-      IconBtn(Icons.skip_next_rounded, 'Next', p.next, color: K.text, size: big ? 30 : 22),
+      IconBtn(Icons.shuffle_rounded, 'Shuffle', p.toggleShuffle, color: p.shuffle ? K.accent : K.text2, size: big ? 22 : 16),
+      IconBtn(Icons.skip_previous_rounded, 'Previous', p.prev, color: K.text, size: big ? 30 : 20),
+      PlayCircle(playing: p.playing, onTap: p.toggle, size: big ? 60 : 32),
+      IconBtn(Icons.skip_next_rounded, 'Next', p.next, color: K.text, size: big ? 30 : 20),
       IconBtn(
         p.repeat == Repeat.one ? Icons.repeat_one_rounded : Icons.repeat_rounded,
         'Repeat',
         p.toggleRepeat,
         color: p.repeat == Repeat.off ? K.text2 : K.accent,
-        size: big ? 22 : 18,
+        size: big ? 22 : 16,
       ),
     ],
   );

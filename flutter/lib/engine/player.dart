@@ -104,6 +104,9 @@ class Player extends ChangeNotifier {
   /// Streaming for real, rather than pretending for the demo.
   bool get _real => _decks.isNotEmpty && jf != null;
   _Deck get _deck => _decks[_cur];
+
+  /// The playing stream is a server conversion, not the file.
+  bool get converted => _decks.isNotEmpty && _deck.stream?.direct == false;
   _Deck get _idle => _decks[1 - _cur];
 
   bool get isLiked => song != null && (likedOf?.call(song!) ?? liked.contains(song!.id.isEmpty ? song!.title : song!.id));

@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:cascade/core/data.dart';
 import 'package:cascade/core/lyrics.dart';
 import 'package:cascade/core/lyrics_fetch.dart';
+import 'package:cascade/core/playback.dart';
 import 'package:cascade/core/settings.dart';
 import 'package:cascade/engine/player.dart';
 import 'package:cascade/ui/lyrics_view.dart';
@@ -266,15 +267,7 @@ class _NowPlayingViewState extends State<NowPlayingView> {
             style: ts(14, c: K.text2),
           ),
           const SizedBox(height: 14),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              if (p.settings.crossfadeEnabled) _chip('Crossfade ${p.settings.crossfadeSeconds} s'),
-              if (song.playCount > 0) _chip('Played ${song.playCount} ${song.playCount == 1 ? 'time' : 'times'}'),
-              if (p.source != null) _chip('From ${p.source}'),
-            ],
-          ),
+          QualityLine(song: song),
           if (under) ...[
             const SizedBox(height: 26),
             SizedBox(
@@ -353,11 +346,68 @@ class _NowPlayingViewState extends State<NowPlayingView> {
     ],
   );
 
-  Widget _chip(String t) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-    decoration: BoxDecoration(color: K.surface.withValues(alpha: 0.7), borderRadius: BorderRadius.circular(99)),
-    child: Text(t, style: ts(12, c: K.text2)),
-  );
+}
+
+/// The song's quality under its title: format, bit depth, sample rate and
+/// bitrate, or what the server converts it to. Asked of the server once per
+/// song (lists leave the file details out to stay small).
+class QualityLine extends StatefulWidget {
+  const QualityLine({super.key, required this.song});
+  final Song song;
+
+  @override
+  State<QualityLine> createState() => _QualityLineState();
+}
+
+class _QualityLineState extends State<QualityLine> {
+  static final _cache = <String, Map?>{};
+  Map? _item;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(QualityLine old) {
+    super.didUpdateWidget(old);
+    if (old.song.id != widget.song.id) _load();
+  }
+
+  Future<void> _load() async {
+    final id = widget.song.id;
+    if (_cache.containsKey(id)) return setState(() => _item = _cache[id]);
+    final item = await LibraryScope.read(context).item(id).catchError((_) => null);
+    if (_cache.length > 200) _cache.clear();
+    _cache[id] = item;
+    if (mounted && widget.song.id == id) setState(() => _item = item);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = PlayerScope.read(context);
+    final q = qualityOf(_item, converted: p.converted, maxBitrate: p.settings.maxStreamingBitrate);
+    return AnimatedOpacity(
+      opacity: q.isEmpty ? 0 : 1,
+      duration: const Duration(milliseconds: 300),
+      child: Wrap(
+        spacing: 22,
+        runSpacing: 10,
+        children: [
+          for (final (label, value) in q)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(value, style: ts(14, w: FontWeight.w600)),
+                const SizedBox(height: 2),
+                Text(label.toUpperCase(), style: Txt.caps()),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 /// The transport, seek bar and extras when they leave the player bar.

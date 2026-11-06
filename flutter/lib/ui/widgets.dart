@@ -172,7 +172,7 @@ class PlayCircle extends StatelessWidget {
         height: size,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: on ? K.foam : K.accent,
+          color: on ? K.accent.withValues(alpha: 0.85) : K.accent,
           boxShadow: const [BoxShadow(color: Color(0x40000000), blurRadius: 12, offset: Offset(0, 4))],
         ),
         child: Icon(playing ? Icons.pause_rounded : Icons.play_arrow_rounded, color: K.ink, size: size * 0.55),
@@ -269,6 +269,7 @@ class IconBtn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (context.dependOnInheritedWidgetOfExactType<BareIcons>() != null) return _bare();
     final i = Icon(icon, size: size, color: onTap == null ? K.text3.withValues(alpha: 0.5) : color);
     return Tooltip(
       message: tip,
@@ -292,6 +293,44 @@ class IconBtn extends StatelessWidget {
       ),
     );
   }
+
+  /// The desktop player bar's kind: no box, text-3 brightening to text on
+  /// hover; a colored (active) one keeps its color.
+  Widget _bare() => Tooltip(
+    message: tip,
+    waitDuration: const Duration(milliseconds: 500),
+    child: Hover(
+      onTap: onTap,
+      builder: (_, on) {
+        final c = onTap == null
+            ? K.text3.withValues(alpha: 0.5)
+            : color != K.text2 && color != K.text
+            ? color
+            : on
+            ? K.text
+            : (color == K.text ? K.text2 : K.text3);
+        return Padding(
+          padding: const EdgeInsets.all(6),
+          child: TweenAnimationBuilder<Color?>(
+            tween: ColorTween(end: c),
+            duration: const Duration(milliseconds: 120),
+            builder: (_, c, _) {
+              final i = Icon(icon, size: size, color: c);
+              return badge ? Badge(smallSize: 7, backgroundColor: K.accent, child: i) : i;
+            },
+          ),
+        );
+      },
+    ),
+  );
+}
+
+/// IconBtns under this draw bare, as the desktop player bar's buttons.
+class BareIcons extends InheritedWidget {
+  const BareIcons({super.key, required super.child});
+
+  @override
+  bool updateShouldNotify(BareIcons old) => false;
 }
 
 /// A Recently played row: the song, then artist and album.

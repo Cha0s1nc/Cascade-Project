@@ -13,6 +13,7 @@ import 'package:cascade/core/queue.dart';
 import 'package:cascade/ui/pages/common.dart';
 import 'package:cascade/ui/pages/downloads.dart';
 import 'package:cascade/ui/pages/library.dart';
+import 'package:cascade/ui/glass_button.dart';
 import 'package:cascade/ui/scopes.dart';
 import 'package:cascade/ui/widgets.dart';
 
@@ -111,7 +112,8 @@ class DetailHeader extends StatelessWidget {
   }
 }
 
-/// A round button in the header row: like, download, more.
+/// A round button in the header row: like, download, more. The desktop's
+/// glass button, its name sliding out on hover.
 class RoundBtn extends StatelessWidget {
   const RoundBtn(this.icon, this.tip, this.onTap, {super.key, this.color = K.text});
   final IconData icon;
@@ -120,22 +122,7 @@ class RoundBtn extends StatelessWidget {
   final Color color;
 
   @override
-  Widget build(BuildContext context) => Tooltip(
-    message: tip,
-    child: Semantics(
-      button: true,
-      label: tip,
-      child: Hover(
-        onTap: onTap,
-        builder: (_, on) => Container(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(color: on ? K.surface2 : K.surface, shape: BoxShape.circle),
-          child: Icon(icon, size: 18, color: onTap == null ? K.text3 : color),
-        ),
-      ),
-    ),
-  );
+  Widget build(BuildContext context) => GlassBtn(icon, tip, onTap, color: color);
 }
 
 /// A small label chip in the header (FLAC · 44.1 kHz).
@@ -157,8 +144,8 @@ class InfoChip extends StatelessWidget {
 List<Widget> playButtons(BuildContext context, List<Song> songs, String source) {
   final p = PlayerScope.read(context);
   return [
-    Pill('Play', icon: Icons.play_arrow_rounded, onTap: songs.isEmpty ? null : () => playAll(p, songs, source)),
-    Pill('Shuffle', icon: Icons.shuffle_rounded, primary: false, onTap: songs.isEmpty ? null : () => playAll(p, songs, source, shuffle: true)),
+    GlassBtn(Icons.play_arrow_rounded, 'Play', songs.isEmpty ? null : () => playAll(p, songs, source), primary: true),
+    GlassBtn(Icons.shuffle_rounded, 'Shuffle', songs.isEmpty ? null : () => playAll(p, songs, source, shuffle: true)),
   ];
 }
 

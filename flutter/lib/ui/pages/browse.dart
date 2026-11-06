@@ -11,6 +11,7 @@ import 'package:cascade/ui/pages/common.dart';
 import 'package:cascade/ui/pages/detail.dart';
 import 'package:cascade/ui/pages/home.dart';
 import 'package:cascade/ui/pages/library.dart';
+import 'package:cascade/ui/glass_button.dart';
 import 'package:cascade/ui/scopes.dart';
 import 'package:cascade/ui/widgets.dart';
 
@@ -400,14 +401,11 @@ void playVideo(BuildContext context, Item item) {
   play(context, item);
 }
 
-Widget playVideoButton(BuildContext context, Item item) => Pill(
-  item['Type'] == 'Series' ? 'Play next episode' : 'Play',
-  icon: Icons.play_arrow_rounded,
-  onTap: () async {
-    if (item['Type'] != 'Series') return playVideo(context, item);
-    final lib = LibraryScope.read(context);
-    final res = await lib.jf!.get('/Shows/NextUp', {'UserId': lib.jf!.userId, 'SeriesId': item['Id']});
-    final next = ((res as Map)['Items'] as List).cast<Item>().firstOrNull;
-    if (context.mounted && next != null) playVideo(context, next);
-  },
-);
+Widget playVideoButton(BuildContext context, Item item) =>
+    GlassBtn(Icons.play_arrow_rounded, item['Type'] == 'Series' ? 'Play next episode' : 'Play', primary: true, () async {
+      if (item['Type'] != 'Series') return playVideo(context, item);
+      final lib = LibraryScope.read(context);
+      final res = await lib.jf!.get('/Shows/NextUp', {'UserId': lib.jf!.userId, 'SeriesId': item['Id']});
+      final next = ((res as Map)['Items'] as List).cast<Item>().firstOrNull;
+      if (context.mounted && next != null) playVideo(context, next);
+    });

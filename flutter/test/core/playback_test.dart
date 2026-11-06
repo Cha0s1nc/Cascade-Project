@@ -148,4 +148,35 @@ void main() {
     expect(withStartTicks('https://jf.test/Audio/x/stream.mp3?a=1', 12.5), 'https://jf.test/Audio/x/stream.mp3?a=1&StartTimeTicks=125000000');
     expect(withStartTicks('https://jf.test/a?StartTimeTicks=5', 1), 'https://jf.test/a?StartTimeTicks=10000000');
   });
+
+  test('qualityOf: the file, or what the server converts it to', () {
+    final flac = {
+      'MediaSources': [
+        {
+          'Container': 'flac',
+          'Bitrate': 2304000,
+          'MediaStreams': [
+            {'Type': 'Audio', 'Codec': 'flac', 'BitDepth': 24, 'SampleRate': 96000},
+          ],
+        },
+      ],
+    };
+    expect(qualityOf(flac), [('Format', 'FLAC'), ('Bit depth', '24-bit'), ('Sample rate', '96 kHz'), ('Bitrate', '2304 kbps')]);
+    expect(qualityOf(flac, converted: true, maxBitrate: 192000), [('Format', 'MP3'), ('Bitrate', '192 kbps'), ('From', 'FLAC')]);
+    expect(qualityOf(flac, converted: true), [('Format', 'MP3'), ('Bitrate', '320 kbps'), ('From', 'FLAC')]);
+    expect(
+      qualityOf({
+        'MediaSources': [
+          {
+            'Container': 'mp3',
+            'MediaStreams': [
+              {'Type': 'Audio', 'SampleRate': 44100},
+            ],
+          },
+        ],
+      }),
+      [('Format', 'MP3'), ('Sample rate', '44.1 kHz')],
+    );
+    expect(qualityOf(null), isEmpty);
+  });
 }
