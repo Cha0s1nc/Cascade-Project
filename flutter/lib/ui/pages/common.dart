@@ -255,13 +255,15 @@ class MediaCard extends StatelessWidget {
             textAlign: round ? TextAlign.center : TextAlign.start,
             style: ts(13, w: FontWeight.w500, c: on ? K.accent : K.text),
           ),
-          const SizedBox(height: 3),
-          Text(
-            subtitle,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: ts(12, c: K.text3),
-          ),
+          if (subtitle.isNotEmpty) ...[
+            const SizedBox(height: 3),
+            Text(
+              subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: ts(12, c: K.text3),
+            ),
+          ],
         ],
       ),
     ),

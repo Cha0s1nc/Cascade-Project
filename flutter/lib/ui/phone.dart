@@ -81,7 +81,16 @@ class _PhoneShellState extends State<PhoneShell> {
   // Android's Back: Now Playing first, then this tab's history, then Home,
   // then out of the app.
   @override
-  Widget build(BuildContext context) => NavScope(
+  Widget build(BuildContext context) {
+    // Only video on this server: Video mode, and no way back to an empty Music.
+    final lib = LibraryScope.of(context);
+    if (!lib.demo && !lib.loading && lib.jf != null && lib.musicLibs.isEmpty && lib.hasVideo && _mode == 'music') {
+      WidgetsBinding.instance.addPostFrameCallback((_) => mounted ? _setMode('video', save: false) : null);
+    }
+    return _shell(context);
+  }
+
+  Widget _shell(BuildContext context) => NavScope(
     nav: _nav,
     child: NowPlayingScope(
       np: _np,
@@ -178,7 +187,7 @@ class _SearchBar extends StatelessWidget {
             Expanded(
               child: Text(video ? 'Search movies and shows' : 'Search songs, albums, artists', style: ts(16, c: A.text2)),
             ),
-            if (LibraryScope.of(context).hasVideo || LibraryScope.of(context).demo)
+            if (LibraryScope.of(context).demo || (LibraryScope.of(context).hasVideo && LibraryScope.of(context).musicLibs.isNotEmpty))
               IconButton(
                 tooltip: video ? 'Music' : 'Movies and TV',
                 onPressed: onMode,

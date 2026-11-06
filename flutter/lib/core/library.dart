@@ -109,9 +109,11 @@ class Library extends ChangeNotifier {
   Future<void> setOfflineMode(bool on) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('offlineMode', on);
-    // Right before going offline by hand, the history the sync will compare.
-    if (on && !offline && jf != null) await _snapshot(jf!).catchError((_) {});
+    // The switch flips at once. The history snapshot the sync compares with
+    // is kept current while online (after each refresh and each song start),
+    // so there is nothing to wait for here.
     _setOffline(OfflineSwitch(on));
+    notifyListeners();
     await refresh();
   }
 
@@ -134,9 +136,18 @@ class Library extends ChangeNotifier {
     });
   }
 
-  /// A play while offline, queued for the history catch-up.
+  Timer? _snapshotSoon;
+
+  /// A song started: offline, queue it as a play; online, retake the
+  /// history snapshot a few seconds later (once), so this device's own plays
+  /// are in it.
   void offlinePlay(String itemId) {
     final d = downloads, j = jf;
+    if (!offline && j != null && d != null && d.index.tracks.isNotEmpty) {
+      _snapshotSoon?.cancel();
+      _snapshotSoon = Timer(const Duration(seconds: 5), () => _snapshot(j).catchError((_) {}));
+      return;
+    }
     if (!offline || d == null || j == null || itemId.isEmpty) return;
     addPlay(d.index, {'itemId': itemId, 'userId': j.userId, 'date': DateTime.now().toUtc().toIso8601String()});
     d.save();
@@ -341,6 +352,11 @@ class Library extends ChangeNotifier {
   /// Choose the libraries in use and load everything again (renderer.js
   /// library picker). Empty music means all; empty video means none.
   Future<void> setLibraries({List<String>? music, List<String>? movies, List<String>? shows}) async {
+    // Shown at once; the reload follows.
+    if (music != null) jf?.libraryIds = music;
+    if (movies != null) movieIds = movies;
+    if (shows != null) showIds = shows;
+    notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     if (music != null) await prefs.setStringList('libraryIds', music);
     if (movies != null) await prefs.setStringList('movieLibraryIds', movies);

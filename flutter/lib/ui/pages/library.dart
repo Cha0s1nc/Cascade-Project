@@ -259,7 +259,7 @@ class GenresPage extends StatelessWidget {
               ? const SliverToBoxAdapter(child: Empty('No genres on your server.'))
               : CardGrid(
                   count: all.length,
-                  textHeight: 30,
+                  textHeight: 36,
                   aspect: 16 / 9,
                   builder: (context, i) {
                     final g = lib.jf!.genre(all[i]);

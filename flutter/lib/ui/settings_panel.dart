@@ -140,29 +140,35 @@ class _SettingsPanelState extends State<SettingsPanel> {
       const _Header('Library', top: 8),
       if (lib.demo) Text('Sign in to choose libraries.', style: ts(13, c: K.text3)),
       if (lib.musicLibs.isNotEmpty) ...[
-        _Row(title: 'Music libraries', subtitle: 'Albums, artists and songs come from these', trailing: const SizedBox.shrink()),
+        _Row(title: 'Music libraries', subtitle: 'Albums, artists and songs come from these. At least one stays on.', trailing: const SizedBox.shrink()),
         for (final l in lib.musicLibs)
-          _Check(l['Name'] as String? ?? '', music.contains(l['Id']), (on) {
-            final ids = {...music};
-            on ? ids.add(l['Id'] as String) : ids.remove(l['Id']);
-            if (ids.isEmpty) return toast(context, 'Keep at least one music library.');
-            lib.setLibraries(music: ids.toList());
-          }),
+          _LibSwitch(
+            l['Name'] as String? ?? '',
+            music.contains(l['Id']),
+            // The last one on cannot be turned off.
+            music.contains(l['Id']) && music.length == 1
+                ? null
+                : (on) {
+                    final ids = {...music};
+                    on ? ids.add(l['Id'] as String) : ids.remove(l['Id']);
+                    lib.setLibraries(music: ids.toList());
+                  },
+          ),
       ],
       if (lib.movieLibs.isNotEmpty || lib.showLibs.isNotEmpty) ...[
-        _Row(title: 'Movie and TV libraries', subtitle: 'None chosen hides Movies and TV Shows', trailing: const SizedBox.shrink()),
+        _Row(title: 'Movie and TV libraries', subtitle: 'None on hides Movies and TV Shows', trailing: const SizedBox.shrink()),
         for (final l in lib.movieLibs)
-          _Check('${l['Name']} (movies)', lib.movieIds.contains(l['Id']), (on) {
+          _LibSwitch('${l['Name']}', lib.movieIds.contains(l['Id']), (on) {
             final ids = {...lib.movieIds};
             on ? ids.add(l['Id'] as String) : ids.remove(l['Id']);
             lib.setLibraries(movies: ids.toList());
-          }),
+          }, kind: 'Movies'),
         for (final l in lib.showLibs)
-          _Check('${l['Name']} (shows)', lib.showIds.contains(l['Id']), (on) {
+          _LibSwitch('${l['Name']}', lib.showIds.contains(l['Id']), (on) {
             final ids = {...lib.showIds};
             on ? ids.add(l['Id'] as String) : ids.remove(l['Id']);
             lib.setLibraries(shows: ids.toList());
-          }),
+          }, kind: 'TV Shows'),
       ],
       if (!lib.demo)
         _Switch(
@@ -402,22 +408,39 @@ class _SettingsPanelState extends State<SettingsPanel> {
   ];
 }
 
-class _Check extends StatelessWidget {
-  const _Check(this.label, this.on, this.onChanged);
-  final String label;
+/// One library, on or off. Null [onChanged]: shown but locked.
+class _LibSwitch extends StatelessWidget {
+  const _LibSwitch(this.name, this.on, this.onChanged, {this.kind});
+  final String name;
   final bool on;
-  final ValueChanged<bool> onChanged;
+  final ValueChanged<bool>? onChanged;
+  final String? kind;
 
   @override
-  Widget build(BuildContext context) => CheckboxListTile(
-    value: on,
-    onChanged: (v) => onChanged(v ?? false),
-    dense: true,
-    contentPadding: const EdgeInsets.only(left: 12),
-    controlAffinity: ListTileControlAffinity.leading,
-    activeColor: K.accent,
-    checkColor: K.ink,
-    title: Text(label, style: ts(13)),
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(left: 12),
+    child: Row(
+      children: [
+        Expanded(
+          child: Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(text: name, style: ts(13)),
+                if (kind != null)
+                  TextSpan(
+                    text: '  $kind',
+                    style: ts(12, c: K.text3),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        Tooltip(
+          message: onChanged == null ? 'At least one music library stays on' : '',
+          child: Switch(value: on, onChanged: onChanged),
+        ),
+      ],
+    ),
   );
 }
 

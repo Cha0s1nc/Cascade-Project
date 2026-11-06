@@ -42,7 +42,8 @@ List<(String?, NavItem)> _visibleNav(Library lib, Settings s) {
     'radio' => s.radioEnabled && lib.hasLiveTv,
     'movies' => lib.demo || lib.movieIds.isNotEmpty,
     'shows' => lib.demo || lib.showIds.isNotEmpty,
-    _ => true,
+    // A server with only movies and shows: no music side at all.
+    _ => lib.demo || lib.loading || lib.musicLibs.isNotEmpty,
   };
   final out = <(String?, NavItem)>[];
   String? section, last;
