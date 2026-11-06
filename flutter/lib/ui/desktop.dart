@@ -17,6 +17,7 @@ import 'package:cascade/ui/settings_panel.dart';
 import 'package:cascade/ui/title_bar.dart';
 import 'package:cascade/ui/widgets.dart';
 import 'package:cascade/ui/scopes.dart';
+import 'package:cascade/ui/style_menu.dart';
 
 typedef NavItem = (String? section, String id, String label, IconData icon);
 
@@ -222,7 +223,7 @@ class _DesktopShellState extends State<DesktopShell> {
                           ),
                         ),
                       ),
-                    if (!full) ...[const AnnouncementsButton(), const SizedBox(width: 4), IconBtn(Icons.brush_outlined, 'Theme', () => _go('theme'))],
+                    if (!full) ...[const AnnouncementsButton(), const SizedBox(width: 4), IconBtn(Icons.brush_outlined, 'Style', () => openStyleMenu(context))],
                     SizedBox(width: inlineTitleBar ? 8 : 12),
                     const WindowButtons(),
                   ],

@@ -12,10 +12,13 @@ import 'package:flutter/material.dart';
 import 'package:cascade/core/data.dart';
 import 'package:cascade/core/lyrics.dart';
 import 'package:cascade/core/lyrics_fetch.dart';
+import 'package:cascade/core/settings.dart';
 import 'package:cascade/engine/player.dart';
 import 'package:cascade/ui/lyrics_view.dart';
 import 'package:cascade/ui/pages/common.dart';
+import 'package:cascade/ui/controls.dart';
 import 'package:cascade/ui/scopes.dart';
+import 'package:cascade/ui/style_menu.dart';
 import 'package:cascade/ui/widgets.dart';
 
 enum NpPanel { lyrics, queue }
@@ -24,6 +27,20 @@ enum NpPanel { lyrics, queue }
 class NowPlaying extends ChangeNotifier {
   bool open = false;
   NpPanel panel = NpPanel.lyrics;
+
+  /// The Style menu's tab while it is open beside the lyrics.
+  String? editing;
+
+  void editStyle(String tab) {
+    editing = tab;
+    open = true;
+    notifyListeners();
+  }
+
+  void stopEditing() {
+    editing = null;
+    notifyListeners();
+  }
 
   void toggle() => open ? close() : show(panel);
 
@@ -43,6 +60,7 @@ class NowPlaying extends ChangeNotifier {
   void close() {
     if (!open) return;
     open = false;
+    editing = null;
     notifyListeners();
   }
 }
@@ -150,12 +168,21 @@ class _NowPlayingViewState extends State<NowPlayingView> {
     final song = p.song;
     final layout = p.settings.nowPlayingLayout;
     if (song == null) return const ColoredBox(color: K.root);
+    if (np.editing != null) {
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          ArtBackground(song: song, dim: p.settings.bgDim),
+          _editor(context, p, np, song),
+        ],
+      );
+    }
     return MouseRegion(
       onHover: (_) => _wake(),
       child: Stack(
         fit: StackFit.expand,
         children: [
-          ArtBackground(song: song),
+          ArtBackground(song: song, dim: p.settings.bgDim),
           if (layout == 'focus') _focus(context, p, song) else _split(context, p, np, song, layout == 'under'),
           Positioned(
             top: 16,
@@ -170,6 +197,56 @@ class _NowPlayingViewState extends State<NowPlayingView> {
       ),
     );
   }
+
+  /// The Style menu inside Now Playing, as the desktop's: the art and
+  /// transport in a narrow column, the menu, then the live lyrics.
+  Widget _editor(BuildContext context, Player p, NowPlaying np, Song song) => LayoutBuilder(
+    builder: (context, c) => Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          width: 72,
+          child: Column(
+            spacing: 14,
+            children: [
+              const SizedBox(height: 10),
+              IconBtn(Icons.close_rounded, 'Close the Style menu', np.stopEditing),
+              const Spacer(),
+              Cover(song.art, image: song.image, size: 48, radius: 8),
+              IconBtn(Icons.skip_previous_rounded, 'Previous', p.prev, color: K.text, size: 22),
+              PlayCircle(playing: p.playing, onTap: p.toggle, size: 36),
+              IconBtn(Icons.skip_next_rounded, 'Next', p.next, color: K.text, size: 22),
+              const Spacer(),
+            ],
+          ),
+        ),
+        TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0, end: 1),
+          duration: const Duration(milliseconds: 450),
+          curve: const Interval(0.22, 1, curve: editorCurve),
+          builder: (_, t, child) => Opacity(
+            opacity: t,
+            child: Transform.translate(offset: Offset(-32 * (1 - t), 0), child: child),
+          ),
+          child: Container(
+            width: (c.maxWidth * 0.34).clamp(380.0, 460.0),
+            decoration: BoxDecoration(
+              color: K.panel.withValues(alpha: 0.78),
+              border: const Border.symmetric(vertical: BorderSide(color: K.line)),
+            ),
+            padding: const EdgeInsets.only(top: 12),
+            child: StyleMenu(tab: np.editing!, live: true, onClose: np.stopEditing, onTab: (t) => np.editing = t, showClose: false),
+          ),
+        ),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(40, 56, 32, 24),
+            child: LyricsPanel(key: ValueKey(song.id), song: song),
+          ),
+        ),
+      ],
+    ),
+  );
 
   Widget _split(BuildContext context, Player p, NowPlaying np, Song song, bool under) => LayoutBuilder(
     builder: (context, c) {
@@ -387,6 +464,18 @@ class _TopRight extends StatelessWidget {
           ),
         ),
       Tooltip(
+        message: 'Style',
+        child: Hover(
+          onTap: () => np.editStyle('appearance'),
+          builder: (_, on) => Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(color: on ? K.surface2 : K.surface.withValues(alpha: 0.8), borderRadius: BorderRadius.circular(10)),
+            child: const Icon(Icons.brush_outlined, size: 17, color: K.text),
+          ),
+        ),
+      ),
+      Tooltip(
         message: 'Close',
         child: Hover(
           onTap: np.close,
@@ -421,14 +510,34 @@ class _LyricsPanelState extends State<LyricsPanel> {
   Future<Lyrics?>? _lyrics;
   String? _forced;
 
+  Settings? _settings;
+  String? _saved;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_lyrics == null) {
-      final saved = PlayerScope.read(context).settings.lyricsSource;
-      _forced = lyricSources.contains(saved) ? saved : null;
+      _settings = PlayerScope.read(context).settings..addListener(_settingsChanged);
+      _saved = _settings!.lyricsSource;
+      _forced = lyricSources.contains(_saved) ? _saved : null;
       _lyrics = _fetch();
     }
+  }
+
+  @override
+  void dispose() {
+    _settings?.removeListener(_settingsChanged);
+    super.dispose();
+  }
+
+  /// The Style menu changed the source or the sizes: follow it live.
+  void _settingsChanged() {
+    final saved = _settings!.lyricsSource;
+    if (saved != _saved) {
+      _saved = saved;
+      return _force(lyricSources.contains(saved) ? saved : null);
+    }
+    setState(() {});
   }
 
   Future<Lyrics?> _fetch() async {
@@ -456,7 +565,13 @@ class _LyricsPanelState extends State<LyricsPanel> {
           child: Text(l?.instrumental == true ? 'Instrumental' : 'No lyrics for this one.', style: widget.phone ? ds(22, c: K.text2) : Txt.section(K.text2)),
         );
       } else {
-        body = LyricsView(player: p, lyrics: l, size: widget.size, center: widget.center, phone: widget.phone);
+        body = LyricsView(
+          player: p,
+          lyrics: l,
+          size: widget.size * (l.synced ? p.settings.lyricScale : p.settings.plainLyricScale),
+          center: widget.center,
+          phone: widget.phone,
+        );
       }
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

@@ -93,8 +93,22 @@ class _VideoScreenState extends State<VideoScreen> {
       _p.stream.log.listen((l) => log('video mpv ${l.level} ${l.prefix}: ${l.text.trim()}')),
       _p.stream.buffering.listen((b) => log('video buffering $b')),
     ]);
+    widget.settings.addListener(_applyEq);
+    _applyEq();
     _start(widget.item);
     _wake();
+  }
+
+  /// The Video equalizer, as the music one: an mpv audio filter.
+  Future<void> _applyEq() async {
+    final native = _p.platform;
+    if (native is! mk.NativePlayer) return;
+    final s = widget.settings;
+    try {
+      await native.setProperty('af', s.eqEnabled ? eqFilter(s.eqVideo) : '');
+    } catch (e) {
+      log('video EQ filter refused: $e');
+    }
   }
 
   Future<void> _start(Item item) async {
@@ -209,6 +223,7 @@ class _VideoScreenState extends State<VideoScreen> {
 
   @override
   void dispose() {
+    widget.settings.removeListener(_applyEq);
     _report('stop');
     _hide?.cancel();
     _progress?.cancel();

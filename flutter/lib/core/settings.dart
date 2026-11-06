@@ -132,6 +132,51 @@ class Settings extends ChangeNotifier {
     _changed(_p?.setString('lyricStyle', jsonEncode(changes)));
   }
 
+  // The Style menu ---------------------------------------------------------
+
+  double _num(String k, double d, double lo, double hi) => (_p?.getDouble(k) ?? d).clamp(lo, hi);
+
+  /// How page buttons open their labels: 'overlay' (over their neighbours,
+  /// Electron's default), 'push' (the row makes room) or 'labeled' (always).
+  late String buttonStyle = switch (_p?.getString('buttonStyle')) {
+    'push' => 'push',
+    'labeled' => 'labeled',
+    _ => 'overlay',
+  };
+  void setButtonStyle(String v) => _changed(_p?.setString('buttonStyle', buttonStyle = v));
+
+  /// The whole interface's size, 0.8 to 1.5 (Ctrl + and - too).
+  late double uiScale = _num('uiScale', 1, 0.8, 1.5);
+  void setUiScale(double v) => _changed(_p?.setDouble('uiScale', uiScale = (v * 20).round() / 20));
+
+  /// Lyric text size and plain (untimed) lyrics size (npTuning on the desktop).
+  late double lyricScale = _num('lyricScale', 1, 0.8, 1.4);
+  void setLyricScale(double v) => _changed(_p?.setDouble('lyricScale', lyricScale = v));
+  late double plainLyricScale = _num('plainLyricScale', 0.55, 0.3, 1.4);
+  void setPlainLyricScale(double v) => _changed(_p?.setDouble('plainLyricScale', plainLyricScale = v));
+
+  /// How dark the cover behind Now Playing is (0 to 1).
+  late double bgDim = _num('bgDim', 0.62, 0, 1);
+  void setBgDim(double v) => _changed(_p?.setDouble('bgDim', bgDim = v));
+
+  /// The cover's change between songs: 'swipe' (flicked off to the side),
+  /// 'fade', 'push' or 'none'; how long it takes.
+  late String coverAnim = switch (_p?.getString('coverAnim')) {
+    'fade' => 'fade',
+    'push' => 'push',
+    'none' => 'none',
+    _ => 'swipe',
+  };
+  void setCoverAnim(String v) => _changed(_p?.setString('coverAnim', coverAnim = v));
+  late double coverAnimSeconds = _num('coverAnimSeconds', 0.6, 0.2, 2);
+  void setCoverAnimSeconds(double v) => _changed(_p?.setDouble('coverAnimSeconds', coverAnimSeconds = v));
+
+  /// Background colors fade between songs, over this long on a skip.
+  late bool colorFade = _p?.getBool('colorFade') ?? true;
+  void setColorFade(bool on) => _changed(_p?.setBool('colorFade', colorFade = on));
+  late double colorFadeSeconds = _num('colorFadeSeconds', 0.7, 0.2, 2);
+  void setColorFadeSeconds(double v) => _changed(_p?.setDouble('colorFadeSeconds', colorFadeSeconds = v));
+
   /// Personality v1: the queue's next songs stepped behind the art.
   late bool showArtStack = _p?.getBool('showArtStack') ?? true;
   void setShowArtStack(bool on) => _changed(_p?.setBool('showArtStack', showArtStack = on));

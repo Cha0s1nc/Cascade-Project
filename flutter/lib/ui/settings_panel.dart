@@ -1,17 +1,22 @@
-// Settings with Electron's six tabs: Library, Playback, Lyrics, Integrations,
-// Account and About. A page in the main window on desktop (a tab list down
-// the left), the Settings tab on phones (chips across the top).
+// Settings as the Electron app lays it out: six tabs in a pill track whose
+// accent pill slides to the chosen one, panes that slide sideways as tabs
+// change, and each tab's settings in grouped cards. The look of Now Playing
+// and the lyrics is not here: it is in the Style menu, which the Style
+// buttons open.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'package:cascade/core/electron_import.dart';
 import 'package:cascade/core/jellyfin.dart';
+import 'package:cascade/core/library.dart';
 import 'package:cascade/core/log.dart';
-import 'package:cascade/core/lyrics_fetch.dart';
 import 'package:cascade/core/playback.dart';
 import 'package:cascade/engine/player.dart';
+import 'package:cascade/ui/controls.dart';
+import 'package:cascade/ui/eq_editor.dart';
 import 'package:cascade/ui/pages/common.dart';
 import 'package:cascade/ui/scopes.dart';
+import 'package:cascade/ui/style_menu.dart';
 import 'package:cascade/ui/widgets.dart';
 
 const _tabs = [
@@ -36,100 +41,51 @@ class _SettingsPanelState extends State<SettingsPanel> {
 
   @override
   Widget build(BuildContext context) {
-    // Tablets too: the tab column only fits beside the rows on a wide window.
-    final small = MediaQuery.sizeOf(context).width < 840;
+    final small = MediaQuery.sizeOf(context).width < 860;
     final s = PlayerScope.of(context).settings;
-    final body = ListenableBuilder(
-      listenable: s,
-      builder: (context, _) => ListView(
-        padding: small ? const EdgeInsets.fromLTRB(16, 4, 16, 40) : const EdgeInsets.fromLTRB(8, 0, 32, 40),
-        children: switch (_tab) {
-          'library' => _library(context),
-          'playback' => _playback(context),
-          'lyrics' => _lyrics(context),
-          'integrations' => _integrations(context),
-          'account' => _account(context),
-          _ => _about(context),
-        },
-      ),
-    );
-    if (small) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-            child: Text('Settings', style: Txt.title()),
+    final index = _tabs.indexWhere((t) => t.$1 == _tab);
+    return Column(
+      children: [
+        Padding(
+          padding: EdgeInsets.fromLTRB(16, small ? 12 : 22, 16, 12),
+          // A phone scrolls the tabs; a desktop window shrinks them so none hide.
+          child: Builder(
+            builder: (context) {
+              final tabs = PillTabs(tabs: _tabs, value: _tab, small: small, onChanged: (t) => setState(() => _tab = t));
+              return narrow(context) ? SingleChildScrollView(scrollDirection: Axis.horizontal, child: tabs) : FittedBox(fit: BoxFit.scaleDown, child: tabs);
+            },
           ),
-          SizedBox(
-            height: 40,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              children: [
-                for (final (id, label, _) in _tabs)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: Chip_(label, on: _tab == id, onTap: () => setState(() => _tab = id)),
-                  ),
-              ],
-            ),
-          ),
-          Expanded(child: body),
-        ],
-      );
-    }
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(32, 30, 0, 0),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 200,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text('Settings', style: Txt.hero()),
-                const SizedBox(height: 22),
-                for (final (id, label, icon) in _tabs)
-                  Hover(
-                    onTap: () => setState(() => _tab = id),
-                    builder: (_, on) => Container(
-                      height: 36,
-                      margin: const EdgeInsets.only(bottom: 2),
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      decoration: BoxDecoration(
-                        color: _tab == id
-                            ? K.accentTint
-                            : on
-                            ? K.line
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(icon, size: 17, color: _tab == id ? K.accent : K.text2),
-                          const SizedBox(width: 10),
-                          Text(
-                            label,
-                            style: ts(13, w: FontWeight.w500, c: _tab == id ? K.text : K.text2),
-                          ),
-                        ],
+        ),
+        Expanded(
+          child: SlidingPanes(
+            index: index,
+            child: ListenableBuilder(
+              listenable: s,
+              builder: (context, _) => ListView(
+                padding: EdgeInsets.fromLTRB(small ? 16 : 22, 6, small ? 16 : 22, 32),
+                children: [
+                  Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 760),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: switch (_tab) {
+                          'library' => _library(context),
+                          'playback' => _playback(context),
+                          'lyrics' => _lyrics(context),
+                          'integrations' => _integrations(context),
+                          'account' => _account(context),
+                          _ => _about(context),
+                        },
                       ),
                     ),
                   ),
-              ],
+                ],
+              ),
             ),
           ),
-          const SizedBox(width: 24),
-          Expanded(
-            child: Align(
-              alignment: Alignment.topLeft,
-              child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 720), child: body),
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -137,127 +93,122 @@ class _SettingsPanelState extends State<SettingsPanel> {
     final lib = LibraryScope.of(context), s = PlayerScope.read(context).settings;
     final music = lib.jf?.libraryIds ?? const <String>[];
     return [
-      const _Header('Library', top: 8),
-      if (lib.demo) Text('Sign in to choose libraries.', style: ts(13, c: K.text3)),
-      if (lib.musicLibs.isNotEmpty) ...[
-        _Row(title: 'Music libraries', subtitle: 'Albums, artists and songs come from these. At least one stays on.', trailing: const SizedBox.shrink()),
-        for (final l in lib.musicLibs)
-          _LibSwitch(
-            l['Name'] as String? ?? '',
-            music.contains(l['Id']),
-            // The last one on cannot be turned off.
-            music.contains(l['Id']) && music.length == 1
-                ? null
-                : (on) {
-                    final ids = {...music};
-                    on ? ids.add(l['Id'] as String) : ids.remove(l['Id']);
-                    lib.setLibraries(music: ids.toList());
-                  },
-          ),
-      ],
-      if (lib.movieLibs.isNotEmpty || lib.showLibs.isNotEmpty) ...[
-        _Row(title: 'Movie and TV libraries', subtitle: 'None on hides Movies and TV Shows', trailing: const SizedBox.shrink()),
-        for (final l in lib.movieLibs)
-          _LibSwitch('${l['Name']}', lib.movieIds.contains(l['Id']), (on) {
-            final ids = {...lib.movieIds};
-            on ? ids.add(l['Id'] as String) : ids.remove(l['Id']);
-            lib.setLibraries(movies: ids.toList());
-          }, kind: 'Movies'),
-        for (final l in lib.showLibs)
-          _LibSwitch('${l['Name']}', lib.showIds.contains(l['Id']), (on) {
-            final ids = {...lib.showIds};
-            on ? ids.add(l['Id'] as String) : ids.remove(l['Id']);
-            lib.setLibraries(shows: ids.toList());
-          }, kind: 'TV Shows'),
-      ],
+      if (lib.demo) const SettingsGroup('Libraries', [SettingRow('Sign in to choose libraries')]),
+      if (lib.musicLibs.isNotEmpty)
+        SettingsGroup('Music', [
+          const SettingRow('Music libraries', subtitle: 'Albums, artists and songs come from these. At least one stays on.'),
+          for (final l in lib.musicLibs)
+            ToggleRow(
+              l['Name'] as String? ?? '',
+              music.contains(l['Id']),
+              // The last one on cannot be turned off.
+              music.contains(l['Id']) && music.length == 1
+                  ? null
+                  : (on) {
+                      final ids = {...music};
+                      on ? ids.add(l['Id'] as String) : ids.remove(l['Id']);
+                      lib.setLibraries(music: ids.toList());
+                    },
+              indent: 12,
+            ),
+        ]),
+      if (lib.movieLibs.isNotEmpty || lib.showLibs.isNotEmpty)
+        SettingsGroup('Movies and TV', [
+          const SettingRow('Video libraries', subtitle: 'None on hides Movies and TV Shows'),
+          for (final l in lib.movieLibs)
+            ToggleRow(
+              '${l['Name']}',
+              lib.movieIds.contains(l['Id']),
+              (on) {
+                final ids = {...lib.movieIds};
+                on ? ids.add(l['Id'] as String) : ids.remove(l['Id']);
+                lib.setLibraries(movies: ids.toList());
+              },
+              subtitle: 'Movies',
+              indent: 12,
+            ),
+          for (final l in lib.showLibs)
+            ToggleRow(
+              '${l['Name']}',
+              lib.showIds.contains(l['Id']),
+              (on) {
+                final ids = {...lib.showIds};
+                on ? ids.add(l['Id'] as String) : ids.remove(l['Id']);
+                lib.setLibraries(shows: ids.toList());
+              },
+              subtitle: 'TV Shows',
+              indent: 12,
+            ),
+        ]),
       if (!lib.demo)
-        _Switch(
-          'Offline Mode',
-          lib.offlineState.name == 'unreachable'
-              ? 'On by itself: your server is not answering, so you are listening to your downloads'
-              : 'Only your downloads, and nothing is sent to the server. Plays and likes are sent when you turn it off.',
-          lib.offline,
-          lib.setOfflineMode,
+        SettingsGroup('Offline', [
+          ToggleRow(
+            'Offline Mode',
+            lib.offline,
+            lib.setOfflineMode,
+            subtitle: lib.offlineState.name == 'unreachable'
+                ? 'On by itself: your server is not answering, so you are listening to your downloads'
+                : 'Only your downloads, and nothing is sent to the server. Plays and likes are sent when you turn it off.',
+          ),
+        ]),
+      SettingsGroup('Server', [
+        ToggleRow(
+          'Show Live TV as Radio',
+          s.radioEnabled,
+          s.setRadioEnabled,
+          subtitle: lib.hasLiveTv ? 'Your server\'s channels, in a Radio view' : 'Your server has no Live TV channels',
         ),
-      _Switch(
-        'Show Live TV as Radio',
-        lib.hasLiveTv ? 'Your server\'s channels, in a Radio view' : 'Your server has no Live TV channels',
-        s.radioEnabled,
-        s.setRadioEnabled,
-      ),
-      if (lib.isAdmin)
-        _Row(
-          title: 'Scan library on server',
-          subtitle: 'Look for new and changed files now',
-          trailing: _Btn('Scan', () async {
-            try {
-              await lib.scanServer();
-              if (context.mounted) toast(context, 'The server is scanning.');
-            } catch (e) {
-              if (context.mounted) toast(context, 'Could not start a scan: $e', error: true);
-            }
-          }),
-        ),
-      _Row(title: 'Refresh app', subtitle: 'Load everything from the server again', trailing: _Btn('Refresh', lib.refresh)),
+        if (lib.isAdmin)
+          SettingRow(
+            'Scan library on server',
+            subtitle: 'Look for new and changed files now',
+            trailing: _Btn('Scan', () async {
+              try {
+                await lib.scanServer();
+                if (context.mounted) toast(context, 'The server is scanning.');
+              } catch (e) {
+                if (context.mounted) toast(context, 'Could not start a scan: $e', error: true);
+              }
+            }),
+          ),
+        SettingRow('Refresh app', subtitle: 'Load everything from the server again', trailing: _Btn('Refresh', lib.refresh)),
+      ]),
     ];
   }
 
   List<Widget> _playback(BuildContext context) {
     final lib = LibraryScope.read(context), p = PlayerScope.of(context), s = p.settings;
+    final steps = qualitySteps;
+    final q = steps.indexWhere((x) => x.bitrate == s.maxStreamingBitrate);
     return [
-      const _Header('Playback', top: 8),
-      _Switch(
-        'Crossfade',
-        s.crossfadeEnabled ? 'Fade each track into the next' : 'Off: a ${gapMaskSecs.round()} s overlap still hides the gap between tracks',
-        s.crossfadeEnabled,
-        (v) => s.setCrossfade(enabled: v),
-      ),
-      if (s.crossfadeEnabled)
-        _Row(
-          title: 'Crossfade length',
-          trailing: SizedBox(
-            width: 260,
-            child: Row(
-              children: [
-                Expanded(
-                  child: Slider(
-                    value: s.crossfadeSeconds.toDouble(),
-                    min: 1,
-                    max: 15,
-                    divisions: 14,
-                    onChanged: (v) => s.setCrossfade(seconds: v.round()),
-                  ),
-                ),
-                SizedBox(
-                  width: 36,
-                  child: Text('${s.crossfadeSeconds} s', style: ts(13, c: K.text2)),
-                ),
-              ],
-            ),
-          ),
+      SettingsGroup('Playback', [
+        SliderRow(
+          'Streaming quality',
+          subtitle: 'Above this, the server converts the file down',
+          value: (q < 0 ? 0 : q).toDouble(),
+          min: 0,
+          max: (steps.length - 1).toDouble(),
+          step: 1,
+          label: steps[q < 0 ? 0 : q].label,
+          onChanged: (v) => s.setMaxBitrate(steps[v.round()].bitrate),
         ),
-      _Row(
-        title: 'Streaming quality',
-        subtitle: 'Above this, the server converts the file down',
-        trailing: _Menu<int>(value: s.maxStreamingBitrate, items: {for (final q in qualitySteps) q.bitrate: q.label}, onChanged: s.setMaxBitrate),
-      ),
-      _Switch('Volume normalization', 'Evens out loudness with the server\'s measurements', s.normalizationEnabled, (v) => s.setNormalization(enabled: v)),
-      if (s.normalizationEnabled)
-        _Row(
-          title: 'Normalize by',
-          subtitle: 'Album keeps the loudness differences within an album',
-          trailing: _Menu<String>(
+        ToggleRow(
+          'Volume normalization',
+          s.normalizationEnabled,
+          (v) => s.setNormalization(enabled: v),
+          subtitle: 'Evens out loudness with the server\'s measurements',
+        ),
+        if (s.normalizationEnabled)
+          ChoiceRow<String>(
+            'Normalize by',
+            subtitle: 'Album keeps the loudness differences within an album',
             value: s.normalizationSource,
             items: const {'track': 'Track', 'album': 'Album'},
             onChanged: (v) => s.setNormalization(source: v),
           ),
-        ),
-      _Switch('Auto-skip intros and credits', 'When the server marks them', s.autoSkipSegments, s.setAutoSkipSegments),
-      _Switch('Equalizer', 'For music', s.eqEnabled, s.setEqEnabled),
-      if (s.eqEnabled) _Equalizer(s.eqMusic, onChanged: s.setEqProfile),
-      _Row(
-        title: 'Output device',
-        trailing: _Menu<String>(
+        ToggleRow('Auto-skip intros and credits', s.autoSkipSegments, s.setAutoSkipSegments, subtitle: 'When the server marks them'),
+        ChoiceRow<String>(
+          'Output device',
           value: p.devices.any((d) => d.name == s.outputDeviceId) ? s.outputDeviceId : 'auto',
           items: {
             'auto': 'System default',
@@ -266,180 +217,192 @@ class _SettingsPanelState extends State<SettingsPanel> {
           },
           onChanged: s.setOutputDevice,
         ),
-      ),
-      _Switch('Auto-mix', 'When the queue runs out, keep going with similar songs', s.autoMix, s.setAutoMix),
-      _Row(title: 'Sleep timer', subtitle: sleepLabel(p), trailing: const SleepTimerButton()),
-      const _Header('Now Playing'),
-      _Row(
-        title: 'Layout',
-        subtitle: 'Where the controls go when Now Playing is open',
-        trailing: _Menu<String>(
-          value: s.nowPlayingLayout,
-          items: const {'bar': 'Player bar stays', 'under': 'Controls under the art', 'focus': 'Focus'},
-          onChanged: s.setNowPlayingLayout,
+        ToggleRow('Auto-mix', s.autoMix, s.setAutoMix, subtitle: 'When the queue runs out, keep going with similar songs'),
+        SettingRow('Sleep timer', subtitle: sleepLabel(p) ?? 'Pause after a while, or at the end of the song', trailing: const SleepTimerButton()),
+      ]),
+      SettingsGroup('Crossfade', [
+        ToggleRow(
+          'Crossfade',
+          s.crossfadeEnabled,
+          (v) => s.setCrossfade(enabled: v),
+          subtitle: s.crossfadeEnabled ? 'Fade each song into the next' : 'Off: a ${gapMaskSecs.round()} s overlap still hides the gap between songs',
         ),
-      ),
-      _Switch('Show what\'s next behind the art', 'The queue\'s next songs stepped behind the cover', s.showArtStack, s.setShowArtStack),
-      if (!lib.demo) ...[
-        const _Header('Testing'),
-        _Switch('Do not report playback', 'The server is never told what plays, so history and resume points stay untouched', s.noReports, s.setNoReports),
-      ],
+        if (s.crossfadeEnabled)
+          SliderRow(
+            'Crossfade length',
+            value: s.crossfadeSeconds.toDouble(),
+            min: 1,
+            max: 15,
+            step: 1,
+            label: '${s.crossfadeSeconds} s',
+            onChanged: (v) => s.setCrossfade(seconds: v.round()),
+          ),
+      ]),
+      SettingsGroup('Equalizer', [
+        ToggleRow('Enable equalizer', s.eqEnabled, s.setEqEnabled, subtitle: 'Off leaves every band at 0 dB, so turning this back on never clicks.'),
+        EqPanels(s),
+      ]),
+      const _StyleGroup(),
+      if (!lib.demo)
+        SettingsGroup('Testing', [
+          ToggleRow(
+            'Do not report playback',
+            s.noReports,
+            s.setNoReports,
+            subtitle: 'The server is never told what plays, so history and resume points stay untouched',
+          ),
+        ]),
     ];
   }
 
-  List<Widget> _lyrics(BuildContext context) {
-    final s = PlayerScope.read(context).settings;
-    return [
-      const _Header('Lyrics', top: 8),
-      _Row(
-        title: 'Lyrics source',
-        subtitle: 'Best available tries SpicyLyrics through Cascade Server first, then Kugou, LRCLIB and your server',
-        trailing: _Menu<String>(value: s.lyricsSource, items: {'auto': 'Best available', for (final x in lyricSources) x: x}, onChanged: s.setLyricsSource),
-      ),
-    ];
-  }
+  List<Widget> _lyrics(BuildContext context) => const [_StyleGroup(lyrics: true)];
 
   List<Widget> _integrations(BuildContext context) {
     final s = PlayerScope.read(context).settings;
     return [
-      const _Header('Integrations', top: 8),
-      _Switch('Discord Rich Presence', 'Show what you are listening to on Discord', s.discordRpc, s.setDiscordRpc),
+      SettingsGroup('Integrations', [ToggleRow('Discord Rich Presence', s.discordRpc, s.setDiscordRpc, subtitle: 'Show what you are listening to on Discord')]),
     ];
   }
 
   List<Widget> _account(BuildContext context) {
     final lib = LibraryScope.of(context), p = PlayerScope.read(context);
-    final code = TextEditingController();
     return [
-      const _Header('Account', top: 8),
-      _Row(title: 'Server', subtitle: lib.demo ? 'The demo' : lib.jf?.server, trailing: const SizedBox.shrink()),
-      _Row(
-        title: lib.demo ? 'You are looking at the demo' : 'Signed in as ${lib.jf?.userName ?? '?'}',
-        subtitle: lib.isAdmin ? 'Administrator' : null,
-        trailing: _Btn(lib.demo ? 'Leave the demo' : 'Sign out', () async {
-          await p.stop();
-          await lib.signOut();
-        }),
-      ),
-      if (!lib.demo) ...[
-        const _Header('Quick Connect'),
-        _Row(
-          title: 'Approve a device',
-          subtitle: 'Type the code another device shows to sign it in as you',
-          trailing: SizedBox(
-            width: 220,
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: code,
-                    style: ts(13),
-                    decoration: InputDecoration(
-                      isDense: true,
-                      hintText: 'Code',
-                      hintStyle: ts(13, c: K.text3),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                _Btn('Approve', () async {
-                  try {
-                    await lib.approveQuickConnect(code.text);
-                    if (context.mounted) toast(context, 'Approved.');
-                  } catch (e) {
-                    if (context.mounted) toast(context, 'Could not approve it: $e', error: true);
-                  }
-                }),
-              ],
-            ),
-          ),
+      SettingsGroup('Account', [
+        SettingRow('Server', subtitle: lib.demo ? 'The demo' : lib.jf?.server),
+        SettingRow(
+          lib.demo ? 'You are looking at the demo' : 'Signed in as ${lib.jf?.userName ?? '?'}',
+          subtitle: lib.isAdmin ? 'Administrator' : null,
+          trailing: _Btn(lib.demo ? 'Leave the demo' : 'Sign out', () async {
+            await p.stop();
+            await lib.signOut();
+          }),
         ),
-      ],
+      ]),
+      if (!lib.demo) SettingsGroup('Quick Connect', [_QuickConnect(lib: lib)]),
     ];
   }
 
   List<Widget> _about(BuildContext context) => [
-    const _Header('About', top: 8),
-    _Row(title: 'Cascade for Windows, Linux and Android', subtitle: 'Version $appVersion', trailing: const SizedBox.shrink()),
-    _Row(title: 'Website', subtitle: 'cascade.chaosinc.xyz', trailing: const SizedBox.shrink()),
-    _Row(title: 'Fonts', subtitle: 'Hanken Grotesk and Inter, under the SIL Open Font License', trailing: const SizedBox.shrink()),
-    _Row(
-      title: 'Log',
-      subtitle: 'What playback and the server have been doing, for reporting a problem',
-      trailing: _Btn(
-        'Show',
-        () => showDialog<void>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            backgroundColor: K.panel,
-            title: Text('Log', style: Txt.section()),
-            content: SizedBox(
-              width: 720,
-              height: 460,
-              child: SingleChildScrollView(
-                reverse: true,
-                child: SelectableText(recentLog.isEmpty ? 'Nothing logged yet.' : recentLog.join('\n'), style: ts(11, c: K.text2, h: 1.4)),
+    const SettingsGroup('About', [
+      SettingRow('Cascade for Windows, Linux and Android', subtitle: 'Version $appVersion'),
+      SettingRow('Website', subtitle: 'cascade.chaosinc.xyz'),
+      SettingRow('Fonts', subtitle: 'Hanken Grotesk and Inter, under the SIL Open Font License'),
+    ]),
+    SettingsGroup('Help', [
+      SettingRow(
+        'Log',
+        subtitle: 'What playback and the server have been doing, for reporting a problem',
+        trailing: _Btn(
+          'Show',
+          () => showDialog<void>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              backgroundColor: K.panel,
+              title: Text('Log', style: Txt.section()),
+              content: SizedBox(
+                width: 720,
+                height: 460,
+                child: SingleChildScrollView(
+                  reverse: true,
+                  child: SelectableText(recentLog.isEmpty ? 'Nothing logged yet.' : recentLog.join('\n'), style: ts(11, c: K.text2, h: 1.4)),
+                ),
               ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Clipboard.setData(ClipboardData(text: recentLog.join('\n'))),
-                child: const Text('Copy'),
-              ),
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
-            ],
-          ),
-        ),
-      ),
-    ),
-    if (electronConfigFile() case final f?)
-      _Row(
-        title: 'Import from the desktop app',
-        subtitle: 'Bring over the Cascade desktop app\'s settings (not its sign-in)',
-        trailing: _Btn('Import', () async {
-          try {
-            final n = await importElectronSettings(f);
-            if (context.mounted) toast(context, 'Brought over $n settings. Restart Cascade to use them.');
-          } catch (e) {
-            if (context.mounted) toast(context, 'Could not read the desktop app\'s settings: $e', error: true);
-          }
-        }),
-      ),
-  ];
-}
-
-/// One library, on or off. Null [onChanged]: shown but locked.
-class _LibSwitch extends StatelessWidget {
-  const _LibSwitch(this.name, this.on, this.onChanged, {this.kind});
-  final String name;
-  final bool on;
-  final ValueChanged<bool>? onChanged;
-  final String? kind;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(left: 12),
-    child: Row(
-      children: [
-        Expanded(
-          child: Text.rich(
-            TextSpan(
-              children: [
-                TextSpan(text: name, style: ts(13)),
-                if (kind != null)
-                  TextSpan(
-                    text: '  $kind',
-                    style: ts(12, c: K.text3),
-                  ),
+              actions: [
+                TextButton(
+                  onPressed: () => Clipboard.setData(ClipboardData(text: recentLog.join('\n'))),
+                  child: const Text('Copy'),
+                ),
+                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
               ],
             ),
           ),
         ),
-        Tooltip(
-          message: onChanged == null ? 'At least one music library stays on' : '',
-          child: Switch(value: on, onChanged: onChanged),
+      ),
+      if (electronConfigFile() case final f?)
+        SettingRow(
+          'Import from the desktop app',
+          subtitle: 'Bring over the Cascade desktop app\'s settings (not its sign-in)',
+          trailing: _Btn('Import', () async {
+            try {
+              final n = await importElectronSettings(f);
+              if (context.mounted) toast(context, 'Brought over $n settings. Restart Cascade to use them.');
+            } catch (e) {
+              if (context.mounted) toast(context, 'Could not read the desktop app\'s settings: $e', error: true);
+            }
+          }),
         ),
-      ],
+    ]),
+  ];
+}
+
+/// Where the look settings went: a group that says so and opens Style.
+class _StyleGroup extends StatelessWidget {
+  const _StyleGroup({this.lyrics = false});
+  final bool lyrics;
+
+  @override
+  Widget build(BuildContext context) => SettingsGroup(lyrics ? 'Lyrics' : 'Now Playing', [
+    SettingRow(
+      lyrics ? 'Lyrics source, size and motion' : 'Layout, background and lyrics',
+      subtitle: lyrics
+          ? 'Where lyrics come from, and how they look and move, are in the Style menu.'
+          : 'How Now Playing looks, what is behind the art, and the lyrics are in the Style menu.',
+      trailing: Pill(
+        'Style',
+        icon: Icons.brush_outlined,
+        onTap: () => openStyleMenu(context, tab: lyrics ? 'lyrics' : 'nowplaying'),
+      ),
+    ),
+  ]);
+}
+
+class _QuickConnect extends StatefulWidget {
+  const _QuickConnect({required this.lib});
+  final Library lib;
+
+  @override
+  State<_QuickConnect> createState() => _QuickConnectState();
+}
+
+class _QuickConnectState extends State<_QuickConnect> {
+  final _code = TextEditingController();
+
+  @override
+  void dispose() {
+    _code.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => SettingRow(
+    'Approve a device',
+    subtitle: 'Type the code another device shows to sign it in as you',
+    trailing: SizedBox(
+      width: 260,
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _code,
+              style: ts(13),
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: 'Code',
+                hintStyle: ts(13, c: K.text3),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          _Btn('Approve', () async {
+            try {
+              await widget.lib.approveQuickConnect(_code.text);
+              if (context.mounted) toast(context, 'Approved.');
+            } catch (e) {
+              if (context.mounted) toast(context, 'Could not approve it: $e', error: true);
+            }
+          }),
+        ],
+      ),
     ),
   );
 }
@@ -487,130 +450,4 @@ class SleepTimerButton extends StatelessWidget {
       ],
     );
   }
-}
-
-class _Equalizer extends StatelessWidget {
-  const _Equalizer(this.profile, {required this.onChanged});
-  final EqProfile profile;
-  final void Function(EqProfile) onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final preset = eqPresets.entries.where((e) => _same(e.value, profile.bands)).firstOrNull?.key;
-    return Padding(
-      padding: const EdgeInsets.only(left: 16, bottom: 8),
-      child: Column(
-        children: [
-          _Row(
-            title: 'Preset',
-            trailing: _Menu<String>(
-              value: preset ?? 'Custom',
-              items: {for (final k in eqPresets.keys) k: k, if (preset == null) 'Custom': 'Custom'},
-              onChanged: (k) {
-                final bands = eqPresets[k];
-                if (bands != null) onChanged((enabled: profile.enabled, preamp: profile.preamp, bands: [...bands]));
-              },
-            ),
-          ),
-          for (var i = 0; i < eqBands.length; i++)
-            Row(
-              children: [
-                SizedBox(
-                  width: 64,
-                  child: Text(eqBands[i] >= 1000 ? '${eqBands[i] ~/ 1000} kHz' : '${eqBands[i]} Hz', style: ts(12, c: K.text2)),
-                ),
-                Expanded(
-                  child: Slider(
-                    value: profile.bands[i],
-                    min: -eqGainLimit,
-                    max: eqGainLimit,
-                    divisions: 48,
-                    onChanged: (v) => onChanged((enabled: profile.enabled, preamp: profile.preamp, bands: [...profile.bands]..[i] = v)),
-                  ),
-                ),
-                SizedBox(
-                  width: 52,
-                  child: Text('${profile.bands[i] > 0 ? '+' : ''}${profile.bands[i].toStringAsFixed(1)}', style: ts(12, c: K.text2)),
-                ),
-              ],
-            ),
-        ],
-      ),
-    );
-  }
-
-  static bool _same(List<double> a, List<double> b) => [for (var i = 0; i < a.length; i++) a[i] == b[i]].every((x) => x);
-}
-
-class _Header extends StatelessWidget {
-  const _Header(this.text, {this.top = 28});
-  final String text;
-  final double top;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: EdgeInsets.only(top: top, bottom: 8),
-    child: Text(text.toUpperCase(), style: Txt.caps()),
-  );
-}
-
-class _Row extends StatelessWidget {
-  const _Row({required this.title, this.subtitle, required this.trailing});
-  final String title;
-  final String? subtitle;
-  final Widget trailing;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 6),
-    child: Row(
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: ts(14, w: FontWeight.w500)),
-              if (subtitle != null) Text(subtitle!, style: ts(12, c: K.text3)),
-            ],
-          ),
-        ),
-        const SizedBox(width: 16),
-        trailing,
-      ],
-    ),
-  );
-}
-
-class _Switch extends StatelessWidget {
-  const _Switch(this.title, this.subtitle, this.value, this.onChanged);
-  final String title, subtitle;
-  final bool value;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) => _Row(
-    title: title,
-    subtitle: subtitle,
-    trailing: Switch(value: value, onChanged: onChanged),
-  );
-}
-
-class _Menu<T> extends StatelessWidget {
-  const _Menu({required this.value, required this.items, required this.onChanged});
-  final T value;
-  final Map<T, String> items;
-  final ValueChanged<T> onChanged;
-
-  @override
-  Widget build(BuildContext context) => DropdownButton<T>(
-    value: items.containsKey(value) ? value : items.keys.first,
-    underline: const SizedBox.shrink(),
-    borderRadius: BorderRadius.circular(10),
-    dropdownColor: K.surface2,
-    style: ts(13),
-    items: [for (final e in items.entries) DropdownMenuItem(value: e.key, child: Text(e.value))],
-    onChanged: (v) {
-      if (v != null) onChanged(v);
-    },
-  );
 }
