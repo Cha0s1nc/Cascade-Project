@@ -263,7 +263,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
     if (t == null) return;
     if (!_placed) {
       _placed = true;
-      _y.value = widget.rollIn ? t + _panel * 0.75 : t;
+      _y.value = widget.rollIn ? t + _panel * 0.5 : t;
       _vel = 0;
       return;
     }
@@ -630,24 +630,34 @@ class _Karaoke extends StatelessWidget {
       textDirection: TextDirection.ltr,
     )..layout()).width;
     final groups = _groups();
-    Widget piece((LyricWord, bool) p) => active
-        ? ValueListenableBuilder<int>(
-            valueListenable: now,
-            builder: (_, n, _) => p.$2 ? _Held(word: p.$1, style: style, now: n, st: st) : _Word(word: p.$1, style: style, now: n, st: st),
-          )
-        // Not current: the same layout, so the line keeps its wrap.
-        : p.$2
-        ? _Held(word: p.$1, style: style, st: st)
-        : Text(p.$1.text, style: style);
-    return Wrap(
-      alignment: align,
-      children: [
-        for (final (pieces, gap) in groups)
-          Padding(
-            padding: EdgeInsets.only(right: gap ? space : 0),
-            child: Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [for (final p in pieces) piece(p)]),
-          ),
-      ],
+    // Becoming current, the words ease from plain white to the unsung dim
+    // over 0.35 s; switched at once, the line blinked darker as it lit.
+    return TweenAnimationBuilder<double>(
+      tween: Tween(end: active ? 1 : 0),
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOut,
+      builder: (context, lit, _) {
+        Widget piece((LyricWord, bool) p) => active
+            ? ValueListenableBuilder<int>(
+                valueListenable: now,
+                builder: (_, n, _) =>
+                    p.$2 ? _Held(word: p.$1, style: style, now: n, st: st, lit: lit) : _Word(word: p.$1, style: style, now: n, st: st, lit: lit),
+              )
+            // Not current: the same layout, so the line keeps its wrap.
+            : p.$2
+            ? _Held(word: p.$1, style: style, st: st)
+            : Text(p.$1.text, style: style);
+        return Wrap(
+          alignment: align,
+          children: [
+            for (final (pieces, gap) in groups)
+              Padding(
+                padding: EdgeInsets.only(right: gap ? space : 0),
+                child: Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [for (final p in pieces) piece(p)]),
+              ),
+          ],
+        );
+      },
     );
   }
 }
@@ -694,26 +704,30 @@ Widget _filled(String text, TextStyle style, double t, double unsung) {
 
 /// One word of the current line: filling, and lifted a little once reached.
 class _Word extends StatelessWidget {
-  const _Word({required this.word, required this.style, required this.now, required this.st});
+  const _Word({required this.word, required this.style, required this.now, required this.st, this.lit = 1});
   final LyricWord word;
   final TextStyle style;
   final int now;
   final Map<String, double> st;
 
+  /// How far the line has come into its current look (see _Karaoke).
+  final double lit;
+
   @override
   Widget build(BuildContext context) {
     final since = (now - word.start) / 1e7;
     final lift = since < 0 ? 0.0 : _s(st, 'wordLift', 0.04) * style.fontSize! * _liftCurve.transform((since / 0.6).clamp(0.0, 1.0));
-    return Transform.translate(offset: Offset(0, -lift), child: _filled(word.text, style, _progress(word, now), _s(st, 'unsungOpacity', 0.29)));
+    return Transform.translate(offset: Offset(0, -lift), child: _filled(word.text, style, _progress(word, now), 1 - (1 - _s(st, 'unsungOpacity', 0.29)) * lit));
   }
 }
 
 /// A held note (SpicyLyrics): each letter takes its share of the fill and
 /// swells, rises and glows from when the fill reaches it, by heldSwell.
 class _Held extends StatelessWidget {
-  const _Held({required this.word, required this.style, this.now, required this.st});
+  const _Held({required this.word, required this.style, this.now, required this.st, this.lit = 1});
   final LyricWord word;
   final TextStyle style;
+  final double lit;
 
   /// Null when its line is not current: drawn plain, at the same size.
   final int? now;
@@ -729,7 +743,7 @@ class _Held extends StatelessWidget {
     final held = max(0.0, (word.end ?? word.start) / 1e7 - start);
     final t = (now ?? 0) / 1e7;
     final fs = style.fontSize!;
-    final unsung = _s(st, 'unsungOpacity', 0.29);
+    final unsung = 1 - (1 - _s(st, 'unsungOpacity', 0.29)) * lit;
     final lift = _s(st, 'heldLift', 0.16), grow = _s(st, 'heldScale', 1.19);
     final swellStyle = {'heldFullSeconds': 1.4, 'heldMinStrength': 0.45, 'heldSettleSeconds': 0.4, ...styleDesktop, ...st};
     return Padding(

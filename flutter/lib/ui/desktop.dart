@@ -17,6 +17,7 @@ import 'package:cascade/ui/settings_panel.dart';
 import 'package:cascade/ui/title_bar.dart';
 import 'package:cascade/ui/widgets.dart';
 import 'package:cascade/ui/controls.dart';
+import 'package:cascade/ui/pages/common.dart';
 import 'package:cascade/ui/scopes.dart';
 import 'package:cascade/ui/style_menu.dart';
 
@@ -305,11 +306,14 @@ class _DesktopShellState extends State<DesktopShell> {
                               ),
                             ),
                           ),
-                        if (!full) ...[
-                          const AnnouncementsButton(),
-                          const SizedBox(width: 4),
-                          IconBtn(Icons.brush_outlined, 'Style', () => openStyleMenu(context)),
-                        ],
+                        if (!full) ...[const AnnouncementsButton(), const SizedBox(width: 4)],
+                        // Kept in every layout: Now Playing has no brush of its own.
+                        IconBtn(
+                          Icons.brush_outlined,
+                          _np.editing != null ? 'Close the Style menu' : 'Style',
+                          () => openStyleMenu(context),
+                          color: _np.editing != null ? K.accent : K.text2,
+                        ),
                         SizedBox(width: inlineTitleBar ? 8 : 12),
                         const WindowButtons(),
                       ],
@@ -674,42 +678,69 @@ class PlayerBar extends StatelessWidget {
                   Expanded(
                     child: Hover(
                       onTap: song == null ? null : np.toggle,
-                      builder: (_, on) => Row(
-                        children: [
-                          Cover(song?.art ?? const [K.surface2, K.surface], image: song?.image, size: 48, radius: 8, shadow: song != null),
-                          const SizedBox(width: 12),
-                          Flexible(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  song?.title ?? 'Nothing playing',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: ts(13, w: FontWeight.w600, c: song == null ? K.text3 : (on ? K.accent : K.text)),
-                                ),
-                                if (p.error != null)
-                                  Text(
-                                    p.error!,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: ts(12, c: K.error),
-                                  )
-                                else if (song != null) ...[
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    '${song.artist} · ${song.album}',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: ts(12, c: K.text2),
+                      builder: (_, on) {
+                        // Now Playing shows the cover big: this one steps aside.
+                        final hide = np.open && p.settings.nowPlayingLayout == 'bar';
+                        return Row(
+                          children: [
+                            AnimatedContainer(
+                              duration: const Duration(milliseconds: 300),
+                              curve: const Cubic(.2, .8, .2, 1),
+                              width: hide ? 0 : 60,
+                              child: ClipRect(
+                                child: OverflowBox(
+                                  alignment: Alignment.centerLeft,
+                                  minWidth: 60,
+                                  maxWidth: 60,
+                                  child: AnimatedOpacity(
+                                    opacity: hide ? 0 : 1,
+                                    duration: const Duration(milliseconds: 200),
+                                    child: AnimatedScale(
+                                      scale: hide ? 0.6 : 1,
+                                      alignment: Alignment.centerLeft,
+                                      duration: const Duration(milliseconds: 300),
+                                      child: Row(
+                                        children: [
+                                          Cover(song?.art ?? const [K.surface2, K.surface], image: song?.image, size: 48, radius: 8, shadow: song != null),
+                                          const SizedBox(width: 12),
+                                        ],
+                                      ),
+                                    ),
                                   ),
-                                ],
-                              ],
+                                ),
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
+                            Flexible(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _BarLink(
+                                    text: song?.title ?? 'Nothing playing',
+                                    style: ts(13, w: FontWeight.w600, c: song == null ? K.text3 : K.text),
+                                    onTap: song?.albumId == null ? null : () => openPage(context, PageKind.album, [song!.albumId]),
+                                  ),
+                                  if (p.error != null)
+                                    Text(
+                                      p.error!,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: ts(12, c: K.error),
+                                    )
+                                  else if (song != null) ...[
+                                    const SizedBox(height: 2),
+                                    _BarLink(
+                                      text: song.artist,
+                                      style: ts(12, c: K.text2),
+                                      onTap: song.artistId == null ? null : () => openPage(context, PageKind.artist, [song.artistId]),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ],
+                        );
+                      },
                     ),
                   ),
                   const SizedBox(width: 6),
@@ -727,7 +758,7 @@ class PlayerBar extends StatelessWidget {
               ),
             ),
             SizedBox(
-              width: 340,
+              width: 364,
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
@@ -756,6 +787,25 @@ class PlayerBar extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// The player bar's title or artist: opens its page, underlined on hover.
+class _BarLink extends StatelessWidget {
+  const _BarLink({required this.text, required this.style, required this.onTap});
+  final String text;
+  final TextStyle style;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    Text t(bool on) => Text(
+      text,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: on ? style.copyWith(decoration: TextDecoration.underline, decorationColor: K.text3) : style,
+    );
+    return onTap == null ? t(false) : Hover(onTap: onTap, builder: (_, on) => t(on));
   }
 }
 
@@ -854,6 +904,14 @@ class VolumeControl extends StatelessWidget {
       SizedBox(
         width: 96,
         child: ThinBar(value: p.volume, onChanged: p.setVolume, color: K.text2),
+      ),
+      SizedBox(
+        width: 38,
+        child: Text(
+          '${(p.volume * 100).round()}%',
+          textAlign: TextAlign.right,
+          style: ts(11, c: K.text3),
+        ),
       ),
     ],
   );

@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:cascade/core/data.dart';
 import 'package:cascade/core/lyrics.dart';
 import 'package:cascade/core/lyrics_fetch.dart';
+import 'package:cascade/core/nav.dart';
 import 'package:cascade/core/playback.dart';
 import 'package:cascade/core/settings.dart';
 import 'package:cascade/engine/player.dart';
@@ -66,28 +67,40 @@ class NowPlaying extends ChangeNotifier {
   }
 }
 
-/// The window body with Now Playing over it.
-class NowPlayingLayer extends StatelessWidget {
+/// The window body with Now Playing over it. It slides up from the player
+/// bar and back down, staying built until it is out of sight.
+class NowPlayingLayer extends StatefulWidget {
   const NowPlayingLayer({super.key, required this.body});
   final Widget body;
 
   @override
+  State<NowPlayingLayer> createState() => _NowPlayingLayerState();
+}
+
+class _NowPlayingLayerState extends State<NowPlayingLayer> {
+  bool _built = false;
+
+  @override
   Widget build(BuildContext context) {
     final np = NowPlayingScope.of(context);
+    if (np.open) _built = true;
     return Stack(
       children: [
-        Positioned.fill(child: body),
+        Positioned.fill(child: widget.body),
         Positioned.fill(
           child: IgnorePointer(
             ignoring: !np.open,
             child: AnimatedSlide(
               offset: np.open ? Offset.zero : const Offset(0, 1),
               duration: const Duration(milliseconds: 380),
-              curve: Curves.easeOutCubic,
+              curve: np.open ? const Cubic(.2, .8, .2, 1) : const Cubic(.4, 0, 1, 1),
+              onEnd: () {
+                if (!np.open && _built) setState(() => _built = false);
+              },
               child: AnimatedOpacity(
                 opacity: np.open ? 1 : 0,
-                duration: const Duration(milliseconds: 260),
-                child: np.open ? const NowPlayingView() : const SizedBox.shrink(),
+                duration: Duration(milliseconds: np.open ? 220 : 380),
+                child: _built ? const NowPlayingView() : const SizedBox.shrink(),
               ),
             ),
           ),
@@ -181,21 +194,36 @@ class _NowPlayingViewState extends State<NowPlayingView> {
     final song = p.song;
     final layout = p.settings.nowPlayingLayout;
     if (song == null) return const ColoredBox(color: K.root);
-    if (np.editing != null) {
-      return Stack(
-        fit: StackFit.expand,
-        children: [
-          ArtBackground(song: song, dim: p.settings.bgDim, fade: _colorFade(p)),
-          _editor(context, p, np, song),
-        ],
-      );
-    }
+    // The Style menu and the usual view cross over as the menu opens and
+    // closes, over the one background.
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        ArtBackground(song: song, dim: p.settings.bgDim, fade: _colorFade(p)),
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 320),
+          reverseDuration: const Duration(milliseconds: 200),
+          switchInCurve: editorCurve,
+          switchOutCurve: editorCurve.flipped,
+          layoutBuilder: (current, previous) => Stack(fit: StackFit.expand, children: [...previous, ?current]),
+          transitionBuilder: (c, a) => FadeTransition(
+            opacity: a,
+            child: ScaleTransition(scale: Tween(begin: 0.985, end: 1.0).animate(a), child: c),
+          ),
+          child: np.editing != null
+              ? KeyedSubtree(key: const ValueKey('style'), child: _editor(context, p, np, song))
+              : KeyedSubtree(key: const ValueKey('view'), child: _view(context, p, np, song, layout)),
+        ),
+      ],
+    );
+  }
+
+  Widget _view(BuildContext context, Player p, NowPlaying np, Song song, String layout) {
     return MouseRegion(
       onHover: (_) => _wake(),
       child: Stack(
         fit: StackFit.expand,
         children: [
-          ArtBackground(song: song, dim: p.settings.bgDim, fade: _colorFade(p)),
           if (layout == 'focus') _focus(context, p, song) else _split(context, p, np, song, layout == 'under'),
           Positioned(
             top: 16,
@@ -203,7 +231,7 @@ class _NowPlayingViewState extends State<NowPlayingView> {
             child: AnimatedOpacity(
               opacity: layout == 'focus' && _idle ? 0 : 1,
               duration: const Duration(milliseconds: 400),
-              child: _TopRight(np: np, song: song, focus: layout == 'focus'),
+              child: _TopRight(np: np, song: song, switcher: layout == 'under'),
             ),
           ),
         ],
@@ -273,15 +301,55 @@ class _NowPlayingViewState extends State<NowPlayingView> {
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ArtStack(song, next: p.upNext, size: art),
+          Stack(
+            children: [
+              ArtStack(song, next: p.upNext, size: art),
+              Positioned(
+                left: 0,
+                top: 0,
+                width: art,
+                height: art,
+                child: _ArtActions(song: song),
+              ),
+            ],
+          ),
           const SizedBox(height: 26),
-          Text(song.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: Txt.title()),
+          _Link(
+            onTap: song.albumId == null ? null : () => openPage(context, PageKind.album, [song.albumId]),
+            builder: (on) => Text(
+              song.title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Txt.title().copyWith(decoration: on ? TextDecoration.underline : null, decorationColor: K.text3),
+            ),
+          ),
           const SizedBox(height: 6),
-          Text(
-            '${song.artist} · ${song.album}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: ts(14, c: K.text2),
+          Row(
+            children: [
+              Flexible(
+                child: _Link(
+                  onTap: song.artistId == null ? null : () => openPage(context, PageKind.artist, [song.artistId]),
+                  builder: (on) => Text(
+                    song.artist,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: ts(14, c: on ? K.text : K.text2),
+                  ),
+                ),
+              ),
+              Text(' · ', style: ts(14, c: K.text3)),
+              Flexible(
+                child: _Link(
+                  onTap: song.albumId == null ? null : () => openPage(context, PageKind.album, [song.albumId]),
+                  builder: (on) => Text(
+                    song.album,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: ts(14, c: on ? K.text : K.text2),
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 14),
           QualityLine(song: song),
@@ -302,10 +370,16 @@ class _NowPlayingViewState extends State<NowPlayingView> {
             const SizedBox(width: 32),
             Expanded(
               flex: 7,
-              child: lyricsRoll(
-                np.panel == NpPanel.queue
+              // Lyrics and Queue crossfade; songs' lyrics roll (lyricsRoll).
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 220),
+                layoutBuilder: (current, previous) => Stack(fit: StackFit.expand, children: [...previous, ?current]),
+                child: np.panel == NpPanel.queue
                     ? const QueuePanel(key: ValueKey('q'))
-                    : LyricsPanel(key: ValueKey(song.id), song: song, rollIn: song.id != _openedOn),
+                    : KeyedSubtree(
+                        key: const ValueKey('l'),
+                        child: lyricsRoll(LyricsPanel(key: ValueKey(song.id), song: song, rollIn: song.id != _openedOn)),
+                      ),
               ),
             ),
           ],
@@ -492,18 +566,19 @@ class _UnderControls extends StatelessWidget {
   );
 }
 
-/// Source pill, Lyrics and Queue, close.
+/// Lyrics and Queue (only when the player bar, which has them, is gone),
+/// and close.
 class _TopRight extends StatelessWidget {
-  const _TopRight({required this.np, required this.song, required this.focus});
+  const _TopRight({required this.np, required this.song, required this.switcher});
   final NowPlaying np;
   final Song song;
-  final bool focus;
+  final bool switcher;
 
   @override
   Widget build(BuildContext context) => Row(
     spacing: 8,
     children: [
-      if (!focus)
+      if (switcher)
         Container(
           padding: const EdgeInsets.all(3),
           decoration: BoxDecoration(color: K.surface.withValues(alpha: 0.8), borderRadius: BorderRadius.circular(10)),
@@ -531,18 +606,6 @@ class _TopRight extends StatelessWidget {
           ),
         ),
       Tooltip(
-        message: 'Style',
-        child: Hover(
-          onTap: () => np.editStyle('appearance'),
-          builder: (_, on) => Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(color: on ? K.surface2 : K.surface.withValues(alpha: 0.8), borderRadius: BorderRadius.circular(10)),
-            child: const Icon(Icons.brush_outlined, size: 17, color: K.text),
-          ),
-        ),
-      ),
-      Tooltip(
         message: 'Close',
         child: Hover(
           onTap: np.close,
@@ -559,22 +622,25 @@ class _TopRight extends StatelessWidget {
 }
 
 /// One song's lyrics giving way to the next's: the old sheet glides up and
-/// fades while the new one (rollIn) comes up from below.
+/// fades, moving with the new one (rollIn), which springs up from half a
+/// panel below.
 Widget lyricsRoll(Widget child) => AnimatedSwitcher(
-  duration: const Duration(milliseconds: 700),
-  reverseDuration: const Duration(milliseconds: 600),
+  duration: const Duration(milliseconds: 450),
+  reverseDuration: const Duration(milliseconds: 650),
   switchInCurve: Curves.easeOut,
-  switchOutCurve: Curves.easeIn,
+  // Mirrored, so the old sheet starts moving at once and eases to a stop,
+  // as the new one's spring does.
+  switchOutCurve: Curves.easeOutCubic.flipped,
   layoutBuilder: (current, previous) => Stack(fit: StackFit.expand, children: [...previous, ?current]),
-  transitionBuilder: (c, a) => FadeTransition(
-    opacity: a,
-    child: c.key == child.key
-        ? c
-        : SlideTransition(
-            position: Tween(begin: const Offset(0, -0.35), end: Offset.zero).animate(a),
+  transitionBuilder: (c, a) => c.key == child.key
+      ? FadeTransition(opacity: a, child: c)
+      : FadeTransition(
+          opacity: a,
+          child: SlideTransition(
+            position: Tween(begin: const Offset(0, -0.5), end: Offset.zero).animate(a),
             child: c,
           ),
-  ),
+        ),
   child: child,
 );
 
@@ -635,7 +701,11 @@ class _LyricsPanelState extends State<LyricsPanel> {
   Future<Lyrics?> _fetch() async {
     final f = LibraryScope.read(context).lyrics;
     if (f == null) return _demo;
-    return f.fetch(widget.song, forced: _forced);
+    final found = await f.fetch(widget.song, forced: _forced);
+    // The next song's too, so its sheet is there the moment it starts.
+    final next = mounted ? PlayerScope.read(context).upNext.firstOrNull : null;
+    if (next != null && !next.live && !f.has(next.id)) f.fetch(next).ignore();
+    return found;
   }
 
   void _force(String? source) => setState(() {
@@ -646,11 +716,13 @@ class _LyricsPanelState extends State<LyricsPanel> {
   @override
   Widget build(BuildContext context) => FutureBuilder<Lyrics?>(
     future: _lyrics,
+    // Fetched ahead (the next song's): drawn on the first frame, no wait.
+    initialData: _forced == null ? LibraryScope.read(context).lyrics?.cached(widget.song.id) : null,
     builder: (context, snap) {
       final p = PlayerScope.read(context);
       final l = snap.data;
       Widget body;
-      if (snap.connectionState != ConnectionState.done) {
+      if (l == null && snap.connectionState != ConnectionState.done) {
         body = const SizedBox.shrink(); // usually a moment; a spinner would flash between songs
       } else if (l == null || l.lines.isEmpty) {
         body = Center(
@@ -879,6 +951,84 @@ class _CoverPreviewState extends State<_CoverPreview> {
           ArtStack(shown, next: [then, shown], size: 260),
           Pill('Replay', icon: Icons.replay_rounded, primary: false, onTap: () => setState(() => _swapped = !_swapped)),
         ],
+      ),
+    );
+  }
+}
+
+/// Text that opens a page, underlined or brightened on hover.
+class _Link extends StatelessWidget {
+  const _Link({required this.onTap, required this.builder});
+  final VoidCallback? onTap;
+  final Widget Function(bool hovered) builder;
+
+  @override
+  Widget build(BuildContext context) => onTap == null ? builder(false) : Hover(onTap: onTap, builder: (_, on) => builder(on));
+}
+
+/// Over the cover on hover, as the desktop's: the art dims and Favorite,
+/// Add to playlist and View album appear.
+class _ArtActions extends StatefulWidget {
+  const _ArtActions({required this.song});
+  final Song song;
+
+  @override
+  State<_ArtActions> createState() => _ArtActionsState();
+}
+
+class _ArtActionsState extends State<_ArtActions> {
+  bool _on = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = PlayerScope.of(context);
+    final song = widget.song;
+    Widget btn(IconData icon, String tip, VoidCallback? onTap, {Color color = Colors.white}) => Tooltip(
+      message: tip,
+      child: Hover(
+        onTap: onTap,
+        builder: (_, on) => AnimatedScale(
+          scale: on ? 1.06 : 1,
+          duration: const Duration(milliseconds: 150),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white.withValues(alpha: on ? 0.28 : 0.16),
+            ),
+            child: Icon(icon, size: 22, color: color),
+          ),
+        ),
+      ),
+    );
+    return MouseRegion(
+      onEnter: (_) => setState(() => _on = true),
+      onExit: (_) => setState(() => _on = false),
+      child: AnimatedOpacity(
+        opacity: _on ? 1 : 0,
+        duration: const Duration(milliseconds: 200),
+        child: IgnorePointer(
+          ignoring: !_on,
+          child: DecoratedBox(
+            decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.45), borderRadius: BorderRadius.circular(10)),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              spacing: 14,
+              children: [
+                btn(
+                  p.isLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                  p.isLiked ? 'Unfavorite' : 'Favorite',
+                  p.toggleLike,
+                  color: p.isLiked ? K.like : Colors.white,
+                ),
+                if (!LibraryScope.read(context).demo) btn(Icons.add_rounded, 'Add to playlist', () => addToPlaylistDialog(context, [song])),
+                btn(Icons.album_outlined, 'View album', song.albumId == null ? null : () => openPage(context, PageKind.album, [song.albumId])),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

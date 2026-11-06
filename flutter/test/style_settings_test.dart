@@ -2,6 +2,7 @@
 // without a song playing, at a roomy and a tight desktop size.
 import 'package:cascade/engine/player.dart';
 import 'package:cascade/main.dart';
+import 'package:cascade/ui/style_menu.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -56,7 +57,17 @@ void main() {
         await tester.tap(find.text(t).last);
         await frames(tester);
       }
-      await tester.tap(find.byTooltip('Close the Style menu'));
+      await tester.tap(find.byTooltip('Close the Style menu').last); // its own X
+      await frames(tester);
+      expect(find.byType(StyleMenu), findsNothing);
+
+      // The brush opens it and closes it again.
+      await tester.tap(find.byTooltip('Style').first);
+      await frames(tester);
+      expect(find.byType(StyleMenu), findsOneWidget);
+      await tester.tap(find.byTooltip('Close the Style menu').first);
+      await frames(tester);
+      expect(find.byType(StyleMenu), findsNothing);
       await frames(tester);
 
       await tester.pumpWidget(const SizedBox());

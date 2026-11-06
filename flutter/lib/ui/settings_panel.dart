@@ -44,6 +44,8 @@ class _SettingsPanelState extends State<SettingsPanel> {
     final small = MediaQuery.sizeOf(context).width < 860;
     final s = PlayerScope.of(context).settings;
     final index = _tabs.indexWhere((t) => t.$1 == _tab);
+    // Captured: the pane sliding out keeps its own tab even if it rebuilds.
+    final tab = _tab;
     return Column(
       children: [
         Padding(
@@ -69,7 +71,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
                       constraints: const BoxConstraints(maxWidth: 760),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: switch (_tab) {
+                        children: switch (tab) {
                           'library' => _library(context),
                           'playback' => _playback(context),
                           'lyrics' => _lyrics(context),

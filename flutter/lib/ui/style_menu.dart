@@ -70,6 +70,8 @@ void openStyleMenu(BuildContext context, {String tab = 'appearance'}) {
   final p = PlayerScope.read(context);
   final np = NowPlayingScope.maybeRead(context);
   if (p.song != null && np != null && !narrow(context)) {
+    // The brush again closes it.
+    if (np.editing != null) return np.stopEditing();
     np.editStyle(tab);
     return;
   }

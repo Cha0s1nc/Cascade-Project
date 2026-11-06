@@ -168,4 +168,8 @@ class LyricsFetcher {
 
   /// Ask again next time (a source was down rather than missing the song).
   void forget(String id) => _cache.remove(id);
+
+  /// Already fetched: the lyrics (or null for none), without waiting.
+  bool has(String id) => _cache.containsKey(id);
+  Lyrics? cached(String id) => _cache[id];
 }

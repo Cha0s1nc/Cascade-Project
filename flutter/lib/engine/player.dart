@@ -47,6 +47,9 @@ class _Deck {
   /// Where a converted stream began (see withStartTicks): the engine counts
   /// from 0 there, so positions add this.
   double offset = 0;
+
+  /// Fading out on its own (a skip, or a quick fade instead of a hard stop).
+  Timer? fade;
 }
 
 class Player extends ChangeNotifier {
@@ -408,6 +411,9 @@ class Player extends ChangeNotifier {
 
   Future<void> _load(_Deck d, Song s, {double startAt = 0}) {
     if (d.song == s && d.loading != null) return d.loading!;
+    // A deck still fading out from a skip a moment ago is taken over.
+    d.fade?.cancel();
+    d.fade = null;
     d
       ..song = s
       ..stream = null
@@ -447,6 +453,8 @@ class Player extends ChangeNotifier {
   }
 
   void _unload(_Deck d) {
+    d.fade?.cancel();
+    d.fade = null;
     _report('stop', d);
     if (d.stream?.direct == false && jf != null) stopActiveEncoding(jf!, d.stream!.playSessionId);
     if (jf != null) closeRadioStream(jf!, d.stream?.liveStreamId);
@@ -474,6 +482,10 @@ class Player extends ChangeNotifier {
     _fadeTimer?.cancel();
     _fading = false;
     final out = _deck, inc = _idle;
+    // The old song fades from the moment of the skip, as the desktop's does,
+    // while the next one loads; anything else gets a quick fade instead of
+    // a dead stop, which clicks.
+    if (out.song != null) _fadeOutDeck(out, fadeOut ? skipFadeSecs : 0.06);
     await _load(inc, s, startAt: startAt);
     if (song != s) return; // another start came in while this one loaded
     inc.gain = 1;
@@ -482,11 +494,6 @@ class Player extends ChangeNotifier {
     if (!paused) {
       await inc.p.play();
       _report('start', inc);
-    }
-    if (fadeOut && out.song != null) {
-      _ramp(out, inc, skipFadeSecs, equalPower: false);
-    } else if (out.song != null) {
-      _unload(out);
     }
     _saveQueue();
   }
@@ -529,11 +536,26 @@ class Player extends ChangeNotifier {
   /// Fade [out] down and [inc] up over [secs]. Equal power (cos/sin, the
   /// desktop's crossfade.ts curve) keeps the summed loudness level; a skip's
   /// fade-out is a plain line with the new track already at full.
+  /// Fade [d] to silence over [secs] from now, then unload it. In 10 ms
+  /// steps on a quarter cosine, which eases into silence without the steps
+  /// of a straight line standing out.
+  void _fadeOutDeck(_Deck d, double secs) {
+    d.fade?.cancel();
+    final from = d.gain, start = DateTime.now();
+    d.fade = Timer.periodic(const Duration(milliseconds: 10), (t) {
+      final x = min(1.0, DateTime.now().difference(start).inMilliseconds / (secs * 1000));
+      d.gain = from * cos(x * pi / 2);
+      _applyVolume(d);
+      if (x < 1) return;
+      _unload(d);
+    });
+  }
+
   void _ramp(_Deck out, _Deck inc, double secs, {required bool equalPower}) {
     _fadeTimer?.cancel();
     _fading = true;
     final start = DateTime.now();
-    _fadeTimer = Timer.periodic(const Duration(milliseconds: 20), (t) {
+    _fadeTimer = Timer.periodic(const Duration(milliseconds: 10), (t) {
       final x = min(1.0, DateTime.now().difference(start).inMilliseconds / (secs * 1000));
       out.gain = equalPower ? cos(x * pi / 2) : 1 - x;
       inc.gain = equalPower ? sin(x * pi / 2) : 1;

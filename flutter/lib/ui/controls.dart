@@ -456,7 +456,8 @@ class _PanesState extends State<_Panes> {
     child: AnimatedSwitcher(
       duration: const Duration(milliseconds: 320),
       switchInCurve: settingsCurve,
-      switchOutCurve: settingsCurve,
+      // Mirrored: played backward, the plain curve lingers and then whips out.
+      switchOutCurve: settingsCurve.flipped,
       layoutBuilder: (current, previous) => Stack(alignment: Alignment.topCenter, children: [...previous, ?current]),
       transitionBuilder: (child, anim) {
         final incoming = child.key == ValueKey(widget.index);
