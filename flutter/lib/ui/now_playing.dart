@@ -248,13 +248,16 @@ class _NowPlayingViewState extends State<NowPlayingView> {
               border: const Border.symmetric(vertical: BorderSide(color: K.line)),
             ),
             padding: const EdgeInsets.only(top: 12),
-            child: StyleMenu(tab: np.editing!, live: true, onClose: np.stopEditing, onTab: (t) => np.editing = t, showClose: false),
+            child: StyleMenu(tab: np.editing!, live: true, onClose: np.stopEditing, onTab: np.editStyle, showClose: false),
           ),
         ),
         Expanded(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(40, 56, 32, 24),
-            child: lyricsRoll(LyricsPanel(key: ValueKey(song.id), song: song, rollIn: song.id != _openedOn)),
+            // The Crossfade tab shows the cover change instead.
+            child: np.editing == 'crossfade'
+                ? _CoverPreview(song: song, next: p.upNext)
+                : lyricsRoll(LyricsPanel(key: ValueKey(song.id), song: song, rollIn: song.id != _openedOn)),
           ),
         ),
       ],
@@ -846,4 +849,35 @@ class _QueueRow extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// The Style menu's Crossfade tab: the cover change, played on Replay.
+class _CoverPreview extends StatefulWidget {
+  const _CoverPreview({required this.song, required this.next});
+  final Song song;
+  final List<Song> next;
+
+  @override
+  State<_CoverPreview> createState() => _CoverPreviewState();
+}
+
+class _CoverPreviewState extends State<_CoverPreview> {
+  bool _swapped = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final a = widget.song, b = widget.next.firstOrNull ?? widget.song;
+    // Always forward: each one's next is the other.
+    final (shown, then) = _swapped ? (b, a) : (a, b);
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        spacing: 28,
+        children: [
+          ArtStack(shown, next: [then, shown], size: 260),
+          Pill('Replay', icon: Icons.replay_rounded, primary: false, onTap: () => setState(() => _swapped = !_swapped)),
+        ],
+      ),
+    );
+  }
 }
