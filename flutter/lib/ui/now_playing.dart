@@ -137,6 +137,9 @@ class _NowPlayingViewState extends State<NowPlayingView> {
   bool _idle = false;
   Timer? _idleTimer;
 
+  /// The song Now Playing opened on: later songs' lyrics roll in.
+  late final String _openedOn = PlayerScope.read(context).song?.id ?? '';
+
   @override
   void initState() {
     super.initState();
@@ -242,7 +245,7 @@ class _NowPlayingViewState extends State<NowPlayingView> {
         Expanded(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(40, 56, 32, 24),
-            child: LyricsPanel(key: ValueKey(song.id), song: song),
+            child: lyricsRoll(LyricsPanel(key: ValueKey(song.id), song: song, rollIn: song.id != _openedOn)),
           ),
         ),
       ],
@@ -285,9 +288,10 @@ class _NowPlayingViewState extends State<NowPlayingView> {
             const SizedBox(width: 32),
             Expanded(
               flex: 7,
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 220),
-                child: np.panel == NpPanel.queue ? const QueuePanel(key: ValueKey('q')) : LyricsPanel(key: ValueKey(song.id), song: song),
+              child: lyricsRoll(
+                np.panel == NpPanel.queue
+                    ? const QueuePanel(key: ValueKey('q'))
+                    : LyricsPanel(key: ValueKey(song.id), song: song, rollIn: song.id != _openedOn),
               ),
             ),
           ],
@@ -301,7 +305,7 @@ class _NowPlayingViewState extends State<NowPlayingView> {
     children: [
       Padding(
         padding: const EdgeInsets.fromLTRB(80, 40, 80, 40),
-        child: LyricsPanel(key: ValueKey(song.id), song: song, size: 54, center: true, showSource: !_idle),
+        child: lyricsRoll(LyricsPanel(key: ValueKey(song.id), song: song, size: 54, center: true, showSource: !_idle, rollIn: song.id != _openedOn)),
       ),
       Positioned(
         top: 20,
@@ -345,7 +349,6 @@ class _NowPlayingViewState extends State<NowPlayingView> {
       ),
     ],
   );
-
 }
 
 /// The song's quality under its title: format, bit depth, sample rate and
@@ -541,13 +544,38 @@ class _TopRight extends StatelessWidget {
   );
 }
 
+/// One song's lyrics giving way to the next's: the old sheet glides up and
+/// fades while the new one (rollIn) comes up from below.
+Widget lyricsRoll(Widget child) => AnimatedSwitcher(
+  duration: const Duration(milliseconds: 700),
+  reverseDuration: const Duration(milliseconds: 600),
+  switchInCurve: Curves.easeOut,
+  switchOutCurve: Curves.easeIn,
+  layoutBuilder: (current, previous) => Stack(fit: StackFit.expand, children: [...previous, ?current]),
+  transitionBuilder: (c, a) => FadeTransition(
+    opacity: a,
+    child: c.key == child.key
+        ? c
+        : SlideTransition(
+            position: Tween(begin: const Offset(0, -0.35), end: Offset.zero).animate(a),
+            child: c,
+          ),
+  ),
+  child: child,
+);
+
 /// The song's lyrics: fetched when it changes, with the source pill to force
 /// another source.
 class LyricsPanel extends StatefulWidget {
-  const LyricsPanel({super.key, required this.song, this.size = 34, this.center = false, this.phone = false, this.showSource = true});
+  const LyricsPanel({super.key, required this.song, this.size, this.center = false, this.phone = false, this.showSource = true, this.rollIn = false});
   final Song song;
-  final double size;
+
+  /// Null takes the desktop's size, from the window.
+  final double? size;
   final bool center, phone;
+
+  /// The sheet rolls up from below (playback moved on by itself).
+  final bool rollIn;
 
   /// Focus hides the source pill with its other controls when idle.
   final bool showSource;
@@ -609,7 +637,7 @@ class _LyricsPanelState extends State<LyricsPanel> {
       final l = snap.data;
       Widget body;
       if (snap.connectionState != ConnectionState.done) {
-        body = const Center(child: CircularProgressIndicator(strokeWidth: 2.5));
+        body = const SizedBox.shrink(); // usually a moment; a spinner would flash between songs
       } else if (l == null || l.lines.isEmpty) {
         body = Center(
           child: Text(l?.instrumental == true ? 'Instrumental' : 'No lyrics for this one.', style: widget.phone ? ds(22, c: K.text2) : Txt.section(K.text2)),
@@ -618,9 +646,11 @@ class _LyricsPanelState extends State<LyricsPanel> {
         body = LyricsView(
           player: p,
           lyrics: l,
-          size: widget.size * (l.synced ? p.settings.lyricScale : p.settings.plainLyricScale),
+          size: widget.size,
+          scale: l.synced ? p.settings.lyricScale : p.settings.plainLyricScale,
           center: widget.center,
           phone: widget.phone,
+          rollIn: widget.rollIn,
         );
       }
       return Column(

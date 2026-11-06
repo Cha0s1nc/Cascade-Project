@@ -22,8 +22,8 @@ import 'package:cascade/ui/pages/common.dart';
 import 'package:cascade/ui/scopes.dart';
 import 'package:cascade/ui/widgets.dart';
 
-/// The lyric knobs the Flutter lyrics draw with. ponytail: the rest of the
-/// shared knobs show up here as the lyrics grow those effects.
+/// The lyric knobs the Flutter lyrics draw with. ponytail: the background
+/// color knobs come with the album-color background.
 const lyricKnobsUsed = {
   'currentLinePosition',
   'lineGap',
@@ -40,10 +40,19 @@ const lyricKnobsUsed = {
   'browsingOpacity',
   'browsingBlur',
   'unsungOpacity',
+  'wordLift',
+  'heldFullSeconds',
+  'heldMinStrength',
+  'heldLift',
+  'heldScale',
+  'heldSettleSeconds',
   'backgroundVocalSize',
   'backgroundVocalOpacity',
   'fadeSeconds',
+  'rippleSeconds',
   'lyricsDelay',
+  'scrollLead',
+  'tightScrollLead',
   'controlsIdleSeconds',
 };
 
