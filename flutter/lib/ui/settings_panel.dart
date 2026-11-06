@@ -2,9 +2,11 @@
 // Account and About. A page in the main window on desktop (a tab list down
 // the left), the Settings tab on phones (chips across the top).
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'package:cascade/core/electron_import.dart';
 import 'package:cascade/core/jellyfin.dart';
+import 'package:cascade/core/log.dart';
 import 'package:cascade/core/lyrics_fetch.dart';
 import 'package:cascade/core/playback.dart';
 import 'package:cascade/engine/player.dart';
@@ -346,6 +348,35 @@ class _SettingsPanelState extends State<SettingsPanel> {
     _Row(title: 'Cascade for Windows, Linux and Android', subtitle: 'Version $appVersion', trailing: const SizedBox.shrink()),
     _Row(title: 'Website', subtitle: 'cascade.chaosinc.xyz', trailing: const SizedBox.shrink()),
     _Row(title: 'Fonts', subtitle: 'Hanken Grotesk and Inter, under the SIL Open Font License', trailing: const SizedBox.shrink()),
+    _Row(
+      title: 'Log',
+      subtitle: 'What playback and the server have been doing, for reporting a problem',
+      trailing: _Btn(
+        'Show',
+        () => showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: K.panel,
+            title: Text('Log', style: Txt.section()),
+            content: SizedBox(
+              width: 720,
+              height: 460,
+              child: SingleChildScrollView(
+                reverse: true,
+                child: SelectableText(recentLog.isEmpty ? 'Nothing logged yet.' : recentLog.join('\n'), style: ts(11, c: K.text2, h: 1.4)),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Clipboard.setData(ClipboardData(text: recentLog.join('\n'))),
+                child: const Text('Copy'),
+              ),
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
+            ],
+          ),
+        ),
+      ),
+    ),
     if (electronConfigFile() case final f?)
       _Row(
         title: 'Import from the desktop app',

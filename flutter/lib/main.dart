@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart' show MediaKit;
 
 import 'package:cascade/ui/desktop.dart';
+import 'package:cascade/ui/first_run.dart';
 import 'package:cascade/core/downloads.dart';
 import 'package:cascade/core/jellyfin.dart';
 import 'package:cascade/core/library.dart';
@@ -59,6 +60,7 @@ class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
   final _library = Library();
   late final _downloads = widget.downloads ?? Downloads();
   final _messenger = GlobalKey<ScaffoldMessengerState>();
+  final _navigator = GlobalKey<NavigatorState>();
   RemoteSocket? _remote;
 
   /// Other apps can control this one while signed in.
@@ -96,7 +98,11 @@ class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     // The queue comes back once the library has loaded, so a server that was
     // down at launch still gets it back when it answers.
-    _library.onLoaded = widget.player.restore;
+    _library.onLoaded = () {
+      widget.player.restore();
+      final c = _navigator.currentContext;
+      if (c != null) maybeShowFirstRun(c, _library, widget.player.settings);
+    };
     // Likes go through the library, so they reach the server.
     widget.player.likedOf = (s) => _library.isFavorite(s.id, s.favorite);
     widget.player.onToggleLike = (s) {
@@ -140,6 +146,7 @@ class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
   Widget build(BuildContext context) => MaterialApp(
     title: 'Cascade',
     scaffoldMessengerKey: _messenger,
+    navigatorKey: _navigator,
     debugShowCheckedModeBanner: false,
     theme: ThemeData(
       brightness: Brightness.dark,

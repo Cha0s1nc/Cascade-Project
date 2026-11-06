@@ -74,10 +74,10 @@ One line per feature in `docs/flutter-plan.md`. Status: built / partial / not bu
 - Discord Rich Presence: built - Discord's IPC on a Windows named pipe or a Linux socket (plain, Flatpak, Snap), off by default as on the desktop; no cover art yet
 - Cha0s Stream control server: not built
 - Keyboard shortcuts: partial - Ctrl+K focuses search
-- First-run wizard: not built
+- First-run wizard: built - after the first sign-in: libraries (when there is a choice), crossfade, streaming quality and the Now Playing look; not yet seen on a device
 - Full Settings: partial - Electron's six tabs; Library (pickers, Radio, scan, refresh), Playback (crossfade, quality, normalization, EQ, output, auto-mix, auto-skip, sleep, Now Playing layout and art stack), Lyrics (source), Integrations (Discord switch only), Account (sign out, Quick Connect approve), About; tips, messages, custom headers and client certificates not yet
 - Client certificates and custom headers: not built
-- Debug panel: not built
+- Debug panel: partial - Settings > About shows and copies the recent log; the desktop's live tuning knobs are the Theme page's Style Tuning
 
 ## Phase 5: video
 
