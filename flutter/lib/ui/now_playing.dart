@@ -866,7 +866,9 @@ class _CoverPreviewState extends State<_CoverPreview> {
 
   @override
   Widget build(BuildContext context) {
-    final a = widget.song, b = widget.next.firstOrNull ?? widget.song;
+    final a = widget.song;
+    // Nothing queued: the same cover stands in, as another song.
+    final b = widget.next.firstOrNull ?? Song(a.title, a.artist, a.album, a.year, a.seconds, a.art, id: '${a.id}#preview', image: a.image);
     // Always forward: each one's next is the other.
     final (shown, then) = _swapped ? (b, a) : (a, b);
     return Center(

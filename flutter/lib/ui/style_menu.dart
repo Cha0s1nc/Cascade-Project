@@ -369,7 +369,7 @@ class _StyleMenuState extends State<StyleMenu> {
       _row(
         'Buttons',
         Segmented<String>(value: s.buttonStyle, items: const {'overlay': 'Overlay', 'push': 'Push', 'labeled': 'Labeled'}, onChanged: s.setButtonStyle),
-        subtitle: 'How page buttons show their names: over their neighbours, making room, or always',
+        subtitle: 'How page buttons show their names: over their neighbors, making room, or always',
         visual: false,
       ),
     ]),

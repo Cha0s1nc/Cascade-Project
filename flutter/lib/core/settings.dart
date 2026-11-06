@@ -136,7 +136,7 @@ class Settings extends ChangeNotifier {
 
   double _num(String k, double d, double lo, double hi) => (_p?.getDouble(k) ?? d).clamp(lo, hi);
 
-  /// How page buttons open their labels: 'overlay' (over their neighbours,
+  /// How page buttons open their labels: 'overlay' (over their neighbors,
   /// Electron's default), 'push' (the row makes room) or 'labeled' (always).
   late String buttonStyle = switch (_p?.getString('buttonStyle')) {
     'push' => 'push',
