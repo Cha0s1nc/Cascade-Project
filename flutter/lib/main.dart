@@ -4,6 +4,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart' show MediaKit;
 import 'package:path_provider/path_provider.dart';
 
@@ -160,6 +161,28 @@ class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
     scaffoldMessengerKey: _messenger,
     navigatorKey: _navigator,
     debugShowCheckedModeBanner: false,
+    // The interface size (the Style menu, or Ctrl/Cmd +, - and 0) scales the
+    // whole app, dialogs and menus too; not the fixed-size miniplayer.
+    builder: (context, child) => ListenableBuilder(
+      listenable: Listenable.merge([widget.player.settings, miniMode]),
+      builder: (context, _) {
+        final s = widget.player.settings;
+        void by(double d) => s.setUiScale((s.uiScale + d).clamp(0.8, 1.5));
+        return CallbackShortcuts(
+          bindings: {
+            for (final mod in [(control: true, meta: false), (control: false, meta: true)]) ...{
+              SingleActivator(LogicalKeyboardKey.equal, control: mod.control, meta: mod.meta): () => by(0.1),
+              SingleActivator(LogicalKeyboardKey.equal, control: mod.control, meta: mod.meta, shift: true): () => by(0.1),
+              SingleActivator(LogicalKeyboardKey.numpadAdd, control: mod.control, meta: mod.meta): () => by(0.1),
+              SingleActivator(LogicalKeyboardKey.minus, control: mod.control, meta: mod.meta): () => by(-0.1),
+              SingleActivator(LogicalKeyboardKey.numpadSubtract, control: mod.control, meta: mod.meta): () => by(-0.1),
+              SingleActivator(LogicalKeyboardKey.digit0, control: mod.control, meta: mod.meta): () => s.setUiScale(1),
+            },
+          },
+          child: UiScale(scale: miniMode.value ? 1 : s.uiScale, child: child!),
+        );
+      },
+    ),
     theme: ThemeData(
       brightness: Brightness.dark,
       fontFamily: 'Inter',

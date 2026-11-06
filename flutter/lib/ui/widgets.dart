@@ -627,3 +627,34 @@ class ThinBar extends StatelessWidget {
     ),
   );
 }
+
+/// Draws [child] [scale] times its size: it lays out in a smaller (or larger)
+/// window and is scaled to fill the real one, so everything, text, icons and
+/// spacing, grows together, as a browser's zoom.
+class UiScale extends StatelessWidget {
+  const UiScale({super.key, required this.scale, required this.child});
+  final double scale;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (scale == 1) return child;
+    final mq = MediaQuery.of(context);
+    return MediaQuery(
+      data: mq.copyWith(
+        size: mq.size / scale,
+        devicePixelRatio: mq.devicePixelRatio * scale,
+        padding: mq.padding / scale,
+        viewPadding: mq.viewPadding / scale,
+        viewInsets: mq.viewInsets / scale,
+      ),
+      child: LayoutBuilder(
+        builder: (context, c) => FittedBox(
+          fit: BoxFit.fill,
+          alignment: Alignment.topLeft,
+          child: SizedBox(width: c.maxWidth / scale, height: c.maxHeight / scale, child: child),
+        ),
+      ),
+    );
+  }
+}

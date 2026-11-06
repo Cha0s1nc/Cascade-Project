@@ -6,11 +6,12 @@ import 'package:cascade/engine/player.dart';
 import 'package:cascade/main.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  testWidgets('search slides, the sidebar cycles', (tester) async {
+  testWidgets('search slides, the sidebar cycles, the interface scales', (tester) async {
     addTearDown(tester.view.reset);
     SharedPreferences.setMockInitialValues({});
     tester.view.physicalSize = const Size(1440, 900);
@@ -59,6 +60,19 @@ void main() {
     await tester.pumpAndSettle();
     expect(width(), 232);
     expect(sidebar(), isNonZero);
+
+    // Ctrl + makes everything bigger together; Ctrl 0 puts it back.
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.equal);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+    expect(player.settings.uiScale, closeTo(1.1, 1e-9));
+    expect(width(), closeTo(232 * 1.1, 0.5));
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.digit0);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+    expect(width(), 232);
 
     await tester.pumpWidget(const SizedBox());
   });
