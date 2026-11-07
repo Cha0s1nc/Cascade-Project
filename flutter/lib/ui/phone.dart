@@ -123,10 +123,12 @@ class _PhoneShellState extends State<PhoneShell> {
                           layoutBuilder: (current, previous) => Stack(fit: StackFit.expand, children: [...previous, ?current]),
                           transitionBuilder: (c, a) => FadeTransition(
                             opacity: a,
-                            child: SlideTransition(
-                              position: Tween(begin: const Offset(0, 0.03), end: Offset.zero).animate(a),
-                              child: c,
-                            ),
+                            child: calm(context)
+                                ? c
+                                : SlideTransition(
+                                    position: Tween(begin: const Offset(0, 0.03), end: Offset.zero).animate(a),
+                                    child: c,
+                                  ),
                           ),
                           child: KeyedSubtree(key: ObjectKey(_nav.top), child: _body()),
                         ),

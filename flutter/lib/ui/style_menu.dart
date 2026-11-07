@@ -125,6 +125,7 @@ class _Snapshot {
 
 Map<String, Object?> _lookOf(Settings s) => {
   'buttonStyle': s.buttonStyle,
+  'reduceMotion': s.reduceMotion,
   'uiScale': s.uiScale,
   'nowPlayingLayout': s.nowPlayingLayout,
   'showArtStack': s.showArtStack,
@@ -143,6 +144,7 @@ Map<String, Object?> _lookOf(Settings s) => {
 void applyLook(Settings s, Map look) {
   T? get<T>(String k) => look[k] is T ? look[k] as T : null;
   if (get<String>('buttonStyle') case final v?) s.setButtonStyle(v);
+  if (get<String>('reduceMotion') case final v?) s.setReduceMotion(v);
   if (get<num>('uiScale') case final v?) s.setUiScale(v.toDouble());
   if (get<String>('nowPlayingLayout') case final v?) s.setNowPlayingLayout(v);
   if (get<bool>('showArtStack') case final v?) s.setShowArtStack(v);
@@ -374,6 +376,12 @@ class _StyleMenuState extends State<StyleMenu> {
         subtitle: 'How page buttons show their names: over their neighbors, making room, or always',
         visual: false,
       ),
+      _row(
+        'Reduce motion',
+        Segmented<String>(value: s.reduceMotion, items: const {'auto': 'Auto', 'on': 'On', 'off': 'Off'}, onChanged: s.setReduceMotion),
+        subtitle: 'Fades instead of slides, swipes and springs. Auto follows your system setting.',
+        visual: false,
+      ),
     ]),
   ];
 
@@ -516,7 +524,7 @@ class _StyleMenuState extends State<StyleMenu> {
   void _reset(Settings s) {
     switch (_tab) {
       case 'appearance':
-        applyLook(s, {'uiScale': 1, 'buttonStyle': 'overlay'});
+        applyLook(s, {'uiScale': 1, 'buttonStyle': 'overlay', 'reduceMotion': 'auto'});
       case 'nowplaying':
         applyLook(s, {'nowPlayingLayout': 'bar', 'showArtStack': true, 'bgDim': 0.62, 'colorFade': true, 'colorFadeSeconds': 0.7});
       case 'lyrics':

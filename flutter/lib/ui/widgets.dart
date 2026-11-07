@@ -5,6 +5,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'package:cascade/core/data.dart';
 import 'package:cascade/ui/scopes.dart';
@@ -20,7 +21,7 @@ abstract final class K {
   static const line = Color(0x14FFFFFF); // line, white at 8%
   static const text = Color(0xFFEEF3F8);
   static const text2 = Color(0xFFA7B4C4);
-  static const text3 = Color(0xFF687789);
+  static const text3 = Color(0xFF8A99AB); // 4.6:1 on surface-2 hover, 6.7:1 on bg (was 687789, under 4.5:1)
   static const accent = Color(0xFF7CC4FF);
   static const accentTint = Color(0x247CC4FF); // accent at 14%
   static const accentDeep = Color(0xFF2B6CB0);
@@ -86,26 +87,86 @@ abstract final class Txt {
   static TextStyle caps([Color c = K.text3]) => ts(11, w: FontWeight.w600, c: c, ls: 0.88, h: 1.2);
 }
 
-/// Hover state for desktop; on touch it just never lights up.
+/// Motion kept to fades and cuts: the system's reduce motion setting, unless
+/// the Style menu's Reduce motion says otherwise.
+bool calm(BuildContext context) => switch (PlayerScope.maybeRead(context)?.settings.reduceMotion) {
+  'on' => true,
+  'off' => false,
+  _ => MediaQuery.maybeDisableAnimationsOf(context) ?? false,
+};
+
+/// Enter and Space press the focused control, before the window's own
+/// Space (play and pause) sees them.
+const activateKeys = <ShortcutActivator, Intent>{
+  SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
+  SingleActivator(LogicalKeyboardKey.numpadEnter): ActivateIntent(),
+  SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
+};
+
+/// The ring around the control that has keyboard focus (shown only while
+/// moving by keyboard, never on a click).
+Widget focusRing(Widget child, {required bool on, double radius = 8}) => on
+    ? DecoratedBox(
+        position: DecorationPosition.foreground,
+        decoration: BoxDecoration(
+          border: Border.all(color: K.accent, width: 2),
+          borderRadius: BorderRadius.circular(radius),
+        ),
+        child: child,
+      )
+    : child;
+
+/// The base of the app's own buttons and rows: a pointer cursor and hover
+/// state with the mouse, and with the keyboard a place in the Tab order,
+/// Enter or Space to press, and a focus ring (which also lights the hover
+/// look). Screen readers hear a button. Without [onTap] it is inert.
 class Hover extends StatefulWidget {
-  const Hover({super.key, required this.builder, this.onTap});
+  const Hover({super.key, required this.builder, this.onTap, this.label, this.radius = 8});
   final Widget Function(BuildContext context, bool hovered) builder;
   final VoidCallback? onTap;
+
+  /// What a screen reader says, when the control shows no text of its own.
+  final String? label;
+
+  /// The focus ring's corner radius, to follow the control's shape.
+  final double radius;
 
   @override
   State<Hover> createState() => _HoverState();
 }
 
 class _HoverState extends State<Hover> {
-  bool _on = false;
+  bool _hover = false, _focus = false;
 
   @override
-  Widget build(BuildContext context) => MouseRegion(
-    cursor: widget.onTap == null ? MouseCursor.defer : SystemMouseCursors.click,
-    onEnter: (_) => setState(() => _on = true),
-    onExit: (_) => setState(() => _on = false),
-    child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: widget.onTap, child: widget.builder(context, _on)),
-  );
+  Widget build(BuildContext context) {
+    final on = widget.onTap != null;
+    return Semantics(
+      button: on,
+      enabled: on,
+      label: widget.label,
+      child: FocusableActionDetector(
+        enabled: on,
+        mouseCursor: on ? SystemMouseCursors.click : MouseCursor.defer,
+        shortcuts: activateKeys,
+        actions: {
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              widget.onTap?.call();
+              return null;
+            },
+          ),
+        },
+        onShowHoverHighlight: (v) => setState(() => _hover = v),
+        onShowFocusHighlight: (v) => setState(() => _focus = v),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onTap,
+          child: focusRing(widget.builder(context, _hover || _focus), on: _focus, radius: widget.radius),
+        ),
+      ),
+    );
+  }
 }
 
 /// Set by the app: a downloaded copy of an image URL's cover, if there is one.
@@ -163,22 +224,20 @@ class PlayCircle extends StatelessWidget {
   final double size;
 
   @override
-  Widget build(BuildContext context) => Semantics(
-    button: true,
+  Widget build(BuildContext context) => Hover(
+    onTap: onTap,
     label: playing ? 'Pause' : 'Play',
-    child: Hover(
-      onTap: onTap,
-      builder: (_, on) => AnimatedContainer(
-        duration: const Duration(milliseconds: 120),
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: on ? K.accent.withValues(alpha: 0.85) : K.accent,
-          boxShadow: const [BoxShadow(color: Color(0x40000000), blurRadius: 12, offset: Offset(0, 4))],
-        ),
-        child: Icon(playing ? Icons.pause_rounded : Icons.play_arrow_rounded, color: K.ink, size: size * 0.55),
+    radius: size / 2,
+    builder: (_, on) => AnimatedContainer(
+      duration: const Duration(milliseconds: 120),
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: on ? K.accent.withValues(alpha: 0.85) : K.accent,
+        boxShadow: const [BoxShadow(color: Color(0x40000000), blurRadius: 12, offset: Offset(0, 4))],
       ),
+      child: Icon(playing ? Icons.pause_rounded : Icons.play_arrow_rounded, color: K.ink, size: size * 0.55),
     ),
   );
 }
@@ -194,32 +253,29 @@ class Pill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fg = onTap == null ? K.text3 : (primary ? K.ink : K.text);
-    return Semantics(
-      button: true,
-      label: label,
-      child: Hover(
-        onTap: onTap,
-        builder: (_, on) => AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          padding: EdgeInsets.fromLTRB(icon == null ? 16 : 12, 8, 16, 8),
-          decoration: BoxDecoration(
-            color: onTap == null
-                ? K.surface
-                : primary
-                ? (on ? K.foam : K.accent)
-                : (on ? K.surface2 : K.surface),
-            borderRadius: BorderRadius.circular(99),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (icon != null) ...[Icon(icon, color: fg, size: 17), const SizedBox(width: 6)],
-              Text(
-                label,
-                style: ts(13, w: FontWeight.w600, c: fg),
-              ),
-            ],
-          ),
+    return Hover(
+      onTap: onTap,
+      radius: 99,
+      builder: (_, on) => AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        padding: EdgeInsets.fromLTRB(icon == null ? 16 : 12, 8, 16, 8),
+        decoration: BoxDecoration(
+          color: onTap == null
+              ? K.surface
+              : primary
+              ? (on ? K.foam : K.accent)
+              : (on ? K.surface2 : K.surface),
+          borderRadius: BorderRadius.circular(99),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[Icon(icon, color: fg, size: 17), const SizedBox(width: 6)],
+            Text(
+              label,
+              style: ts(13, w: FontWeight.w600, c: fg),
+            ),
+          ],
         ),
       ),
     );
@@ -283,7 +339,8 @@ class _ArtStackState extends State<ArtStack> with SingleTickerProviderStateMixin
     final size = widget.size, step = size * 0.14;
     final t = _c.value;
     final from = t < 1 ? _from : null;
-    final anim = settings.coverAnim;
+    // Reduce motion: the covers crossfade, nothing flies.
+    final anim = calm(context) ? 'fade' : settings.coverAnim;
 
     Widget card(
       Song s, {

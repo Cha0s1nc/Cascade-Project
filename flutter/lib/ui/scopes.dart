@@ -24,6 +24,7 @@ class PlayerScope extends InheritedNotifier<Player> {
 
   /// For callbacks: no rebuilds.
   static Player read(BuildContext context) => context.getInheritedWidgetOfExactType<PlayerScope>()!.notifier!;
+  static Player? maybeRead(BuildContext context) => context.getInheritedWidgetOfExactType<PlayerScope>()?.notifier;
 }
 
 /// The shell's page history, for anything that opens a page.

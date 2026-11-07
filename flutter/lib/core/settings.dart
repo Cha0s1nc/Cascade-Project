@@ -154,6 +154,15 @@ class Settings extends ChangeNotifier {
   };
   void setSidebarMode(String v) => _changed(_p?.setString('sidebarMode', sidebarMode = v));
 
+  /// Motion kept to fades: 'auto' follows the system's reduce motion
+  /// setting, 'on' always, 'off' never.
+  late String reduceMotion = switch (_p?.getString('reduceMotion')) {
+    'on' => 'on',
+    'off' => 'off',
+    _ => 'auto',
+  };
+  void setReduceMotion(String v) => _changed(_p?.setString('reduceMotion', reduceMotion = v));
+
   /// The whole interface's size, 0.8 to 1.5 (Ctrl + and - too).
   late double uiScale = _num('uiScale', 1, 0.8, 1.5);
   void setUiScale(double v) => _changed(_p?.setDouble('uiScale', uiScale = (v * 20).round() / 20));

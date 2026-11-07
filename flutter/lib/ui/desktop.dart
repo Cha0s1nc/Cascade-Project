@@ -634,7 +634,7 @@ class _MainPanelState extends State<_MainPanel> {
             reverseDuration: const Duration(milliseconds: 160),
             switchInCurve: settingsCurve,
             layoutBuilder: (current, previous) => Stack(fit: StackFit.expand, children: [...previous, ?current]),
-            transitionBuilder: (c, a) => c.key != key
+            transitionBuilder: (c, a) => c.key != key || calm(context)
                 ? FadeTransition(opacity: a, child: c)
                 : FadeTransition(
                     opacity: a,

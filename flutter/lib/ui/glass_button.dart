@@ -39,7 +39,7 @@ class _GlassBtnState extends State<GlassBtn> with SingleTickerProviderStateMixin
   late final _fade = CurvedAnimation(parent: _c, curve: const Interval(120 / 360, 300 / 360), reverseCurve: const Interval(190 / 300, 1));
   final _link = LayerLink();
   final _portal = OverlayPortalController();
-  bool _inBase = false, _inFace = false, _pressed = false;
+  bool _inBase = false, _inFace = false, _pressed = false, _focus = false;
   Timer? _settle;
 
   @override
@@ -57,12 +57,16 @@ class _GlassBtnState extends State<GlassBtn> with SingleTickerProviderStateMixin
     _settle?.cancel();
     _settle = Timer(const Duration(milliseconds: 30), () {
       if (!mounted) return;
-      if (_inBase || _inFace) {
+      final still = calm(context);
+      if (_inBase || _inFace || _focus) {
         if (_overlay) _portal.show();
-        _c.forward();
+        still ? _c.value = 1 : _c.forward();
+      } else if (still) {
+        _c.value = 0;
+        if (_portal.isShowing) _portal.hide();
       } else {
         _c.reverse().whenComplete(() {
-          if (mounted && !_inBase && !_inFace && _portal.isShowing) _portal.hide();
+          if (mounted && !_inBase && !_inFace && !_focus && _portal.isShowing) _portal.hide();
         });
       }
     });
@@ -116,7 +120,26 @@ class _GlassBtnState extends State<GlassBtn> with SingleTickerProviderStateMixin
                   ),
                 ),
         );
-        return always || !narrow(context) ? button : Tooltip(message: widget.label, child: button);
+        // The keyboard reaches it too: focus opens the name as hover does.
+        final keyed = FocusableActionDetector(
+          enabled: widget.onTap != null,
+          shortcuts: activateKeys,
+          actions: {
+            ActivateIntent: CallbackAction<ActivateIntent>(
+              onInvoke: (_) {
+                widget.onTap?.call();
+                return null;
+              },
+            ),
+          },
+          onShowFocusHighlight: (v) {
+            _focus = v;
+            _hover();
+            setState(() {});
+          },
+          child: focusRing(button, on: _focus, radius: 999),
+        );
+        return always || !narrow(context) ? keyed : Tooltip(message: widget.label, child: keyed);
       },
     );
   }

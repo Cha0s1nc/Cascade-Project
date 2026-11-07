@@ -91,7 +91,8 @@ class _NowPlayingLayerState extends State<NowPlayingLayer> {
           child: IgnorePointer(
             ignoring: !np.open,
             child: AnimatedSlide(
-              offset: np.open ? Offset.zero : const Offset(0, 1),
+              // Reduce motion: it fades in place.
+              offset: np.open || calm(context) ? Offset.zero : const Offset(0, 1),
               duration: const Duration(milliseconds: 380),
               curve: np.open ? const Cubic(.2, .8, .2, 1) : const Cubic(.4, 0, 1, 1),
               onEnd: () {
@@ -208,7 +209,7 @@ class _NowPlayingViewState extends State<NowPlayingView> {
           layoutBuilder: (current, previous) => Stack(fit: StackFit.expand, children: [...previous, ?current]),
           transitionBuilder: (c, a) => FadeTransition(
             opacity: a,
-            child: ScaleTransition(scale: Tween(begin: 0.985, end: 1.0).animate(a), child: c),
+            child: calm(context) ? c : ScaleTransition(scale: Tween(begin: 0.985, end: 1.0).animate(a), child: c),
           ),
           child: np.editing != null
               ? KeyedSubtree(key: const ValueKey('style'), child: _editor(context, p, np, song))
@@ -267,7 +268,7 @@ class _NowPlayingViewState extends State<NowPlayingView> {
           curve: const Interval(0.22, 1, curve: editorCurve),
           builder: (_, t, child) => Opacity(
             opacity: t,
-            child: Transform.translate(offset: Offset(-32 * (1 - t), 0), child: child),
+            child: Transform.translate(offset: Offset(calm(context) ? 0 : -32 * (1 - t), 0), child: child),
           ),
           child: Container(
             width: (c.maxWidth * 0.34).clamp(380.0, 460.0),
@@ -624,15 +625,18 @@ class _TopRight extends StatelessWidget {
 /// One song's lyrics giving way to the next's: the old sheet glides up and
 /// fades, moving with the new one (rollIn), which springs up from half a
 /// panel below.
-Widget lyricsRoll(Widget child) => AnimatedSwitcher(
-  duration: const Duration(milliseconds: 450),
+Widget lyricsRoll(Widget child) => Builder(builder: (context) => _lyricsRoll(context, child));
+
+Widget _lyricsRoll(BuildContext context, Widget child) => AnimatedSwitcher(
+  duration: const Duration(milliseconds: 550),
   reverseDuration: const Duration(milliseconds: 650),
-  switchInCurve: Curves.easeOut,
+  // The first 100 ms wait: the cover leads a song change, the lyrics follow.
+  switchInCurve: const Interval(0.18, 1, curve: Curves.easeOut),
   // Mirrored, so the old sheet starts moving at once and eases to a stop,
   // as the new one's spring does.
   switchOutCurve: Curves.easeOutCubic.flipped,
   layoutBuilder: (current, previous) => Stack(fit: StackFit.expand, children: [...previous, ?current]),
-  transitionBuilder: (c, a) => c.key == child.key
+  transitionBuilder: (c, a) => c.key == child.key || calm(context)
       ? FadeTransition(opacity: a, child: c)
       : FadeTransition(
           opacity: a,

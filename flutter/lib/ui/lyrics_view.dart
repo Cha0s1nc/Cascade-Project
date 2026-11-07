@@ -28,6 +28,7 @@ import 'package:cascade/core/lyrics.dart';
 import 'package:cascade/core/lyrics_fetch.dart';
 import 'package:cascade/core/tuning_defaults.dart';
 import 'package:cascade/engine/player.dart';
+import 'package:cascade/ui/widgets.dart';
 
 /// The shipped style for desktop and for phones (the Apple phone values).
 /// ponytail: Flutter reads the desktop and iPhone columns of the shared file;
@@ -131,7 +132,10 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
   final _body = GlobalKey();
   late List<GlobalKey> _keys;
   double _vel = 0, _panel = 0;
-  Duration? _last;
+  Duration? _last, _placedAt;
+
+  /// A rolling sheet waits this long for the cover to lead the song change.
+  static const _rollDelay = Duration(milliseconds: 100);
   int _active = -1, _first = -1, _scan = 0, _prevNow = 0;
   int? _scrollTo, _scrollFirst;
   bool _browsing = false, _placed = false;
@@ -219,7 +223,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
     _scrollTo = to;
     _scrollFirst = toFirst;
     if (seeked && _placed && !_browsing) _jump();
-    _step(dt);
+    _step(dt, elapsed);
   }
 
   // The spring -------------------------------------------------------------
@@ -257,18 +261,26 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
     _vel = 0;
   }
 
-  void _step(double dt) {
+  void _step(double dt, Duration elapsed) {
     if (_browsing) return;
     final t = _target();
     if (t == null) return;
     if (!_placed) {
       _placed = true;
-      _y.value = widget.rollIn ? t + _panel * 0.5 : t;
+      _placedAt = elapsed;
+      _y.value = widget.rollIn && !calm(context) ? t + _panel * 0.5 : t;
       _vel = 0;
       return;
     }
     var pos = _y.value, vel = _vel;
     if (pos == t && vel == 0) return;
+    if (widget.rollIn && _placedAt != null && elapsed - _placedAt! < _rollDelay) return;
+    // Reduce motion: the sheet steps to each line instead of gliding.
+    if (calm(context)) {
+      _y.value = t;
+      _vel = 0;
+      return;
+    }
     if (dt > 0.25) {
       // Nothing was drawn for a while: snap rather than replay a stale move.
       pos = t;
@@ -387,7 +399,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
         : d == 3
         ? (_s(st, 'next3Opacity', 0.1), _s(st, 'next3Blur', 4), 1.0)
         : (0.0, _s(st, 'farBlur', 6), 1.0);
-    final ripple = !_browsing && d > 0 ? min(d, 3) * _s(st, 'rippleSeconds', 0.04) : 0.0;
+    final ripple = !_browsing && d > 0 && !calm(context) ? min(d, 3) * _s(st, 'rippleSeconds', 0.04) : 0.0;
     final active = d == 0;
     final align = line.opposite
         ? Alignment.centerRight
@@ -716,7 +728,7 @@ class _Word extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final since = (now - word.start) / 1e7;
-    final lift = since < 0 ? 0.0 : _s(st, 'wordLift', 0.04) * style.fontSize! * _liftCurve.transform((since / 0.6).clamp(0.0, 1.0));
+    final lift = since < 0 || calm(context) ? 0.0 : _s(st, 'wordLift', 0.04) * style.fontSize! * _liftCurve.transform((since / 0.6).clamp(0.0, 1.0));
     return Transform.translate(offset: Offset(0, -lift), child: _filled(word.text, style, _progress(word, now), 1 - (1 - _s(st, 'unsungOpacity', 0.29)) * lit));
   }
 }
@@ -756,7 +768,7 @@ class _Held extends StatelessWidget {
               builder: (_) {
                 final share = (prog * n - i).clamp(0.0, 1.0);
                 final litAt = start + held * i / n;
-                final s = now == null ? 0.0 : heldSwell(t - litAt, start + held - litAt, held, swellStyle);
+                final s = now == null || calm(context) ? 0.0 : heldSwell(t - litAt, start + held - litAt, held, swellStyle);
                 final glow = s > 0.01
                     ? style.copyWith(
                         shadows: [

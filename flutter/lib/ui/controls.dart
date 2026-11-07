@@ -14,41 +14,64 @@ const settingsCurve = Cubic(.2, .8, .2, 1);
 const editorCurve = Cubic(.2, .7, .3, 1);
 
 /// The 36x20 toggle: surface-2 track, accent when on, a 14px thumb.
-class Toggle extends StatelessWidget {
+class Toggle extends StatefulWidget {
   const Toggle({super.key, required this.value, required this.onChanged});
   final bool value;
   final ValueChanged<bool>? onChanged;
 
   @override
+  State<Toggle> createState() => _ToggleState();
+}
+
+class _ToggleState extends State<Toggle> {
+  bool _focus = false;
+
+  @override
   Widget build(BuildContext context) {
-    final off = onChanged == null;
+    final off = widget.onChanged == null;
+    void flip() => widget.onChanged?.call(!widget.value);
     return Semantics(
-      toggled: value,
+      toggled: widget.value,
       enabled: !off,
-      child: MouseRegion(
-        cursor: off ? SystemMouseCursors.forbidden : SystemMouseCursors.click,
+      child: FocusableActionDetector(
+        enabled: !off,
+        mouseCursor: off ? SystemMouseCursors.forbidden : SystemMouseCursors.click,
+        shortcuts: activateKeys,
+        actions: {
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              flip();
+              return null;
+            },
+          ),
+        },
+        onShowFocusHighlight: (v) => setState(() => _focus = v),
         child: GestureDetector(
-          onTap: off ? null : () => onChanged!(!value),
-          child: Opacity(
-            opacity: off ? 0.45 : 1,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              width: 36,
-              height: 20,
-              decoration: BoxDecoration(
-                color: value ? K.accent : K.surface,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: value ? K.accent : K.line),
-              ),
-              child: AnimatedAlign(
+          onTap: off ? null : flip,
+          child: focusRing(
+            on: _focus,
+            radius: 10,
+            Opacity(
+              opacity: off ? 0.45 : 1,
+              child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
-                curve: Curves.easeOut,
-                alignment: value ? Alignment.centerRight : Alignment.centerLeft,
-                child: Container(
-                  width: 14,
-                  height: 14,
-                  margin: const EdgeInsets.symmetric(horizontal: 2),
-                  decoration: BoxDecoration(color: value ? K.ink : Colors.white, shape: BoxShape.circle),
+                width: 36,
+                height: 20,
+                decoration: BoxDecoration(
+                  color: widget.value ? K.accent : K.surface,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: widget.value ? K.accent : K.line),
+                ),
+                child: AnimatedAlign(
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeOut,
+                  alignment: widget.value ? Alignment.centerRight : Alignment.centerLeft,
+                  child: Container(
+                    width: 14,
+                    height: 14,
+                    margin: const EdgeInsets.symmetric(horizontal: 2),
+                    decoration: BoxDecoration(color: widget.value ? K.ink : Colors.white, shape: BoxShape.circle),
+                  ),
                 ),
               ),
             ),
@@ -460,6 +483,7 @@ class _PanesState extends State<_Panes> {
       switchOutCurve: settingsCurve.flipped,
       layoutBuilder: (current, previous) => Stack(alignment: Alignment.topCenter, children: [...previous, ?current]),
       transitionBuilder: (child, anim) {
+        if (calm(context)) return FadeTransition(opacity: anim, child: child);
         final incoming = child.key == ValueKey(widget.index);
         final from = widget.vertical ? Offset(0, 0.06 * _dir) : Offset(_dir.toDouble(), 0);
         final to = widget.vertical ? Offset(0, -0.06 * _dir) : Offset(-_dir.toDouble(), 0);
