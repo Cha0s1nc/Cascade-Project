@@ -466,25 +466,29 @@ class _Sidebar extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _HomeBrand(active: view == 'home', collapsed: collapsed, onGo: onGo),
+              // A short window: the scrollbar shows there is more below.
               Expanded(
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      for (final (header, item) in _visibleNav(LibraryScope.of(context), PlayerScope.read(context).settings)) ...[
-                        if (header != null)
-                          collapsed
-                              ? Padding(
-                                  padding: EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-                                  child: Divider(height: 1, color: K.line),
-                                )
-                              : Padding(
-                                  padding: const EdgeInsets.fromLTRB(10, 14, 0, 8),
-                                  child: Text(header.toUpperCase(), style: Txt.caps()),
-                                ),
-                        _NavRow(item, active: view == item.$2, collapsed: collapsed, onGo: onGo, badge: item.$2 == 'rediscover' ? 'New' : null),
+                child: _ScrollHint(
+                  builder: (controller) => SingleChildScrollView(
+                    controller: controller,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (final (header, item) in _visibleNav(LibraryScope.of(context), PlayerScope.read(context).settings)) ...[
+                          if (header != null)
+                            collapsed
+                                ? Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                                    child: Divider(height: 1, color: K.line),
+                                  )
+                                : Padding(
+                                    padding: const EdgeInsets.fromLTRB(10, 14, 0, 8),
+                                    child: Text(header.toUpperCase(), style: Txt.caps()),
+                                  ),
+                          _NavRow(item, active: view == item.$2, collapsed: collapsed, onGo: onGo, badge: item.$2 == 'rediscover' ? 'New' : null),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                 ),
               ),
@@ -703,6 +707,8 @@ class PlayerBar extends StatelessWidget {
     final song = p.song;
     // The full window layouts take the controls into Now Playing.
     if (np.open && p.settings.nowPlayingLayout != 'bar') return const SizedBox.shrink();
+    // A narrow window: the side groups give way so the transport fits.
+    final tight = MediaQuery.sizeOf(context).width < 1100;
     return Container(
       height: 76,
       decoration: BoxDecoration(
@@ -713,7 +719,7 @@ class PlayerBar extends StatelessWidget {
         child: Row(
           children: [
             SizedBox(
-              width: 300,
+              width: tight ? 236 : 300,
               child: Row(
                 children: [
                   Expanded(
@@ -799,7 +805,7 @@ class PlayerBar extends StatelessWidget {
               ),
             ),
             SizedBox(
-              width: 364,
+              width: tight ? 330 : 364,
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
@@ -820,7 +826,7 @@ class PlayerBar extends StatelessWidget {
                   const DevicesButton(),
                   const SleepTimerButton(),
                   Container(width: 1, height: 18, margin: const EdgeInsets.symmetric(horizontal: 8), color: K.line),
-                  VolumeControl(p: p),
+                  VolumeControl(p: p, percent: !tight),
                 ],
               ),
             ),
@@ -930,8 +936,12 @@ class SeekBar extends StatelessWidget {
 }
 
 class VolumeControl extends StatelessWidget {
-  const VolumeControl({super.key, required this.p});
+  const VolumeControl({super.key, required this.p, this.percent = true});
   final Player p;
+
+  /// The percentage beside the slider (left out when the bar is tight; the
+  /// slider's own tooltip still says it).
+  final bool percent;
 
   @override
   Widget build(BuildContext context) => Row(
@@ -942,18 +952,23 @@ class VolumeControl extends StatelessWidget {
         p.volume == 0 ? 'Unmute' : 'Mute',
         () => p.setVolume(p.volume == 0 ? 0.7 : 0),
       ),
-      SizedBox(
-        width: 96,
-        child: ThinBar(value: p.volume, onChanged: p.setVolume, color: K.text2),
-      ),
-      SizedBox(
-        width: 38,
-        child: Text(
-          '${(p.volume * 100).round()}%',
-          textAlign: TextAlign.right,
-          style: ts(11, c: K.text3, tab: true),
+      Tooltip(
+        message: 'Volume ${(p.volume * 100).round()}%',
+        waitDuration: const Duration(milliseconds: 400),
+        child: SizedBox(
+          width: 96,
+          child: ThinBar(value: p.volume, onChanged: p.setVolume, color: K.text2),
         ),
       ),
+      if (percent)
+        SizedBox(
+          width: 38,
+          child: Text(
+            '${(p.volume * 100).round()}%',
+            textAlign: TextAlign.right,
+            style: ts(11, c: K.text3, tab: true),
+          ),
+        ),
     ],
   );
 }
@@ -967,3 +982,30 @@ Map<ShortcutActivator, VoidCallback> playbackShortcuts(Player p) => {
   const SingleActivator(LogicalKeyboardKey.arrowUp, control: true): () => p.setVolume(min(1, p.volume + 0.05)),
   const SingleActivator(LogicalKeyboardKey.arrowDown, control: true): () => p.setVolume(max(0, p.volume - 0.05)),
 };
+
+/// A scroll area whose scrollbar always shows when there is more than fits
+/// (the sidebar on a short window), with its own controller.
+class _ScrollHint extends StatefulWidget {
+  const _ScrollHint({required this.builder});
+  final Widget Function(ScrollController controller) builder;
+
+  @override
+  State<_ScrollHint> createState() => _ScrollHintState();
+}
+
+class _ScrollHintState extends State<_ScrollHint> {
+  final _controller = ScrollController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scrollbar(
+    controller: _controller,
+    thumbVisibility: true,
+    child: ScrollConfiguration(behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false), child: widget.builder(_controller)),
+  );
+}

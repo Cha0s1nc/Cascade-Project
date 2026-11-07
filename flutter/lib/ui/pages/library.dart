@@ -332,7 +332,9 @@ class _SongsPageState extends State<SongsPage> {
           _field,
           _dir,
         );
-        final songs = items.map(lib.jf!.song).toList();
+        // No server in the demo (its song list is empty, but the tear-off needed one).
+        final j = lib.jf;
+        final songs = j == null ? const <Song>[] : items.map(j.song).toList();
         final total = all.fold<num>(0, (t, i) => t + ((i['RunTimeTicks'] as num? ?? 0) / 1e7));
         return PageScroll(
           slivers: [

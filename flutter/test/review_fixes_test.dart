@@ -82,4 +82,19 @@ void main() {
     await tester.pumpAndSettle();
     await tester.pumpWidget(const SizedBox());
   });
+
+  testWidgets('a window narrowed to the phone layout still takes the desktop keys', (tester) async {
+    addTearDown(tester.view.reset);
+    SharedPreferences.setMockInitialValues({});
+    tester.view.physicalSize = const Size(700, 800);
+    tester.view.devicePixelRatio = 1;
+    final player = Player(audio: false)..playing = false;
+    await tester.pumpWidget(CascadeApp(player: player, demo: true));
+    await tester.pumpAndSettle();
+    expect(find.byType(NavigationBar), findsOneWidget, reason: 'the phone layout');
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pump();
+    expect(player.playing, isTrue, reason: 'Space plays');
+    await tester.pumpWidget(const SizedBox());
+  });
 }

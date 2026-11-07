@@ -1,8 +1,11 @@
+import 'dart:io';
 // Android (and any narrow window). Music and Video are separate modes, like
 // the Swift iPhone app: a button in the search bar switches them, and the
 // navigation bar follows (Music: Home, Library, Downloads, Settings; Video:
 // Home, Movies, Shows, Downloads, Settings). Each tab keeps its own history.
 import 'package:flutter/material.dart';
+import 'package:cascade/ui/desktop.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:cascade/core/browse_mode.dart';
@@ -100,65 +103,76 @@ class _PhoneShellState extends State<PhoneShell> {
           listenable: Listenable.merge([_nav, _np]),
           builder: (context, _) {
             final home = _mode == 'video' ? 'vhome' : 'home';
-            return PopScope(
-              canPop: !_np.open && !_nav.canBack && _nav.view == home,
-              onPopInvokedWithResult: (didPop, _) {
-                if (didPop) return;
-                if (_np.open) return _np.close();
-                if (!_nav.back()) _nav.show(home);
-              },
-              child: Stack(
-                children: [
-                  Scaffold(
-                    backgroundColor: A.bg,
-                    body: DecoratedBox(
-                      decoration: BoxDecoration(gradient: K.wash),
-                      child: SafeArea(
-                        bottom: false,
-                        // Pages ease in from a little below as they change.
-                        child: AnimatedSwitcher(
-                          duration: Motion.slow,
-                          reverseDuration: Motion.fast,
-                          switchInCurve: const Cubic(.2, .8, .2, 1),
-                          layoutBuilder: (current, previous) => Stack(fit: StackFit.expand, children: [...previous, ?current]),
-                          transitionBuilder: (c, a) => FadeTransition(
-                            opacity: a,
-                            child: calm(context)
-                                ? c
-                                : SlideTransition(
-                                    position: Tween(begin: const Offset(0, 0.03), end: Offset.zero).animate(a),
-                                    child: c,
-                                  ),
-                          ),
-                          child: KeyedSubtree(key: ObjectKey(_nav.top), child: _body()),
-                        ),
-                      ),
-                    ),
-                    bottomNavigationBar: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const _MiniPlayer(),
-                        NavigationBar(
-                          selectedIndex: _tab,
-                          onDestinationSelected: (i) => _nav.show(_tabs[i].$1),
-                          backgroundColor: A.nav,
-                          indicatorColor: A.indicator,
-                          height: 72,
-                          labelTextStyle: WidgetStatePropertyAll(ts(12, w: FontWeight.w500, c: A.text2)),
-                          destinations: [
-                            for (final t in _tabs)
-                              NavigationDestination(
-                                icon: Icon(t.$3, color: A.text2),
-                                selectedIcon: Icon(t.$4, color: K.accent),
-                                label: t.$2,
+            // On a computer (a window narrowed into this layout) the
+            // desktop's keys still work: Space, Ctrl+arrows, Esc.
+            final keys = Platform.isAndroid || Platform.isIOS
+                ? const <ShortcutActivator, VoidCallback>{}
+                : {...playbackShortcuts(PlayerScope.read(context)), const SingleActivator(LogicalKeyboardKey.escape): _np.close};
+            return CallbackShortcuts(
+              bindings: keys,
+              child: Focus(
+                autofocus: keys.isNotEmpty,
+                child: PopScope(
+                  canPop: !_np.open && !_nav.canBack && _nav.view == home,
+                  onPopInvokedWithResult: (didPop, _) {
+                    if (didPop) return;
+                    if (_np.open) return _np.close();
+                    if (!_nav.back()) _nav.show(home);
+                  },
+                  child: Stack(
+                    children: [
+                      Scaffold(
+                        backgroundColor: A.bg,
+                        body: DecoratedBox(
+                          decoration: BoxDecoration(gradient: K.wash),
+                          child: SafeArea(
+                            bottom: false,
+                            // Pages ease in from a little below as they change.
+                            child: AnimatedSwitcher(
+                              duration: Motion.slow,
+                              reverseDuration: Motion.fast,
+                              switchInCurve: const Cubic(.2, .8, .2, 1),
+                              layoutBuilder: (current, previous) => Stack(fit: StackFit.expand, children: [...previous, ?current]),
+                              transitionBuilder: (c, a) => FadeTransition(
+                                opacity: a,
+                                child: calm(context)
+                                    ? c
+                                    : SlideTransition(
+                                        position: Tween(begin: const Offset(0, 0.03), end: Offset.zero).animate(a),
+                                        child: c,
+                                      ),
                               ),
+                              child: KeyedSubtree(key: ObjectKey(_nav.top), child: _body()),
+                            ),
+                          ),
+                        ),
+                        bottomNavigationBar: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const _MiniPlayer(),
+                            NavigationBar(
+                              selectedIndex: _tab,
+                              onDestinationSelected: (i) => _nav.show(_tabs[i].$1),
+                              backgroundColor: A.nav,
+                              indicatorColor: A.indicator,
+                              height: 72,
+                              labelTextStyle: WidgetStatePropertyAll(ts(12, w: FontWeight.w500, c: A.text2)),
+                              destinations: [
+                                for (final t in _tabs)
+                                  NavigationDestination(
+                                    icon: Icon(t.$3, color: A.text2),
+                                    selectedIcon: Icon(t.$4, color: K.accent),
+                                    label: t.$2,
+                                  ),
+                              ],
+                            ),
                           ],
                         ),
-                      ],
-                    ),
+                      ),
+                      if (_np.open) const Positioned.fill(child: PhoneNowPlaying()),
+                    ],
                   ),
-                  if (_np.open) const Positioned.fill(child: PhoneNowPlaying()),
-                ],
+                ),
               ),
             );
           },

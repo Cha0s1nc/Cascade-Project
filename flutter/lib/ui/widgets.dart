@@ -807,8 +807,12 @@ class HeroCard extends StatelessWidget {
   final bool compact;
   final double radius;
 
+  // The compact look also when the card itself is narrow (the window's
+  // in-between widths), or Play and Shuffle wrap onto two rows.
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => LayoutBuilder(builder: (context, c) => _card(context, compact || c.maxWidth < 460));
+
+  Widget _card(BuildContext context, bool compact) {
     final p = PlayerScope.of(context);
     final queued = p.song != null && p.queue.length > 1;
     final song = queued ? p.song! : lastPlayed;
