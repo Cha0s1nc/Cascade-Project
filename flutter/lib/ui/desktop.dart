@@ -630,12 +630,28 @@ class _MainPanel extends StatefulWidget {
 class _MainPanelState extends State<_MainPanel> {
   double _dir = 1;
 
+  /// Where keyboard focus lands on a new page, so Tab goes on into it
+  /// rather than back through the sidebar (and a screen reader follows).
+  final _landing = FocusNode(debugLabel: 'page');
+
+  @override
+  void dispose() {
+    _landing.dispose();
+    super.dispose();
+  }
+
   @override
   void didUpdateWidget(_MainPanel old) {
     super.didUpdateWidget(old);
     if (old.entry == widget.entry) return;
     final (a, b) = (old.rank, widget.rank);
     _dir = b.$1 > a.$1 || (b.$1 == a.$1 && b.$2 >= a.$2) ? 1 : -1;
+    // Only for the keyboard: a click leaves focus alone.
+    if (FocusManager.instance.highlightMode == FocusHighlightMode.traditional) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _landing.requestFocus();
+      });
+    }
   }
 
   @override
@@ -665,7 +681,10 @@ class _MainPanelState extends State<_MainPanel> {
                       child: c,
                     ),
                   ),
-            child: KeyedSubtree(key: key, child: widget.entry.page != null ? pageFor(widget.entry) : viewFor(widget.view)),
+            child: KeyedSubtree(
+              key: key,
+              child: Focus(focusNode: _landing, child: widget.entry.page != null ? pageFor(widget.entry) : viewFor(widget.view)),
+            ),
           ),
         ),
       ),

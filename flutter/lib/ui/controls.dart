@@ -130,9 +130,12 @@ class SettingsGroup extends StatelessWidget {
 
 /// One row: name and description on the left, the control on the right.
 class SettingRow extends StatelessWidget {
-  const SettingRow(this.title, {super.key, this.subtitle, this.trailing, this.indent = 0, this.enabled = true});
+  const SettingRow(this.title, {super.key, this.subtitle, this.trailing, this.indent = 0, this.enabled = true, this.error = false});
   final String title;
   final String? subtitle;
+
+  /// The subtitle is an error message: red, and read out as it appears.
+  final bool error;
   final Widget? trailing;
   final double indent;
   final bool enabled;
@@ -151,7 +154,7 @@ class SettingRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(title, style: ts(13, w: FontWeight.w500)),
-                  if (subtitle != null) ...[const SizedBox(height: 2), Text(subtitle!, style: ts(11, c: K.text3, h: 1.35))],
+                  if (subtitle != null) ...[const SizedBox(height: 2), Semantics(liveRegion: error, child: Text(subtitle!, style: ts(11, c: error ? K.error : K.text3, h: 1.35)))],
                 ],
               ),
             ),

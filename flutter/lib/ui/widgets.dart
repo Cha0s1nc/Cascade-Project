@@ -5,9 +5,11 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 
 import 'package:cascade/core/data.dart';
+import 'package:cascade/engine/player.dart';
 import 'package:cascade/ui/glass_button.dart';
 import 'package:cascade/ui/pages/common.dart';
 import 'package:cascade/ui/scopes.dart';
@@ -476,19 +478,27 @@ class IconBtn extends StatelessWidget {
       waitDuration: const Duration(milliseconds: 500),
       child: Hover(
         onTap: onTap,
-        builder: (_, on) => Container(
-          padding: const EdgeInsets.all(6),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(
-              alpha: on && onTap != null
-                  ? 0.1
-                  : filled
-                  ? 0.06
-                  : 0,
+        // A touch screen gets a 44 px target round the same small icon.
+        builder: (context, on) => ConstrainedBox(
+          constraints: narrow(context) ? const BoxConstraints(minWidth: 44, minHeight: 44) : const BoxConstraints(),
+          child: Center(
+            widthFactor: 1,
+            heightFactor: 1,
+            child: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(
+                  alpha: on && onTap != null
+                      ? 0.1
+                      : filled
+                      ? 0.06
+                      : 0,
+                ),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: badge ? Badge(smallSize: 7, backgroundColor: K.accent, child: i) : i,
             ),
-            borderRadius: BorderRadius.circular(8),
           ),
-          child: badge ? Badge(smallSize: 7, backgroundColor: K.accent, child: i) : i,
         ),
       ),
     );
@@ -878,4 +888,44 @@ class FullText extends StatelessWidget {
       return cut ? Tooltip(message: data, waitDuration: const Duration(milliseconds: 400), child: text) : text;
     },
   );
+}
+
+/// Tells a screen reader when a new song starts ("Now playing X by Y"),
+/// without moving focus. Silent with no screen reader running.
+class SongAnnouncer extends StatefulWidget {
+  const SongAnnouncer({super.key, required this.player, required this.child});
+  final Player player;
+  final Widget child;
+
+  @override
+  State<SongAnnouncer> createState() => _SongAnnouncerState();
+}
+
+class _SongAnnouncerState extends State<SongAnnouncer> {
+  String? _last;
+
+  @override
+  void initState() {
+    super.initState();
+    _last = widget.player.song?.id;
+    widget.player.addListener(_check);
+  }
+
+  @override
+  void dispose() {
+    widget.player.removeListener(_check);
+    super.dispose();
+  }
+
+  void _check() {
+    final s = widget.player.song;
+    final id = s == null ? null : (s.id.isEmpty ? s.title : s.id);
+    if (id == _last) return;
+    _last = id;
+    if (s == null || !mounted) return;
+    SemanticsService.sendAnnouncement(View.of(context), 'Now playing ${s.title} by ${s.artist}', Directionality.maybeOf(context) ?? TextDirection.ltr);
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }

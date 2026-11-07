@@ -137,7 +137,17 @@ class _GlassBtnState extends State<GlassBtn> with SingleTickerProviderStateMixin
             _hover();
             setState(() {});
           },
-          child: focusRing(button, on: _focus, radius: 999),
+          // A touch screen gets a 44 px target round the 34 px button.
+          child: focusRing(
+            narrow(context)
+                ? ConstrainedBox(
+                    constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+                    child: Center(widthFactor: 1, heightFactor: 1, child: button),
+                  )
+                : button,
+            on: _focus,
+            radius: 999,
+          ),
         );
         return always || !narrow(context) ? keyed : Tooltip(message: widget.label, child: keyed);
       },

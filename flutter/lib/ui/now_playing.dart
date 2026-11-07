@@ -852,7 +852,17 @@ class QueuePanel extends StatelessWidget {
         Expanded(
           child: next.isEmpty
               ? Center(
-                  child: Text(p.settings.autoMix ? 'Auto-mix keeps it going after this.' : 'Nothing after this.', style: ts(13, c: K.text3)),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(p.settings.autoMix ? 'Auto-mix keeps it going after this.' : 'Nothing after this.', style: ts(13, c: K.text3)),
+                      // The way to keep it going.
+                      if (!p.settings.autoMix && !LibraryScope.read(context).demo) ...[
+                        const SizedBox(height: 12),
+                        Pill('Turn on Auto-mix', icon: Icons.all_inclusive_rounded, primary: false, onTap: () => p.settings.setAutoMix(true)),
+                      ],
+                    ],
+                  ),
                 )
               : ReorderableListView.builder(
                   buildDefaultDragHandles: false,

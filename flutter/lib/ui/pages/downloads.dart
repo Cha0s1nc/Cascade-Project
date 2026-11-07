@@ -84,7 +84,14 @@ class DownloadsPage extends StatelessWidget {
               child: Text(d.error!, style: ts(13, c: K.error)),
             ),
           ),
-        if (songs.isEmpty) const SliverToBoxAdapter(child: Empty('Nothing downloaded yet.', icon: Icons.download_outlined)),
+        if (songs.isEmpty)
+          SliverToBoxAdapter(
+            child: Empty(
+              'Nothing downloaded yet. Download albums and playlists from their pages\nto play them without the server.',
+              icon: Icons.download_outlined,
+              action: ('Browse albums', () => NavScope.read(context).show('albums')),
+            ),
+          ),
         for (final MapEntry(key: album, value: list) in albums.entries) ...[
           SliverToBoxAdapter(
             child: Padding(

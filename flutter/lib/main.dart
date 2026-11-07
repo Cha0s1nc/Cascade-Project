@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart' show MediaKit;
 import 'package:path_provider/path_provider.dart';
 
+import 'package:cascade/ui/pages/common.dart';
 import 'package:cascade/ui/desktop.dart';
 import 'package:cascade/ui/first_run.dart';
 import 'package:cascade/core/downloads.dart';
@@ -178,8 +179,18 @@ class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
               SingleActivator(LogicalKeyboardKey.numpadSubtract, control: mod.control, meta: mod.meta): () => by(-0.1),
               SingleActivator(LogicalKeyboardKey.digit0, control: mod.control, meta: mod.meta): () => s.setUiScale(1),
             },
+            // ? lists the shortcuts, unless it is being typed into a field.
+            const SingleActivator(LogicalKeyboardKey.slash, shift: true): () {
+              final focus = FocusManager.instance.primaryFocus?.context;
+              final typing = focus != null && (focus.widget is EditableText || focus.findAncestorWidgetOfExactType<EditableText>() != null);
+              final nav = _navigator.currentContext;
+              if (!typing && nav != null) showShortcuts(nav);
+            },
           },
-          child: UiScale(scale: miniMode.value ? 1 : s.uiScale, child: child!),
+          child: UiScale(
+            scale: miniMode.value ? 1 : s.uiScale,
+            child: SongAnnouncer(player: widget.player, child: child!),
+          ),
         );
       },
     ),

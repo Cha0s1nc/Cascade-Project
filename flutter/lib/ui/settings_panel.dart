@@ -307,6 +307,11 @@ class _SettingsPanelState extends State<SettingsPanel> {
     ]),
     SettingsGroup('Help', [
       SettingRow(
+        'Keyboard shortcuts',
+        subtitle: 'Or press ? anywhere',
+        trailing: Pill('Show', primary: false, onTap: () => showShortcuts(context)),
+      ),
+      SettingRow(
         'Log',
         subtitle: 'What playback and the server have been doing, for reporting a problem',
         trailing: _Btn(
@@ -383,6 +388,14 @@ class _QuickConnect extends StatefulWidget {
 
 class _QuickConnectState extends State<_QuickConnect> {
   final _code = TextEditingController();
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _code.addListener(() => setState(() => _error = null));
+  }
 
   @override
   void dispose() {
@@ -390,34 +403,64 @@ class _QuickConnectState extends State<_QuickConnect> {
     super.dispose();
   }
 
+  // Quick Connect codes are six digits.
+  bool get _ready => _code.text.length == 6 && !_busy;
+
+  Future<void> _approve() async {
+    if (!_ready) return;
+    setState(() => _busy = true);
+    try {
+      await widget.lib.approveQuickConnect(_code.text);
+      if (!mounted) return;
+      _code.clear();
+      toast(context, 'Approved. That device is signed in as you.');
+    } catch (_) {
+      if (mounted) setState(() => _error = 'That code did not work. Check it on the other device, or get a new one there.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => SettingRow(
     'Approve a device',
-    subtitle: 'Type the code another device shows to sign it in as you',
+    subtitle: _error ?? 'Type the six-digit code another device shows to sign it in as you',
+    error: _error != null,
     trailing: SizedBox(
       width: 260,
       child: Row(
         children: [
           Expanded(
-            child: TextField(
-              controller: _code,
-              style: ts(13),
-              decoration: InputDecoration(
-                isDense: true,
-                hintText: 'Code',
-                hintStyle: ts(13, c: K.text3),
+            child: Semantics(
+              label: 'Quick Connect code',
+              child: TextField(
+                controller: _code,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(6)],
+                onSubmitted: (_) => _approve(),
+                style: ts(14, w: FontWeight.w600, ls: 2, tab: true),
+                cursorColor: K.accent,
+                decoration: InputDecoration(
+                  isDense: true,
+                  filled: true,
+                  fillColor: K.surface2,
+                  hintText: '000000',
+                  hintStyle: ts(14, c: K.text3, ls: 2, tab: true),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: _error == null ? BorderSide.none : const BorderSide(color: K.error),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: _error == null ? K.accent : K.error),
+                  ),
+                ),
               ),
             ),
           ),
           const SizedBox(width: 8),
-          _Btn('Approve', () async {
-            try {
-              await widget.lib.approveQuickConnect(_code.text);
-              if (context.mounted) toast(context, 'Approved.');
-            } catch (e) {
-              if (context.mounted) toast(context, 'Could not approve it: $e', error: true);
-            }
-          }),
+          Pill(_busy ? 'Approving' : 'Approve', primary: false, onTap: _ready ? _approve : null),
         ],
       ),
     ),

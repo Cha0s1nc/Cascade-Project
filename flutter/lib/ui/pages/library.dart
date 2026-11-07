@@ -399,7 +399,11 @@ class _HistoryPageState extends State<HistoryPage> {
         Loading<List<Song>>(
           future: _songs,
           builder: (context, songs) {
-            if (songs.isEmpty) return const SliverToBoxAdapter(child: Empty('Nothing played yet.', icon: Icons.history_rounded));
+            if (songs.isEmpty) {
+              return SliverToBoxAdapter(
+                child: Empty('Nothing played yet.', icon: Icons.history_rounded, action: ('Browse albums', () => NavScope.read(context).show('albums'))),
+              );
+            }
             final groups = groupByDay([
               for (final s in songs)
                 {

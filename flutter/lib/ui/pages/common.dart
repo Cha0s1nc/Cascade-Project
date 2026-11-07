@@ -1,6 +1,7 @@
 // The pieces every desktop page is built from: the header with its voice
 // line, filter chips, the sort menu, the card grid, track rows, and the
 // right-click menus for songs, albums, artists and playlists.
+import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -331,9 +332,12 @@ class _LoadingState<T> extends State<Loading<T>> {
 
 /// A message where a list would be.
 class Empty extends StatelessWidget {
-  const Empty(this.text, {super.key, this.icon = Icons.library_music_outlined});
+  const Empty(this.text, {super.key, this.icon = Icons.library_music_outlined, this.action});
   final String text;
   final IconData icon;
+
+  /// The next step, when there is an obvious one.
+  final (String, VoidCallback)? action;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -347,6 +351,7 @@ class Empty extends StatelessWidget {
           textAlign: TextAlign.center,
           style: ts(14, c: K.text2),
         ),
+        if (action case (final label, final go)) ...[const SizedBox(height: 16), Pill(label, primary: false, onTap: go)],
       ],
     ),
   );
@@ -639,6 +644,72 @@ Widget moreButton(BuildContext context, bool shown, void Function(Offset at) ope
     }, size: 16),
   ),
 );
+
+/// Every keyboard shortcut, from ? anywhere (or Settings > About).
+Future<void> showShortcuts(BuildContext context) {
+  final mod = Platform.isMacOS ? 'Cmd' : 'Ctrl';
+  const groups = <(String, List<(String, String)>)>[
+    ('Playback', [('Space', 'Play or pause'), ('Ctrl + Right, Ctrl + Left', 'Next or previous song'), ('Ctrl + Up, Ctrl + Down', 'Volume up or down')]),
+    (
+      'Getting around',
+      [
+        ('Ctrl + K, Ctrl + F', 'Search'),
+        ('Alt + Left, Alt + Right', 'Back or forward'),
+        ('Esc', 'Close Now Playing, or clear the search'),
+        ('Tab, Shift + Tab', 'Move between controls'),
+        ('Enter, Space', 'Press the focused control'),
+      ],
+    ),
+    ('Songs and the queue', [('Menu key, Shift + F10', 'A song\'s menu'), ('Alt + Up, Alt + Down', 'Move a queued song'), ('Delete', 'Remove a queued song')]),
+    ('The window', [('MOD + Plus, MOD + Minus', 'Interface size'), ('MOD + 0', 'Interface size back to 100%'), ('?', 'This list')]),
+  ];
+  Widget key(String k) => Container(
+    margin: const EdgeInsets.only(left: 4),
+    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+    decoration: BoxDecoration(
+      color: K.surface2,
+      borderRadius: BorderRadius.circular(5),
+      border: Border.all(color: K.line),
+    ),
+    child: Text(k, style: ts(11.5, w: FontWeight.w600)),
+  );
+  return showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: K.panel,
+      title: Text('Keyboard shortcuts', style: Txt.section()),
+      content: SizedBox(
+        width: 460,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final (title, rows) in groups) ...[
+                Padding(
+                  padding: const EdgeInsets.only(top: 12, bottom: 6),
+                  child: Text(title.toUpperCase(), style: Txt.caps()),
+                ),
+                for (final (keys, what) in rows)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(what, style: ts(13, c: K.text2)),
+                        ),
+                        Wrap(children: [for (final k in keys.replaceAll('MOD', mod).split(', ')) key(k)]),
+                      ],
+                    ),
+                  ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close'))],
+    ),
+  );
+}
 
 /// Ask before something that cannot be undone.
 Future<bool> confirm(BuildContext context, String title, String body, String yes) async =>
