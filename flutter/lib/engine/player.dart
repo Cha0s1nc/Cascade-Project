@@ -154,7 +154,9 @@ class Player extends ChangeNotifier {
       _subs.addAll([
         d.p.stream.log.listen((l) => log('mpv[$i] ${l.level} ${l.prefix}: ${l.text.trim()}')),
         d.p.stream.playing.listen((v) {
-          if (d != _deck || v == playing) return;
+          // mpv says "playing" whenever it is not paused, even with nothing
+          // loaded: that showed Pause with nothing playing.
+          if (d != _deck || v == playing || (v && d.song == null)) return;
           playing = v;
           _report('progress', d);
           notifyListeners();
