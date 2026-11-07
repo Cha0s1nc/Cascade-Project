@@ -48,7 +48,7 @@ class _PhoneNowPlayingState extends State<PhoneNowPlaying> {
                         IconButton(
                           onPressed: np.close,
                           tooltip: 'Close',
-                          icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 30, color: K.text),
+                          icon: Icon(Icons.keyboard_arrow_down_rounded, size: 30, color: K.text),
                         ),
                         Expanded(
                           child: Column(
@@ -66,7 +66,7 @@ class _PhoneNowPlayingState extends State<PhoneNowPlaying> {
                         IconButton(
                           onPressed: () => _more(context, p),
                           tooltip: 'More',
-                          icon: const Icon(Icons.more_vert_rounded, color: K.text),
+                          icon: Icon(Icons.more_vert_rounded, color: K.text),
                         ),
                       ],
                     ),
@@ -128,13 +128,13 @@ class _PhoneNowPlayingState extends State<PhoneNowPlaying> {
                         IconButton(
                           onPressed: p.prev,
                           iconSize: 38,
-                          icon: const Icon(Icons.skip_previous_rounded, color: K.text),
+                          icon: Icon(Icons.skip_previous_rounded, color: K.text),
                         ),
                         PlayCircle(playing: p.playing, onTap: p.toggle, size: 72),
                         IconButton(
                           onPressed: p.next,
                           iconSize: 38,
-                          icon: const Icon(Icons.skip_next_rounded, color: K.text),
+                          icon: Icon(Icons.skip_next_rounded, color: K.text),
                         ),
                         IconButton(
                           onPressed: p.toggleRepeat,
@@ -191,7 +191,7 @@ class _PhoneNowPlayingState extends State<PhoneNowPlaying> {
               title: Text(song.title, style: ts(15, w: FontWeight.w600)),
               subtitle: Text('${song.artist} · ${song.album}', style: ts(13, c: K.text2)),
             ),
-            const Divider(color: K.line),
+            Divider(color: K.line),
             if (!lib.demo) _item(ctx, Icons.playlist_add_rounded, 'Add to playlist', () => addToPlaylistDialog(context, [song])),
             if (song.albumId != null)
               _item(ctx, Icons.album_outlined, 'Go to album', () {

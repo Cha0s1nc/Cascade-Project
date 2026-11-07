@@ -58,7 +58,7 @@ class _ToggleState extends State<Toggle> {
                 width: 36,
                 height: 20,
                 decoration: BoxDecoration(
-                  color: widget.value ? K.accent : K.surface,
+                  color: widget.value ? K.accent : (K.dark ? K.surface : K.surface2),
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(color: widget.value ? K.accent : K.line),
                 ),
@@ -70,7 +70,12 @@ class _ToggleState extends State<Toggle> {
                     width: 14,
                     height: 14,
                     margin: const EdgeInsets.symmetric(horizontal: 2),
-                    decoration: BoxDecoration(color: widget.value ? K.ink : Colors.white, shape: BoxShape.circle),
+                    decoration: BoxDecoration(
+                      color: widget.value ? K.ink : Colors.white,
+                      shape: BoxShape.circle,
+                      // On light, a white thumb on a pale track needs an edge.
+                      boxShadow: K.dark ? null : const [BoxShadow(color: Color(0x33000000), blurRadius: 2, offset: Offset(0, 1))],
+                    ),
                   ),
                 ),
               ),
@@ -103,7 +108,7 @@ class SettingsGroup extends StatelessWidget {
       children: [
         Container(
           padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             border: Border(bottom: BorderSide(color: K.line)),
           ),
           child: Text(
@@ -114,7 +119,7 @@ class SettingsGroup extends StatelessWidget {
         for (final (i, c) in children.indexed)
           DecoratedBox(
             decoration: BoxDecoration(
-              border: i == children.length - 1 ? null : const Border(bottom: BorderSide(color: K.line)),
+              border: i == children.length - 1 ? null : Border(bottom: BorderSide(color: K.line)),
             ),
             child: c,
           ),
@@ -154,7 +159,13 @@ class SettingRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(title, style: ts(13, w: FontWeight.w500)),
-                  if (subtitle != null) ...[const SizedBox(height: 2), Semantics(liveRegion: error, child: Text(subtitle!, style: ts(11, c: error ? K.error : K.text3, h: 1.35)))],
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 2),
+                    Semantics(
+                      liveRegion: error,
+                      child: Text(subtitle!, style: ts(11, c: error ? K.error : K.text3, h: 1.35)),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -408,7 +419,7 @@ class _PillTabsState extends State<PillTabs> {
               decoration: BoxDecoration(
                 color: K.accent,
                 borderRadius: BorderRadius.circular(99),
-                boxShadow: const [BoxShadow(color: K.accentTint, blurRadius: 10, offset: Offset(0, 2))],
+                boxShadow: [BoxShadow(color: K.accentTint, blurRadius: 10, offset: Offset(0, 2))],
               ),
             ),
           ),

@@ -165,6 +165,14 @@ class Settings extends ChangeNotifier {
 
   void clearRecentSearches() => _changed(_p?.setStringList('recentSearches', recentSearches = []));
 
+  /// 'dark', 'light', or 'system' (follow the system's own setting).
+  late String themeMode = switch (_p?.getString('themeMode')) {
+    'light' => 'light',
+    'system' => 'system',
+    _ => 'dark',
+  };
+  void setThemeMode(String v) => _changed(_p?.setString('themeMode', themeMode = v));
+
   /// Motion kept to fades: 'auto' follows the system's reduce motion
   /// setting, 'on' always, 'off' never.
   late String reduceMotion = switch (_p?.getString('reduceMotion')) {

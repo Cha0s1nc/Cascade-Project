@@ -42,7 +42,7 @@ class SmartPlaylistsRow extends StatelessWidget {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.auto_awesome_motion_rounded, size: 18, color: K.accent),
+                        Icon(Icons.auto_awesome_motion_rounded, size: 18, color: K.accent),
                         const SizedBox(width: 8),
                         Text('${d['name']}', style: ts(13, w: FontWeight.w500)),
                       ],

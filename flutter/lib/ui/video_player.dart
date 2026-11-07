@@ -430,7 +430,7 @@ class _VideoScreenState extends State<VideoScreen> {
                 height: 34,
                 child: Row(
                   children: [
-                    SizedBox(width: 22, child: t == current ? const Icon(Icons.check_rounded, size: 16, color: K.accent) : null),
+                    SizedBox(width: 22, child: t == current ? Icon(Icons.check_rounded, size: 16, color: K.accent) : null),
                     Text(label(t), style: ts(13)),
                   ],
                 ),

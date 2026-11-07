@@ -134,11 +134,11 @@ class DetailHeader extends StatelessWidget {
 /// A round button in the header row: like, download, more. The desktop's
 /// glass button, its name sliding out on hover.
 class RoundBtn extends StatelessWidget {
-  const RoundBtn(this.icon, this.tip, this.onTap, {super.key, this.color = K.text});
+  const RoundBtn(this.icon, this.tip, this.onTap, {super.key, this.color});
   final IconData icon;
   final String tip;
   final VoidCallback? onTap;
-  final Color color;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) => GlassBtn(icon, tip, onTap, color: color);
@@ -565,7 +565,7 @@ class _PlaylistPageState extends State<PlaylistPage> {
                 children: [
                   ReorderableDragStartListener(
                     index: i,
-                    child: const Padding(
+                    child: Padding(
                       padding: EdgeInsets.all(8),
                       child: Icon(Icons.drag_indicator_rounded, size: 18, color: K.text3),
                     ),

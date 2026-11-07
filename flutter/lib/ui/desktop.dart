@@ -221,7 +221,7 @@ class _DesktopShellState extends State<DesktopShell> {
               child: AnimatedOpacity(
                 duration: time,
                 opacity: _railOut ? 1 : 0,
-                child: const ColoredBox(color: Color(0x85000000)),
+                child: ColoredBox(color: K.dark ? const Color(0x85000000) : const Color(0x47000000)),
               ),
             ),
           ),
@@ -400,7 +400,7 @@ class SearchField extends StatelessWidget {
             filled: true,
             fillColor: K.surface2,
             contentPadding: const EdgeInsets.symmetric(vertical: 6),
-            prefixIcon: const Icon(Icons.search_rounded, size: 15, color: K.text3),
+            prefixIcon: Icon(Icons.search_rounded, size: 15, color: K.text3),
             prefixIconConstraints: const BoxConstraints(minWidth: 30),
             hintText: wide ? 'Search your library' : 'Search',
             hintMaxLines: 1,
@@ -423,7 +423,7 @@ class SearchField extends StatelessWidget {
             enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: K.accent),
+              borderSide: BorderSide(color: K.accent),
             ),
           ),
         ),
@@ -474,7 +474,7 @@ class _Sidebar extends StatelessWidget {
                       for (final (header, item) in _visibleNav(LibraryScope.of(context), PlayerScope.read(context).settings)) ...[
                         if (header != null)
                           collapsed
-                              ? const Padding(
+                              ? Padding(
                                   padding: EdgeInsets.symmetric(vertical: 10, horizontal: 8),
                                   child: Divider(height: 1, color: K.line),
                                 )
@@ -666,7 +666,7 @@ class _MainPanelState extends State<_MainPanel> {
           borderRadius: BorderRadius.circular(14),
         ),
         child: DecoratedBox(
-          decoration: const BoxDecoration(gradient: K.wash),
+          decoration: BoxDecoration(gradient: K.wash),
           child: AnimatedSwitcher(
             duration: Motion.slow,
             reverseDuration: Motion.fast,
@@ -705,7 +705,7 @@ class PlayerBar extends StatelessWidget {
     if (np.open && p.settings.nowPlayingLayout != 'bar') return const SizedBox.shrink();
     return Container(
       height: 76,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         border: Border(top: BorderSide(color: K.line)),
       ),
       padding: const EdgeInsets.fromLTRB(16, 0, 20, 0),
@@ -742,7 +742,7 @@ class PlayerBar extends StatelessWidget {
                                       duration: Motion.slow,
                                       child: Row(
                                         children: [
-                                          Cover(song?.art ?? const [K.surface2, K.surface], image: song?.image, size: 48, radius: 8, shadow: song != null),
+                                          Cover(song?.art ?? [K.surface2, K.surface], image: song?.image, size: 48, radius: 8, shadow: song != null),
                                           const SizedBox(width: 12),
                                         ],
                                       ),

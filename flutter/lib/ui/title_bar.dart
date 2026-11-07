@@ -112,7 +112,7 @@ class _Caption extends StatelessWidget {
       builder: (_, on) => Container(
         width: 46,
         height: 48,
-        color: on ? (close ? const Color(0xFFC42B1C) : const Color(0x14FFFFFF)) : Colors.transparent,
+        color: on ? (close ? const Color(0xFFC42B1C) : K.tint.withValues(alpha: 0.08)) : Colors.transparent,
         child: Icon(icon, size: iconSize, color: on && close ? Colors.white : K.text2),
       ),
     ),

@@ -145,7 +145,7 @@ class MenuButton<T> extends StatelessWidget {
           height: 36,
           child: Row(
             children: [
-              SizedBox(width: 22, child: v == selected ? const Icon(Icons.check_rounded, size: 16, color: K.accent) : null),
+              SizedBox(width: 22, child: v == selected ? Icon(Icons.check_rounded, size: 16, color: K.accent) : null),
               Text(l, style: ts(13)),
             ],
           ),
@@ -434,9 +434,9 @@ class TrackRow extends StatelessWidget {
                 SizedBox(
                   width: 30,
                   child: current && p.playing
-                      ? const Icon(Icons.equalizer_rounded, size: 16, color: K.accent)
+                      ? Icon(Icons.equalizer_rounded, size: 16, color: K.accent)
                       : on
-                      ? const Icon(Icons.play_arrow_rounded, size: 18, color: K.text)
+                      ? Icon(Icons.play_arrow_rounded, size: 18, color: K.text)
                       : Text('$index', style: ts(12, c: K.text3)),
                 ),
                 if (showArt) ...[Cover(song.art, image: song.image, size: 40, radius: 6), const SizedBox(width: 12)] else const SizedBox(width: 8),
@@ -560,7 +560,7 @@ Future<void> addToPlaylistDialog(BuildContext context, List<Song> songs) async {
                         decoration: BoxDecoration(color: on ? K.surface : Colors.transparent, borderRadius: BorderRadius.circular(8)),
                         child: Row(
                           children: [
-                            const Icon(Icons.queue_music_rounded, size: 18, color: K.text2),
+                            Icon(Icons.queue_music_rounded, size: 18, color: K.text2),
                             const SizedBox(width: 10),
                             Expanded(child: Text(pl['Name'] as String? ?? '', style: ts(13))),
                             Text('${pl['ChildCount'] ?? ''}', style: ts(12, c: K.text3)),

@@ -66,7 +66,7 @@ const _liftCurve = Cubic(.25, .8, .25, 1);
 
 /// The desktop's lyric font: the system's own (SF on a Mac, Segoe UI on
 /// Windows, the desktop's sans on Linux) at 800, 700 on Windows.
-TextStyle lyricFont(double size, {FontWeight? weight, Color color = Colors.white}) => TextStyle(
+TextStyle lyricFont(double size, {FontWeight? weight, Color? color}) => TextStyle(
   inherit: false,
   fontFamily: Platform.isMacOS || Platform.isIOS
       ? '.AppleSystemUIFont'
@@ -78,7 +78,7 @@ TextStyle lyricFont(double size, {FontWeight? weight, Color color = Colors.white
   fontWeight: weight ?? (Platform.isWindows ? FontWeight.w700 : FontWeight.w800),
   letterSpacing: -0.015 * size,
   height: 1.25,
-  color: color,
+  color: color ?? K.lyric,
 );
 
 /// The song's position now, smoothed between the player's updates.
@@ -434,7 +434,12 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
             curve: Curves.easeOut,
             builder: (_, v, child) => ClipRect(
               child: Align(
-                alignment: Alignment.topCenter,
+                // Lined up with its line, not centered under it.
+                alignment: line.opposite
+                    ? Alignment.topRight
+                    : widget.center
+                    ? Alignment.topCenter
+                    : Alignment.topLeft,
                 heightFactor: v,
                 child: Opacity(opacity: v * _s(st, 'backgroundVocalOpacity', 0.85), child: child),
               ),
@@ -690,10 +695,10 @@ Shader _fill(Rect r, double t, double fs, double unsung) {
   final a = ((mid - 0.3 * fs) / r.width).clamp(0.0, 1.0), b = ((mid + 0.3 * fs) / r.width).clamp(0.0, 1.0);
   return LinearGradient(
     colors: [
-      Colors.white,
-      Colors.white,
-      Colors.white.withValues(alpha: unsung),
-      Colors.white.withValues(alpha: unsung),
+      K.lyric,
+      K.lyric,
+      K.lyric.withValues(alpha: unsung),
+      K.lyric.withValues(alpha: unsung),
     ],
     stops: [0, a, max(a, b), 1],
   ).createShader(r);
@@ -703,7 +708,7 @@ Widget _filled(String text, TextStyle style, double t, double unsung) {
   if (t <= 0) {
     return Text(
       text,
-      style: style.copyWith(color: Colors.white.withValues(alpha: unsung)),
+      style: style.copyWith(color: K.lyric.withValues(alpha: unsung)),
     );
   }
   if (t >= 1) return Text(text, style: style);
@@ -773,7 +778,7 @@ class _Held extends StatelessWidget {
                     ? style.copyWith(
                         shadows: [
                           Shadow(
-                            color: Colors.white.withValues(alpha: 0.7 * s),
+                            color: (K.dark ? Colors.white : K.accent).withValues(alpha: (K.dark ? 0.7 : 0.35) * s),
                             blurRadius: 0.35 * fs * s,
                           ),
                         ],

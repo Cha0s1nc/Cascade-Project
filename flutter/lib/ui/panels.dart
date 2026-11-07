@@ -308,7 +308,7 @@ class _DevicesDialogState extends State<_DevicesDialog> {
                 children: [
                   for (final s in _sessions!)
                     ListTile(
-                      leading: const Icon(Icons.devices_rounded, color: K.text2),
+                      leading: Icon(Icons.devices_rounded, color: K.text2),
                       title: Text('${s['DeviceName']}', style: ts(14, w: FontWeight.w500)),
                       subtitle: Text(
                         '${s['Client']}${s['NowPlayingItem'] != null ? ' · playing ${(s['NowPlayingItem'] as Map)['Name']}' : ''}',
@@ -481,7 +481,7 @@ class MiniplayerView extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(10, 10, 6, 12),
               child: Row(
                 children: [
-                  Cover(song?.art ?? const [K.surface2, K.surface], image: song?.image, size: 84, radius: 10),
+                  Cover(song?.art ?? [K.surface2, K.surface], image: song?.image, size: 84, radius: 10),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(

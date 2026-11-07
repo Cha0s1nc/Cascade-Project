@@ -14,42 +14,136 @@ import 'package:cascade/ui/glass_button.dart';
 import 'package:cascade/ui/pages/common.dart';
 import 'package:cascade/ui/scopes.dart';
 
-/// Personality v1: the Cascade library colors from the Penpot file "Cascade
-/// Personality v1", shared with the Swift app. Desktop and Android use the
-/// same set.
-abstract final class K {
-  static const root = Color(0xFF0A0E13); // bg
-  static const panel = Color(0xFF111821); // surface
-  static const surface = Color(0xFF18222E); // surface-2
-  static const surface2 = Color(0xFF223041); // hover, a step above surface-2
-  static const line = Color(0x14FFFFFF); // line, white at 8%
-  static const text = Color(0xFFEEF3F8);
-  static const text2 = Color(0xFFA7B4C4);
-  static const text3 = Color(0xFF8A99AB); // 4.6:1 on surface-2 hover, 6.7:1 on bg (was 687789, under 4.5:1)
-  static const accent = Color(0xFF7CC4FF);
-  static const accentTint = Color(0x247CC4FF); // accent at 14%
-  static const accentDeep = Color(0xFF2B6CB0);
-  static const ink = Color(0xFF06121F); // text on accent
-  static const foam = Color(0xFFD7EEFF);
-  static const glass = Color(0xEB18222E); // surface-2 at 92%
-  static const like = Color(0xFFFF6B8A);
-  static const error = Color(0xFFFF453A);
-
-  /// The deep blue wash at the top of every page.
-  static const wash = LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0x612B6CB0), Color(0x002B6CB0)], stops: [0, 0.38]);
+/// One theme's colors. Personality v1 (the Penpot file "Cascade
+/// Personality v1", shared with the Swift app) for dark; light takes the
+/// desktop's light neutrals (styles/theme.css) with the Personality blue
+/// deepened to read on white.
+class Palette {
+  const Palette({
+    required this.dark,
+    required this.root,
+    required this.panel,
+    required this.surface,
+    required this.surface2,
+    required this.line,
+    required this.text,
+    required this.text2,
+    required this.text3,
+    required this.accent,
+    required this.accentTint,
+    required this.accentDeep,
+    required this.ink,
+    required this.foam,
+    required this.glass,
+    required this.like,
+    required this.error,
+    required this.wash,
+  });
+  final bool dark;
+  final Color root, panel, surface, surface2, line, text, text2, text3, accent, accentTint, accentDeep, ink, foam, glass, like, error;
+  final LinearGradient wash;
 }
 
-/// Android's names for the same colors.
+const darkPalette = Palette(
+  dark: true,
+  root: Color(0xFF0A0E13), // bg
+  panel: Color(0xFF111821), // surface
+  surface: Color(0xFF18222E), // surface-2
+  surface2: Color(0xFF223041), // hover, a step above surface-2
+  line: Color(0x14FFFFFF), // white at 8%
+  text: Color(0xFFEEF3F8),
+  text2: Color(0xFFA7B4C4),
+  text3: Color(0xFF8A99AB), // 4.6:1 on surface-2 hover, 6.7:1 on bg
+  accent: Color(0xFF7CC4FF),
+  accentTint: Color(0x247CC4FF), // accent at 14%
+  accentDeep: Color(0xFF2B6CB0),
+  ink: Color(0xFF06121F), // text on accent
+  foam: Color(0xFFD7EEFF),
+  glass: Color(0xEB18222E), // surface-2 at 92%
+  like: Color(0xFFFF6B8A),
+  error: Color(0xFFFF453A),
+  wash: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0x612B6CB0), Color(0x002B6CB0)], stops: [0, 0.38]),
+);
+
+// Every text color here is at least 4.5:1 on root, panel and surface2.
+const lightPalette = Palette(
+  dark: false,
+  root: Color(0xFFF2F2F7),
+  panel: Color(0xFFFFFFFF),
+  surface: Color(0xFFFFFFFF),
+  surface2: Color(0xFFE8E8ED),
+  line: Color(0x1A000000), // black at 10%
+  text: Color(0xFF1C1C1E),
+  text2: Color(0xFF48484A),
+  text3: Color(0xFF636366),
+  accent: Color(0xFF2B6CB0), // 4.9:1 on root; white on it 5.4:1
+  accentTint: Color(0x242B6CB0),
+  accentDeep: Color(0xFF1E4F86),
+  ink: Color(0xFFFFFFFF),
+  foam: Color(0xFF3A7FC6),
+  glass: Color(0xEBFFFFFF),
+  like: Color(0xFFC2255C),
+  error: Color(0xFFD70015),
+  wash: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0x2E2B6CB0), Color(0x002B6CB0)], stops: [0, 0.38]),
+);
+
+/// The colors in use, by name; [current] switches the theme (see
+/// [rebuildAll]).
+abstract final class K {
+  static Palette current = darkPalette;
+  static bool get dark => current.dark;
+  static Color get root => current.root;
+  static Color get panel => current.panel;
+  static Color get surface => current.surface;
+  static Color get surface2 => current.surface2;
+  static Color get line => current.line;
+  static Color get text => current.text;
+  static Color get text2 => current.text2;
+  static Color get text3 => current.text3;
+  static Color get accent => current.accent;
+  static Color get accentTint => current.accentTint;
+  static Color get accentDeep => current.accentDeep;
+  static Color get ink => current.ink;
+  static Color get foam => current.foam;
+  static Color get glass => current.glass;
+  static Color get like => current.like;
+  static Color get error => current.error;
+
+  /// The blue wash at the top of every page.
+  static LinearGradient get wash => current.wash;
+
+  /// Over album art (and the dark scrims on it): white in both themes.
+  static const onArt = Colors.white;
+
+  /// For washes and hairlines over the theme's surfaces: white on dark,
+  /// black on light (used at low alpha).
+  static Color get tint => dark ? Colors.white : Colors.black;
+
+  /// The lyrics' ink: white on dark, the text color on light.
+  static Color get lyric => dark ? Colors.white : current.text;
+}
+
+/// Rebuild every widget, so a theme change reaches all of them in place,
+/// without losing where you are (pages, Now Playing, scroll positions).
+void rebuildAll() {
+  void mark(Element e) {
+    e.markNeedsBuild();
+    e.visitChildren(mark);
+  }
+
+  WidgetsBinding.instance.rootElement?.visitChildren(mark);
+}
+
 abstract final class A {
-  static const bg = K.root;
-  static const card = K.panel;
-  static const bar = K.glass;
-  static const nav = K.panel;
-  static const mini = K.glass;
-  static const indicator = K.accentTint;
-  static const onIndicator = K.text;
-  static const text = K.text;
-  static const text2 = K.text2;
+  static Color get bg => K.root;
+  static Color get card => K.panel;
+  static Color get bar => K.glass;
+  static Color get nav => K.panel;
+  static Color get mini => K.glass;
+  static Color get indicator => K.accentTint;
+  static Color get onIndicator => K.text;
+  static Color get text => K.text;
+  static Color get text2 => K.text2;
 }
 
 String fmt(num seconds) {
@@ -76,28 +170,34 @@ String today() {
 /// Body text (font.body, Inter).
 /// Body text (Inter). [tab]: fixed-width digits, for numbers that change in
 /// place (times, percentages), so they do not shuffle about as they tick.
-TextStyle ts(double size, {FontWeight w = FontWeight.w400, Color c = K.text, double? ls, double h = 1.25, bool tab = false}) => TextStyle(
+TextStyle ts(double size, {FontWeight w = FontWeight.w400, Color? c, double? ls, double h = 1.25, bool tab = false}) => TextStyle(
   fontFamily: 'Inter',
   fontSize: size,
   fontWeight: w,
-  color: c,
+  color: c ?? K.text,
   letterSpacing: ls,
   height: h,
   fontFeatures: tab ? const [FontFeature.tabularFigures()] : null,
 );
 
 /// Display text (font.display, Hanken Grotesk): headings, titles, lyrics.
-TextStyle ds(double size, {FontWeight w = FontWeight.w600, Color c = K.text, bool italic = false, double h = 1.15}) =>
-    TextStyle(fontFamily: 'Hanken Grotesk', fontSize: size, fontWeight: w, fontStyle: italic ? FontStyle.italic : FontStyle.normal, color: c, height: h);
+TextStyle ds(double size, {FontWeight w = FontWeight.w600, Color? c, bool italic = false, double h = 1.15}) => TextStyle(
+  fontFamily: 'Hanken Grotesk',
+  fontSize: size,
+  fontWeight: w,
+  fontStyle: italic ? FontStyle.italic : FontStyle.normal,
+  color: c ?? K.text,
+  height: h,
+);
 
 /// The type tokens (Penpot set "Cascade").
 abstract final class Txt {
-  static TextStyle hero([Color c = K.text]) => ds(44, c: c, h: 1.05);
-  static TextStyle title([Color c = K.text]) => ds(30, c: c, h: 1.1);
-  static TextStyle section([Color c = K.text]) => ds(21, c: c, h: 1.2);
-  static TextStyle voice([Color c = K.text2]) => ds(17, w: FontWeight.w400, c: c, italic: true, h: 1.3);
-  static TextStyle brand([Color c = K.text]) => ds(17, c: c, italic: true, h: 1.2);
-  static TextStyle caps([Color c = K.text3]) => ts(11, w: FontWeight.w600, c: c, ls: 0.88, h: 1.2);
+  static TextStyle hero([Color? c]) => ds(44, c: c ?? K.text, h: 1.05);
+  static TextStyle title([Color? c]) => ds(30, c: c ?? K.text, h: 1.1);
+  static TextStyle section([Color? c]) => ds(21, c: c ?? K.text, h: 1.2);
+  static TextStyle voice([Color? c]) => ds(17, w: FontWeight.w400, c: c ?? K.text2, italic: true, h: 1.3);
+  static TextStyle brand([Color? c]) => ds(17, c: c ?? K.text, italic: true, h: 1.2);
+  static TextStyle caps([Color? c]) => ts(11, w: FontWeight.w600, c: c ?? K.text3, ls: 0.88, h: 1.2);
 }
 
 /// The app's motion lengths, so things move in one rhythm: [fast] for hover
@@ -294,6 +394,8 @@ class Pill extends StatelessWidget {
               ? (on ? K.foam : K.accent)
               : (on ? K.surface2 : K.surface),
           borderRadius: BorderRadius.circular(99),
+          // A quiet one gets an edge, or on light it is a white pill on a white card.
+          border: primary || onTap == null ? null : Border.all(color: K.line),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -461,18 +563,22 @@ class _ArtStackState extends State<ArtStack> with SingleTickerProviderStateMixin
 
 /// A small icon button with a hover wash and a tooltip.
 class IconBtn extends StatelessWidget {
-  const IconBtn(this.icon, this.tip, this.onTap, {super.key, this.filled = false, this.badge = false, this.color = K.text2, this.size = 18});
+  const IconBtn(this.icon, this.tip, this.onTap, {super.key, this.filled = false, this.badge = false, this.color, this.size = 18});
   final IconData icon;
   final String tip;
   final VoidCallback? onTap;
   final bool filled, badge;
-  final Color color;
+
+  /// Text-2 unless given (the accent, say, for an active one).
+  final Color? color;
   final double size;
+
+  Color get _c => color ?? K.text2;
 
   @override
   Widget build(BuildContext context) {
     if (context.dependOnInheritedWidgetOfExactType<BareIcons>() != null) return _bare();
-    final i = Icon(icon, size: size, color: onTap == null ? K.text3.withValues(alpha: 0.5) : color);
+    final i = Icon(icon, size: size, color: onTap == null ? K.text3.withValues(alpha: 0.5) : _c);
     return Tooltip(
       message: tip,
       waitDuration: const Duration(milliseconds: 500),
@@ -487,7 +593,7 @@ class IconBtn extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.all(6),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(
+                color: K.tint.withValues(
                   alpha: on && onTap != null
                       ? 0.1
                       : filled
@@ -514,11 +620,11 @@ class IconBtn extends StatelessWidget {
       builder: (_, on) {
         final c = onTap == null
             ? K.text3.withValues(alpha: 0.5)
-            : color != K.text2 && color != K.text
-            ? color
+            : _c != K.text2 && _c != K.text
+            ? _c
             : on
             ? K.text
-            : (color == K.text ? K.text2 : K.text3);
+            : (_c == K.text ? K.text2 : K.text3);
         return Padding(
           padding: const EdgeInsets.all(6),
           child: TweenAnimationBuilder<Color?>(
@@ -662,10 +768,10 @@ class AlbumCard extends StatelessWidget {
 }
 
 class VideoThumb extends StatelessWidget {
-  const VideoThumb(this.video, {super.key, required this.width, this.accent = K.accent});
+  const VideoThumb(this.video, {super.key, required this.width, this.accent});
   final Video video;
   final double width;
-  final Color accent;
+  final Color? accent;
 
   @override
   Widget build(BuildContext context) => ClipRRect(
@@ -681,7 +787,7 @@ class VideoThumb extends StatelessWidget {
             Positioned(
               left: 0,
               bottom: 0,
-              child: Container(height: 4, width: width * video.progress, color: accent),
+              child: Container(height: 4, width: width * video.progress, color: accent ?? K.accent),
             ),
           ],
         ],
@@ -716,7 +822,11 @@ class HeroCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(radius),
         border: Border.all(color: K.line),
         color: K.panel,
-        gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0x805A2A5E), Color(0x00111821)]),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [K.dark ? const Color(0x805A2A5E) : const Color(0x335A2A5E), K.panel.withValues(alpha: 0)],
+        ),
       ),
       child: Row(
         children: [
@@ -804,10 +914,10 @@ class LoadError extends StatelessWidget {
 
 /// The thin seek and volume bars. Null [onChanged] shows it disabled.
 class ThinBar extends StatelessWidget {
-  const ThinBar({super.key, required this.value, required this.onChanged, this.color = K.accent});
+  const ThinBar({super.key, required this.value, required this.onChanged, this.color});
   final double value;
   final ValueChanged<double>? onChanged;
-  final Color color;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) => SliderTheme(
@@ -816,13 +926,13 @@ class ThinBar extends StatelessWidget {
       trackShape: const RoundedRectSliderTrackShape(),
       thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
       overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
-      activeTrackColor: color,
-      inactiveTrackColor: Colors.white.withValues(alpha: 0.14),
-      disabledActiveTrackColor: color,
-      disabledInactiveTrackColor: Colors.white.withValues(alpha: 0.14),
+      activeTrackColor: color ?? K.accent,
+      inactiveTrackColor: K.tint.withValues(alpha: 0.14),
+      disabledActiveTrackColor: color ?? K.accent,
+      disabledInactiveTrackColor: K.tint.withValues(alpha: 0.14),
       disabledThumbColor: Colors.transparent,
-      thumbColor: Colors.white,
-      overlayColor: color.withValues(alpha: 0.2),
+      thumbColor: K.dark ? Colors.white : K.text,
+      overlayColor: (color ?? K.accent).withValues(alpha: 0.2),
     ),
     child: SizedBox(
       height: 20,

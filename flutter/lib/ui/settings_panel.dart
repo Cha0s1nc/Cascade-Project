@@ -449,7 +449,7 @@ class _QuickConnectState extends State<_QuickConnect> {
                   contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
-                    borderSide: _error == null ? BorderSide.none : const BorderSide(color: K.error),
+                    borderSide: _error == null ? BorderSide.none : BorderSide(color: K.error),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),

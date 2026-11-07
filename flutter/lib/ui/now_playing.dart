@@ -128,7 +128,7 @@ class ArtBackground extends StatelessWidget {
     child: Stack(
       fit: StackFit.expand,
       children: [
-        const ColoredBox(color: K.root),
+        ColoredBox(color: K.root),
         AnimatedSwitcher(
           duration: fade,
           layoutBuilder: (current, previous) => Stack(fit: StackFit.expand, children: [...previous, ?current]),
@@ -141,9 +141,14 @@ class ArtBackground extends StatelessWidget {
                 ),
         ),
         ColoredBox(color: K.root.withValues(alpha: dim)),
-        const DecoratedBox(
+        DecoratedBox(
           decoration: BoxDecoration(
-            gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0x002B6CB0), Color(0xCC0A0E13)], stops: [0.3, 1]),
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [const Color(0x002B6CB0), K.root.withValues(alpha: 0.8)],
+              stops: const [0.3, 1],
+            ),
           ),
         ),
       ],
@@ -196,7 +201,7 @@ class _NowPlayingViewState extends State<NowPlayingView> {
     final np = NowPlayingScope.of(context);
     final song = p.song;
     final layout = p.settings.nowPlayingLayout;
-    if (song == null) return const ColoredBox(color: K.root);
+    if (song == null) return ColoredBox(color: K.root);
     // The Style menu and the usual view cross over as the menu opens and
     // closes, over the one background.
     return Stack(
@@ -276,7 +281,7 @@ class _NowPlayingViewState extends State<NowPlayingView> {
             width: (c.maxWidth * 0.34).clamp(380.0, 460.0),
             decoration: BoxDecoration(
               color: K.panel.withValues(alpha: 0.78),
-              border: const Border.symmetric(vertical: BorderSide(color: K.line)),
+              border: Border.symmetric(vertical: BorderSide(color: K.line)),
             ),
             padding: const EdgeInsets.only(top: 12),
             child: StyleMenu(tab: np.editing!, live: true, onClose: np.stopEditing, onTab: np.editStyle, showClose: false),
@@ -423,7 +428,7 @@ class _NowPlayingViewState extends State<NowPlayingView> {
           value: p.length > 0 ? (p.position / p.length).clamp(0, 1) : 0,
           minHeight: 2,
           color: K.accent,
-          backgroundColor: Colors.white10,
+          backgroundColor: K.tint.withValues(alpha: 0.1),
         ),
       ),
       Positioned(
@@ -616,7 +621,7 @@ class _TopRight extends StatelessWidget {
             width: 34,
             height: 34,
             decoration: BoxDecoration(color: on ? K.surface2 : K.surface.withValues(alpha: 0.8), borderRadius: BorderRadius.circular(10)),
-            child: const Icon(Icons.keyboard_arrow_down_rounded, color: K.text),
+            child: Icon(Icons.keyboard_arrow_down_rounded, color: K.text),
           ),
         ),
       ),
@@ -773,7 +778,7 @@ class _LyricsPanelState extends State<LyricsPanel> {
           height: 34,
           child: Row(
             children: [
-              SizedBox(width: 22, child: (_forced ?? 'auto') == v ? const Icon(Icons.check_rounded, size: 16, color: K.accent) : null),
+              SizedBox(width: 22, child: (_forced ?? 'auto') == v ? Icon(Icons.check_rounded, size: 16, color: K.accent) : null),
               Text(label, style: ts(13)),
             ],
           ),
@@ -873,7 +878,7 @@ class QueuePanel extends StatelessWidget {
                     children: [
                       ReorderableDragStartListener(
                         index: i,
-                        child: const Padding(
+                        child: Padding(
                           padding: EdgeInsets.all(8),
                           child: Icon(Icons.drag_indicator_rounded, size: 18, color: K.text3),
                         ),

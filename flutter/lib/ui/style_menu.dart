@@ -125,6 +125,7 @@ class _Snapshot {
 
 Map<String, Object?> _lookOf(Settings s) => {
   'buttonStyle': s.buttonStyle,
+  'themeMode': s.themeMode,
   'reduceMotion': s.reduceMotion,
   'uiScale': s.uiScale,
   'nowPlayingLayout': s.nowPlayingLayout,
@@ -144,6 +145,7 @@ Map<String, Object?> _lookOf(Settings s) => {
 void applyLook(Settings s, Map look) {
   T? get<T>(String k) => look[k] is T ? look[k] as T : null;
   if (get<String>('buttonStyle') case final v?) s.setButtonStyle(v);
+  if (get<String>('themeMode') case final v?) s.setThemeMode(v);
   if (get<String>('reduceMotion') case final v?) s.setReduceMotion(v);
   if (get<num>('uiScale') case final v?) s.setUiScale(v.toDouble());
   if (get<String>('nowPlayingLayout') case final v?) s.setNowPlayingLayout(v);
@@ -315,7 +317,7 @@ class _StyleMenuState extends State<StyleMenu> {
       children: [
         Expanded(
           child: SliderTheme(
-            data: const SliderThemeData(
+            data: SliderThemeData(
               trackHeight: 3,
               activeTrackColor: K.accent,
               inactiveTrackColor: K.line,
@@ -364,6 +366,12 @@ class _StyleMenuState extends State<StyleMenu> {
 
   List<Widget> _appearance(Settings s) => [
     _section('Interface', [
+      _row(
+        'Mode',
+        Segmented<String>(value: s.themeMode, items: const {'dark': 'Dark', 'light': 'Light', 'system': 'System'}, onChanged: s.setThemeMode),
+        subtitle: 'System follows your computer\'s light or dark setting',
+        visual: false,
+      ),
       _row(
         'Interface size',
         _slider(s.uiScale, 0.8, 1.5, 0.05, _pct(s.uiScale), s.setUiScale, onReset: s.uiScale == 1 ? null : () => s.setUiScale(1)),
@@ -524,7 +532,7 @@ class _StyleMenuState extends State<StyleMenu> {
   void _reset(Settings s) {
     switch (_tab) {
       case 'appearance':
-        applyLook(s, {'uiScale': 1, 'buttonStyle': 'overlay', 'reduceMotion': 'auto'});
+        applyLook(s, {'uiScale': 1, 'buttonStyle': 'overlay', 'reduceMotion': 'auto', 'themeMode': 'dark'});
       case 'nowplaying':
         applyLook(s, {'nowPlayingLayout': 'bar', 'showArtStack': true, 'bgDim': 0.62, 'colorFade': true, 'colorFadeSeconds': 0.7});
       case 'lyrics':

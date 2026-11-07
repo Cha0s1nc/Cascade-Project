@@ -421,7 +421,7 @@ class _VideoPageState extends State<VideoPage> {
                             ],
                           ),
                         ),
-                        if (played) const Icon(Icons.check_circle_rounded, size: 16, color: K.accent),
+                        if (played) Icon(Icons.check_circle_rounded, size: 16, color: K.accent),
                       ],
                     ),
                   ),

@@ -188,7 +188,7 @@ class _GlassBtnState extends State<GlassBtn> with SingleTickerProviderStateMixin
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(999),
                       color: widget.primary ? K.accent.withValues(alpha: hot ? 0.85 : 0.72) : K.surface2.withValues(alpha: hot ? 0.75 : 0.55),
-                      border: Border.all(color: const Color(0x1FFFFFFF)),
+                      border: Border.all(color: K.tint.withValues(alpha: K.dark ? 0.12 : 0.1)),
                       gradient: hot && !widget.primary
                           ? const LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0x14FFFFFF), Color(0x00FFFFFF)])
                           : null,

@@ -101,10 +101,26 @@ class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
     }
   }
 
+  /// The theme: the Style menu's Mode, or the system's for System. A change
+  /// swaps the palette and rebuilds everything in place.
+  void _applyTheme({bool rebuild = true}) {
+    final mode = widget.player.settings.themeMode;
+    final light = mode == 'light' || (mode == 'system' && WidgetsBinding.instance.platformDispatcher.platformBrightness == Brightness.light);
+    final palette = light ? lightPalette : darkPalette;
+    if (identical(palette, K.current)) return;
+    K.current = palette;
+    if (rebuild) rebuildAll();
+  }
+
+  @override
+  void didChangePlatformBrightness() => _applyTheme();
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _applyTheme(rebuild: false);
+    widget.player.settings.addListener(_applyTheme);
     // The queue comes back once the library has loaded, so a server that was
     // down at launch still gets it back when it answers.
     _library.downloads = _downloads;
@@ -149,6 +165,7 @@ class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    widget.player.settings.removeListener(_applyTheme);
     WidgetsBinding.instance.removeObserver(this);
     _remote?.close();
     widget.player.dispose();
@@ -195,23 +212,23 @@ class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
       },
     ),
     theme: ThemeData(
-      brightness: Brightness.dark,
+      brightness: K.dark ? Brightness.dark : Brightness.light,
       fontFamily: 'Inter',
       popupMenuTheme: PopupMenuThemeData(
         color: K.surface,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side: const BorderSide(color: K.line),
+          side: BorderSide(color: K.line),
         ),
         textStyle: ts(13),
       ),
-      dialogTheme: const DialogThemeData(backgroundColor: K.panel, surfaceTintColor: Colors.transparent),
-      snackBarTheme: const SnackBarThemeData(backgroundColor: K.surface),
-      textSelectionTheme: const TextSelectionThemeData(cursorColor: K.accent, selectionColor: K.accentTint),
-      colorScheme: ColorScheme.fromSeed(seedColor: K.accent, brightness: Brightness.dark).copyWith(primary: K.accent),
+      dialogTheme: DialogThemeData(backgroundColor: K.panel, surfaceTintColor: Colors.transparent),
+      snackBarTheme: SnackBarThemeData(backgroundColor: K.surface),
+      textSelectionTheme: TextSelectionThemeData(cursorColor: K.accent, selectionColor: K.accentTint),
+      colorScheme: ColorScheme.fromSeed(seedColor: K.accent, brightness: K.dark ? Brightness.dark : Brightness.light).copyWith(primary: K.accent),
       scaffoldBackgroundColor: K.root,
-      tooltipTheme: const TooltipThemeData(
+      tooltipTheme: TooltipThemeData(
         textStyle: TextStyle(fontSize: 12, color: K.text),
         decoration: BoxDecoration(color: K.surface2, borderRadius: BorderRadius.all(Radius.circular(6))),
       ),

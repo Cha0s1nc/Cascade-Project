@@ -112,7 +112,7 @@ class _PhoneShellState extends State<PhoneShell> {
                   Scaffold(
                     backgroundColor: A.bg,
                     body: DecoratedBox(
-                      decoration: const BoxDecoration(gradient: K.wash),
+                      decoration: BoxDecoration(gradient: K.wash),
                       child: SafeArea(
                         bottom: false,
                         // Pages ease in from a little below as they change.
@@ -198,7 +198,7 @@ class _SearchBar extends StatelessWidget {
         decoration: BoxDecoration(color: A.bar, borderRadius: BorderRadius.circular(28)),
         child: Row(
           children: [
-            const Icon(Icons.search_rounded, color: A.text2),
+            Icon(Icons.search_rounded, color: A.text2),
             const SizedBox(width: 12),
             Expanded(
               child: Text(video ? 'Search movies and shows' : 'Search songs, albums, artists', style: ts(16, c: A.text2)),
@@ -393,7 +393,7 @@ class _LibraryHub extends StatelessWidget {
               IconButton(
                 tooltip: 'Search',
                 onPressed: onSearch,
-                icon: const Icon(Icons.search_rounded, color: A.text),
+                icon: Icon(Icons.search_rounded, color: A.text),
               ),
             ],
           ),
@@ -446,7 +446,7 @@ class _PhoneSearch extends StatelessWidget {
           children: [
             IconButton(
               onPressed: () => NavScope.read(context).back(),
-              icon: const Icon(Icons.arrow_back_rounded, color: A.text),
+              icon: Icon(Icons.arrow_back_rounded, color: A.text),
             ),
             Expanded(
               child: TextField(
@@ -527,7 +527,7 @@ class _MiniPlayer extends StatelessWidget {
                   IconButton(
                     tooltip: 'Next',
                     onPressed: p.next,
-                    icon: const Icon(Icons.skip_next_rounded, color: A.text),
+                    icon: Icon(Icons.skip_next_rounded, color: A.text),
                   ),
                 ],
               ),
@@ -536,7 +536,12 @@ class _MiniPlayer extends StatelessWidget {
               left: 0,
               right: 0,
               bottom: 0,
-              child: LinearProgressIndicator(value: length > 0 ? p.position / length : 0, minHeight: 2, color: K.accent, backgroundColor: Colors.white12),
+              child: LinearProgressIndicator(
+                value: length > 0 ? p.position / length : 0,
+                minHeight: 2,
+                color: K.accent,
+                backgroundColor: K.tint.withValues(alpha: 0.12),
+              ),
             ),
           ],
         ),
