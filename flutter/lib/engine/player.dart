@@ -253,6 +253,18 @@ class Player extends ChangeNotifier {
     _queueChanged();
   }
 
+  /// The queue's order now, for [restoreOrder] to put back (an Undo).
+  List<int> get orderSnapshot => [..._order];
+
+  /// Put back an order from [orderSnapshot], if the same song still plays
+  /// at the same place (playback moving on in between makes it stale).
+  bool restoreOrder(List<int> o) {
+    if (_pos >= o.length || _pos >= _order.length || o[_pos] != _order[_pos]) return false;
+    _order = o;
+    _queueChanged();
+    return true;
+  }
+
   /// Everything after the current song goes.
   void clearUpNext() {
     if (_order.length <= _pos + 1) return;

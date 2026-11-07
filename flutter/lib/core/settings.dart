@@ -154,6 +154,17 @@ class Settings extends ChangeNotifier {
   };
   void setSidebarMode(String v) => _changed(_p?.setString('sidebarMode', sidebarMode = v));
 
+  /// The last searches that found something, newest first (at most 8).
+  late List<String> recentSearches = _p?.getStringList('recentSearches') ?? [];
+  void addRecentSearch(String q) {
+    final t = q.trim();
+    if (t.isEmpty) return;
+    recentSearches = [t, ...recentSearches.where((x) => x.toLowerCase() != t.toLowerCase())].take(8).toList();
+    _changed(_p?.setStringList('recentSearches', recentSearches));
+  }
+
+  void clearRecentSearches() => _changed(_p?.setStringList('recentSearches', recentSearches = []));
+
   /// Motion kept to fades: 'auto' follows the system's reduce motion
   /// setting, 'on' always, 'off' never.
   late String reduceMotion = switch (_p?.getString('reduceMotion')) {

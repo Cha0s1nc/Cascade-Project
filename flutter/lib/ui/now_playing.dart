@@ -8,6 +8,7 @@ import 'dart:async';
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'package:cascade/core/data.dart';
 import 'package:cascade/core/lyrics.dart';
@@ -93,14 +94,15 @@ class _NowPlayingLayerState extends State<NowPlayingLayer> {
             child: AnimatedSlide(
               // Reduce motion: it fades in place.
               offset: np.open || calm(context) ? Offset.zero : const Offset(0, 1),
-              duration: const Duration(milliseconds: 380),
+              // Leaving is quicker than arriving.
+              duration: np.open ? Motion.long : Motion.slow,
               curve: np.open ? const Cubic(.2, .8, .2, 1) : const Cubic(.4, 0, 1, 1),
               onEnd: () {
                 if (!np.open && _built) setState(() => _built = false);
               },
               child: AnimatedOpacity(
                 opacity: np.open ? 1 : 0,
-                duration: Duration(milliseconds: np.open ? 220 : 380),
+                duration: np.open ? Motion.base : Motion.slow,
                 child: _built ? const NowPlayingView() : const SizedBox.shrink(),
               ),
             ),
@@ -202,8 +204,8 @@ class _NowPlayingViewState extends State<NowPlayingView> {
       children: [
         ArtBackground(song: song, dim: p.settings.bgDim, fade: _colorFade(p)),
         AnimatedSwitcher(
-          duration: const Duration(milliseconds: 320),
-          reverseDuration: const Duration(milliseconds: 200),
+          duration: Motion.slow,
+          reverseDuration: Motion.base,
           switchInCurve: editorCurve,
           switchOutCurve: editorCurve.flipped,
           layoutBuilder: (current, previous) => Stack(fit: StackFit.expand, children: [...previous, ?current]),
@@ -231,7 +233,7 @@ class _NowPlayingViewState extends State<NowPlayingView> {
             right: 20,
             child: AnimatedOpacity(
               opacity: layout == 'focus' && _idle ? 0 : 1,
-              duration: const Duration(milliseconds: 400),
+              duration: Motion.long,
               child: _TopRight(np: np, song: song, switcher: layout == 'under'),
             ),
           ),
@@ -264,7 +266,7 @@ class _NowPlayingViewState extends State<NowPlayingView> {
         ),
         TweenAnimationBuilder<double>(
           tween: Tween(begin: 0, end: 1),
-          duration: const Duration(milliseconds: 450),
+          duration: Motion.long,
           curve: const Interval(0.22, 1, curve: editorCurve),
           builder: (_, t, child) => Opacity(
             opacity: t,
@@ -373,7 +375,7 @@ class _NowPlayingViewState extends State<NowPlayingView> {
               flex: 7,
               // Lyrics and Queue crossfade; songs' lyrics roll (lyricsRoll).
               child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 220),
+                duration: Motion.base,
                 layoutBuilder: (current, previous) => Stack(fit: StackFit.expand, children: [...previous, ?current]),
                 child: np.panel == NpPanel.queue
                     ? const QueuePanel(key: ValueKey('q'))
@@ -430,7 +432,7 @@ class _NowPlayingViewState extends State<NowPlayingView> {
         bottom: 12,
         child: AnimatedOpacity(
           opacity: _idle ? 0 : 1,
-          duration: const Duration(milliseconds: 400),
+          duration: Motion.long,
           child: Center(
             child: SizedBox(width: 520, child: _UnderControls(p: p, compact: true)),
           ),
@@ -482,7 +484,7 @@ class _QualityLineState extends State<QualityLine> {
     final q = qualityOf(_item, converted: p.converted, maxBitrate: p.settings.maxStreamingBitrate);
     return AnimatedOpacity(
       opacity: q.isEmpty ? 0 : 1,
-      duration: const Duration(milliseconds: 300),
+      duration: Motion.slow,
       child: Wrap(
         spacing: 22,
         runSpacing: 10,
@@ -516,7 +518,7 @@ class _UnderControls extends StatelessWidget {
         children: [
           SizedBox(
             width: 40,
-            child: Text(fmt(p.position), style: ts(11, c: K.text3)),
+            child: Text(fmt(p.position), style: ts(11, c: K.text3, tab: true)),
           ),
           Expanded(
             child: ThinBar(value: p.length > 0 ? p.position / p.length : 0, onChanged: p.length > 0 ? (v) => p.seek(v * p.length) : null),
@@ -526,7 +528,7 @@ class _UnderControls extends StatelessWidget {
             child: Text(
               fmt(p.length),
               textAlign: TextAlign.right,
-              style: ts(11, c: K.text3),
+              style: ts(11, c: K.text3, tab: true),
             ),
           ),
         ],
@@ -749,7 +751,7 @@ class _LyricsPanelState extends State<LyricsPanel> {
           if (!widget.center || l != null)
             AnimatedOpacity(
               opacity: widget.showSource ? 1 : 0,
-              duration: const Duration(milliseconds: 400),
+              duration: Motion.long,
               child: Align(
                 alignment: widget.center ? Alignment.center : Alignment.centerLeft,
                 child: Padding(padding: const EdgeInsets.only(bottom: 8), child: _sourcePill(context, l)),
@@ -831,7 +833,11 @@ class QueuePanel extends StatelessWidget {
               ),
             if (next.isNotEmpty)
               TextButton(
-                onPressed: p.clearUpNext,
+                onPressed: () {
+                  final before = p.orderSnapshot;
+                  p.clearUpNext();
+                  toast(context, 'Cleared up next', action: ('Undo', () => p.restoreOrder(before)));
+                },
                 child: Text('Clear', style: ts(13, c: K.text2)),
               ),
           ],
@@ -863,9 +869,23 @@ class QueuePanel extends StatelessWidget {
                         ),
                       ),
                       Expanded(
-                        child: _QueueRow(song: next[i], onTap: () => p.jumpUpNext(i)),
+                        // Moving without a drag: the menu, or Alt+Up and Alt+Down.
+                        child: _QueueRow(
+                          song: next[i],
+                          onTap: () => p.jumpUpNext(i),
+                          extra: [
+                            if (i > 0) ('Move up', Icons.arrow_upward_rounded, () => p.moveUpNext(i, i - 1)),
+                            if (i < next.length - 1) ('Move down', Icons.arrow_downward_rounded, () => p.moveUpNext(i, i + 1)),
+                            ('Remove from queue', Icons.close_rounded, () => _remove(context, p, i)),
+                          ],
+                          keys: {
+                            const SingleActivator(LogicalKeyboardKey.arrowUp, alt: true): () => p.moveUpNext(i, i - 1),
+                            const SingleActivator(LogicalKeyboardKey.arrowDown, alt: true): () => p.moveUpNext(i, i + 1),
+                            const SingleActivator(LogicalKeyboardKey.delete): () => _remove(context, p, i),
+                          },
+                        ),
                       ),
-                      IconBtn(Icons.close_rounded, 'Remove', () => p.removeUpNext(i), size: 16),
+                      IconBtn(Icons.close_rounded, 'Remove', () => _remove(context, p, i), size: 16),
                     ],
                   ),
                 ),
@@ -875,52 +895,67 @@ class QueuePanel extends StatelessWidget {
   }
 }
 
+/// Take the [i]th song out of up next, with an Undo.
+void _remove(BuildContext context, Player p, int i) {
+  final before = p.orderSnapshot, song = p.upNext[i];
+  p.removeUpNext(i);
+  toast(context, 'Removed ${song.title}', action: ('Undo', () => p.restoreOrder(before)));
+}
+
 class _QueueRow extends StatelessWidget {
-  const _QueueRow({required this.song, required this.onTap, this.current = false});
+  const _QueueRow({required this.song, required this.onTap, this.current = false, this.extra = const [], this.keys = const {}});
   final Song song;
   final VoidCallback onTap;
   final bool current;
 
+  /// Its own menu entries and keys (moving it in the queue).
+  final List<(String, IconData, VoidCallback)?> extra;
+  final Map<ShortcutActivator, VoidCallback> keys;
+
   @override
-  Widget build(BuildContext context) => GestureDetector(
-    onSecondaryTapUp: (d) => songMenu(context, song, d.globalPosition),
-    child: Hover(
-      onTap: onTap,
-      builder: (_, on) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        decoration: BoxDecoration(
-          color: current
-              ? K.surface.withValues(alpha: 0.8)
-              : on
-              ? K.line
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Row(
-          children: [
-            Cover(song.art, image: song.image, size: 40, radius: 6),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    song.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: ts(13, w: FontWeight.w500, c: current ? K.accent : K.text),
-                  ),
-                  Text(
-                    song.artist,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: ts(12, c: K.text3),
-                  ),
-                ],
+  Widget build(BuildContext context) => MenuKeys(
+    open: (at) => songMenu(context, song, at, extra: extra),
+    also: keys,
+    child: GestureDetector(
+      onSecondaryTapUp: (d) => songMenu(context, song, d.globalPosition, extra: extra),
+      child: Hover(
+        onTap: onTap,
+        builder: (_, on) => Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          decoration: BoxDecoration(
+            color: current
+                ? K.surface.withValues(alpha: 0.8)
+                : on
+                ? K.line
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            children: [
+              Cover(song.art, image: song.image, size: 40, radius: 6),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      song.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: ts(13, w: FontWeight.w500, c: current ? K.accent : K.text),
+                    ),
+                    Text(
+                      song.artist,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: ts(12, c: K.text3),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            Text(song.seconds > 0 ? fmt(song.seconds) : '', style: ts(12, c: K.text3)),
-          ],
+              Text(song.seconds > 0 ? fmt(song.seconds) : '', style: ts(12, c: K.text3)),
+            ],
+          ),
         ),
       ),
     ),
@@ -993,9 +1028,9 @@ class _ArtActionsState extends State<_ArtActions> {
         onTap: onTap,
         builder: (_, on) => AnimatedScale(
           scale: on ? 1.06 : 1,
-          duration: const Duration(milliseconds: 150),
+          duration: Motion.fast,
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
+            duration: Motion.fast,
             width: 48,
             height: 48,
             decoration: BoxDecoration(
@@ -1012,7 +1047,7 @@ class _ArtActionsState extends State<_ArtActions> {
       onExit: (_) => setState(() => _on = false),
       child: AnimatedOpacity(
         opacity: _on ? 1 : 0,
-        duration: const Duration(milliseconds: 200),
+        duration: Motion.base,
         child: IgnorePointer(
           ignoring: !_on,
           child: DecoratedBox(

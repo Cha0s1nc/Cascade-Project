@@ -117,8 +117,8 @@ class _PhoneShellState extends State<PhoneShell> {
                         bottom: false,
                         // Pages ease in from a little below as they change.
                         child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 300),
-                          reverseDuration: const Duration(milliseconds: 150),
+                          duration: Motion.slow,
+                          reverseDuration: Motion.fast,
                           switchInCurve: const Cubic(.2, .8, .2, 1),
                           layoutBuilder: (current, previous) => Stack(fit: StackFit.expand, children: [...previous, ?current]),
                           transitionBuilder: (c, a) => FadeTransition(
@@ -508,7 +508,7 @@ class _MiniPlayer extends StatelessWidget {
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
+                        FullText(
                           song.title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,

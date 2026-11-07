@@ -54,7 +54,7 @@ class _ToggleState extends State<Toggle> {
             Opacity(
               opacity: off ? 0.45 : 1,
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
+                duration: Motion.base,
                 width: 36,
                 height: 20,
                 decoration: BoxDecoration(
@@ -63,7 +63,7 @@ class _ToggleState extends State<Toggle> {
                   border: Border.all(color: widget.value ? K.accent : K.line),
                 ),
                 child: AnimatedAlign(
-                  duration: const Duration(milliseconds: 200),
+                  duration: Motion.base,
                   curve: Curves.easeOut,
                   alignment: widget.value ? Alignment.centerRight : Alignment.centerLeft,
                   child: Container(
@@ -326,7 +326,7 @@ class Segmented<T> extends StatelessWidget {
           Hover(
             onTap: onChanged == null ? null : () => onChanged!(key),
             builder: (_, on) => AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
+              duration: Motion.fast,
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               decoration: BoxDecoration(
                 color: key == value ? K.panel : Colors.transparent,
@@ -395,7 +395,7 @@ class _PillTabsState extends State<PillTabs> {
       children: [
         if (_pill != null)
           AnimatedPositioned(
-            duration: const Duration(milliseconds: 320),
+            duration: Motion.slow,
             curve: settingsCurve,
             left: _pill!.left - 3,
             top: 0,
@@ -477,7 +477,7 @@ class _PanesState extends State<_Panes> {
   @override
   Widget build(BuildContext context) => ClipRect(
     child: AnimatedSwitcher(
-      duration: const Duration(milliseconds: 320),
+      duration: Motion.slow,
       switchInCurve: settingsCurve,
       // Mirrored: played backward, the plain curve lingers and then whips out.
       switchOutCurve: settingsCurve.flipped,

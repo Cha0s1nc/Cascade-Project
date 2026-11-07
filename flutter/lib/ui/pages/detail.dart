@@ -42,12 +42,18 @@ class DetailHeader extends StatelessWidget {
     this.image,
     this.round = false,
     this.meta = '',
+    this.lead,
+    this.onLead,
     this.voice,
     required this.actions,
     this.titleWidget,
     this.aspect = 1,
   });
   final String label, title, meta;
+
+  /// A link before [meta] (an album's artist).
+  final String? lead;
+  final VoidCallback? onLead;
   final List<Color> art;
   final String? image, voice;
   final bool round;
@@ -77,7 +83,20 @@ class DetailHeader extends StatelessWidget {
               child: Text(title, maxLines: 1, style: ds(small ? 34 : 64, h: 1.05)),
             ),
         const SizedBox(height: 10),
-        if (meta.isNotEmpty)
+        if (lead != null)
+          Wrap(
+            children: [
+              Hover(
+                onTap: onLead,
+                builder: (_, on) => Text(
+                  lead!,
+                  style: ts(13, w: FontWeight.w500, c: on ? K.text : K.text2).copyWith(decoration: on ? TextDecoration.underline : null),
+                ),
+              ),
+              if (meta.isNotEmpty) Text(' · $meta', style: ts(13, c: K.text2)),
+            ],
+          )
+        else if (meta.isNotEmpty)
           Text(
             meta,
             maxLines: 2,
@@ -130,13 +149,13 @@ class InfoChip extends StatelessWidget {
   const InfoChip(this.text, {super.key});
   final String text;
 
+  // Plain text: in a pill beside the buttons it looked like one of them.
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-    decoration: BoxDecoration(color: K.surface, borderRadius: BorderRadius.circular(99)),
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(left: 6),
     child: Text(
       text,
-      style: ts(12, w: FontWeight.w500, c: K.text2),
+      style: ts(12, w: FontWeight.w500, c: K.text3),
     ),
   );
 }
@@ -223,11 +242,9 @@ class _AlbumPageState extends State<AlbumPage> {
               title: album.title,
               art: album.art,
               image: album.image,
-              meta: [
-                if (album.artist.isNotEmpty) album.artist,
-                if (album.year > 0) '${album.year}',
-                '${songs.length} ${songs.length == 1 ? 'song' : 'songs'}, ${_minutes(songs)}',
-              ].join(' · '),
+              lead: album.artist.isEmpty ? null : album.artist,
+              onLead: album.artistId == null ? null : () => openPage(context, PageKind.artist, [album.artistId]),
+              meta: [if (album.year > 0) '${album.year}', '${songs.length} ${songs.length == 1 ? 'song' : 'songs'}, ${_minutes(songs)}'].join(' · '),
               voice: plays == 0 ? 'You haven\'t played it yet.' : 'You\'ve played it $plays ${plays == 1 ? 'time' : 'times'}. Last ${whenPlayed(last)}.',
               actions: [
                 ...playButtons(context, songs, album.title),
@@ -235,10 +252,10 @@ class _AlbumPageState extends State<AlbumPage> {
                 if (LibraryScope.of(context).mayDownload && !LibraryScope.of(context).demo)
                   RoundBtn(
                     songs.every((s) => DownloadsScope.of(context).has(s.id)) ? Icons.download_done_rounded : Icons.download_outlined,
-                    'Download',
+                    songs.every((s) => DownloadsScope.of(context).has(s.id)) ? 'Downloaded' : 'Download',
                     () => download(context, songs, collectionId: album.id),
                   ),
-                if (album.artistId != null) RoundBtn(Icons.person_outline_rounded, 'Go to artist', () => openPage(context, PageKind.artist, [album.artistId])),
+                // Go to artist is in More, and the artist's name links there.
                 Builder(
                   builder: (c) => RoundBtn(
                     Icons.more_horiz_rounded,

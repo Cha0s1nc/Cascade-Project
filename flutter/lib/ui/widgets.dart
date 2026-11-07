@@ -8,6 +8,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'package:cascade/core/data.dart';
+import 'package:cascade/ui/glass_button.dart';
+import 'package:cascade/ui/pages/common.dart';
 import 'package:cascade/ui/scopes.dart';
 
 /// Personality v1: the Cascade library colors from the Penpot file "Cascade
@@ -70,8 +72,17 @@ String today() {
 }
 
 /// Body text (font.body, Inter).
-TextStyle ts(double size, {FontWeight w = FontWeight.w400, Color c = K.text, double? ls, double h = 1.25}) =>
-    TextStyle(fontFamily: 'Inter', fontSize: size, fontWeight: w, color: c, letterSpacing: ls, height: h);
+/// Body text (Inter). [tab]: fixed-width digits, for numbers that change in
+/// place (times, percentages), so they do not shuffle about as they tick.
+TextStyle ts(double size, {FontWeight w = FontWeight.w400, Color c = K.text, double? ls, double h = 1.25, bool tab = false}) => TextStyle(
+  fontFamily: 'Inter',
+  fontSize: size,
+  fontWeight: w,
+  color: c,
+  letterSpacing: ls,
+  height: h,
+  fontFeatures: tab ? const [FontFeature.tabularFigures()] : null,
+);
 
 /// Display text (font.display, Hanken Grotesk): headings, titles, lyrics.
 TextStyle ds(double size, {FontWeight w = FontWeight.w600, Color c = K.text, bool italic = false, double h = 1.15}) =>
@@ -85,6 +96,18 @@ abstract final class Txt {
   static TextStyle voice([Color c = K.text2]) => ds(17, w: FontWeight.w400, c: c, italic: true, h: 1.3);
   static TextStyle brand([Color c = K.text]) => ds(17, c: c, italic: true, h: 1.2);
   static TextStyle caps([Color c = K.text3]) => ts(11, w: FontWeight.w600, c: c, ls: 0.88, h: 1.2);
+}
+
+/// The app's motion lengths, so things move in one rhythm: [fast] for hover
+/// and press, [base] for toggles and small fades, [slow] for panes, pages
+/// and panels, [long] for the big moves (Now Playing, the Style menu).
+/// Exits take the next length down. Effects tuned to the desktop's own
+/// timings (the glass buttons, the lyrics, the cover change) keep theirs.
+abstract final class Motion {
+  static const fast = Duration(milliseconds: 120);
+  static const base = Duration(milliseconds: 200);
+  static const slow = Duration(milliseconds: 320);
+  static const long = Duration(milliseconds: 450);
 }
 
 /// Motion kept to fades and cuts: the system's reduce motion setting, unless
@@ -229,7 +252,7 @@ class PlayCircle extends StatelessWidget {
     label: playing ? 'Pause' : 'Play',
     radius: size / 2,
     builder: (_, on) => AnimatedContainer(
-      duration: const Duration(milliseconds: 120),
+      duration: Motion.fast,
       width: size,
       height: size,
       decoration: BoxDecoration(
@@ -244,20 +267,23 @@ class PlayCircle extends StatelessWidget {
 
 /// The accent pill button: Play, Resume, Save. Not primary: a quiet one.
 class Pill extends StatelessWidget {
-  const Pill(this.label, {super.key, this.icon, required this.onTap, this.primary = true});
+  const Pill(this.label, {super.key, this.icon, required this.onTap, this.primary = true, this.danger = false});
   final String label;
   final IconData? icon;
   final VoidCallback? onTap;
   final bool primary;
 
+  /// Something hard to undo (Sign out): red text.
+  final bool danger;
+
   @override
   Widget build(BuildContext context) {
-    final fg = onTap == null ? K.text3 : (primary ? K.ink : K.text);
+    final fg = onTap == null ? K.text3 : (primary ? K.ink : (danger ? K.error : K.text));
     return Hover(
       onTap: onTap,
       radius: 99,
       builder: (_, on) => AnimatedContainer(
-        duration: const Duration(milliseconds: 120),
+        duration: Motion.fast,
         padding: EdgeInsets.fromLTRB(icon == null ? 16 : 12, 8, 16, 8),
         decoration: BoxDecoration(
           color: onTap == null
@@ -487,7 +513,7 @@ class IconBtn extends StatelessWidget {
           padding: const EdgeInsets.all(6),
           child: TweenAnimationBuilder<Color?>(
             tween: ColorTween(end: c),
-            duration: const Duration(milliseconds: 120),
+            duration: Motion.fast,
             builder: (_, c, _) {
               final i = Icon(icon, size: size, color: c);
               return badge ? Badge(smallSize: 7, backgroundColor: K.accent, child: i) : i;
@@ -517,53 +543,61 @@ class SongTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final current = PlayerScope.of(context).song == song;
-    return Hover(
-      onTap: () => PlayerScope.read(context).play(song, queue),
-      builder: (_, on) => AnimatedContainer(
-        duration: const Duration(milliseconds: 120),
-        width: width,
-        height: 48,
-        clipBehavior: Clip.antiAlias,
-        decoration: BoxDecoration(color: on ? K.surface2 : K.surface, borderRadius: BorderRadius.circular(10)),
-        child: Row(
-          children: [
-            Stack(
-              alignment: Alignment.center,
+    void menu(Offset at) => songMenu(context, song, at, queue: queue);
+    return MenuKeys(
+      open: menu,
+      child: GestureDetector(
+        onSecondaryTapUp: (d) => menu(d.globalPosition),
+        onLongPressStart: (d) => menu(d.globalPosition),
+        child: Hover(
+          onTap: () => PlayerScope.read(context).play(song, queue),
+          builder: (_, on) => AnimatedContainer(
+            duration: Motion.fast,
+            width: width,
+            height: 48,
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(color: on ? K.surface2 : K.surface, borderRadius: BorderRadius.circular(10)),
+            child: Row(
               children: [
-                Cover(song.art, image: song.image, size: 48, radius: 0),
-                if (on || current)
-                  Container(
-                    width: 48,
-                    height: 48,
-                    color: const Color(0x66000000),
-                    child: Icon(current ? Icons.graphic_eq_rounded : Icons.play_arrow_rounded, color: Colors.white, size: 22),
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Cover(song.art, image: song.image, size: 48, radius: 0),
+                    if (on || current)
+                      Container(
+                        width: 48,
+                        height: 48,
+                        color: const Color(0x66000000),
+                        child: Icon(current ? Icons.graphic_eq_rounded : Icons.play_arrow_rounded, color: Colors.white, size: 22),
+                      ),
+                  ],
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      FullText(
+                        song.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: ts(13, w: FontWeight.w500, c: current ? K.accent : K.text),
+                      ),
+                      const SizedBox(height: 1),
+                      Text(
+                        '${song.artist} · ${song.album}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: ts(12, c: K.text3),
+                      ),
+                    ],
                   ),
+                ),
+                const SizedBox(width: 12),
               ],
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    song.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: ts(13, w: FontWeight.w500, c: current ? K.accent : K.text),
-                  ),
-                  const SizedBox(height: 1),
-                  Text(
-                    '${song.artist} · ${song.album}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: ts(12, c: K.text3),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-          ],
+          ),
         ),
       ),
     );
@@ -589,7 +623,7 @@ class AlbumCard extends StatelessWidget {
           AspectRatio(
             aspectRatio: 1,
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 120),
+              duration: Motion.fast,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(10),
                 boxShadow: [BoxShadow(color: on ? K.accent : Colors.transparent, spreadRadius: 2)],
@@ -692,7 +726,7 @@ class HeroCard extends StatelessWidget {
                   style: Txt.caps(K.text2),
                 ),
                 const SizedBox(height: 6),
-                Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: compact ? ds(22) : Txt.title()),
+                FullText(song.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: compact ? ds(22) : Txt.title()),
                 const SizedBox(height: 4),
                 Text(
                   '${song.artist} · ${song.album}',
@@ -714,30 +748,15 @@ class HeroCard extends StatelessWidget {
                   spacing: 10,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
+                    // The glass buttons, as on album and artist pages.
                     if (queued)
-                      Pill(p.playing ? 'Pause' : 'Resume', icon: p.playing ? Icons.pause_rounded : Icons.play_arrow_rounded, onTap: p.toggle)
+                      GlassBtn(p.playing ? Icons.pause_rounded : Icons.play_arrow_rounded, p.playing ? 'Pause' : 'Resume', p.toggle, primary: true)
                     else
-                      Pill('Play', icon: Icons.play_arrow_rounded, onTap: () => p.play(song, played)),
-                    Hover(
-                      onTap: () {
-                        if (!p.shuffle) p.toggleShuffle();
-                        if (!queued) p.play(song, played);
-                      },
-                      builder: (_, on) => Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.shuffle_rounded, color: on ? K.accent : K.text, size: 17),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Shuffle',
-                              style: ts(13, w: FontWeight.w600, c: on ? K.accent : K.text),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
+                      GlassBtn(Icons.play_arrow_rounded, 'Play', () => p.play(song, played), primary: true),
+                    GlassBtn(Icons.shuffle_rounded, 'Shuffle', () {
+                      if (!p.shuffle) p.toggleShuffle();
+                      if (!queued) p.play(song, played);
+                    }),
                   ],
                 ),
               ],
@@ -831,4 +850,32 @@ class UiScale extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Text cut off with an ellipsis when it does not fit, and then the whole of
+/// it in a tooltip, so a long title can still be read.
+class FullText extends StatelessWidget {
+  const FullText(this.data, {super.key, this.style, this.maxLines = 1, this.textAlign, this.overflow = TextOverflow.ellipsis});
+  final String data;
+  final TextStyle? style;
+  final int maxLines;
+  final TextAlign? textAlign;
+  final TextOverflow overflow;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, c) {
+      final text = Text(data, maxLines: maxLines, overflow: overflow, textAlign: textAlign, style: style);
+      if (!c.maxWidth.isFinite) return text;
+      final painter = TextPainter(
+        text: TextSpan(text: data, style: DefaultTextStyle.of(context).style.merge(style)),
+        maxLines: maxLines,
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+      )..layout(maxWidth: c.maxWidth);
+      final cut = painter.didExceedMaxLines;
+      painter.dispose();
+      return cut ? Tooltip(message: data, waitDuration: const Duration(milliseconds: 400), child: text) : text;
+    },
+  );
 }

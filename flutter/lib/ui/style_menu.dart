@@ -78,8 +78,8 @@ void openStyleMenu(BuildContext context, {String tab = 'appearance'}) {
   Navigator.of(context).push(
     PageRouteBuilder<void>(
       opaque: false,
-      transitionDuration: const Duration(milliseconds: 350),
-      reverseTransitionDuration: const Duration(milliseconds: 200),
+      transitionDuration: Motion.slow,
+      reverseTransitionDuration: Motion.base,
       // The root navigator sits above the scopes, so bring the player along.
       pageBuilder: (_, _, _) => PlayerScope(
         player: p,

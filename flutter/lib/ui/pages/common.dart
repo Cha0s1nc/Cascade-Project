@@ -4,6 +4,7 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'package:cascade/core/data.dart';
 import 'package:cascade/core/nav.dart';
@@ -240,7 +241,7 @@ class MediaCard extends StatelessWidget {
                     bottom: 10,
                     child: AnimatedOpacity(
                       opacity: on ? 1 : 0,
-                      duration: const Duration(milliseconds: 140),
+                      duration: Motion.fast,
                       child: PlayCircle(playing: false, onTap: onPlay!, size: 40),
                     ),
                   ),
@@ -248,7 +249,7 @@ class MediaCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 10),
-          Text(
+          FullText(
             title,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
@@ -404,91 +405,96 @@ class TrackRow extends StatelessWidget {
       TrackCols.artist => song.album,
       TrackCols.playlist => '${song.artist} · ${song.album}',
     };
-    return GestureDetector(
-      onSecondaryTapUp: (d) => (onMenu ?? (o) => songMenu(context, song, o, queue: queue))(d.globalPosition),
-      onLongPressStart: (d) => (onMenu ?? (o) => songMenu(context, song, o, queue: queue))(d.globalPosition),
-      child: Hover(
-        onTap: () => current ? p.toggle() : p.play(song, queue, source),
-        builder: (_, on) => Container(
-          height: showArt ? 56 : 46,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-            color: current
-                ? K.surface
-                : on
-                ? K.line
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 30,
-                child: current && p.playing
-                    ? const Icon(Icons.equalizer_rounded, size: 16, color: K.accent)
-                    : on
-                    ? const Icon(Icons.play_arrow_rounded, size: 18, color: K.text)
-                    : Text('$index', style: ts(12, c: K.text3)),
-              ),
-              if (showArt) ...[Cover(song.art, image: song.image, size: 40, radius: 6), const SizedBox(width: 12)] else const SizedBox(width: 8),
-              Expanded(
-                flex: 3,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      song.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: ts(13, w: FontWeight.w500, c: current ? K.accent : K.text),
-                    ),
-                    if (second.isNotEmpty && cols != TrackCols.artist)
-                      Text(
-                        second,
+    final menu = onMenu ?? (o) => songMenu(context, song, o, queue: queue);
+    return MenuKeys(
+      open: menu,
+      child: GestureDetector(
+        onSecondaryTapUp: (d) => menu(d.globalPosition),
+        onLongPressStart: (d) => menu(d.globalPosition),
+        child: Hover(
+          onTap: () => current ? p.toggle() : p.play(song, queue, source),
+          builder: (_, on) => Container(
+            height: showArt ? 56 : 46,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: current
+                  ? K.surface
+                  : on
+                  ? K.line
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 30,
+                  child: current && p.playing
+                      ? const Icon(Icons.equalizer_rounded, size: 16, color: K.accent)
+                      : on
+                      ? const Icon(Icons.play_arrow_rounded, size: 18, color: K.text)
+                      : Text('$index', style: ts(12, c: K.text3)),
+                ),
+                if (showArt) ...[Cover(song.art, image: song.image, size: 40, radius: 6), const SizedBox(width: 12)] else const SizedBox(width: 8),
+                Expanded(
+                  flex: 3,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      FullText(
+                        song.title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: ts(12, c: K.text3),
+                        style: ts(13, w: FontWeight.w500, c: current ? K.accent : K.text),
                       ),
-                  ],
-                ),
-              ),
-              if (cols == TrackCols.artist)
-                Expanded(
-                  flex: 2,
-                  child: Text(
-                    second,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: ts(12, c: K.text3),
+                      if (second.isNotEmpty && cols != TrackCols.artist)
+                        Text(
+                          second,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: ts(12, c: K.text3),
+                        ),
+                    ],
                   ),
                 ),
-              if (on || fav)
-                IconBtn(
-                  fav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                  fav ? 'Unlike' : 'Like',
-                  () => lib.toggleFavorite(song.id, song.favorite),
-                  color: fav ? K.like : K.text3,
-                  size: 15,
-                ),
-              if (song.playCount > 0 && !narrow(context))
+                if (cols == TrackCols.artist)
+                  Expanded(
+                    flex: 2,
+                    child: Text(
+                      second,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: ts(12, c: K.text3),
+                    ),
+                  ),
+                if (on || fav)
+                  IconBtn(
+                    fav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                    fav ? 'Unlike' : 'Like',
+                    () => lib.toggleFavorite(song.id, song.favorite),
+                    color: fav ? K.like : K.text3,
+                    size: 15,
+                  ),
+                if (song.playCount > 0 && !narrow(context))
+                  SizedBox(
+                    width: 72,
+                    child: Text(
+                      '${song.playCount} ${song.playCount == 1 ? 'play' : 'plays'}',
+                      textAlign: TextAlign.right,
+                      style: ts(12, c: K.text3),
+                    ),
+                  ),
                 SizedBox(
-                  width: 72,
+                  width: 52,
                   child: Text(
-                    '${song.playCount} ${song.playCount == 1 ? 'play' : 'plays'}',
+                    song.seconds > 0 ? fmt(song.seconds) : '',
                     textAlign: TextAlign.right,
-                    style: ts(12, c: K.text3),
+                    style: ts(12, c: K.text3, tab: true),
                   ),
                 ),
-              SizedBox(
-                width: 52,
-                child: Text(
-                  song.seconds > 0 ? fmt(song.seconds) : '',
-                  textAlign: TextAlign.right,
-                  style: ts(12, c: K.text3),
-                ),
-              ),
-            ],
+                moreButton(context, on, menu),
+              ],
+            ),
           ),
         ),
       ),
@@ -581,13 +587,56 @@ Future<void> addToPlaylistDialog(BuildContext context, List<Song> songs) async {
   }
 }
 
-void toast(BuildContext context, String text, {bool error = false}) => ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-  SnackBar(
-    content: Text(text, style: ts(13, c: error ? K.error : K.text)),
-    backgroundColor: K.surface,
-    behavior: SnackBarBehavior.floating,
-    width: 420,
-    duration: const Duration(milliseconds: 2400),
+/// A short message at the bottom: 4 s, or 6 s with an [action] (an Undo).
+void toast(BuildContext context, String text, {bool error = false, (String, VoidCallback)? action}) => ScaffoldMessenger.maybeOf(context)
+  ?..hideCurrentSnackBar()
+  ..showSnackBar(
+    SnackBar(
+      content: Text(text, style: ts(13, c: error ? K.error : K.text)),
+      backgroundColor: K.surface,
+      behavior: SnackBarBehavior.floating,
+      width: 420,
+      duration: Duration(seconds: action == null ? 4 : 6),
+      action: action == null ? null : SnackBarAction(label: action.$1, textColor: K.accent, onPressed: action.$2),
+    ),
+  );
+
+/// A row whose menu also opens from the keyboard (the Menu key or
+/// Shift+F10), under the row, with any [also] keys of its own.
+class MenuKeys extends StatelessWidget {
+  const MenuKeys({super.key, required this.open, required this.child, this.also = const {}});
+  final void Function(Offset at) open;
+  final Map<ShortcutActivator, VoidCallback> also;
+  final Widget child;
+
+  void _open(BuildContext context) {
+    final box = context.findRenderObject() as RenderBox?;
+    if (box != null && box.attached) open(box.localToGlobal(Offset(24, box.size.height)));
+  }
+
+  @override
+  Widget build(BuildContext context) => CallbackShortcuts(
+    bindings: {
+      const SingleActivator(LogicalKeyboardKey.contextMenu): () => _open(context),
+      const SingleActivator(LogicalKeyboardKey.f10, shift: true): () => _open(context),
+      ...also,
+    },
+    child: child,
+  );
+}
+
+/// A "More" button that opens a menu under itself: shown while its row is
+/// hovered or focused, always on a touch screen, its room kept either way.
+Widget moreButton(BuildContext context, bool shown, void Function(Offset at) open) => Visibility(
+  visible: shown || narrow(context),
+  maintainSize: true,
+  maintainAnimation: true,
+  maintainState: true,
+  child: Builder(
+    builder: (b) => IconBtn(Icons.more_horiz_rounded, 'More', () {
+      final box = b.findRenderObject() as RenderBox;
+      open(box.localToGlobal(box.size.bottomLeft(Offset.zero)));
+    }, size: 16),
   ),
 );
 
@@ -641,7 +690,15 @@ Future<void> showItemMenu(BuildContext context, Offset at, List<(String, IconDat
 }
 
 /// A song's menu (context-menu.ts's song entries).
-void songMenu(BuildContext context, Song song, Offset at, {List<Song>? queue, String? playlistId, VoidCallback? onRemoved}) {
+void songMenu(
+  BuildContext context,
+  Song song,
+  Offset at, {
+  List<Song>? queue,
+  String? playlistId,
+  VoidCallback? onRemoved,
+  List<(String, IconData, VoidCallback)?> extra = const [],
+}) {
   final p = PlayerScope.read(context);
   final lib = LibraryScope.read(context);
   final fav = lib.isFavorite(song.id, song.favorite);
@@ -650,6 +707,7 @@ void songMenu(BuildContext context, Song song, Offset at, {List<Song>? queue, St
     ('Play next', Icons.playlist_play_rounded, () => p.playNext([song])),
     ('Add to queue', Icons.queue_music_rounded, () => p.addToQueue([song])),
     if (!lib.demo) ('Add to playlist', Icons.playlist_add_rounded, () => addToPlaylistDialog(context, [song])),
+    if (extra.isNotEmpty) ...[null, ...extra],
     null,
     if (song.albumId != null) ('Go to album', Icons.album_outlined, () => openPage(context, PageKind.album, [song.albumId])),
     if (song.artistId != null) ('Go to artist', Icons.person_outline_rounded, () => openPage(context, PageKind.artist, [song.artistId])),

@@ -161,7 +161,7 @@ class _GlassBtnState extends State<GlassBtn> with SingleTickerProviderStateMixin
         cursor: off ? MouseCursor.defer : SystemMouseCursors.click,
         child: AnimatedScale(
           scale: _pressed ? 0.96 : 1,
-          duration: const Duration(milliseconds: 100),
+          duration: Motion.fast,
           child: Opacity(
             opacity: off ? 0.4 : 1,
             child: DecoratedBox(

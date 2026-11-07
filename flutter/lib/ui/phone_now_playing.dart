@@ -112,8 +112,8 @@ class _PhoneNowPlayingState extends State<PhoneNowPlaying> {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(fmt(p.position), style: ts(12, c: K.text3)),
-                          Text(fmt(p.length), style: ts(12, c: K.text3)),
+                          Text(fmt(p.position), style: ts(12, c: K.text3, tab: true)),
+                          Text(fmt(p.length), style: ts(12, c: K.text3, tab: true)),
                         ],
                       ),
                     ),

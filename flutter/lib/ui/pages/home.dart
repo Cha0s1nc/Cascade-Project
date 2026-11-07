@@ -151,7 +151,7 @@ class VideoCard extends StatelessWidget {
     onTap: () => openVideo(context, video),
     builder: (_, on) => Row(
       children: [
-        AnimatedScale(scale: on ? 1.03 : 1, duration: const Duration(milliseconds: 150), child: VideoThumb(video, width: 160)),
+        AnimatedScale(scale: on ? 1.03 : 1, duration: Motion.fast, child: VideoThumb(video, width: 160)),
         const SizedBox(width: 14),
         Expanded(
           child: Column(

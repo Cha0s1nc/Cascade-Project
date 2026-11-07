@@ -274,10 +274,25 @@ class _SettingsPanelState extends State<SettingsPanel> {
         SettingRow(
           lib.demo ? 'You are looking at the demo' : 'Signed in as ${lib.jf?.userName ?? '?'}',
           subtitle: lib.isAdmin ? 'Administrator' : null,
-          trailing: _Btn(lib.demo ? 'Leave the demo' : 'Sign out', () async {
-            await p.stop();
-            await lib.signOut();
-          }),
+          // Asks first: getting back in takes a new Quick Connect code.
+          trailing: Pill(
+            lib.demo ? 'Leave the demo' : 'Sign out',
+            primary: false,
+            danger: !lib.demo,
+            onTap: () async {
+              if (!lib.demo &&
+                  !await confirm(
+                    context,
+                    'Sign out?',
+                    'Playback stops, and signing back in takes your server address and a Quick Connect code or password.',
+                    'Sign out',
+                  )) {
+                return;
+              }
+              await p.stop();
+              await lib.signOut();
+            },
+          ),
         ),
       ]),
       if (!lib.demo) SettingsGroup('Quick Connect', [_QuickConnect(lib: lib)]),

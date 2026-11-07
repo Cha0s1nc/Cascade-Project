@@ -47,7 +47,7 @@ class _Dim extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => AnimatedOpacity(
-    duration: const Duration(milliseconds: 200),
+    duration: Motion.base,
     opacity: on ? 1 : 0.4,
     child: IgnorePointer(
       ignoring: !on,

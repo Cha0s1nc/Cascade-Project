@@ -174,6 +174,14 @@ class _DesktopShellState extends State<DesktopShell> {
     ),
   );
 
+  /// The section to light in the sidebar: the one the open page is about
+  /// (an artist page lights Artists, wherever it was opened from).
+  String _activeSection() {
+    final kind = _nav.top.page;
+    final about = kind == null ? null : pageCategory[kind];
+    return about == null || about == 'library' ? _nav.view : about;
+  }
+
   /// The sidebar and the page. A 'hover' sidebar keeps a rail's room and
   /// slides out over the page, which dims under it, as the desktop's does.
   Widget _body(BuildContext context) {
@@ -224,7 +232,7 @@ class _DesktopShellState extends State<DesktopShell> {
           child: MouseRegion(
             onEnter: mode == 'hover' ? (_) => setState(() => _railOut = true) : null,
             onExit: mode == 'hover' ? (_) => setState(() => _railOut = false) : null,
-            child: _Sidebar(view: _nav.view, collapsed: !out, overlay: mode == 'hover' && _railOut, onGo: _go),
+            child: _Sidebar(view: _activeSection(), collapsed: !out, overlay: mode == 'hover' && _railOut, onGo: _go),
           ),
         ),
       ],
@@ -347,7 +355,7 @@ class _DesktopShellState extends State<DesktopShell> {
         : 86.0;
     final left = centered ? (width - w) / 2 : width - _rightWidth - w - 8;
     return AnimatedPositioned(
-      duration: const Duration(milliseconds: 280),
+      duration: Motion.slow,
       curve: const Cubic(.4, 0, .2, 1),
       left: left,
       width: w,
@@ -368,46 +376,60 @@ class SearchField extends StatelessWidget {
   final bool wide;
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    height: 28,
-    child: TextField(
-      focusNode: focus,
-      controller: SearchScope.of(context),
-      onChanged: (_) => onSearch(),
-      onSubmitted: (_) => onSearch(),
-      style: ts(13),
-      cursorColor: K.accent,
-      decoration: InputDecoration(
-        isDense: true,
-        filled: true,
-        fillColor: K.surface2,
-        contentPadding: const EdgeInsets.symmetric(vertical: 6),
-        prefixIcon: const Icon(Icons.search_rounded, size: 15, color: K.text3),
-        prefixIconConstraints: const BoxConstraints(minWidth: 30),
-        hintText: wide ? 'Search your library' : 'Search',
-        hintMaxLines: 1,
-        hintStyle: ts(12.5, c: K.text3),
-        suffixIcon: !wide
-            ? null
-            : Padding(
-                padding: const EdgeInsets.only(right: 10),
-                child: Center(
-                  widthFactor: 1,
-                  child: Text(
-                    'Ctrl K',
-                    style: ts(11, w: FontWeight.w500, c: K.text3),
+  Widget build(BuildContext context) {
+    final query = SearchScope.of(context);
+    // Escape empties it and lets go; a second Escape reaches the window.
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): () {
+          query.clear();
+          focus.unfocus();
+        },
+      },
+      child: SizedBox(
+        height: 28,
+        child: TextField(
+          focusNode: focus,
+          controller: query,
+          onChanged: (_) => onSearch(),
+          onSubmitted: (_) => onSearch(),
+          style: ts(13),
+          cursorColor: K.accent,
+          decoration: InputDecoration(
+            isDense: true,
+            filled: true,
+            fillColor: K.surface2,
+            contentPadding: const EdgeInsets.symmetric(vertical: 6),
+            prefixIcon: const Icon(Icons.search_rounded, size: 15, color: K.text3),
+            prefixIconConstraints: const BoxConstraints(minWidth: 30),
+            hintText: wide ? 'Search your library' : 'Search',
+            hintMaxLines: 1,
+            hintStyle: ts(12.5, c: K.text3),
+            suffixIcon: query.text.isNotEmpty
+                ? IconBtn(Icons.close_rounded, 'Clear the search', query.clear, size: 14)
+                : !wide
+                ? null
+                : Padding(
+                    padding: const EdgeInsets.only(right: 10),
+                    child: Center(
+                      widthFactor: 1,
+                      child: Text(
+                        'Ctrl K',
+                        style: ts(11, w: FontWeight.w500, c: K.text3),
+                      ),
+                    ),
                   ),
-                ),
-              ),
-        suffixIconConstraints: const BoxConstraints(minHeight: 28),
-        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: K.accent),
+            suffixIconConstraints: const BoxConstraints(minHeight: 28),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: K.accent),
+            ),
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _Sidebar extends StatelessWidget {
@@ -426,7 +448,7 @@ class _Sidebar extends StatelessWidget {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: PlayerScope.read(context).settings,
     builder: (context, _) => AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
+      duration: Motion.base,
       curve: const Cubic(.4, 0, .2, 1),
       width: collapsed ? rail : wide,
       padding: const EdgeInsets.fromLTRB(10, 12, 10, 10),
@@ -505,7 +527,7 @@ class _HomeBrand extends StatelessWidget {
               children: [
                 Image.asset('assets/icon.png', width: 26, height: 26),
                 AnimatedOpacity(
-                  duration: const Duration(milliseconds: 150),
+                  duration: Motion.fast,
                   opacity: on ? 1 : 0,
                   child: Container(
                     width: 26,
@@ -630,8 +652,8 @@ class _MainPanelState extends State<_MainPanel> {
         child: DecoratedBox(
           decoration: const BoxDecoration(gradient: K.wash),
           child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 320),
-            reverseDuration: const Duration(milliseconds: 160),
+            duration: Motion.slow,
+            reverseDuration: Motion.fast,
             switchInCurve: settingsCurve,
             layoutBuilder: (current, previous) => Stack(fit: StackFit.expand, children: [...previous, ?current]),
             transitionBuilder: (c, a) => c.key != key || calm(context)
@@ -684,7 +706,7 @@ class PlayerBar extends StatelessWidget {
                         return Row(
                           children: [
                             AnimatedContainer(
-                              duration: const Duration(milliseconds: 300),
+                              duration: Motion.slow,
                               curve: const Cubic(.2, .8, .2, 1),
                               width: hide ? 0 : 60,
                               child: ClipRect(
@@ -694,11 +716,11 @@ class PlayerBar extends StatelessWidget {
                                   maxWidth: 60,
                                   child: AnimatedOpacity(
                                     opacity: hide ? 0 : 1,
-                                    duration: const Duration(milliseconds: 200),
+                                    duration: Motion.base,
                                     child: AnimatedScale(
                                       scale: hide ? 0.6 : 1,
                                       alignment: Alignment.centerLeft,
-                                      duration: const Duration(milliseconds: 300),
+                                      duration: Motion.slow,
                                       child: Row(
                                         children: [
                                           Cover(song?.art ?? const [K.surface2, K.surface], image: song?.image, size: 48, radius: 8, shadow: song != null),
@@ -799,7 +821,7 @@ class _BarLink extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Text t(bool on) => Text(
+    Widget t(bool on) => FullText(
       text,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
@@ -868,7 +890,7 @@ class SeekBar extends StatelessWidget {
             child: Text(
               fmt(p.position),
               textAlign: TextAlign.right,
-              style: ts(11, w: FontWeight.w500, c: K.text3),
+              style: ts(11, w: FontWeight.w500, c: K.text3, tab: true),
             ),
           ),
           SizedBox(
@@ -879,7 +901,7 @@ class SeekBar extends StatelessWidget {
             width: 40,
             child: Text(
               fmt(length),
-              style: ts(11, w: FontWeight.w500, c: K.text3),
+              style: ts(11, w: FontWeight.w500, c: K.text3, tab: true),
             ),
           ),
         ],
@@ -910,7 +932,7 @@ class VolumeControl extends StatelessWidget {
         child: Text(
           '${(p.volume * 100).round()}%',
           textAlign: TextAlign.right,
-          style: ts(11, c: K.text3),
+          style: ts(11, c: K.text3, tab: true),
         ),
       ),
     ],

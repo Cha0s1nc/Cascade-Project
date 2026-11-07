@@ -305,7 +305,7 @@ class _VideoScreenState extends State<VideoScreen> {
                   ),
                   AnimatedOpacity(
                     opacity: _controls ? 1 : 0,
-                    duration: const Duration(milliseconds: 250),
+                    duration: Motion.base,
                     child: IgnorePointer(ignoring: !_controls, child: _chrome(title)),
                   ),
                   if (seg != null || nearEnd)

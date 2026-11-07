@@ -1,0 +1,52 @@
+// From the UI/UX review: cut-off titles can still be read, a cleared or
+// trimmed queue can be put back, and a row's menu opens from the keyboard.
+import 'package:cascade/engine/player.dart';
+import 'package:cascade/ui/pages/common.dart';
+import 'package:cascade/ui/widgets.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  testWidgets('a cut-off title shows the whole of it in a tooltip', (tester) async {
+    Widget at(double w, String t) => MaterialApp(
+      home: Center(child: SizedBox(width: w, child: FullText(t))),
+    );
+    await tester.pumpWidget(at(80, 'A very long song title that cannot fit'));
+    expect(find.byType(Tooltip), findsOneWidget);
+    await tester.pumpWidget(at(400, 'Short'));
+    expect(find.byType(Tooltip), findsNothing);
+  });
+
+  test('Undo puts a cleared queue back, unless playback moved on', () {
+    final p = Player(audio: false)..playing = false;
+    final before = p.orderSnapshot, next = p.upNext;
+    expect(next, isNotEmpty);
+    p.clearUpNext();
+    expect(p.upNext, isEmpty);
+    expect(p.restoreOrder(before), isTrue);
+    expect(p.upNext, next);
+    p.dispose();
+  });
+
+  testWidgets('the Menu key and Shift+F10 open a row menu', (tester) async {
+    var opened = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: MenuKeys(
+            open: (_) => opened++,
+            child: Hover(onTap: () {}, builder: (_, _) => const Text('row')),
+          ),
+        ),
+      ),
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.contextMenu);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.f10);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    expect(opened, 2);
+  });
+}

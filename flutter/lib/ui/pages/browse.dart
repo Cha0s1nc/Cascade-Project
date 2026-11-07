@@ -27,6 +27,41 @@ class SearchPage extends StatefulWidget {
   State<SearchPage> createState() => _SearchPageState();
 }
 
+/// The last searches, to run again with a click.
+class _Recent extends StatelessWidget {
+  const _Recent({required this.onPick});
+  final ValueChanged<String> onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = PlayerScope.read(context).settings;
+    return ListenableBuilder(
+      listenable: s,
+      builder: (context, _) => s.recentSearches.isEmpty
+          ? const SizedBox.shrink()
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Expanded(child: SectionTitle('Recent searches', top: 0)),
+                    TextButton(
+                      onPressed: s.clearRecentSearches,
+                      child: Text('Clear', style: ts(13, c: K.text2)),
+                    ),
+                  ],
+                ),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [for (final q in s.recentSearches) Pill(q, icon: Icons.history_rounded, primary: false, onTap: () => onPick(q))],
+                ),
+              ],
+            ),
+    );
+  }
+}
+
 class _SearchPageState extends State<SearchPage> {
   Timer? _wait;
   String _query = '';
@@ -40,7 +75,14 @@ class _SearchPageState extends State<SearchPage> {
     _query = q;
     _wait?.cancel();
     _wait = Timer(const Duration(milliseconds: 250), () {
-      if (mounted) setState(() => _results = q.isEmpty ? null : LibraryScope.read(context).search(q));
+      if (!mounted) return;
+      final s = PlayerScope.read(context).settings;
+      final r = q.isEmpty ? null : LibraryScope.read(context).search(q);
+      // Kept as a recent search once it finds something.
+      r?.then((x) {
+        if (x.songs.isNotEmpty || x.albums.isNotEmpty || x.artists.isNotEmpty || x.movies.isNotEmpty || x.shows.isNotEmpty) s.addRecentSearch(q);
+      }).ignore();
+      setState(() => _results = r);
     });
   }
 
@@ -56,6 +98,7 @@ class _SearchPageState extends State<SearchPage> {
       SliverToBoxAdapter(
         child: PageHeader('Search', voice: _query.isEmpty ? 'Type in the bar above. Songs, albums, artists, movies and shows.' : 'Results for "$_query"'),
       ),
+      if (_query.isEmpty) SliverToBoxAdapter(child: _Recent(onPick: (q) => SearchScope.of(context).text = q)),
       if (_results != null)
         Loading<_Results>(
           future: _results!,
