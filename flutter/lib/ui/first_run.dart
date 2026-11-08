@@ -135,12 +135,14 @@ class _FirstRunState extends State<_FirstRun> {
           Row(
             children: [
               Expanded(
-                child: Slider(
-                  value: s.crossfadeSeconds.toDouble(),
-                  min: 1,
-                  max: 15,
-                  divisions: 14,
-                  onChanged: (v) => s.setCrossfade(seconds: v.round()),
+                child: safeSlider(
+                  Slider(
+                    value: s.crossfadeSeconds.toDouble(),
+                    min: 1,
+                    max: 15,
+                    divisions: 14,
+                    onChanged: (v) => s.setCrossfade(seconds: v.round()),
+                  ),
                 ),
               ),
               Text('${s.crossfadeSeconds} s', style: ts(13, c: K.text2)),

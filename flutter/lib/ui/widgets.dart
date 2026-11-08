@@ -916,6 +916,63 @@ class LoadError extends StatelessWidget {
   }
 }
 
+/// Every Slider goes through this. Flutter 3.44's Slider keeps an
+/// OverlayPortal open for its value bubble, tagging its own semantics as a
+/// "traversal parent" and the bubble as a "traversal child" that lives in the
+/// app's Overlay. That grafting goes wrong on desktop: a Slider in a hidden
+/// pane, or sharing a node with a Tooltip's portal, orphans the bubble, the
+/// Windows and macOS engines reject the update, and closing a dialog with a
+/// screen reader on crashes the app. So the Slider's own semantics are
+/// dropped (a local Overlay keeps the bubble under that exclusion) and this
+/// gives the one slider node a screen reader needs.
+// ponytail: Flutter master reworked the grafting; retest without this on the
+// next Flutter upgrade (test/semantics_traversal_test.dart).
+Widget safeSlider(Slider slider) => _SafeSlider(slider);
+
+class _SafeSlider extends StatefulWidget {
+  const _SafeSlider(this.slider);
+  final Slider slider;
+
+  @override
+  State<_SafeSlider> createState() => _SafeSliderState();
+}
+
+class _SafeSliderState extends State<_SafeSlider> {
+  bool _focused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.slider;
+    final on = s.onChanged != null;
+    final span = s.max - s.min;
+    // Slider's own step for a screen reader's increase and decrease.
+    final unit = s.divisions != null ? 1 / s.divisions! : (Theme.of(context).platform == TargetPlatform.macOS ? 0.1 : 0.05);
+    final t = span == 0 ? 0.0 : ((s.value - s.min) / span).clamp(0.0, 1.0);
+    String pct(double v) => '${(v * 100).round()}%';
+    void step(double by) => s.onChanged!(s.min + (t + by).clamp(0.0, 1.0) * span);
+    return Semantics(
+      container: true,
+      slider: true,
+      enabled: on,
+      focusable: on,
+      focused: _focused,
+      value: pct(t),
+      increasedValue: pct((t + unit).clamp(0, 1)),
+      decreasedValue: pct((t - unit).clamp(0, 1)),
+      onIncrease: on ? () => step(unit) : null,
+      onDecrease: on ? () => step(-unit) : null,
+      child: ExcludeSemantics(
+        child: Focus(
+          canRequestFocus: false,
+          skipTraversal: true,
+          onFocusChange: (v) => setState(() => _focused = v),
+          child: Overlay.wrap(clipBehavior: Clip.none, alwaysSizeToContent: true, child: s),
+        ),
+      ),
+    );
+  }
+}
+
 /// The thin seek and volume bars. Null [onChanged] shows it disabled.
 class ThinBar extends StatelessWidget {
   const ThinBar({super.key, required this.value, required this.onChanged, this.color});
@@ -940,7 +997,7 @@ class ThinBar extends StatelessWidget {
     ),
     child: SizedBox(
       height: 20,
-      child: Slider(value: value.clamp(0, 1), onChanged: onChanged, padding: const EdgeInsets.symmetric(horizontal: 6)),
+      child: safeSlider(Slider(value: value.clamp(0, 1), onChanged: onChanged, padding: const EdgeInsets.symmetric(horizontal: 6))),
     ),
   );
 }

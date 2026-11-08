@@ -143,12 +143,14 @@ class _EqPanel extends StatelessWidget {
                           thumbShape: RoundSliderThumbShape(enabledThumbRadius: 6),
                           overlayShape: RoundSliderOverlayShape(overlayRadius: 10),
                         ),
-                        child: Slider(
-                          value: pre.clamp(-eqGainLimit, eqGainLimit),
-                          min: -eqGainLimit,
-                          max: eqGainLimit,
-                          divisions: 48,
-                          onChanged: auto ? null : (v) => onChanged(_with(preamp: v)),
+                        child: safeSlider(
+                          Slider(
+                            value: pre.clamp(-eqGainLimit, eqGainLimit),
+                            min: -eqGainLimit,
+                            max: eqGainLimit,
+                            divisions: 48,
+                            onChanged: auto ? null : (v) => onChanged(_with(preamp: v)),
+                          ),
                         ),
                       ),
                     ),

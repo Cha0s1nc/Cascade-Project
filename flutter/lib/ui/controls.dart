@@ -243,12 +243,14 @@ class SliderRow extends StatelessWidget {
                 thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
                 overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
               ),
-              child: Slider(
-                value: value.clamp(min, max),
-                min: min,
-                max: max,
-                divisions: step == null ? null : ((max - min) / step!).round().clamp(1, 2000),
-                onChanged: onChanged,
+              child: safeSlider(
+                Slider(
+                  value: value.clamp(min, max),
+                  min: min,
+                  max: max,
+                  divisions: step == null ? null : ((max - min) / step!).round().clamp(1, 2000),
+                  onChanged: onChanged,
+                ),
               ),
             ),
           ),

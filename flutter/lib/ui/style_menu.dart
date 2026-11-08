@@ -325,7 +325,7 @@ class _StyleMenuState extends State<StyleMenu> {
               thumbShape: RoundSliderThumbShape(enabledThumbRadius: 7),
               overlayShape: RoundSliderOverlayShape(overlayRadius: 12),
             ),
-            child: Slider(value: value.clamp(min, max), min: min, max: max, divisions: ((max - min) / step).round().clamp(1, 2000), onChanged: onChanged),
+            child: safeSlider(Slider(value: value.clamp(min, max), min: min, max: max, divisions: ((max - min) / step).round().clamp(1, 2000), onChanged: onChanged)),
           ),
         ),
         SizedBox(
