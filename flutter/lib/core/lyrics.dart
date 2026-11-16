@@ -62,6 +62,29 @@ int? lineEndTicks(LyricLine line) {
   return ends.isEmpty ? null : ends.reduce(max);
 }
 
+/// A break with no singing, long enough for the waiting dots: [before] is
+/// the line it comes before (0 for an intro), between [start] and [end] in
+/// ticks.
+typedef Interlude = ({int before, int start, int end});
+
+/// Six seconds: shorter breaks are a breath, not an interlude.
+const interludeMinTicks = 60000000;
+
+/// The song's instrumental breaks: a long intro before the first line, and
+/// the gaps between a line's known end and the next line's start. A line
+/// with no known end (plain LRC without an empty marker line) never counts,
+/// since a long held note would look the same.
+List<Interlude> interludes(List<LyricLine> lines, {int minTicks = interludeMinTicks}) {
+  final out = <Interlude>[];
+  final first = lines.firstOrNull?.start;
+  if (first != null && first >= minTicks) out.add((before: 0, start: 0, end: first));
+  for (var i = 0; i + 1 < lines.length; i++) {
+    final end = lineEndTicks(lines[i]), next = lines[i + 1].start;
+    if (end != null && next != null && next - end >= minTicks) out.add((before: i + 1, start: end, end: next));
+  }
+  return out;
+}
+
 /// How long an earlier overlapping line stays lit after it is sung (0.7 s).
 const layerLingerTicks = 7000000;
 
@@ -138,7 +161,13 @@ List<LyricLine> parseLRC(String text) {
       if (fullText.isNotEmpty) lines.add(LyricLine(startTicks, null, fullText, words.isNotEmpty ? words : null));
     } else {
       final t = content.trim();
-      if (t.isNotEmpty) lines.add(LyricLine(startTicks, null, t, null));
+      if (t.isNotEmpty) {
+        lines.add(LyricLine(startTicks, null, t, null));
+      } else if (lines.isNotEmpty && lines.last.end == null) {
+        // An empty timed line marks where the line before stopped: the
+        // only end a plain LRC line gets (it shows an instrumental break).
+        lines.last.end = startTicks;
+      }
     }
   }
   // The last word of each line ends where the next line starts.

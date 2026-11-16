@@ -18,6 +18,7 @@ import 'dart:io' show Platform;
 import 'dart:math';
 import 'dart:ui' show ImageFilter;
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -135,6 +136,12 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
   final _now = ValueNotifier<int>(0);
   final _body = GlobalKey();
   late List<GlobalKey> _keys;
+
+  /// The song's instrumental breaks, their dots' keys by the line they come
+  /// before, and the break playing now (the dots the sheet centers on).
+  late List<Interlude> _breaks;
+  final _dotKeys = <int, GlobalKey>{};
+  int? _gap;
   double _vel = 0, _panel = 0;
   Duration? _last, _placedAt;
 
@@ -152,6 +159,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
   void initState() {
     super.initState();
     _keys = [for (final _ in widget.lyrics.lines) GlobalKey()];
+    _breaks = interludes(widget.lyrics.lines);
     _ticker = createTicker(_tick)..start();
   }
 
@@ -160,6 +168,9 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
     super.didUpdateWidget(old);
     if (old.lyrics != widget.lyrics) {
       _keys = [for (final _ in widget.lyrics.lines) GlobalKey()];
+      _breaks = interludes(widget.lyrics.lines);
+      _dotKeys.clear();
+      _gap = null;
       _active = _first = -1;
       _scan = 0;
       _placed = false;
@@ -204,6 +215,8 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
     final seeked = (now - _prevNow).abs() > 20000000;
     _prevNow = now;
     _now.value = now;
+    final g = _breaks.where((b) => now >= b.start && now < b.end).firstOrNull?.before;
+    if (g != _gap) setState(() => _gap = g);
     var idx = currentLyricIndex(lines, _base(now), now);
     idx = tightScrollTarget(lines, idx, now, (_s(st, 'tightScrollLead', 0.25) * 1e7).round()) ?? idx;
     final first = activeLyricRange(lines, idx, now).$1;
@@ -246,12 +259,19 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
   /// of the panel's. Measured each frame, so a background row opening under
   /// a line moves nothing off target.
   double? _target() {
+    final pos = _s(_st, 'currentLinePosition', widget.phone ? 0.12 : 0.5);
+    // In a break, the dots are what the sheet holds at the tuned height.
+    final dots = _gap == null ? null : _dotKeys[_gap]?.currentContext?.findRenderObject() as RenderBox?;
+    final col = _body.currentContext?.findRenderObject() as RenderBox?;
+    if (dots != null && col != null && dots.attached && col.attached && dots.size.height > 0) {
+      final top = dots.localToGlobal(Offset.zero, ancestor: col).dy;
+      return _panel * pos - (top + dots.size.height * pos);
+    }
     final last = _scrollTo ?? _active, first = _scrollFirst ?? _first;
     if (last < 0) return null;
     final top = _top(first < 0 ? last : first), lastTop = _top(last);
     if (top == null || lastTop == null) return null;
     final bottom = lastTop + _height(last);
-    final pos = _s(_st, 'currentLinePosition', widget.phone ? 0.12 : 0.5);
     return _panel * pos - (top + (bottom - top) * pos);
   }
 
@@ -368,7 +388,21 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
                       child: Column(
                         key: _body,
                         crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [for (final (i, line) in lines.indexed) _line(i, line, fs, c.maxWidth, st, emphasis)],
+                        children: [
+                          for (final (i, line) in lines.indexed) ...[
+                            for (final b in _breaks.where((b) => b.before == i))
+                              _Dots(
+                                key: _dotKeys.putIfAbsent(i, GlobalKey.new),
+                                start: b.start,
+                                end: b.end,
+                                now: _now,
+                                size: fs,
+                                align: widget.center ? Alignment.center : Alignment.centerLeft,
+                                inset: widget.phone ? 0 : (c.maxWidth * 0.04).clamp(28.0, 56.0),
+                              ),
+                            _line(i, line, fs, c.maxWidth, st, emphasis),
+                          ],
+                        ],
                       ),
                     ),
                   ),
@@ -507,6 +541,66 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
       ),
     ),
   );
+}
+
+/// The waiting dots of an instrumental break, as Apple Music shows them: they
+/// open as the break starts, fill one by one across it while breathing a
+/// little, and fold away as the next line comes. Closed, they take no room.
+class _Dots extends StatelessWidget {
+  const _Dots({super.key, required this.start, required this.end, required this.now, required this.size, required this.align, required this.inset});
+  final int start, end;
+  final ValueListenable<int> now;
+  final double size, inset;
+  final Alignment align;
+
+  // Opening and folding take 0.4 s at each end of the break.
+  static const _edge = 4000000;
+
+  @override
+  Widget build(BuildContext context) {
+    final still = calm(context);
+    return ValueListenableBuilder<int>(
+      valueListenable: now,
+      builder: (context, t, _) {
+        final open = Curves.easeInOut.transform(min(((t - start) / _edge).clamp(0.0, 1.0), ((end - t) / _edge).clamp(0.0, 1.0)));
+        if (open <= 0) return const SizedBox.shrink();
+        final p = ((t - start) / (end - start)).clamp(0.0, 1.0);
+        final dot = size * 0.32;
+        final breathe = still ? 1.0 : 1 + 0.08 * sin(t / 1e7 * 2 * pi / 1.6);
+        return SizedBox(
+          height: size * 1.4 * open,
+          child: Align(
+            alignment: align,
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: inset),
+              child: Opacity(
+                opacity: open,
+                child: Transform.scale(
+                  scale: breathe * (0.6 + 0.4 * open),
+                  alignment: align,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    spacing: dot * 0.7,
+                    children: [
+                      for (var k = 0; k < 3; k++)
+                        Container(
+                          width: dot,
+                          height: dot,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: K.lyric.withValues(alpha: 0.25 + 0.75 * (p * 3 - k).clamp(0.0, 1.0)),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
 
 /// A line's look (opacity, blur, scale), changing over the tuned fade with

@@ -125,4 +125,38 @@ void main() {
       p.dispose();
     }
   });
+
+  testWidgets('a long break shows the waiting dots mid-panel, then folds them away', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    addTearDown(tester.view.reset);
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    final player = Player(audio: false)..playing = false;
+    // Sung 1-3 s, then nothing until 20 s.
+    final lyrics = Lyrics([LyricLine(10000000, 30000000, 'Before', null), LyricLine(200000000, 220000000, 'After', null)], 'LRCLIB');
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Center(
+          child: SizedBox(width: 800, height: 600, child: LyricsView(player: player, lyrics: lyrics)),
+        ),
+      ),
+    );
+    Finder dots() => find.byWidgetPredicate((w) => w is Container && w.decoration is BoxDecoration && (w.decoration! as BoxDecoration).shape == BoxShape.circle);
+
+    player.position = 2;
+    await frames(tester, 30);
+    expect(dots(), findsNothing, reason: 'still singing');
+
+    player.position = 10;
+    await frames(tester, 90);
+    expect(dots(), findsNWidgets(3));
+    final panel = tester.getRect(find.byType(LyricsView));
+    expect((tester.getCenter(dots().first).dy - panel.center.dy).abs(), lessThan(30), reason: 'the sheet holds the dots mid-panel');
+
+    player.position = 21;
+    await frames(tester, 30);
+    expect(dots(), findsNothing, reason: 'folded away once the next line comes');
+    await tester.pumpWidget(const SizedBox());
+    player.dispose();
+  });
 }

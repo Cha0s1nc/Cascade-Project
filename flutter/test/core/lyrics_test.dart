@@ -201,4 +201,21 @@ void main() {
     expect(looksInstrumental({'Name': 'Install Me'}), isFalse);
     expect(looksInstrumental(null), isFalse);
   });
+
+  test('instrumental breaks: a long intro, and gaps after a line with a known end', () {
+    LyricLine l(double at, [double? end]) => LyricLine((at * 1e7).round(), end == null ? null : (end * 1e7).round(), 'x', null);
+    expect(interludes([l(8, 10), l(11, 13), l(25, 27), l(28)]), [
+      (before: 0, start: 0, end: 80000000),
+      (before: 2, start: 130000000, end: 250000000),
+    ]);
+    expect(interludes([l(2), l(20)]), isEmpty, reason: 'no known end: a held note looks the same');
+    expect(interludes([l(2, 4), l(9)]), isEmpty, reason: 'five seconds is a breath');
+  });
+
+  test('an empty timed LRC line ends the line before it', () {
+    final lines = parseLRC('[00:01.00]Hello\n[00:03.00]\n[00:15.00]World');
+    expect(lines.map((x) => x.text), ['Hello', 'World']);
+    expect(lines.first.end, 30000000);
+    expect(interludes(lines).single, (before: 1, start: 30000000, end: 150000000));
+  });
 }
