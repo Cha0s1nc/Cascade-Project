@@ -24,6 +24,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart' show rootBundle;
 
+import 'package:cascade/core/lyric_clock.dart';
 import 'package:cascade/core/lyric_style.dart';
 import 'package:cascade/core/lyrics.dart';
 import 'package:cascade/core/lyrics_fetch.dart';
@@ -82,20 +83,6 @@ TextStyle lyricFont(double size, {FontWeight? weight, Color? color}) => TextStyl
   color: color ?? K.lyric,
 );
 
-/// The song's position now, smoothed between the player's updates.
-class _Clock {
-  double _pos = 0;
-  Duration _at = Duration.zero;
-  double now(Player p, Duration elapsed) {
-    if (p.position != _pos) {
-      _pos = p.position;
-      _at = elapsed;
-    }
-    if (!p.playing) return _pos;
-    return _pos + min(1.0, (elapsed - _at).inMicroseconds / 1e6);
-  }
-}
-
 class LyricsView extends StatefulWidget {
   const LyricsView({
     super.key,
@@ -131,7 +118,7 @@ class LyricsView extends StatefulWidget {
 
 class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateMixin {
   late final Ticker _ticker;
-  final _clock = _Clock();
+  final _clock = LyricClock();
   final _y = ValueNotifier<double>(0);
   final _now = ValueNotifier<int>(0);
   final _body = GlobalKey();
@@ -211,7 +198,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
     final lines = widget.lyrics.lines;
     if (!_synced || lines.isEmpty) return;
     final st = _st;
-    final now = ((_clock.now(widget.player, elapsed) - _s(st, 'lyricsDelay', -0.05)) * 1e7).round();
+    final now = ((_clock.now(widget.player.position, widget.player.playing, elapsed) - _s(st, 'lyricsDelay', -0.05)) * 1e7).round();
     final seeked = (now - _prevNow).abs() > 20000000;
     _prevNow = now;
     _now.value = now;
