@@ -5,6 +5,7 @@
 // starts a fresh list rather than mixing two.
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:cascade/core/jellyfin.dart';
 
@@ -18,7 +19,10 @@ class ListCache {
 
   Future<CachedList?> read(String key) async {
     try {
-      final m = jsonDecode(await _file(key).readAsString()) as Map;
+      // Off the UI thread: a big library's list is megabytes of JSON, and
+      // decoding it here froze the page that asked for it.
+      final text = await _file(key).readAsString();
+      final m = await Isolate.run(() => jsonDecode(text)) as Map;
       if (m['key'] != key) return null;
       return (
         items: (m['items'] as List).cast<Map>().map((i) => i.cast<String, dynamic>()).toList(),
@@ -36,6 +40,8 @@ class ListCache {
       final f = _file(key);
       // Written beside and moved in place, so a crash mid-write never leaves half a list.
       final tmp = File('${f.path}.tmp');
+      // On this thread: handing the list to another isolate would copy it
+      // here anyway, at about the cost of encoding it. Only reads gain.
       await tmp.writeAsString(jsonEncode({'key': key, 'total': total, 'fetchedAt': at.toUtc().toIso8601String(), 'items': items}));
       await tmp.rename(f.path);
     } catch (_) {}

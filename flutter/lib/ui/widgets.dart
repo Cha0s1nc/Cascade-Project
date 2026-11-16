@@ -335,6 +335,9 @@ class Cover extends StatelessWidget {
             fit: BoxFit.cover,
             width: size,
             height: size,
+            // A small cover is decoded at the size it shows, not the 300 px
+            // the server sends: a list of rows decodes far less.
+            cacheWidth: size == null || size! >= 150 ? null : (size! * MediaQuery.devicePixelRatioOf(context)).ceil(),
             gaplessPlayback: true,
             errorBuilder: (_, _, _) => const SizedBox.shrink(),
           ),

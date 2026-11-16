@@ -526,9 +526,12 @@ class Library extends ChangeNotifier {
     'Fields': 'AlbumId,AlbumPrimaryImageTag,SortName,DateCreated,UserData,Genres',
   };
 
+  Future<List<Item>>? _demoAlbums;
+
   Future<List<Item>> albumItems() {
     final j = jf;
-    if (j == null) return Future.value(demoRecentlyAdded.map((a) => <String, dynamic>{'Id': a.title, 'Name': a.title, 'AlbumArtist': a.subtitle}).toList());
+    // One list for the demo, as a server's is kept: the grid sorts once per list.
+    if (j == null) return _demoAlbums ??= Future.value(demoRecentlyAdded.map((a) => <String, dynamic>{'Id': a.title, 'Name': a.title, 'AlbumArtist': a.subtitle}).toList());
     return _persisted(
       'albums',
       full: () async => (await j.getAllPaged('/Items', {..._user, ..._albumQuery}))..sort(_bySortName),

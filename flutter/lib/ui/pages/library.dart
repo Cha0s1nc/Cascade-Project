@@ -53,6 +53,34 @@ class GridPage extends StatefulWidget {
 class _GridPageState extends State<GridPage> {
   LibraryPrefs? _prefs;
 
+  // The sorted, filtered list and the filter choices, worked out again only
+  // when the list or the prefs change: every library change rebuilt the page
+  // and re-sorted thousands of items (and reshuffled Random).
+  List<Item>? _memoAll;
+  LibraryPrefs? _memoPrefs;
+  List<Item> _shown = const [];
+  LibraryFilterOptions? _options;
+
+  // The same item objects in the same order (a list can come back as a new
+  // copy of them). A refreshed item is a new object, so changes still show.
+  static bool _same(List<Item> a, List<Item>? b) {
+    if (identical(a, b)) return true;
+    if (b == null || a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (!identical(a[i], b[i])) return false;
+    }
+    return true;
+  }
+
+  void _derive(List<Item> all, LibraryPrefs prefs) {
+    if (prefs == _memoPrefs && _same(all, _memoAll)) return;
+    _memoAll = all;
+    _memoPrefs = prefs;
+    final filters = LibraryFilters(favorite: prefs.favorite, genre: prefs.genre, decade: prefs.decade, played: prefs.played);
+    _shown = sortLibraryItems(filterLibraryItems(all, filters), prefs.field, prefs.dir);
+    _options = libraryFilterOptions(all);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -86,9 +114,8 @@ class _GridPageState extends State<GridPage> {
       onRetry: () => setState(() => LibraryScope.read(context).invalidate(spec.name)),
       builder: (context, all) {
         if (prefs == null) return const SizedBox.shrink();
-        final filters = LibraryFilters(favorite: prefs.favorite, genre: prefs.genre, decade: prefs.decade, played: prefs.played);
-        final shown = sortLibraryItems(filterLibraryItems(all, filters), prefs.field, prefs.dir);
-        final options = libraryFilterOptions(all);
+        _derive(all, prefs);
+        final shown = _shown, options = _options!;
         LibraryPrefs copy({String? field, String? dir, bool? favorite, Object? genre = 0, Object? decade = 0, Object? played = 0}) => (
           field: field ?? prefs.field,
           dir: dir ?? prefs.dir,
@@ -393,6 +420,11 @@ class HistoryPage extends StatefulWidget {
 class _HistoryPageState extends State<HistoryPage> {
   late final _songs = LibraryScope.read(context).history();
 
+  // Grouped once per list, not on every rebuild.
+  List<Song>? _groupedFor;
+  List<DayGroup> _groups = const [];
+  Map<String, int> _pos = const {};
+
   @override
   Widget build(BuildContext context) {
     return PageScroll(
@@ -406,14 +438,18 @@ class _HistoryPageState extends State<HistoryPage> {
                 child: Empty('Nothing played yet.', icon: Icons.history_rounded, action: ('Browse albums', () => NavScope.read(context).show('albums'))),
               );
             }
-            final groups = groupByDay([
-              for (final s in songs)
-                {
-                  'Id': s.id,
-                  'UserData': {'LastPlayedDate': s.lastPlayed},
-                },
-            ]);
-            final pos = {for (var i = 0; i < songs.length; i++) songs[i].id: i};
+            if (!identical(songs, _groupedFor)) {
+              _groupedFor = songs;
+              _groups = groupByDay([
+                for (final s in songs)
+                  {
+                    'Id': s.id,
+                    'UserData': {'LastPlayedDate': s.lastPlayed},
+                  },
+              ]);
+              _pos = {for (var i = 0; i < songs.length; i++) songs[i].id: i};
+            }
+            final groups = _groups, pos = _pos;
             return SliverMainAxisGroup(
               slivers: [
                 for (final (k, g) in groups.indexed) ...[
