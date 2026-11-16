@@ -1,9 +1,12 @@
 // Search, Radio, Rediscover, and the video grids (Movies, TV Shows) with
 // their pages.
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:cascade/core/browse.dart' show parseCollapsedLibs;
 import 'package:cascade/core/data.dart';
 import 'package:cascade/core/jellyfin.dart';
 import 'package:cascade/core/rediscover.dart';
@@ -267,7 +270,9 @@ class _RediscoverPageState extends State<RediscoverPage> {
 Widget posterCard(BuildContext context, Video v) =>
     MediaCard(title: v.title, subtitle: v.episode, art: v.art, image: v.image, aspect: 2 / 3, onTap: () => openVideo(context, v));
 
-/// Movies or TV Shows: the chosen libraries' posters, sorted by name.
+/// Movies or TV Shows: the chosen libraries' posters, sorted by name. With
+/// more than one library chosen, each gets its own section that folds away,
+/// as on the desktop; which are folded is kept under its `collapsedLibs` key.
 class VideoGridPage extends StatefulWidget {
   const VideoGridPage({super.key, required this.shows});
   final bool shows;
@@ -276,44 +281,112 @@ class VideoGridPage extends StatefulWidget {
   State<VideoGridPage> createState() => _VideoGridPageState();
 }
 
-class _VideoGridPageState extends State<VideoGridPage> {
-  late final Future<List<Video>> _items = _load();
+typedef _LibGroup = ({String? id, String name, List<Video> items});
 
-  Future<List<Video>> _load() async {
+class _VideoGridPageState extends State<VideoGridPage> {
+  late final Future<List<_LibGroup>> _groups = _load();
+  Set<String> _collapsed = {};
+
+  Future<List<_LibGroup>> _load() async {
     final lib = LibraryScope.read(context);
     final j = lib.jf;
-    if (j == null) return demoContinueWatching;
-    final r = await j.getAllPaged('/Items', {
-      'userId': j.userId,
-      'IncludeItemTypes': widget.shows ? 'Series' : 'Movie',
-      'Recursive': true,
-      'SortBy': 'SortName',
-      'Fields': 'ProductionYear,UserData,SortName,ChildCount',
-    }, widget.shows ? lib.showIds : lib.movieIds);
-    return [for (final i in r) poster(j, i)];
+    _collapsed = await loadCollapsedLibs();
+    if (j == null) return [(id: null, name: '', items: demoContinueWatching)];
+    final ids = widget.shows ? lib.showIds : lib.movieIds;
+    Future<List<Video>> fetch(List<String>? only) async => [
+      for (final i in await j.getAllPaged('/Items', {
+        'userId': j.userId,
+        'IncludeItemTypes': widget.shows ? 'Series' : 'Movie',
+        'Recursive': true,
+        'SortBy': 'SortName',
+        'Fields': 'ProductionYear,UserData,SortName,ChildCount',
+      }, only))
+        poster(j, i),
+    ];
+    if (ids.length < 2) return [(id: null, name: '', items: await fetch(ids))];
+    final libs = widget.shows ? lib.showLibs : lib.movieLibs;
+    String name(String id) => libs.firstWhere((l) => l['Id'] == id, orElse: () => {'Name': 'Library'})['Name'] as String? ?? 'Library';
+    final lists = await Future.wait([for (final id in ids) fetch([id])]);
+    return [for (var k = 0; k < ids.length; k++) (id: ids[k], name: name(ids[k]), items: lists[k])];
   }
+
+  void _toggle(String id) {
+    setState(() => _collapsed.contains(id) ? _collapsed.remove(id) : _collapsed.add(id));
+    saveCollapsedLibs(_collapsed);
+  }
+
+  Widget _grid(List<Video> items) => CardGrid(count: items.length, aspect: 2 / 3, minWidth: 150, builder: (c, i) => posterCard(c, items[i]));
 
   @override
   Widget build(BuildContext context) => PageScroll(
     slivers: [
-      Loading<List<Video>>(
-        future: _items,
-        builder: (context, items) => SliverMainAxisGroup(
-          slivers: [
-            SliverToBoxAdapter(
-              child: PageHeader(
-                widget.shows ? 'TV Shows' : 'Movies',
-                voice: '${items.length} ${widget.shows ? (items.length == 1 ? 'show' : 'shows') : (items.length == 1 ? 'movie' : 'movies')}',
+      Loading<List<_LibGroup>>(
+        future: _groups,
+        builder: (context, groups) {
+          final total = groups.fold(0, (n, g) => n + g.items.length);
+          return SliverMainAxisGroup(
+            slivers: [
+              SliverToBoxAdapter(
+                child: PageHeader(
+                  widget.shows ? 'TV Shows' : 'Movies',
+                  voice: '$total ${widget.shows ? (total == 1 ? 'show' : 'shows') : (total == 1 ? 'movie' : 'movies')}',
+                ),
               ),
+              if (total == 0)
+                const SliverToBoxAdapter(child: Empty('Nothing in the chosen libraries.', icon: Icons.movie_outlined))
+              else if (groups.length == 1)
+                _grid(groups.single.items)
+              else
+                for (final g in groups) ...[
+                  SliverToBoxAdapter(
+                    child: _GroupHeader(name: g.name, count: g.items.length, open: !_collapsed.contains(g.id), onTap: () => _toggle(g.id!)),
+                  ),
+                  if (!_collapsed.contains(g.id)) _grid(g.items),
+                ],
+            ],
+          );
+        },
+      ),
+    ],
+  );
+}
+
+Future<Set<String>> loadCollapsedLibs() async => parseCollapsedLibs((await SharedPreferences.getInstance()).getString('collapsedLibs'));
+
+Future<void> saveCollapsedLibs(Set<String> ids) async => (await SharedPreferences.getInstance()).setString('collapsedLibs', jsonEncode([...ids]));
+
+/// A library section's header in a grouped poster grid: its name and count,
+/// and a chevron that folds it.
+class _GroupHeader extends StatelessWidget {
+  const _GroupHeader({required this.name, required this.count, required this.open, required this.onTap});
+  final String name;
+  final int count;
+  final bool open;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    expanded: open,
+    child: Hover(
+      onTap: onTap,
+      label: '$name, $count',
+      builder: (_, on) => Padding(
+        padding: const EdgeInsets.only(top: 18, bottom: 10),
+        child: Row(
+          children: [
+            AnimatedRotation(
+              turns: open ? 0 : -0.25,
+              duration: Motion.fast,
+              child: Icon(Icons.expand_more_rounded, size: 20, color: on ? K.text : K.text2),
             ),
-            if (items.isEmpty)
-              const SliverToBoxAdapter(child: Empty('Nothing in the chosen libraries.', icon: Icons.movie_outlined))
-            else
-              CardGrid(count: items.length, aspect: 2 / 3, minWidth: 150, builder: (c, i) => posterCard(c, items[i])),
+            const SizedBox(width: 6),
+            Flexible(child: Text(name, style: Txt.section(), overflow: TextOverflow.ellipsis)),
+            const SizedBox(width: 10),
+            Text('$count', style: ts(13, c: K.text3)),
           ],
         ),
       ),
-    ],
+    ),
   );
 }
 

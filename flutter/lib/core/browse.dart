@@ -166,3 +166,16 @@ List<DayGroup> groupByDay(List<Item> items, [DateTime? now]) {
   }
   return [for (var i = 0; i < labels.length; i++) (label: labels[i], items: buckets[i])];
 }
+
+/// The library ids folded in a grouped poster grid, from the desktop's
+/// `collapsedLibs` (a JSON array of strings). Untrusted: anything else is
+/// nothing folded.
+Set<String> parseCollapsedLibs(String? raw) {
+  if (raw == null) return {};
+  try {
+    final v = jsonDecode(raw);
+    return v is List ? {...v.whereType<String>()} : {};
+  } on FormatException {
+    return {};
+  }
+}

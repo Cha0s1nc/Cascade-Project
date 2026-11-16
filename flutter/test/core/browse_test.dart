@@ -151,4 +151,12 @@ void main() {
     ];
     expect(groupByDay(items), isEmpty);
   });
+
+  test('collapsedLibs: a JSON array of ids; anything else folds nothing', () {
+    expect(parseCollapsedLibs('["a","b"]'), {'a', 'b'});
+    expect(parseCollapsedLibs('["a",5,null]'), {'a'});
+    for (final bad in [null, '', '{"a":1}', 'not json', '"a"']) {
+      expect(parseCollapsedLibs(bad), isEmpty, reason: '$bad');
+    }
+  });
 }
