@@ -20,12 +20,19 @@ Future<void> loadConnectionHeaders() async {
 }
 
 Future<void> saveConnectionHeaders(List<CustomHeader> headers) async {
-  final list = [for (final h in headers) {'name': h.name, 'value': h.value}];
+  final list = [
+    for (final h in headers) {'name': h.name, 'value': h.value},
+  ];
   connectionHeaders = sanitizeCustomHeaders(list);
   final p = await SharedPreferences.getInstance();
   if (connectionHeaders.isEmpty) {
     await p.remove('customHeaders');
   } else {
-    await p.setString('customHeaders', jsonEncode([for (final h in connectionHeaders) {'name': h.name, 'value': h.value}]));
+    await p.setString(
+      'customHeaders',
+      jsonEncode([
+        for (final h in connectionHeaders) {'name': h.name, 'value': h.value},
+      ]),
+    );
   }
 }

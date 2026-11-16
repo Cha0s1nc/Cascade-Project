@@ -306,7 +306,9 @@ class _VideoGridPageState extends State<VideoGridPage> {
     if (ids.length < 2) return [(id: null, name: '', items: await fetch(ids))];
     final libs = widget.shows ? lib.showLibs : lib.movieLibs;
     String name(String id) => libs.firstWhere((l) => l['Id'] == id, orElse: () => {'Name': 'Library'})['Name'] as String? ?? 'Library';
-    final lists = await Future.wait([for (final id in ids) fetch([id])]);
+    final lists = await Future.wait([
+      for (final id in ids) fetch([id]),
+    ]);
     return [for (var k = 0; k < ids.length; k++) (id: ids[k], name: name(ids[k]), items: lists[k])];
   }
 
@@ -380,7 +382,9 @@ class _GroupHeader extends StatelessWidget {
               child: Icon(Icons.expand_more_rounded, size: 20, color: on ? K.text : K.text2),
             ),
             const SizedBox(width: 6),
-            Flexible(child: Text(name, style: Txt.section(), overflow: TextOverflow.ellipsis)),
+            Flexible(
+              child: Text(name, style: Txt.section(), overflow: TextOverflow.ellipsis),
+            ),
             const SizedBox(width: 10),
             Text('$count', style: ts(13, c: K.text3)),
           ],

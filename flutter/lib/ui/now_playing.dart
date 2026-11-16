@@ -310,7 +310,10 @@ class _NowPlayingViewState extends State<NowPlayingView> {
             // The Crossfade tab shows the cover change instead.
             child: np.editing == 'crossfade'
                 ? _CoverPreview(song: song, next: p.upNext)
-                : lyricsRoll(LyricsPanel(key: ValueKey(song.id), song: song, rollIn: song.id != _openedOn, rollBack: _back), back: _back),
+                : lyricsRoll(
+                    LyricsPanel(key: ValueKey(song.id), song: song, rollIn: song.id != _openedOn, rollBack: _back),
+                    back: _back,
+                  ),
           ),
         ),
       ],
@@ -415,7 +418,10 @@ class _NowPlayingViewState extends State<NowPlayingView> {
                     ? const QueuePanel(key: ValueKey('q'))
                     : KeyedSubtree(
                         key: const ValueKey('l'),
-                        child: lyricsRoll(LyricsPanel(key: ValueKey(song.id), song: song, rollIn: song.id != _openedOn, rollBack: _back), back: _back),
+                        child: lyricsRoll(
+                          LyricsPanel(key: ValueKey(song.id), song: song, rollIn: song.id != _openedOn, rollBack: _back),
+                          back: _back,
+                        ),
                       ),
               ),
             ),
@@ -430,7 +436,10 @@ class _NowPlayingViewState extends State<NowPlayingView> {
     children: [
       Padding(
         padding: const EdgeInsets.fromLTRB(80, 40, 80, 40),
-        child: lyricsRoll(LyricsPanel(key: ValueKey(song.id), song: song, size: 54, center: true, showSource: !_idle, rollIn: song.id != _openedOn, rollBack: _back), back: _back),
+        child: lyricsRoll(
+          LyricsPanel(key: ValueKey(song.id), song: song, size: 54, center: true, showSource: !_idle, rollIn: song.id != _openedOn, rollBack: _back),
+          back: _back,
+        ),
       ),
       Positioned(
         top: 20,
@@ -684,7 +693,16 @@ Widget _lyricsRoll(BuildContext context, Widget child, bool back) => AnimatedSwi
 /// The song's lyrics: fetched when it changes, with the source pill to force
 /// another source.
 class LyricsPanel extends StatefulWidget {
-  const LyricsPanel({super.key, required this.song, this.size, this.center = false, this.phone = false, this.showSource = true, this.rollIn = false, this.rollBack = false});
+  const LyricsPanel({
+    super.key,
+    required this.song,
+    this.size,
+    this.center = false,
+    this.phone = false,
+    this.showSource = true,
+    this.rollIn = false,
+    this.rollBack = false,
+  });
   final Song song;
 
   /// Null takes the desktop's size, from the window.

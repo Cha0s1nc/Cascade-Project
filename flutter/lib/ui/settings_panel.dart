@@ -101,12 +101,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
       if (lib.musicLibs.isNotEmpty)
         SettingsGroup('Music', [
           if (lib.musicLibs.length > 1)
-            ToggleRow(
-              'One library at a time',
-              lib.singleLibrary,
-              lib.setSingleLibrary,
-              subtitle: 'Instead of merging the libraries you pick into one view',
-            ),
+            ToggleRow('One library at a time', lib.singleLibrary, lib.setSingleLibrary, subtitle: 'Instead of merging the libraries you pick into one view'),
           SettingRow(
             'Music libraries',
             subtitle: lib.singleLibrary ? 'Turn one on to switch to it.' : 'Albums, artists and songs come from these. At least one stays on.',
@@ -452,10 +447,16 @@ class _ProxyHeadersState extends State<_ProxyHeaders> {
         ),
         if (_error != null) ...[
           const SizedBox(height: 6),
-          Semantics(liveRegion: true, child: Text(_error!, style: ts(12, c: K.error))),
+          Semantics(
+            liveRegion: true,
+            child: Text(_error!, style: ts(12, c: K.error)),
+          ),
         ],
         const SizedBox(height: 10),
-        Align(alignment: Alignment.centerRight, child: Pill('Save headers', primary: false, onTap: _save)),
+        Align(
+          alignment: Alignment.centerRight,
+          child: Pill('Save headers', primary: false, onTap: _save),
+        ),
       ],
     ),
   );
