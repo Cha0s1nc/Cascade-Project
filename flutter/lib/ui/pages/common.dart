@@ -211,8 +211,14 @@ class MediaCard extends StatelessWidget {
     required this.onTap,
     this.onPlay,
     this.onMenu,
+    this.hoverPlay,
   });
   final String title, subtitle;
+
+  /// A poster's hover: the cover dims, this plays at the bottom left (its
+  /// label in the tooltip: Play, Resume, Play next episode) and More opens
+  /// [onMenu] at the bottom right.
+  final (String, VoidCallback)? hoverPlay;
   final List<Color> art;
   final String? image;
   final bool round;
@@ -237,6 +243,46 @@ class MediaCard extends StatelessWidget {
                 Positioned.fill(
                   child: round ? ClipOval(child: Cover(art, image: image, radius: 0)) : Cover(art, image: image, radius: 10, shadow: on),
                 ),
+                if (hoverPlay != null) ...[
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: AnimatedOpacity(
+                        opacity: on ? 1 : 0,
+                        duration: Motion.fast,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(color: const Color(0x8C000000), borderRadius: BorderRadius.circular(10)),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    left: 10,
+                    bottom: 10,
+                    child: AnimatedOpacity(
+                      opacity: on ? 1 : 0,
+                      duration: Motion.fast,
+                      child: Tooltip(
+                        message: hoverPlay!.$1,
+                        child: PlayCircle(playing: false, onTap: hoverPlay!.$2, size: 40),
+                      ),
+                    ),
+                  ),
+                  if (onMenu != null)
+                    Positioned(
+                      right: 6,
+                      bottom: 8,
+                      child: AnimatedOpacity(
+                        opacity: on ? 1 : 0,
+                        duration: Motion.fast,
+                        child: Builder(
+                          builder: (b) => IconBtn(Icons.more_horiz_rounded, 'More', () {
+                            final box = b.findRenderObject() as RenderBox;
+                            onMenu!(box.localToGlobal(box.size.bottomLeft(Offset.zero)));
+                          }, color: Colors.white),
+                        ),
+                      ),
+                    ),
+                ],
                 if (onPlay != null)
                   Positioned(
                     right: 10,

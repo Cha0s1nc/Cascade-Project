@@ -267,8 +267,61 @@ class _RediscoverPageState extends State<RediscoverPage> {
 
 // Video ------------------------------------------------------------------------
 
-Widget posterCard(BuildContext context, Video v) =>
-    MediaCard(title: v.title, subtitle: v.episode, art: v.art, image: v.image, aspect: 2 / 3, onTap: () => openVideo(context, v));
+Widget posterCard(BuildContext context, Video v) {
+  final demo = LibraryScope.read(context).demo;
+  return MediaCard(
+    title: v.title,
+    subtitle: v.episode,
+    art: v.art,
+    image: v.image,
+    aspect: 2 / 3,
+    onTap: () => openVideo(context, v),
+    hoverPlay: demo ? null : (_playLabel(v), () => _playPoster(context, v)),
+    onMenu: demo ? null : (at) => videoMenu(context, v, at),
+  );
+}
+
+String _playLabel(Video v) => v.type == 'Series' ? 'Play next episode' : (v.progress > 0 ? 'Resume' : 'Play');
+
+/// Plays a poster: a movie where it was left (the player resumes), a show
+/// at its next episode. [fromStart] plays a movie from the beginning.
+Future<void> _playPoster(BuildContext context, Video v, {bool fromStart = false}) async {
+  final lib = LibraryScope.read(context);
+  final j = lib.jf;
+  if (j == null) return;
+  Item? item;
+  if (v.type == 'Series') {
+    final res = await j.get('/Shows/NextUp', {'UserId': j.userId, 'SeriesId': v.id});
+    item = ((res as Map)['Items'] as List).cast<Item>().firstOrNull;
+    if (item == null && context.mounted) return toast(context, 'Nothing up next in ${v.title}.');
+  } else {
+    item = await lib.item(v.id);
+    // The player looks the item up again, so say so rather than edit it.
+    if (item != null && fromStart) item = {...item, fromStartKey: true};
+  }
+  if (item != null && context.mounted) playVideo(context, item);
+}
+
+/// A movie's or show's menu: the poster's More button and right click.
+void videoMenu(BuildContext context, Video v, Offset at) {
+  final lib = LibraryScope.read(context);
+  final fav = lib.isFavorite(v.id, v.favorite);
+  showItemMenu(context, at, [
+    (_playLabel(v), Icons.play_arrow_rounded, () => _playPoster(context, v)),
+    if (v.type == 'Movie' && v.progress > 0) ('Play from the start', Icons.replay_rounded, () => _playPoster(context, v, fromStart: true)),
+    null,
+    (
+      v.played ? 'Mark unplayed' : 'Mark played',
+      v.played ? Icons.remove_done_rounded : Icons.done_all_rounded,
+      () async {
+        await lib.setPlayed(v.id, !v.played);
+        if (context.mounted) toast(context, v.played ? 'Marked ${v.title} unplayed.' : 'Marked ${v.title} played.');
+      },
+    ),
+    (fav ? 'Unlike' : 'Like', fav ? Icons.favorite_rounded : Icons.favorite_border_rounded, () => lib.toggleFavorite(v.id, v.favorite)),
+    ('Go to details', Icons.info_outline_rounded, () => openVideo(context, v)),
+  ]);
+}
 
 /// Movies or TV Shows: the chosen libraries' posters, sorted by name. With
 /// more than one library chosen, each gets its own section that folds away,
@@ -299,7 +352,7 @@ class _VideoGridPageState extends State<VideoGridPage> {
         'IncludeItemTypes': widget.shows ? 'Series' : 'Movie',
         'Recursive': true,
         'SortBy': 'SortName',
-        'Fields': 'ProductionYear,UserData,SortName,ChildCount',
+        'Fields': 'ProductionYear,UserData,SortName,ChildCount,RunTimeTicks',
       }, only))
         poster(j, i),
     ];
@@ -398,15 +451,19 @@ class _GroupHeader extends StatelessWidget {
 Video poster(Jellyfin j, Item i) {
   final id = i['Id'] as String;
   final year = i['ProductionYear'];
+  final user = i['UserData'] as Map?;
+  final at = (user?['PlaybackPositionTicks'] as num? ?? 0).toDouble(), length = (i['RunTimeTicks'] as num? ?? 0).toDouble();
   return Video(
     i['Name'] as String? ?? '',
     i['Type'] == 'Series' ? '${year ?? ''}${i['ChildCount'] != null ? ' · ${i['ChildCount']} seasons' : ''}' : '${year ?? ''}',
     '',
-    0,
+    length > 0 ? (at / length).clamp(0, 1) : 0,
     artFor(id),
     id: id,
     type: i['Type'] as String? ?? '',
     image: j.image(id, (i['ImageTags'] as Map?)?['Primary'] as String?, width: 400),
+    played: user?['Played'] == true,
+    favorite: user?['IsFavorite'] == true,
   );
 }
 
@@ -511,6 +568,9 @@ class _VideoPageState extends State<VideoPage> {
     },
   );
 }
+
+/// Marks an item to play from the beginning, ignoring where it was left.
+const fromStartKey = 'CascadeFromStart';
 
 /// Set by the video player (phase 5); until then videos say so.
 void Function(BuildContext context, Item item)? videoPlayer;

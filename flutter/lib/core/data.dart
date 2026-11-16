@@ -94,7 +94,19 @@ class Genre {
 }
 
 class Video {
-  const Video(this.title, this.episode, this.left, this.progress, this.art, {this.image, this.id = '', this.type = '', this.seriesId});
+  const Video(
+    this.title,
+    this.episode,
+    this.left,
+    this.progress,
+    this.art, {
+    this.image,
+    this.id = '',
+    this.type = '',
+    this.seriesId,
+    this.played = false,
+    this.favorite = false,
+  });
   final String id, title, episode, left;
 
   /// The server's type: Movie, Episode or Series.
@@ -103,6 +115,9 @@ class Video {
   final double progress;
   final List<Color> art;
   final String? image;
+
+  /// Watched, and liked, as the server last said.
+  final bool played, favorite;
 }
 
 /// A stable placeholder gradient for a real item, picked by its id.

@@ -13,6 +13,7 @@ import 'package:media_kit/media_kit.dart' as mk;
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'package:cascade/ui/pages/browse.dart' show fromStartKey;
 import 'package:cascade/core/jellyfin.dart';
 import 'package:cascade/core/library.dart';
 import 'package:cascade/core/log.dart';
@@ -115,7 +116,7 @@ class _VideoScreenState extends State<VideoScreen> {
     final full = await widget.library.item(item['Id'] as String) ?? item;
     if (!mounted) return;
     final id = full['Id'] as String;
-    final resume = ((full['UserData'] as Map?)?['PlaybackPositionTicks'] as num? ?? 0) / 1e7;
+    final resume = item[fromStartKey] == true ? 0 : ((full['UserData'] as Map?)?['PlaybackPositionTicks'] as num? ?? 0) / 1e7;
     setState(() {
       _item = full;
       _chapters = [
