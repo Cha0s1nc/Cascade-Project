@@ -105,6 +105,7 @@ class LyricsView extends StatefulWidget {
     this.scale = 1,
     this.center = false,
     this.rollIn = false,
+    this.rollBack = false,
   });
   final Player player;
   final Lyrics lyrics;
@@ -119,6 +120,9 @@ class LyricsView extends StatefulWidget {
   /// Playback moved on by itself: the sheet rolls up from below instead of
   /// appearing in place.
   final bool rollIn;
+
+  /// Rolls in from above instead (after going back a song).
+  final bool rollBack;
 
   @override
   State<LyricsView> createState() => _LyricsViewState();
@@ -268,7 +272,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
     if (!_placed) {
       _placed = true;
       _placedAt = elapsed;
-      _y.value = widget.rollIn && !calm(context) ? t + _panel * 0.5 : t;
+      _y.value = widget.rollIn && !calm(context) ? t + (widget.rollBack ? -0.5 : 0.5) * _panel : t;
       _vel = 0;
       return;
     }

@@ -172,6 +172,19 @@ class _NowPlayingViewState extends State<NowPlayingView> {
   /// The song Now Playing opened on: later songs' lyrics roll in.
   late final String _openedOn = PlayerScope.read(context).song?.id ?? '';
 
+  /// Whether the last song change went back, judged as the cover does
+  /// (ArtStack): the song we left is up next again. The lyrics then roll
+  /// the other way.
+  bool _back = false;
+  String? _lastId, _lastNextId;
+
+  void _followDirection(Player p, Song song) {
+    final next = p.upNext.firstOrNull?.id;
+    if (_lastId != null && song.id != _lastId) _back = next == _lastId && _lastNextId != song.id;
+    _lastId = song.id;
+    _lastNextId = next;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -204,6 +217,7 @@ class _NowPlayingViewState extends State<NowPlayingView> {
     final song = p.song;
     final layout = p.settings.nowPlayingLayout;
     if (song == null) return ColoredBox(color: K.root);
+    _followDirection(p, song);
     // The Style menu and the usual view cross over as the menu opens and
     // closes, over the one background.
     return Stack(
@@ -296,7 +310,7 @@ class _NowPlayingViewState extends State<NowPlayingView> {
             // The Crossfade tab shows the cover change instead.
             child: np.editing == 'crossfade'
                 ? _CoverPreview(song: song, next: p.upNext)
-                : lyricsRoll(LyricsPanel(key: ValueKey(song.id), song: song, rollIn: song.id != _openedOn)),
+                : lyricsRoll(LyricsPanel(key: ValueKey(song.id), song: song, rollIn: song.id != _openedOn, rollBack: _back), back: _back),
           ),
         ),
       ],
@@ -401,7 +415,7 @@ class _NowPlayingViewState extends State<NowPlayingView> {
                     ? const QueuePanel(key: ValueKey('q'))
                     : KeyedSubtree(
                         key: const ValueKey('l'),
-                        child: lyricsRoll(LyricsPanel(key: ValueKey(song.id), song: song, rollIn: song.id != _openedOn)),
+                        child: lyricsRoll(LyricsPanel(key: ValueKey(song.id), song: song, rollIn: song.id != _openedOn, rollBack: _back), back: _back),
                       ),
               ),
             ),
@@ -416,7 +430,7 @@ class _NowPlayingViewState extends State<NowPlayingView> {
     children: [
       Padding(
         padding: const EdgeInsets.fromLTRB(80, 40, 80, 40),
-        child: lyricsRoll(LyricsPanel(key: ValueKey(song.id), song: song, size: 54, center: true, showSource: !_idle, rollIn: song.id != _openedOn)),
+        child: lyricsRoll(LyricsPanel(key: ValueKey(song.id), song: song, size: 54, center: true, showSource: !_idle, rollIn: song.id != _openedOn, rollBack: _back), back: _back),
       ),
       Positioned(
         top: 20,
@@ -643,9 +657,9 @@ class _TopRight extends StatelessWidget {
 /// One song's lyrics giving way to the next's: the old sheet glides up and
 /// fades, moving with the new one (rollIn), which springs up from half a
 /// panel below.
-Widget lyricsRoll(Widget child) => Builder(builder: (context) => _lyricsRoll(context, child));
+Widget lyricsRoll(Widget child, {bool back = false}) => Builder(builder: (context) => _lyricsRoll(context, child, back));
 
-Widget _lyricsRoll(BuildContext context, Widget child) => AnimatedSwitcher(
+Widget _lyricsRoll(BuildContext context, Widget child, bool back) => AnimatedSwitcher(
   duration: const Duration(milliseconds: 550),
   reverseDuration: const Duration(milliseconds: 650),
   // The first 100 ms wait: the cover leads a song change, the lyrics follow.
@@ -659,7 +673,8 @@ Widget _lyricsRoll(BuildContext context, Widget child) => AnimatedSwitcher(
       : FadeTransition(
           opacity: a,
           child: SlideTransition(
-            position: Tween(begin: const Offset(0, -0.5), end: Offset.zero).animate(a),
+            // Forward, the old sheet glides up; back, down.
+            position: Tween(begin: Offset(0, back ? 0.5 : -0.5), end: Offset.zero).animate(a),
             child: c,
           ),
         ),
@@ -669,7 +684,7 @@ Widget _lyricsRoll(BuildContext context, Widget child) => AnimatedSwitcher(
 /// The song's lyrics: fetched when it changes, with the source pill to force
 /// another source.
 class LyricsPanel extends StatefulWidget {
-  const LyricsPanel({super.key, required this.song, this.size, this.center = false, this.phone = false, this.showSource = true, this.rollIn = false});
+  const LyricsPanel({super.key, required this.song, this.size, this.center = false, this.phone = false, this.showSource = true, this.rollIn = false, this.rollBack = false});
   final Song song;
 
   /// Null takes the desktop's size, from the window.
@@ -678,6 +693,9 @@ class LyricsPanel extends StatefulWidget {
 
   /// The sheet rolls up from below (playback moved on by itself).
   final bool rollIn;
+
+  /// Rolling in from above, after going back a song.
+  final bool rollBack;
 
   /// Focus hides the source pill with its other controls when idle.
   final bool showSource;
@@ -763,6 +781,7 @@ class _LyricsPanelState extends State<LyricsPanel> {
           center: widget.center,
           phone: widget.phone,
           rollIn: widget.rollIn,
+          rollBack: widget.rollBack,
         );
       }
       return Column(

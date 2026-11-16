@@ -90,4 +90,39 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     player.dispose();
   });
+
+  testWidgets('a new song rolls in from below, or from above after going back', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    addTearDown(tester.view.reset);
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    final lyrics = Lyrics([for (var i = 0; i < 8; i++) LyricLine(i * 3000, null, 'Line $i', null)], 'LRCLIB');
+    final players = <Player>[];
+    Future<double> firstFrame(bool back) async {
+      final player = Player(audio: false)..playing = false;
+      players.add(player);
+      player.position = 3 * 3.0 + 1;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Center(
+            child: SizedBox(
+              width: 800,
+              height: 600,
+              child: LyricsView(key: UniqueKey(), player: player, lyrics: lyrics, rollIn: true, rollBack: back),
+            ),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 16));
+      await tester.pump(const Duration(milliseconds: 16));
+      return tester.getRect(find.text('Line 3')).center.dy - tester.getRect(find.byType(LyricsView)).center.dy;
+    }
+
+    expect(await firstFrame(false), greaterThan(40), reason: 'forward: it starts below and rises');
+    expect(await firstFrame(true), lessThan(-40), reason: 'back: it starts above and drops');
+    await tester.pumpWidget(const SizedBox());
+    for (final p in players) {
+      p.dispose();
+    }
+  });
 }
