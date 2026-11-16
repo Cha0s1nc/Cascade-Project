@@ -11,6 +11,7 @@ import 'dart:math';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:cascade/core/connection_headers.dart';
 import 'package:cascade/core/data.dart';
 import 'package:cascade/core/offline_query.dart' show OfflineAnswer;
 
@@ -68,6 +69,8 @@ class Jellyfin {
     'Authorization':
         'MediaBrowser Client="$_client", Device="$_device", DeviceId="$deviceId", Version="$appVersion"'
         '${token == null ? '' : ', Token="$token"'}',
+    // A reverse proxy's own headers; the blocked names keep Authorization ours.
+    for (final h in connectionHeaders) h.name: h.value,
   };
 
   Uri _uri(String path, Map<String, Object?> query) {

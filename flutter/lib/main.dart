@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:cascade/ui/pages/common.dart';
 import 'package:cascade/ui/desktop.dart';
 import 'package:cascade/ui/first_run.dart';
+import 'package:cascade/core/connection_headers.dart';
 import 'package:cascade/core/downloads.dart';
 import 'package:cascade/core/jellyfin.dart';
 import 'package:cascade/core/library.dart';
@@ -33,6 +34,7 @@ import 'package:cascade/ui/scopes.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await loadConnectionHeaders();
   MediaKit.ensureInitialized();
   await setUpWindow();
   await loadTuning();

@@ -125,7 +125,7 @@ class Library extends ChangeNotifier {
       final j = jf;
       if (j == null || offlineState != OfflineState.unreachable) return;
       try {
-        final res = await http.get(Uri.parse('${j.server}/System/Info/Public')).timeout(const Duration(seconds: 10));
+        final res = await http.get(Uri.parse('${j.server}/System/Info/Public'), headers: j.headers).timeout(const Duration(seconds: 10));
         if (res.statusCode == 200) {
           _probeAttempt = 0;
           _setOffline(const OfflineReachable());

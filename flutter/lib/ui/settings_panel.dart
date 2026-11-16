@@ -6,6 +6,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'package:cascade/core/connection_headers.dart';
+import 'package:cascade/core/custom_headers.dart';
 import 'package:cascade/core/electron_import.dart';
 import 'package:cascade/core/jellyfin.dart';
 import 'package:cascade/core/library.dart';
@@ -296,6 +298,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
         ),
       ]),
       if (!lib.demo) SettingsGroup('Quick Connect', [_QuickConnect(lib: lib)]),
+      if (!lib.demo) const SettingsGroup('Reverse proxy', [_ProxyHeaders()]),
     ];
   }
 
@@ -376,6 +379,69 @@ class _StyleGroup extends StatelessWidget {
       ),
     ),
   ]);
+}
+
+/// Headers a proxy in front of the server wants (Cloudflare Access, Authelia).
+/// Saved in place and used from the next request; the server and the account
+/// change through Sign out, as on the desktop.
+class _ProxyHeaders extends StatefulWidget {
+  const _ProxyHeaders();
+
+  @override
+  State<_ProxyHeaders> createState() => _ProxyHeadersState();
+}
+
+class _ProxyHeadersState extends State<_ProxyHeaders> {
+  late final _text = TextEditingController(text: formatHeaderLines(connectionHeaders));
+  String? _error;
+
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final parsed = parseHeaderLines(_text.text);
+    setState(() => _error = parsed.errors.isEmpty ? null : parsed.errors.join(' '));
+    if (parsed.errors.isNotEmpty) return;
+    await saveConnectionHeaders(parsed.headers);
+    if (mounted) toast(context, parsed.headers.isEmpty ? 'No proxy headers now.' : 'Proxy headers saved.');
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('Headers', style: ts(14, w: FontWeight.w500)),
+        const SizedBox(height: 2),
+        Text('Only if a proxy in front of Jellyfin asks for them. One Name: Value per line, sent to your server only.', style: ts(12, c: K.text3)),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _text,
+          minLines: 2,
+          maxLines: 6,
+          autocorrect: false,
+          enableSuggestions: false,
+          style: ts(13),
+          decoration: InputDecoration(
+            hintText: 'CF-Access-Client-Id: ...\nCF-Access-Client-Secret: ...',
+            filled: true,
+            fillColor: K.surface,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        ),
+        if (_error != null) ...[
+          const SizedBox(height: 6),
+          Semantics(liveRegion: true, child: Text(_error!, style: ts(12, c: K.error))),
+        ],
+        const SizedBox(height: 10),
+        Align(alignment: Alignment.centerRight, child: Pill('Save headers', primary: false, onTap: _save)),
+      ],
+    ),
+  );
 }
 
 class _QuickConnect extends StatefulWidget {

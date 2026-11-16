@@ -1,5 +1,7 @@
 // Ported from desktop/test/custom-headers.test.ts.
+import 'package:cascade/core/connection_headers.dart';
 import 'package:cascade/core/custom_headers.dart';
+import 'package:cascade/core/jellyfin.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 CustomHeader h(String n, String v) => (name: n, value: v);
@@ -159,5 +161,13 @@ void main() {
     expect(probeHeaders('https://jf.example.com:8920', 'https://jf.example.com', saved), isEmpty);
     expect(probeHeaders('https://jf.example.com', null, saved), isEmpty);
     expect(probeHeaders('not a url', 'https://jf.example.com', saved), isEmpty);
+  });
+
+  test('the server gets the saved headers alongside its own Authorization', () {
+    addTearDown(() => connectionHeaders = []);
+    connectionHeaders = [h('CF-Access-Client-Id', 'abc')];
+    final sent = Jellyfin('https://jf.example', 'dev', token: 't').headers;
+    expect(sent['CF-Access-Client-Id'], 'abc');
+    expect(sent['Authorization'], contains('Token="t"'));
   });
 }

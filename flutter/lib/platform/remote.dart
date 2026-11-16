@@ -74,7 +74,7 @@ class RemoteSocket {
     final token = jf.token;
     if (token == null) return;
     try {
-      final ws = _ws = await WebSocket.connect(remoteSocketUrl(jf.server, token, jf.deviceId));
+      final ws = _ws = await WebSocket.connect(remoteSocketUrl(jf.server, token, jf.deviceId), headers: jf.headers);
       log('remote: socket open');
       jf.post('/Sessions/Capabilities/Full', remoteCapabilitiesBody()).catchError((Object e) => log('remote: capabilities refused: $e'));
       ws.listen(

@@ -6,6 +6,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:cascade/core/connection_headers.dart';
+import 'package:cascade/core/custom_headers.dart';
 import 'package:cascade/core/jellyfin.dart';
 import 'package:cascade/ui/widgets.dart';
 import 'package:cascade/ui/scopes.dart';
@@ -19,6 +21,10 @@ class SignIn extends StatefulWidget {
 
 class _SignInState extends State<SignIn> {
   final _url = TextEditingController();
+  // A reverse proxy's headers (Cloudflare Access and the like): the proxy
+  // refuses the sign-in itself without them.
+  late final _headers = TextEditingController(text: formatHeaderLines(connectionHeaders));
+  late bool _showHeaders = connectionHeaders.isNotEmpty;
   Jellyfin? _jf;
   String? _code, _serverName, _error;
   bool _busy = false;
@@ -38,11 +44,15 @@ class _SignInState extends State<SignIn> {
   void dispose() {
     _poll?.cancel();
     _url.dispose();
+    _headers.dispose();
     super.dispose();
   }
 
   Future<void> _start() async {
     if (_url.text.trim().isEmpty) return setState(() => _error = 'Type your server\'s address first.');
+    final parsed = parseHeaderLines(_headers.text);
+    if (parsed.errors.isNotEmpty) return setState(() => _error = parsed.errors.join(' '));
+    await saveConnectionHeaders(parsed.headers);
     setState(() {
       _busy = true;
       _error = null;
@@ -122,7 +132,36 @@ class _SignInState extends State<SignIn> {
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 4),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    onPressed: _busy ? null : () => setState(() => _showHeaders = !_showHeaders),
+                    child: Text(_showHeaders ? 'Hide reverse proxy headers' : 'Reverse proxy headers', style: ts(13, c: K.text2)),
+                  ),
+                ),
+                if (_showHeaders) ...[
+                  TextField(
+                    controller: _headers,
+                    enabled: !_busy,
+                    minLines: 2,
+                    maxLines: 5,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    style: ts(13),
+                    decoration: InputDecoration(
+                      labelText: 'One Name: Value per line',
+                      hintText: 'CF-Access-Client-Id: ...\nCF-Access-Client-Secret: ...',
+                      helperText: 'Only if a proxy in front of Jellyfin asks for them. Sent to this server only.',
+                      helperMaxLines: 2,
+                      filled: true,
+                      fillColor: K.surface,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                const SizedBox(height: 8),
                 FilledButton(
                   onPressed: _busy ? null : _start,
                   style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
