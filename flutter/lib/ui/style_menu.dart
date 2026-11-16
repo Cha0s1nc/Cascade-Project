@@ -413,6 +413,17 @@ class _StyleMenuState extends State<StyleMenu> {
     ]),
   ];
 
+  /// Turning server-only on needs the plugin, as on the desktop: without it
+  /// there would be no lyrics at all, so say so instead.
+  Future<void> _setServerOnly(Settings s, bool on) async {
+    final f = LibraryScope.read(context).lyrics;
+    if (on && f != null && !(await f.plugin()).present) {
+      if (mounted) toast(context, 'The Cascade Server plugin is not on this server, so lyrics can only come from elsewhere.', error: true);
+      return;
+    }
+    s.setServerOnlyLyrics(on);
+  }
+
   List<Widget> _lyrics(Settings s) {
     final json = tuningJson;
     final tuning = json == null ? null : LyricStyleTuning(TuningDefaults(json, platform: narrow(context) ? 'ios' : 'desktop'));
@@ -425,9 +436,21 @@ class _StyleMenuState extends State<StyleMenu> {
     return [
       _section('Source', [
         _row(
+          'Only from your server',
+          Toggle(value: s.serverOnlyLyrics, onChanged: (on) => _setServerOnly(s, on)),
+          subtitle: 'Ask only the Cascade Server plugin, so no lyrics site hears what you play',
+          visual: false,
+        ),
+        _row(
           'Lyrics source',
-          _menu<String>(s.lyricsSource, {'auto': 'Best available', for (final x in lyricSources) x: x}, s.setLyricsSource),
-          subtitle: 'Best available tries SpicyLyrics through Cascade Server first, then Kugou, LRCLIB and your server',
+          _menu<String>(
+            s.lyricsSource,
+            {'auto': 'Best available', for (final x in s.serverOnlyLyrics ? serverLyricSources : lyricSources) x: x},
+            s.setLyricsSource,
+          ),
+          subtitle: s.serverOnlyLyrics
+              ? 'Best available takes SpicyLyrics through Cascade Server, then the plugin\'s karaoke or synced file'
+              : 'Best available tries SpicyLyrics through Cascade Server first, then Kugou, LRCLIB and your server',
           visual: false,
         ),
       ]),

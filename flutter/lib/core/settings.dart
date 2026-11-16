@@ -105,6 +105,17 @@ class Settings extends ChangeNotifier {
   late String lyricsSource = _p?.getString('lyricsForcedSource') ?? 'auto';
   void setLyricsSource(String v) => _changed(_p?.setString('lyricsForcedSource', lyricsSource = v));
 
+  /// Lyrics from the Cascade Server plugin only (the desktop's serverOnlyMode).
+  /// Switching it puts the source back on Best available, since the forced
+  /// choices differ between the two.
+  late bool serverOnlyLyrics = _p?.getBool('serverOnlyMode') ?? false;
+  void setServerOnlyLyrics(bool on) {
+    serverOnlyLyrics = on;
+    lyricsSource = 'auto';
+    _p?.setString('lyricsForcedSource', 'auto');
+    _changed(_p?.setBool('serverOnlyMode', on));
+  }
+
   /// Discord Rich Presence (desktop's discordRpcEnabled), off by default as there.
   late bool discordRpc = _p?.getBool('discordRpcEnabled') ?? false;
   void setDiscordRpc(bool on) => _changed(_p?.setBool('discordRpcEnabled', discordRpc = on));

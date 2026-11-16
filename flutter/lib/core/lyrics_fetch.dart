@@ -28,6 +28,10 @@ class Lyrics {
 /// The sources a person can force, in the menu's order.
 const lyricSources = ['Kugou', 'LRCLIB', 'Jellyfin'];
 
+/// The forced choices in server-only mode: the Cascade Server plugin's own
+/// files of that kind (the desktop's cascade-karaoke and cascade-synced).
+const serverLyricSources = ['Karaoke', 'Synced'];
+
 /// Credits and "Title - " prefixes some sources put in as lines.
 RegExp _meta(String title) => RegExp(
   '^${RegExp.escape(title)}\\s*-\\s*|'
@@ -59,6 +63,16 @@ class LyricsFetcher {
   static const _agent = {'User-Agent': 'Cascade Flutter (https://cascade.chaosinc.xyz)'};
 
   final _cache = <String, Lyrics?>{};
+
+  /// Server-only mode (the desktop's serverOnlyMode): only the Cascade Server
+  /// plugin is asked, so no lyrics provider outside the server hears what is
+  /// playing. Changing it forgets what was found the other way.
+  bool get serverOnly => _serverOnly;
+  bool _serverOnly = false;
+  set serverOnly(bool on) {
+    if (on != _serverOnly) _cache.clear();
+    _serverOnly = on;
+  }
 
   /// The plugin: whether it answered, which routes, and what it can do.
   Future<({bool present, bool legacy, Set<String> caps})>? _plugin;
@@ -151,6 +165,41 @@ class LyricsFetcher {
     }
 
     Future<Lyrics?> safe(Future<Lyrics?> Function() f) => f().catchError((Object _) => null);
+
+    // The plugin alone: SpicyLyrics when it has them and they fit this file,
+    // else the plugin's own karaoke or synced file. A forced kind means
+    // exactly that kind of file.
+    Future<Lyrics?> cascade() async {
+      final p = await plugin();
+      if (!p.present) return null;
+      final want = switch (forced) {
+        'Karaoke' => 'karaoke',
+        'Synced' => 'synced',
+        _ => null,
+      };
+      Future<Map> ask(bool syllable) async {
+        final res = await _http.get(Uri.parse('${_pluginUrl(p.legacy, s.id)}${syllable ? '?syllable=true' : ''}'), headers: jf.headers).timeout(_timeout);
+        if (res.statusCode != 200) throw JellyfinError('HTTP ${res.statusCode}', res.statusCode);
+        return jsonDecode(res.body) as Map;
+      }
+
+      var d = await ask(want == null && p.caps.contains('syllable'));
+      if (d['type'] == 'syllable') {
+        final conv = spicyFitsTrack(d['spicy'], s.seconds.toDouble()) ? convertSpicyLyrics(d['spicy']) : null;
+        if (conv != null) return Lyrics(conv.lines, conv.credit.provider, credit: conv.credit);
+        d = await ask(false);
+      }
+      final lrc = d['lrc'] as String?;
+      if (lrc == null || (want != null && d['type'] != want)) return null;
+      final lines = clean(parseLRC(lrc));
+      return lines.isEmpty ? null : Lyrics(lines, forced ?? 'Cascade');
+    }
+
+    if (_serverOnly) {
+      final found = await safe(cascade);
+      if (forced == null) _cache[s.id] = found;
+      return found;
+    }
 
     if (forced != null) {
       return safe(switch (forced) {

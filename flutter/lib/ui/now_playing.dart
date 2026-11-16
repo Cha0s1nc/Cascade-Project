@@ -681,6 +681,7 @@ class _LyricsPanelState extends State<LyricsPanel> {
 
   Settings? _settings;
   String? _saved;
+  bool _serverOnly = false;
 
   @override
   void didChangeDependencies() {
@@ -688,7 +689,8 @@ class _LyricsPanelState extends State<LyricsPanel> {
     if (_lyrics == null) {
       _settings = PlayerScope.read(context).settings..addListener(_settingsChanged);
       _saved = _settings!.lyricsSource;
-      _forced = lyricSources.contains(_saved) ? _saved : null;
+      _serverOnly = _settings!.serverOnlyLyrics;
+      _forced = lyricSources.contains(_saved) || serverLyricSources.contains(_saved) ? _saved : null;
       _lyrics = _fetch();
     }
   }
@@ -701,10 +703,11 @@ class _LyricsPanelState extends State<LyricsPanel> {
 
   /// The Style menu changed the source or the sizes: follow it live.
   void _settingsChanged() {
-    final saved = _settings!.lyricsSource;
-    if (saved != _saved) {
+    final saved = _settings!.lyricsSource, only = _settings!.serverOnlyLyrics;
+    if (saved != _saved || only != _serverOnly) {
       _saved = saved;
-      return _force(lyricSources.contains(saved) ? saved : null);
+      _serverOnly = only;
+      return _force(lyricSources.contains(saved) || serverLyricSources.contains(saved) ? saved : null);
     }
     setState(() {});
   }
@@ -712,6 +715,7 @@ class _LyricsPanelState extends State<LyricsPanel> {
   Future<Lyrics?> _fetch() async {
     final f = LibraryScope.read(context).lyrics;
     if (f == null) return _demo;
+    f.serverOnly = _settings?.serverOnlyLyrics ?? false;
     final found = await f.fetch(widget.song, forced: _forced);
     // The next song's too, so its sheet is there the moment it starts.
     final next = mounted ? PlayerScope.read(context).upNext.firstOrNull : null;
