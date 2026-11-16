@@ -315,6 +315,11 @@ class _DesktopShellState extends State<DesktopShell> {
                             ),
                           ),
                         if (!full) ...[const AnnouncementsButton(), const SizedBox(width: 4)],
+                        // Quick Connect in reach, not only deep in Settings.
+                        if (!full && !LibraryScope.of(context).demo && LibraryScope.of(context).jf != null) ...[
+                          IconBtn(Icons.phonelink_lock_rounded, 'Approve a device (Quick Connect)', () => showQuickConnectApprove(context)),
+                          const SizedBox(width: 4),
+                        ],
                         // Kept in every layout: Now Playing has no brush of its own.
                         IconBtn(
                           Icons.brush_outlined,

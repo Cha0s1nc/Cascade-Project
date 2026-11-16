@@ -312,7 +312,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
           ),
         ),
       ]),
-      if (!lib.demo) SettingsGroup('Quick Connect', [_QuickConnect(lib: lib)]),
+      if (!lib.demo) SettingsGroup('Quick Connect', [QuickConnectApprove(lib: lib)]),
       // Only when signed in with headers: then a rotated token can be put in
       // without signing out. Adding a proxy later means signing in again.
       if (!lib.demo && connectionHeaders.isNotEmpty) const SettingsGroup('Reverse proxy', [_ProxyHeaders()]),
@@ -461,15 +461,28 @@ class _ProxyHeadersState extends State<_ProxyHeaders> {
   );
 }
 
-class _QuickConnect extends StatefulWidget {
-  const _QuickConnect({required this.lib});
+/// Approve another device's Quick Connect code from anywhere: the title
+/// bar's button opens this, the same field Settings > Account has.
+Future<void> showQuickConnectApprove(BuildContext context) => showDialog<void>(
+  context: context,
+  builder: (ctx) => AlertDialog(
+    backgroundColor: K.panel,
+    title: Text('Quick Connect', style: Txt.section()),
+    content: SizedBox(width: 560, child: QuickConnectApprove(lib: LibraryScope.read(context))),
+    actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Done'))],
+  ),
+);
+
+/// The six-digit code field that signs another device in as you.
+class QuickConnectApprove extends StatefulWidget {
+  const QuickConnectApprove({super.key, required this.lib});
   final Library lib;
 
   @override
-  State<_QuickConnect> createState() => _QuickConnectState();
+  State<QuickConnectApprove> createState() => _QuickConnectApproveState();
 }
 
-class _QuickConnectState extends State<_QuickConnect> {
+class _QuickConnectApproveState extends State<QuickConnectApprove> {
   final _code = TextEditingController();
   bool _busy = false;
   String? _error;
