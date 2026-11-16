@@ -508,6 +508,11 @@ List<String> effectiveLibraryIds(List<Item> categoryLibs, List<String>? saved) {
   return saved.where((id) => categoryLibs.any((l) => l['Id'] == id)).toList();
 }
 
+/// Music in single-library mode (the desktop's singleLibraryMode): only the
+/// first chosen library, or the server's first when nothing chosen is left.
+List<String> singleMusicLibrary(List<String> chosen, List<Item> musicLibs) =>
+    chosen.isNotEmpty ? [chosen.first] : [if (musicLibs.isNotEmpty) musicLibs.first['Id'] as String];
+
 /// One Continue watching card per series: the first episode seen of each
 /// SeriesId wins, so the caller's order decides. An episode with no SeriesId
 /// and every movie always stays.

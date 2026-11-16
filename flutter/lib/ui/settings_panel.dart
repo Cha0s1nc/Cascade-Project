@@ -100,15 +100,30 @@ class _SettingsPanelState extends State<SettingsPanel> {
       if (lib.demo) const SettingsGroup('Libraries', [SettingRow('Sign in to choose libraries')]),
       if (lib.musicLibs.isNotEmpty)
         SettingsGroup('Music', [
-          const SettingRow('Music libraries', subtitle: 'Albums, artists and songs come from these. At least one stays on.'),
+          if (lib.musicLibs.length > 1)
+            ToggleRow(
+              'One library at a time',
+              lib.singleLibrary,
+              lib.setSingleLibrary,
+              subtitle: 'Instead of merging the libraries you pick into one view',
+            ),
+          SettingRow(
+            'Music libraries',
+            subtitle: lib.singleLibrary ? 'Turn one on to switch to it.' : 'Albums, artists and songs come from these. At least one stays on.',
+          ),
           for (final l in lib.musicLibs)
             ToggleRow(
               l['Name'] as String? ?? '',
               music.contains(l['Id']),
-              // The last one on cannot be turned off.
-              music.contains(l['Id']) && music.length == 1
+              // The last one on cannot be turned off; in single-library mode
+              // turning one on switches to it.
+              music.contains(l['Id']) && (music.length == 1 || lib.singleLibrary)
                   ? null
                   : (on) {
+                      if (lib.singleLibrary) {
+                        lib.setLibraries(music: [l['Id'] as String]);
+                        return;
+                      }
                       final ids = {...music};
                       on ? ids.add(l['Id'] as String) : ids.remove(l['Id']);
                       lib.setLibraries(music: ids.toList());

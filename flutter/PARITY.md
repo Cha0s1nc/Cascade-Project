@@ -50,7 +50,7 @@ One line per feature in `docs/flutter-plan.md`. Status: built / partial / not bu
 - Playlist editing, Save as a Playlist: built - create, add, reorder, remove, rename and delete; Save as a playlist from Now Playing's queue
 - Smart playlists: built - a row on Playlists, their page, and a rule editor; stored under the desktop's smartPlaylists key in its format
 - Favorites and played state on the server: built - likes go to /UserFavoriteItems and show at once, put back if the server refuses
-- Library pickers and grouping: partial - Settings > Library switches for music, movie and show libraries (same store keys; the last music library cannot be turned off; a server with only video hides the music side); Movies and TV Shows with two or more libraries chosen show a section per library that folds away (the desktop's collapsedLibs key), not yet seen with such a server; the desktop's single-library mode for music not yet
+- Library pickers and grouping: partial - Settings > Library switches for music, movie and show libraries (same store keys; the last music library cannot be turned off; a server with only video hides the music side); Movies and TV Shows with two or more libraries chosen show a section per library that folds away (the desktop's collapsedLibs key), not yet seen with such a server; music's One library at a time switch (the desktop's singleLibraryMode key) shows with two or more music libraries, not yet seen with such a server
 - Devices panel and remote control: built - send the queue to another Jellyfin client and drive it; and the other way, the command socket lets the dashboard and other apps control this one (seen on L: controllable session, a dashboard message shown)
 - Waterfall: built - create or join a room on the shared relay, the host's queue and position followed by guests (placeholders for songs a guest cannot see), guest additions and guest control as the host allows; seen with W hosting and L joining, both playing in step
 - Rediscover (new, not a parity item): built on desktop - Used to love, Never played, Forgotten favorites, the daily reshuffle and the mix; tested in core/rediscover.dart
@@ -81,7 +81,7 @@ One line per feature in `docs/flutter-plan.md`. Status: built / partial / not bu
 
 ## Phase 5: video
 
-- Video player with Cascade's controls: built (seen on W: resume, subtitles, chapter marks, Esc; reports stayed off) - media_kit video, direct play only (no transcode fallback yet), resume, reports, the desktop's keys, full screen
+- Video player with Cascade's controls: built (seen on W: resume, subtitles, chapter marks, Esc; reports stayed off) - media_kit video, direct play only (no transcode fallback yet: a converted stream cannot be seeked, so seeks would restart it at an offset that position, chapters, Skip Intro and reports all have to follow; needs testing against the server), resume, reports, the desktop's keys, full screen
 - Audio and subtitle pickers, chapters, trickplay: partial - the file's own audio and subtitle tracks and chapter marks with Ctrl+arrows; external subtitle files and trickplay thumbnails not yet
 - Skip Intro, resume, next episode: built - from /MediaSegments, with the auto-skip setting; next episode on outro, near the end and at the end
 

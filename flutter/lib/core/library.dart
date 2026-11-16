@@ -31,6 +31,10 @@ class Library extends ChangeNotifier {
   /// The chosen ones in effect (see [effectiveLibraryIds]).
   List<String> movieIds = [], showIds = [];
 
+  /// Music one library at a time instead of merged (the desktop's
+  /// singleLibraryMode key).
+  bool singleLibrary = false;
+
   /// The user's policy, from /Users/{id}.
   Map? policy;
   bool get isAdmin => policy?['IsAdministrator'] == true;
@@ -279,6 +283,8 @@ class Library extends ChangeNotifier {
               if (placeholders.contains(l['Id'])) l['Id'] as String,
           ]
         : [for (final l in musicLibs) l['Id'] as String];
+    singleLibrary = prefs.getBool('singleLibraryMode') ?? false;
+    if (singleLibrary) j.libraryIds = singleMusicLibrary(saved, musicLibs);
     movieIds = [
       ...effectiveLibraryIds(movieLibs, prefs.getStringList('movieLibraryIds')),
       for (final l in movieLibs)
@@ -363,6 +369,15 @@ class Library extends ChangeNotifier {
     if (movies != null) await prefs.setStringList('movieLibraryIds', movies);
     if (shows != null) await prefs.setStringList('showLibraryIds', shows);
     await refresh();
+  }
+
+  /// Turn single-library mode on (keeping the first library in use) or off
+  /// (keeping that one, so merging starts from it).
+  Future<void> setSingleLibrary(bool on) async {
+    singleLibrary = on;
+    await (await SharedPreferences.getInstance()).setBool('singleLibraryMode', on);
+    final current = jf?.libraryIds ?? const <String>[];
+    await setLibraries(music: on ? singleMusicLibrary(current, musicLibs) : current);
   }
 
   /// Ask the server to scan its libraries (admins only).

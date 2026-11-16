@@ -295,4 +295,11 @@ void main() {
     expect(canDownload({'EnableContentDownloading': false}), isFalse);
     expect(canDownload({'EnableContentDownloading': true}), isTrue);
   });
+
+  test('single-library mode keeps the first chosen music library, or the first there is', () {
+    final libs = <Item>[{'Id': 'a'}, {'Id': 'b'}];
+    expect(singleMusicLibrary(['b', 'a'], libs), ['b']);
+    expect(singleMusicLibrary([], libs), ['a']);
+    expect(singleMusicLibrary([], []), isEmpty);
+  });
 }
