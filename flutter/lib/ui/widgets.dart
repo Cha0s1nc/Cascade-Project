@@ -196,7 +196,7 @@ abstract final class Txt {
   static TextStyle title([Color? c]) => ds(30, c: c ?? K.text, h: 1.1);
   static TextStyle section([Color? c]) => ds(21, c: c ?? K.text, h: 1.2);
   static TextStyle voice([Color? c]) => ds(17, w: FontWeight.w400, c: c ?? K.text2, italic: true, h: 1.3);
-  static TextStyle brand([Color? c]) => ds(17, c: c ?? K.text, italic: true, h: 1.2);
+  static TextStyle brand([Color? c]) => ds(17, c: c ?? K.text, h: 1.2);
   static TextStyle caps([Color? c]) => ts(11, w: FontWeight.w600, c: c ?? K.text3, ls: 0.88, h: 1.2);
 }
 

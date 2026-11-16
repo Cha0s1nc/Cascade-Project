@@ -826,7 +826,7 @@ class PlayerBar extends StatelessWidget {
                   const DevicesButton(),
                   const SleepTimerButton(),
                   Container(width: 1, height: 18, margin: const EdgeInsets.symmetric(horizontal: 8), color: K.line),
-                  VolumeControl(p: p, percent: !tight),
+                  VolumeControl(p: p, tight: tight),
                 ],
               ),
             ),
@@ -936,12 +936,11 @@ class SeekBar extends StatelessWidget {
 }
 
 class VolumeControl extends StatelessWidget {
-  const VolumeControl({super.key, required this.p, this.percent = true});
+  const VolumeControl({super.key, required this.p, this.tight = false});
   final Player p;
 
-  /// The percentage beside the slider (left out when the bar is tight; the
-  /// slider's own tooltip still says it).
-  final bool percent;
+  /// A narrow window: a shorter slider, so the percentage still fits.
+  final bool tight;
 
   @override
   Widget build(BuildContext context) => Row(
@@ -956,19 +955,18 @@ class VolumeControl extends StatelessWidget {
         message: 'Volume ${(p.volume * 100).round()}%',
         waitDuration: const Duration(milliseconds: 400),
         child: SizedBox(
-          width: 96,
+          width: tight ? 64 : 96,
           child: ThinBar(value: p.volume, onChanged: p.setVolume, color: K.text2),
         ),
       ),
-      if (percent)
-        SizedBox(
-          width: 38,
-          child: Text(
-            '${(p.volume * 100).round()}%',
-            textAlign: TextAlign.right,
-            style: ts(11, c: K.text3, tab: true),
-          ),
+      SizedBox(
+        width: tight ? 34 : 38,
+        child: Text(
+          '${(p.volume * 100).round()}%',
+          textAlign: TextAlign.right,
+          style: ts(11, c: K.text3, tab: true),
         ),
+      ),
     ],
   );
 }

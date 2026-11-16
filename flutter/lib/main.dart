@@ -198,8 +198,10 @@ class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
               SingleActivator(LogicalKeyboardKey.numpadSubtract, control: mod.control, meta: mod.meta): () => by(-0.1),
               SingleActivator(LogicalKeyboardKey.digit0, control: mod.control, meta: mod.meta): () => s.setUiScale(1),
             },
-            // ? lists the shortcuts, unless it is being typed into a field.
-            const SingleActivator(LogicalKeyboardKey.slash, shift: true): () {
+            // ? lists the shortcuts, unless it is being typed into a field. By
+            // the character, not Shift and /: Linux sends the key as ?, and
+            // other keyboard layouts put it elsewhere.
+            const CharacterActivator('?'): () {
               final focus = FocusManager.instance.primaryFocus?.context;
               final typing = focus != null && (focus.widget is EditableText || focus.findAncestorWidgetOfExactType<EditableText>() != null);
               final nav = _navigator.currentContext;

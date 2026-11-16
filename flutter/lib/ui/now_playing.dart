@@ -94,14 +94,16 @@ class _NowPlayingLayerState extends State<NowPlayingLayer> {
             child: AnimatedSlide(
               // Reduce motion: it fades in place.
               offset: np.open || calm(context) ? Offset.zero : const Offset(0, 1),
-              // Leaving is quicker than arriving.
+              // Leaving is quicker than arriving. An even ease-out, so the
+              // whole rise reads as a slide rather than a pop.
               duration: np.open ? Motion.long : Motion.slow,
-              curve: np.open ? const Cubic(.2, .8, .2, 1) : const Cubic(.4, 0, 1, 1),
+              curve: np.open ? Curves.easeOutCubic : const Cubic(.4, 0, 1, 1),
               onEnd: () {
                 if (!np.open && _built) setState(() => _built = false);
               },
+              // Only Reduce motion fades: otherwise it stays solid and slides.
               child: AnimatedOpacity(
-                opacity: np.open ? 1 : 0,
+                opacity: np.open || !calm(context) ? 1 : 0,
                 duration: np.open ? Motion.base : Motion.slow,
                 child: _built ? const NowPlayingView() : const SizedBox.shrink(),
               ),
@@ -233,15 +235,16 @@ class _NowPlayingViewState extends State<NowPlayingView> {
         fit: StackFit.expand,
         children: [
           if (layout == 'focus') _focus(context, p, song) else _split(context, p, np, song, layout == 'under'),
-          Positioned(
-            top: 16,
-            right: 20,
-            child: AnimatedOpacity(
-              opacity: layout == 'focus' && _idle ? 0 : 1,
-              duration: Motion.long,
-              child: _TopRight(np: np, song: song, switcher: layout == 'under'),
+          if (layout == 'under')
+            Positioned(
+              top: 16,
+              right: 20,
+              child: AnimatedOpacity(
+                opacity: layout == 'focus' && _idle ? 0 : 1,
+                duration: Motion.long,
+                child: _TopRight(np: np, song: song, switcher: layout == 'under'),
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -378,10 +381,22 @@ class _NowPlayingViewState extends State<NowPlayingView> {
             const SizedBox(width: 32),
             Expanded(
               flex: 7,
-              // Lyrics and Queue crossfade; songs' lyrics roll (lyricsRoll).
+              // Lyrics and Queue slide a little, the way their tabs sit (Lyrics
+              // left, Queue right); songs' lyrics roll (lyricsRoll).
               child: AnimatedSwitcher(
-                duration: Motion.base,
+                duration: Motion.slow,
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
                 layoutBuilder: (current, previous) => Stack(fit: StackFit.expand, children: [...previous, ?current]),
+                transitionBuilder: (c, a) => FadeTransition(
+                  opacity: a,
+                  child: calm(context)
+                      ? c
+                      : SlideTransition(
+                          position: Tween(begin: Offset(c.key == const ValueKey('q') ? 0.08 : -0.08, 0), end: Offset.zero).animate(a),
+                          child: c,
+                        ),
+                ),
                 child: np.panel == NpPanel.queue
                     ? const QueuePanel(key: ValueKey('q'))
                     : KeyedSubtree(
@@ -567,6 +582,14 @@ class _UnderControls extends StatelessWidget {
               width: 110,
               child: ThinBar(value: p.volume, onChanged: p.setVolume, color: K.text2),
             ),
+            SizedBox(
+              width: 38,
+              child: Text(
+                '${(p.volume * 100).round()}%',
+                textAlign: TextAlign.right,
+                style: ts(11, c: K.text3, tab: true),
+              ),
+            ),
           ],
         ),
       ],
@@ -574,8 +597,8 @@ class _UnderControls extends StatelessWidget {
   );
 }
 
-/// Lyrics and Queue (only when the player bar, which has them, is gone),
-/// and close.
+/// Lyrics and Queue, only when the player bar (which has them) is gone.
+/// Closing is the title bar's Now Playing title, Esc or Back.
 class _TopRight extends StatelessWidget {
   const _TopRight({required this.np, required this.song, required this.switcher});
   final NowPlaying np;
@@ -613,18 +636,6 @@ class _TopRight extends StatelessWidget {
             ],
           ),
         ),
-      Tooltip(
-        message: 'Close',
-        child: Hover(
-          onTap: np.close,
-          builder: (_, on) => Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(color: on ? K.surface2 : K.surface.withValues(alpha: 0.8), borderRadius: BorderRadius.circular(10)),
-            child: Icon(Icons.keyboard_arrow_down_rounded, color: K.text),
-          ),
-        ),
-      ),
     ],
   );
 }

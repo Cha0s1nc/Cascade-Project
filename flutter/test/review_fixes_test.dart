@@ -63,8 +63,10 @@ void main() {
     await tester.pumpAndSettle();
 
     Future<void> question() async {
+      // The character is what counts: Linux sends the key itself as ?.
       await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
-      await tester.sendKeyEvent(LogicalKeyboardKey.slash);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.slash, character: '?');
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.slash);
       await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
       await tester.pumpAndSettle();
     }

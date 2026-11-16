@@ -313,7 +313,9 @@ class _SettingsPanelState extends State<SettingsPanel> {
         ),
       ]),
       if (!lib.demo) SettingsGroup('Quick Connect', [_QuickConnect(lib: lib)]),
-      if (!lib.demo) const SettingsGroup('Reverse proxy', [_ProxyHeaders()]),
+      // Only when signed in with headers: then a rotated token can be put in
+      // without signing out. Adding a proxy later means signing in again.
+      if (!lib.demo && connectionHeaders.isNotEmpty) const SettingsGroup('Reverse proxy', [_ProxyHeaders()]),
     ];
   }
 

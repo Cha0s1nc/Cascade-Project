@@ -4,6 +4,8 @@
 // maximizes it, and the window buttons are drawn here in the OS's style.
 import 'dart:io';
 
+import 'package:cascade/ui/scopes.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -76,7 +78,7 @@ class _WindowButtonsState extends State<WindowButtons> with WindowListener {
         children: [
           _Caption(Icons.remove_rounded, 'Minimize', windowManager.minimize),
           _Caption(_max ? Icons.filter_none_rounded : Icons.crop_square_rounded, _max ? 'Restore' : 'Maximize', _toggleMax, iconSize: _max ? 13 : 15),
-          _Caption(Icons.close_rounded, 'Close', windowManager.close, close: true),
+          _CloseTip(child: _Caption(Icons.close_rounded, 'Close', windowManager.close, close: true)),
         ],
       );
     }
@@ -88,8 +90,55 @@ class _WindowButtonsState extends State<WindowButtons> with WindowListener {
         children: [
           _Round(Icons.remove_rounded, 'Minimize', windowManager.minimize),
           _Round(_max ? Icons.filter_none_rounded : Icons.crop_square_rounded, _max ? 'Restore' : 'Maximize', _toggleMax),
-          _Round(Icons.close_rounded, 'Close', windowManager.close),
+          _CloseTip(child: _Round(Icons.close_rounded, 'Close', windowManager.close)),
         ],
+      ),
+    );
+  }
+}
+
+/// The window's close button, which closes Cascade. The first time it is
+/// hovered while Now Playing is open, it says so and points to the title in
+/// the middle of the bar, which closes Now Playing; never again after that.
+class _CloseTip extends StatefulWidget {
+  const _CloseTip({required this.child});
+  final Widget child;
+
+  @override
+  State<_CloseTip> createState() => _CloseTipState();
+}
+
+class _CloseTipState extends State<_CloseTip> {
+  static const _key = 'npCloseTipShown';
+  // Shown until the saved answer says otherwise, so it cannot show twice.
+  bool _shown = true;
+
+  @override
+  void initState() {
+    super.initState();
+    SharedPreferences.getInstance().then((p) {
+      if (mounted) setState(() => _shown = p.getBool(_key) ?? false);
+    }, onError: (_) {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final np = context.dependOnInheritedWidgetOfExactType<NowPlayingScope>()?.notifier;
+    final tip = !_shown && (np?.open ?? false);
+    // Seen once the pointer leaves after it showed (onTriggered fires for
+    // taps and long presses only, not hover).
+    return MouseRegion(
+      onExit: tip
+          ? (_) {
+              setState(() => _shown = true);
+              SharedPreferences.getInstance().then((p) => p.setBool(_key, true), onError: (_) => false);
+            }
+          : null,
+      child: Tooltip(
+        message: tip ? 'This closes Cascade. To close Now Playing, click Now Playing in the middle of this bar.' : 'Close',
+        waitDuration: tip ? Duration.zero : const Duration(milliseconds: 500),
+        showDuration: tip ? const Duration(seconds: 6) : const Duration(milliseconds: 1500),
+        child: widget.child,
       ),
     );
   }
