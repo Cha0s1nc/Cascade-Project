@@ -325,7 +325,9 @@ class _StyleMenuState extends State<StyleMenu> {
               thumbShape: RoundSliderThumbShape(enabledThumbRadius: 7),
               overlayShape: RoundSliderOverlayShape(overlayRadius: 12),
             ),
-            child: safeSlider(Slider(value: value.clamp(min, max), min: min, max: max, divisions: ((max - min) / step).round().clamp(1, 2000), onChanged: onChanged)),
+            child: safeSlider(
+              Slider(value: value.clamp(min, max), min: min, max: max, divisions: ((max - min) / step).round().clamp(1, 2000), onChanged: onChanged),
+            ),
           ),
         ),
         SizedBox(
@@ -341,26 +343,7 @@ class _StyleMenuState extends State<StyleMenu> {
     ),
   );
 
-  Widget _menu<T>(T value, Map<T, String> items, ValueChanged<T> onChanged) => Container(
-    width: 196,
-    padding: const EdgeInsets.symmetric(horizontal: 10),
-    decoration: BoxDecoration(
-      color: K.surface,
-      borderRadius: BorderRadius.circular(6),
-      border: Border.all(color: K.line),
-    ),
-    child: DropdownButton<T>(
-      value: items.containsKey(value) ? value : items.keys.first,
-      isExpanded: true,
-      isDense: true,
-      underline: const SizedBox.shrink(),
-      dropdownColor: K.surface2,
-      style: ts(12),
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      items: [for (final e in items.entries) DropdownMenuItem(value: e.key, child: Text(e.value))],
-      onChanged: (v) => v == null ? null : onChanged(v),
-    ),
-  );
+  Widget _menu<T>(T value, Map<T, String> items, ValueChanged<T> onChanged) => SelectBox<T>(value: value, items: items, onChanged: onChanged, width: 196);
 
   String _pct(double v) => '${(v * 100).round()}%';
 
@@ -443,11 +426,10 @@ class _StyleMenuState extends State<StyleMenu> {
         ),
         _row(
           'Lyrics source',
-          _menu<String>(
-            s.lyricsSource,
-            {'auto': 'Best available', for (final x in s.serverOnlyLyrics ? serverLyricSources : lyricSources) x: x},
-            s.setLyricsSource,
-          ),
+          _menu<String>(s.lyricsSource, {
+            'auto': 'Best available',
+            for (final x in s.serverOnlyLyrics ? serverLyricSources : lyricSources) x: x,
+          }, s.setLyricsSource),
           subtitle: s.serverOnlyLyrics
               ? 'Best available takes SpicyLyrics through Cascade Server, then the plugin\'s karaoke or synced file'
               : 'Best available tries SpicyLyrics through Cascade Server first, then Kugou, LRCLIB and your server',

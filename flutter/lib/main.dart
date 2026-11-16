@@ -218,6 +218,8 @@ class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
     theme: ThemeData(
       brightness: K.dark ? Brightness.dark : Brightness.light,
       fontFamily: 'Inter',
+      // Desktop feedback is a hover tint, not Android's ink ripple.
+      splashFactory: NoSplash.splashFactory,
       popupMenuTheme: PopupMenuThemeData(
         color: K.surface,
         surfaceTintColor: Colors.transparent,

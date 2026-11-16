@@ -294,28 +294,76 @@ class ChoiceRow<T> extends StatelessWidget {
     title,
     subtitle: subtitle,
     enabled: enabled,
-    trailing: Container(
-      width: width,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      decoration: BoxDecoration(
-        color: K.surface,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: K.line),
-      ),
-      child: DropdownButton<T>(
-        value: items.containsKey(value) ? value : items.keys.first,
-        isExpanded: true,
-        isDense: true,
-        underline: const SizedBox.shrink(),
-        borderRadius: BorderRadius.circular(10),
-        dropdownColor: K.surface2,
-        style: ts(12),
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        items: [for (final e in items.entries) DropdownMenuItem(value: e.key, child: Text(e.value))],
-        onChanged: (v) => v == null ? null : onChanged(v),
-      ),
-    ),
+    trailing: SelectBox<T>(value: value, items: items, onChanged: enabled ? onChanged : null, width: width),
   );
+}
+
+/// A desktop select (Electron's <select>): a boxed field with a chevron
+/// whose list opens below it, compact rows with a check on the current one.
+/// Material's DropdownButton opened its list over the field with tall rows,
+/// which read as Android.
+class SelectBox<T> extends StatelessWidget {
+  const SelectBox({super.key, required this.value, required this.items, required this.onChanged, this.width, this.fill, this.bare = false});
+  final T value;
+  final Map<T, String> items;
+  final ValueChanged<T>? onChanged;
+  final double? width;
+  final Color? fill;
+
+  /// Inline in a sentence: no box, the text and the chevron only.
+  final bool bare;
+
+  @override
+  Widget build(BuildContext context) {
+    final current = items.containsKey(value) ? value : items.keys.first;
+    final on = onChanged != null;
+    final label = Text(
+      items[current] ?? '',
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: ts(bare ? 13 : 12, c: on ? K.text : K.text3),
+    );
+    return PopupMenuButton<T>(
+      tooltip: '',
+      enabled: on,
+      position: PopupMenuPosition.under,
+      initialValue: current,
+      onSelected: (v) => onChanged?.call(v),
+      constraints: BoxConstraints(minWidth: width ?? 120, maxHeight: 360),
+      itemBuilder: (_) => [
+        for (final e in items.entries)
+          PopupMenuItem(
+            value: e.key,
+            height: 32,
+            child: Row(
+              children: [
+                SizedBox(width: 22, child: e.key == current ? Icon(Icons.check_rounded, size: 15, color: K.accent) : null),
+                Flexible(child: Text(e.value, style: ts(13))),
+              ],
+            ),
+          ),
+      ],
+      child: Container(
+        width: width,
+        padding: EdgeInsets.symmetric(horizontal: bare ? 2 : 10, vertical: bare ? 2 : 7),
+        decoration: bare
+            ? null
+            : BoxDecoration(
+                color: fill ?? K.surface,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: K.line),
+              ),
+        child: Row(
+          mainAxisSize: bare ? MainAxisSize.min : MainAxisSize.max,
+          children: [
+            bare ? label : Expanded(child: label),
+            const SizedBox(width: 4),
+            Icon(Icons.expand_more_rounded, size: 16, color: K.text2),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// A segmented choice (Electron's seg-control): surface-2 track, the chosen

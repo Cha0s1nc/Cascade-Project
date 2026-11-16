@@ -93,27 +93,11 @@ class _EqPanel extends StatelessWidget {
             child: Column(
               spacing: 10,
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  decoration: BoxDecoration(
-                    color: K.panel,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: K.line),
-                  ),
-                  child: DropdownButton<String>(
-                    value: preset ?? 'Custom',
-                    isExpanded: true,
-                    isDense: true,
-                    underline: const SizedBox.shrink(),
-                    dropdownColor: K.surface2,
-                    style: ts(12),
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    items: [
-                      for (final k in eqPresets.keys) DropdownMenuItem(value: k, child: Text(k)),
-                      if (preset == null) const DropdownMenuItem(value: 'Custom', child: Text('Custom')),
-                    ],
-                    onChanged: (k) => eqPresets[k] == null ? null : onChanged(_with(bands: [...eqPresets[k]!])),
-                  ),
+                SelectBox<String>(
+                  value: preset ?? 'Custom',
+                  fill: K.panel,
+                  items: {for (final k in eqPresets.keys) k: k, if (preset == null) 'Custom': 'Custom'},
+                  onChanged: (k) => eqPresets[k] == null ? null : onChanged(_with(bands: [...eqPresets[k]!])),
                 ),
                 _Curve(
                   bands: p.bands,

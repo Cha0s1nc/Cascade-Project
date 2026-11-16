@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:cascade/core/data.dart';
 import 'package:cascade/core/nav.dart';
 import 'package:cascade/core/smart_playlist.dart';
+import 'package:cascade/ui/controls.dart';
 import 'package:cascade/ui/pages/common.dart';
 import 'package:cascade/ui/pages/detail.dart';
 import 'package:cascade/ui/scopes.dart';
@@ -239,17 +240,7 @@ class _EditorState extends State<_Editor> {
             Row(
               children: [
                 Text('Songs that match ', style: ts(13, c: K.text2)),
-                DropdownButton<String>(
-                  value: _match,
-                  dropdownColor: K.surface2,
-                  style: ts(13),
-                  underline: const SizedBox.shrink(),
-                  items: const [
-                    DropdownMenuItem(value: 'all', child: Text('all')),
-                    DropdownMenuItem(value: 'any', child: Text('any')),
-                  ],
-                  onChanged: (v) => setState(() => _match = v!),
-                ),
+                SelectBox<String>(value: _match, bare: true, items: const {'all': 'all', 'any': 'any'}, onChanged: (v) => setState(() => _match = v)),
                 Text(' of these', style: ts(13, c: K.text2)),
               ],
             ),
@@ -258,14 +249,7 @@ class _EditorState extends State<_Editor> {
                 padding: const EdgeInsets.only(top: 6),
                 child: Row(
                   children: [
-                    DropdownButton<String>(
-                      value: _kind(r),
-                      dropdownColor: K.surface2,
-                      style: ts(13),
-                      underline: const SizedBox.shrink(),
-                      items: [for (final e in _fields.entries) DropdownMenuItem(value: e.key, child: Text(e.value))],
-                      onChanged: (k) => setState(() => _rules[i] = _blank(k!)),
-                    ),
+                    SelectBox<String>(value: _kind(r), items: _fields, width: 150, onChanged: (k) => setState(() => _rules[i] = _blank(k))),
                     const SizedBox(width: 10),
                     _value(r),
                     const Spacer(),
@@ -282,19 +266,11 @@ class _EditorState extends State<_Editor> {
             Row(
               children: [
                 Text('Sort by ', style: ts(13, c: K.text2)),
-                DropdownButton<String>(
+                SelectBox<String>(
                   value: _sortBy,
-                  dropdownColor: K.surface2,
-                  style: ts(13),
-                  underline: const SizedBox.shrink(),
-                  items: const [
-                    DropdownMenuItem(value: 'name', child: Text('Title')),
-                    DropdownMenuItem(value: 'artist', child: Text('Artist')),
-                    DropdownMenuItem(value: 'album', child: Text('Album')),
-                    DropdownMenuItem(value: 'dateAdded', child: Text('Date added')),
-                    DropdownMenuItem(value: 'playCount', child: Text('Plays')),
-                  ],
-                  onChanged: (v) => setState(() => _sortBy = v!),
+                  bare: true,
+                  items: const {'name': 'Title', 'artist': 'Artist', 'album': 'Album', 'dateAdded': 'Date added', 'playCount': 'Plays'},
+                  onChanged: (v) => setState(() => _sortBy = v),
                 ),
                 IconBtn(
                   _sortDir == 'asc' ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded,
