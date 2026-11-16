@@ -1,6 +1,7 @@
 // The pieces every desktop page is built from: the header with its voice
 // line, filter chips, the sort menu, the card grid, track rows, and the
 // right-click menus for songs, albums, artists and playlists.
+import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
@@ -321,13 +322,42 @@ class _LoadingState<T> extends State<Loading<T>> {
         return box(
           const Padding(
             padding: EdgeInsets.all(60),
-            child: Center(child: CircularProgressIndicator(strokeWidth: 2.5)),
+            child: Center(child: _LateSpinner()),
           ),
         );
       }
       return widget.builder(context, _last as T);
     },
   );
+}
+
+/// A spinner that waits before showing, so a page that loads quickly comes
+/// straight in instead of flashing a spinner first.
+class _LateSpinner extends StatefulWidget {
+  const _LateSpinner();
+
+  @override
+  State<_LateSpinner> createState() => _LateSpinnerState();
+}
+
+class _LateSpinnerState extends State<_LateSpinner> {
+  bool _show = false;
+  late final Timer _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer(const Duration(milliseconds: 300), () => setState(() => _show = true));
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => _show ? const CircularProgressIndicator(strokeWidth: 2.5) : const SizedBox(width: 36, height: 36);
 }
 
 /// A message where a list would be.

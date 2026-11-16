@@ -457,43 +457,71 @@ class _Sidebar extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         boxShadow: overlay ? const [BoxShadow(color: Color(0x66000000), blurRadius: 20, offset: Offset(0, 4))] : null,
       ),
+      // The content follows the animated width, as the desktop's does: rows
+      // keep their layout and only the labels fold away (_SideLabel), so
+      // nothing jumps or rebuilds while the sidebar opens and closes.
       child: ClipRect(
-        child: OverflowBox(
-          alignment: Alignment.topLeft,
-          minWidth: 0,
-          maxWidth: collapsed ? 40 : 212,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _HomeBrand(active: view == 'home', collapsed: collapsed, onGo: onGo),
-              // A short window: the scrollbar shows there is more below.
-              Expanded(
-                child: _ScrollHint(
-                  builder: (controller) => SingleChildScrollView(
-                    controller: controller,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        for (final (header, item) in _visibleNav(LibraryScope.of(context), PlayerScope.read(context).settings)) ...[
-                          if (header != null)
-                            collapsed
-                                ? Padding(
-                                    padding: EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-                                    child: Divider(height: 1, color: K.line),
-                                  )
-                                : Padding(
-                                    padding: const EdgeInsets.fromLTRB(10, 14, 0, 8),
-                                    child: Text(header.toUpperCase(), style: Txt.caps()),
-                                  ),
-                          _NavRow(item, active: view == item.$2, collapsed: collapsed, onGo: onGo, badge: item.$2 == 'rediscover' ? 'New' : null),
-                        ],
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _HomeBrand(active: view == 'home', collapsed: collapsed, onGo: onGo),
+            // A short window: the scrollbar shows there is more below.
+            Expanded(
+              child: _ScrollHint(
+                builder: (controller) => SingleChildScrollView(
+                  controller: controller,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final (header, item) in _visibleNav(LibraryScope.of(context), PlayerScope.read(context).settings)) ...[
+                        // Sections are a line in both modes, so opening
+                        // the sidebar moves nothing; a screen reader still
+                        // hears the section's name.
+                        if (header != null)
+                          Semantics(
+                            header: true,
+                            label: header,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                              child: Divider(height: 1, color: K.line),
+                            ),
+                          ),
+                        _NavRow(item, active: view == item.$2, collapsed: collapsed, onGo: onGo, badge: item.$2 == 'rediscover' ? 'New' : null),
                       ],
-                    ),
+                    ],
                   ),
                 ),
               ),
-              for (final item in _navBottom) _NavRow(item, active: view == item.$2, collapsed: collapsed, onGo: onGo),
-            ],
+            ),
+            for (final item in _navBottom) _NavRow(item, active: view == item.$2, collapsed: collapsed, onGo: onGo),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+/// A sidebar row's label: it folds into the row's own width and fades, so a
+/// rail and an open sidebar have the same rows (the desktop's .nav-info).
+class _SideLabel extends StatelessWidget {
+  const _SideLabel({required this.collapsed, required this.gap, required this.child});
+  final bool collapsed;
+  final double gap;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Expanded(
+    child: ClipRect(
+      child: OverflowBox(
+        alignment: Alignment.centerLeft,
+        minWidth: 0,
+        maxWidth: 190,
+        child: AnimatedOpacity(
+          opacity: collapsed ? 0 : 1,
+          duration: Motion.fast,
+          child: Padding(
+            padding: EdgeInsets.only(left: gap),
+            child: child,
           ),
         ),
       ),
@@ -515,7 +543,7 @@ class _HomeBrand extends StatelessWidget {
       builder: (_, on) => Container(
         height: 42,
         margin: const EdgeInsets.only(bottom: 6),
-        padding: EdgeInsets.symmetric(horizontal: collapsed ? 7 : 8),
+        padding: const EdgeInsets.symmetric(horizontal: 7),
         decoration: BoxDecoration(
           color: active
               ? K.accentTint
@@ -542,17 +570,19 @@ class _HomeBrand extends StatelessWidget {
                 ),
               ],
             ),
-            if (!collapsed) ...[
-              const SizedBox(width: 10),
-              Flexible(
-                child: Text('Your Cascade', maxLines: 1, overflow: TextOverflow.ellipsis, style: Txt.brand()),
-              ),
-            ],
+            _SideLabel(
+              collapsed: collapsed,
+              gap: 10,
+              child: Text('Your Cascade', maxLines: 1, overflow: TextOverflow.ellipsis, style: Txt.brand()),
+            ),
           ],
         ),
       ),
     );
-    return collapsed ? Tooltip(message: 'Your Cascade', waitDuration: const Duration(milliseconds: 300), child: row) : row;
+    return TooltipVisibility(
+      visible: collapsed,
+      child: Tooltip(message: 'Your Cascade', waitDuration: const Duration(milliseconds: 300), child: row),
+    );
   }
 }
 
@@ -570,7 +600,7 @@ class _NavRow extends StatelessWidget {
       builder: (_, on) => Container(
         height: 34,
         margin: const EdgeInsets.only(bottom: 2),
-        padding: EdgeInsets.symmetric(horizontal: collapsed ? 11 : 10),
+        padding: const EdgeInsets.symmetric(horizontal: 11),
         decoration: BoxDecoration(
           color: active
               ? K.accentTint
@@ -590,31 +620,41 @@ class _NavRow extends StatelessWidget {
                   ? K.text
                   : K.text2,
             ),
-            if (!collapsed) ...[
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  item.$3,
-                  maxLines: 1,
-                  overflow: TextOverflow.clip,
-                  style: ts(13, w: active ? FontWeight.w600 : FontWeight.w500, c: active || on ? K.text : K.text2),
-                ),
-              ),
-              if (badge != null)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                  decoration: BoxDecoration(color: K.accentTint, borderRadius: BorderRadius.circular(6)),
-                  child: Text(
-                    badge!,
-                    style: ts(11, w: FontWeight.w500, c: K.accent),
+            _SideLabel(
+              collapsed: collapsed,
+              gap: 12,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      item.$3,
+                      maxLines: 1,
+                      overflow: TextOverflow.clip,
+                      style: ts(13, w: active ? FontWeight.w600 : FontWeight.w500, c: active || on ? K.text : K.text2),
+                    ),
                   ),
-                ),
-            ],
+                  if (badge != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                      decoration: BoxDecoration(color: K.accentTint, borderRadius: BorderRadius.circular(6)),
+                      child: Text(
+                        badge!,
+                        style: ts(11, w: FontWeight.w500, c: K.accent),
+                      ),
+                    ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
     );
-    return collapsed ? Tooltip(message: item.$3, waitDuration: const Duration(milliseconds: 300), child: row) : row;
+    // Always the same tree, the tooltip only shown on the rail: swapping it
+    // in and out rebuilt the row and dropped its hover.
+    return TooltipVisibility(
+      visible: collapsed,
+      child: Tooltip(message: item.$3, waitDuration: const Duration(milliseconds: 300), child: row),
+    );
   }
 }
 
@@ -671,10 +711,13 @@ class _MainPanelState extends State<_MainPanel> {
         ),
         child: DecoratedBox(
           decoration: BoxDecoration(gradient: K.wash),
+          // A fade through: the old page is gone (120 ms) before the new one
+          // comes in, so the two never show half-transparent together, which
+          // read as a flicker.
           child: AnimatedSwitcher(
             duration: Motion.slow,
             reverseDuration: Motion.fast,
-            switchInCurve: settingsCurve,
+            switchInCurve: const Interval(120 / 320, 1, curve: settingsCurve),
             layoutBuilder: (current, previous) => Stack(fit: StackFit.expand, children: [...previous, ?current]),
             transitionBuilder: (c, a) => c.key != key || calm(context)
                 ? FadeTransition(opacity: a, child: c)

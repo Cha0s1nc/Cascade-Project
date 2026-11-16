@@ -76,4 +76,34 @@ void main() {
 
     await tester.pumpWidget(const SizedBox());
   });
+
+  testWidgets('opening and closing the sidebar moves no row, frame by frame', (tester) async {
+    addTearDown(tester.view.reset);
+    SharedPreferences.setMockInitialValues({'sidebarMode': 'hover'});
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    final player = Player(audio: false, settings: await Settings.load())..playing = false;
+    await tester.pumpWidget(CascadeApp(player: player, demo: true));
+    await tester.pumpAndSettle();
+
+    final logo = find.image(const AssetImage('assets/icon.png'));
+    // Every row's height on the page, top to bottom.
+    List<double> rows() => [for (final e in find.byType(Icon).evaluate()) if (tester.getTopLeft(find.byWidget(e.widget)).dx < 80) tester.getTopLeft(find.byWidget(e.widget)).dy];
+    final before = rows();
+    expect(before, isNotEmpty);
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: tester.getCenter(logo));
+    // In, out and back in quickly, as a mouse brushing past does.
+    for (final to in [tester.getCenter(logo), const Offset(900, 500), tester.getCenter(logo), const Offset(900, 500)]) {
+      await mouse.moveTo(to);
+      for (var f = 0; f < 6; f++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        expect(tester.takeException(), isNull);
+        expect(rows(), before, reason: 'rows stay put while the sidebar moves');
+      }
+    }
+    await tester.pumpAndSettle();
+    await mouse.removePointer();
+  });
 }
