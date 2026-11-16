@@ -257,8 +257,13 @@ class Jellyfin {
     }
   }
 
-  Future<void> quickConnectFinish(String secret) async {
-    final j = await post('/Users/AuthenticateWithQuickConnect', {'Secret': secret});
+  Future<void> quickConnectFinish(String secret) async => _keep(await post('/Users/AuthenticateWithQuickConnect', {'Secret': secret}));
+
+  /// Sign in with a username and password. The password goes to the server
+  /// once and is never kept; only the session token is.
+  Future<void> signInWithPassword(String user, String password) async => _keep(await post('/Users/AuthenticateByName', {'Username': user, 'Pw': password}));
+
+  Future<void> _keep(dynamic j) async {
     token = j['AccessToken'] as String;
     userId = j['User']['Id'] as String;
     userName = j['User']['Name'] as String;

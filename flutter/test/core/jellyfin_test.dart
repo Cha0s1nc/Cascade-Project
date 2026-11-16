@@ -6,6 +6,7 @@ import 'package:cascade/core/jellyfin.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   late List<Uri> calls;
@@ -301,5 +302,28 @@ void main() {
     expect(singleMusicLibrary(['b', 'a'], libs), ['b']);
     expect(singleMusicLibrary([], libs), ['a']);
     expect(singleMusicLibrary([], []), isEmpty);
+  });
+
+  test('password sign-in keeps the token, never the password; a wrong one is a 401', () async {
+    SharedPreferences.setMockInitialValues({});
+    Map? sent;
+    final ok = Jellyfin(
+      'https://jf.test',
+      'D',
+      client: MockClient((req) async {
+        sent = jsonDecode(req.body) as Map;
+        expect(req.url.path, '/Users/AuthenticateByName');
+        return http.Response(jsonEncode({'AccessToken': 'tok', 'User': {'Id': 'u1', 'Name': 'Jon'}}), 200);
+      }),
+    );
+    await ok.signInWithPassword('Jon', 'hunter2');
+    expect(sent, {'Username': 'Jon', 'Pw': 'hunter2'});
+    expect((ok.token, ok.userId, ok.userName), ('tok', 'u1', 'Jon'));
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getKeys().map((k) => '${prefs.get(k)}');
+    expect(saved.any((v) => v.contains('hunter2')), isFalse, reason: 'the password is never stored');
+
+    final bad = Jellyfin('https://jf.test', 'D', client: MockClient((_) async => http.Response('', 401)));
+    await expectLater(bad.signInWithPassword('Jon', 'nope'), throwsA(isA<JellyfinError>().having((e) => e.status, 'status', 401)));
   });
 }

@@ -27,6 +27,11 @@ class _SignInState extends State<SignIn> {
   late bool _showHeaders = connectionHeaders.isNotEmpty;
   Jellyfin? _jf;
   String? _code, _serverName, _error;
+
+  /// Quick Connect, or a username and password (a server with Quick Connect
+  /// off, or no other device signed in).
+  bool _password = false;
+  final _user = TextEditingController(), _pass = TextEditingController();
   bool _busy = false;
   Timer? _poll;
 
@@ -37,6 +42,8 @@ class _SignInState extends State<SignIn> {
     SharedPreferences.getInstance().then((p) {
       final last = p.getString('server');
       if (mounted && last != null && _url.text.isEmpty) _url.text = last;
+      final name = p.getString('userName');
+      if (mounted && name != null && _user.text.isEmpty) _user.text = name;
     }, onError: (_) {});
   }
 
@@ -45,14 +52,50 @@ class _SignInState extends State<SignIn> {
     _poll?.cancel();
     _url.dispose();
     _headers.dispose();
+    _user.dispose();
+    _pass.dispose();
     super.dispose();
   }
 
-  Future<void> _start() async {
-    if (_url.text.trim().isEmpty) return setState(() => _error = 'Type your server\'s address first.');
+  /// The address and any proxy headers, saved before the first request.
+  Future<bool> _prepare() async {
+    if (_url.text.trim().isEmpty) {
+      setState(() => _error = 'Type your server\'s address first.');
+      return false;
+    }
     final parsed = parseHeaderLines(_headers.text);
-    if (parsed.errors.isNotEmpty) return setState(() => _error = parsed.errors.join(' '));
+    if (parsed.errors.isNotEmpty) {
+      setState(() => _error = parsed.errors.join(' '));
+      return false;
+    }
     await saveConnectionHeaders(parsed.headers);
+    return true;
+  }
+
+  Future<void> _signIn() async {
+    if (!await _prepare()) return;
+    if (_user.text.trim().isEmpty) return setState(() => _error = 'Type your username.');
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final jf = await Jellyfin.forServer(_url.text);
+      await jf.signInWithPassword(_user.text.trim(), _pass.text);
+      _pass.clear();
+      if (!mounted) return;
+      PlayerScope.read(context).jf = jf;
+      await LibraryScope.read(context).use(jf);
+    } on JellyfinError catch (e) {
+      if (mounted) setState(() => _error = e.status == 401 ? 'That username or password is not right.' : 'Could not sign in: $e');
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Could not reach a Jellyfin server there ($e).');
+    }
+    if (mounted) setState(() => _busy = false);
+  }
+
+  Future<void> _start() async {
+    if (!await _prepare()) return;
     setState(() {
       _busy = true;
       _error = null;
@@ -81,10 +124,19 @@ class _SignInState extends State<SignIn> {
         _code = qc.code;
       });
     } catch (e) {
-      setState(() => _error = 'Could not reach a Jellyfin server with Quick Connect there ($e).');
+      setState(
+        () => _error = 'Could not reach a Jellyfin server with Quick Connect there ($e). If Quick Connect is off on it, sign in with a password instead.',
+      );
     }
     setState(() => _busy = false);
   }
+
+  InputDecoration _field(String label) => InputDecoration(
+    labelText: label,
+    filled: true,
+    fillColor: K.surface,
+    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+  );
 
   void _cancel([String? why]) {
     _poll?.cancel();
@@ -123,7 +175,7 @@ class _SignInState extends State<SignIn> {
                   enabled: !_busy,
                   style: ts(15),
                   keyboardType: TextInputType.url,
-                  onSubmitted: (_) => _start(),
+                  onSubmitted: (_) => _password ? _signIn() : _start(),
                   decoration: InputDecoration(
                     labelText: 'Server address',
                     hintText: 'http://192.168.1.94:8096',
@@ -161,11 +213,50 @@ class _SignInState extends State<SignIn> {
                   ),
                   const SizedBox(height: 8),
                 ],
-                const SizedBox(height: 8),
+                if (_password) ...[
+                  const SizedBox(height: 8),
+                  AutofillGroup(
+                    child: Column(
+                      children: [
+                        TextField(
+                          controller: _user,
+                          enabled: !_busy,
+                          autocorrect: false,
+                          style: ts(15),
+                          autofillHints: const [AutofillHints.username],
+                          textInputAction: TextInputAction.next,
+                          decoration: _field('Username'),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _pass,
+                          enabled: !_busy,
+                          obscureText: true,
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          style: ts(15),
+                          autofillHints: const [AutofillHints.password],
+                          onSubmitted: (_) => _signIn(),
+                          decoration: _field('Password'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 12),
                 FilledButton(
-                  onPressed: _busy ? null : _start,
+                  onPressed: _busy ? null : (_password ? _signIn : _start),
                   style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
-                  child: Text(_busy ? 'Connecting…' : 'Get a Quick Connect code'),
+                  child: Text(_busy ? 'Connecting…' : (_password ? 'Sign in' : 'Get a Quick Connect code')),
+                ),
+                TextButton(
+                  onPressed: _busy
+                      ? null
+                      : () => setState(() {
+                          _password = !_password;
+                          _error = null;
+                        }),
+                  child: Text(_password ? 'Use Quick Connect instead' : 'Sign in with a password instead', style: ts(13, c: K.text2)),
                 ),
               ] else ...[
                 Text(
