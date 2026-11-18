@@ -79,6 +79,7 @@
             $('#csMirrorExplicitTag').checked = !!config.MirrorExplicitTag;
             renderUserList('#csArtUsers', 'csArtUser', users, config.AnimatedArtEditUsers);
             $('#csArtOrder').value = config.AnimatedArtSourceOrder || 'sidecar-first';
+            $('#csArtSourceMode').value = config.ArtSourceMode === 'stored' ? 'stored' : 'link';
             $('#csArtNames').value = (config.AnimatedArtSidecarNames || ['cover.mp4', 'cover.webm']).join(', ');
             $('#csArtMaxMb').value = config.AnimatedArtMaxUploadMb || 50;
             $('#csTidalId').value = config.TidalClientId || '';
@@ -114,6 +115,7 @@
             config.MirrorExplicitTag = $('#csMirrorExplicitTag').checked;
             config.AnimatedArtEditUsers = picked('csArtUser');
             config.AnimatedArtSourceOrder = $('#csArtOrder').value;
+            config.ArtSourceMode = $('#csArtSourceMode').value === 'stored' ? 'stored' : 'link';
             config.AnimatedArtSidecarNames = $('#csArtNames').value.split(',')
                 .map(function (n) { return n.trim(); }).filter(function (n) { return n; });
             config.AnimatedArtMaxUploadMb = Math.max(1, parseInt($('#csArtMaxMb').value, 10) || 50);

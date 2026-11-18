@@ -96,6 +96,17 @@
                         <!-- ── Animated art ── -->
                         <section class="cs-pane" data-pane="art">
                             <div class="cs-group">
+                                <div class="cs-group-title">Missing artist pictures and album covers</div>
+                                <div class="cs-intro">For artists and albums Jellyfin has no image for. Linking points Cascade apps at the picture on Deezer (artists) or iTunes (albums): this server looks up where it is, checking the artist's albums or the album's artist and track count so a same-named act is not picked, and keeps only that link for up to 25 days. The picture itself is never stored, since those services do not allow keeping their images, and only Cascade apps show it. Choose stored images only to turn that off and rely on what Jellyfin keeps in the library: enable the <strong>TheAudioDB</strong> and <strong>fanart.tv</strong> image fetchers in each music library's settings, which allow keeping their images but have fewer pictures for small artists.</div>
+                                <div class="cs-row">
+                                    <span class="cs-label"><label class="cs-name" for="csArtSourceMode">Where pictures come from</label></span>
+                                    <select class="cs-input" id="csArtSourceMode">
+                                        <option value="link">Link to Deezer and iTunes (not stored)</option>
+                                        <option value="stored">Stored images only (Jellyfin's own fetchers)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="cs-group">
                                 <div class="cs-group-title">Animated album covers</div>
                                 <div class="cs-intro">Cascade can show a looping video cover on the now-playing view. It comes from a <strong>cover.mp4</strong> in the album's folder (put there by hand or uploaded from Cascade), an animated <strong>cover.gif</strong>, <strong>cover.webp</strong> or <strong>cover.apng</strong> there (turned into a video once, the first time it is asked for), or from TIDAL, which has one for roughly one album in twelve.</div>
                                 <div class="cs-row">

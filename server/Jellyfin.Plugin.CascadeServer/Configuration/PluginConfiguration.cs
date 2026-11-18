@@ -96,6 +96,15 @@ public class PluginConfiguration : BasePluginConfiguration
     public string[] AnimatedArtEditUsers { get; set; } = [];
 
     /// <summary>
+    /// Gets or sets where Cascade apps get pictures for artists and covers for albums Jellyfin has
+    /// no image for. "link" (the default) points the apps at Deezer's and iTunes' own images,
+    /// looked up here but never stored, as those services' terms allow. "stored" turns that off,
+    /// for administrators who want only images kept in the library, from sources whose terms allow
+    /// keeping them (Jellyfin's TheAudioDB and fanart.tv providers).
+    /// </summary>
+    public string ArtSourceMode { get; set; } = "link";
+
+    /// <summary>
     /// Gets or sets what an administrator posted from the Announcements tab, for the inbox in
     /// every Cascade app signed in here (GET /CascadeServer/Announcements).
     /// </summary>

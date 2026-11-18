@@ -52,6 +52,10 @@ public class InfoController : ControllerBase
     private const string Syllable = "syllable";
     private const string SpotifyLink = "spotify-link";
 
+    // Only while art links are on (ArtSourceMode "link"): GET /CascadeServer/ArtLink/Artist/{id}
+    // and /Album/{id} redirect to a picture for items Jellyfin has no image for.
+    private const string ArtLinksCapability = "art-links";
+
     /// <summary>
     /// Reports that the plugin is present, with its version and capabilities.
     /// </summary>
@@ -71,7 +75,7 @@ public class InfoController : ControllerBase
         {
             name = "Cascade Server",
             version = Plugin.Instance?.Version?.ToString() ?? "0.0.0.0",
-            capabilities = spicy ? [.. Capabilities, Syllable, SpotifyLink] : Capabilities,
+            capabilities = (string[])[.. Capabilities, .. spicy ? (string[])[Syllable, SpotifyLink] : [], .. Jellyfin.Plugin.CascadeServer.ArtLinks.ArtLinkService.Enabled ? (string[])[ArtLinksCapability] : []],
             // For this user: whether their Spotify links apply to the whole server, or
             // stay on their own computer (see SpotifyLinkPermission).
             spotifyLinkServerWide = spicy && await SpotifyLinkPermission.ServerWideAsync(auth, HttpContext),
