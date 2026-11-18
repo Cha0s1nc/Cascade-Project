@@ -123,6 +123,12 @@ Decided 2026-11-04: the Flutter app takes the **Personality v1** look, the same 
 - Versions in lockstep with the other apps; a release marker and changelog section.
 - Importing settings from Electron's `config.json`.
 
+### Versions (decided 2026-11-18)
+
+- **2.5** is the first Flutter release, shipped alongside Electron: it does not wait for strict parity. It is released before the remaining parity work, as early real-world testing (installs, the updater) finds what the VMs cannot.
+- **3.0** is the release that sunsets Electron, once Flutter has full parity: a big enough change for a major version.
+- What 3.0 still needs that 2.5 may lack: the lyrics editor, the metadata editor and lyrics translation (real gaps no other Jellyfin client fills, so they stay in scope), Local mode, and the rest of PARITY.md. The Cha0s Stream control server is the one personal feature; it can come last or stay Electron-only until the sunset.
+
 ## Verification
 
 Every change: `flutter analyze` clean and `flutter test` passing. Every phase: run on `winvm`, `mintvm` and the Fire, then update `flutter/PARITY.md` honestly ("built" means the code exists and passes; say so when something was not seen running).
