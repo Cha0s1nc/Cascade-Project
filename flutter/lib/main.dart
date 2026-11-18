@@ -12,6 +12,8 @@ import 'package:cascade/ui/pages/common.dart';
 import 'package:cascade/ui/desktop.dart';
 import 'package:cascade/ui/first_run.dart';
 import 'package:cascade/core/connection_headers.dart';
+import 'package:cascade/core/data_move.dart';
+import 'package:cascade/core/log.dart';
 import 'package:cascade/core/downloads.dart';
 import 'package:cascade/core/jellyfin.dart';
 import 'package:cascade/core/library.dart';
@@ -34,6 +36,14 @@ import 'package:cascade/ui/scopes.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Before anything reads settings: the Linux app id's old folder moves over.
+  try {
+    final here = await getApplicationSupportDirectory();
+    final old = oldLinuxDataDir(here);
+    if (old != null && await moveAppData(old, here)) log('moved app data from ${old.path}');
+  } catch (e) {
+    log('app data move failed: $e');
+  }
   await loadConnectionHeaders();
   MediaKit.ensureInitialized();
   await setUpWindow();
