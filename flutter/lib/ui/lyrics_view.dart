@@ -742,17 +742,7 @@ class _Karaoke extends StatelessWidget {
       duration: const Duration(milliseconds: 350),
       curve: Curves.easeOut,
       builder: (context, lit, _) {
-        Widget piece((LyricWord, bool) p) => active
-            ? ValueListenableBuilder<int>(
-                valueListenable: now,
-                builder: (_, n, _) =>
-                    p.$2 ? _Held(word: p.$1, style: style, now: n, st: st, lit: lit) : _Word(word: p.$1, style: style, now: n, st: st, lit: lit),
-              )
-            // Not current: the same layout, so the line keeps its wrap.
-            : p.$2
-            ? _Held(word: p.$1, style: style, st: st)
-            : Text(p.$1.text, style: style);
-        return Wrap(
+        Widget line(Widget Function((LyricWord, bool) p) piece) => Wrap(
           alignment: align,
           children: [
             for (final (pieces, gap) in groups)
@@ -761,6 +751,33 @@ class _Karaoke extends StatelessWidget {
                 child: Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [for (final p in pieces) piece(p)]),
               ),
           ],
+        );
+        // Not current: the same layout, so the line keeps its wrap.
+        if (!active) return line((p) => p.$2 ? _Held(word: p.$1, style: style, st: st) : Text(p.$1.text, style: style));
+        // Current: two layers of solid text. See-through text draws each
+        // letter on its own, and the tight spacing overlaps bold letters, so
+        // overlaps came out brighter (seams, a line that looked bold). The dim
+        // base is the whole line solid and made see-through once; the lit
+        // layer above holds what has been sung and the word filling.
+        final unsung = 1 - (1 - _s(st, 'unsungOpacity', 0.29)) * lit;
+        return ValueListenableBuilder<int>(
+          valueListenable: now,
+          builder: (_, n, _) => Stack(
+            children: [
+              Opacity(
+                opacity: unsung,
+                child: line(
+                  (p) => p.$2
+                      ? Opacity(
+                          opacity: 0,
+                          child: _Held(word: p.$1, style: style, st: st),
+                        )
+                      : _Word(word: p.$1, style: style, now: n, st: st),
+                ),
+              ),
+              line((p) => p.$2 ? _Held(word: p.$1, style: style, now: n, st: st, lit: lit) : _Word(word: p.$1, style: style, now: n, st: st, top: true)),
+            ],
+          ),
         );
       },
     );
@@ -839,21 +856,43 @@ Widget _filled(String text, TextStyle style, double t, double unsung) {
 
 /// One word of the current line: filling, and lifted a little once reached.
 class _Word extends StatelessWidget {
-  const _Word({required this.word, required this.style, required this.now, required this.st, this.lit = 1});
+  const _Word({required this.word, required this.style, required this.now, required this.st, this.top = false});
   final LyricWord word;
   final TextStyle style;
   final int now;
   final Map<String, double> st;
 
-  /// How far the line has come into its current look (see _Karaoke).
-  final double lit;
+  /// The lit layer (sung, or the filling part) rather than the dim base,
+  /// which is always the whole word in solid text.
+  final bool top;
 
   @override
   Widget build(BuildContext context) {
     final since = (now - word.start) / 1e7;
     final lift = since < 0 || calm(context) ? 0.0 : _s(st, 'wordLift', 0.04) * style.fontSize! * _liftCurve.transform((since / 0.6).clamp(0.0, 1.0));
-    return Transform.translate(offset: Offset(0, -lift), child: _filled(word.text, style, _progress(word, now), 1 - (1 - _s(st, 'unsungOpacity', 0.29)) * lit));
+    final t = _progress(word, now);
+    final text = Text(word.text, style: style);
+    final Widget drawn = !top || t >= 1
+        ? text
+        // Not reached: nothing on the lit layer, the same size.
+        : t <= 0
+        ? Opacity(opacity: 0, child: text)
+        // Filling: the solid word, shown up to the soft edge. Clipped to the
+        // word's box: the last letter's ink overhangs it, and a mask leaves
+        // what is outside its box untouched (that sliver showed full white).
+        : ClipRect(
+            child: ShaderMask(blendMode: BlendMode.dstIn, shaderCallback: (r) => _fillMask(r, t, style.fontSize!), child: text),
+          );
+    return Transform.translate(offset: Offset(0, -lift), child: drawn);
   }
+}
+
+/// The lit layer's mask over a filling word: solid up to the soft edge, then
+/// clear, the edge sliding as _fill's does.
+Shader _fillMask(Rect r, double t, double fs) {
+  final mid = t * r.width + (t * 0.6 - 0.3) * fs;
+  final a = ((mid - 0.3 * fs) / r.width).clamp(0.0, 1.0), b = ((mid + 0.3 * fs) / r.width).clamp(0.0, 1.0);
+  return LinearGradient(colors: const [Colors.white, Colors.white, Color(0x00FFFFFF), Color(0x00FFFFFF)], stops: [0, a, max(a, b), 1]).createShader(r);
 }
 
 /// A held note (SpicyLyrics): each letter takes its share of the fill and

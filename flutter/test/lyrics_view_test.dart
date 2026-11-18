@@ -52,11 +52,10 @@ void main() {
     player.position = 4 * 3.0 + 1.5;
     await frames(tester);
     final panel = tester.getRect(find.byType(LyricsView));
-    final block = (tester.getRect(find.text('4').first).top + tester.getRect(find.text('(ooh)')).bottom) / 2;
+    final block = (tester.getRect(find.text('4').first).top + tester.getRect(find.text('(ooh)').first).bottom) / 2;
     expect((block - panel.center.dy).abs(), lessThan(8), reason: 'the current line and its background row sit mid-panel');
-    expect(find.text('(ooh)'), findsOneWidget, reason: 'the current line opens its background vocals');
-    expect(find.text('h'), findsOneWidget, reason: 'a held note is drawn letter by letter');
-    expect(find.byType(ShaderMask), findsOneWidget, reason: 'only the sheet\'s edge fade: a filling word paints its own gradient, no mask whose box clips its last letter');
+    expect(find.text('(ooh)'), findsWidgets, reason: 'the current line opens its background vocals (drawn in the dim and lit layers)');
+    expect(find.text('h'), findsWidgets, reason: 'a held note is drawn letter by letter');
 
     // The held line keeps its exact layout once it is no longer current, so
     // its wrap never changes as it fades.
@@ -157,6 +156,34 @@ void main() {
     player.position = 21;
     await frames(tester, 30);
     expect(dots(), findsNothing, reason: 'folded away once the next line comes');
+    await tester.pumpWidget(const SizedBox());
+    player.dispose();
+  });
+
+  testWidgets('the current line draws solid text in layers: no see-through letters, word masks clipped', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    addTearDown(tester.view.reset);
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    final player = Player(audio: false)..playing = false;
+    final lines = [for (var i = 0; i < 4; i++) karaoke(i * 3.0, ['What\'s ', 'wrong ', 'with ', 'me?'])];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Center(
+          child: SizedBox(width: 800, height: 600, child: LyricsView(player: player, lyrics: Lyrics(lines, 'Kugou'))),
+        ),
+      ),
+    );
+    player.position = 3.0 + 0.5; // line 1, mid-way through "wrong"
+    await frames(tester, 40);
+    final current = find.ancestor(of: find.text('wrong').first, matching: find.byType(Stack)).first;
+    for (final t in tester.widgetList<Text>(find.descendant(of: current, matching: find.byType(Text)))) {
+      expect(t.style?.color?.a ?? 1, 1, reason: '"${t.data}" is solid; its layer makes it dim');
+    }
+    for (final e in find.descendant(of: current, matching: find.byType(ShaderMask)).evaluate()) {
+      expect(find.ancestor(of: find.byWidget(e.widget), matching: find.byType(ClipRect)), findsWidgets, reason: 'a word mask is clipped to the word');
+    }
+    expect(find.descendant(of: current, matching: find.byType(ShaderMask)), findsOneWidget, reason: 'the word filling now');
     await tester.pumpWidget(const SizedBox());
     player.dispose();
   });
