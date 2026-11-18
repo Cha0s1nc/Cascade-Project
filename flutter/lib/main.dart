@@ -218,9 +218,11 @@ class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
               if (!typing && nav != null) showShortcuts(nav);
             },
           },
-          child: UiScale(
-            scale: miniMode.value ? 1 : s.uiScale,
-            child: SongAnnouncer(player: widget.player, child: child!),
+          child: RoundedWindow(
+            child: UiScale(
+              scale: miniMode.value ? 1 : s.uiScale,
+              child: SongAnnouncer(player: widget.player, child: child!),
+            ),
           ),
         );
       },

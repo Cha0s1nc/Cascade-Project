@@ -23,6 +23,58 @@ Future<void> setUpWindow() async {
   inlineTitleBar = true;
 }
 
+/// The window's corner radius on Linux, matching GTK's frame (the runner's
+/// CSS). Square when maximized or full screen; elsewhere the OS rounds.
+const windowRadius = 12.0;
+
+/// Clips the whole app to rounded corners on Linux, where the window itself
+/// is see-through; anywhere else it is just [child].
+class RoundedWindow extends StatefulWidget {
+  const RoundedWindow({super.key, required this.child});
+  final Widget child;
+
+  @override
+  State<RoundedWindow> createState() => _RoundedWindowState();
+}
+
+class _RoundedWindowState extends State<RoundedWindow> with WindowListener {
+  bool _square = false;
+  final _on = inlineTitleBar && Platform.isLinux;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!_on) return;
+    windowManager.addListener(this);
+    _check();
+  }
+
+  @override
+  void dispose() {
+    if (_on) windowManager.removeListener(this);
+    super.dispose();
+  }
+
+  Future<void> _check() async {
+    final square = await windowManager.isMaximized() || await windowManager.isFullScreen();
+    if (mounted && square != _square) setState(() => _square = square);
+  }
+
+  @override
+  void onWindowMaximize() => _check();
+  @override
+  void onWindowUnmaximize() => _check();
+  @override
+  void onWindowEnterFullScreen() => _check();
+  @override
+  void onWindowLeaveFullScreen() => _check();
+
+  @override
+  Widget build(BuildContext context) => !_on || _square
+      ? widget.child
+      : ClipRRect(borderRadius: BorderRadius.circular(windowRadius), child: widget.child);
+}
+
 /// Width the window buttons take on the right of the bar.
 double get windowButtonsWidth => !inlineTitleBar ? 0 : (Platform.isWindows ? 138 : 108);
 

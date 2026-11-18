@@ -40,6 +40,24 @@ static void my_application_activate(GApplication* application) {
   g_object_set(gtk_settings_get_default(), "gtk-application-prefer-dark-theme", TRUE, NULL);
   gtk_window_set_default_size(window, 1280, 780);
 
+  // Rounded corners: the window can be see-through (an alpha visual on X11;
+  // Wayland always has one), Flutter clips its content to the radius
+  // (lib/ui/title_bar.dart RoundedWindow), and GTK's own frame, which draws
+  // the shadow and resize edges, takes the same radius. Maximized, GTK and
+  // Flutter both go square.
+  GdkVisual* visual = gdk_screen_get_rgba_visual(gtk_window_get_screen(window));
+  if (visual != nullptr) gtk_widget_set_visual(GTK_WIDGET(window), visual);
+  gtk_widget_set_app_paintable(GTK_WIDGET(window), TRUE);
+  GtkCssProvider* css = gtk_css_provider_new();
+  gtk_css_provider_load_from_data(css,
+      "window.background { background-color: transparent; }"
+      "decoration { border-radius: 12px; }"
+      ".maximized decoration, .fullscreen decoration, .tiled decoration { border-radius: 0; }",
+      -1, nullptr);
+  gtk_style_context_add_provider_for_screen(gtk_window_get_screen(window), GTK_STYLE_PROVIDER(css),
+                                            GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+  g_object_unref(css);
+
   g_autoptr(FlDartProject) project = fl_dart_project_new();
   fl_dart_project_set_dart_entrypoint_arguments(
       project, self->dart_entrypoint_arguments);
@@ -48,7 +66,8 @@ static void my_application_activate(GApplication* application) {
   GdkRGBA background_color;
   // Background defaults to black, override it here if necessary, e.g. #00000000
   // for transparent.
-  gdk_rgba_parse(&background_color, "#000000");
+  // Transparent, so the rounded corners show what is behind the window.
+  gdk_rgba_parse(&background_color, "#00000000");
   fl_view_set_background_color(view, &background_color);
   gtk_widget_show(GTK_WIDGET(view));
   gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(view));
