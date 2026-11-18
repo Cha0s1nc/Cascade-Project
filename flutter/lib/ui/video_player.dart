@@ -5,6 +5,7 @@
 // Intro and Skip Credits from the server's media segments (or skips them by
 // itself with the setting on), and goes on to the next episode.
 import 'dart:async';
+import 'dart:math';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -65,7 +66,18 @@ class _VideoScreenState extends State<VideoScreen> {
   bool _playing = false, _controls = true, _full = false, _started = false;
   List<MediaSegment> _segments = const [];
   List<_Chapter> _chapters = const [];
-  Item? _next;
+  Item? _next, _prev;
+
+  /// The volume (0-100) and speed, as mpv last said.
+  double _volume = 100, _rate = 1;
+
+  /// Where the pointer is over the seek bar (0-1), for the time above it.
+  double? _hoverAt;
+
+  /// The time reads as left rather than gone (click it to switch).
+  bool _remaining = false;
+
+  static const _rates = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
   final _skipped = <String>{};
   Timer? _hide, _progress;
 
@@ -90,6 +102,8 @@ class _VideoScreenState extends State<VideoScreen> {
         if (done) _ended();
       }),
       _p.stream.tracks.listen((_) => mounted ? setState(() {}) : null),
+      _p.stream.volume.listen((v) => mounted ? setState(() => _volume = v) : null),
+      _p.stream.rate.listen((r) => mounted ? setState(() => _rate = r) : null),
       _p.stream.error.listen((e) => log('video error: $e')),
       _p.stream.log.listen((l) => log('video mpv ${l.level} ${l.prefix}: ${l.text.trim()}')),
       _p.stream.buffering.listen((b) => log('video buffering $b')),
@@ -124,7 +138,7 @@ class _VideoScreenState extends State<VideoScreen> {
           (name: c['Name'] as String? ?? '', sec: (c['StartPositionTicks'] as num? ?? 0) / 1e7),
       ];
       _segments = const [];
-      _next = null;
+      _next = _prev = null;
       _started = false;
     });
     await _p.open(
@@ -140,9 +154,15 @@ class _VideoScreenState extends State<VideoScreen> {
     _progress = Timer.periodic(progressInterval, (_) => _report('progress'));
     _jf.get('/MediaSegments/$id').then((r) => mounted ? setState(() => _segments = parseMediaSegments(r)) : null, onError: (_) {});
     if (full['Type'] == 'Episode' && full['SeriesId'] != null) {
-      _jf.get('/Shows/${full['SeriesId']}/Episodes', {'userId': _jf.userId, 'startItemId': id, 'limit': 2}).then((r) {
+      // The episodes either side of this one, in the series' order.
+      _jf.get('/Shows/${full['SeriesId']}/Episodes', {'userId': _jf.userId, 'adjacentTo': id}).then((r) {
         final eps = ((r as Map)['Items'] as List).cast<Item>();
-        if (mounted && eps.length > 1) setState(() => _next = eps[1]);
+        final at = eps.indexWhere((e) => e['Id'] == id);
+        if (!mounted || at < 0) return;
+        setState(() {
+          _prev = at > 0 ? eps[at - 1] : null;
+          _next = at + 1 < eps.length ? eps[at + 1] : null;
+        });
       }, onError: (_) {});
     }
   }
@@ -249,6 +269,8 @@ class _VideoScreenState extends State<VideoScreen> {
     const SingleActivator(LogicalKeyboardKey.arrowUp): () => _p.setVolume((_p.state.volume + 5).clamp(0, 100)),
     const SingleActivator(LogicalKeyboardKey.arrowDown): () => _p.setVolume((_p.state.volume - 5).clamp(0, 100)),
     const SingleActivator(LogicalKeyboardKey.keyM): () => _p.setVolume(_p.state.volume > 0 ? 0 : 100),
+    const CharacterActivator('>'): () => _stepRate(1),
+    const CharacterActivator('<'): () => _stepRate(-1),
     const SingleActivator(LogicalKeyboardKey.keyF): _toggleFull,
     const SingleActivator(LogicalKeyboardKey.keyC): _toggleSubs,
     const SingleActivator(LogicalKeyboardKey.keyS): () => _segment == null ? null : _skip(_segment!),
@@ -259,6 +281,21 @@ class _VideoScreenState extends State<VideoScreen> {
     for (var n = 0; n <= 9; n++)
       SingleActivator(LogicalKeyboardKey(LogicalKeyboardKey.digit0.keyId + n)): () => _p.seek(Duration(milliseconds: (_len * n / 10 * 1000).round())),
   };
+
+  void _stepRate(int dir) {
+    final i = _rates.indexWhere((r) => r >= _rate - 0.01);
+    _p.setRate(_rates[((i < 0 ? 2 : i) + dir).clamp(0, _rates.length - 1)]);
+  }
+
+  /// The chapter playing at [sec], if the file has chapters.
+  _Chapter? _chapterAt(double sec) => _chapters.where((c) => c.sec <= sec + 0.5).lastOrNull;
+
+  void _playPrev() {
+    final p = _prev;
+    if (p == null) return;
+    _report('stop');
+    _start(p);
+  }
 
   void _chapter(int dir) {
     if (_chapters.isEmpty) return;
@@ -362,11 +399,37 @@ class _VideoScreenState extends State<VideoScreen> {
             const Spacer(),
             LayoutBuilder(
               builder: (context, c) => Stack(
+                clipBehavior: Clip.none,
                 children: [
-                  ThinBar(
-                    value: _len > 0 ? _pos / _len : 0,
-                    onChanged: _len > 0 ? (v) => _p.seek(Duration(milliseconds: (v * _len * 1000).round())) : null,
+                  MouseRegion(
+                    onHover: (e) => setState(() => _hoverAt = ((e.localPosition.dx - 6) / (c.maxWidth - 12)).clamp(0.0, 1.0)),
+                    onExit: (_) => setState(() => _hoverAt = null),
+                    child: ThinBar(
+                      value: _len > 0 ? _pos / _len : 0,
+                      onChanged: _len > 0 ? (v) => _p.seek(Duration(milliseconds: (v * _len * 1000).round())) : null,
+                    ),
                   ),
+                  // The time (and chapter) under the pointer, above the bar.
+                  if (_hoverAt != null && _len > 0)
+                    Positioned(
+                      left: (6 + (c.maxWidth - 12) * _hoverAt! - 60).clamp(0.0, c.maxWidth - 120),
+                      bottom: 22,
+                      width: 120,
+                      child: IgnorePointer(
+                        child: Center(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(color: const Color(0xE6000000), borderRadius: BorderRadius.circular(6)),
+                            child: Text(
+                              [_chapterAt(_hoverAt! * _len)?.name, fmt(_hoverAt! * _len)].whereType<String>().where((s) => s.isNotEmpty).join(' · '),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: ts(12, c: Colors.white, tab: true),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   // Chapter marks along the bar.
                   for (final ch in _chapters)
                     if (_len > 0 && ch.sec > 0)
@@ -378,39 +441,99 @@ class _VideoScreenState extends State<VideoScreen> {
                 ],
               ),
             ),
-            Row(
-              children: [
-                IconBtn(_playing ? Icons.pause_rounded : Icons.play_arrow_rounded, _playing ? 'Pause' : 'Play', _p.playOrPause, color: Colors.white, size: 30),
-                IconBtn(Icons.replay_10_rounded, 'Back 10 seconds', () => _seekBy(-10), color: Colors.white, size: 22),
-                IconBtn(Icons.forward_10_rounded, 'Forward 10 seconds', () => _seekBy(10), color: Colors.white, size: 22),
-                const SizedBox(width: 12),
-                Text('${fmt(_pos)} / ${fmt(_len)}', style: ts(12, c: Colors.white70)),
-                const Spacer(),
-                if (_next != null) IconBtn(Icons.skip_next_rounded, 'Next episode', _playNext, color: Colors.white, size: 22),
-                _trackMenu<mk.AudioTrack>(
-                  Icons.audiotrack_rounded,
-                  'Audio',
-                  _p.state.tracks.audio.where((t) => t.id != 'no' && t.id != 'auto').toList(),
-                  _p.state.track.audio,
-                  (t) => _trackLabel(t.title, t.language, t.id),
-                  _p.setAudioTrack,
-                ),
-                _trackMenu<mk.SubtitleTrack>(
-                  Icons.subtitles_outlined,
-                  'Subtitles',
-                  [mk.SubtitleTrack.no(), ..._p.state.tracks.subtitle.where((t) => t.id != 'no' && t.id != 'auto')],
-                  _p.state.track.subtitle,
-                  (t) => t.id == 'no' ? 'Off' : _trackLabel(t.title, t.language, t.id),
-                  _p.setSubtitleTrack,
-                ),
-                IconBtn(
-                  _full ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded,
-                  _full ? 'Exit full screen' : 'Full screen',
-                  _toggleFull,
-                  color: Colors.white,
-                  size: 24,
-                ),
-              ],
+            LayoutBuilder(
+              builder: (context, box) {
+                // Narrow windows keep the essentials; the rest stay on the
+                // keyboard (J and L, Ctrl+arrows for chapters, < and > speed).
+                final roomy = box.maxWidth >= 720, compact = box.maxWidth < 600;
+                return Row(
+                  children: [
+                    IconBtn(
+                      _playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                      _playing ? 'Pause' : 'Play',
+                      _p.playOrPause,
+                      color: Colors.white,
+                      size: 30,
+                    ),
+                    if (!compact) ...[
+                      IconBtn(Icons.replay_10_rounded, 'Back 10 seconds', () => _seekBy(-10), color: Colors.white, size: 22),
+                      IconBtn(Icons.forward_10_rounded, 'Forward 10 seconds', () => _seekBy(10), color: Colors.white, size: 22),
+                    ],
+                    const SizedBox(width: 4),
+                    IconBtn(
+                      _volume == 0 ? Icons.volume_off_rounded : Icons.volume_up_rounded,
+                      _volume == 0 ? 'Unmute' : 'Mute',
+                      () => _p.setVolume(_volume > 0 ? 0 : 100),
+                      color: Colors.white,
+                      size: 22,
+                    ),
+                    if (roomy) ...[
+                      SizedBox(
+                        width: 90,
+                        child: ThinBar(value: _volume / 100, onChanged: (v) => _p.setVolume(v * 100), color: Colors.white70),
+                      ),
+                      SizedBox(
+                        width: 40,
+                        child: Text('${_volume.round()}%', style: ts(11, c: Colors.white70, tab: true)),
+                      ),
+                    ],
+                    const SizedBox(width: 8),
+                    // Click to switch between time gone and time left.
+                    Hover(
+                      onTap: () => setState(() => _remaining = !_remaining),
+                      label: _remaining ? 'Show time played' : 'Show time left',
+                      builder: (_, on) => Text(
+                        _remaining ? '-${fmt(max(0, _len - _pos))} / ${fmt(_len)}' : '${fmt(_pos)} / ${fmt(_len)}',
+                        style: ts(12, c: on ? Colors.white : Colors.white70, tab: true),
+                      ),
+                    ),
+                    const Spacer(),
+                    if (_prev != null && !compact) IconBtn(Icons.skip_previous_rounded, 'Previous episode', _playPrev, color: Colors.white, size: 22),
+                    if (_next != null) IconBtn(Icons.skip_next_rounded, 'Next episode', _playNext, color: Colors.white, size: 22),
+                    if (_chapters.length > 1 && !compact)
+                      _trackMenu<_Chapter>(
+                        Icons.list_rounded,
+                        'Chapters',
+                        _chapters,
+                        _chapterAt(_pos) ?? _chapters.first,
+                        (c) => '${c.name.isEmpty ? 'Chapter' : c.name} · ${fmt(c.sec)}',
+                        (c) => _p.seek(Duration(milliseconds: (c.sec * 1000).round())),
+                      ),
+                    if (!compact)
+                      _trackMenu<double>(
+                        Icons.speed_rounded,
+                        'Speed (< and >)',
+                        _rates,
+                        _rates.where((r) => (r - _rate).abs() < 0.01).firstOrNull ?? 1.0,
+                        (r) => r == 1 ? 'Normal' : '${r}x',
+                        _p.setRate,
+                      ),
+                    _trackMenu<mk.AudioTrack>(
+                      Icons.audiotrack_rounded,
+                      'Audio',
+                      _p.state.tracks.audio.where((t) => t.id != 'no' && t.id != 'auto').toList(),
+                      _p.state.track.audio,
+                      (t) => _trackLabel(t.title, t.language, t.id),
+                      _p.setAudioTrack,
+                    ),
+                    _trackMenu<mk.SubtitleTrack>(
+                      Icons.subtitles_outlined,
+                      'Subtitles',
+                      [mk.SubtitleTrack.no(), ..._p.state.tracks.subtitle.where((t) => t.id != 'no' && t.id != 'auto')],
+                      _p.state.track.subtitle,
+                      (t) => t.id == 'no' ? 'Off' : _trackLabel(t.title, t.language, t.id),
+                      _p.setSubtitleTrack,
+                    ),
+                    IconBtn(
+                      _full ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded,
+                      _full ? 'Exit full screen' : 'Full screen',
+                      _toggleFull,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                  ],
+                );
+              },
             ),
           ],
         ),
