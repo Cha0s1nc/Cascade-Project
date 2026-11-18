@@ -1,6 +1,6 @@
 # Flutter parity
 
-One line per feature in `docs/flutter-plan.md`. Status: built / partial / not built. "Built" means the code exists and `flutter analyze` and `flutter test` pass; notes after the dash say what was seen running and where (W: Windows VM, L: Linux VM, A: the Fire HD 8). Last checked against the code on 2026-11-15 (9afc986).
+One line per feature in `docs/flutter-plan.md`. Status: built / partial / not built. "Built" means the code exists and `flutter analyze` and `flutter test` pass; notes after the dash say what was seen running and where (W: Windows VM, L: Linux VM, A: the Fire HD 8). Last checked against the code on 2026-11-17 (219ba5e).
 
 ## Phase 0: foundation
 
@@ -38,7 +38,7 @@ One line per feature in `docs/flutter-plan.md`. Status: built / partial / not bu
 ## Phase 2: library and browsing
 
 - Personality v1 theme (colors, type, bundled fonts): built - seen on W, L and A. Since then a Light mode and System (follows the OS, live) in the Style menu, repainting in place; in the build tested on W
-- In-line title bar (Windows, Linux): built - window_manager hides the OS bar, Cascade draws the window buttons; the Linux runner always uses a hidden header bar so GTK keeps the shadow and resize edges; seen on W (caption buttons) and L (round buttons, Cinnamon). Windows 11's snap layouts flyout on Maximize is not there (it needs native hit testing)
+- In-line title bar (Windows, Linux): built - window_manager hides the OS bar, Cascade draws the window buttons; the Linux runner always uses a hidden header bar so GTK keeps the shadow and resize edges; seen on W (caption buttons) and L (round buttons, Cinnamon). Windows 11's snap layouts flyout on Maximize is not there (it needs native hit testing). Linux windows have rounded corners (12 px, GTK's frame and shadow rounded to match, square when maximized), seen on L; KDE Wayland and resize edges not yet tried. The Linux app id is xyz.chaosinc.cascade.flutter, and the old id's folder (settings, sign-in, downloads) moves over on first launch, seen on L
 - Home: built - seen on W and A
 - Albums, Artists, Songs, Playlists, Genres, History: built - Artists seen on A against the test server; the rest not yet looked at on a device. Albums, artists and songs are cached on disk per server, user and library choice and refreshed with only what changed
 - Movies, TV Shows: partial - poster grids and movie and series pages with seasons and episodes; playing them waits for the video player (phase 5)
@@ -82,7 +82,7 @@ One line per feature in `docs/flutter-plan.md`. Status: built / partial / not bu
 ## Phase 5: video
 
 - Video player with Cascade's controls: built (seen on W: resume, subtitles, chapter marks, Esc; reports stayed off) - media_kit video, direct play only (no transcode fallback yet: a converted stream cannot be seeked, so seeks would restart it at an offset that position, chapters, Skip Intro and reports all have to follow; needs testing against the server), resume, reports, the desktop's keys, full screen
-- Audio and subtitle pickers, chapters, trickplay: partial - the file's own audio and subtitle tracks and chapter marks with Ctrl+arrows; external subtitle files and trickplay thumbnails not yet
+- Audio and subtitle pickers, chapters, trickplay: partial - the file's own audio and subtitle tracks, chapter marks and a chapters menu (Ctrl+arrows too), volume with mute, speed 0.5x to 2x (< and >), the time and chapter under the pointer above the seek bar, previous and next episode, time left on click; narrow windows keep the essentials. Not yet seen running. External subtitle files and trickplay thumbnails not yet
 - Skip Intro, resume, next episode: built - from /MediaSegments, with the auto-skip setting; next episode on outro, near the end and at the end
 
 ## Phase 6: offline and Local mode
@@ -101,6 +101,12 @@ Not phase items in the plan, but built since and worth tracking.
 - Keyboard and screen readers: built - every button and row in the Tab order with a focus ring, labels for screen readers, "Now playing" announced, focus moves to a new page, 44 px touch targets. Closing a dialog with a screen reader on crashed Windows and macOS (Flutter 3.44's Slider portals broke the engine's tree); every Slider now goes through safeSlider and a test guards it; seen on W with Narrator
 - Reduce motion: built - follows the system or the Style menu's Auto, On, Off; slides become fades and the lyrics step without the spring
 - Contrast: built - dim text at 4.5:1 or better on every surface, in both modes
+- Sign in with a password: built - beside Quick Connect on the sign-in screen; only the token is kept (tested with a stubbed server, not yet tried on one). Quick Connect approval also sits in the title bar
+- Desktop-style dropdowns and no ink ripple: built - one SelectBox everywhere
+- Movie and show posters: built - hover shows Play or Resume and More; More and right click open Play, Play from the start, Mark played, Like, Go to details
+- Lyrics: built - the waiting dots in long instrumental breaks (6 s or more, needs a known line end), lyrics roll the way the cover goes on a skip, a steadier lyrics clock (no leap on resume, no running ahead in a stall, no twitch per update), and tap calibration of each output device's audio delay (Settings > Playback > Audio delay). Not yet tried by ear
+- Crossfade and the cover: built - the cover change holds halfway through a crossfade (both covers showing) and finishes as it ends
+- Speed: built - library grids sort once per list and choice, saved lists decode off the UI thread, small covers decode at their size
 
 ## Phase 7: release
 
