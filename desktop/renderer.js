@@ -404,7 +404,14 @@ function greeting() {
 const artUrl       = (itemId, tag) => (_offline.art.has(itemId) ? `${_offline.artBase || 'cascade-offline://local/art/'}${itemId}.jpg` : null) || (jfClient.offline ? null : jfClient.artUrl(itemId, tag))
 // Local mode keeps no artist pictures: an empty src fails at once into the
 // callers' onerror fallback, where a server URL would point at file://.
-const artistArtUrl = (itemId)      => isLocalMode() ? '' : jfClient.artistArtUrl(itemId)
+const artistArtUrl = (itemId)      => isLocalMode() ? '' : (linkedArtUrl('Artist', itemId) || jfClient.artistArtUrl(itemId))
+// Cascade Server's linked picture for an artist or album: Jellyfin's own image
+// when it has one, else Deezer's (artists) or iTunes' (albums), looked up on the
+// server and never stored. Only while the plugin offers it (art-links), online.
+// ApiKey, since an <img> sends no headers.
+const linkedArtUrl = (kind, itemId) => _cascadePluginCaps.has('art-links') && !jfClient.offline && !isLocalMode()
+  ? `${jf.url}/CascadeServer/ArtLink/${kind}/${itemId}?ApiKey=${encodeURIComponent(jf.token)}`
+  : null
 
 // ── Skeleton loaders ──────────────────────────────────────────────────────────
 // Placeholder cards/rows shown while a view's data is being fetched.
@@ -3023,7 +3030,7 @@ async function loadAlbums() {
 }
 
 function albumCard(item, opts = {}) {
-  const art = artUrl(item.Id, item.ImageTags?.Primary)
+  const art = artUrl(item.Id, item.ImageTags?.Primary) || linkedArtUrl('Album', item.Id)
   const img = art ? `<img src="${art}" alt="" loading="lazy" onerror="this.style.display='none'">` : '♪'
   const idAttr = opts.idAttr || 'data-id'
   return `<div class="album-card" ${idAttr}="${item.Id}">
@@ -3108,7 +3115,7 @@ async function openAlbum(albumId) {
     const meta = [artistHtml, album.ProductionYear, `${tracks.length} song${tracks.length !== 1 ? 's' : ''}`].filter(Boolean)
     document.getElementById('album-detail-meta').innerHTML = meta.join(' · ')
 
-    const art = artUrl(album.Id, album.ImageTags?.Primary)
+    const art = artUrl(album.Id, album.ImageTags?.Primary) || linkedArtUrl('Album', album.Id)
     document.getElementById('album-detail-art').innerHTML = art ? `<img src="${art}" alt="" onerror="this.innerHTML='♪'">` : '♪'
 
     // albumArtist: drop the per-row thumbnail and Album cell and show an artist

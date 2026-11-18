@@ -53,6 +53,11 @@ class Jellyfin {
   /// The music libraries queries fan out over; empty or null means all.
   List<String>? libraryIds;
 
+  /// Cascade Server links pictures for artists and albums without one
+  /// (its art-links capability): Jellyfin's own when it has one, else
+  /// Deezer's or iTunes', never stored.
+  bool artLinks = false;
+
   /// Told about every request that failed, with its status, or null when
   /// nothing answered: how a server dropping mid-session gets noticed.
   void Function(int? status)? onFailure;
@@ -355,7 +360,7 @@ class Jellyfin {
       playlist ? (count == null ? 'Playlist' : '$count songs') : j['AlbumArtist'] as String? ?? '',
       artFor(id),
       id: id,
-      image: image(id, j['ImageTags']?['Primary'] as String?),
+      image: image(id, j['ImageTags']?['Primary'] as String?) ?? (artLinks && !playlist ? '$server/CascadeServer/ArtLink/Album/$id' : null),
       playlist: playlist,
       year: j['ProductionYear'] as int? ?? 0,
       artist: j['AlbumArtist'] as String? ?? '',
@@ -376,7 +381,10 @@ class Jellyfin {
       id: id,
       // Asked for even without a tag, as the desktop does: Jellyfin often
       // has an artist picture it does not list, and a miss shows the gradient.
-      image: image(id, j['ImageTags']?['Primary'] as String?) ?? '$server/Items/$id/Images/Primary?maxWidth=300&quality=90',
+      // With Cascade Server's art links, its route does that and falls back to Deezer.
+      image:
+          image(id, j['ImageTags']?['Primary'] as String?) ??
+          (artLinks ? '$server/CascadeServer/ArtLink/Artist/$id' : '$server/Items/$id/Images/Primary?maxWidth=300&quality=90'),
       favorite: (j['UserData'] as Map?)?['IsFavorite'] == true,
       overview: j['Overview'] as String?,
     );

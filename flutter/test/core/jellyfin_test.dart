@@ -326,4 +326,16 @@ void main() {
     final bad = Jellyfin('https://jf.test', 'D', client: MockClient((_) async => http.Response('', 401)));
     await expectLater(bad.signInWithPassword('Jon', 'nope'), throwsA(isA<JellyfinError>().having((e) => e.status, 'status', 401)));
   });
+
+  test('Cascade Server art links stand in for missing pictures, only when offered', () {
+    final j = Jellyfin('https://jf.test', 'D', token: 't');
+    final bare = {'Id': 'a1', 'Name': 'x', 'Type': 'MusicAlbum'};
+    expect(j.album(bare).image, isNull);
+    expect(j.artist({'Id': 'r1', 'Name': 'x'}).image, contains('/Items/r1/Images/Primary'));
+    j.artLinks = true;
+    expect(j.album(bare).image, 'https://jf.test/CascadeServer/ArtLink/Album/a1');
+    expect(j.artist({'Id': 'r1', 'Name': 'x'}).image, 'https://jf.test/CascadeServer/ArtLink/Artist/r1');
+    expect(j.album({...bare, 'Type': 'Playlist'}).image, isNull, reason: 'a playlist is no album to look up');
+    expect(j.album({...bare, 'ImageTags': {'Primary': 'tag'}}).image, contains('/Items/a1/Images/Primary'), reason: 'its own picture wins');
+  });
 }

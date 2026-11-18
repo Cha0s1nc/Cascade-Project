@@ -295,6 +295,9 @@ class Library extends ChangeNotifier {
         .get('/LiveTv/Channels', {'userId': j.userId, 'Limit': 1})
         .then((r) => ((r as Map)['TotalRecordCount'] as int? ?? 0) > 0, onError: (_) => false);
     showIds = effectiveLibraryIds(showLibs, prefs.getStringList('showLibraryIds'));
+    // Best effort too: Cascade Server's linked pictures for artists and albums
+    // without one, when the plugin is there and has them on.
+    j.artLinks = await j.get('/CascadeServer/Info').then((r) => ((r as Map)['capabilities'] as List? ?? const []).contains('art-links'), onError: (_) => false);
   }
 
   Future<void> _loadHome(Jellyfin j) async {
@@ -531,7 +534,9 @@ class Library extends ChangeNotifier {
   Future<List<Item>> albumItems() {
     final j = jf;
     // One list for the demo, as a server's is kept: the grid sorts once per list.
-    if (j == null) return _demoAlbums ??= Future.value(demoRecentlyAdded.map((a) => <String, dynamic>{'Id': a.title, 'Name': a.title, 'AlbumArtist': a.subtitle}).toList());
+    if (j == null) {
+      return _demoAlbums ??= Future.value(demoRecentlyAdded.map((a) => <String, dynamic>{'Id': a.title, 'Name': a.title, 'AlbumArtist': a.subtitle}).toList());
+    }
     return _persisted(
       'albums',
       full: () async => (await j.getAllPaged('/Items', {..._user, ..._albumQuery}))..sort(_bySortName),
