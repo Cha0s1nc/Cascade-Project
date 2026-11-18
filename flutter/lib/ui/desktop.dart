@@ -352,13 +352,12 @@ class _DesktopShellState extends State<DesktopShell> {
     });
     final centeredW = min(340.0, width * 0.36);
     final centered = _nav.view == 'home' && !_np.open && width - 2 * side >= centeredW;
-    final open = _searchOpen || _nav.view == 'search';
-    final w = centered
-        ? centeredW
-        : open
-        ? min(300.0, width * 0.4)
-        : 86.0;
-    final left = centered ? (width - w) / 2 : width - _rightWidth - w - 8;
+    // Elsewhere it fills the free space between the two button groups (up
+    // to 720 px on very wide windows, centered there), rather than tucking
+    // into a small pill.
+    final freeLeft = side + 8, free = max(86.0, width - _rightWidth - 8 - freeLeft);
+    final w = centered ? centeredW : min(free, 720.0);
+    final left = centered ? (width - w) / 2 : freeLeft + (free - w) / 2;
     return AnimatedPositioned(
       duration: Motion.slow,
       curve: const Cubic(.4, 0, .2, 1),
@@ -366,7 +365,7 @@ class _DesktopShellState extends State<DesktopShell> {
       width: w,
       top: 10,
       height: 28,
-      child: SearchField(focus: _search, wide: centered || open, onSearch: () => _go('search')),
+      child: SearchField(focus: _search, wide: w >= 200, onSearch: () => _go('search')),
     );
   }
 }
@@ -520,7 +519,10 @@ class _SideLabel extends StatelessWidget {
       child: OverflowBox(
         alignment: Alignment.centerLeft,
         minWidth: 0,
-        maxWidth: 190,
+        // The label's room in the open sidebar: its content (wide less 20 of
+        // padding) less a row's padding and icon (22 + 18, or the brand's
+        // 14 + 26). Wider, and the end (Rediscover's New) was clipped.
+        maxWidth: _Sidebar.wide - 20 - 40,
         child: AnimatedOpacity(
           opacity: collapsed ? 0 : 1,
           duration: Motion.fast,
@@ -724,15 +726,17 @@ class _MainPanelState extends State<_MainPanel> {
             reverseDuration: Motion.fast,
             switchInCurve: const Interval(120 / 320, 1, curve: settingsCurve),
             layoutBuilder: (current, previous) => Stack(fit: StackFit.expand, children: [...previous, ?current]),
-            transitionBuilder: (c, a) => c.key != key || calm(context)
-                ? FadeTransition(opacity: a, child: c)
-                : FadeTransition(
-                    opacity: a,
-                    child: SlideTransition(
-                      position: Tween(begin: Offset(0, 0.035 * _dir), end: Offset.zero).animate(a),
-                      child: c,
-                    ),
-                  ),
+            // One shape for every page, coming or going: a page that went from
+            // Fade(Slide()) to Fade() as it left was rebuilt from scratch and
+            // drew nothing for a frame, the flash between sections. Only the
+            // incoming page actually moves.
+            transitionBuilder: (c, a) => FadeTransition(
+              opacity: a,
+              child: SlideTransition(
+                position: Tween(begin: c.key != key || calm(context) ? Offset.zero : Offset(0, 0.035 * _dir), end: Offset.zero).animate(a),
+                child: c,
+              ),
+            ),
             child: KeyedSubtree(
               key: key,
               child: Focus(focusNode: _landing, child: widget.entry.page != null ? pageFor(widget.entry) : viewFor(widget.view)),
@@ -754,7 +758,8 @@ class PlayerBar extends StatelessWidget {
     final np = NowPlayingScope.of(context);
     final song = p.song;
     // The full window layouts take the controls into Now Playing.
-    if (np.open && p.settings.nowPlayingLayout != 'bar') return const SizedBox.shrink();
+    // Until Now Playing has slid all the way down: it covers the bar meanwhile.
+    if (np.showing && p.settings.nowPlayingLayout != 'bar') return const SizedBox.shrink();
     // A narrow window: the side groups give way so the transport fits.
     final tight = MediaQuery.sizeOf(context).width < 1100;
     return Container(
@@ -775,7 +780,7 @@ class PlayerBar extends StatelessWidget {
                       onTap: song == null ? null : np.toggle,
                       builder: (_, on) {
                         // Now Playing shows the cover big: this one steps aside.
-                        final hide = np.open && p.settings.nowPlayingLayout == 'bar';
+                        final hide = np.showing && p.settings.nowPlayingLayout == 'bar';
                         return Row(
                           children: [
                             AnimatedContainer(

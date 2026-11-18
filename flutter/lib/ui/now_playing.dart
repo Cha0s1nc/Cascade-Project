@@ -29,6 +29,18 @@ enum NpPanel { lyrics, queue }
 /// Whether Now Playing is open, and which panel it shows.
 class NowPlaying extends ChangeNotifier {
   bool open = false;
+
+  /// On screen: open, or still sliding down after closing. What it covers
+  /// (the player bar's cover and title) waits for this to clear.
+  bool get showing => open || _leaving;
+  bool _leaving = false;
+
+  /// The layer has slid all the way down.
+  void settled() {
+    if (!_leaving) return;
+    _leaving = false;
+    notifyListeners();
+  }
   NpPanel panel = NpPanel.lyrics;
 
   /// The Style menu's tab while it is open beside the lyrics.
@@ -63,6 +75,10 @@ class NowPlaying extends ChangeNotifier {
   void close() {
     if (!open) return;
     open = false;
+    _leaving = true;
+    // In case no animation reports its end (nothing was showing): never
+    // leave the bar waiting.
+    Timer(const Duration(milliseconds: 900), settled);
     editing = null;
     notifyListeners();
   }
@@ -100,10 +116,15 @@ class _NowPlayingLayerState extends State<NowPlayingLayer> {
               curve: np.open ? Curves.easeOutCubic : const Cubic(.4, 0, 1, 1),
               onEnd: () {
                 if (!np.open && _built) setState(() => _built = false);
+                if (!np.open) np.settled();
               },
               // Only Reduce motion fades: otherwise it stays solid and slides.
               child: AnimatedOpacity(
                 opacity: np.open || !calm(context) ? 1 : 0,
+                // Reduce motion fades instead of sliding: this is what ends.
+                onEnd: () {
+                  if (!np.open) np.settled();
+                },
                 duration: np.open ? Motion.base : Motion.slow,
                 child: _built ? const NowPlayingView() : const SizedBox.shrink(),
               ),
@@ -677,16 +698,16 @@ Widget _lyricsRoll(BuildContext context, Widget child, bool back) => AnimatedSwi
   // as the new one's spring does.
   switchOutCurve: Curves.easeOutCubic.flipped,
   layoutBuilder: (current, previous) => Stack(fit: StackFit.expand, children: [...previous, ?current]),
-  transitionBuilder: (c, a) => c.key == child.key || calm(context)
-      ? FadeTransition(opacity: a, child: c)
-      : FadeTransition(
-          opacity: a,
-          child: SlideTransition(
-            // Forward, the old sheet glides up; back, down.
-            position: Tween(begin: Offset(0, back ? 0.5 : -0.5), end: Offset.zero).animate(a),
-            child: c,
-          ),
-        ),
+  // One shape for both sheets: the old one switching shape as it left was
+  // rebuilt from scratch mid-transition. Only the old sheet moves; forward it
+  // glides up, back, down.
+  transitionBuilder: (c, a) => FadeTransition(
+    opacity: a,
+    child: SlideTransition(
+      position: Tween(begin: c.key == child.key || calm(context) ? Offset.zero : Offset(0, back ? 0.5 : -0.5), end: Offset.zero).animate(a),
+      child: c,
+    ),
+  ),
   child: child,
 );
 

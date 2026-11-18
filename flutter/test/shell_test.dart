@@ -4,6 +4,7 @@
 import 'package:cascade/core/settings.dart';
 import 'package:cascade/engine/player.dart';
 import 'package:cascade/main.dart';
+import 'package:cascade/ui/pages/library.dart' show GridPage;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -23,17 +24,13 @@ void main() {
 
     Rect search() => tester.getRect(find.byType(TextField).first);
     expect(search().center.dx, closeTo(720, 1), reason: 'centered on Home');
+    expect(search().width, lessThanOrEqualTo(340));
 
     await tester.tap(find.text('Albums'));
     await tester.pumpAndSettle();
-    expect(search().width, 86, reason: 'tucked elsewhere');
-    expect(search().right, greaterThan(1200));
-
-    await tester.tap(find.byType(TextField).first);
-    await tester.pumpAndSettle();
-    expect(search().width, 300, reason: 'wide while in use');
-    FocusManager.instance.primaryFocus?.unfocus();
-    await tester.pumpAndSettle();
+    expect(search().width, 720, reason: 'elsewhere it fills the free middle of the bar, up to 720');
+    expect(search().left, greaterThan(100), reason: 'clear of the left buttons');
+    expect(search().right, lessThan(1440 - 60), reason: 'clear of the right buttons');
 
     double sidebar() => tester.getRect(find.text('Your Cascade').first).left;
     final logo = find.image(const AssetImage('assets/icon.png'));
@@ -105,5 +102,40 @@ void main() {
     }
     await tester.pumpAndSettle();
     await mouse.removePointer();
+  });
+
+  testWidgets('switching sections keeps the old page alive while it fades: no blank frame', (tester) async {
+    addTearDown(tester.view.reset);
+    SharedPreferences.setMockInitialValues({});
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    final player = Player(audio: false, settings: await Settings.load())..playing = false;
+    await tester.pumpWidget(CascadeApp(player: player, demo: true));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Albums'));
+    await tester.pumpAndSettle();
+    final albums = tester.state(find.byType(GridPage));
+
+    await tester.tap(find.text('Artists'));
+    for (var f = 0; f < 6; f++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      // It used to be rebuilt from scratch as it left, and drew nothing.
+      expect(tester.stateList(find.byType(GridPage)), contains(same(albums)), reason: 'frame $f: the leaving page is the same page');
+    }
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('the open sidebar fits every label, Rediscover\'s New included', (tester) async {
+    addTearDown(tester.view.reset);
+    SharedPreferences.setMockInitialValues({});
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    final player = Player(audio: false, settings: await Settings.load())..playing = false;
+    await tester.pumpWidget(CascadeApp(player: player, demo: true));
+    await tester.pumpAndSettle();
+    final logo = find.image(const AssetImage('assets/icon.png'));
+    final side = tester.getRect(find.ancestor(of: logo, matching: find.byType(AnimatedContainer)).last);
+    final badge = tester.getRect(find.text('New'));
+    expect(badge.right, lessThanOrEqualTo(side.right - 10), reason: 'the badge ends inside the row, not cut at the edge');
   });
 }
