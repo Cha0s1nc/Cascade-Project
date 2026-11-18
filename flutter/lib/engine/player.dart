@@ -79,6 +79,10 @@ class Player extends ChangeNotifier {
   int _cur = 0;
   Timer? _fadeTimer, _sleepTimer;
   bool _fading = false;
+
+  /// When the crossfade under way ends (crossfade on only), so the cover can
+  /// hold its change until then; null otherwise.
+  DateTime? crossfadeEnd;
   int _ticks = 0;
   final _subs = <StreamSubscription>[];
   final _normCache = <String, double?>{};
@@ -495,6 +499,7 @@ class Player extends ChangeNotifier {
     log('start ${s.title}${fadeOut ? ' (skip)' : ''}');
     _fadeTimer?.cancel();
     _fading = false;
+    crossfadeEnd = null;
     final out = _deck, inc = _idle;
     // The old song fades from the moment of the skip, as the desktop's does,
     // while the next one loads; anything else gets a quick fade instead of
@@ -540,6 +545,7 @@ class Player extends ChangeNotifier {
     _pos = n;
     song = _at(n);
     position = 0;
+    crossfadeEnd = settings.crossfadeEnabled ? DateTime.now().add(Duration(milliseconds: (_overlap * 1000).round())) : null;
     log('crossfade to ${song?.title} over ${_overlap}s');
     _report('start', inc);
     _saveQueue();
@@ -578,6 +584,7 @@ class Player extends ChangeNotifier {
       if (x < 1) return;
       t.cancel();
       _fading = false;
+      crossfadeEnd = null;
       _unload(out);
     });
   }
@@ -684,6 +691,7 @@ class Player extends ChangeNotifier {
       // Pausing mid-fade: drop the outgoing track, keep the incoming at full.
       _fadeTimer?.cancel();
       _fading = false;
+      crossfadeEnd = null;
       _unload(_idle);
       _deck.gain = 1;
       await _applyVolume(_deck);
@@ -782,6 +790,7 @@ class Player extends ChangeNotifier {
   Future<void> stop() async {
     _fadeTimer?.cancel();
     _fading = false;
+    crossfadeEnd = null;
     for (final d in _decks) {
       if (d.song != null) _unload(d);
     }

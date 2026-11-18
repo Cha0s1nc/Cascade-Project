@@ -1,5 +1,6 @@
 // Tokens and the pieces both layouts share, matching the Figma draft
 // (https://www.figma.com/design/5jCQuhu85omAoJsBRC57rs).
+import 'dart:async';
 import 'dart:io';
 
 import 'dart:math';
@@ -440,6 +441,11 @@ class _ArtStackState extends State<ArtStack> with SingleTickerProviderStateMixin
   Song? _from;
   bool _back = false;
 
+  /// A crossfade is carrying this change: the cover goes halfway (both
+  /// showing), holds, and finishes as the crossfade ends.
+  bool _held = false;
+  Timer? _finish;
+
   static bool _same(Song a, Song b) => a.id.isNotEmpty ? a.id == b.id : a.title == b.title;
 
   @override
@@ -455,12 +461,29 @@ class _ArtStackState extends State<ArtStack> with SingleTickerProviderStateMixin
     _from = old.song;
     // Back: the song we left is next again.
     _back = widget.next.isNotEmpty && _same(widget.next.first, old.song) && !(old.next.isNotEmpty && _same(old.next.first, widget.song));
-    _c.duration = Duration(milliseconds: (s.coverAnimSeconds * 1000).round());
-    _c.forward(from: 0);
+    final full = Duration(milliseconds: (s.coverAnimSeconds * 1000).round());
+    _finish?.cancel();
+    final end = PlayerScope.read(context).crossfadeEnd;
+    final left = end?.difference(DateTime.now());
+    _held = !_back && left != null && left > const Duration(milliseconds: 300) && !calm(context);
+    if (!_held) {
+      _c.duration = full;
+      _c.forward(from: 0);
+      return;
+    }
+    // Each half takes half the animation, or half the crossfade if shorter;
+    // the second ends as the crossfade does.
+    final half = Duration(microseconds: min(full.inMicroseconds, left!.inMicroseconds) ~/ 2);
+    _c.value = 0;
+    _c.animateTo(0.5, duration: half);
+    _finish = Timer(left - half, () {
+      if (mounted) _c.animateTo(1, duration: half);
+    });
   }
 
   @override
   void dispose() {
+    _finish?.cancel();
     _c.dispose();
     super.dispose();
   }
@@ -540,19 +563,18 @@ class _ArtStackState extends State<ArtStack> with SingleTickerProviderStateMixin
           // in the first 60% of the time, while the next one springs up
           // from the first behind slot. Going back plays it in reverse.
           final p = _back ? 1 - t : t;
-          final k = Curves.easeInCubic.transform((p / 0.6).clamp(0.0, 1.0));
-          final up = p >= 1 ? 1.0 : 1 - exp(-7 * p) * cos(_tossBounce * 14 * p);
           final (gone, rising) = _back ? (widget.song, from) : (from, widget.song);
+          // Held through a crossfade: first the next cover comes up beside
+          // the playing one, both in full; then the toss, from there.
+          final peek = _held ? Curves.easeOutCubic.transform((p / 0.5).clamp(0.0, 1.0)) : 0.0;
+          final q = _held ? ((p - 0.5) / 0.5).clamp(0.0, 1.0) : p;
+          final k = Curves.easeInCubic.transform((q / 0.6).clamp(0.0, 1.0));
+          final up = q <= 0 ? 0.0 : (q >= 1 ? 1.0 : 1 - exp(-7 * q) * cos(_tossBounce * 14 * q));
+          // Where the rising cover starts the toss: its slot, or the peek.
+          final fromLeft = lerp(slotLeft(0), slotLeft(0) * 0.55, peek);
+          final fromScale = lerp(slotScale(0), 0.94, peek), fromOpacity = lerp(slotOpacity(0), 1, peek);
           children
-            ..add(
-              card(
-                rising,
-                left: lerp(slotLeft(0), 0, up),
-                scale: lerp(slotScale(0), 1, up),
-                opacity: lerp(slotOpacity(0), 1, up).clamp(0.0, 1.0),
-                shadow: true,
-              ),
-            )
+            ..add(card(rising, left: lerp(fromLeft, 0, up), scale: lerp(fromScale, 1, up), opacity: lerp(fromOpacity, 1, up).clamp(0.0, 1.0), shadow: true))
             ..add(card(gone, left: 0, scale: 1, opacity: 1 - k, dx: -size * _tossTravel * k, dy: size * 0.04 * k, turn: -_tossTilt * k, shadow: true));
       }
     }
