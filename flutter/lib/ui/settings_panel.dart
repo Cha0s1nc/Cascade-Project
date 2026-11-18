@@ -14,6 +14,7 @@ import 'package:cascade/core/library.dart';
 import 'package:cascade/core/log.dart';
 import 'package:cascade/core/playback.dart';
 import 'package:cascade/engine/player.dart';
+import 'package:cascade/ui/audio_calibration.dart';
 import 'package:cascade/ui/controls.dart';
 import 'package:cascade/ui/eq_editor.dart';
 import 'package:cascade/ui/pages/common.dart';
@@ -230,6 +231,19 @@ class _SettingsPanelState extends State<SettingsPanel> {
               if (d.name != 'auto') d.name: d.description.isEmpty ? d.name : d.description,
           },
           onChanged: s.setOutputDevice,
+        ),
+        SettingRow(
+          'Audio delay',
+          subtitle: s.audioDelay == 0
+              ? 'If lyrics run early or late, tap along to measure this device'
+              : 'Sound reaches you ${(s.audioDelay * 1000).round()} ms late on this device; lyrics allow for it',
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (s.audioDelay != 0) ...[Pill('Reset', primary: false, onTap: () => s.setAudioDelay(null)), const SizedBox(width: 8)],
+              Pill('Calibrate', primary: false, onTap: () => showAudioCalibration(context)),
+            ],
+          ),
         ),
         ToggleRow('Auto-mix', s.autoMix, s.setAutoMix, subtitle: 'When the queue runs out, keep going with similar songs'),
         SettingRow('Sleep timer', subtitle: sleepLabel(p) ?? 'Pause after a while, or at the end of the song', trailing: const SleepTimerButton()),

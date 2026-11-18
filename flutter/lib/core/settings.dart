@@ -124,6 +124,29 @@ class Settings extends ChangeNotifier {
   late bool autoSkipSegments = _p?.getBool('autoSkipSegments') ?? false;
   void setAutoSkipSegments(bool on) => _changed(_p?.setBool('autoSkipSegments', autoSkipSegments = on));
 
+  /// How late sound reaches this person on each output device (seconds),
+  /// beyond what mpv knows, from tap calibration. Lyrics subtract it.
+  late Map<String, double> audioDelays = () {
+    try {
+      final m = jsonDecode(_p?.getString('audioDelayByDevice') ?? '{}');
+      return {
+        for (final MapEntry(:key, :value) in (m as Map).entries)
+          if (value is num && value.abs() <= 1) '$key': value.toDouble(),
+      };
+    } catch (_) {
+      return <String, double>{};
+    }
+  }();
+
+  /// The delay for the output device in use now.
+  double get audioDelay => audioDelays[outputDeviceId] ?? 0;
+
+  /// Keep [seconds] for the device in use, or forget it with null.
+  void setAudioDelay(double? seconds) {
+    seconds == null ? audioDelays.remove(outputDeviceId) : audioDelays[outputDeviceId] = seconds;
+    _changed(_p?.setString('audioDelayByDevice', jsonEncode(audioDelays)));
+  }
+
   /// The lyric style knobs this person changed (the desktop's lyricStyle:
   /// only changes are stored; defaults come from tuning-defaults.json).
   late Map<String, double> lyricStyle = () {

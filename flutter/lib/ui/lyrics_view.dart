@@ -198,7 +198,10 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
     final lines = widget.lyrics.lines;
     if (!_synced || lines.isEmpty) return;
     final st = _st;
-    final now = ((_clock.now(widget.player.position, widget.player.playing, elapsed) - _s(st, 'lyricsDelay', -0.05)) * 1e7).round();
+    // What is heard: the player's clock, less the device's calibrated delay,
+    // then the tuned lead.
+    final heard = _clock.now(widget.player.position, widget.player.playing, elapsed) - widget.player.settings.audioDelay;
+    final now = ((heard - _s(st, 'lyricsDelay', -0.05)) * 1e7).round();
     final seeked = (now - _prevNow).abs() > 20000000;
     _prevNow = now;
     _now.value = now;
