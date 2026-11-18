@@ -56,6 +56,7 @@ void main() {
     expect((block - panel.center.dy).abs(), lessThan(8), reason: 'the current line and its background row sit mid-panel');
     expect(find.text('(ooh)'), findsOneWidget, reason: 'the current line opens its background vocals');
     expect(find.text('h'), findsOneWidget, reason: 'a held note is drawn letter by letter');
+    expect(find.byType(ShaderMask), findsOneWidget, reason: 'only the sheet\'s edge fade: a filling word paints its own gradient, no mask whose box clips its last letter');
 
     // The held line keeps its exact layout once it is no longer current, so
     // its wrap never changes as it fades.

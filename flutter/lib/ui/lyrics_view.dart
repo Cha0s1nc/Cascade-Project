@@ -792,6 +792,25 @@ Shader _fill(Rect r, double t, double fs, double unsung) {
   ).createShader(r);
 }
 
+/// Widths of measured words, for the fill's gradient. Kept small: only the
+/// lines on screen ask.
+final _widths = <(String, double, FontWeight?, double?), double>{};
+
+double _width(String text, TextStyle style) {
+  final key = (text, style.fontSize!, style.fontWeight, style.letterSpacing);
+  final known = _widths[key];
+  if (known != null) return known;
+  if (_widths.length > 400) _widths.clear();
+  return _widths[key] = (TextPainter(
+    text: TextSpan(text: text, style: style),
+    textDirection: TextDirection.ltr,
+  )..layout()).width;
+}
+
+/// [text] filled to [t]. The gradient is the glyphs' own paint, not a mask
+/// over the word's box: the tight letter spacing lets the last letter's ink
+/// run past that box, and a mask left that sliver plain white (the bright
+/// edge at the end of a filling word).
 Widget _filled(String text, TextStyle style, double t, double unsung) {
   if (t <= 0) {
     return Text(
@@ -800,10 +819,21 @@ Widget _filled(String text, TextStyle style, double t, double unsung) {
     );
   }
   if (t >= 1) return Text(text, style: style);
-  return ShaderMask(
-    blendMode: BlendMode.srcIn,
-    shaderCallback: (r) => _fill(r, t, style.fontSize!, unsung),
-    child: Text(text, style: style),
+  final fs = style.fontSize!;
+  final box = Rect.fromLTWH(0, 0, _width(text, style), fs * (style.height ?? 1.25));
+  return Text(
+    text,
+    style: TextStyle(
+      inherit: false,
+      fontFamily: style.fontFamily,
+      fontFamilyFallback: style.fontFamilyFallback,
+      fontSize: fs,
+      fontWeight: style.fontWeight,
+      letterSpacing: style.letterSpacing,
+      height: style.height,
+      shadows: style.shadows,
+      foreground: Paint()..shader = _fill(box, t, fs, unsung),
+    ),
   );
 }
 
