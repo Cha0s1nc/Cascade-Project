@@ -483,14 +483,17 @@ Future<void> showQuickConnectApprove(BuildContext context) => showDialog<void>(
   builder: (ctx) => AlertDialog(
     backgroundColor: K.panel,
     title: Text('Quick Connect', style: Txt.section()),
-    content: SizedBox(width: 560, child: QuickConnectApprove(lib: LibraryScope.read(context))),
+    content: SizedBox(width: 340, child: QuickConnectApprove(lib: LibraryScope.read(context), compact: true)),
     actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Done'))],
   ),
 );
 
 /// The six-digit code field that signs another device in as you.
 class QuickConnectApprove extends StatefulWidget {
-  const QuickConnectApprove({super.key, required this.lib});
+  const QuickConnectApprove({super.key, required this.lib, this.compact = false});
+
+  /// In its own small dialog: the words above the field, nothing stretched.
+  final bool compact;
   final Library lib;
 
   @override
@@ -533,12 +536,10 @@ class _QuickConnectApproveState extends State<QuickConnectApprove> {
   }
 
   @override
-  Widget build(BuildContext context) => SettingRow(
-    'Approve a device',
-    subtitle: _error ?? 'Type the six-digit code another device shows to sign it in as you',
-    error: _error != null,
-    trailing: SizedBox(
-      width: 260,
+  Widget build(BuildContext context) {
+    final words = _error ?? 'Type the six-digit code another device shows to sign it in as you';
+    final field = SizedBox(
+      width: widget.compact ? double.infinity : 260,
       child: Row(
         children: [
           Expanded(
@@ -549,6 +550,7 @@ class _QuickConnectApproveState extends State<QuickConnectApprove> {
                 keyboardType: TextInputType.number,
                 inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(6)],
                 onSubmitted: (_) => _approve(),
+                autofocus: widget.compact,
                 style: ts(14, w: FontWeight.w600, ls: 2, tab: true),
                 cursorColor: K.accent,
                 decoration: InputDecoration(
@@ -574,8 +576,21 @@ class _QuickConnectApproveState extends State<QuickConnectApprove> {
           Pill(_busy ? 'Approving' : 'Approve', primary: false, onTap: _ready ? _approve : null),
         ],
       ),
-    ),
-  );
+    );
+    if (!widget.compact) return SettingRow('Approve a device', subtitle: words, error: _error != null, trailing: field);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Semantics(
+          liveRegion: _error != null,
+          child: Text(words, style: ts(13, c: _error != null ? K.error : K.text2, h: 1.45)),
+        ),
+        const SizedBox(height: 14),
+        field,
+      ],
+    );
+  }
 }
 
 class _Btn extends StatelessWidget {
