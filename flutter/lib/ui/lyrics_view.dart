@@ -21,6 +21,7 @@ import 'dart:ui' show ImageFilter;
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show OverflowBoxFit;
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart' show rootBundle;
 
@@ -836,18 +837,34 @@ class _Word extends StatelessWidget {
         // Not reached: nothing on the lit layer, the same size.
         : t <= 0
         ? Opacity(opacity: 0, child: text)
-        // Filling: the solid word, shown up to the soft edge. Clipped to the
-        // word's box: the last letter's ink overhangs it, and a mask leaves
-        // what is outside its box untouched (that sliver showed full white).
-        : ClipRect(
-            child: ShaderMask(
-              blendMode: BlendMode.dstIn,
-              shaderCallback: (r) => _fillMask(r, _edge(r.width, t, style.fontSize!), style.fontSize!),
-              child: text,
-            ),
-          );
+        // Filling: the solid word, shown up to the soft edge.
+        : _masked(text, _width(word.text, style), _edge(_width(word.text, style), t, style.fontSize!), style.fontSize!);
     return Transform.translate(offset: Offset(0, -lift), child: drawn);
   }
+}
+
+/// [text] ([width] wide) shown up to a soft edge centered [mid] from its
+/// left. The mask reaches past the box by 0.15em each side: the tight letter
+/// spacing lets ink spill over it, and a mask leaves what is outside its box
+/// untouched (a bright sliver) while a clip cut it off and let it pop back
+/// once the fill was done (a flicker at each letter of a held note).
+Widget _masked(Widget text, double width, double mid, double fs) {
+  final pad = 0.15 * fs;
+  return SizedBox(
+    width: width,
+    child: OverflowBox(
+      fit: OverflowBoxFit.deferToChild,
+      maxWidth: width + 2 * pad,
+      child: ShaderMask(
+        blendMode: BlendMode.dstIn,
+        shaderCallback: (r) => _fillMask(r, mid + pad, fs),
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: pad),
+          child: text,
+        ),
+      ),
+    ),
+  );
 }
 
 /// Where the fill's soft edge (0.6em wide) is centered over text [width]
@@ -931,16 +948,10 @@ class _Held extends StatelessWidget {
                       )
                     : style;
                 final text = Text(letters[i], style: glow);
-                final Widget drawn = !top || now == null || edge - 0.3 * fs >= w
-                    ? text
-                    // Not reached: nothing on the lit layer, the same size.
-                    : edge + 0.3 * fs <= 0
-                    ? Opacity(opacity: 0, child: text)
-                    // Filling: clipped to the letter's box, since a mask leaves
-                    // the ink overhanging it untouched (full white).
-                    : ClipRect(
-                        child: ShaderMask(blendMode: BlendMode.dstIn, shaderCallback: (r) => _fillMask(r, edge, fs), child: text),
-                      );
+                // While the word fills, every letter goes through the one edge
+                // (not only the one filling), so a lit letter's ink spilling
+                // over the next is faded as that letter is: no sliver.
+                final Widget drawn = !top || now == null || prog >= 1 ? text : _masked(text, w, edge, fs);
                 return Transform.translate(
                   offset: Offset(0, -lift * fs * s),
                   child: Transform.scale(scale: 1 + (grow - 1) * s, child: drawn),

@@ -165,7 +165,7 @@ void main() {
     player.dispose();
   });
 
-  testWidgets('the current line draws solid text in layers: no see-through letters, word masks clipped', (tester) async {
+  testWidgets('the current line draws solid text in layers: no see-through letters, masks reaching past the word', (tester) async {
     SharedPreferences.setMockInitialValues({});
     addTearDown(tester.view.reset);
     tester.view.physicalSize = const Size(1200, 800);
@@ -192,10 +192,13 @@ void main() {
       expect(t.style?.color?.a ?? 1, 1, reason: '"${t.data}" is solid; its layer makes it dim');
     }
     for (final e in find.descendant(of: current, matching: find.byType(ShaderMask)).evaluate()) {
+      final mask = tester.getRect(find.byWidget(e.widget));
+      final word = tester.getRect(find.descendant(of: find.byWidget(e.widget), matching: find.byType(Text)));
+      expect(mask.left < word.left && mask.right > word.right, isTrue, reason: 'the mask reaches past the word, over ink spilling out of its box');
       expect(
         find.ancestor(of: find.byWidget(e.widget), matching: find.byType(ClipRect)),
-        findsWidgets,
-        reason: 'a word mask is clipped to the word',
+        findsNothing,
+        reason: 'not clipped: that cut the spill, then let it pop back',
       );
     }
     expect(
