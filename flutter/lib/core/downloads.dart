@@ -153,6 +153,8 @@ class Downloads extends ChangeNotifier {
         var got = 0;
         final sink = part.openWrite();
         await for (final chunk in res.stream) {
+          // Cancelled or removed while it came in: stop the transfer.
+          if (!index.tracks.containsKey(id)) break;
           sink.add(chunk);
           got += chunk.length;
           if (total > 0) {
@@ -161,6 +163,10 @@ class Downloads extends ChangeNotifier {
           }
         }
         await sink.close();
+        if (!index.tracks.containsKey(id)) {
+          if (part.existsSync()) part.deleteSync();
+          continue;
+        }
         await part.rename('${_dir.path}/$name');
         markReady(index, id, name, got, DateTime.now());
         await _art(jf, item['AlbumId'] as String? ?? id, item['AlbumPrimaryImageTag'] as String? ?? (item['ImageTags'] as Map?)?['Primary'] as String?);
@@ -193,14 +199,34 @@ class Downloads extends ChangeNotifier {
   }
 
   /// Remove songs (from every collection holding them), or whole collections.
+  /// One still coming in stops (the loop sees it gone).
   Future<void> remove(Iterable<String> ids) async {
     final list = ids.toList();
-    final gone = [
+    await _drop([
       ...removeTracks(index, list),
       for (final id in list)
         if (collectionOf(index, id) != null) ...removeCollection(index, id),
-    ];
-    for (final f in gone) {
+    ]);
+  }
+
+  /// Remove downloads as they were made (an album, a playlist, a song on its
+  /// own), keeping files another download still holds: removing an album
+  /// leaves its songs in a downloaded playlist. Ids that are not a download
+  /// are skipped. One still coming in stops.
+  Future<void> removeCollections(Iterable<String> ids) async => _drop([
+    for (final id in ids)
+      if (collectionOf(index, id) != null) ...removeCollection(index, id),
+  ]);
+
+  /// Stop everything still to come in; what has landed stays.
+  Future<void> cancelAll() => remove(pendingTrackIds(index));
+
+  /// Whether [collectionId] (an album, a playlist, a song on its own) is a
+  /// download, and if so whether it is all here.
+  ({int done, int total})? downloadOf(String collectionId) => collectionOf(index, collectionId) == null ? null : collectionProgress(index, collectionId);
+
+  Future<void> _drop(List<String> files) async {
+    for (final f in files) {
       final file = File('${_dir.path}/$f');
       if (file.existsSync()) file.deleteSync();
     }

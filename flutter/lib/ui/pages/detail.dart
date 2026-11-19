@@ -133,6 +133,34 @@ class DetailHeader extends StatelessWidget {
 
 /// A round button in the header row: like, download, more. The desktop's
 /// glass button, its name sliding out on hover.
+/// An album's or playlist's download button: Download; while it comes in,
+/// one that cancels it; once here, Downloaded, which removes it (asking
+/// first). Removing keeps songs another download still holds.
+class DownloadButton extends StatelessWidget {
+  const DownloadButton(this.songs, this.collectionId, this.title, {super.key});
+  final List<Song> songs;
+  final String collectionId, title;
+
+  @override
+  Widget build(BuildContext context) {
+    final d = DownloadsScope.of(context);
+    final mine = d.downloadOf(collectionId);
+    if (mine != null && mine.done < mine.total) {
+      return RoundBtn(Icons.close_rounded, 'Cancel the download (${mine.done} of ${mine.total} here)', () => d.removeCollections([collectionId]));
+    }
+    if (songs.isNotEmpty && songs.every((s) => d.has(s.id))) {
+      return RoundBtn(Icons.download_done_rounded, 'Downloaded: remove the download', () async {
+        if (!await confirm(context, 'Remove the download?', '$title will no longer play without the server. It stays on the server.', 'Remove')) return;
+        // This download, and any of its songs downloaded on their own.
+        await d.removeCollections([collectionId, for (final s in songs) s.id]);
+        if (context.mounted && songs.any((s) => d.has(s.id))) toast(context, 'Some of these songs stay: another download holds them');
+      });
+    }
+    if (!LibraryScope.of(context).mayDownload) return const SizedBox.shrink();
+    return RoundBtn(Icons.download_outlined, 'Download', () => download(context, songs, collectionId: collectionId));
+  }
+}
+
 class RoundBtn extends StatelessWidget {
   const RoundBtn(this.icon, this.tip, this.onTap, {super.key, this.color});
   final IconData icon;
@@ -249,12 +277,7 @@ class _AlbumPageState extends State<AlbumPage> {
               actions: [
                 ...playButtons(context, songs, album.title),
                 likeBtn(context, album.id, album.favorite),
-                if (LibraryScope.of(context).mayDownload && !LibraryScope.of(context).demo)
-                  RoundBtn(
-                    songs.every((s) => DownloadsScope.of(context).has(s.id)) ? Icons.download_done_rounded : Icons.download_outlined,
-                    songs.every((s) => DownloadsScope.of(context).has(s.id)) ? 'Downloaded' : 'Download',
-                    () => download(context, songs, collectionId: album.id),
-                  ),
+                if (!LibraryScope.of(context).demo) DownloadButton(songs, album.id, album.title),
                 // Go to artist is in More, and the artist's name links there.
                 Builder(
                   builder: (c) => RoundBtn(
@@ -530,7 +553,7 @@ class _PlaylistPageState extends State<PlaylistPage> {
               actions: [
                 ...playButtons(context, songs, pl.title),
                 likeBtn(context, pl.id, pl.favorite),
-                if (lib.mayDownload && !lib.demo) RoundBtn(Icons.download_outlined, 'Download', () => download(context, songs, collectionId: pl.id)),
+                if (!lib.demo) DownloadButton(songs, pl.id, pl.title),
                 Builder(
                   builder: (c) => RoundBtn(
                     Icons.more_horiz_rounded,

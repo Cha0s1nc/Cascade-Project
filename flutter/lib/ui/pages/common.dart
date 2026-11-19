@@ -862,7 +862,12 @@ void songMenu(
     if (!lib.demo) ...[
       (fav ? 'Unlike' : 'Like', fav ? Icons.favorite_rounded : Icons.favorite_border_rounded, () => lib.toggleFavorite(song.id, song.favorite)),
       if (!lib.offline) ('Instant mix', Icons.auto_awesome_outlined, () async => p.play(song, [song, ...await lib.instantMix(song.id)], 'Instant mix')),
-      if (lib.mayDownload && !DownloadsScope.read(context).has(song.id)) ('Download', Icons.download_outlined, () => download(context, [song])),
+      if (DownloadsScope.read(context).has(song.id))
+        ('Remove download', Icons.download_done_rounded, () => DownloadsScope.read(context).remove([song.id]))
+      else if (DownloadsScope.read(context).waiting(song.id))
+        ('Cancel download', Icons.close_rounded, () => DownloadsScope.read(context).remove([song.id]))
+      else if (lib.mayDownload)
+        ('Download', Icons.download_outlined, () => download(context, [song])),
     ],
     if (playlistId != null && song.playlistItemId != null) ...[null, ('Remove from playlist', Icons.remove_circle_outline_rounded, () => onRemoved?.call())],
     if (lib.canDelete) ...[
@@ -907,7 +912,11 @@ void albumMenu(BuildContext context, Album a, Offset at) {
     if (!lib.demo) ...[
       (fav ? 'Unlike' : 'Like', fav ? Icons.favorite_rounded : Icons.favorite_border_rounded, () => lib.toggleFavorite(a.id, a.favorite)),
       if (!a.playlist) ('Instant mix', Icons.auto_awesome_outlined, () async => playAll(p, await lib.instantMix(a.id), 'Instant mix')),
-      if (lib.mayDownload)
+      if (DownloadsScope.read(context).downloadOf(a.id) case final mine?)
+        mine.done < mine.total
+            ? ('Cancel download', Icons.close_rounded, () => DownloadsScope.read(context).removeCollections([a.id]))
+            : ('Remove download', Icons.download_done_rounded, () => DownloadsScope.read(context).removeCollections([a.id]))
+      else if (lib.mayDownload)
         (
           'Download',
           Icons.download_outlined,

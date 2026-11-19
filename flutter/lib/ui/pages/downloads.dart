@@ -70,7 +70,20 @@ class DownloadsPage extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Downloading, ${pendingTrackIds(d.index).length} left', style: ts(13, w: FontWeight.w600)),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Downloading ${d.index.tracks[d.current]?.item['Name'] ?? ''}, ${pendingTrackIds(d.index).length} left',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: ts(13, w: FontWeight.w600),
+                        ),
+                      ),
+                      // Stops everything still to come; what has landed stays.
+                      Pill('Cancel', primary: false, onTap: d.cancelAll),
+                    ],
+                  ),
                   const SizedBox(height: 8),
                   LinearProgressIndicator(value: d.progress, color: K.accent, backgroundColor: K.line, minHeight: 3),
                 ],
