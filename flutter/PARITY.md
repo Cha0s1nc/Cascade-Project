@@ -1,6 +1,6 @@
 # Flutter parity
 
-One line per feature in `docs/flutter-plan.md`. Status: built / partial / not built. "Built" means the code exists and `flutter analyze` and `flutter test` pass; notes after the dash say what was seen running and where (W: Windows VM, L: Linux VM, A: the Fire HD 8). Last checked against the code on 2026-11-17 (219ba5e).
+One line per feature in `docs/flutter-plan.md`. Status: built / partial / not built. "Built" means the code exists and `flutter analyze` and `flutter test` pass; notes after the dash say what was seen running and where (W: Windows VM, L: Linux VM, A: the Fire HD 8). Last checked against the code on 2026-11-18 (84b56dc).
 
 ## Phase 0: foundation
 
@@ -81,13 +81,13 @@ One line per feature in `docs/flutter-plan.md`. Status: built / partial / not bu
 
 ## Phase 5: video
 
-- Video player with Cascade's controls: built (seen on W: resume, subtitles, chapter marks, Esc; reports stayed off) - media_kit video, direct play only (no transcode fallback yet: a converted stream cannot be seeked, so seeks would restart it at an offset that position, chapters, Skip Intro and reports all have to follow; needs testing against the server), resume, reports, the desktop's keys, full screen
+- Video player with Cascade's controls: built (seen on W: resume, subtitles, chapter marks, Esc; reports stayed off) - lives in the app's overlay; Back or Esc shrinks it to a corner window (play or pause, expand, stop) instead of stopping it, not yet seen running; media_kit video, direct play only (no transcode fallback yet: a converted stream cannot be seeked, so seeks would restart it at an offset that position, chapters, Skip Intro and reports all have to follow; needs testing against the server), resume, reports, the desktop's keys, full screen
 - Audio and subtitle pickers, chapters, trickplay: partial - the file's own audio and subtitle tracks, chapter marks and a chapters menu (Ctrl+arrows too), volume with mute, speed 0.5x to 2x (< and >), the time and chapter under the pointer above the seek bar, previous and next episode, time left on click; narrow windows keep the essentials. Not yet seen running. External subtitle files and trickplay thumbnails not yet
 - Skip Intro, resume, next episode: built - from /MediaSegments, with the auto-skip setting; next episode on outro, near the end and at the end
 
 ## Phase 6: offline and Local mode
 
-- Downloads and the download manager: built - kept as the desktop's offline catalog (collections, each item's library from its ancestors, covers, the user); original files, one at a time; seen on L; video downloads and stored lyrics not yet
+- Downloads and the download manager: built - the sidebar's Downloads row switches Offline Mode and each section shows a mark while its downloads come in and once they are here; the downloads page opens from Settings > Offline > Manage; kept as the desktop's offline catalog (collections, each item's library from its ancestors, covers, the user); original files, one at a time; seen on L; video downloads and stored lyrics not yet
 - Offline Mode (four phases): partial - manual switch (offlineMode key) and the unreachable fallback with a backoff probe; the library is answered from the catalog by the shared query engine; likes queue and sync back with the per-item rule, plays queue and replay only when the history snapshot still matches; server-only features hidden. Seen on L: manual on, Home and album from the catalog, playing the file, a like queued then sent when switched off, and the fallback with the server unreachable. Not yet: offline lyrics, video, resume positions, the held-plays prompt, the storage limit
 - Local mode: not built
 
@@ -104,9 +104,18 @@ Not phase items in the plan, but built since and worth tracking.
 - Sign in with a password: built - beside Quick Connect on the sign-in screen; only the token is kept (tested with a stubbed server, not yet tried on one). Quick Connect approval also sits in the title bar
 - Desktop-style dropdowns and no ink ripple: built - one SelectBox everywhere
 - Movie and show posters: built - hover shows Play or Resume and More; More and right click open Play, Play from the start, Mark played, Like, Go to details
-- Lyrics: built - the waiting dots in long instrumental breaks (6 s or more, needs a known line end), lyrics roll the way the cover goes on a skip, a steadier lyrics clock (no leap on resume, no running ahead in a stall, no twitch per update), and tap calibration of each output device's audio delay (Settings > Playback > Audio delay). Not yet tried by ear
-- Crossfade and the cover: built - the cover change holds halfway through a crossfade (both covers showing) and finishes as it ends
+- Lyrics: built - the waiting dots in long instrumental breaks (6 s or more, needs a known line end), lyrics roll the way the cover goes on a skip, a steadier lyrics clock (no leap on resume, steered through uneven position updates with no freeze, lurch or step back; the flash on held notes seen on CachyOS), held notes filling with one soft edge across the word and no seams or sliver at letter edges, the SpicyLyrics credit always shown under the lyrics (names only, no links yet), font weight and letter spacing knobs in the Style menu, and tap calibration of each output device's audio delay (Settings > Playback > Audio delay). Not yet tried by ear
+- Crossfade and the cover: built - the cover toss holds partway through a crossfade (the next cover's corner showing behind the old one) and finishes as it ends; a pause holds the crossfade, both songs and the cover, until play
 - Speed: built - library grids sort once per list and choice, saved lists decode off the UI thread, small covers decode at their size
+
+## Differences from the desktop app, on purpose
+
+Kept apart from the parity lines above, so 3.0's parity check does not count them as gaps.
+
+- The sidebar's Downloads row switches Offline Mode; the desktop's opens the downloads page (here in Settings > Offline > Manage)
+- Back from a video keeps it playing in a corner window; the desktop's stops it
+- A pause during a crossfade holds it; the desktop's drops the outgoing song
+- Volume sliders show their level in a bubble while dragged, with no number beside them
 
 ## Phase 7: release
 
