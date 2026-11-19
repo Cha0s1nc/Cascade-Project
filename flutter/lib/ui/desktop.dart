@@ -879,7 +879,7 @@ class PlayerBar extends StatelessWidget {
                   const DevicesButton(),
                   const SleepTimerButton(),
                   Container(width: 1, height: 18, margin: const EdgeInsets.symmetric(horizontal: 8), color: K.line),
-                  VolumeControl(p: p, tight: tight),
+                  VolumeControl(p: p),
                 ],
               ),
             ),
@@ -989,11 +989,8 @@ class SeekBar extends StatelessWidget {
 }
 
 class VolumeControl extends StatelessWidget {
-  const VolumeControl({super.key, required this.p, this.tight = false});
+  const VolumeControl({super.key, required this.p});
   final Player p;
-
-  /// A narrow window: a shorter slider, so the percentage still fits.
-  final bool tight;
 
   @override
   Widget build(BuildContext context) => Row(
@@ -1005,16 +1002,8 @@ class VolumeControl extends StatelessWidget {
         () => p.setVolume(p.volume == 0 ? 0.7 : 0),
       ),
       SizedBox(
-        width: tight ? 64 : 96,
+        width: 96,
         child: ThinBar(value: p.volume, onChanged: p.setVolume, color: K.text2, label: volumeLabel),
-      ),
-      SizedBox(
-        width: tight ? 34 : 38,
-        child: Text(
-          '${(p.volume * 100).round()}%',
-          textAlign: TextAlign.right,
-          style: ts(11, c: K.text3, tab: true),
-        ),
       ),
     ],
   );

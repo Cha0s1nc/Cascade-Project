@@ -627,14 +627,6 @@ class _UnderControls extends StatelessWidget {
               width: 110,
               child: ThinBar(value: p.volume, onChanged: p.setVolume, color: K.text2, label: volumeLabel),
             ),
-            SizedBox(
-              width: 38,
-              child: Text(
-                '${(p.volume * 100).round()}%',
-                textAlign: TextAlign.right,
-                style: ts(11, c: K.text3, tab: true),
-              ),
-            ),
           ],
         ),
       ],

@@ -472,10 +472,6 @@ class _VideoScreenState extends State<VideoScreen> {
                         width: 90,
                         child: ThinBar(value: _volume / 100, onChanged: (v) => _p.setVolume(v * 100), color: Colors.white70, label: volumeLabel),
                       ),
-                      SizedBox(
-                        width: 40,
-                        child: Text('${_volume.round()}%', style: ts(11, c: Colors.white70, tab: true)),
-                      ),
                     ],
                     const SizedBox(width: 8),
                     // Click to switch between time gone and time left.
