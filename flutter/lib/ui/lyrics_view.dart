@@ -779,16 +779,9 @@ class _Karaoke extends StatelessWidget {
             children: [
               Opacity(
                 opacity: unsung,
-                child: line(
-                  (p) => p.$2
-                      ? Opacity(
-                          opacity: 0,
-                          child: _Held(word: p.$1, style: style, st: st),
-                        )
-                      : _Word(word: p.$1, style: style, now: n, st: st),
-                ),
+                child: line((p) => p.$2 ? _Held(word: p.$1, style: style, now: n, st: st) : _Word(word: p.$1, style: style, now: n, st: st)),
               ),
-              line((p) => p.$2 ? _Held(word: p.$1, style: style, now: n, st: st, lit: lit) : _Word(word: p.$1, style: style, now: n, st: st, top: true)),
+              line((p) => p.$2 ? _Held(word: p.$1, style: style, now: n, st: st, top: true) : _Word(word: p.$1, style: style, now: n, st: st, top: true)),
             ],
           ),
         );
@@ -805,23 +798,6 @@ double _progress(LyricWord w, int now) {
   return (now - w.start) / max(1, end - w.start);
 }
 
-/// The fill's gradient over a box [width] wide in text [fs] tall: white to
-/// the unsung dim with a 0.6em soft edge, its middle sliding from 0.3em
-/// before the start to 0.3em past the end as [t] goes 0 to 1.
-Shader _fill(Rect r, double t, double fs, double unsung) {
-  final mid = t * r.width + (t * 0.6 - 0.3) * fs;
-  final a = ((mid - 0.3 * fs) / r.width).clamp(0.0, 1.0), b = ((mid + 0.3 * fs) / r.width).clamp(0.0, 1.0);
-  return LinearGradient(
-    colors: [
-      K.lyric,
-      K.lyric,
-      K.lyric.withValues(alpha: unsung),
-      K.lyric.withValues(alpha: unsung),
-    ],
-    stops: [0, a, max(a, b), 1],
-  ).createShader(r);
-}
-
 /// Widths of measured words, for the fill's gradient. Kept small: only the
 /// lines on screen ask.
 final _widths = <(String, double, FontWeight?, double?), double>{};
@@ -835,36 +811,6 @@ double _width(String text, TextStyle style) {
     text: TextSpan(text: text, style: style),
     textDirection: TextDirection.ltr,
   )..layout()).width;
-}
-
-/// [text] filled to [t]. The gradient is the glyphs' own paint, not a mask
-/// over the word's box: the tight letter spacing lets the last letter's ink
-/// run past that box, and a mask left that sliver plain white (the bright
-/// edge at the end of a filling word).
-Widget _filled(String text, TextStyle style, double t, double unsung) {
-  if (t <= 0) {
-    return Text(
-      text,
-      style: style.copyWith(color: K.lyric.withValues(alpha: unsung)),
-    );
-  }
-  if (t >= 1) return Text(text, style: style);
-  final fs = style.fontSize!;
-  final box = Rect.fromLTWH(0, 0, _width(text, style), fs * (style.height ?? 1.25));
-  return Text(
-    text,
-    style: TextStyle(
-      inherit: false,
-      fontFamily: style.fontFamily,
-      fontFamilyFallback: style.fontFamilyFallback,
-      fontSize: fs,
-      fontWeight: style.fontWeight,
-      letterSpacing: style.letterSpacing,
-      height: style.height,
-      shadows: style.shadows,
-      foreground: Paint()..shader = _fill(box, t, fs, unsung),
-    ),
-  );
 }
 
 /// One word of the current line: filling, and lifted a little once reached.
@@ -894,27 +840,58 @@ class _Word extends StatelessWidget {
         // word's box: the last letter's ink overhangs it, and a mask leaves
         // what is outside its box untouched (that sliver showed full white).
         : ClipRect(
-            child: ShaderMask(blendMode: BlendMode.dstIn, shaderCallback: (r) => _fillMask(r, t, style.fontSize!), child: text),
+            child: ShaderMask(
+              blendMode: BlendMode.dstIn,
+              shaderCallback: (r) => _fillMask(r, _edge(r.width, t, style.fontSize!), style.fontSize!),
+              child: text,
+            ),
           );
     return Transform.translate(offset: Offset(0, -lift), child: drawn);
   }
 }
 
-/// The lit layer's mask over a filling word: solid up to the soft edge, then
-/// clear, the edge sliding as _fill's does.
-Shader _fillMask(Rect r, double t, double fs) {
-  final mid = t * r.width + (t * 0.6 - 0.3) * fs;
-  final a = ((mid - 0.3 * fs) / r.width).clamp(0.0, 1.0), b = ((mid + 0.3 * fs) / r.width).clamp(0.0, 1.0);
-  return LinearGradient(colors: const [Colors.white, Colors.white, Color(0x00FFFFFF), Color(0x00FFFFFF)], stops: [0, a, max(a, b), 1]).createShader(r);
+/// Where the fill's soft edge (0.6em wide) is centered over text [width]
+/// wide at [t]: from 0.3em before its start to 0.3em past its end.
+double _edge(double width, double t, double fs) => t * width + (t * 0.6 - 0.3) * fs;
+
+/// The lit layer's mask over a filling word or letter: solid up to the soft
+/// edge centered [mid] from the box's left, then clear.
+Shader _fillMask(Rect r, double mid, double fs) =>
+    // Over the edge itself, clamped either side: a fade squeezed into the box
+    // ran short where the edge straddles two letters of a held note (a step
+    // at each letter).
+    const LinearGradient(colors: [Colors.white, Color(0x00FFFFFF)]).createShader(Rect.fromLTWH(r.left + mid - 0.3 * fs, r.top, 0.6 * fs, r.height));
+
+/// A held note's fill across its letters ([widths]) at [prog]: one soft
+/// edge sliding over the whole word as a plain word's does, at an even pace
+/// by width. Gives each letter's edge from its own left, and the progress at
+/// which the edge starts lighting it. Each letter used to take an equal
+/// share of the time and run its own edge across its width plus the 0.6em
+/// edge, so the fill ran ahead and snapped back at every letter (chunky).
+@visibleForTesting
+List<({double edge, double litAt})> heldFill(List<double> widths, double prog, double fs) {
+  final total = widths.fold(0.0, (a, b) => a + b);
+  final mid = _edge(total, prog, fs);
+  final out = <({double edge, double litAt})>[];
+  var x = 0.0;
+  for (final w in widths) {
+    out.add((edge: mid - x, litAt: x / (total + 0.6 * fs)));
+    x += w;
+  }
+  return out;
 }
 
-/// A held note (SpicyLyrics): each letter takes its share of the fill and
-/// swells, rises and glows from when the fill reaches it, by heldSwell.
+/// A held note (SpicyLyrics): one fill edge across the word (heldFill), and
+/// each letter swells, rises and glows from when that edge reaches it, by
+/// heldSwell. Drawn in the current line's two layers as a plain word is: the
+/// dim base the whole word solid, the lit layer ([top]) each letter shown up
+/// to the edge, so see-through letters never overlap (seams) and the edge is
+/// in each letter's own box.
 class _Held extends StatelessWidget {
-  const _Held({required this.word, required this.style, this.now, required this.st, this.lit = 1});
+  const _Held({required this.word, required this.style, this.now, required this.st, this.top = false});
   final LyricWord word;
   final TextStyle style;
-  final double lit;
+  final bool top;
 
   /// Null when its line is not current: drawn plain, at the same size.
   final int? now;
@@ -930,7 +907,7 @@ class _Held extends StatelessWidget {
     final held = max(0.0, (word.end ?? word.start) / 1e7 - start);
     final t = (now ?? 0) / 1e7;
     final fs = style.fontSize!;
-    final unsung = 1 - (1 - _s(st, 'unsungOpacity', 0.29)) * lit;
+    final fill = heldFill([for (final l in letters) _width(l, style)], prog, fs);
     final lift = _s(st, 'heldLift', 0.16), grow = _s(st, 'heldScale', 1.19);
     final swellStyle = {'heldFullSeconds': 1.4, 'heldMinStrength': 0.45, 'heldSettleSeconds': 0.4, ...styleDesktop, ...st};
     return Padding(
@@ -941,10 +918,9 @@ class _Held extends StatelessWidget {
           for (var i = 0; i < n; i++)
             Builder(
               builder: (_) {
-                final share = (prog * n - i).clamp(0.0, 1.0);
-                final litAt = start + held * i / n;
-                final s = now == null || calm(context) ? 0.0 : heldSwell(t - litAt, start + held - litAt, held, swellStyle);
-                final glow = s > 0.01
+                final s = now == null || calm(context) ? 0.0 : heldSwell(t - start - held * fill[i].litAt, held * (1 - fill[i].litAt), held, swellStyle);
+                final edge = fill[i].edge, w = _width(letters[i], style);
+                final glow = top && s > 0.01
                     ? style.copyWith(
                         shadows: [
                           Shadow(
@@ -954,9 +930,20 @@ class _Held extends StatelessWidget {
                         ],
                       )
                     : style;
+                final text = Text(letters[i], style: glow);
+                final Widget drawn = !top || now == null || edge - 0.3 * fs >= w
+                    ? text
+                    // Not reached: nothing on the lit layer, the same size.
+                    : edge + 0.3 * fs <= 0
+                    ? Opacity(opacity: 0, child: text)
+                    // Filling: clipped to the letter's box, since a mask leaves
+                    // the ink overhanging it untouched (full white).
+                    : ClipRect(
+                        child: ShaderMask(blendMode: BlendMode.dstIn, shaderCallback: (r) => _fillMask(r, edge, fs), child: text),
+                      );
                 return Transform.translate(
                   offset: Offset(0, -lift * fs * s),
-                  child: Transform.scale(scale: 1 + (grow - 1) * s, child: _filled(letters[i], glow, share, unsung)),
+                  child: Transform.scale(scale: 1 + (grow - 1) * s, child: drawn),
                 );
               },
             ),

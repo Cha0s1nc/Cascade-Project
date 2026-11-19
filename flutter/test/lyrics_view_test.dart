@@ -137,11 +137,16 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Center(
-          child: SizedBox(width: 800, height: 600, child: LyricsView(player: player, lyrics: lyrics)),
+          child: SizedBox(
+            width: 800,
+            height: 600,
+            child: LyricsView(player: player, lyrics: lyrics),
+          ),
         ),
       ),
     );
-    Finder dots() => find.byWidgetPredicate((w) => w is Container && w.decoration is BoxDecoration && (w.decoration! as BoxDecoration).shape == BoxShape.circle);
+    Finder dots() =>
+        find.byWidgetPredicate((w) => w is Container && w.decoration is BoxDecoration && (w.decoration! as BoxDecoration).shape == BoxShape.circle);
 
     player.position = 2;
     await frames(tester, 30);
@@ -166,11 +171,17 @@ void main() {
     tester.view.physicalSize = const Size(1200, 800);
     tester.view.devicePixelRatio = 1;
     final player = Player(audio: false)..playing = false;
-    final lines = [for (var i = 0; i < 4; i++) karaoke(i * 3.0, ['What\'s ', 'wrong ', 'with ', 'me?'])];
+    final lines = [
+      for (var i = 0; i < 4; i++) karaoke(i * 3.0, ['What\'s ', 'wrong ', 'with ', 'me?']),
+    ];
     await tester.pumpWidget(
       MaterialApp(
         home: Center(
-          child: SizedBox(width: 800, height: 600, child: LyricsView(player: player, lyrics: Lyrics(lines, 'Kugou'))),
+          child: SizedBox(
+            width: 800,
+            height: 600,
+            child: LyricsView(player: player, lyrics: Lyrics(lines, 'Kugou')),
+          ),
         ),
       ),
     );
@@ -181,10 +192,47 @@ void main() {
       expect(t.style?.color?.a ?? 1, 1, reason: '"${t.data}" is solid; its layer makes it dim');
     }
     for (final e in find.descendant(of: current, matching: find.byType(ShaderMask)).evaluate()) {
-      expect(find.ancestor(of: find.byWidget(e.widget), matching: find.byType(ClipRect)), findsWidgets, reason: 'a word mask is clipped to the word');
+      expect(
+        find.ancestor(of: find.byWidget(e.widget), matching: find.byType(ClipRect)),
+        findsWidgets,
+        reason: 'a word mask is clipped to the word',
+      );
     }
-    expect(find.descendant(of: current, matching: find.byType(ShaderMask)), findsOneWidget, reason: 'the word filling now');
+    expect(
+      find.descendant(of: current, matching: find.byType(ShaderMask)),
+      findsOneWidget,
+      reason: 'the word filling now',
+    );
     await tester.pumpWidget(const SizedBox());
     player.dispose();
+  });
+
+  test('a held note fills with one edge sliding evenly over its letters, by width', () {
+    const widths = [10.0, 30.0, 5.0, 20.0], fs = 40.0;
+    double front(double prog) {
+      final f = heldFill(widths, prog, fs);
+      // The edge in word space is the same from every letter: one edge.
+      var x = 0.0;
+      final at = <double>[];
+      for (var i = 0; i < widths.length; i++) {
+        at.add(f[i].edge + x);
+        x += widths[i];
+      }
+      for (final a in at) {
+        expect(a, closeTo(at.first, 1e-9));
+      }
+      return at.first;
+    }
+
+    // It moves at an even pace, from before the word to past it.
+    final steps = [for (var i = 0; i <= 10; i++) front(i / 10)];
+    for (var i = 1; i < steps.length; i++) {
+      expect(steps[i] - steps[i - 1], closeTo(steps[1] - steps[0], 1e-9));
+    }
+    expect(steps.first, lessThan(0));
+    expect(steps.last, greaterThan(65));
+    // A wide letter is reached later than a narrow one before it by its width, not by its count.
+    final lit = heldFill(widths, 0, fs).map((f) => f.litAt).toList();
+    expect(lit[2] - lit[1], greaterThan((lit[3] - lit[2]) * 5));
   });
 }
