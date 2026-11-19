@@ -136,6 +136,7 @@ class MenuButton<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => PopupMenuButton<T>(
+    popUpAnimationStyle: Motion.menu,
     tooltip: '',
     position: PopupMenuPosition.under,
     onSelected: onSelected,

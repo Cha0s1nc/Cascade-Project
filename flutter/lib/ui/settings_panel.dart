@@ -619,6 +619,7 @@ class SleepTimerButton extends StatelessWidget {
     final p = PlayerScope.of(context);
     final on = p.sleepAt != null || p.sleepAtTrackEnd;
     return PopupMenuButton<int>(
+      popUpAnimationStyle: Motion.menu,
       tooltip: 'Sleep timer',
       padding: const EdgeInsets.all(6),
       constraints: const BoxConstraints(),

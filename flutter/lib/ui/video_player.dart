@@ -540,6 +540,7 @@ class _VideoScreenState extends State<VideoScreen> {
   Widget _trackMenu<T>(IconData icon, String tip, List<T> tracks, T current, String Function(T) label, Future<void> Function(T) pick) => tracks.isEmpty
       ? const SizedBox.shrink()
       : PopupMenuButton<T>(
+          popUpAnimationStyle: Motion.menu,
           tooltip: tip,
           icon: Icon(icon, color: Colors.white, size: 22),
           onSelected: pick,

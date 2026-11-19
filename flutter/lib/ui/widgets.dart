@@ -211,6 +211,10 @@ abstract final class Motion {
   static const base = Duration(milliseconds: 200);
   static const slow = Duration(milliseconds: 320);
   static const long = Duration(milliseconds: 450);
+
+  /// Every dropdown and popup menu: quicker than Material's 300 ms, whose
+  /// items also fade in one after another, which read as slow.
+  static const menu = AnimationStyle(duration: Duration(milliseconds: 130), reverseDuration: Duration(milliseconds: 90));
 }
 
 /// Motion kept to fades and cuts: the system's reduce motion setting, unless

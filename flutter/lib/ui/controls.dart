@@ -324,6 +324,7 @@ class SelectBox<T> extends StatelessWidget {
       style: ts(bare ? 13 : 12, c: on ? K.text : K.text3),
     );
     return PopupMenuButton<T>(
+      popUpAnimationStyle: Motion.menu,
       tooltip: '',
       enabled: on,
       position: PopupMenuPosition.under,

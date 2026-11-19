@@ -848,6 +848,7 @@ class _LyricsPanelState extends State<LyricsPanel> {
   );
 
   Widget _sourcePill(BuildContext context, Lyrics? l) => PopupMenuButton<String>(
+    popUpAnimationStyle: Motion.menu,
     tooltip: 'Lyrics source',
     onSelected: (v) => _force(v == 'auto' ? null : v),
     itemBuilder: (_) => [
