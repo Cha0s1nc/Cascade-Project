@@ -530,8 +530,8 @@ class _ArtStackState extends State<ArtStack> with SingleTickerProviderStateMixin
   @override
   Widget build(BuildContext context) {
     final settings = PlayerScope.read(context).settings;
-    final behind = settings.showArtStack ? widget.next.take(2).toList() : const <Song>[];
-    final size = widget.size, step = size * 0.14;
+    final behind = settings.showArtStack ? widget.next.take(3).toList() : const <Song>[];
+    final size = widget.size, peek = size * 0.07;
     final t = _c.value;
     final from = t < 1 ? _from : null;
     // Reduce motion: the covers crossfade, nothing flies.
@@ -566,10 +566,13 @@ class _ArtStackState extends State<ArtStack> with SingleTickerProviderStateMixin
       ),
     );
 
-    // The behind slots: i = 0 is the first one back.
-    double slotLeft(int i) => step * (i + 1);
-    double slotScale(int i) => 0.86 - i * 0.08;
-    double slotOpacity(int i) => 0.55 - i * 0.15;
+    // The behind slots: i = 0 is the first one back, the next song. Each is
+    // a little smaller and shows a [peek] further right than the one in front
+    // of it. (The first used to end flush with the front cover, hidden, so
+    // the stack showed the song after next.)
+    double slotScale(int i) => 0.9 - i * 0.07;
+    double slotLeft(int i) => size * (1 - slotScale(i)) + peek * (i + 1);
+    double slotOpacity(int i) => 0.6 - i * 0.15;
 
     final children = <Widget>[
       for (var i = behind.length - 1; i >= 0; i--)
@@ -641,7 +644,7 @@ class _ArtStackState extends State<ArtStack> with SingleTickerProviderStateMixin
       }
     }
     return SizedBox(
-      width: size + step * behind.length,
+      width: size + peek * behind.length,
       height: size,
       child: Stack(clipBehavior: Clip.none, alignment: Alignment.centerLeft, children: children),
     );
