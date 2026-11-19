@@ -43,7 +43,16 @@ void main() {
 
     double sidebar() => tester.getRect(find.text('Your Cascade').first).left;
     final logo = find.image(const AssetImage('assets/icon.png'));
-    double width() => tester.getRect(find.ancestor(of: logo, matching: find.byType(AnimatedContainer)).last).width;
+    // The panel itself: the container less its margin, on screen (so under
+    // the UI scale too).
+    Rect panel() {
+      final box = find.ancestor(of: logo, matching: find.byType(AnimatedContainer)).last;
+      final margin = (tester.widget<AnimatedContainer>(box).margin ?? EdgeInsets.zero).resolve(TextDirection.ltr);
+      final r = tester.getRect(box), k = r.width / tester.getSize(box).width;
+      return Rect.fromLTRB(r.left + margin.left * k, r.top, r.right - margin.right * k, r.bottom);
+    }
+
+    double width() => panel().width;
     expect(width(), 232);
     await tester.tap(find.byTooltip('Sidebar: slide out on hover'));
     await tester.pumpAndSettle();
@@ -52,7 +61,8 @@ void main() {
     await mouse.addPointer(location: tester.getCenter(logo));
     await mouse.moveTo(tester.getCenter(logo));
     await tester.pumpAndSettle();
-    expect(width(), 232, reason: 'slid out under the mouse');
+    expect(width(), 240, reason: 'slid out under the mouse, over the 8 px gutter too');
+    expect(panel().left, 0, reason: 'to the window edge');
     await mouse.moveTo(const Offset(900, 500));
     await tester.pumpAndSettle();
     expect(width(), 60);

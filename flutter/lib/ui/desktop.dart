@@ -189,6 +189,8 @@ class _DesktopShellState extends State<DesktopShell> {
     final out = mode == 'expanded' || (mode == 'hover' && _railOut);
     const ease = Cubic(.4, 0, .2, 1), time = Duration(milliseconds: 180);
     return Stack(
+      // The sidebar sits a gutter to the left, over the window's edge.
+      clipBehavior: Clip.none,
       children: [
         Row(
           // Stretched, so a short page still fills the panel.
@@ -226,7 +228,7 @@ class _DesktopShellState extends State<DesktopShell> {
             ),
           ),
         Positioned(
-          left: 0,
+          left: -_Sidebar.gutter,
           top: 0,
           bottom: 0,
           child: MouseRegion(
@@ -458,10 +460,14 @@ class _Sidebar extends StatelessWidget {
   final bool collapsed;
   final ValueChanged<String> onGo;
 
-  /// Slid out over the page: it casts a shadow.
+  /// Slid out over the page: it casts a shadow, and reaches over the
+  /// window's left gutter to its edge, square there, rounded on the right.
   final bool overlay;
 
   static const wide = 232.0, rail = 60.0;
+
+  /// The window's side gutter, which a slid-out sidebar covers.
+  static const gutter = 8.0;
 
   @override
   // Rebuilt when the settings change too: Radio follows its switch.
@@ -470,11 +476,13 @@ class _Sidebar extends StatelessWidget {
     builder: (context, _) => AnimatedContainer(
       duration: Motion.base,
       curve: const Cubic(.4, 0, .2, 1),
-      width: collapsed ? rail : wide,
-      padding: const EdgeInsets.fromLTRB(10, 12, 10, 10),
+      // Placed a gutter to the left; in place, a margin fills that back.
+      margin: EdgeInsets.only(left: overlay ? 0 : gutter),
+      width: (collapsed ? rail : wide) + (overlay ? gutter : 0),
+      padding: EdgeInsets.fromLTRB(overlay ? 10 + gutter : 10, 12, 10, 10),
       decoration: BoxDecoration(
         color: K.panel,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: overlay ? const BorderRadius.horizontal(right: Radius.circular(14)) : BorderRadius.circular(14),
         boxShadow: overlay ? const [BoxShadow(color: Color(0x66000000), blurRadius: 20, offset: Offset(0, 4))] : null,
       ),
       // The content follows the animated width, as the desktop's does: rows
