@@ -111,10 +111,11 @@ class _NowPlayingLayerState extends State<NowPlayingLayer> {
             child: AnimatedSlide(
               // Reduce motion: it fades in place.
               offset: np.open || calm(context) ? Offset.zero : const Offset(0, 1),
-              // Leaving is quicker than arriving. An even ease-out, so the
-              // whole rise reads as a slide rather than a pop.
-              duration: np.open ? Motion.long : Motion.slow,
-              curve: np.open ? Curves.easeOutCubic : const Cubic(.4, 0, 1, 1),
+              // The desktop's slide: 0.38 s on an ease in and out, both ways.
+              // An ease-out put most of the rise in its first frames, which
+              // also build the whole view, so it read as a fade, not a slide.
+              duration: const Duration(milliseconds: 380),
+              curve: const Cubic(.4, 0, .2, 1),
               onEnd: () {
                 if (!np.open && _built) setState(() => _built = false);
                 if (!np.open) np.settled();
