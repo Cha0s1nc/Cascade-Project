@@ -165,50 +165,60 @@ void main() {
     player.dispose();
   });
 
-  testWidgets('the current line draws solid text in layers: no see-through letters, masks reaching past the word', (tester) async {
-    SharedPreferences.setMockInitialValues({});
-    addTearDown(tester.view.reset);
-    tester.view.physicalSize = const Size(1200, 800);
-    tester.view.devicePixelRatio = 1;
-    final player = Player(audio: false)..playing = false;
-    final lines = [
-      for (var i = 0; i < 4; i++) karaoke(i * 3.0, ['What\'s ', 'wrong ', 'with ', 'me?']),
-    ];
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Center(
-          child: SizedBox(
-            width: 800,
-            height: 600,
-            child: LyricsView(player: player, lyrics: Lyrics(lines, 'Kugou')),
+  for (final scale in [1.0, 1.5]) {
+    testWidgets('the current line draws solid text in layers: no see-through letters, masks reaching past the word (text at ${scale}x)', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      addTearDown(tester.view.reset);
+      tester.view.physicalSize = const Size(1200, 800);
+      tester.view.devicePixelRatio = 1;
+      final player = Player(audio: false)..playing = false;
+      final lines = [
+        for (var i = 0; i < 4; i++) karaoke(i * 3.0, ['What\'s ', 'wrong ', 'with ', 'me?']),
+      ];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => MediaQuery(
+              // The system's text size (Windows' Text size, GNOME's scaling).
+              data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(scale)),
+              child: Center(
+                child: SizedBox(
+                  width: 800,
+                  height: 600,
+                  child: LyricsView(player: player, lyrics: Lyrics(lines, 'Kugou')),
+                ),
+              ),
+            ),
           ),
         ),
-      ),
-    );
-    player.position = 3.0 + 0.5; // line 1, mid-way through "wrong"
-    await frames(tester, 40);
-    final current = find.ancestor(of: find.text('wrong').first, matching: find.byType(Stack)).first;
-    for (final t in tester.widgetList<Text>(find.descendant(of: current, matching: find.byType(Text)))) {
-      expect(t.style?.color?.a ?? 1, 1, reason: '"${t.data}" is solid; its layer makes it dim');
-    }
-    for (final e in find.descendant(of: current, matching: find.byType(ShaderMask)).evaluate()) {
-      final mask = tester.getRect(find.byWidget(e.widget));
-      final word = tester.getRect(find.descendant(of: find.byWidget(e.widget), matching: find.byType(Text)));
-      expect(mask.left < word.left && mask.right > word.right, isTrue, reason: 'the mask reaches past the word, over ink spilling out of its box');
-      expect(
-        find.ancestor(of: find.byWidget(e.widget), matching: find.byType(ClipRect)),
-        findsNothing,
-        reason: 'not clipped: that cut the spill, then let it pop back',
       );
-    }
-    expect(
-      find.descendant(of: current, matching: find.byType(ShaderMask)),
-      findsOneWidget,
-      reason: 'the word filling now',
-    );
-    await tester.pumpWidget(const SizedBox());
-    player.dispose();
-  });
+      player.position = 3.0 + 0.5; // line 1, mid-way through "wrong"
+      await frames(tester, 40);
+      final current = find.ancestor(of: find.text('wrong').first, matching: find.byType(Stack)).first;
+      for (final t in tester.widgetList<Text>(find.descendant(of: current, matching: find.byType(Text)))) {
+        expect(t.style?.color?.a ?? 1, 1, reason: '"${t.data}" is solid; its layer makes it dim');
+      }
+      for (final e in find.descendant(of: current, matching: find.byType(ShaderMask)).evaluate()) {
+        final mask = tester.getRect(find.byWidget(e.widget));
+        final word = tester.getRect(find.descendant(of: find.byWidget(e.widget), matching: find.byType(Text)));
+        expect(mask.left < word.left && mask.right > word.right, isTrue, reason: 'the mask reaches past the word, over ink spilling out of its box');
+        expect(
+          find.ancestor(of: find.byWidget(e.widget), matching: find.byType(ClipRect)),
+          findsNothing,
+          reason: 'not clipped: that cut the spill, then let it pop back',
+        );
+      }
+      expect(
+        find.descendant(of: current, matching: find.byType(ShaderMask)),
+        findsOneWidget,
+        reason: 'the word filling now',
+      );
+      final widths = {for (final e in find.descendant(of: current, matching: find.text('wrong')).evaluate()) tester.getSize(find.byWidget(e.widget)).width};
+      expect(widths.length, 1, reason: 'the filling word is as wide in its masked box as in the dim layer: the box is measured at the text size');
+      await tester.pumpWidget(const SizedBox());
+      player.dispose();
+    });
+  }
 
   test('a held note fills with one edge sliding evenly over its letters, by width', () {
     const widths = [10.0, 30.0, 5.0, 20.0], fs = 40.0;

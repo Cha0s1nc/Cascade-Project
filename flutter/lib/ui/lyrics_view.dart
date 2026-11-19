@@ -799,18 +799,23 @@ double _progress(LyricWord w, int now) {
   return (now - w.start) / max(1, end - w.start);
 }
 
-/// Widths of measured words, for the fill's gradient. Kept small: only the
-/// lines on screen ask.
-final _widths = <(String, double, FontWeight?, double?), double>{};
+/// Widths of measured words, for the fill's mask and its box. Kept small:
+/// only the lines on screen ask.
+final _widths = <(String, double, FontWeight?, double?, TextScaler), double>{};
 
-double _width(String text, TextStyle style) {
-  final key = (text, style.fontSize!, style.fontWeight, style.letterSpacing);
+/// [text]'s width as a Text in [context] draws it: at the system's text size
+/// too (Windows' Text size, GNOME's scaling), or the masked box would be the
+/// wrong width and the line would shift as each word finished.
+double _width(BuildContext context, String text, TextStyle style) {
+  final scale = MediaQuery.textScalerOf(context);
+  final key = (text, style.fontSize!, style.fontWeight, style.letterSpacing, scale);
   final known = _widths[key];
   if (known != null) return known;
   if (_widths.length > 400) _widths.clear();
   return _widths[key] = (TextPainter(
     text: TextSpan(text: text, style: style),
     textDirection: TextDirection.ltr,
+    textScaler: scale,
   )..layout()).width;
 }
 
@@ -838,7 +843,7 @@ class _Word extends StatelessWidget {
         : t <= 0
         ? Opacity(opacity: 0, child: text)
         // Filling: the solid word, shown up to the soft edge.
-        : _masked(text, _width(word.text, style), _edge(_width(word.text, style), t, style.fontSize!), style.fontSize!);
+        : _masked(text, _width(context, word.text, style), _edge(_width(context, word.text, style), t, style.fontSize!), style.fontSize!);
     return Transform.translate(offset: Offset(0, -lift), child: drawn);
   }
 }
@@ -924,7 +929,7 @@ class _Held extends StatelessWidget {
     final held = max(0.0, (word.end ?? word.start) / 1e7 - start);
     final t = (now ?? 0) / 1e7;
     final fs = style.fontSize!;
-    final fill = heldFill([for (final l in letters) _width(l, style)], prog, fs);
+    final fill = heldFill([for (final l in letters) _width(context, l, style)], prog, fs);
     final lift = _s(st, 'heldLift', 0.16), grow = _s(st, 'heldScale', 1.19);
     final swellStyle = {'heldFullSeconds': 1.4, 'heldMinStrength': 0.45, 'heldSettleSeconds': 0.4, ...styleDesktop, ...st};
     return Padding(
@@ -936,7 +941,7 @@ class _Held extends StatelessWidget {
             Builder(
               builder: (_) {
                 final s = now == null || calm(context) ? 0.0 : heldSwell(t - start - held * fill[i].litAt, held * (1 - fill[i].litAt), held, swellStyle);
-                final edge = fill[i].edge, w = _width(letters[i], style);
+                final edge = fill[i].edge, w = _width(context, letters[i], style);
                 final glow = top && s > 0.01
                     ? style.copyWith(
                         shadows: [
