@@ -220,6 +220,43 @@ void main() {
     });
   }
 
+  testWidgets('clicking a word jumps to it, in the current line and any other', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    addTearDown(tester.view.reset);
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    final player = Player(audio: false)..playing = false;
+    final lines = [
+      for (var i = 0; i < 8; i++) karaoke(i * 3.0, ['Line ', '$i ', 'goes ', 'by ']),
+    ];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Center(
+          child: SizedBox(
+            width: 800,
+            height: 600,
+            child: LyricsView(player: player, lyrics: Lyrics(lines, 'Kugou')),
+          ),
+        ),
+      ),
+    );
+    player.position = 3.0 + 0.5; // line 1 current
+    await frames(tester, 40);
+    // Line 2's second word ("2", from 6 1/3 s), not the line's start (6 s);
+    // the default lead (-0.05 s) puts it a touch earlier, so it lights as heard.
+    await tester.tap(find.text('2').first);
+    await frames(tester, 5);
+    expect(player.position, closeTo(6 + 1 / 3 - 0.05, 0.01));
+    // The current line now (line 2): its "by" (from 7 s).
+    await frames(tester, 40);
+    final line2 = find.ancestor(of: find.text('2').first, matching: find.byType(Stack)).first;
+    await tester.tap(find.descendant(of: line2, matching: find.text('by')).hitTestable().first);
+    await frames(tester, 5);
+    expect(player.position, closeTo(7 - 0.05, 0.01));
+    await tester.pumpWidget(const SizedBox());
+    player.dispose();
+  });
+
   test('a held note fills with one edge sliding evenly over its letters, by width', () {
     const widths = [10.0, 30.0, 5.0, 20.0], fs = 40.0;
     double front(double prog) {

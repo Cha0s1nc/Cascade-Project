@@ -116,6 +116,7 @@ Kept apart from the parity lines above, so 3.0's parity check does not count the
 - Back from a video keeps it playing in a corner window; the desktop's stops it
 - A pause during a crossfade holds it; the desktop's drops the outgoing song
 - Volume sliders show their level in a bubble while dragged, with no number beside them
+- Clicking a word of karaoke lyrics jumps to that word (the desktop seeks by line only); a click on a line or a word lands so it lights as it is heard, after the Lyrics timing knob and the device's audio delay
 
 ## Phase 7: release
 

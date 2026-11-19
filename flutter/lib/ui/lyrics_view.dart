@@ -243,6 +243,13 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
     _step(dt, elapsed);
   }
 
+  /// Seek so the lyric at [ticks] lights as it is heard: its time, plus the
+  /// tuned lead and the device's audio delay the clock takes off.
+  void _seekTo(int ticks) {
+    final st = _st;
+    widget.player.seek(max(0.0, ticks / 1e7 + _s(st, 'lyricsDelay', -0.05) + widget.player.settings.audioDelay));
+  }
+
   // The spring -------------------------------------------------------------
 
   double? _top(int i) {
@@ -451,7 +458,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
         : WrapAlignment.start;
     final style = lyricFont(fs, st: st);
     Widget text = line.words?.isNotEmpty ?? false
-        ? _Karaoke(words: line.words!, style: style, align: wrap, active: active, now: _now, st: st, emphasis: emphasis)
+        ? _Karaoke(words: line.words!, style: style, align: wrap, active: active, now: _now, st: st, emphasis: emphasis, onWord: (w) => _seekTo(w.start))
         : Text(line.text, textAlign: line.opposite ? TextAlign.right : (widget.center ? TextAlign.center : TextAlign.left), style: style);
     if (line.background?.isNotEmpty ?? false) {
       final bg = lyricFont(fs * _s(st, 'backgroundVocalSize', 0.64), weight: lyricWeight(st, less: 2), st: st);
@@ -484,7 +491,16 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
             ),
             child: Padding(
               padding: EdgeInsets.only(top: 0.3 * fs),
-              child: _Karaoke(words: line.background!, style: bg, align: wrap, active: active, now: _now, st: st, emphasis: emphasis),
+              child: _Karaoke(
+                words: line.background!,
+                style: bg,
+                align: wrap,
+                active: active,
+                now: _now,
+                st: st,
+                emphasis: emphasis,
+                onWord: (w) => _seekTo(w.start),
+              ),
             ),
           ),
         ],
@@ -501,7 +517,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
           child: MouseRegion(
             cursor: line.start == null ? MouseCursor.defer : SystemMouseCursors.click,
             child: GestureDetector(
-              onTap: line.start == null ? null : () => widget.player.seek(line.start! / 1e7),
+              onTap: line.start == null ? null : () => _seekTo(line.start!),
               child: _Look(
                 opacity: o,
                 blur: b,
@@ -706,8 +722,13 @@ class _Karaoke extends StatelessWidget {
     required this.now,
     required this.st,
     required this.emphasis,
+    this.onWord,
   });
   final List<LyricWord> words;
+
+  /// A word (or syllable, or held note) clicked: jump to it. Beyond the
+  /// desktop app, which seeks by line.
+  final ValueChanged<LyricWord>? onWord;
   final TextStyle style;
   final WrapAlignment align;
   final bool active, emphasis;
@@ -756,13 +777,27 @@ class _Karaoke extends StatelessWidget {
       duration: const Duration(milliseconds: 350),
       curve: Curves.easeOut,
       builder: (context, lit, _) {
-        Widget line(Widget Function((LyricWord, bool) p) piece) => Wrap(
+        // [tap]: each piece jumps to itself when clicked (the top layer only,
+        // where the current line has two); the line's own tap gets the gaps.
+        Widget line(Widget Function((LyricWord, bool) p) piece, {bool tap = true}) => Wrap(
           alignment: align,
           children: [
             for (final (pieces, gap) in groups)
               Padding(
                 padding: EdgeInsets.only(right: gap ? space : 0),
-                child: Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [for (final p in pieces) piece(p)]),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    for (final p in pieces)
+                      tap && onWord != null
+                          ? MouseRegion(
+                              cursor: SystemMouseCursors.click,
+                              child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: () => onWord!(p.$1), child: piece(p)),
+                            )
+                          : piece(p),
+                  ],
+                ),
               ),
           ],
         );
@@ -780,7 +815,7 @@ class _Karaoke extends StatelessWidget {
             children: [
               Opacity(
                 opacity: unsung,
-                child: line((p) => p.$2 ? _Held(word: p.$1, style: style, now: n, st: st) : _Word(word: p.$1, style: style, now: n, st: st)),
+                child: line((p) => p.$2 ? _Held(word: p.$1, style: style, now: n, st: st) : _Word(word: p.$1, style: style, now: n, st: st), tap: false),
               ),
               line((p) => p.$2 ? _Held(word: p.$1, style: style, now: n, st: st, top: true) : _Word(word: p.$1, style: style, now: n, st: st, top: true)),
             ],
