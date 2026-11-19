@@ -6,9 +6,14 @@
 // - Paused, it keeps its reference time fresh: resuming used to extrapolate
 //   the whole pause (up to 1 s) until the next update snapped it back.
 // - When updates stall (buffering, a transcode starting), it runs ahead no
-//   further than twice the usual gap between updates, instead of a second.
-// - A new update a little off the running clock is eased in over a few
-//   frames rather than jumped to, so the wipe does not twitch on each one.
+//   further than about three of the usual gaps (half a second at least),
+//   slowing as it nears that rather than stopping dead.
+// - Updates come unevenly (on Linux with PipeWire, late and then in a rush),
+//   so it runs at real speed and is steered toward them a little each frame,
+//   a touch faster when behind and slower when ahead, never stepping back.
+//   Only a seek (half a second or more off) is jumped to. It used to stop at
+//   twice the usual gap and snap to any update 0.12 s off, either way: the
+//   lyrics froze, then lurched, which a held note's glow showed as a flash.
 import 'dart:math';
 
 class LyricClock {
@@ -18,8 +23,8 @@ class LyricClock {
   /// The usual time between position updates while playing, learned.
   double _gap = 0.1;
 
-  /// Differences under this are eased in; larger ones (a seek) jump.
-  static const easeUnder = 0.12;
+  /// Differences this large are a seek, jumped to; smaller ones are steered out.
+  static const seekOver = 0.5;
 
   /// The time to show at frame time [elapsed], from the player's [position]
   /// (seconds) and whether it is [playing].
@@ -38,16 +43,17 @@ class LyricClock {
       _last = elapsed;
       return _shown = position;
     }
-    final ahead = min((elapsed - _at!).inMicroseconds / 1e6, (2 * _gap).clamp(0.15, 1.0));
+    final ahead = min((elapsed - _at!).inMicroseconds / 1e6, (3 * _gap).clamp(0.5, 1.0));
     final target = _reported + ahead;
     final last = _last;
     _last = elapsed;
     if (last == null) return _shown = target;
     final carried = _shown + (elapsed - last).inMicroseconds / 1e6;
     final off = target - carried;
-    if (off.abs() >= easeUnder) return _shown = target;
-    // Behind: catch up over a few frames. Ahead: hold until the player
-    // catches up, never stepping back (that would replay a word).
-    return _shown = off >= 0 ? carried + off * 0.2 : max(_shown, target);
+    if (off.abs() >= seekOver) return _shown = target;
+    // A twentieth of the difference a frame: gentle enough that one late,
+    // behind update slows it rather than stopping it. Never back (that would
+    // replay a word).
+    return _shown = max(_shown, carried + off * 0.05);
   }
 }
