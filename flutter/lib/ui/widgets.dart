@@ -436,15 +436,24 @@ class ArtStack extends StatefulWidget {
 /// bounce were tuned by eye in a side-by-side mock-up, 2026-11-06.
 const _tossTilt = 5 * pi / 180, _tossTravel = 0.55, _tossBounce = 0.09;
 
+/// Held through a crossfade, the toss stops with the old cover this far
+/// along (of the cover's width) and fully tilted, the next one up behind it
+/// with its right side and top corner showing.
+const _holdShift = 0.12;
+
 class _ArtStackState extends State<ArtStack> with SingleTickerProviderStateMixin {
   late final _c = AnimationController(vsync: this, value: 1)..addListener(() => setState(() {}));
   Song? _from;
   bool _back = false;
 
-  /// A crossfade is carrying this change: the cover goes halfway (both
-  /// showing), holds, and finishes as the crossfade ends.
+  /// A crossfade is carrying this change: the toss goes partway (the next
+  /// cover showing behind the old one), holds while the crossfade lasts, a
+  /// pause included, and finishes as it ends.
   bool _held = false;
   Timer? _finish;
+  Player? _xf; // listened to while held
+  bool? _timedPlaying; // the play state _finish was timed for
+  Duration _half = Duration.zero;
 
   static bool _same(Song a, Song b) => a.id.isNotEmpty ? a.id == b.id : a.title == b.title;
 
@@ -462,9 +471,9 @@ class _ArtStackState extends State<ArtStack> with SingleTickerProviderStateMixin
     // Back: the song we left is next again.
     _back = widget.next.isNotEmpty && _same(widget.next.first, old.song) && !(old.next.isNotEmpty && _same(old.next.first, widget.song));
     final full = Duration(milliseconds: (s.coverAnimSeconds * 1000).round());
-    _finish?.cancel();
-    final end = PlayerScope.read(context).crossfadeEnd;
-    final left = end?.difference(DateTime.now());
+    _unhold();
+    final player = PlayerScope.read(context);
+    final left = player.crossfadeLeft;
     _held = !_back && left != null && left > const Duration(milliseconds: 300) && !calm(context);
     if (!_held) {
       _c.duration = full;
@@ -473,17 +482,43 @@ class _ArtStackState extends State<ArtStack> with SingleTickerProviderStateMixin
     }
     // Each half takes half the animation, or half the crossfade if shorter;
     // the second ends as the crossfade does.
-    final half = Duration(microseconds: min(full.inMicroseconds, left!.inMicroseconds) ~/ 2);
+    _half = Duration(microseconds: min(full.inMicroseconds, left!.inMicroseconds) ~/ 2);
     _c.value = 0;
-    _c.animateTo(0.5, duration: half);
-    _finish = Timer(left - half, () {
-      if (mounted) _c.animateTo(1, duration: half);
-    });
+    _c.animateTo(0.5, duration: _half);
+    _xf = player..addListener(_schedule);
+    _timedPlaying = null;
+    _schedule();
+  }
+
+  /// Times the second half to end with the crossfade, again when play or
+  /// pause changes: paused, it waits; the fade over or cut short, it goes.
+  void _schedule() {
+    final p = _xf;
+    if (p == null) return;
+    final left = p.crossfadeLeft;
+    if (left == null) return _release();
+    if (p.playing == _timedPlaying) return;
+    _timedPlaying = p.playing;
+    _finish?.cancel();
+    if (!p.playing) return;
+    final wait = left - _half;
+    _finish = Timer(wait.isNegative ? Duration.zero : wait, _release);
+  }
+
+  void _release() {
+    _unhold();
+    if (mounted && _c.value < 1) _c.animateTo(1, duration: _half);
+  }
+
+  void _unhold() {
+    _finish?.cancel();
+    _xf?.removeListener(_schedule);
+    _xf = null;
   }
 
   @override
   void dispose() {
-    _finish?.cancel();
+    _unhold();
     _c.dispose();
     super.dispose();
   }
@@ -564,17 +599,40 @@ class _ArtStackState extends State<ArtStack> with SingleTickerProviderStateMixin
           // from the first behind slot. Going back plays it in reverse.
           final p = _back ? 1 - t : t;
           final (gone, rising) = _back ? (widget.song, from) : (from, widget.song);
-          // Held through a crossfade: first the next cover comes up beside
-          // the playing one, both in full; then the toss, from there.
-          final peek = _held ? Curves.easeOutCubic.transform((p / 0.5).clamp(0.0, 1.0)) : 0.0;
-          final q = _held ? ((p - 0.5) / 0.5).clamp(0.0, 1.0) : p;
-          final k = Curves.easeInCubic.transform((q / 0.6).clamp(0.0, 1.0));
-          final up = q <= 0 ? 0.0 : (q >= 1 ? 1.0 : 1 - exp(-7 * q) * cos(_tossBounce * 14 * q));
-          // Where the rising cover starts the toss: its slot, or the peek.
-          final fromLeft = lerp(slotLeft(0), slotLeft(0) * 0.55, peek);
-          final fromScale = lerp(slotScale(0), 0.94, peek), fromOpacity = lerp(slotOpacity(0), 1, peek);
+          if (_held) {
+            // Held through a crossfade: the first half tosses the old cover
+            // partway, tilted, still whole, while the next one comes up to
+            // the front behind it; the second half finishes the toss.
+            final h = Curves.easeOutCubic.transform((p / 0.5).clamp(0.0, 1.0));
+            final k = Curves.easeInCubic.transform(((p - 0.5) / 0.5).clamp(0.0, 1.0));
+            children
+              ..add(card(rising, left: lerp(slotLeft(0), 0, h), scale: lerp(slotScale(0), 1, h), opacity: lerp(slotOpacity(0), 1, h), shadow: true))
+              ..add(
+                card(
+                  gone,
+                  left: 0,
+                  scale: 1,
+                  opacity: 1 - k,
+                  dx: -size * lerp(_holdShift * h, _tossTravel, k),
+                  dy: size * 0.04 * k,
+                  turn: -_tossTilt * h,
+                  shadow: true,
+                ),
+              );
+            break;
+          }
+          final k = Curves.easeInCubic.transform((p / 0.6).clamp(0.0, 1.0));
+          final up = p >= 1 ? 1.0 : 1 - exp(-7 * p) * cos(_tossBounce * 14 * p);
           children
-            ..add(card(rising, left: lerp(fromLeft, 0, up), scale: lerp(fromScale, 1, up), opacity: lerp(fromOpacity, 1, up).clamp(0.0, 1.0), shadow: true))
+            ..add(
+              card(
+                rising,
+                left: lerp(slotLeft(0), 0, up),
+                scale: lerp(slotScale(0), 1, up),
+                opacity: lerp(slotOpacity(0), 1, up).clamp(0.0, 1.0),
+                shadow: true,
+              ),
+            )
             ..add(card(gone, left: 0, scale: 1, opacity: 1 - k, dx: -size * _tossTravel * k, dy: size * 0.04 * k, turn: -_tossTilt * k, shadow: true));
       }
     }
@@ -1000,10 +1058,13 @@ class _SafeSliderState extends State<_SafeSlider> {
 
 /// The thin seek and volume bars. Null [onChanged] shows it disabled.
 class ThinBar extends StatelessWidget {
-  const ThinBar({super.key, required this.value, required this.onChanged, this.color});
+  const ThinBar({super.key, required this.value, required this.onChanged, this.color, this.label});
   final double value;
   final ValueChanged<double>? onChanged;
   final Color? color;
+
+  /// Shown in a bubble over the handle while it is dragged (a volume's %).
+  final String Function(double value)? label;
 
   @override
   Widget build(BuildContext context) => SliderTheme(
@@ -1019,13 +1080,22 @@ class ThinBar extends StatelessWidget {
       disabledThumbColor: Colors.transparent,
       thumbColor: K.dark ? Colors.white : K.text,
       overlayColor: (color ?? K.accent).withValues(alpha: 0.2),
+      showValueIndicator: ShowValueIndicator.onDrag,
+      valueIndicatorShape: const RectangularSliderValueIndicatorShape(),
+      valueIndicatorColor: K.surface,
+      valueIndicatorTextStyle: ts(11, c: K.text, tab: true),
     ),
     child: SizedBox(
       height: 20,
-      child: safeSlider(Slider(value: value.clamp(0, 1), onChanged: onChanged, padding: const EdgeInsets.symmetric(horizontal: 6))),
+      child: safeSlider(
+        Slider(value: value.clamp(0, 1), onChanged: onChanged, label: label?.call(value.clamp(0, 1)), padding: const EdgeInsets.symmetric(horizontal: 6)),
+      ),
     ),
   );
 }
+
+/// A volume slider's bubble: 0 to 1 as a percentage.
+String volumeLabel(double v) => '${(v * 100).round()}%';
 
 /// Draws [child] [scale] times its size: it lays out in a smaller (or larger)
 /// window and is scaled to fill the real one, so everything, text, icons and

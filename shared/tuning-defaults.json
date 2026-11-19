@@ -8,6 +8,8 @@
     "albumColors: the cover-color background (src/core/album-colors.ts, AlbumColors.swift). motion: the desktop's lyric scroll spring. Both are live on the desktop's debug tuning panel (.cascade-debug)."
   ],
   "style": {
+    "lyricWeight": { "all": 800, "note": "The lyric font's weight. Only the Flutter app has it as a knob so far; Windows draws the default 800 at 700, since Segoe UI has no 800 and would jump to Black." },
+    "lyricLetterSpacing": { "all": -0.015, "note": "Em. Only the Flutter app has it as a knob so far." },
     "lyricsDelay": { "all": -0.05, "ios": -0.35, "note": "Negative is earlier: a line takes its fade to light up, so one that starts on the beat reads as late. The iPhone leads further, by Jon's tuning on one (2026-10-22)." },
     "scrollLead": 0,
     "tightScrollLead": 0.25,

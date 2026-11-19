@@ -25,6 +25,8 @@ import 'package:cascade/ui/widgets.dart';
 /// The lyric knobs the Flutter lyrics draw with. ponytail: the background
 /// color knobs come with the album-color background.
 const lyricKnobsUsed = {
+  'lyricWeight',
+  'lyricLetterSpacing',
   'currentLinePosition',
   'lineGap',
   'pastScale',
@@ -464,7 +466,7 @@ class _StyleMenuState extends State<StyleMenu> {
                 k.min,
                 k.max,
                 k.step,
-                '${style[k.key]!.toStringAsFixed(k.step < 0.1 ? 2 : 1)}${k.unit == 'px'
+                '${style[k.key]!.toStringAsFixed(k.step >= 1 ? 0 : (k.step < 0.01 ? 3 : (k.step < 0.1 ? 2 : 1)))}${k.unit == 'px'
                     ? 'px'
                     : k.unit == 's'
                     ? 's'

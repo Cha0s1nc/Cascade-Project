@@ -41,6 +41,7 @@ class NowPlaying extends ChangeNotifier {
     _leaving = false;
     notifyListeners();
   }
+
   NpPanel panel = NpPanel.lyrics;
 
   /// The Style menu's tab while it is open beside the lyrics.
@@ -624,7 +625,7 @@ class _UnderControls extends StatelessWidget {
             IconBtn(p.volume == 0 ? Icons.volume_off_rounded : Icons.volume_up_rounded, 'Mute', () => p.setVolume(p.volume == 0 ? 0.7 : 0)),
             SizedBox(
               width: 110,
-              child: ThinBar(value: p.volume, onChanged: p.setVolume, color: K.text2),
+              child: ThinBar(value: p.volume, onChanged: p.setVolume, color: K.text2, label: volumeLabel),
             ),
             SizedBox(
               width: 38,
@@ -836,6 +837,19 @@ class _LyricsPanelState extends State<LyricsPanel> {
               ),
             ),
           Expanded(child: body),
+          if (l?.credit case final c?)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                // SpicyLyrics' terms: the provider, and a community sync's
+                // uploader and maker, on screen wherever its lyrics show, not
+                // only on hover as the source pill is.
+                // ponytail: names only; links when the app gets a URL opener.
+                [c.provider, if (c.uploader case final u?) 'Uploaded by ${u.name}', if (c.maker case final m?) 'Synced by ${m.name}'].join(' · '),
+                textAlign: widget.center ? TextAlign.center : TextAlign.start,
+                style: ts(11, c: K.text3),
+              ),
+            ),
         ],
       );
     },

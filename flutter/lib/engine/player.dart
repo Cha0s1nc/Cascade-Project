@@ -80,9 +80,33 @@ class Player extends ChangeNotifier {
   Timer? _fadeTimer, _sleepTimer;
   bool _fading = false;
 
-  /// When the crossfade under way ends (crossfade on only), so the cover can
-  /// hold its change until then; null otherwise.
-  DateTime? crossfadeEnd;
+  // The crossfade under way: its length, and a watch that stops while paused
+  // (a pause holds the fade, both songs, where it is). _xf: crossfade on, so
+  // the cover holds its change until the fade ends.
+  double _xfSecs = 0;
+  final _xfWatch = Stopwatch();
+  bool _xf = false;
+
+  /// What is left of the crossfade under way, held still while paused; null
+  /// with none (or crossfade off).
+  Duration? get crossfadeLeft => _xf ? Duration(milliseconds: (_xfSecs * 1000).round()) - _xfWatch.elapsed : null;
+
+  @visibleForTesting
+  void debugCrossfade(Duration d) {
+    _xfSecs = d.inMilliseconds / 1000;
+    _xfWatch
+      ..reset()
+      ..start();
+    _xf = true;
+  }
+
+  void _endCrossfade() {
+    _xf = false;
+    _xfWatch
+      ..stop()
+      ..reset();
+  }
+
   int _ticks = 0;
   final _subs = <StreamSubscription>[];
   final _normCache = <String, double?>{};
@@ -499,7 +523,7 @@ class Player extends ChangeNotifier {
     log('start ${s.title}${fadeOut ? ' (skip)' : ''}');
     _fadeTimer?.cancel();
     _fading = false;
-    crossfadeEnd = null;
+    _endCrossfade();
     final out = _deck, inc = _idle;
     // The old song fades from the moment of the skip, as the desktop's does,
     // while the next one loads; anything else gets a quick fade instead of
@@ -545,7 +569,11 @@ class Player extends ChangeNotifier {
     _pos = n;
     song = _at(n);
     position = 0;
-    crossfadeEnd = settings.crossfadeEnabled ? DateTime.now().add(Duration(milliseconds: (_overlap * 1000).round())) : null;
+    _xfSecs = _overlap;
+    _xfWatch
+      ..reset()
+      ..start();
+    _xf = settings.crossfadeEnabled;
     log('crossfade to ${song?.title} over ${_overlap}s');
     _report('start', inc);
     _saveQueue();
@@ -574,9 +602,9 @@ class Player extends ChangeNotifier {
   void _ramp(_Deck out, _Deck inc, double secs, {required bool equalPower}) {
     _fadeTimer?.cancel();
     _fading = true;
-    final start = DateTime.now();
     _fadeTimer = Timer.periodic(const Duration(milliseconds: 10), (t) {
-      final x = min(1.0, DateTime.now().difference(start).inMilliseconds / (secs * 1000));
+      if (!_xfWatch.isRunning) return; // paused: the fade holds
+      final x = min(1.0, _xfWatch.elapsedMilliseconds / (secs * 1000));
       out.gain = equalPower ? cos(x * pi / 2) : 1 - x;
       inc.gain = equalPower ? sin(x * pi / 2) : 1;
       _applyVolume(out);
@@ -584,7 +612,7 @@ class Player extends ChangeNotifier {
       if (x < 1) return;
       t.cancel();
       _fading = false;
-      crossfadeEnd = null;
+      _endCrossfade();
       _unload(out);
     });
   }
@@ -687,14 +715,16 @@ class Player extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    if (!on && _fading) {
-      // Pausing mid-fade: drop the outgoing track, keep the incoming at full.
-      _fadeTimer?.cancel();
-      _fading = false;
-      crossfadeEnd = null;
-      _unload(_idle);
-      _deck.gain = 1;
-      await _applyVolume(_deck);
+    if (_fading && _idle.song != null) {
+      // Mid-crossfade a pause holds the fade, both songs where they are, and
+      // play carries it on (the desktop drops the outgoing song instead).
+      if (on) {
+        _xfWatch.start();
+        await _idle.p.play();
+      } else {
+        _xfWatch.stop();
+        await _idle.p.pause();
+      }
     }
     if (on && !_deck.reported && _deck.song != null) {
       // First play after a restore: this is where the server hears of it.
@@ -790,7 +820,7 @@ class Player extends ChangeNotifier {
   Future<void> stop() async {
     _fadeTimer?.cancel();
     _fading = false;
-    crossfadeEnd = null;
+    _endCrossfade();
     for (final d in _decks) {
       if (d.song != null) _unload(d);
     }

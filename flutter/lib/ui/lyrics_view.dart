@@ -67,8 +67,9 @@ const _lineCurve = Cubic(.16, 1, .3, 1);
 const _liftCurve = Cubic(.25, .8, .25, 1);
 
 /// The desktop's lyric font: the system's own (SF on a Mac, Segoe UI on
-/// Windows, the desktop's sans on Linux) at 800, 700 on Windows.
-TextStyle lyricFont(double size, {FontWeight? weight, Color? color}) => TextStyle(
+/// Windows, the desktop's sans on Linux) at the Style menu's weight and
+/// letter spacing ([st]; 800 and -0.015 em by default).
+TextStyle lyricFont(double size, {FontWeight? weight, Color? color, Map<String, double> st = const {}}) => TextStyle(
   inherit: false,
   fontFamily: Platform.isMacOS || Platform.isIOS
       ? '.AppleSystemUIFont'
@@ -77,11 +78,19 @@ TextStyle lyricFont(double size, {FontWeight? weight, Color? color}) => TextStyl
       : null,
   fontFamilyFallback: const ['Ubuntu', 'Cantarell', 'Noto Sans', 'DejaVu Sans', 'Roboto'],
   fontSize: size,
-  fontWeight: weight ?? (Platform.isWindows ? FontWeight.w700 : FontWeight.w800),
-  letterSpacing: -0.015 * size,
+  fontWeight: weight ?? lyricWeight(st),
+  letterSpacing: (st['lyricLetterSpacing'] ?? -0.015) * size,
   height: 1.25,
   color: color ?? K.lyric,
 );
+
+/// The lyric weight knob, [less] hundreds lighter (a background vocal's).
+/// Windows draws 800 at 700: Segoe UI has no 800 and would jump to Black.
+FontWeight lyricWeight(Map<String, double> st, {int less = 0}) {
+  var w = (st['lyricWeight'] ?? 800).round();
+  if (Platform.isWindows && w == 800) w = 700;
+  return FontWeight.values[((w ~/ 100) - 1 - less).clamp(0, 8)];
+}
 
 class LyricsView extends StatefulWidget {
   const LyricsView({
@@ -439,12 +448,12 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
         : widget.center
         ? WrapAlignment.center
         : WrapAlignment.start;
-    final style = lyricFont(fs);
+    final style = lyricFont(fs, st: st);
     Widget text = line.words?.isNotEmpty ?? false
         ? _Karaoke(words: line.words!, style: style, align: wrap, active: active, now: _now, st: st, emphasis: emphasis)
         : Text(line.text, textAlign: line.opposite ? TextAlign.right : (widget.center ? TextAlign.center : TextAlign.left), style: style);
     if (line.background?.isNotEmpty ?? false) {
-      final bg = lyricFont(fs * _s(st, 'backgroundVocalSize', 0.64), weight: FontWeight.w600);
+      final bg = lyricFont(fs * _s(st, 'backgroundVocalSize', 0.64), weight: lyricWeight(st, less: 2), st: st);
       text = Column(
         crossAxisAlignment: line.opposite
             ? CrossAxisAlignment.end
@@ -524,7 +533,11 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
               padding: EdgeInsets.symmetric(vertical: _s(_st, 'lineGap', 8) / 2),
               child: Opacity(
                 opacity: 0.92,
-                child: Text(line.text, textAlign: widget.center ? TextAlign.center : TextAlign.left, style: lyricFont(fs)),
+                child: Text(
+                  line.text,
+                  textAlign: widget.center ? TextAlign.center : TextAlign.left,
+                  style: lyricFont(fs, st: _st),
+                ),
               ),
             ),
         ],

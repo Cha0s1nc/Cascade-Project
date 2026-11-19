@@ -470,7 +470,7 @@ class _VideoScreenState extends State<VideoScreen> {
                     if (roomy) ...[
                       SizedBox(
                         width: 90,
-                        child: ThinBar(value: _volume / 100, onChanged: (v) => _p.setVolume(v * 100), color: Colors.white70),
+                        child: ThinBar(value: _volume / 100, onChanged: (v) => _p.setVolume(v * 100), color: Colors.white70, label: volumeLabel),
                       ),
                       SizedBox(
                         width: 40,

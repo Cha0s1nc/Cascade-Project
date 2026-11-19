@@ -19,6 +19,8 @@ class LyricKnob {
 }
 
 const _specs = <LyricKnob>[
+  LyricKnob('lyricWeight', 'Font', 'Weight', 300, 900, 100),
+  LyricKnob('lyricLetterSpacing', 'Font', 'Letter spacing (em)', -0.05, 0.1, 0.005),
   LyricKnob('currentLinePosition', 'Layout', 'Current line position', 0.1, 0.6, 0.01),
   LyricKnob('lineGap', 'Layout', 'Line gap', 0, 40, 1, css: '--ly-line-gap', unit: 'px'),
   LyricKnob('pastScale', 'Past lines', 'Size', 0.4, 1, 0.01, css: '--ly-past-scale'),

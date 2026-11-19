@@ -1004,13 +1004,9 @@ class VolumeControl extends StatelessWidget {
         p.volume == 0 ? 'Unmute' : 'Mute',
         () => p.setVolume(p.volume == 0 ? 0.7 : 0),
       ),
-      Tooltip(
-        message: 'Volume ${(p.volume * 100).round()}%',
-        waitDuration: const Duration(milliseconds: 400),
-        child: SizedBox(
-          width: tight ? 64 : 96,
-          child: ThinBar(value: p.volume, onChanged: p.setVolume, color: K.text2),
-        ),
+      SizedBox(
+        width: tight ? 64 : 96,
+        child: ThinBar(value: p.volume, onChanged: p.setVolume, color: K.text2, label: volumeLabel),
       ),
       SizedBox(
         width: tight ? 34 : 38,
