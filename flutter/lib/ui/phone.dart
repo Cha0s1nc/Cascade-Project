@@ -19,6 +19,7 @@ import 'package:cascade/ui/pages/library.dart';
 import 'package:cascade/ui/pages/pages.dart';
 import 'package:cascade/ui/phone_now_playing.dart';
 import 'package:cascade/ui/settings_panel.dart';
+import 'package:cascade/ui/video_player.dart' show videoBack, videoFull;
 import 'package:cascade/ui/widgets.dart';
 import 'package:cascade/ui/scopes.dart';
 
@@ -100,7 +101,7 @@ class _PhoneShellState extends State<PhoneShell> {
       child: SearchScope(
         query: _query,
         child: ListenableBuilder(
-          listenable: Listenable.merge([_nav, _np]),
+          listenable: Listenable.merge([_nav, _np, videoFull]),
           builder: (context, _) {
             final home = _mode == 'video' ? 'vhome' : 'home';
             // On a computer (a window narrowed into this layout) the
@@ -113,9 +114,10 @@ class _PhoneShellState extends State<PhoneShell> {
               child: Focus(
                 autofocus: keys.isNotEmpty,
                 child: PopScope(
-                  canPop: !_np.open && !_nav.canBack && _nav.view == home,
+                  // A video filling the screen shrinks to its corner first.
+                  canPop: !videoFull.value && !_np.open && !_nav.canBack && _nav.view == home,
                   onPopInvokedWithResult: (didPop, _) {
-                    if (didPop) return;
+                    if (didPop || videoBack()) return;
                     if (_np.open) return _np.close();
                     if (!_nav.back()) _nav.show(home);
                   },

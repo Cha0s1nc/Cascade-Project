@@ -15,6 +15,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'package:cascade/ui/pages/browse.dart' show fromStartKey;
+import 'package:cascade/ui/pages/common.dart' show narrow;
 import 'package:cascade/core/jellyfin.dart';
 import 'package:cascade/core/library.dart';
 import 'package:cascade/core/log.dart';
@@ -25,26 +26,64 @@ import 'package:cascade/ui/scopes.dart';
 import 'package:cascade/ui/title_bar.dart';
 import 'package:cascade/ui/widgets.dart';
 
-/// Open [item] (a movie or an episode) full screen.
+/// True while a video fills the window (not shrunk to its corner window):
+/// the phone layout's back shrinks it first (videoBack).
+final videoFull = ValueNotifier<bool>(false);
+VoidCallback? _shrink;
+OverlayEntry? _entry;
+
+/// Back with a video filling the window shrinks it to its corner window.
+/// True when it did.
+bool videoBack() {
+  if (!videoFull.value) return false;
+  _shrink?.call();
+  return true;
+}
+
+/// Open [item] (a movie or an episode) filling the window. It lives in the
+/// app's overlay rather than a route, so Back can shrink it to a small window
+/// in the corner (picture in picture) while the app goes on underneath; one
+/// video at a time.
 void openVideoPlayer(BuildContext context, Item item) {
   final lib = LibraryScope.read(context);
   final player = PlayerScope.read(context);
   if (player.playing) player.setPlaying(false);
-  Navigator.of(context).push(
-    PageRouteBuilder<void>(
-      pageBuilder: (_, _, _) => VideoScreen(item: item, library: lib, settings: player.settings),
-      transitionsBuilder: (_, a, _, child) => FadeTransition(opacity: a, child: child),
+  _entry
+    ?..remove()
+    ..dispose();
+  late final OverlayEntry entry;
+  entry = OverlayEntry(
+    builder: (_) => VideoScreen(
+      item: item,
+      library: lib,
+      settings: player.settings,
+      // Solid while it fills the window, so the app under it is not drawn.
+      onSolid: (on) => entry.opaque = on,
+      onClose: () {
+        if (_entry == entry) _entry = null;
+        entry
+          ..remove()
+          ..dispose();
+      },
     ),
   );
+  _entry = entry;
+  Overlay.of(context, rootOverlay: true).insert(entry);
 }
 
 typedef _Chapter = ({String name, double sec});
 
 class VideoScreen extends StatefulWidget {
-  const VideoScreen({super.key, required this.item, required this.library, required this.settings});
+  const VideoScreen({super.key, required this.item, required this.library, required this.settings, required this.onClose, required this.onSolid});
   final Item item;
   final Library library;
   final Settings settings;
+
+  /// Stop: take it off the screen (it reports the stop as it goes).
+  final VoidCallback onClose;
+
+  /// Whether the app under it can stop being drawn (it fills the window).
+  final ValueChanged<bool> onSolid;
 
   @override
   State<VideoScreen> createState() => _VideoScreenState();
@@ -76,6 +115,17 @@ class _VideoScreenState extends State<VideoScreen> {
 
   /// The time reads as left rather than gone (click it to switch).
   bool _remaining = false;
+
+  /// Shrunk to the corner window (Back), the app usable around it.
+  bool _mini = false;
+
+  /// The pointer is over the corner window (or a touch showed its buttons).
+  bool _miniHover = false;
+  final _focus = FocusNode(debugLabel: 'video');
+
+  /// What had focus before the video opened, given it back while shrunk.
+  FocusNode? _before;
+  static const _resize = Duration(milliseconds: 260);
 
   static const _rates = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
   final _skipped = <String>{};
@@ -112,6 +162,11 @@ class _VideoScreenState extends State<VideoScreen> {
     _applyEq();
     _start(widget.item);
     _wake();
+    _before = FocusManager.instance.primaryFocus;
+    videoFull.value = true;
+    _shrink = _minimize;
+    // Fading in over the app; solid once it has.
+    Future.delayed(Motion.base, () => mounted && !_mini ? widget.onSolid(true) : null);
   }
 
   /// The Video equalizer, as the music one: an mpv audio filter.
@@ -206,7 +261,7 @@ class _VideoScreenState extends State<VideoScreen> {
     if (_next != null) {
       _playNext();
     } else {
-      _close();
+      _closeAll();
     }
   }
 
@@ -217,9 +272,39 @@ class _VideoScreenState extends State<VideoScreen> {
     _start(n);
   }
 
-  Future<void> _close() async {
+  /// Back: shrink to the corner window and hand the app its focus back.
+  Future<void> _minimize() async {
+    if (_mini) return;
     if (_full) await _toggleFull();
-    if (mounted) Navigator.of(context).maybePop();
+    if (!mounted) return;
+    widget.onSolid(false);
+    setState(() {
+      _mini = true;
+      _miniHover = false;
+    });
+    videoFull.value = false;
+    _focus.unfocus();
+    _giveFocusBack();
+  }
+
+  void _giveFocusBack() {
+    final b = _before;
+    if (b != null && (b.context?.mounted ?? false)) b.requestFocus();
+  }
+
+  /// From the corner window back to filling the window.
+  void _expand() {
+    setState(() => _mini = false);
+    videoFull.value = true;
+    _focus.requestFocus();
+    _wake();
+    Future.delayed(_resize, () => mounted && !_mini ? widget.onSolid(true) : null);
+  }
+
+  /// Stop and take it off the screen.
+  Future<void> _closeAll() async {
+    if (_full) await _toggleFull();
+    widget.onClose();
   }
 
   Future<void> _toggleFull() async {
@@ -244,6 +329,15 @@ class _VideoScreenState extends State<VideoScreen> {
 
   @override
   void dispose() {
+    // Only while still the current video: a new one may have opened already.
+    if (_shrink == _minimize) {
+      _shrink = null;
+      if (!_mini) {
+        videoFull.value = false;
+        _giveFocusBack();
+      }
+    }
+    _focus.dispose();
     widget.settings.removeListener(_applyEq);
     _report('stop');
     _hide?.cancel();
@@ -275,7 +369,7 @@ class _VideoScreenState extends State<VideoScreen> {
     const SingleActivator(LogicalKeyboardKey.keyC): _toggleSubs,
     const SingleActivator(LogicalKeyboardKey.keyS): () => _segment == null ? null : _skip(_segment!),
     const SingleActivator(LogicalKeyboardKey.home): () => _p.seek(Duration.zero),
-    const SingleActivator(LogicalKeyboardKey.escape): _close,
+    const SingleActivator(LogicalKeyboardKey.escape): _minimize,
     const SingleActivator(LogicalKeyboardKey.arrowLeft, control: true): () => _chapter(-1),
     const SingleActivator(LogicalKeyboardKey.arrowRight, control: true): () => _chapter(1),
     for (var n = 0; n <= 9; n++)
@@ -320,18 +414,26 @@ class _VideoScreenState extends State<VideoScreen> {
         : _item['Name'] as String? ?? widget.item['Name'] as String? ?? '';
     final seg = _segment;
     final nearEnd = _next != null && _len > 0 && _len - _pos < 30;
-    return CallbackShortcuts(
+    final body = CallbackShortcuts(
       bindings: _keys,
       child: Focus(
+        focusNode: _focus,
         autofocus: true,
         child: Scaffold(
           backgroundColor: Colors.black,
           body: MouseRegion(
-            cursor: _controls ? MouseCursor.defer : SystemMouseCursors.none,
-            onHover: (_) => _wake(),
+            cursor: _mini || _controls ? MouseCursor.defer : SystemMouseCursors.none,
+            onHover: (_) => _mini ? null : _wake(),
+            onEnter: (_) => _mini ? setState(() => _miniHover = true) : null,
+            onExit: (_) => _mini ? setState(() => _miniHover = false) : null,
             child: GestureDetector(
-              onTap: () => _controls ? _p.playOrPause() : _wake(),
-              onDoubleTap: _toggleFull,
+              // In the corner a tap shows its buttons (a touch has no hover).
+              onTap: () => _mini
+                  ? setState(() => _miniHover = !_miniHover)
+                  : _controls
+                  ? _p.playOrPause()
+                  : _wake(),
+              onDoubleTap: _mini ? _expand : _toggleFull,
               child: Stack(
                 fit: StackFit.expand,
                 children: [
@@ -339,23 +441,27 @@ class _VideoScreenState extends State<VideoScreen> {
                     controller: _vc,
                     controls: NoVideoControls,
                     // Subtitles move up out of the way while the controls show.
-                    subtitleViewConfiguration: SubtitleViewConfiguration(padding: EdgeInsets.fromLTRB(24, 0, 24, _controls ? 110 : 36)),
+                    subtitleViewConfiguration: SubtitleViewConfiguration(visible: !_mini, padding: EdgeInsets.fromLTRB(24, 0, 24, _controls ? 110 : 36)),
                   ),
-                  AnimatedOpacity(
-                    opacity: _controls ? 1 : 0,
-                    duration: Motion.base,
-                    child: IgnorePointer(ignoring: !_controls, child: _chrome(title)),
-                  ),
-                  if (seg != null || nearEnd)
-                    Positioned(
-                      right: 32,
-                      bottom: 120,
-                      child: Pill(
-                        seg != null ? skipLabel(seg) : 'Next episode',
-                        icon: Icons.skip_next_rounded,
-                        onTap: () => seg != null ? _skip(seg) : _playNext(),
-                      ),
+                  if (_mini)
+                    _miniChrome()
+                  else ...[
+                    AnimatedOpacity(
+                      opacity: _controls ? 1 : 0,
+                      duration: Motion.base,
+                      child: IgnorePointer(ignoring: !_controls, child: _chrome(title)),
                     ),
+                    if (seg != null || nearEnd)
+                      Positioned(
+                        right: 32,
+                        bottom: 120,
+                        child: Pill(
+                          seg != null ? skipLabel(seg) : 'Next episode',
+                          icon: Icons.skip_next_rounded,
+                          onTap: () => seg != null ? _skip(seg) : _playNext(),
+                        ),
+                      ),
+                  ],
                 ],
               ),
             ),
@@ -363,7 +469,83 @@ class _VideoScreenState extends State<VideoScreen> {
         ),
       ),
     );
+    // Filling the window, or a 16:9 window in the bottom right corner above
+    // the player bar (the phone's mini player and tabs), sliding between.
+    return LayoutBuilder(
+      builder: (context, c) {
+        final w = (c.maxWidth * 0.28).clamp(220.0, 400.0), h = w * 9 / 16;
+        final rect = _mini ? Rect.fromLTWH(c.maxWidth - 16 - w, c.maxHeight - (narrow(context) ? 150 : 96) - h, w, h) : Offset.zero & c.biggest;
+        return TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0, end: 1),
+          duration: Motion.base,
+          builder: (_, fade, child) => Opacity(opacity: fade, child: child),
+          child: Stack(
+            children: [
+              AnimatedPositioned.fromRect(
+                rect: rect,
+                duration: _resize,
+                curve: const Cubic(.4, 0, .2, 1),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(_mini ? 12 : 0),
+                    boxShadow: _mini ? const [BoxShadow(color: Color(0x99000000), blurRadius: 24, offset: Offset(0, 8))] : null,
+                  ),
+                  child: ClipRRect(borderRadius: BorderRadius.circular(_mini ? 12 : 0), child: body),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
+
+  /// The corner window's buttons, shown while the pointer is over it: play
+  /// or pause, back to filling the window, stop; and how far along it is.
+  Widget _miniChrome() => Stack(
+    children: [
+      AnimatedOpacity(
+        opacity: _miniHover ? 1 : 0,
+        duration: Motion.fast,
+        child: IgnorePointer(
+          ignoring: !_miniHover,
+          child: ColoredBox(
+            color: const Color(0x73000000),
+            child: Stack(
+              children: [
+                Center(
+                  child: IconBtn(
+                    _playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                    _playing ? 'Pause' : 'Play',
+                    _p.playOrPause,
+                    color: Colors.white,
+                    size: 30,
+                  ),
+                ),
+                Positioned(
+                  top: 4,
+                  right: 4,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconBtn(Icons.open_in_full_rounded, 'Back to the full player', _expand, color: Colors.white, size: 18),
+                      IconBtn(Icons.close_rounded, 'Stop and close', _closeAll, color: Colors.white, size: 18),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      Positioned(
+        left: 0,
+        right: 0,
+        bottom: 0,
+        child: LinearProgressIndicator(value: _len > 0 ? (_pos / _len).clamp(0.0, 1.0) : 0, minHeight: 2, color: K.accent, backgroundColor: Colors.white24),
+      ),
+    ],
+  );
 
   Widget _chrome(String title) => DecoratedBox(
     decoration: const BoxDecoration(
@@ -381,7 +563,7 @@ class _VideoScreenState extends State<VideoScreen> {
           children: [
             Row(
               children: [
-                IconBtn(Icons.arrow_back_rounded, 'Back', _close, color: Colors.white, size: 22),
+                IconBtn(Icons.arrow_back_rounded, 'Back (keeps playing in a small window)', _minimize, color: Colors.white, size: 22),
                 const SizedBox(width: 8),
                 Expanded(
                   child: TitleBarDrag(
