@@ -31,6 +31,22 @@ final views = <Object?>[
 ];
 
 void main() {
+  test('downloads light the sidebar section of what was downloaded, with how far they have come', () {
+    final index = emptyIndex();
+    expect(downloadSections(index), isEmpty);
+    addCollection(index, album('a'), [track('1'), track('2')]);
+    addCollection(index, track('3'), [track('3')]);
+    addCollection(index, episode('e1', 's1'), [episode('e1', 's1')]);
+    markReady(index, '1', 'media/1.flac', 10);
+    markReady(index, '3', 'media/3.flac', 10);
+    expect(downloadSections(index), {
+      'albums': (done: 1, total: 2),
+      'songs': (done: 1, total: 1),
+      'shows': (done: 0, total: 1),
+    });
+    expect(downloadSections(index).containsKey('playlists'), isFalse);
+  });
+
   test('a shared track outlives the first collection removed', () {
     final index = emptyIndex();
     addCollection(index, album('a'), [track('1'), track('2')]);

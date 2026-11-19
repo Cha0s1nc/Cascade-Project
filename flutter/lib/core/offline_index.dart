@@ -431,6 +431,32 @@ List<String> pendingTrackIds(OfflineIndex index) {
   return (done: ids.where((id) => index.tracks[id]?.file != null).length, total: ids.length);
 }
 
+/// The sidebar sections holding downloads, by what was downloaded: an album
+/// lights Albums, a song Songs, a playlist Playlists, an artist Artists, a
+/// movie Movies, a show or its episodes TV Shows. Each with how many of its
+/// files are on disk, of how many (a track in two downloads counts twice).
+Map<String, ({int done, int total})> downloadSections(OfflineIndex index) {
+  final out = <String, ({int done, int total})>{};
+  for (final c in index.collections) {
+    final section = switch (c.item['Type']) {
+      'MusicAlbum' => 'albums',
+      'Audio' => 'songs',
+      'Playlist' => 'playlists',
+      'MusicArtist' => 'artists',
+      'Movie' => 'movies',
+      'Series' || 'Season' || 'Episode' => 'shows',
+      _ => null,
+    };
+    if (section == null) continue;
+    final ids = c.trackIds.where(index.tracks.containsKey).toList();
+    if (ids.isEmpty) continue;
+    final done = ids.where((id) => index.tracks[id]!.file != null).length;
+    final was = out[section];
+    out[section] = (done: (was?.done ?? 0) + done, total: (was?.total ?? 0) + ids.length);
+  }
+  return out;
+}
+
 /// Bytes every download takes.
 num totalBytes(OfflineIndex index) => index.tracks.values.fold<num>(0, (s, t) => s + t.bytes);
 

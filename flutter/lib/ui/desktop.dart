@@ -18,6 +18,7 @@ import 'package:cascade/ui/title_bar.dart';
 import 'package:cascade/ui/widgets.dart';
 import 'package:cascade/ui/controls.dart';
 import 'package:cascade/ui/pages/common.dart';
+import 'package:cascade/core/offline_index.dart' show downloadSections;
 import 'package:cascade/ui/scopes.dart';
 import 'package:cascade/ui/style_menu.dart';
 
@@ -514,14 +515,37 @@ class _Sidebar extends StatelessWidget {
                               child: Divider(height: 1, color: K.line),
                             ),
                           ),
-                        _NavRow(item, active: view == item.$2, collapsed: collapsed, onGo: onGo, badge: item.$2 == 'rediscover' ? 'New' : null),
+                        _NavRow(
+                          item,
+                          active: view == item.$2,
+                          collapsed: collapsed,
+                          onGo: onGo,
+                          badge: item.$2 == 'rediscover' ? 'New' : null,
+                          downloads: downloadSections(DownloadsScope.of(context).index)[item.$2],
+                        ),
                       ],
                     ],
                   ),
                 ),
               ),
             ),
-            for (final item in _navBottom) _NavRow(item, active: view == item.$2, collapsed: collapsed, onGo: onGo),
+            for (final item in _navBottom)
+              // Downloads switches Offline Mode (only your downloads, still
+              // signed in); the downloads themselves are managed from
+              // Settings > Offline. The demo has no server to go offline from.
+              if (item.$2 == 'downloads' && !LibraryScope.of(context).demo)
+                _NavRow(
+                  item,
+                  active: LibraryScope.of(context).offline,
+                  collapsed: collapsed,
+                  onGo: (_) => LibraryScope.read(context).setOfflineMode(!LibraryScope.read(context).offline),
+                  badge: LibraryScope.of(context).offline ? 'Offline' : null,
+                  tip: LibraryScope.of(context).offline
+                      ? 'Offline Mode is on: only your downloads. Click to go back online.'
+                      : 'Offline Mode: only your downloads',
+                )
+              else
+                _NavRow(item, active: view == item.$2, collapsed: collapsed, onGo: onGo),
           ],
         ),
       ),
@@ -618,11 +642,19 @@ class _HomeBrand extends StatelessWidget {
 }
 
 class _NavRow extends StatelessWidget {
-  const _NavRow(this.item, {required this.active, required this.collapsed, required this.onGo, this.badge});
+  const _NavRow(this.item, {required this.active, required this.collapsed, required this.onGo, this.badge, this.downloads, this.tip});
   final NavItem item;
   final bool active, collapsed;
   final ValueChanged<String> onGo;
   final String? badge;
+
+  /// This section's downloads, done of total: a ring while they come in, a
+  /// download mark with a check once all are on this device.
+  final ({int done, int total})? downloads;
+
+  /// A tooltip shown open as well as on the rail (the row's name is not
+  /// enough to say what it does).
+  final String? tip;
 
   @override
   Widget build(BuildContext context) {
@@ -664,6 +696,7 @@ class _NavRow extends StatelessWidget {
                       style: ts(13, w: active ? FontWeight.w600 : FontWeight.w500, c: active || on ? K.text : K.text2),
                     ),
                   ),
+                  if (downloads case final d?) _DownloadMark(d),
                   if (badge != null)
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
@@ -683,8 +716,50 @@ class _NavRow extends StatelessWidget {
     // Always the same tree, the tooltip only shown on the rail: swapping it
     // in and out rebuilt the row and dropped its hover.
     return TooltipVisibility(
-      visible: collapsed,
-      child: Tooltip(message: item.$3, waitDuration: const Duration(milliseconds: 300), child: row),
+      visible: collapsed || tip != null,
+      child: Tooltip(message: tip ?? item.$3, waitDuration: const Duration(milliseconds: 300), child: row),
+    );
+  }
+}
+
+/// A sidebar section's downloads: a ring filling round an arrow while they
+/// come in, a download mark with a check in its corner once all are here.
+class _DownloadMark extends StatelessWidget {
+  const _DownloadMark(this.d);
+  final ({int done, int total}) d;
+
+  @override
+  Widget build(BuildContext context) {
+    final busy = d.done < d.total;
+    return Semantics(
+      label: busy ? 'Downloading, ${d.done} of ${d.total}' : 'Downloaded',
+      child: SizedBox(
+        width: 18,
+        height: 18,
+        child: busy
+            ? Stack(
+                alignment: Alignment.center,
+                children: [
+                  CircularProgressIndicator(value: d.done / d.total, strokeWidth: 2, color: K.accent, backgroundColor: K.line),
+                  Icon(Icons.arrow_downward_rounded, size: 10, color: K.accent),
+                ],
+              )
+            : Stack(
+                clipBehavior: Clip.none,
+                alignment: Alignment.center,
+                children: [
+                  Icon(Icons.download_rounded, size: 16, color: K.text3),
+                  Positioned(
+                    right: -2,
+                    bottom: -1,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(color: K.panel, shape: BoxShape.circle),
+                      child: Icon(Icons.check_circle_rounded, size: 9, color: K.accent),
+                    ),
+                  ),
+                ],
+              ),
+      ),
     );
   }
 }

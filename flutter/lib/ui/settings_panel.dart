@@ -12,6 +12,7 @@ import 'package:cascade/core/electron_import.dart';
 import 'package:cascade/core/jellyfin.dart';
 import 'package:cascade/core/library.dart';
 import 'package:cascade/core/log.dart';
+import 'package:cascade/core/nav.dart';
 import 'package:cascade/core/playback.dart';
 import 'package:cascade/engine/player.dart';
 import 'package:cascade/ui/audio_calibration.dart';
@@ -163,7 +164,14 @@ class _SettingsPanelState extends State<SettingsPanel> {
             lib.setOfflineMode,
             subtitle: lib.offlineState.name == 'unreachable'
                 ? 'On by itself: your server is not answering, so you are listening to your downloads'
-                : 'Only your downloads, and nothing is sent to the server. Plays and likes are sent when you turn it off.',
+                : 'Only your downloads, and nothing is sent to the server. Plays and likes are sent when you turn it off. The sidebar\'s Downloads switches it too.',
+          ),
+          // The sidebar's Downloads switches Offline Mode, so the downloads
+          // themselves are looked after from here.
+          SettingRow(
+            'Downloads',
+            subtitle: 'What is saved on this device: play it, see what is still coming in, or remove it',
+            trailing: Pill('Manage', primary: false, onTap: () => NavScope.read(context).open(PageKind.view, ['downloads'])),
           ),
         ]),
       SettingsGroup('Server', [
