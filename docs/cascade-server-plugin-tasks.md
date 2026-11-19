@@ -7,6 +7,8 @@
 - **C. Playlist picture and description for owners:** Jellyfin only lets admins set them.
 - **D. Animated album art:** a looping video cover from an admin's own `cover.mp4` sidecar, or from TIDAL using the admin's own TIDAL developer app.
 
+**Planned next: the lyrics editor**, served by the plugin with an editor-only token; the design is in [`docs/flutter-plan.md`](flutter-plan.md) under Lyrics editor. Its routes join the Contract below once they are built.
+
 The Cascade client side is built against the **Contract** section below. If you change a route or a JSON shape, change it here too, in the same commit, so the client and the plugin never disagree.
 
 ## How the plugin works (read first)

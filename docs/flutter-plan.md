@@ -101,7 +101,7 @@ Decided 2026-11-04: the Flutter app takes the **Personality v1** look, the same 
 
 ### Phase 4: windows and integrations
 
-- Miniplayer (a second window), lyrics editor, metadata editor.
+- Miniplayer (a second window), lyrics editor (see Lyrics editor below), metadata editor.
 - Discord Rich Presence (Windows, Linux); the Cha0s Stream control server.
 - Keyboard shortcuts, first-run wizard, the full Settings.
 - Client certificates and custom headers for reverse proxies.
@@ -118,7 +118,7 @@ Decided 2026-11-04: the Flutter app takes the **Personality v1** look, the same 
 
 ### Phase 7: release
 
-- Packages: a Windows installer, a Linux AppImage or deb, an Android APK.
+- Packages: a Windows installer, Linux packages (AUR, deb, Flatpak; each must require WebKitGTK once the lyrics editor's window is in, see Lyrics editor), an Android APK.
 - An updater on Windows and Linux following `src/core/update-release.ts`.
 - Versions in lockstep with the other apps; a release marker and changelog section.
 - Importing settings from Electron's `config.json`.
@@ -128,6 +128,37 @@ Decided 2026-11-04: the Flutter app takes the **Personality v1** look, the same 
 - **2.5** is the first Flutter release, shipped alongside Electron: it does not wait for strict parity. It is released before the remaining parity work, as early real-world testing (installs, the updater) finds what the VMs cannot.
 - **3.0** is the release that sunsets Electron, once Flutter has full parity: a big enough change for a major version.
 - What 3.0 still needs that 2.5 may lack: the lyrics editor, the metadata editor and lyrics translation (real gaps no other Jellyfin client fills, so they stay in scope), Local mode, and the rest of PARITY.md. The Cha0s Stream control server is the one personal feature; it can come last or stay Electron-only until the sunset.
+
+### Lyrics editor (decided 2026-11-19)
+
+One editor for every Cascade app, served by the Cascade Server plugin and opened by the apps in a window of their own. Seamless: clicking Edit lyrics opens the editor on that song, with no code to type and no second sign-in.
+
+**The editor itself**
+
+- A fork of [amll-dev/amll-ttml-tool](https://github.com/amll-dev/amll-ttml-tool) (GPL-3.0, the syllable-level editor), not of Spicy Lyrics' fork of it ([spicylyrics/ttml-tool](https://github.com/spicylyrics/ttml-tool), AGPL-3.0, whose network clause would bind a page the plugin serves).
+- Served by the plugin as a standalone web page (something like `/CascadeServer/Editor`), so Flutter, Electron, the Swift apps and a plain browser all open the same editor. Kept out of the apps' own code, so the app-store permission in Cascade's license never has to cover it.
+- It loads the song's current lyrics and audio and saves lyrics back to the server. Confirm the save route against Jellyfin 12's API or the plugin's own lyric store before building it.
+- Never seeded with or saving SpicyLyrics data: its terms allow keeping it 30 days at most and forbid building an archive (the desktop's openLyricsEditorFor already refuses this).
+- The plugin lists a `lyrics-editor` capability in `/CascadeServer/Info`; the apps offer Edit lyrics only when it is there.
+
+**Opening it from Flutter**
+
+- A separate native window with a web view, through `desktop_webview_window` (check the package is still maintained before building on it): WebView2 on Windows (Edge's engine, built into Windows 11, on Windows 10 through updates), WebKit on macOS, WebKitGTK 4.1 on Linux. On Android, an in-app web view page. One piece of Flutter code for the desktop platforms; winvm can test the Windows side.
+- Linux: the web view links against WebKitGTK when the app is built, so the whole app needs it, not only people who open the editor. The packages declare it: `webkit2gtk-4.1` in the AUR package, `libwebkit2gtk-4.1-0` in the deb, and Flatpak's GNOME runtime already has it. An AppImage or bare tarball cannot count on it, so those open the editor in the browser instead.
+
+**Signing in: an editor-only token**
+
+1. On Edit lyrics, the app asks the plugin for an editor session for that song, with the Jellyfin sign-in it already has (no password sent again). The plugin checks the sign-in (`[Authorize]`) and that the user may edit lyrics.
+2. The plugin answers with an editor token: random, accepted only by the plugin's editor routes (this song's lyrics and audio, saving its lyrics), refused by Jellyfin's own API, and expiring after a while. A leaked token can touch nothing else.
+3. In the app's window, the app hands the token straight to the page's code as the window opens (a script run before the page's own), and the page sends it in a request header. Not in the URL and not in the user agent: both end up in browser history and in reverse proxies' access logs (nginx's default log format records every user agent).
+4. In a browser (the fallback), the page is served from the Jellyfin server's own address, so it reuses Jellyfin web's saved sign-in in that browser when there is one; otherwise the person signs in with Jellyfin as usual. Either way the page trades that sign-in for an editor token the same way.
+5. The plugin passes the song's audio through to the editor itself, since Jellyfin's stream will not take the editor token.
+
+**Still to decide**
+
+- Who may edit: everyone, or admins plus users an admin picks (as the Spotify link permission, `Api/SpotifyLinkPermission.cs`).
+- Where saved lyrics live and in what format (the plugin's lyric store as TTML, or Jellyfin's own lyric files), and what the other apps then read.
+- How long an editor token lives, and whether it is held only in memory (lost on a server restart, which is fine for a short-lived token).
 
 ## Verification
 
