@@ -719,18 +719,28 @@ class _VideoScreenState extends State<VideoScreen> {
     ),
   );
 
+  // A MenuAnchor, not a PopupMenuButton: the player sits in the app's overlay
+  // above the navigator, so a menu route would open under it, hidden; a
+  // MenuAnchor draws above the entry it is in.
   Widget _trackMenu<T>(IconData icon, String tip, List<T> tracks, T current, String Function(T) label, Future<void> Function(T) pick) => tracks.isEmpty
       ? const SizedBox.shrink()
-      : PopupMenuButton<T>(
-          popUpAnimationStyle: Motion.menu,
-          tooltip: tip,
-          icon: Icon(icon, color: Colors.white, size: 22),
-          onSelected: pick,
-          itemBuilder: (_) => [
+      : MenuAnchor(
+          style: MenuStyle(
+            backgroundColor: WidgetStatePropertyAll(K.surface),
+            surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+            padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(vertical: 4)),
+            shape: WidgetStatePropertyAll(
+              RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: K.line),
+              ),
+            ),
+          ),
+          menuChildren: [
             for (final t in tracks)
-              PopupMenuItem(
-                value: t,
-                height: 34,
+              MenuItemButton(
+                onPressed: () => pick(t),
+                style: MenuItemButton.styleFrom(minimumSize: const Size(0, 34)),
                 child: Row(
                   children: [
                     SizedBox(width: 22, child: t == current ? Icon(Icons.check_rounded, size: 16, color: K.accent) : null),
@@ -739,6 +749,7 @@ class _VideoScreenState extends State<VideoScreen> {
                 ),
               ),
           ],
+          builder: (_, c, _) => IconBtn(icon, tip, () => c.isOpen ? c.close() : c.open(), color: Colors.white, size: 22),
         );
 }
 
