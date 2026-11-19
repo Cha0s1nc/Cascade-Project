@@ -1,5 +1,6 @@
 // The desktop shell: search sits centered on Home and tucks beside the
-// right-hand buttons elsewhere, widening while in use; the sidebar button
+// right-hand buttons elsewhere (the glass and the shortcut), widening to fill
+// the bar while in use; the sidebar button
 // cycles expanded, a rail that slides out under the mouse, and a plain rail.
 import 'package:cascade/core/settings.dart';
 import 'package:cascade/engine/player.dart';
@@ -28,9 +29,17 @@ void main() {
 
     await tester.tap(find.text('Albums'));
     await tester.pumpAndSettle();
-    expect(search().width, 720, reason: 'elsewhere it fills the free middle of the bar, up to 720');
+    expect(search().width, lessThan(90), reason: 'elsewhere, idle, a small pill');
+    expect(search().right, greaterThan(1440 - 260), reason: 'beside the right-hand buttons');
+    expect(find.text('Ctrl K'), findsOneWidget, reason: 'with the shortcut showing');
+    await tester.tap(find.byType(TextField).first);
+    await tester.pumpAndSettle();
+    expect(search().width, 720, reason: 'in use it fills the free middle of the bar, up to 720');
     expect(search().left, greaterThan(100), reason: 'clear of the left buttons');
     expect(search().right, lessThan(1440 - 60), reason: 'clear of the right buttons');
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pumpAndSettle();
+    expect(search().width, lessThan(90), reason: 'tucked again when let go');
 
     double sidebar() => tester.getRect(find.text('Your Cascade').first).left;
     final logo = find.image(const AssetImage('assets/icon.png'));
@@ -85,7 +94,10 @@ void main() {
 
     final logo = find.image(const AssetImage('assets/icon.png'));
     // Every row's height on the page, top to bottom.
-    List<double> rows() => [for (final e in find.byType(Icon).evaluate()) if (tester.getTopLeft(find.byWidget(e.widget)).dx < 80) tester.getTopLeft(find.byWidget(e.widget)).dy];
+    List<double> rows() => [
+      for (final e in find.byType(Icon).evaluate())
+        if (tester.getTopLeft(find.byWidget(e.widget)).dx < 80) tester.getTopLeft(find.byWidget(e.widget)).dy,
+    ];
     final before = rows();
     expect(before, isNotEmpty);
 

@@ -342,9 +342,10 @@ class _DesktopShellState extends State<DesktopShell> {
     );
   }
 
-  /// Search as the desktop's: centered on Home when there is room, otherwise
-  /// tucked into a small Search pill beside the right-hand buttons that
-  /// widens while in use. It slides between the two.
+  /// Search as the desktop's: centered on Home when there is room; elsewhere
+  /// tucked into a small pill beside the right-hand buttons (the glass and
+  /// the shortcut), which widens to fill the free space while in use. It
+  /// slides between them.
   Widget _searchBox(double width, double side) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final w = (_rightButtons.currentContext?.findRenderObject() as RenderBox?)?.size.width;
@@ -352,12 +353,20 @@ class _DesktopShellState extends State<DesktopShell> {
     });
     final centeredW = min(340.0, width * 0.36);
     final centered = _nav.view == 'home' && !_np.open && width - 2 * side >= centeredW;
-    // Elsewhere it fills the free space between the two button groups (up
-    // to 720 px on very wide windows, centered there), rather than tucking
-    // into a small pill.
+    // In use, it fills the free space between the two button groups (up to
+    // 720 px on very wide windows, centered there).
+    final tucked = !centered && !_searchOpen;
     final freeLeft = side + 8, free = max(86.0, width - _rightWidth - 8 - freeLeft);
-    final w = centered ? centeredW : min(free, 720.0);
-    final left = centered ? (width - w) / 2 : freeLeft + (free - w) / 2;
+    final w = centered
+        ? centeredW
+        : tucked
+        ? SearchField.tuckedWidth
+        : min(free, 720.0);
+    final left = centered
+        ? (width - w) / 2
+        : tucked
+        ? width - _rightWidth - 8 - w
+        : freeLeft + (free - w) / 2;
     return AnimatedPositioned(
       duration: Motion.slow,
       curve: const Cubic(.4, 0, .2, 1),
@@ -365,19 +374,25 @@ class _DesktopShellState extends State<DesktopShell> {
       width: w,
       top: 10,
       height: 28,
-      child: SearchField(focus: _search, wide: w >= 200, onSearch: () => _go('search')),
+      child: SearchField(focus: _search, wide: w >= 200, tucked: tucked, onSearch: () => _go('search')),
     );
   }
 }
 
 /// The title bar's search field. Typing opens the Search page.
 class SearchField extends StatelessWidget {
-  const SearchField({super.key, required this.focus, required this.onSearch, this.wide = true});
+  const SearchField({super.key, required this.focus, required this.onSearch, this.wide = true, this.tucked = false});
   final FocusNode focus;
   final VoidCallback onSearch;
 
-  /// Room for the full hint and the shortcut; tucked, it reads Search.
+  /// Room for the full hint and the shortcut; narrow, it reads Search.
   final bool wide;
+
+  /// Idle off Home: only the glass and the shortcut show.
+  final bool tucked;
+
+  /// The tucked pill: the glass and "Ctrl K".
+  static const tuckedWidth = 82.0;
 
   @override
   Widget build(BuildContext context) {
@@ -408,10 +423,11 @@ class SearchField extends StatelessWidget {
             prefixIconConstraints: const BoxConstraints(minWidth: 30),
             hintText: wide ? 'Search your library' : 'Search',
             hintMaxLines: 1,
-            hintStyle: ts(12.5, c: K.text3),
+            // Tucked, the hint stays for a screen reader but is not drawn.
+            hintStyle: ts(12.5, c: tucked ? Colors.transparent : K.text3),
             suffixIcon: query.text.isNotEmpty
                 ? IconBtn(Icons.close_rounded, 'Clear the search', query.clear, size: 14)
-                : !wide
+                : !wide && !tucked
                 ? null
                 : Padding(
                     padding: const EdgeInsets.only(right: 10),
