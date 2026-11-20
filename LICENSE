@@ -26,7 +26,11 @@ allow, provided that:
      restriction, and grants no rights to the artwork in assets/.
 
 This permission applies to the whole of Cascade's source code, including
-the apps for every platform in this repository. As section 7 allows, you
+the apps for every platform in this repository. It does not apply to
+third-party code kept in this repository under its own license, such as
+the lyrics editor in server/editor/ (a modified AMLL TTML Tool, GPL-3.0,
+copyright its authors), which is served by the Cascade Server plugin and
+is never part of an app conveyed through an app store. As section 7 allows, you
 may remove this additional permission from your own copies and modified
 versions, in which case the plain GNU General Public License applies to
 them.
