@@ -129,6 +129,24 @@ Decided 2026-11-04: the Flutter app takes the **Personality v1** look, the same 
 - **3.0** is the release that sunsets Electron, once Flutter has full parity: a big enough change for a major version.
 - What 3.0 still needs that 2.5 may lack: the lyrics editor, the metadata editor and lyrics translation (real gaps no other Jellyfin client fills, so they stay in scope), Local mode, and the rest of PARITY.md. The Cha0s Stream control server is the one personal feature; it can come last or stay Electron-only until the sunset.
 
+### Phone and narrow layouts (decided 2026-11-19)
+
+**Which layout where**
+
+- Computers: a window narrower than 900 px shows a compact desktop layout by default: the desktop layout slimmed (icon-rail sidebar, the title bar and player bar kept, Now Playing fitted to the width), mouse and keyboard first, Movies and TV still there. A setting (Settings > Appearance) picks the phone layout instead.
+- Compact stops at a minimum window width of about 640 px; the window cannot shrink further. With the phone layout chosen, the window may go narrower.
+- The phone layout on a computer gets a back button (it has no system back), and its video switch stays but reads "Widen the window for Movies and TV"; widening past 900 px brings them back.
+- Android: by width, as now (desktop layout when wide, phone when narrow), but touch-sized on Android even in the desktop layout: bigger targets, nothing that needs hover.
+
+**The phone layout**
+
+- Tabs: Home, Search, Library, Settings (music); video mode keeps its own tabs. Search is its own tab, where Downloads was.
+- Downloads match the desktop: the Offline Mode switch with marks on Library's sections, and managing downloads from Settings > Offline.
+- Back is Android's own; no top bar.
+- Movies and TV stay on phones, behind the music/video switch.
+- Now Playing, Apple Music style: it expands out of the mini player pill. The art is large and centered with the next covers faintly behind (softer than the desktop's stack); then title and artist with like and more, the seek bar, big play controls moved up, volume, and a bottom row for Lyrics, devices and Queue. Lyrics replace the art: it shrinks into a small header with the title and the lyrics fill the space above the controls. Switching to Lyrics or Queue animates.
+- Gestures: swipe the art to skip (the cover animation follows the finger), swipe the mini player to skip, drag Now Playing down to shrink it back into the pill, swipe between Settings' tabs.
+
 ### Lyrics editor (decided 2026-11-19)
 
 One editor for every Cascade app, served by the Cascade Server plugin and opened by the apps in a window of their own. Seamless: clicking Edit lyrics opens the editor on that song, with no code to type and no second sign-in.
