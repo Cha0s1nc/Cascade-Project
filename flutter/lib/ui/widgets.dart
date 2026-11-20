@@ -428,10 +428,14 @@ class Pill extends StatelessWidget {
 /// The stepped art stack: the current art with what comes next falling in
 /// behind it, or the art alone (setting off, or nothing next).
 class ArtStack extends StatefulWidget {
-  const ArtStack(this.song, {super.key, this.next = const [], required this.size});
+  const ArtStack(this.song, {super.key, this.next = const [], required this.size, this.soft = false});
   final Song song;
   final List<Song> next;
   final double size;
+
+  /// The phone's: the covers behind peek less and are fainter, so the art
+  /// stands centered on its own.
+  final bool soft;
 
   @override
   State<ArtStack> createState() => _ArtStackState();
@@ -536,7 +540,8 @@ class _ArtStackState extends State<ArtStack> with SingleTickerProviderStateMixin
   Widget build(BuildContext context) {
     final settings = PlayerScope.read(context).settings;
     final behind = settings.showArtStack ? widget.next.take(3).toList() : const <Song>[];
-    final size = widget.size, peek = size * 0.07;
+    final soft = widget.soft;
+    final size = widget.size, peek = size * (soft ? 0.045 : 0.07);
     final t = _c.value;
     final from = t < 1 ? _from : null;
     // Reduce motion: the covers crossfade, nothing flies.
@@ -575,9 +580,9 @@ class _ArtStackState extends State<ArtStack> with SingleTickerProviderStateMixin
     // a little smaller and shows a [peek] further right than the one in front
     // of it. (The first used to end flush with the front cover, hidden, so
     // the stack showed the song after next.)
-    double slotScale(int i) => 0.9 - i * 0.07;
+    double slotScale(int i) => soft ? 0.94 - i * 0.04 : 0.9 - i * 0.07;
     double slotLeft(int i) => size * (1 - slotScale(i)) + peek * (i + 1);
-    double slotOpacity(int i) => 0.6 - i * 0.15;
+    double slotOpacity(int i) => soft ? 0.34 - i * 0.1 : 0.6 - i * 0.15;
 
     final children = <Widget>[
       for (var i = behind.length - 1; i >= 0; i--)

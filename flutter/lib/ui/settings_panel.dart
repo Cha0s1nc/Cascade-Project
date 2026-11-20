@@ -63,30 +63,40 @@ class _SettingsPanelState extends State<SettingsPanel> {
           ),
         ),
         Expanded(
-          child: SlidingPanes(
-            index: index,
-            child: ListenableBuilder(
-              listenable: s,
-              builder: (context, _) => ListView(
-                padding: EdgeInsets.fromLTRB(small ? 16 : 22, 6, small ? 16 : 22, 32),
-                children: [
-                  Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 760),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: switch (tab) {
-                          'library' => _library(context),
-                          'playback' => _playback(context),
-                          'lyrics' => _lyrics(context),
-                          'integrations' => _integrations(context),
-                          'account' => _account(context),
-                          _ => _about(context),
-                        },
+          // A phone swipes between the tabs too (a slider still takes its own drag).
+          child: GestureDetector(
+            onHorizontalDragEnd: !narrow(context)
+                ? null
+                : (d) {
+                    final v = d.primaryVelocity ?? 0;
+                    final to = index + (v < -400 ? 1 : (v > 400 ? -1 : 0));
+                    if (to != index && to >= 0 && to < _tabs.length) setState(() => _tab = _tabs[to].$1);
+                  },
+            child: SlidingPanes(
+              index: index,
+              child: ListenableBuilder(
+                listenable: s,
+                builder: (context, _) => ListView(
+                  padding: EdgeInsets.fromLTRB(small ? 16 : 22, 6, small ? 16 : 22, 32),
+                  children: [
+                    Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 760),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: switch (tab) {
+                            'library' => _library(context),
+                            'playback' => _playback(context),
+                            'lyrics' => _lyrics(context),
+                            'integrations' => _integrations(context),
+                            'account' => _account(context),
+                            _ => _about(context),
+                          },
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

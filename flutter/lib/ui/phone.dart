@@ -61,6 +61,9 @@ class _PhoneShellState extends State<PhoneShell> {
   final _query = TextEditingController();
   String _mode = 'music';
 
+  /// The mini player: Now Playing grows out of it and shrinks back into it.
+  final _pill = GlobalKey();
+
   @override
   void initState() {
     super.initState();
@@ -194,7 +197,7 @@ class _PhoneShellState extends State<PhoneShell> {
                           bottomNavigationBar: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const _MiniPlayer(),
+                              _MiniPlayer(key: _pill),
                               NavigationBar(
                                 selectedIndex: _tab,
                                 onDestinationSelected: (i) => _nav.show(_tabs[i].$1),
@@ -214,7 +217,7 @@ class _PhoneShellState extends State<PhoneShell> {
                             ],
                           ),
                         ),
-                        if (_np.open) const Positioned.fill(child: PhoneNowPlaying()),
+                        Positioned.fill(child: PhoneNowPlayingSheet(pill: _pill)),
                       ],
                     ),
                   ),
@@ -553,8 +556,17 @@ class _PhoneSearch extends StatelessWidget {
   );
 }
 
-class _MiniPlayer extends StatelessWidget {
-  const _MiniPlayer();
+class _MiniPlayer extends StatefulWidget {
+  const _MiniPlayer({super.key});
+
+  @override
+  State<_MiniPlayer> createState() => _MiniPlayerState();
+}
+
+class _MiniPlayerState extends State<_MiniPlayer> {
+  /// How far the song is being swiped sideways: past a little, it skips.
+  double _swipe = 0;
+  bool _swiping = false;
 
   @override
   Widget build(BuildContext context) {
@@ -562,10 +574,26 @@ class _MiniPlayer extends StatelessWidget {
     final song = p.song;
     if (song == null) return const SizedBox.shrink();
     final length = p.length;
+    final np = NowPlayingScope.read(context);
     return GestureDetector(
-      onTap: NowPlayingScope.read(context).toggle,
+      onTap: np.toggle,
+      // Up opens Now Playing; sideways skips, the song following the finger.
       onVerticalDragEnd: (d) {
-        if ((d.primaryVelocity ?? 0) < -200) NowPlayingScope.read(context).show(NpPanel.lyrics);
+        if ((d.primaryVelocity ?? 0) < -200 && !np.open) np.toggle();
+      },
+      onHorizontalDragStart: (_) => setState(() => _swiping = true),
+      onHorizontalDragUpdate: (d) => setState(() => _swipe += d.delta.dx),
+      onHorizontalDragEnd: (d) {
+        final v = d.primaryVelocity ?? 0;
+        if (_swipe < -60 || v < -700) {
+          p.next();
+        } else if (_swipe > 60 || v > 700) {
+          p.prev();
+        }
+        setState(() {
+          _swiping = false;
+          _swipe = 0;
+        });
       },
       child: Container(
         height: 64,
@@ -578,39 +606,48 @@ class _MiniPlayer extends StatelessWidget {
         ),
         child: Stack(
           children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Row(
-                children: [
-                  Cover(song.art, image: song.image, size: 46, radius: 8),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        FullText(
-                          song.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: ts(15, w: FontWeight.w500, c: A.text),
-                        ),
-                        Text(
-                          p.error ?? song.artist,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: ts(13, c: p.error == null ? A.text2 : K.error),
-                        ),
-                      ],
+            TweenAnimationBuilder<double>(
+              tween: Tween(end: _swipe),
+              duration: _swiping ? Duration.zero : Motion.base,
+              curve: Curves.easeOutCubic,
+              builder: (_, dx, child) => Transform.translate(
+                offset: Offset(dx, 0),
+                child: Opacity(opacity: (1 - dx.abs() / 240).clamp(0.3, 1.0), child: child),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Row(
+                  children: [
+                    Cover(song.art, image: song.image, size: 46, radius: 8),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          FullText(
+                            song.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: ts(15, w: FontWeight.w500, c: A.text),
+                          ),
+                          Text(
+                            p.error ?? song.artist,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: ts(13, c: p.error == null ? A.text2 : K.error),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  PlayCircle(playing: p.playing, onTap: p.toggle, size: 44),
-                  IconButton(
-                    tooltip: 'Next',
-                    onPressed: p.next,
-                    icon: Icon(Icons.skip_next_rounded, color: A.text),
-                  ),
-                ],
+                    PlayCircle(playing: p.playing, onTap: p.toggle, size: 44),
+                    IconButton(
+                      tooltip: 'Next',
+                      onPressed: p.next,
+                      icon: Icon(Icons.skip_next_rounded, color: A.text),
+                    ),
+                  ],
+                ),
               ),
             ),
             Positioned(
