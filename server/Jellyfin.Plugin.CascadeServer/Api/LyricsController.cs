@@ -77,7 +77,7 @@ public class LyricsController : ControllerBase
         if (!TtmlLyrics.IsTtml(text)) return Ok(new { lrc = text, type = "karaoke", owner });
         var lines = TtmlLyrics.Parse(text);
         if (lines is null) return null;
-        if (!ttml) return Ok(new { lrc = TtmlLyrics.ToEnhancedLrc(lines), type = "karaoke", owner });
+        if (!ttml) return Ok(new { lrc = TtmlLyrics.ToEnhancedLrc(lines), type = lines.All(l => l.LineTimed) ? "synced" : "karaoke", owner });
         using var doc = JsonDocument.Parse(TtmlLyrics.ToSyllableJson(lines));
         return Ok(new { type = "ttml", source = "cascade", owner, lyrics = doc.RootElement.Clone() });
     }
@@ -97,9 +97,9 @@ public class LyricsController : ControllerBase
     ///   0. SpicyLyrics, only when the client passes <c>syllable=true</c>, a key is set and
     ///      the item has a Spotify id - returned raw, never stored as a sidecar
     ///   1. {audioFile}.slrc sidecar  - karaoke (word-level)
-    ///   2. {audioFile}.lrc  sidecar  - synced  (line-level)
-    ///   3. Legacy data-dir .slrc     - karaoke (backward compat)
-    ///   4. Legacy data-dir .lrc      - synced  (backward compat)
+    ///   2. Data-dir .slrc            - a save where the music folder was read-only
+    ///   3. {audioFile}.lrc  sidecar  - synced  (line-level)
+    ///   4. Data-dir .slrc and .lrc   - backward compat, for a song without a file
     ///   5. With sidecar writes disabled: the data-dir cache, fetching live from Kugou then
     ///      LRCLIB on a miss
     /// </summary>
@@ -201,7 +201,13 @@ public class LyricsController : ControllerBase
                 if (Karaoke(System.IO.File.ReadAllText(files.Slrc), ttml, "everyone") is { } answer) return answer;
             }
 
-            // 2. Sidecar .lrc - synced (line-level)
+            // 2. A save to the plugin's folder (the music folder was read-only): an edit,
+            // newer than any line-level sidecar, so it comes before one.
+            if (System.IO.File.Exists(LegacySlrcPath(itemId))
+                && Karaoke(System.IO.File.ReadAllText(LegacySlrcPath(itemId)), ttml, "everyone") is { } saved)
+                return saved;
+
+            // 3. Sidecar .lrc - synced (line-level)
             if (System.IO.File.Exists(files.Lrc))
             {
                 var lrc = System.IO.File.ReadAllText(files.Lrc);
@@ -210,7 +216,7 @@ public class LyricsController : ControllerBase
             }
         }
 
-        // 3. Legacy data-dir .slrc
+        // 4. Data-dir .slrc (a song without a file path; one with one was checked above)
         var legacySlrc = LegacySlrcPath(itemId);
         if (System.IO.File.Exists(legacySlrc))
         {
@@ -218,7 +224,7 @@ public class LyricsController : ControllerBase
             if (Karaoke(System.IO.File.ReadAllText(legacySlrc), ttml, "everyone") is { } answer) return answer;
         }
 
-        // 4. Legacy data-dir .lrc
+        // 4. Data-dir .lrc
         var legacyLrc = LegacyLrcPath(itemId);
         if (System.IO.File.Exists(legacyLrc))
         {

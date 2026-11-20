@@ -9,6 +9,8 @@
  * https://github.com/amll-dev/amll-ttml-tool/blob/main/LICENSE
  */
 
+// Cascade: whether the editor can run on this page (secure, isolated), and why not.
+import { cannotRun } from "./cascade/secure";
 import { enableMapSet } from "immer";
 import { Provider } from "jotai";
 // import { DevTools } from "jotai-devtools";
@@ -33,6 +35,16 @@ async function startApp() {
 
 	if (!rootEl) {
 		throw new Error("Could not find root element");
+	}
+
+	const why = cannotRun();
+	if (why) {
+		rootEl.textContent = why;
+		rootEl.setAttribute(
+			"style",
+			"display:flex;align-items:center;justify-content:center;height:100vh;padding:32px;text-align:center;font:15px/1.5 Inter,system-ui,sans-serif;color:#eef3f8;background:#0a0e13",
+		);
+		return;
 	}
 
 	createRoot(rootEl).render(

@@ -95,7 +95,9 @@ export function CascadeBar() {
 			}
 			opening.current = true;
 			openRef.current(
-				new File([ttml], `${s.title || "lyrics"}.ttml`, { type: "application/xml" }),
+				// A short name: the song is named in this strip, and a long one ran
+				// into the editor's mode tabs.
+				new File([ttml], "lyrics.ttml", { type: "application/xml" }),
 				"ttml",
 			);
 		},

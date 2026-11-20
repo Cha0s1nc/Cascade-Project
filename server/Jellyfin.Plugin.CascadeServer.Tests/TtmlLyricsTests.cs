@@ -75,4 +75,21 @@ public class TtmlLyricsTests
         var lrc = TtmlLyrics.ToEnhancedLrc(TtmlLyrics.Parse(Exported)!);
         Assert.Equal("[00:01.00]<00:01.00>Hel<00:01.30>lo <00:01.60>world <00:02.40>\n[00:03.00]<00:03.00>Say <00:03.40>it <00:03.70>back <00:04.50>", lrc);
     }
+
+    // Made by the editor from line-level LRC: line timing, the text right in each <p>.
+    private const string LineTimed = """<tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" xmlns:ttm="http://www.w3.org/ns/ttml#metadata" itunes:timing="Line"><body dur="22.070"><div begin="16.580" end="22.070"><p begin="16.580" end="19.470" itunes:key="L1" ttm:agent="v1">Yeah, ah</p><p begin="19.470" end="22.070" itunes:key="L2" ttm:agent="v1">Tell me what you really like</p></div></body></tt>""";
+
+    [Fact]
+    public void ReadsLineTimedTtmlAsLines()
+    {
+        var lines = TtmlLyrics.Parse(LineTimed)!;
+        Assert.Equal(2, lines.Count);
+        Assert.True(lines[0].LineTimed);
+        Assert.Equal("Tell me what you really like", lines[1].Lead[0].Text);
+        Assert.Equal("[00:16.58]Yeah, ah\n[00:19.47]Tell me what you really like", TtmlLyrics.ToEnhancedLrc(lines));
+        using var doc = JsonDocument.Parse(TtmlLyrics.ToSyllableJson(lines));
+        Assert.Equal("Line", doc.RootElement.GetProperty("Type").GetString());
+        Assert.Equal(19.47, doc.RootElement.GetProperty("Content")[1].GetProperty("StartTime").GetDouble());
+        Assert.Equal("Yeah, ah", doc.RootElement.GetProperty("Content")[0].GetProperty("Text").GetString());
+    }
 }

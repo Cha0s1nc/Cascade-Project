@@ -45,6 +45,21 @@
             }
         }
     </style>
+	<!-- Cascade: before any module. A page that is not secure (plain http at a
+	     network address) has no crypto.randomUUID, and a chunk that needs it at
+	     load would crash before the page could say what is wrong
+	     (src/cascade/secure.ts). -->
+	<script>
+		if (typeof crypto.randomUUID !== "function") {
+			crypto.randomUUID = function () {
+				var b = crypto.getRandomValues(new Uint8Array(16));
+				b[6] = (b[6] & 15) | 64;
+				b[8] = (b[8] & 63) | 128;
+				var h = Array.prototype.map.call(b, function (x) { return (x + 256).toString(16).slice(1); }).join("");
+				return h.slice(0, 8) + "-" + h.slice(8, 12) + "-" + h.slice(12, 16) + "-" + h.slice(16, 20) + "-" + h.slice(20);
+			};
+		}
+	</script>
 </head>
 
 <body>

@@ -25,8 +25,12 @@ public static class TtmlLyrics
     /// <summary>One sung syllable: its text, when, and whether the next joins it into one word.</summary>
     public sealed record Syllable(string Text, double Start, double End, bool IsPartOfWord);
 
-    /// <summary>A line: its lead syllables, any background vocal syllables, and whether it is the duet's other side.</summary>
-    public sealed record Line(IReadOnlyList<Syllable> Lead, IReadOnlyList<Syllable> Background, bool Opposite)
+    /// <summary>
+    /// A line: its lead syllables, any background vocal syllables, and whether it is the
+    /// duet's other side. <paramref name="LineTimed"/>: only the line has times (its text
+    /// is one syllable), as the editor saves lyrics that came from line-level LRC.
+    /// </summary>
+    public sealed record Line(IReadOnlyList<Syllable> Lead, IReadOnlyList<Syllable> Background, bool Opposite, bool LineTimed = false)
     {
         /// <summary>Gets when the line starts: its first syllable, lead or background.</summary>
         public double Start => Math.Min(Lead.Count > 0 ? Lead[0].Start : double.MaxValue, Background.Count > 0 ? Background[0].Start : double.MaxValue);
@@ -69,8 +73,18 @@ public static class TtmlLyrics
             var lead = new List<Syllable>();
             var background = new List<Syllable>();
             Collect(p, lead, background, inBackground: false);
-            if (lead.Count == 0 && background.Count == 0) continue;
             var agent = (string?)p.Attribute(TtmMeta + "agent");
+            if (lead.Count == 0 && background.Count == 0)
+            {
+                // Line timing: the text sits in the line itself, with no timed words.
+                var text = string.Concat(p.Nodes().OfType<XText>().Select(t => t.Value)).Trim();
+                var begin = Time((string?)p.Attribute("begin"));
+                if (text.Length == 0 || begin is null) continue;
+                var end = Time((string?)p.Attribute("end")) ?? begin.Value;
+                lines.Add(new Line([new Syllable(text, begin.Value, end, false)], [], IsOtherSide(agent), LineTimed: true));
+                continue;
+            }
+
             lines.Add(new Line(lead, background, IsOtherSide(agent)));
         }
 
@@ -159,6 +173,18 @@ public static class TtmlLyrics
             Syllables = s.Select(x => new { x.Text, StartTime = x.Start, EndTime = x.End, x.IsPartOfWord }),
         };
 
+        // Only line times: SpicyLyrics' line shape, which the apps also draw.
+        if (lines.All(l => l.LineTimed))
+        {
+            return JsonSerializer.Serialize(new
+            {
+                Type = "Line",
+                StartTime = lines.Count > 0 ? lines[0].Start : 0,
+                EndTime = lines.Count > 0 ? lines.Max(l => l.End) : 0,
+                Content = lines.Select(l => new { Type = "Vocal", Text = l.Lead[0].Text, StartTime = l.Start, EndTime = l.End, OppositeAligned = l.Opposite }),
+            });
+        }
+
         var body = new
         {
             Type = "Syllable",
@@ -187,6 +213,12 @@ public static class TtmlLyrics
         {
             if (line.Lead.Count == 0) continue;
             sb.Append('[').Append(Clock(line.Lead[0].Start)).Append(']');
+            if (line.LineTimed)
+            {
+                sb.Append(line.Lead[0].Text).Append('\n');
+                continue;
+            }
+
             foreach (var s in line.Lead)
             {
                 sb.Append('<').Append(Clock(s.Start)).Append('>').Append(s.Text);
