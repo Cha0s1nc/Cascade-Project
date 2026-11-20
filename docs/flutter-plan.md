@@ -166,9 +166,12 @@ One editor for every Cascade app, served by the Cascade Server plugin and opened
 - The page tells the plugin when it closes. A window that crashes or a laptop that sleeps never says so, so the plugin also ends a session that has not been heard from in a few minutes (the page checks in while open).
 - Closing with unsaved changes asks first: Save, Don't save, or Cancel. The editor's own close button and the app's window both ask (the app asks the page whether anything is unsaved before letting the window close; confirm the web view package can hold a window's close, and if it cannot, the editor's own button and the browser's leave-page prompt cover it). In a browser, closing the tab gets the browser's own "Leave site?" prompt, since browsers allow nothing more custom there.
 
-**Still to decide**
+**The saved format: TTML inside .slrc (decided 2026-11-19)**
 
-- The saved format: the editor works in TTML, which keeps background vocals and duet singers that the `.slrc`'s word-level LRC cannot. Either store TTML (per-user copies and a TTML next to the `.slrc` for everyone) and teach the apps to read it, or convert to `.slrc` on save and accept the loss.
+- `.slrc` becomes Cascade's one lyrics file: it holds either word-level Enhanced LRC (as today) or TTML (what the editor saves, keeping background vocals and duet singers). Per-user copies in the plugin's folder use the same file type.
+- No header: the plugin tells them apart by the first character after any byte order mark and whitespace, `<` for TTML and `[` for LRC. A header line in front would stop the TTML from being valid XML, so other TTML tools could no longer open the file.
+- Only the plugin reads `.slrc` (Jellyfin ignores the extension; the apps get lyrics from the plugin's lyrics route), so only the plugin learns TTML. It turns TTML into the syllable JSON the apps already draw for SpicyLyrics (`type: syllable`, with background vocals and duets), so the apps need no TTML parser. An app that does not ask for syllables gets Enhanced LRC made from the TTML, losing what LRC cannot hold.
+- An older plugin would serve a TTML `.slrc` as if it were LRC. Only a plugin with the editor writes TTML, so that only bites after a downgrade.
 
 ## Verification
 
