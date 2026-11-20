@@ -7,6 +7,8 @@
 // Tabs: Appearance, Now Playing, Lyrics, Crossfade, Presets. Every control
 // saves at once; "Reset this tab" puts that tab's shipped values back and
 // "Undo changes since opening" puts back what was there when it opened.
+import 'dart:io';
+
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -294,20 +296,28 @@ class _StyleMenuState extends State<StyleMenu> {
       ignoring: visual && !widget.live,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 9),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: ts(13, w: FontWeight.w500)),
-                  if (subtitle != null) Text(subtitle, style: ts(11.5, c: K.text3, h: 1.35)),
-                ],
-              ),
-            ),
-            const SizedBox(width: 14),
-            trailing,
-          ],
+        // Too narrow for the control beside its name (a compact window at a
+        // large interface size): the control goes under it.
+        child: LayoutBuilder(
+          builder: (context, c) {
+            final label = Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: ts(13, w: FontWeight.w500)),
+                if (subtitle != null) Text(subtitle, style: ts(11.5, c: K.text3, h: 1.35)),
+              ],
+            );
+            if (c.maxWidth < 380) {
+              return Column(crossAxisAlignment: CrossAxisAlignment.start, spacing: 8, children: [label, trailing]);
+            }
+            return Row(
+              children: [
+                Expanded(child: label),
+                const SizedBox(width: 14),
+                trailing,
+              ],
+            );
+          },
         ),
       ),
     ),
@@ -363,6 +373,13 @@ class _StyleMenuState extends State<StyleMenu> {
         subtitle: 'Everything, bigger or smaller. Ctrl + and Ctrl - too.',
         visual: false,
       ),
+      if (!(Platform.isAndroid || Platform.isIOS))
+        _row(
+          'Narrow windows',
+          Segmented<String>(value: s.narrowLayout, items: const {'compact': 'Compact', 'phone': 'Phone layout'}, onChanged: s.setNarrowLayout),
+          subtitle: 'Below 900 px wide: the desktop layout, slimmed (the window stops at 640 px), or the phone layout',
+          visual: false,
+        ),
       _row(
         'Buttons',
         Segmented<String>(value: s.buttonStyle, items: const {'overlay': 'Overlay', 'push': 'Push', 'labeled': 'Labeled'}, onChanged: s.setButtonStyle),

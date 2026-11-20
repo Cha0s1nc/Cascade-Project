@@ -186,7 +186,10 @@ class _DesktopShellState extends State<DesktopShell> {
   /// The sidebar and the page. A 'hover' sidebar keeps a rail's room and
   /// slides out over the page, which dims under it, as the desktop's does.
   Widget _body(BuildContext context) {
-    final mode = PlayerScope.read(context).settings.sidebarMode;
+    final chosen = PlayerScope.read(context).settings.sidebarMode;
+    // A compact window (under 900 px) has no room for the open sidebar: it
+    // slides out over the page instead, and the choice is back when wider.
+    final mode = chosen == 'expanded' && compactWindow(context) ? 'hover' : chosen;
     final out = mode == 'expanded' || (mode == 'hover' && _railOut);
     const ease = Cubic(.4, 0, .2, 1), time = Duration(milliseconds: 180);
     return Stack(
@@ -848,6 +851,10 @@ class _MainPanelState extends State<_MainPanel> {
 }
 
 /// The player bar: the song, the transport and seek bar, and the extras.
+/// The desktop layout in a window under 900 px wide (a computer's compact
+/// layout): the sidebar slides out, and the player bar keeps its essentials.
+bool compactWindow(BuildContext context) => MediaQuery.sizeOf(context).width < 900;
+
 class PlayerBar extends StatelessWidget {
   const PlayerBar({super.key});
 
@@ -859,8 +866,10 @@ class PlayerBar extends StatelessWidget {
     // The full window layouts take the controls into Now Playing.
     // Until Now Playing has slid all the way down: it covers the bar meanwhile.
     if (np.showing && p.settings.nowPlayingLayout != 'bar') return const SizedBox.shrink();
-    // A narrow window: the side groups give way so the transport fits.
+    // A narrow window: the side groups give way so the transport fits; a
+    // compact one keeps Lyrics, Queue and the volume, the rest behind More.
     final tight = MediaQuery.sizeOf(context).width < 1100;
+    final compact = compactWindow(context);
     return Container(
       height: 76,
       decoration: BoxDecoration(
@@ -871,7 +880,11 @@ class PlayerBar extends StatelessWidget {
         child: Row(
           children: [
             SizedBox(
-              width: tight ? 236 : 300,
+              width: compact
+                  ? 170
+                  : tight
+                  ? 236
+                  : 300,
               child: Row(
                 children: [
                   Expanded(
@@ -957,7 +970,11 @@ class PlayerBar extends StatelessWidget {
               ),
             ),
             SizedBox(
-              width: tight ? 330 : 364,
+              width: compact
+                  ? 206
+                  : tight
+                  ? 330
+                  : 364,
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
@@ -973,12 +990,16 @@ class PlayerBar extends StatelessWidget {
                     song == null ? null : () => np.show(NpPanel.queue),
                     color: np.open && np.panel == NpPanel.queue ? K.accent : K.text2,
                   ),
-                  const WaterfallButton(),
-                  const MiniplayerButton(),
-                  const DevicesButton(),
-                  const SleepTimerButton(),
+                  if (compact)
+                    const _MoreButtons()
+                  else ...[
+                    const WaterfallButton(),
+                    const MiniplayerButton(),
+                    const DevicesButton(),
+                    const SleepTimerButton(),
+                  ],
                   Container(width: 1, height: 18, margin: const EdgeInsets.symmetric(horizontal: 8), color: K.line),
-                  VolumeControl(p: p),
+                  VolumeControl(p: p, width: compact ? 56 : 96),
                 ],
               ),
             ),
@@ -1087,9 +1108,40 @@ class SeekBar extends StatelessWidget {
   }
 }
 
+/// A compact player bar's More: Waterfall, the miniplayer, the output device
+/// and the sleep timer, the same buttons in a small panel above the bar.
+class _MoreButtons extends StatelessWidget {
+  const _MoreButtons();
+
+  @override
+  Widget build(BuildContext context) => MenuAnchor(
+    alignmentOffset: const Offset(0, -8),
+    style: MenuStyle(
+      backgroundColor: WidgetStatePropertyAll(K.surface),
+      surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+      padding: const WidgetStatePropertyAll(EdgeInsets.all(4)),
+      shape: WidgetStatePropertyAll(
+        RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: K.line),
+        ),
+      ),
+    ),
+    menuChildren: const [
+      BareIcons(
+        child: Row(mainAxisSize: MainAxisSize.min, children: [WaterfallButton(), MiniplayerButton(), DevicesButton(), SleepTimerButton()]),
+      ),
+    ],
+    builder: (_, c, _) => IconBtn(Icons.more_horiz_rounded, 'More', () => c.isOpen ? c.close() : c.open()),
+  );
+}
+
 class VolumeControl extends StatelessWidget {
-  const VolumeControl({super.key, required this.p});
+  const VolumeControl({super.key, required this.p, this.width = 96});
   final Player p;
+
+  /// The slider's width.
+  final double width;
 
   @override
   Widget build(BuildContext context) => Row(
@@ -1101,7 +1153,7 @@ class VolumeControl extends StatelessWidget {
         () => p.setVolume(p.volume == 0 ? 0.7 : 0),
       ),
       SizedBox(
-        width: 96,
+        width: width,
         child: ThinBar(value: p.volume, onChanged: p.setVolume, color: K.text2, label: volumeLabel),
       ),
     ],

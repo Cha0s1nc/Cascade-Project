@@ -1,3 +1,4 @@
+import 'package:cascade/core/settings.dart';
 import 'package:cascade/engine/player.dart';
 import 'package:cascade/main.dart';
 import 'package:flutter/material.dart';
@@ -15,7 +16,10 @@ void main() {
     addTearDown(tester.view.reset);
     SharedPreferences.setMockInitialValues({});
     await at(tester, const Size(1440, 900));
-    await tester.pumpWidget(CascadeApp(player: Player(audio: false), demo: true));
+    // The phone layout below 900 px, as on Android (a computer is compact unless it is chosen).
+    final settings = await Settings.load()
+      ..setNarrowLayout('phone');
+    await tester.pumpWidget(CascadeApp(player: Player(audio: false, settings: settings), demo: true));
     expect(find.text('Recently played'), findsOneWidget);
     expect(find.text('TV Shows'), findsOneWidget);
 

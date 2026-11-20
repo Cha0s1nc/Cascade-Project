@@ -18,6 +18,7 @@ void main() {
       tester.view.physicalSize = size;
       tester.view.devicePixelRatio = 1;
       final player = Player(audio: false, settings: await Settings.load())..playing = false;
+      player.settings.setNarrowLayout('phone'); // the phone layout at 412, as on Android
       await tester.pumpWidget(CascadeApp(player: player, demo: true));
       await tester.pumpAndSettle();
       if (size.width > 900) {

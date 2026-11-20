@@ -92,10 +92,14 @@ class _HomePageState extends State<HomePage> {
           if (lib.continueWatching.isNotEmpty) ...[
             SectionTitle('Continue watching', link: 'See all', onLink: () => nav.show(lib.showIds.isNotEmpty ? 'shows' : 'movies')),
             LayoutBuilder(
+              // As many across as fit (a card needs about 300 px for its
+              // thumbnail and text), wrapping in a narrow window.
               builder: (context, c) {
-                final w = (c.maxWidth - 32) / 3;
-                return Row(
+                final cols = ((c.maxWidth + 16) / 316).floor().clamp(1, 3);
+                final w = (c.maxWidth - 16 * (cols - 1)) / cols;
+                return Wrap(
                   spacing: 16,
+                  runSpacing: 12,
                   children: [for (final v in lib.continueWatching.take(3)) SizedBox(width: w, child: VideoCard(v))],
                 );
               },

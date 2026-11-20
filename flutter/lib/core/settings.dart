@@ -248,6 +248,11 @@ class Settings extends ChangeNotifier {
   late double colorFadeSeconds = _num('colorFadeSeconds', 0.7, 0.2, 2);
   void setColorFadeSeconds(double v) => _changed(_p?.setDouble('colorFadeSeconds', colorFadeSeconds = v));
 
+  /// Computers: what a window narrower than 900 px shows, 'compact' (the desktop
+  /// layout, slimmed, the default) or 'phone' (the phone layout).
+  late String narrowLayout = _p?.getString('narrowLayout') == 'phone' ? 'phone' : 'compact';
+  void setNarrowLayout(String v) => _changed(_p?.setString('narrowLayout', narrowLayout = v));
+
   /// Personality v1: the queue's next songs stepped behind the art.
   late bool showArtStack = _p?.getBool('showArtStack') ?? true;
   void setShowArtStack(bool on) => _changed(_p?.setBool('showArtStack', showArtStack = on));

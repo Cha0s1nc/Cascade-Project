@@ -4,6 +4,7 @@
 // maximizes it, and the window buttons are drawn here in the OS's style.
 import 'dart:io';
 
+import 'package:cascade/core/settings.dart';
 import 'package:cascade/ui/scopes.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
@@ -19,8 +20,26 @@ Future<void> setUpWindow() async {
   if (!(Platform.isWindows || Platform.isLinux)) return;
   await windowManager.ensureInitialized();
   await windowManager.setTitleBarStyle(TitleBarStyle.hidden, windowButtonVisibility: false);
-  await windowManager.setMinimumSize(const Size(420, 520));
+  await windowManager.setMinimumSize(_minSize);
   inlineTitleBar = true;
+}
+
+/// The narrowest the window may be, as last applied.
+Size _minSize = const Size(420, 520);
+
+/// The narrowest the window may be for [s]: the compact desktop layout stops
+/// at 640 px of layout (so wider by the interface size), the phone layout at 420.
+Size minimumWindowSize(Settings s) => Size(s.narrowLayout == 'compact' ? 640 * s.uiScale : 420, 520);
+
+/// Applies [minimumWindowSize], widening the window if it is narrower now.
+Future<void> applyMinimumSize(Settings s) async {
+  final min = minimumWindowSize(s);
+  if (min == _minSize) return;
+  _minSize = min;
+  if (!inlineTitleBar || miniMode.value) return;
+  await windowManager.setMinimumSize(min);
+  final size = await windowManager.getSize();
+  if (size.width < min.width) await windowManager.setSize(Size(min.width, size.height));
 }
 
 /// The window's corner radius on Linux, matching GTK's frame (the runner's
@@ -70,9 +89,7 @@ class _RoundedWindowState extends State<RoundedWindow> with WindowListener {
   void onWindowLeaveFullScreen() => _check();
 
   @override
-  Widget build(BuildContext context) => !_on || _square
-      ? widget.child
-      : ClipRRect(borderRadius: BorderRadius.circular(windowRadius), child: widget.child);
+  Widget build(BuildContext context) => !_on || _square ? widget.child : ClipRRect(borderRadius: BorderRadius.circular(windowRadius), child: widget.child);
 }
 
 /// Width the window buttons take on the right of the bar.
@@ -277,7 +294,7 @@ Future<void> setMiniMode(bool on) async {
     await windowManager.setAlwaysOnTop(true);
   } else {
     await windowManager.setAlwaysOnTop(false);
-    await windowManager.setMinimumSize(const Size(420, 520));
+    await windowManager.setMinimumSize(_minSize);
     if (_before != null) await windowManager.setBounds(_before!);
   }
   miniMode.value = on;

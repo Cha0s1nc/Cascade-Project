@@ -409,9 +409,14 @@ class Pill extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (icon != null) ...[Icon(icon, color: fg, size: 17), const SizedBox(width: 6)],
-            Text(
-              label,
-              style: ts(13, w: FontWeight.w600, c: fg),
+            // Squeezed (a narrow panel), the label shortens rather than overflows.
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: ts(13, w: FontWeight.w600, c: fg),
+              ),
             ),
           ],
         ),

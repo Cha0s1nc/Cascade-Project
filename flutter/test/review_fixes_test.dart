@@ -1,5 +1,6 @@
 // From the UI/UX review: cut-off titles can still be read, a cleared or
 // trimmed queue can be put back, and a row's menu opens from the keyboard.
+import 'package:cascade/core/settings.dart';
 import 'package:cascade/engine/player.dart';
 import 'package:cascade/main.dart';
 import 'package:cascade/ui/pages/common.dart';
@@ -90,7 +91,9 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     tester.view.physicalSize = const Size(700, 800);
     tester.view.devicePixelRatio = 1;
-    final player = Player(audio: false)..playing = false;
+    // Stored settings: the in-memory kind skips its setters' assignments.
+    final player = Player(audio: false, settings: await Settings.load())..playing = false;
+    player.settings.setNarrowLayout('phone'); // a computer's narrow window is compact unless this is chosen
     await tester.pumpWidget(CascadeApp(player: player, demo: true));
     await tester.pumpAndSettle();
     expect(find.byType(NavigationBar), findsOneWidget, reason: 'the phone layout');

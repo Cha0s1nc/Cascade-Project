@@ -127,12 +127,17 @@ class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
   @override
   void didChangePlatformBrightness() => _applyTheme();
 
+  void _applyWindow() => applyMinimumSize(widget.player.settings);
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _applyTheme(rebuild: false);
     widget.player.settings.addListener(_applyTheme);
+    // The window's narrowest: compact or the phone layout, at the interface size.
+    widget.player.settings.addListener(_applyWindow);
+    _applyWindow();
     // The queue comes back once the library has loaded, so a server that was
     // down at launch still gets it back when it answers.
     _library.downloads = _downloads;
@@ -178,6 +183,7 @@ class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
   @override
   void dispose() {
     widget.player.settings.removeListener(_applyTheme);
+    widget.player.settings.removeListener(_applyWindow);
     WidgetsBinding.instance.removeObserver(this);
     _remote?.close();
     widget.player.dispose();
@@ -258,11 +264,15 @@ class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
         child: PlayerScope(
           player: widget.player,
           child: ListenableBuilder(
-            listenable: Listenable.merge([_library, miniMode]),
+            listenable: Listenable.merge([_library, miniMode, widget.player.settings]),
             builder: (context, _) => LayoutBuilder(
               builder: (context, c) {
                 if (miniMode.value) return const MiniplayerView();
-                final desktop = _library.signedIn && c.maxWidth >= 900;
+                // Below 900 px a computer keeps the desktop layout, compact,
+                // unless the Style menu picks the phone layout; Android goes
+                // by width.
+                final computer = !(Platform.isAndroid || Platform.isIOS);
+                final desktop = _library.signedIn && (c.maxWidth >= 900 || (computer && widget.player.settings.narrowLayout == 'compact'));
                 final page = !_library.signedIn ? const SignIn() : (desktop ? const DesktopShell() : const PhoneShell());
                 return desktop
                     ? page

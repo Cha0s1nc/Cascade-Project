@@ -1,6 +1,8 @@
-// Every main screen at window sizes from the 420x520 minimum (the phone
-// layout, on a desktop too) to 2560 wide, and at 150% interface size,
-// collecting every layout error rather than stopping at the first.
+// Every main screen at window sizes from the 420x520 minimum to 2560 wide, and
+// at 150% interface size, collecting every layout error rather than stopping at
+// the first. Below 900 px both narrow layouts: the phone layout (Android's, and
+// a computer's when chosen) at every size, and the compact desktop layout (a
+// computer's default) from 640 px, the narrowest its window goes.
 import 'package:cascade/core/settings.dart';
 import 'package:cascade/engine/player.dart';
 import 'package:cascade/main.dart';
@@ -30,20 +32,35 @@ Future<void> settle(WidgetTester t) async {
 }
 
 void main() {
-  for (final (size, scale) in [for (final s in sizes) (s, 1.0), (const Size(1280, 720), 1.5)]) {
-    testWidgets('every screen at ${size.width.toInt()}x${size.height.toInt()}${scale == 1 ? '' : ' at ${(scale * 100).round()}%'}', (tester) async {
+  final cases = [
+    for (final s in sizes) (s, 1.0, 'phone'),
+    for (final s in const [Size(640, 600), Size(760, 600), Size(899, 900)]) (s, 1.0, 'compact'),
+    (const Size(1280, 720), 1.5, 'phone'),
+    (const Size(1280, 720), 1.5, 'compact'),
+  ];
+  for (final (size, scale, narrow) in cases) {
+    final wide = size.width / scale >= 900;
+    if (wide && narrow == 'compact' && scale == 1) continue;
+    testWidgets('every screen at ${size.width.toInt()}x${size.height.toInt()}${scale == 1 ? '' : ' at ${(scale * 100).round()}%'}${wide ? '' : ', $narrow'}', (
+      tester,
+    ) async {
       addTearDown(tester.view.reset);
       SharedPreferences.setMockInitialValues({});
       tester.view.physicalSize = size;
       tester.view.devicePixelRatio = 1;
       final player = Player(audio: false, settings: await Settings.load())..playing = false;
       if (scale != 1) player.settings.setUiScale(scale);
+      player.settings.setNarrowLayout(narrow);
       final found = <String>[];
       final old = FlutterError.onError;
       var where = 'Home';
       FlutterError.onError = (d) {
         found.add('$where: ${d.exceptionAsString().split('\n').first}');
-        if (const bool.fromEnvironment('SWEEP_DEBUG')) debugPrint('STACK $where ${d.exceptionAsString()}\n${d.stack.toString().split('\n').where((l) => l.contains('package:cascade')).take(6).join('\n')}\n${d.informationCollector?.call().take(8).join('\n')}');
+        if (const bool.fromEnvironment('SWEEP_DEBUG')) {
+          debugPrint(
+            'STACK $where ${d.exceptionAsString()}\n${d.stack.toString().split('\n').where((l) => l.contains('package:cascade')).take(6).join('\n')}\n${d.informationCollector?.call().take(8).join('\n')}',
+          );
+        }
       };
       try {
         await tester.pumpWidget(CascadeApp(player: player, demo: true));
@@ -56,7 +73,7 @@ void main() {
           await settle(tester);
         }
 
-        final desktop = size.width / scale >= 900;
+        final desktop = wide || narrow == 'compact';
         if (desktop) {
           for (final page in ['Albums', 'Artists', 'Songs', 'Playlists', 'Genres', 'History', 'Rediscover', 'Movies', 'TV Shows', 'Downloads']) {
             await go(page);

@@ -4,6 +4,7 @@
 // 'bar' keeps the title bar and player bar, 'under' takes the whole window
 // and moves the controls under the art, 'focus' gives the lyrics the window
 // and hides the controls until the mouse moves.
+import 'dart:math';
 import 'dart:async';
 import 'dart:ui' show ImageFilter;
 
@@ -1099,15 +1100,21 @@ class _CoverPreviewState extends State<_CoverPreview> {
     final b = widget.next.firstOrNull ?? Song(a.title, a.artist, a.album, a.year, a.seconds, a.art, id: '${a.id}#preview', image: a.image);
     // Always forward: each one's next is the other.
     final (shown, then) = _swapped ? (b, a) : (a, b);
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        spacing: 28,
-        children: [
-          ArtStack(shown, next: [then, shown], size: 260),
-          Pill('Replay', icon: Icons.replay_rounded, primary: false, onTap: () => setState(() => _swapped = !_swapped)),
-        ],
-      ),
+    // 260 px of cover, less in a short or narrow space (a compact window).
+    return LayoutBuilder(
+      builder: (context, c) {
+        final size = min(260.0, min(c.maxHeight - 28 - 44, c.maxWidth * 0.62)).clamp(80.0, 260.0);
+        return Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            spacing: 28,
+            children: [
+              ArtStack(shown, next: [then, shown], size: size),
+              Pill('Replay', icon: Icons.replay_rounded, primary: false, onTap: () => setState(() => _swapped = !_swapped)),
+            ],
+          ),
+        );
+      },
     );
   }
 }
