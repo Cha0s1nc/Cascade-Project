@@ -50,9 +50,10 @@ const plugins: PluginOption = [
 			}
 		},
 	},
+	// Cascade: no offline service worker (see src/main.tsx).
 	VitePWA({
 		injectRegister: null,
-		disable: !!process.env.TAURI_PLATFORM,
+		disable: true,
 		workbox: {
 			globPatterns: ["**/*.{js,css,html,wasm}"],
 			maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,

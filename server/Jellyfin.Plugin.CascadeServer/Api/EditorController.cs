@@ -148,6 +148,8 @@ public class EditorController : ControllerBase
             artist = string.Join(", ", item.Artists),
             album = item.Album,
             durationSec = (item.RunTimeTicks ?? 0) / 1e7,
+            // For the editor's decoder to know the audio's kind by its name.
+            ext = Path.GetExtension(item.Path ?? string.Empty).TrimStart('.').ToLowerInvariant(),
             admin = s.Admin,
             owner,
             format = text is null ? null : TtmlLyrics.IsTtml(text) ? "ttml" : "lrc",

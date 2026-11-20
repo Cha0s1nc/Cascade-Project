@@ -9,6 +9,7 @@
  * https://github.com/amll-dev/amll-ttml-tool/blob/main/LICENSE
  */
 
+import { CascadeBar } from "./cascade/CascadeBar";
 import {
 	Box,
 	Button,
@@ -311,7 +312,7 @@ function App() {
 			appearance={effectiveTheme}
 			panelBackground="solid"
 			hasBackground={hasBackground}
-			accentColor={effectiveTheme === "dark" ? "jade" : "green"}
+			accentColor="blue"
 			className={styles.radixTheme}
 		>
 			<ErrorBoundary
@@ -339,6 +340,7 @@ function App() {
 					<DarkThemeDetector />
 					<Flex direction="column" height="100vh">
 						<TitleBar />
+						<CascadeBar />
 						<RibbonBar />
 						<Flex flexGrow="1" overflow="hidden" direction="row" mt="2">
 							<Sidebar />

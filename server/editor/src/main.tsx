@@ -9,9 +9,6 @@
  * https://github.com/amll-dev/amll-ttml-tool/blob/main/LICENSE
  */
 
-import * as Sentry from "@sentry/react";
-import { Analytics } from "@vercel/analytics/react";
-import { SpeedInsights } from "@vercel/speed-insights/react";
 import { enableMapSet } from "immer";
 import { Provider } from "jotai";
 // import { DevTools } from "jotai-devtools";
@@ -22,17 +19,16 @@ import "react-toastify/dist/ReactToastify.css";
 import App from "./App.tsx";
 import "./i18n/index.ts";
 import "./index.css";
-import "./utils/pwa.tsx";
+// Cascade: its look, and no offline service worker (utils/pwa.tsx), which on a
+// Jellyfin server's address could get in the way of Jellyfin's own web app.
+import "./cascade/cascade.css";
 import { globalStore } from "./states/store.ts";
 
 async function startApp() {
 	enableMapSet();
 
-	Sentry.init({
-		dsn: import.meta.env.SENTRY_DSN,
-		integrations: [],
-	});
-
+	// Cascade: no Sentry, Vercel Analytics or Speed Insights. The page is served
+	// from a person's own Jellyfin server and reports to no one.
 	const rootEl = document.getElementById("root");
 
 	if (!rootEl) {
@@ -41,8 +37,6 @@ async function startApp() {
 
 	createRoot(rootEl).render(
 		<StrictMode>
-			<SpeedInsights />
-			<Analytics />
 			<Provider store={globalStore}>
 				<App />
 				{/* <DevTools position="bottom-right" /> */}
