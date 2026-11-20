@@ -15,11 +15,14 @@ import 'package:cascade/core/spicy_lyrics.dart';
 /// What a fetch found: the lines and where they came from, or that the
 /// song is instrumental.
 class Lyrics {
-  const Lyrics(this.lines, this.source, {this.credit, this.instrumental = false});
+  const Lyrics(this.lines, this.source, {this.credit, this.instrumental = false, bool? held}) : held = held ?? credit != null;
   final List<LyricLine> lines;
   final String source;
   final SpicyCredit? credit;
   final bool instrumental;
+
+  /// Syllable-timed (SpicyLyrics, or Cascade's own TTML): long notes may swell.
+  final bool held;
 
   bool get synced => lines.isNotEmpty && lines.first.start != null;
   bool get karaoke => lines.any((l) => l.words != null && l.words!.isNotEmpty);
@@ -102,6 +105,22 @@ class LyricsFetcher {
 
   String _pluginUrl(bool legacy, String id) => legacy ? '${jf.server}/Audio/$id/CascadeLyrics' : '${jf.server}/CascadeServer/Lyrics/$id';
 
+  /// Lyrics made with Cascade Server's editor (or saved by this person): their
+  /// own copy or TTML saved for everyone, which the plugin answers ahead of
+  /// SpicyLyrics. TTML comes in SpicyLyrics' syllable shape, but is not theirs:
+  /// no SpicyLyrics credit, and kept like any other lyrics. Null for anything else.
+  Lyrics? edited(Map d) {
+    final owner = d['owner'];
+    final label = owner == 'mine' ? 'Your lyrics' : 'Cascade';
+    if (d['type'] == 'ttml') {
+      final conv = convertSpicyLyrics(d['lyrics']);
+      return conv == null ? null : Lyrics(conv.lines, label, held: true);
+    }
+    if (owner != 'mine' || d['lrc'] is! String) return null;
+    final lines = parseLRC(d['lrc'] as String);
+    return lines.isEmpty ? null : Lyrics(lines, label);
+  }
+
   /// The song's lyrics, or null when no source has them. [forced] is one of
   /// [lyricSources]; a forced answer is not kept.
   Future<Lyrics?> fetch(Song s, {String? forced}) async {
@@ -153,12 +172,18 @@ class LyricsFetcher {
       return lines.isEmpty ? null : Lyrics(lines, 'Jellyfin');
     }
 
+    // Asked of the plugin first: the person's own edited lyrics or TTML saved for
+    // everyone (with ttml=true), then SpicyLyrics.
     Future<Lyrics?> spicy() async {
       final p = await plugin();
-      if (!p.present || !p.caps.contains('syllable')) return null;
-      final res = await _http.get(Uri.parse('${_pluginUrl(p.legacy, s.id)}?syllable=true&spicyOnly=true'), headers: jf.headers).timeout(_timeout);
+      final ttml = p.caps.contains('ttml-lyrics');
+      if (!p.present || !(p.caps.contains('syllable') || ttml)) return null;
+      final res = await _http
+          .get(Uri.parse('${_pluginUrl(p.legacy, s.id)}?syllable=true&spicyOnly=true${ttml ? '&ttml=true' : ''}'), headers: jf.headers)
+          .timeout(_timeout);
       if (res.statusCode != 200) return null;
       final d = jsonDecode(res.body) as Map;
+      if (edited(d) case final e?) return e;
       if (d['type'] != 'syllable' || !spicyFitsTrack(d['spicy'], s.seconds.toDouble())) return null;
       final conv = convertSpicyLyrics(d['spicy']);
       return conv == null ? null : Lyrics(conv.lines, conv.credit.provider, credit: conv.credit);
@@ -178,12 +203,17 @@ class LyricsFetcher {
         _ => null,
       };
       Future<Map> ask(bool syllable) async {
-        final res = await _http.get(Uri.parse('${_pluginUrl(p.legacy, s.id)}${syllable ? '?syllable=true' : ''}'), headers: jf.headers).timeout(_timeout);
+        final q = [if (syllable) 'syllable=true', if (p.caps.contains('ttml-lyrics')) 'ttml=true'];
+        final res = await _http.get(Uri.parse('${_pluginUrl(p.legacy, s.id)}${q.isEmpty ? '' : '?${q.join('&')}'}'), headers: jf.headers).timeout(_timeout);
         if (res.statusCode != 200) throw JellyfinError('HTTP ${res.statusCode}', res.statusCode);
         return jsonDecode(res.body) as Map;
       }
 
       var d = await ask(want == null && p.caps.contains('syllable'));
+      if (want == null) {
+        final e = edited(d);
+        if (e != null) return e;
+      }
       if (d['type'] == 'syllable') {
         final conv = spicyFitsTrack(d['spicy'], s.seconds.toDouble()) ? convertSpicyLyrics(d['spicy']) : null;
         if (conv != null) return Lyrics(conv.lines, conv.credit.provider, credit: conv.credit);

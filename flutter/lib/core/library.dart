@@ -94,6 +94,10 @@ class Library extends ChangeNotifier {
 
   /// Set by the app: the downloads catalog.
   Downloads? downloads;
+
+  /// Cascade Server has its lyrics editor (a window of its own, desktop only).
+  bool lyricsEditor = false;
+
   OfflineState offlineState = OfflineState.online;
   bool get offline => isOffline(offlineState);
   Timer? _probe;
@@ -296,8 +300,12 @@ class Library extends ChangeNotifier {
         .then((r) => ((r as Map)['TotalRecordCount'] as int? ?? 0) > 0, onError: (_) => false);
     showIds = effectiveLibraryIds(showLibs, prefs.getStringList('showLibraryIds'));
     // Best effort too: Cascade Server's linked pictures for artists and albums
-    // without one, when the plugin is there and has them on.
-    j.artLinks = await j.get('/CascadeServer/Info').then((r) => ((r as Map)['capabilities'] as List? ?? const []).contains('art-links'), onError: (_) => false);
+    // without one, when the plugin is there and has them on, and its lyrics editor.
+    final caps = await j
+        .get('/CascadeServer/Info')
+        .then((r) => {...((r as Map)['capabilities'] as List? ?? const []).whereType<String>()}, onError: (_) => <String>{});
+    j.artLinks = caps.contains('art-links');
+    lyricsEditor = caps.contains('lyrics-editor');
   }
 
   Future<void> _loadHome(Jellyfin j) async {

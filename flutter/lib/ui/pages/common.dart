@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 
 import 'package:cascade/core/data.dart';
 import 'package:cascade/core/nav.dart';
+import 'package:cascade/ui/lyrics_editor.dart';
 import 'package:cascade/ui/pages/downloads.dart';
 import 'package:cascade/ui/scopes.dart';
 import 'package:cascade/ui/widgets.dart';
@@ -862,6 +863,7 @@ void songMenu(
     if (!lib.demo) ...[
       (fav ? 'Unlike' : 'Like', fav ? Icons.favorite_rounded : Icons.favorite_border_rounded, () => lib.toggleFavorite(song.id, song.favorite)),
       if (!lib.offline) ('Instant mix', Icons.auto_awesome_outlined, () async => p.play(song, [song, ...await lib.instantMix(song.id)], 'Instant mix')),
+      if (!song.live && canEditLyrics(context)) ('Edit lyrics', Icons.edit_note_rounded, () => openLyricsEditor(context, song)),
       if (DownloadsScope.read(context).has(song.id))
         ('Remove download', Icons.download_done_rounded, () => DownloadsScope.read(context).remove([song.id]))
       else if (DownloadsScope.read(context).waiting(song.id))

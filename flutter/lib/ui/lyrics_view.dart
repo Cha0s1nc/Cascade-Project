@@ -361,7 +361,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
     if (!_synced) return _plain(fs, win);
     final st = _st;
     final lines = widget.lyrics.lines;
-    final emphasis = widget.lyrics.credit != null;
+    final emphasis = widget.lyrics.held;
     return LayoutBuilder(
       builder: (context, c) {
         _panel = c.maxHeight;

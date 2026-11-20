@@ -17,6 +17,7 @@ import 'package:cascade/core/nav.dart';
 import 'package:cascade/core/playback.dart';
 import 'package:cascade/core/settings.dart';
 import 'package:cascade/engine/player.dart';
+import 'package:cascade/ui/lyrics_editor.dart';
 import 'package:cascade/ui/lyrics_view.dart';
 import 'package:cascade/ui/pages/common.dart';
 import 'package:cascade/ui/controls.dart';
@@ -750,6 +751,7 @@ class _LyricsPanelState extends State<LyricsPanel> {
     super.didChangeDependencies();
     if (_lyrics == null) {
       _settings = PlayerScope.read(context).settings..addListener(_settingsChanged);
+      lyricsEdited.addListener(_edited);
       _saved = _settings!.lyricsSource;
       _serverOnly = _settings!.serverOnlyLyrics;
       _forced = lyricSources.contains(_saved) || serverLyricSources.contains(_saved) ? _saved : null;
@@ -760,7 +762,13 @@ class _LyricsPanelState extends State<LyricsPanel> {
   @override
   void dispose() {
     _settings?.removeListener(_settingsChanged);
+    lyricsEdited.removeListener(_edited);
     super.dispose();
+  }
+
+  /// The lyrics editor closed on this song: ask again, for what was saved.
+  void _edited() {
+    if (lyricsEdited.value == widget.song.id && mounted) _force(_forced);
   }
 
   /// The Style menu changed the source or the sizes: follow it live.
@@ -851,7 +859,7 @@ class _LyricsPanelState extends State<LyricsPanel> {
   Widget _sourcePill(BuildContext context, Lyrics? l) => PopupMenuButton<String>(
     popUpAnimationStyle: Motion.menu,
     tooltip: 'Lyrics source',
-    onSelected: (v) => _force(v == 'auto' ? null : v),
+    onSelected: (v) => v == 'edit' ? openLyricsEditor(context, widget.song) : _force(v == 'auto' ? null : v),
     itemBuilder: (_) => [
       for (final (v, label) in [('auto', 'Best available'), for (final s in lyricSources) (s, s)])
         PopupMenuItem(
@@ -864,6 +872,19 @@ class _LyricsPanelState extends State<LyricsPanel> {
             ],
           ),
         ),
+      if (!widget.song.live && canEditLyrics(context)) ...[
+        const PopupMenuDivider(),
+        PopupMenuItem(
+          value: 'edit',
+          height: 34,
+          child: Row(
+            children: [
+              SizedBox(width: 22, child: Icon(Icons.edit_note_rounded, size: 16, color: K.text2)),
+              Text('Edit lyrics…', style: ts(13)),
+            ],
+          ),
+        ),
+      ],
     ],
     child: Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
