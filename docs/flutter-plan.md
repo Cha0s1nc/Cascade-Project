@@ -154,6 +154,13 @@ One editor for every Cascade app, served by the Cascade Server plugin and opened
 4. In a browser (the fallback), the page is served from the Jellyfin server's own address, so it reuses Jellyfin web's saved sign-in in that browser when there is one; otherwise the person signs in with Jellyfin as usual. Either way the page trades that sign-in for an editor token the same way.
 5. The plugin passes the song's audio through to the editor itself, since Jellyfin's stream will not take the editor token.
 
+**As built (2026-11-19)**
+
+- Plain-http servers: browsers treat only HTTPS and the machine itself as secure, and the editor's audio decoder needs a secure, cross-origin isolated page. So the app opens the window through a proxy on this machine (http://127.0.0.1, forwarding only the editor's two paths, with the app's reverse proxy headers and never its sign-in). A browser on plain http gets a message saying to open it from Cascade or use HTTPS.
+- The window's own close button cannot be held, so the editor has a Close button that asks; its autosave covers the window's close.
+- The plugin's existing lyrics POST and DELETE follow the per-user rule too: a non-administrator's save is their own copy (before, anyone's save changed the shared file).
+- Plugin routes: `/CascadeServer/Editor/` (the page) and `/CascadeServer/EditorApi/` (Session, Open, Song, Audio, Lyrics, Lyrics/Mine, Ping, Close), the token in the `X-Cascade-Editor` header; capabilities `ttml-lyrics` and `lyrics-editor`.
+
 **Who saves what (decided 2026-11-19)**
 
 - Every signed-in user can edit and save their own copy of a song's lyrics. Their copy lives in the plugin's own data folder (`DataDir.Root`), one file per user per song, so the music folder can stay read-only to Jellyfin and two people's saves never clash.

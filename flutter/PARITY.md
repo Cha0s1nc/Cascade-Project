@@ -69,7 +69,7 @@ One line per feature in `docs/flutter-plan.md`. Status: built / partial / not bu
 ## Phase 4: windows and integrations
 
 - Miniplayer: partial - the main window shrinks to a small always-on-top player and back; not a second window as on the desktop; not yet seen on a device
-- Lyrics editor: not built
+- Lyrics editor: partial - Cascade Server's editor (a modified AMLL TTML Tool in server/editor, served by the plugin) opens from the lyrics source menu and the song menu in a window of its own (desktop_webview_window), through a proxy on this machine so it works with a plain-http server; per-user saves and admins' Save for everyone, TTML in .slrc. Seen working on jellyfin12 in a browser through a stand-in for the proxy; the Flutter window itself not yet seen running, and not on Android (no editor there yet). The desktop's own editor is a different, older one
 - Metadata editor: not built
 - Discord Rich Presence: built - Discord's IPC on a Windows named pipe or a Linux socket (plain, Flatpak, Snap), off by default as on the desktop; no cover art yet
 - Cha0s Stream control server: not built
