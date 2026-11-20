@@ -64,6 +64,16 @@ jobs:
             exit 1
           fi
 
+      # The lyrics editor (server/editor), embedded into the plugin; the Release build
+      # refuses without it.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Build the lyrics editor
+        working-directory: server/editor
+        run: npx -y pnpm@10 install --frozen-lockfile && npx -y pnpm@10 build
+
       - name: Build
         run: dotnet build Jellyfin.Plugin.CascadeServer/Jellyfin.Plugin.CascadeServer.csproj --configuration Release -o ./build
 

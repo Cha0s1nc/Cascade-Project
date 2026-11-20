@@ -56,4 +56,16 @@
     <EmbeddedResource Include="..\..\shared\assets\linux-icons\128x128.png" LogicalName="Jellyfin.Plugin.CascadeServer.Web.cascade-icon.png" />
   </ItemGroup>
 
+  <!-- The lyrics editor (server/editor, a modified AMLL TTML Tool under its own GPL-3.0),
+       built with `npx pnpm@10 install && npx pnpm@10 build` there, served at
+       /CascadeServer/Editor/ (Api/EditorController.cs). Without a build the plugin still
+       builds for development, minus the editor; a Release build refuses, so a release
+       cannot ship without it. -->
+  <ItemGroup Condition="Exists('..\editor\dist\index.html')">
+    <EmbeddedResource Include="..\editor\dist\**\*" Exclude="..\editor\dist\**\*.map" LogicalName="editor/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+  <Target Name="RequireLyricsEditor" BeforeTargets="BeforeBuild" Condition="'$(Configuration)' == 'Release' And !Exists('..\editor\dist\index.html')">
+    <Error Text="The lyrics editor is not built. In server/editor run: npx pnpm@10 install, then npx pnpm@10 build." />
+  </Target>
+
 </Project>

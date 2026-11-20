@@ -44,7 +44,12 @@ public class InfoController : ControllerBase
         "animated-art",    // GET /CascadeServer/AnimatedArt/{albumId} and /File, PUT, DELETE, TidalAlbum, Refresh
         "playlist-edit",   // POST and DELETE /CascadeServer/Playlists/{id}/Image, PUT .../Details
         "announcements",   // GET /CascadeServer/Announcements
+        "ttml-lyrics",     // GET /CascadeServer/Lyrics/{itemId}?ttml=true can answer type "ttml"; non-admin saves are the user's own
     };
+
+    // Only when the editor's page is built into this plugin: /CascadeServer/Editor/ and
+    // /CascadeServer/EditorApi/ (see EditorController).
+    private const string LyricsEditor = "lyrics-editor";
 
     // Only while a SpicyLyrics key is set: GET ?syllable=true can then return a raw
     // SpicyLyrics body (Spotify ids resolve through SpotifyIdLookup), and
@@ -75,7 +80,7 @@ public class InfoController : ControllerBase
         {
             name = "Cascade Server",
             version = Plugin.Instance?.Version?.ToString() ?? "0.0.0.0",
-            capabilities = (string[])[.. Capabilities, .. spicy ? (string[])[Syllable, SpotifyLink] : [], .. Jellyfin.Plugin.CascadeServer.ArtLinks.ArtLinkService.Enabled ? (string[])[ArtLinksCapability] : []],
+            capabilities = (string[])[.. Capabilities, .. spicy ? (string[])[Syllable, SpotifyLink] : [], .. Jellyfin.Plugin.CascadeServer.ArtLinks.ArtLinkService.Enabled ? (string[])[ArtLinksCapability] : [], .. EditorController.Built ? (string[])[LyricsEditor] : []],
             // For this user: whether their Spotify links apply to the whole server, or
             // stay on their own computer (see SpotifyLinkPermission).
             spotifyLinkServerWide = spicy && await SpotifyLinkPermission.ServerWideAsync(auth, HttpContext),

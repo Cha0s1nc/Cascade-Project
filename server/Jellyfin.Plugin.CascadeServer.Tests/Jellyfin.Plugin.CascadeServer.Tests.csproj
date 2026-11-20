@@ -23,6 +23,8 @@
     <Compile Include="..\Jellyfin.Plugin.CascadeServer\AnimatedArt\TidalParse.cs" Link="Pure\TidalParse.cs" />
     <Compile Include="..\Jellyfin.Plugin.CascadeServer\AnimatedArt\AnimatedImage.cs" Link="Pure\AnimatedImage.cs" />
     <Compile Include="..\Jellyfin.Plugin.CascadeServer\ArtLinks\ArtMatch.cs" Link="Pure\ArtMatch.cs" />
+    <Compile Include="..\Jellyfin.Plugin.CascadeServer\LyricFormat\TtmlLyrics.cs" Link="Pure\TtmlLyrics.cs" />
+    <Compile Include="..\Jellyfin.Plugin.CascadeServer\LyricFormat\EditorSessions.cs" Link="Pure\EditorSessions.cs" />
   </ItemGroup>
 
 </Project>

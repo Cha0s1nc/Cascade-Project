@@ -4,11 +4,15 @@ using System.Net.Mime;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Database.Implementations.Enums;
+using Jellyfin.Data;
 using Jellyfin.Plugin.CascadeServer.LyricFetch;
+using Jellyfin.Plugin.CascadeServer.LyricFormat;
 using Jellyfin.Plugin.CascadeServer.LyricStore;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Net;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -27,7 +31,10 @@ namespace Jellyfin.Plugin.CascadeServer.Api;
 /// read as a fallback so existing installs keep working, but new writes always
 /// go to the sidecar location.
 ///
-/// Any authenticated Jellyfin user can read and write lyrics.
+/// Any signed-in user can read lyrics. An administrator's save is shared with everyone (the
+/// sidecar); anyone else's is their own copy (<see cref="UserLyrics"/>), which they see
+/// first. A word-level .slrc holds Enhanced LRC or TTML (the lyrics editor's), told apart
+/// by <see cref="TtmlLyrics.IsTtml"/>.
 /// </summary>
 [ApiController]
 [Route("CascadeServer/Lyrics/{itemId}")]
@@ -42,6 +49,7 @@ public class LyricsController : ControllerBase
     private readonly ILibraryManager _libraryManager;
     private readonly IApplicationPaths _appPaths;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IAuthorizationContext _auth;
     private readonly ILogger<LyricsController> _logger;
 
     /// <summary>Initialises a new instance of <see cref="LyricsController"/>.</summary>
@@ -49,12 +57,29 @@ public class LyricsController : ControllerBase
         ILibraryManager libraryManager,
         IApplicationPaths appPaths,
         IHttpClientFactory httpClientFactory,
+        IAuthorizationContext auth,
         ILogger<LyricsController> logger)
     {
         _libraryManager = libraryManager;
         _appPaths = appPaths;
         _httpClientFactory = httpClientFactory;
+        _auth = auth;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// A word-level file's answer: Enhanced LRC as it is; TTML as the syllable shape for a
+    /// client that asked (<paramref name="ttml"/>), else as Enhanced LRC. Null for TTML that
+    /// does not read, so the next source is tried.
+    /// </summary>
+    private IActionResult? Karaoke(string text, bool ttml, string owner)
+    {
+        if (!TtmlLyrics.IsTtml(text)) return Ok(new { lrc = text, type = "karaoke", owner });
+        var lines = TtmlLyrics.Parse(text);
+        if (lines is null) return null;
+        if (!ttml) return Ok(new { lrc = TtmlLyrics.ToEnhancedLrc(lines), type = "karaoke", owner });
+        using var doc = JsonDocument.Parse(TtmlLyrics.ToSyllableJson(lines));
+        return Ok(new { type = "ttml", source = "cascade", owner, lyrics = doc.RootElement.Clone() });
     }
 
     // ── Legacy data-dir helpers (read-only fallback) ──────────────────────────
@@ -93,8 +118,15 @@ public class LyricsController : ControllerBase
     /// Cascade on their computer, for users not allowed to link songs server-wide). Used for
     /// this request only, ahead of the server's own lookup, and never stored.
     /// </param>
+    /// <param name="ttml">
+    /// Set by a client that draws the syllable shape for Cascade's own TTML lyrics (type
+    /// <c>ttml</c>). It then gets edited lyrics first, the user's own copy and then TTML saved
+    /// for everyone, ahead of SpicyLyrics; without it TTML comes as Enhanced LRC.
+    /// </param>
     /// <response code="200">
-    /// Returns <c>{ "lrc": "...", "type": "karaoke"|"synced" }</c>, or with
+    /// Returns <c>{ "lrc": "...", "type": "karaoke"|"synced", "owner": "mine"|"everyone" }</c>,
+    /// with <c>ttml=true</c> possibly <c>{ "type": "ttml", "source": "cascade", "owner", "lyrics": {...} }</c>
+    /// (the SpicyLyrics Body shape), or with
     /// <c>syllable=true</c> possibly <c>{ "type": "syllable", "source": "spicylyrics", "spicy": {...} }</c>
     /// where <c>spicy</c> is the SpicyLyrics response exactly as received.
     /// </response>
@@ -103,13 +135,36 @@ public class LyricsController : ControllerBase
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetLyrics([FromRoute] Guid itemId, [FromQuery] bool syllable = false, [FromQuery] bool spicyOnly = false, [FromQuery] string? spotifyId = null)
+    public async Task<IActionResult> GetLyrics([FromRoute] Guid itemId, [FromQuery] bool syllable = false, [FromQuery] bool spicyOnly = false, [FromQuery] string? spotifyId = null, [FromQuery] bool ttml = false)
     {
         var item = _libraryManager.GetItemById(itemId);
 
         // Songs only. Handed a movie or an episode, everything below would
         // search the web for lyrics to a film's title.
         if (item is not null && item is not Audio) return NotFound();
+
+        // Edited lyrics come first: the user's own copy, then (for a client that reads TTML)
+        // TTML saved for everyone. A client that runs its own waterfall (spicyOnly) gets them
+        // only if it reads TTML, since an older one would drop anything but SpicyLyrics.
+        if (item is not null && (ttml || !spicyOnly))
+        {
+            var userId = (await _auth.GetAuthorizationInfo(HttpContext)).UserId;
+            if (UserLyrics.Read(_appPaths, userId, itemId) is { } mine)
+            {
+                var answer = mine.Synced ? Ok(new { lrc = mine.Text, type = "synced", owner = "mine" }) : Karaoke(mine.Text, ttml, "mine");
+                if (answer is not null) return answer;
+            }
+
+            // Saved for everyone: next to the audio file, or the plugin's folder when the music
+            // folder is read-only.
+            foreach (var file in ttml ? new[] { item.Path is null ? null : Sidecars.For(item.Path).Slrc, LegacySlrcPath(itemId) } : [])
+            {
+                if (file is null || !System.IO.File.Exists(file)) continue;
+                var shared = System.IO.File.ReadAllText(file);
+                if (TtmlLyrics.IsTtml(shared) && Karaoke(shared, ttml, "everyone") is { } edited) return edited;
+                break;
+            }
+        }
 
         // 0. SpicyLyrics (opt-in, needs a key and a Spotify id; skipped otherwise)
         if (syllable && item is not null && !string.IsNullOrWhiteSpace(Plugin.Config.SpicyLyricsSecretKey))
@@ -142,9 +197,8 @@ public class LyricsController : ControllerBase
             // 1. Sidecar .slrc - karaoke (word-level, highest priority)
             if (System.IO.File.Exists(files.Slrc))
             {
-                var lrc = System.IO.File.ReadAllText(files.Slrc);
                 _logger.LogDebug("Serving sidecar karaoke for {ItemId} from {Path}", itemId, files.Slrc);
-                return Ok(new { lrc, type = "karaoke" });
+                if (Karaoke(System.IO.File.ReadAllText(files.Slrc), ttml, "everyone") is { } answer) return answer;
             }
 
             // 2. Sidecar .lrc - synced (line-level)
@@ -160,9 +214,8 @@ public class LyricsController : ControllerBase
         var legacySlrc = LegacySlrcPath(itemId);
         if (System.IO.File.Exists(legacySlrc))
         {
-            var lrc = System.IO.File.ReadAllText(legacySlrc);
             _logger.LogDebug("Serving legacy karaoke for {ItemId}", itemId);
-            return Ok(new { lrc, type = "karaoke" });
+            if (Karaoke(System.IO.File.ReadAllText(legacySlrc), ttml, "everyone") is { } answer) return answer;
         }
 
         // 4. Legacy data-dir .lrc
@@ -199,8 +252,8 @@ public class LyricsController : ControllerBase
     }
 
     /// <summary>
-    /// Saves lyrics for the specified audio item as a sidecar file.
-    /// Any authenticated user can save lyrics - they are shared server-wide.
+    /// Saves lyrics for the specified audio item. An administrator's are shared with
+    /// everyone (the sidecar); anyone else's become their own copy, which only they see.
     /// </summary>
     /// <param name="itemId">The Jellyfin item ID.</param>
     /// <param name="dto">The LRC content and type to store.</param>
@@ -210,7 +263,7 @@ public class LyricsController : ControllerBase
     [Authorize]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public IActionResult SaveLyrics([FromRoute] Guid itemId, [FromBody] SaveLyricsDto dto)
+    public async Task<IActionResult> SaveLyrics([FromRoute] Guid itemId, [FromBody] SaveLyricsDto dto)
     {
         if (string.IsNullOrWhiteSpace(dto?.Lrc))
             return BadRequest(new { error = "Lyrics content (lrc) is required." });
@@ -220,6 +273,14 @@ public class LyricsController : ControllerBase
             return NotFound(new { error = "Item not found or has no file path." });
 
         var isSynced = string.Equals(dto.Type, "synced", StringComparison.OrdinalIgnoreCase);
+        var info = await _auth.GetAuthorizationInfo(HttpContext);
+        if (info.User?.HasPermission(PermissionKind.IsAdministrator) != true)
+        {
+            UserLyrics.Write(_appPaths, info.UserId, itemId, dto.Lrc, isSynced);
+            _logger.LogInformation("Saved {User}'s own lyrics for {ItemId}", info.UserId, itemId);
+            return NoContent();
+        }
+
         var ext = isSynced ? ".lrc" : ".slrc";
         var sidecarPath = Path.ChangeExtension(item.Path, ext);
         var savedPath = sidecarPath;
@@ -249,7 +310,8 @@ public class LyricsController : ControllerBase
     }
 
     /// <summary>
-    /// Deletes sidecar lyrics for the specified audio item.
+    /// Deletes lyrics for the specified audio item: an administrator's call the shared
+    /// sidecars, anyone else's their own copy.
     /// </summary>
     /// <param name="itemId">The Jellyfin item ID.</param>
     /// <response code="204">Lyrics deleted.</response>
@@ -258,8 +320,12 @@ public class LyricsController : ControllerBase
     [Authorize]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public IActionResult DeleteLyrics([FromRoute] Guid itemId)
+    public async Task<IActionResult> DeleteLyrics([FromRoute] Guid itemId)
     {
+        var info = await _auth.GetAuthorizationInfo(HttpContext);
+        if (info.User?.HasPermission(PermissionKind.IsAdministrator) != true)
+            return UserLyrics.Delete(_appPaths, info.UserId, itemId) ? NoContent() : NotFound();
+
         var item = _libraryManager.GetItemById(itemId);
         if (item?.Path is null)
             return NotFound(new { error = "Item not found or has no file path." });
