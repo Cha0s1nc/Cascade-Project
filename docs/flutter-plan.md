@@ -148,17 +148,27 @@ One editor for every Cascade app, served by the Cascade Server plugin and opened
 
 **Signing in: an editor-only token**
 
-1. On Edit lyrics, the app asks the plugin for an editor session for that song, with the Jellyfin sign-in it already has (no password sent again). The plugin checks the sign-in (`[Authorize]`) and that the user may edit lyrics.
-2. The plugin answers with an editor token: random, accepted only by the plugin's editor routes (this song's lyrics and audio, saving its lyrics), refused by Jellyfin's own API, and expiring after a while. A leaked token can touch nothing else.
+1. On Edit lyrics, the app asks the plugin for an editor session for that song, with the Jellyfin sign-in it already has (no password sent again). The plugin checks the sign-in (`[Authorize]`); any signed-in user may edit their own copy, and Save for everyone needs an admin.
+2. The plugin answers with an editor token: random, accepted only by the plugin's editor routes (this song's lyrics and audio, saving its lyrics), refused by Jellyfin's own API, and good for this one editor session only (see How long a session lasts). A leaked token can touch nothing else.
 3. In the app's window, the app hands the token straight to the page's code as the window opens (a script run before the page's own), and the page sends it in a request header. Not in the URL and not in the user agent: both end up in browser history and in reverse proxies' access logs (nginx's default log format records every user agent).
 4. In a browser (the fallback), the page is served from the Jellyfin server's own address, so it reuses Jellyfin web's saved sign-in in that browser when there is one; otherwise the person signs in with Jellyfin as usual. Either way the page trades that sign-in for an editor token the same way.
 5. The plugin passes the song's audio through to the editor itself, since Jellyfin's stream will not take the editor token.
 
+**Who saves what (decided 2026-11-19)**
+
+- Every signed-in user can edit and save their own copy of a song's lyrics. Their copy lives in the plugin's own data folder (`DataDir.Root`), one file per user per song, so the music folder can stay read-only to Jellyfin and two people's saves never clash.
+- Admins also get Save for everyone, which writes the `.slrc` next to the audio file (the plugin's existing sidecar, unchanged in format), so every user gets it.
+- Which lyrics a user sees: their own copy first, then the one saved for everyone, then the plugin's usual sources. A user can drop their own copy and go back to the shared one.
+
+**How long a session lasts (decided 2026-11-19)**
+
+- The editor token is good for one editor session: one use to open it, then valid while that editor stays open, and over when it closes. Opening the editor again gets a new token.
+- The page tells the plugin when it closes. A window that crashes or a laptop that sleeps never says so, so the plugin also ends a session that has not been heard from in a few minutes (the page checks in while open).
+- Closing with unsaved changes asks first: Save, Don't save, or Cancel. The editor's own close button and the app's window both ask (the app asks the page whether anything is unsaved before letting the window close; confirm the web view package can hold a window's close, and if it cannot, the editor's own button and the browser's leave-page prompt cover it). In a browser, closing the tab gets the browser's own "Leave site?" prompt, since browsers allow nothing more custom there.
+
 **Still to decide**
 
-- Who may edit: everyone, or admins plus users an admin picks (as the Spotify link permission, `Api/SpotifyLinkPermission.cs`).
-- Where saved lyrics live and in what format (the plugin's lyric store as TTML, or Jellyfin's own lyric files), and what the other apps then read.
-- How long an editor token lives, and whether it is held only in memory (lost on a server restart, which is fine for a short-lived token).
+- The saved format: the editor works in TTML, which keeps background vocals and duet singers that the `.slrc`'s word-level LRC cannot. Either store TTML (per-user copies and a TTML next to the `.slrc` for everyone) and teach the apps to read it, or convert to `.slrc` on save and accept the loss.
 
 ## Verification
 
